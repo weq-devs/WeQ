@@ -518,8 +518,6 @@ export const bootstrapRouter = router({
     .mutation(async ({ input }) => {
       requireBootstrap().userConfig.setSettings({ autoAttachQq: input.enabled });
       if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
-      if (!input.enabled && getAppContext().qqRuntime?.snapshot().mode === 'managed')
-        await getAppContext().qqRuntime?.stop();
       return true;
     }),
 
@@ -1179,8 +1177,6 @@ export const bootstrapRouter = router({
       requireBootstrap().userConfig.acknowledgeWelcome({
         allowMemoryScan: input.allowMemoryScan,
       });
-      if (!input.allowMemoryScan && getAppContext().qqRuntime?.snapshot().mode === 'managed')
-        await getAppContext().qqRuntime?.stop();
       return true;
     }),
 

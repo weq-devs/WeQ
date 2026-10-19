@@ -4,7 +4,6 @@ import type { Platform } from '@weq/platform';
 import type { AccountConfigService } from '../src/account/user_config';
 import type { AttachHook } from '../src/bootstrap/attach';
 import { AccountMonitorService } from '../src/account/monitor';
-import type { AccountRuntimeSession } from '../src/account/monitor';
 import { registerSsoSession } from '../src/account/sso_session';
 
 const tickets = vi.hoisted(() => ({ rkeys: vi.fn(), clientKey: vi.fn(), dress: vi.fn() }));
@@ -20,7 +19,7 @@ vi.mock('../src/account/user_config', () => ({
 
 const material = { a2: 'aa', d2: 'bb', d2Key: 'cc'.repeat(16) };
 
-function fixture(stored = false, onCredentialsReady?: () => void, runtime?: AccountRuntimeSession) {
+function fixture(stored = false, onCredentialsReady?: () => void) {
   let pid: number | null = 42;
   let enabled = true;
   let registered = false;
@@ -86,7 +85,6 @@ function fixture(stored = false, onCredentialsReady?: () => void, runtime?: Acco
     hook as AttachHook,
     undefined,
     onCredentialsReady,
-    runtime,
   );
   return {
     monitor,
@@ -118,43 +116,6 @@ afterEach(() => {
 });
 
 describe('account monitor authorization and SSO readiness', () => {
-  it('托管会话复用登记，只采集 rkey，不读外部内存或覆盖 SDK GUID', async () => {
-    const ready = vi.fn();
-    const f = fixture(false, ready, { isReady: (pid) => pid === 42, guid: () => 'cd'.repeat(16) });
-    f.nt.hasSsoSession.mockResolvedValue(true);
-    f.monitor.start();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(f.hook.ensure).not.toHaveBeenCalled();
-    expect(f.nt.setSsoSession).not.toHaveBeenCalled();
-    expect(f.nt.readDeviceGuid).not.toHaveBeenCalled();
-    expect(f.record.guid).toBe('cd'.repeat(16));
-    expect(tickets.rkeys).toHaveBeenCalled();
-    expect(ready).toHaveBeenCalledOnce();
-    f.monitor.stop();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(f.nt.clearSsoSession).not.toHaveBeenCalled();
-  });
-  it('托管租约不就绪时不回退到外部内存读取', async () => {
-    const f = fixture(false, undefined, { isReady: () => false, guid: () => null });
-    f.monitor.start();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(f.hook.ensure).not.toHaveBeenCalled();
-    expect(tickets.rkeys).not.toHaveBeenCalled();
-    f.monitor.stop();
-  });
-  it('运行时租约只在本监测器已登记、仍在运行且自动读取开启时有效', async () => {
-    const f = fixture();
-    expect(f.monitor.hasSsoSessionLease(42)).toBe(false);
-    f.monitor.start();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(f.monitor.hasSsoSessionLease(42)).toBe(true);
-    expect(f.monitor.hasSsoSessionLease(43)).toBe(false);
-    f.setEnabled(false);
-    expect(f.monitor.hasSsoSessionLease(42)).toBe(false);
-    f.setEnabled(true);
-    f.monitor.stop();
-    expect(f.monitor.hasSsoSessionLease(42)).toBe(false);
-  });
   it('凭据登记成功后立即通知后台服务，失败与停止后不通知', async () => {
     const ready = vi.fn();
     const f = fixture(false, ready);

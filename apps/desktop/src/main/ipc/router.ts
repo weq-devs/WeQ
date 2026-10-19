@@ -21,10 +21,8 @@ import { wonderfulToolsRouter } from './routers/wonderful_tools';
 import { dbRepairRouter } from './routers/db_repair';
 import { mergeForwardRouter } from './routers/merge_forward';
 import { mailRouter } from './routers/mail';
-import { qqRuntimeRouter } from './routers/qq_runtime';
 
 export const appRouter = router({
-  qqRuntime: qqRuntimeRouter,
   mail: mailRouter,
   bootstrap: bootstrapRouter,
   account: accountRouter,

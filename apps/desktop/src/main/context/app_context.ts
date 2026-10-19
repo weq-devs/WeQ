@@ -19,12 +19,9 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { fileURLToPath } from 'node:url';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
-import { createDesktopQQRuntime } from '../qq_runtime/factory';
-import { managedAccountPlatform, type ManagedQQAccountSource } from '../qq_runtime/managed_account';
 import { AnnualReportIndexDb } from '@weq/db';
 import { QQMailService, type MailNotice } from '@weq/service/mail';
 import {
@@ -82,9 +79,6 @@ import {
   UnreadInfoService,
   AccountConfigService,
   AccountMonitorService,
-  createRuntimeAwareAttachHook,
-  createExternalQQRuntimeProbe,
-  type QQRuntimeManager,
   MediaDownloadService,
   ExternalRkeyService,
   MediaUrlService,
@@ -315,6 +309,8 @@ let accountMonitor: AccountMonitorService | null = null;
 let dbHealthCheckSeq = 0;
 /** Guards against running more than one full health check at a time. */
 let dbHealthCheckRunning = false;
+/** 同一会话持续失败时限制扫描与弹窗频率，避免每个轮询查询都触发一次。 */
+const dbHealthFailureAt = new WeakMap<AccountSession, number>();
 /**
  * 年度报告索引的一次性预热句柄（每次开账号重置）。
  *
@@ -563,6 +559,8 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
   if (dbHealthCheckRunning) return;
   // Ignore late triggers from a session that has already been replaced/closed.
   if (ctx.account !== session) return;
+  const lastFailure = dbHealthFailureAt.get(session);
+  if (lastFailure !== undefined && Date.now() - lastFailure < 60_000) return;
   dbHealthCheckRunning = true;
   const seq = ++dbHealthCheckSeq;
   const dbDir = platform.ntDbDir(session.context.uin) ?? dirname(session.msgDbPath);
@@ -585,13 +583,18 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
       }
 
       const details = formatDbHealthFailures(failures);
+      const confirmed = failures.some((failure) => !failure.error);
+      dbHealthFailureAt.set(session, Date.now());
       const reportPath = writeDbHealthReport({ failures, uin: session.context.uin, dbDir });
-      logger.error('database corruption confirmed', {
-        event: 'db-health-check-failed',
-        failureCount: failures.length,
-        details,
-        reportPath,
-      });
+      logger.error(
+        confirmed ? 'database corruption confirmed' : 'database health check incomplete',
+        {
+          event: 'db-health-check-failed',
+          failureCount: failures.length,
+          details,
+          reportPath,
+        },
+      );
       if (reminderSuppressed()) {
         logger.info('database damage reminder suppressed', {
           event: 'db-health-reminder-suppressed',
@@ -601,17 +604,19 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
       }
       accountEventBus.emit('forcedClosed', {
         reason: 'database-damaged',
-        kind: 'confirmed',
+        kind: confirmed ? 'confirmed' : 'check-error',
         uin: session.context.uin,
-        title: '数据库损坏',
-        message:
-          '检测到 QQ 数据库损坏，问题出在 QQ 数据库本身，不是 WeQ 软件导致。已生成检查报告，可以按弹窗里的修复方案尝试修复，也可以继续使用。',
+        title: confirmed ? '数据库损坏' : '数据库无法读取',
+        message: confirmed
+          ? '数据库健康检查检出了损坏，已生成检查报告；请保留原件并核对原因后再决定是否修复。'
+          : '数据库健康检查未能完成，尚不能确认文件损坏。请先核对账号数据源、密钥和加密算法，不要直接替换或修复原库。',
         details,
         failures,
         reportPath,
       } satisfies AccountForcedClosedEvent);
     } catch (e) {
       if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
+      dbHealthFailureAt.set(session, Date.now());
       logger.error('database health check crashed', {
         event: 'db-health-check-error',
         ...logErrorContext(e),
@@ -639,15 +644,15 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
         reason: 'database-damaged',
         kind: 'check-error',
         uin: session.context.uin,
-        title: '数据库损坏',
+        title: '数据库无法读取',
         message:
-          '检测 QQ 数据库健康状态时发生错误，为避免继续读取损坏数据，建议尽快修复或备份数据库。问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。',
+          '数据库健康检查未能完成，尚不能确认文件损坏。请先核对数据源、密钥和加密算法，并保留原库。',
         details: formatDbHealthFailures([failure]),
         failures: [failure],
         reportPath,
       } satisfies AccountForcedClosedEvent);
     } finally {
-      dbHealthCheckRunning = false;
+      if (seq === dbHealthCheckSeq) dbHealthCheckRunning = false;
     }
   })();
 }
@@ -815,10 +820,6 @@ export interface TranscribeSilkResult {
 }
 
 export interface AppContext {
-  qqRuntime: QQRuntimeManager | null;
-  /** 私有托管数据源，不通过 IPC 序列化。 */
-  managedQQ: ManagedQQAccountSource | null;
-  managedStartConfigId: string | null;
   /** null when native failed to load — check `nativeError` first. */
   platform: Platform | null;
   /** null when native failed to load. */
@@ -869,11 +870,7 @@ export interface AppContext {
    *  literal can be fully constructed before this field is assigned. */
   scheduler: import('@weq/service').ExportScheduler | null;
   /** Open (or re-open) an account session. Disposes the previous one first. */
-  setAccount(
-    ctx: AccountContext,
-    metadata?: AccountConfigMetadata,
-    managed?: ManagedQQAccountSource,
-  ): Promise<void>;
+  setAccount(ctx: AccountContext, metadata?: AccountConfigMetadata): Promise<void>;
   /**
    * Open a static (offline) account from a directory of locally-stored
    * databases. Pass `selfPreview` (from `peekStaticSelfUin`) so we don't
@@ -953,9 +950,6 @@ export function initAppContext(): AppContext {
   if (!result.ok) {
     // Degraded context: keep the app alive so the renderer can show a dialog.
     cached = {
-      qqRuntime: null,
-      managedQQ: null,
-      managedStartConfigId: null,
       platform: null,
       bootstrap: null,
       nativeError: { kind: result.kind, status: result.status, message: result.message },
@@ -1074,11 +1068,10 @@ export function initAppContext(): AppContext {
   // in-process first, escalate with sudo when the kernel refuses). Windows can
   // read in-process with no elevation. One shared instance so its per-pid
   // idempotency spans the bootstrap router and every account monitor.
-  const externalAttachHook: AttachHook =
+  const attachHook: AttachHook =
     process.platform === 'linux' || process.platform === 'darwin'
       ? createLinuxAttachHook(platform.native.ntHelper, userConfig)
       : createDirectAttachHook(platform.native.ntHelper);
-  const attachHook = createRuntimeAwareAttachHook(platform.native.ntHelper, externalAttachHook);
 
   const linkPreview = new LinkPreviewService(userConfig);
 
@@ -1141,9 +1134,6 @@ export function initAppContext(): AppContext {
   });
 
   const ctx: AppContext = {
-    qqRuntime: null,
-    managedQQ: null,
-    managedStartConfigId: null,
     platform,
     bootstrap,
     nativeError: null,
@@ -1158,15 +1148,10 @@ export function initAppContext(): AppContext {
     async setAccount(
       accountCtx: AccountContext,
       metadata: AccountConfigMetadata = {},
-      managed?: ManagedQQAccountSource,
     ): Promise<void> {
-      if (managed?.signal.aborted) throw new Error('托管账号打开已取消');
-      if (!managed && this.qqRuntime?.snapshot().mode === 'managed') await this.qqRuntime.stop();
-      if (!managed) this.managedStartConfigId = null;
       const base = this.platform;
       if (!base) throw new Error('原生组件尚未就绪');
-      this.managedQQ = managed ?? null;
-      const platform = managed ? managedAccountPlatform(base, managed, () => this.managedQQ) : base;
+      const platform = base;
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
       this.scheduler?.stop();
@@ -1177,7 +1162,6 @@ export function initAppContext(): AppContext {
         dataDir: metadata.dataDir ?? null,
       });
       dbHealthCheckSeq += 1;
-      const openGeneration = dbHealthCheckSeq;
       dbHealthCheckRunning = false;
       accountMonitor?.stop();
       accountMonitor = null;
@@ -1227,21 +1211,6 @@ export function initAppContext(): AppContext {
           onEntry: (entry) => dbTolerance.recordLedgerEntry(entry),
         },
       );
-      if (
-        managed &&
-        (managed.signal.aborted ||
-          openGeneration !== dbHealthCheckSeq ||
-          session.selfUid !== managed.uid)
-      ) {
-        session.dispose();
-        if (this.managedQQ === managed) {
-          this.managedQQ = null;
-          this.account = null;
-          this.services = null;
-          this.resourcePlatform = null;
-        }
-        throw new Error('托管账号身份尚未完成同步或打开已取消');
-      }
       this.account = session;
       // Online account: resources resolve against the local install as always.
       this.resourcePlatform = platform;
@@ -1252,11 +1221,6 @@ export function initAppContext(): AppContext {
       // Keyed by the same (uin, dataDir) id the account record uses.
       const exportConfigId = accountConfigId(session.context.uin, metadata.dataDir);
       const resolveOnlinePid = (): number => {
-        if (managed) {
-          const pid = platform.resolveQqPid(session.context.uin);
-          if (pid === null) throw new Error('托管 QQ 的在线会话尚未就绪');
-          return pid;
-        }
         const record = accountConfig.getRecord();
         if (!record?.qqOnline || !record.qqPid) {
           throw new Error('QQ account is not online.');
@@ -1895,25 +1859,8 @@ export function initAppContext(): AppContext {
           emitDressChanged();
         },
         () => mail.credentialsAvailable(),
-        managed
-          ? {
-              isReady: (pid) => {
-                const source = this.managedQQ;
-                return (
-                  this.account === session &&
-                  source?.uin === session.context.uin &&
-                  source.dbPath === session.msgDbPath &&
-                  source.pid === pid &&
-                  !source.signal.aborted &&
-                  source.isSsoReady()
-                );
-              },
-              guid: () => this.managedQQ?.guid ?? null,
-            }
-          : undefined,
       );
       accountMonitor.start();
-      if (!managed) void this.qqRuntime?.connectExternal(session.context.uin);
       logger.info('opened account session', {
         event: 'open-account-success',
         accountUin: session.context.uin,
@@ -2005,9 +1952,6 @@ export function initAppContext(): AppContext {
         mobile?: boolean;
       } = {},
     ): Promise<void> {
-      await this.qqRuntime?.stop();
-      this.managedQQ = null;
-      this.managedStartConfigId = null;
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
       logger.info('opening static account session', {
@@ -2615,9 +2559,6 @@ export function initAppContext(): AppContext {
       // Still no anti-recall triggers, no health check and no scheduler.
     },
     clearAccount(): void {
-      this.managedStartConfigId = null;
-      this.managedQQ = null;
-      void this.qqRuntime?.stop().catch(() => {});
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
       logger.info('clearing account session', {
@@ -2849,80 +2790,6 @@ export function initAppContext(): AppContext {
       return accountMonitor?.harvestRkeysNow() ?? Promise.resolve(false);
     },
   };
-
-  ctx.qqRuntime = createDesktopQQRuntime({
-    platform,
-    dataRoot: join(platform.appDataRoot(), 'managed-qq'),
-    moduleDir: dirname(fileURLToPath(import.meta.url)),
-    expectedConfigId: () => ctx.managedStartConfigId,
-    inspectExternal: async (uin, signal) => {
-      const session = ctx.account,
-        monitor = accountMonitor;
-      if (
-        !session ||
-        !monitor ||
-        ctx.accountIsStatic ||
-        ctx.managedQQ ||
-        session.context.uin !== uin
-      )
-        return null;
-      return createExternalQQRuntimeProbe({
-        uin,
-        uid: () => session.selfUid || null,
-        resolvePid: async () =>
-          platform.resolveQqPidAsync ? platform.resolveQqPidAsync(uin) : platform.resolveQqPid(uin),
-        hasLease: (pid) => monitor.hasSsoSessionLease(pid),
-        hasNativeSession: (pid) => platform.native.ntHelper.hasSsoSession(pid),
-        isCurrent: () => ctx.account === session && accountMonitor === monitor && !ctx.managedQQ,
-        databaseReady: () => ctx.account === session,
-        pushReady: () => dbWatchHandle !== null,
-      })(uin, signal);
-    },
-    openAccount: async (source) => {
-      if (source.signal.aborted) return { database: false, push: false };
-      ctx.managedStartConfigId = accountConfigId(source.uin, dirname(dirname(source.dbPath)));
-      const current = ctx.managedQQ;
-      if (
-        current?.uin === source.uin &&
-        current.uid === source.uid &&
-        current.dbPath === source.dbPath &&
-        ctx.account?.context.dbKey === source.dbKey &&
-        ctx.account.selfUid === source.uid
-      ) {
-        ctx.managedQQ = source;
-        ctx.services?.accountConfig.setOnline(true, source.pid);
-      } else {
-        await ctx.setAccount(
-          { uin: source.uin, dbKey: source.dbKey, algos: { 'nt_msg.db': source.algo } },
-          { uid: source.uid, managed: true, dataDir: dirname(dirname(source.dbPath)) },
-          source,
-        );
-      }
-      return {
-        database:
-          !source.signal.aborted && ctx.managedQQ === source && ctx.account?.selfUid === source.uid,
-        push: dbWatchHandle !== null,
-      };
-    },
-    onObserverError: () =>
-      logger.warn('QQ 运行时状态订阅失败', { event: 'qq-runtime-observer-failed' }),
-  });
-  ctx.qqRuntime.subscribe((state) => {
-    const source = ctx.managedQQ,
-      services = ctx.services;
-    if (!source || !services || ctx.account?.context.uin !== source.uin) return;
-    const online =
-      state.mode === 'managed' &&
-      state.instanceId === source.instanceId &&
-      state.pid === source.pid &&
-      state.capabilities.sso &&
-      !source.signal.aborted &&
-      source.isSsoReady();
-    const pid = online ? source.pid : null,
-      record = services.accountConfig.getRecord();
-    if (record && (record.qqOnline !== online || record.qqPid !== pid))
-      services.accountConfig.setOnline(online, pid);
-  });
 
   cached = ctx;
   return ctx;

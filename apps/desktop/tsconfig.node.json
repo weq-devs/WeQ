@@ -13,7 +13,6 @@
   },
   "include": [
     "electron.vite.config.ts",
-    "build/qq_kernel_registration.ts",
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/shared/**/*.ts"

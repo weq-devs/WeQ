@@ -202,13 +202,6 @@ describe('AccountConfigService.setA1Payload', () => {
     return { s, dir };
   }
 
-  it('托管数据源重新保存时不继承静态手机备份标记', () => {
-    const { s } = svc();
-    s.save({ dataDir: '/tmp/data-12345', static: true, mobile: true });
-    s.save({ dataDir: '/tmp/data-12345', managed: true });
-    expect(s.getRecord()).toMatchObject({ managed: true, static: false, mobile: false });
-  });
-
   it('setA1Payload 写进账号配置且可读回', () => {
     const { s } = svc();
     s.setA1Payload('deadbeef');

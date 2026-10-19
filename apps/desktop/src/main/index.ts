@@ -11,7 +11,6 @@ import {
   nativeImage,
   net,
   protocol,
-  powerMonitor,
   shell,
   Tray,
   type IpcMainEvent,
@@ -633,10 +632,8 @@ function createWindow(): BrowserWindow {
       return;
     }
     // 'ask' — or 'tray' but the tray failed to build → fall back to asking.
-    const runtime = getAppContext().qqRuntime?.snapshot();
     win.webContents.send('window:confirm-close', {
       canMinimizeToTray: Boolean(tray),
-      managedQQ: runtime?.mode === 'managed' && runtime.phase !== 'stopped',
     });
   });
 
@@ -704,11 +701,6 @@ void app.whenReady().then(async () => {
   setHost(electronHost);
   installUpdateActions();
   initAppContext();
-  powerMonitor.on('resume', () => {
-    void getAppContext()
-      .qqRuntime?.resume()
-      .catch(() => logger.warn('QQ 运行时唤醒检查失败', { event: 'qq-runtime-resume-failed' }));
-  });
   // 链接卡片抓不到 og:image 时的兜底封面。截图要跑一个真浏览器，服务层不认识
   // Electron，所以实现在这里注入（app_context 保持 Electron-free，web 端共用它）。
   getAppContext().bootstrap?.linkPreview.setScreenshotHook(screenshotPage);
@@ -807,27 +799,8 @@ app.on('window-all-closed', () => {
 
 // A real quit is underway (tray「退出」/ 确认框「完全退出」/ Cmd+Q / OS shutdown):
 // flip the flag so the `close` handler stops intercepting, and drop the tray.
-let qqRuntimeQuitReady = false;
-app.on('before-quit', (event) => {
+app.on('before-quit', () => {
   isQuitting = true;
-  try {
-    const runtime = getAppContext().qqRuntime;
-    const state = runtime?.snapshot();
-    if (!qqRuntimeQuitReady && runtime && state?.mode === 'managed' && state.phase !== 'stopped') {
-      event.preventDefault();
-      qqRuntimeQuitReady = true;
-      const deadline = setTimeout(() => app.quit(), 10_000);
-      void runtime
-        .stop()
-        .catch(() => logger.warn('QQ 托管退出清理失败', { event: 'qq-runtime-quit-failed' }))
-        .finally(() => {
-          clearTimeout(deadline);
-          app.quit();
-        });
-    }
-  } catch {
-    /* 初始化完成前退出，无托管实例需要等待。 */
-  }
   try {
     getAppContext().services?.roamingBackfill.dispose();
   } catch (error) {

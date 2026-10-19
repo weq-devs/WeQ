@@ -1,0 +1,99 @@
+/* 登录来源共享主题色与表面，避免旧浅色样式透进深色页面。 */
+.weq-select {
+  color: var(--weq-fg-primary);
+}
+
+.weq-select :is(.weq-select-head-h, .weq-static-backup-title, .weq-static-label,
+  .weq-stats-version, .weq-auto-enter:has(input:checked)) {
+  color: var(--weq-fg-primary);
+}
+
+.weq-select :is(.weq-select-loading, .weq-select-empty, .weq-auto-enter,
+  .weq-stats-title-label, .weq-static-help, .weq-keyfield-icon) {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-select .weq-static-hint,
+.weq-select .weq-static-input::placeholder {
+  color: var(--weq-fg-muted);
+}
+
+.weq-select :is(.weq-static-input, .weq-auto-enter input:not(:checked)) {
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-elevated);
+  border-color: var(--weq-border-strong);
+}
+
+.weq-select .weq-stats-head {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, var(--weq-bg-surface));
+}
+
+.weq-select .weq-static-backup-logo {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-subtle);
+  box-shadow: var(--weq-shadow-soft);
+}
+
+.weq-select .weq-static-help {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  border-color: var(--weq-border-strong);
+}
+
+.weq-select .weq-static-help svg {
+  color: var(--weq-accent-effective);
+}
+
+.weq-select :is(.weq-static-error, .weq-keyfield-hint) {
+  color: var(--weq-warn-fg);
+}
+
+.weq-select :is(.weq-static-error, .weq-static-input.is-error) {
+  border-color: var(--weq-warn-border);
+  background: var(--weq-warn-bg);
+}
+
+.weq-select .weq-static-input:focus {
+  border-color: var(--weq-accent-effective);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
+}
+
+.weq-select .weq-static-input.is-error:focus {
+  border-color: var(--weq-warn-border);
+  box-shadow: 0 0 0 3px var(--weq-warn-bg);
+}
+
+.weq-select .weq-static-badge {
+  box-shadow: 0 0 0 2px var(--weq-bg-surface);
+}
+
+.weq-select .weq-static-badge.is-lg {
+  box-shadow: 0 0 0 3px var(--weq-bg-surface);
+}
+
+.weq-select .weq-source-tab {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-select .weq-source-tab:hover,
+.weq-select .weq-source-tab.is-active {
+  color: var(--weq-fg-primary);
+  background: color-mix(in srgb, var(--weq-accent-effective) 15%, var(--weq-bg-surface));
+  box-shadow: none;
+}
+
+.weq-select .weq-select-right {
+  border-color: var(--weq-border-subtle);
+}
+
+html[data-theme="dark"] .weq-select :is(.weq-stats-head, .weq-static-help) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-surface));
+}
+
+html[data-theme="dark"] .weq-select .weq-acct-avatar {
+  border-color: var(--weq-border-strong);
+  box-shadow: var(--weq-shadow-soft);
+}
+
+html[data-theme="dark"] .weq-select .weq-source-tab.is-active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
+}

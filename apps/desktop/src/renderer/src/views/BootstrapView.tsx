@@ -35,7 +35,6 @@ export function BootstrapView(): ReactElement {
   const homeStage = useViewState((s) => s.homeStage);
   const setHomeStage = useViewState((s) => s.setHomeStage);
   const enterSelect = useViewState((s) => s.enterSelect);
-  const enterManagedAuto = useViewState((s) => s.enterManagedAuto);
   const goTo = useViewState((s) => s.goTo);
   const setOpenedUin = useViewState((s) => s.setOpenedUin);
   const showError = useDialog((s) => s.showError);
@@ -113,10 +112,6 @@ export function BootstrapView(): ReactElement {
 
     void (async () => {
       try {
-        if (cfg.managed) {
-          enterManagedAuto(cfg.configId);
-          return;
-        }
         if (cfg.static) {
           // Static (offline) account — no live key gate; re-open from its
           // saved decrypted-db directory.
@@ -179,7 +174,6 @@ export function BootstrapView(): ReactElement {
     configs.isFetched,
     configs.data,
     setHomeStage,
-    enterManagedAuto,
     setOpenedUin,
     goTo,
     showError,

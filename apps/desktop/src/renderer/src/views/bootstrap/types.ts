@@ -9,7 +9,6 @@
 import type { DatabaseAlgorithms } from '@weq/native';
 
 export interface UiAccount {
-  managed?: boolean;
   /** Stable list key: configId (existing) or uin (new). */
   key: string;
   uin: string;

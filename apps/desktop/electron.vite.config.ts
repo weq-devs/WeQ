@@ -2,7 +2,6 @@ import { resolve } from 'node:path';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { buildQQKernelRegistration } from './build/qq_kernel_registration';
 import { ozonePlatformArgs } from './src/main/linux_window_backend';
 
 /**
@@ -36,15 +35,7 @@ process.env.ELECTRON_CLI_ARGS = JSON.stringify([
 
 export default defineConfig({
   main: {
-    plugins: [
-      externalizeDepsPlugin({ exclude: EXCLUDE_FROM_EXTERNAL }),
-      {
-        name: 'weq-qq-kernel-registration',
-        async writeBundle(output) {
-          await buildQQKernelRegistration(__dirname, resolve(__dirname, output.dir ?? 'out/main'));
-        },
-      },
-    ],
+    plugins: [externalizeDepsPlugin({ exclude: EXCLUDE_FROM_EXTERNAL })],
     resolve: {
       alias: {
         '@main': resolve(__dirname, 'src/main'),
@@ -68,7 +59,6 @@ export default defineConfig({
           captureWorker: resolve(__dirname, 'src/main/capture_worker.ts'),
           // 密钥扫描同理：读别的进程内存要 root，单独打成 root 子进程入口。
           keyScanWorker: resolve(__dirname, 'src/main/key_scan_worker.ts'),
-          qqKernelWorker: resolve(__dirname, 'src/main/qq_runtime/worker.ts'),
         },
         output: {
           entryFileNames: (chunk) =>
@@ -76,8 +66,7 @@ export default defineConfig({
             chunk.name === 'ocrWorker' ||
             chunk.name === 'attachWorker' ||
             chunk.name === 'captureWorker' ||
-            chunk.name === 'keyScanWorker' ||
-            chunk.name === 'qqKernelWorker'
+            chunk.name === 'keyScanWorker'
               ? `${chunk.name}.mjs`
               : '[name].js',
         },

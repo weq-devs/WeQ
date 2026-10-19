@@ -24,8 +24,6 @@ import { KeyField, isCompleteKey } from './KeyField';
 import { QrDialog } from './QrDialog';
 import { StaticBackupPanel } from './StaticBackupPanel';
 import type { UiAccount } from './types';
-import { ManagedQQPanel } from './ManagedQQPanel';
-import { IS_MAC } from '../../lib/target';
 
 type Sub = { unsubscribe: () => void };
 
@@ -47,8 +45,6 @@ export function LoginPanel({
   autoTarget,
   onEntered,
   onDeleteAccount,
-  autoStartManaged,
-  onManagedAutoStart,
 }: {
   mode: 'new' | 'existing';
   accounts: UiAccount[];
@@ -58,8 +54,6 @@ export function LoginPanel({
   autoTarget: AutoEnterTarget | null;
   onEntered: (uin: string) => void;
   onDeleteAccount?: (acc: UiAccount) => void;
-  autoStartManaged?: boolean;
-  onManagedAutoStart?: () => void;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
 
@@ -74,9 +68,7 @@ export function LoginPanel({
   const [status, setStatus] = useState('');
   const [autoEnter, setAutoEnter] = useState(false);
   /** new mode only: which source to drive the wizard from. */
-  const [source, setSource] = useState<'online' | 'backup' | 'managed'>(() =>
-    IS_MAC && mode === 'new' && accounts.length === 0 ? 'managed' : 'online',
-  );
+  const [source, setSource] = useState<'online' | 'backup'>('online');
 
   // QR dialog state. `anonymous` = the "登录新的账号" flow, where the currently
   // selected account is irrelevant, so its identity must not be shown.
@@ -98,7 +90,7 @@ export function LoginPanel({
     pskeyRef.current = null;
     setStatus('');
     setAutoEnter(sameTarget(autoTarget, selected));
-    setSource((current) => (current === 'managed' ? current : 'online'));
+    setSource('online');
   }, [selected?.key, mode, selected?.dbKey, autoTarget, selected]);
 
   // Tear down any live subscription on unmount.
@@ -322,11 +314,7 @@ export function LoginPanel({
   return (
     <div className="weq-login-panel">
       {mode === 'new' && (
-        <nav
-          className="weq-source-tabs weq-runtime-source-tabs"
-          role="tablist"
-          aria-label="账号来源"
-        >
+        <nav className="weq-source-tabs" role="tablist" aria-label="账号来源">
           <button
             type="button"
             role="tab"
@@ -345,41 +333,10 @@ export function LoginPanel({
           >
             本地备份
           </button>
-          {IS_MAC && (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={source === 'managed'}
-              className={`weq-source-tab ${source === 'managed' ? 'is-active' : ''}`}
-              onClick={() => setSource('managed')}
-            >
-              托管 QQ
-            </button>
-          )}
         </nav>
       )}
 
-      {(mode === 'new' && source === 'managed') || selected?.managed ? (
-        <>
-          {mode === 'existing' && (
-            <AccountSelector
-              accounts={accounts}
-              selected={selected}
-              onSelect={onSelect}
-              onDeleteAccount={onDeleteAccount}
-            />
-          )}
-          <ManagedQQPanel
-            key={selected?.managed ? selected.key : 'new-managed'}
-            expectedUin={selected?.managed ? selected.uin : undefined}
-            expectedConfigId={selected?.managed ? selected.configId : undefined}
-            autoStart={autoStartManaged}
-            onAutoStartConsumed={onManagedAutoStart}
-            defaultAutoEnter={sameTarget(autoTarget, selected)}
-            onEntered={onEntered}
-          />
-        </>
-      ) : mode === 'new' && source === 'backup' ? (
+      {mode === 'new' && source === 'backup' ? (
         <StaticBackupPanel onEntered={onEntered} />
       ) : (
         <>

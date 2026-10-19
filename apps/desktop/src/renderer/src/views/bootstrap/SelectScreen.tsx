@@ -18,15 +18,13 @@ import type { GlobalInstallInfo } from '@weq/service';
 import { LoginPanel } from './LoginPanel';
 import { StatsPanel } from './StatsPanel';
 import type { UiAccount } from './types';
-import { IS_MAC } from '../../lib/target';
+import '../../styles/bootstrap-select.css';
 
 export function SelectScreen({ install }: { install: GlobalInstallInfo }): ReactElement {
   const mode = useViewState((s) => s.selectMode);
   const backHome = useViewState((s) => s.backHome);
   const goTo = useViewState((s) => s.goTo);
   const setOpenedUin = useViewState((s) => s.setOpenedUin);
-  const managedAutoId = useViewState((s) => s.managedAutoEnterConfigId);
-  const consumeManagedAuto = useViewState((s) => s.consumeManagedAuto);
   const showError = useDialog((s) => s.showError);
   const utils = trpc.useUtils();
 
@@ -83,7 +81,6 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
         lastLoginAt: cfg.lastLoginAt,
         ...(cfg.static ? { static: true } : {}),
         ...(cfg.mobile ? { mobile: true } : {}),
-        ...(cfg.managed ? { managed: true } : {}),
       }));
     }
     return (historical.data ?? []).map((a) => ({
@@ -105,13 +102,9 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
       return;
     }
     setSelectedKey((prev) =>
-      managedAutoId && accounts.some((a) => a.key === managedAutoId)
-        ? managedAutoId
-        : prev && accounts.some((a) => a.key === prev)
-          ? prev
-          : accounts[0]!.key,
+      prev && accounts.some((a) => a.key === prev) ? prev : accounts[0]!.key,
     );
-  }, [accounts, managedAutoId]);
+  }, [accounts]);
 
   const selected = accounts.find((a) => a.key === selectedKey) ?? null;
 
@@ -180,7 +173,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
               />
               <span>正在准备账号…</span>
             </div>
-          ) : accounts.length === 0 && !(mode === 'new' && IS_MAC) ? (
+          ) : accounts.length === 0 ? (
             <div className="weq-select-empty">
               {mode === 'existing' ? '暂无保存的账号配置' : '未发现可用账号'}
             </div>
@@ -194,10 +187,6 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
               installRoot={root}
               autoTarget={autoTarget.data ?? null}
               onEntered={onEntered}
-              autoStartManaged={Boolean(
-                managedAutoId && selected?.configId === managedAutoId && selected.managed,
-              )}
-              onManagedAutoStart={consumeManagedAuto}
             />
           )}
         </section>
