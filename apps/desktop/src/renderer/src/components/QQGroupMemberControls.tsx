@@ -53,6 +53,7 @@ function OpenQQMemberControls({ groupCode, uid }: { groupCode: string; uid: stri
         <QQWriteTextRow
           label="专属头衔"
           initial={state.data?.title ?? null}
+          readOnly={state.data?.role !== 'owner'}
           disabled={disabled}
           maxLength={256}
           onSave={(value) =>

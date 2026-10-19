@@ -42,6 +42,27 @@ export interface QQWriteServices {
   onlineStatus: Pick<AccountServices['onlineStatus'], 'getOnlineStatus' | 'editableStatuses'>;
 }
 
+function cachedGroupRole(
+  selfUid: string,
+  ownerUid: string | undefined,
+  role: 'owner' | 'admin' | 'member' | null,
+) {
+  if (!selfUid) return null;
+  if (ownerUid === selfUid) return 'owner' as const;
+  return ownerUid && role === 'owner' ? null : role;
+}
+
+async function getGroupRole(services: QQWriteServices, groupId: number) {
+  const selfUid = services.accountWrite.selfIdentity().uid;
+  if (!selfUid) return null;
+  const [detail, directory] = await Promise.all([
+    services.groupInfo.getGroupDetail(BigInt(groupId)),
+    services.groupInfo.listGroupDirectory(),
+  ]);
+  const role = directory.find((entry) => entry.groupCode === String(groupId))?.role ?? null;
+  return cachedGroupRole(selfUid, detail?.ownerUid, role);
+}
+
 /** 身份绑定和在线检查由账号路由共用入口提供，所有 mutation 都必须通过。 */
 export function createQQWriteRouter(
   resolve: (input: QQWriteBinding) => QQWriteServices,
@@ -50,9 +71,14 @@ export function createQQWriteRouter(
   return router({
     memberState: procedure.input(binding.extend({ groupId, uid })).query(async ({ input }) => {
       const services = read(input);
-      const member = await services.groupInfo.getMemberInfo(BigInt(input.groupId), input.uid);
+      const [member, role] = await Promise.all([
+        services.groupInfo.getMemberInfo(BigInt(input.groupId), input.uid),
+        getGroupRole(services, input.groupId),
+      ]);
       if (read(input) !== services) throw new Error('账号已切换，请重新读取成员资料');
-      return member ? { uid: member.uid, card: member.card, title: member.customTitle } : null;
+      return member
+        ? { uid: member.uid, card: member.card, title: member.customTitle, role }
+        : null;
     }),
     selfState: procedure.input(binding).query(async ({ input }) => {
       const services = read(input);
@@ -122,9 +148,7 @@ export function createQQWriteRouter(
           selfUid: identity.uid,
           selfCard: member?.card ?? null,
           selfTitle: member?.customTitle ?? null,
-          role:
-            entry?.role ??
-            (group?.ownerUid && identity.uid && group.ownerUid === identity.uid ? 'owner' : null),
+          role: cachedGroupRole(identity.uid, group?.ownerUid, entry?.role ?? null),
         };
       }),
     friendRemark: procedure
@@ -212,7 +236,11 @@ export function createQQWriteRouter(
     groupSpecialTitle: procedure
       .input(binding.extend({ groupId, targetUid: uid, title: z.string().max(256) }))
       .mutation(async ({ input }) => {
-        await resolve(input).groupModeration.setSpecialTitle(input);
+        const services = resolve(input);
+        const role = await getGroupRole(services, input.groupId);
+        if (resolve(input) !== services) throw new Error('账号已切换，请重新读取群权限');
+        if (role !== 'owner') throw new Error('仅群主可以修改专属头衔');
+        await services.groupModeration.setSpecialTitle(input);
         return { state: 'accepted' as const };
       }),
     groupEssence: procedure

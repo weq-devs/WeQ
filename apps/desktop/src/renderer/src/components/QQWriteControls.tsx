@@ -15,6 +15,7 @@ export function QQWriteTextRow({
   label,
   initial,
   disabled,
+  readOnly = false,
   multiline,
   maxLength = 1024,
   allowEmpty = true,
@@ -23,6 +24,7 @@ export function QQWriteTextRow({
   label: string;
   initial: string | null;
   disabled: boolean;
+  readOnly?: boolean;
   multiline?: boolean;
   maxLength?: number;
   allowEmpty?: boolean;
@@ -38,6 +40,13 @@ export function QQWriteTextRow({
     setValue((current) => (current === before ? (initial ?? '') : current));
     previous.current = initial ?? '';
   }, [initial]);
+  if (readOnly)
+    return (
+      <Row
+        label={label}
+        control={<span>{initial === null ? '尚未读取' : initial || '未设置'}</span>}
+      />
+    );
   const input = {
     'aria-label': label,
     className: 'weq-qq-write-input',

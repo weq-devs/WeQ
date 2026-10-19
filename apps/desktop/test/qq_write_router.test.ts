@@ -90,6 +90,47 @@ function fixture() {
 }
 
 describe('QQ 写 IPC 边界', () => {
+  it.each(['admin', 'member', null] as const)('非群主 %s 不能写专属头衔', async (role) => {
+    const f = fixture();
+    f.services.groupInfo.listGroupDirectory = vi.fn(async () => [
+      { groupCode: '123', role, pinned: false, notifyLevel: 1, unnamed: false, memberCount: 2 },
+    ]);
+    await expect(
+      f.caller.groupSpecialTitle({ ...binding, groupId: 123, targetUid: 'u_peer', title: '测试' }),
+    ).rejects.toThrow(/群主/);
+    expect(f.services.groupModeration.setSpecialTitle).not.toHaveBeenCalled();
+  });
+  it('群主可以写入头衔，权限读取期间切号时不再写入', async () => {
+    const f = fixture();
+    f.services.groupInfo.listGroupDirectory = vi.fn(async () => [
+      {
+        groupCode: '123',
+        role: 'owner',
+        pinned: false,
+        notifyLevel: 1,
+        unnamed: false,
+        memberCount: 2,
+      },
+    ]);
+    const input = { ...binding, groupId: 123, targetUid: 'u_peer', title: '测试' };
+    await expect(f.caller.groupSpecialTitle(input)).resolves.toEqual({ state: 'accepted' });
+    expect(f.services.groupModeration.setSpecialTitle).toHaveBeenCalledWith(input);
+    f.services.groupInfo.listGroupDirectory = async () => {
+      f.switchAccount();
+      return [
+        {
+          groupCode: '123',
+          role: 'owner',
+          pinned: false,
+          notifyLevel: 1,
+          unnamed: false,
+          memberCount: 2,
+        },
+      ];
+    };
+    await expect(f.caller.groupSpecialTitle(input)).rejects.toThrow(/切换/);
+    expect(f.services.groupModeration.setSpecialTitle).toHaveBeenCalledTimes(1);
+  });
   it('只读快照不要求在线写入口，也不返回数据库密钥', async () => {
     const f = fixture();
     const own = await f.caller.selfState(binding);

@@ -203,6 +203,7 @@ export function QQConversationControls({ kind, conv }: { kind: 'c2c' | 'group'; 
               <QQWriteTextRow
                 label="我的专属头衔"
                 initial={state.selfTitle}
+                readOnly={state.role !== 'owner'}
                 disabled={disabled || !state.selfUid}
                 onSave={(value) =>
                   act((binding) =>
