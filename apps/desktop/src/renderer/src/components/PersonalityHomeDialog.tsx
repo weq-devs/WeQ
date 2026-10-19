@@ -137,11 +137,14 @@ export function PersonalityHomeDialog({
   const tags = profile.interests;
 
   return (
-    <OverlayLayer className="weq-profile-layer weq-perhome-layer" onClose={onClose}>
+    <OverlayLayer
+      presentation="panel"
+      className="weq-profile-layer weq-perhome-layer"
+      onClose={onClose}
+    >
       <section
         className={`weq-perhome weq-anim-pop${hasBackdrop ? ' is-onphoto' : ''}`}
         role="dialog"
-        aria-modal="true"
         aria-label={`${profile.name} 的个性主页`}
         onMouseDown={(event) => event.stopPropagation()}
       >

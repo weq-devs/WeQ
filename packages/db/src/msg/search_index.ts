@@ -300,7 +300,9 @@ export class MsgSearchIndexDb {
     // 1) Bulk-decrypt the encrypted source straight into the index file, then
     //    drop any cached handle so the CREATE/INSERT writers are not blocked.
     const method = selectDatabaseDecryptMethod(this.sourcePath);
-    this.nt[method](this.sourcePath, path, this.key!, this.algo!);
+    // Both modes write a stock-layout database; await keeps this safe if a
+    // future implementation moves the export behind an async boundary.
+    await this.nt[method](this.sourcePath, path, this.key!, this.algo!);
     try {
       this.nt.closeDb(path);
     } catch {
@@ -460,7 +462,7 @@ export class MsgSearchIndexDb {
         String(r[4] ?? ''),
         String(r[5] ?? ''),
         Number(r[6] ?? 0),
-        Number(r[7] ?? 0),
+        toBigint(r[7]),
         String(r[8] ?? ''),
         String(r[9] ?? ''),
       );
@@ -482,7 +484,7 @@ export class MsgSearchIndexDb {
     );
     const keyParams: SqlValue[] = [];
     for (const r of rows) {
-      keyParams.push(Number(r[7] ?? 0), String(r[0] ?? ''), Number(r[2] ?? 0));
+      keyParams.push(toBigint(r[7]), String(r[0] ?? ''), Number(r[2] ?? 0));
     }
     const keyValues = rows.map(() => '(?, ?, ?)').join(',');
     await this.nt.executeSqlWrite(

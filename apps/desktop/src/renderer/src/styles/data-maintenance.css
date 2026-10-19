@@ -1,0 +1,57 @@
+.weq-data-maintenance { min-width: 0; }
+.weq-maintenance-list { min-width: 0; border-top: 1px solid var(--weq-border-subtle); }
+.weq-maintenance-entry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 54px;
+  padding: 12px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  background: transparent;
+  color: var(--weq-fg-primary);
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+.weq-maintenance-entry > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.weq-maintenance-entry > svg { flex: none; color: var(--weq-fg-secondary); }
+.weq-maintenance-entry small { color: var(--weq-fg-muted); }
+.weq-maintenance-entry:hover:not(:disabled) { background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent); }
+.weq-maintenance-entry:focus-visible, .weq-maintenance-close:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: 2px; }
+.weq-maintenance-entry:disabled { cursor: default; opacity: 0.6; }
+.weq-maintenance-status { display: flex; align-items: center; gap: 8px; padding: 16px 0; color: var(--weq-fg-secondary); overflow-wrap: anywhere; }
+/* 维护工具子页统一为「WorkspacePage + 右上角关闭」布局。 */
+.weq-maintenance-dialog {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--weq-fg-primary);
+}
+.weq-maintenance-head { display: flex; flex: none; align-items: center; gap: 12px; min-height: 52px; padding: 8px 14px; border-bottom: 1px solid var(--weq-border-subtle); }
+.weq-maintenance-head h2 { flex: 1; margin: 0; font-size: 15px; font-weight: 600; }
+.weq-maintenance-head > span { min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--weq-fg-secondary); font-size: 12px; }
+.weq-maintenance-body { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
+/* 数据库 / 本地缓存自己铺满内容区，不需要外层留白。 */
+.weq-maintenance-body.is-flush { display: flex; padding: 0; overflow: hidden; }
+.weq-maintenance-body.is-flush > * { flex: 1; min-width: 0; min-height: 0; }
+.weq-maintenance-body .weq-cache-db { min-width: 0; }
+html[data-theme="dark"] .weq-maintenance-entry { border-color: var(--weq-border-subtle); color: var(--weq-fg-primary); }
+@media (max-width: 600px) {
+  .weq-maintenance-body { padding: 10px; }
+  .weq-maintenance-body.is-flush { padding: 0; }
+  .weq-maintenance-entry { flex-wrap: wrap; }
+  .weq-maintenance-body .weq-cache-db:not(.is-tree-collapsed) { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 160px) minmax(0, 1fr); }
+  .weq-maintenance-body .weq-cache-tree { border-bottom: 1px solid var(--weq-border-subtle); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .weq-maintenance-dialog.weq-anim-pop,
+  .weq-dialog-layer:has(> .weq-maintenance-dialog),
+  .weq-ra-layer.weq-anim-fade,
+  .weq-ra-dialog.weq-anim-pop { animation: none; }
+}

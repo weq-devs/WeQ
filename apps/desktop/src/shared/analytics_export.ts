@@ -32,6 +32,7 @@ export interface AnalyticsExportPayload {
   title: string;
   /** 文件名前缀，如「群聊分析」。 */
   label: string;
+  periodLabel?: string;
   groupCode?: string;
   groupName?: string;
   /** 私聊分析：对方的 uid。 */

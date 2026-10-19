@@ -41,11 +41,14 @@ export function MutualMarkLevelDialog({
       : [];
 
   return (
-    <OverlayLayer className="weq-profile-layer weq-mutual-layer" onClose={onClose}>
+    <OverlayLayer
+      presentation="popover"
+      className="weq-profile-layer weq-mutual-layer"
+      onClose={onClose}
+    >
       <section
         className="weq-mutual-levels weq-anim-pop"
         role="dialog"
-        aria-modal="true"
         aria-label={`${mark.name} 的等级`}
         onMouseDown={(event) => event.stopPropagation()}
       >

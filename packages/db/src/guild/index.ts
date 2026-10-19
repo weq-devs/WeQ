@@ -7,7 +7,7 @@ export { GuildDirectNodeDb } from './direct_node';
 export type { GuildDirectNodeDbOptions } from './direct_node';
 
 export { GuildDirectMsgDb } from './guild_msg';
-export type { GuildDirectMsgDbOptions } from './guild_msg';
+export type { GuildDirectMsgDbOptions, GuildMessageCursor } from './guild_msg';
 
 export { GuildCommonProfileDb } from './profile';
 export type { GuildCommonProfileDbOptions } from './profile';

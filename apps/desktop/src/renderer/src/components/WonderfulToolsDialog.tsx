@@ -29,9 +29,7 @@ import {
   Braces,
   Check,
   Copy,
-  CloudDownload,
   Database,
-  DatabaseZap,
   Fingerprint,
   FolderOpen,
   KeyRound,
@@ -43,13 +41,11 @@ import {
 } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
-import { closeFromScrim } from '../im-template/template/modalUtils';
+import { OverlayLayer } from './OverlayLayer';
+import { WorkspacePage } from './WorkspacePages';
 import { ReverseTool } from './ReverseTool';
 import { CapturePanel } from './CapturePanel';
-import { DbRepairPanel } from './DbRepairPanel';
 import { LoginAccountPanel } from './LoginAccountPanel';
-import { RoamingBackfillPanel } from './RoamingBackfillPanel';
-import type { RoamingTarget } from '@weq/service';
 
 interface AccountRow {
   uin: string;
@@ -82,30 +78,19 @@ interface ScanProgressView {
 }
 
 /** 左侧工具列表的 id。`MainView` / 损坏弹窗要靠它指定"打开就落在哪一页"。 */
-export type ToolId =
-  | 'key-scan'
-  | 'other-device-key'
-  | 'db-repair'
-  | 'roaming-backfill'
-  | 'capture'
-  | 'reverse'
-  | 'login-accounts';
+export type ToolId = 'key-scan' | 'other-device-key' | 'capture' | 'reverse' | 'login-accounts';
 
 const TOOLS: { id: ToolId; label: string; desc: string }[] = [
   { id: 'key-scan', label: '密钥扫描', desc: '只读内存扫描主密钥' },
   { id: 'other-device-key', label: '其它设备密钥', desc: '获取账号其它设备的密钥' },
-  { id: 'db-repair', label: '数据库修复', desc: '备份 · 重建坏库 · 可回滚' },
-  { id: 'roaming-backfill', label: '批量补全缺失消息', desc: '漫游任务' },
   { id: 'capture', label: 'ntqq 抓包', desc: '网卡收发包 · 解密展开' },
   { id: 'reverse', label: 'Protobuf/JCE 逆向', desc: 'hex/base64 → 简洁 JSON' },
-  { id: 'login-accounts', label: 'QQ 登陆账号管理', desc: '快登 · 删除 · 换 guid' },
+  { id: 'login-accounts', label: 'QQ 登陆与guid管理', desc: '快登 · 删除 · 换 guid' },
 ];
 
 const TOOL_ICONS: Record<ToolId, typeof KeyRound> = {
   'key-scan': KeyRound,
   'other-device-key': Database,
-  'db-repair': DatabaseZap,
-  'roaming-backfill': CloudDownload,
   capture: Radio,
   reverse: Braces,
   'login-accounts': Fingerprint,
@@ -302,22 +287,23 @@ function SaltHeaderDump({
 export function WonderfulToolsDialog({
   open,
   onClose,
-  initialTool = 'key-scan',
-  currentUin = null,
-  roamingTarget,
+  initialTool = 'capture',
+  tools = ['capture', 'reverse'],
 }: {
   open: boolean;
   onClose: () => void;
   /** 打开时落在哪一个工具上（损坏弹窗要横着跳进「数据库修复」）。 */
   initialTool?: ToolId;
-  /** 当前登录的账号 —— 数据库修复只修这一个，不接受选别的账号。 */
-  currentUin?: string | null;
-  roamingTarget?: RoamingTarget;
+  tools?: readonly ToolId[];
 }): ReactElement | null {
-  const [activeTool, setActiveTool] = useState<ToolId>(initialTool);
+  const visibleTools = TOOLS.filter((tool) => tools.includes(tool.id));
+  const selectedTool = visibleTools.some((tool) => tool.id === initialTool)
+    ? initialTool
+    : (visibleTools[0]?.id ?? 'capture');
+  const [activeTool, setActiveTool] = useState<ToolId>(selectedTool);
   const toolNavRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (open && activeTool === 'roaming-backfill')
+    if (open)
       toolNavRef.current
         ?.querySelector('[aria-selected="true"]')
         ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -387,20 +373,6 @@ export function WonderfulToolsDialog({
     setScanProgress(null);
   }, []);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    function onKey(e: KeyboardEvent): void {
-      if (e.key !== 'Escape') return;
-      if (scanTarget) {
-        closeResult();
-      } else {
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, scanTarget, closeResult, onClose]);
-
   const loadAccounts = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -420,7 +392,7 @@ export function WonderfulToolsDialog({
   useEffect(() => {
     if (open) {
       // 每次打开都从 `initialTool` 开始：损坏弹窗要直接落在「数据库修复」上。
-      setActiveTool(initialTool);
+      setActiveTool(selectedTool);
       setResult(null);
       setScanningUin(null);
       setScanTarget(null);
@@ -433,9 +405,9 @@ export function WonderfulToolsDialog({
       setFetchingKey(false);
       setOtherResult(null);
       setOtherCopied(false);
-      void loadAccounts();
+      if (selectedTool !== 'reverse') void loadAccounts();
     }
-  }, [open, initialTool, loadAccounts]);
+  }, [open, selectedTool, loadAccounts]);
 
   async function scanAccount(acc: AccountRow): Promise<void> {
     setScanTarget(acc);
@@ -539,11 +511,13 @@ export function WonderfulToolsDialog({
   if (!open) return null;
 
   return (
-    <div className="weq-wtools-layer" role="presentation" onMouseDown={closeFromScrim(onClose)}>
+    <WorkspacePage
+      title={TOOLS.find((item) => item.id === activeTool)?.label ?? '诊断工具'}
+      onClose={onClose}
+    >
       <div
-        className={`weq-wtools-dialog${activeTool === 'capture' ? ' is-capture' : ''}${activeTool === 'roaming-backfill' ? ' is-roaming' : ''}`}
-        role="dialog"
-        aria-modal="true"
+        className={`weq-wtools-dialog${activeTool === 'capture' ? ' is-capture' : ''}${visibleTools.length === 1 ? ' has-single-tool' : ''}`}
+        role="region"
         aria-labelledby="weq-wtools-title"
       >
         <button className="weq-wtools-close" onClick={onClose} title="关闭" type="button">
@@ -557,7 +531,7 @@ export function WonderfulToolsDialog({
               <span className="weq-wtools-brand-icon">
                 <ScanSearch size={17} strokeWidth={1.8} />
               </span>
-              <span>妙妙工具</span>
+              <span>{visibleTools.length === 1 ? visibleTools[0]?.label : '高级诊断'}</span>
             </div>
             <div
               className="weq-wtools-nav-list"
@@ -565,7 +539,7 @@ export function WonderfulToolsDialog({
               aria-label="工具列表"
               ref={toolNavRef}
             >
-              {TOOLS.map((tool) => (
+              {visibleTools.map((tool) => (
                 <button
                   key={tool.id}
                   type="button"
@@ -867,28 +841,12 @@ export function WonderfulToolsDialog({
               </>
             ) : null}
 
-            {activeTool === 'db-repair' ? (
-              <DbRepairPanel
-                currentUin={currentUin}
-                accounts={accounts.map((acc) => ({
-                  uin: acc.uin,
-                  name: acc.userName,
-                  avatarUrl: acc.avatarUrl,
-                }))}
-                onRefreshAccounts={() => void loadAccounts()}
-              />
-            ) : null}
-
-            {activeTool === 'roaming-backfill' ? (
-              <RoamingBackfillPanel initialTarget={roamingTarget} />
-            ) : null}
-
             {activeTool === 'login-accounts' ? (
               <>
                 <header className="weq-wtools-pane-head">
                   <div className="weq-wtools-pane-title">
                     <Fingerprint size={17} strokeWidth={1.9} />
-                    <h2 id="weq-wtools-title">QQ 登陆账号管理</h2>
+                    <h2 id="weq-wtools-title">QQ 登陆与guid管理</h2>
                   </div>
                 </header>
                 <div className="weq-wtools-pane-body">
@@ -916,15 +874,14 @@ export function WonderfulToolsDialog({
 
       {/* 扫描结果模态窗口：头像 / 昵称 / QQ 号 / PID + 密钥（复制） */}
       {scanTarget ? (
-        <div
+        <OverlayLayer
+          presentation="popover"
           className="weq-wtools-result-layer"
-          role="presentation"
-          onMouseDown={closeFromScrim(closeResult)}
+          onClose={closeResult}
         >
           <section
             className="weq-wtools-result-modal"
             role="dialog"
-            aria-modal="true"
             aria-labelledby="weq-wtools-result-title"
             onMouseDown={(e) => e.stopPropagation()}
           >
@@ -1006,8 +963,8 @@ export function WonderfulToolsDialog({
               ) : null}
             </div>
           </section>
-        </div>
+        </OverlayLayer>
       ) : null}
-    </div>
+    </WorkspacePage>
   );
 }

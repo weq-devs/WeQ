@@ -37,11 +37,15 @@ export function GroupAnnouncementsDialog({
   onClose: () => void;
 }): ReactElement {
   return (
-    <OverlayLayer className="modal-scrim group-announcements-scrim" onClose={onClose}>
+    <OverlayLayer
+      presentation="sidecar"
+      title="群公告"
+      className="modal-scrim group-announcements-scrim"
+      onClose={onClose}
+    >
       <section
         className="group-announcements-dialog"
         role="dialog"
-        aria-modal="true"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header>

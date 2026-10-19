@@ -1,7 +1,10 @@
 /**
  * 新建好友克隆弹窗（灯箱）：
- *   step 1 选好友（带头像/昵称的列表，可搜索）
+ *   step 1 选好友（带头像/昵称的列表，可搜索，支持多选）
  *   step 2 配置模型 / 是否分析表情 / 语料来源(private·group) / 名称 / 额外提示
+ *
+ * 多选时逐个好友各起一个克隆任务；名称、额外提示在多个目标下只作为公共配置，
+ * 展示名仍以好友昵称为准（可在任务列表里再改）。
  *
  * 点「开始克隆」只负责收集配置并交给父级（AgentLabView）发起构建——
  * 构建态/进度灯箱由父级持有，于是用户可把进度隐藏到任务列表，构建在后台继续。
@@ -11,12 +14,13 @@
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
-import { ArrowLeft, Search, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, Check, Search, Sparkles, X } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { qqAvatarUrl } from '../../components/QqAvatar';
 import { Avatar } from '../export/widgets';
 import { useAppDialog } from '../../lib/dialogUtils';
 import '../../styles/export.css';
+import '../../styles/new-clone.css';
 
 export interface BuddyOption {
   uid: string;
@@ -68,19 +72,29 @@ function parseSel(key: string): { providerId: string; model: string } | undefine
 
 export function NewCloneModal({
   buddies,
+  initialSelectedUids,
   flatModels,
   onClose,
   onStart,
 }: {
   buddies: BuddyOption[];
+  /** 从会话列表多选好友进入时，预先勾上的 uid。 */
+  initialSelectedUids?: string[];
   flatModels: FlatModels;
   onClose: () => void;
-  /** 收集完配置后交给父级发起构建（父级随后关闭本弹窗并打开进度灯箱）。 */
+  /** 收集完配置后交给父级发起构建（多选时每个好友一条）。 */
   onStart: (args: StartCloneArgs) => void;
 }): ReactElement {
   const dialog = useAppDialog();
 
-  const [target, setTarget] = useState<BuddyOption | null>(null);
+  /** 第一步是否还在选好友；点「下一步」后进入配置。 */
+  const [picking, setPicking] = useState(true);
+  /** 已选好友（可多选，逐个起克隆任务）。会话列表带来的 uid 会预先勾上。 */
+  const [targets, setTargets] = useState<BuddyOption[]>(() => {
+    if (!initialSelectedUids?.length) return [];
+    const wanted = new Set(initialSelectedUids);
+    return buddies.filter((buddy) => wanted.has(buddy.uid));
+  });
   const [query, setQuery] = useState('');
   const [name, setName] = useState('');
   const [chatSel, setChatSel] = useState(flatModels.chat[0]?.key ?? '');
@@ -97,42 +111,59 @@ export function NewCloneModal({
     return buddies.filter((b) => b.label.toLowerCase().includes(q) || b.uin.includes(q));
   }, [buddies, query]);
 
+  function toggleTarget(buddy: BuddyOption): void {
+    setTargets((current) =>
+      current.some((item) => item.uid === buddy.uid)
+        ? current.filter((item) => item.uid !== buddy.uid)
+        : [...current, buddy],
+    );
+  }
+
   function onStartClick(): void {
     const chatRef = parseSel(chatSel);
-    if (!target || !chatRef) {
+    if (!targets.length || !chatRef) {
       dialog.error('无法构建', '请先选择好友和聊天模型。');
       return;
     }
     const embRef = parseSel(embSel);
     const visRef = analyzeStickers ? parseSel(visSel) : undefined;
-    const personaId = `persona-${target.uid}-${Date.now()}`;
-    onStart({
-      params: {
-        personaId,
-        name: name.trim() || undefined,
-        models: {
-          chat: chatRef,
-          ...(embRef ? { embedding: embRef } : {}),
-          ...(visRef ? { vision: visRef } : {}),
+    const sharedName = name.trim() || undefined;
+    // 多选时逐个好友各起一个克隆任务；personaId 带时间戳与 uid，互不覆盖。
+    for (const [index, target] of targets.entries()) {
+      // 多个目标共用同一毫秒时也要保证 id 唯一。
+      const personaId = `persona-${target.uid}-${Date.now()}-${index}`;
+      onStart({
+        params: {
+          personaId,
+          name: targets.length === 1 ? sharedName : undefined,
+          models: {
+            chat: chatRef,
+            ...(embRef ? { embedding: embRef } : {}),
+            ...(visRef ? { vision: visRef } : {}),
+          },
+          customPrompt: customPrompt.trim() || undefined,
+          targetUid: target.uid,
+          title: target.label,
+          mode,
+          autoName,
         },
-        customPrompt: customPrompt.trim() || undefined,
-        targetUid: target.uid,
-        title: target.label,
-        mode,
-        autoName,
-      },
-      meta: { name: name.trim() || target.label, uin: target.uin, mode },
-    });
+        meta: {
+          name: (targets.length === 1 ? sharedName : undefined) || target.label,
+          uin: target.uin,
+          mode,
+        },
+      });
+    }
   }
 
   return (
-    <Modal onClose={onClose} width={520}>
+    <Modal onClose={onClose} width={520} centered labelledBy="weq-new-clone-title">
       <div className="weq-clone-modal">
         <header className="weq-clone-modal-head">
-          {target ? (
+          {!picking ? (
             <button
               className="weq-set-iconbtn"
-              onClick={() => setTarget(null)}
+              onClick={() => setPicking(true)}
               aria-label="返回选择好友"
             >
               <ArrowLeft size={16} />
@@ -142,11 +173,20 @@ export function NewCloneModal({
               <Sparkles size={16} />
             </span>
           )}
-          <strong>{!target ? '选择要克隆的好友' : `配置克隆：${target.label}`}</strong>
+          <strong id="weq-new-clone-title">
+            {picking
+              ? '选择要克隆的好友'
+              : targets.length === 1
+                ? `配置克隆：${targets[0]!.label}`
+                : `批量克隆 ${targets.length} 位好友`}
+          </strong>
+          <button className="weq-set-iconbtn" type="button" aria-label="关闭" onClick={onClose}>
+            <X size={16} />
+          </button>
         </header>
 
         {/* step 1: 好友选择（视觉沿用导出页选择框，头像直连 CDN 不走缓存协议，避免 502） */}
-        {!target ? (
+        {picking ? (
           <div className="weq-exp-picker">
             <div className="weq-exp-search">
               <Search size={15} aria-hidden />
@@ -172,8 +212,9 @@ export function NewCloneModal({
                   <button
                     key={b.uid}
                     type="button"
-                    className="weq-exp-row"
-                    onClick={() => setTarget(b)}
+                    className={`weq-exp-row is-selectable${targets.some((item) => item.uid === b.uid) ? ' is-on' : ''}`}
+                    aria-pressed={targets.some((item) => item.uid === b.uid)}
+                    onClick={() => toggleTarget(b)}
                   >
                     <Avatar
                       url={b.uin ? qqAvatarUrl(b.uin) : b.avatarUrl}
@@ -184,9 +225,27 @@ export function NewCloneModal({
                       <strong title={b.label}>{b.label}</strong>
                       <small>{b.uin}</small>
                     </span>
+                    <span className="weq-clone-pick-check" aria-hidden>
+                      {targets.some((item) => item.uid === b.uid) ? (
+                        <Check size={13} strokeWidth={3} />
+                      ) : null}
+                    </span>
                   </button>
                 ))
               )}
+            </div>
+            <div className="weq-clone-actions">
+              <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={onClose}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="weq-set-btn"
+                disabled={!targets.length}
+                onClick={() => setPicking(false)}
+              >
+                {targets.length ? `下一步（已选 ${targets.length} 位）` : '下一步'}
+              </button>
             </div>
           </div>
         ) : (
@@ -197,7 +256,10 @@ export function NewCloneModal({
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder={target.label}
+                placeholder={
+                  targets.length === 1 ? targets[0]!.label : '批量克隆时默认用各自好友昵称'
+                }
+                disabled={targets.length > 1}
               />
             </label>
 

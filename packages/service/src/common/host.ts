@@ -23,6 +23,9 @@ export interface SaveTarget {
 }
 
 export interface HostBridge {
+  /** Web 服务端导出根目录；桌面端由原生目录选择，不设此字段。 */
+  readonly exportRoot?: string;
+  registerDownload?(path: string, name: string, kind: 'file' | 'directory'): { url: string };
   /** Decode uploaded image bytes; absent when the host has no image decoder. */
   validateImageBuffer?(bytes: Uint8Array): Promise<boolean>;
   /** Decode a cached collection image; absent when the host cannot verify images. */

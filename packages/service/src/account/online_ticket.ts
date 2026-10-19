@@ -1,32 +1,44 @@
 /**
- * Online ticket / key fetchers formerly implemented inside nt_helper
- * (`src/protocol/service/*`). They are pure protocol + HTTP flows on top of the
- * generic native `sendOidbPacket`, so they now live in TS where the OIDB specs
- * are maintained.
+ * Online ticket / key fetchers.
  *
- * What stays native is only the hook transport itself (`sendOidbPacket` /
- * `sendPacket`) and the ptlogin2 **local** quick-login fallback (`ptFetchSkey`
- * / `ptFetchPskey`) — the latter deliberately untouched.
+ * clientKey / skey / p_skey / 邮箱会话的换取都收进了 nt_helper；这里只保留
+ * 仍由 TS 维护 OIDB schema 的 rkey / dbkey 请求，以及给调用方做轻量封装的
+ * `fetchClientKey`（内部直接调用 native）。
  */
 
 import { openSync, readSync, closeSync } from 'node:fs';
 import type { NtHelperBinding } from '@weq/native';
 import {
-  FetchClientKey,
   FetchDownloadRkeys,
-  FetchPskeyOidb,
   RequestDecryptKey,
   type ClientKeyInfo,
   type DownloadRkey,
 } from '@weq/protocol';
-import { buildPtlogin2JumpUrl, httpGetSetCookiesOnce } from './web/ptlogin';
 
-/** Minimal native surface: only the generic packet sender is needed. */
-export type OnlineTicketNt = Pick<NtHelperBinding, 'sendOidbPacket'>;
+/** OIDB 请求只需要通用发包能力。 */
+export type OnlineTicketOidbNt = Pick<NtHelperBinding, 'sendOidbPacket'>;
 
-/** Fetch the account clientKey via OIDB 0x102A_1 (mirrors nt_helper). */
-export function fetchClientKey(nt: OnlineTicketNt, pid: number): Promise<ClientKeyInfo> {
-  return FetchClientKey.invoke(nt, pid);
+/** clientKey 已整体收进 native，调用方不需要再自己发 OIDB。 */
+export type OnlineTicketClientKeyNt = Pick<NtHelperBinding, 'ptFetchClientKey'>;
+
+/** 兼容旧的组合类型：同时具备 OIDB 与 clientKey 能力的 native 绑定。 */
+export type OnlineTicketNt = OnlineTicketOidbNt & OnlineTicketClientKeyNt;
+
+/** Fetch the account clientKey via native (ptlogin2 first, OIDB fallback). */
+export async function fetchClientKey(
+  nt: OnlineTicketClientKeyNt,
+  pid: number,
+  uin: string,
+): Promise<ClientKeyInfo> {
+  const result = await nt.ptFetchClientKey(pid, uin);
+  if (!result.success || !result.clientKey) {
+    throw new Error(result.msg || 'clientKey 获取失败');
+  }
+  return {
+    clientKey: result.clientKey,
+    keyIndex: result.keyIndex,
+    ttlSeconds: result.ttlSeconds,
+  };
 }
 
 /**
@@ -36,58 +48,11 @@ export function fetchClientKey(nt: OnlineTicketNt, pid: number): Promise<ClientK
  * 14/24、12/22 —— 它们各自绑场景，服务端不会顺带下发。
  */
 export function fetchDownloadRkeys(
-  nt: OnlineTicketNt,
+  nt: OnlineTicketOidbNt,
   pid: number,
   types?: number[],
 ): Promise<DownloadRkey[]> {
   return FetchDownloadRkeys.invoke(nt, pid, types ? { types } : {});
-}
-
-/**
- * ptlogin2 jump with redirect-following disabled — the same 302 cookie grab the
- * Rust `fetch_skey` / `fetch_pskey` services did. QQ sets `skey` / `p_skey` on
- * the 302 itself; the landing page is not fetched (it frequently 503s and never
- * carries cookies).
- */
-async function fetchPtloginCookie(
-  nt: OnlineTicketNt,
-  pid: number,
-  uin: string,
-  landingUrl: string,
-): Promise<Record<string, string>> {
-  const ck = await fetchClientKey(nt, pid);
-  return httpGetSetCookiesOnce(buildPtlogin2JumpUrl(ck, uin, landingUrl));
-}
-
-/** Fetch the domain-independent `skey` via a hooked process (mirrors Rust). */
-export async function fetchSkeyFromHook(
-  nt: OnlineTicketNt,
-  pid: number,
-  uin: string,
-): Promise<string> {
-  const landing =
-    'https://h5.qzone.qq.com/qqnt/qzoneinpcqq/friend?refresh=0&clientuin=0&darkMode=0';
-  const jar = await fetchPtloginCookie(nt, pid, uin, landing);
-  const skey = jar.skey;
-  if (!skey) throw new Error('skey not found in ptlogin2 cookies');
-  return skey;
-}
-
-/**
- * Fetch the `p_skey` for `domain` via a hooked process. Tries the ptlogin2 jump
- * first and falls back to OIDB 0x102A_0 — exactly the ordering nt_helper used.
- */
-export async function fetchPskeyFromHook(
-  nt: OnlineTicketNt,
-  pid: number,
-  uin: string,
-  domain: string,
-): Promise<string> {
-  const landing = `https://${domain}/${uin}/infocenter`;
-  const jar = await fetchPtloginCookie(nt, pid, uin, landing);
-  const web = jar.p_skey;
-  if (web) return web;
-  return FetchPskeyOidb.invoke(nt, pid, domain);
 }
 
 /**
@@ -97,7 +62,7 @@ export async function fetchPskeyFromHook(
  * "account mismatch" error to a human-readable message.
  */
 export async function requestDecryptKeyFromInstance(
-  nt: OnlineTicketNt,
+  nt: OnlineTicketOidbNt,
   pid: number,
   dbPath: string,
 ): Promise<string> {

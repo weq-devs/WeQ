@@ -8,6 +8,7 @@
 
 import type { AccountSession } from '@weq/account';
 import type { CollectionCachedContent, CollectionItem } from '@weq/db';
+import { searchCollectionItems } from './collection_search';
 import { join } from 'node:path';
 import { statSync } from 'node:fs';
 import type { NtHelperBinding } from '@weq/native';
@@ -165,6 +166,48 @@ export class CollectionService {
   /** Total number of collected items (db-backed count, 0 when db/table absent). */
   async countCollections(): Promise<number> {
     return this.session.collection.count();
+  }
+
+  /** 合并当前账号的本地库、已采集历史和已浏览摘要；搜索绝不隐式联网。 */
+  async searchLocal(keyword: string, limit = 20, offset = 0) {
+    if (!keyword.trim()) return { items: [], total: 0 };
+    const items = new Map<string, CollectionItem>();
+    const merge = (item: CollectionItem) => {
+      const previous = items.get(item.cid);
+      if (!previous || item.modifyTime >= previous.modifyTime) items.set(item.cid, { ...item });
+    };
+    for (let page = 0; ; page++) {
+      const rows = await this.session.collection.listAll(200, page * 200);
+      for (const item of rows) merge(item);
+      if (rows.length < 200) break;
+    }
+    for (const item of this.history?.localItems() ?? []) merge(item);
+    for (const item of this.listedItems.values()) merge(item);
+    const rows = [...items.values()];
+    for (let offset = 0; offset < rows.length; offset += 200) {
+      const batch = rows.slice(offset, offset + 200);
+      const cached = await this.cached(batch.map((item) => item.cid));
+      for (const item of batch) {
+        const content = cached.get(item.cid);
+        if (content) item.cachedContent = content;
+      }
+    }
+    return searchCollectionItems(rows, keyword, offset, limit);
+  }
+
+  async readLocalItem(cid: string): Promise<CollectionItem | null> {
+    const candidates = [this.listedItems.get(cid), this.history?.getByCid(cid)];
+    try {
+      candidates.push(await this.session.collection.getByCid(cid));
+    } catch {
+      /* 本地库暂不可读时仍可打开独立保存的历史。 */
+    }
+    const item = candidates
+      .filter((candidate): candidate is CollectionItem => Boolean(candidate))
+      .sort((a, b) => b.modifyTime - a.modifyTime)[0];
+    if (!item) return null;
+    const content = await this.readCachedContent(cid);
+    return { ...item, ...(content ? { cachedContent: content } : {}) };
   }
 
   /** Fresh local detail lookup; never sends a request to QQ. */

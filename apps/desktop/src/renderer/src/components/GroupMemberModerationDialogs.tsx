@@ -50,11 +50,14 @@ export function GroupMemberRenameDialog({
   const [value, setValue] = useState(initialCard ?? '');
 
   return (
-    <OverlayLayer className="modal-scrim group-member-scrim" onClose={onCancel}>
+    <OverlayLayer
+      presentation="popover"
+      className="modal-scrim group-member-scrim"
+      onClose={onCancel}
+    >
       <section
         className="group-member-dialog"
         role="dialog"
-        aria-modal="true"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <DialogHeader title="修改群昵称" subtitle={memberName} onClose={onCancel} />
@@ -69,6 +72,7 @@ export function GroupMemberRenameDialog({
               if (event.key === 'Enter') {
                 onConfirm(value);
               } else if (event.key === 'Escape') {
+                event.preventDefault();
                 onCancel();
               }
             }}

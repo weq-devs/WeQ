@@ -96,8 +96,8 @@ export function SparkPage({ page, data, active }: ReportPageProps<SparkPageData>
           rollingWindow={rollingActive ? wallWindow : null}
           yearLabel={
             allTime
-              ? wallYears.length > 1
-                ? '历史以来 · 一年一墙'
+              ? activeYear > 0
+                ? `历史以来 · ${activeYear} 年`
                 : '历史以来'
               : rollingActive
                 ? `${wallWindow!.fromYear} 年 ${wallWindow!.fromMonth} 月 — ${wallWindow!.toYear} 年 ${wallWindow!.toMonth} 月`
@@ -183,6 +183,7 @@ function GitWall({
   );
 
   function onWheel(event: ReactWheelEvent<HTMLDivElement>): void {
+    if (event.currentTarget.closest('[data-layout="reading"]')) return;
     // 横向滚轮切换年份；纵向仍然交给 deck 翻页。
     if (!allTime || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
     event.stopPropagation();
@@ -191,6 +192,10 @@ function GitWall({
   }
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (event.currentTarget.closest('[data-layout="reading"]')) {
+      dragX.current = null;
+      return;
+    }
     dragX.current = event.clientX;
   }
 
@@ -300,10 +305,10 @@ function buildRollingGrid(
   const countByDay = new Map<string, number>();
   for (const day of days) countByDay.set(`${day.year}-${day.month}-${day.day}`, day.count);
 
-  const start = new Date(window.fromYear, window.fromMonth - 1, 1);
-  const end = new Date(window.toYear, window.toMonth, 0); // 当月最后一天
+  const start = new Date(Date.UTC(window.fromYear, window.fromMonth - 1, 1));
+  const end = new Date(Date.UTC(window.toYear, window.toMonth, 0)); // 当月最后一天
   const totalDays = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
-  const mondayOffset = (start.getDay() + 6) % 7;
+  const mondayOffset = (start.getUTCDay() + 6) % 7;
   const weekCount = Math.ceil((mondayOffset + totalDays) / 7);
 
   const grid: GridCell[][] = [];
@@ -314,10 +319,10 @@ function buildRollingGrid(
       if (dayOffset < 0 || dayOffset >= totalDays) {
         column.push({ month: 0, day: 0, count: 0, date: null });
       } else {
-        const date = new Date(window.fromYear, window.fromMonth - 1, 1 + dayOffset);
-        const y = date.getFullYear();
-        const month = date.getMonth() + 1;
-        const day = date.getDate();
+        const date = new Date(Date.UTC(window.fromYear, window.fromMonth - 1, 1 + dayOffset));
+        const y = date.getUTCFullYear();
+        const month = date.getUTCMonth() + 1;
+        const day = date.getUTCDate();
         column.push({
           month,
           day,
@@ -337,8 +342,8 @@ function buildYearGrid(year: number, days: SparkWallDay[]): GridCell[][] {
   for (const day of days) {
     countByDay.set(`${day.month}-${day.day}`, day.count);
   }
-  const start = new Date(year, 0, 1);
-  const mondayOffset = (start.getDay() + 6) % 7;
+  const start = new Date(Date.UTC(year, 0, 1));
+  const mondayOffset = (start.getUTCDay() + 6) % 7;
   const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
   const totalDays = leap ? 366 : 365;
   const weekCount = Math.ceil((mondayOffset + totalDays) / 7);
@@ -350,9 +355,9 @@ function buildYearGrid(year: number, days: SparkWallDay[]): GridCell[][] {
       if (dayOfYear < 0 || dayOfYear >= totalDays) {
         column.push({ month: 0, day: 0, count: 0, date: null });
       } else {
-        const date = new Date(year, 0, 1 + dayOfYear);
-        const month = date.getMonth() + 1;
-        const day = date.getDate();
+        const date = new Date(Date.UTC(year, 0, 1 + dayOfYear));
+        const month = date.getUTCMonth() + 1;
+        const day = date.getUTCDate();
         column.push({
           month,
           day,
@@ -368,13 +373,11 @@ function buildYearGrid(year: number, days: SparkWallDay[]): GridCell[][] {
 
 /** 每个月的首月大致落在第几列，用来在墙顶标 1..12。 */
 function buildMonthMarks(year: number, weekCount: number): Array<{ month: number; left: number }> {
-  const start = new Date(year, 0, 1);
-  const mondayOffset = (start.getDay() + 6) % 7;
+  const start = new Date(Date.UTC(year, 0, 1));
+  const mondayOffset = (start.getUTCDay() + 6) % 7;
   const marks: Array<{ month: number; left: number }> = [];
   for (let month = 1; month <= 12; month++) {
-    const dayOfYear = Math.floor(
-      (new Date(year, month - 1, 1).getTime() - start.getTime()) / 86_400_000,
-    );
+    const dayOfYear = Math.floor((Date.UTC(year, month - 1, 1) - start.getTime()) / 86_400_000);
     const week = Math.floor((dayOfYear + mondayOffset) / 7);
     marks.push({ month, left: (week / Math.max(1, weekCount)) * 100 });
   }

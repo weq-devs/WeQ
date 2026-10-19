@@ -223,6 +223,49 @@ describe('MsgSearchIndexDb incremental sync (offline fixture)', () => {
     expect(await count(indexDbPath, 'SELECT COUNT(*) FROM weq_fts_keys')).toBe(8);
   });
 
+  it('preserves 64-bit source rowids when incrementally indexing new messages', async () => {
+    createFixture();
+    await idx.sync();
+
+    // QQ FTS rowids are in the 7.6e18 range, beyond Number.MAX_SAFE_INTEGER.
+    const ids = [7_616_328_302_822_264_237n, 7_616_328_302_822_264_238n];
+    const sql = fixtureDb(sourcePath);
+    const insert = sql.prepare(
+      `INSERT INTO ${TABLE} (
+        rowid, "40027", "40050", "40003", "40021", "40020",
+        "40001", "40010", "41701", "41702"
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    insert.setReadBigInts(true);
+    for (const [i, id] of ids.entries()) {
+      insert.run(
+        id,
+        G1,
+        1700000006 + i,
+        6 + i,
+        'u_peer',
+        'u_sender',
+        String(1006 + i),
+        1,
+        `hello huge rowid message ${i}`,
+        '',
+      );
+    }
+
+    await idx.incrementalFromWatermarks(new Map([[G1, 7n]]));
+
+    expect(idx.lastError).toBeNull();
+    expect(await count(indexDbPath, 'SELECT COUNT(*) FROM weq_fts_idx')).toBe(10);
+    expect(await count(indexDbPath, 'SELECT COUNT(*) FROM weq_fts_keys')).toBe(10);
+    const keys = await nt.executeSql(
+      indexDbPath,
+      'SELECT srcRowid FROM weq_fts_keys WHERE partition = ? AND msgSeq >= 6 ORDER BY srcRowid',
+      [G1],
+    );
+    expect(keys.map((row) => row[0])).toEqual(ids);
+    expect((await idx.searchPartition(777n, 'huge rowid')).total).toBe(2);
+  });
+
   it('trigram search works over the rebuilt index', async () => {
     createFixture();
 

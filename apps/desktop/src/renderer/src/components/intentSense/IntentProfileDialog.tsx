@@ -10,8 +10,9 @@
 import { useMemo, useState, type ReactElement } from 'react';
 import { BrainCircuit, RefreshCw, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
-import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
+import { OverlayLayer } from '../OverlayLayer';
 import { AnalyticsSkeleton } from '../AnalyticsSkeleton';
+import '../../styles/intent-sense.css';
 
 const MBTI_LABELS: Record<string, [string, string]> = {
   EI: ['外向 E', '内向 I'],
@@ -117,8 +118,6 @@ export function IntentProfileDialog({
     { refetchOnWindowFocus: false, staleTime: 30_000, retry: false },
   );
 
-  useEscapeToClose(onClose);
-
   const data = profile.data as ProfileWire | undefined;
   const mbtiDims = useMemo(
     () =>
@@ -132,10 +131,11 @@ export function IntentProfileDialog({
   );
 
   return (
-    <div
-      className="modal-scrim group-keyword-scrim"
+    <OverlayLayer
+      presentation="modal"
+      className="weq-int-profile-layer"
+      onClose={onClose}
       role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
     >
       <section
         className="group-keyword-dialog weq-int-dialog"
@@ -264,6 +264,6 @@ export function IntentProfileDialog({
           )}
         </div>
       </section>
-    </div>
+    </OverlayLayer>
   );
 }

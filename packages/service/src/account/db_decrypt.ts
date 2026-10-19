@@ -142,6 +142,8 @@ export class DbDecryptService {
             : algoFor(this.session.context, item.dbPath);
         if (login && !algo) throw new Error('login.db 密钥不正确，无法解密');
         await decryptOneInWorker(ntHelperPath, item.dbPath, outPath, key, algo, opts.mode);
+        // Both decrypt modes produce a stock-layout database, so no layout
+        // marker is needed: later executeSql* calls detect it from the header.
         return { name: item.name, dbPath: item.dbPath, outPath, ok: true };
       } catch (e) {
         return {
@@ -185,6 +187,8 @@ async function listDbFiles(dir: string): Promise<AccountDbFile[]> {
   return files;
 }
 
+/** Decrypt one database in a worker thread.  Both modes write a stock-layout
+ * plaintext database, which any SQLite tooling can open directly. */
 function decryptOneInWorker(
   ntHelperPath: string,
   dbPath: string,

@@ -13,8 +13,9 @@
   height: 100%;
   min-height: 0;
   padding: 14px;
-  background: var(--chat-surface);
-  color: #1f2430;
+  /* 透明底：跟随所在页面（维护工具）的界面背景。 */
+  background: transparent;
+  color: var(--weq-fg-primary);
   font-size: 13px;
 }
 
@@ -90,7 +91,7 @@
   margin: 10px 2px 0;
   font-size: 11px;
   line-height: 1.6;
-  color: #8a94a4;
+  color: var(--weq-fg-muted);
 }
 
 /* 隐藏资源列滚动条（保留滚动）。 */
@@ -104,6 +105,25 @@
   height: 0;
 }
 
+/* 分类分组：表情 / 头像 / 图片与视频 / 文件 / 语音 / 空间。 */
+.weq-cache-cat-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-cache-cat-group + .weq-cache-cat-group {
+  margin-top: 10px;
+}
+
+.weq-cache-cat-group-label {
+  padding: 0 4px;
+  color: var(--weq-fg-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
 .weq-cache-cat {
   display: flex;
   align-items: center;
@@ -111,7 +131,7 @@
   padding: 9px 11px;
   border: 1px solid transparent;
   border-radius: 11px;
-  background: rgba(255, 255, 255, 0.6);
+  background: color-mix(in srgb, var(--weq-bg-surface) 60%, transparent);
   backdrop-filter: blur(10px);
   cursor: pointer;
   text-align: left;
@@ -119,14 +139,14 @@
 }
 
 .weq-cache-cat:hover {
-  background: #ffffff;
+  background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
   border-color: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
 }
 
 .weq-cache-cat.is-active {
-  background: #ffffff;
+  background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
   border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
-  box-shadow: 0 8px 22px -16px rgba(0, 122, 204, 0.7);
+  box-shadow: var(--weq-shadow-soft);
 }
 
 .weq-cache-cat-icon {
@@ -143,7 +163,7 @@
 
 .weq-cache-cat.is-active .weq-cache-cat-icon {
   background: var(--weq-accent-effective);
-  color: #ffffff;
+  color: var(--weq-bg-surface);
 }
 
 .weq-cache-cat-text {
@@ -156,12 +176,12 @@
 .weq-cache-cat-text strong {
   font-size: 13px;
   font-weight: 600;
-  color: #283342;
+  color: var(--weq-fg-primary);
 }
 
 .weq-cache-cat-text small {
   font-size: 11px;
-  color: #8a94a4;
+  color: var(--weq-fg-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -176,11 +196,11 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border: 1px solid rgba(0, 0, 0, 0.07);
+  border: 1px solid var(--weq-border-subtle);
   border-radius: 14px;
   background: color-mix(in srgb, var(--weq-bg-surface) 55%, transparent);
   backdrop-filter: blur(20px);
-  box-shadow: 0 16px 40px -32px rgba(7, 31, 61, 0.45);
+  box-shadow: var(--weq-shadow-soft);
   overflow: hidden;
 }
 
@@ -3759,64 +3779,6 @@ html[data-theme="dark"] .weq-filerow-name {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
- * 整体分析入口按钮（资源分类列表顶部 / 收起态细条）
- * ════════════════════════════════════════════════════════════════════════ */
-
-/* 入口按钮行：整体分析 + 清理释放 并排一行，等宽平分。 */
-.weq-cache-actions {
-  display: flex;
-  gap: 6px;
-  margin: 0 2px 8px;
-}
-
-.weq-cache-actions .weq-cache-analyze-btn {
-  flex: 1 1 0;
-  min-width: 0;
-  margin: 0;
-}
-
-.weq-cache-analyze-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  margin: 0 2px 8px;
-  padding: 9px 8px;
-  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-  color: var(--weq-accent-effective);
-  font-size: 12.5px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background-color 130ms ease, border-color 130ms ease, transform 130ms ease;
-}
-
-.weq-cache-analyze-btn:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
-  border-color: color-mix(in srgb, var(--weq-accent-effective) 48%, transparent);
-  transform: translateY(-1px);
-}
-
-.weq-cache-analyze-rail {
-  display: inline-grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  margin-top: 8px;
-  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-  color: var(--weq-accent-effective);
-  cursor: pointer;
-  transition: background-color 130ms ease;
-}
-
-.weq-cache-analyze-rail:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
  * 语音资源卡片（Ptt：模拟波形 + 时长 + 播放/暂停）
  * ════════════════════════════════════════════════════════════════════════ */
 
@@ -4568,24 +4530,6 @@ html[data-theme="dark"] .weq-filerow-name {
 /* ══════════════════════════════════════════════════════════════════════════
    清理释放 (ResourceCleanupDialog)
    ══════════════════════════════════════════════════════════════════════════ */
-
-/* 入口按钮的清理变体（红色调），继承 .weq-cache-analyze-btn / -rail 基样式 */
-.weq-cache-clean-btn {
-  border-color: color-mix(in srgb, #e5484d 32%, transparent);
-  background: color-mix(in srgb, #e5484d 10%, transparent);
-  color: #e5484d;
-}
-.weq-cache-clean-btn:hover {
-  background: color-mix(in srgb, #e5484d 18%, transparent);
-}
-.weq-cache-clean-rail {
-  border-color: color-mix(in srgb, #e5484d 30%, transparent);
-  background: color-mix(in srgb, #e5484d 10%, transparent);
-  color: #e5484d;
-}
-.weq-cache-clean-rail:hover {
-  background: color-mix(in srgb, #e5484d 20%, transparent);
-}
 
 .weq-clean-dialog {
   width: min(680px, 100%);

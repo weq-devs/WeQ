@@ -556,4 +556,17 @@ describe('renderDbRepairReportMarkdown', () => {
       renderDbRepairReportMarkdown(makeRecord({ verification: null, state: 'aborted' })),
     ).toContain('没有自检结果');
   });
+
+  it('布局迁移记录写清任务类型与源 / 目标页布局', () => {
+    const md = renderDbRepairReportMarkdown(
+      makeRecord({
+        kind: 'layout-migration',
+        sourceLayout: 'standard',
+        targetLayout: 'qq',
+      }),
+    );
+    expect(md).toContain('任务类型：**页布局迁移**');
+    expect(md).toContain('源库逻辑页布局：standard SQLite（保留页 262145）');
+    expect(md).toContain('产物逻辑页布局：QQ（保留页 262144）');
+  });
 });

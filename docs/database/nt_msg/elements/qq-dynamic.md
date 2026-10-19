@@ -97,7 +97,8 @@ case，是这两类卡片的正常形态。现已改为 `repeat: true`，解出�
    - `jumpUrl` / `jump_h5`：直接可用的 https 链接（如生日礼物商城、密友绑定 H5）。
    - `jump_schema`：`mqqapi://qzoneschema/?schema=<base64>`，`base64` 解码后是
      `mqzone://arouse/detail?appid=...&uin=...&cellid=...`，即"跳转到空间详情页"的内部协议，
-     渲染端只能识别但打不开（非 http(s)），跟 ark 卡片对内部协议的处理策略一致（忽略点击）。
+     渲染端对已验证的 `appid=311` 与合法 `uin/cellid` 可直接进入应用内说说详情；未知 appid
+     不猜测为说说或主页。可用的 http(s) 跳转仍作为非空间目的地的回退。
    - `desc1` / `desc1_color` / `icon` / `icon_bg_color`：装扮变更卡（dynamicType=17）用，目前样本里
      `desc1` 恒为空串，`icon`/`icon_bg_color` 有值但未使用。
 3. **base64 编码的嵌套 protobuf**——仅在 `dynamicType=11`（互动认证/认识多久）见到。整段

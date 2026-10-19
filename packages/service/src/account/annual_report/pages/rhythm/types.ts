@@ -38,7 +38,7 @@ export type RhythmPageData = {
   /** 按本地小时 0..23 的自己发出条数。 */
   hourly: number[];
   /**
-   * 7×24 矩阵：行序与 `Date#getDay()` 一致（0 = 周日），列 = 本地小时。
+   * 7×24 矩阵：行序为北京日历星期（0 = 周日），列 = 北京时间小时。
    * 给“一周绿墙”用。
    */
   weekdayHourly: number[][];

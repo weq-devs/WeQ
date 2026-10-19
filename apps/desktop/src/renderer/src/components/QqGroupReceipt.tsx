@@ -72,7 +72,7 @@ function GroupReceiptDialog({
   }, [payers, groupCode]);
 
   return (
-    <Modal onClose={onClose} width={400}>
+    <Modal presentation="popover" onClose={onClose} width={400}>
       <div className="weq-modal-scrim" onMouseDown={closeFromScrim(onClose)} />
       <div className="weq-group-receipt-dialog">
         {/* 标题栏 */}

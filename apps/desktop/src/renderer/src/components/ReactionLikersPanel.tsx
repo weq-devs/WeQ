@@ -18,6 +18,7 @@ import { RotateCw, Users } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { cn } from '../lib/utils';
 import { QqAvatar } from './QqAvatar';
+import { useOverlayLayer } from '../lib/overlayStack';
 
 /** 每页条数（IPC 侧上限 200）。 */
 const PAGE_SIZE = 30;
@@ -60,6 +61,7 @@ export function ReactionLikersPanel({
   onClose: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const layer = useOverlayLayer(true);
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const selfUin = selfProfile.data?.uin ? String(selfProfile.data.uin) : '';
 
@@ -131,6 +133,7 @@ export function ReactionLikersPanel({
     <div
       ref={panelRef}
       className={cn('reaction-likers')}
+      style={{ zIndex: layer }}
       role="dialog"
       aria-label={`${emojiLabel} 的回应人`}
       onPointerEnter={onPointerEnter}

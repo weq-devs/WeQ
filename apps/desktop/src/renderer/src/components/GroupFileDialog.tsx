@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { ArrowLeft, ChevronRight, Download, Loader2, X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
@@ -24,14 +24,24 @@ const ROOT: Crumb = { id: '/', name: '全部文件' };
 export function GroupFileDialog({
   groupCode,
   groupName,
+  initialFolderId,
+  initialFileId,
   onClose,
 }: {
   groupCode: string;
   groupName: string;
+  initialFolderId?: string;
+  initialFileId?: string;
   onClose: () => void;
 }): ReactElement {
   const dialog = useAppDialog();
-  const [crumbs, setCrumbs] = useState<Crumb[]>([ROOT]);
+  const [crumbs, setCrumbs] = useState<Crumb[]>(
+    initialFolderId && initialFolderId !== '/'
+      ? [ROOT, { id: initialFolderId, name: '定位目录' }]
+      : [ROOT],
+  );
+  const root = useRef<HTMLElement>(null);
+  const [searchMissing, setSearchMissing] = useState(false);
   const [listing, setListing] = useState<GroupFileListing | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +72,17 @@ export function GroupFileDialog({
       cancelled = true;
     };
   }, [groupCode, current.id]);
+  useEffect(() => {
+    if (!initialFileId || loading || error || !listing || current.id !== (initialFolderId ?? '/')) {
+      setSearchMissing(false);
+      return;
+    }
+    setSearchMissing(!listing.files.some((file) => file.fileId === initialFileId));
+    const row = [...(root.current?.querySelectorAll<HTMLElement>('[data-file-id]') ?? [])].find(
+      (item) => item.dataset.fileId === initialFileId,
+    );
+    row?.scrollIntoView({ block: 'center' });
+  }, [initialFileId, initialFolderId, current.id, loading, error, listing]);
 
   const download = useCallback(
     async (file: GroupFileWire): Promise<void> => {
@@ -97,11 +118,17 @@ export function GroupFileDialog({
   }, [listing]);
 
   return (
-    <OverlayLayer className="modal-scrim group-album-scrim" onClose={onClose}>
+    <OverlayLayer
+      presentation="sidecar"
+      title="群文件"
+      className="modal-scrim group-album-scrim"
+      onClose={onClose}
+    >
       <section
         className="group-album-dialog group-file-dialog"
-        role="dialog"
-        aria-modal="true"
+        ref={root}
+        role="region"
+        aria-label={`${groupName}的群文件`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header>
@@ -114,6 +141,7 @@ export function GroupFileDialog({
           </button>
         </header>
 
+        {searchMissing ? <p role="status">搜索命中的文件已删除或当前目录不可见。</p> : null}
         <div className="group-album-body">
           <div className="group-file-toolbar">
             <div className="group-file-crumbs">
@@ -169,7 +197,15 @@ export function GroupFileDialog({
                 </li>
               ))}
               {listing.files.map((file) => (
-                <li key={`${file.fileId}:${file.uploadedTime}`}>
+                <li
+                  key={`${file.fileId}:${file.uploadedTime}`}
+                  data-file-id={file.fileId}
+                  className={
+                    file.fileId === initialFileId && current.id === (initialFolderId ?? '/')
+                      ? 'is-search-hit'
+                      : undefined
+                  }
+                >
                   <div className="group-file-row">
                     <img
                       src={fileIconUrl(fileExtIcon(file.fileName))}

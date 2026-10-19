@@ -1,10 +1,15 @@
 ﻿// @ts-nocheck
 import { ChevronRight, Plus, Search, UserPlus, UsersRound, RefreshCw } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useState, type ReactNode } from 'react';
+import { ContactDirectoryContext } from '../../lib/conversationDirectory';
+import { useContentMultiSelect } from '../../state/contentSelection';
+import { DirectoryToolbar } from '../../components/DirectoryToolbar';
+import { allSelectionIdsSelected, toggleAllSelectionIds } from '../../lib/multiSelection';
 import { cn } from './classNames';
 import { Avatar } from './primitives';
 import type { ContactTab, MainView, User } from './types';
 import { displayUserName } from './user';
+import '../../styles/contact-navigation.css';
 
 export function SidebarHeader({
   user,
@@ -20,6 +25,7 @@ export function SidebarHeader({
   onContactTabChange,
   onRefreshContacts,
   refreshingContacts = false,
+  showSearch = true,
   activeNotice,
   searchPanel,
   onSearchFocus,
@@ -39,6 +45,7 @@ export function SidebarHeader({
   onContactTabChange: (tab: ContactTab) => void;
   onRefreshContacts?: () => void;
   refreshingContacts?: boolean;
+  showSearch?: boolean;
   activeNotice: 'friend' | 'group' | null;
   /**
    * 挂在搜索框正下方的浮层（统一搜索下拉 / 最近搜索）。
@@ -52,6 +59,8 @@ export function SidebarHeader({
   groupNoticeCount?: number;
 }) {
   const [addOpen, setAddOpen] = useState(false);
+  const directory = useContext(ContactDirectoryContext);
+  const selection = useContentMultiSelect({ kind: 'contacts', container: contactTab });
 
   useEffect(() => {
     if (!addOpen) {
@@ -129,7 +138,13 @@ export function SidebarHeader({
           : displayUserName(user);
 
   return (
-    <div className={cn('sidebar-header', view === 'contacts' && 'sidebar-header-contacts')}>
+    <div
+      className={cn(
+        'sidebar-header',
+        !showSearch && 'sidebar-header-no-search',
+        view === 'contacts' && 'sidebar-header-contacts',
+      )}
+    >
       <div className={cn('mobile-sidebar-top')}>
         <button className={cn('mobile-sidebar-avatar')} type="button" onClick={onOpenProfile}>
           <Avatar
@@ -149,27 +164,58 @@ export function SidebarHeader({
         </div>
         <div className={cn('mobile-sidebar-actions')}>{renderAddMenu()}</div>
       </div>
-      <div className={cn('search-row')}>
-        <label className={cn('search-box')}>
-          <Search size={22} />
-          <input
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            onFocus={() => onSearchFocus?.()}
-            placeholder="搜索"
-          />
-        </label>
-        <div className={cn('desktop-sidebar-add')}>{renderAddMenu()}</div>
-        {searchPanel ? <div className={cn('search-panel-slot')}>{searchPanel}</div> : null}
-      </div>
+      {showSearch ? (
+        <div className={cn('search-row')}>
+          <label className={cn('search-box')}>
+            <Search size={22} />
+            <input
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              onFocus={() => onSearchFocus?.()}
+              placeholder="搜索"
+            />
+          </label>
+          <div className={cn('desktop-sidebar-add')}>{renderAddMenu()}</div>
+          {searchPanel ? <div className={cn('search-panel-slot')}>{searchPanel}</div> : null}
+        </div>
+      ) : null}
       {view === 'contacts' ? (
         <div className={cn('contact-tools')}>
+          <DirectoryToolbar
+            noun="联系人"
+            query={directory?.query ?? ''}
+            onQuery={(value) => directory?.onQuery(value)}
+            selecting={selection.selectionMode}
+            onSelecting={selection.setSelectionMode}
+            count={selection.selectedIds.size}
+            allSelected={allSelectionIdsSelected(directory?.ids ?? [], selection.selectedIds)}
+            onSelectAll={() =>
+              selection.setSelectedIds(
+                toggleAllSelectionIds(directory?.ids ?? [], selection.selectedIds),
+              )
+            }
+          >
+            {onRefreshContacts ? (
+              <button
+                type="button"
+                onClick={onRefreshContacts}
+                disabled={refreshingContacts}
+                aria-label={refreshingContacts ? '正在刷新联系人' : '刷新联系人列表'}
+                title={refreshingContacts ? '正在刷新联系人' : '刷新联系人列表'}
+                aria-busy={refreshingContacts}
+              >
+                <RefreshCw size={15} className={refreshingContacts ? 'spin' : undefined} />
+              </button>
+            ) : null}
+          </DirectoryToolbar>
           <button
             type="button"
             className={cn(contactToolButtonClass(activeNotice === 'friend'))}
+            aria-current={activeNotice === 'friend' ? 'page' : undefined}
             onClick={onOpenFriendNotices}
           >
             <span className={cn('notice-entry-label')}>
+              <UserPlus size={17} aria-hidden />
               <span className={cn('desktop-notice-label')}>好友通知</span>
               <span className={cn('mobile-notice-label')}>新朋友</span>
             </span>
@@ -178,9 +224,13 @@ export function SidebarHeader({
           <button
             type="button"
             className={cn(contactToolButtonClass(activeNotice === 'group'))}
+            aria-current={activeNotice === 'group' ? 'page' : undefined}
             onClick={onOpenGroupNotices}
           >
-            <span className={cn('notice-entry-label')}>群通知</span>
+            <span className={cn('notice-entry-label')}>
+              <UsersRound size={17} aria-hidden />
+              群通知
+            </span>
             <ChevronRight size={20} />
           </button>
           <div className="contact-list-controls">
@@ -200,19 +250,6 @@ export function SidebarHeader({
                 群聊
               </button>
             </div>
-            {onRefreshContacts ? (
-              <button
-                type="button"
-                className="contact-list-refresh"
-                onClick={onRefreshContacts}
-                disabled={refreshingContacts}
-                aria-label={refreshingContacts ? '正在刷新联系人' : '刷新联系人列表'}
-                title={refreshingContacts ? '正在刷新联系人' : '刷新联系人列表'}
-                aria-busy={refreshingContacts}
-              >
-                <RefreshCw size={15} />
-              </button>
-            ) : null}
           </div>
         </div>
       ) : null}
@@ -221,7 +258,7 @@ export function SidebarHeader({
 }
 
 function contactToolButtonClass(active: boolean) {
-  return cn(active && 'active');
+  return cn('weq-contact-notice-entry', active && 'active');
 }
 
 function contactTabButtonClass(active: boolean) {

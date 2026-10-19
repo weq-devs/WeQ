@@ -193,6 +193,8 @@ export {
   type GroupMessageRankingItem,
   type GroupWordCloudItem,
   type GroupDailyActivityItem,
+  type GroupStatsTimeline,
+  type GroupStatsRange,
   type GroupJoinBatchMember,
   type GroupJoinBatch,
   type GroupJoinBatchReport,
@@ -203,9 +205,13 @@ export {
   BuddyAnalyticsService,
   type BuddyAnalytics,
   type BuddyReplyStats,
+  type BuddyAnalyticsRange,
+  type BuddyAnalyticsTimeline,
 } from './account/buddy_analytics';
 export { GroupNotifyService } from './account/group_notify';
+export type { GroupNotifyOnlineDeps } from './account/group_notify';
 export { ProfileService } from './account/profile';
+export type { ProfileOnlineDeps } from './account/profile';
 export {
   EmojiService,
   feeTypeLabel as marketFeeTypeLabel,
@@ -221,6 +227,7 @@ export {
   type PanelRelatedTag,
   type PanelRelatedGif,
 } from './account/emoji';
+export type { EmojiOnlineDeps } from './account/emoji';
 export type { MarketEmoticonPackage } from '@weq/db';
 export { FileAssistantService } from './account/file_assistant';
 export { CollectionService, type CollectionPage } from './account/collection';
@@ -240,6 +247,7 @@ export {
 export { FileSearchService } from './account/file_search';
 export type { FileType, SearchResult } from './account/file_search';
 export { OnlineStatusService } from './account/online_status';
+export type { OnlineStatusOnlineDeps } from './account/online_status';
 export type { FormattedOnlineStatus } from './account/online_status';
 export { AgentLabService } from './account/agentlab';
 export type {
@@ -312,6 +320,11 @@ export {
   type RawEngineSenseOutput,
 } from './account/intent_corpus';
 export { MergeForwardDraftStore } from './account/merge_forward_drafts';
+export { MergeForwardArchiveStore } from './account/merge_forward_archive';
+export type {
+  MergeForwardArchiveEntry,
+  MergeForwardArchiveKind,
+} from './account/merge_forward_archive';
 export type {
   MergeForwardDraft,
   MergeForwardDraftInput,
@@ -323,7 +336,32 @@ export type { RenderElement, RenderTextElement } from './account/msg_view';
 // 渲染层要按这个类型读 RenderTextElement.urlVerify，从 codec 借道转出去。
 export type { UrlVerifyInfo } from '@weq/codec';
 export { MsgSearchService } from './account/msg_search';
-export { UnifiedSearchService } from './account/unified_search';
+export { UnifiedSearchService, SEARCH_CATEGORIES } from './account/unified_search';
+export type { CollectionSearchHit } from './account/collection_search';
+export type { GeneratedSearchHit, GeneratedSearchSources } from './account/generated_search';
+export {
+  ContentSearchStore,
+  CONTENT_SEARCH_CATEGORIES,
+  contentSearchKey,
+} from './account/content_search';
+export { htmlPlainText } from './common/html_text';
+export { qzoneFeedSearchRecord } from './account/content_search_projection';
+export type {
+  ContentSearchHit,
+  ContentSearchTarget,
+  ContentSearchCategory,
+  ContentSearchRecord,
+  ContentSearchPage,
+  ContentSearchCoverage,
+} from './account/content_search';
+export { listGeneratedConversations, captureGeneratedContent } from './account/generated_content';
+export { resolveGeneratedResource } from './account/export/generated_resources';
+export type {
+  GeneratedContentTarget,
+  GeneratedContentSnapshot,
+  GeneratedConversation,
+} from './account/generated_content';
+export { GENERATED_EXPORT_FORMATS } from './account/export/generated_export';
 export type {
   SearchCategory,
   FtsSource,
@@ -499,12 +537,14 @@ export type {
   DbRepairLockClassification,
   DbRepairLockHolder,
   DbRepairLockProbe,
+  DbRepairLayoutProbe,
   DbRepairPaths,
   DbRepairPhase,
   DbRepairPreflight,
   DbRepairProgress,
   DbRepairReadiness,
   DbRepairRecord,
+  DbRepairRecordKind,
   DbRepairRecordState,
   DbRepairRecoverOptions,
   DbRepairRecoverPhaseTiming,
@@ -577,21 +617,36 @@ export type {
   SsePushPayload,
 } from './account/sse_push';
 
-// ---- web cgi (query-only: group notice / album list / honor) ----
+// ---- web cgi (group notice write / sign-in / album upload / qzone write) ----
 export {
   WebQueryService,
   HonorType,
   computeBkn,
-  PT_LOGIN_DOMAINS,
   fetchWebTokens,
-  fetchSkeyViaPtLogin,
-  fetchPskeyViaPtLogin,
+  setGroupNotice,
+  deleteGroupNotice,
+  uploadGroupNoticeImage,
+  resolveGroupNoticeOptions,
+  parseGroupNoticeImageUploadResponse,
+  GROUP_NOTICE_TYPE_NORMAL,
+  GROUP_NOTICE_TYPE_NEW_MEMBERS,
+  fetchDaySignedList,
+  mapDaySignedList,
+  dayYmd,
+  uploadGroupAlbumImage,
+  setQzoneLike,
+  commentQzoneMsg,
 } from './account/web';
-export { buildPtlogin2JumpUrl } from './account/web/ptlogin';
 export type {
   GroupNotice,
   GroupNoticeImage,
+  SetGroupNoticeOptions,
+  ResolvedGroupNoticeOptions,
+  SignedListMember,
+  FetchDaySignedListParams,
   GroupAlbum,
+  UploadGroupAlbumImageParams,
+  QzoneCommentResult,
   HonorMember,
   WebCredential,
   FriendMutualMark,
@@ -733,6 +788,16 @@ export type {
   FavEmojiRow,
 } from './account/export';
 export { ExportTaskManager } from './account/export/task_manager';
+export {
+  normalizeExportSaveMode,
+  copyExportSavePolicy,
+  resolveExportSaveDirectory,
+} from './account/export/save_output';
+export type {
+  ExportSaveMode,
+  ExportSavePolicy,
+  ExportSaveState,
+} from './account/export/save_output';
 export { ExportScheduler } from './account/export/scheduler';
 export { assertDestinationCapacity } from './account/export/storage_preflight';
 export { inferOcrFailureKind } from './account/export';

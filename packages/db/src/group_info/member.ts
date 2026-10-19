@@ -150,6 +150,22 @@ export class GroupMemberDb {
     }));
   }
 
+  /** 分析可选名册包含在群与退群记录，不套用当前成员过滤或分页上限。 */
+  async listAnalysisMembers(
+    groupCode: bigint,
+  ): Promise<Array<{ uid: string; uin: string; nick: string; card: string }>> {
+    const rows = await this.qq.query(
+      `SELECT "1000","1002","20002","64003" FROM group_member3 WHERE "60001" = ?`,
+      [groupCode],
+    );
+    return rows.map((row) => ({
+      uid: String(row[0] ?? ''),
+      uin: row[1] == null || String(row[1]) === '0' ? '' : String(row[1]),
+      nick: String(row[2] ?? ''),
+      card: String(row[3] ?? ''),
+    }));
+  }
+
   /**
    * 全群成员的「入群时间快照」—— 小团体分析的原料：谁的入群时间挨得近，谁就是一伙的。
    *
@@ -242,8 +258,21 @@ export class GroupMemberDb {
       this.qq.query(
         `SELECT "60001","1000","1002","20002","64003" FROM group_member3
          WHERE ${where}
+         ORDER BY CASE
+           WHEN CAST("1002" AS TEXT) = ? OR "20002" = ? COLLATE NOCASE THEN 0
+           WHEN CAST("1002" AS TEXT) LIKE ? ESCAPE '\\' OR "20002" LIKE ? ESCAPE '\\' THEN 1
+           ELSE 2 END, "60001" ASC, "1000" ASC
          LIMIT ? OFFSET ?`,
-        [like, like, BigInt(limit), BigInt(offset)],
+        [
+          like,
+          like,
+          needle,
+          needle,
+          `${escapeLike(needle)}%`,
+          `${escapeLike(needle)}%`,
+          BigInt(limit),
+          BigInt(offset),
+        ],
       ),
     ]);
     return {

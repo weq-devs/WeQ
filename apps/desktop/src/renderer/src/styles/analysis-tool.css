@@ -1,0 +1,32 @@
+.weq-analysis-tool { display: flex; flex-direction: column; min-height: 0; height: 100%; color: var(--weq-fg-primary); }
+.weq-analysis-fields { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 20px; border: 0; padding: 20px; margin: 0; min-height: 0; overflow-y: auto; flex: 1; }
+.weq-analysis-config { display: flex; flex-direction: column; gap: 16px; }
+.weq-analysis-config label { display: flex; flex-direction: column; gap: 7px; font-size: 13px; }
+.weq-analysis-config select, .weq-analysis-config input, .weq-analysis-search { background: var(--weq-bg-surface); color: var(--weq-fg-primary); border: 1px solid var(--weq-border-strong); border-radius: 4px; padding: 8px; min-width: 0; width: 100%; box-sizing: border-box; }
+.weq-analysis-config input:focus-visible, .weq-analysis-config select:focus-visible, .weq-analysis-search:focus-within { outline: 2px solid var(--weq-accent-effective); outline-offset: 1px; }
+.weq-analysis-dates { display: flex; flex-direction: column; gap: 12px; }
+.weq-analysis-dates small, .weq-analysis-state, .weq-analysis-choice small { color: var(--weq-fg-secondary); }
+.weq-analysis-objects, .weq-analysis-picker { min-width: 0; min-height: 0; }
+.weq-analysis-search { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.weq-analysis-search input { border: 0; background: transparent; color: inherit; min-width: 0; flex: 1; outline: 0; }
+.weq-analysis-choice { display: flex; flex-direction: column; justify-content: center; gap: 3px; width: 100%; height: 100%; padding: 5px 10px; border: 0; border-bottom: 1px solid var(--weq-border-subtle); background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.weq-analysis-choice strong, .weq-analysis-choice small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.weq-analysis-choice.is-selected, .weq-analysis-choice:hover { background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); }
+.weq-analysis-choice:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: -2px; }
+.weq-analysis-state { padding: 18px 0; font-size: 13px; }
+.weq-analysis-group { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; background: transparent; border: 0; color: inherit; cursor: pointer; }
+.weq-analysis-foot { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 20px; border-top: 1px solid var(--weq-border-subtle); }
+.weq-analysis-foot span { font-size: 13px; color: var(--weq-fg-secondary); }
+.weq-analysis-foot [role="alert"] { color: var(--destructive); }
+.weq-analysis-foot button { display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0; border: 0; border-radius: 4px; padding: 9px 15px; background: var(--weq-accent-effective); color: var(--primary-foreground); cursor: pointer; }
+.weq-analysis-foot button:disabled { opacity: 0.5; cursor: default; }
+.weq-analysis-result { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.weq-analysis-result-body { flex: 1; min-height: 0; overflow: hidden; }
+.weq-analysis-result .group-album-dialog { width: 100%; max-width: none; height: 100%; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
+html[data-theme="dark"] .weq-analysis-choice.is-selected, html[data-theme="dark"] .weq-analysis-choice:hover { background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent); }
+@media (max-width: 640px) { .weq-analysis-fields { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 14px; } .weq-analysis-config { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } .weq-analysis-dates { grid-column: 1 / -1; } .weq-analysis-foot { padding: 12px 14px; } }
+.weq-analysis-period { margin: 0; padding: 8px 18px; color: var(--weq-fg-secondary); border-bottom: 1px solid var(--weq-border-subtle); font-size: 12px; flex-shrink: 0; }
+.weq-analysis-error { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+.group-album-dialog:has(> .weq-analysis-period) { grid-template-rows: auto auto minmax(0, 1fr); }
+.weq-analysis-result .group-album-body { min-height: 0; }
+.weq-analysis-result .group-album-dialog header .ga-head-actions { display: flex; }

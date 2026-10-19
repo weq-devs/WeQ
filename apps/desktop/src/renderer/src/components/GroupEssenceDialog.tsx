@@ -41,11 +41,15 @@ export function GroupEssenceDialog({
   onJumpToMessage?: (seq: number) => void;
 }): ReactElement {
   return (
-    <OverlayLayer className="modal-scrim group-essence-scrim" onClose={onClose}>
+    <OverlayLayer
+      presentation="sidecar"
+      title="群精华"
+      className="modal-scrim group-essence-scrim"
+      onClose={onClose}
+    >
       <section
         className="group-essence-dialog"
         role="dialog"
-        aria-modal="true"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header>

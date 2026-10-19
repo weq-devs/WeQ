@@ -1,7 +1,10 @@
+import { compositionPopupOptions, controlCompositionWindow } from './composition_window';
+import { floatingWindowTypeOption } from './linux_window_backend';
 import {
   app,
   BrowserWindow,
   clipboard,
+  ClipboardItem,
   dialog,
   ipcMain,
   Menu,
@@ -10,6 +13,7 @@ import {
   protocol,
   shell,
   Tray,
+  type IpcMainEvent,
 } from 'electron';
 import fs from 'node:fs';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
@@ -21,10 +25,12 @@ import {
   setGroupKeywordNotifier,
   setIntentSenseLocalEngine,
   setRecallNotifier,
+  setMailNotifier,
 } from './context/app_context';
 import { getIntentSenseLocalEngine } from './intent_sense/bridge';
 import { probeQqProtocolHandler } from './context/qq_protocol';
 import { appRouter } from './ipc/router';
+import { guardTrpcReply } from './ipc/reply_guard';
 import { resolveResource } from './resource';
 import { RESOURCE_PRIVILEGED_SCHEME } from './resource_protocol';
 import { AVATAR_PRIVILEGED_SCHEME } from './avatar_protocol';
@@ -37,6 +43,7 @@ import {
 import { getAppContext } from './context/app_context';
 import { handleGroupKeywordHit } from './group_keyword_notify';
 import { handleRecallNotification } from './recall_notify';
+import { handleMailNotification } from './mail_notify';
 import { checkForUpdate, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
@@ -64,7 +71,12 @@ import { electronHost } from './host';
 import { systemAuthService } from './system_auth';
 import { totpAuthService } from './totp_auth';
 import { screenshotPage } from './link_shot';
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const moduleDir = dirname(fileURLToPath(import.meta.url));
+
+// Wayland 会话默认走 XWayland（见 linux_window_backend.ts）：这里**不能**用
+// `appendSwitch`，ozone 后端必须在 Electron 启动参数里指定。开发时由
+// electron.vite.config.ts 注入 `ELECTRON_CLI_ARGS`，打包版由 electron-builder 的
+// `linux.executableArgs` 注入。
 
 // Privileged-scheme registration must happen before app `ready`, and Electron
 // honors only ONE `registerSchemesAsPrivileged` call — register every custom
@@ -90,10 +102,13 @@ const WINDOW_LAYOUTS = {
   chat: { width: 1180, height: 760 },
 } as const;
 
+type WindowLayout = keyof typeof WINDOW_LAYOUTS;
+
 const logger = getLogger().child({ scope: 'desktop-main' });
 
 /** Created once; reopening attaches a window without registering IPC again. */
 let mainIpcHandler: { attachWindow(win: BrowserWindow): void } | null = null;
+const compositionWindows = new Map<number, BrowserWindow>();
 /** System-tray icon; null until built (or if creation failed). */
 let tray: Tray | null = null;
 /** Set true right before a *real* quit so the `close` handler stops intercepting
@@ -172,14 +187,18 @@ function buildTray(): void {
 }
 
 function registerWindowLayoutIpc(): void {
-  ipcMain.handle('window:set-layout', (event, layout: keyof typeof WINDOW_LAYOUTS) => {
+  ipcMain.on('composition:control', (event, action: unknown) => {
+    const child = compositionWindows.get(event.sender.id);
+    if (child) controlCompositionWindow(child, action);
+  });
+  ipcMain.handle('window:set-layout', (event, layout: WindowLayout) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const size = WINDOW_LAYOUTS[layout] ?? WINDOW_LAYOUTS.home;
     // Don't fight a user who maximized/fullscreened the window.
     if (!win || win.isMaximized() || win.isFullScreen()) return;
-    const [w, h] = win.getSize();
+    const [w, h] = win.getContentSize();
     if (w === size.width && h === size.height) return;
-    win.setSize(size.width, size.height, true);
+    win.setContentSize(size.width, size.height, true);
   });
 
   ipcMain.on('window-minimize', (event) => {
@@ -397,6 +416,21 @@ function registerMediaIpc(): void {
   );
 }
 
+/**
+ * 把 NativeImage 写进系统剪贴板。
+ *
+ * Electron 44 对齐 W3C Clipboard API，移除了 `clipboard.writeImage`，统一走
+ * 异步的 `clipboard.write([ClipboardItem])`；图片按 PNG 编码后以 `image/png`
+ * MIME 交给系统。
+ */
+async function writeImageToClipboard(image: Electron.NativeImage): Promise<void> {
+  await clipboard.write([
+    new ClipboardItem({
+      'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }),
+    }),
+  ]);
+}
+
 /** 文件名里剔掉路径分隔符等非法字符；空名字返回 ''。 */
 function sanitizeExportName(name: string | undefined): string {
   const trimmed = (name ?? '').trim();
@@ -433,7 +467,7 @@ function registerMediaExportIpc(): void {
         if (input?.mode === 'clipboard') {
           const image = nativeImage.createFromBuffer(bytes);
           if (image.isEmpty()) return { ok: false, error: '这张图的格式没法写进剪贴板' };
-          clipboard.writeImage(image);
+          await writeImageToClipboard(image);
           return { ok: true };
         }
 
@@ -526,7 +560,7 @@ function registerCaptureIpc(): void {
     try {
       const image = await win.webContents.capturePage();
       if (image.isEmpty()) return { ok: false, error: '截图为空' };
-      clipboard.writeImage(image);
+      await writeImageToClipboard(image);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -548,8 +582,6 @@ function createWindow(): BrowserWindow {
   // is the least invasive one that Hyprland/sway treat as floating (unlike
   // 'splash', it keeps the taskbar entry). Opt-out with WEQ_WINDOW_TYPE=normal
   // (or override to another value) so this can be disabled per-environment.
-  const windowType =
-    process.env.WEQ_WINDOW_TYPE ?? (process.platform === 'linux' ? 'toolbar' : undefined);
   const win = new BrowserWindow({
     width: 1120,
     height: 580,
@@ -560,10 +592,10 @@ function createWindow(): BrowserWindow {
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
     titleBarStyle: 'hidden',
-    ...(windowType && windowType !== 'normal' ? { type: windowType } : {}),
+    ...floatingWindowTypeOption(),
     ...(icon ? { icon } : {}),
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
+      preload: join(moduleDir, '../preload/index.mjs'),
       sandbox: false,
       contextIsolation: true,
       // 允许在渲染层用 <webview> 内嵌 QQ 空间 / 频道（见 QzoneView / ChannelView）。
@@ -612,15 +644,40 @@ function createWindow(): BrowserWindow {
     win.webContents.send('window:confirm-close', { canMinimizeToTray: Boolean(tray) });
   });
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  win.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    const options = compositionPopupOptions(url, frameName);
+    if (options) return { action: 'allow', overrideBrowserWindowOptions: options };
     shell.openExternal(url);
     return { action: 'deny' };
+  });
+  win.webContents.on('did-create-window', (child, details) => {
+    if (details.frameName !== 'weq-compose' || details.url !== 'about:blank') return;
+    const owner = win.webContents.id;
+    compositionWindows.set(owner, child);
+    const reportState = () => {
+      if (!win.isDestroyed() && !child.isDestroyed())
+        win.webContents.send('composition:state', { maximized: child.isMaximized() });
+    };
+    child.on('maximize', reportState);
+    child.on('unmaximize', reportState);
+    reportState();
+    child.on('closed', () => {
+      if (compositionWindows.get(owner) === child) compositionWindows.delete(owner);
+    });
+    child.webContents.setWindowOpenHandler(({ url }) => {
+      void shell.openExternal(url);
+      return { action: 'deny' };
+    });
+    child.webContents.on('will-navigate', (event, url) => {
+      event.preventDefault();
+      if (url !== 'about:blank') void shell.openExternal(url);
+    });
   });
 
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     void win.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'));
+    void win.loadFile(join(moduleDir, '../renderer/index.html'));
   }
   return win;
 }
@@ -659,6 +716,7 @@ void app.whenReady().then(async () => {
   setGroupKeywordNotifier(handleGroupKeywordHit);
   // 防撤回：拦到新撤回时按会话开关弹系统通知（服务层注入，保持 Electron-free）。
   setRecallNotifier(handleRecallNotification);
+  setMailNotifier(handleMailNotification);
   // 意图感知本地引擎（Laya ONNX worker）：bridge 认识 Electron（userData 路径、
   // fork），同样从这里注入控制面；web 端不注入，localAvailable 恒为 false。
   setIntentSenseLocalEngine(getIntentSenseLocalEngine());
@@ -688,7 +746,15 @@ void app.whenReady().then(async () => {
     optimizer.watchWindowShortcuts(win);
   });
 
-  mainIpcHandler = createIPCHandler({ router: appRouter, windows: [] });
+  mainIpcHandler = createIPCHandler({
+    router: appRouter,
+    windows: [],
+    createContext: async ({ event }) => {
+      // electron-trpc 实际使用 ipcMain.on，但类型误声明为 InvokeEvent。
+      guardTrpcReply(event as IpcMainEvent);
+      return {};
+    },
+  });
   openMainWindow();
   logger.info('main window created', { event: 'create-window' });
   buildTray();

@@ -1,11 +1,9 @@
-# QQ Space Reply Recipient Display
+# 空间回复接收者显示
 
-Replies render as `author replies to recipient: body`: the automatic recipient is shown as the existing blue clickable name before the colon, not as an authored `@` in the body.
+回复显示为“作者回复接收者：正文”，自动接收者在冒号前作为可点击名称，不在正文伪装成作者输入的 `@`。
 
-`qzoneReplyPresentation` is a renderer-only projection. It recognizes a leading structured recipient through exact reply-target identity, an explicit `who:1` marker, or an exact known parent identity in legacy replies. It does not guess by display names, strip plain-text `@name`, remove unrelated authored mentions, or override conflicting recipient metadata. Subsequent authored mentions remain in the body. Both expanded comments and resolved notification excerpts use the projection.
+`qzoneReplyPresentation` 只作渲染投影，以精确回复目标、明确 `who:1` 或旧回复的精确父身份识别首个结构化接收者。不按显示名猜测、不删除纯文本 `@名字` 或其它作者提及，不覆盖冲突元数据；评论和已解析通知摘要共用该投影。
 
-The existing recipient link continues to open the exact recipient UIN. Source comment objects, raw text and exported records are not rewritten.
+接收者链接按真实 UIN 打开。源评论、原文和导出记录不被改写；后续手写提及仍保留在正文。
 
-Verification: six pure projection tests pass; four actual QzoneView desktop/mobile light/dark synthetic cases verify recipient placement, preserved authored mentions, blue links to the exact two test UINs, and the absence of the automatic recipient prefix from the resolved notification excerpt. No real QQ requests were made.
-
-This is a renderer-only change and can use development HMR; WeQ and QQ do not need restarting.
+回归入口：`apps/desktop/test/qzone_reply_presentation.test.ts`，验证接收者位置、身份冲突、作者提及保留和通知摘要；无需真实 QQ 请求。

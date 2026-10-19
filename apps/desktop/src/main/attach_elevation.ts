@@ -77,7 +77,7 @@ import { resolveChildWorkerPath } from './worker_path';
 
 const logger = getLogger().child({ scope: 'attach-elevation' });
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const moduleDir = dirname(fileURLToPath(import.meta.url));
 
 /**
  * macOS 且 SIP 开着时的拒绝理由。给两条出路：扫码（不读内存），或者关掉 SIP 再来。
@@ -97,7 +97,7 @@ export const SIP_ENABLED_MESSAGE =
  * `out/main/chunks/`, so try the sibling path first, then one level up.
  */
 function resolveWorkerPath(): string {
-  return resolveChildWorkerPath('attachWorker.mjs', __dirname);
+  return resolveChildWorkerPath('attachWorker.mjs', moduleDir);
 }
 
 /**

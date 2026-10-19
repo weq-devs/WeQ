@@ -32,6 +32,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { Card, Row, SectionHeader, Toggle } from './controls';
@@ -213,17 +214,12 @@ export function McpServerSection(): ReactElement {
     await agentTargets.refetch();
   }
 
-  function toggleAgent(key: string): void {
-    setSelectedAgents((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  }
+  const agentsMulti = useMultiSelection({
+    ids: actionableTargets.map((item) => item.key),
+    selected: selectedAgents,
+    onChange: setSelectedAgents,
+    disabled: installToAgents.isLoading,
+  });
 
   function agentStatus(t: AgentTarget): { tone: 'ok' | 'stale' | 'new'; text: string } {
     if (t.installed && t.upToDate) return { tone: 'ok', text: '已是最新' };
@@ -433,7 +429,7 @@ export function McpServerSection(): ReactElement {
             等，再回来扫描。
           </div>
         ) : (
-          <div className="weq-set-agent-list">
+          <div className="weq-set-agent-list" {...agentsMulti.rootProps}>
             {visibleTargets.map((t) => {
               const actionable = !t.installed || !t.upToDate;
               const status = agentStatus(t);
@@ -446,10 +442,7 @@ export function McpServerSection(): ReactElement {
                   }`}
                   role="checkbox"
                   aria-checked={actionable && checked}
-                  aria-disabled={!actionable}
-                  onClick={() => {
-                    if (actionable) toggleAgent(t.key);
-                  }}
+                  {...agentsMulti.itemProps(t.key, !actionable)}
                 >
                   <span className={`weq-set-agent-chk${checked ? ' is-on' : ''}`} aria-hidden>
                     {checked ? <Check size={12} /> : null}

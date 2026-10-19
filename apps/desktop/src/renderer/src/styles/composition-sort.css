@@ -1,0 +1,7 @@
+.weq-mf-sort-handle { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 24px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--weq-fg-muted); cursor: grab; }
+.weq-mf-sort-handle:hover:not(:disabled) { color: var(--weq-accent-effective); background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); }
+.weq-mf-sort-handle:active { cursor: grabbing; }
+.weq-mf-sort-handle:disabled { opacity: 0.4; cursor: default; }
+.weq-mf-sort-handle:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: -2px; }
+.weq-mf-slot.is-sorting .weq-mf-row { opacity: 0.45; }
+html[data-theme="dark"] .weq-mf-sort-handle:hover:not(:disabled) { background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent); }

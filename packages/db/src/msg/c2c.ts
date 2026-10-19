@@ -44,7 +44,12 @@ import {
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 import { queryMessageDays, queryMessageBoundary, type MessageBounds } from './calendar';
-import { browseConditions, type BrowseFilter, type BrowseCursor } from './browse';
+import {
+  browseConditions,
+  type BrowseFilter,
+  type BrowseCursor,
+  type BrowseDirection,
+} from './browse';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 
 // 40002 (msgRandom) and 40005 (clientSeq) are appended LAST on purpose: every row
@@ -120,11 +125,18 @@ export class C2cMsgDb {
     return queryMessageDays(this.qq, this.table, clause, value);
   }
 
-  async browse(part: C2cPartition, filter: BrowseFilter, cursor?: BrowseCursor, limit = 500) {
+  async browse(
+    part: C2cPartition,
+    filter: BrowseFilter,
+    cursor?: BrowseCursor,
+    limit = 500,
+    direction: BrowseDirection = 'older',
+  ) {
     const { clause, value } = partitionWhere(part);
-    const query = browseConditions(clause, value, filter, cursor);
+    const query = browseConditions(clause, value, filter, cursor, direction);
+    const order = direction === 'older' ? 'DESC' : 'ASC';
     const rows = await this.qq.query(
-      `SELECT rowid,${SELECT_COLUMNS} FROM ${this.table} WHERE ${query.clause} ORDER BY COALESCE("40050",0) DESC,rowid DESC LIMIT ?`,
+      `SELECT rowid,${SELECT_COLUMNS} FROM ${this.table} WHERE ${query.clause} ORDER BY COALESCE("40050",0) ${order},rowid ${order} LIMIT ?`,
       [...query.params, BigInt(limit)],
     );
     return rows.map((row) => ({ rowId: String(row[0]), message: rowToC2cMsg(row.slice(1)) }));
@@ -479,6 +491,31 @@ export class C2cMsgDb {
     return rows.map(rowToC2cMsg);
   }
 
+  /** 私聊引用指针使用发送方的 client sequence；结合发送者和时间消除重号。 */
+  async resolveReplySeq(
+    part: C2cPartition,
+    clientSeq: bigint,
+    senderUin?: bigint,
+    sendTime?: bigint,
+  ): Promise<bigint | null> {
+    const { clause, value } = partitionWhere(part);
+    const params: SqlValue[] = [value, clientSeq];
+    const conditions = [clause, '"40005" = ?'];
+    if (senderUin && senderUin > 0n) {
+      conditions.push('"40033" = ?');
+      params.push(senderUin);
+    }
+    if (sendTime && sendTime > 0n) {
+      conditions.push('"40050" = ?');
+      params.push(sendTime);
+    }
+    const rows = await this.qq.query(
+      `SELECT DISTINCT "40003" FROM ${this.table} WHERE ${conditions.join(' AND ')} LIMIT 2`,
+      params,
+    );
+    return rows.length === 1 ? toBigint(rows[0]?.[0]) : null;
+  }
+
   /**
    * All rows for one peer carrying the `(1,1)` deleted signature (40011=1 &
    * 40012=1), newest-first. Covers BOTH WeQ's own deletes and QQ's native
@@ -521,28 +558,26 @@ export class C2cMsgDb {
     return value == null ? null : toBigint(value);
   }
 
+  /** 分析对象来自真实私聊分区，不依赖好友名册或最近会话是否还在。 */
+  async listPeerIdentities(): Promise<Array<{ uid: string; uin: string }>> {
+    const rows = await this.qq.query(
+      `SELECT "40021", CASE WHEN MIN(NULLIF("40030",0)) = MAX(NULLIF("40030",0))
+         THEN MAX(NULLIF("40030",0)) ELSE NULL END
+       FROM ${this.table} WHERE "40021" IS NOT NULL AND "40021" != '' GROUP BY "40021"`,
+    );
+    return rows.map((row) => ({ uid: String(row[0]), uin: row[1] == null ? '' : String(row[1]) }));
+  }
+
   /**
-   * The distinct local-time years in which the table holds at least one
-   * message. Deliberately does NOT filter by sender/own marker: this is the
-   * cheap year-eligibility probe for the report entry page, and it runs on the
-   * day-midnight column 40058, which is covered by the `(40027,40058)` index —
-   * SQLite resolves it as a covering index scan without touching message rows.
-   * Rows with a 0 / NULL day timestamp (malformed or system rows) are skipped
-   * with `"40058" > 0`.
-   *
-   * The year is derived with `'localtime'` so buckets line up exactly with the
-   * report's local-midnight boundaries. The caller caches the result for the
-   * session's data revision.
-   *
-   * 先对 `40058` 做 DISTINCT 再转年份，而不是直接 `DISTINCT strftime(...)`：
-   * 后者会把 `strftime` 逐行算一遍（大库上是 1s 级），前者只在真正互异的日期上
-   * 算 —— `strftime` 是 `40058` 的纯函数，所以两者结果集严格相同。一天一行，
-   * 互异值只有几百个，收益随表变大而放大。
+   * 从真实发送时间取北京日历年份，不依赖可能缺失或滞后的 40058 日字段。
+   * 先按整数北京日去重，再转换年份，避免每条消息重复计算 strftime。
+   * 不筛方向；调用方按数据修订缓存此候选探测。
    */
   async yearsWithMessages(): Promise<number[]> {
     const rows = await this.qq.query(
-      `SELECT DISTINCT CAST(strftime('%Y', d, 'unixepoch', 'localtime') AS INTEGER) AS y
-       FROM (SELECT DISTINCT "40058" AS d FROM ${this.table} WHERE "40058" > 0)`,
+      `SELECT DISTINCT CAST(strftime('%Y', day * 86400, 'unixepoch') AS INTEGER) AS y
+       FROM (SELECT DISTINCT CAST(("40050" + 28800) / 86400 AS INTEGER) AS day
+             FROM ${this.table} WHERE "40050" > 0)`,
     );
     return rows.map((row) => Number(row[0] ?? 0)).filter((year) => year > 0);
   }
@@ -605,12 +640,11 @@ export class C2cMsgDb {
 
   /**
    * One-pass aggregation of the whole table (or a time window) into
-   * `(peer, local calendar day)` buckets. Direction follows the same self-proof
+   * `(peer, Beijing calendar day)` buckets. Direction follows the same self-proof
    * as {@link countByDirection}, so `mine` can be subtracted from `total` to get
    * the peer's side without any external identity.
    *
-   * The date is derived in SQL with `'localtime'`, keeping the buckets aligned
-   * with the report's local-midnight year boundaries.
+   * 日期显式加八小时，与报告的北京午夜边界一致，不读取主机时区。
    * No body column is touched — this is the cheapest way to answer "which
    * conversation, on which day, was the busiest" and to feed per-day walls.
    */
@@ -631,7 +665,7 @@ export class C2cMsgDb {
     const where = ` WHERE ${conditions.join(' AND ')}`;
     const rows = await this.qq.query(
       `SELECT "40021",
-              strftime('%Y-%m-%d',"40050",'unixepoch','localtime') AS day,
+              strftime('%Y-%m-%d',"40050",'unixepoch','+8 hours') AS day,
               COUNT(*) AS total,
               SUM(CASE WHEN "40020" != "40021" AND "40020" != '' THEN 1 ELSE 0 END) AS mine
        FROM ${this.table}${where}
@@ -647,10 +681,10 @@ export class C2cMsgDb {
   }
 
   /**
-   * 一个时间窗内**自己发出的**私聊按「星期 × 本地小时」聚合，返回 7×24 矩阵。
+   * 一个时间窗内**自己发出的**私聊按「星期 × 北京小时」聚合，返回 7×24 矩阵。
    *
    * 方向沿用 {@link countByDirection} 的自证判据（40021 恒为对端、senderUid 与
-   * 对端不同即我发），小时/星期用 `'localtime'` 与报告的本地口径对齐。只扫
+   * 对端不同即我发），小时/星期用显式八小时偏移与报告口径对齐。只扫
    * 40050 一个字段做 GROUP BY，不触碰消息体 —— 这是作息页最低成本的形状。
    */
   async sentWeekdayHourlyTallies(
@@ -667,8 +701,8 @@ export class C2cMsgDb {
       params.push(BigInt(opts.endTime));
     }
     const rows = await this.qq.query(
-      `SELECT CAST(strftime('%w',"40050",'unixepoch','localtime') AS INTEGER) AS dow,
-              CAST(strftime('%H',"40050",'unixepoch','localtime') AS INTEGER) AS hour,
+      `SELECT CAST(strftime('%w',"40050",'unixepoch','+8 hours') AS INTEGER) AS dow,
+              CAST(strftime('%H',"40050",'unixepoch','+8 hours') AS INTEGER) AS hour,
               COUNT(*) AS n
        FROM ${this.table}
        WHERE ${conditions.join(' AND ')}

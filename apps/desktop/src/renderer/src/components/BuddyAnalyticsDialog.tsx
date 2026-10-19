@@ -12,7 +12,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { client } from '../trpc/client';
 import { Avatar } from '../im-template/template/primitives';
 import { OverlayLayer } from './OverlayLayer';
@@ -28,6 +28,15 @@ import {
   formatNumber,
 } from './analyticsCharts';
 import { useAnalyticsExport } from './useAnalyticsExport';
+import type { AnalysisScope } from '../views/analysis/model';
+import { AnalyticsRetry } from './AnalyticsRetry';
+import {
+  GitHubTimeline,
+  PersonWeekCard,
+  RangeTimeline,
+  type RangeSelection,
+} from './conversationTimeline';
+import '../styles/conversation-analytics.css';
 
 const SELF_COLOR = 'var(--weq-accent-effective)';
 const PEER_COLOR = '#8b5cf6';
@@ -125,6 +134,9 @@ export function BuddyAnalyticsDialog({
   onClose,
   exportMode = false,
   initialData,
+  embedded = false,
+  scope,
+  periodLabel,
 }: {
   peerUid: string;
   peerName: string;
@@ -133,36 +145,96 @@ export function BuddyAnalyticsDialog({
   exportMode?: boolean;
   /** 导出时由可见窗口递过来的数据，避免同一份分析再扫一遍。 */
   initialData?: unknown;
+  embedded?: boolean;
+  scope?: AnalysisScope;
+  periodLabel?: string;
 }) {
   const [data, setData] = useState<BuddyAnalyticsData | null>(
     (initialData as BuddyAnalyticsData) ?? null,
   );
   const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState<string | null>(null);
+  /** 时间轴选择；首次响应会把服务端的「最近一年」回填进来。 */
+  const [range, setRange] = useState<RangeSelection | null>(() => {
+    const seeded = initialData as BuddyAnalyticsData | undefined;
+    return seeded?.range?.startTime && seeded.range.endTime
+      ? { start: seeded.range.startTime, end: seeded.range.endTime }
+      : null;
+  });
+  const [refreshing, setRefreshing] = useState(false);
+  const loadedOnceRef = useRef(Boolean(initialData));
+  const seqRef = useRef(0);
+  const lastFetchedRangeRef = useRef(
+    (() => {
+      const seeded = initialData as BuddyAnalyticsData | undefined;
+      return seeded?.range?.startTime && seeded.range.endTime
+        ? `${seeded.range.startTime}:${seeded.range.endTime}`
+        : '';
+    })(),
+  );
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await client.account.getBuddyAnalytics.query({ peerUid });
-      setData(result);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [peerUid]);
+  const load = useCallback(
+    async (nextRange: RangeSelection | null = null) => {
+      const seq = ++seqRef.current;
+      if (!loadedOnceRef.current) setLoading(true);
+      else setRefreshing(true);
+      setError(null);
+      try {
+        const result = await client.account.getBuddyAnalytics.query({
+          peerUid,
+          ...scope,
+          ...(nextRange
+            ? { startTime: nextRange.start, endTime: nextRange.end }
+            : scope
+              ? {}
+              : { recentYear: true }),
+        });
+        if (seq !== seqRef.current) return;
+        loadedOnceRef.current = true;
+        // 时间轴 / 绿墙保持同一份引用，不随区间重算重绘。
+        setData((prev) => (prev ? { ...result, timeline: prev.timeline } : result));
+        lastFetchedRangeRef.current =
+          result.range.startTime && result.range.endTime
+            ? `${result.range.startTime}:${result.range.endTime}`
+            : '';
+        if (!nextRange && result.range.startTime && result.range.endTime) {
+          setRange({ start: result.range.startTime, end: result.range.endTime });
+        }
+      } catch (e) {
+        if (seq !== seqRef.current) return;
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (seq === seqRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    },
+    [peerUid, scope],
+  );
 
   // 导出窗口里的数据是外面递进来的：已有初始数据就别再查一遍。
   const seeded = Boolean(initialData);
   useEffect(() => {
     if (seeded) return;
-    void load();
+    void load(null);
   }, [seeded, load]);
 
+  // 拖动结束后按新区间重算（绿墙 / 时间轴来自全历史，不参与）。
+  useEffect(() => {
+    if (seeded || !range) return;
+    const key = `${range.start}:${range.end}`;
+    if (key === lastFetchedRangeRef.current) return;
+    void load(range);
+  }, [seeded, range, load]);
+
   // 「保存为图片」：把数据交给主进程 —— 它在隐藏窗口里渲染 + 抓图 + 弹保存框。
-  const { exporting, start: startExport } = useAnalyticsExport({
-    enabled: !loading && !error && !!data && !exportMode,
+  const {
+    available: imageAvailable,
+    exporting,
+    start: startExport,
+  } = useAnalyticsExport({
+    enabled: !loading && !refreshing && !error && !!data && !exportMode,
     build: () =>
       data
         ? {
@@ -170,6 +242,7 @@ export function BuddyAnalyticsDialog({
             title: peerName,
             label: EXPORT_LABEL,
             peerUid,
+            periodLabel,
             data,
           }
         : null,
@@ -194,6 +267,28 @@ export function BuddyAnalyticsDialog({
         </div>
       </div>
 
+      {/* 时间轴：所选区间周柱状图 + 可拖动的消息曲线（默认最近一年） */}
+      {data.timeline ? (
+        <section className="ba-section ca-block">
+          <div className="ca-block-head">
+            <h3>
+              <Clock size={15} />
+              活跃时间轴
+            </h3>
+            <small>所选区间每周一根 · 拖动下方曲线重排</small>
+          </div>
+          <GitHubTimeline weeks={data.timeline.weekly} range={range} />
+          <RangeTimeline
+            weeks={data.timeline.weekly}
+            daily={data.timeline.daily}
+            firstTime={data.timeline.firstMessageTime}
+            lastTime={data.timeline.lastMessageTime}
+            range={range}
+            onChange={setRange}
+          />
+        </section>
+      ) : null}
+
       <div className="ba-stat-grid">
         <div className="ba-stat">
           <MessageSquare size={16} />
@@ -216,6 +311,30 @@ export function BuddyAnalyticsDialog({
           <small>对话次数</small>
         </div>
       </div>
+
+      {/* 双方周卡：私聊只有两个人，卡片直接就是排行 */}
+      <section className={`ba-section${refreshing ? ' ca-refreshing' : ''}`}>
+        <h3>
+          <MessageSquare size={15} /> 双方发言
+          <small>所选区间 · 每周消息</small>
+        </h3>
+        <div className="ca-people is-buddy">
+          <PersonWeekCard
+            name="我"
+            avatarUrl={avatarUrl(data.self.uin)}
+            count={stats.selfMessages}
+            weekly={data.weeklySelf ?? []}
+            accent={SELF_COLOR}
+          />
+          <PersonWeekCard
+            name={peerName}
+            avatarUrl={avatarUrl(data.peer.uin)}
+            count={stats.peerMessages}
+            weekly={data.weeklyPeer ?? []}
+            accent={PEER_COLOR}
+          />
+        </div>
+      </section>
 
       {/* Donut block: 发言对比 + 主动发起 side by side, 消息类型 full width */}
       <div className="ba-donut-grid">
@@ -301,7 +420,7 @@ export function BuddyAnalyticsDialog({
       </section>
 
       {/* Active hours both */}
-      <section className="ba-section">
+      <section className={`ba-section${refreshing ? ' ca-refreshing' : ''}`}>
         <h3>
           <Clock size={15} /> 活跃时段
         </h3>
@@ -321,16 +440,16 @@ export function BuddyAnalyticsDialog({
         </div>
       </section>
 
-      {/* Heatmap */}
+      {/* Heatmap: 绿墙看全历史，不随区间选择重算 */}
       <section className="ba-section">
         <h3>
           <Flame size={15} /> 每日消息热力图
         </h3>
-        <ContributionHeatmap data={data.daily} />
+        <ContributionHeatmap data={data.timeline?.daily ?? data.daily} />
       </section>
 
       {/* Word cloud */}
-      <section className="ba-section">
+      <section className={`ba-section${refreshing ? ' ca-refreshing' : ''}`}>
         <h3>
           <Cloud size={15} /> 聊天词云
         </h3>
@@ -342,7 +461,7 @@ export function BuddyAnalyticsDialog({
       </section>
 
       {/* Common phrases */}
-      <section className="ba-section">
+      <section className={`ba-section${refreshing ? ' ca-refreshing' : ''}`}>
         <h3>
           <MessageSquare size={15} /> 双方口头禅
         </h3>
@@ -359,7 +478,7 @@ export function BuddyAnalyticsDialog({
       </section>
 
       {/* Common emojis */}
-      <section className="ba-section">
+      <section className={`ba-section${refreshing ? ' ca-refreshing' : ''}`}>
         <h3>
           <Smile size={15} /> 双方常用表情
         </h3>
@@ -381,8 +500,7 @@ export function BuddyAnalyticsDialog({
   const card = (
     <section
       className="group-album-dialog ba-dialog"
-      role="dialog"
-      aria-modal={exportMode ? undefined : 'true'}
+      role="region"
       onMouseDown={(e) => e.stopPropagation()}
     >
       <header>
@@ -395,9 +513,9 @@ export function BuddyAnalyticsDialog({
             <button
               className="icon-button"
               type="button"
-              title="保存为图片"
+              title={imageAvailable ? '保存为图片' : '当前环境不支持保存长图'}
               onClick={startExport}
-              disabled={exporting || loading || !!error || !data}
+              disabled={!imageAvailable || exporting || loading || !!error || !data}
             >
               {exporting ? <Loader2 size={18} className="weq-spin" /> : <ImageDown size={18} />}
             </button>
@@ -407,12 +525,13 @@ export function BuddyAnalyticsDialog({
           </div>
         )}
       </header>
+      {periodLabel ? <p className="weq-analysis-period">{periodLabel}</p> : null}
 
       <div className="group-album-body ba-body">
         {loading ? (
           <AnalyticsSkeleton variant="buddy" />
         ) : error ? (
-          <div className="ga-error">{error}</div>
+          <AnalyticsRetry error={error} onRetry={() => void load()} />
         ) : !data ? (
           <p className="ga-placeholder">暂无分析数据</p>
         ) : (
@@ -423,10 +542,15 @@ export function BuddyAnalyticsDialog({
   );
 
   // 导出窗口里整页就是这张卡片：不需要遮挡层。
-  if (exportMode) return card;
+  if (exportMode || embedded) return card;
 
   return (
-    <OverlayLayer className="modal-scrim group-album-scrim" onClose={onClose}>
+    <OverlayLayer
+      presentation="sidecar"
+      title="好友分析"
+      className="modal-scrim group-album-scrim"
+      onClose={onClose}
+    >
       {card}
     </OverlayLayer>
   );

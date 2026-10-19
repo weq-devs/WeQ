@@ -10,15 +10,16 @@ import { Check, Search, Users } from 'lucide-react';
 import { QqAvatar } from '../QqAvatar';
 import { cn } from '../../im-template/template/classNames';
 import type { MfTarget } from './model';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 
 export function MergeForwardTargets({
   targets,
   selected,
-  onToggle,
+  onChange,
 }: {
   targets: MfTarget[];
   selected: Set<string>;
-  onToggle: (id: string) => void;
+  onChange: (next: Set<string>) => void;
 }): ReactElement {
   const [keyword, setKeyword] = useState('');
   const needle = keyword.trim().toLowerCase();
@@ -35,8 +36,13 @@ export function MergeForwardTargets({
     return { friends: friendList, groups: groupList };
   }, [targets, needle]);
 
+  const selection = useMultiSelection({
+    ids: [...friends, ...groups].map((target) => target.id),
+    selected,
+    onChange,
+  });
   return (
-    <div className="weq-mf-targets">
+    <div className="weq-mf-targets" {...selection.rootProps}>
       <div className="weq-mf-search">
         <Search size={14} />
         <input
@@ -55,7 +61,12 @@ export function MergeForwardTargets({
           <>
             <div className="weq-mf-section">好友</div>
             {friends.map((t) => (
-              <TargetRow key={t.id} target={t} checked={selected.has(t.id)} onToggle={onToggle} />
+              <TargetRow
+                key={t.id}
+                target={t}
+                checked={selected.has(t.id)}
+                selectionProps={selection.itemProps(t.id)}
+              />
             ))}
           </>
         ) : null}
@@ -63,7 +74,12 @@ export function MergeForwardTargets({
           <>
             <div className="weq-mf-section">群聊</div>
             {groups.map((t) => (
-              <TargetRow key={t.id} target={t} checked={selected.has(t.id)} onToggle={onToggle} />
+              <TargetRow
+                key={t.id}
+                target={t}
+                checked={selected.has(t.id)}
+                selectionProps={selection.itemProps(t.id)}
+              />
             ))}
           </>
         ) : null}
@@ -75,18 +91,14 @@ export function MergeForwardTargets({
 function TargetRow({
   target,
   checked,
-  onToggle,
+  selectionProps,
 }: {
   target: MfTarget;
   checked: boolean;
-  onToggle: (id: string) => void;
+  selectionProps: ReturnType<ReturnType<typeof useMultiSelection<string>>['itemProps']>;
 }): ReactElement {
   return (
-    <button
-      type="button"
-      className={cn('weq-mf-target', checked && 'checked')}
-      onClick={() => onToggle(target.id)}
-    >
+    <button type="button" className={cn('weq-mf-target', checked && 'checked')} {...selectionProps}>
       <span className={cn('weq-mf-target-check', checked && 'on')}>
         {checked ? <Check size={13} strokeWidth={3} /> : null}
       </span>

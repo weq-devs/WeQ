@@ -16,24 +16,17 @@
  * 下载工具函数）。加载态用 skeleton + shimmer 占位。
  */
 
-import {
-  useCallback,
-  useMemo,
-  useEffect,
-  useRef,
-  useState,
-  type ReactElement,
-  type MouseEvent,
-  type PointerEvent,
-} from 'react';
+import { useCallback, useMemo, useEffect, useRef, useState, type ReactElement } from 'react';
 import { Check, Download, Images, Inbox, Loader2, Play, X } from 'lucide-react';
 import { Modal, useDialog } from './Dialog';
+import { useToast } from './Toast';
 import type { QzoneAlbumRequest } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { QzoneMediaPreview, type QzonePreviewMedia } from './QzoneMediaPreview';
 import { useDebouncedLoading } from '../hooks/useDebouncedLoading';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
+import { useMultiSelection } from '../hooks/useMultiSelection';
 
 /** 相册列表 wire（service QzoneAlbum）。 */
 export interface QzoneAlbumWire {
@@ -69,53 +62,24 @@ function photoKey(photo: QzoneAlbumPhotoWire): string {
 }
 
 /** Use stable keys as the range anchor so prepended/removed media cannot shift it. */
-function useAlbumSelection(keys: string[]) {
+function useAlbumSelection(keys: string[], disabled: boolean) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const anchor = useRef<string | null>(null);
-  const pointerSelection = useRef<string | null>(null);
-  const toggle = (key: string, range = false): void => {
-    const start = anchor.current ? keys.indexOf(anchor.current) : -1;
-    const end = keys.indexOf(key);
-    setSelected((previous) => {
-      const next = new Set(previous);
-      const selecting = !next.has(key);
-      const targets =
-        range && start >= 0 && end >= 0
-          ? keys.slice(Math.min(start, end), Math.max(start, end) + 1)
-          : [key];
-      for (const target of targets) {
-        if (selecting) next.add(target);
-        else next.delete(target);
-      }
-      return next;
-    });
-    if (!range || start < 0) anchor.current = key;
-  };
-  const modified = (event: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): boolean =>
-    event.ctrlKey || event.metaKey || event.shiftKey;
-  const handlers = (key: string, disabled: boolean) => ({
-    onPointerDownCapture: (event: PointerEvent<HTMLDivElement>) => {
-      pointerSelection.current = null;
-      if (event.button !== 0 || !modified(event)) return;
-      pointerSelection.current = key;
-      event.preventDefault();
-      event.stopPropagation();
-      if (!disabled) toggle(key, event.shiftKey);
-    },
-    onClickCapture: (event: MouseEvent<HTMLDivElement>) => {
-      const handledPointer = pointerSelection.current === key;
-      pointerSelection.current = null;
-      if (!handledPointer && !modified(event)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      // Also swallow the click if the modifier was released after pointerdown.
-      if (!handledPointer && !disabled) toggle(key, event.shiftKey);
-    },
-    onContextMenuCapture: (event: MouseEvent<HTMLDivElement>) => {
-      if (event.ctrlKey) event.preventDefault();
-    },
+  const multi = useMultiSelection({
+    ids: keys,
+    selected,
+    onChange: setSelected,
+    enabled: selected.size > 0,
+    disabled,
+    normalClick: 'passthrough',
+    onExit: () => setSelected(new Set()),
   });
-  return { selected, setSelected, toggle, handlers };
+  return {
+    selected,
+    setSelected,
+    toggle: (key: string) => multi.toggle(key),
+    handlers: multi.itemProps,
+    rootProps: multi.rootProps,
+  };
 }
 
 const PAGE_NUM = 30;
@@ -674,7 +638,13 @@ export function QzoneAlbumDialog({
   return embedded ? (
     body
   ) : (
-    <Modal onClose={onClose} width={1080} labelledBy="weq-qzone-album-title">
+    <Modal
+      presentation="page"
+      title="空间相册"
+      onClose={onClose}
+      width={1080}
+      labelledBy="weq-qzone-album-title"
+    >
       {body}
     </Modal>
   );
@@ -689,19 +659,23 @@ function AlbumGridView({
   hostUin: string;
   onOpen: (album: QzoneAlbumWire) => void;
 }): ReactElement {
+  const [exporting, setExporting] = useState(false);
   const {
     selected: checked,
     setSelected: setChecked,
     toggle,
     handlers,
-  } = useAlbumSelection(albums.map((album) => album.id));
-  const [exporting, setExporting] = useState(false);
+    rootProps,
+  } = useAlbumSelection(
+    albums.map((album) => album.id),
+    exporting,
+  );
   const [progress, setProgress] = useState('');
   const [stopping, setStopping] = useState(false);
   const locked = useRef(false);
   const cancelled = useRef(false);
   const active = useRef(true);
-  const showInfo = useDialog((s) => s.showInfo);
+  const pushToast = useToast((s) => s.push);
   const showError = useDialog((s) => s.showError);
   useEffect(() => {
     active.current = true;
@@ -821,10 +795,11 @@ function AlbumGridView({
       if (failures.length)
         showError('部分相册导出失败', `已保存 ${saved} 个文件。${failures.slice(0, 5).join('；')}`);
       else
-        showInfo(
-          cancelled.current ? '导出已停止' : '导出完成',
-          `已保存 ${saved} 个文件到：${batchRoot}`,
-        );
+        pushToast({
+          tone: cancelled.current ? 'info' : 'success',
+          title: cancelled.current ? '导出已停止' : '导出完成',
+          message: `已保存 ${saved} 个文件到：${batchRoot}`,
+        });
     } catch (error) {
       if (active.current)
         showError('相册导出失败', error instanceof Error ? error.message : String(error));
@@ -882,7 +857,7 @@ function AlbumGridView({
           {progress}
         </p>
       ) : null}
-      <div className="weq-qzal-album-grid">
+      <div className="weq-qzal-album-grid" {...rootProps}>
         {albums.map((album) => (
           <div
             key={album.id}
@@ -966,7 +941,8 @@ function MediaView({
   onLoadMore: () => Promise<boolean>;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
-  const showInfo = useDialog((s) => s.showInfo);
+  const pushToast = useToast((s) => s.push);
+  const [downloading, setDownloading] = useState(false);
 
   /** 勾选的媒体行键集合（全选作用于已加载的条目）。
    *
@@ -978,7 +954,8 @@ function MediaView({
     setSelected,
     toggle: toggleSelect,
     handlers,
-  } = useAlbumSelection(photos.map(photoKey));
+    rootProps,
+  } = useAlbumSelection(photos.map(photoKey), downloading);
   /** 正在取 mp4 播放地址的视频行键（同上，不能裸用 photo.id）。 */
   const [videoResolving, setVideoResolving] = useState<string | null>(null);
   const [preview, setPreview] = useState<number | null>(null);
@@ -997,7 +974,6 @@ function MediaView({
       cancelDetail();
     };
   }, [active, cancelDetail]);
-  const [downloading, setDownloading] = useState(false);
   /** 上一页加载失败：哨兵停止自动触发，底部显示「点击重试」。 */
   const [loadFailed, setLoadFailed] = useState(false);
 
@@ -1121,7 +1097,11 @@ function MediaView({
       });
       if (res.failed.length === 0) {
         setSelected(new Set());
-        showInfo('下载完成', `已保存 ${res.ok} 个文件到：${res.outputDir}`);
+        pushToast({
+          tone: 'success',
+          title: '下载完成',
+          message: `已保存 ${res.ok} 个文件到：${res.outputDir}`,
+        });
       } else {
         setSelected(new Set());
         showError(
@@ -1202,7 +1182,7 @@ function MediaView({
         </div>
       ) : (
         <>
-          <div className="weq-qzal-media-grid">
+          <div className="weq-qzal-media-grid" {...rootProps}>
             {photos.map((photo, index) => {
               const row = rowKey(index);
               const proxied = albumMediaUrl(photo.url || photo.thumbUrl);

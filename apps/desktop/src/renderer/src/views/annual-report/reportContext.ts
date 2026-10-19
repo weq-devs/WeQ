@@ -1,5 +1,6 @@
 import { createContext, useContext, type RefObject } from 'react';
 import type { ExportSlide } from './exportHtml';
+import type { AnalysisScope } from '../analysis/model';
 
 /**
  * 报告播放期的共享上下文：导出入口拿全部已加载页面的数据，装扮页拿「主字体」的
@@ -12,6 +13,7 @@ import type { ExportSlide } from './exportHtml';
 export type ReportViewContextValue = {
   year: number;
   scopeLabel: string;
+  readScope?: AnalysisScope;
   /** 已加载成功的页面（含数据），供结尾页拼装导出产物。 */
   slides: ExportSlide[];
   /**
@@ -24,8 +26,9 @@ export type ReportViewContextValue = {
   /**
    * 注册「翻页守卫」—— 让当前页在翻页真正发生前吃掉这一次手势。
    *
-   * 目前没有任何页面使用它；留给需要「先展开内层、再翻页」的交互页（例如未来的
-   * 详情抽屉）。返回 `true` = 这次手势页面处理了，舞台不要翻页。
+   * 「我的主场」用它先转群聊轮盘、转到边界才把翻页交回舞台；其它需要
+   * 「先展开内层、再翻页」的交互页也可以复用。返回 `true` = 这次手势页面处理了，
+   * 舞台不要翻页。
    *
    * 只有**当前页**该注册（守卫会挡住所有翻页输入：滚轮、键盘、触摸、刻度点击除外）。
    * 页面翻走时用返回的 dispose 注销，否则后一页会被前一页的守卫挡住。

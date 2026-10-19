@@ -25,6 +25,7 @@ import {
   Loader2,
   Pause,
   Play,
+  RotateCw,
   FileCheck,
   Sticker,
   Trash2,
@@ -86,7 +87,9 @@ function completionSummary(stages: UiStage[] | undefined): {
 }
 
 export interface UiTask {
+  save?: import('@weq/service').ExportSaveState;
   canResume?: boolean;
+  resumeMode?: 'checkpoint' | 'restart';
   reportPath?: string;
   id: string;
   kind: 'group' | 'c2c';
@@ -120,6 +123,8 @@ export interface UiTask {
   isCollection?: boolean;
   /** 频道私聊导出（guild_msg.db；无漫游消息）。 */
   isGuild?: boolean;
+  isGenerated?: boolean;
+  generatedResources?: { total: number; copied: number; missing: number };
 }
 
 const STATUS_LABEL: Record<UiTask['status'], string> = {
@@ -153,6 +158,7 @@ function taskTypeLabel(t: UiTask): string {
   if (t.isContacts) return '联系人导出';
   if (t.isCollection) return '收藏导出';
   if (t.isGuild) return '消息导出 · 频道私聊';
+  if (t.isGenerated) return '本地生成对话导出';
   return t.kind === 'group' ? '消息导出 · 群聊' : '消息导出 · 私聊';
 }
 
@@ -333,7 +339,7 @@ function TaskCard({
       type="button"
       className={`weq-exp-card is-${task.status}${active ? ' is-active' : ''}`}
       onClick={onSelect}
-      title={`${taskTypeLabel(task)} · ${task.name}`}
+      title={`${taskTypeLabel(task)} · ${task.name}${task.generatedResources?.missing ? ' · 部分资源缺失' : ''}`}
     >
       {idle ? (
         <span className="weq-exp-card-skeleton" aria-hidden />
@@ -368,6 +374,7 @@ function TaskDetail({
   onReport,
   onCancel,
   onDownload,
+  onBrowserDownload,
   onDelete,
   onShowFailures,
 }: {
@@ -377,11 +384,13 @@ function TaskDetail({
   onReport?: (t: UiTask) => void;
   onCancel: (t: UiTask) => void;
   onDownload: (t: UiTask) => void;
+  onBrowserDownload?: (t: UiTask) => void;
   onDelete: (t: UiTask) => void;
   onShowFailures: (t: UiTask, failures: UiFailure[]) => void;
 }): ReactElement {
   const overall = t.status === 'completed' ? 100 : Math.min(100, Math.max(0, t.progress));
   const completion = completionSummary(t.stages);
+  const resourceMissing = (t.generatedResources?.missing ?? 0) > 0;
   const hasCompletion = completion.ok > 0 || completion.failed > 0;
   const logs = t.logs ?? [];
   const stageLogs = (key: string): UiLogLine[] => logs.filter((l) => l.stage === key);
@@ -404,24 +413,34 @@ function TaskDetail({
             {' · '}
             {fmtCount(t.current)}
             {t.total > 0 ? ` / ${fmtCount(t.total)}` : ''}{' '}
-            {t.isMarketPack || t.isEmojiPack ? '张' : '条'}
+            {t.isMarketPack || t.isEmojiPack ? '张' : t.isContacts ? '位' : '条'}
             {t.avatarCount ? ` · 含头像 ${fmtCount(t.avatarCount)}` : ''}
           </span>
         </div>
-        <span className={`weq-exp-detail-status is-${t.status}`}>
-          <StatusIcon status={t.status} />
-          {STATUS_LABEL[t.status]}
+        <span
+          className={`weq-exp-detail-status is-${resourceMissing && t.status === 'completed' ? 'failed' : t.status}`}
+        >
+          {resourceMissing && t.status === 'completed' ? (
+            <CircleAlert size={14} />
+          ) : (
+            <StatusIcon status={t.status} />
+          )}
+          {t.status === 'paused' && (t.isContacts || t.isGenerated || t.isQzone) && !t.canResume
+            ? '暂停收尾中'
+            : t.status === 'completed' && resourceMissing
+              ? '已完成 · 资源缺失'
+              : STATUS_LABEL[t.status]}
         </span>
         <strong className="weq-exp-detail-overall">{overall}%</strong>
         <div className="weq-exp-detail-actions">
           {t.canResume && onResume ? (
             <button
               type="button"
-              title="继续导出"
-              aria-label="继续导出"
+              title={t.resumeMode === 'restart' ? '按原范围重新执行' : '继续导出'}
+              aria-label={t.resumeMode === 'restart' ? '重新执行导出' : '继续导出'}
               onClick={() => onResume(t)}
             >
-              <Play size={15} />
+              {t.resumeMode === 'restart' ? <RotateCw size={15} /> : <Play size={15} />}
             </button>
           ) : null}
           {t.reportPath && onReport ? (
@@ -442,8 +461,19 @@ function TaskDetail({
           {t.status === 'completed' ? (
             <button
               type="button"
-              title={t.bundleDir ? '保存文件夹…' : '保存到…'}
+              title={t.save?.status === 'saved' ? '另存到其他位置' : '保存到…'}
+              disabled={t.save?.status === 'saving'}
               onClick={() => onDownload(t)}
+            >
+              <Download size={15} />
+            </button>
+          ) : null}
+          {t.status === 'completed' && onBrowserDownload ? (
+            <button
+              type="button"
+              title="下载到浏览器"
+              aria-label="下载到浏览器"
+              onClick={() => onBrowserDownload(t)}
             >
               <Download size={15} />
             </button>
@@ -454,12 +484,41 @@ function TaskDetail({
             </button>
           ) : null}
           {t.status !== 'running' ? (
-            <button type="button" title="删除" className="is-danger" onClick={() => onDelete(t)}>
+            <button
+              type="button"
+              title="删除导出缓存"
+              disabled={t.save?.status === 'saving'}
+              className="is-danger"
+              onClick={() => onDelete(t)}
+            >
               <Trash2 size={15} />
             </button>
           ) : null}
         </div>
       </header>
+      {t.status === 'completed' ? (
+        <p className="weq-export-save-status" role="status">
+          {t.save?.status === 'saved'
+            ? `已保存：${t.save.path}`
+            : t.save?.status === 'saving'
+              ? '导出已完成，正在保存并校验结果…'
+              : t.save?.status === 'failed' || t.save?.status === 'interrupted'
+                ? `导出已完成，尚未保存：${t.save.error}`
+                : '导出已完成，结果保留在任务中，等待选择保存位置'}
+        </p>
+      ) : null}
+
+      {t.status === 'completed' && t.generatedResources && t.generatedResources.total > 0 ? (
+        <p
+          className={`weq-exp-detail-complete${resourceMissing ? ' is-warn' : ''}`}
+          role={resourceMissing ? 'alert' : 'status'}
+        >
+          生成资源已保存 {fmtCount(t.generatedResources.copied)} 项
+          {resourceMissing
+            ? ` · 缺失 ${fmtCount(t.generatedResources.missing)} 项，正文已保留`
+            : ''}
+        </p>
+      ) : null}
 
       {t.status === 'failed' && t.error ? (
         <div className="weq-exp-detail-err" title={t.error}>
@@ -526,6 +585,7 @@ export function TaskList({
   onReport,
   onCancel,
   onDownload,
+  onBrowserDownload,
   onDelete,
   onShowFailures,
   onSaveAll,
@@ -539,6 +599,7 @@ export function TaskList({
   onReport?: (t: UiTask) => void;
   onCancel: (t: UiTask) => void;
   onDownload: (t: UiTask) => void;
+  onBrowserDownload?: (t: UiTask) => void;
   onDelete: (t: UiTask) => void;
   /** Open the failure-detail lightbox for a task's media-completion failures. */
   onShowFailures: (t: UiTask, failures: UiFailure[]) => void;
@@ -571,6 +632,9 @@ export function TaskList({
 
   const selected = tasks.find((t) => t.id === selectedId) ?? tasks[0];
   const completedCount = tasks.filter((t) => t.status === 'completed').length;
+  const hasMissingResources = tasks.some(
+    (task) => task.status === 'completed' && (task.generatedResources?.missing ?? 0) > 0,
+  );
   const hasTasks = tasks.length > 0;
 
   // 收拢时的总进度条（所有任务的加权平均）
@@ -600,7 +664,7 @@ export function TaskList({
         ) : !isExpanded && hasTasks && completedCount === tasks.length ? (
           <span className="weq-exp-tasks-mini-status is-done">
             <CircleCheck size={12} />
-            全部完成
+            {hasMissingResources ? '已完成 · 部分资源缺失' : '全部完成'}
           </span>
         ) : !isExpanded && hasTasks ? (
           <span className="weq-exp-tasks-mini-status">{overallProgress}%</span>
@@ -670,6 +734,7 @@ export function TaskList({
               onReport={onReport}
               onCancel={onCancel}
               onDownload={onDownload}
+              onBrowserDownload={onBrowserDownload}
               onDelete={onDelete}
               onShowFailures={onShowFailures}
             />

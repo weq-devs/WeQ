@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 import {
   AlertTriangle,
   ArrowDownToLine,
@@ -483,9 +484,17 @@ export function LogViewerPanel(): ReactElement {
 
   const selectedFile = files.find((f) => f.path === selectedPath);
 
-  const toggleLevel = (lv: LogLevel): void => {
-    setLevels((prev) => ({ ...prev, [lv]: !prev[lv] }));
-  };
+  const levelSelection = useMultiSelection({
+    ids: LEVEL_ORDER,
+    selected: new Set(LEVEL_ORDER.filter((level) => levels[level])),
+    onChange: (next) =>
+      setLevels({
+        debug: next.has('debug'),
+        info: next.has('info'),
+        warn: next.has('warn'),
+        error: next.has('error'),
+      }),
+  });
 
   const allOff = LEVEL_ORDER.every((lv) => !levels[lv]);
 
@@ -643,7 +652,12 @@ export function LogViewerPanel(): ReactElement {
 
       {/* 等级筛选 + 跟随开关 */}
       <div className="weq-help-log-tools">
-        <div className="weq-help-log-levels" role="group" aria-label="日志等级筛选">
+        <div
+          className="weq-help-log-levels"
+          role="group"
+          aria-label="日志等级筛选"
+          {...levelSelection.rootProps}
+        >
           {LEVEL_ORDER.map((lv) => (
             <button
               key={lv}
@@ -651,7 +665,7 @@ export function LogViewerPanel(): ReactElement {
               className={`weq-log-lv-chip is-${lv}${levels[lv] ? ' is-on' : ''}`}
               role="checkbox"
               aria-checked={levels[lv]}
-              onClick={() => toggleLevel(lv)}
+              {...levelSelection.itemProps(lv)}
             >
               {lv.toUpperCase()}
             </button>

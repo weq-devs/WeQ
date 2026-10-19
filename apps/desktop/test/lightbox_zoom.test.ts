@@ -12,6 +12,7 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Window as HappyWindow } from 'happy-dom';
 
 // 灯箱会拉 tRPC（OCR 能力门禁）——单测不建 ipc 链接，直接给个死数据桩。
 vi.mock('@renderer/trpc/client', () => ({
@@ -65,6 +66,41 @@ function wheel(target: Element, deltaY: number): void {
 }
 
 describe('图片灯箱滚轮缩放', () => {
+  it('合成窗口打开的图片留在子窗口，缩放与 Escape 也使用子窗口事件', () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const child = new HappyWindow();
+    mount();
+    try {
+      act(() =>
+        openLightbox(
+          'weq-media://synthetic-child-image',
+          '合成图片',
+          null,
+          child.document as unknown as Document,
+        ),
+      );
+      expect(document.querySelector('.weq-lightbox-frame')).toBeNull();
+      const media = child.document.querySelector<HTMLElement>('.weq-lightbox-frame')!;
+      expect(media).not.toBeNull();
+      act(() =>
+        media.dispatchEvent(
+          new child.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }),
+        ),
+      );
+      act(() => child.dispatchEvent(new child.MouseEvent('mouseup', { clientX: 10, clientY: 10 })));
+      expect(media.style.transform).toContain('scale(2)');
+      act(() =>
+        child.document.dispatchEvent(
+          new child.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+        ),
+      );
+      expect(child.document.querySelector('.weq-lightbox-frame')).toBeNull();
+    } finally {
+      act(() => root?.unmount());
+      host?.remove();
+      child.close();
+    }
+  });
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   });

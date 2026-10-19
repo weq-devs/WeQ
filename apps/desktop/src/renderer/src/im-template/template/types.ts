@@ -1,6 +1,7 @@
 ﻿// @ts-nocheck
 import type { PreviewNode } from '../../lib/conversationPreview';
 import type { SetEmojiItem } from '@weq/codec';
+import type { LocalMediaRef } from './composerSend';
 
 export type User = {
   id: string;
@@ -333,9 +334,12 @@ export type Message = {
   clientSeq?: string;
   source?: 'roaming';
   sourceFormat?: 'native' | 'protocol';
+  localSent?: boolean;
   optimistic?: 'sending' | 'sent' | 'failed';
   optimisticError?: string;
   optimisticRejected?: boolean;
+  /** 仅当前界面的发送草稿，供失败消息重新编辑，不写入 QQ 原库。 */
+  composerDraft?: { body: string; locals?: LocalMediaRef[] };
   msgRandom?: string;
   setEmojiList?: SetEmojiItem[];
   ntSeqVerified?: boolean;
@@ -420,11 +424,14 @@ export type MainView =
   | 'home'
   | 'messages'
   | 'contacts'
+  | 'collections'
+  | 'guild-direct'
   | 'export'
   | 'agentlab'
   | 'cache'
   | 'tools'
   | 'qzone'
+  | 'mail'
   | 'channel'
   | 'annual';
 export type ContactTab = 'friends' | 'groups';

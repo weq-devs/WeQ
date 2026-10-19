@@ -1232,6 +1232,46 @@ html[data-theme='dark'] .weq-splash-track {
   flex: none;
 }
 
+.weq-mface-lb-hint {
+  flex: none;
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+}
+
+/* 嵌在「个性装扮 → 商城表情」右栏时铺满，不套灯箱面板的尺寸 / 边框 / 阴影。 */
+.weq-mface-lb-panel.is-embedded {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+/* 嵌入时没有 74vh 的封顶，滚动交给网格自己，否则内容会顶出面板。 */
+.weq-mface-lb-panel.is-embedded .weq-mface-lb-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* 单张详情嵌在右栏：高度交给外层，两栏在窄容器里退成上下。 */
+.weq-mface-detail.is-embedded {
+  max-height: none;
+}
+
+@media (max-width: 1100px) {
+  .weq-mface-detail.is-embedded .weq-mface-detail-body {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+  .weq-mface-detail.is-embedded .weq-mface-detail-stage {
+    border-right: 0;
+    border-bottom: 1px solid var(--weq-border-subtle);
+  }
+}
+
 .weq-mface-lb-state {
   padding: 40px 18px;
   text-align: center;
@@ -1303,6 +1343,194 @@ html[data-theme='dark'] .weq-splash-track {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 网格里的表情是按钮（点击看大图）—— 去掉原生按钮底色 / 边框，保留 cell 自己的外观。 */
+.weq-mface-lb-cell.is-button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: zoom-in;
+}
+
+.weq-mface-lb-cell.is-button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 1px;
+}
+
+/* ---- 单张表情详情（大图 + 协议参数） ---- */
+.weq-mface-detail {
+  width: min(880px, 86vw);
+  max-height: 82vh;
+}
+
+.weq-mface-detail-back {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 8px 3px 4px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.weq-mface-detail-back:hover {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-mface-detail-body {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.weq-mface-detail-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  padding: 20px 44px;
+  background:
+    repeating-conic-gradient(rgba(0, 0, 0, 0.045) 0% 25%, transparent 0% 50%) 50% / 16px 16px;
+  border-right: 1px solid var(--weq-border-subtle);
+  overflow: hidden;
+}
+
+.weq-mface-detail-image {
+  max-width: 100%;
+  max-height: 56vh;
+  object-fit: contain;
+  -webkit-user-drag: none;
+}
+
+.weq-mface-detail-nav {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: var(--weq-bg-elevated);
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.weq-mface-detail-nav:hover {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+}
+
+.weq-mface-detail-nav.is-prev {
+  left: 8px;
+}
+
+.weq-mface-detail-nav.is-next {
+  right: 8px;
+}
+
+.weq-mface-detail-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 16px 18px;
+  overflow-y: auto;
+}
+
+.weq-mface-detail-line {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.weq-mface-detail-line > span {
+  color: var(--weq-fg-muted);
+}
+
+.weq-mface-detail-line > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--weq-fg-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mface-detail-line > code {
+  min-width: 0;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--weq-accent-effective);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mface-detail-line.is-url > code {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-mface-detail-copy {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-mface-detail-copy:hover {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+}
+
+.weq-mface-detail-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--weq-fg-muted);
+}
+
+html[data-theme="dark"] .weq-mface-detail-stage {
+  background:
+    repeating-conic-gradient(rgba(255, 255, 255, 0.05) 0% 25%, transparent 0% 50%) 50% / 16px 16px;
+  border-right-color: var(--weq-border-strong);
+}
+
+html[data-theme="dark"] .weq-mface-detail-nav {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}
+
+@media (max-width: 820px) {
+  .weq-mface-detail-body {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+  .weq-mface-detail-stage {
+    border-right: 0;
+    border-bottom: 1px solid var(--weq-border-subtle);
+  }
 }
 
 
@@ -17922,6 +18150,62 @@ html[data-theme="dark"] .weq-rp-body {
 }
 
 /* ── 结果卡：修完 / 失败之后留在原地的结论 ────────────────────────── */
+.weq-rp-migrate {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid var(--weq-warn-border);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--weq-warn-bg);
+}
+
+.weq-rp-migrate-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--weq-warn-fg);
+}
+
+.weq-rp-migrate-main {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 3px;
+  min-width: 0;
+}
+
+.weq-rp-migrate-main strong {
+  color: var(--weq-warn-fg);
+  font-size: 12.5px;
+  font-weight: 640;
+}
+
+.weq-rp-migrate-main p {
+  margin: 0;
+  color: var(--weq-warn-fg);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.weq-rp-migrate-main p.weq-rp-hint {
+  color: color-mix(in srgb, var(--weq-warn-fg) 78%, transparent);
+}
+
+.weq-rp-migrate > .weq-set-btn {
+  flex: none;
+  align-self: center;
+}
+
+@media (max-width: 520px) {
+  .weq-rp-migrate {
+    flex-wrap: wrap;
+  }
+
+  .weq-rp-migrate > .weq-set-btn {
+    margin-left: 25px;
+  }
+}
+
 .weq-rp-outcome {
   display: flex;
   align-items: flex-start;

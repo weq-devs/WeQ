@@ -53,6 +53,9 @@ export function ChatMainContent({
   selectedToolId,
   loadingMessages,
   atLatest,
+  latestMessageSeq,
+  onPreviewLatest,
+  onJumpToLatest,
   onReadCurrentConversation,
   conversationPrefs,
   drafts,
@@ -101,20 +104,18 @@ export function ChatMainContent({
   onRenameGroupMember,
   onKickGroupMember,
   onOpenConversationSettings,
-  onOpenGroupAnalytics,
   onOpenGroupBug,
   onOpenGroupLeftMembers,
   groupBugOnline,
-  onOpenBuddyAnalytics,
-  onOpenIntentProfile,
   onOpenGroupMember,
   onAddMessage,
   onMergeForward,
+  onAddToComposition,
+  onForwardMessages,
   onViewDeleted,
   onViewRecalled,
   onOpenGapMessages,
   onSearchChatRecords,
-  onExportConversation,
   onOpenRoamingBackfill,
   deletedIds,
   onRestoreMessage,
@@ -141,6 +142,9 @@ export function ChatMainContent({
   loadingMessages: boolean;
   /** Whether `messages` is the live latest-anchored window (see ChatPane). */
   atLatest?: boolean;
+  latestMessageSeq?: string;
+  onPreviewLatest?: (conversation: Conversation) => void;
+  onJumpToLatest?: () => Promise<boolean>;
   onReadCurrentConversation?: (conversation: Conversation) => void;
   conversationPrefs: Record<string, ConversationPreference>;
   drafts: ConversationDrafts;
@@ -214,16 +218,15 @@ export function ChatMainContent({
   /** 群管理「踢出群聊」：应用层二次确认。 */
   onKickGroupMember?: (conversation: GroupConversation, sender: User, targetUid: string) => void;
   /** 顶栏设置按钮：群聊 / 私聊各自的会话设置（防撤回 + 群提醒词）。 */
-  onOpenConversationSettings?: (conversation: GroupConversation | DirectConversation) => void;
-  onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
+  onOpenConversationSettings?: (
+    conversation: GroupConversation | DirectConversation,
+    anchor?: HTMLElement,
+  ) => void;
   onOpenGroupBug?: (conversation: GroupConversation) => void;
   /** 群资料面板「已退群」入口：应用层负责数据与灯箱（与群公告 / 群精华同层）。 */
   onOpenGroupLeftMembers?: (conversation: GroupConversation) => void;
   /** QQ 在线状态 —— 决定「反馈 bug」图标亮/灰。 */
   groupBugOnline?: boolean;
-  onOpenBuddyAnalytics?: (conversation: DirectConversation) => void;
-  /** 好感度胶囊点击 → 打开意图画像 Dialog（透传给 chatPane）。 */
-  onOpenIntentProfile?: (conversation: DirectConversation) => void;
   onOpenGroupMember?: (member: User, anchor: { x: number; y: number }) => void;
   onAddMessage?: (conversation: Conversation) => void;
   onViewDeleted?: (conversation: Conversation) => void;
@@ -236,8 +239,6 @@ export function ChatMainContent({
   }) => void;
   /** 顶栏「搜索聊天记录」按钮：在当前会话内搜索并跳转。 */
   onSearchChatRecords?: (conversation: Conversation) => void;
-  /** 顶栏「导出聊天记录」按钮：以当前会话为目标打开快捷导出灯箱。 */
-  onExportConversation?: (conversation: Conversation) => void;
   onOpenRoamingBackfill?: (conversation: Conversation) => void;
   /** msgIds WeQ deleted in the active conversation (in-place overlay). */
   deletedIds?: Set<string>;
@@ -245,6 +246,8 @@ export function ChatMainContent({
   onRestoreMessage?: (msgId: string) => Promise<void>;
   /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
   onMergeForward?: (messages: Message[], conversation: Conversation) => void;
+  onAddToComposition?: (messages: Message[]) => void;
+  onForwardMessages?: (messages: Message[], conversation: Conversation) => void;
   /** 未读跳转坞快照（打开会话时读进内存；见 ChatPane 的 unreadDock）。 */
   unreadDock?: UnreadDock | null;
   /** 最近一次跳转落空的目标 seq（见 ChatPane 的 missingJumpSeq）。 */
@@ -284,6 +287,9 @@ export function ChatMainContent({
       messageRenderers={messageRenderers}
       loading={loadingMessages}
       atLatest={atLatest}
+      latestMessageSeq={latestMessageSeq}
+      onPreviewLatest={onPreviewLatest}
+      onJumpToLatest={onJumpToLatest}
       onReadCurrentConversation={onReadCurrentConversation}
       preference={activeConversation ? conversationPrefs[activeConversation.id] : undefined}
       draft={activeConversation ? (drafts[activeConversation.id] ?? '') : ''}
@@ -320,20 +326,18 @@ export function ChatMainContent({
       onRenameGroupMember={onRenameGroupMember}
       onKickGroupMember={onKickGroupMember}
       onOpenConversationSettings={onOpenConversationSettings}
-      onOpenGroupAnalytics={onOpenGroupAnalytics}
       onOpenGroupBug={onOpenGroupBug}
       onOpenGroupLeftMembers={onOpenGroupLeftMembers}
       groupBugOnline={groupBugOnline}
-      onOpenBuddyAnalytics={onOpenBuddyAnalytics}
-      onOpenIntentProfile={onOpenIntentProfile}
       onOpenGroupMember={onOpenGroupMember}
       onAddMessage={onAddMessage}
       onMergeForward={onMergeForward}
+      onAddToComposition={onAddToComposition}
+      onForwardMessages={onForwardMessages}
       onViewDeleted={onViewDeleted}
       onViewRecalled={onViewRecalled}
       onOpenGapMessages={onOpenGapMessages}
       onSearchChatRecords={onSearchChatRecords}
-      onExportConversation={onExportConversation}
       onOpenRoamingBackfill={onOpenRoamingBackfill}
       deletedIds={deletedIds}
       onRestoreMessage={onRestoreMessage}

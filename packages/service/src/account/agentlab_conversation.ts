@@ -6,9 +6,12 @@
  */
 
 import type { AssistantStep } from './assistant';
+import { createHash, randomUUID } from 'node:crypto';
 import { JsonStore } from '../common/json_store';
 
 export interface ConversationTurn {
+  /** 历史数据可缺省；通过 ConversationStore 读取后始终有稳定身份。 */
+  id?: string;
   role: 'user' | 'assistant';
   text: string;
   ts: number;
@@ -19,7 +22,7 @@ export interface ConversationTurn {
 }
 
 /** 单个 agent 最多保留的回合数（防文件无限增长）。 */
-const MAX_TURNS = 400;
+export const MAX_CONVERSATION_TURNS = 400;
 
 export class ConversationStore {
   private readonly store: JsonStore<Record<string, ConversationTurn[]>>;
@@ -31,8 +34,16 @@ export class ConversationStore {
     });
   }
 
-  get(agentId: string): ConversationTurn[] {
-    return this.store.data[agentId] ?? [];
+  get(agentId: string): Array<ConversationTurn & { id: string }> {
+    return (this.store.data[agentId] ?? []).map((turn, index) => ({
+      ...turn,
+      // 旧记录只读时不写盘；下次追加/补全时一并持久化，之后不随裁剪或正文变化。
+      id:
+        turn.id ||
+        `legacy-${createHash('sha256')
+          .update(JSON.stringify([agentId, index, turn.role, turn.ts, turn.text]))
+          .digest('hex')}`,
+    }));
   }
 
   /**
@@ -44,16 +55,19 @@ export class ConversationStore {
     const out: ConversationTurn[] = [];
     for (const key of Object.keys(this.store.data)) {
       if (key === prefix || key.startsWith(prefixWithColon)) {
-        out.push(...(this.store.data[key] ?? []));
+        out.push(...this.get(key));
       }
     }
     return out.sort((a, b) => a.ts - b.ts);
   }
 
   append(agentId: string, turns: ConversationTurn[]): void {
-    const cur = this.store.data[agentId] ?? [];
-    const next = [...cur, ...turns];
-    this.store.data[agentId] = next.length > MAX_TURNS ? next.slice(next.length - MAX_TURNS) : next;
+    const cur = this.get(agentId);
+    const next = [...cur, ...turns.map((turn) => ({ ...turn, id: randomUUID() }))];
+    this.store.data[agentId] =
+      next.length > MAX_CONVERSATION_TURNS
+        ? next.slice(next.length - MAX_CONVERSATION_TURNS)
+        : next;
     this.store.save();
   }
 
@@ -67,7 +81,7 @@ export class ConversationStore {
     patch: Pick<ConversationTurn, 'text'> &
       Partial<Pick<ConversationTurn, 'steps' | 'toolsUsed' | 'ts'>>,
   ): void {
-    const cur = this.store.data[agentId];
+    const cur = this.get(agentId);
     if (!cur || cur.length === 0) return;
     const last = cur[cur.length - 1];
     if (last?.role !== 'assistant') return;
@@ -78,6 +92,7 @@ export class ConversationStore {
       steps: [...(last.steps ?? []), ...(patch.steps ?? [])],
       toolsUsed: patch.toolsUsed ?? last.toolsUsed,
     };
+    this.store.data[agentId] = cur;
     this.store.save();
   }
 

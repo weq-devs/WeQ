@@ -17,6 +17,7 @@ import { MessageBubble } from '../../im-template/template/messageBubble';
 import { displayUserName } from '../../im-template/template/user';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import type { Conversation, Message, User } from '../../im-template/template/types';
+import '../../styles/chat-records.css';
 
 const noop = (): void => {};
 
@@ -270,6 +271,7 @@ export function ChatRecordsModal({
 
   return (
     <Modal
+      presentation="floating"
       onClose={() => {
         if (rangeCalendarOpen) setRangeCalendarOpen(false);
         else if (calendarOpen) setCalendarOpen(false);
@@ -279,7 +281,7 @@ export function ChatRecordsModal({
       labelledBy="weq-chatrecords-title"
     >
       <div className="weq-chatrecords">
-        <div className="weq-chatrecords-head">
+        <div className="weq-chatrecords-head" data-window-drag-handle>
           <div className="weq-chatrecords-title-wrap">
             <h3 id="weq-chatrecords-title" className="weq-search-more-title">
               聊天记录
@@ -336,6 +338,7 @@ export function ChatRecordsModal({
         </div>
         {rangeCalendarOpen && selected ? (
           <Modal
+            presentation="popover"
             onClose={() => setRangeCalendarOpen(false)}
             width={440}
             labelledBy="weq-record-range-title"

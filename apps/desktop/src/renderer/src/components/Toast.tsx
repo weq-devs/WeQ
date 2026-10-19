@@ -39,12 +39,14 @@ interface Toast {
   title: ReactNode;
   /** 可选的详情，传入后显示展开按钮与复制按钮 */
   detail?: ReactNode;
-  /** Auto-dismiss delay in ms（默认 10 秒） */
+  /** 自动关闭延时，0 表示常驻（默认 10 秒）。 */
   ttl: number;
+  /** 进行中的发送任务仅提供停止按钮，避免误关进度后继续静默发送。 */
+  dismissible?: boolean;
 }
 
 /** 就地改一条已在屏上的 toast —— 长任务用它把「进行中」推进成「成功/失败」。 */
-export type ToastPatch = Partial<Pick<Toast, 'tone' | 'title' | 'detail' | 'ttl'>>;
+export type ToastPatch = Partial<Pick<Toast, 'tone' | 'title' | 'detail' | 'ttl' | 'dismissible'>>;
 
 interface ToastStore {
   toasts: Toast[];
@@ -61,6 +63,7 @@ interface ToastStore {
     /** 可选的详情（展开区域） */
     detail?: ReactNode;
     ttl?: number;
+    dismissible?: boolean;
   }): number;
   /**
    * 原地更新一条 toast（不重播进场、不改变堆叠顺序）。
@@ -80,14 +83,17 @@ export const useToast = create<ToastStore>((set, get) => ({
   toasts: [],
   leaving: [],
   seq: 0,
-  push({ tone = 'info', title, message, detail, ttl = 10000 }) {
+  push({ tone = 'info', title, message, detail, ttl = 10000, dismissible }) {
     const id = get().seq + 1;
     // 兼容旧调用点：只传一个内容时它就是标题；传了 title 时旧 message 变成详情
     const actualTitle = title ?? message ?? '';
     const actualDetail = detail ?? (title != null ? message : undefined);
     set({
       seq: id,
-      toasts: [...get().toasts, { id, tone, title: actualTitle, detail: actualDetail, ttl }],
+      toasts: [
+        ...get().toasts,
+        { id, tone, title: actualTitle, detail: actualDetail, ttl, dismissible },
+      ],
     });
     return id;
   },
@@ -185,7 +191,7 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
 
   // 倒计时引擎：每 50ms 更新一次，暂停时跳过
   useEffect(() => {
-    if (leaving) return;
+    if (leaving || toast.ttl === 0) return;
     const id = window.setInterval(() => {
       if (paused) return;
       timeLeftRef.current = Math.max(0, timeLeftRef.current - 50);
@@ -193,7 +199,7 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
       if (timeLeftRef.current <= 0) dismiss(toast.id);
     }, 50);
     return () => window.clearInterval(id);
-  }, [paused, leaving, toast.id, dismiss]);
+  }, [paused, leaving, toast.id, toast.ttl, dismiss]);
 
   useEffect(() => () => window.clearTimeout(copiedTimerRef.current), []);
 
@@ -244,15 +250,17 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
               />
             </button>
           ) : null}
-          <button
-            type="button"
-            className="weq-toast-action"
-            onClick={() => dismiss(toast.id)}
-            aria-label="关闭"
-            title="关闭"
-          >
-            <X size={16} strokeWidth={2} aria-hidden />
-          </button>
+          {toast.dismissible !== false ? (
+            <button
+              type="button"
+              className="weq-toast-action"
+              onClick={() => dismiss(toast.id)}
+              aria-label="关闭"
+              title="关闭"
+            >
+              <X size={16} strokeWidth={2} aria-hidden />
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -281,20 +289,24 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
       ) : null}
 
       {/* 第二行：倒计时信息区（悬停整张卡片即可暂停） */}
-      <div className="weq-toast-footer">
-        <span className="weq-toast-timer-text">
-          {paused ? '已暂停自动关闭' : `将在 ${secondsLeft} 秒后关闭`}
-        </span>
+      {toast.ttl > 0 ? (
+        <div className="weq-toast-footer">
+          <span className="weq-toast-timer-text">
+            {paused ? '已暂停自动关闭' : `将在 ${secondsLeft} 秒后关闭`}
+          </span>
 
-        {/*<span className={`weq-toast-timer-action${paused ? ' paused' : ''}`}>*/}
-        {/*  {paused ? '移开继续' : '悬停暂停'}*/}
-        {/*</span>*/}
-      </div>
+          {/*<span className={`weq-toast-timer-action${paused ? ' paused' : ''}`}>*/}
+          {/*  {paused ? '移开继续' : '悬停暂停'}*/}
+          {/*</span>*/}
+        </div>
+      ) : null}
 
       {/* 底部倒计时进度条 */}
-      <div className="weq-toast-progress-container">
-        <div className="weq-toast-progress-bar" style={{ width: `${progress}%` }} aria-hidden />
-      </div>
+      {toast.ttl > 0 ? (
+        <div className="weq-toast-progress-container">
+          <div className="weq-toast-progress-bar" style={{ width: `${progress}%` }} aria-hidden />
+        </div>
+      ) : null}
     </div>
   );
 }

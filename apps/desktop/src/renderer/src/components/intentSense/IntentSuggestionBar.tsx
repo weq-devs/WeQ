@@ -10,6 +10,7 @@ import { useState, type ReactElement } from 'react';
 import { Lightbulb, RefreshCw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useIntentSenseStatus } from './context';
+import '../../styles/intent-sense.css';
 
 interface SuggestionWire {
   text: string;

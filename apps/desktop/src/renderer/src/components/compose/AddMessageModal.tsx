@@ -236,9 +236,9 @@ export function AddMessageModal({
   const subtitle = isGroup ? conversation.group?.name : conversation.otherUser?.displayName;
 
   return (
-    <Modal onClose={onClose} width={430} labelledBy="weq-compose-title">
+    <Modal presentation="floating" onClose={onClose} width={430} labelledBy="weq-compose-title">
       <div className="weq-compose">
-        <header className="weq-compose-head">
+        <header className="weq-compose-head" data-window-drag-handle>
           {view === 'main' ? (
             <>
               <div className="weq-compose-titlewrap">

@@ -1,4 +1,4 @@
-import type { ReactElement, ReactNode } from 'react';
+import { useId, type ReactElement, type ReactNode } from 'react';
 import type { ReportPageManifest } from '@weq/service';
 
 /** Props every report page component receives. `data` is narrowed per page. */
@@ -41,12 +41,13 @@ export function PageFrame({
   tone?: string;
   children: ReactNode;
 }): ReactElement {
+  const titleId = useId();
   return (
     <section
       className="weq-report-page"
       data-enter={active ? 'in' : 'out'}
       style={tone ? ({ '--weq-report-tone': tone } as React.CSSProperties) : undefined}
-      aria-labelledby={`report-page-${page.id}`}
+      aria-labelledby={titleId}
     >
       {ghost != null ? (
         <div className={`weq-report-ghost is-${ghostPlacement}`} aria-hidden>
@@ -54,7 +55,7 @@ export function PageFrame({
         </div>
       ) : null}
       <div className="weq-report-canvas">{children}</div>
-      <h1 id={`report-page-${page.id}`} className="weq-sr-only">
+      <h1 id={titleId} className="weq-sr-only">
         {page.title}
       </h1>
     </section>

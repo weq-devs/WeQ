@@ -15,6 +15,8 @@
 
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
+import { copyExportSavePolicy, resolveExportSaveDirectory } from '@weq/service';
+import { exportSavePolicyInput } from './export_save';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -410,6 +412,46 @@ export const bootstrapRouter = router({
     return requireBootstrap().userConfig.getSettings();
   }),
 
+  setExportSaveMode: procedure
+    .input(z.object({ mode: z.enum(['preset', 'before', 'after']) }))
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({ exportSaveMode: input.mode })
+        .exportSaveMode;
+    }),
+
+  setExportSaveDefaults: procedure.input(exportSavePolicyInput).mutation(({ input }) => {
+    const config = requireBootstrap().userConfig;
+    if (input.mode !== 'preset') return config.setSettings({ exportSaveMode: input.mode });
+    const host = getHost();
+    const selected = input.directory ?? config.getSettings().defaultExportDir ?? host.exportRoot;
+    const policy = copyExportSavePolicy({
+      mode: 'preset',
+      directory: host.exportRoot ? resolveExportSaveDirectory(host.exportRoot, selected) : selected,
+    });
+    return config.setSettings({ exportSaveMode: policy.mode, defaultExportDir: policy.directory });
+  }),
+
+  pickExportSaveDirectory: procedure.mutation(() =>
+    getHost().pickDirectory({ title: '选择导出保存位置' }),
+  ),
+
+  prepareExportSave: procedure.input(exportSavePolicyInput).mutation(async ({ input }) => {
+    if (input.mode === 'after') return { mode: 'after' as const };
+    const host = getHost();
+    const settings = requireBootstrap().userConfig.getSettings();
+    let directory: string | null | undefined = input.directory;
+    if (host.exportRoot) {
+      directory = resolveExportSaveDirectory(
+        host.exportRoot,
+        directory ?? (input.mode === 'preset' ? (settings.defaultExportDir ?? '') : ''),
+      );
+    } else if (input.mode === 'before') {
+      directory = await host.pickDirectory({ title: '选择本次导出保存位置' });
+      if (!directory) return null;
+    } else directory ??= settings.defaultExportDir;
+    return copyExportSavePolicy({ mode: input.mode, directory: directory ?? undefined });
+  }),
+
   /**
    * 设置导出中心的默认保存目录（null = 清除，恢复逐任务弹窗）。
    */
@@ -473,8 +515,17 @@ export const bootstrapRouter = router({
    */
   setAutoAttachQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
     requireBootstrap().userConfig.setSettings({ autoAttachQq: input.enabled });
+    if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
     return true;
   }),
+
+  setReportReadEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ reportReadEnabled: input.enabled });
+      if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
+      return true;
+    }),
 
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁。渲染层的 AppLockOverlay
@@ -600,6 +651,13 @@ export const bootstrapRouter = router({
     requireBootstrap().userConfig.setSettings({ showMessageTime: input.enabled });
     return true;
   }),
+
+  setShowMessageUnreadBadge: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showMessageUnreadBadge: input.enabled });
+      return true;
+    }),
 
   /** 是否渲染每条消息里的装扮（气泡/字体/挂件）。纯持久化。 */
   setShowMsgDecoration: procedure

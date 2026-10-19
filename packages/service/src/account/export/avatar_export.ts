@@ -26,6 +26,12 @@ export interface AvatarExportResult {
   failed: number;
 }
 
+interface AvatarExportOptions {
+  concurrency?: number;
+  onProgress?: (done: number, total: number) => void;
+  signal?: AbortSignal;
+}
+
 /** Per-uin public avatar CDN url (same construction the renderer uses). */
 function avatarUrlForUin(uin: string): string {
   return `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`;
@@ -76,8 +82,9 @@ export async function exportGuildAvatars(
   avatarCache: AvatarCacheService,
   targets: GuildAvatarTarget[],
   outputDir: string,
-  opts: { concurrency?: number; onProgress?: (done: number, total: number) => void } = {},
+  opts: AvatarExportOptions = {},
 ): Promise<AvatarExportResult> {
+  opts.signal?.throwIfAborted();
   const rows = targets.filter((t) => t.id && t.url);
   const result: AvatarExportResult = { total: rows.length, ok: 0, failed: 0 };
   if (rows.length === 0) return result;
@@ -87,8 +94,10 @@ export async function exportGuildAvatars(
 
   let done = 0;
   await runWithConcurrency(rows, opts.concurrency ?? 8, async (row) => {
+    if (opts.signal?.aborted) return;
     try {
       const blob = await avatarCache.get(row.url!);
+      if (opts.signal?.aborted) return;
       await writeFile(
         join(avatarsDir, `${row.id}.${extForContentType(blob.contentType)}`),
         blob.data,
@@ -98,9 +107,10 @@ export async function exportGuildAvatars(
       result.failed += 1;
     } finally {
       done += 1;
-      opts.onProgress?.(done, rows.length);
+      if (!opts.signal?.aborted) opts.onProgress?.(done, rows.length);
     }
   });
+  opts.signal?.throwIfAborted();
 
   return result;
 }
@@ -114,8 +124,9 @@ export async function exportAvatars(
   avatarCache: AvatarCacheService,
   uins: Iterable<string>,
   outputDir: string,
-  opts: { concurrency?: number; onProgress?: (done: number, total: number) => void } = {},
+  opts: AvatarExportOptions = {},
 ): Promise<AvatarExportResult> {
+  opts.signal?.throwIfAborted();
   const targets = [...new Set(uins)].filter((uin) => uin && uin !== '0');
   const result: AvatarExportResult = { total: targets.length, ok: 0, failed: 0 };
   if (targets.length === 0) return result;
@@ -125,17 +136,20 @@ export async function exportAvatars(
 
   let done = 0;
   await runWithConcurrency(targets, opts.concurrency ?? 8, async (uin) => {
+    if (opts.signal?.aborted) return;
     try {
       const blob = await avatarCache.get(avatarUrlForUin(uin));
+      if (opts.signal?.aborted) return;
       await writeFile(join(avatarsDir, `${uin}.${extForContentType(blob.contentType)}`), blob.data);
       result.ok += 1;
     } catch {
       result.failed += 1;
     } finally {
       done += 1;
-      opts.onProgress?.(done, targets.length);
+      if (!opts.signal?.aborted) opts.onProgress?.(done, targets.length);
     }
   });
+  opts.signal?.throwIfAborted();
 
   return result;
 }

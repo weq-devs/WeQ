@@ -7,15 +7,19 @@
  */
 
 import { z } from 'zod';
+import { exportSavePolicyInput } from './export_save';
 import { join } from 'node:path';
 import { copyFile, mkdir } from 'node:fs/promises';
 import { getHost, sanitizeSegment, uniqueName } from '@weq/service';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { searchCatalog } from '../../market_catalog';
+import { MARKET_DOWNLOAD_MAX_PACKS } from '../../../shared/market_emoji';
 
-function requireServices(): AccountServices {
+function requireServices(expectedAccountUin?: string): AccountServices {
   const ctx = getAppContext();
+  if (expectedAccountUin && String(ctx.account?.context.uin ?? '') !== expectedAccountUin)
+    throw new Error('账号已切换，已停止操作');
   if (!ctx.services) {
     throw new Error('No account session open — call bootstrap.openAccount first.');
   }
@@ -158,13 +162,18 @@ export const marketEmojiRouter = router({
   startDownload: procedure
     .input(
       z.object({
+        savePolicy: exportSavePolicyInput.optional(),
+        expectedAccountUin: z.string().min(1).optional(),
         packs: z
           .array(z.object({ id: z.string().min(1), name: z.string() }))
           .min(1)
-          .max(200),
+          .max(MARKET_DOWNLOAD_MAX_PACKS),
       }),
     )
     .mutation(({ input }) => {
-      return requireServices().exportManager.startMarketPackDownload(input.packs);
+      return requireServices(input.expectedAccountUin).exportManager.startMarketPackDownload(
+        input.packs,
+        input.savePolicy,
+      );
     }),
 });

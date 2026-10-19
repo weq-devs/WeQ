@@ -236,6 +236,38 @@ html[data-theme="dark"] .rail-more-popover {
 	line-height: 1;
 }
 
+/*
+ * 桌面端 rail 按钮被 app-shell 缩到 38×38（见 styles/index.css），17px 的通用气泡
+ * 会压住 22px 的图标。邮箱等未放大的 tab 用小号气泡并贴角；消息/联系人 tab 有
+ * 46×46 的专属气泡规则。
+ */
+.app-shell .rail-nav .rail-badge-mail {
+	top: 2px;
+	right: 2px;
+	min-width: 15px;
+	height: 15px;
+	padding: 0 4px;
+	border: 1px solid var(--im-color-rail-bg, #e7e7e9);
+	font-size: 9.5px;
+}
+
+html[data-theme="dark"] .app-shell .rail-nav .rail-badge-mail {
+	border-color: #343638;
+}
+
+/* 移动端 rail 按钮铺满格子、带文字标签，沿用通用气泡的居上定位。 */
+@media (max-width: 760px) {
+	.app-shell .rail-nav .rail-badge-mail {
+		top: -2px;
+		right: calc(50% - 24px);
+		min-width: 18px;
+		height: 18px;
+		padding: 0 5px;
+		border-width: 2px;
+		font-size: 10px;
+	}
+}
+
 /* 更新提示：只点一个小红点，不显示「新」字。 */
 .rail-badge-dot {
 	top: 6px;

@@ -108,6 +108,33 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 带 `unusualDeviceCheckSig` / `unusualDeviceQrSig` / `uinToken`）、`qr-code`
 （`qrUrl` / `qrImage`）、`qr-state`（`state` / `stateCode` / `uin`）。
 
+### 3.2 ptlogin2 凭据与邮箱会话
+
+ptlogin2 的 **HTTP 流程只有 native 这一份实现**：`xlogin` → `pt_get_uins` →
+`pt_get_st` → `jump` → `check_sig`，以及邮箱的 `jump` → `check_sig` →
+`/login/login` → `sid`。TS 侧只负责选域、缓存和业务编排，不要再自己发
+xlogin / jump 请求或解析 JSONP。
+
+| JS 函数 | 参数 | 返回 | 说明 |
+| ---- | ---- | ---- | ---- |
+| `ptFetchCredentials(pid, uin, domain)` | `pid` / `uin` / 目标域 | `Promise<PtCredentialsResult>` | 固定四域（`qun.qq.com` / `qzone.qq.com` / `pd.qq.com` / `vip.qq.com`）与邮箱走本机 ptlogin2；其他域先 clientKey jump，失败回退 OIDB `0x102a_0`。 |
+| `ptFetchClientKey(pid, uin)` | `pid` / `uin` | `Promise<PtClientKeyResult>` | 本机快速登录优先，失败回退 OIDB `0x102a_1`。 |
+| `ptFetchJumpUrl(pid, uin, landingUrl)` | `pid` / `uin` / https 落地页 | `Promise<PtJumpUrlResult>` | 生成一次性免登录跳转地址；`clientKey` 只应在本次点击使用。 |
+| `ptFetchMailSession(pid, uin)` | `pid` / `uin` | `Promise<PtMailSessionResult>` | 邮箱登录：优先使用客户端 delegateCode → `auth_type=7` → `sid`，兼容 ptlogin，并返回独立提醒票据 `panelPskey` 和可灌入 CookieJar 的 `cookie`。 |
+
+**返回类型**
+
+- `PtCredentialsResult = { success; msg; skey; pskey; cookie; errorKind }`
+- `PtClientKeyResult = { success; msg; clientKey; keyIndex; ttlSeconds }`
+- `PtJumpUrlResult = { success; msg; url; clientKey; keyIndex }`
+- `PtMailSessionResult = { success; msg; sid; panelPskey; cookie; errorKind }`
+
+`cookie` 是 native 在跳转链上收到的完整 Cookie 头（含 `pt4_token` / `RK` / `ptcz`
+等风控字段），调用方应优先原样发送；拿不到时才回退到 `uin/skey/p_uin/p_skey`
+四字段。`panelPskey` 是邮箱面板提醒专用票据，网页登录清掉 CookieJar 后仍需独立保留。
+`ptFetchSkey(port, uin)` / `ptFetchPskey(port, uin, domain)` 是底层兼容接口，
+新代码优先用 `ptFetchCredentials`。
+
 ---
 
 ## 4. 数据库密钥获取与校验
@@ -138,6 +165,8 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 
 对 QQ NT 加密库（SQLCipher v4 + 1024 字节 wrapper 头）的读写与导出。全部走自定义 **offset VFS** 透明跳过文件头，**连接默认缓存** —— 同一 `dbPath` 首次打开解密一次，后续调用复用句柄，极大省开销。`better-sqlite3` 在 running code 里零引用，读库统一走这里。
 
+SQLite 的保留页按**文件**设置：QQ 库因 1024 字节头保留 `262144`，标准 SQLite 保留 `262145`。nt_helper 从文件头自动识别布局，同一进程可以同时打开两类库与解密产物，不再需要子进程。详见 [QQ 数据库布局：按文件设置保留页](./db-layout-split-20261018.md)。
+
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
 | `executeSql(dbPath, sql, params?)` | 路径 + SQL + 可选参数 | `Promise<SqlValue[][]>` | 只读查询（offset VFS，无密钥）。注意：这只适用于无需 SQLCipher 密钥的库；带密钥的库首次需要用 `executeSqlWithKey` 领证，之后才能用 `executeSql` 复用。 |
@@ -146,9 +175,10 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 | `executeSqlWriteWithKey(...)` | + `key` + `algo` | `Promise<number>` | 带密钥的写操作。 |
 | `closeDb(dbPath)` | 路径 | `number` | 关闭该路径所有缓存连接，返回关闭数。登出 / 释放文件句柄时调用。 |
 | `closeAllDb()` | — | `number` | 关闭全部缓存连接。 |
-| `fastDecryptDatabase(dbPath, outPath, key, algo)` | 路径们 + key + algo | `Promise<void>` | 快速解密到标准 SQLite（直接落盘）。 |
-| `safeDecryptDatabase(dbPath, outPath, key, algo)` | 同上 | `Promise<void>` | 安全解密：所有读走 SQLite（offset VFS + `sqlcipher_export`），长导出期间不怕 QQ checkpoint 撕页；无中间文件。 |
+| `fastDecryptDatabase(dbPath, outPath, key, algo)` | 路径们 + key + algo | `void` | 快速解密为**标准布局**的明文 SQLite（直接落盘），可直接被任何 SQLite 工具打开。 |
+| `safeDecryptDatabase(dbPath, outPath, key, algo)` | 同上 | `void` | 安全解密：所有读走 SQLite（offset VFS + `sqlcipher_export`），长导出期间不怕 QQ checkpoint 撕页；无中间文件。产物同样是**标准布局**明文。 |
 | `checkDatabaseHealth(dbPath, key, algo)` | 路径 + key + algo | `Promise<DatabaseHealthResult>` | `PRAGMA integrity_check` 体检；整体失败时逐表出结果。 |
+| `recoverDatabase(options, onProgress?)` | `RecoverOptions` + 可选进度回调 | `Promise<RecoverReport>` | 重建损坏库：坏页扫描 → 解密 → SQLite recover → 重新加密 → 补 QQ 头 → 自检。源库只读。`sourceLayout` / `targetLayout` 可选（默认都 `qq`）；把旧版误修复的 standard 布局迁回 QQ 时传 `sourceLayout: 'standard', targetLayout: 'qq'`，产物报告会回显实际布局。旧产物会静默忽略这两个参数、也不回显布局，调用方必须在替换前核对。 |
 | `executeSqlSalvage(dbPath, sql, params?, level?)` | 路径 + SQL + 可选参数 + 宽容级别 | `Promise<SalvageQueryOutcome>` | 宽容只读查询（独立的 salvage 连接）。**不因“损坏”抛异常**，而是返回 `ok:false` + 错误码，由调用方决定放弃还是切更小的一段；其它错误照旧抛。级别 ≥ 1 时遇到损坏会换访问路径（`NOT INDEXED`）重试。 |
 | `executeSqlSalvageWithKey(dbPath, sql, key, algo, params?, level?)` | 同上 + key + algo | 同上 | 带密钥版本，语义相同。 |
 | `executeSqlSalvageScan(dbPath, sql, params, options, level?)` | + `SalvageScanOptions` | `Promise<SalvageScanOutcome>` | 分块容错扫描（L2/L3）：读不出来的块先换访问路径、再二分到 `minSpan`，仍坏就记成“跳过区间”；`ok:false`（超预算 / 未授权 L2 / 表被隔离）时行集被清空，不许把部分数据当完整数据用。 |

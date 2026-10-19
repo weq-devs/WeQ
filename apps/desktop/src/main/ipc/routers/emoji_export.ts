@@ -12,6 +12,7 @@
  */
 
 import { z } from 'zod';
+import { exportSavePolicyInput } from './export_save';
 import {
   collectOwnItems,
   collectReceivedItems,
@@ -80,8 +81,10 @@ export const emojiPackRouter = router({
    * 「我的表情 / 收到的表情」子目录，完成后在任务列表里「保存文件夹…」。
    */
   startExport: procedure
-    .input(z.object({ scopes: z.array(scopeEnum).min(1) }))
+    .input(
+      z.object({ scopes: z.array(scopeEnum).min(1), savePolicy: exportSavePolicyInput.optional() }),
+    )
     .mutation(({ input }) => {
-      return requireServices().exportManager.startEmojiPackExport(input.scopes);
+      return requireServices().exportManager.startEmojiPackExport(input.scopes, input.savePolicy);
     }),
 });

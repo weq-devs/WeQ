@@ -218,6 +218,44 @@ export interface PtFetchPskeyResult {
   pskey: string;
 }
 
+/** 完整 Web 凭据：skey / p_skey / Cookie 头。 */
+export interface PtCredentialsResult {
+  success: boolean;
+  msg: string;
+  skey: string;
+  pskey: string;
+  cookie: string;
+  errorKind: string;
+}
+
+/** 本地快速登录或 OIDB 兜底拿到的 clientKey。 */
+export interface PtClientKeyResult {
+  success: boolean;
+  msg: string;
+  clientKey: string;
+  keyIndex: string;
+  ttlSeconds: number;
+}
+
+/** ptlogin2 免登录跳转地址。 */
+export interface PtJumpUrlResult {
+  success: boolean;
+  msg: string;
+  url: string;
+  clientKey: string;
+  keyIndex: string;
+}
+
+/** QQ 邮箱登录会话。 */
+export interface PtMailSessionResult {
+  success: boolean;
+  msg: string;
+  sid: string;
+  panelPskey: string;
+  cookie: string;
+  errorKind: string;
+}
+
 export interface DatabaseAlgorithms {
   pageHmacAlgorithm: string;
   kdfHmacAlgorithm: string;
@@ -365,6 +403,15 @@ export interface RecoverOptions {
   lostAndFoundName?: string;
   /** 先建索引再灌数据（默认 `false`）：进度更连续但整体更慢。 */
   slowIndexes?: boolean;
+  /**
+   * 源库逻辑页布局（`qq` / `standard`，默认 `qq`）。
+   *
+   * 旧版修复把 standard SQLite 的页布局写进了带 QQ 头的库；迁移时传 `standard`，
+   * recover 会按显式页号读取源页，不再受当前进程 pager 布局影响。
+   */
+  sourceLayout?: 'qq' | 'standard';
+  /** 目标库逻辑页布局（默认 `qq`；迁移固定为 `qq`）。 */
+  targetLayout?: 'qq' | 'standard';
 }
 
 /** 一次进度回调（napi 的 TSFN 约定：第一个参数是投递失败的错误）。 */
@@ -417,6 +464,10 @@ export interface RecoverReport {
   scannedCells: number;
   phases: RecoverPhaseTiming[];
   verification: RecoverVerification;
+  /** 源库逻辑页布局（`qq` / `standard`）。 */
+  sourceLayout: 'qq' | 'standard';
+  /** 产物逻辑页布局（迁移后应为 `qq`）。 */
+  targetLayout: 'qq' | 'standard';
 }
 
 // ---------- nt_helper.node — full surface --------------------------------
@@ -582,6 +633,17 @@ export interface NtHelperBinding {
    * 仅支持已验证的四域：qun.qq.com / qzone.qq.com / pd.qq.com / vip.qq.com。
    */
   ptFetchPskey(port: number, uin: string, domain: string): Promise<PtFetchPskeyResult>;
+  /**
+   * 完整 Web 凭据：固定四域 / 邮箱走本机 ptlogin2，其他域走 clientKey jump，
+   * 失败回退 OIDB 0x102a_0。所有 HTTP 跳转与 Cookie 处理都在 native 内完成。
+   */
+  ptFetchCredentials(pid: number, uin: string, domain: string): Promise<PtCredentialsResult>;
+  /** 本地快速登录或 OIDB 兜底获取 clientKey（不注入 hook）。 */
+  ptFetchClientKey(pid: number, uin: string): Promise<PtClientKeyResult>;
+  /** 生成 ptlogin2 免登录跳转 URL。`landingUrl` 必须是 https。 */
+  ptFetchJumpUrl(pid: number, uin: string, landingUrl: string): Promise<PtJumpUrlResult>;
+  /** QQ 邮箱登录：优先使用客户端 delegateCode 换取 sid，兼容 ptlogin；提醒 p_skey 独立获取。 */
+  ptFetchMailSession(pid: number, uin: string): Promise<PtMailSessionResult>;
   /**
    * Probe which processes have an account's `nt_msg.db` open / locked — the
    * cross-platform way to attribute a running QQ to an account AND recover its
@@ -837,6 +899,10 @@ export interface NtHelperBinding {
 
   // --- bulk decrypt ---
   fastDecryptDatabase(dbPath: string, outPath: string, key: string, algo: DatabaseAlgorithms): void;
+  /**
+   * 解密产物是**标准布局**的明文 SQLite（保留页 262145），可以直接被任何
+   * SQLite 工具打开，不需要额外标记。
+   */
   safeDecryptDatabase(dbPath: string, outPath: string, key: string, algo: DatabaseAlgorithms): void;
 
   // --- database repair ---

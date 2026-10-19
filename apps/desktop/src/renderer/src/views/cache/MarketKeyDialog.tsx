@@ -76,7 +76,7 @@ export function MarketKeyDialog({
   };
 
   return (
-    <Modal onClose={onClose} labelledBy="weq-mkey-title" width={452}>
+    <Modal presentation="popover" onClose={onClose} labelledBy="weq-mkey-title" width={452}>
       <div className="weq-avpath">
         <div className="weq-avpath-head">
           <h3 id="weq-mkey-title" className="weq-avpath-title">

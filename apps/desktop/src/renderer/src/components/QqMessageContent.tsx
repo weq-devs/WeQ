@@ -58,6 +58,9 @@ export interface ReplyJumpTarget {
   seq?: number | string;
   /** origMsgIndex (tag 47419) — the 40003 anchor for C2C messages. */
   index?: number | string;
+  clientSeq?: number | string;
+  senderUin?: number | string;
+  sendTime?: number | string;
 }
 export const ReplyJumpContext = createContext<(target: ReplyJumpTarget) => void | Promise<void>>(
   () => {},
@@ -654,13 +657,21 @@ function ReplyQuote({ data, sendTimeMs }: { data: Record<string, unknown>; sendT
   // against the live DB: group → origMsgSeq(47402), c2c → origMsgIndex(47419).
   const seq = data.origMsgSeq as number | string | undefined;
   const index = data.origMsgIndex as number | string | undefined;
+  const clientSeq = data.origClientSeq as number | string | undefined;
   const isUsable = (v: unknown): boolean =>
-    typeof v === 'number' || (typeof v === 'string' && v.length > 0);
-  const canJump = isUsable(seq) || isUsable(index);
+    (typeof v === 'number' || typeof v === 'string') && /^\d+$/.test(String(v)) && BigInt(v) > 0n;
+  const canJump = isUsable(seq) || isUsable(index) || isUsable(clientSeq);
 
   function handleJump(event: ReactMouseEvent | ReactKeyboardEvent): void {
     event.stopPropagation();
-    if (canJump) jumpToSeq({ seq, index });
+    if (canJump)
+      jumpToSeq({
+        seq,
+        index,
+        clientSeq,
+        senderUin: data.origSenderUin as number | string | undefined,
+        sendTime: data.origMsgTime as number | string | undefined,
+      });
   }
 
   return (

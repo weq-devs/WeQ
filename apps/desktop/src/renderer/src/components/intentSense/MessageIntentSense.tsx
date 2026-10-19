@@ -34,6 +34,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useIntentSenseContext, type IntentAnalysis } from './context';
+import '../../styles/intent-sense.css';
 
 const INTENT_META: Record<string, { label: string; icon: typeof HelpCircle }> = {
   question: { label: '提问', icon: HelpCircle },

@@ -38,6 +38,14 @@ const CHINESE_STOPWORDS = `
   哈哈 嘿嘿 呵呵 好的
 `;
 
+/**
+ * 通用高频口语词：词性上是实词，但不指向话题，几乎在每个人的词云里都会霸榜。
+ * 这是通用词表，不是针对某个人的语料黑名单；只收确实没有话题信息的词。
+ */
+const GENERIC_CHAT_WORDS = `
+  看看 看到 意思 东西 小时 变成 不行 有点 发现
+`;
+
 /** 英文功能词 / 缩写。中文聊天里夹英文时同样会污染词云。 */
 const ENGLISH_STOPWORDS = `
   a an the and or but if then than that this these those there here when where why how
@@ -56,7 +64,10 @@ const ENGLISH_STOPWORDS = `
 `;
 
 const STOPWORDS = new Set(
-  `${CHINESE_STOPWORDS} ${ENGLISH_STOPWORDS}`.trim().split(/\s+/).filter(Boolean),
+  `${CHINESE_STOPWORDS} ${GENERIC_CHAT_WORDS} ${ENGLISH_STOPWORDS}`
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean),
 );
 
 /**

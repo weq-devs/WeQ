@@ -23,7 +23,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { decode, encode } from '../protobuf';
-import { FetchPskeyOidb } from '../oidb/fetch-pskey';
+import { FetchPskeyOidb } from '../oidb/misc/fetch-pskey';
 import type { OidbNative, RedBagSignNative, TrpcNative } from '../transport';
 import { sendPacket, signRedBagRequest } from '../transport';
 import { decryptRedBagPayload, encryptRedBagPayload, RED_BAG_SALT_LENGTH } from './crypto';

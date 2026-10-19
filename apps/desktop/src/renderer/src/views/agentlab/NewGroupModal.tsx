@@ -6,6 +6,7 @@ import { useState, type ReactElement } from 'react';
 import { Users, Check } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { QqAvatar } from '../../components/QqAvatar';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 
 export interface GroupPersonaOption {
   id: string;
@@ -27,15 +28,18 @@ export function NewGroupModal({
   const [name, setName] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
 
-  const toggle = (id: string): void => {
-    setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
-  };
+  const multi = useMultiSelection({
+    ids: personas.map((item) => item.id),
+    selected: new Set(selected),
+    onChange: (next) => setSelected([...next]),
+    onExit: onClose,
+  });
 
   const canCreate = name.trim().length > 0 && selected.length >= 2;
 
   return (
     <Modal onClose={onClose} width={520} labelledBy="weq-newgroup-title">
-      <div className="weq-clone-modal">
+      <div className="weq-clone-modal" {...multi.rootProps}>
         <header className="weq-clone-modal-head">
           <Users size={18} />
           <strong id="weq-newgroup-title">新建群聊</strong>
@@ -65,7 +69,7 @@ export function NewGroupModal({
                       key={p.id}
                       type="button"
                       className={`weq-group-member${on ? ' is-on' : ''}`}
-                      onClick={() => toggle(p.id)}
+                      {...multi.itemProps(p.id)}
                     >
                       <QqAvatar uin={p.uin} size={34} />
                       <span className="weq-group-member-text">

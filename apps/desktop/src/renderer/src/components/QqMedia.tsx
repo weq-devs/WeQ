@@ -18,6 +18,7 @@ import { fileIconUrl, localFileUrl, localVoiceFileUrl, mediaUrl } from '@rendere
 import { cn } from '@renderer/lib/utils';
 import { trpc } from '@renderer/trpc/client';
 import { openLightbox } from './ImageLightbox';
+import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
 import { openMarketFaceLightbox } from './MarketFaceLightbox';
 import { ShimmerImage } from './ShimmerImage';
 import { IS_ELECTRON } from '@renderer/lib/target';
@@ -208,7 +209,12 @@ export function QqImage({
     // 覆盖图片本身，不会铺满整条消息气泡；点击仍开灯箱。
     <span
       className={cn('qq-media-wrap', isAnimatedEmoji && 'qq-media-wrap-emoji')}
-      onClick={openable ? () => openLightbox(src, name || '[图片]', ocrContext) : undefined}
+      onClick={
+        openable
+          ? (event) =>
+              openLightbox(src, name || '[图片]', ocrContext, event.currentTarget.ownerDocument)
+          : undefined
+      }
     >
       <ShimmerImage
         className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
@@ -252,6 +258,7 @@ export function QqVideo({
   templateName?: string;
 }) {
   const [posterBroken, setPosterBroken] = useState(false);
+  const ownerDocument = useRenderDocument();
   const [playing, setPlaying] = useState(bubble);
   const [loading, setLoading] = useState(bubble);
   const [videoBroken, setVideoBroken] = useState(false);
@@ -297,17 +304,20 @@ export function QqVideo({
     );
   }
 
-  const videoSrc = localPath
-    ? localFileUrl(localPath)
-    : localPreviewUrl ||
-      mediaUrl('video', {
-        t: sendTimeMs,
-        name,
-        token: fileToken,
-        msgId,
-        conv,
-        ...(fwd ? { fwdMsgId: fwd.fwdMsgId, fwdKind: fwd.fwdKind } : {}),
-      });
+  const videoSrc = resourceForRenderDocument(
+    localPath
+      ? localFileUrl(localPath)
+      : localPreviewUrl ||
+          mediaUrl('video', {
+            t: sendTimeMs,
+            name,
+            token: fileToken,
+            msgId,
+            conv,
+            ...(fwd ? { fwdMsgId: fwd.fwdMsgId, fwdKind: fwd.fwdKind } : {}),
+          }),
+    ownerDocument,
+  );
 
   // bubble mode: auto-play muted loop, no controls, fill the circle container.
   if (bubble) {

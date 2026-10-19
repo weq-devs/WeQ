@@ -23,6 +23,7 @@ import { X, Copy, Save, Binary, Braces } from 'lucide-react';
 import { buildEditTree, encodeEditTree, PbEncodeError, type PbNode } from '@weq/codec/raw';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { BlobProtoTree } from './BlobProtoTree';
+import { OverlayLayer } from '../../components/OverlayLayer';
 
 /** Bytes beyond this render as read-only spans (too many inputs to be usable). */
 const MAX_EDIT_BYTES = 2048;
@@ -147,13 +148,19 @@ export function BlobHexModal({
   }
 
   return (
-    <div className="weq-blob-overlay" role="presentation" onMouseDown={onClose}>
+    <OverlayLayer
+      presentation="floating"
+      title="二进制数据"
+      width={780}
+      className="weq-blob-overlay"
+      onClose={onClose}
+    >
       <div
         className={`weq-blob-dialog${isProto ? ' is-proto' : ''}`}
         role="dialog"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <header className="weq-blob-head">
+        <header className="weq-blob-head" data-window-drag-handle>
           <div className="weq-blob-title">
             <h3>二进制数据{columnName ? ` · ${columnName}` : ''}</h3>
             <code>
@@ -310,7 +317,7 @@ export function BlobHexModal({
           ) : null}
         </footer>
       </div>
-    </div>
+    </OverlayLayer>
   );
 }
 

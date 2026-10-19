@@ -72,7 +72,7 @@ export function AvatarPathDialog({ onClose }: { onClose: () => void }): ReactEle
   }, [kind, qq]);
 
   return (
-    <Modal onClose={onClose} labelledBy="weq-avpath-title" width={452}>
+    <Modal presentation="popover" onClose={onClose} labelledBy="weq-avpath-title" width={452}>
       <div className="weq-avpath">
         <div className="weq-avpath-head">
           <h3 id="weq-avpath-title" className="weq-avpath-title">

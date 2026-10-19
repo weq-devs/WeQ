@@ -19,6 +19,11 @@ const STATE_LABEL: Record<DbRepairRecord['state'], string> = {
   'rolled-back': '已回滚到修复前',
 };
 
+const LAYOUT_LABEL: Record<'qq' | 'standard', string> = {
+  qq: 'QQ（保留页 262144）',
+  standard: 'standard SQLite（保留页 262145）',
+};
+
 function pad(value: number): string {
   return String(value).padStart(2, '0');
 }
@@ -71,6 +76,9 @@ export function renderDbRepairReportMarkdown(
   lines.push('');
   lines.push('## 结果');
   lines.push('');
+  if (record.kind === 'layout-migration') {
+    lines.push('- 任务类型：**页布局迁移**（旧版误修复留下的 standard 布局 → QQ 布局）');
+  }
   lines.push(`- 状态：${STATE_LABEL[record.state]}`);
   if (record.error) lines.push(`- 原因：${record.error}`);
   lines.push(`- 耗时：${formatDuration(record.durationMs)}`);
@@ -86,6 +94,12 @@ export function renderDbRepairReportMarkdown(
   lines.push(`- 页大小：${record.pageSize ?? '—'}`);
   lines.push(`- 页数：${record.sourcePages ?? '—'}`);
   lines.push(`- 自定义头长度：${record.headerOffset ?? '—'} 字节`);
+  if (record.sourceLayout) {
+    lines.push(`- 源库逻辑页布局：${LAYOUT_LABEL[record.sourceLayout]}`);
+  }
+  if (record.targetLayout) {
+    lines.push(`- 产物逻辑页布局：${LAYOUT_LABEL[record.targetLayout]}`);
+  }
   lines.push(`- **物理坏页（页 HMAC 失败，内容不可信）**：${listOrDash(record.badPages)}`);
   lines.push(`- 全零页：${listOrDash(record.zeroPages)}`);
   lines.push(
