@@ -27,7 +27,6 @@ import {
   setMailNotifier,
 } from './context/app_context';
 import { probeQqProtocolHandler } from './context/qq_protocol';
-import { disposeStandardDbWorker } from './db/router';
 import { appRouter } from './ipc/router';
 import { guardTrpcReply } from './ipc/reply_guard';
 import { resolveResource } from './resource';
@@ -415,6 +414,21 @@ function registerMediaIpc(): void {
   );
 }
 
+/**
+ * 把 NativeImage 写进系统剪贴板。
+ *
+ * Electron 44 对齐 W3C Clipboard API，移除了 `clipboard.writeImage`，统一走
+ * 异步的 `clipboard.write([ClipboardItem])`；图片按 PNG 编码后以 `image/png`
+ * MIME 交给系统。
+ */
+async function writeImageToClipboard(image: Electron.NativeImage): Promise<void> {
+  await clipboard.write([
+    new ClipboardItem({
+      'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }),
+    }),
+  ]);
+}
+
 /** 文件名里剔掉路径分隔符等非法字符；空名字返回 ''。 */
 function sanitizeExportName(name: string | undefined): string {
   const trimmed = (name ?? '').trim();
@@ -451,11 +465,7 @@ function registerMediaExportIpc(): void {
         if (input?.mode === 'clipboard') {
           const image = nativeImage.createFromBuffer(bytes);
           if (image.isEmpty()) return { ok: false, error: '这张图的格式没法写进剪贴板' };
-          await clipboard.write([
-            new ClipboardItem({
-              'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }),
-            }),
-          ]);
+          await writeImageToClipboard(image);
           return { ok: true };
         }
 
@@ -548,11 +558,7 @@ function registerCaptureIpc(): void {
     try {
       const image = await win.webContents.capturePage();
       if (image.isEmpty()) return { ok: false, error: '截图为空' };
-      await clipboard.write([
-        new ClipboardItem({
-          'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }),
-        }),
-      ]);
+      await writeImageToClipboard(image);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -816,6 +822,4 @@ app.on('will-quit', () => {
   // 提权抓包子进程是 root 的 —— 退出时主动送走（子进程那边也会在环回连接断开时
   // 自己收尾，这里只是不让它多活一拍）。
   disposeElevatedCaptures();
-  // 标准 SQLite 子进程：发 closeAllDb 后自行退出，这里是兜底收尸。
-  disposeStandardDbWorker();
 });

@@ -12,6 +12,7 @@
  */
 
 import { decode, encode, type ProtoMessage } from '../protobuf';
+import { commandNeedsSign, oidbWireCommand } from '../sign/whitelist';
 import { sendOidb, sendPacket, type OidbNative, type TrpcNative } from '../transport';
 
 /** A single OIDB command. */
@@ -19,8 +20,11 @@ export interface OidbSpec<TParams, TResult> {
   command: number;
   subCommand?: number;
   /**
-   * 该命令是否需要签名（`SecSign/SecToken/SecExtra`）。不写时按**抓包为准**
-   * 逐个标注；缺省 `true` 是保守默认（未知命令宁可带上）。
+   * 该命令是否需要签名（`SecSign/SecToken/SecExtra`）。
+   *
+   * **不写就按 LagrangeV2 的签名白名单推导**（见 `../sign/whitelist`）—— 名单里
+   * 没有的命令不签，多签不是好事。显式值只用于两种情形：与白名单不一致的已核实
+   * 特例，或命令在名单里但抓包确认不该签。新命令一律优先不写。
    */
   needSign?: boolean;
   /**
@@ -48,7 +52,8 @@ export async function invokeOidb<TParams, TResult>(
     );
   }
   const reqBytes = encode(spec.reqSchema, spec.serialize(params));
-  // 分发看不到静态命令，无法自行判定；由 spec 按抓包标注，缺省保守为 true。
+  // 未显式标注时按 LagrangeV2 白名单推导；名单外不签。
+  const needSign = spec.needSign ?? commandNeedsSign(oidbWireCommand(spec.command, subCommand));
   const respBytes = await sendOidb(
     nt,
     pid,
@@ -58,7 +63,7 @@ export async function invokeOidb<TParams, TResult>(
       body: reqBytes,
       isUid: spec.uinForm ?? false,
     },
-    spec.needSign ?? true,
+    needSign,
   );
   return spec.deserialize(decode(spec.respSchema, respBytes));
 }
@@ -66,7 +71,7 @@ export async function invokeOidb<TParams, TResult>(
 /** A trpc service reached via a raw SSO command string (no OIDB envelope). */
 export interface TrpcSpec<TParams, TResult> {
   cmd: string;
-  /** 同 {@link OidbSpec.needSign}；缺省 `true`。 */
+  /** 同 {@link OidbSpec.needSign}：不写就按白名单推导，名单外不签。 */
   needSign?: boolean;
   reqSchema: ProtoMessage;
   respSchema: ProtoMessage;
@@ -81,7 +86,8 @@ export async function invokeTrpc<TParams, TResult>(
   params: TParams,
 ): Promise<TResult> {
   const reqBytes = encode(spec.reqSchema, spec.serialize(params));
-  // 同 invokeOidb：分发看不到静态命令，由 spec 标注，缺省保守为 true。
-  const respBytes = await sendPacket(nt, pid, spec.cmd, reqBytes, spec.needSign ?? true);
+  // 同 invokeOidb：未显式标注时按白名单推导。
+  const needSign = spec.needSign ?? commandNeedsSign(spec.cmd);
+  const respBytes = await sendPacket(nt, pid, spec.cmd, reqBytes, needSign);
   return spec.deserialize(decode(spec.respSchema, respBytes));
 }

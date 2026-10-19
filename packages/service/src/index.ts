@@ -209,7 +209,9 @@ export {
   type BuddyAnalyticsTimeline,
 } from './account/buddy_analytics';
 export { GroupNotifyService } from './account/group_notify';
+export type { GroupNotifyOnlineDeps } from './account/group_notify';
 export { ProfileService } from './account/profile';
+export type { ProfileOnlineDeps } from './account/profile';
 export {
   EmojiService,
   feeTypeLabel as marketFeeTypeLabel,
@@ -225,6 +227,7 @@ export {
   type PanelRelatedTag,
   type PanelRelatedGif,
 } from './account/emoji';
+export type { EmojiOnlineDeps } from './account/emoji';
 export type { MarketEmoticonPackage } from '@weq/db';
 export { FileAssistantService } from './account/file_assistant';
 export { CollectionService, type CollectionPage } from './account/collection';
@@ -244,6 +247,7 @@ export {
 export { FileSearchService } from './account/file_search';
 export type { FileType, SearchResult } from './account/file_search';
 export { OnlineStatusService } from './account/online_status';
+export type { OnlineStatusOnlineDeps } from './account/online_status';
 export type { FormattedOnlineStatus } from './account/online_status';
 export { AgentLabService } from './account/agentlab';
 export type {
@@ -586,17 +590,36 @@ export type {
   SsePushPayload,
 } from './account/sse_push';
 
-// ---- web cgi (query-only: group notice / album list / honor) ----
+// ---- web cgi (group notice write / sign-in / album upload / qzone write) ----
 export {
   WebQueryService,
   HonorType,
   computeBkn,
   fetchWebTokens,
+  setGroupNotice,
+  deleteGroupNotice,
+  uploadGroupNoticeImage,
+  resolveGroupNoticeOptions,
+  parseGroupNoticeImageUploadResponse,
+  GROUP_NOTICE_TYPE_NORMAL,
+  GROUP_NOTICE_TYPE_NEW_MEMBERS,
+  fetchDaySignedList,
+  mapDaySignedList,
+  dayYmd,
+  uploadGroupAlbumImage,
+  setQzoneLike,
+  commentQzoneMsg,
 } from './account/web';
 export type {
   GroupNotice,
   GroupNoticeImage,
+  SetGroupNoticeOptions,
+  ResolvedGroupNoticeOptions,
+  SignedListMember,
+  FetchDaySignedListParams,
   GroupAlbum,
+  UploadGroupAlbumImageParams,
+  QzoneCommentResult,
   HonorMember,
   WebCredential,
   FriendMutualMark,

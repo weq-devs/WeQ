@@ -44,7 +44,7 @@ pnpm dev
 
 ### 基础能力与贡献
 
-- [QQ 数据库布局与双进程拆分](./db-layout-split-20261018.md) — pending byte、锁字节与标准 SQLite 子进程
+- [QQ 数据库布局：按文件设置保留页](./db-layout-split-20261018.md) — per-Pager pending byte、锁字节与布局自动识别
 - [nt_helper.node 接口文档](./nt-helper-interface.md) — 原生模块能力总览，**写代码前先看，别重复造轮子**
 - [原生二进制与装扮资源的分发](./native-artifacts.md) — `pnpm native:fetch`、发布链路、历史清洗记录
 - [测试约定](./testing.md) — `@weq/testkit`
@@ -58,6 +58,7 @@ pnpm dev
 - [本地文字识别模型](./ocr-models.md)：模型选型背景；当前识别与筛图配置见[设置](../guide/settings.md#模型与识别)。
 - [图片识别缓存原设计](./ocr-cache-plan-20261016.md)：历史方案，缓存已接入；当前实现查 `packages/service/src/common/ocr_cache.ts` 及 `account/ocr_image.ts`，不按旧“待实施”措辞重复开发。
 - [词云 / 常用语的中文分词](./jieba-word-segmentation-20261017.md) — 接入 QQ 自带结巴词典与随包词典兜底，按词性过滤实词
+- [主动操作类协议能力](./protocol-actions-20261019.md) — 群管理 / 群文件 / 群相册 / 群待办 / 收藏表情 / 请求处理 / 在线状态的命令、分层与签名判定
 - [贡献指南](../../CONTRIBUTING.md)
 
 ---
