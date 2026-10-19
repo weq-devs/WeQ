@@ -9,6 +9,7 @@ import type { MainView, SettingsTab, User } from './types';
 import { displayUserName } from './user';
 import { useUpdateStore } from '../../state/update';
 import '../../styles/rail-navigation.css';
+import '../../styles/rail-utility-dock.css';
 import { useWorkspaceActiveTitle } from '../../components/WorkspacePages';
 
 export function AppRail({
@@ -49,7 +50,7 @@ export function AppRail({
   contactBadgeCount?: number;
   mailBadgeCount?: number;
   showTools?: boolean;
-  footerContent?: ReactNode;
+  footerContent?: ReactNode | ((settingsButton: ReactNode) => ReactNode);
   hideAvatar?: boolean;
   activeRailItem?: 'settings' | 'dressup';
 }) {
@@ -62,6 +63,30 @@ export function AppRail({
     activeTitle === '个性装扮' ? 'dressup' : activeTitle === '设置' ? 'settings' : undefined;
   const activeView = activePage ?? activeRailItem ?? pendingView ?? view;
   const updateAvailable = useUpdateStore((s) => s.available);
+  const settingsButton = (mobile = false) => (
+    <button
+      className={cn(
+        railButtonClass(activeView === 'settings'),
+        mobile
+          ? 'rail-tab rail-tab-settings rail-mobile-settings'
+          : 'weq-rail-control weq-rail-settings',
+      )}
+      aria-current={activeView === 'settings' ? 'page' : undefined}
+      aria-label="设置"
+      onClick={() => {
+        setProfileOpen(false);
+        onOpenSettings();
+      }}
+      title={updateAvailable ? '设置 · 有新版本可更新' : '设置'}
+      type="button"
+    >
+      <Settings size={mobile ? 22 : 18} strokeWidth={mobile ? 1.5 : 2} aria-hidden />
+      {mobile ? <span className="rail-label">设置</span> : null}
+      {updateAvailable ? (
+        <span className="rail-badge rail-badge-dot" aria-label="有新版本可更新" />
+      ) : null}
+    </button>
+  );
 
   const contentItems = [
     { id: 'collection', label: '我的收藏', icon: Bookmark, onSelect: onOpenCollection },
@@ -263,24 +288,7 @@ export function AppRail({
               <span className={cn('rail-label')}>{item.label}</span>
             </button>
           ))}
-          <button
-            className={cn(railButtonClass(activeView === 'settings'), 'rail-tab rail-tab-settings')}
-            aria-current={activeView === 'settings' ? 'page' : undefined}
-            onClick={() => {
-              setProfileOpen(false);
-              onOpenSettings();
-            }}
-            title={updateAvailable ? '设置 · 有新版本可更新' : '设置'}
-            type="button"
-          >
-            <span className={cn('rail-tab-icon')}>
-              <Settings size={22} strokeWidth={1.5} />
-            </span>
-            <span className={cn('rail-label')}>设置</span>
-            {updateAvailable ? (
-              <span className={cn('rail-badge', 'rail-badge-dot')} aria-label="有新版本可更新" />
-            ) : null}
-          </button>
+          {settingsButton(true)}
           <button
             className={cn(
               railButtonClass(activeView === 'tools'),
@@ -298,7 +306,16 @@ export function AppRail({
           </button>
         </nav>
       </div>
-      <div className={cn('rail-footer')}>{footerContent}</div>
+      <div className={cn('rail-footer')}>
+        {typeof footerContent === 'function' ? (
+          footerContent(settingsButton())
+        ) : (
+          <>
+            {settingsButton()}
+            {footerContent}
+          </>
+        )}
+      </div>
     </aside>
   );
 }

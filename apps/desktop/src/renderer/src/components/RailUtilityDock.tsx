@@ -64,7 +64,7 @@ export function RailUtilityDock({ children }: { children: ReactNode }) {
       <button
         ref={trigger}
         type="button"
-        className="weq-rail-utility-toggle"
+        className="weq-rail-control weq-rail-utility-toggle"
         title={pinned ? '快捷控制：固定展开，点击改为自动折叠' : '快捷控制：自动折叠，点击固定展开'}
         aria-label="快捷控制"
         aria-expanded={expanded}

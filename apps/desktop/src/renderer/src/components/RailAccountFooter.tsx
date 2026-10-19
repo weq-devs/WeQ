@@ -13,7 +13,7 @@
  * staleTime=5min + refetchOnMount=false 会把这个窗口放大到几分钟。
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
@@ -59,10 +59,12 @@ export function RailAccountFooter({
   currentUin,
   currentName,
   currentAvatarUrl,
+  children,
 }: {
   currentUin: string;
   currentName: string;
   currentAvatarUrl?: string | null;
+  children?: ReactNode;
 }): ReactElement {
   const setOpenedUin = useViewState((s) => s.setOpenedUin);
   const goTo = useViewState((s) => s.goTo);
@@ -414,6 +416,7 @@ export function RailAccountFooter({
           </button>
         </DesktopOnly>
       </RailUtilityDock>
+      {children}
       <div ref={wrapRef} className="weq-rail-account-footer">
         <button
           type="button"

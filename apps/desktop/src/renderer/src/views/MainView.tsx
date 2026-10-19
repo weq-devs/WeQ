@@ -45,6 +45,7 @@ import { cachedAvatarUrl } from '../lib/avatarCache';
 import { previewNodes, previewNodesToText, previewIdentityIds } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { isMineMessage } from '../lib/messageDirection';
+import { reconcileFileMessages, type FileSyncReceipt } from '../lib/fileSendReconcile';
 import {
   createUnreadRefresh,
   createUnreadUpdateGuard,
@@ -1430,6 +1431,8 @@ function optimisticArkToTemplate(
    *     回来都能把乐观卡片收掉。
    */
   signatures?: string[];
+  /** 文件发布没有普通消息序号，按文件 ID 与发送前的消息快照对账。 */
+  fileSync?: FileSyncReceipt;
   state: 'sending' | 'sent' | 'failed';
   error?: string;
   /** 客户端 `random`（回执带回）—— 对账主键。 */
@@ -2669,6 +2672,7 @@ export function MainView(): ReactElement {
   const [optimisticArks, setOptimisticArks] = useState<OptimisticArk[]>([]);
   // 同上，但发出去的是普通消息（文本 / @ / 表情 / 图片 / 视频 / 语音 / 文件…）。
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
+  const consumedFileMessages = useRef(new Set<string>());
   // "删除列表" panel: which conversation is open + its fetched deleted rows.
   const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
   const [deletedWires, setDeletedWires] = useState<MessageWire[]>([]);
@@ -5045,6 +5049,9 @@ export function MainView(): ReactElement {
    * 比文本慢，未命中前乐观条目继续显示本地预览。
    */
   useEffect(() => {
+    if (!optimisticMessages.some((item) => item.fileSync && item.state !== 'failed')) {
+      consumedFileMessages.current.clear();
+    }
     if (optimisticMessages.length === 0) return;
     const openConvId = selectedConversation?.id;
     if (!openConvId) return;
@@ -5085,13 +5092,17 @@ export function MainView(): ReactElement {
         bump(`aiVoice:${transcript}`);
       }
     }
-    if (cids.size === 0 && seqs.size === 0 && signatures.size === 0) return;
     // 对账结论必须在 updater **外面**算完：updater 里一旦消耗 `signatures` 的计数，它
     // 就不再纯净 —— React 的开发构建会把 updater 跑两遍，**第二次的结果才是最终值**
     // （react-dom `updateReducerImpl`：多跑的那遍丢掉结果，再用同一份 base state 跑一遍）。
     // 第一遍把计数减到 0，第二遍就会当成「签名没命中」而保留乐观消息；闪传 / AI 声聊拿不到
     // cid / seq、只能靠签名对账，于是卡片永远收不掉。
-    const dropIds = new Set<string>();
+    const dropIds = reconcileFileMessages(
+      optimisticMessages,
+      loadedMessageWires.filter((wire) => isMineMessage(wire, selectedConversation, user)),
+      openConvId,
+      consumedFileMessages.current,
+    );
     for (const item of optimisticMessages) {
       if (item.convId !== openConvId) continue;
       if (item.cid && cids.has(item.cid)) {
@@ -5119,7 +5130,7 @@ export function MainView(): ReactElement {
       const next = current.filter((item) => !dropIds.has(item.id));
       return next.length === current.length ? current : next;
     });
-  }, [loadedMessageWires, optimisticMessages, selectedConversation]);
+  }, [loadedMessageWires, optimisticMessages, selectedConversation, user]);
 
   // Server acknowledgement can precede the QQ database write, or its watcher
   // may be disabled. Re-read a small number of times without resending anything.
@@ -6775,6 +6786,8 @@ export function MainView(): ReactElement {
     // 注意「文字转语音」（本机合成 → `sendVoice`）走的是 `voice` 计划，是一条**真消息**，
     // 照常乐观渲染。
     const optimistic = plan.kind !== 'aiVoice';
+    const fileExistingMsgIds =
+      plan.kind === 'file' ? loadedRef.current.map((message) => message.msgId) : [];
     const optimisticId = submission?.id ?? `optimistic-${mfId('msg')}`;
     if (optimistic) {
       const render = repeated
@@ -6787,6 +6800,9 @@ export function MainView(): ReactElement {
           convId: conversation.id,
           body: render.body,
           elements: render.elements,
+          ...(plan.kind === 'file'
+            ? { fileSync: { fileId: '', existingMsgIds: fileExistingMsgIds } }
+            : {}),
           composerDraft: submission?.draft,
           state: 'sending',
           at: Date.now(),
@@ -6898,6 +6914,7 @@ export function MainView(): ReactElement {
     if (plan.kind === 'file') {
       const fileOutcome = outcome as Awaited<ReturnType<typeof client.account.sendFile.mutate>>;
       patchOptimistic({
+        fileSync: { fileId: fileOutcome.fileId, existingMsgIds: fileExistingMsgIds },
         ...expectedKeysOf({
           peerType: target.peerType,
           ...(fileOutcome.privateSequence !== undefined
@@ -7844,13 +7861,15 @@ export function MainView(): ReactElement {
             }}
             mailBadgeCount={mailPreferences.data?.showUnread === false ? 0 : mailUnread}
             showTools={false}
-            railFooterContent={
+            railFooterContent={(settingsButton: React.ReactNode) => (
               <RailAccountFooter
                 currentUin={user.identityValue}
                 currentName={user.displayName}
                 currentAvatarUrl={user.avatarUrl}
-              />
-            }
+              >
+                {settingsButton}
+              </RailAccountFooter>
+            )}
             friendNoticeCount={friendNoticeCount}
             groupNoticeCount={groupNoticeCount}
             onViewChange={(view) => {

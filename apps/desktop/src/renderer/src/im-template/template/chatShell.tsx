@@ -70,7 +70,7 @@ export function ChatShell({
   contactBadgeCount: number;
   mailBadgeCount?: number;
   showTools?: boolean;
-  railFooterContent?: ReactNode;
+  railFooterContent?: ReactNode | ((settingsButton: ReactNode) => ReactNode);
   friendNoticeCount: number;
   groupNoticeCount: number;
   /** 搜索框下方的浮层（统一搜索下拉 / 最近搜索）。 */

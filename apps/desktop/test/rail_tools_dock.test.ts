@@ -39,7 +39,7 @@ function mount(docked = false) {
     ),
   );
   const slot = host.querySelector<HTMLElement>('[data-weq-tools-dock]')!;
-  vi.spyOn(slot, 'getBoundingClientRect').mockReturnValue(new DOMRect(10, 590, 44, 44));
+  vi.spyOn(slot, 'getBoundingClientRect').mockReturnValue(new DOMRect(10, 590, 46, 34));
   act(() => window.dispatchEvent(new Event('resize')));
   return {
     host,
@@ -62,6 +62,16 @@ function pointer(button: Element, name: string, x: number, y: number) {
 }
 
 describe('左栏快捷控制与工具吸附', () => {
+  it.each([false, true])('停靠图标与快捷控制同尺寸，浮动时保留原尺寸：%s', (docked) => {
+    const f = mount(docked);
+    try {
+      const icon = document.querySelector('.weq-tools-trigger .lucide-wrench')!;
+      expect(icon.getAttribute('width')).toBe(docked ? '18' : '22');
+      expect(f.host.querySelector('.weq-rail-utility-toggle.weq-rail-control')).not.toBeNull();
+    } finally {
+      f.close();
+    }
+  });
   it('图标与提示区分自动折叠和固定展开', () => {
     const f = mount();
     try {

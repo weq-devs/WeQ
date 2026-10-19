@@ -1,4 +1,8 @@
 /* 内容入口展开后，小窗口滚动导航，底部账号与快捷控制保持独立。 */
+.app-shell .rail-nav .rail-mobile-settings {
+  display: none;
+}
+
 .rail-message-entry {
   position: relative;
   display: grid;
@@ -43,6 +47,10 @@
 }
 
 @media (max-width: 760px) {
+  .app-shell .rail-nav .rail-mobile-settings {
+    display: grid;
+  }
+
   .rail-message-entry {
     width: 100%;
     height: 100%;

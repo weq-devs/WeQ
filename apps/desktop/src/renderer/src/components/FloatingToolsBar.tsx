@@ -296,7 +296,7 @@ export function FloatingToolsBar({
         }}
       >
         <span key={clickSerial} className={`weq-tools-glyph${clickSerial ? ' has-click' : ''}`}>
-          <Wrench size={22} />
+          <Wrench size={docked && slotVisible && !dragging ? 18 : 22} />
         </span>
         {running ? <span className="weq-tools-running">{running}</span> : null}
       </button>

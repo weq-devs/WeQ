@@ -1,4 +1,4 @@
-import { act, createElement, type CSSProperties } from 'react';
+import { act, createElement, type CSSProperties, type ReactNode } from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createRoot } from 'react-dom/client';
@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChannelView } from '../src/renderer/src/views/ChannelView';
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { RailUtilityDock } from '../src/renderer/src/components/RailUtilityDock';
+import { useUpdateStore } from '../src/renderer/src/state/update';
 import {
   ContentSelectionProvider,
   useCurrentContentSelection,
@@ -311,6 +313,7 @@ describe('QQ 频道内的私聊工作区', () => {
     const noop = () => {};
     const collection = vi.fn();
     const dress = vi.fn();
+    const settings = vi.fn();
     const changeView = vi.fn();
     const f = mount(
       createElement(AppRail, {
@@ -318,7 +321,10 @@ describe('QQ 频道内的私聊工作区', () => {
         view: 'channel',
         onViewChange: changeView,
         mailBadgeCount: 2,
-        onOpenSettings: noop,
+        onOpenSettings: settings,
+        activeRailItem: 'settings',
+        footerContent: (settingsButton: ReactNode) =>
+          createElement('div', null, createElement(RailUtilityDock, null), settingsButton),
         onOpenCollection: collection,
         onOpenDressUp: dress,
         onOpenProfile: noop,
@@ -332,7 +338,9 @@ describe('QQ 频道内的私聊工作区', () => {
     );
     try {
       expect(
-        [...f.host.querySelectorAll('.rail-nav .rail-tab')].map((b) => b.getAttribute('title')),
+        [...f.host.querySelectorAll('.rail-nav .rail-tab:not(.rail-mobile-settings)')].map((b) =>
+          b.getAttribute('title'),
+        ),
       ).toEqual([
         '消息',
         '联系人',
@@ -341,9 +349,23 @@ describe('QQ 频道内的私聊工作区', () => {
         'QQ 邮箱',
         '我的收藏',
         '个性装扮',
-        '设置',
         '应用',
       ]);
+      const settingsButton = f.host.querySelector<HTMLButtonElement>(
+        '.rail-footer [aria-label="设置"]',
+      )!;
+      expect(settingsButton.previousElementSibling?.classList.contains('weq-rail-utilities')).toBe(
+        true,
+      );
+      expect(settingsButton.classList.contains('weq-rail-control')).toBe(true);
+      expect(settingsButton.getAttribute('aria-current')).toBe('page');
+      expect(settingsButton.closest('[inert]')).toBeNull();
+      act(() => settingsButton.click());
+      expect(settings).toHaveBeenCalledOnce();
+      act(() => useUpdateStore.getState().setAvailable('synthetic-version'));
+      expect(settingsButton.title).toContain('有新版本可更新');
+      expect(settingsButton.querySelector('[aria-label="有新版本可更新"]')).not.toBeNull();
+      expect(f.host.querySelector('.rail-mobile-settings')).not.toBeNull();
       for (const title of ['我的收藏', '个性装扮']) {
         act(() => f.host.querySelector<HTMLButtonElement>(`[title="${title}"]`)!.click());
       }
@@ -359,6 +381,7 @@ describe('QQ 频道内的私聊工作区', () => {
       expect(f.host.querySelector('[title="频道私聊"]')).toBeNull();
       expect(f.host.querySelector('[title="QQ 频道"]')).not.toBeNull();
     } finally {
+      act(() => useUpdateStore.getState().clear());
       f.close();
     }
   });
