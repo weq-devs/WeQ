@@ -1377,7 +1377,7 @@ export function initAppContext(): AppContext {
       this.services = {
         msgs,
         roamingBackfill,
-        recentContacts: new RecentContactService(session),
+        recentContacts: new RecentContactService(session, () => gapHistory.latestSent()),
         guildDirect,
         contentSearch,
         hiddenSessions: new HiddenSessionService(session),
@@ -1794,7 +1794,16 @@ export function initAppContext(): AppContext {
           resolveOnlinePid,
           // 商城表情包的密钥解析：发 mface 时把空 encryptKey 补上（同 getMarketPackKey）。
           (packId) => emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
-          (message) => gapHistory.retainForBatch([message]),
+          async (message) => {
+            await gapHistory.retainForBatch([message]);
+            if (getAppContext().account !== session) return;
+            dbEventBus.emit('roaming', {
+              session,
+              kind: message.kind,
+              conv: message.conv,
+              messages: [message],
+            } satisfies RoamingCacheChange);
+          },
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, resolveOnlinePid),
@@ -2158,7 +2167,7 @@ export function initAppContext(): AppContext {
       this.services = {
         msgs,
         roamingBackfill,
-        recentContacts: new RecentContactService(session),
+        recentContacts: new RecentContactService(session, () => gapHistory.latestSent()),
         guildDirect,
         contentSearch,
         hiddenSessions: new HiddenSessionService(session),
@@ -2460,7 +2469,16 @@ export function initAppContext(): AppContext {
           session,
           livePid,
           (packId) => emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
-          (message) => gapHistory.retainForBatch([message]),
+          async (message) => {
+            await gapHistory.retainForBatch([message]);
+            if (getAppContext().account !== session) return;
+            dbEventBus.emit('roaming', {
+              session,
+              kind: message.kind,
+              conv: message.conv,
+              messages: [message],
+            } satisfies RoamingCacheChange);
+          },
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, livePid),

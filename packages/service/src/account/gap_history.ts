@@ -206,6 +206,10 @@ export class GapHistoryService {
     return this.cache.query(kind, conv, startSeq, endSeq, kind === 'c2c', limit, descending);
   }
 
+  latestSent(): Promise<GapFetchedMessage[]> {
+    return this.cache.latestSent();
+  }
+
   /** Batch coverage is committed only after this durable cache write succeeds. */
   async retainForBatch(messages: GapFetchedMessage[]): Promise<void> {
     for (let i = 0; i < messages.length; i += 80) await this.cache.store(messages.slice(i, i + 80));

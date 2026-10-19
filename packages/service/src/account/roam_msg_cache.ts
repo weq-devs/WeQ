@@ -134,6 +134,22 @@ export class RoamMsgCacheDb {
     this.dbPath = dbPath;
   }
 
+  /** 每个会话最近一次已确认发送，用于 QQ 尚未同步时的会话摘要。 */
+  async latestSent(): Promise<GapFetchedMessage[]> {
+    await this.ensureSchema();
+    const eligible =
+      "json_extract(payload,'$.localSent')=1 AND (kind='group' OR nt_seq_verified=1)";
+    const rows = await this.nt.executeSql(
+      this.dbPath,
+      `SELECT payload FROM ${PROTOCOL_TABLE} WHERE ${eligible}
+       AND (kind,conv,msg_seq) IN (
+         SELECT kind,conv,MAX(msg_seq) FROM ${PROTOCOL_TABLE} WHERE ${eligible} GROUP BY kind,conv
+       )`,
+      null,
+    );
+    return rows.map((row) => parseJson<GapFetchedMessage>(String(row[0])));
+  }
+
   /** 读一段缓存，输出始终按 seq 升序；descending 决定限额前选最新还是最旧的行。 */
   async query(
     kind: 'c2c' | 'group',
@@ -507,6 +523,12 @@ export class RoamMsgCacheDb {
       `CREATE TABLE IF NOT EXISTS ${OBSERVATION_TABLE}(kind TEXT NOT NULL,conv TEXT NOT NULL,
        msg_seq INTEGER NOT NULL,raw_hash TEXT NOT NULL,reason TEXT NOT NULL,protocol_raw TEXT NOT NULL,
        PRIMARY KEY(kind,conv,msg_seq,raw_hash))`,
+      null,
+    );
+    await this.nt.executeSqlWrite(
+      this.dbPath,
+      `CREATE INDEX IF NOT EXISTS protocol_sent_preview ON ${PROTOCOL_TABLE}(kind,conv,msg_seq)
+       WHERE json_extract(payload,'$.localSent')=1 AND (kind='group' OR nt_seq_verified=1)`,
       null,
     );
     const columns = await this.nt.executeSql(

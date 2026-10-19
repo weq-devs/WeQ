@@ -2476,6 +2476,9 @@ export function MainView(): ReactElement {
   useEffect(() => {
     const sub = client.account.onRoamingMessages.subscribe(undefined, {
       onData(change) {
+        // WeQ 发送缓存不会改 QQ 库，也就不会触发 onDbChanged。
+        if (contactsRefreshingRef.current) contactsRefreshQueuedRef.current = true;
+        else void utils.account.listRecentContacts.invalidate();
         const selection = selectionRef.current;
         if (
           !selection ||
@@ -2493,7 +2496,7 @@ export function MainView(): ReactElement {
       },
     });
     return () => sub.unsubscribe();
-  }, []);
+  }, [utils]);
 
   // Subscribe once to the debounced "db changed" ping: refresh recent contacts
   // and re-read the open conversation's window. (onNewMessages stays a backend
