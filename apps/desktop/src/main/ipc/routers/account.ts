@@ -60,6 +60,7 @@ import { createQQActionsRouter } from './qq_actions';
 import { dbExplorerRouter } from './db_explorer';
 import { annualReportRouter } from './annual_report';
 import { antiRecallRouter } from './anti_recall';
+import { intentSenseRouter } from './intent_sense';
 import { avatarResourceRouter } from './avatar_resource';
 import { sysEmojiRouter } from './sys_emoji';
 import { marketEmojiRouter } from './market_emoji';
@@ -1417,6 +1418,8 @@ export const accountRouter = router({
   annualReport: annualReportRouter,
   // ---- 防撤回（拦截 QQ 撤回的 SQL 触发器 + 按会话选择）----
   antiRecall: antiRecallRouter,
+  // ---- 意图感知（消息意图/情绪分析 + 对方画像 + 回复建议）----
+  intentSense: intentSenseRouter,
   // ---- local avatar cache browser (nt_data/avatar/*) ----
   avatarResource: avatarResourceRouter,
   // ---- built-in system emoji resource browser ----

@@ -1,27 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { DatabaseZap, Download, FolderOpen, Loader2 } from 'lucide-react';
+import { DatabaseZap, Download, FolderOpen, Loader2, ShieldCheck, Zap } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { useViewState } from '../../state/view';
 import { IS_WEB } from '../../lib/target';
 import { DatabasePicker } from './DatabasePicker';
-import { Segmented } from './widgets';
 import { fmtBytes } from './types';
 import '../../styles/database-plain-export.css';
 import '../../styles/export.css';
 
 type Receipt = Awaited<ReturnType<typeof client.account.decryptDatabases.mutate>>[number];
+type Mode = 'safe' | 'fast';
 
 export function DatabasePlainExport({ accountUin }: { accountUin: string }) {
   const databases = trpc.account.listDatabases.useQuery(undefined, { refetchOnMount: 'always' });
   const dialog = useAppDialog();
   const [selected, setSelected] = useState(new Set<string>());
-  const [mode, setMode] = useState<'safe' | 'fast'>('safe');
   const [directory, setDirectory] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<Mode | null>(null);
   const [error, setError] = useState('');
-  const [receipts, setReceipts] = useState<Receipt[]>([]);
   const active = useRef(true);
   const pending = useRef(false);
   useEffect(() => {
@@ -37,6 +35,7 @@ export function DatabasePlainExport({ accountUin }: { accountUin: string }) {
         name: database.name,
         path: database.path,
         bytes: Number(database.bytes ?? 0),
+        kind: database.kind,
       })),
     [databases.data],
   );
@@ -55,11 +54,38 @@ export function DatabasePlainExport({ accountUin }: { accountUin: string }) {
     }
   }
 
-  async function run() {
+  function showReceipts(result: Receipt[]) {
+    const ok = result.filter((receipt) => receipt.ok).length;
+    dialog.info(
+      `解密完成 · 成功 ${ok} / ${result.length}`,
+      <div className="weq-db-receipts">
+        <ul>
+          {result.map((receipt) => (
+            <li key={receipt.dbPath} className={receipt.ok ? 'is-ok' : 'is-fail'}>
+              <strong>{receipt.name}</strong>
+              <span>{receipt.ok ? receipt.outPath : receipt.error}</span>
+              {receipt.ok && receipt.downloadUrl ? (
+                <a
+                  href={receipt.downloadUrl}
+                  download={receipt.name}
+                  title="下载明文数据库"
+                  aria-label={`下载 ${receipt.name}`}
+                >
+                  <Download size={15} />
+                </a>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </div>,
+    );
+  }
+
+  async function run(mode: Mode) {
     if (pending.current || !chosen.length || !directory || !current()) return;
     const targets = [...chosen];
     pending.current = true;
-    setBusy(true);
+    setBusy(mode);
     setError('');
     try {
       if (mode === 'fast' && (await client.account.isQqLoggedIn.query())) {
@@ -71,7 +97,6 @@ export function DatabasePlainExport({ accountUin }: { accountUin: string }) {
         if (!confirmed) return;
       }
       if (!current()) return;
-      setReceipts([]);
       const stamp = new Intl.DateTimeFormat('sv-SE', {
         timeZone: 'Asia/Shanghai',
         year: 'numeric',
@@ -100,105 +125,96 @@ export function DatabasePlainExport({ accountUin }: { accountUin: string }) {
         }),
       });
       if (!current()) return;
-      setReceipts(result);
       if (result.every((receipt) => receipt.ok)) setSelected(new Set());
+      showReceipts(result);
     } catch (cause) {
       if (current()) setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       pending.current = false;
-      if (current()) setBusy(false);
+      if (current()) setBusy(null);
     }
   }
 
+  const totalBytes = chosen.reduce((sum, database) => sum + database.bytes, 0);
+  const ready = Boolean(directory) && chosen.length > 0 && !busy && !picking;
+
   return (
     <div className="weq-database-plain-export">
-      <div className="weq-db-plain-picker">
-        {databases.isError ? (
-          <p role="alert">
-            {databases.error.message}
-            <button type="button" onClick={() => void databases.refetch()}>
-              重试
-            </button>
-          </p>
-        ) : null}
-        <DatabasePicker
-          items={items}
-          loading={databases.isLoading}
-          selected={selected}
-          onChange={(next) => {
-            if (!busy) setSelected(next);
-          }}
-          disabled={busy}
-        />
-      </div>
-      <div className="weq-db-plain-options">
-        <fieldset disabled={busy || picking}>
-          <legend>保存位置{IS_WEB ? '（服务端）' : ''}</legend>
-          <div className="weq-db-plain-path">
-            <code>{directory || '未选择保存位置'}</code>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="选择保存文件夹"
-              title="选择保存文件夹"
-              onClick={() => void pick()}
-            >
-              <FolderOpen size={17} />
-            </button>
-          </div>
-        </fieldset>
-        <fieldset disabled={busy}>
-          <legend>解密方式</legend>
-          <Segmented
-            value={mode}
-            onChange={setMode}
-            options={[
-              { value: 'safe', label: '安全保存' },
-              { value: 'fast', label: '快速解密' },
-            ]}
-          />
-        </fieldset>
-        <div className="weq-db-plain-submit">
-          <span>
-            {chosen.length} 个数据库 ·{' '}
-            {fmtBytes(chosen.reduce((sum, database) => sum + database.bytes, 0))}
-          </span>
+      {databases.isError ? (
+        <p className="weq-db-cards-error" role="alert">
+          {databases.error.message}
+          <button type="button" onClick={() => void databases.refetch()}>
+            重试
+          </button>
+        </p>
+      ) : null}
+
+      <DatabasePicker
+        items={items}
+        loading={databases.isLoading}
+        selected={selected}
+        onChange={(next) => {
+          if (!busy) setSelected(next);
+        }}
+        disabled={Boolean(busy)}
+      />
+
+      <div className="weq-db-actionbar">
+        <div className="weq-db-actionbar-target">
+          <FolderOpen size={15} aria-hidden />
+          <span className="weq-db-actionbar-label">保存位置{IS_WEB ? '（服务端）' : ''}</span>
+          <code title={directory ?? undefined}>{directory || '未选择保存位置'}</code>
           <button
             type="button"
-            className="weq-action-primary"
-            disabled={busy || picking || !directory || !chosen.length}
-            onClick={() => void run()}
+            className="weq-db-actionbar-pick"
+            aria-label="选择保存文件夹"
+            title="选择保存文件夹"
+            disabled={Boolean(busy) || picking}
+            onClick={() => void pick()}
           >
-            {busy ? <Loader2 size={16} className="spin" /> : <DatabaseZap size={16} />}
-            {busy ? '正在解密' : '开始解密'}
+            {picking ? <Loader2 size={15} className="weq-exp-spin" /> : '选择…'}
           </button>
         </div>
-        {error ? <p role="alert">{error}</p> : null}
-        {receipts.length ? (
-          <div className="weq-db-plain-results" role="status">
-            <strong>
-              成功 {receipts.filter((receipt) => receipt.ok).length}，失败{' '}
-              {receipts.filter((receipt) => !receipt.ok).length}
-            </strong>
-            <ul>
-              {receipts.map((receipt) => (
-                <li key={receipt.dbPath}>
-                  <strong>{receipt.name}</strong>
-                  <span>{receipt.ok ? receipt.outPath : receipt.error}</span>
-                  {receipt.ok && receipt.downloadUrl ? (
-                    <a
-                      href={receipt.downloadUrl}
-                      download={receipt.name}
-                      title="下载明文数据库"
-                      aria-label={`下载 ${receipt.name}`}
-                    >
-                      <Download size={16} />
-                    </a>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </div>
+        <div className="weq-db-actionbar-summary">
+          {chosen.length ? (
+            <span>
+              {chosen.length} 个数据库 · {fmtBytes(totalBytes)}
+            </span>
+          ) : (
+            <span>先选中要解密的数据库</span>
+          )}
+        </div>
+        <div className="weq-db-actionbar-buttons">
+          <button
+            type="button"
+            className="weq-db-export is-safe"
+            disabled={!ready}
+            title="QQ 在线时更稳妥：先让数据库处于一致状态再解密"
+            onClick={() => void run('safe')}
+          >
+            {busy === 'safe' ? (
+              <Loader2 size={16} className="weq-exp-spin" />
+            ) : (
+              <ShieldCheck size={16} />
+            )}
+            {busy === 'safe' ? '正在安全保存' : '安全保存'}
+          </button>
+          <button
+            type="button"
+            className="weq-db-export is-fast"
+            disabled={!ready}
+            title="直接解密，速度更快；QQ 在线时可能损坏导出的库"
+            onClick={() => void run('fast')}
+          >
+            {busy === 'fast' ? <Loader2 size={16} className="weq-exp-spin" /> : <Zap size={16} />}
+            {busy === 'fast' ? '正在快速解密' : '快速解密'}
+          </button>
+        </div>
+        {error ? (
+          <p className="weq-db-cards-error" role="alert">
+            <DatabaseZap size={14} />
+            {error}
+          </p>
         ) : null}
       </div>
     </div>

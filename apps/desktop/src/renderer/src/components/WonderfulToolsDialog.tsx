@@ -85,7 +85,7 @@ const TOOLS: { id: ToolId; label: string; desc: string }[] = [
   { id: 'other-device-key', label: '其它设备密钥', desc: '获取账号其它设备的密钥' },
   { id: 'capture', label: 'ntqq 抓包', desc: '网卡收发包 · 解密展开' },
   { id: 'reverse', label: 'Protobuf/JCE 逆向', desc: 'hex/base64 → 简洁 JSON' },
-  { id: 'login-accounts', label: 'QQ 登陆账号管理', desc: '快登 · 删除 · 换 guid' },
+  { id: 'login-accounts', label: 'QQ 登陆与guid管理', desc: '快登 · 删除 · 换 guid' },
 ];
 
 const TOOL_ICONS: Record<ToolId, typeof KeyRound> = {
@@ -846,7 +846,7 @@ export function WonderfulToolsDialog({
                 <header className="weq-wtools-pane-head">
                   <div className="weq-wtools-pane-title">
                     <Fingerprint size={17} strokeWidth={1.9} />
-                    <h2 id="weq-wtools-title">QQ 登陆账号管理</h2>
+                    <h2 id="weq-wtools-title">QQ 登陆与guid管理</h2>
                   </div>
                 </header>
                 <div className="weq-wtools-pane-body">

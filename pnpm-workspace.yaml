@@ -12,10 +12,8 @@ ignoreWorkspaceCycles: true
 allowBuilds:
   electron: true
   esbuild: true
-  # onnxruntime-node（本地 OCR 的推理引擎）默认的 postinstall 会照 install-metadata
-  # 给 linux/x64 拉 **CUDA EP** 那几坨几百 MB 的 GPU 库，我们只用 CPU；而 CPU 二进制
-  # 本来就随 npm 包发布（bin/napi-v6/<platform>/<arch>/），不需要这步。显式拒绝，
-  # 顺带把「为什么没跑它的 install 脚本」写在案上。
+  # onnxruntime-node（本地 OCR / 意图感知推理引擎）默认的 postinstall 会照 install-metadata
+  # 给 linux/x64 拉 CUDA EP，我们优先使用已自带的 bin/ 二进制，显式设为 false 避免冗余下载。
   onnxruntime-node: false
 
 # pnpm 12 起 `pnpm exec` / `pnpm run` 前会先校验 lockfile 与 package.json 是否

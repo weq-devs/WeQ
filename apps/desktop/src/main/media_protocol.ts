@@ -142,11 +142,34 @@ export const MEDIA_PRIVILEGED_SCHEME = {
     secure: true,
     supportFetchAPI: true,
     stream: true,
+    // dev 模式下渲染页是 `http://localhost:5173`，`weq-media://` 属于**跨源**：
+    // `<img>/<video>` 这类 no-cors 请求照样能过，但字体（CORS-mode 的 fetch）
+    // 会被 Chromium 直接拦成 "blocked by CORS policy"。生产走 `file://` 时不触发
+    // 跨源检查，所以这个坑只在 dev 里出现 —— 两处都要：这里的特权声明 + 下面的
+    // 响应头（缺 ACAO 时即使放行也拿不到字体）。
+    corsEnabled: true,
   },
 } as const;
 
 function notFound(reason: string): Response {
   return new Response(reason, { status: 404 });
+}
+
+/**
+ * 给每个响应补 `Access-Control-Allow-Origin`。
+ *
+ * 只有 dev 下的渲染页（`http://localhost:5173`）会真的走到这里：`weq-media://`
+ * 与它不同源，字体走的是 CORS-mode 的 fetch（`new FontFace(url)`），缺这个头
+ * 就算特权声明里开了 `corsEnabled` 也会被拒。图片/视频是 no-cors 请求，加不加
+ * 都无所谓；统一加上省得以后又冒出「某类资源突然要 CORS」。
+ *
+ * `*` 而不是回显 Origin：这些响应都不带凭据，且协议本身只服务本机文件。
+ * 304 也要带（Chromium 对缓存的字体照样做 CORS 校验），所以这里复制原响应头。
+ */
+function withCors(res: Response): Response {
+  const headers = new Headers(res.headers);
+  headers.set('Access-Control-Allow-Origin', '*');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
 
 /**
@@ -348,8 +371,21 @@ async function qqshowRemoteResponse(src: string): Promise<Response> {
  * Serve one `weq-media://` request. Pure `Request`→`Response`, so the web app
  * can mount it on a plain HTTP route (see `apps/web`) without Electron.
  */
-export function handleMediaRequest(request: Request): Promise<Response> {
-  return currentRequest.run(request, async () => {
+export async function handleMediaRequest(request: Request): Promise<Response> {
+  try {
+    return await currentRequest.run(request, async () =>
+      withCors(await routeMediaRequest(request)),
+    );
+  } catch (e) {
+    // 路由内部已经有 try/catch；这里兜住「连 AppContext 都还没初始化」这类
+    // 早期错误 —— 否则响应连跨源头都没有，dev 里会被误报成 CORS 失败。
+    console.error('[media] request failed:', e);
+    return withCors(new Response('media error', { status: 500 }));
+  }
+}
+
+async function routeMediaRequest(request: Request): Promise<Response> {
+  {
     const url = new URL(request.url);
     const kind = url.hostname;
     const q = url.searchParams;
@@ -425,7 +461,17 @@ export function handleMediaRequest(request: Request): Promise<Response> {
       return notFound('redbag skin fetch failed');
     }
 
-    const services = getAppContext().services;
+    // 走到这里的 kind 都需要账号会话（不需要的那四个已在上面提前返回）。
+    // 未知 kind 也走这条断言，随后由下面的 switch default 报「unknown media kind」。
+    // 没有账号会话（含 AppContext 尚未初始化）→ 统一 404。别让 getAppContext
+    // 的 assert 冒出去：协议层抛异常时 Chromium 只会看到一个没有 CORS 头的失败，
+    // 排查时会被误读成跨源问题。
+    let services: ReturnType<typeof getAppContext>['services'];
+    try {
+      services = getAppContext().services;
+    } catch {
+      return notFound('no account session');
+    }
     if (!services) return notFound('no account session');
 
     // 装扮字体:清单里记的 ttf 绝对路径。放在这里(而不是 weq-asset)是因为
@@ -739,5 +785,5 @@ export function handleMediaRequest(request: Request): Promise<Response> {
       console.error(`[media] ${kind} failed:`, e);
       return new Response('media error', { status: 500 });
     }
-  });
+  }
 }

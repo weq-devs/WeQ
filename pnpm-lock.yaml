@@ -196,6 +196,9 @@ importers:
       '@radix-ui/react-slot':
         specifier: ^1.1.1
         version: 1.2.5(@types/react@19.2.17)(react@19.2.7)
+      '@receptron/laya':
+        specifier: ^0.1.2
+        version: 0.1.2
       '@resvg/resvg-js':
         specifier: ^2.6.2
         version: 2.6.2
@@ -1367,6 +1370,9 @@ packages:
     peerDependencies:
       hono: ^4
 
+  '@huggingface/tokenizers@0.2.0':
+    resolution: {integrity: sha512-LidMHe1FpcSYH4vcSjXooda34pC0M8m1gmDOv7SQi6Iv+ib1zX7J3sHBCC9/3FPCkn2k1b55FneVqMRxrr99pg==}
+
   '@iconify/types@2.0.0':
     resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
 
@@ -1475,6 +1481,10 @@ packages:
     peerDependenciesMeta:
       '@types/react':
         optional: true
+
+  '@receptron/laya@0.1.2':
+    resolution: {integrity: sha512-cTqQC4DEY/wDAHY44EQhbW8wlrO7mZyLVWOy512783LUq55a7nLGGu16wXVi6oi4uNRfR0cLctKcQAxdXCXQfA==}
+    engines: {node: '>=20'}
 
   '@resvg/resvg-js-android-arm-eabi@2.6.2':
     resolution: {integrity: sha512-FrJibrAk6v29eabIPgcTUMPXiEz8ssrAk7TXxsiZzww9UTQ1Z5KAbFJs+Z0Ez+VZTYgnE5IQJqBcoSiMebtPHA==}
@@ -5843,6 +5853,8 @@ snapshots:
     dependencies:
       hono: 4.12.27
 
+  '@huggingface/tokenizers@0.2.0': {}
+
   '@iconify/types@2.0.0': {}
 
   '@iconify/utils@3.1.4':
@@ -5978,6 +5990,11 @@ snapshots:
       react: 19.2.7
     optionalDependencies:
       '@types/react': 19.2.17
+
+  '@receptron/laya@0.1.2':
+    dependencies:
+      '@huggingface/tokenizers': 0.2.0
+      onnxruntime-node: 1.30.0
 
   '@resvg/resvg-js-android-arm-eabi@2.6.2':
     optional: true

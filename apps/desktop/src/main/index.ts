@@ -23,9 +23,11 @@ import { dirname, join } from 'node:path';
 import {
   initAppContext,
   setGroupKeywordNotifier,
+  setIntentSenseLocalEngine,
   setRecallNotifier,
   setMailNotifier,
 } from './context/app_context';
+import { getIntentSenseLocalEngine } from './intent_sense/bridge';
 import { probeQqProtocolHandler } from './context/qq_protocol';
 import { appRouter } from './ipc/router';
 import { guardTrpcReply } from './ipc/reply_guard';
@@ -586,7 +588,7 @@ function createWindow(): BrowserWindow {
     height: 580,
     minWidth: 940,
     minHeight: 520,
-    show: false,
+    show: true,
     title: 'WeQ Desktop',
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
@@ -604,15 +606,23 @@ function createWindow(): BrowserWindow {
   });
 
   const reveal = () => {
-    if (win.isDestroyed() || win.isVisible()) return;
+    if (win.isDestroyed()) return;
     win.show();
+    win.restore();
     win.focus();
+    try {
+      win.setAlwaysOnTop(true);
+      win.setAlwaysOnTop(false);
+    } catch {
+      /* ignore */
+    }
   };
 
   win.on('ready-to-show', reveal);
   // Fallback: in some environments `ready-to-show` can be delayed or missed
   // (e.g. compositor/driver quirks). Guarantee visibility once content loads.
   win.webContents.on('did-finish-load', reveal);
+  setTimeout(reveal, 1000);
 
   // Apply the user-configured close action (设置 → 全局设置 → 关闭按钮):
   //   'quit' → quit the app on every platform;
@@ -710,6 +720,9 @@ void app.whenReady().then(async () => {
   // 防撤回：拦到新撤回时按会话开关弹系统通知（服务层注入，保持 Electron-free）。
   setRecallNotifier(handleRecallNotification);
   setMailNotifier(handleMailNotification);
+  // 意图感知本地引擎（Laya ONNX worker）：bridge 认识 Electron（userData 路径、
+  // fork），同样从这里注入控制面；web 端不注入，localAvailable 恒为 false。
+  setIntentSenseLocalEngine(getIntentSenseLocalEngine());
   logger.info('electron app ready', { event: 'app-ready' });
 
   registerResourceProtocol();

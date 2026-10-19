@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { Bot, Check, LoaderCircle, RotateCcw, Sparkle, TriangleAlert, X } from 'lucide-react';
@@ -7,6 +7,7 @@ import { Avatar } from './primitives';
 import type { Conversation, Message, MessageAction, User } from './types';
 import { cn } from './classNames';
 import { SetEmojiReactions, type ReactionRemoval } from '../../components/SetEmojiReactions';
+import { MessageIntentSense } from '../../components/intentSense/MessageIntentSense';
 import { useSelfPendant } from '../../hooks/useSelfPendant';
 import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget';
 import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
@@ -516,6 +517,9 @@ export function MessageBubble({
             <span>{reeditArmed && reeditClass ? '重新编辑' : optimisticText}</span>
           </StatusTag>
         ) : null}
+        {/* 意图感知：常驻胶囊只挂最新对方消息，悬停任意消息出弹层。
+            数据与悬停监听都在组件内部（经 IntentSenseContext），关掉功能时渲染 null。 */}
+        <MessageIntentSense msgId={String(message.id)} bubbleRef={bubbleRef} />
         {isDeleted && !hideDeletedBadge ? (
           <div
             className={cn('weq-msg-deleted-veil')}

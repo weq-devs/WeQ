@@ -17,6 +17,7 @@ import {
   Activity,
   AudioLines,
   Bot,
+  BrainCircuit,
   Check,
   ChevronRight,
   CloudDownload,
@@ -49,6 +50,7 @@ import { MailSettingsSection } from './settings/MailSettingsSection';
 import { AppLockSection } from './settings/AppLockSection';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { AgentLabSection } from './settings/AgentLabSection';
+import { IntentSenseSection } from './settings/IntentSenseSection';
 import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTranscribeSection';
 import { OcrModelsSection } from './settings/OcrModelsSection';
 import { McpServerSection } from './settings/McpServerSection';
@@ -211,6 +213,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '模型配置',
     icon: <Bot size={16} strokeWidth={1.8} />,
     render: () => <AgentLabSection />,
+  },
+  {
+    id: 'intent-sense',
+    label: '意图感知',
+    icon: <BrainCircuit size={16} strokeWidth={1.8} />,
+    render: () => <IntentSenseSection />,
   },
   {
     id: 'mcp',

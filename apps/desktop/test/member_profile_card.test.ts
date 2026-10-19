@@ -24,6 +24,20 @@ vi.mock('@renderer/trpc/client', () => ({
       getBotProfile: { query: async () => null },
     },
   },
+  // 卡片底部的「互动画像」入口会读意图感知状态；这里给一个「未开启」的桩，
+  // 入口不渲染，也就不会把画像 Dialog 的依赖链拖进来。
+  trpc: {
+    account: {
+      intentSense: {
+        getProfile: {
+          useQuery: () => ({ data: undefined, isLoading: false }),
+        },
+        getStatus: {
+          useQuery: () => ({ data: undefined }),
+        },
+      },
+    },
+  },
 }));
 
 // 卡片底部的三个「从卡片里再打开」的灯箱与本次断言无关，换成空壳避免把
