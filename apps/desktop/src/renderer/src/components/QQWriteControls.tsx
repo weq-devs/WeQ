@@ -19,6 +19,8 @@ export function QQWriteTextRow({
   multiline,
   maxLength = 1024,
   allowEmpty = true,
+  autoFocus = false,
+  onDirtyChange,
   onSave,
 }: {
   label: string;
@@ -28,6 +30,8 @@ export function QQWriteTextRow({
   multiline?: boolean;
   maxLength?: number;
   allowEmpty?: boolean;
+  autoFocus?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
   onSave: (value: string) => Promise<boolean>;
 }) {
   const [value, setValue] = useState(initial ?? '');
@@ -40,6 +44,9 @@ export function QQWriteTextRow({
     setValue((current) => (current === before ? (initial ?? '') : current));
     previous.current = initial ?? '';
   }, [initial]);
+  useEffect(() => {
+    onDirtyChange?.(value !== (initial ?? '') && value !== submitted);
+  }, [value, initial, submitted, onDirtyChange]);
   if (readOnly)
     return (
       <Row
@@ -54,6 +61,7 @@ export function QQWriteTextRow({
     maxLength,
     required: !allowEmpty,
     disabled,
+    autoFocus,
     onChange: (event: { target: { value: string } }) => {
       setValue(event.target.value);
       setSubmitted(null);

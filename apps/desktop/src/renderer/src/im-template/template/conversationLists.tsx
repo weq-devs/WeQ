@@ -33,7 +33,10 @@ import {
   virtualConversationRow,
 } from '../../lib/conversationDirectory';
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
-import { conversationAnalysisTarget } from '../../lib/conversationActions';
+import {
+  conversationAnalysisTarget,
+  conversationRoamingTarget,
+} from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { sidebarConversationsWithoutAssistant } from '../../lib/groupAssistant';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
@@ -797,6 +800,18 @@ export function ConversationList({
                       label: '分析',
                       icon: <BarChart3 size={16} />,
                       action: () => directory.onAnalyze(actionMenu.conversation),
+                    },
+                  ]
+                : []),
+              ...(directory?.onEditRemark &&
+              actionMenu.ids.length === 1 &&
+              conversationRoamingTarget(actionMenu.conversation)
+                ? [
+                    {
+                      label:
+                        actionMenu.conversation.type === 'group' ? '修改群备注' : '修改好友备注',
+                      icon: <PenLine size={16} />,
+                      action: () => directory.onEditRemark(actionMenu.conversation),
                     },
                   ]
                 : []),

@@ -23,6 +23,7 @@ export const ConversationDirectoryContext = createContext<{
   onCreateGroup?: () => void;
   onAnalyze?: (conversation: Conversation) => void;
   onPin?: (conversation: Conversation, pinned: boolean) => void;
+  onEditRemark?: (conversation: Conversation) => void;
   loadingError?: string;
   onAnalyzeMember?: (conversation: Extract<Conversation, { type: 'group' }>, member: User) => void;
   onRoaming?: (targets: RoamingTarget[]) => void;

@@ -82,6 +82,7 @@ import { ContactNoticeDialog, GroupNoticeDialog } from '../components/ContactNot
 import { GroupInfoDetailDialog } from '../components/GroupInfoDetailDialog';
 import type { GroupInfoDetail } from '../im-template/template/conversationDetails';
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
+import { QQRemarkDialog } from '../components/QQRemarkDialog';
 import {
   GroupEssenceDialog,
   type GroupEssenceWire as GroupEssenceDisplay,
@@ -2635,6 +2636,7 @@ export function MainView(): ReactElement {
     title: string;
     anchor?: HTMLElement;
   } | null>(null);
+  const [remarkTarget, setRemarkTarget] = useState<RoamingTarget | null>(null);
   const [groupBugDialog, setGroupBugDialog] = useState<{
     groupCode: string;
     groupName: string;
@@ -8512,6 +8514,13 @@ export function MainView(): ReactElement {
               onClose={() => setConvSettings(null)}
             />
           ) : null}
+          {remarkTarget && (
+            <QQRemarkDialog
+              key={`${remarkTarget.kind}:${remarkTarget.conv}`}
+              target={remarkTarget}
+              onClose={() => setRemarkTarget(null)}
+            />
+          )}
           {groupBugDialog ? (
             <GroupBugDialog
               groupId={groupBugDialog.groupCode}
@@ -8861,6 +8870,10 @@ export function MainView(): ReactElement {
                   onAnalyze: handleAnalyzeConversation,
                   onPin: (conversation, pinned) =>
                     updateConversationPreference(conversation.id, 'pinned', pinned),
+                  onEditRemark: (conversation) => {
+                    const target = conversationRoamingTarget(conversation);
+                    if (target) setRemarkTarget(target);
+                  },
                   onAnalyzeMember: (conversation, member) => {
                     setAnalysisRequest((previous) => ({
                       target: {
@@ -8932,6 +8945,7 @@ export function MainView(): ReactElement {
                     onNavigate={() => {
                       setSettingsOpen(false);
                       setConvSettings(null);
+                      setRemarkTarget(null);
                     }}
                   >
                     {chatContent}
