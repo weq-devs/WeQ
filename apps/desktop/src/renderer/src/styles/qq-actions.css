@@ -28,6 +28,11 @@ html[data-theme="dark"] .composer-tools button.weq-qq-typing-toggle[aria-pressed
 .weq-qq-action-summary { color: var(--weq-fg-secondary); font-size: 12px; overflow-wrap: anywhere; }
 html[data-theme="dark"] .weq-qq-join-dialog { border-color: var(--weq-border-strong); }
 .weq-qq-album-item > .group-album-media-card { width: 100%; }
+.weq-qq-action-bar .weq-qq-like-toggle[aria-pressed="true"] { color: var(--weq-accent-effective); background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent); }
+html[data-theme="dark"] .weq-qq-action-bar .weq-qq-like-toggle[aria-pressed="true"] { background: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent); }
+.weq-qq-like-spin { animation: weq-qq-like-spin 1s linear infinite; }
+@keyframes weq-qq-like-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .weq-qq-like-spin { animation: none; } }
 .weq-qq-actions p[role="alert"] { color: var(--destructive); overflow-wrap: anywhere; }
 html[data-theme="dark"] .weq-qq-actions { border-color: var(--weq-border-strong); }
 html[data-theme="dark"] .weq-qq-action-form input:not([type="checkbox"]), html[data-theme="dark"] .weq-qq-action-form select, html[data-theme="dark"] .weq-qq-action-form textarea { background: var(--weq-bg-surface); color: var(--weq-fg-primary); }

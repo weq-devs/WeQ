@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Loader2, ThumbsUp, Trash2 } from 'lucide-react';
+import type { QQWriteBinding, QQWriteOutcome } from '../../hooks/useQQWriteSession';
 import { client } from '../../trpc/client';
 import { localFileUrl } from '../../lib/resourceUrl';
 import {
@@ -10,6 +11,78 @@ import {
   useQQAction,
   withQQAccountScope,
 } from './shared';
+
+function LikeAction({
+  action,
+  label,
+  initialLiked = null,
+  disabled,
+  submit,
+  onChanged,
+}: {
+  action: ReturnType<typeof useQQAction>;
+  label: '媒体' | '说说';
+  initialLiked?: boolean | null;
+  disabled?: boolean;
+  submit: (binding: QQWriteBinding, enabled: boolean) => Promise<QQWriteOutcome>;
+  onChanged?: () => void;
+}) {
+  const [liked, setLiked] = useState(initialLiked);
+  const [pending, setPending] = useState(false);
+  const running = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (initialLiked !== null) setLiked(initialLiked);
+  }, [initialLiked]);
+  const actionLabel = liked ? `取消${label}点赞` : `点赞${label}`;
+  async function toggle() {
+    if (running.current || action.disabled || disabled) return;
+    running.current = true;
+    setPending(true);
+    const next = liked !== true;
+    let accepted = false;
+    try {
+      await action.perform(
+        async (binding) => {
+          const result = await submit(binding, next);
+          accepted = result.state === 'accepted' || result.state === 'confirmed';
+          return result;
+        },
+        async () => {
+          if (accepted) setLiked(next);
+          onChanged?.();
+        },
+      );
+    } finally {
+      running.current = false;
+      if (mounted.current) setPending(false);
+    }
+  }
+  return (
+    <button
+      type="button"
+      className="weq-set-iconbtn weq-qq-like-toggle"
+      aria-label={actionLabel}
+      aria-pressed={liked === null ? 'mixed' : liked}
+      aria-busy={pending}
+      title={pending ? `正在${actionLabel}…` : actionLabel}
+      disabled={action.disabled || disabled || pending}
+      onClick={() => void toggle()}
+    >
+      {pending ? (
+        <Loader2 size={16} className="weq-qq-like-spin" />
+      ) : (
+        <ThumbsUp size={16} fill={liked ? 'currentColor' : 'none'} />
+      )}
+    </button>
+  );
+}
 
 function GroupAlbumUploadBody({
   groupId,
@@ -91,40 +164,21 @@ function GroupAlbumMediaActionsBody({
   return (
     <div className="weq-qq-media-actions">
       <div className="weq-qq-action-bar">
-        <ActionIcon
-          label="点赞媒体"
-          disabled={a.disabled || !likeReady}
-          onClick={() =>
-            void a.perform((b) =>
-              client.account.qqActions.albumMedia.mutate({
-                ...b,
-                ...base,
-                uploaderUin,
-                uploadTime,
-                action: 'like',
-              }),
-            )
+        <LikeAction
+          key={mediaId}
+          action={a}
+          label="媒体"
+          disabled={!likeReady}
+          submit={(b, enabled) =>
+            client.account.qqActions.albumMedia.mutate({
+              ...b,
+              ...base,
+              uploaderUin,
+              uploadTime,
+              action: enabled ? 'like' : 'unlike',
+            })
           }
-        >
-          <ThumbsUp size={14} />
-        </ActionIcon>
-        <ActionIcon
-          label="取消媒体点赞"
-          disabled={a.disabled || !likeReady}
-          onClick={() =>
-            void a.perform((b) =>
-              client.account.qqActions.albumMedia.mutate({
-                ...b,
-                ...base,
-                uploaderUin,
-                uploadTime,
-                action: 'unlike',
-              }),
-            )
-          }
-        >
-          <ThumbsDown size={14} />
-        </ActionIcon>
+        />
         <ActionIcon
           label="删除相册媒体"
           disabled={a.disabled || !deletionId}
@@ -178,11 +232,13 @@ function QzoneWriteActionsBody({
   hostUin,
   tid,
   time,
+  initialLiked,
   onChanged,
 }: {
   hostUin: string;
   tid: string;
   time: number;
+  initialLiked?: boolean | null;
   onChanged: () => void;
 }) {
   const a = useQQAction(`qzone:${hostUin}:${tid}`),
@@ -199,38 +255,22 @@ function QzoneWriteActionsBody({
         </div>
       )}
       <div className="weq-qq-action-bar">
-        <ActionIcon
-          label="点赞说说"
-          disabled={a.disabled}
-          onClick={() =>
-            void a.perform(
-              (b) =>
-                client.account.qqActions.qzone.mutate({ ...b, hostUin, tid, time, action: 'like' }),
-              async () => onChanged(),
-            )
+        <LikeAction
+          key={`${hostUin}:${tid}`}
+          action={a}
+          label="说说"
+          initialLiked={initialLiked}
+          onChanged={onChanged}
+          submit={(b, enabled) =>
+            client.account.qqActions.qzone.mutate({
+              ...b,
+              hostUin,
+              tid,
+              time,
+              action: enabled ? 'like' : 'unlike',
+            })
           }
-        >
-          <ThumbsUp size={16} />
-        </ActionIcon>
-        <ActionIcon
-          label="取消说说点赞"
-          disabled={a.disabled}
-          onClick={() =>
-            void a.perform(
-              (b) =>
-                client.account.qqActions.qzone.mutate({
-                  ...b,
-                  hostUin,
-                  tid,
-                  time,
-                  action: 'unlike',
-                }),
-              async () => onChanged(),
-            )
-          }
-        >
-          <ThumbsDown size={16} />
-        </ActionIcon>
+        />
         <input
           aria-label="说说评论"
           placeholder="写评论"

@@ -59,3 +59,9 @@
 - UIN 信封中的用户字段既可能为数值 QQ 号，也可能为字符串 UID。读取时分别按两种 schema 解码并按同条记录合并，保留申请人、邀请人和处理人身份；发包路径、签名与不透明审批 token 保持原有边界。
 - 处理时仍将通知类型 `7` 映射成操作类型 `1`，保留服务端序号与透传字段。已处理项、其他通知类型、身份缺失及自己的申请不显示审批按钮。
 - 核对依据为 [SnowLuma 群申请读取实现](https://github.com/SnowLuma/SnowLuma/blob/main/packages/protocol/src/oidb-services/contacts/fetch-group-requests.ts)及其[请求事件回归](https://github.com/SnowLuma/SnowLuma/blob/main/packages/onebot/tests/group-request-events.test.ts)。本次回归为合成请求与模拟网络，不代表真实审批已验收。
+
+## 2026-10-20：点赞切换按钮
+
+空间说说与群相册媒体共用单个点赞切换按钮。执行中固定按钮尺寸、禁用重复点击并显示忙碌图标；服务端已受理或已确认后才切换，异常及未确认回执保留原状态。
+
+空间已读到本人点赞记录时显示已点赞，只有完整点赞名单中确实没有本人时才确认未点赞；不完整名单或群相册缺少本人点赞读取字段时，使用 `aria-pressed="mixed"` 表示未知，首次操作为点赞，受理后可在同一按钮取消。未知读取不覆盖本次已受理状态；这不是完整远端读回或跨端校准的验收，后续即时反馈专项继续处理。

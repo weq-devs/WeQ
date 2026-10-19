@@ -29,7 +29,9 @@ import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/u
 const state = vi.hoisted(() => ({
   configId: 'source-a',
   available: true,
-  mutate: vi.fn(async (_name: string, _input: unknown) => ({ state: 'accepted' as const })),
+  mutate: vi.fn(
+    async (_name: string, _input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' }),
+  ),
   confirm: vi.fn(async () => true),
   picker: vi.fn(async () => ({ path: '/selected/image.png', fileName: 'image.png' })),
   prepare: vi.fn(async () => ({
@@ -62,9 +64,13 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
       action: (b: QQWriteBinding) => Promise<QQWriteOutcome>,
       refresh?: () => Promise<unknown>,
     ) => {
-      await action({ expectedAccountUin: '10001', expectedAccountConfigId: state.configId });
-      await refresh?.();
-      return true;
+      try {
+        await action({ expectedAccountUin: '10001', expectedAccountConfigId: state.configId });
+        await refresh?.();
+        return true;
+      } catch {
+        return false;
+      }
     },
   }),
 }));
@@ -195,6 +201,53 @@ afterEach(() => {
 });
 
 describe('QQ 主动操作的实际界面', () => {
+  it('空间点赞合并为单个切换按钮，未确认不翻转，执行期间禁用', async () => {
+    const f = fixture(() =>
+      h(QzoneWriteActions, {
+        hostUin: '10002',
+        tid: 'post-a',
+        time: 1,
+        initialLiked: false,
+        onChanged: vi.fn(),
+      }),
+    );
+    state.mutate.mockResolvedValueOnce({ state: 'unconfirmed' });
+    await act(async () => f.button('点赞说说').click());
+    expect(f.button('点赞说说').getAttribute('aria-pressed')).toBe('false');
+    let finish!: (outcome: QQWriteOutcome) => void;
+    state.mutate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    act(() => f.button('点赞说说').click());
+    expect(f.button('点赞说说').disabled).toBe(true);
+    expect(f.button('点赞说说').getAttribute('aria-busy')).toBe('true');
+    await act(async () => finish({ state: 'accepted' }));
+    expect(f.button('取消说说点赞').getAttribute('aria-pressed')).toBe('true');
+    expect(f.button('点赞说说')).toBeNull();
+    await act(async () => f.button('取消说说点赞').click());
+    expect(state.mutate).toHaveBeenLastCalledWith(
+      'qzone',
+      expect.objectContaining({ action: 'unlike' }),
+    );
+    expect(f.button('点赞说说').getAttribute('aria-pressed')).toBe('false');
+  });
+  it('远端已经点赞时直接提供取消，取消失败保留原状态', async () => {
+    const f = fixture(() =>
+      h(QzoneWriteActions, {
+        hostUin: '10002',
+        tid: 'post-a',
+        time: 1,
+        initialLiked: true,
+        onChanged: vi.fn(),
+      }),
+    );
+    state.mutate.mockRejectedValueOnce(new Error('网络失败'));
+    await act(async () => f.button('取消说说点赞').click());
+    expect(f.button('取消说说点赞').getAttribute('aria-pressed')).toBe('true');
+  });
   it('相册视频互动使用视频 ID，删除使用封面 lloc，缺少封面不能猜测删除标识', async () => {
     const props = {
       groupId: 123,
@@ -224,7 +277,7 @@ describe('QQ 主动操作的实际界面', () => {
     props.uploaderUin = '';
     props.uploadTime = Number.NaN;
     f.update();
-    expect(f.button('点赞媒体').disabled).toBe(true);
+    expect(f.button('取消媒体点赞').disabled).toBe(true);
     expect(f.button('删除相册媒体').disabled).toBe(false);
   });
   it('通知入口按未查看数显示独立红点，查看清除后不残留', () => {

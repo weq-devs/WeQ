@@ -1698,6 +1698,13 @@ function PostActions({
         hostUin={hostUin}
         tid={post.tid}
         time={post.time}
+        initialLiked={
+          likes?.likes.some((person) => person.uin === selfUin)
+            ? true
+            : likes?.coverage === 'complete'
+              ? false
+              : null
+        }
         onChanged={() => {
           summaryRefresh.current = null;
           setExpanded(null);
