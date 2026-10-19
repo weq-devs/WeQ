@@ -68,6 +68,7 @@
 
 .weq-dress-kinds {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   flex: none;
 }
@@ -382,19 +383,34 @@
   white-space: nowrap;
 }
 
-.weq-dress-use {
+/* 卡片底部两个动作并排：主操作「使用」占满，次操作「另存为」按内容宽。
+ * 窄卡片时仍能放下，所以两枚按钮都允许收缩文字。 */
+.weq-dress-card-actions {
   display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin: 0 10px 10px;
+}
+
+.weq-dress-use,
+.weq-dress-save {
+  display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  margin: 0 10px 10px;
-  padding: 6px 0;
+  padding: 6px 8px;
   border: 1px solid var(--weq-accent-effective, #12a8ff);
   border-radius: 7px;
   background: transparent;
   color: var(--weq-accent-effective, #12a8ff);
   font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.weq-dress-use {
+  flex: 1 1 auto;
 }
 
 .weq-dress-use:hover:not(:disabled) {
@@ -406,6 +422,29 @@
   border-color: var(--weq-border, rgba(0, 0, 0, 0.12));
   color: #a8b0bd;
   cursor: not-allowed;
+}
+
+/* 另存为：描边弱一档，避免和「使用」抢主次。 */
+.weq-dress-save {
+  flex: 0 0 auto;
+  border-color: var(--weq-border, rgba(0, 0, 0, 0.12));
+  color: var(--weq-fg-secondary, #6a7d90);
+}
+
+.weq-dress-save:hover:not(:disabled) {
+  border-color: var(--weq-accent-effective, #12a8ff);
+  color: var(--weq-accent-effective, #12a8ff);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-dress-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+html[data-theme="dark"] .weq-dress-save {
+  border-color: var(--weq-border-strong);
+  color: var(--weq-fg-secondary);
 }
 
 /* ===== 列表加载骨架(shimmer) =====
@@ -435,8 +474,8 @@
 }
 
 .weq-dress-skel-btn {
+  flex: 1 1 auto;
   height: 26px;
-  margin: 0 10px 10px;
   border-radius: 7px;
 }
 
