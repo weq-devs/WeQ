@@ -31,6 +31,7 @@ interface AlbumMediaWire {
     isGif: boolean;
     hasRaw: boolean;
   } | null;
+  video?: { id: string; cover: { lloc: string } | null } | null;
   uploader: string;
   batchId: string;
   uploadTime: string;
@@ -312,10 +313,11 @@ function AlbumMediaView({
             const full = item.originalUrl || item.previewUrl;
             const proxiedFull = full ? albumMediaUrl(full) : '';
             const isVideo = item.kind === 'video';
+            const mediaId = isVideo ? item.video?.id : item.image?.lloc;
             return (
               <div
                 className="weq-qq-album-item"
-                key={item.image?.lloc || item.originalUrl || `${item.batchId}:${item.fileName}`}
+                key={mediaId || item.originalUrl || `${item.batchId}:${item.fileName}`}
               >
                 <button
                   type="button"
@@ -339,11 +341,12 @@ function AlbumMediaView({
                     </span>
                   ) : null}
                 </button>
-                {state.album && item.image?.lloc && /^\d+$/.test(item.batchId) && (
+                {state.album && mediaId && /^\d+$/.test(item.batchId) && (
                   <GroupAlbumMediaActions
                     groupId={Number(groupCode)}
                     albumId={state.album.id}
-                    mediaId={item.image.lloc}
+                    mediaId={mediaId}
+                    deleteMediaId={isVideo ? item.video?.cover?.lloc || '' : undefined}
                     batchId={item.batchId}
                     uploaderUin={item.uploader}
                     uploadTime={Number(item.uploadTime)}

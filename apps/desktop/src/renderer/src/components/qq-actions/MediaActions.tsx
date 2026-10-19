@@ -67,6 +67,7 @@ function GroupAlbumMediaActionsBody({
   groupId,
   albumId,
   mediaId,
+  deleteMediaId,
   batchId,
   uploaderUin,
   uploadTime,
@@ -75,6 +76,7 @@ function GroupAlbumMediaActionsBody({
   groupId: number;
   albumId: string;
   mediaId: string;
+  deleteMediaId?: string;
   batchId: string;
   uploaderUin: string;
   uploadTime: number;
@@ -82,27 +84,42 @@ function GroupAlbumMediaActionsBody({
 }) {
   const a = useQQAction(`album-media:${groupId}:${albumId}:${mediaId}`),
     [comment, setComment] = useState('');
-  const base = { groupId, albumId, mediaId, batchId, uploaderUin, uploadTime };
+  const base = { groupId, albumId, mediaId, batchId };
+  const likeReady =
+    /^\d+$/.test(uploaderUin) && Number.isSafeInteger(uploadTime) && uploadTime >= 0;
+  const deletionId = deleteMediaId === undefined ? mediaId : deleteMediaId;
   return (
     <div className="weq-qq-media-actions">
       <div className="weq-qq-action-bar">
         <ActionIcon
-          label="点赞图片"
-          disabled={a.disabled}
+          label="点赞媒体"
+          disabled={a.disabled || !likeReady}
           onClick={() =>
             void a.perform((b) =>
-              client.account.qqActions.albumMedia.mutate({ ...b, ...base, action: 'like' }),
+              client.account.qqActions.albumMedia.mutate({
+                ...b,
+                ...base,
+                uploaderUin,
+                uploadTime,
+                action: 'like',
+              }),
             )
           }
         >
           <ThumbsUp size={14} />
         </ActionIcon>
         <ActionIcon
-          label="取消图片点赞"
-          disabled={a.disabled}
+          label="取消媒体点赞"
+          disabled={a.disabled || !likeReady}
           onClick={() =>
             void a.perform((b) =>
-              client.account.qqActions.albumMedia.mutate({ ...b, ...base, action: 'unlike' }),
+              client.account.qqActions.albumMedia.mutate({
+                ...b,
+                ...base,
+                uploaderUin,
+                uploadTime,
+                action: 'unlike',
+              }),
             )
           }
         >
@@ -110,11 +127,16 @@ function GroupAlbumMediaActionsBody({
         </ActionIcon>
         <ActionIcon
           label="删除相册媒体"
-          disabled={a.disabled}
+          disabled={a.disabled || !deletionId}
           onClick={() =>
             void a.perform(
               (b) =>
-                client.account.qqActions.albumMedia.mutate({ ...b, ...base, action: 'delete' }),
+                client.account.qqActions.albumMedia.mutate({
+                  ...b,
+                  ...base,
+                  mediaId: deletionId,
+                  action: 'delete',
+                }),
               async () => onChanged(),
               '从 QQ 群相册删除这项媒体？不能撤销。',
             )
@@ -125,14 +147,14 @@ function GroupAlbumMediaActionsBody({
       </div>
       <div className="weq-qq-action-bar">
         <input
-          aria-label="图片评论"
+          aria-label="媒体评论"
           placeholder="评论"
           value={comment}
           maxLength={4096}
           onChange={(e) => setComment(e.target.value)}
         />
         <SaveAction
-          label="发送图片评论"
+          label="发送媒体评论"
           disabled={a.disabled || !comment.trim()}
           onClick={() =>
             void a.perform(
