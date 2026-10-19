@@ -502,6 +502,51 @@ describe('邮箱生命周期和提醒', () => {
       vi.useRealTimers();
     }
   });
+  it.each([false, true])(
+    '首轮认证期间收到凭据后补连一次，主动断开=%s 时不复活连接',
+    async (disconnect) => {
+      vi.useFakeTimers();
+      const nt = mailNative();
+      let release: ((result: ReturnType<typeof okMailSession>) => void) | undefined;
+      nt.ptFetchMailSession.mockImplementationOnce(
+        () =>
+          new Promise<ReturnType<typeof okMailSession>>((resolve) => {
+            release = resolve;
+          }),
+      );
+      const socket = Object.assign(new EventEmitter(), {
+        send: vi.fn(),
+        close: vi.fn(),
+        terminate: vi.fn(),
+      });
+      const service = new QQMailService(nt, '12345678', () => 42, {
+        authFactory: () => new MailAuth(nt, '12345678', () => 42, new FakeMailTransport()),
+        socketFactory: () => socket,
+      });
+      try {
+        service.startBackground({ notifications: true, showUnread: false });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(nt.ptFetchMailSession).toHaveBeenCalledOnce();
+        service.credentialsAvailable();
+        service.credentialsAvailable();
+        if (disconnect) service.disconnect();
+        if (!release) throw new Error('fixture authentication did not start');
+        release({ ...okMailSession(), success: false, sid: '', msg: '旧入口不可用' });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(nt.ptFetchMailSession).toHaveBeenCalledTimes(disconnect ? 1 : 2);
+        expect(service.status().state).toBe(disconnect ? 'disconnected' : 'ready');
+        if (disconnect) {
+          service.credentialsAvailable();
+          await vi.advanceTimersByTimeAsync(5 * 60_000);
+          expect(nt.ptFetchMailSession).toHaveBeenCalledOnce();
+        }
+      } finally {
+        service.dispose();
+        expect(vi.getTimerCount()).toBe(0);
+        vi.useRealTimers();
+      }
+    },
+  );
   it('两个后台偏好均关闭时，启动与凭据刷新不连接邮箱', async () => {
     const nt = mailNative();
     const service = new QQMailService(nt, '12345678', () => 42);

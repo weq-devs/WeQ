@@ -70,6 +70,7 @@ export class QQMailService {
   private showUnread = false;
   private backgroundStopped = false;
   private backgroundConnect: Promise<void> | null = null;
+  private pendingCredentials = false;
 
   constructor(
     nt: Pick<NtHelperBinding, 'ptFetchMailSession'>,
@@ -108,7 +109,11 @@ export class QQMailService {
 
   /** QQ 凭据刚就绪时立即连接，不必等离线重试计时器。 */
   credentialsAvailable(): void {
-    if (!this.backgroundEnabled || this.backgroundConnect) return;
+    if (!this.backgroundEnabled) return;
+    if (this.backgroundConnect) {
+      this.pendingCredentials = true;
+      return;
+    }
     if (this.pollTimer) clearTimeout(this.pollTimer);
     this.pollTimer = null;
     this.backgroundConnect = this.connect()
@@ -116,6 +121,10 @@ export class QQMailService {
       .catch(() => this.scheduleNoticeRecovery())
       .finally(() => {
         this.backgroundConnect = null;
+        const retry = this.pendingCredentials;
+        this.pendingCredentials = false;
+        if (retry && this.backgroundEnabled && this.state.state !== 'ready')
+          this.credentialsAvailable();
       });
   }
 
@@ -526,6 +535,7 @@ export class QQMailService {
   disconnect(): void {
     if (this.closed) return;
     this.backgroundStopped = true;
+    this.pendingCredentials = false;
     this.stopNotifications();
     for (const transfer of this.transfers) transfer.abort();
     this.auth.dispose();

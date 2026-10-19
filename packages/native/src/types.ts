@@ -642,7 +642,7 @@ export interface NtHelperBinding {
   ptFetchClientKey(pid: number, uin: string): Promise<PtClientKeyResult>;
   /** 生成 ptlogin2 免登录跳转 URL。`landingUrl` 必须是 https。 */
   ptFetchJumpUrl(pid: number, uin: string, landingUrl: string): Promise<PtJumpUrlResult>;
-  /** QQ 邮箱登录：本机 ptlogin2 → mail p_skey → `/login/login` → `sid`。 */
+  /** QQ 邮箱登录：优先使用客户端 delegateCode 换取 sid，兼容 ptlogin；提醒 p_skey 独立获取。 */
   ptFetchMailSession(pid: number, uin: string): Promise<PtMailSessionResult>;
   /**
    * Probe which processes have an account's `nt_msg.db` open / locked — the

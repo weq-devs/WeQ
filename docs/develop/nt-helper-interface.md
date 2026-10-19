@@ -120,7 +120,7 @@ xlogin / jump 请求或解析 JSONP。
 | `ptFetchCredentials(pid, uin, domain)` | `pid` / `uin` / 目标域 | `Promise<PtCredentialsResult>` | 固定四域（`qun.qq.com` / `qzone.qq.com` / `pd.qq.com` / `vip.qq.com`）与邮箱走本机 ptlogin2；其他域先 clientKey jump，失败回退 OIDB `0x102a_0`。 |
 | `ptFetchClientKey(pid, uin)` | `pid` / `uin` | `Promise<PtClientKeyResult>` | 本机快速登录优先，失败回退 OIDB `0x102a_1`。 |
 | `ptFetchJumpUrl(pid, uin, landingUrl)` | `pid` / `uin` / https 落地页 | `Promise<PtJumpUrlResult>` | 生成一次性免登录跳转地址；`clientKey` 只应在本次点击使用。 |
-| `ptFetchMailSession(pid, uin)` | `pid` / `uin` | `Promise<PtMailSessionResult>` | 邮箱登录：本机 ptlogin2 → mail `p_skey` → `/login/login` → `sid`，并返回可灌入 CookieJar 的 `cookie`。 |
+| `ptFetchMailSession(pid, uin)` | `pid` / `uin` | `Promise<PtMailSessionResult>` | 邮箱登录：优先使用客户端 delegateCode → `auth_type=7` → `sid`，兼容 ptlogin，并返回独立提醒票据 `panelPskey` 和可灌入 CookieJar 的 `cookie`。 |
 
 **返回类型**
 
