@@ -59,6 +59,7 @@ pnpm dev
 - [图片识别缓存原设计](./ocr-cache-plan-20261016.md)：历史方案，缓存已接入；当前实现查 `packages/service/src/common/ocr_cache.ts` 及 `account/ocr_image.ts`，不按旧“待实施”措辞重复开发。
 - [词云 / 常用语的中文分词](./jieba-word-segmentation-20261017.md) — 接入 QQ 自带结巴词典与随包词典兜底，按词性过滤实词
 - [主动操作类协议能力](./protocol-actions-20261019.md) — 群管理 / 群文件 / 群相册 / 群待办 / 收藏表情 / 请求处理 / 在线状态的命令、分层与签名判定
+- [主动操作界面接入](./qq-actions-ui-20261019.md) — 原始候选与新增协议的入口、账号隔离、结果边界、通用加群及针对性验证。
 - [贡献指南](../../CONTRIBUTING.md)
 
 ---
