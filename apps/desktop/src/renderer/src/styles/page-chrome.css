@@ -231,6 +231,10 @@ html[data-theme] .weq-workspace-page .weq-market-browser .weq-emb-pack-item.is-s
 html[data-theme] .weq-workspace-page .weq-market-browser .weq-emb-pack-name { color: var(--weq-fg-primary); }
 html[data-theme] .weq-workspace-page .weq-market-browser :is(.weq-emb-pack-mark, .weq-emb-empty, .weq-emb-pack-list-state) { color: var(--weq-fg-secondary); }
 
+/* 商城表情是装扮页的正文，不再叠加第二套页面标题和带框侧栏。 */
+html[data-theme] .weq-workspace-page .weq-dress-body.is-embedded-market { padding: 0; }
+html[data-theme] .weq-workspace-page .weq-market-browser.is-embedded :is(.weq-directory-toolbar, .weq-emb-fee-row, .weq-emb-detail-head) { background: transparent; }
+
 /* 邮箱保留三栏结构，栏位使用同一套页面表面，而非各自铺不透明底色。 */
 .weq-workspace-content .weq-mail-workspace {
   --mail-accent-ink: var(--weq-page-accent-ink);

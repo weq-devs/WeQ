@@ -14,6 +14,7 @@ export function DirectoryToolbar({
   onSelectAll,
   children,
   separateSelectionBar = false,
+  searchEnabled = true,
 }: {
   noun: string;
   query: string;
@@ -25,6 +26,7 @@ export function DirectoryToolbar({
   onSelectAll: () => void;
   children?: ReactNode;
   separateSelectionBar?: boolean;
+  searchEnabled?: boolean;
 }) {
   const [searching, setSearching] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -63,7 +65,7 @@ export function DirectoryToolbar({
             <X size={16} />
           </button>
         </div>
-      ) : searching ? (
+      ) : searching && searchEnabled ? (
         <div key="search" className="weq-directory-mode">
           <Search size={16} aria-hidden />
           <input
@@ -87,17 +89,19 @@ export function DirectoryToolbar({
         </div>
       ) : (
         <>
-          <button
-            type="button"
-            title={`搜索${noun}`}
-            aria-label={`搜索${noun}`}
-            aria-expanded={searching}
-            onClick={() => {
-              setSearching(true);
-            }}
-          >
-            <Search size={16} />
-          </button>
+          {searchEnabled ? (
+            <button
+              type="button"
+              title={`搜索${noun}`}
+              aria-label={`搜索${noun}`}
+              aria-expanded={searching}
+              onClick={() => {
+                setSearching(true);
+              }}
+            >
+              <Search size={16} />
+            </button>
+          ) : null}
           <button
             type="button"
             title={`多选${noun}`}

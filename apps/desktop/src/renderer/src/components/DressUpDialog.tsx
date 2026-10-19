@@ -2,7 +2,7 @@
  * 个性装扮整页，保留分类与商城浏览现场。
  *
  * 布局是「一栏到底」:头部一行放类别切换 + 搜索框 + 作用范围开关,下面直接是卡片
- * 网格。搜索**不单独分页** —— 输入即过滤当前列表来源:有关键词时打商城搜索接口,清空
+ * 网格。搜索**不单独分页** —— 回车后过滤当前列表来源:有关键词时打商城搜索接口,清空
  * 关键词就回到排行榜。这样用户不必在「排行/搜索/我的」之间跳来跳去。
  *
  * 前三栏(气泡 / 字体 / 头像挂件)走商城,第四栏(聊天背景 + 浮屏挂件)完全是本地的,
@@ -13,7 +13,8 @@
  *  - **浏览排行 / 安装(气泡 / 字体 / 挂件)**:离线可用 —— 资源先走本地离线 bundle(QQ 自带
  *    那批装扮资源),商城条目还自带 material,都不需要凭证;本地没有的款点击后由后端
  *    在需要时再尝试换链,失败才报错。所以**不再按 qqOnline 禁用任何安装按钮**。
- *  - **搜索**:必须有在线 QQ 实例(商城搜索接口要用在线实例取凭证)。
+ *  - **装扮搜索**:必须有在线 QQ 实例(商城搜索接口要用在线实例取凭证)。
+ *  - **商城表情搜索**:同一顶部输入框搜索离线目录，不需要在线 QQ。
  *
  * 聊天背景与浮屏挂件一律离线可用(QQ 同款的直链 bootstrap 时已存进 config,浮屏挂件是 bundle 的)。
  */
@@ -199,9 +200,11 @@ export function DressUpDialog({
   const utils = trpc.useUtils();
 
   const [kind, setKind] = useState<DressKind>(initialKind);
-  /** 输入框里的草稿。提交(回车 / 失焦)后才变成 keyword,避免每敲一个字打一次接口。 */
+  /** 输入框里的草稿。回车提交后才变成 keyword,避免每敲一个字打一次接口。 */
   const [draft, setDraft] = useState('');
   const [keyword, setKeyword] = useState('');
+  const [emojiDraft, setEmojiDraft] = useState('');
+  const [emojiKeyword, setEmojiKeyword] = useState('');
   /** 只看已装的那些 —— 与「搜索」并列的一个筛子,不是独立分页。 */
   const [mineOnly, setMineOnly] = useState(false);
   /** 正在装的 itemId —— 按钮显示转圈,避免重复点击。 */
@@ -710,6 +713,7 @@ export function DressUpDialog({
       return (
         <MarketEmojiBrowserLightbox
           embedded
+          searchQuery={emojiKeyword}
           initialPackId={initialEmojiPackId}
           initialPackName={initialEmojiPackName}
         />
@@ -843,12 +847,16 @@ export function DressUpDialog({
           </div>
 
           {/* 背景不走商城,搜索框对它没有意义 —— 留一个禁用的输入框只会让人以为坏了。 */}
-          {isMall ? (
+          {isMall || kind === 'emoji' ? (
             <form
               className="weq-dress-search"
               onSubmit={(e) => {
                 e.preventDefault();
-                const next = draft.trim();
+                const next = (kind === 'emoji' ? emojiDraft : draft).trim();
+                if (kind === 'emoji') {
+                  setEmojiKeyword(next);
+                  return;
+                }
                 if (next && !online) {
                   dialog.error('需要在线 QQ', '装扮商城搜索需要登录该账号的 QQ 客户端以获取凭证。');
                   return;
@@ -859,20 +867,33 @@ export function DressUpDialog({
             >
               <Search size={15} strokeWidth={1.8} />
               <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder={online ? '搜索装扮名,回车确认' : '搜索需要登录 QQ 客户端'}
-                disabled={!online}
+                value={kind === 'emoji' ? emojiDraft : draft}
+                onChange={(e) => (kind === 'emoji' ? setEmojiDraft : setDraft)(e.target.value)}
+                aria-label={kind === 'emoji' ? '搜索表情包' : '搜索装扮'}
+                placeholder={
+                  kind === 'emoji'
+                    ? '搜索表情包,回车确认'
+                    : online
+                      ? '搜索装扮名,回车确认'
+                      : '搜索需要登录 QQ 客户端'
+                }
+                disabled={kind !== 'emoji' && !online}
                 spellCheck={false}
               />
-              {draft ? (
+              {(kind === 'emoji' ? emojiDraft : draft) ? (
                 <button
                   type="button"
                   className="weq-dress-search-clear"
                   title="清空"
+                  aria-label="清空搜索"
                   onClick={() => {
-                    setDraft('');
-                    setKeyword('');
+                    if (kind === 'emoji') {
+                      setEmojiDraft('');
+                      setEmojiKeyword('');
+                    } else {
+                      setDraft('');
+                      setKeyword('');
+                    }
                   }}
                 >
                   <X size={13} strokeWidth={2} />

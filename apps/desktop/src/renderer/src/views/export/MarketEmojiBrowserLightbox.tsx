@@ -1,9 +1,7 @@
 /**
  * 商城表情整页浏览器。
  *
- * 两栏布局：
- *   左栏  搜索框 + 来源筛选 chips + 无限滚动包列表（名称 / 描述 / 付费徽章）
- *   右栏  点击包后展示该包全部表情的解密动图网格（复用 weq-mface-lb-* 样式）
+ * 卡片目录展示首张表情预览，点击后进入整包详情；返回保留目录滚动位置。
  *
  * 数据走 account.marketEmoji.searchCatalog（分页拉包目录）和
  * account.marketEmoji.getPackDetail（拉选中包的表情列表）。图片指向
@@ -11,16 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import {
-  ArrowLeft,
-  Store,
-  X,
-  RefreshCw,
-  Loader2,
-  SmilePlus,
-  Download,
-  Settings2,
-} from 'lucide-react';
+import { ArrowLeft, Store, X, RefreshCw, Loader2, Download, Settings2 } from 'lucide-react';
 import type { MarketPackFeeType } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
@@ -30,9 +19,9 @@ import { DirectoryToolbar } from '../../components/DirectoryToolbar';
 import { WorkspacePage } from '../../components/WorkspacePages';
 import { ExportSaveControl } from './ExportSaveControl';
 import { MARKET_DOWNLOAD_MAX_PACKS } from '../../../../shared/market_emoji';
-import '../../styles/market-browser.css';
 import '../../styles/export.css';
 import '../../styles/workspace-tools.css';
+import '../../styles/market-browser.css';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -66,7 +55,7 @@ function packImageUrl(packId: string, hash: string): string {
   return mediaUrl('mface', { pack: packId, hash, enc: 'tea' });
 }
 
-/** 右栏：选中包的全部表情网格。 */
+/** 整包详情：选中包的全部表情网格。 */
 function PackDetailPane({
   packId,
   name,
@@ -98,7 +87,9 @@ function PackDetailPane({
     <div className="weq-emb-detail">
       <div className="weq-emb-detail-head">
         <Store size={15} className="weq-emb-detail-head-icon" />
-        <span className="weq-mface-lb-title">{detail.data?.name || `表情包 ${packId}`}</span>
+        <span className="weq-mface-lb-title">
+          {detail.data?.name || name || `表情包 ${packId}`}
+        </span>
         <em className={`weq-emb-fee is-${fee.tone}`}>{fee.label}</em>
         {detail.data ? <span className="weq-mface-lb-count">{detail.data.count} 张</span> : null}
         <button
@@ -163,8 +154,8 @@ function EmojiCell({
   );
 }
 
-/** 左栏：一个包列表项（无需查 detail，mark 来自 catalog）。 */
-function PackListItem({
+/** 目录卡片：接近可视区域才补全首张表情，沿用详情缓存与解密图片通道。 */
+function PackCard({
   entry,
   selected,
   onSelect,
@@ -175,19 +166,62 @@ function PackListItem({
   onSelect: () => void;
   selectionProps: MultiSelectionItemProps;
 }): ReactElement {
+  const cardRef = useRef<HTMLButtonElement>(null);
+  const [visible, setVisible] = useState(false);
+  const [broken, setBroken] = useState(false);
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+    const observer = new IntersectionObserver(
+      (records) => {
+        if (!records.some((record) => record.isIntersecting)) return;
+        setVisible(true);
+        observer.disconnect();
+      },
+      { root: card.closest('.weq-market-catalog-scroll'), rootMargin: '200px' },
+    );
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, []);
+  const detail = trpc.account.marketEmoji.getPackDetail.useQuery(
+    { packId: entry.id },
+    { enabled: visible, staleTime: Infinity, refetchOnWindowFocus: false },
+  );
+  const cover = detail.data?.items[0];
   const fee = FEE_META[entry.feeType];
   return (
     <button
+      ref={cardRef}
       type="button"
-      className={`weq-emb-pack-item${selected ? ' is-selected' : ''}`}
+      className={`weq-market-pack-card${selected ? ' is-selected' : ''}`}
       aria-pressed={selected}
+      title={entry.name || `表情包 ${entry.id}`}
       {...selectionProps}
       onClick={onSelect}
     >
-      <em className={`weq-emb-fee is-${fee.tone}`}>{fee.label}</em>
+      <span className="weq-market-pack-preview">
+        {visible && cover && !broken ? (
+          <ShimmerImage
+            src={packImageUrl(entry.id, cover.hash)}
+            alt={entry.name || `表情包 ${entry.id}`}
+            loading="lazy"
+            draggable={false}
+            onError={() => setBroken(true)}
+          />
+        ) : visible && detail.isInitialLoading ? (
+          <span className="weq-exp-skel weq-market-pack-loading" />
+        ) : (
+          <Store size={28} strokeWidth={1.3} className="weq-mface-lb-fallback" />
+        )}
+        <em className={`weq-emb-fee is-${fee.tone}`}>{fee.label}</em>
+      </span>
       <span className="weq-emb-pack-meta">
         <span className="weq-emb-pack-name">{entry.name || `表情包 ${entry.id}`}</span>
         <span className="weq-emb-pack-mark">{entry.mark || ' '}</span>
+      </span>
+      <span className="weq-market-pack-foot">
+        <span>{detail.data ? `${detail.data.count} 张` : '表情包'}</span>
+        <span>{selected ? '已选中' : '查看表情'}</span>
       </span>
     </button>
   );
@@ -198,12 +232,15 @@ export function MarketEmojiBrowserLightbox({
   initialPackId,
   initialPackName,
   embedded = false,
+  searchQuery,
 }: {
   onClose?: () => void;
   initialPackId?: string;
   initialPackName?: string;
   /** 嵌在「个性装扮 → 表情」页签里：不套 WorkspacePage、不渲染标题与关闭按钮。 */
   embedded?: boolean;
+  /** 个性装扮顶部搜索框提交的关键词；独立页面仍使用目录工具栏搜索。 */
+  searchQuery?: string;
 }): ReactElement {
   const utils = trpc.useUtils();
   const dialog = useAppDialog();
@@ -214,7 +251,8 @@ export function MarketEmojiBrowserLightbox({
   const [queued, setQueued] = useState(false);
   const pending = useRef(false);
   const [input, setInput] = useState('');
-  const [query, setQuery] = useState('');
+  const [localQuery, setQuery] = useState('');
+  const query = searchQuery ?? localQuery;
   const [feeSel, setFeeSel] = useState<Set<MarketPackFeeType>>(new Set());
   const [latest, setLatest] = useState(false);
 
@@ -231,6 +269,12 @@ export function MarketEmojiBrowserLightbox({
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(initialPackId ?? null);
+  const previousQuery = useRef(query);
+  useEffect(() => {
+    if (previousQuery.current === query) return;
+    previousQuery.current = query;
+    setSelectedId(null);
+  }, [query]);
   useEffect(() => {
     if (initialPackId) setSelectedId(initialPackId);
   }, [initialPackId]);
@@ -282,9 +326,10 @@ export function MarketEmojiBrowserLightbox({
 
   // 防抖：输入停 300ms 落到 query。
   useEffect(() => {
+    if (searchQuery !== undefined) return;
     const t = setTimeout(() => setQuery(input.trim()), 300);
     return () => clearTimeout(t);
-  }, [input]);
+  }, [input, searchQuery]);
 
   // query / feeSel 变化 → 重置结果重新拉第一页。
   useEffect(() => {
@@ -354,19 +399,19 @@ export function MarketEmojiBrowserLightbox({
     }
   }, [query, feeSel, latest]);
 
-  // 滚动到底自动加载下一页。
+  // 返回目录时重新观察哨兵，详情页隐藏的目录不触发加载。
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || done) return undefined;
+    if (!el || done || selectedId) return undefined;
     const io = new IntersectionObserver(
       (obs) => {
         if (obs.some((o) => o.isIntersecting)) void loadMore();
       },
-      { rootMargin: '200px' },
+      { root: el.closest('.weq-market-catalog-scroll'), rootMargin: '200px' },
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [loadMore, done]);
+  }, [loadMore, done, selectedId]);
 
   const feeMulti = useMultiSelection({
     ids: FEE_FILTERS.map((item) => item.id),
@@ -391,7 +436,7 @@ export function MarketEmojiBrowserLightbox({
       onMouseDown={(e) => e.stopPropagation()}
     >
       {embedded ? (
-        <div className="weq-market-head is-embedded">
+        <div className="weq-market-summary">
           {selectedId ? (
             <button
               type="button"
@@ -402,19 +447,12 @@ export function MarketEmojiBrowserLightbox({
             >
               <ArrowLeft size={18} />
             </button>
-          ) : (
-            <div className="weq-market-title">
-              <Store size={18} strokeWidth={1.9} />
-              <span className="weq-market-embedded-label">表情包</span>
-              {total > 0 ? (
-                <span className="weq-market-total">
-                  {loading && entries.length === 0
-                    ? '搜索中…'
-                    : `共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}
-                </span>
-              ) : null}
-            </div>
-          )}
+          ) : null}
+          <span className="weq-market-total" role="status">
+            {loading && entries.length === 0
+              ? '搜索中…'
+              : `共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}
+          </span>
         </div>
       ) : (
         <header className="weq-market-head">
@@ -470,31 +508,65 @@ export function MarketEmojiBrowserLightbox({
       ) : null}
 
       <div className="weq-emb-body">
-        {/* 左栏：搜索 + 筛选 + 包列表 */}
-        <div className="weq-emb-left" {...packMulti.rootProps}>
-          <DirectoryToolbar
-            noun="表情包"
-            query={input}
-            onQuery={setInput}
-            selecting={selection.selectionMode}
-            onSelecting={selection.setSelectionMode}
-            count={selection.selectedIds.size}
-            onSelectAll={() =>
-              selection.setSelectedIds(
-                (current) => new Set([...current, ...entries.map((entry) => entry.id)]),
-              )
-            }
-          >
-            <button
-              type="button"
-              title="保存方式"
-              aria-label="保存方式"
-              aria-expanded={saveOpen}
-              onClick={() => setSaveOpen(!saveOpen)}
+        <div className="weq-market-catalog" hidden={!!selectedId} {...packMulti.rootProps}>
+          <div className="weq-market-catalog-tools">
+            <DirectoryToolbar
+              searchEnabled={searchQuery === undefined}
+              noun="表情包"
+              query={input}
+              onQuery={setInput}
+              selecting={selection.selectionMode}
+              onSelecting={selection.setSelectionMode}
+              count={selection.selectedIds.size}
+              onSelectAll={() =>
+                selection.setSelectedIds(
+                  (current) => new Set([...current, ...entries.map((entry) => entry.id)]),
+                )
+              }
             >
-              <Settings2 size={16} />
-            </button>
-          </DirectoryToolbar>
+              <button
+                type="button"
+                title="保存方式"
+                aria-label="保存方式"
+                aria-expanded={saveOpen}
+                onClick={() => setSaveOpen(!saveOpen)}
+              >
+                <Settings2 size={16} />
+              </button>
+            </DirectoryToolbar>
+            <div className="weq-emb-fee-row" {...feeMulti.rootProps}>
+              <button
+                type="button"
+                className={`weq-mpd-fee-chip${feeSel.size === 0 && !latest ? ' is-active' : ''}`}
+                aria-pressed={feeSel.size === 0 && !latest}
+                onClick={() => {
+                  setLatest(false);
+                  setFeeSel(new Set());
+                }}
+              >
+                全部
+              </button>
+              <button
+                type="button"
+                className={`weq-mpd-fee-chip weq-emb-latest-chip${latest ? ' is-active' : ''}`}
+                aria-pressed={latest}
+                onClick={toggleLatest}
+                title="只看最新上架的表情包（目录尾部）"
+              >
+                最新上架
+              </button>
+              {FEE_FILTERS.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  className={`weq-mpd-fee-chip${feeSel.has(f.id) ? ' is-active' : ''}`}
+                  {...feeMulti.itemProps(f.id)}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
           {selection.selectionMode ? (
             <div className="weq-market-selection-actions">
               <span>
@@ -527,38 +599,7 @@ export function MarketEmojiBrowserLightbox({
             </div>
           ) : null}
 
-          <div className="weq-emb-fee-row" {...feeMulti.rootProps}>
-            <button
-              type="button"
-              className={`weq-mpd-fee-chip${feeSel.size === 0 && !latest ? ' is-active' : ''}`}
-              onClick={() => {
-                setLatest(false);
-                setFeeSel(new Set());
-              }}
-            >
-              全部
-            </button>
-            <button
-              type="button"
-              className={`weq-mpd-fee-chip weq-emb-latest-chip${latest ? ' is-active' : ''}`}
-              onClick={toggleLatest}
-              title="只看最新上架的表情包（目录尾部）"
-            >
-              最新上架
-            </button>
-            {FEE_FILTERS.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                className={`weq-mpd-fee-chip${feeSel.has(f.id) ? ' is-active' : ''}`}
-                {...feeMulti.itemProps(f.id)}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="weq-emb-pack-list">
+          <div className="weq-market-catalog-scroll">
             {loading && entries.length === 0 ? (
               <div className="weq-emb-pack-list-state">
                 <Loader2 size={16} className="weq-emb-spin" />
@@ -568,19 +609,21 @@ export function MarketEmojiBrowserLightbox({
               <div className="weq-emb-pack-list-state">没有匹配的表情包</div>
             ) : (
               <>
-                {entries.map((entry) => (
-                  <PackListItem
-                    key={entry.id}
-                    entry={entry}
-                    selected={
-                      selection.selectionMode
-                        ? selection.selectedIds.has(entry.id)
-                        : selectedId === entry.id
-                    }
-                    selectionProps={packMulti.itemProps(entry.id)}
-                    onSelect={() => setSelectedId(entry.id)}
-                  />
-                ))}
+                <div className="weq-market-pack-grid">
+                  {entries.map((entry) => (
+                    <PackCard
+                      key={entry.id}
+                      entry={entry}
+                      selected={
+                        selection.selectionMode
+                          ? selection.selectedIds.has(entry.id)
+                          : selectedId === entry.id
+                      }
+                      selectionProps={packMulti.itemProps(entry.id)}
+                      onSelect={() => setSelectedId(entry.id)}
+                    />
+                  ))}
+                </div>
                 {!done ? (
                   <div ref={sentinelRef} className="weq-emb-sentinel">
                     {loading ? <Loader2 size={14} className="weq-emb-spin" /> : '加载更多…'}
@@ -593,10 +636,10 @@ export function MarketEmojiBrowserLightbox({
           </div>
         </div>
 
-        {/* 右栏：选中包的表情网格 */}
-        <div className="weq-emb-right">
+        <div className="weq-emb-right" hidden={!selectedId}>
           {selectedId ? (
             <PackDetailPane
+              key={selectedId}
               packId={selectedId}
               name={
                 entries.find((e) => e.id === selectedId)?.name ??
@@ -606,12 +649,7 @@ export function MarketEmojiBrowserLightbox({
               busy={downloading || save.picking}
               onDownload={download}
             />
-          ) : (
-            <div className="weq-emb-empty">
-              <SmilePlus size={36} strokeWidth={1.3} />
-              <span>点击左侧表情包查看全部表情</span>
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
