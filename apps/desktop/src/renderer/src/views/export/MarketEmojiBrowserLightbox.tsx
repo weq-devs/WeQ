@@ -392,29 +392,20 @@ export function MarketEmojiBrowserLightbox({
     >
       {embedded ? (
         <div className="weq-market-head is-embedded">
-          {selectedId ? (
-            <button
-              type="button"
-              className="weq-market-back icon-button"
-              title="返回表情包列表"
-              aria-label="返回表情包列表"
-              onClick={() => setSelectedId(null)}
-            >
-              <ArrowLeft size={18} />
-            </button>
-          ) : (
-            <div className="weq-market-title">
-              <Store size={18} strokeWidth={1.9} />
-              <span className="weq-market-embedded-label">表情包</span>
-              {total > 0 ? (
-                <span className="weq-market-total">
-                  {loading && entries.length === 0
-                    ? '搜索中…'
-                    : `共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}
-                </span>
-              ) : null}
-            </div>
-          )}
+          {/* 内嵌时左右两栏始终并排，左栏列表就在旁边，不需要「返回表情包列表」。
+              以前那个返回按钮只在 ≤700px 的窄屏媒体查询里有意义，而主窗口最小宽度
+              是 940px，桌面端永远不会触发 —— 选中表情包后只剩一个按钮独占一行。 */}
+          <div className="weq-market-title">
+            <Store size={18} strokeWidth={1.9} />
+            <span className="weq-market-embedded-label">表情包</span>
+            {total > 0 ? (
+              <span className="weq-market-total">
+                {loading && entries.length === 0
+                  ? '搜索中…'
+                  : `共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}
+              </span>
+            ) : null}
+          </div>
         </div>
       ) : (
         <header className="weq-market-head">

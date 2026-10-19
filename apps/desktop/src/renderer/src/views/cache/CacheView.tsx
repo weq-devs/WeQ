@@ -1,17 +1,15 @@
 /**
- * 本地缓存资源中心（单页）。
+ * 本地缓存资源中心（维护工具 → 本地缓存）。
  *
- * 布局：左侧竖向分类列表 + 右侧当前分类内容区。用于查看并清理本地缓存，
- * 节省磁盘空间。分类包括本地数据库、nt_data 下的头像 / 各类表情 / 文件 /
- * 图片墙 / 图片 / 视频 / 语音，以及 QQ 空间缓存。
+ * 布局：左侧竖向分类列表（按 表情 / 头像 / 图片与视频 / 文件 / 语音 / 空间
+ * 分组）+ 右侧当前分类内容区，用于查看 nt_data 下的本地缓存。
  *
- * 本轮仅「数据库」分类落地（查看 + 修改，走 account.dbExplorer.*）；其余分类
- * 为前端占位（居中空状态 + 「开发中」标签），等待后端与前端逐个补齐。
+ * 数据库不在这里 —— 维护工具里已有独立的「数据库管理」入口；整体分析与批量
+ * 清理也在维护工具里另有入口，这里不再重复放按钮。
  */
 
 import { useState, type ReactElement, type ReactNode } from 'react';
 import {
-  Database,
   Image as ImageIcon,
   Images,
   Smile,
@@ -26,10 +24,7 @@ import {
   Construction,
   PanelLeftClose,
   PanelLeftOpen,
-  ChartPie,
-  Trash2,
 } from 'lucide-react';
-import { DbExplorer } from './DbExplorer';
 import { AvatarExplorer } from './AvatarExplorer';
 import { SysEmojiExplorer } from './SysEmojiExplorer';
 import { MarketEmojiExplorer } from './MarketEmojiExplorer';
@@ -39,37 +34,27 @@ import { RelatedEmojiExplorer } from './RelatedEmojiExplorer';
 import { FileDirExplorer } from './FileDirExplorer';
 import { DownloadFileExplorer } from './DownloadFileExplorer';
 import { FlatMediaExplorer, MonthMediaExplorer, VoiceExplorer } from './MediaResourceExplorers';
-import { ResourceAnalyticsDialog } from './ResourceAnalyticsDialog';
-import { ResourceCleanupDialog } from './ResourceCleanupDialog';
-import { trpc } from '../../trpc/client';
 import '../../styles/cache.css';
 
 /** 一个缓存资源分类。`ready` 为 false 时右侧渲染占位空状态。 */
 interface CacheCategory {
   id: string;
+  group: string;
   label: string;
   desc: string;
   icon: ReactNode;
   ready: boolean;
 }
 
+/**
+ * 本地缓存的分类。数据库不在这里 —— 维护工具里已有独立的「数据库管理」，
+ * 这里只收 nt_data 下按类型分的缓存资源，按 表情 / 头像 / 图片视频 / 文件 /
+ * 语音 / 空间 分组。
+ */
 const CATEGORIES: CacheCategory[] = [
   {
-    id: 'database',
-    label: '本地数据库',
-    desc: '查看 / 修改 QQ 数据库',
-    icon: <Database size={18} />,
-    ready: true,
-  },
-  {
-    id: 'avatar',
-    label: '头像资源',
-    desc: 'nt_data 头像缓存',
-    icon: <ImageIcon size={18} />,
-    ready: true,
-  },
-  {
     id: 'sysEmoji',
+    group: '表情',
     label: '系统表情',
     desc: '内置表情资源',
     icon: <Smile size={18} />,
@@ -77,6 +62,7 @@ const CATEGORIES: CacheCategory[] = [
   },
   {
     id: 'marketEmoji',
+    group: '表情',
     label: '商城表情',
     desc: '商城下载的贴纸',
     icon: <Store size={18} />,
@@ -84,6 +70,7 @@ const CATEGORIES: CacheCategory[] = [
   },
   {
     id: 'marketPack',
+    group: '表情',
     label: '商城表情包',
     desc: '我添加的表情包 · 在线解密',
     icon: <PackageOpen size={18} />,
@@ -91,6 +78,7 @@ const CATEGORIES: CacheCategory[] = [
   },
   {
     id: 'customEmoji',
+    group: '表情',
     label: '自定义表情',
     desc: '收到的 / 我的表情',
     icon: <Sticker size={18} />,
@@ -98,13 +86,47 @@ const CATEGORIES: CacheCategory[] = [
   },
   {
     id: 'relatedEmoji',
+    group: '表情',
     label: '关联表情',
     desc: '关键词联想表情',
     icon: <Smile size={18} />,
     ready: true,
   },
   {
+    id: 'avatar',
+    group: '头像',
+    label: '头像资源',
+    desc: 'nt_data 头像缓存',
+    icon: <ImageIcon size={18} />,
+    ready: true,
+  },
+  {
+    id: 'image',
+    group: '图片与视频',
+    label: '图片资源',
+    desc: '聊天图片缓存',
+    icon: <ImageIcon size={18} />,
+    ready: true,
+  },
+  {
+    id: 'video',
+    group: '图片与视频',
+    label: '视频资源',
+    desc: '聊天视频缓存',
+    icon: <Film size={18} />,
+    ready: true,
+  },
+  {
+    id: 'album',
+    group: '图片与视频',
+    label: '图片墙资源',
+    desc: '群相册 / 图片墙缓存',
+    icon: <Images size={18} />,
+    ready: true,
+  },
+  {
     id: 'fileDir',
+    group: '文件',
     label: 'File 目录',
     desc: 'nt_data File 目录',
     icon: <Folder size={18} />,
@@ -112,28 +134,15 @@ const CATEGORIES: CacheCategory[] = [
   },
   {
     id: 'downloadFile',
+    group: '文件',
     label: '下载文件',
     desc: '下载到本地的文件',
     icon: <FileDown size={18} />,
     ready: true,
   },
   {
-    id: 'album',
-    label: '图片墙资源',
-    desc: '群相册 / 图片墙缓存',
-    icon: <Images size={18} />,
-    ready: true,
-  },
-  {
-    id: 'image',
-    label: '图片资源',
-    desc: '聊天图片缓存',
-    icon: <ImageIcon size={18} />,
-    ready: true,
-  },
-  { id: 'video', label: '视频资源', desc: '聊天视频缓存', icon: <Film size={18} />, ready: true },
-  {
     id: 'voice',
+    group: '语音',
     label: '语音资源',
     desc: '聊天语音缓存',
     icon: <AudioLines size={18} />,
@@ -141,6 +150,7 @@ const CATEGORIES: CacheCategory[] = [
   },
   {
     id: 'qzone',
+    group: '空间',
     label: 'QQ空间缓存',
     desc: '空间浏览缓存',
     icon: <Cloud size={18} />,
@@ -149,21 +159,22 @@ const CATEGORIES: CacheCategory[] = [
 ];
 
 export function CacheView(): ReactElement {
-  const [active, setActive] = useState<string>('database');
-  // 资源选择列可收起，收起后腾出空间给右侧数据表接近全屏查看。
+  const [active, setActive] = useState<string>(CATEGORIES[0]!.id);
+  // 资源选择列可收起，收起后腾出空间给右侧内容区。
   const [catsCollapsed, setCatsCollapsed] = useState(false);
-  // 整体分析弹窗（遍历全部资源目录统计）。
-  const [showAnalytics, setShowAnalytics] = useState(false);
-  // 清理释放弹窗（删除本地缓存以释放磁盘空间）。
-  const [showCleanup, setShowCleanup] = useState(false);
-  // 静态账号导入的只是一份数据库快照，nt_data 那些资源属于本机在线账号、不属于
-  // 这份快照 —— 既不该在这里浏览，更不该被「清理释放」真删掉。只留数据库一项。
-  const config = trpc.account.getAccountConfig.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-  });
-  const isStatic = config.data?.static ?? false;
-  const categories = isStatic ? CATEGORIES.filter((c) => c.id === 'database') : CATEGORIES;
-  const activeCategory = categories.find((c) => c.id === active) ?? categories[0]!;
+  // 静态账号在维护工具入口就被禁用（nt_data 属于本机在线账号，不属于快照），
+  // 所以这里不需要再按账号类型裁剪分类。
+  const activeCategory = CATEGORIES.find((c) => c.id === active) ?? CATEGORIES[0]!;
+  // 分类栏按组渲染：表情 / 头像 / 图片与视频 / 文件 / 语音 / 空间。
+  const groups = CATEGORIES.reduce<Array<{ name: string; items: CacheCategory[] }>>(
+    (acc, category) => {
+      const last = acc.at(-1);
+      if (last?.name === category.group) last.items.push(category);
+      else acc.push({ name: category.group, items: [category] });
+      return acc;
+    },
+    [],
+  );
 
   return (
     <div className={`weq-cache${catsCollapsed ? ' is-cats-collapsed' : ''}`}>
@@ -179,28 +190,6 @@ export function CacheView(): ReactElement {
           >
             <PanelLeftOpen size={16} />
           </button>
-          {!isStatic && (
-            <>
-              <button
-                type="button"
-                className="weq-cache-analyze-rail"
-                onClick={() => setShowAnalytics(true)}
-                title="整体分析"
-                aria-label="整体分析"
-              >
-                <ChartPie size={16} />
-              </button>
-              <button
-                type="button"
-                className="weq-cache-analyze-rail weq-cache-clean-rail"
-                onClick={() => setShowCleanup(true)}
-                title="清理释放"
-                aria-label="清理释放"
-              >
-                <Trash2 size={16} />
-              </button>
-            </>
-          )}
         </div>
       ) : (
         <nav className="weq-cache-cats" aria-label="缓存资源分类">
@@ -216,56 +205,33 @@ export function CacheView(): ReactElement {
               <PanelLeftClose size={16} />
             </button>
           </div>
-          {!isStatic && (
-            <div className="weq-cache-actions">
-              <button
-                type="button"
-                className="weq-cache-analyze-btn"
-                onClick={() => setShowAnalytics(true)}
-              >
-                <ChartPie size={16} />
-                <span>整体分析</span>
-              </button>
-              <button
-                type="button"
-                className="weq-cache-analyze-btn weq-cache-clean-btn"
-                onClick={() => setShowCleanup(true)}
-              >
-                <Trash2 size={16} />
-                <span>清理释放</span>
-              </button>
-            </div>
-          )}
           <div className="weq-cache-cats-body">
-            {categories.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className={`weq-cache-cat${c.id === active ? ' is-active' : ''}`}
-                onClick={() => setActive(c.id)}
-              >
-                <span className="weq-cache-cat-icon">{c.icon}</span>
-                <span className="weq-cache-cat-text">
-                  <strong>{c.label}</strong>
-                  <small>{c.desc}</small>
-                </span>
-              </button>
+            {groups.map((group) => (
+              <div className="weq-cache-cat-group" key={group.name}>
+                <span className="weq-cache-cat-group-label">{group.name}</span>
+                {group.items.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={`weq-cache-cat${c.id === active ? ' is-active' : ''}`}
+                    onClick={() => setActive(c.id)}
+                  >
+                    <span className="weq-cache-cat-icon">{c.icon}</span>
+                    <span className="weq-cache-cat-text">
+                      <strong>{c.label}</strong>
+                      <small>{c.desc}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
             ))}
           </div>
-          {isStatic && (
-            <p className="weq-cache-static-note">
-              静态账号只有数据库资源。图片、语音等媒体不属于这份导入的快照， 可在「设置 →
-              账号基础」里关联本机原生目录后于聊天页查看。
-            </p>
-          )}
         </nav>
       )}
 
       {/* 右侧内容区 */}
       <section className="weq-cache-pane">
-        {activeCategory.id === 'database' ? (
-          <DbExplorer />
-        ) : activeCategory.id === 'avatar' ? (
+        {activeCategory.id === 'avatar' ? (
           <AvatarExplorer />
         ) : activeCategory.id === 'sysEmoji' ? (
           <SysEmojiExplorer />
@@ -295,15 +261,6 @@ export function CacheView(): ReactElement {
           <CachePlaceholder label={activeCategory.label} />
         )}
       </section>
-
-      <ResourceAnalyticsDialog
-        open={showAnalytics && !isStatic}
-        onClose={() => setShowAnalytics(false)}
-      />
-      <ResourceCleanupDialog
-        open={showCleanup && !isStatic}
-        onClose={() => setShowCleanup(false)}
-      />
     </div>
   );
 }

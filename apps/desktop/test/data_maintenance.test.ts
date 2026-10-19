@@ -36,6 +36,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   return { trpc: proxy(), client: proxy() };
 });
 vi.mock('../src/renderer/src/views/cache/DbExplorer', () => ({ DbExplorer: () => '数据库面板' }));
+vi.mock('../src/renderer/src/views/cache/CacheView', () => ({
+  CacheView: () => '本地缓存面板',
+}));
 vi.mock('../src/renderer/src/components/settings/HelpSection', () => ({
   HelpSection: () => '帮助子页面',
 }));
@@ -54,7 +57,7 @@ vi.mock('../src/renderer/src/views/cache/ResourceAnalyticsDialog', async () => {
         WorkspacePage,
         { title: '存储占用', onClose },
         '存储面板',
-        createElement('button', { onClick: onClose }, '返回数据与维护'),
+        createElement('button', { onClick: onClose, 'aria-label': '关闭' }, '关闭'),
       ),
   };
 });
@@ -67,7 +70,7 @@ vi.mock('../src/renderer/src/views/cache/ResourceCleanupDialog', async () => {
         WorkspacePage,
         { title: '清理缓存', onClose },
         '清理面板',
-        createElement('button', { onClick: onClose }, '返回数据与维护'),
+        createElement('button', { onClick: onClose, 'aria-label': '关闭' }, '关闭'),
       ),
   };
 });
@@ -178,11 +181,12 @@ describe('设置的数据与维护', () => {
       f.dispose();
     }
   });
-  it('原四项保留顺序并收纳明文导出与密钥工具，点击不触发维护操作', () => {
+  it('本地缓存与原有四项按顺序收纳，点击不触发维护操作', () => {
     const open = vi.fn();
     const f = mount(createElement(DataMaintenanceSection, { onOpen: open }));
     try {
       expect(entries(f.host).map((button) => button.textContent)).toEqual([
+        '本地缓存',
         '数据库管理',
         '存储占用',
         '清理缓存',
@@ -193,6 +197,7 @@ describe('设置的数据与维护', () => {
       ]);
       for (const button of entries(f.host)) act(() => button.click());
       expect(open.mock.calls.map(([tool]) => tool)).toEqual([
+        'cache',
         'database',
         'storage',
         'cleanup',
@@ -210,6 +215,7 @@ describe('设置的数据与维护', () => {
     const f = mount(createElement(DataMaintenanceSection, { onOpen: vi.fn() }));
     try {
       expect(entries(f.host).map((button) => button.disabled)).toEqual([
+        true,
         false,
         true,
         true,
@@ -236,7 +242,7 @@ describe('设置的数据与维护', () => {
       f.dispose();
     }
   });
-  it.each(['database', 'storage', 'cleanup', 'db-repair', 'db-decrypt'] as const)(
+  it.each(['cache', 'database', 'storage', 'cleanup', 'db-repair', 'db-decrypt'] as const)(
     '%s 从设置进入工具后只有一个内容页且不遮罩，关闭返回原设置分区',
     (tool) => {
       function Harness() {
@@ -267,7 +273,14 @@ describe('设置的数据与维护', () => {
       }
       const f = mount(createElement(Harness));
       try {
-        const index = ['database', 'storage', 'cleanup', 'db-repair', 'db-decrypt'].indexOf(tool);
+        const index = [
+          'cache',
+          'database',
+          'storage',
+          'cleanup',
+          'db-repair',
+          'db-decrypt',
+        ].indexOf(tool);
         act(() => entries(f.host)[index]!.click());
         expect(f.host.querySelector('.weq-settings-dialog')).toBeNull();
         if (tool === 'storage' || tool === 'cleanup') {
@@ -280,10 +293,12 @@ describe('设置的数据与维护', () => {
         }
         if (tool === 'db-repair') expect(state.repairAccount).toBe('10001');
         expect(document.querySelectorAll('[aria-modal="true"]')).toHaveLength(0);
+        // 所有维护子页统一右上角关闭按钮，不再有左上角返回箭头。
+        expect(document.querySelector('.weq-maintenance-head')?.textContent ?? '').not.toContain(
+          '返回数据与维护',
+        );
         const back = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
-          (button) =>
-            button.getAttribute('aria-label') === '返回数据与维护' ||
-            button.textContent === '返回数据与维护',
+          (button) => button.getAttribute('aria-label') === '关闭',
         )!;
         act(() => back.click());
         expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
