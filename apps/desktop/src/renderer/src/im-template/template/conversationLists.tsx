@@ -824,6 +824,25 @@ export function ConversationList({
                     },
                   ]
                 : []),
+              ...(requestExport &&
+              actionMenu.ids.length === 1 &&
+              actionMenu.conversation.type === 'group' &&
+              conversationRoamingTarget(actionMenu.conversation)
+                ? [
+                    {
+                      label: '导出群成员名单',
+                      icon: <Users size={16} />,
+                      action: () =>
+                        requestExport({
+                          owner: {
+                            kind: 'contacts',
+                            container: `group:${actionMenu.conversation.group.id}`,
+                          },
+                          scope: { type: 'all' },
+                        }),
+                    },
+                  ]
+                : []),
               ...(directory?.onRoaming
                 ? [
                     {

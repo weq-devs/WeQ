@@ -136,7 +136,7 @@ const MODES: ModeDef[] = [
   {
     id: 'contacts',
     label: '导出联系人',
-    desc: '好友列表 / 群成员列表',
+    desc: '联系人名单 / 群成员名单',
     icon: <Contact size={18} />,
   },
   { id: 'collection', label: '导出收藏', desc: 'QQ 收藏导出为表格', icon: <Bookmark size={18} /> },
@@ -1693,7 +1693,7 @@ export function ExportTool({
                       onChange={setContactScope}
                       options={[
                         { value: 'friends', label: '好友', icon: <UserRound size={13} /> },
-                        { value: 'group', label: '群成员', icon: <Users size={13} /> },
+                        { value: 'group', label: '群成员名单', icon: <Users size={13} /> },
                       ]}
                     />
                   </div>

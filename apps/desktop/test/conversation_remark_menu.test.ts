@@ -8,7 +8,14 @@ import {
   ConversationDirectoryContext,
   virtualConversationRow,
 } from '../src/renderer/src/lib/conversationDirectory';
-import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
+import {
+  ContentSelectionProvider,
+  useContentExportRequest,
+} from '../src/renderer/src/state/contentSelection';
+import {
+  initialContactScope,
+  initialExportMode,
+} from '../src/renderer/src/views/export/exportScope';
 import type { Conversation } from '../src/renderer/src/im-template/template/types';
 
 vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
@@ -20,6 +27,60 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 describe('会话右键备注入口', () => {
+  it('群聊右键名单导出使用成员名单范围，不导出聊天消息或其他群', () => {
+    const group = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
+    const row = { ...group, id: '123', group: { ...group.group, id: '123' } };
+    function Probe() {
+      return h('output', null, JSON.stringify(useContentExportRequest()?.selection));
+    }
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          h(
+            ContentSelectionProvider,
+            null,
+            h(ConversationList, {
+              conversations: [row],
+              activeConversationId: null,
+              preferences: {},
+              drafts: {},
+              onSelect: vi.fn(),
+            }),
+            h(Probe),
+          ),
+        ),
+      );
+      act(() =>
+        host
+          .querySelector('[data-conversation-id]')!
+          .dispatchEvent(
+            new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 40 }),
+          ),
+      );
+      const button = [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+        (node) => node.textContent === '导出群成员名单',
+      )!;
+      expect(button).toBeDefined();
+      act(() => button.click());
+      const selection = JSON.parse(host.querySelector('output')!.textContent!);
+      expect(selection).toEqual({
+        owner: { kind: 'contacts', container: 'group:123' },
+        scope: { type: 'all' },
+      });
+      expect(initialExportMode(selection)).toBe('contacts');
+      expect(initialContactScope(selection)).toEqual({
+        scope: 'group',
+        groupIds: ['123'],
+        memberUids: {},
+      });
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
   it.each(['group', 'direct', 'virtual'] as const)(
     '%s 仅实际 QQ 好友／群可打开备注编辑',
     (kind) => {
@@ -60,7 +121,7 @@ describe('会话右键备注入口', () => {
                   },
                 },
                 h(ConversationList, {
-                conversations: kind === 'virtual' ? [] : [row],
+                  conversations: kind === 'virtual' ? [] : [row],
                   activeConversationId: null,
                   preferences: {},
                   drafts: {},
