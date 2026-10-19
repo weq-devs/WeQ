@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -71,6 +71,7 @@ function fixture(total = 3000, deps: MediaDeps = {}) {
 it('后台按预设自动保存且不依赖渲染界面，保留原结果与持久保存回执', async () => {
   const f = fixture(3);
   const target = join(f.root, 'saved');
+  mkdirSync(target);
   const manager = new ExportTaskManager(f.msgs, join(f.root, 'exports'), {
     exportSavePolicy: () => ({ mode: 'preset', directory: target }),
   });
@@ -111,6 +112,7 @@ it('开始前没有位置不建任务，单次覆盖保存策略不修改默认�
   ).rejects.toThrow('保存目录');
   expect(f.manager.listTasks()).toEqual([]);
   const policy = { mode: 'before', directory: join(f.root, 'picked') } as const;
+  mkdirSync(policy.directory);
   const id = await f.manager.startTask({
     kind: 'group',
     conv: '777',
@@ -148,12 +150,32 @@ it('保存失败不改写导出成功，可重新选位置；重复在途保存�
   expect(f.manager.getTask(id)?.error).toBeUndefined();
   expect(readFileSync(bad, 'utf8')).toBe('preserve');
   const target = join(f.root, 'retry');
+  mkdirSync(target);
   const saves = await Promise.all([
     f.manager.saveTaskOutput(id, target),
     f.manager.saveTaskOutput(id, target),
   ]);
   expect(saves[0]).toBe(saves[1]);
   expect(f.manager.getTask(id)?.save?.status).toBe('saved');
+});
+
+it('已选择的目录失效后不创建替代目录，保留生成结果供重新选择', async () => {
+  const f = fixture(2),
+    target = join(f.root, 'missing-location');
+  const id = await f.manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '目录失效',
+    format: 'txt',
+    total: 2,
+    savePolicy: { mode: 'preset', directory: target },
+  });
+  await wait(() => f.manager.getTask(id)?.save?.status === 'failed');
+  expect(existsSync(target)).toBe(false);
+  const task = f.manager.getTask(id)!;
+  expect(task.status).toBe('completed');
+  expect(task.error).toBeUndefined();
+  expect(existsSync(task.filePath!)).toBe(true);
 });
 
 it('定时任务携带自己的保存策略，自动保存失败不能提前结算为成功', async () => {

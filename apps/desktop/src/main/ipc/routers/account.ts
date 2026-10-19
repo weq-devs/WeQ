@@ -13,7 +13,11 @@
 
 import { z } from 'zod';
 import { SEARCH_CATEGORIES } from '@weq/service';
-import { exportDownloadName, exportSavePolicyInput } from './export_save';
+import {
+  exportDownloadName,
+  exportSavePolicyInput,
+  pickExportOutputDestination,
+} from './export_save';
 import { mergeRoamingTimeline } from '../../../shared/roaming_timeline';
 import {
   PROJECT_GROUP_CODE,
@@ -5641,10 +5645,56 @@ export const accountRouter = router({
   }),
 
   saveExportTaskOutput: procedure
-    .input(z.object({ taskId: z.string().min(1), directory: z.string().min(1) }))
-    .mutation(({ input }) =>
-      requireServices().exportManager.saveTaskOutput(input.taskId, input.directory),
-    ),
+    .input(
+      z.object({
+        taskId: z.string().min(1),
+        directory: z.string().min(1).optional(),
+        filePath: z.string().min(1).optional(),
+        expectedAccountUin: z.string().min(1).optional(),
+        expectedAccountConfigId: z.string().min(1).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const task = services.exportManager.getTask(input.taskId);
+      if (task?.status !== 'completed') throw new Error('只能保存已完成的导出任务。');
+      if (input.directory && input.filePath) throw new Error('保存位置只能选择文件或目录之一。');
+      const policy =
+        input.directory || input.filePath
+          ? { directory: input.directory, filePath: input.filePath }
+          : await pickExportOutputDestination(task, getHost());
+      if (!policy) return null;
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号数据源已切换，已取消保存。');
+      return services.exportManager.saveTaskOutput(input.taskId, policy.directory, policy.filePath);
+    }),
+
+  openSavedExportOutput: procedure
+    .input(
+      z.object({
+        taskId: z.string().min(1),
+        reveal: z.boolean().default(false),
+        expectedAccountUin: z.string().min(1).optional(),
+        expectedAccountConfigId: z.string().min(1).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const task = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).exportManager.getTask(input.taskId);
+      const host = getHost();
+      if (!host.canReveal) throw new Error('服务器保存位置不能在当前浏览器中打开。');
+      if (!task?.save?.path) throw new Error('任务尚未保存到指定位置。');
+      if (input.reveal) await host.revealInFolder(task.save.path);
+      else await host.revealPath(task.save.path);
+      return true;
+    }),
 
   exportTaskDownload: procedure
     .input(z.object({ taskId: z.string().min(1) }))

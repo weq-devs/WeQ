@@ -19,6 +19,7 @@ pnpm dev
 - [界面与工具设计约定](./ux-discussion-20261017.md)：内容优先、选择草稿、任务身份和平台边界。
 - [内容能力与缺口](./content-capability-census-20261018.md)：区分已接入父级与尚未覆盖的子内容。
 - [选择、搜索与导出契约](./search-export-hardening-20261018.md)：精确范围、确认冻结、保存策略与请求隔离。
+- [保存位置逻辑简化](./export-save-simplification-20261020.md)：单文件另存、结果保留及全局偏好／菜单改造的阶段边界。
 - [联系人精确导出](./contacts-exact-export-20261018.md)：好友/群多选交接、精确 UID、完整目录与任务快照。
 - [生成内容精确导出](./generated-content-export-20261018.md)：克隆与助手的持久身份、独立快照、原始结构及账号边界。
 - [空间精确导出](./qzone-exact-export-20261018.md)：离散 tid、正文/互动/媒体范围、统一入口及历史隔离。

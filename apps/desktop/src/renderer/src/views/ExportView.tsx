@@ -342,8 +342,8 @@ export function ExportTool({
   const [mode, setMode] = useState<ExportMode>(
     initialMode === 'scheduled' ? 'full' : (initialMode ?? initialExportMode(initialSelection)),
   );
-  const qzoneAccount = trpc.account.getAccountConfig.useQuery(undefined, {
-    enabled: active && surface === 'export' && (mode === 'qzone' || mode === 'contacts'),
+  const exportAccount = trpc.account.getAccountConfig.useQuery(undefined, {
+    enabled: active,
   });
   const conversations = trpc.account.listConversationsWithCount.useQuery(undefined, {
     enabled: active && surface === 'export' && (mode === 'full' || mode === 'qzone'),
@@ -759,37 +759,50 @@ export function ExportTool({
   };
 
   /** 把单个已完成任务保存到用户选择的位置（不再使用默认目录记忆，每次都弹路径）。 */
-  async function saveTask(t: UiTask): Promise<boolean> {
+  async function saveTask(
+    t: UiTask,
+  ): Promise<{ status: 'saved'; path: string } | { status: 'cancelled' | 'failed' }> {
     try {
+      const account = exportAccount.data;
+      if (!account?.uin || !account.configId) throw new Error('账号资料尚未就绪，请稍后重试。');
+      const binding = {
+        expectedAccountUin: account.uin,
+        expectedAccountConfigId: account.configId,
+      };
       let selected: string | null | undefined;
+      let directory: string | undefined;
       if (IS_WEB) {
         selected = await new Promise<string | null>((resolve) => {
           saveLocationPending.current?.(null);
           saveLocationPending.current = resolve;
           setSaveLocationTask(t);
         });
-        if (selected === null || !mounted.current) return false;
+        if (selected === null || !mounted.current) return { status: 'cancelled' };
+        const policy = await client.bootstrap.prepareExportSave.mutate({
+          mode: 'before',
+          directory: selected || undefined,
+        });
+        if (!policy?.directory || !mounted.current) return { status: 'cancelled' };
+        directory = policy.directory;
       }
-      const policy = await client.bootstrap.prepareExportSave.mutate({
-        mode: 'before',
-        directory: selected || undefined,
-      });
-      if (!mounted.current) return false;
-      if (!policy?.directory) return false;
-      await client.account.saveExportTaskOutput.mutate({
+      const path = await client.account.saveExportTaskOutput.mutate({
+        ...binding,
         taskId: t.id,
-        directory: policy.directory,
+        ...(directory ? { directory } : {}),
       });
+      if (path === null || !mounted.current) return { status: 'cancelled' };
       refetchTasks();
-      return true;
+      return { status: 'saved', path };
     } catch (e) {
       dialog.error('保存失败', e instanceof Error ? e.message : String(e));
-      return false;
+      return { status: 'failed' };
     }
   }
 
   const onDownload = async (t: UiTask): Promise<void> => {
-    await saveTask(t);
+    const saved = await saveTask(t);
+    if (saved.status === 'saved')
+      pushToast({ tone: 'success', title: '导出结果已保存', detail: saved.path });
   };
 
   async function downloadInBrowser(t: UiTask): Promise<void> {
@@ -813,9 +826,15 @@ export function ExportTool({
     if (completed.length === 0) return;
     const failed: string[] = [];
     let okCount = 0;
+    let cancelled = false;
     for (const t of completed) {
-      if (await saveTask(t)) okCount += 1;
-      else failed.push(t.name);
+      const saved = await saveTask(t);
+      if (saved.status === 'saved') okCount += 1;
+      else if (saved.status === 'failed') failed.push(t.name);
+      else {
+        cancelled = true;
+        break;
+      }
     }
     refetchTasks();
     if (failed.length > 0) {
@@ -823,6 +842,8 @@ export function ExportTool({
         '部分任务保存失败',
         `成功 ${okCount} 个，失败 ${failed.length} 个：${failed.slice(0, 8).join('、')}${failed.length > 8 ? '…' : ''}`,
       );
+    } else if (cancelled) {
+      dialog.info('已取消保存', `已保存 ${okCount} 个任务，其余已生成结果仍保留在任务列表中。`);
     } else {
       dialog.success('批量保存完成', `已保存 ${okCount} 个导出任务。`);
     }
@@ -889,11 +910,11 @@ export function ExportTool({
         ...item,
         tids: postSelections[item.id] === undefined ? undefined : [...postSelections[item.id]!],
       }));
-    const account = qzoneAccount.data;
+    const account = exportAccount.data;
     if (
       targets.length === 0 ||
       !account ||
-      qzoneAccount.isFetching ||
+      exportAccount.isFetching ||
       targets.some((target) => target.tids?.length === 0)
     )
       return;
@@ -939,7 +960,7 @@ export function ExportTool({
 
   /** 导出联系人：好友列表（可按分组过滤）或某群成员列表；灯箱多选格式 + 可选头像。 */
   async function runContactsExport(options: ExportOptions, formats: ExportFormat[]): Promise<void> {
-    const account = qzoneAccount.data;
+    const account = exportAccount.data;
     if (!account?.uin || !account.configId) {
       dialog.error('账号资料尚未就绪', '请稍后重试。');
       return;
@@ -1419,8 +1440,8 @@ export function ExportTool({
 
   const primaryDisabled =
     mode === 'qzone'
-      ? !qzoneAccount.data ||
-        qzoneAccount.isFetching ||
+      ? !exportAccount.data ||
+        exportAccount.isFetching ||
         !spaceSelection.size ||
         [...spaceSelection].some((id) => postSelections[id]?.length === 0)
       : mode === 'album'
@@ -1637,7 +1658,7 @@ export function ExportTool({
                       {mode === 'qzone' ? (
                         <QzoneScopePicker
                           key={scopeConversation.id}
-                          selfUin={qzoneAccount.data?.uin ?? ''}
+                          selfUin={exportAccount.data?.uin ?? ''}
                           hostUin={scopeConversation.id}
                           selected={postSelections[scopeConversation.id]}
                           onChange={(ids) =>
@@ -2036,6 +2057,27 @@ export function ExportTool({
               }}
               onCancel={onCancel}
               onDownload={(t) => void onDownload(t)}
+              onOpenSaved={
+                !IS_WEB
+                  ? (t, reveal) => {
+                      const account = exportAccount.data;
+                      if (!account?.uin || !account.configId) return;
+                      void client.account.openSavedExportOutput
+                        .mutate({
+                          taskId: t.id,
+                          reveal,
+                          expectedAccountUin: account.uin,
+                          expectedAccountConfigId: account.configId,
+                        })
+                        .catch((error) =>
+                          dialog.error(
+                            '打开保存结果失败',
+                            error instanceof Error ? error.message : String(error),
+                          ),
+                        );
+                    }
+                  : undefined
+              }
               onBrowserDownload={IS_WEB ? (t) => void downloadInBrowser(t) : undefined}
               onDelete={onDelete}
               onSaveAll={() => void onSaveAll()}

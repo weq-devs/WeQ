@@ -18,7 +18,8 @@ import { z } from 'zod';
 import { copyExportSavePolicy, resolveExportSaveDirectory } from '@weq/service';
 import { exportSavePolicyInput } from './export_save';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { lstat, mkdir } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
 import { getDaemonHealth } from '../../daemon/health';
@@ -420,6 +421,7 @@ export const bootstrapRouter = router({
     }),
 
   setExportSaveDefaults: procedure.input(exportSavePolicyInput).mutation(({ input }) => {
+    if (input.filePath) throw new Error('全局默认保存位置只能是文件夹。');
     const config = requireBootstrap().userConfig;
     if (input.mode !== 'preset') return config.setSettings({ exportSaveMode: input.mode });
     const host = getHost();
@@ -437,18 +439,32 @@ export const bootstrapRouter = router({
 
   prepareExportSave: procedure.input(exportSavePolicyInput).mutation(async ({ input }) => {
     if (input.mode === 'after') return { mode: 'after' as const };
+    if (input.directory && input.filePath) throw new Error('保存位置只能选择文件或目录之一。');
     const host = getHost();
     const settings = requireBootstrap().userConfig.getSettings();
+    if (input.filePath) {
+      const filePath = host.exportRoot
+        ? resolveExportSaveDirectory(host.exportRoot, input.filePath)
+        : input.filePath;
+      const policy = copyExportSavePolicy({ mode: input.mode, filePath });
+      if (host.exportRoot) await mkdir(dirname(filePath), { recursive: true });
+      if (!(await lstat(dirname(filePath))).isDirectory())
+        throw new Error('保存目录不可用，请重新选择。');
+      return policy;
+    }
     let directory: string | null | undefined = input.directory;
     if (host.exportRoot) {
       directory = resolveExportSaveDirectory(
         host.exportRoot,
         directory ?? (input.mode === 'preset' ? (settings.defaultExportDir ?? '') : ''),
       );
-    } else if (input.mode === 'before') {
+    } else if (input.mode === 'before' && !directory) {
       directory = await host.pickDirectory({ title: '选择本次导出保存位置' });
       if (!directory) return null;
     } else directory ??= settings.defaultExportDir;
+    if (host.exportRoot && directory) await mkdir(directory, { recursive: true });
+    if (!directory || !(await lstat(directory)).isDirectory())
+      throw new Error('保存目录不可用，请重新选择。');
     return copyExportSavePolicy({ mode: input.mode, directory: directory ?? undefined });
   }),
 

@@ -7,6 +7,7 @@ import {
   rmSync,
   symlinkSync,
   writeFileSync,
+  existsSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -32,6 +33,105 @@ afterEach(() => {
 });
 
 describe('导出保存策略与结果发布', () => {
+  it('单文件策略保留确切文件名，完成后选择清除路径，不接受文件／目录混用', () => {
+    const f = fixture(),
+      filePath = join(f.target, 'result.json');
+    expect(copyExportSavePolicy({ mode: 'before', filePath })).toEqual({
+      mode: 'before',
+      filePath,
+    });
+    expect(copyExportSavePolicy({ mode: 'after', filePath })).toEqual({ mode: 'after' });
+    expect(() => copyExportSavePolicy({ mode: 'before', filePath: 'relative.json' })).toThrow(
+      /绝对路径/,
+    );
+    expect(() => copyExportSavePolicy({ mode: 'before', filePath, directory: f.target })).toThrow(
+      /之一/,
+    );
+  });
+  it('单文件按原生选择的文件名原子保存，报告旁附且源结果保留', async () => {
+    const f = fixture(),
+      source = join(f.source, 'cached.json'),
+      report = join(f.source, 'report.json');
+    writeFileSync(source, '{"fixture":true}');
+    writeFileSync(report, '{"coverage":"complete"}');
+    const target = join(f.target, '用户选择的名字.json');
+    expect(
+      await saveExportOutput(
+        { name: '原名称', filePath: source, reportPath: report },
+        { filePath: target },
+      ),
+    ).toBe(realpathSync(target));
+    expect(readFileSync(target, 'utf8')).toBe(readFileSync(source, 'utf8'));
+    expect(readFileSync(`${target}.report.json`, 'utf8')).toBe(readFileSync(report, 'utf8'));
+    expect(readdirSync(f.target).sort()).toEqual([
+      '用户选择的名字.json',
+      '用户选择的名字.json.report.json',
+    ]);
+  });
+  it('单文件同名冲突不覆盖个人文件，也不留下本轮旁附报告', async () => {
+    const f = fixture(),
+      source = join(f.source, 'cached.txt'),
+      report = join(f.source, 'report.json');
+    writeFileSync(source, 'generated');
+    writeFileSync(report, 'report');
+    const target = join(f.target, 'original.txt');
+    writeFileSync(target, 'preserve');
+    await expect(
+      saveExportOutput(
+        { name: 'fixture', filePath: source, reportPath: report },
+        { filePath: target },
+      ),
+    ).rejects.toThrow();
+    expect(readFileSync(target, 'utf8')).toBe('preserve');
+    expect(readdirSync(f.target)).toEqual(['original.txt']);
+    expect(readFileSync(source, 'utf8')).toBe('generated');
+  });
+  it('旁附报告冲突时不发布主文件；缺失目录不自动创建替代位置', async () => {
+    const f = fixture(),
+      source = join(f.source, 'cached.txt'),
+      report = join(f.source, 'report.json');
+    writeFileSync(source, 'generated');
+    writeFileSync(report, 'report');
+    const target = join(f.target, 'chosen.txt');
+    writeFileSync(`${target}.report.json`, 'original-report');
+    await expect(
+      saveExportOutput(
+        { name: 'fixture', filePath: source, reportPath: report },
+        { filePath: target },
+      ),
+    ).rejects.toThrow();
+    expect(existsSync(target)).toBe(false);
+    expect(readFileSync(`${target}.report.json`, 'utf8')).toBe('original-report');
+    const missing = join(f.root, 'unavailable');
+    await expect(
+      saveExportOutput({ name: 'fixture', filePath: source }, missing, undefined, {
+        requireExistingDirectory: true,
+      }),
+    ).rejects.toThrow();
+    await expect(
+      saveExportOutput(
+        { name: 'fixture', filePath: source },
+        { filePath: join(missing, 'chosen.txt') },
+      ),
+    ).rejects.toThrow();
+    expect(existsSync(missing)).toBe(false);
+  });
+  it('取消或把多文件包选成单文件时，不破坏缓存或发布目标', async () => {
+    const f = fixture(),
+      source = join(f.source, 'cached.txt');
+    writeFileSync(source, 'generated');
+    const target = join(f.target, 'chosen.txt'),
+      abort = new AbortController();
+    abort.abort();
+    await expect(
+      saveExportOutput({ name: 'fixture', filePath: source }, { filePath: target }, abort.signal),
+    ).rejects.toThrow();
+    await expect(
+      saveExportOutput({ name: 'fixture', bundleDir: f.source }, { filePath: target }),
+    ).rejects.toThrow(/多个文件/);
+    expect(readdirSync(f.target)).toEqual([]);
+    expect(readFileSync(source, 'utf8')).toBe('generated');
+  });
   it('Web 保存子目录受服务端根约束，不允许父目录或链接逃逸', () => {
     const f = fixture();
     expect(resolveExportSaveDirectory(f.target, 'a/b')).toBe(

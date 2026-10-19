@@ -27,6 +27,8 @@ import {
   Play,
   RotateCw,
   FileCheck,
+  ExternalLink,
+  FolderOpen,
   Sticker,
   Trash2,
   Users,
@@ -374,6 +376,7 @@ function TaskDetail({
   onReport,
   onCancel,
   onDownload,
+  onOpenSaved,
   onBrowserDownload,
   onDelete,
   onShowFailures,
@@ -384,6 +387,7 @@ function TaskDetail({
   onReport?: (t: UiTask) => void;
   onCancel: (t: UiTask) => void;
   onDownload: (t: UiTask) => void;
+  onOpenSaved?: (t: UiTask, reveal: boolean) => void;
   onBrowserDownload?: (t: UiTask) => void;
   onDelete: (t: UiTask) => void;
   onShowFailures: (t: UiTask, failures: UiFailure[]) => void;
@@ -461,13 +465,33 @@ function TaskDetail({
           {t.status === 'completed' ? (
             <button
               type="button"
-              title={t.save?.status === 'saved' ? '另存到其他位置' : '保存到…'}
+              title={t.save?.path ? '另存到其他位置' : '保存到…'}
               disabled={t.save?.status === 'saving'}
               onClick={() => onDownload(t)}
             >
               <Download size={15} />
             </button>
           ) : null}
+          {t.save?.path && onOpenSaved && (
+            <>
+              <button
+                type="button"
+                title="打开保存结果"
+                aria-label="打开保存结果"
+                onClick={() => onOpenSaved(t, false)}
+              >
+                <ExternalLink size={15} />
+              </button>
+              <button
+                type="button"
+                title="在文件夹中显示"
+                aria-label="在文件夹中显示"
+                onClick={() => onOpenSaved(t, true)}
+              >
+                <FolderOpen size={15} />
+              </button>
+            </>
+          )}
           {t.status === 'completed' && onBrowserDownload ? (
             <button
               type="button"
@@ -503,7 +527,9 @@ function TaskDetail({
             : t.save?.status === 'saving'
               ? '导出已完成，正在保存并校验结果…'
               : t.save?.status === 'failed' || t.save?.status === 'interrupted'
-                ? `导出已完成，尚未保存：${t.save.error}`
+                ? t.save.path
+                  ? `本次另存未完成：${t.save.error}；上次保存：${t.save.path}`
+                  : `导出已完成，尚未保存：${t.save.error}`
                 : '导出已完成，结果保留在任务中，等待选择保存位置'}
         </p>
       ) : null}
@@ -585,6 +611,7 @@ export function TaskList({
   onReport,
   onCancel,
   onDownload,
+  onOpenSaved,
   onBrowserDownload,
   onDelete,
   onShowFailures,
@@ -599,6 +626,7 @@ export function TaskList({
   onReport?: (t: UiTask) => void;
   onCancel: (t: UiTask) => void;
   onDownload: (t: UiTask) => void;
+  onOpenSaved?: (t: UiTask, reveal: boolean) => void;
   onBrowserDownload?: (t: UiTask) => void;
   onDelete: (t: UiTask) => void;
   /** Open the failure-detail lightbox for a task's media-completion failures. */
@@ -734,6 +762,7 @@ export function TaskList({
               onReport={onReport}
               onCancel={onCancel}
               onDownload={onDownload}
+              onOpenSaved={onOpenSaved}
               onBrowserDownload={onBrowserDownload}
               onDelete={onDelete}
               onShowFailures={onShowFailures}

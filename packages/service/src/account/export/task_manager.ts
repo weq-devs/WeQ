@@ -588,6 +588,8 @@ export class ExportTaskManager extends EventEmitter {
     );
     if (resolved.directory && this.deps.resolveSaveDirectory)
       resolved.directory = this.deps.resolveSaveDirectory(resolved.directory);
+    if (resolved.filePath && this.deps.resolveSaveDirectory)
+      resolved.filePath = this.deps.resolveSaveDirectory(resolved.filePath);
     task.save = {
       policy: resolved,
       status: 'pending',
@@ -596,19 +598,32 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   /** 保存结果是独立状态；失败不抹掉已经完成的导出，也不清理唯一缓存结果。 */
-  async saveTaskOutput(taskId: string, directory?: string): Promise<string> {
+  async saveTaskOutput(taskId: string, directory?: string, filePath?: string): Promise<string> {
     const active = this.outputSaves.get(taskId);
     if (active) return active;
     const task = this.tasks.get(taskId);
     if (task?.status !== 'completed')
       return Promise.reject(new Error('只能保存已完成的导出任务。'));
-    const selected = directory ?? task.save?.policy.directory;
+    if (directory && filePath) throw new Error('保存位置只能选择文件或目录之一。');
+    const selectedFile =
+      filePath ?? (directory === undefined ? task.save?.policy.filePath : undefined);
+    const selected = selectedFile ?? directory ?? task.save?.policy.directory;
     if (!selected) return Promise.reject(new Error('请先选择保存位置。'));
     const target = this.deps.resolveSaveDirectory?.(selected) ?? selected;
-    const policy = copyExportSavePolicy({ mode: 'before', directory: target });
-    task.save = { policy: task.save?.policy ?? policy, status: 'saving' };
+    const policy = copyExportSavePolicy({
+      mode: 'before',
+      ...(selectedFile ? { filePath: target } : { directory: target }),
+    });
+    const previousPath = task.save?.path;
+    task.save = {
+      policy: task.save?.policy ?? policy,
+      status: 'saving',
+      ...(previousPath ? { path: previousPath } : {}),
+    };
     this.saveTasks();
-    const saving = saveExportOutput(task, target)
+    const saving = saveExportOutput(task, selectedFile ? { filePath: target } : target, undefined, {
+      requireExistingDirectory: true,
+    })
       .then((path) => {
         task.save = { policy: task.save?.policy ?? policy, status: 'saved', path };
         return path;
@@ -617,6 +632,7 @@ export class ExportTaskManager extends EventEmitter {
         task.save = {
           policy: task.save?.policy ?? policy,
           status: 'failed',
+          ...(previousPath ? { path: previousPath } : {}),
           error: error instanceof Error ? error.message : String(error),
         };
         throw error;

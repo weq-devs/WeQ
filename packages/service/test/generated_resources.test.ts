@@ -96,6 +96,7 @@ it('实际多格式包复制选中资源一次，保留原记录并以相对路�
     { id: 'c', text: '[[voice:missing.wav]]', ts: 3 },
   ];
   const resolved: string[] = [];
+  mkdirSync(join(dir, 'saved'));
   const manager = new ExportTaskManager({} as MsgService, join(dir, 'cache'), {
     generatedResource: (ref) => {
       resolved.push(ref.id);
@@ -113,7 +114,11 @@ it('实际多格式包复制选中资源一次，保留原记录并以相对路�
     savePolicy: { mode: 'before', directory: join(dir, 'saved') },
   });
   await wait(manager, id);
-  for (let i = 0; i < 400 && manager.getTask(id)?.save?.status !== 'saved'; i++)
+  for (
+    let i = 0;
+    i < 400 && !['saved', 'failed'].includes(manager.getTask(id)?.save?.status ?? '');
+    i++
+  )
     await new Promise((resolve) => setTimeout(resolve, 10));
   const task = manager.getTask(id)!;
   expect(task.save?.status).toBe('saved');

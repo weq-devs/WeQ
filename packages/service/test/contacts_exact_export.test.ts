@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -53,6 +53,32 @@ function fixture() {
 }
 
 describe('联系人精确条目导出', () => {
+  it('单文件任务另存后记录真实路径，后续另存失败保留已生成结果和上次保存位置', async () => {
+    const { deps } = fixture(),
+      cache = dirname(output());
+    const manager = new ExportTaskManager({} as MsgService, cache, { contacts: deps });
+    const id = await manager.startTask({
+      kind: 'c2c',
+      conv: '',
+      name: '合成名单',
+      format: 'json',
+      total: 0,
+      contacts: { scope: 'friends', uids: ['b'] },
+    });
+    await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
+    const target = join(cache, '用户选择.json');
+    expect(await manager.saveTaskOutput(id, undefined, target)).toBe(realpathSync(target));
+    expect(manager.getTask(id)?.save).toMatchObject({
+      status: 'saved',
+      path: realpathSync(target),
+    });
+    await expect(manager.saveTaskOutput(id, join(cache, 'missing-directory'))).rejects.toThrow();
+    const task = manager.getTask(id)!;
+    expect(task.status).toBe('completed');
+    expect(task.save).toMatchObject({ status: 'failed', path: realpathSync(target) });
+    expect(existsSync(task.filePath!)).toBe(true);
+    expect(existsSync(target)).toBe(true);
+  });
   it('成员时间显示固定使用北京时间，不修改原始秒数或依赖服务器时区', async () => {
     vi.stubEnv('TZ', 'UTC');
     const { deps } = fixture();

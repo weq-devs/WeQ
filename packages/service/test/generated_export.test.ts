@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -106,6 +106,7 @@ it('实际生成内容任务写多格式、自动保存和恢复快照，不读 
     ['m1', 'm3'],
   );
   const manager = new ExportTaskManager({} as MsgService, join(root, 'cache'));
+  mkdirSync(join(root, 'saved'));
   const id = await manager.startTask({
     kind: 'c2c',
     conv: 'local-generated',

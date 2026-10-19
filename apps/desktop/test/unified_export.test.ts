@@ -9,10 +9,16 @@ import { resolve } from 'node:path';
 import { DEFAULT_OPTIONS } from '../src/renderer/src/views/export/types';
 import type { LightboxResult } from '../src/renderer/src/views/export/ExportLightbox';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
+import type { ExportTask } from '@weq/service';
+import type { UiTask } from '../src/renderer/src/views/export/TaskList';
 
 const fixture = vi.hoisted(() => ({
   realPicker: false,
   current: true,
+  tasks: [] as ExportTask[],
+  saveOutput: vi.fn(async (_input: unknown): Promise<string | null> => '/saved/result.json'),
+  dialogError: vi.fn(),
+  dialogInfo: vi.fn(),
   prepare: vi.fn(async () => ({ mode: 'after' as const })),
   startContacts: vi.fn(
     async (_input: {
@@ -96,7 +102,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
           };
         },
       },
-      listExportTasks: { useQuery: () => emptyQuery },
+      listExportTasks: { useQuery: () => ({ ...emptyQuery, data: fixture.tasks }) },
       listSchedules: { useQuery: () => ({ data: fixture.schedules }) },
       guildDirectListSessions: {
         useQuery: () => ({
@@ -121,6 +127,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       onExportProgress: { subscribe: () => ({ unsubscribe: vi.fn() }) },
       startContactsExport: { mutate: fixture.startContacts },
+      saveExportTaskOutput: { mutate: fixture.saveOutput },
       guildDirectStartExport: { mutate: fixture.startGuild },
       startQzoneExport: { mutate: fixture.startQzone },
     },
@@ -145,10 +152,27 @@ vi.mock('../src/renderer/src/hooks/useExportCollections', () => ({
   useExportCollections: () => ({ items: [], loading: false }),
 }));
 vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
-  useAppDialog: () => ({ error: vi.fn(), info: vi.fn() }),
+  useAppDialog: () => ({ error: fixture.dialogError, info: fixture.dialogInfo, success: vi.fn() }),
 }));
 vi.mock('../src/renderer/src/views/export/TaskList', () => ({
-  TaskList: () => createElement('div', null, '合成执行任务'),
+  TaskList: ({
+    tasks,
+    onDownload,
+    onSaveAll,
+  }: {
+    tasks: UiTask[];
+    onDownload: (task: UiTask) => void;
+    onSaveAll: () => void;
+  }) =>
+    createElement(
+      'div',
+      null,
+      '合成执行任务',
+      ...tasks.map((task) =>
+        createElement('button', { key: task.id, onClick: () => onDownload(task) }, '保存合成任务'),
+      ),
+      createElement('button', { onClick: onSaveAll }, '保存全部合成任务'),
+    ),
 }));
 vi.mock('../src/renderer/src/views/export/ExportLightbox', () => ({
   ExportLightbox: ({
@@ -245,6 +269,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
   fixture.realPicker = false;
   fixture.current = true;
+  fixture.tasks = [];
+  fixture.saveOutput.mockReset().mockResolvedValue('/saved/result.json');
+  fixture.dialogError.mockClear();
+  fixture.dialogInfo.mockClear();
   fixture.prepare.mockReset().mockResolvedValue({ mode: 'after' });
   fixture.startContacts.mockReset().mockResolvedValue('contact-task');
   fixture.contactPreview.mockClear();
@@ -291,6 +319,45 @@ function captureLayout(host: HTMLElement, name: string) {
 }
 
 describe('统一导出实际界面', () => {
+  it('桌面另存交由服务端按真实产物选择系统对话框，取消不报失败或丢失任务', async () => {
+    fixture.tasks = [
+      {
+        id: 'save-a',
+        kind: 'c2c',
+        conv: 'u_fixture',
+        name: '合成结果',
+        format: 'json',
+        status: 'completed',
+        progress: 100,
+        current: 1,
+        total: 1,
+        createdAt: 0,
+        updatedAt: 0,
+        filePath: '/cache/result.json',
+      },
+    ];
+    fixture.saveOutput.mockResolvedValue(null);
+    const f = mount({ surface: 'tasks' });
+    try {
+      await act(async () => click(f.host, '保存合成任务'));
+      expect(fixture.prepare).not.toHaveBeenCalled();
+      expect(fixture.saveOutput).toHaveBeenCalledWith({
+        taskId: 'save-a',
+        expectedAccountUin: '10002',
+        expectedAccountConfigId: 'fixture-config',
+      });
+      expect(fixture.dialogError).not.toHaveBeenCalled();
+      expect(fixture.tasks[0]?.status).toBe('completed');
+      await act(async () => click(f.host, '保存全部合成任务'));
+      expect(fixture.dialogError).not.toHaveBeenCalled();
+      expect(fixture.dialogInfo).toHaveBeenCalledWith(
+        '已取消保存',
+        expect.stringContaining('仍保留'),
+      );
+    } finally {
+      f.close();
+    }
+  });
   it('全局入口预选当前会话但显示完整内容类型和会话列表', async () => {
     const props: Parameters<typeof ExportTool>[0] = {
       fixedScope: false,
