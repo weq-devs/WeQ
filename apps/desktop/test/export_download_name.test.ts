@@ -1,10 +1,31 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  bindExportSaveRequest,
   exportDownloadName,
   pickExportOutputDestination,
 } from '../src/main/ipc/routers/export_save';
 
 describe('导出下载文件名', () => {
+  it('保存等待前后核对账号、配置与服务实例，纯全局选择不要求已登录账号', () => {
+    let context = { uin: '10001', configId: 'source-a', services: {} };
+    const original = context;
+    const check = bindExportSaveRequest(
+      { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
+      () => context,
+    );
+    check();
+    context = { ...original, configId: 'source-b' };
+    expect(check).toThrow(/数据源/);
+    context = { ...original, uin: '10002' };
+    expect(check).toThrow(/账号/);
+    context = { ...original, services: {} };
+    expect(check).toThrow(/数据源/);
+    const read = vi.fn(() => {
+      throw new Error('不应读取账号');
+    });
+    expect(bindExportSaveRequest({}, read)).not.toThrow();
+    expect(read).not.toHaveBeenCalled();
+  });
   it('桌面单文件使用另存为，多文件包与 Web 使用文件夹', async () => {
     const host = {
       pickDirectory: vi.fn(async () => '/chosen/folder'),

@@ -6,6 +6,16 @@ import { useToast } from '../components/Toast';
 import { useViewState } from '../state/view';
 import { IS_WEB } from '../lib/target';
 
+interface SaveDraft {
+  identity: string;
+  override: ExportSavePolicy | null;
+  directories: Partial<Record<'preset' | 'before', string>>;
+  filePaths: Partial<Record<'preset' | 'before', string>>;
+}
+function emptyDraft(identity: string): SaveDraft {
+  return { identity, override: null, directories: {}, filePaths: {} };
+}
+
 /** 导出与资源下载共用保存准备；单次参数不自动覆盖全局默认。 */
 export function useExportSavePolicy() {
   const settings = trpc.bootstrap.getSettings.useQuery();
@@ -13,29 +23,59 @@ export function useExportSavePolicy() {
   const dialog = useAppDialog();
   const pushToast = useToast((state) => state.push);
   const accountUin = useViewState((state) => state.openedUin);
+  const config = trpc.account.getAccountConfig.useQuery(undefined, {
+    enabled: Boolean(accountUin),
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+  const binding =
+    accountUin && config.data?.uin === accountUin && config.data.configId
+      ? { expectedAccountUin: accountUin, expectedAccountConfigId: config.data.configId }
+      : null;
+  const identity = `${accountUin ?? ''}:${binding?.expectedAccountConfigId ?? ''}`;
+  const latestIdentity = useRef(identity);
+  latestIdentity.current = identity;
   const mounted = useRef(true);
   const pickInFlight = useRef(false);
   const prepareInFlight = useRef(false);
   const [picking, setPicking] = useState(false);
   const [serverLocation, setServerLocation] = useState<{ name: string } | null>(null);
   const resolveServerLocation = useRef<((directory: string | null) => void) | null>(null);
-  const [draft, setDraft] = useState<{
-    override: ExportSavePolicy | null;
-    directories: Partial<Record<'preset' | 'before', string>>;
-  }>({ override: null, directories: {} });
-  const { override } = draft;
+  const [draft, setDraft] = useState<SaveDraft>(() => emptyDraft(identity));
+  const scopedDraft = draft.identity === identity ? draft : emptyDraft(identity);
+  const { override } = scopedDraft;
   // 每种模式保留本次目录，模式切换不把 Web 子目录当成预设，也不丢临时覆盖。
   const setOverride: Dispatch<SetStateAction<ExportSavePolicy | null>> = (action) => {
     setDraft((previous) => {
-      const next = typeof action === 'function' ? action(previous.override) : action;
-      if (!next) return { override: null, directories: {} };
-      const directories = { ...previous.directories };
+      const scoped = previous.identity === identity ? previous : emptyDraft(identity);
+      const next = typeof action === 'function' ? action(scoped.override) : action;
+      if (!next) return emptyDraft(identity);
+      const directories = { ...scoped.directories };
+      const filePaths = { ...scoped.filePaths };
       if (next.mode !== 'after') {
-        if (next.directory) directories[next.mode] = next.directory;
-        else if (previous.override?.mode === next.mode) delete directories[next.mode];
+        if (next.filePath) {
+          filePaths[next.mode] = next.filePath;
+          delete directories[next.mode];
+        } else if (next.directory) {
+          directories[next.mode] = next.directory;
+          delete filePaths[next.mode];
+        } else if (scoped.override?.mode === next.mode) {
+          delete directories[next.mode];
+          delete filePaths[next.mode];
+        }
       }
       const directory = next.mode === 'after' ? undefined : directories[next.mode];
-      return { override: { mode: next.mode, ...(directory ? { directory } : {}) }, directories };
+      const filePath = next.mode === 'after' ? undefined : filePaths[next.mode];
+      return {
+        identity,
+        override: {
+          mode: next.mode,
+          ...(directory ? { directory } : {}),
+          ...(filePath ? { filePath } : {}),
+        },
+        directories,
+        filePaths,
+      };
     });
   };
   useEffect(() => {
@@ -46,24 +86,39 @@ export function useExportSavePolicy() {
       resolveServerLocation.current = null;
     };
   }, []);
+  useEffect(() => {
+    resolveServerLocation.current?.(null);
+    resolveServerLocation.current = null;
+    setServerLocation(null);
+  }, [identity]);
   const mode = override?.mode ?? settings.data?.exportSaveMode ?? 'before';
   const directory =
     mode === 'preset'
-      ? (override?.directory ?? draft.directories.preset ?? settings.data?.defaultExportDir)
+      ? (override?.directory ?? scopedDraft.directories.preset ?? settings.data?.defaultExportDir)
       : mode === 'before'
-        ? (override?.directory ?? draft.directories.before)
+        ? (override?.directory ?? scopedDraft.directories.before)
         : undefined;
-  const policy: ExportSavePolicy = { mode, ...(directory ? { directory } : {}) };
-  const current = () => mounted.current && useViewState.getState().openedUin === accountUin;
+  const filePath =
+    mode === 'after' ? undefined : (override?.filePath ?? scopedDraft.filePaths[mode]);
+  const policy: ExportSavePolicy = {
+    mode,
+    ...(filePath ? { filePath } : directory ? { directory } : {}),
+  };
+  const current = () =>
+    mounted.current &&
+    useViewState.getState().openedUin === accountUin &&
+    latestIdentity.current === identity;
   async function prepareSave(intent?: ExportSavePolicy): Promise<ExportSavePolicy | null> {
     if (
       !current() ||
       pickInFlight.current ||
       prepareInFlight.current ||
-      !settings.data ||
-      settings.isLoading
+      settings.isLoading ||
+      config.isLoading
     )
       return null;
+    if (!settings.data) throw new Error('保存偏好读取失败，请重试。');
+    if (!binding) throw new Error('账号资料尚未就绪，请重新打开导出工具。');
     prepareInFlight.current = true;
     try {
       let requested = intent ?? policy;
@@ -75,7 +130,10 @@ export function useExportSavePolicy() {
         if (directory === null || !current()) return null;
         requested = { ...requested, directory: directory || undefined };
       }
-      const prepared = await client.bootstrap.prepareExportSave.mutate(requested);
+      const prepared = await client.bootstrap.prepareExportSave.mutate({
+        ...requested,
+        ...binding,
+      });
       return current() ? prepared : null;
     } finally {
       prepareInFlight.current = false;
@@ -102,6 +160,7 @@ export function useExportSavePolicy() {
     }
   }
   async function setDefault() {
+    if (!current()) return;
     try {
       await client.bootstrap.setExportSaveDefaults.mutate(policy);
       await utils.bootstrap.getSettings.invalidate();
@@ -126,6 +185,7 @@ export function useExportSavePolicy() {
     pickDirectory,
     setDefault,
     accountUin,
+    binding,
     isCurrent: current,
   };
 }

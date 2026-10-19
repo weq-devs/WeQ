@@ -126,28 +126,46 @@ export async function startChatExportTasks(
   options: ExportOptions,
   formats: readonly ExportFormat[],
   defaultFormat: ExportFormat,
-  opts: { messageCompletion?: boolean; savePolicy?: ExportSavePolicy } = {},
+  opts: {
+    messageCompletion?: boolean;
+    savePolicy?: ExportSavePolicy;
+    binding?: { expectedAccountUin: string; expectedAccountConfigId: string };
+    isCurrent?: () => boolean;
+  } = {},
 ): Promise<string[]> {
-  const fmt0 = formats[0] ?? defaultFormat;
+  const frozenTargets = targets.map((target) => ({
+    ...target,
+    ...(target.messageIds ? { messageIds: [...target.messageIds] } : {}),
+  }));
+  const frozenOptions = structuredClone(options);
+  const frozenFormats = [...formats];
+  const binding = opts.binding ? { ...opts.binding } : undefined;
+  const savePolicy = opts.savePolicy ? { ...opts.savePolicy } : undefined;
+  const current = opts.isCurrent;
+  const messageCompletion = opts.messageCompletion;
+  const fmt0 = frozenFormats[0] ?? defaultFormat;
   // 筛图模型的状态是**实时**的（不进持久化预设）：导出那一刻下好了就筛，没下好就跳过。
-  const ocrPrefilter = options.ocrImages ? (await ocrReadiness()).filterReady : false;
-  const media = buildChatExportMedia(options, { ...opts, ocrPrefilter });
-  const range = { start: options.range.start, end: options.range.end };
+  const ocrPrefilter = frozenOptions.ocrImages ? (await ocrReadiness()).filterReady : false;
+  const media = buildChatExportMedia(frozenOptions, { messageCompletion, ocrPrefilter });
+  const range = { start: frozenOptions.range.start, end: frozenOptions.range.end };
   const ids: string[] = [];
-  for (const t of targets) {
+  for (const t of frozenTargets) {
+    if (current && !current())
+      throw new Error(`已创建 ${ids.length} 个任务；账号数据源已切换，已停止后续任务。`);
     const id = await client.account.startExport.mutate({
-      savePolicy: opts.savePolicy,
+      ...binding,
+      savePolicy,
       kind: t.kind ?? 'c2c',
       conv: t.id,
       name: t.name,
       format: fmt0 as Exclude<ExportFormat, 'vcard'>,
-      formats: formats as Exclude<ExportFormat, 'vcard'>[],
+      formats: frozenFormats as Exclude<ExportFormat, 'vcard'>[],
       total: t.total ?? 0,
-      exportAvatar: options.exportAvatar,
-      ...(options.dress.bubble || options.dress.font || options.dress.widget
-        ? { dress: options.dress }
+      exportAvatar: frozenOptions.exportAvatar,
+      ...(frozenOptions.dress.bubble || frozenOptions.dress.font || frozenOptions.dress.widget
+        ? { dress: frozenOptions.dress }
         : {}),
-      ...(options.chatlab ? { chatlab: true } : {}),
+      ...(frozenOptions.chatlab ? { chatlab: true } : {}),
       media,
       ...(t.messageIds ? { filter: { messageIds: [...t.messageIds] } } : { range }),
     });

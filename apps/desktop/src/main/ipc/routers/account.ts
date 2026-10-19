@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { SEARCH_CATEGORIES } from '@weq/service';
 import {
   exportDownloadName,
+  exportAccountBindingInput,
   exportSavePolicyInput,
   pickExportOutputDestination,
 } from './export_save';
@@ -2668,6 +2669,7 @@ export const accountRouter = router({
   guildDirectStartExport: procedure
     .input(
       z.object({
+        ...exportAccountBindingInput.shape,
         savePolicy: exportSavePolicyInput.optional(),
         /** 会话 40027 node id（消息分页键）。 */
         nodeId: z.string().min(1),
@@ -2724,11 +2726,18 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const services = requireServices();
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
       const guild = await services.guildDirect.buildExportMeta(input.nodeId);
       const messageIds =
         input.messageIds === undefined ? undefined : [...new Set(input.messageIds)];
       const total = messageIds?.length ?? (await services.guildDirect.countMessages(input.nodeId));
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号数据源已切换，已停止创建频道导出任务。');
       return services.exportManager.startTask({
         kind: 'c2c',
         conv: guild.peerTinyId,
@@ -5381,6 +5390,7 @@ export const accountRouter = router({
   startExport: procedure
     .input(
       z.object({
+        ...exportAccountBindingInput.shape,
         savePolicy: exportSavePolicyInput.optional(),
         kind: z.enum(['group', 'c2c']),
         conv: z.string().min(1),
@@ -5446,7 +5456,10 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      return requireServices().exportManager.startTask(input);
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).exportManager.startTask(input);
     }),
 
   /**
@@ -5587,6 +5600,7 @@ export const accountRouter = router({
   startCollectionExport: procedure
     .input(
       z.object({
+        ...exportAccountBindingInput.shape,
         savePolicy: exportSavePolicyInput.optional(),
         name: z.string().min(1),
         format: z.enum(['json', 'csv', 'xlsx', 'txt']),
@@ -5595,7 +5609,10 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      return requireServices().exportManager.startTask({
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).exportManager.startTask({
         collection: {
           ...(input.kinds?.length ? { kinds: input.kinds } : {}),
           ...(input.cids ? { cids: input.cids } : {}),
@@ -5770,6 +5787,7 @@ export const accountRouter = router({
   createSchedule: procedure
     .input(
       z.object({
+        ...exportAccountBindingInput.shape,
         name: z.string().min(1),
         format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
         /** 灯箱多选的导出格式（媒体只带一份；缺省 = [format]）。 */
@@ -5822,6 +5840,7 @@ export const accountRouter = router({
       }),
     )
     .mutation(({ input }) => {
+      requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
       // Map renderer-facing `name` (template label) to the manager's ScheduleInput.
       // (ScheduleInput reuses `name` as the export filename stem; the renderer
       // sends the user-chosen label here too — keeping it as-is means a fresh

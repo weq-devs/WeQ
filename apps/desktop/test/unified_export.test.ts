@@ -15,6 +15,7 @@ import type { UiTask } from '../src/renderer/src/views/export/TaskList';
 const fixture = vi.hoisted(() => ({
   realPicker: false,
   current: true,
+  configId: 'fixture-config',
   tasks: [] as ExportTask[],
   saveOutput: vi.fn(async (_input: unknown): Promise<string | null> => '/saved/result.json'),
   dialogError: vi.fn(),
@@ -80,7 +81,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     useUtils: () => ({ account: { listExportTasks: { invalidate: vi.fn() } } }),
     account: {
       getAccountConfig: {
-        useQuery: () => ({ data: { uin: '10002', configId: 'fixture-config' }, isFetching: false }),
+        useQuery: () => ({ data: { uin: '10002', configId: fixture.configId }, isFetching: false }),
       },
       listConversationsWithCount: {
         useQuery: (_input: undefined, options: { enabled: boolean }) => {
@@ -141,15 +142,19 @@ vi.mock('../src/renderer/src/state/view', () => ({
     selector({ openedUin: '10002' }),
 }));
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
-  useExportSavePolicy: () => ({
-    settings: {},
-    policy: { mode: 'after' },
-    setOverride: vi.fn(),
-    prepareSave: fixture.prepare,
-    pickDirectory: vi.fn(),
-    setDefault: vi.fn(),
-    isCurrent: () => fixture.current,
-  }),
+  useExportSavePolicy: () => {
+    const configId = fixture.configId;
+    return {
+      settings: {},
+      policy: { mode: 'after' },
+      binding: { expectedAccountUin: '10002', expectedAccountConfigId: configId },
+      setOverride: vi.fn(),
+      prepareSave: fixture.prepare,
+      pickDirectory: vi.fn(),
+      setDefault: vi.fn(),
+      isCurrent: () => fixture.current && fixture.configId === configId,
+    };
+  },
 }));
 vi.mock('../src/renderer/src/hooks/useExportCollections', () => ({
   useExportCollections: () => ({ items: [], loading: false }),
@@ -272,6 +277,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   fixture.realPicker = false;
   fixture.current = true;
+  fixture.configId = 'fixture-config';
   fixture.tasks = [];
   fixture.saveOutput.mockReset().mockResolvedValue('/saved/result.json');
   fixture.dialogError.mockClear();
@@ -322,6 +328,30 @@ function captureLayout(host: HTMLElement, name: string) {
 }
 
 describe('统一导出实际界面', () => {
+  it('频道保存准备期间同号切换配置，不创建新数据源的任务', async () => {
+    let finish!: (policy: ExportSavePolicy) => void;
+    fixture.prepare.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const f = mount({
+      initialSelection: {
+        owner: { kind: 'guild-direct', container: '100' },
+        scope: { type: 'all' },
+      },
+    });
+    try {
+      click(f.host, '导出');
+      await act(async () => click(f.host, '夹具确认导出'));
+      expect(fixture.prepare).toHaveBeenCalledOnce();
+      fixture.configId = 'other-source';
+      await act(async () => finish({ mode: 'after' }));
+      expect(fixture.startGuild).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
   it('正文不再单列保存配置，本次另存经确认后执行且下次主按钮恢复默认', async () => {
     const f = mount({
       initialSelection: {

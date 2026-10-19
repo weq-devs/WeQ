@@ -7,7 +7,9 @@ import { useExportSavePolicy } from '../src/renderer/src/hooks/useExportSavePoli
 
 const fixture = vi.hoisted(() => ({
   account: 'account-a',
+  configId: 'source-a',
   loadingSettings: false,
+  missingSettings: false,
   settings: {
     exportSaveMode: 'after' as ExportSavePolicy['mode'],
     defaultExportDir: '/fixture/default',
@@ -23,8 +25,16 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     bootstrap: {
       getSettings: {
         useQuery: () => ({
-          data: fixture.loadingSettings ? undefined : fixture.settings,
+          data: fixture.loadingSettings || fixture.missingSettings ? undefined : fixture.settings,
           isLoading: fixture.loadingSettings,
+        }),
+      },
+    },
+    account: {
+      getAccountConfig: {
+        useQuery: () => ({
+          data: { uin: fixture.account, configId: fixture.configId },
+          isLoading: false,
         }),
       },
     },
@@ -77,6 +87,7 @@ function mountHook(withControl = false) {
     get result() {
       return result;
     },
+    render: () => act(() => root.render(createElement(Harness))),
     close() {
       act(() => root.unmount());
       host.remove();
@@ -85,7 +96,9 @@ function mountHook(withControl = false) {
 }
 afterEach(() => {
   fixture.account = 'account-a';
+  fixture.configId = 'source-a';
   fixture.loadingSettings = false;
+  fixture.missingSettings = false;
   fixture.settings.exportSaveMode = 'after';
   fixture.prepare.mockReset().mockImplementation(async (policy) => policy);
   fixture.defaults.mockClear();
@@ -95,17 +108,61 @@ afterEach(() => {
 });
 
 describe('保存方式目录语义', () => {
+  it('偏好读取失败或来源资料缺失时明确失败，不把错误当作取消或猜测默认位置', async () => {
+    fixture.missingSettings = true;
+    const f = mountHook();
+    try {
+      await expect(f.result.prepareSave()).rejects.toThrow(/偏好读取失败/);
+      fixture.missingSettings = false;
+      fixture.configId = '';
+      f.render();
+      await expect(f.result.prepareSave()).rejects.toThrow(/账号资料尚未就绪/);
+      expect(fixture.prepare).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+  it('同号切换数据源立即丢弃单次目录／文件草稿，旧准备结果不再可用', async () => {
+    let finish!: (policy: ExportSavePolicy) => void;
+    fixture.prepare.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const f = mountHook();
+    try {
+      act(() => f.result.setOverride({ mode: 'before', filePath: '/fixture/source-a.json' }));
+      expect(f.result.policy).toEqual({ mode: 'before', filePath: '/fixture/source-a.json' });
+      const old = f.result;
+      const pending = old.prepareSave();
+      fixture.configId = 'source-b';
+      f.render();
+      expect(f.result.hasOverride).toBe(false);
+      expect(f.result.policy).toEqual({ mode: 'after' });
+      finish({ mode: 'after' });
+      expect(await pending).toBeNull();
+      expect(f.result.binding?.expectedAccountConfigId).toBe('source-b');
+    } finally {
+      f.close();
+    }
+  });
   it('本次保存意图优先但不持久化，下一次恢复全局策略', async () => {
     fixture.settings.exportSaveMode = 'preset';
     const f = mountHook();
     try {
       await f.result.prepareSave({ mode: 'after' });
-      expect(fixture.prepare).toHaveBeenLastCalledWith({ mode: 'after' });
+      expect(fixture.prepare).toHaveBeenLastCalledWith({
+        mode: 'after',
+        expectedAccountUin: fixture.account,
+        expectedAccountConfigId: fixture.configId,
+      });
       expect(f.result.policy).toEqual({ mode: 'preset', directory: '/fixture/default' });
       await f.result.prepareSave();
       expect(fixture.prepare).toHaveBeenLastCalledWith({
         mode: 'preset',
         directory: '/fixture/default',
+        expectedAccountUin: fixture.account,
+        expectedAccountConfigId: fixture.configId,
       });
       expect(fixture.defaults).not.toHaveBeenCalled();
     } finally {
@@ -287,6 +344,8 @@ describe('保存方式目录语义', () => {
       expect(fixture.prepare).toHaveBeenCalledWith({
         mode: 'preset',
         directory: '/fixture/default',
+        expectedAccountUin: fixture.account,
+        expectedAccountConfigId: fixture.configId,
       });
       expect(override).toEqual({ mode: 'preset' });
       expect(fixture.defaults).not.toHaveBeenCalled();

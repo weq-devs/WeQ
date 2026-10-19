@@ -331,6 +331,7 @@ export function ExportTool({
     prepareSave,
     serverLocation,
     chooseServerLocation,
+    binding: saveBinding,
     isCurrent,
   } = useExportSavePolicy();
   const saveIntent = useRef<import('@weq/service').ExportSavePolicy | undefined>(undefined);
@@ -1040,6 +1041,7 @@ export function ExportTool({
   /** 导出收藏：全部或按类型过滤，格式 json/csv/xlsx/txt（图片仅写 URL，不下载）。 */
   async function runCollectionExport(): Promise<void> {
     const intent = saveIntent.current;
+    const binding = saveBinding;
     const cfmt = format as 'json' | 'csv' | 'xlsx' | 'txt';
     const kinds = [...collectionKinds];
     const cids = [...(collectionIds ?? filteredCollectionIds)];
@@ -1049,6 +1051,7 @@ export function ExportTool({
       const savePolicy = await prepareSave(intent);
       if (!savePolicy) return;
       await client.account.startCollectionExport.mutate({
+        ...binding,
         savePolicy,
         name: kinds.length ? `收藏_${kinds.length}类` : '全部收藏',
         format: cfmt,
@@ -1068,6 +1071,7 @@ export function ExportTool({
     opts: { formats?: ExportFormat[] } = {},
   ): Promise<void> {
     const intent = saveIntent.current;
+    const binding = saveBinding;
     const targets = convItems
       .filter((it) => convSelection.has(it.id))
       .map((item) => ({
@@ -1110,7 +1114,11 @@ export function ExportTool({
     try {
       const savePolicy = await prepareSave(intent);
       if (!savePolicy) return;
-      await startChatExportTasks(targets, effectiveOptions, formats, format, { savePolicy });
+      await startChatExportTasks(targets, effectiveOptions, formats, format, {
+        savePolicy,
+        binding: binding ?? undefined,
+        isCurrent,
+      });
       if (fixedMessages) onClose?.();
       else {
         setConvSelection(new Set());
@@ -1134,6 +1142,7 @@ export function ExportTool({
     opts: { formats?: ExportFormat[] } = {},
   ): Promise<void> {
     const intent = saveIntent.current;
+    const binding = saveBinding;
     const targets = guildItems
       .filter((it) => guildSelection.has(it.id))
       .map((item) => ({
@@ -1165,6 +1174,7 @@ export function ExportTool({
         if (!isCurrent()) return;
         const fmt0 = formats[0] ?? format;
         await client.account.guildDirectStartExport.mutate({
+          ...binding,
           savePolicy,
           nodeId: t.id,
           messageIds: t.messageIds,
@@ -1316,6 +1326,7 @@ export function ExportTool({
    *  from `runFullExport` so a triggered run reproduces the same output. */
   async function runCreateSchedule(result: LightboxResult): Promise<void> {
     const intent = saveIntent.current;
+    const binding = saveBinding;
     const targets = convItems.filter((it) => convSelection.has(it.id));
     if (targets.length === 0) {
       dialog.error('未选择会话', '请先选择至少一个会话再创建定时任务。');
@@ -1330,6 +1341,7 @@ export function ExportTool({
       const savePolicy = await prepareSave(intent);
       if (!savePolicy) return;
       await client.account.createSchedule.mutate({
+        ...binding,
         name: `定时 · ${targets[0]!.name}${targets.length > 1 ? ` 等 ${targets.length} 个` : ''}`,
         // 主格式 = 第一份；多选的全部格式存进 formats，触发时媒体只带一份。
         format: (result.formats[0] ?? format) as Exclude<ExportFormat, 'vcard'>,
@@ -1609,6 +1621,8 @@ export function ExportTool({
                   onStarted={refetchTasks}
                   prepareSave={prepareSave}
                   disabled={pickingSaveDirectory || globalSettings.isLoading}
+                  binding={saveBinding ?? undefined}
+                  isCurrent={isCurrent}
                 />
               ) : mode === 'full' || mode === 'qzone' ? (
                 <div

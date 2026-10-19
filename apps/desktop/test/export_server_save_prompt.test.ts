@@ -6,6 +6,7 @@ import { useExportSavePolicy } from '../src/renderer/src/hooks/useExportSavePoli
 import { ServerSavePrompt } from '../src/renderer/src/components/ServerSavePrompt';
 
 const state = vi.hoisted(() => ({
+  configId: 'source-a',
   prepare: vi.fn(async (policy: ExportSavePolicy) => ({
     mode: policy.mode,
     directory: `/server/${policy.directory ?? ''}`,
@@ -24,6 +25,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     bootstrap: {
       getSettings: { useQuery: () => ({ data: { exportSaveMode: 'before' }, isLoading: false }) },
     },
+    account: {
+      getAccountConfig: {
+        useQuery: () => ({ data: { uin: '10001', configId: state.configId }, isLoading: false }),
+      },
+    },
   },
   client: { bootstrap: { prepareExportSave: { mutate: state.prepare } } },
 }));
@@ -35,6 +41,7 @@ vi.mock('../src/renderer/src/state/view', () => ({
 }));
 afterEach(() => {
   state.prepare.mockClear();
+  state.configId = 'source-a';
   vi.unstubAllGlobals();
 });
 function mount() {
@@ -58,6 +65,7 @@ function mount() {
     get result() {
       return result;
     },
+    render: () => act(() => root.render(h(View))),
     close() {
       act(() => root.unmount());
       host.remove();
@@ -87,7 +95,12 @@ it('Web 开始前询问的是服务器子目录，确认前不生成保存参数
         .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
       await pending;
     });
-    expect(state.prepare).toHaveBeenLastCalledWith({ mode: 'before', directory: 'one-time' });
+    expect(state.prepare).toHaveBeenLastCalledWith({
+      mode: 'before',
+      directory: 'one-time',
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+    });
     expect(f.result.policy).toEqual({ mode: 'before' });
     act(() => {
       pending = f.result.prepareSave();
@@ -110,4 +123,20 @@ it('关闭工具时取消尚未确认的服务器位置选择', async () => {
   f.close();
   expect(await pending).toBeNull();
   expect(state.prepare).not.toHaveBeenCalled();
+});
+it('同号切换数据源关闭旧服务器位置弹窗且不提交位置', async () => {
+  const f = mount();
+  let pending!: Promise<ExportSavePolicy | null>;
+  try {
+    act(() => {
+      pending = f.result.prepareSave();
+    });
+    state.configId = 'source-b';
+    f.render();
+    expect(await pending).toBeNull();
+    expect(state.prepare).not.toHaveBeenCalled();
+    expect(f.result.serverLocation).toBeNull();
+  } finally {
+    f.close();
+  }
 });

@@ -333,6 +333,7 @@ export function MarketEmojiBrowserLightbox({
   async function download(packs: { id: string; name: string }[], intent?: ExportSavePolicy) {
     if (pending.current || !packs.length || packs.length > MARKET_DOWNLOAD_MAX_PACKS) return;
     const targets = packs.map((pack) => ({ ...pack }));
+    const binding = save.binding;
     pending.current = true;
     setDownloading(true);
     setQueued(false);
@@ -341,6 +342,7 @@ export function MarketEmojiBrowserLightbox({
       if (!policy || !save.isCurrent()) return;
       await client.account.marketEmoji.startDownload.mutate({
         packs: targets,
+        ...binding,
         savePolicy: policy,
         ...(save.accountUin ? { expectedAccountUin: save.accountUin } : {}),
       });

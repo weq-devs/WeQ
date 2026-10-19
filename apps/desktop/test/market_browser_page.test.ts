@@ -123,6 +123,7 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
     settings: { isLoading: false },
     picking: false,
     accountUin: '10001',
+    binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
     isCurrent: () => true,
     prepareSave: saveState.prepare,
   }),
@@ -147,7 +148,10 @@ it('商城详情的下载菜单只覆盖本次保存方式，多选不展开保�
     await act(async () => choose.click());
     expect(saveState.prepare).toHaveBeenLastCalledWith({ mode: 'after' });
     expect(saveState.download).toHaveBeenCalledWith(
-      expect.objectContaining({ savePolicy: { mode: 'after' } }),
+      expect.objectContaining({
+        savePolicy: { mode: 'after' },
+        expectedAccountConfigId: 'source-a',
+      }),
     );
     expect(host.querySelector('.weq-export-save-control')).toBeNull();
   } finally {

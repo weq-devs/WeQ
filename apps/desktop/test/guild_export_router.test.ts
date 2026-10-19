@@ -6,14 +6,13 @@ const fixture = vi.hoisted(() => ({
   count: vi.fn(async () => 10),
   meta: vi.fn(async (_node: string) => ({ nodeId: '100', peerTinyId: '200' })),
 }));
-vi.mock('../src/main/context/app_context', () => ({
-  getAppContext: () => ({
-    services: {
-      guildDirect: { buildExportMeta: fixture.meta, countMessages: fixture.count },
-      exportManager: { startTask: fixture.start },
-    },
-  }),
-}));
+vi.mock('../src/main/context/app_context', () => {
+  const services = {
+    guildDirect: { buildExportMeta: fixture.meta, countMessages: fixture.count },
+    exportManager: { startTask: fixture.start },
+  };
+  return { getAppContext: () => ({ services }) };
+});
 beforeEach(() => vi.clearAllMocks());
 
 it('频道路由接受本地精确 ID、去重并保留空集合，不将其转成日期或全部消息', async () => {

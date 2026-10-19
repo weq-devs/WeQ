@@ -54,12 +54,16 @@ export function EmojiPackExportPane({
   onStarted,
   prepareSave,
   disabled = false,
+  binding,
+  isCurrent = () => true,
 }: {
   onStarted: () => void;
   prepareSave?: (
     intent?: import('@weq/service').ExportSavePolicy,
   ) => Promise<import('@weq/service').ExportSavePolicy | null>;
   disabled?: boolean;
+  binding?: { expectedAccountUin: string; expectedAccountConfigId: string };
+  isCurrent?: () => boolean;
 }): ReactElement {
   const dialog = useAppDialog();
   const summary = trpc.account.emojiPack.summary.useQuery(undefined, { staleTime: 20_000 });
@@ -84,11 +88,16 @@ export function EmojiPackExportPane({
 
   async function start(intent?: import('@weq/service').ExportSavePolicy): Promise<void> {
     if (selected.size === 0 || disabled || submitting) return;
+    const request = { ...binding, scopes: [...selected] };
     setSubmitting(true);
     try {
       const savePolicy = await prepareSave?.(intent);
-      if (savePolicy === null) return;
-      await client.account.emojiPack.startExport.mutate({ scopes: [...selected], savePolicy });
+      if (savePolicy === null || !isCurrent()) return;
+      await client.account.emojiPack.startExport.mutate({
+        ...request,
+        savePolicy,
+      });
+      if (!isCurrent()) return;
       onStarted();
       dialog.success('已开始导出', '已加入任务队列。');
     } catch (e) {
