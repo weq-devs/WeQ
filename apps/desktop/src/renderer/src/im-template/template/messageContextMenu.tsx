@@ -17,6 +17,8 @@ import type { Message } from './types';
 import { cn } from './classNames';
 import { FaceEmoji } from '../../components/FaceEmoji';
 import { canRepeatMessage } from '../../lib/messageRepeat';
+import { useSurfaceOutside } from '../../lib/surfaceOutside';
+import { useTabActive } from '../../components/RetainedTabs';
 
 export type MessageContextMenuState = {
   message: Message;
@@ -35,6 +37,7 @@ export type MessageContextMenuState = {
 
 export function MessageContextMenu({
   state,
+  onClose,
   onCopy,
   onExport,
   exportLabel = '导出',
@@ -59,6 +62,7 @@ export function MessageContextMenu({
   extraActions,
 }: {
   state: MessageContextMenuState;
+  onClose?: () => void;
   onCopy: (message: Message) => void | Promise<void>;
   onExport?: (message: Message) => void;
   exportLabel?: string;
@@ -94,6 +98,8 @@ export function MessageContextMenu({
   extraActions?: ReactNode;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const active = useTabActive();
+  useSurfaceOutside(menuRef, onClose, active);
   const decoration = (
     state.message as { decoration?: { fontId?: number; bubbleId?: number; widgetId?: number } }
   ).decoration;
@@ -130,6 +136,7 @@ export function MessageContextMenu({
   return (
     <div
       ref={menuRef}
+      role="menu"
       className={cn(
         'message-context-menu',
         state.variant === 'mobile' && 'message-context-menu-mobile',

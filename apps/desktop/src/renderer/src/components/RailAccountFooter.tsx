@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { useOverlayLayer } from '../lib/overlayStack';
+import { useSurfaceOutside } from '../lib/surfaceOutside';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   LockKeyhole,
@@ -186,13 +187,13 @@ export function RailAccountFooter({
   } | null>(null);
   const menuLayer = useOverlayLayer(!!ctxMenu);
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useSurfaceOutside(menuRef, closeCtxMenu, !!ctxMenu);
 
   useEffect(() => {
     if (!ctxMenu) return;
-    document.addEventListener('mousedown', closeCtxMenu);
     document.addEventListener('keydown', closeCtxMenu);
     return () => {
-      document.removeEventListener('mousedown', closeCtxMenu);
       document.removeEventListener('keydown', closeCtxMenu);
     };
   }, [ctxMenu, closeCtxMenu]);
@@ -494,6 +495,8 @@ export function RailAccountFooter({
           createPortal(
             <div
               className="weq-rail-account-ctx-menu"
+              ref={menuRef}
+              role="menu"
               style={{ left: ctxMenu.x, top: ctxMenu.y, zIndex: menuLayer }}
               onMouseDown={(e) => e.stopPropagation()}
             >

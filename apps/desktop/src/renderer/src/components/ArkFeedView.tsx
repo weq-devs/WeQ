@@ -1,7 +1,9 @@
-import { useMemo, useEffect, useState, type MouseEvent } from 'react';
+import { useMemo, useEffect, useRef, useState, type MouseEvent } from 'react';
 import { ArrowLeft, Edit3 } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { QqArk } from './ark/QqArk';
+import { useSurfaceOutside } from '../lib/surfaceOutside';
+import { useTabActive } from './RetainedTabs';
 
 interface ArkFeedViewProps {
   conversationId: string;
@@ -37,6 +39,9 @@ export function ArkFeedView({
   const [messages, setMessages] = useState<ArkMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const active = useTabActive();
+  useSurfaceOutside(menuRef, () => setContextMenu(null), active && !!contextMenu);
 
   const isService = conversationId.startsWith('service:');
   const isOfficial =
@@ -92,14 +97,11 @@ export function ArkFeedView({
   useEffect(() => {
     if (!contextMenu) return;
 
-    const handleClick = () => setContextMenu(null);
     const handleScroll = () => setContextMenu(null);
 
-    document.addEventListener('click', handleClick);
     document.addEventListener('scroll', handleScroll, true);
 
     return () => {
-      document.removeEventListener('click', handleClick);
       document.removeEventListener('scroll', handleScroll, true);
     };
   }, [contextMenu]);
@@ -165,6 +167,8 @@ export function ArkFeedView({
       {contextMenu && (
         <div
           className="weq-ark-context-menu"
+          ref={menuRef}
+          role="menu"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onMouseDown={(e) => {
             e.preventDefault();

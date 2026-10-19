@@ -1164,11 +1164,9 @@ export function ChatPane({
       }
     }
 
-    document.addEventListener('mousedown', closeMenu);
     document.addEventListener('keydown', closeOnEscape);
     window.addEventListener('resize', closeMenu);
     return () => {
-      document.removeEventListener('mousedown', closeMenu);
       document.removeEventListener('keydown', closeOnEscape);
       window.removeEventListener('resize', closeMenu);
     };
@@ -1188,11 +1186,9 @@ export function ChatPane({
         closeAvatarMenu();
       }
     }
-    document.addEventListener('mousedown', closeAvatarMenu);
     document.addEventListener('keydown', closeAvatarOnEscape);
     window.addEventListener('resize', closeAvatarMenu);
     return () => {
-      document.removeEventListener('mousedown', closeAvatarMenu);
       document.removeEventListener('keydown', closeAvatarOnEscape);
       window.removeEventListener('resize', closeAvatarMenu);
     };
@@ -4853,6 +4849,7 @@ export function ChatPane({
       ) : null}
       {contextMenu ? (
         <MessageContextMenu
+          onClose={() => setContextMenu(null)}
           extraActions={
             conversation.type === 'group' && !grayTipOf(contextMenu.message) ? (
               <>
@@ -4964,6 +4961,7 @@ export function ChatPane({
       ) : null}
       {avatarMenu ? (
         <AvatarContextMenu
+          onClose={() => setAvatarMenu(null)}
           state={avatarMenu}
           onAnalyze={
             conversation?.type === 'group' && directory?.onAnalyzeMember

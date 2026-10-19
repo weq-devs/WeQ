@@ -32,6 +32,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useRenderDocument } from '../../lib/renderDocument';
+import { useSurfaceOutside } from '../../lib/surfaceOutside';
 import {
   Check,
   Code2,
@@ -2102,19 +2103,14 @@ function NodeMenu({
   const layer = useOverlayLayer(true);
   const left = Math.min(x, viewport.innerWidth - 170);
   const top = Math.min(y, viewport.innerHeight - 190);
+  useSurfaceOutside(menuRef, onClose, true);
 
   useEffect(() => {
-    function onDown(event: PointerEvent): void {
-      if (menuRef.current?.contains(event.target as Node)) return;
-      onClose();
-    }
     function onKey(event: KeyboardEvent): void {
       if (event.key === 'Escape') onClose();
     }
-    document.addEventListener('pointerdown', onDown);
     document.addEventListener('keydown', onKey);
     return () => {
-      document.removeEventListener('pointerdown', onDown);
       document.removeEventListener('keydown', onKey);
     };
   }, [onClose, document]);

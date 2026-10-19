@@ -12,6 +12,8 @@ import {
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { User } from './types';
 import { cn } from './classNames';
+import { useSurfaceOutside } from '../../lib/surfaceOutside';
+import { useTabActive } from '../../components/RetainedTabs';
 
 export type AvatarContextMenuState = {
   sender: User;
@@ -38,6 +40,7 @@ const MUTE_DURATIONS: Array<{ label: string; seconds: number }> = [
  */
 export function AvatarContextMenu({
   state,
+  onClose,
   onMention,
   onAnalyze,
   onPoke,
@@ -54,6 +57,7 @@ export function AvatarContextMenu({
   moderationBlockedReason,
 }: {
   state: AvatarContextMenuState;
+  onClose?: () => void;
   onMention: (sender: User) => void;
   onAnalyze?: (sender: User) => void;
   onPoke: (sender: User) => void;
@@ -76,6 +80,8 @@ export function AvatarContextMenu({
   moderationBlockedReason?: string | null;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const active = useTabActive();
+  useSurfaceOutside(menuRef, onClose, active);
   const [muteOpen, setMuteOpen] = useState(false);
   const moderationDisabled = Boolean(moderationBlockedReason);
   const hasModeration = showChangeCard || showKick || showMute || showSetAdmin || showUnsetAdmin;
@@ -101,6 +107,7 @@ export function AvatarContextMenu({
   return (
     <div
       ref={menuRef}
+      role="menu"
       className={cn('message-context-menu', 'avatar-context-menu')}
       style={{ left: state.x, top: state.y }}
       onMouseDown={(event) => {
