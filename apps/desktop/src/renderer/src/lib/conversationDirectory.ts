@@ -22,6 +22,8 @@ export const ConversationDirectoryContext = createContext<{
   /** 新建克隆体群聊：直接打开多选克隆体的建群弹窗。 */
   onCreateGroup?: () => void;
   onAnalyze?: (conversation: Conversation) => void;
+  onPin?: (conversation: Conversation, pinned: boolean) => void;
+  loadingError?: string;
   onAnalyzeMember?: (conversation: Extract<Conversation, { type: 'group' }>, member: User) => void;
   onRoaming?: (targets: RoamingTarget[]) => void;
   onReadState?: (conversations: Conversation[], unread: boolean) => void;

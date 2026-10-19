@@ -3,6 +3,8 @@ import '../styles/conversation-directory.css';
 
 export function ConversationSelectionToolbar({
   count,
+  assistantCount = 0,
+  selectingAll = false,
   allSelected,
   exportReason,
   roamingReason,
@@ -14,6 +16,8 @@ export function ConversationSelectionToolbar({
   onReadState,
 }: {
   count: number;
+  assistantCount?: number;
+  selectingAll?: boolean;
   allSelected: boolean;
   exportReason?: string;
   roamingReason?: string;
@@ -30,7 +34,11 @@ export function ConversationSelectionToolbar({
       role="toolbar"
       aria-label="会话多选操作"
     >
-      <span aria-live="polite">已选 {count}</span>
+      <span aria-live="polite">
+        {selectingAll
+          ? '正在补齐全选…'
+          : `已选 ${count}${assistantCount ? `（含群助手 ${assistantCount}）` : ''}`}
+      </span>
       <button
         type="button"
         title={allSelected ? '取消全选当前结果' : '全选当前结果'}

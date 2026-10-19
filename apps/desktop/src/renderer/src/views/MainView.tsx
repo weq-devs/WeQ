@@ -2275,6 +2275,14 @@ export function MainView(): ReactElement {
     contacts.fetchNextPage,
   ]);
   const topContacts = trpc.account.listTopContacts.useQuery();
+  const contactsRefreshingRef = useRef(false);
+  const contactsRefreshQueuedRef = useRef(false);
+  contactsRefreshingRef.current = contacts.isFetching || Boolean(contacts.hasNextPage);
+  useEffect(() => {
+    if (contacts.isFetching || contacts.hasNextPage || !contactsRefreshQueuedRef.current) return;
+    contactsRefreshQueuedRef.current = false;
+    void utils.account.listRecentContacts.invalidate();
+  }, [contacts.isFetching, contacts.hasNextPage, utils]);
 
   // Flatten the paginated recent-contact pages into one list for the memos
   // below (the sidebar can scroll-load more pages past the first window).
@@ -2498,7 +2506,8 @@ export function MainView(): ReactElement {
       onData() {
         // Read watermarks can change while recent contacts remain identical.
         setUnreadRevision((revision) => revision + 1);
-        void utils.account.listRecentContacts.invalidate();
+        if (contactsRefreshingRef.current) contactsRefreshQueuedRef.current = true;
+        else void utils.account.listRecentContacts.invalidate();
         void utils.account.listTopContacts.invalidate();
         void utils.account.listHiddenSessions.invalidate();
         void utils.account.listOfficialAccounts.invalidate();
@@ -4501,6 +4510,30 @@ export function MainView(): ReactElement {
             targets: targets.slice(index, index + batchSize),
           });
           if (!isCurrent()) return true;
+          // 顶部会话的计数先回显，不等待后续所有分页的未读扫描。
+          setUnreadByConv((current) => {
+            const next = { ...current };
+            let changed = false;
+            for (const info of rows) {
+              if (info.readError || !guard.accepts(info.uid, startedAt)) continue;
+              const count = info.unreadCount ?? 0;
+              if (next[info.uid] !== count) {
+                next[info.uid] = count;
+                changed = true;
+              }
+            }
+            return changed ? next : current;
+          });
+          setHighlightsByConv((current) => {
+            const next = { ...current };
+            for (const info of rows) {
+              if (info.readError || !guard.accepts(info.uid, startedAt)) continue;
+              if (info.highlights?.length)
+                next[info.uid] = info.highlights as ConversationHighlight[];
+              else delete next[info.uid];
+            }
+            return JSON.stringify(next) === JSON.stringify(current) ? current : next;
+          });
           for (const info of rows) {
             if (info.readError) {
               failed = true;
@@ -6323,6 +6356,7 @@ export function MainView(): ReactElement {
       ...current,
       [conversationId]: {
         ...fallbackPreference,
+        ...conversations.find((conversation) => conversation.id === conversationId)?.preference,
         ...current[conversationId],
         [key]: value,
       },
@@ -7449,7 +7483,7 @@ export function MainView(): ReactElement {
   // 数据量大时列表查询耗时明显，侧边栏先用 skeleton 占位。
   const sidebarLoading =
     shell.view === 'messages'
-      ? contacts.isLoading || allGroups.isLoading
+      ? contacts.isLoading && recentContactsData.length === 0
       : shell.view === 'contacts'
         ? shell.contactTab === 'friends'
           ? buddies.isLoading || profiles.isLoading
@@ -8266,7 +8300,7 @@ export function MainView(): ReactElement {
                     pushToast({ tone: 'info', title: '群助手置顶保存失败，请重试' });
                   }
                 }}
-                groupAssistantLoading={contacts.isFetching}
+                groupAssistantLoading={contacts.isLoading}
                 groupAssistantHasMore={Boolean(contacts.hasNextPage)}
                 onLoadMoreGroupAssistant={loadMoreContacts}
                 groupAssistantError={contacts.error?.message}
@@ -8799,9 +8833,12 @@ export function MainView(): ReactElement {
               value={{
                 real: conversations,
                 groupAssistantIds,
+                loadingError: contacts.error?.message,
                 virtual: virtualRows,
                 locate: conversationLocate,
                 onAnalyze: handleAnalyzeConversation,
+                onPin: (conversation, pinned) =>
+                  updateConversationPreference(conversation.id, 'pinned', pinned),
                 onAnalyzeMember: (conversation, member) => {
                   setAnalysisRequest((previous) => ({
                     target: {

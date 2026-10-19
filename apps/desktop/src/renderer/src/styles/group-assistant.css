@@ -6,8 +6,7 @@
 .weq-merged-popover-row .weq-merged-popover-item { flex: 1; min-width: 0; }
 .weq-merged-popover-row.is-pinned { background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent); }
 .weq-group-helper-pin-mark { flex-shrink: 0; color: var(--weq-fg-muted); }
-.weq-group-helper-pin { display: grid; place-items: center; width: 30px; height: 30px; margin-right: 4px; flex-shrink: 0; border-radius: 6px; color: var(--weq-fg-secondary); background: transparent; cursor: pointer; }
-.weq-group-helper-pin:hover { background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent); color: var(--weq-accent-effective); }
-.weq-group-helper-pin:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: 1px; }
+.weq-merged-popover-row.is-multiselected { background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent); outline: 1px solid color-mix(in srgb, var(--weq-accent-effective) 45%, transparent); outline-offset: -1px; }
 html[data-theme="dark"] .weq-merged-popover-row.is-pinned { background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); }
+html[data-theme="dark"] .weq-merged-popover-row.is-multiselected { background: color-mix(in srgb, var(--weq-accent-effective) 24%, transparent); }
 @media (prefers-reduced-motion: reduce) { .weq-merged-popover-row .weq-merged-popover-item { transition: none; } }

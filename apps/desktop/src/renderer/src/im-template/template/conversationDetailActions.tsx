@@ -1,5 +1,5 @@
 ﻿// @ts-nocheck
-import { Bell, BellOff, Pin, Trash2 } from 'lucide-react';
+import { Bell, BellOff, Trash2 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { Conversation, ConversationPreference } from './types';
 
@@ -42,15 +42,6 @@ export type ComposeConversationDetailActionRegistryOptions = {
   base?: ConversationDetailActionRegistry;
   prepend?: Partial<ConversationDetailActionRegistry>;
   append?: Partial<ConversationDetailActionRegistry>;
-};
-
-const pinnedAction: ConversationDetailAction = {
-  id: 'pinned',
-  icon: Pin,
-  kind: 'switch',
-  label: '设为置顶',
-  checked: (context) => context.preference.pinned,
-  onClick: (context) => context.togglePreference('pinned'),
 };
 
 const mutedAction: ConversationDetailAction = {
@@ -99,7 +90,7 @@ export const defaultConversationDetailActionRegistry: ConversationDetailActionRe
   directDesktop: [
     {
       id: 'preferences',
-      actions: [pinnedAction, mutedAction],
+      actions: [mutedAction],
     },
     {
       id: 'safety',
@@ -118,7 +109,7 @@ export const defaultConversationDetailActionRegistry: ConversationDetailActionRe
   groupDesktop: [
     {
       id: 'preferences',
-      actions: [pinnedAction, mutedAction],
+      actions: [mutedAction],
     },
     {
       id: 'notifications',
@@ -133,7 +124,7 @@ export const defaultConversationDetailActionRegistry: ConversationDetailActionRe
   directMobile: [
     {
       id: 'preferences',
-      actions: [pinnedAction, mutedAction, notificationAction],
+      actions: [mutedAction, notificationAction],
     },
     {
       id: 'history',

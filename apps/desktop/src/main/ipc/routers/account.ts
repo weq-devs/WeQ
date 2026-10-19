@@ -2122,7 +2122,7 @@ export const accountRouter = router({
     .input(
       z
         .object({
-          limit: z.number().int().min(1).max(500).default(200),
+          limit: z.union([z.literal(-1), z.number().int().min(1).max(500)]).default(200),
           cursor: z.number().int().min(0).default(0),
         })
         .default({}),

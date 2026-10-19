@@ -4,6 +4,9 @@ import {
   Bot,
   PenLine,
   Pin,
+  MailOpen,
+  Mail,
+  ListChecks,
   EyeOff,
   MessageSquare,
   Users,
@@ -16,15 +19,12 @@ import {
   MinusCircle,
   ChevronRight,
   Trash2,
-  Loader2,
   RefreshCw,
   Plus,
   MessagesSquare,
   BarChart3,
   CloudDownload,
   Download,
-  Mail,
-  MailOpen,
 } from 'lucide-react';
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -33,15 +33,12 @@ import {
   virtualConversationRow,
 } from '../../lib/conversationDirectory';
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
-import {
-  conversationAnalysisTarget,
-  conversationExportSelection,
-  conversationRoamingTarget,
-} from '../../lib/conversationActions';
+import { conversationAnalysisTarget } from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { sidebarConversationsWithoutAssistant } from '../../lib/groupAssistant';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
 import { ConversationSelectionToolbar } from '../../components/ConversationSelectionToolbar';
+import { useConversationBatchActions } from '../../components/useConversationBatchActions';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { allSelectionIdsSelected, toggleAllSelectionIds } from '../../lib/multiSelection';
 import { WindowedList } from '../../components/WindowedList';
@@ -119,7 +116,6 @@ function ConversationListLoadMore({
   onLoadMore?: () => void;
 }) {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     const el = sentinelRef.current;
@@ -127,7 +123,6 @@ function ConversationListLoadMore({
     const observer = new IntersectionObserver(
       (entries) => {
         const hit = entries.some((entry) => entry.isIntersecting);
-        setVisible(hit);
         if (hit && !loading) onLoadMore();
       },
       { rootMargin: '240px 0px' },
@@ -136,19 +131,7 @@ function ConversationListLoadMore({
     return () => observer.disconnect();
   }, [onLoadMore, loading]);
 
-  return (
-    <div ref={sentinelRef} className="conversation-list-load-more">
-      {loading ? (
-        <Loader2 size={14} className="spin" />
-      ) : visible ? (
-        '加载中…'
-      ) : (
-        <button type="button" onClick={onLoadMore}>
-          加载更多会话
-        </button>
-      )}
-    </div>
-  );
+  return <div ref={sentinelRef} className="conversation-list-load-more" aria-hidden="true" />;
 }
 
 export function ConversationList({
@@ -176,6 +159,7 @@ export function ConversationList({
 }) {
   const directory = useContext(ConversationDirectoryContext);
   const requestExport = useRequestContentExport();
+  const batch = useConversationBatchActions(conversations);
   const [actionMenu, setActionMenu] = useState<{
     conversation: Conversation;
     ids: string[];
@@ -186,6 +170,7 @@ export function ConversationList({
   const [scope, setScope] = useState<'all' | 'real' | 'virtual'>('all');
   const [scopeOpen, setScopeOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
   const createMenuRef = useRef<HTMLDivElement>(null);
   const createTriggerRef = useRef<HTMLButtonElement>(null);
   const { selectionMode, selectedIds, setSelectedIds, setSelectionMode } = useContentMultiSelect({
@@ -229,47 +214,103 @@ export function ConversationList({
     keyword,
     scope,
   ]);
-  const filteredIds = filtered.map((item) => item.id);
+  const assistantIds = useMemo(
+    () =>
+      (directory?.real ?? conversations)
+        .filter((row) => row.type === 'group' && directory?.groupAssistantIds?.has(row.id))
+        .map((row) => row.id),
+    [directory?.real, conversations, directory?.groupAssistantIds],
+  );
+  const expandIds = useCallback(
+    (ids: Iterable<string>) =>
+      new Set([...ids].flatMap((id) => (id === 'merged:group-assistant' ? assistantIds : [id]))),
+    [assistantIds],
+  );
+  const filteredIds = useMemo(
+    () => [...expandIds(filtered.map((item) => item.id))],
+    [expandIds, filtered],
+  );
+  const assistantSelected =
+    assistantIds.length > 0 && assistantIds.every((id) => selectedIds.has(id));
+  const rowSelectedIds = new Set(selectedIds);
+  if (assistantSelected) rowSelectedIds.add('merged:group-assistant');
   const allSelected = allSelectionIdsSelected(filteredIds, selectedIds);
-  const toggleAll = () => setSelectedIds(toggleAllSelectionIds(filteredIds, selectedIds));
+  const toggleAll = () => {
+    if (selectingAll) {
+      setSelectingAll(false);
+      return;
+    }
+    if (hasMore || loading) {
+      setSelectionMode(true);
+      setSelectingAll(true);
+      onLoadMore?.();
+      return;
+    }
+    setSelectedIds(toggleAllSelectionIds(filteredIds, selectedIds));
+  };
+  useEffect(() => {
+    if (!selectingAll) return;
+    if (!selectionMode || directory?.loadingError) {
+      setSelectingAll(false);
+      return;
+    }
+    if (!hasMore && !loadingMore && !loading) {
+      setSelectedIds((current) => new Set([...current, ...filteredIds]));
+      setSelectingAll(false);
+    } else if (hasMore && !loadingMore) onLoadMore?.();
+  }, [
+    selectingAll,
+    selectionMode,
+    hasMore,
+    loadingMore,
+    loading,
+    directory?.loadingError,
+    filteredIds,
+    onLoadMore,
+    setSelectedIds,
+  ]);
   const multi = useMultiSelection({
-    ids: filteredIds,
-    selected: selectedIds,
-    onChange: setSelectedIds,
+    ids: filtered.map((item) => item.id),
+    selected: rowSelectedIds,
+    onChange: (ids) => {
+      if ((hasMore || loading) && filtered.every((row) => ids.has(row.id))) {
+        setSelectingAll(true);
+        onLoadMore?.();
+        return;
+      }
+      setSelectingAll(false);
+      const next = expandIds(ids);
+      if (assistantSelected && !ids.has('merged:group-assistant')) {
+        for (const id of assistantIds) next.delete(id);
+      }
+      setSelectedIds(next);
+    },
     enabled: selectionMode,
     onStart: () => setSelectionMode(true),
     onExit: () => setSelectionMode(false),
   });
-  const actionRows = useMemo(
-    () => new Map([...conversations, ...(directory?.real ?? [])].map((row) => [row.id, row])),
-    [conversations, directory?.real],
-  );
-  const selectedRows = [...selectedIds].map((id) =>
-    virtualIds.has(id) ? undefined : actionRows.get(id),
-  );
-  const selectedTargets = selectedRows.map(conversationRoamingTarget).filter(Boolean);
-  const exportReason = !selectedIds.size
-    ? '请先选择会话'
-    : !requestExport
-      ? '当前无法导出会话'
-      : selectedRows.some((row) => !conversationExportSelection(row))
-        ? '所选会话包含非聊天内容，请重新选择'
-        : undefined;
-  const roamingReason = !selectedIds.size
-    ? '请先选择会话'
-    : !directory?.onRoaming
-      ? '当前无法拉取漫游消息'
-      : selectedTargets.length !== selectedIds.size
-        ? '所选会话包含不支持漫游拉取的对象'
-        : undefined;
-  const readStateReason = directory?.readStateBusy
-    ? '正在更新标记'
+  const exportReason = selectingAll
+    ? '正在补齐全选'
     : !selectedIds.size
       ? '请先选择会话'
-      : selectedIds.size > 4096
-        ? '一次最多标记 4096 个会话'
-        : selectedRows.some((row) => !row || (row.type !== 'direct' && row.type !== 'group'))
-          ? '请选择真实聊天会话'
+      : !requestExport
+        ? '当前无法导出会话'
+        : undefined;
+  const roamingReason = selectingAll
+    ? '正在补齐全选'
+    : !selectedIds.size
+      ? '请先选择会话'
+      : !directory?.onRoaming
+        ? '当前无法拉取漫游消息'
+        : undefined;
+  const readStateReason = selectingAll
+    ? '正在补齐全选'
+    : directory?.readStateBusy
+      ? '正在更新标记'
+      : !selectedIds.size
+        ? '请先选择会话'
+        : selectedIds.size > 4096
+          ? '一次最多标记 4096 个会话'
           : undefined;
 
   const locateId = directory?.locate?.id;
@@ -447,7 +488,15 @@ export function ConversationList({
           ) : null}
         </div>
       </DirectoryToolbar>
-      {loading ? <ListSkeleton rows={9} /> : null}
+      {loading && !filtered.length ? <ListSkeleton rows={9} /> : null}
+      {directory?.loadingError ? (
+        <div role="alert">
+          会话读取失败：{directory.loadingError}
+          <button type="button" onClick={onLoadMore}>
+            重试
+          </button>
+        </div>
+      ) : null}
       {!loading && !filtered.length ? (
         <EmptyState title="暂无会话" body="" icon={<MessageSquare />} />
       ) : null}
@@ -521,24 +570,18 @@ export function ConversationList({
                 className={cn(
                   listRowClass(!selectionMode && active, 'conversation-row'),
                   pinned && 'pinned',
-                  selectionMode && selectedIds.has(conversation.id) && 'is-multiselected',
+                  selectionMode && rowSelectedIds.has(conversation.id) && 'is-multiselected',
                 )}
-                aria-pressed={selectionMode ? selectedIds.has(conversation.id) : undefined}
+                aria-pressed={selectionMode ? rowSelectedIds.has(conversation.id) : undefined}
                 {...multi.itemProps(conversation.id)}
                 onContextMenu={(event) => {
-                  if (!requestExport && !directory?.onAnalyze && !directory?.onRoaming) return;
-                  if (
-                    !conversationExportSelection(conversation) ||
-                    directory?.virtual.some((item) => item.id === conversation.id)
-                  )
-                    return;
                   event.preventDefault();
                   setActionMenu({
                     conversation,
                     ids:
-                      selectionMode && selectedIds.has(conversation.id)
+                      selectionMode && rowSelectedIds.has(conversation.id)
                         ? [...selectedIds]
-                        : [conversation.id],
+                        : [...expandIds([conversation.id])],
                     x: event.clientX,
                     y: event.clientY,
                   });
@@ -546,20 +589,14 @@ export function ConversationList({
                 onKeyDown={(event) => {
                   if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
                     return;
-                  if (!requestExport && !directory?.onAnalyze && !directory?.onRoaming) return;
-                  if (
-                    !conversationExportSelection(conversation) ||
-                    directory?.virtual.some((item) => item.id === conversation.id)
-                  )
-                    return;
                   event.preventDefault();
                   const rect = event.currentTarget.getBoundingClientRect();
                   setActionMenu({
                     conversation,
                     ids:
-                      selectionMode && selectedIds.has(conversation.id)
+                      selectionMode && rowSelectedIds.has(conversation.id)
                         ? [...selectedIds]
-                        : [conversation.id],
+                        : [...expandIds([conversation.id])],
                     x: rect.left + 20,
                     y: rect.top + 20,
                   });
@@ -687,26 +724,26 @@ export function ConversationList({
       {selectionMode ? (
         <ConversationSelectionToolbar
           count={selectedIds.size}
+          selectingAll={selectingAll}
+          assistantCount={
+            [...selectedIds].filter((id) => directory?.groupAssistantIds?.has(id)).length
+          }
           allSelected={allSelected}
           exportReason={exportReason}
           roamingReason={roamingReason}
           onSelectAll={toggleAll}
           onExport={() => {
-            if (!exportReason)
-              requestExport?.({
-                owner: { kind: 'conversations', container: 'main-list' },
-                scope: { type: 'items', ids: [...selectedIds] },
-              });
+            if (!exportReason) batch.runExport([...selectedIds]);
           }}
           onRoaming={() => {
-            if (!roamingReason) directory?.onRoaming?.(selectedTargets);
+            if (!roamingReason) batch.runRoaming([...selectedIds]);
           }}
           onExit={() => setSelectionMode(false)}
           readStateReason={readStateReason}
           onReadState={
             directory?.onReadState
               ? (unread) => {
-                  if (!readStateReason) directory.onReadState(selectedRows, unread);
+                  if (!readStateReason) batch.runReadState([...selectedIds], unread);
                 }
               : undefined
           }
@@ -718,29 +755,36 @@ export function ConversationList({
           y={actionMenu.y}
           onClose={() => setActionMenu(null)}
           actions={(() => {
-            const rows = actionRows;
-            const realOnly = actionMenu.ids.every(
-              (id) =>
-                !directory?.virtual.some((item) => item.id === id) &&
-                Boolean(rows.get(id) && conversationExportSelection(rows.get(id))),
-            );
-            const targets = actionMenu.ids
-              .map((id) => conversationRoamingTarget(rows.get(id)))
-              .filter(Boolean);
-            const markUnread = !actionMenu.ids.some((id) => (rows.get(id)?.unreadCount ?? 0) > 0);
+            const markUnread = !batch.hasUnread(actionMenu.ids);
             return [
               ...(directory?.onReadState
                 ? [
                     {
                       label: markUnread ? '标为未读' : '标为已读',
                       icon: markUnread ? <Mail size={16} /> : <MailOpen size={16} />,
-                      disabled:
-                        !realOnly || directory.readStateBusy || actionMenu.ids.length > 4096,
-                      reason: !realOnly ? '请选择真实聊天会话' : undefined,
+                      disabled: directory.readStateBusy || actionMenu.ids.length > 4096,
+                      action: () => batch.runReadState(actionMenu.ids, markUnread),
+                    },
+                  ]
+                : []),
+              {
+                label: '多选',
+                icon: <ListChecks size={16} />,
+                action: () => {
+                  setSelectionMode(true);
+                  setSelectedIds(new Set(actionMenu.ids));
+                },
+              },
+              ...(directory?.onPin &&
+              (actionMenu.ids.length === 1 || actionMenu.conversation.type === 'merged')
+                ? [
+                    {
+                      label: isPinned(actionMenu.conversation, preferences) ? '取消置顶' : '置顶',
+                      icon: <Pin size={16} />,
                       action: () =>
-                        directory.onReadState(
-                          actionMenu.ids.map((id) => rows.get(id)),
-                          markUnread,
+                        directory.onPin(
+                          actionMenu.conversation,
+                          !isPinned(actionMenu.conversation, preferences),
                         ),
                     },
                   ]
@@ -761,13 +805,7 @@ export function ConversationList({
                     {
                       label: actionMenu.ids.length > 1 ? '导出所选会话' : '导出',
                       icon: <Download size={16} />,
-                      disabled: !realOnly,
-                      reason: !realOnly ? '所选会话包含非聊天内容，请重新选择' : undefined,
-                      action: () =>
-                        requestExport({
-                          owner: { kind: 'conversations', container: 'main-list' },
-                          scope: { type: 'items', ids: [...actionMenu.ids] },
-                        }),
+                      action: () => batch.runExport(actionMenu.ids),
                     },
                   ]
                 : []),
@@ -776,12 +814,7 @@ export function ConversationList({
                     {
                       label: actionMenu.ids.length > 1 ? '拉取所选会话漫游消息' : '拉取漫游消息',
                       icon: <CloudDownload size={16} />,
-                      disabled: !realOnly || targets.length !== actionMenu.ids.length,
-                      reason:
-                        targets.length !== actionMenu.ids.length
-                          ? '所选会话包含不支持漫游拉取的对象'
-                          : undefined,
-                      action: () => directory.onRoaming(targets),
+                      action: () => batch.runRoaming(actionMenu.ids),
                     },
                   ]
                 : []),
@@ -789,6 +822,7 @@ export function ConversationList({
           })()}
         />
       ) : null}
+      {batch.confirmation}
     </div>
   );
 }

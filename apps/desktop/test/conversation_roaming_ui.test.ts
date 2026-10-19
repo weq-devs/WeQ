@@ -54,7 +54,7 @@ const button = (host: HTMLElement, label: string) =>
   host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
 
 describe('会话底部多选栏', () => {
-  it('右键与多选标记使用完整选区，混入虚拟会话时禁用，不清空选区', () => {
+  it('右键与多选标记使用完整选区，混入虚拟会话时提醒，不清空选区', () => {
     const base = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
     const groups = ['10001', '10002'].map((id) => ({
       ...base,
@@ -122,15 +122,25 @@ describe('会话底部多选栏', () => {
       expect(menuButton('撤销标记')).toBeUndefined();
       expect(button(f.host, '撤销标记')).toBeNull();
       act(() => button(f.host, '全选当前结果').click());
-      expect(button(f.host, '标为已读').disabled).toBe(true);
-      expect(button(f.host, '标为未读').disabled).toBe(true);
+      expect(button(f.host, '标为已读').disabled).toBe(false);
+      expect(button(f.host, '标为未读').disabled).toBe(false);
+      act(() => button(f.host, '标为已读').click());
+      const dialog = document.querySelector('[role="dialog"]')!;
+      expect(dialog.textContent).toContain('1 个会话不支持标为已读');
+      expect(dialog.textContent).toContain('虚拟会话');
+      act(() =>
+        [...dialog.querySelectorAll('button')]
+          .find((node) => node.textContent === '仅处理支持的会话')!
+          .click(),
+      );
+      expect(mark).toHaveBeenLastCalledWith(groups, false);
       act(() =>
         row('10001').dispatchEvent(
           new MouseEvent('contextmenu', { bubbles: true, clientX: 20, clientY: 20 }),
         ),
       );
       expect(menuButton('标为已读')).toBeUndefined();
-      expect(menuButton('标为未读').disabled).toBe(true);
+      expect(menuButton('标为未读').disabled).toBe(false);
     } finally {
       f.close();
     }
@@ -296,9 +306,41 @@ describe('会话底部多选栏', () => {
       ]);
       expect(f.host.querySelectorAll('.is-multiselected')).toHaveLength(1);
       act(() => button(f.host, '全选当前结果').click());
-      expect(button(f.host, '拉取所选会话漫游消息').disabled).toBe(true);
-      expect(button(f.host, '拉取所选会话漫游消息').title).toContain('不支持');
-      expect(button(f.host, '导出所选会话').disabled).toBe(true);
+      expect(button(f.host, '拉取所选会话漫游消息').disabled).toBe(false);
+      expect(button(f.host, '导出所选会话').disabled).toBe(false);
+      act(() => button(f.host, '拉取所选会话漫游消息').click());
+      const dialog = document.querySelector('[role="dialog"]')!;
+      expect(dialog.textContent).toContain('1 个会话不支持拉取漫游消息');
+      expect(dialog.textContent).toContain('合成虚拟会话');
+      expect(roaming).toHaveBeenCalledTimes(1);
+      act(() =>
+        [...dialog.querySelectorAll('button')]
+          .find((node) => node.textContent === '仅处理支持的会话')!
+          .click(),
+      );
+      expect(roaming).toHaveBeenCalledTimes(2);
+      act(() => button(f.host, '导出所选会话').click());
+      const exportDialog = document.querySelector('[role="dialog"]')!;
+      expect(exportDialog.textContent).toContain('1 个会话不支持导出');
+      expect(exportDialog.textContent).toContain('合成虚拟会话');
+      act(() =>
+        [...exportDialog.querySelectorAll('button')]
+          .find((node) => node.textContent === '取消')!
+          .click(),
+      );
+      expect(f.host.querySelectorAll('.is-multiselected')).toHaveLength(2);
+      act(() => f.host.querySelector<HTMLButtonElement>('[data-conversation-id="10001"]')!.click());
+      act(() => button(f.host, '拉取所选会话漫游消息').click());
+      const unsupportedDialog = document.querySelector('[role="dialog"]')!;
+      expect(unsupportedDialog.textContent).toContain('没有可处理的会话');
+      expect(unsupportedDialog.textContent).not.toContain('仅处理支持的会话');
+      act(() =>
+        [...unsupportedDialog.querySelectorAll('button')]
+          .find((node) => node.textContent === '知道了')!
+          .click(),
+      );
+      expect(roaming).toHaveBeenCalledTimes(2);
+      act(() => f.host.querySelector<HTMLButtonElement>('[data-conversation-id="10001"]')!.click());
       act(() => button(f.host, '取消全选当前结果').click());
       expect(f.host.querySelectorAll('.is-multiselected')).toHaveLength(0);
       expect(f.host.querySelector('[aria-label="会话多选操作"]')).not.toBeNull();

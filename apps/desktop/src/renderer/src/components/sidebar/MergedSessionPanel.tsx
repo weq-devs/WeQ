@@ -1,11 +1,30 @@
-import { X, EyeOff, Trash2, Pin, PinOff } from 'lucide-react';
-import { useMemo, useEffect, useRef, useState } from 'react';
+import {
+  X,
+  EyeOff,
+  Trash2,
+  Pin,
+  PinOff,
+  ListChecks,
+  Download,
+  CloudDownload,
+  BarChart3,
+  MailOpen,
+} from 'lucide-react';
+import { useMemo, useEffect, useRef, useState, useContext } from 'react';
 import { classifyChatType } from '@weq/codec';
 import { Avatar } from '../../im-template/template/primitives';
 import type { Conversation, MergedKind } from '../../im-template/template/types';
 import { trpc } from '../../trpc/client';
 import { resolveAvatar, avatarFromGroupCode } from '../../lib/avatarResolver';
 import { isAssistantPinned, type GroupAssistantPins } from '../../lib/groupAssistant';
+import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
+import { conversationAnalysisTarget } from '../../lib/conversationActions';
+import { useContentMultiSelect } from '../../state/contentSelection';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
+import { allSelectionIdsSelected, toggleAllSelectionIds } from '../../lib/multiSelection';
+import { ConversationActionsMenu } from '../ConversationActionsMenu';
+import { ConversationSelectionToolbar } from '../ConversationSelectionToolbar';
+import { useConversationBatchActions } from '../useConversationBatchActions';
 import '../../styles/group-assistant.css';
 
 const emptyPins: GroupAssistantPins = {};
@@ -106,6 +125,19 @@ export function MergedSessionPanel({
   const panelRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x: anchorX, y: anchorY });
   const [groupSearch, setGroupSearch] = useState('');
+  const [selectingAll, setSelectingAll] = useState(false);
+  const directory = useContext(ConversationDirectoryContext);
+  const batch = useConversationBatchActions(_conversations);
+  const { selectionMode, selectedIds, setSelectedIds, setSelectionMode } = useContentMultiSelect({
+    kind: 'conversations',
+    container: 'main-list',
+  });
+  const [actionMenu, setActionMenu] = useState<{
+    conversation: Conversation;
+    ids: string[];
+    x: number;
+    y: number;
+  } | null>(null);
 
   // 获取公众号/服务号原始数据
   const officialAccounts = trpc.account.listOfficialAccounts.useQuery(undefined, {
@@ -153,6 +185,7 @@ export function MergedSessionPanel({
   // 点击面板外部关闭
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
+      if (actionMenu || batch.confirming) return;
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         onBack();
       }
@@ -164,18 +197,19 @@ export function MergedSessionPanel({
       clearTimeout(timer);
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [onBack]);
+  }, [onBack, actionMenu, batch.confirming]);
 
   // ESC 关闭
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (actionMenu || batch.confirming || selectionMode) return;
         onBack();
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onBack]);
+  }, [onBack, actionMenu, batch.confirming, selectionMode]);
 
   // 获取隐藏会话原始数据
   const hiddenSessions = trpc.account.listHiddenSessions.useQuery(undefined, {
@@ -187,7 +221,7 @@ export function MergedSessionPanel({
     enabled: kind === 'deleted',
   });
 
-  const filtered = useMemo(() => {
+  const filtered = useMemo<Conversation[]>(() => {
     if (kind === 'groupAssistant')
       return _conversations.filter(
         (conversation) => conversation.type === 'group' && groupAssistantIds?.has(conversation.id),
@@ -197,7 +231,7 @@ export function MergedSessionPanel({
       if (!deletedSessions.data) return [];
       return deletedSessions.data
         .filter((deleted: DeletedSessionWire) => deleted.resolvable && deleted.targetUid)
-        .map((deleted: DeletedSessionWire) => {
+        .map<Conversation>((deleted: DeletedSessionWire) => {
           const isGroup = deleted.chatType === 2;
 
           if (isGroup) {
@@ -272,7 +306,7 @@ export function MergedSessionPanel({
       if (!hiddenSessions.data) return [];
       return hiddenSessions.data
         .filter((hidden: HiddenSessionWire) => hidden.resolvable && hidden.targetUid)
-        .map((hidden: HiddenSessionWire) => {
+        .map<Conversation>((hidden: HiddenSessionWire) => {
           // chatType 是枚举名字符串（如 "KCHATTYPEGROUP"），不是数字 —— 必须走
           // classifyChatType 判定，不能拿 typeof === 'number' 硬判，否则群聊永远
           // 落进单聊分支，头像/身份全部判错。
@@ -352,7 +386,7 @@ export function MergedSessionPanel({
     if (kind === 'official') {
       // 从 officialAccounts 数据构建会话列表
       if (!officialAccounts.data) return [];
-      return officialAccounts.data.map((official: OfficialAccountSummaryWire) => {
+      return officialAccounts.data.map<Conversation>((official: OfficialAccountSummaryWire) => {
         const avatarUrl = resolveAvatar({
           uin: official.targetUin && official.targetUin !== '0' ? official.targetUin : undefined,
         });
@@ -386,7 +420,7 @@ export function MergedSessionPanel({
     if (kind === 'service') {
       // 从 serviceAccounts 数据构建会话列表
       if (!serviceAccounts.data) return [];
-      return serviceAccounts.data.map((service: ServiceAccountSummaryWire) => {
+      return serviceAccounts.data.map<Conversation>((service: ServiceAccountSummaryWire) => {
         const avatarUrl = resolveAvatar({
           uin: undefined,
           profileAvatarUrl: service.avatarUrl,
@@ -467,11 +501,66 @@ export function MergedSessionPanel({
           : kind === 'service'
             ? 'QQ服务号'
             : 'QQ官方账号';
+  const ids = sortedThreads.map((row) => row.id);
+  const allSelected = allSelectionIdsSelected(ids, selectedIds);
+  const toggleAll = () => {
+    if (selectingAll) {
+      setSelectingAll(false);
+      return;
+    }
+    if (groupAssistantHasMore || groupAssistantLoading) {
+      setSelectingAll(true);
+      onLoadMoreGroupAssistant?.();
+      return;
+    }
+    setSelectedIds(toggleAllSelectionIds(ids, selectedIds));
+  };
+  useEffect(() => {
+    if (!selectingAll) return;
+    if (!selectionMode || groupAssistantError) {
+      setSelectingAll(false);
+      return;
+    }
+    if (!groupAssistantHasMore && !groupAssistantLoading) {
+      setSelectedIds((current) => new Set([...current, ...ids]));
+      setSelectingAll(false);
+    } else if (groupAssistantHasMore && !groupAssistantLoading) onLoadMoreGroupAssistant?.();
+  }, [
+    selectingAll,
+    selectionMode,
+    groupAssistantError,
+    groupAssistantHasMore,
+    groupAssistantLoading,
+    ids,
+    onLoadMoreGroupAssistant,
+    setSelectedIds,
+  ]);
+  const multi = useMultiSelection({
+    ids,
+    selected: selectedIds,
+    onChange: (next) => {
+      if ((groupAssistantHasMore || groupAssistantLoading) && ids.every((id) => next.has(id))) {
+        setSelectingAll(true);
+        onLoadMoreGroupAssistant?.();
+        return;
+      }
+      setSelectingAll(false);
+      setSelectedIds(next);
+    },
+    enabled: kind === 'groupAssistant' && selectionMode,
+    disabled: kind !== 'groupAssistant',
+    onStart: () => setSelectionMode(true),
+    onExit: () => setSelectionMode(false),
+  });
 
   return (
     <div className="weq-merged-overlay">
       <div
-        ref={panelRef}
+        {...multi.rootProps}
+        ref={(element) => {
+          panelRef.current = element;
+          multi.rootProps.ref(element);
+        }}
         className="weq-merged-popover"
         style={{
           left: `${position.x}px`,
@@ -521,10 +610,44 @@ export function MergedSessionPanel({
             const pinned = kind === 'groupAssistant' && isAssistantPinned(conv, groupAssistantPins);
 
             return (
-              <div key={conv.id} className={`weq-merged-popover-row${pinned ? ' is-pinned' : ''}`}>
+              <div
+                key={conv.id}
+                className={`weq-merged-popover-row${pinned ? ' is-pinned' : ''}${kind === 'groupAssistant' && selectedIds.has(conv.id) ? ' is-multiselected' : ''}`}
+              >
                 <button
                   type="button"
                   className="weq-merged-popover-item"
+                  {...(kind === 'groupAssistant' ? multi.itemProps(conv.id) : {})}
+                  aria-pressed={
+                    kind === 'groupAssistant' && selectionMode
+                      ? selectedIds.has(conv.id)
+                      : undefined
+                  }
+                  onContextMenu={(event) => {
+                    if (kind !== 'groupAssistant') return;
+                    event.preventDefault();
+                    setActionMenu({
+                      conversation: conv,
+                      ids: selectionMode && selectedIds.has(conv.id) ? [...selectedIds] : [conv.id],
+                      x: event.clientX,
+                      y: event.clientY,
+                    });
+                  }}
+                  onKeyDown={(event) => {
+                    if (
+                      kind !== 'groupAssistant' ||
+                      (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                    )
+                      return;
+                    event.preventDefault();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setActionMenu({
+                      conversation: conv,
+                      ids: selectionMode && selectedIds.has(conv.id) ? [...selectedIds] : [conv.id],
+                      x: rect.left + 20,
+                      y: rect.top + 20,
+                    });
+                  }}
                   onClick={() => {
                     onSelectConversation(conv as Conversation);
                     onBack();
@@ -556,18 +679,6 @@ export function MergedSessionPanel({
                     <Trash2 size={14} className="weq-merged-popover-item-badge" />
                   )}
                 </button>
-                {kind === 'groupAssistant' && onGroupAssistantPin ? (
-                  <button
-                    type="button"
-                    className="weq-group-helper-pin"
-                    title={pinned ? '取消群助手内置顶' : '在群助手内置顶'}
-                    aria-label={pinned ? '取消群助手内置顶' : '在群助手内置顶'}
-                    aria-pressed={pinned}
-                    onClick={() => onGroupAssistantPin(conv.id, !pinned)}
-                  >
-                    {pinned ? <PinOff size={14} /> : <Pin size={14} />}
-                  </button>
-                ) : null}
               </div>
             );
           })}
@@ -577,7 +688,7 @@ export function MergedSessionPanel({
                 {kind === 'groupAssistant' && groupSearch.trim() ? '未找到匹配的群' : '暂无会话'}
               </div>
             )}
-          {kind === 'groupAssistant' && groupAssistantHasMore && !groupAssistantLoading ? (
+          {kind === 'groupAssistant' && groupAssistantHasMore && groupAssistantError ? (
             <button
               type="button"
               className="weq-group-helper-more"
@@ -587,7 +698,124 @@ export function MergedSessionPanel({
             </button>
           ) : null}
         </div>
+        {kind === 'groupAssistant' && selectionMode ? (
+          <ConversationSelectionToolbar
+            count={selectedIds.size}
+            selectingAll={selectingAll}
+            assistantCount={[...selectedIds].filter((id) => groupAssistantIds?.has(id)).length}
+            allSelected={allSelected}
+            onSelectAll={toggleAll}
+            onExit={() => setSelectionMode(false)}
+            exportReason={
+              !selectedIds.size
+                ? '请先选择会话'
+                : !batch.exportAvailable
+                  ? '当前无法导出会话'
+                  : undefined
+            }
+            roamingReason={
+              !selectedIds.size
+                ? '请先选择会话'
+                : !batch.roamingAvailable
+                  ? '当前无法拉取漫游消息'
+                  : undefined
+            }
+            onExport={() => batch.runExport([...selectedIds])}
+            onRoaming={() => batch.runRoaming([...selectedIds])}
+            readStateReason={
+              directory?.readStateBusy
+                ? '正在更新标记'
+                : !selectedIds.size
+                  ? '请先选择会话'
+                  : selectedIds.size > 4096
+                    ? '一次最多标记 4096 个会话'
+                    : undefined
+            }
+            onReadState={
+              directory?.onReadState
+                ? (unread) => batch.runReadState([...selectedIds], unread)
+                : undefined
+            }
+          />
+        ) : null}
       </div>
+      {actionMenu ? (
+        <ConversationActionsMenu
+          x={actionMenu.x}
+          y={actionMenu.y}
+          onClose={() => setActionMenu(null)}
+          actions={[
+            ...(directory?.onReadState
+              ? [
+                  {
+                    label: batch.hasUnread(actionMenu.ids) ? '标为已读' : '标为未读',
+                    icon: <MailOpen size={16} />,
+                    disabled: directory.readStateBusy || actionMenu.ids.length > 4096,
+                    action: () =>
+                      batch.runReadState(actionMenu.ids, !batch.hasUnread(actionMenu.ids)),
+                  },
+                ]
+              : []),
+            {
+              label: '多选',
+              icon: <ListChecks size={16} />,
+              action: () => {
+                setSelectionMode(true);
+                setSelectedIds(new Set(actionMenu.ids));
+              },
+            },
+            ...(onGroupAssistantPin
+              ? [
+                  {
+                    label: isAssistantPinned(actionMenu.conversation, groupAssistantPins)
+                      ? '取消群助手内置顶'
+                      : '在群助手内置顶',
+                    icon: isAssistantPinned(actionMenu.conversation, groupAssistantPins) ? (
+                      <PinOff size={16} />
+                    ) : (
+                      <Pin size={16} />
+                    ),
+                    action: () =>
+                      onGroupAssistantPin(
+                        actionMenu.conversation.id,
+                        !isAssistantPinned(actionMenu.conversation, groupAssistantPins),
+                      ),
+                  },
+                ]
+              : []),
+            ...(directory?.onAnalyze &&
+            actionMenu.ids.length === 1 &&
+            conversationAnalysisTarget(actionMenu.conversation)
+              ? [
+                  {
+                    label: '分析',
+                    icon: <BarChart3 size={16} />,
+                    action: () => directory.onAnalyze?.(actionMenu.conversation),
+                  },
+                ]
+              : []),
+            ...(batch.exportAvailable
+              ? [
+                  {
+                    label: '导出所选会话',
+                    icon: <Download size={16} />,
+                    action: () => batch.runExport(actionMenu.ids),
+                  },
+                ]
+              : []),
+            ...(batch.roamingAvailable
+              ? [
+                  {
+                    label: '拉取所选会话漫游消息',
+                    icon: <CloudDownload size={16} />,
+                    action: () => batch.runRoaming(actionMenu.ids),
+                  },
+                ]
+              : []),
+          ]}
+        />
+      ) : null}
+      {batch.confirmation}
     </div>
   );
 }
