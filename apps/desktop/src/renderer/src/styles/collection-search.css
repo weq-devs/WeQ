@@ -1,15 +1,18 @@
-.weq-collection-head {
+.weq-collection-dialog > .weq-collection-head {
+  flex: none;
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
 }
 
-.weq-collection-title-row {
+.weq-collection-head > .weq-collection-title-row {
+  flex: 0 1 auto;
   flex-wrap: wrap;
   min-width: 0;
+  max-width: 100%;
 }
 
-.weq-collection-search {
+.weq-collection-head > .weq-collection-search {
   flex: 1 1 180px;
   min-width: 0;
   max-width: none;
@@ -17,8 +20,13 @@
   padding: 5px 10px;
 }
 
-.weq-collection-search input {
+.weq-collection-head > .weq-collection-search input {
   width: 0;
+}
+
+.weq-collection-search > svg,
+.weq-collection-search-clear {
+  flex: none;
 }
 
 .weq-col-search-status {

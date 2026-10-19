@@ -60,11 +60,12 @@ function captureLayout(host: HTMLElement, name = 'collection-search') {
   if (!output) return;
   mkdirSync(output, { recursive: true });
   const styles = [
-    'index.css',
+    'collection-search.css',
     'search-scope.css',
     'workspace-tools.css',
+    'workspace-surfaces.css',
     'page-chrome.css',
-    'collection-search.css',
+    'index.css',
   ]
     .map((name) => readFileSync(resolve('src/renderer/src/styles', name), 'utf8'))
     .join('\n');
@@ -79,6 +80,31 @@ afterEach(() => {
 });
 
 describe('收藏全局搜索定位', () => {
+  it.each([false, true])('标题栏布局不受全局样式后加载影响（全局后加载：%s）', (globalLast) => {
+    const styles = ['index.css', 'collection-search.css'];
+    if (globalLast) styles.reverse();
+    const sheet = document.createElement('style');
+    sheet.textContent = styles
+      .map((name) => readFileSync(resolve('src/renderer/src/styles', name), 'utf8'))
+      .join('\n');
+    document.head.append(sheet);
+    const f = mount();
+    try {
+      act(() =>
+        f.root.render(
+          createElement(CollectionDialog, { open: true, embedded: true, onClose: vi.fn() }),
+        ),
+      );
+      const header = f.host.querySelector<HTMLElement>('.weq-collection-head')!;
+      const search = f.host.querySelector<HTMLElement>('.weq-collection-search')!;
+      expect(getComputedStyle(header).flexDirection).toBe('row');
+      expect(getComputedStyle(search).maxWidth).toBe('none');
+    } finally {
+      f.close();
+      sheet.remove();
+    }
+  });
+
   it('列表搜索与标题共用顶部栏，清空按钮可重置关键词', async () => {
     const f = mount();
     try {
@@ -86,7 +112,7 @@ describe('收藏全局搜索定位', () => {
         f.root.render(
           createElement(
             'div',
-            { className: 'weq-workspace-page weq-workspace-page-fallback' },
+            { className: 'weq-workspace-content' },
             createElement(CollectionDialog, { open: true, embedded: true, onClose: vi.fn() }),
           ),
         ),
