@@ -8,7 +8,7 @@
  * 数据与开关都由应用层给：`open` 由 MainView 的 `shell.contactNotice` 驱动，
  * `requests` 是已经取好的申请列表。
  */
-import { Bell, Users, X } from 'lucide-react';
+import { ArrowLeft, Bell, Users } from 'lucide-react';
 import { cn } from '../im-template/template/classNames';
 import { formatProfileDate } from '../im-template/template/format';
 import { Avatar, EmptyState } from '../im-template/template/primitives';
@@ -58,16 +58,16 @@ function ContactNoticeDialogBody({
         aria-label="好友通知"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <button
-          className="weq-profile-close"
-          type="button"
-          title="关闭"
-          aria-label="关闭"
-          onClick={onClose}
-        >
-          <X size={16} />
-        </button>
         <header className="weq-notice-head">
+          <button
+            className="weq-notice-back"
+            type="button"
+            title="返回"
+            aria-label="返回"
+            onClick={onClose}
+          >
+            <ArrowLeft size={18} />
+          </button>
           <Bell size={15} />
           <h2>好友通知</h2>
         </header>
@@ -216,16 +216,16 @@ function GroupNoticeDialogBody({
         aria-label="群通知"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <button
-          className="weq-profile-close"
-          type="button"
-          title="关闭"
-          aria-label="关闭"
-          onClick={onClose}
-        >
-          <X size={16} />
-        </button>
         <header className="weq-notice-head">
+          <button
+            className="weq-notice-back"
+            type="button"
+            title="返回"
+            aria-label="返回"
+            onClick={onClose}
+          >
+            <ArrowLeft size={18} />
+          </button>
           <Users size={15} />
           <h2>群通知</h2>
         </header>

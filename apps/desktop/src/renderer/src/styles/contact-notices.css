@@ -15,6 +15,38 @@
   color: var(--weq-fg-primary);
 }
 
+.weq-notice-dialog .weq-notice-head {
+  padding: 10px 16px 10px 10px;
+}
+
+.weq-notice-back {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  cursor: pointer;
+}
+
+.weq-notice-back:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-notice-back:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+html[data-theme="dark"] .weq-notice-back:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+}
+
 .weq-notice-dialog .notice-card-request {
   position: relative;
   display: grid;
