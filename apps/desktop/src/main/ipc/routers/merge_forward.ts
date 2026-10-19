@@ -1,18 +1,18 @@
 /**
- * `mergeForward.*` —— 「合成聊天记录」（合并转发）草稿的读写。
+ * `mergeForward.*` —— 合成草稿、可复用素材与合成历史的本地读写。
  *
  * 合并转发的**发送**要 QQ 在线且已注入；不在线时用户辛苦拼出来的聊天记录不能丢，
  * 所以草稿落在 weq 数据目录（`userConfig.cacheDir('merge-forward')`）里，一个账号
  * 一份 JSON，下次继续编辑。
  *
- * 这里**刻意不碰 protocol**：真正的合并转发发送（UploadLongMsg）由另一分支接入，
- * 本路由只负责「草稿的本地持久化」这一件事。
+ * 可修改草稿沿用原路径；素材与历史位于独立持久目录，接口绑定账号及数据源身份。
+ * 真正发送仍复用 account.sendForward，本路由不调用协议发送。
  */
 
-import { join } from 'node:path';
+import { join, relative, isAbsolute, dirname } from 'node:path';
 import { z } from 'zod';
-import { MergeForwardDraftStore } from '@weq/service';
-import { getAppContext, requireBootstrap } from '../../context/app_context';
+import { MergeForwardArchiveStore, MergeForwardDraftStore } from '@weq/service';
+import { getAppContext, requireBootstrap, requirePlatform } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 
 /** 逐条消息装扮（列 40801）。0 = 未设置。raw 字段是字体两槽位的原始 wire 值。 */
@@ -38,10 +38,11 @@ const node = z.object({
   id: z.string().min(1),
   sender,
   /** 内容**分段**，形状由渲染层决定，这里只保证是对象数组。 */
-  segs: z.array(z.any()),
+  segs: z.array(z.unknown()),
   time: z.number(),
   decoration,
   sourceMsgId: z.string().optional(),
+  sourceCompositionId: z.string().optional(),
 });
 
 const draftInput = z.object({
@@ -53,14 +54,53 @@ const draftInput = z.object({
 
 /** 已实例化的 store，按落盘路径缓存（读盘只发生一次）。 */
 const stores = new Map<string, MergeForwardDraftStore>();
+const archives = new Map<string, MergeForwardArchiveStore>();
+const accountBinding = z.object({
+  expectedAccountUin: z.string().min(1),
+  expectedAccountConfigId: z.string().min(1),
+});
+const archiveKind = z.enum(['material', 'history']);
+
+function boundArchive(input: z.infer<typeof accountBinding>) {
+  const context = getAppContext();
+  const uin = context.account?.context.uin;
+  const services = context.services;
+  const configId = services?.accountConfig.getRecord()?.configId;
+  if (
+    !uin ||
+    !services ||
+    uin !== input.expectedAccountUin ||
+    configId !== input.expectedAccountConfigId
+  )
+    throw new Error('合成窗口所属账号已切换，请返回原账号后继续');
+  const identity = input.expectedAccountConfigId;
+  const root = join(requirePlatform().appDataRoot(), 'merge-forward', identity, 'archive');
+  let store = archives.get(root);
+  if (!store) {
+    store = new MergeForwardArchiveStore(root);
+    archives.set(root, store);
+  }
+  return { store, services, root };
+}
 
 function draftStore(): MergeForwardDraftStore {
   const uin = getAppContext().account?.context.uin;
+  if (!uin) throw new Error('尚未打开账号');
   const dir = requireBootstrap().userConfig.cacheDir('merge-forward');
-  const path = join(dir, `${uin ?? 'unknown'}.json`);
+  const path = join(dir, `${uin}.json`);
   let store = stores.get(path);
   if (!store) {
     store = new MergeForwardDraftStore(path);
+    stores.set(path, store);
+  }
+  return store;
+}
+
+function workspaceDraftStore(root: string): MergeForwardDraftStore {
+  const path = join(dirname(root), 'drafts.json');
+  let store = stores.get(path);
+  if (!store) {
+    store = new MergeForwardDraftStore(path, { strict: true });
     stores.set(path, store);
   }
   return store;
@@ -77,8 +117,10 @@ function collectMediaPaths(nodes: readonly unknown[]): string[] {
     for (const seg of segs) {
       if (!seg || typeof seg !== 'object') continue;
       const s = seg as Record<string, unknown>;
-      if (typeof s.path === 'string' && s.path) out.push(s.path);
-      if (typeof s.thumbPath === 'string' && s.thumbPath) out.push(s.thumbPath);
+      if (['image', 'record', 'video', 'file'].includes(String(s.t))) {
+        if (typeof s.path === 'string' && s.path) out.push(s.path);
+        if (typeof s.thumbPath === 'string' && s.thumbPath) out.push(s.thumbPath);
+      }
       if (s.t === 'node') walkSegs(s.segs);
     }
   };
@@ -101,6 +143,66 @@ function trustDraftMedia(nodes: readonly unknown[]): void {
 }
 
 export const mergeForwardRouter = router({
+  workspaceDrafts: procedure.input(accountBinding).query(({ input }) => {
+    const { root } = boundArchive(input);
+    const current = workspaceDraftStore(root).list();
+    const legacy = draftStore()
+      .list()
+      .filter((draft) => !current.some((item) => item.id === draft.id));
+    for (const draft of [...current, ...legacy]) trustDraftMedia(draft.nodes);
+    return { current, legacy };
+  }),
+  workspaceSave: procedure
+    .input(accountBinding.extend({ draft: draftInput }))
+    .mutation(async ({ input }) => {
+      const { root, services } = boundArchive(input);
+      for (const path of collectMediaPaths(input.draft.nodes)) {
+        const rel = relative(join(root, 'media'), path);
+        const inside =
+          rel !== '..' && !rel.startsWith('../') && !rel.startsWith('..\\') && !isAbsolute(rel);
+        if (!inside && !(await services.fileResource.resolveLocalFile(path)))
+          throw new Error('媒体访问未授权');
+      }
+      boundArchive(input);
+      const result = workspaceDraftStore(root).save(structuredClone(input.draft));
+      trustDraftMedia(result.nodes);
+      return result;
+    }),
+  workspaceRemove: procedure
+    .input(accountBinding.extend({ id: z.string().min(1) }))
+    .mutation(({ input }) => {
+      const { root, store } = boundArchive(input);
+      workspaceDraftStore(root).remove(input.id);
+      draftStore().remove(input.id);
+      if (/^[a-zA-Z0-9-]+$/.test(input.id)) store.remove('history', input.id);
+    }),
+  archiveList: procedure.input(accountBinding.extend({ kind: archiveKind })).query(({ input }) => {
+    const { store, services } = boundArchive(input);
+    const entries = store.list(input.kind);
+    for (const entry of entries)
+      for (const path of collectMediaPaths(entry.nodes)) services.fileResource.trustPath(path);
+    return entries;
+  }),
+
+  archiveAppend: procedure
+    .input(accountBinding.extend({ kind: archiveKind, draft: draftInput }))
+    .mutation(async ({ input }) => {
+      const { store, services, root } = boundArchive(input);
+      const result = await store.append(input.kind, input.draft, async (path) => {
+        const rel = relative(join(root, 'media'), path);
+        return (
+          (rel !== '..' && !rel.startsWith('../') && !rel.startsWith('..\\') && !isAbsolute(rel)) ||
+          Boolean(await services.fileResource.resolveLocalFile(path))
+        );
+      });
+      for (const path of collectMediaPaths(result.nodes)) services.fileResource.trustPath(path);
+      return result;
+    }),
+
+  archiveRemove: procedure
+    .input(accountBinding.extend({ kind: archiveKind, id: z.string().min(1) }))
+    .mutation(({ input }) => boundArchive(input).store.remove(input.kind, input.id)),
+
   /** 当前账号的全部草稿，最近更新在前。 */
   list: procedure.query(() => {
     const drafts = draftStore().list();

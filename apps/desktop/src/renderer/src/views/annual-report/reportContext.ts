@@ -1,5 +1,6 @@
 import { createContext, useContext, type RefObject } from 'react';
 import type { ExportSlide } from './exportHtml';
+import type { AnalysisScope } from '../analysis/model';
 
 /**
  * 报告播放期的共享上下文：导出入口拿全部已加载页面的数据，装扮页拿「主字体」的
@@ -12,6 +13,7 @@ import type { ExportSlide } from './exportHtml';
 export type ReportViewContextValue = {
   year: number;
   scopeLabel: string;
+  readScope?: AnalysisScope;
   /** 已加载成功的页面（含数据），供结尾页拼装导出产物。 */
   slides: ExportSlide[];
   /**

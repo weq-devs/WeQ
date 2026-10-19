@@ -28,13 +28,19 @@ import {
   RefreshCw,
   Repeat2,
   Send,
+  Settings,
   ThumbsUp,
   VideoOff,
   X,
 } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from '../components/QqAvatar';
-import { QzoneExportLightbox } from './export/QzoneExportLightbox';
+import {
+  useContentMultiSelect,
+  useCurrentContentSelection,
+  useRequestContentExport,
+} from '../state/contentSelection';
+import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { QzoneMediaPreview, type QzonePreviewMedia } from '../components/QzoneMediaPreview';
 import { albumMediaUrl, avatarFetchUrl } from '../lib/resourceUrl';
@@ -46,6 +52,7 @@ import {
   qzoneAlbumTarget,
 } from '../lib/qzone';
 import { Modal } from '../components/Dialog';
+import { QzoneSettingsSection } from '../components/settings/QzoneSettingsSection';
 import type { QzoneEmotion, QzoneFeed, QzoneInteraction, QzoneLikesResult } from './qzone_types';
 import '../styles/qzone.css';
 import {
@@ -363,6 +370,9 @@ export function QzoneView({
     setOwnerNames((current) => (current[uin] === value ? current : { ...current, [uin]: value }));
   }, []);
   const [albumRequests, setAlbumRequests] = useState<Record<string, QzoneAlbumRequest>>({});
+  const [postRequests, setPostRequests] = useState<
+    Record<string, { tid: string; revision: string }>
+  >({});
   const rememberSpaceName = useCallback((uin: string, name: string) => {
     const value = name.trim();
     if (!value) return;
@@ -372,7 +382,8 @@ export function QzoneView({
   }, []);
   const [inputUin, setInputUin] = useState('');
   const [targetError, setTargetError] = useState('');
-  const [exportTarget, setExportTarget] = useState<{ uin: string; name: string } | null>(null);
+  const requestExport = useRequestContentExport();
+  const contentSelection = useCurrentContentSelection();
   const [refreshes, setRefreshes] = useState<Record<string, number>>({});
   const [visited, setVisited] = useState<Tab[]>([tab]);
   useEffect(() => {
@@ -392,6 +403,7 @@ export function QzoneView({
   const refreshPage = (key: string) =>
     setRefreshes((current) => ({ ...current, [key]: (current[key] ?? 0) + 1 }));
   const [compose, setCompose] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const openSpace = useCallback(
     (uin: string, name?: string): void => {
       const value = uin.trim();
@@ -421,6 +433,23 @@ export function QzoneView({
       return;
     handledRequest.current = spaceRequest.revision;
     openSpace(spaceRequest.uin, spaceRequest.nickname);
+    if (spaceRequest.target?.kind === 'album')
+      setAlbumRequests((current) => ({
+        ...current,
+        [spaceRequest.uin]: {
+          hostUin: spaceRequest.uin,
+          topicId: spaceRequest.target!.kind === 'album' ? spaceRequest.target!.topicId : '',
+          name: '',
+          revision: spaceRequest.revision,
+        },
+      }));
+    if (spaceRequest.target?.kind === 'post') {
+      const tid = spaceRequest.target.tid;
+      setPostRequests((current) => ({
+        ...current,
+        [spaceRequest.uin]: { tid, revision: spaceRequest.revision },
+      }));
+    }
   }, [active, selfUin, spaceRequest, openSpace]);
   const workspace = (
     <QzonePeopleContext.Provider value={people}>
@@ -436,17 +465,25 @@ export function QzoneView({
           <div className="weq-qzn-tools">
             <button
               type="button"
+              title="空间设置"
+              aria-label="空间设置"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <Settings size={17} />
+            </button>
+            <button
+              type="button"
               title="导出说说"
               aria-label="导出说说"
+              disabled={!requestExport}
               onClick={() => {
                 const uin = tab === 'space' ? hostUin : selfUin;
-                setExportTarget({
-                  uin,
-                  name:
-                    uin === selfUin
-                      ? nickname
-                      : ownerNames[uin] || spaceNames[uin] || people.names[uin] || uin,
-                });
+                requestExport?.(
+                  contentSelection?.owner.kind === 'qzone-posts' &&
+                    contentSelection.owner.container === uin
+                    ? contentSelection
+                    : { owner: { kind: 'qzone-posts', container: uin }, scope: { type: 'all' } },
+                );
               }}
             >
               <Download size={17} />
@@ -576,6 +613,7 @@ export function QzoneView({
             hostUin={selfUin}
             nickname={nickname}
             albumRequest={albumRequests[selfUin]}
+            postRequest={postRequests[selfUin]}
             onSpace={openSpace}
             onOwnerNickname={rememberOwnerName}
           />
@@ -590,13 +628,11 @@ export function QzoneView({
             nickname={spaceNames[uin] || uin}
             ownerNickname={ownerNames[uin]}
             albumRequest={albumRequests[uin]}
+            postRequest={postRequests[uin]}
             onSpace={openSpace}
             onOwnerNickname={rememberOwnerName}
           />
         ))}
-        {exportTarget && active ? (
-          <QzoneExportLightbox target={exportTarget} onClose={() => setExportTarget(null)} />
-        ) : null}
         {compose && active ? (
           <Composer
             selfUin={selfUin}
@@ -623,6 +659,29 @@ export function QzoneView({
       }}
     >
       {workspace}
+      {settingsOpen && active ? (
+        <Modal
+          presentation="panel"
+          onClose={() => setSettingsOpen(false)}
+          width={760}
+          labelledBy="weq-qzone-settings-title"
+        >
+          <header className="weq-tools-header">
+            <h2 id="weq-qzone-settings-title">空间设置</h2>
+            <button
+              type="button"
+              aria-label="关闭空间设置"
+              title="关闭空间设置"
+              onClick={() => setSettingsOpen(false)}
+            >
+              <X size={18} />
+            </button>
+          </header>
+          <div className="weq-local-settings-body">
+            <QzoneSettingsSection />
+          </div>
+        </Modal>
+      ) : null}
     </QzoneAlbumNavigationContext.Provider>
   );
 }
@@ -636,6 +695,7 @@ function SpaceContent({
   nickname,
   ownerNickname,
   albumRequest,
+  postRequest,
   onSpace,
   onOwnerNickname,
 }: {
@@ -646,6 +706,7 @@ function SpaceContent({
   nickname: string;
   ownerNickname?: string;
   albumRequest?: QzoneAlbumRequest;
+  postRequest?: { tid: string; revision: string };
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
@@ -655,6 +716,9 @@ function SpaceContent({
   const [pane, setPane] = useState<'posts' | 'albums'>('posts');
   const [visitedAlbums, setVisitedAlbums] = useState(false);
   const [refreshes, setRefreshes] = useState({ posts: 0, albums: 0 });
+  useEffect(() => {
+    if (postRequest) setPane('posts');
+  }, [postRequest]);
   useEffect(() => {
     if (
       !albumRequest ||
@@ -707,13 +771,25 @@ function SpaceContent({
         ) : null}
       </nav>
       <QzonePage active={active && pane === 'posts'} refreshKey={refreshes.posts}>
-        <Posts
-          selfUin={selfUin}
-          hostUin={hostUin}
-          nickname={ownerNickname || nickname}
-          onSpace={onSpace}
-          onOwnerNickname={onOwnerNickname}
-        />
+        <div className="weq-qzn-timeline">
+          {postRequest ? (
+            <LinkedPost
+              key={postRequest.revision}
+              selfUin={selfUin}
+              hostUin={hostUin}
+              tid={postRequest.tid}
+              nickname={ownerNickname || nickname}
+              onSpace={onSpace}
+            />
+          ) : null}
+          <Posts
+            selfUin={selfUin}
+            hostUin={hostUin}
+            nickname={ownerNickname || nickname}
+            onSpace={onSpace}
+            onOwnerNickname={onOwnerNickname}
+          />
+        </div>
       </QzonePage>
       {visitedAlbums ? (
         <QzonePage active={active && pane === 'albums'} refreshKey={refreshes.albums}>
@@ -725,6 +801,69 @@ function SpaceContent({
           />
         </QzonePage>
       ) : null}
+    </div>
+  );
+}
+
+function LinkedPost({
+  selfUin,
+  hostUin,
+  tid,
+  nickname,
+  onSpace,
+}: {
+  selfUin: string;
+  hostUin: string;
+  tid: string;
+  nickname: string;
+  onSpace: (uin: string, nickname?: string) => void;
+}) {
+  const { run } = useQzoneRequests();
+  const [post, setPost] = useState<QzoneEmotion | null>(null);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let live = true;
+    setError('');
+    setPost(null);
+    ref.current?.scrollIntoView({ block: 'start' });
+    void run(
+      (requestId) => client.account.qzone.detail.query({ selfUin, hostUin, tid, requestId }),
+      true,
+    )
+      .then((result) => {
+        if (!live) return;
+        if (!result.post) throw new Error('动态详情不存在或无权访问');
+        setPost(result.post);
+      })
+      .catch((cause) => {
+        if (live) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => {
+      live = false;
+    };
+  }, [selfUin, hostUin, tid, retry, run]);
+  return (
+    <div ref={ref} className="weq-qzn-linked-post">
+      {post ? (
+        <Post
+          selfUin={selfUin}
+          hostUin={hostUin}
+          nickname={nickname}
+          post={post}
+          onSpace={onSpace}
+        />
+      ) : error ? (
+        <p role="alert">
+          {error}
+          <button type="button" onClick={() => setRetry((value) => value + 1)}>
+            重试
+          </button>
+        </p>
+      ) : (
+        <p role="status">正在读取动态…</p>
+      )}
     </div>
   );
 }
@@ -881,6 +1020,15 @@ function Posts({
   const { refresh } = useContext(QzonePageContext);
   const lastRefresh = useRef(refresh);
   const [posts, setPosts] = useState<QzoneEmotion[]>([]);
+  const selection = useContentMultiSelect({ kind: 'qzone-posts', container: hostUin });
+  const multi = useMultiSelection({
+    ids: posts.map((post) => post.tid),
+    selected: selection.selectedIds,
+    onChange: selection.setSelectedIds,
+    enabled: selection.selectionMode,
+    onStart: () => selection.setSelectionMode(true),
+    onExit: () => selection.setSelectionMode(false),
+  });
   const [offset, setOffset] = useState(0);
   const lastOffset = useRef(offset);
   const headRequest = useRef(false);
@@ -975,7 +1123,7 @@ function Posts({
   }, [nearEnd, posts.length, loading, done, error, loadOffset]);
   const pageCountLabel = `（已获取 ${fetchedPages.current.size} 页）`;
   return (
-    <div className="weq-qzn-timeline">
+    <div {...multi.rootProps}>
       <SpaceStats key={hostUin} selfUin={selfUin} hostUin={hostUin} />
       {loading && posts.length > 0 && headRequest.current ? (
         <LoadingStatus text={`正在刷新…${pageCountLabel}`} />
@@ -987,6 +1135,8 @@ function Posts({
           hostUin={hostUin}
           nickname={nickname}
           post={post}
+          selectionProps={multi.itemProps(post.tid)}
+          selected={selection.selectedIds.has(post.tid)}
           ownerSpace
           onSpace={onSpace}
         />
@@ -1075,6 +1225,8 @@ function Post({
   links = [],
   focusComment,
   readComments,
+  selectionProps,
+  selected = false,
 }: {
   selfUin: string;
   hostUin: string;
@@ -1087,6 +1239,8 @@ function Post({
   links?: ReturnType<typeof projectQzoneFeed>['links'];
   focusComment?: RelatedComment | null;
   readComments?: () => Promise<QzoneInteraction>;
+  selectionProps?: MultiSelectionItemProps;
+  selected?: boolean;
 }) {
   const localRef = useRef<HTMLElement>(null);
   const ref = articleRef ?? localRef;
@@ -1240,7 +1394,12 @@ function Post({
       )
     : post.videos;
   return (
-    <article ref={ref} className="weq-qzn-post">
+    <article
+      ref={ref}
+      {...selectionProps}
+      data-qzone-tid={post.tid}
+      className={`weq-qzn-post${selected ? ' is-selected' : ''}`}
+    >
       <div className="weq-qzn-post-head">
         <button
           type="button"

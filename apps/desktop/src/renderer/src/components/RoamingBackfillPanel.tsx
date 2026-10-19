@@ -1,10 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CloudDownload, Pause, Play, RotateCcw, ScanSearch, Square, Trash2 } from 'lucide-react';
+import {
+  CloudDownload,
+  ListFilter,
+  Pause,
+  Play,
+  RotateCcw,
+  ScanSearch,
+  Square,
+  Trash2,
+  UserRound,
+  Users,
+} from 'lucide-react';
 import { classifyChatType } from '@weq/codec';
 import type { RoamingTarget } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { WindowedList } from './WindowedList';
+import { useMultiSelection } from '../hooks/useMultiSelection';
 import '../styles/roaming-backfill.css';
 
 const targetKey = (target: RoamingTarget) => `${target.kind}:${target.conv}`;
@@ -26,11 +38,38 @@ const labels = {
 const atBeijing = (at: number) =>
   new Date(at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
 
-export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: RoamingTarget }) {
+export function RoamingBackfillPanel({
+  initialTarget,
+  initialTargets = [],
+  surface = 'all',
+  targetMode = 'select',
+}: {
+  initialTarget?: RoamingTarget;
+  initialTargets?: RoamingTarget[];
+  surface?: 'all' | 'tasks';
+  targetMode?: 'select' | 'fixed';
+}) {
   const utils = trpc.useUtils();
   const confirm = useDialog((s) => s.confirm);
+  const [fixedTargets] = useState(() => [
+    ...new Map(
+      [...initialTargets, ...(initialTarget ? [initialTarget] : [])].map((target) => [
+        targetKey(target),
+        { ...target },
+      ]),
+    ).values(),
+  ]);
+  const [editingTargets, setEditingTargets] = useState(false);
+  const fixed = targetMode === 'fixed' && !editingTargets;
+  const singleTarget = fixedTargets.length === 1 ? fixedTargets[0] : undefined;
+  const invalidFixedTargets =
+    fixed && (!fixedTargets.length || fixedTargets.some((target) => !addressable(target)));
   const [selected, setSelected] = useState<Set<string>>(
-    new Set(initialTarget && addressable(initialTarget) ? [targetKey(initialTarget)] : []),
+    new Set(
+      [...initialTargets, ...(initialTarget ? [initialTarget] : [])]
+        .filter(addressable)
+        .map(targetKey),
+    ),
   );
   const [query, setQuery] = useState('');
   const [start, setStart] = useState('');
@@ -44,6 +83,7 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
     refetchOnWindowFocus: false,
   });
   const contacts = trpc.account.listConversationsWithCount.useQuery(undefined, {
+    enabled: surface !== 'tasks' && !fixed,
     refetchOnWindowFocus: false,
   });
   const refresh = () => {
@@ -65,6 +105,7 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
   const mutating =
     plan.isLoading || run.isLoading || pause.isLoading || cancel.isLoading || remove.isLoading;
   const targets = useMemo(() => {
+    if (fixed) return fixedTargets;
     const map = new Map<string, RoamingTarget>();
     for (const row of contacts.data ?? []) {
       const category = classifyChatType(row.chatType);
@@ -78,17 +119,16 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
       };
       if (addressable(target)) map.set(targetKey(target), target);
     }
-    if (initialTarget && addressable(initialTarget))
-      map.set(targetKey(initialTarget), initialTarget);
+    for (const target of fixedTargets) if (addressable(target)) map.set(targetKey(target), target);
     return [...map.values()];
-  }, [contacts.data, initialTarget]);
+  }, [contacts.data, fixed, fixedTargets]);
   const initialKey = initialTarget && addressable(initialTarget) ? targetKey(initialTarget) : null;
   useEffect(() => {
-    if (initialKey)
+    if (!fixed && initialKey)
       setSelected((current) =>
         current.has(initialKey) ? current : new Set([...current, initialKey]),
       );
-  }, [initialKey]);
+  }, [initialKey, fixed]);
   const jobs = state.data?.jobs ?? [];
   const visible = useMemo(
     () =>
@@ -101,15 +141,23 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
     () => new Map(targets.map((target) => [targetKey(target), target.name])),
     [targets],
   );
+  const multi = useMultiSelection({
+    ids: visible.map(targetKey),
+    selected,
+    onChange: setSelected,
+    disabled: plan.isLoading || fixed || surface === 'tasks',
+    enabled: !fixed && surface !== 'tasks',
+  });
 
   function scan() {
+    if (invalidFixedTargets) return;
     setError(null);
     const range = {
       start: start ? Date.parse(`${start}T00:00:00+08:00`) / 1000 : undefined,
       end: end ? Date.parse(`${end}T23:59:59+08:00`) / 1000 : undefined,
     };
     plan.mutate({
-      targets: targets.filter((target) => selected.has(targetKey(target))),
+      targets: fixed ? fixedTargets : targets.filter((target) => selected.has(targetKey(target))),
       range,
       beforeOldest,
       intervalMs,
@@ -118,11 +166,11 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
   }
 
   return (
-    <div className="weq-roaming-panel">
+    <div className="weq-roaming-panel" {...multi.rootProps}>
       <header className="weq-wtools-pane-head">
         <div className="weq-wtools-pane-title">
           <CloudDownload size={17} />
-          <h2 id="weq-wtools-title">批量补全缺失消息</h2>
+          <h2 id="weq-wtools-title">{surface === 'tasks' ? '漫游拉取任务' : '拉取漫游消息'}</h2>
         </div>
         <span className="weq-roaming-access">
           {state.data?.onlineAllowed === false
@@ -145,129 +193,173 @@ export function RoamingBackfillPanel({ initialTarget }: { initialTarget?: Roamin
             {error ?? state.error?.message}
           </p>
         ) : null}
-        {contacts.error ? (
+        {!fixed && contacts.error ? (
           <p role="alert" className="weq-roaming-error">
             会话列表读取失败：{contacts.error.message}
           </p>
         ) : null}
-        <section aria-label="补全范围" className="weq-roaming-scope">
-          <h3>新建补全任务</h3>
-          <p className="weq-roaming-access">SSO · 每次请求最多 30 个 seq</p>
-          <div className="weq-roaming-fields">
-            <label>
-              开始日期（北京时间）
-              <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
-            </label>
-            <label>
-              结束日期（北京时间）
+        {surface !== 'tasks' ? (
+          <section aria-label="补全范围" className="weq-roaming-scope">
+            <div className="weq-roaming-scope-head">
+              <h3>新建补全任务</h3>
+              {fixed ? (
+                <button
+                  type="button"
+                  aria-label="编辑列表"
+                  disabled={plan.isLoading}
+                  onClick={() => setEditingTargets(true)}
+                >
+                  <ListFilter size={15} />
+                  编辑列表
+                </button>
+              ) : null}
+            </div>
+            {fixed ? (
+              invalidFixedTargets ? (
+                <p role="alert" className="weq-roaming-error">
+                  所选会话包含不支持漫游拉取的对象，请返回会话列表重新选择。
+                </p>
+              ) : singleTarget ? (
+                <div className="weq-roaming-fixed-target" aria-label="拉取目标">
+                  {singleTarget.kind === 'group' ? <Users size={20} /> : <UserRound size={20} />}
+                  <span>
+                    <strong>{singleTarget.name}</strong>
+                    <small>{singleTarget.kind === 'group' ? '群聊' : '私聊'}</small>
+                  </span>
+                </div>
+              ) : (
+                <details className="weq-roaming-fixed-targets">
+                  <summary>已选 {fixedTargets.length} 个会话</summary>
+                  <WindowedList
+                    items={fixedTargets}
+                    rowHeight={62}
+                    height={248}
+                    itemKey={targetKey}
+                    renderItem={(target) => (
+                      <div className="weq-roaming-fixed-target">
+                        {target.kind === 'group' ? <Users size={18} /> : <UserRound size={18} />}
+                        <span>
+                          <strong>{target.name}</strong>
+                          <small>{target.kind === 'group' ? '群聊' : '私聊'}</small>
+                        </span>
+                      </div>
+                    )}
+                  />
+                </details>
+              )
+            ) : null}
+            <p className="weq-roaming-access">SSO · 每次请求最多 30 个 seq</p>
+            <div className="weq-roaming-fields">
+              <label>
+                开始日期（北京时间）
+                <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+              </label>
+              <label>
+                结束日期（北京时间）
+                <input
+                  type="date"
+                  value={end}
+                  min={start || undefined}
+                  onChange={(e) => setEnd(e.target.value)}
+                />
+              </label>
+              <label>
+                请求间隔（毫秒）
+                <input
+                  type="number"
+                  min={500}
+                  max={60000}
+                  step={100}
+                  value={intervalMs}
+                  onChange={(e) => setIntervalMs(Number(e.target.value))}
+                />
+              </label>
+            </div>
+            <label className="weq-roaming-checkbox">
               <input
-                type="date"
-                value={end}
-                min={start || undefined}
-                onChange={(e) => setEnd(e.target.value)}
+                type="checkbox"
+                checked={beforeOldest}
+                onChange={(e) => setBeforeOldest(e.target.checked)}
               />
+              包含最早本地锚点之前的未知区间
             </label>
-            <label>
-              请求间隔（毫秒）
-              <input
-                type="number"
-                min={500}
-                max={60000}
-                step={100}
-                value={intervalMs}
-                onChange={(e) => setIntervalMs(Number(e.target.value))}
-              />
-            </label>
-          </div>
-          <label className="weq-roaming-checkbox">
-            <input
-              type="checkbox"
-              checked={beforeOldest}
-              onChange={(e) => setBeforeOldest(e.target.checked)}
-            />
-            包含最早本地锚点之前的未知区间
-          </label>
-          <div className="weq-roaming-selection-head">
-            <input
-              type="search"
-              aria-label="搜索补全会话"
-              placeholder="搜索会话"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <button
-              type="button"
-              onClick={() =>
-                setSelected((current) => new Set([...current, ...visible.map(targetKey)]))
-              }
-            >
-              全选筛选结果
-            </button>
-            <button type="button" onClick={() => setSelected(new Set())}>
-              清空
-            </button>
-            <span>
-              已选 {selected.size} / {targets.length}
-            </span>
-          </div>
-          <div className="weq-roaming-targets" aria-label="补全会话">
-            {contacts.isLoading ? (
-              <p>正在读取会话…</p>
-            ) : visible.length === 0 ? (
-              <p>没有匹配的可补全会话</p>
-            ) : (
-              <WindowedList
-                items={visible}
-                rowHeight={62}
-                height={300}
-                itemKey={targetKey}
-                renderItem={(target) => {
-                  const id = targetKey(target);
-                  return (
-                    <label key={id} className="weq-roaming-target">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(id)}
-                        onChange={(e) =>
-                          setSelected((current) => {
-                            const next = new Set(current);
-                            if (e.target.checked) next.add(id);
-                            else next.delete(id);
-                            return next;
-                          })
-                        }
-                      />
-                      <span>
-                        <strong>{target.name}</strong>
-                        <small>
-                          {target.kind === 'group' ? '群聊' : '私聊'} · {target.conv}
-                        </small>
-                      </span>
-                    </label>
-                  );
-                }}
-              />
-            )}
-          </div>
-          <div className="weq-roaming-actions">
-            <span>无本地锚点的历史覆盖未知</span>
-            <button
-              type="button"
-              disabled={
-                !selected.size ||
-                busy ||
-                mutating ||
-                !state.data ||
-                Boolean(state.error) ||
-                staleBackend
-              }
-              onClick={scan}
-            >
-              <ScanSearch size={15} />
-              {plan.isLoading || state.data?.scanning ? '扫描中…' : '扫描候选缺口'}
-            </button>
-          </div>
-        </section>
+            {!fixed ? (
+              <>
+                <div className="weq-roaming-selection-head">
+                  <input
+                    type="search"
+                    aria-label="搜索补全会话"
+                    placeholder="搜索会话"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelected((current) => new Set([...current, ...visible.map(targetKey)]))
+                    }
+                  >
+                    全选筛选结果
+                  </button>
+                  <button type="button" onClick={() => setSelected(new Set())}>
+                    清空
+                  </button>
+                  <span>
+                    已选 {selected.size} / {targets.length}
+                  </span>
+                </div>
+                <div className="weq-roaming-targets" aria-label="补全会话">
+                  {contacts.isLoading ? (
+                    <p>正在读取会话…</p>
+                  ) : visible.length === 0 ? (
+                    <p>没有匹配的可补全会话</p>
+                  ) : (
+                    <WindowedList
+                      items={visible}
+                      rowHeight={62}
+                      height={300}
+                      itemKey={targetKey}
+                      scrollToKey={multi.focusRequest?.id}
+                      scrollRevision={multi.focusRequest?.revision}
+                      renderItem={(target) => {
+                        const id = targetKey(target);
+                        return (
+                          <label key={id} className="weq-roaming-target" {...multi.itemProps(id)}>
+                            <input type="checkbox" checked={selected.has(id)} readOnly />
+                            <span>
+                              <strong>{target.name}</strong>
+                              <small>
+                                {target.kind === 'group' ? '群聊' : '私聊'} · {target.conv}
+                              </small>
+                            </span>
+                          </label>
+                        );
+                      }}
+                    />
+                  )}
+                </div>
+              </>
+            ) : null}
+            <div className="weq-roaming-actions">
+              <span>无本地锚点的历史覆盖未知</span>
+              <button
+                type="button"
+                disabled={
+                  (fixed ? invalidFixedTargets : !selected.size) ||
+                  busy ||
+                  mutating ||
+                  !state.data ||
+                  Boolean(state.error) ||
+                  staleBackend
+                }
+                onClick={scan}
+              >
+                <ScanSearch size={15} />
+                {plan.isLoading || state.data?.scanning ? '扫描中…' : '扫描候选缺口'}
+              </button>
+            </div>
+          </section>
+        ) : null}
         <section aria-label="补全任务">
           <div className="weq-roaming-task-head">
             <h3>补全任务</h3>

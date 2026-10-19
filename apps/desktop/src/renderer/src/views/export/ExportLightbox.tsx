@@ -19,6 +19,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 import {
   CalendarClock,
   Check,
@@ -29,6 +30,7 @@ import {
   Heart,
   Image as ImageIcon,
   Loader2,
+  ListFilter,
   MessageSquare,
   Mic,
   RefreshCw,
@@ -36,6 +38,7 @@ import {
   Smile,
   Sparkles,
   UserRound,
+  Undo2,
   X,
 } from 'lucide-react';
 import { Card, Row, Toggle } from '../../components/settings/controls';
@@ -79,6 +82,7 @@ function normalizeLightboxOptions(partial?: Partial<ExportOptions>): ExportOptio
 }
 
 export interface LightboxResult {
+  saveAsDefault?: boolean;
   /** 灯箱里多选的导出格式（至少一种）。 */
   formats: ExportFormat[];
   options: ExportOptions;
@@ -107,16 +111,22 @@ const COMPLETE_KINDS = [
 function KindChips({
   options,
   selected,
-  onToggle,
+  onChange,
   disabled,
 }: {
   options: Array<{ key: string; label: ReactNode }>;
   selected: ReadonlySet<string>;
-  onToggle: (key: string) => void;
+  onChange: (next: Set<string>) => void;
   disabled?: boolean;
 }): ReactElement {
+  const multi = useMultiSelection({
+    ids: options.map((option) => option.key),
+    selected,
+    onChange,
+    disabled,
+  });
   return (
-    <div className={`weq-exp-kinds${disabled ? ' is-disabled' : ''}`}>
+    <div className={`weq-exp-kinds${disabled ? ' is-disabled' : ''}`} {...multi.rootProps}>
       {options.map((opt) => {
         const on = selected.has(opt.key);
         return (
@@ -125,7 +135,7 @@ function KindChips({
             type="button"
             className={`weq-exp-kind${on ? ' is-on' : ''}`}
             disabled={disabled}
-            onClick={() => onToggle(opt.key)}
+            {...multi.itemProps(opt.key)}
             aria-pressed={on}
           >
             {on ? <Check size={12} /> : <span className="weq-exp-kind-dot" />}
@@ -290,6 +300,10 @@ interface OcrModelProgress {
 }
 
 export function ExportLightbox({
+  embedded = false,
+  hidden = false,
+  onEditList,
+  scopeSummary,
   variant,
   headline,
   summary,
@@ -299,11 +313,15 @@ export function ExportLightbox({
   initialFormats,
   initialSchedule = DEFAULT_SCHEDULE,
   submitting = false,
+  disabled = false,
   onPickPath,
-  autoSaveHint,
   onClose,
   onConfirm,
 }: {
+  embedded?: boolean;
+  hidden?: boolean;
+  onEditList?: () => void;
+  scopeSummary?: string;
   variant: LightboxVariant;
   headline: string;
   summary: string;
@@ -319,6 +337,7 @@ export function ExportLightbox({
   initialFormats?: ExportFormat[];
   initialSchedule?: Schedule;
   submitting?: boolean;
+  disabled?: boolean;
   /** Optional async directory picker; returns the chosen path or null. */
   onPickPath?: () => Promise<string | null>;
   /**
@@ -329,9 +348,12 @@ export function ExportLightbox({
   onClose: () => void;
   onConfirm: (result: LightboxResult) => void;
 }): ReactElement {
-  useEscapeToClose(onClose);
+  useEscapeToClose(() => {
+    if (!embedded && !hidden) onClose();
+  });
   const pushToast = useToast((s) => s.push);
   const [opts, setOpts] = useState<ExportOptions>(() => normalizeLightboxOptions(initialOptions));
+  const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [schedule, setSchedule] = useState<Schedule>(initialSchedule);
   const [path, setPath] = useState<string | null>(null);
   const [pickingPath, setPickingPath] = useState(false);
@@ -579,34 +601,6 @@ export function ExportLightbox({
     setOpts((o) => ({ ...o, exportMedia: true, qzoneInteractions: true }));
   }, [htmlForced]);
 
-  /** 切换某个导出格式（至少保留一种）。 */
-  function toggleFormat(f: ExportFormat): void {
-    setFormats((prev) => {
-      if (prev.includes(f)) {
-        if (prev.length === 1) {
-          pushToast({ tone: 'warning', title: '至少保留一种导出格式', ttl: 3200 });
-          return prev;
-        }
-        return prev.filter((x) => x !== f);
-      }
-      return [...prev, f];
-    });
-  }
-
-  /** 切换媒体子类；开启媒体大按钮时默认全选。 */
-  function toggleMediaKind(kind: keyof MediaKinds): void {
-    patch({
-      mediaKinds: {
-        ...opts.mediaKinds,
-        [kind]: !opts.mediaKinds[kind],
-      },
-    });
-  }
-
-  function toggleDressKind(kind: 'bubble' | 'font' | 'widget'): void {
-    patch({ dress: { ...opts.dress, [kind]: !opts.dress[kind] } });
-  }
-
   /**
    * 开关在线转录：开启前先 arm 抓包会话（Windows 缺 Npcap / 未提权 / 离线都会
    * 抛错，这里弹 toast 提示）。只有 arm 成功才置 true —— 保证后续导出可在线转写。
@@ -658,6 +652,7 @@ export function ExportLightbox({
   function confirm(): void {
     submittedRef.current = true;
     onConfirm({
+      saveAsDefault,
       formats,
       options: opts,
       schedule: isScheduled ? schedule : undefined,
@@ -688,23 +683,77 @@ export function ExportLightbox({
       patch({ chatlab: false });
     }
   }
+  const formatSelection = useMultiSelection({
+    enabled: !hidden,
+    ids: formatOptions
+      .filter((format) => !opts.chatlab || format.value === 'json' || format.value === 'jsonl')
+      .map((format) => format.value),
+    selected: new Set(formats),
+    disabled: submitting,
+    onChange: (next) => {
+      if (!next.size) {
+        setFormats((current) => [...current]);
+        pushToast({ tone: 'warning', title: '至少保留一种导出格式', ttl: 3200 });
+        return;
+      }
+      setFormats(formatOptions.map((format) => format.value).filter((value) => next.has(value)));
+    },
+    onExit: onClose,
+  });
 
   return (
     <div
-      className="modal-scrim weq-exp-modal-scrim"
+      className={embedded ? 'weq-export-options' : 'modal-scrim weq-exp-modal-scrim'}
+      hidden={hidden}
+      style={hidden ? { display: 'none' } : undefined}
       role="presentation"
-      onMouseDown={closeFromScrim(onClose)}
+      onMouseDown={embedded ? undefined : closeFromScrim(onClose)}
     >
       <section
         className="weq-exp-dialog is-wide"
-        role="dialog"
-        aria-modal="true"
+        role={embedded ? 'region' : 'dialog'}
+        aria-modal={embedded ? undefined : true}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="weq-exp-dialog-head">
           <div className="weq-exp-dialog-title">
             <strong>{headline}</strong>
             <span title={summary}>{summary}</span>
+          </div>
+          {onEditList ? (
+            <button
+              type="button"
+              className="weq-exp-edit-list"
+              onClick={onEditList}
+              disabled={submitting}
+            >
+              <ListFilter size={15} />
+              编辑列表
+            </button>
+          ) : null}
+          <div className="weq-exp-default-actions">
+            <button
+              type="button"
+              className="weq-exp-edit-list"
+              aria-pressed={saveAsDefault}
+              disabled={submitting || saveAsDefault}
+              title="导出时将当前配置设为此类内容的默认配置"
+              onClick={() => setSaveAsDefault(true)}
+            >
+              {saveAsDefault ? <Check size={15} /> : null}
+              设为默认
+            </button>
+            {saveAsDefault ? (
+              <button
+                type="button"
+                className="weq-exp-edit-list"
+                disabled={submitting}
+                onClick={() => setSaveAsDefault(false)}
+              >
+                <Undo2 size={15} />
+                撤销
+              </button>
+            ) : null}
           </div>
           <button type="button" className="weq-exp-dialog-close" onClick={onClose} title="关闭">
             <X size={18} />
@@ -760,13 +809,27 @@ export function ExportLightbox({
               {/* 左列：时间范围 + 补全选项 */}
               <div className="weq-exp-col">
                 {!isContacts ? (
-                  <Card title="时间范围">
-                    <TimeRangePicker
-                      value={opts.range}
-                      onChange={(range) => patch({ range })}
-                      mode={isScheduled ? 'scheduled' : 'single'}
-                      calendarTargets={calendarTargets}
-                    />
+                  <Card
+                    title={
+                      scopeSummary
+                        ? isQzone
+                          ? '精确说说范围'
+                          : isContacts
+                            ? '精确联系人范围'
+                            : '精确消息范围'
+                        : '时间范围'
+                    }
+                  >
+                    {scopeSummary ? (
+                      <p>{scopeSummary}</p>
+                    ) : (
+                      <TimeRangePicker
+                        value={opts.range}
+                        onChange={(range) => patch({ range })}
+                        mode={isScheduled ? 'scheduled' : 'single'}
+                        calendarTargets={calendarTargets}
+                      />
+                    )}
                   </Card>
                 ) : (
                   <Card title="导出联系人">
@@ -799,7 +862,14 @@ export function ExportLightbox({
                         <KindChips
                           options={COMPLETE_KINDS}
                           selected={selectedCompleteKinds}
-                          onToggle={(key) => patch({ [key]: !opts[key as keyof typeof opts] })}
+                          onChange={(next) =>
+                            patch({
+                              completeMedia: next.has('completeMedia'),
+                              downloadPtt: next.has('downloadPtt'),
+                              downloadVideo: next.has('downloadVideo'),
+                              downloadFile: next.has('downloadFile'),
+                            })
+                          }
                           disabled={!opts.exportMedia || !qqOnline}
                         />
                       }
@@ -967,7 +1037,7 @@ export function ExportLightbox({
                 {/* 导出格式（多选；相册的格式仍走外部选择器） */}
                 {!isAlbum ? (
                   <Card title="导出格式">
-                    <div className="weq-exp-format-grid">
+                    <div className="weq-exp-format-grid" {...formatSelection.rootProps}>
                       {formatOptions.map((f) => {
                         const on = formats.includes(f.value);
                         const blocked = opts.chatlab && f.value !== 'json' && f.value !== 'jsonl';
@@ -976,17 +1046,7 @@ export function ExportLightbox({
                             key={f.value}
                             type="button"
                             className={`weq-exp-format${on ? ' is-on' : ''}${blocked ? ' is-blocked' : ''}`}
-                            onClick={() => {
-                              if (blocked) {
-                                pushToast({
-                                  tone: 'warning',
-                                  title: 'ChatLab 仅支持 JSON / JSONL',
-                                  ttl: 3000,
-                                });
-                                return;
-                              }
-                              toggleFormat(f.value);
-                            }}
+                            {...formatSelection.itemProps(f.value, blocked)}
                             aria-pressed={on}
                             disabled={blocked}
                           >
@@ -1089,7 +1149,17 @@ export function ExportLightbox({
                                 ),
                               }))}
                               selected={selectedMediaKinds}
-                              onToggle={(key) => toggleMediaKind(key as keyof MediaKinds)}
+                              onChange={(next) =>
+                                patch({
+                                  mediaKinds: {
+                                    image: next.has('image'),
+                                    voice: next.has('voice'),
+                                    video: next.has('video'),
+                                    file: next.has('file'),
+                                    sysface: next.has('sysface'),
+                                  },
+                                })
+                              }
                             />
                           </div>
                         ) : null}
@@ -1124,8 +1194,14 @@ export function ExportLightbox({
                                 { key: 'widget', label: '挂件' },
                               ]}
                               selected={selectedDressKinds}
-                              onToggle={(key) =>
-                                toggleDressKind(key as 'bubble' | 'font' | 'widget')
+                              onChange={(next) =>
+                                patch({
+                                  dress: {
+                                    bubble: next.has('bubble'),
+                                    font: next.has('font'),
+                                    widget: next.has('widget'),
+                                  },
+                                })
                               }
                             />
                           </div>
@@ -1138,23 +1214,6 @@ export function ExportLightbox({
                 {/* 扩展功能 */}
                 {isMessageFlow ? (
                   <Card title="扩展功能">
-                    {isScheduled || autoSaveHint ? (
-                      <p className="weq-exp-block-hint">
-                        {autoSaveHint ??
-                          '定时任务暂不支持自动保存；手动触发后可在任务列表逐个保存。'}
-                      </p>
-                    ) : (
-                      <Row
-                        label="导出后自动保存"
-                        desc="完成后弹出保存路径"
-                        control={
-                          <Toggle
-                            checked={opts.autoSave}
-                            onChange={(v) => patch({ autoSave: v })}
-                          />
-                        }
-                      />
-                    )}
                     <Row
                       label="语音转写"
                       desc={
@@ -1307,7 +1366,7 @@ export function ExportLightbox({
             type="button"
             className="weq-exp-btn is-primary"
             onClick={confirm}
-            disabled={submitting}
+            disabled={submitting || disabled}
           >
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}
             {isScheduled ? '创建定时任务' : '开始导出'}

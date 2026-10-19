@@ -406,6 +406,7 @@ export interface LinkPreviewConfig {
 }
 
 export interface AppSettings {
+  exportSaveMode: import('../account/export/save_output').ExportSaveMode;
   realtimeEnabled: boolean;
   /**
    * 完全离线总闸（设置 → 账号基础 → 自动读取 QQ 内存）。
@@ -419,6 +420,8 @@ export interface AppSettings {
    * 数据库与本地文件。唯一豁免：登录时的数据库密钥提取。
    */
   autoAttachQq: boolean;
+  /** 向 QQ 服务端上报在 WeQ 中阅读的位置，默认关闭。 */
+  reportReadEnabled: boolean;
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁（仍可在左栏手动上锁）。
    * 解锁方式见 {@link AppLockConfig.method}，无绕过入口。
@@ -467,6 +470,8 @@ export interface AppSettings {
   showMessageSeq: boolean;
   /** 逐条显示精确到秒的北京时间，与序号开关独立。 */
   showMessageTime: boolean;
+  /** 左栏「消息」入口显示汇总未读角标，不改变阅读状态。 */
+  showMessageUnreadBadge: boolean;
   /**
    * 外部安卓 chatpic 目录（聊天图片本地 miss 后、CDN 下载前的兜底）。
    * 见 account/chatpic.ts 的寻址与校验。
@@ -662,10 +667,12 @@ export type { GroupKeywordRules } from '../account/group_keyword';
 export { normalizeGroupKeywordRules } from '../account/group_keyword';
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
+  exportSaveMode: 'after',
   realtimeEnabled: true,
   // 默认关闭：是否扫描 QQ 内存由首次运行欢迎框征得同意后再打开，见
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
   autoAttachQq: false,
+  reportReadEnabled: false,
   autoLockMinutes: 0,
   appLock: { enabled: true, method: 'totp' },
   voiceTranscribe: { modelId: '', ttsProviders: [] },
@@ -685,6 +692,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showMsgDecoration: true,
   showMessageSeq: false,
   showMessageTime: false,
+  showMessageUnreadBadge: true,
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
   ssePush: { servers: [], enabledServerId: null, debounceMs: 2000, massThreshold: 50 },
@@ -1154,7 +1162,12 @@ export class UserConfigService {
       s?.suppressAttachHint ?? legacySuppressAttachHint ?? d.suppressAttachHint;
     return {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
+      exportSaveMode:
+        s?.exportSaveMode === 'before' || s?.exportSaveMode === 'preset'
+          ? s.exportSaveMode
+          : 'after',
       autoAttachQq,
+      reportReadEnabled: s?.reportReadEnabled === true,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       appLock: {
         enabled: s?.appLock?.enabled ?? d.appLock.enabled,
@@ -1168,6 +1181,7 @@ export class UserConfigService {
       showMsgDecoration: s?.showMsgDecoration ?? d.showMsgDecoration,
       showMessageSeq: s?.showMessageSeq ?? d.showMessageSeq,
       showMessageTime: s?.showMessageTime ?? d.showMessageTime,
+      showMessageUnreadBadge: s?.showMessageUnreadBadge ?? d.showMessageUnreadBadge,
       externalChatpic: {
         dir: s?.externalChatpic?.dir ?? d.externalChatpic.dir,
         enabled: s?.externalChatpic?.enabled ?? d.externalChatpic.enabled,
@@ -1236,8 +1250,10 @@ export class UserConfigService {
     // 不再按平台归一化 —— macOS 也能读内存（需 root + 关 SIP），由用户自己选。
     const autoAttachQq = patch.autoAttachQq ?? current.autoAttachQq;
     const next: AppSettings = {
+      exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
+      reportReadEnabled: patch.reportReadEnabled ?? current.reportReadEnabled,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
       appLock: {
         enabled: patch.appLock?.enabled ?? current.appLock.enabled,
@@ -1251,6 +1267,7 @@ export class UserConfigService {
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
       showMessageSeq: patch.showMessageSeq ?? current.showMessageSeq,
       showMessageTime: patch.showMessageTime ?? current.showMessageTime,
+      showMessageUnreadBadge: patch.showMessageUnreadBadge ?? current.showMessageUnreadBadge,
       externalChatpic: {
         dir: patch.externalChatpic?.dir ?? current.externalChatpic.dir,
         enabled: patch.externalChatpic?.enabled ?? current.externalChatpic.enabled,

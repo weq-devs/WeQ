@@ -11,12 +11,37 @@ import { procedure, router } from '../trpc';
 /** 说说一次最多带 9 张图 —— 超出的页数在 router 层直接拒绝。 */
 const QZONE_MAX_IMAGES = 9;
 
-function requireServices(): AccountServices {
-  const services = getAppContext().services;
+function requireServices(expected?: {
+  expectedAccountUin?: string;
+  expectedAccountConfigId?: string;
+}): AccountServices {
+  const context = getAppContext();
+  const services = context.services;
   if (!services) {
     throw new Error('No account session open — call bootstrap.openAccount first.');
   }
+  if (
+    expected?.expectedAccountUin &&
+    String(context.account?.context.uin) !== expected.expectedAccountUin
+  )
+    throw new Error('账号已切换，已停止读取报告。');
+  if (
+    expected?.expectedAccountConfigId &&
+    services.accountConfig.getRecord()?.configId !== expected.expectedAccountConfigId
+  )
+    throw new Error('账号数据源已切换，已停止读取报告。');
   return services;
+}
+const reportIdentity = {
+  expectedAccountUin: z.string().min(1).optional(),
+  expectedAccountConfigId: z.string().min(1).optional(),
+};
+
+function verifyReportIdentity(identity: {
+  expectedAccountUin?: string;
+  expectedAccountConfigId?: string;
+}): void {
+  if (identity.expectedAccountUin || identity.expectedAccountConfigId) requireServices(identity);
 }
 
 /** PNG / JPEG / GIF / WebP 的魔数 → MIME。只用于导出图片资源内联。 */
@@ -167,8 +192,9 @@ export const annualReportRouter = router({
    * 解析失败返回 null（而不是抛错），导出退回排印版不阻塞。
    */
   resolveMediaBase64: procedure
-    .input(z.object({ url: z.string().min(1).max(2048) }))
+    .input(z.object({ url: z.string().min(1).max(2048), ...reportIdentity }))
     .mutation(async ({ input }) => {
+      verifyReportIdentity(input);
       const dataUri = await resolveExportAssetDataUri(input.url);
       if (!dataUri) return null;
       const comma = dataUri.indexOf(',');
@@ -180,16 +206,28 @@ export const annualReportRouter = router({
    * `year: 0`（`ALL_TIME_YEAR`）= 历史以来。
    */
   getManifest: procedure
-    .input(z.object({ year: z.number().int().min(0).optional() }).optional())
-    .query(({ input }) => requireServices().annualReport.getManifest(input?.year)),
+    .input(
+      z
+        .object({
+          year: z.number().int().min(0).optional(),
+          reportInstance: z.string().min(1).max(128).optional(),
+          ...reportIdentity,
+        })
+        .optional(),
+    )
+    .query(({ input }) => requireServices(input).annualReport.getManifest(input?.year)),
 
   /** 可选口径：`0`（历史以来）+ 发出过至少一条消息的年份。 */
   getAvailableYears: procedure.query(() => requireServices().annualReport.getAvailableYears()),
 
   /** Compute one page in the main process; failures stay isolated to this page. */
   getPageData: procedure
-    .input(z.object({ year: z.number().int().min(0), pageId: z.string().min(1) }))
-    .query(({ input }) => requireServices().annualReport.getPageData(input.year, input.pageId)),
+    .input(
+      z.object({ year: z.number().int().min(0), pageId: z.string().min(1), ...reportIdentity }),
+    )
+    .query(({ input }) =>
+      requireServices(input).annualReport.getPageData(input.year, input.pageId),
+    ),
 
   /**
    * 批量解析装扮资源，给「最喜欢的装扮」页预热。
@@ -276,8 +314,9 @@ export const annualReportRouter = router({
 
   /** 导出为自包含 HTML（保存到用户选择的位置）。 */
   exportHtml: procedure
-    .input(z.object({ year: z.number().int().min(0), html: z.string().min(1) }))
+    .input(z.object({ year: z.number().int().min(0), html: z.string().min(1), ...reportIdentity }))
     .mutation(async ({ input }) => {
+      verifyReportIdentity(input);
       const path = await saveBuffer(
         Buffer.from(input.html, 'utf8'),
         `QQ年度报告_${reportPeriodLabel(input.year)}.html`,
@@ -288,8 +327,9 @@ export const annualReportRouter = router({
 
   /** 把同一份 HTML 渲染成 A4 PDF 保存。 */
   exportPdf: procedure
-    .input(z.object({ year: z.number().int().min(0), html: z.string().min(1) }))
+    .input(z.object({ year: z.number().int().min(0), html: z.string().min(1), ...reportIdentity }))
     .mutation(async ({ input }) => {
+      verifyReportIdentity(input);
       const pdf = await getHost().renderHtmlToPdf(input.html);
       const path = await saveBuffer(pdf, `QQ年度报告_${reportPeriodLabel(input.year)}.pdf`, 'pdf');
       return { saved: path != null, path };
@@ -302,8 +342,9 @@ export const annualReportRouter = router({
    * 另起 satori 排版，直接在主进程把每个 `.slide` 截下来竖向拼成一张。
    */
   exportLongImage: procedure
-    .input(z.object({ year: z.number().int().min(0), html: z.string().min(1) }))
+    .input(z.object({ year: z.number().int().min(0), html: z.string().min(1), ...reportIdentity }))
     .mutation(async ({ input }) => {
+      verifyReportIdentity(input);
       const png = await getHost().renderHtmlToLongPng(input.html);
       const path = await saveBuffer(
         png,

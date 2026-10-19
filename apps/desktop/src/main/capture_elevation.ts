@@ -30,7 +30,7 @@ import type {
 
 const logger = getLogger().child({ scope: 'capture-elevation' });
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const moduleDir = dirname(fileURLToPath(import.meta.url));
 
 /** 等 hello 的上限：sudo 认证 + native 加载。 */
 const HELLO_TIMEOUT_MS = 30_000;
@@ -44,8 +44,8 @@ const REQUEST_TIMEOUT_MS = 60_000;
  */
 function resolveWorkerPath(): string {
   const candidates = [
-    join(__dirname, 'captureWorker.mjs'),
-    join(__dirname, '..', 'captureWorker.mjs'),
+    join(moduleDir, 'captureWorker.mjs'),
+    join(moduleDir, '..', 'captureWorker.mjs'),
   ];
   return candidates.find((p) => existsSync(p)) ?? candidates[0]!;
 }

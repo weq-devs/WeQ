@@ -20,7 +20,8 @@
  *     自己的 com.tencent.map 包），远程图统一走 weq-avatar:// 磁盘缓存。
  */
 
-import { useMemo, type ReactElement, type ReactNode } from 'react';
+import { useContext, useMemo, type ReactElement, type ReactNode } from 'react';
+import { QzoneCardNavigationContext, qzoneCardTarget } from '../../lib/qzoneNavigation';
 import { MapPin, Megaphone, ShieldAlert } from 'lucide-react';
 import { cachedAvatarUrl } from '../../lib/avatarCache';
 import { resolveArkCard, type ArkValues } from './arkCards';
@@ -89,13 +90,22 @@ function ArkShell({
   children: ReactNode;
   footer?: ReactNode;
 }): ReactElement {
-  const onOpen = openHandler(jump);
+  const navigate = useContext(QzoneCardNavigationContext);
+  const target = jump ? qzoneCardTarget(jump) : null;
+  const onOpen = target && navigate ? () => navigate(target) : openHandler(jump);
   return (
     <div
       className={className ? `weq-ark-container ${className}` : 'weq-ark-container'}
       role={onOpen ? 'link' : undefined}
       title={onOpen ? jump : undefined}
       onClick={onOpen}
+      tabIndex={onOpen ? 0 : undefined}
+      onKeyDown={(event) => {
+        if (onOpen && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
     >
       <div className="weq-ark-content">{children}</div>
       {footer}

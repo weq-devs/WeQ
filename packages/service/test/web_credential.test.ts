@@ -16,16 +16,18 @@ import {
   type WebNative,
 } from '../src/account/web/credential';
 
-/**
- * 「hook 与 pt_login 都不可用」的 native 桩：两条路都必须失败，用来验证最后那层
- * 登录票据兜底。
- */
+/** 「native 拿不到凭据」的桩，用来验证最后那层登录票据兜底。 */
 function deadNative(): WebNative {
   return {
-    sendOidbPacket: () => Promise.reject(new Error('hook 不可用')),
-    probePtLoginPort: () => ({ success: false, msg: '没有候选端口', port: 0 }),
-    ptFetchSkey: () => Promise.resolve({ success: false, msg: '桩', skey: '' }),
-    ptFetchPskey: () => Promise.resolve({ success: false, msg: '桩', pskey: '' }),
+    ptFetchCredentials: () =>
+      Promise.resolve({
+        success: false,
+        msg: '桩',
+        skey: '',
+        pskey: '',
+        cookie: '',
+        errorKind: 'auth',
+      }),
   };
 }
 
@@ -122,10 +124,22 @@ describe('WebCredentialProvider 的 seed 失效处理', () => {
 
     expect(() => creds.invalidate('vip.qq.com')).not.toThrow();
   });
+
+  it('只有 seed p_skey 且 native 不可用时仍能返回凭据', async () => {
+    const creds = provider();
+    creds.seedPskey({ 'vip.qq.com': 'V' });
+
+    await expect(creds.forDomain('vip.qq.com')).resolves.toMatchObject({
+      uin: '12345',
+      skey: '',
+      pskey: 'V',
+      cookie: 'uin=o12345; p_uin=o12345; p_skey=V',
+    });
+  });
 });
 
 describe('fetchWebTokens 的登录票据兜底', () => {
-  it('hook 与 pt_login 都拿不到时退回 seed 的 p_skey', async () => {
+  it('native 拿不到时退回 seed 的 p_skey', async () => {
     const tokens = await fetchWebTokens(deadNative(), '12345', 0, 'qzone.qq.com', {
       needSkey: true,
       seedPskey: 'SEEDED',
@@ -142,11 +156,11 @@ describe('fetchWebTokens 的登录票据兜底', () => {
     expect(tokens).toEqual({ skey: '', pskey: '' });
   });
 
-  it('不在 PT_LOGIN_DOMAINS 里的域不吃 seed', async () => {
+  it('native 失败时任意域都退回 seed 的 p_skey', async () => {
     const tokens = await fetchWebTokens(deadNative(), '12345', 0, 'tenpay.com', {
       seedPskey: 'SEEDED',
     });
 
-    expect(tokens).toEqual({ skey: '', pskey: '' });
+    expect(tokens).toEqual({ skey: '', pskey: 'SEEDED' });
   });
 });

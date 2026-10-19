@@ -126,6 +126,7 @@ export function useZoomPan(resetKey: unknown, opts?: { clickZoom?: boolean }): Z
       const startX = event.clientX;
       const startY = event.clientY;
       const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+      const viewport = event.currentTarget.ownerDocument.defaultView ?? window;
       const start = ref.current;
       let moved = false;
 
@@ -150,11 +151,11 @@ export function useZoomPan(resetKey: unknown, opts?: { clickZoom?: boolean }): Z
           zoomAt(startX, startY, next, rect);
         }
       };
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
+      viewport.addEventListener('mousemove', onMove);
+      viewport.addEventListener('mouseup', onUp);
       endDrag.current = () => {
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
+        viewport.removeEventListener('mousemove', onMove);
+        viewport.removeEventListener('mouseup', onUp);
         endDrag.current = null;
       };
     },

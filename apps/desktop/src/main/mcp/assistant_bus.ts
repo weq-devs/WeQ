@@ -17,3 +17,10 @@ export interface AssistantStreamEvent {
 export const assistantBus = new EventEmitter();
 /** 提升监听上限：理论上同一时刻只有一个订阅，但保险起见放宽。 */
 assistantBus.setMaxListeners(50);
+
+export const activeAssistantRuns = new Map<string, AbortController>();
+
+export function cancelAssistantRuns(): void {
+  for (const controller of activeAssistantRuns.values()) controller.abort();
+  activeAssistantRuns.clear();
+}

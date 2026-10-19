@@ -9,8 +9,14 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import { CONVERSATION_GAP_SECONDS, type C2cMsg, type C2cPartition } from '@weq/db';
+import { CONVERSATION_GAP_SECONDS, type BrowseCursor, type C2cPartition } from '@weq/db';
 import { segmentWords } from './text_segment';
+import {
+  analyticsBrowseFilter,
+  analyticsDayParts,
+  validateAnalyticsRange,
+  type AnalyticsRange,
+} from '../common/analytics_time';
 import {
   buildWeekKeys,
   dailyToWeekly,
@@ -93,21 +99,6 @@ export interface BuddyAnalytics {
 
 type EmojiTally = Map<string, { faceId: number; faceText: string; count: number }>;
 
-function ymd(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-    d.getDate(),
-  ).padStart(2, '0')}`;
-}
-
-/** Calendar day index (local) for streak adjacency checks. */
-function dayIndex(dateStr: string): number {
-  const parts = dateStr.split('-');
-  const y = Number(parts[0]);
-  const m = Number(parts[1]);
-  const d = Number(parts[2]);
-  return Math.floor(new Date(y, m - 1, d).getTime() / 86400000);
-}
-
 function bumpEmoji(tally: EmojiTally, faceId: number, faceText: string): void {
   const key = String(faceId);
   const prev = tally.get(key);
@@ -152,38 +143,72 @@ export class BuddyAnalyticsService {
     return sortNo !== undefined ? { sortNo } : { uid: peerUid };
   }
 
+  async listAnalysisPeers() {
+    const peers = new Map<
+      string,
+      { uid: string; uin: string; name: string; source: 'directory' | 'messages' }
+    >();
+    const [history, buddies] = await Promise.all([
+      this.session.c2cMsgs.listPeerIdentities(),
+      (async () => {
+        const rows = [];
+        for (let offset = 0; ; offset += 500) {
+          const page = await this.session.buddies.listBuddies(500, offset);
+          rows.push(...page);
+          if (page.length < 500) return rows;
+        }
+      })(),
+    ]);
+    for (const row of history) peers.set(row.uid, { ...row, name: '', source: 'messages' });
+    for (const row of buddies) {
+      if (!row.uid) continue;
+      peers.set(row.uid, {
+        uid: row.uid,
+        uin: row.uin > 0n ? String(row.uin) : peers.get(row.uid)?.uin || '',
+        name: '',
+        source: 'directory',
+      });
+    }
+    const items = [...peers.values()];
+    for (let i = 0; i < items.length; i += 500) {
+      const profiles = await this.session.profileInfo.profilesByUids(
+        items.slice(i, i + 500).map((row) => row.uid),
+      );
+      for (const profile of profiles) {
+        const row = peers.get(profile.uid);
+        if (!row) continue;
+        row.name = profile.remark || profile.nick;
+        if (profile.uin > 0n) row.uin = String(profile.uin);
+      }
+    }
+    return items.map((row) => ({ ...row, name: row.name || row.uin || row.uid }));
+  }
+
   async getBuddyAnalytics(
     peerUid: string,
-    opts?: {
-      startTime?: number;
-      endTime?: number;
-      /** 没传区间时是否默认「最近一年」；MCP 等旧调用方保持全历史。 */
-      recentYear?: boolean;
-    },
+    opts: AnalyticsRange & { recentYear?: boolean } = {},
   ): Promise<BuddyAnalytics> {
     const db = this.session.c2cMsgs;
     const part = this.c2cPartition(peerUid);
+    const range = validateAnalyticsRange(opts);
+    const filter = analyticsBrowseFilter({ messageIds: range.messageIds });
     const selfUin = String(this.session.context.uin ?? '');
 
     // 默认「最近一年」：以最后一条消息为基准（不是 now），否则早就不聊的
     // 会话打开就是空图。
-    let startTime = opts?.startTime ?? 0;
-    let endTime = opts?.endTime ?? 0;
+    let startTime = range.startTime;
+    let endTime = range.endTime;
     let defaulted = false;
-    if (!(startTime > 0) || !(endTime > 0)) {
+    if (startTime === undefined && endTime === undefined) {
       const latest = opts?.recentYear ? await db.listLatest(part, 1) : [];
       const newest = latest[0] ? Number(latest[0].sendTime) : 0;
       if (newest > 0) {
         defaulted = true;
         endTime = newest;
         startTime = newest - 365 * 86400;
-      } else {
-        startTime = 0;
-        endTime = 0;
       }
     }
-    if (endTime > 0 && startTime > endTime) startTime = endTime - 365 * 86400;
-    const hasRange = startTime > 0 && endTime > 0;
+    const hasRange = startTime !== undefined || endTime !== undefined;
 
     const stats = {
       totalMessages: 0,
@@ -208,8 +233,8 @@ export class BuddyAnalyticsService {
     const weeklyPeerCounts = new Map<string, number>();
     let timelineFirst: number | null = null;
     let timelineLast: number | null = null;
-    const selfDays = new Set<string>();
-    const peerDays = new Set<string>();
+    const selfDays = new Set<number>();
+    const peerDays = new Set<number>();
 
     const phrasesSelf = new Map<string, number>();
     const phrasesPeer = new Map<string, number>();
@@ -227,12 +252,12 @@ export class BuddyAnalyticsService {
     let prevSender: 'self' | 'peer' | null = null;
     let prevTime = 0;
 
-    let afterSeq = 0n;
+    let cursor: BrowseCursor | undefined;
     while (true) {
-      const batch: C2cMsg[] = await db.listAfter(part, afterSeq, 500);
+      const batch = await db.browse(part, filter, cursor, 500, 'newer');
       if (batch.length === 0) break;
 
-      for (const msg of batch) {
+      for (const { message: msg } of batch) {
         const isSelf = msg.senderUid !== peerUid;
         if (!isSelf && !peerUin && msg.senderUin > 0n) peerUin = String(msg.senderUin);
         if (!peerUin && msg.targetUin > 0n) peerUin = String(msg.targetUin);
@@ -240,15 +265,21 @@ export class BuddyAnalyticsService {
         const sendTime = Number(msg.sendTime);
 
         // 全历史时间轴：不管是否落在所选区间都记 —— 绿墙 / 顶部周图看的是全史。
-        if (sendTime > 0) {
-          const d = new Date(sendTime * 1000);
-          const key = ymd(d);
+        const calendar = analyticsDayParts(sendTime);
+        if (calendar) {
+          const key = calendar.day;
           globalDaily.set(key, (globalDaily.get(key) ?? 0) + 1);
           if (timelineFirst === null || sendTime < timelineFirst) timelineFirst = sendTime;
           if (timelineLast === null || sendTime > timelineLast) timelineLast = sendTime;
         }
 
-        if (hasRange && (sendTime <= 0 || sendTime < startTime || sendTime > endTime)) continue;
+        if (
+          hasRange &&
+          (sendTime <= 0 ||
+            (startTime !== undefined && sendTime < startTime) ||
+            (endTime !== undefined && sendTime > endTime))
+        )
+          continue;
 
         stats.totalMessages++;
         if (isSelf) stats.selfMessages++;
@@ -312,22 +343,22 @@ export class BuddyAnalyticsService {
         else messageTypes.other++;
 
         // ---- time-based aggregates --------------------------------------
-        if (sendTime > 0) {
+        const date = analyticsDayParts(sendTime);
+        if (date) {
           if (stats.firstMessageTime === null || sendTime < stats.firstMessageTime) {
             stats.firstMessageTime = sendTime;
           }
           if (stats.lastMessageTime === null || sendTime > stats.lastMessageTime) {
             stats.lastMessageTime = sendTime;
           }
-          const d = new Date(sendTime * 1000);
-          const hour = d.getHours();
+          const hour = date.hour;
           if (isSelf) hourlySelf[hour] = (hourlySelf[hour] ?? 0) + 1;
           else hourlyPeer[hour] = (hourlyPeer[hour] ?? 0) + 1;
 
-          const key = ymd(d);
+          const key = date.day;
           daily.set(key, (daily.get(key) ?? 0) + 1);
-          (isSelf ? selfDays : peerDays).add(key);
-          const week = weekStartKey(d);
+          (isSelf ? selfDays : peerDays).add(date.dayIndex);
+          const week = weekStartKey(new Date(sendTime * 1000));
           const weekMap = isSelf ? weeklySelfCounts : weeklyPeerCounts;
           weekMap.set(week, (weekMap.get(week) ?? 0) + 1);
 
@@ -351,7 +382,8 @@ export class BuddyAnalyticsService {
         }
       }
 
-      afterSeq = batch[batch.length - 1]!.msgSeq;
+      const last = batch.at(-1)!;
+      cursor = { time: last.message.sendTime, rowId: last.rowId };
       if (batch.length < 500) break;
     }
 
@@ -360,7 +392,7 @@ export class BuddyAnalyticsService {
     // Mutual-active days → 火花 streak.
     const mutualDays: number[] = [];
     for (const day of selfDays) {
-      if (peerDays.has(day)) mutualDays.push(dayIndex(day));
+      if (peerDays.has(day)) mutualDays.push(day);
     }
     const streak = longestRun(mutualDays);
 
@@ -379,7 +411,7 @@ export class BuddyAnalyticsService {
       .sort((a, b) => a.date.localeCompare(b.date));
     const timelineWeekly = dailyToWeekly(timelineDaily);
     const weeks = hasRange
-      ? buildWeekKeys(startTime, endTime)
+      ? buildWeekKeys(startTime ?? timelineFirst ?? 0, endTime ?? timelineLast ?? 0)
       : timelineWeekly.map((w) => w.weekStart);
 
     return {
@@ -399,8 +431,8 @@ export class BuddyAnalyticsService {
         weekly: timelineWeekly,
       },
       range: {
-        startTime: hasRange ? startTime : null,
-        endTime: hasRange ? endTime : null,
+        startTime: startTime ?? null,
+        endTime: endTime ?? null,
         defaulted,
       },
       weeks,

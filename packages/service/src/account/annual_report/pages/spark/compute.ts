@@ -1,5 +1,5 @@
 import type { PageAvailability, ReportPageDefinition } from '../../types';
-import { currentReportYear, reportYearUnixRange } from '../../time';
+import { reportCalendarParts, reportCalendarStart, reportYearUnixRange } from '../../time';
 import { dayIndex, longestRun } from '../../day_runs';
 import { segmentWords } from '../../../text_segment';
 import type { C2cMsg } from '@weq/db';
@@ -55,8 +55,7 @@ export const sparkPage: ReportPageDefinition<SparkPageData> = {
      * 月，而不是一整年只剩头几个月的稀疏墙。往年报告与当年 12 月都是
      * 完整自然年，不需要滚动。
      */
-    const thisYear = currentReportYear();
-    const thisMonth = new Date().getMonth() + 1;
+    const { year: thisYear, month: thisMonth } = reportCalendarParts();
     const rolling =
       year === thisYear && thisMonth < 12
         ? { fromYear: year - 1, fromMonth: thisMonth + 1, toYear: year, toMonth: thisMonth }
@@ -64,8 +63,8 @@ export const sparkPage: ReportPageDefinition<SparkPageData> = {
 
     const trailingTallies = rolling
       ? await q.c2c.peerDayTallies(
-          Math.floor(new Date(rolling.fromYear, rolling.fromMonth - 1, 1).getTime() / 1000),
-          Math.floor(new Date(year, 0, 1).getTime() / 1000),
+          Math.floor(reportCalendarStart(rolling.fromYear, rolling.fromMonth).getTime() / 1000),
+          Math.floor(reportCalendarStart(year).getTime() / 1000),
         )
       : [];
 
@@ -161,8 +160,8 @@ export const sparkPage: ReportPageDefinition<SparkPageData> = {
     let topDay: SparkTopDay | null = null;
     if (bestRow) {
       const [topYear, topMonth, topDayOfMonth] = bestRow.date.split('-').map(Number);
-      const from = new Date(topYear!, topMonth! - 1, topDayOfMonth!);
-      const to = new Date(topYear!, topMonth! - 1, topDayOfMonth! + 1);
+      const from = reportCalendarStart(topYear!, topMonth!, topDayOfMonth!);
+      const to = reportCalendarStart(topYear!, topMonth!, topDayOfMonth! + 1);
       const msgs = await q.c2c.peerMessagesInWindow(
         bestRow.peerUid,
         from.getTime() / 1000,

@@ -104,8 +104,14 @@ function combineCache(
     ),
     ...native,
   ];
-  const exact = new Set(enriched.filter((row) => row.msgRandom && row.msgRandom !== '0').map(key));
-  return [...legacy.filter((row) => !exact.has(key(row))), ...enriched];
+  const remoteKeys = new Set([...legacy, ...enriched].filter((row) => !row.localSent).map(key));
+  const exact = new Set(
+    enriched.filter((row) => !row.localSent && row.msgRandom && row.msgRandom !== '0').map(key),
+  );
+  return [
+    ...legacy.filter((row) => !exact.has(key(row))),
+    ...enriched.filter((row) => !row.localSent || !remoteKeys.has(key(row))),
+  ];
 }
 
 export class RoamMsgCacheDb {
@@ -255,6 +261,24 @@ export class RoamMsgCacheDb {
       [msgId],
     );
     return rows.length > 0 ? rowToMessage(rows[0]!) : null;
+  }
+
+  async resolveReplySeq(
+    conv: string,
+    clientSeq: string,
+    senderUin?: string,
+    sendTime?: string,
+  ): Promise<string | null> {
+    await this.ensureSchema();
+    const rows = await this.nt.executeSql(
+      this.dbPath,
+      `SELECT DISTINCT msg_seq FROM ${PROTOCOL_TABLE} WHERE kind='c2c' AND conv=?
+       AND json_extract(payload,'$.clientSeq')=?
+       AND (? IS NULL OR json_extract(payload,'$.senderUin')=?)
+       AND (? IS NULL OR json_extract(payload,'$.sendTime')=?) LIMIT 2`,
+      [conv, clientSeq, senderUin ?? null, senderUin ?? null, sendTime ?? null, sendTime ?? null],
+    );
+    return rows.length === 1 ? String(rows[0]?.[0]) : null;
   }
 
   /** 把拉取到的消息全部写入缓存（幂等：同一 seq 覆盖为最新）。 */

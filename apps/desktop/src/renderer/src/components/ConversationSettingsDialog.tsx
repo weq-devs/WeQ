@@ -1,7 +1,7 @@
 /**
- * 会话设置对话框 —— 会话头部顶栏的设置按钮打开。
+ * 会话设置窗格 —— 在会话头部设置按钮附近原位打开。
  *
- * 比照设置页做成一个大窗口：左侧分类导航 + 右侧内容。
+ * 紧凑窗格保留左侧分类导航与右侧内容。
  *   • 防撤回：把「这个会话」加/移出受保护集，以及是否对它弹撤回通知。写操作是乐观的
  *     （服务层落配置后立刻返回期望状态），点击即生效，不需要 QQ 在线。**两个开关都
  *     依赖「更多 → 防撤回」里的总开关**：总开关没开时这里只提示、不给开（开了也不会
@@ -18,7 +18,8 @@ import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { Card, Row, Toggle } from './settings/controls';
 import { GroupKeywordEditor, type KeywordMember } from './GroupKeywordEditor';
-import { OverlayLayer } from './OverlayLayer';
+import { WindowSurface } from './WindowSurface';
+import '../styles/conversation-settings.css';
 
 /** 通知开关的会话 key（与后端 `notifyKey` 一致）。 */
 function notifyKeyOf(kind: string, id: string): string {
@@ -38,6 +39,7 @@ export function ConversationSettingsDialog({
   title,
   members = [],
   onClose,
+  anchor,
 }: {
   /** 与后端 AntiRecallKind 对齐（数据线单独一张表，不能并到私聊）。 */
   kind: 'c2c' | 'group' | 'dataline';
@@ -48,6 +50,7 @@ export function ConversationSettingsDialog({
   /** 群成员（仅群聊的关键词用）。 */
   members?: KeywordMember[];
   onClose: () => void;
+  anchor?: HTMLElement;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
   const utils = trpc.useUtils();
@@ -108,14 +111,15 @@ export function ConversationSettingsDialog({
   }
 
   return (
-    <OverlayLayer className="modal-scrim group-keyword-scrim" onClose={onClose}>
-      <section
-        className="weq-cvs-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="会话设置"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
+    <WindowSurface
+      mode="anchored"
+      anchor={anchor}
+      width={640}
+      title="会话设置"
+      className="weq-conversation-settings-pane"
+      onClose={onClose}
+    >
+      <section className="weq-cvs-dialog" onMouseDown={(e) => e.stopPropagation()}>
         <button
           className="weq-cvs-close"
           type="button"
@@ -226,6 +230,6 @@ export function ConversationSettingsDialog({
           )}
         </div>
       </section>
-    </OverlayLayer>
+    </WindowSurface>
   );
 }

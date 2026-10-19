@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { Check, FolderOpen, Image, Loader2, X } from 'lucide-react';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
 import { client } from '../../trpc/client';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 import type { GroupAlbumWire } from '../../components/GroupAlbumDialog';
 import { ShimmerImage } from '../../components/ShimmerImage';
 
@@ -67,14 +68,12 @@ export function AlbumExportLightbox({
     };
   }, [groupCode]);
 
-  function toggle(id: string): void {
-    setSelection((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
+  const multi = useMultiSelection({
+    ids: albums.map((album) => album.id),
+    selected: selection,
+    onChange: setSelection,
+    disabled: submitting,
+  });
 
   async function pickPath(): Promise<void> {
     setPicking(true);
@@ -93,6 +92,7 @@ export function AlbumExportLightbox({
     >
       <section
         className="weq-exp-dialog weq-exp-album-dialog"
+        {...multi.rootProps}
         role="dialog"
         aria-modal="true"
         onMouseDown={(e) => e.stopPropagation()}
@@ -169,7 +169,7 @@ export function AlbumExportLightbox({
                   type="button"
                   className={`weq-exp-album-row${selection.has(album.id) ? ' is-on' : ''}`}
                   disabled={submitting}
-                  onClick={() => toggle(album.id)}
+                  {...multi.itemProps(album.id, submitting)}
                 >
                   <AlbumCover album={album} />
                   <span className="weq-exp-row-meta">

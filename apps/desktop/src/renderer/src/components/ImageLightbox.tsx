@@ -33,6 +33,7 @@ import { exportMedia } from '../lib/mediaExport';
 import { OcrTextPanel } from './OcrTextPanel';
 import { useToast } from './Toast';
 import { useZoomPan } from './useZoomPan';
+import { resourceForRenderDocument } from '../lib/renderDocument';
 
 /**
  * 图片的「可 OCR」上下文 —— 只有聊天消息里的图片拿得到（元素里带 `fileToken`）。
@@ -57,7 +58,8 @@ interface LightboxStore {
   src: string | null;
   alt: string;
   ocr: LightboxOcrContext | null;
-  open(src: string, alt?: string, ocr?: LightboxOcrContext | null): void;
+  ownerDocument: Document | null;
+  open(src: string, alt?: string, ocr?: LightboxOcrContext | null, ownerDocument?: Document): void;
   close(): void;
 }
 
@@ -65,22 +67,31 @@ const useLightbox = create<LightboxStore>((set, get) => ({
   src: null,
   alt: '',
   ocr: null,
-  open(src, alt = '', ocr = null) {
-    if (!src || get().src === src) return; // de-dup: same image already open
-    set({ src, alt, ocr });
+  ownerDocument: null,
+  open(src, alt = '', ocr = null, ownerDocument = document) {
+    if (!src || (get().src === src && get().ownerDocument === ownerDocument)) return;
+    set({ src, alt, ocr, ownerDocument });
   },
   close() {
-    set({ src: null, alt: '', ocr: null });
+    set({ src: null, alt: '', ocr: null, ownerDocument: null });
   },
 }));
 
 /** Open the lightbox for `src`. No-op if that exact src is already showing. */
-export function openLightbox(src: string, alt?: string, ocr?: LightboxOcrContext | null): void {
-  useLightbox.getState().open(src, alt, ocr);
+export function openLightbox(
+  src: string,
+  alt?: string,
+  ocr?: LightboxOcrContext | null,
+  ownerDocument?: Document,
+): void {
+  const target = ownerDocument ?? document;
+  useLightbox.getState().open(resourceForRenderDocument(src, target), alt, ocr, target);
 }
 
 /** Mount once. Renders the active large-image overlay, if any. */
 export function ImageLightbox(): ReactElement | null {
+  const document = useLightbox((state) => state.ownerDocument) ?? globalThis.document;
+  const viewport = document.defaultView ?? window;
   const src = useLightbox((s) => s.src);
   const alt = useLightbox((s) => s.alt);
   const ocrContext = useLightbox((s) => s.ocr);
@@ -136,7 +147,7 @@ export function ImageLightbox(): ReactElement | null {
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [src, close]);
+  }, [src, close, document]);
 
   /** 量一下图片渲染尺寸：覆盖层要按它把回包坐标（原图像素）换算成屏幕像素。 */
   const measure = useCallback(() => {
@@ -147,9 +158,13 @@ export function ImageLightbox(): ReactElement | null {
 
   useEffect(() => {
     measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, [measure, src]);
+    viewport.addEventListener('resize', measure);
+    return () => viewport.removeEventListener('resize', measure);
+  }, [measure, src, viewport]);
+  useEffect(() => {
+    viewport.addEventListener('pagehide', close);
+    return () => viewport.removeEventListener('pagehide', close);
+  }, [viewport, close]);
 
   // 滚轮缩放挂在**整块灯箱**上（不只图片那点面积）：以前只有光标正好在图上才缩放，
   // 图占不满屏时四周暗底滚轮毫无反应，用起来像「滚轮坏了」。文字面板与操作条要留给
@@ -266,13 +281,13 @@ export function ImageLightbox(): ReactElement | null {
   }
 
   async function onSave(): Promise<void> {
-    const result = await exportMedia({ url: src ?? '', name: alt }, 'save');
+    const result = await exportMedia({ url: src ?? '', name: alt }, 'save', document);
     if (result.ok || result.canceled) return;
     useToast.getState().push({ tone: 'error', title: '另存为失败', message: result.error });
   }
 
   async function onCopy(): Promise<void> {
-    const result = await exportMedia({ url: src ?? '', name: alt }, 'clipboard');
+    const result = await exportMedia({ url: src ?? '', name: alt }, 'clipboard', document);
     useToast
       .getState()
       .push(

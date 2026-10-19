@@ -13,14 +13,14 @@ import { classifyChatType } from '@weq/codec';
 export type ExportMode =
   | 'full'
   | 'guild'
-  | 'decrypt'
+  | 'generated'
   | 'qzone'
   | 'contacts'
   | 'collection'
+  | 'database'
   | 'scheduled'
   | 'album'
   | 'groupfile'
-  | 'marketpack'
   | 'emojipack';
 
 /** Every output format the 完整消息 / 定时 flows can request. HTML is one of the
@@ -257,6 +257,7 @@ export interface ScheduleRange {
 
 /** Media / content switches baked into a scheduled template. */
 export interface ScheduleOptions {
+  savePolicy?: import('@weq/service').ExportSavePolicy;
   range: ScheduleRange;
   exportMedia: boolean;
   mediaKinds?: MediaKinds;
@@ -285,7 +286,13 @@ export interface ScheduleConversation {
   total: number;
 }
 
-export type ScheduleOutcome = 'completed' | 'partial' | 'failed' | 'skipped' | 'cancelled';
+export type ScheduleOutcome =
+  | 'running'
+  | 'completed'
+  | 'partial'
+  | 'failed'
+  | 'skipped'
+  | 'cancelled';
 
 /** One past fire of a schedule. The renderer shows these in the history line. */
 export interface ScheduleTrigger {

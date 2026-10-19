@@ -44,10 +44,19 @@ import {
   type ReactNode,
 } from 'react';
 import { cn } from '../im-template/template/classNames';
-import { useEscapeToClose } from '../im-template/template/modalUtils';
-import { useOverlayLayer } from '../lib/overlayStack';
+import { OverlayLayerContext, useOverlayLayer } from '../lib/overlayStack';
+import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor';
+import { useSurfaceEscape } from '../lib/surfaceEscape';
+import { WorkspacePage } from './WorkspacePages';
+import { useTabActive } from './RetainedTabs';
+import { useRenderDocument } from '../lib/renderDocument';
+import { WindowSurface } from './WindowSurface';
 
 export type OverlayLayerProps = {
+  anchor?: HTMLElement | null;
+  presentation?: 'modal' | 'panel' | 'popover' | 'page' | 'sidecar' | 'floating';
+  width?: number;
+  title?: string;
   /** 是否激活。为假时整层不渲染，也不占层级。 */
   open?: boolean;
   /** 点遮罩空白处 / 按 Esc 时调用。不传则两种关闭都不响应。 */
@@ -66,7 +75,31 @@ export type OverlayLayerProps = {
 };
 
 export function OverlayLayer({ open = true, ...rest }: OverlayLayerProps): ReactElement | null {
-  if (!open) return null;
+  const active = useTabActive();
+  if (!open || !active) return null;
+  if (rest.presentation === 'floating')
+    return (
+      <WindowSurface
+        mode="floating"
+        role="presentation"
+        width={rest.width}
+        title={rest.title}
+        onClose={rest.onClose}
+        className={rest.className}
+      >
+        {rest.children}
+      </WindowSurface>
+    );
+  if (rest.presentation === 'page' || rest.presentation === 'sidecar')
+    return (
+      <WorkspacePage
+        title={rest.title ?? '详情'}
+        onClose={rest.onClose}
+        placement={rest.presentation === 'sidecar' ? 'sidecar' : 'main'}
+      >
+        {rest.children}
+      </WorkspacePage>
+    );
   // 拆成内层组件是为了让「激活期间」的 hook 稳定：内层只在打开时挂载，
   // 于是 `useEscapeToClose` 天然只在打开期间监听，关闭时不会误吞 Esc；
   // `useOverlayLayer(true)` 也随挂载领层、随卸载释放，重开即拿更高的一层。
@@ -79,13 +112,25 @@ function OpenOverlayLayer({
   style,
   role = 'presentation',
   children,
+  presentation = 'modal',
+  anchor,
 }: Omit<OverlayLayerProps, 'open'>): ReactElement {
+  const document = useRenderDocument();
   const layer = useOverlayLayer(true);
+  const ref = useRef<HTMLDivElement>(null);
+  const placement = useOverlayAnchor(
+    ref,
+    true,
+    presentation === 'popover' ||
+      presentation === 'panel' ||
+      (presentation === 'modal' && !!onClose),
+    anchor,
+  );
   // onClose 多半是每次渲染新写的箭头函数；用 ref 稳住，避免每帧重挂 keydown。
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const requestClose = useCallback(() => onCloseRef.current?.(), []);
-  useEscapeToClose(requestClose);
+  useSurfaceEscape(ref, onClose ? requestClose : undefined, true, presentation === 'modal');
 
   const handleScrimMouseDown = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -99,12 +144,27 @@ function OpenOverlayLayer({
 
   return createPortal(
     <div
-      className={cn('weq-overlay-layer', className)}
+      ref={ref}
+      tabIndex={-1}
+      className={cn(
+        'weq-overlay-layer',
+        className,
+        presentation !== 'modal' && 'weq-nonmodal-layer',
+        presentation === 'panel' && 'weq-centered-panel',
+        presentation === 'popover' && 'is-popover',
+        placement.position && 'is-anchored-popover',
+      )}
       role={role}
-      style={{ position: 'fixed', inset: 0, zIndex: layer, ...style }}
+      style={{ position: 'fixed', inset: 0, zIndex: layer, ...style, ...placement.position }}
+      onPointerDownCapture={placement.capture}
+      onClickCapture={placement.capture}
       onMouseDown={handleScrimMouseDown}
     >
-      {children}
+      <OverlayLayerContext.Provider value={layer}>
+        <OverlayAnchorContext.Provider value={placement.trigger}>
+          {children}
+        </OverlayAnchorContext.Provider>
+      </OverlayLayerContext.Provider>
     </div>,
     document.body,
   );

@@ -7,7 +7,7 @@
  *   3. {@link PersonWeekCard} —— 发言人卡片里的周 sparkline。
  *
  * 口径与后端 `analytics_weeks.ts` 一致：**周一是一周的第一天**，所有周序列都按
- * 本地时区对齐。这里只做展示与手势，不查库。
+ * 北京时间对齐。这里只做展示与手势，不查库。
  */
 
 import {
@@ -19,6 +19,7 @@ import {
   type ReactElement,
 } from 'react';
 import { formatNumber } from './analyticsCharts';
+import { beijingDay, daySeconds } from '../lib/messageCalendar';
 
 const DAY_SECONDS = 86400;
 /** 拖动选择的最小跨度：一天。 */
@@ -44,17 +45,12 @@ export interface RangeSelection {
 }
 
 function parseDayKey(key: string): number {
-  const [y, m, d] = key.split('-').map(Number);
-  if (!y || !m || !d) return 0;
-  return Math.floor(new Date(y, m - 1, d, 0, 0, 0, 0).getTime() / 1000);
+  return /^\d{4}-\d{2}-\d{2}$/.test(key) ? daySeconds(key) : 0;
 }
 
 function fmtDate(sec: number): string {
   if (!(sec > 0)) return '—';
-  const d = new Date(sec * 1000);
-  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(
-    d.getDate(),
-  ).padStart(2, '0')}`;
+  return beijingDay(new Date(sec * 1000)).replaceAll('-', '.');
 }
 
 function clamp(value: number, min: number, max: number): number {

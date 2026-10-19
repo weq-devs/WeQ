@@ -257,6 +257,8 @@ export interface MfNodeSeg {
   nickname: string;
   time: number;
   segs: MfSeg[];
+  sourceCompositionId?: string;
+  decoration?: MfDecoration;
 }
 
 export type MfSeg =
@@ -316,6 +318,7 @@ export interface MfNode {
   decoration?: MfDecoration;
   /** 来源消息 msgId（从真实消息带入时存在）。 */
   sourceMsgId?: string;
+  sourceCompositionId?: string;
 }
 
 /** 一份「合成聊天记录」草稿。 */
@@ -1078,10 +1081,12 @@ export function nestedSegsToSendNodes(segs: MfSeg[]): SendForwardNodeInput[] {
     if (!seg.segs.some(segHasContent)) continue;
     const uin = Number(seg.userUin) || 0;
     const inner = isNestedContent(seg.segs) ? nestedSegsToSendNodes(seg.segs) : undefined;
+    const dress = decorationToDress(seg.decoration);
     nodes.push({
       ...(uin > 0 ? { userUin: uin } : {}),
       ...(seg.nickname ? { nickname: seg.nickname } : {}),
       ...(seg.time ? { time: seg.time } : {}),
+      ...(dress ? { dress } : {}),
       elements: inner ? [] : segsToSendElements(seg.segs),
       ...(inner ? { innerForward: inner } : {}),
     });
@@ -1864,6 +1869,7 @@ export function coerceDraft(raw: {
     time: number;
     decoration?: MfDecoration;
     sourceMsgId?: string;
+    sourceCompositionId?: string;
   }>;
 }): MfDraft {
   return {
@@ -1872,7 +1878,12 @@ export function coerceDraft(raw: {
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,
     nodes: raw.nodes.map((node) => {
-      const fromSegs = Array.isArray(node.segs) ? (node.segs as MfSeg[]) : null;
+      const fromSegs = Array.isArray(node.segs)
+        ? node.segs.flatMap((segment) => {
+            if (segment && typeof segment === 'object' && 't' in segment) return [segment as MfSeg];
+            return renderElementsToSegs([segment as MfElement]);
+          })
+        : null;
       const segs = fromSegs ?? renderElementsToSegs((node.elements ?? []) as MfElement[]);
       return {
         id: node.id,
@@ -1881,6 +1892,7 @@ export function coerceDraft(raw: {
         time: node.time,
         ...(node.decoration ? { decoration: node.decoration } : {}),
         ...(node.sourceMsgId ? { sourceMsgId: node.sourceMsgId } : {}),
+        ...(node.sourceCompositionId ? { sourceCompositionId: node.sourceCompositionId } : {}),
       };
     }),
   };

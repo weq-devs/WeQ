@@ -1,0 +1,90 @@
+.weq-search-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-search-scope label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  cursor: pointer;
+}
+
+.weq-search-scope input {
+  margin: 0;
+  accent-color: var(--weq-accent-effective);
+}
+
+.weq-search-failure {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+}
+
+.weq-search-failure button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-accent-effective);
+  cursor: pointer;
+}
+
+.weq-search-failure button:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-search-source-icon {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-search-dropdown .weq-search-hl,
+.weq-search-dropdown .weq-search-strong,
+.weq-search-more-modal .weq-search-hl,
+.weq-search-more-modal .weq-search-strong,
+html[data-theme="dark"] .weq-search-dropdown .weq-search-hl,
+html[data-theme="dark"] .weq-search-dropdown .weq-search-strong,
+html[data-theme="dark"] .weq-search-more-modal .weq-search-hl,
+html[data-theme="dark"] .weq-search-more-modal .weq-search-strong {
+  color: var(--weq-accent-effective);
+}
+
+html[data-theme="dark"] .weq-search-scope,
+html[data-theme="dark"] .weq-search-failure button {
+  border-color: var(--weq-border-strong);
+}
+.weq-search-section .weq-search-index-hint,
+.weq-search-more-modal > .weq-search-index-hint {
+  margin: 0;
+  padding: 2px 12px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+.weq-search-dropdown > .weq-search-index-hint {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  color: var(--weq-fg-muted);
+}
+.weq-search-dropdown .weq-search-row:hover,
+.weq-search-more-modal .weq-search-row:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+html[data-theme="dark"] .weq-search-dropdown .weq-search-row:hover,
+html[data-theme="dark"] .weq-search-more-modal .weq-search-row:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+.weq-search-refresh { margin-left: auto; margin-right: 8px; }

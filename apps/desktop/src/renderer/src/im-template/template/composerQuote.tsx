@@ -4,10 +4,8 @@
  * 编成 `reply` 元素跟着正文一起发出去。
  *
  * 只描述**前端待发送的引用**，不碰协议：
- *   - 引用条上的昵称 / 摘要只是给人看的，不进 wire；
- *   - 真正送出去的只有 `{ kind: 'reply', origMsgSeq, origSenderUin, origMsgTime }`
- *     —— 与 `@weq/service` 的 `buildTextElements`（replyToMsgSeq 那一路）完全同形，
- *     所以走草稿里既有的「元素 token」通路即可。
+ *   - 昵称留在本地；摘要元素随引用指针一起发送，让接收端也能显示被引用内容；
+ *   - origMsgIndex 只给本地预览跳转使用，协议编码器不会把它写进 wire。
  *
  * **`origMsgSeq` 填哪个号，群聊和私聊不是一回事**（2026-10-17 真机对账）：
  *   - 群聊：群内 seq（列 40003）—— 群消息的 `contentHead.sequence` 就是群内 seq；
@@ -17,10 +15,9 @@
  *     只会显示一个定位不到原消息的引用框。
  * 所以 {@link composerQuoteElement} 优先用 `clientSeq`，没有（群聊 / 老数据）才退回 `msgSeq`。
  *
- * **允许嵌套引用**（引用的消息自己也是引用）：回复元素只带引用指针（seq / uin / 时间），
- * 不带被引消息的元素清单，所以「排除原消息引用的那个元素」天然成立 —— 原消息自带的
- * reply 元素永远不会被带到新引用里。摘要那一路同理：{@link quotePreview} 会把原消息自己的
- * reply 元素跳掉，不把上一层的引用带进引用条（见 {@link withoutReplyElements}）。
+ * **允许嵌套引用**（引用的消息自己也是引用）：发送摘要时过滤原消息的 reply 元素，
+ * 不把上一层引用再发一遍。{@link quotePreview} 同样跳过 reply，不把上一层引用
+ * 带进引用条（见 {@link withoutReplyElements}）。
  *
  * 唯一不给引的是**系统灰条**（拍一拍 / 撤回 / 群通知…）—— 它们本来就没有可引的内容。
  *
@@ -33,6 +30,7 @@ import type { RefObject } from 'react';
 import { cn } from './classNames';
 import { elementToToken } from './draftElements';
 import type { Message } from './types';
+import { toReplyOrigElements } from '../../components/compose/composeModel';
 
 /** 引用条 + 待发送的引用。 */
 export type ComposerQuote = {
@@ -47,9 +45,10 @@ export type ComposerQuote = {
   senderUin?: number;
   /** 被引用消息的发送时间（unix 秒，可选）。 */
   msgTime?: number;
-  /** 以下三项只用于输入框上方的引用条展示，不进 wire。 */
+  /** 引用条昵称仅在本地展示；preview 用于缺少元素时的 wire 摘要。 */
   senderName: string;
   preview: string;
+  origElements?: Record<string, unknown>[];
 };
 
 /** 系统灰条等「没有可引内容」的元素 kind 前缀 / 名单。 */
@@ -153,20 +152,27 @@ export function quoteFromMessage(message: Message): ComposerQuote | null {
     ...(Number.isFinite(seconds) && seconds > 0 ? { msgTime: seconds } : {}),
     senderName: String(message.sender?.displayName ?? '').trim(),
     preview: quotePreview(message),
+    // 引用里的 @ 仅作摘要，不另发提及通知；缺 UIN 的 @ 也不会被收侧当重复项丢掉。
+    origElements: toReplyOrigElements(messageElements(message)).map((element) =>
+      element.kind === 'at' ? { kind: 'text', textContent: element.textContent } : element,
+    ),
   };
 }
 
 /**
  * 待发送的引用 → wire 元素（与 service 的 buildTextElements 同形）。
  *
- * 只带引用指针，**不带被引消息的元素清单**：所以引用一条「自己也是引用」的消息时，
- * 那条消息里的 reply 元素不会跟着到新引用里（嵌套引用只需要排除这一个元素）。
+ * 摘要复用本地消息编辑器的转换规则，排除原消息自己的 reply 元素。
  */
 export function composerQuoteElement(quote: ComposerQuote): Record<string, unknown> {
   return {
     kind: 'reply',
     // 私聊发 client sequence，群聊发群内 seq —— 见文件头「填哪个号」那一段。
     origMsgSeq: quote.clientSeq && quote.clientSeq > 0 ? quote.clientSeq : quote.msgSeq,
+    origMsgIndex: quote.msgSeq,
+    origElements: quote.origElements?.length
+      ? quote.origElements
+      : [{ kind: 'text', textContent: quote.preview }],
     ...(quote.senderUin !== undefined ? { origSenderUin: quote.senderUin } : {}),
     ...(quote.msgTime !== undefined ? { origMsgTime: quote.msgTime } : {}),
   };

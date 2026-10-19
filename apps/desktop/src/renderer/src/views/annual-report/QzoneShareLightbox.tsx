@@ -17,6 +17,7 @@
  */
 
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { createPortal } from 'react-dom';
 import { Check, Earth, Lock, Users, X } from 'lucide-react';
 import { client } from '../../trpc/client';
@@ -24,6 +25,7 @@ import { useToast } from '../../components/Toast';
 import { useSelfFace } from './useSelfFace';
 import { useReportView } from './reportContext';
 import type { ExportSlide } from './exportHtml';
+import { useOverlayLayer } from '../../lib/overlayStack';
 
 /** 说说一次最多带 9 张图（Qzone 服务端限制）。 */
 const QZONE_MAX_IMAGES = 9;
@@ -74,6 +76,7 @@ export function QzoneShareLightbox({
   onClose: () => void;
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
+  const layer = useOverlayLayer(true);
   const updateToast = useToast((s) => s.update);
   const selfFace = useSelfFace();
   const { overlayHostRef } = useReportView();
@@ -99,6 +102,12 @@ export function QzoneShareLightbox({
   const [ugcRight, setUgcRight] = useState<UgcRight>(1);
   const overLimit = selected.size > QZONE_MAX_IMAGES;
   const canSubmit = selected.size > 0 && content.trim().length > 0 && !overLimit;
+  const selection = useMultiSelection({
+    ids: slides.map((_, index) => index),
+    selected,
+    onChange: setSelected,
+    onExit: onClose,
+  });
 
   /**
    * 灯箱开着时挡掉报告的翻页手势：滚轮 / 触摸 / 键盘都会先被这里吃掉，底下的
@@ -109,31 +118,13 @@ export function QzoneShareLightbox({
    */
   useEffect(() => {
     const stop = (event: Event): void => event.stopPropagation();
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        onClose();
-        return;
-      }
-      event.stopPropagation();
-    };
     window.addEventListener('wheel', stop, { capture: true });
     window.addEventListener('touchmove', stop, { capture: true });
-    window.addEventListener('keydown', onKey, { capture: true });
     return () => {
       window.removeEventListener('wheel', stop, { capture: true });
       window.removeEventListener('touchmove', stop, { capture: true });
-      window.removeEventListener('keydown', onKey, { capture: true });
     };
   }, [onClose]);
-
-  function toggle(index: number): void {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
-      return next;
-    });
-  }
 
   /**
    * 发送顺序 = 报告页顺序中已勾选的那些。九宫格预览用它让用户不用猜
@@ -206,12 +197,21 @@ export function QzoneShareLightbox({
   return createPortal(
     <div
       className="weq-qzshare-scrim"
+      style={{ zIndex: layer }}
       role="dialog"
       aria-modal="true"
       aria-label="分享到 QQ 空间"
       onClick={onClose}
     >
-      <div className="weq-qzshare-card" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="weq-qzshare-card"
+        {...selection.rootProps}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(event) => {
+          selection.rootProps.onKeyDown(event);
+          event.stopPropagation();
+        }}
+      >
         <header className="weq-qzshare-head">
           <div className="weq-qzshare-title">
             <span className="weq-qzshare-title-main">分享到 QQ 空间</span>
@@ -233,7 +233,7 @@ export function QzoneShareLightbox({
                   type="button"
                   className={`weq-qzshare-page${checked ? ' is-checked' : ''}`}
                   aria-pressed={checked}
-                  onClick={() => toggle(i)}
+                  {...selection.itemProps(i)}
                 >
                   <span className="weq-qzshare-page-check" aria-hidden>
                     {checked ? <Check size={12} strokeWidth={3} /> : null}

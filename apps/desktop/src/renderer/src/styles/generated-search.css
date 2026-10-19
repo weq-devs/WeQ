@@ -1,0 +1,22 @@
+.weq-generated-message {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.weq-generated-message.is-search-hit {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  border-radius: 4px;
+  scroll-margin-block: 16px;
+}
+
+.weq-generated-search-notice {
+  padding: 8px 12px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+html[data-theme="dark"] .weq-generated-message.is-search-hit {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}

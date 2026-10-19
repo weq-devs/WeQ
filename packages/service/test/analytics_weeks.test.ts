@@ -58,8 +58,20 @@ describe('analytics_weeks', () => {
     expect(seriesForWeeks(['2026-10-12', '2026-10-19', '2026-10-26'], counts)).toEqual([5, 0, 2]);
   });
 
-  it('localDateKey 使用本地日期而不是 UTC', () => {
-    const date = new Date(2026, 0, 2, 23, 30);
+  it('localDateKey 固定使用北京时间而不是主机时区', () => {
+    const date = new Date('2026-01-02T23:30:00+08:00');
     expect(localDateKey(date)).toBe('2026-01-02');
+  });
+
+  it('北京时间跨周时，日键、周键和周序列采用同一边界', () => {
+    const before = new Date('2026-10-18T15:59:59Z');
+    const after = new Date('2026-10-18T16:00:00Z');
+    expect(localDateKey(after)).toBe('2026-10-19');
+    expect(weekStartKey(before)).toBe('2026-10-12');
+    expect(weekStartKey(after)).toBe('2026-10-19');
+    expect(buildWeekKeys(before.getTime() / 1000, after.getTime() / 1000)).toEqual([
+      '2026-10-12',
+      '2026-10-19',
+    ]);
   });
 });

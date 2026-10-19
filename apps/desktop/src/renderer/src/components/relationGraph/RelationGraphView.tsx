@@ -20,6 +20,7 @@ import {
 import { trpc, client } from '../../trpc/client';
 import { GraphCanvas } from './GraphCanvas';
 import { OverlayLayer } from '../OverlayLayer';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { buildGraph, communityColor, personAvatar, groupAvatar } from './graphModel';
 import { RankingModal, type RankingKind } from './RankingModal';
 import type { GraphMode, GraphSettings, GroupFilterMode, RelationGraphData } from './types';
@@ -315,14 +316,12 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
 
   const allSelected = filtered.length > 0 && filtered.every((g) => draft.has(g.code));
 
-  function toggle(code: string) {
-    setDraft((cur) => {
-      const next = new Set(cur);
-      if (next.has(code)) next.delete(code);
-      else next.add(code);
-      return next;
-    });
-  }
+  const multi = useMultiSelection({
+    ids: filtered.map((group) => group.code),
+    selected: draft,
+    onChange: setDraft,
+    onExit: onClose,
+  });
 
   function toggleAll() {
     setDraft((cur) => {
@@ -340,7 +339,7 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
 
   return (
     <OverlayLayer className="modal-scrim weq-graph-modal-scrim" onClose={onClose}>
-      <section className="weq-grouppick" role="dialog" aria-modal="true">
+      <section className="weq-grouppick" role="dialog" aria-modal="true" {...multi.rootProps}>
         <header className="weq-grouppick-head">
           <div>
             <strong>{title}</strong>
@@ -386,7 +385,7 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
                   key={g.code}
                   type="button"
                   className={`weq-grouppick-row${checked ? ' is-on' : ''}`}
-                  onClick={() => toggle(g.code)}
+                  {...multi.itemProps(g.code)}
                 >
                   <span className="weq-grouppick-avatar">
                     {avatar ? (

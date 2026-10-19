@@ -76,7 +76,21 @@ export interface ContactsExportDeps {
 }
 
 /** 联系人导出格式。 */
-export type ContactsFormat = 'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt' | 'vcard';
+const CONTACT_FORMATS = ['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard'] as const;
+export type ContactsFormat = (typeof CONTACT_FORMATS)[number];
+
+export function normaliseContactsFormats(
+  formats: readonly string[],
+  group: boolean,
+): ContactsFormat[] {
+  const result = new Set<ContactsFormat>();
+  for (const format of formats) {
+    if (!(CONTACT_FORMATS as readonly string[]).includes(format))
+      throw new Error(`联系人导出不支持 ${format} 格式。`);
+    result.add(group && format === 'vcard' ? 'csv' : (format as ContactsFormat));
+  }
+  return [...result];
+}
 
 export interface ContactsExportResult {
   filePath: string;
@@ -104,12 +118,21 @@ function birthdayText(y: number, m: number, d: number): string {
   return `${y || 0}-${p(m || 0)}-${p(d || 0)}`;
 }
 
-/** 秒级时间戳 → `YYYY-MM-DD HH:mm`（0/空留空）。 */
+const CONTACT_TIME = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+/** 秒级时间戳按北京时间显示；超出日期范围的值原样保留，不伪造日期。 */
 function timeText(sec: number): string {
   if (!sec) return '';
   const date = new Date(sec * 1000);
-  const p = (n: number): string => n.toString().padStart(2, '0');
-  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())} ${p(date.getHours())}:${p(date.getMinutes())}`;
+  return Number.isFinite(date.getTime()) ? CONTACT_TIME.format(date) : String(sec);
 }
 
 /** 特权 bizId → 名称（同资料卡片；未知 id 退化成「特权 N」）。 */
@@ -213,10 +236,25 @@ export interface ExportFriendsOpts {
   outputPath: string;
   /** 只导出这些分组 id（空 / 省略 = 全部好友）。 */
   categoryIds?: number[];
+  /** 精确好友身份；省略表示按条件，空集合仅表示零条。 */
+  uids?: string[];
   /** 出现过的好友 uin（供头像阶段下载），传入则填充。 */
   collectUins?: Set<string>;
   onProgress?: (current: number, total: number, note: string) => void;
   signal?: AbortSignal;
+}
+
+function exactContacts<T extends { uid: string }>(
+  rows: T[],
+  uids: readonly string[] | undefined,
+): T[] {
+  if (uids === undefined) return rows;
+  const wanted = new Set(uids);
+  const selected = rows.filter((row) => wanted.has(row.uid));
+  const present = new Set(selected.map((row) => row.uid));
+  if ([...wanted].some((uid) => !present.has(uid)))
+    throw new Error('部分选中的联系人已不在当前本地列表中，请刷新后重试。');
+  return selected;
 }
 
 /** 拉全好友列表（翻页）。 */
@@ -234,17 +272,20 @@ async function fetchAllBuddies(
   return all;
 }
 
-/** 导出好友列表。 */
-export async function exportFriends(
-  opts: ExportFriendsOpts,
+/** 读取一次好友快照，供同一任务的多种格式共用。 */
+export async function collectFriends(
+  opts: Omit<ExportFriendsOpts, 'format' | 'outputPath'>,
   deps: ContactsExportDeps,
-): Promise<ContactsExportResult> {
+): Promise<FriendRow[]> {
+  opts.signal?.throwIfAborted();
   opts.onProgress?.(0, 0, '拉取好友…');
   let buddies = await fetchAllBuddies(deps, opts.signal);
+  opts.signal?.throwIfAborted();
   if (opts.categoryIds && opts.categoryIds.length > 0) {
     const wanted = new Set(opts.categoryIds);
     buddies = buddies.filter((b) => wanted.has(b.categoryId));
   }
+  buddies = exactContacts(buddies, opts.uids);
 
   const categories = await deps.listCategories();
   const categoryName = new Map(categories.map((c) => [c.id, c.name]));
@@ -302,12 +343,30 @@ export async function exportFriends(
   });
 
   opts.onProgress?.(rows.length, rows.length, `${rows.length} 位好友`);
+  opts.signal?.throwIfAborted();
+  return rows;
+}
 
-  if (opts.format === 'vcard') {
-    await writeFriendsVcard(rows, opts.outputPath);
+export async function writeFriends(
+  rows: FriendRow[],
+  format: ContactsFormat,
+  outputPath: string,
+): Promise<void> {
+  if (format === 'vcard') {
+    await writeFriendsVcard(rows, outputPath);
   } else {
-    await writeTable(opts.format, FRIEND_COLS, rows, opts.outputPath, '好友');
+    await writeTable(format, FRIEND_COLS, rows, outputPath, '好友');
   }
+}
+
+/** 单格式调用保留原有接口。 */
+export async function exportFriends(
+  opts: ExportFriendsOpts,
+  deps: ContactsExportDeps,
+): Promise<ContactsExportResult> {
+  const rows = await collectFriends(opts, deps);
+  opts.signal?.throwIfAborted();
+  await writeFriends(rows, opts.format, opts.outputPath);
   return { filePath: opts.outputPath, count: rows.length };
 }
 
@@ -374,16 +433,17 @@ export interface ExportGroupMembersOpts {
   groupCode: string;
   format: Exclude<ContactsFormat, 'vcard'>;
   outputPath: string;
+  uids?: string[];
   collectUins?: Set<string>;
   onProgress?: (current: number, total: number, note: string) => void;
   signal?: AbortSignal;
 }
 
-/** 导出某群的成员列表。 */
-export async function exportGroupMembers(
-  opts: ExportGroupMembersOpts,
+export async function collectGroupMembers(
+  opts: Omit<ExportGroupMembersOpts, 'format' | 'outputPath'>,
   deps: ContactsExportDeps,
-): Promise<ContactsExportResult> {
+): Promise<MemberRow[]> {
+  opts.signal?.throwIfAborted();
   opts.onProgress?.(0, 0, '拉取群成员…');
   const members: Awaited<ReturnType<ContactsExportDeps['listGroupMembers']>> = [];
   for (let page = 0; page < MAX_PAGES; page++) {
@@ -394,9 +454,13 @@ export async function exportGroupMembers(
     if (batch.length < MEMBER_PAGE) break;
   }
 
-  const ownerUid = await deps.groupOwnerUid(opts.groupCode).catch(() => null);
+  opts.signal?.throwIfAborted();
+  const selected = exactContacts(members, opts.uids);
+  const ownerUid = selected.length
+    ? await deps.groupOwnerUid(opts.groupCode).catch(() => null)
+    : null;
 
-  const rows: MemberRow[] = members.map((m) => {
+  const rows: MemberRow[] = selected.map((m) => {
     opts.collectUins?.add(m.uin);
     const role = m.uid && m.uid === ownerUid ? '群主' : m.adminFlag ? '管理员' : '成员';
     return {
@@ -413,6 +477,24 @@ export async function exportGroupMembers(
   });
 
   opts.onProgress?.(rows.length, rows.length, `${rows.length} 位成员`);
-  await writeTable(opts.format, MEMBER_COLS, rows, opts.outputPath, '群成员');
+  opts.signal?.throwIfAborted();
+  return rows;
+}
+
+export async function writeGroupMembers(
+  rows: MemberRow[],
+  format: Exclude<ContactsFormat, 'vcard'>,
+  outputPath: string,
+): Promise<void> {
+  await writeTable(format, MEMBER_COLS, rows, outputPath, '群成员');
+}
+
+export async function exportGroupMembers(
+  opts: ExportGroupMembersOpts,
+  deps: ContactsExportDeps,
+): Promise<ContactsExportResult> {
+  const rows = await collectGroupMembers(opts, deps);
+  opts.signal?.throwIfAborted();
+  await writeGroupMembers(rows, opts.format, opts.outputPath);
   return { filePath: opts.outputPath, count: rows.length };
 }

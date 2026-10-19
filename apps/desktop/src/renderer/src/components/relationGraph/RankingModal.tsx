@@ -68,8 +68,12 @@ export function RankingModal({
   const subtitle = kind === 'memberLevel' && group ? group.name || group.code : meta.sub;
 
   return (
-    <OverlayLayer className="modal-scrim weq-graph-modal-scrim" onClose={onClose}>
-      <section className="weq-rank" role="dialog" aria-modal="true">
+    <OverlayLayer
+      presentation="panel"
+      className="modal-scrim weq-graph-modal-scrim"
+      onClose={onClose}
+    >
+      <section className="weq-rank" role="dialog">
         <header className="weq-rank-head">
           <span className="weq-rank-head-icon">{meta.icon}</span>
           <div className="weq-rank-head-text">

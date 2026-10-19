@@ -133,6 +133,7 @@ export function JoinGroupDialog(): ReactElement | null {
 
   return (
     <Modal
+      presentation="popover"
       labelledBy="weq-join-group-title"
       width="min(22rem, calc(100vw - 3rem))"
       onClose={() => void dismissForever()}

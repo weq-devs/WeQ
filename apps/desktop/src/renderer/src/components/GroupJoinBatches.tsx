@@ -63,22 +63,23 @@ function avatarUrlOf(uin: string | undefined | null): string | null {
 /** 时刻 → `03/12 14:05`（跨年时补上年份）。 */
 function momentText(ts: number, withYear = false): string {
   if (!ts) return '未知';
-  const d = new Date(ts * 1000);
-  const md = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
-  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  return withYear ? `${d.getFullYear()}/${md} ${hm}` : `${md} ${hm}`;
+  const d = new Date((ts + 8 * 3600) * 1000);
+  if (!Number.isFinite(d.getTime())) return '未知';
+  const md = `${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}`;
+  const hm = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  return withYear ? `${d.getUTCFullYear()}/${md} ${hm}` : `${md} ${hm}`;
 }
 
 /** 批次的入群区间 → `03/12 14:05 — 15:40`（跨天 / 跨年各有说法）。 */
 function rangeText(start: number, end: number): string {
-  const a = new Date(start * 1000);
-  const b = new Date(end * 1000);
+  const a = new Date((start + 8 * 3600) * 1000);
+  const b = new Date((end + 8 * 3600) * 1000);
   const sameDay =
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate();
+    a.getUTCFullYear() === b.getUTCFullYear() &&
+    a.getUTCMonth() === b.getUTCMonth() &&
+    a.getUTCDate() === b.getUTCDate();
   if (sameDay) return `${momentText(start)} — ${momentText(end).slice(-5)}`;
-  if (a.getFullYear() === b.getFullYear()) {
+  if (a.getUTCFullYear() === b.getUTCFullYear()) {
     return `${momentText(start)} — ${momentText(end)}`;
   }
   return `${momentText(start, true)} — ${momentText(end, true)}`;
@@ -153,8 +154,8 @@ function BatchTimeline({ report }: { report: JoinBatchReport }) {
   const ticks: Array<{ p: number; label: string }> = [];
   for (let i = 0; i <= 4; i++) {
     const p = (i / 4) * 100;
-    const d = new Date((from + (span * i) / 4) * 1000);
-    const label = `${d.getFullYear()}/${d.getMonth() + 1}`;
+    const d = new Date((from + (span * i) / 4 + 8 * 3600) * 1000);
+    const label = `${d.getUTCFullYear()}/${d.getUTCMonth() + 1}`;
     if (ticks.length === 0 || ticks[ticks.length - 1]!.label !== label) ticks.push({ p, label });
   }
 

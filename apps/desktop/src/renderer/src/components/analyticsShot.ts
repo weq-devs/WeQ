@@ -26,6 +26,10 @@ function bridge(): ExportBridge | undefined {
   return (window as { weq?: { analyticsShot?: ExportBridge } }).weq?.analyticsShot;
 }
 
+export function canExportAnalyticsCard(): boolean {
+  return typeof bridge()?.render === 'function';
+}
+
 /**
  * 交给主进程去渲染 + 抓图 + 保存。返回 `{ saved }` / `{ canceled }` / `{ error }`，
  * 调用方只管弹提示，不需要知道中间发生了什么。

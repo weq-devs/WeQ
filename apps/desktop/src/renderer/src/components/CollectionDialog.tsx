@@ -26,6 +26,7 @@ import {
   Layers,
   Link2,
   Loader2,
+  ListChecks,
   MapPin,
   Music,
   Play,
@@ -42,6 +43,9 @@ import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalU
 import { CollectionContent, collectionContentText } from './CollectionContent';
 import { IS_WEB } from '../lib/target';
 import { CollectionExportDialog } from '../views/export/CollectionExportDialog';
+import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
+import { useContentMultiSelect } from '../state/contentSelection';
+import '../styles/collection-search.css';
 
 interface PicWire {
   uri: string;
@@ -490,13 +494,27 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
 function CollectionCard({
   it,
   onOpen,
+  selected,
+  selecting,
+  selectionProps,
 }: {
   it: CollectionItemWire;
   onOpen: (item: CollectionItemWire) => void;
+  selected?: boolean;
+  selecting?: boolean;
+  selectionProps: MultiSelectionItemProps;
 }): ReactElement {
   return (
-    <article className="weq-col-card">
+    <article className="weq-col-card" {...selectionProps}>
       <header className="weq-col-card-head">
+        {selecting ? (
+          <input
+            type="checkbox"
+            aria-label={`选择收藏 ${it.cid}`}
+            checked={selected ?? false}
+            readOnly
+          />
+        ) : null}
         <QqAvatar uin={it.authorUin || undefined} size={26} className="weq-col-avatar" />
         <span className="weq-col-card-who">
           <span className="weq-col-card-name">{it.authorName || '未知'}</span>
@@ -524,11 +542,16 @@ function CollectionCard({
 export function CollectionDialog({
   open,
   onClose,
+  embedded = false,
+  searchTarget,
 }: {
   open: boolean;
   onClose: () => void;
+  embedded?: boolean;
+  searchTarget?: { cid: string; revision: number } | null;
 }): ReactElement | null {
   const [items, setItems] = useState<CollectionItemWire[]>([]);
+  const multiSelect = useContentMultiSelect({ kind: 'collections', container: 'all' });
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -538,6 +561,37 @@ export function CollectionDialog({
   const [page, setPage] = useState(0);
   const [reload, setReload] = useState(0);
   const [selected, setSelected] = useState<CollectionItemWire | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchRetry, setSearchRetry] = useState(0);
+  const [searchLoading, setSearchLoading] = useState(false);
+  useEffect(() => {
+    if (!open || !searchTarget) return;
+    let active = true;
+    setSearchError(null);
+    setSelected(null);
+    setSearchLoading(true);
+    void client.account.localCollectionItem
+      .query({ cid: searchTarget.cid })
+      .then(
+        (item) => {
+          if (!active) return;
+          if (!item) {
+            setSearchError('这条收藏已不在当前账号的本地缓存中。');
+            return;
+          }
+          setSelected(item);
+        },
+        () => {
+          if (active) setSearchError('读取收藏失败，请重试。');
+        },
+      )
+      .finally(() => {
+        if (active) setSearchLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, searchTarget, searchRetry]);
   const [exportSelection, setExportSelection] = useState<{ cids?: string[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -553,6 +607,7 @@ export function CollectionDialog({
   const selectedContentStatus = useRef<CollectionItemWire['contentStatus']>(undefined);
   selectedContentStatus.current = selected?.contentStatus;
   useEscapeToClose(() => {
+    if (embedded) return;
     if (exportSelection) return;
     if (selected) setSelected(null);
     else onClose();
@@ -851,20 +906,55 @@ export function CollectionDialog({
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
   const pageItems = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const selection = useMultiSelection({
+    ids: filtered.map((item) => item.cid),
+    selected: multiSelect.selectedIds,
+    onChange: multiSelect.setSelectedIds,
+    enabled: multiSelect.selectionMode,
+    onStart: () => multiSelect.setSelectionMode(true),
+    onExit: () => multiSelect.setSelectionMode(false),
+  });
+  useEffect(() => {
+    if (!selection.focusRequest) return;
+    const index = filtered.findIndex((item) => item.cid === selection.focusRequest!.id);
+    if (index >= 0) setPage(Math.floor(index / PAGE_SIZE));
+  }, [selection.focusRequest, filtered]);
 
   if (!open) return null;
 
   return (
-    <div className="weq-collection-layer" role="presentation" onMouseDown={closeFromScrim(onClose)}>
+    <div
+      className={embedded ? 'weq-content-collection' : 'weq-collection-layer'}
+      role="presentation"
+      onMouseDown={embedded ? undefined : closeFromScrim(onClose)}
+    >
       <div
         className="weq-collection-dialog"
-        role="dialog"
-        aria-modal="true"
+        role={embedded ? 'region' : 'dialog'}
+        aria-modal={embedded ? undefined : true}
         aria-labelledby="weq-collection-title"
+        {...selection.rootProps}
       >
-        <button className="weq-collection-close" onClick={onClose} title="关闭" type="button">
-          <X size={18} strokeWidth={2} />
-        </button>
+        {searchLoading || searchError ? (
+          <div className="weq-col-search-status" role="status">
+            <span>{searchLoading ? '正在定位收藏…' : searchError}</span>
+            {searchError ? (
+              <button
+                type="button"
+                title="重试定位收藏"
+                aria-label="重试定位收藏"
+                onClick={() => setSearchRetry((value) => value + 1)}
+              >
+                <RefreshCw size={14} />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {!embedded ? (
+          <button className="weq-collection-close" onClick={onClose} title="关闭" type="button">
+            <X size={18} strokeWidth={2} />
+          </button>
+        ) : null}
         <header className="weq-collection-head">
           <div className="weq-collection-title-row">
             {selected ? (
@@ -879,24 +969,51 @@ export function CollectionDialog({
             ) : null}
             <Bookmark size={18} strokeWidth={1.9} />
             <h2 id="weq-collection-title">{selected ? '收藏详情' : '我的收藏'}</h2>
-            <button
-              type="button"
-              className="weq-col-detail-back"
-              title={selected ? '导出当前收藏' : '导出收藏'}
-              aria-label={selected ? '导出当前收藏' : '导出收藏'}
-              disabled={loading || (Boolean(query || kind !== 'all') && !filtered.length)}
-              onClick={() =>
-                setExportSelection(
-                  selected
-                    ? { cids: [selected.cid] }
-                    : query || kind !== 'all'
-                      ? { cids: filtered.map((item) => item.cid) }
-                      : {},
-                )
-              }
-            >
-              <Download size={17} />
-            </button>
+            {!selected ? (
+              <button
+                type="button"
+                className="weq-col-detail-back"
+                title={multiSelect.selectionMode ? '退出多选' : '多选收藏'}
+                aria-label={multiSelect.selectionMode ? '退出多选' : '多选收藏'}
+                aria-pressed={multiSelect.selectionMode}
+                onClick={() => multiSelect.setSelectionMode(!multiSelect.selectionMode)}
+              >
+                <ListChecks size={17} />
+              </button>
+            ) : null}
+            {multiSelect.selectionMode && !selected ? (
+              <>
+                <span>已选 {multiSelect.selectedIds.size} 条收藏</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    multiSelect.setSelectedIds(new Set(filtered.map((item) => item.cid)))
+                  }
+                >
+                  全选筛选结果
+                </button>
+              </>
+            ) : null}
+            {!embedded ? (
+              <button
+                type="button"
+                className="weq-col-detail-back"
+                title={selected ? '导出当前收藏' : '导出收藏'}
+                aria-label={selected ? '导出当前收藏' : '导出收藏'}
+                disabled={loading || (Boolean(query || kind !== 'all') && !filtered.length)}
+                onClick={() =>
+                  setExportSelection(
+                    selected
+                      ? { cids: [selected.cid] }
+                      : query || kind !== 'all'
+                        ? { cids: filtered.map((item) => item.cid) }
+                        : {},
+                  )
+                }
+              >
+                <Download size={17} />
+              </button>
+            ) : null}
             {loaded && !selected ? (
               <span className="weq-collection-total">{items.length}</span>
             ) : null}
@@ -1158,7 +1275,14 @@ export function CollectionDialog({
           ) : (
             <div className="weq-collection-grid">
               {pageItems.map((it) => (
-                <CollectionCard key={it.cid} it={it} onOpen={setSelected} />
+                <CollectionCard
+                  key={it.cid}
+                  it={it}
+                  onOpen={setSelected}
+                  selected={multiSelect.selectedIds.has(it.cid)}
+                  selecting={multiSelect.selectionMode}
+                  selectionProps={selection.itemProps(it.cid)}
+                />
               ))}
             </div>
           )}

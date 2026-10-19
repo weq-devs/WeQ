@@ -58,7 +58,7 @@ export function parseQzoneJson<T>(text: string): T {
  * 只认对象/数组/字符串/数字/`true|false|null|undefined`;丢弃 `__proto__` 键防
  * 原型污染。数组尾部的 `undefined` 空洞由 {@link mapFeeds} 过滤。
  */
-function parseJsLiteral(src: string): unknown {
+export function parseJsLiteral(src: string): unknown {
   let i = 0;
   const n = src.length;
   const isWs = (c: string): boolean =>

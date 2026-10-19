@@ -1,13 +1,9 @@
 // @ts-nocheck
 /**
- * 「已退群成员」灯箱（local group_member3，64016 = 1）。
+ * 「已退群成员」原位小浮窗（local group_member3，64016 = 1）。
  *
- * 与群公告 / 群精华**同一层**：状态与数据查询都归应用层（MainView）——
- * `listGroupLeftMembers` 是纯本地表查询，不碰协议；模板层（im-template）只在群资料
- * 面板上留一个入口（`onOpenLeftMembers`），既不拉数据也不渲染这张灯箱。
- *
- * 一行一个头像 + 显示名 + QQ 号；外壳沿用群资料灯箱的 `modal-scrim` /
- * `group-info-detail-dialog`，主题色与深浅模式自动跟随。
+ * 状态与本地查询归 MainView，模板只留入口；小浮窗跟随入口定位并避让视口边缘。
+ * 一行一个头像 + 显示名 + QQ 号，主题色与深浅模式自动跟随。
  */
 
 import type { ReactElement } from 'react';
@@ -15,6 +11,7 @@ import { X } from 'lucide-react';
 import { Avatar, GroupMembersSkeleton } from '../im-template/template/primitives';
 import { OverlayLayer } from './OverlayLayer';
 import { cn } from '../im-template/template/classNames';
+import '../styles/group-left-members.css';
 
 /** 一行已退群成员（MainView 从 `listGroupLeftMembers` 的 wire 映射过来）。 */
 export interface GroupLeftMemberRow {
@@ -43,11 +40,15 @@ export function GroupLeftMembersDialog({
   const rows = members.filter((member) => String(member.id ?? '').trim() !== '');
 
   return (
-    <OverlayLayer className={cn('modal-scrim', 'group-info-detail-scrim')} onClose={onClose}>
+    <OverlayLayer
+      presentation="popover"
+      title="已退群成员"
+      className={cn('modal-scrim', 'group-info-detail-scrim', 'weq-group-left-members-layer')}
+      onClose={onClose}
+    >
       <section
-        className={cn('group-info-detail-dialog')}
+        className={cn('group-info-detail-dialog', 'weq-group-left-members')}
         role="dialog"
-        aria-modal="true"
         aria-label="已退群成员"
         onMouseDown={(event) => event.stopPropagation()}
       >

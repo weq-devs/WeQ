@@ -236,14 +236,17 @@ function StackBoard({
                 <span
                   className="weq-fr-stack-bar"
                   aria-hidden
-                  style={{
-                    height: grown
-                      ? `${Math.max(
-                          STACK_MIN_H,
-                          Math.round((entry.value / Math.max(1, champion.value)) * STACK_MAX_H),
-                        )}px`
-                      : '0px',
-                  }}
+                  style={
+                    {
+                      '--share': `${Math.min(100, (entry.value / Math.max(1, champion.value)) * 100)}%`,
+                      height: grown
+                        ? `${Math.max(
+                            STACK_MIN_H,
+                            Math.round((entry.value / Math.max(1, champion.value)) * STACK_MAX_H),
+                          )}px`
+                        : '0px',
+                    } as CSSProperties
+                  }
                 />
                 <span className="weq-fr-stack-foot">
                   <Face name={entry.peerName} uin={entry.peerUin} />

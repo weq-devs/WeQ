@@ -180,6 +180,7 @@ export function MessageRow({
   onContextMenu,
   onLongPress,
   onAction,
+  onReedit,
   onAvatarClick,
   onAvatarContextMenu,
   selectionMode = false,
@@ -187,6 +188,7 @@ export function MessageRow({
   onToggleSelect,
   reactionRemoval,
   repeatAction,
+  pendingAction,
   /** 灰条外层的 class（聊天区靠它对齐，转发窗口用窄一点的边距）。 */
   grayTipClassName,
 }: {
@@ -206,6 +208,7 @@ export function MessageRow({
   onContextMenu?: (event: unknown, message: Message) => void;
   onLongPress?: (point: { x: number; y: number }, message: Message) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
+  onReedit?: (message: Message) => Promise<boolean>;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
   onAvatarContextMenu?: (event: unknown, sender: User) => void;
   selectionMode?: boolean;
@@ -213,6 +216,7 @@ export function MessageRow({
   onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;
   reactionRemoval?: ReactionRemoval;
   repeatAction?: ReactNode;
+  pendingAction?: ReactNode;
   grayTipClassName?: string;
 }): ReactElement {
   const gt = grayTipOf(message);
@@ -230,6 +234,8 @@ export function MessageRow({
           .filter(Boolean)
           .join(' ')}
         data-message-id={message.id}
+        data-weq-select-id={selectionMode ? message.id : undefined}
+        tabIndex={selectionMode ? 0 : undefined}
         onContextMenu={onContextMenu ? (event) => onContextMenu(event, message) : undefined}
         onClickCapture={
           selectionMode && onToggleSelect
@@ -277,6 +283,7 @@ export function MessageRow({
       onContextMenu={noopContextMenu}
       onLongPress={noopLongPress}
       onAction={onAction}
+      onReedit={onReedit}
       onAvatarClick={onAvatarClick}
       onAvatarContextMenu={onAvatarContextMenu}
       selectionMode={selectionMode}
@@ -284,6 +291,7 @@ export function MessageRow({
       onToggleSelect={onToggleSelect}
       reactionRemoval={reactionRemoval}
       repeatAction={repeatAction}
+      pendingAction={pendingAction}
     />
   );
 }

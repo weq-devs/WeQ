@@ -6,6 +6,7 @@
 import { useLayoutEffect, useRef, useState, type ReactElement } from 'react';
 import { UserRound } from 'lucide-react';
 import { cachedAvatarUrl } from '../lib/avatarCache';
+import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
 
 export function qqAvatarUrl(uin: string): string {
   return `https://thirdqq.qlogo.cn/g?b=sdk&nk=${uin}&s=0`;
@@ -22,7 +23,9 @@ export function QqAvatar({
   size?: number;
   className?: string;
 }): ReactElement {
-  const resolved = cachedAvatarUrl(url || (uin ? qqAvatarUrl(uin) : null));
+  const ownerDocument = useRenderDocument();
+  const raw = cachedAvatarUrl(url || (uin ? qqAvatarUrl(uin) : null));
+  const resolved = raw ? resourceForRenderDocument(raw, ownerDocument) : raw;
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);

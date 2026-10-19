@@ -108,6 +108,33 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 带 `unusualDeviceCheckSig` / `unusualDeviceQrSig` / `uinToken`）、`qr-code`
 （`qrUrl` / `qrImage`）、`qr-state`（`state` / `stateCode` / `uin`）。
 
+### 3.2 ptlogin2 凭据与邮箱会话
+
+ptlogin2 的 **HTTP 流程只有 native 这一份实现**：`xlogin` → `pt_get_uins` →
+`pt_get_st` → `jump` → `check_sig`，以及邮箱的 `jump` → `check_sig` →
+`/login/login` → `sid`。TS 侧只负责选域、缓存和业务编排，不要再自己发
+xlogin / jump 请求或解析 JSONP。
+
+| JS 函数 | 参数 | 返回 | 说明 |
+| ---- | ---- | ---- | ---- |
+| `ptFetchCredentials(pid, uin, domain)` | `pid` / `uin` / 目标域 | `Promise<PtCredentialsResult>` | 固定四域（`qun.qq.com` / `qzone.qq.com` / `pd.qq.com` / `vip.qq.com`）与邮箱走本机 ptlogin2；其他域先 clientKey jump，失败回退 OIDB `0x102a_0`。 |
+| `ptFetchClientKey(pid, uin)` | `pid` / `uin` | `Promise<PtClientKeyResult>` | 本机快速登录优先，失败回退 OIDB `0x102a_1`。 |
+| `ptFetchJumpUrl(pid, uin, landingUrl)` | `pid` / `uin` / https 落地页 | `Promise<PtJumpUrlResult>` | 生成一次性免登录跳转地址；`clientKey` 只应在本次点击使用。 |
+| `ptFetchMailSession(pid, uin)` | `pid` / `uin` | `Promise<PtMailSessionResult>` | 邮箱登录：本机 ptlogin2 → mail `p_skey` → `/login/login` → `sid`，并返回可灌入 CookieJar 的 `cookie`。 |
+
+**返回类型**
+
+- `PtCredentialsResult = { success; msg; skey; pskey; cookie; errorKind }`
+- `PtClientKeyResult = { success; msg; clientKey; keyIndex; ttlSeconds }`
+- `PtJumpUrlResult = { success; msg; url; clientKey; keyIndex }`
+- `PtMailSessionResult = { success; msg; sid; panelPskey; cookie; errorKind }`
+
+`cookie` 是 native 在跳转链上收到的完整 Cookie 头（含 `pt4_token` / `RK` / `ptcz`
+等风控字段），调用方应优先原样发送；拿不到时才回退到 `uin/skey/p_uin/p_skey`
+四字段。`panelPskey` 是邮箱面板提醒专用票据，网页登录清掉 CookieJar 后仍需独立保留。
+`ptFetchSkey(port, uin)` / `ptFetchPskey(port, uin, domain)` 是底层兼容接口，
+新代码优先用 `ptFetchCredentials`。
+
 ---
 
 ## 4. 数据库密钥获取与校验

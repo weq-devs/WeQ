@@ -1,10 +1,14 @@
-import { X, EyeOff, Trash2 } from 'lucide-react';
+import { X, EyeOff, Trash2, Pin, PinOff } from 'lucide-react';
 import { useMemo, useEffect, useRef, useState } from 'react';
 import { classifyChatType } from '@weq/codec';
 import { Avatar } from '../../im-template/template/primitives';
 import type { Conversation, MergedKind } from '../../im-template/template/types';
 import { trpc } from '../../trpc/client';
 import { resolveAvatar, avatarFromGroupCode } from '../../lib/avatarResolver';
+import { isAssistantPinned, type GroupAssistantPins } from '../../lib/groupAssistant';
+import '../../styles/group-assistant.css';
+
+const emptyPins: GroupAssistantPins = {};
 
 /** Wire types from tRPC (bigint → string serialization) */
 interface DeletedSessionWire {
@@ -60,6 +64,8 @@ interface MergedSessionPanelProps {
   conversations: Conversation[];
   /** Membership comes only from official recent-contact notifyLevel 2 rows. */
   groupAssistantIds?: ReadonlySet<string>;
+  groupAssistantPins?: GroupAssistantPins;
+  onGroupAssistantPin?: (id: string, pinned: boolean) => void;
   groupAssistantLoading?: boolean;
   groupAssistantError?: string;
   groupAssistantHasMore?: boolean;
@@ -84,6 +90,8 @@ export function MergedSessionPanel({
   kind,
   conversations: _conversations,
   groupAssistantIds,
+  groupAssistantPins = emptyPins,
+  onGroupAssistantPin,
   groupAssistantLoading = false,
   groupAssistantError,
   groupAssistantHasMore = false,
@@ -436,11 +444,17 @@ export function MergedSessionPanel({
           );
         })
         .sort((a, b) => {
+          if (kind === 'groupAssistant') {
+            const pinOrder =
+              Number(isAssistantPinned(b, groupAssistantPins)) -
+              Number(isAssistantPinned(a, groupAssistantPins));
+            if (pinOrder) return pinOrder;
+          }
           const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
           const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
           return bTime - aTime;
         }),
-    [filtered, groupSearch, kind],
+    [filtered, groupSearch, kind, groupAssistantPins],
   );
 
   const title =
@@ -504,40 +518,57 @@ export function MergedSessionPanel({
             const avatarUrl =
               conv.type === 'group' ? conv.group?.avatarUrl : conv.otherUser?.avatarUrl;
             const seed = conv.type === 'direct' ? conv.otherUser?.identityValue : conv.id;
+            const pinned = kind === 'groupAssistant' && isAssistantPinned(conv, groupAssistantPins);
 
             return (
-              <button
-                key={conv.id}
-                type="button"
-                className="weq-merged-popover-item"
-                onClick={() => {
-                  onSelectConversation(conv as Conversation);
-                  onBack();
-                }}
-              >
-                <Avatar name={name ?? ''} avatarUrl={avatarUrl} seed={seed ?? conv.id} />
-                <div className="weq-merged-popover-item-main">
-                  <div className="weq-merged-popover-item-top">
-                    <div className="weq-merged-popover-item-name">{name}</div>
-                    {time && <div className="weq-merged-popover-item-time">{time}</div>}
+              <div key={conv.id} className={`weq-merged-popover-row${pinned ? ' is-pinned' : ''}`}>
+                <button
+                  type="button"
+                  className="weq-merged-popover-item"
+                  onClick={() => {
+                    onSelectConversation(conv as Conversation);
+                    onBack();
+                  }}
+                >
+                  <Avatar name={name ?? ''} avatarUrl={avatarUrl} seed={seed ?? conv.id} />
+                  <div className="weq-merged-popover-item-main">
+                    <div className="weq-merged-popover-item-top">
+                      <div className="weq-merged-popover-item-name">{name}</div>
+                      {pinned ? (
+                        <Pin size={12} aria-label="置顶" className="weq-group-helper-pin-mark" />
+                      ) : null}
+                      {time && <div className="weq-merged-popover-item-time">{time}</div>}
+                    </div>
+                    {preview && <div className="weq-merged-popover-item-preview">{preview}</div>}
                   </div>
-                  {preview && <div className="weq-merged-popover-item-preview">{preview}</div>}
-                </div>
-                {kind === 'groupAssistant' && unreadCount > 0 ? (
-                  <span
-                    className="weq-group-helper-unread"
-                    aria-label={`${unreadCount} 条未读消息`}
+                  {kind === 'groupAssistant' && unreadCount > 0 ? (
+                    <span
+                      className="weq-group-helper-unread"
+                      aria-label={`${unreadCount} 条未读消息`}
+                    >
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  ) : null}
+                  {kind === 'hidden' && (
+                    <EyeOff size={14} className="weq-merged-popover-item-badge" />
+                  )}
+                  {kind === 'deleted' && (
+                    <Trash2 size={14} className="weq-merged-popover-item-badge" />
+                  )}
+                </button>
+                {kind === 'groupAssistant' && onGroupAssistantPin ? (
+                  <button
+                    type="button"
+                    className="weq-group-helper-pin"
+                    title={pinned ? '取消群助手内置顶' : '在群助手内置顶'}
+                    aria-label={pinned ? '取消群助手内置顶' : '在群助手内置顶'}
+                    aria-pressed={pinned}
+                    onClick={() => onGroupAssistantPin(conv.id, !pinned)}
                   >
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </span>
+                    {pinned ? <PinOff size={14} /> : <Pin size={14} />}
+                  </button>
                 ) : null}
-                {kind === 'hidden' && (
-                  <EyeOff size={14} className="weq-merged-popover-item-badge" />
-                )}
-                {kind === 'deleted' && (
-                  <Trash2 size={14} className="weq-merged-popover-item-badge" />
-                )}
-              </button>
+              </div>
             );
           })}
           {sortedThreads.length === 0 &&

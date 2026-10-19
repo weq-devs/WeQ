@@ -18,6 +18,7 @@ import type {
   GroupMember,
   GroupNotify,
   GroupExt,
+  BrowseCursor,
 } from '@weq/db';
 import { GroupNotifyService } from './group_notify';
 import {
@@ -34,9 +35,14 @@ import {
 } from './conversation_graph';
 import { segmentWords } from './text_segment';
 import {
+  analyticsBrowseFilter,
+  analyticsDayParts,
+  validateAnalyticsRange,
+  type AnalyticsRange,
+} from '../common/analytics_time';
+import {
   buildWeekKeys,
   dailyToWeekly,
-  localDateKey,
   seriesForWeeks,
   weekStartKey,
   type WeeklyCount,
@@ -592,6 +598,130 @@ export class GroupInfoService {
     return this.session.groupDetail.listAll(limit, offset);
   }
 
+  async listExportGroups() {
+    const groups = new Map<string, { groupCode: string; groupName: string; memberCount: number }>();
+    for (let offset = 0; ; offset += 1000) {
+      const page = await this.listAllGroups(1000, offset);
+      for (const group of page)
+        groups.set(group.groupCode.toString(), {
+          groupCode: group.groupCode.toString(),
+          groupName: group.groupName || group.remark,
+          memberCount: group.memberCount,
+        });
+      if (page.length < 1000) break;
+    }
+    return [...groups.values()];
+  }
+
+  async listAnalysisGroups() {
+    const [directory, current, codes] = await Promise.all([
+      this.listExportGroups(),
+      this.listGroupDirectory(),
+      this.session.groupMsgs.listGroupCodes(),
+    ]);
+    const groups = new Map(
+      codes.map((groupCode) => [
+        groupCode,
+        {
+          groupCode,
+          groupName: groupCode,
+          memberCount: 0,
+          source: 'messages' as 'directory' | 'messages',
+        },
+      ]),
+    );
+    for (const row of current)
+      groups.set(row.groupCode, {
+        groupCode: row.groupCode,
+        groupName: row.groupCode,
+        memberCount: row.memberCount,
+        source: 'directory',
+      });
+    for (const row of directory)
+      groups.set(row.groupCode, {
+        ...row,
+        groupName: row.groupName || row.groupCode,
+        source: 'directory',
+      });
+    return [...groups.values()];
+  }
+
+  async listAnalysisMembers(groupCode: bigint) {
+    const [directory, senders] = await Promise.all([
+      this.session.groupMembers.listAnalysisMembers(groupCode),
+      this.session.groupMsgs.listSenderIdentities(String(groupCode)),
+    ]);
+    const members = new Map<
+      string,
+      { id: string; uid: string; uin: string; name: string; source: 'directory' | 'messages' }
+    >();
+    const uidByUin = new Map<string, string>();
+    const uinsByUid = new Map<string, Set<string>>();
+    const ambiguousUins = new Set<string>();
+    for (const row of [...directory, ...senders]) {
+      if (!row.uid || !row.uin) continue;
+      const uins = uinsByUid.get(row.uid) ?? new Set<string>();
+      uins.add(row.uin);
+      uinsByUid.set(row.uid, uins);
+      const known = uidByUin.get(row.uin);
+      if (known && known !== row.uid) ambiguousUins.add(row.uin);
+      uidByUin.set(row.uin, row.uid);
+    }
+    for (const [uin, uid] of uidByUin)
+      if (ambiguousUins.has(uin) || (uinsByUid.get(uid)?.size ?? 0) > 1) uidByUin.delete(uin);
+    for (const row of senders) {
+      const uid = row.uid || uidByUin.get(row.uin) || '';
+      const id = uid ? `uid:${uid}` : `uin:${row.uin}`;
+      members.set(id, {
+        id,
+        uid,
+        uin: row.uin || members.get(id)?.uin || '',
+        name: '',
+        source: 'messages',
+      });
+    }
+    for (const row of directory) {
+      if (!row.uid && !row.uin) continue;
+      const uid = row.uid || uidByUin.get(row.uin) || '';
+      const id = uid ? `uid:${uid}` : `uin:${row.uin}`;
+      members.set(id, {
+        id,
+        uid,
+        uin: row.uin || members.get(id)?.uin || '',
+        name: row.card || row.nick,
+        source: 'directory',
+      });
+    }
+    return [...members.values()].map((row) => ({
+      ...row,
+      uin:
+        row.uid && (ambiguousUins.has(row.uin) || (uinsByUid.get(row.uid)?.size ?? 0) > 1)
+          ? ''
+          : row.uin,
+      name: row.name || row.uin || row.uid,
+    }));
+  }
+
+  async listExportMembers(groupCode: bigint) {
+    const members = new Map<
+      string,
+      { uid: string; uin: string; name: string; categoryId: number }
+    >();
+    for (let offset = 0; ; offset += 300) {
+      const page = await this.listMembersInGroup(groupCode, 300, offset);
+      for (const member of page)
+        members.set(member.uid, {
+          uid: member.uid,
+          uin: member.uin.toString(),
+          name:
+            member.card || member.nick || (member.uin > 0n ? member.uin.toString() : member.uid),
+          categoryId: 0,
+        });
+      if (page.length < 300) break;
+    }
+    return [...members.values()];
+  }
+
   /**
    * List ext metadata for all groups (活跃度排行等场景).
    */
@@ -761,8 +891,17 @@ export class GroupInfoService {
     memberUid: string,
     startTime?: number,
     endTime?: number,
+    memberUin?: string,
+    messageIds?: string[],
   ): Promise<GroupMemberAnalytics> {
+    if (!memberUid && !memberUin) throw new Error('成员身份不能为空。');
+    if (memberUin && !/^[1-9]\d*$/.test(memberUin)) throw new Error('成员 QQ 号无效。');
     const db = this.session.groupMsgs;
+    const filter = {
+      ...analyticsBrowseFilter({ startTime, endTime, messageIds }),
+      sender: memberUid,
+      senderUin: memberUin,
+    };
     const stats = {
       totalMessages: 0,
       textMessages: 0,
@@ -782,12 +921,16 @@ export class GroupInfoService {
     const phraseCounts = new Map<string, number>();
     const emojiCounts = new Map<string, { faceId: number; faceText: string; count: number }>();
 
-    let afterSeq = 0n;
+    let cursor: BrowseCursor | undefined;
     while (true) {
-      const batch = await db.listBatch(String(groupCode), afterSeq, 500, startTime, endTime);
+      const batch = await db.browse(String(groupCode), filter, cursor, 500, 'newer');
       if (batch.length === 0) break;
-      for (const msg of batch) {
-        if (msg.senderUid !== memberUid) continue;
+      for (const { message: msg } of batch) {
+        if (
+          !(memberUid && msg.senderUid === memberUid) &&
+          !(memberUin && String(msg.senderUin) === memberUin)
+        )
+          continue;
 
         const sendTime = Number(msg.sendTime);
         stats.totalMessages++;
@@ -853,20 +996,21 @@ export class GroupInfoService {
           stats.otherMessages++;
         }
 
-        if (sendTime > 0) {
+        const date = analyticsDayParts(sendTime);
+        if (date) {
           if (stats.firstMessageTime === null || sendTime < stats.firstMessageTime) {
             stats.firstMessageTime = sendTime;
           }
           if (stats.lastMessageTime === null || sendTime > stats.lastMessageTime) {
             stats.lastMessageTime = sendTime;
           }
-          const d = new Date(sendTime * 1000);
-          const hour = d.getHours();
+          const hour = date.hour;
           hourly[hour] = (hourly[hour] ?? 0) + 1;
-          dailySet.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+          dailySet.add(date.day);
         }
       }
-      afterSeq = batch[batch.length - 1]!.msgSeq;
+      const last = batch.at(-1)!;
+      cursor = { time: last.message.sendTime, rowId: last.rowId };
       if (batch.length < 500) break;
     }
 
@@ -968,25 +1112,37 @@ export class GroupInfoService {
    *
    * 于是整个接口只读两次库（成员表一次，消息表一次聚合），打开卡片几乎不卡。
    */
-  async getGroupJoinBatches(groupCode: bigint): Promise<GroupJoinBatchReport> {
+  async getGroupJoinBatches(
+    groupCode: bigint,
+    range: AnalyticsRange = {},
+  ): Promise<GroupJoinBatchReport> {
+    const filter = analyticsBrowseFilter(range);
     const [briefs, countByUid, detail] = await Promise.all([
       this.session.groupMembers.listMemberJoinBriefs(groupCode),
-      this.session.groupMsgs.countBySenders(String(groupCode)),
+      this.session.groupMsgs.countBySenders(String(groupCode), filter),
       this.session.groupDetail.getDetail(groupCode).catch(() => null),
     ]);
     const groupMessageTotal = Object.values(countByUid).reduce((sum, n) => sum + n, 0);
+    const bounded = filter.start !== undefined || filter.end !== undefined;
 
-    const members = briefs.map((b) => ({
-      uid: b.uid,
-      uin: b.uin,
-      displayName: b.card || b.nick || b.uin || b.uid,
-      joinTime: b.joinTime,
-      lastSpeakTime: b.lastSpeakTime,
-      memberLevel: b.memberLevel,
-      messageCount: countByUid[b.uid] ?? 0,
-    }));
+    const members = briefs
+      .filter(
+        (b) =>
+          (!bounded || b.joinTime > 0) &&
+          (filter.start === undefined || b.joinTime >= filter.start) &&
+          (filter.end === undefined || b.joinTime <= filter.end),
+      )
+      .map((b) => ({
+        uid: b.uid,
+        uin: b.uin,
+        displayName: b.card || b.nick || b.uin || b.uid,
+        joinTime: b.joinTime,
+        lastSpeakTime: b.lastSpeakTime,
+        memberLevel: b.memberLevel,
+        messageCount: countByUid[b.uid] ?? 0,
+      }));
 
-    const memberTotal = detail && detail.memberCount > 0 ? detail.memberCount : members.length;
+    const memberTotal = detail && detail.memberCount > 0 ? detail.memberCount : briefs.length;
     return buildJoinBatchReport(members, groupMessageTotal, memberTotal, JOIN_BATCH_WINDOW_SECONDS);
   }
 
@@ -994,36 +1150,32 @@ export class GroupInfoService {
    * 「小团体」分析：把群消息切成会话（相邻两条间隔超过 5 分钟就是新对话），算出
    * 两个人之间的拉力（同一会话里两人发言条数之积，跨会话求和），前端据此画力图。
    *
-   * 扫描走 {@link GroupMsgDb.listSenderTimeline}（只读发送者 + 时间，不解码正文），
+   * 扫描走 {@link GroupMsgDb.browseSenderTimeline}（只读发送者 + 时间，不解码正文），
    * 所以即使翻完整个群的历史，也比逐条读正文的接口便宜一个量级。名字只对最终留在
    * 图上的节点批量查一次成员表。
    */
   async getGroupConversationGraph(
     groupCode: bigint,
-    opts?: {
-      windowSeconds?: number;
-      maxEdges?: number;
-      /** unix 秒；省略 = 全部历史。 */
-      startTime?: number;
-      endTime?: number;
-    },
+    opts?: { windowSeconds?: number; maxEdges?: number } & AnalyticsRange,
   ): Promise<GroupConversationGraphReport> {
     const PAGE = 2000;
     const timeline: ConversationMessage[] = [];
-    let afterSeq = 0n;
+    const filter = analyticsBrowseFilter(opts ?? {});
+    let cursor: BrowseCursor | undefined;
     while (true) {
-      const batch = await this.session.groupMsgs.listSenderTimeline(
+      const batch = await this.session.groupMsgs.browseSenderTimeline(
         String(groupCode),
-        afterSeq,
+        filter,
+        cursor,
         PAGE,
       );
       if (batch.length === 0) break;
       for (const row of batch) {
-        if (opts?.startTime && row.sendTime < opts.startTime) continue;
-        if (opts?.endTime && row.sendTime > opts.endTime) continue;
-        timeline.push({ senderUid: row.uid, sendTime: row.sendTime });
+        if (analyticsDayParts(row.sendTime))
+          timeline.push({ senderUid: row.uid, sendTime: row.sendTime });
       }
-      afterSeq = batch[batch.length - 1]!.seq;
+      const last = batch.at(-1)!;
+      cursor = { time: last.cursorTime, rowId: last.rowId };
       if (batch.length < PAGE) break;
     }
 
@@ -1108,7 +1260,7 @@ export class GroupInfoService {
   }
 
   /**
-   * One-pass aggregate of a group's whole chat history — backs the「群数据周报」推文
+   * One-pass aggregate of a group's selected history — backs the「群数据周报」推文
    * snapshot. Reproduces, in a SINGLE table scan, what getGroupMessageRanking /
    * getGroupActiveHours / getGroupDailyActivity / getGroupWordCloud each compute
    * on their own (they scan the group once apiece); folding them together keeps
@@ -1120,41 +1272,34 @@ export class GroupInfoService {
     opts?: {
       rankingLimit?: number;
       wordLimit?: number;
-      /** unix 秒。两者都省略且 `recentYear` 为真 = 最近一年（以最后一条消息为基准）。 */
-      startTime?: number;
-      endTime?: number;
-      /** 没传区间时是否默认「最近一年」；助手快照等旧调用方保持全历史。 */
       recentYear?: boolean;
-      /**
-       * 不为全历史时间轴做统计（界面拖动区间时用：时间轴已经在首屏拿到，
-       * 再算一遍纯属浪费）。此时 SQL 只取区间内的行。
-       */
       skipTimeline?: boolean;
-    },
+    } & AnalyticsRange,
   ): Promise<GroupStatsReport> {
     const db = this.session.groupMsgs;
     const code = String(groupCode);
+    const range = validateAnalyticsRange(opts ?? {});
 
     // 默认窗口「最近一年」：以最后一条消息为基准，而不是 now —— 很多群早就
     // 不活跃了，按 now 切会把整段历史排除在外、打开就是空图。
-    let startTime = opts?.startTime ?? 0;
-    let endTime = opts?.endTime ?? 0;
+    let startTime = range.startTime;
+    let endTime = range.endTime;
     let defaulted = false;
-    if (!(startTime > 0) || !(endTime > 0)) {
+    if (startTime === undefined && endTime === undefined) {
       const latest = opts?.recentYear ? await db.listLatest(code, 1) : [];
       const newest = latest[0] ? Number(latest[0].sendTime) : 0;
       if (newest > 0) {
         defaulted = true;
         endTime = newest;
         startTime = newest - 365 * 86400;
-      } else {
-        startTime = 0;
-        endTime = 0;
       }
     }
-    if (endTime > 0 && startTime > endTime) startTime = endTime - 365 * 86400;
-    const hasRange = startTime > 0 && endTime > 0;
+    const hasRange = startTime !== undefined || endTime !== undefined;
     const trackTimeline = opts?.skipTimeline !== true;
+    const filter = analyticsBrowseFilter({
+      ...(trackTimeline ? {} : { startTime, endTime }),
+      messageIds: range.messageIds,
+    });
 
     const counts = new Map<string, number>(); // uid → message count (range)
     const uins = new Map<string, string>(); // uid → uin
@@ -1181,31 +1326,25 @@ export class GroupInfoService {
       lastMessageTime: null as number | null,
     };
 
-    let afterSeq = 0n;
+    let cursor: BrowseCursor | undefined;
     while (true) {
-      // `skipTimeline` 时把区间下推到 SQL，不再把整段历史都读出来再丢掉。
-      const batch = await db.listBatch(
-        code,
-        afterSeq,
-        500,
-        hasRange && !trackTimeline ? startTime : undefined,
-        hasRange && !trackTimeline ? endTime : undefined,
-      );
+      const batch = await db.browse(String(groupCode), filter, cursor, 500, 'newer');
       if (batch.length === 0) break;
-      for (const msg of batch) {
+      for (const { message: msg } of batch) {
         const sendTime = Number(msg.sendTime);
-
-        // 全历史时间轴：无论是否落在所选区间，都要记 —— 顶部周柱状图与
-        // 绿墙展示的是完整历史，拖动选择只改高亮。
-        if (trackTimeline && sendTime > 0) {
-          const d = new Date(sendTime * 1000);
-          const key = localDateKey(d);
-          globalDaily.set(key, (globalDaily.get(key) ?? 0) + 1);
+        const date = analyticsDayParts(sendTime);
+        if (trackTimeline && date) {
+          globalDaily.set(date.day, (globalDaily.get(date.day) ?? 0) + 1);
           if (firstMessageTime === null || sendTime < firstMessageTime) firstMessageTime = sendTime;
           if (lastMessageTime === null || sendTime > lastMessageTime) lastMessageTime = sendTime;
         }
-
-        if (hasRange && (sendTime <= 0 || sendTime < startTime || sendTime > endTime)) continue;
+        if (
+          hasRange &&
+          (sendTime <= 0 ||
+            (startTime !== undefined && sendTime < startTime) ||
+            (endTime !== undefined && sendTime > endTime))
+        )
+          continue;
         totals.totalMessages++;
 
         const uid = msg.senderUid || '';
@@ -1255,12 +1394,12 @@ export class GroupInfoService {
         if (hasEmoji) totals.emojiMessages++;
         if (!hasText && !hasImage && !hasVoice && !hasVideo && !hasEmoji) totals.otherMessages++;
 
-        if (sendTime > 0) {
-          const d = new Date(sendTime * 1000);
-          hourly[d.getHours()] = (hourly[d.getHours()] ?? 0) + 1;
-          daily.set(localDateKey(d), (daily.get(localDateKey(d)) ?? 0) + 1);
+        if (date) {
+          hourly[date.hour] = (hourly[date.hour] ?? 0) + 1;
+          const key = date.day;
+          daily.set(key, (daily.get(key) ?? 0) + 1);
           if (uid) {
-            const week = weekStartKey(d);
+            const week = weekStartKey(new Date(sendTime * 1000));
             let byWeek = senderWeekly.get(uid);
             if (!byWeek) {
               byWeek = new Map();
@@ -1276,7 +1415,8 @@ export class GroupInfoService {
           }
         }
       }
-      afterSeq = batch[batch.length - 1]!.msgSeq;
+      const last = batch.at(-1)!;
+      cursor = { time: last.message.sendTime, rowId: last.rowId };
       if (batch.length < 500) break;
     }
 
@@ -1290,7 +1430,7 @@ export class GroupInfoService {
       : [];
     const timelineWeekly = dailyToWeekly(timelineDaily);
     const weeks = hasRange
-      ? buildWeekKeys(startTime, endTime)
+      ? buildWeekKeys(startTime ?? firstMessageTime ?? 0, endTime ?? lastMessageTime ?? 0)
       : timelineWeekly.map((w) => w.weekStart);
 
     // Ranking: top N senders, display names resolved in one batched query.
@@ -1330,8 +1470,8 @@ export class GroupInfoService {
       daily: dailyArr,
       words,
       range: {
-        startTime: hasRange ? startTime : null,
-        endTime: hasRange ? endTime : null,
+        startTime: startTime ?? null,
+        endTime: endTime ?? null,
         defaulted,
       },
       timeline: {

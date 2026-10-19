@@ -61,14 +61,7 @@ export function useChatShellController({
   onOpenContactNotice,
 }: UseChatShellControllerOptions) {
   const [view, setView] = useState<MainView>(initialView);
-  const [queries, setQueries] = useState<Partial<Record<MainView, string>>>({});
-  const query = queries[view] ?? '';
-  const setQuery = useCallback(
-    (value: string) => {
-      setQueries((current) => ({ ...current, [view]: value }));
-    },
-    [view],
-  );
+  const [query, setQuery] = useState('');
   const [contactTab, setContactTab] = useState<ContactTab>('friends');
   const [contactNotice, setContactNotice] = useState<ContactNoticeView | null>(null);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);

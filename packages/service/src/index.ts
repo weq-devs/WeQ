@@ -293,6 +293,11 @@ export type {
 } from './account/anti_recall';
 export { notifyKey } from './account/anti_recall';
 export { MergeForwardDraftStore } from './account/merge_forward_drafts';
+export { MergeForwardArchiveStore } from './account/merge_forward_archive';
+export type {
+  MergeForwardArchiveEntry,
+  MergeForwardArchiveKind,
+} from './account/merge_forward_archive';
 export type {
   MergeForwardDraft,
   MergeForwardDraftInput,
@@ -304,7 +309,32 @@ export type { RenderElement, RenderTextElement } from './account/msg_view';
 // 渲染层要按这个类型读 RenderTextElement.urlVerify，从 codec 借道转出去。
 export type { UrlVerifyInfo } from '@weq/codec';
 export { MsgSearchService } from './account/msg_search';
-export { UnifiedSearchService } from './account/unified_search';
+export { UnifiedSearchService, SEARCH_CATEGORIES } from './account/unified_search';
+export type { CollectionSearchHit } from './account/collection_search';
+export type { GeneratedSearchHit, GeneratedSearchSources } from './account/generated_search';
+export {
+  ContentSearchStore,
+  CONTENT_SEARCH_CATEGORIES,
+  contentSearchKey,
+} from './account/content_search';
+export { htmlPlainText } from './common/html_text';
+export { qzoneFeedSearchRecord } from './account/content_search_projection';
+export type {
+  ContentSearchHit,
+  ContentSearchTarget,
+  ContentSearchCategory,
+  ContentSearchRecord,
+  ContentSearchPage,
+  ContentSearchCoverage,
+} from './account/content_search';
+export { listGeneratedConversations, captureGeneratedContent } from './account/generated_content';
+export { resolveGeneratedResource } from './account/export/generated_resources';
+export type {
+  GeneratedContentTarget,
+  GeneratedContentSnapshot,
+  GeneratedConversation,
+} from './account/generated_content';
+export { GENERATED_EXPORT_FORMATS } from './account/export/generated_export';
 export type {
   SearchCategory,
   FtsSource,
@@ -565,10 +595,7 @@ export {
   WebQueryService,
   HonorType,
   computeBkn,
-  PT_LOGIN_DOMAINS,
   fetchWebTokens,
-  fetchSkeyViaPtLogin,
-  fetchPskeyViaPtLogin,
   setGroupNotice,
   deleteGroupNotice,
   uploadGroupNoticeImage,
@@ -583,7 +610,6 @@ export {
   setQzoneLike,
   commentQzoneMsg,
 } from './account/web';
-export { buildPtlogin2JumpUrl } from './account/web/ptlogin';
 export type {
   GroupNotice,
   GroupNoticeImage,
@@ -735,6 +761,16 @@ export type {
   FavEmojiRow,
 } from './account/export';
 export { ExportTaskManager } from './account/export/task_manager';
+export {
+  normalizeExportSaveMode,
+  copyExportSavePolicy,
+  resolveExportSaveDirectory,
+} from './account/export/save_output';
+export type {
+  ExportSaveMode,
+  ExportSavePolicy,
+  ExportSaveState,
+} from './account/export/save_output';
 export { ExportScheduler } from './account/export/scheduler';
 export { assertDestinationCapacity } from './account/export/storage_preflight';
 export { inferOcrFailureKind } from './account/export';

@@ -445,6 +445,86 @@ describe('toOutcome', () => {
 });
 
 describe('MessageSendService.sendText（离线集成）', () => {
+  it('收侧尚不支持的混合互动消息不会覆盖成残缺的持久气泡', async () => {
+    const saved: unknown[] = [];
+    const svc = new MessageSendService(
+      fakeNative() as never,
+      fakeSession(),
+      () => 1,
+      undefined,
+      async (row) => {
+        saved.push(row);
+      },
+    );
+    await svc.sendElements({
+      peerType: 'group',
+      targetId: '12345',
+      elements: [
+        { kind: 'text', textContent: '正文' },
+        { kind: 'emojiBounce', faceId: 182, count: 10, name: '笑哭' },
+      ],
+    });
+    expect(saved).toEqual([]);
+  });
+  it.each([
+    { result: 79, groupSequence: 42 },
+    { result: 0, groupSequence: 0 },
+  ])('拒绝或无有效序号的回执不写入成功消息缓存：%j', async (response) => {
+    const saved: unknown[] = [];
+    const native = {
+      ...fakeNative(),
+      sendPacket: async () => Buffer.from(encode(SEND_MESSAGE_RESPONSE, response)),
+    };
+    const svc = new MessageSendService(
+      native as never,
+      fakeSession(),
+      () => 1,
+      undefined,
+      async (row) => {
+        saved.push(row);
+      },
+    );
+    await svc.sendText({ peerType: 'group', targetId: '12345', text: '不应保存' });
+    expect(saved).toEqual([]);
+  });
+  it('发送成功后等待持久化，并保留真实 wire 内容与回执编号', async () => {
+    const saved: import('../src/account/gap_history').GapFetchedMessage[] = [];
+    const svc = new MessageSendService(
+      fakeNative() as never,
+      fakeSession(),
+      () => 1,
+      undefined,
+      async (row) => {
+        saved.push(row);
+      },
+    );
+    const outcome = await svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '持久消息' });
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({
+      kind: 'c2c',
+      conv: 'u_friend',
+      msgSeq: String(outcome.privateSequence),
+      msgRandom: String(outcome.random),
+      senderUid: 'u_me',
+      ntSeqVerified: true,
+      elements: [{ type: 'text', data: { textContent: '持久消息' } }],
+    });
+    expect(Number(saved[0]!.clientSeq)).toBeGreaterThan(0);
+  });
+  it('持久化失败不把已发出的消息变成失败重发', async () => {
+    const svc = new MessageSendService(
+      fakeNative() as never,
+      fakeSession(),
+      () => 1,
+      undefined,
+      async () => {
+        throw Error('磁盘写入失败');
+      },
+    );
+    const result = await svc.sendText({ peerType: 'group', targetId: '12345', text: '已发送' });
+    expect(result.ok).toBe(true);
+    expect(result.hint).toContain('本地保存失败');
+  });
   it('群聊文本：报文路由与元素正确，回执归一化', async () => {
     const native = fakeNative();
     const svc = new MessageSendService(native as never, fakeSession(), () => 4242);

@@ -1,0 +1,8 @@
+.weq-msg-optimistic-tag.weq-msg-reedit-trigger,
+.weq-msg-recall-tag.weq-msg-reedit-trigger { cursor: pointer; min-height: 24px; letter-spacing: 0; }
+.weq-msg-reedit-trigger:hover { text-decoration: underline; }
+.weq-msg-reedit-trigger:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: 2px; }
+.weq-msg-optimistic-tag.weq-msg-reedit-trigger.is-armed,
+.weq-msg-recall-tag.weq-msg-reedit-trigger.is-armed { color: var(--weq-fg-primary); background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent); border-color: color-mix(in srgb, var(--weq-accent-effective) 30%, transparent); }
+.weq-msg-reedit-trigger:disabled { cursor: wait; opacity: 0.6; }
+html[data-theme="dark"] .weq-msg-reedit-trigger.is-armed { background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent); }

@@ -7,6 +7,7 @@ import { closeFromScrim, useEscapeToClose } from './modalUtils';
 import { Avatar, EmptyState } from './primitives';
 import type { Contact, Conversation, User } from './types';
 import { displayUserName } from './user';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 
 type AddSearchMode = 'users' | 'groups';
 
@@ -250,17 +251,12 @@ export function CreateGroupModal({
     );
   }, [contacts, query]);
 
-  function toggleContact(contactId: string) {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (next.has(contactId)) {
-        next.delete(contactId);
-      } else {
-        next.add(contactId);
-      }
-      return next;
-    });
-  }
+  const multi = useMultiSelection({
+    ids: filteredContacts.map((contact) => contact.id),
+    selected: selectedIds,
+    onChange: setSelectedIds,
+    onExit: onClose,
+  });
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -307,7 +303,7 @@ export function CreateGroupModal({
               onChange={(event) => setQuery(event.target.value)}
             />
           </label>
-          <div className={cn('create-group-list')}>
+          <div className={cn('create-group-list')} {...multi.rootProps}>
             {filteredContacts.length === 0 ? (
               <EmptyState title="暂无联系人" body="换个关键词试试。" />
             ) : (
@@ -318,7 +314,7 @@ export function CreateGroupModal({
                     key={contact.id}
                     type="button"
                     className={cn('create-group-contact', selected && 'active')}
-                    onClick={() => toggleContact(contact.id)}
+                    {...multi.itemProps(contact.id)}
                   >
                     <Avatar
                       name={displayUserName(contact)}

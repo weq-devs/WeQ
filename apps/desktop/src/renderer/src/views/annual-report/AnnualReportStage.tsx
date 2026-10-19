@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { useTabActive } from '../../components/RetainedTabs';
+import { hasActiveModal } from '../../lib/overlayStack';
+import '../../styles/annual-report-reading.css';
 
 const DESIGN_WIDTH = 960;
 const DESIGN_HEIGHT = 640;
@@ -22,7 +25,8 @@ const WHEEL_THRESHOLD = 90;
 const WHEEL_IDLE_MS = 220;
 
 /**
- * 报告舞台：把 960×640 的设计画幅等比缩放到可用空间，页面在画幅内**同位层叠**
+ * 宽屏演示把 960×640 画幅缩放到可用空间；窄/短内容区采用原字号滚动阅读。
+ * 页面在画幅内**同位层叠**
  * （不是横向/纵向滑动轨），翻页由各页自己的 transform/opacity/blur 完成景深过渡。
  * 负责滚轮、触摸、键盘三种翻页输入。
  *
@@ -43,6 +47,7 @@ export function AnnualReportStage({
   guard?: (direction: 1 | -1) => boolean;
   children: ReactNode;
 }): ReactElement {
+  const tabActive = useTabActive();
   const hostRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<{
     y: number;
@@ -53,6 +58,7 @@ export function AnnualReportStage({
   /** 滚轮手势状态：累积量、上次事件时刻，以及「这一甩已经翻过一页了」。 */
   const wheelRef = useRef({ acc: 0, lastAt: 0, fired: false });
   const [scale, setScale] = useState(1);
+  const [reading, setReading] = useState(false);
   /** 守卫存在 ref 里：`move` 是 useCallback，不能让它随每次 guard 重建而失效。 */
   const guardRef = useRef(guard);
   guardRef.current = guard;
@@ -72,10 +78,13 @@ export function AnnualReportStage({
   );
 
   useEffect(() => {
+    if (!tabActive) return;
     const host = hostRef.current;
     if (!host) return undefined;
     const resize = (): void => {
       const rect = host.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      setReading(rect.width < 720 || rect.height < 400);
       setScale(
         Math.min(
           (rect.width * STAGE_INSET) / DESIGN_WIDTH,
@@ -87,7 +96,7 @@ export function AnnualReportStage({
     const observer = new ResizeObserver(resize);
     observer.observe(host);
     return () => observer.disconnect();
-  }, []);
+  }, [tabActive]);
 
   /**
    * 原生 `wheel` 监听设为 `passive: false` 才能合法 `preventDefault`。React 的
@@ -96,8 +105,9 @@ export function AnnualReportStage({
    */
   useEffect(() => {
     const host = hostRef.current;
-    if (!host) return undefined;
+    if (!host || !tabActive || reading) return undefined;
     function onWheel(event: WheelEvent): void {
+      if (event.defaultPrevented || hasActiveModal()) return;
       event.preventDefault();
       const now = performance.now();
       const wheel = wheelRef.current;
@@ -126,10 +136,18 @@ export function AnnualReportStage({
     }
     host.addEventListener('wheel', onWheel, { passive: false });
     return () => host.removeEventListener('wheel', onWheel);
-  }, [move]);
+  }, [move, tabActive, reading]);
 
   useEffect(() => {
+    if (!tabActive || reading) return;
     function onKeyDown(event: KeyboardEvent): void {
+      if (
+        event.defaultPrevented ||
+        hasActiveModal() ||
+        (event.target instanceof Element &&
+          event.target.closest('input, textarea, select, button, a, [contenteditable="true"]'))
+      )
+        return;
       if (event.key === 'ArrowDown' || event.key === 'PageDown' || event.key === ' ') {
         event.preventDefault();
         move(1);
@@ -146,9 +164,10 @@ export function AnnualReportStage({
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [count, move, onIndexChange]);
+  }, [count, move, onIndexChange, tabActive, reading]);
 
   function onPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
+    if (reading) return;
     // 刻意不在 pointerdown 就 setPointerCapture：捕获会把后续 pointerup 重定向到
     // 舞台宿主，叠在它上面的 click 事件就到不了页面里的按钮 —— 年份刻度、CTA、
     // 重试全都「点了没反应、控制台无报错」。捕获推迟到手势真正成立的那一刻。
@@ -161,6 +180,10 @@ export function AnnualReportStage({
   }
 
   function onPointerMove(event: React.PointerEvent<HTMLDivElement>): void {
+    if (reading) {
+      gestureRef.current = null;
+      return;
+    }
     const gesture = gestureRef.current;
     if (!gesture || Math.abs(event.clientY - gesture.y) < 24) return;
     if (!gesture.captured) {
@@ -181,7 +204,7 @@ export function AnnualReportStage({
   function onPointerUp(event: React.PointerEvent<HTMLDivElement>): void {
     const gesture = gestureRef.current;
     gestureRef.current = null;
-    if (!gesture?.moved) return;
+    if (reading || !gesture?.moved) return;
     move(event.clientY < gesture.y ? 1 : -1);
   }
 
@@ -189,20 +212,28 @@ export function AnnualReportStage({
     <div
       ref={hostRef}
       className="weq-report-stage-host"
+      data-layout={reading ? 'reading' : 'presentation'}
       tabIndex={0}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerCancel={() => {
+        gestureRef.current = null;
+      }}
       role="region"
       aria-label="年度报告页面"
     >
       <div
         className="weq-report-stage"
-        style={{
-          width: DESIGN_WIDTH,
-          height: DESIGN_HEIGHT,
-          transform: `translate(-50%, -50%) scale(${scale})`,
-        }}
+        style={
+          reading
+            ? undefined
+            : {
+                width: DESIGN_WIDTH,
+                height: DESIGN_HEIGHT,
+                transform: `translate(-50%, -50%) scale(${scale})`,
+              }
+        }
       >
         {children}
       </div>

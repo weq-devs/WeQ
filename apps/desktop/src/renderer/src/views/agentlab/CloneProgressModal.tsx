@@ -33,7 +33,7 @@ export function CloneProgressModal({
     task.status === 'done' ? '克隆完成' : task.status === 'error' ? '克隆失败' : '正在克隆…';
 
   return (
-    <Modal onClose={onHide} width={460}>
+    <Modal presentation="popover" onClose={onHide} width={460}>
       <div className="weq-clone-modal">
         <header className="weq-clone-modal-head">
           <span className="weq-clone-modal-icon">

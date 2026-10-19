@@ -47,6 +47,8 @@ import {
 import { GroupJoinBatches, type JoinBatchReport } from './GroupJoinBatches';
 import { GroupConversationGraph, type ConversationGraphReport } from './GroupConversationGraph';
 import { useAnalyticsExport } from './useAnalyticsExport';
+import type { AnalysisScope } from '../views/analysis/model';
+import { AnalyticsRetry } from './AnalyticsRetry';
 import {
   GitHubTimeline,
   PersonWeekCard,
@@ -115,6 +117,9 @@ export function GroupAnalyticsDialog({
   onClose,
   exportMode = false,
   initialData,
+  embedded = false,
+  scope,
+  periodLabel,
 }: {
   groupCode: string;
   groupName: string;
@@ -130,6 +135,9 @@ export function GroupAnalyticsDialog({
   exportMode?: boolean;
   /** 导出时由可见窗口递过来的数据，避免同一份分析再扫一遍群历史。 */
   initialData?: { report?: unknown; batches?: unknown; graph?: unknown };
+  embedded?: boolean;
+  scope?: AnalysisScope;
+  periodLabel?: string;
 }) {
   const [report, setReport] = useState<StatsReport | null>(
     (initialData?.report as StatsReport) ?? null,
@@ -173,7 +181,7 @@ export function GroupAnalyticsDialog({
   // 不传区间时服务层默认「最近一年」，并把实际区间回传；之后拖动时间轴只传
   // 新区间重扫，时间轴本身（全历史）每次都会随响应回来，但不会改变。
   const loadReport = useCallback(
-    async (nextRange: RangeSelection | null) => {
+    async (nextRange: RangeSelection | null = null) => {
       const seq = ++reportSeqRef.current;
       if (!loadedOnceRef.current) setLoading(true);
       else setRefreshing(true);
@@ -183,9 +191,12 @@ export function GroupAnalyticsDialog({
           groupCode,
           rankingLimit: RANKING_LIMIT,
           wordLimit: WORD_LIMIT,
+          ...scope,
           ...(nextRange
             ? { startTime: nextRange.start, endTime: nextRange.end, skipTimeline: true }
-            : { recentYear: true }),
+            : scope
+              ? {}
+              : { recentYear: true }),
         })) as StatsReport;
         if (seq !== reportSeqRef.current) return;
         loadedOnceRef.current = true;
@@ -207,7 +218,7 @@ export function GroupAnalyticsDialog({
         }
       }
     },
-    [groupCode],
+    [groupCode, scope],
   );
 
   // 入群批次：只读成员表 + 一条聚合 SQL，很快。
@@ -215,7 +226,7 @@ export function GroupAnalyticsDialog({
     setBatchesLoading(true);
     setBatchesError(null);
     try {
-      const r = await client.account.getGroupJoinBatches.query({ groupCode });
+      const r = await client.account.getGroupJoinBatches.query({ groupCode, ...scope });
       setBatches(r as JoinBatchReport);
     } catch (e) {
       setBatchesError(e instanceof Error ? e.message : String(e));
@@ -223,16 +234,17 @@ export function GroupAnalyticsDialog({
     } finally {
       setBatchesLoading(false);
     }
-  }, [groupCode]);
+  }, [groupCode, scope]);
 
   // 小团体：翻一遍消息时间线（只读发送者 + 时间），比正文扫描便宜。
   const loadGraph = useCallback(
-    async (nextRange: RangeSelection | null) => {
+    async (nextRange: RangeSelection | null = null) => {
       setGraphLoading(true);
       setGraphError(null);
       try {
         const r = await client.account.getGroupConversationGraph.query({
           groupCode,
+          ...scope,
           ...(nextRange ? { startTime: nextRange.start, endTime: nextRange.end } : {}),
         });
         setGraph(r as ConversationGraphReport);
@@ -243,7 +255,7 @@ export function GroupAnalyticsDialog({
         setGraphLoading(false);
       }
     },
-    [groupCode],
+    [groupCode, scope],
   );
 
   // 导出窗口里的数据是外面递进来的：已有初始数据就别再扫一遍群历史。
@@ -299,7 +311,11 @@ export function GroupAnalyticsDialog({
   const ranking = report?.ranking ?? null;
   const maxRankCount = ranking?.[0]?.messageCount ?? 0;
 
-  const { exporting, start: startExport } = useAnalyticsExport({
+  const {
+    available: imageAvailable,
+    exporting,
+    start: startExport,
+  } = useAnalyticsExport({
     enabled: !busy && !exportMode,
     build: () =>
       report
@@ -311,6 +327,7 @@ export function GroupAnalyticsDialog({
             groupName,
             memberCount,
             avatarUrl: avatarUrl ?? null,
+            periodLabel,
             data: { report, batches, graph },
           }
         : null,
@@ -355,7 +372,7 @@ export function GroupAnalyticsDialog({
       </div>
 
       {/* 时间轴：所选区间周柱状图 + 可拖动的消息曲线（默认最近一年） */}
-      {report ? (
+      {report?.timeline ? (
         <section className="ga-ov-section ca-block">
           <div className="ca-block-head">
             <h3>
@@ -410,7 +427,11 @@ export function GroupAnalyticsDialog({
           <small>3 小时内 ≥ max(3, 群人数÷20) 人</small>
         </h3>
         {batchesError ? (
-          <div className="ga-error">{batchesError}</div>
+          <AnalyticsRetry
+            error={batchesError}
+            onRetry={() => void loadBatches()}
+            label="重试入群批次"
+          />
         ) : !batches ? (
           <div className="ga-loading">
             <Loader2 size={22} className="weq-spin" />
@@ -430,7 +451,11 @@ export function GroupAnalyticsDialog({
           <small>5 分钟一段对话 · 拉力 = 发言条数乘积之和</small>
         </h3>
         {graphError ? (
-          <div className="ga-error">{graphError}</div>
+          <AnalyticsRetry
+            error={graphError}
+            onRetry={() => void loadGraph()}
+            label="重试会话力图"
+          />
         ) : !graph ? (
           <span className="weq-skeleton cg-skeleton" aria-label="正在计算会话拉力…" />
         ) : (
@@ -446,7 +471,11 @@ export function GroupAnalyticsDialog({
           <small>所选区间 · 前 {RANKING_LIMIT} 名 · 每周发言</small>
         </h3>
         {reportError ? (
-          <div className="ga-error">{reportError}</div>
+          <AnalyticsRetry
+            error={reportError}
+            onRetry={() => void loadReport()}
+            label="重试群统计"
+          />
         ) : !ranking ? (
           <div className="ga-loading">
             <Loader2 size={22} className="weq-spin" />
@@ -486,7 +515,11 @@ export function GroupAnalyticsDialog({
           ) : null}
         </h3>
         {reportError ? (
-          <div className="ga-error">{reportError}</div>
+          <AnalyticsRetry
+            error={reportError}
+            onRetry={() => void loadReport()}
+            label="重试群统计"
+          />
         ) : !report ? (
           <div className="ga-loading">
             <Loader2 size={22} className="weq-spin" />
@@ -498,7 +531,7 @@ export function GroupAnalyticsDialog({
             </div>
             {/* 绿墙（每日热力图）用**全历史**数据：它不随区间选择变，保持稳定。 */}
             <div className="ga-ov-card">
-              <ContributionHeatmap data={report.timeline.daily ?? []} />
+              <ContributionHeatmap data={report.timeline?.daily ?? report.daily ?? []} />
             </div>
           </>
         )}
@@ -512,7 +545,11 @@ export function GroupAnalyticsDialog({
           <small>全群高频词</small>
         </h3>
         {reportError ? (
-          <div className="ga-error">{reportError}</div>
+          <AnalyticsRetry
+            error={reportError}
+            onRetry={() => void loadReport()}
+            label="重试群统计"
+          />
         ) : !report ? (
           <div className="ga-loading">
             <Loader2 size={22} className="weq-spin" />
@@ -530,8 +567,7 @@ export function GroupAnalyticsDialog({
   const card = (
     <section
       className="group-album-dialog ga-dialog"
-      role="dialog"
-      aria-modal={exportMode ? undefined : 'true'}
+      role="region"
       aria-label={`${groupName} 的群聊分析`}
       onMouseDown={(e) => e.stopPropagation()}
     >
@@ -545,9 +581,9 @@ export function GroupAnalyticsDialog({
             <button
               className="icon-button"
               type="button"
-              title="保存为图片"
+              title={imageAvailable ? '保存为图片' : '当前环境不支持保存长图'}
               onClick={startExport}
-              disabled={exporting || busy}
+              disabled={!imageAvailable || exporting || busy}
             >
               {exporting ? <Loader2 size={18} className="weq-spin" /> : <ImageDown size={18} />}
             </button>
@@ -557,6 +593,7 @@ export function GroupAnalyticsDialog({
           </div>
         )}
       </header>
+      {periodLabel ? <p className="weq-analysis-period">{periodLabel}</p> : null}
 
       <div className="group-album-body ga-body">
         {booting ? <AnalyticsSkeleton variant="group" /> : renderSections(exportMode)}
@@ -565,10 +602,15 @@ export function GroupAnalyticsDialog({
   );
 
   // 导出窗口里整页就是这张卡片：不需要遮挡层。
-  if (exportMode) return card;
+  if (exportMode || embedded) return card;
 
   return (
-    <OverlayLayer className="modal-scrim group-album-scrim" onClose={onClose}>
+    <OverlayLayer
+      presentation="sidecar"
+      title="群聊分析"
+      className="modal-scrim group-album-scrim"
+      onClose={onClose}
+    >
       {card}
     </OverlayLayer>
   );

@@ -26,6 +26,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { is } from '@electron-toolkit/utils';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
+import { floatingWindowTypeOption } from './linux_window_backend';
 
 // 主进程产物是 ESM，`__dirname` 这个全局并不存在（同 index.ts / transcribe/engine.ts）。
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -115,8 +116,6 @@ async function loadExportEntry(win: BrowserWindow): Promise<void> {
  * 见 index.ts 的 WEQ_WINDOW_TYPE）。
  */
 function createExportWindow(): BrowserWindow {
-  const windowType =
-    process.env.WEQ_WINDOW_TYPE ?? (process.platform === 'linux' ? 'toolbar' : undefined);
   const win = new BrowserWindow({
     width: EXPORT_WIDTH,
     height: 1200,
@@ -124,7 +123,7 @@ function createExportWindow(): BrowserWindow {
     frame: false,
     transparent: true,
     skipTaskbar: true,
-    ...(windowType && windowType !== 'normal' ? { type: windowType } : {}),
+    ...floatingWindowTypeOption(),
     webPreferences: {
       preload: outFile('../preload/index.mjs'),
       sandbox: false,

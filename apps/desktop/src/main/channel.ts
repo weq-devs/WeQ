@@ -9,8 +9,7 @@
  *     of the app uses ("按账号隔离") — switching accounts switches the partition.
  *
  * Auto-login: when 设置 → 自动读取 QQ 内存（完整功能） is on AND a logged-in QQ.exe for the
- * account is running (already hook-injected by the account monitor), we swap its
- * credential for a `pd.qq.com` p_skey via the TS ticket fetcher and seed the jar with
+ * account is running, we ask nt_helper for a `pd.qq.com` p_skey and seed the jar with
  * `uin` / `p_uin` / `p_skey` — enough for pd.qq.com to treat the page as logged
  * in. If the setting is off or no online instance exists, we fall back to
  * whatever cookies the persistent partition already holds.
@@ -27,7 +26,7 @@ import { accountConfigId, fetchWebTokens, getLogger, logErrorContext } from '@we
 import { getAppContext } from './context/app_context';
 
 const CHANNEL_URL = 'https://pd.qq.com/';
-/** Domain the channel p_skey is minted for (`fetchPskeyFromHook` argument). */
+/** Domain the channel p_skey is minted for (`ptFetchCredentials` argument). */
 const CHANNEL_PSKEY_DOMAIN = 'pd.qq.com';
 
 /** WeQ's theme preference, mirrored 1:1 onto `nativeTheme.themeSource`. */
@@ -80,7 +79,7 @@ async function injectAutoLoginCookies(partition: string): Promise<void> {
   const record = ctx.services?.accountConfig.getRecord();
   if (!uin || !nt || !record?.qqOnline || !record.qqPid) return;
 
-  // 已 attach 时走 hook；未 attach / 完全离线模式回退 ptlogin2 本地快速登录。
+  // 固定域由 native 的 ptlogin2 流程换取；TS 不再自己发 xlogin / jump。
   const { pskey } = await fetchWebTokens(nt, String(uin), record.qqPid, CHANNEL_PSKEY_DOMAIN);
   if (!pskey) return;
 

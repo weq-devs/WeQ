@@ -155,8 +155,8 @@ export function VoiceTranscribeSection(): ReactElement {
     <div className="weq-set">
       <SectionHeader
         icon={<AudioLines size={18} strokeWidth={1.8} />}
-        title="语音配置"
-        desc="语音相关功能统一在这里配置：离线语音识别（转文字）的模型下载与选择，以及文字转语音（TTS）的服务商。"
+        title="语音转写"
+        desc="离线语音识别模型的下载与选择。"
       />
 
       <Card title="转录模型">
@@ -254,8 +254,6 @@ export function VoiceTranscribeSection(): ReactElement {
           模型文件较大，请在网络良好时下载。模型保存在本地，删除「账号缓存」不会影响它。
         </p>
       </Card>
-
-      <TtsProvidersCard />
     </div>
   );
 }
@@ -313,7 +311,7 @@ function normalizeId(input: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-function TtsProvidersCard(): ReactElement {
+export function TtsProvidersCard(): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const catalog = trpc.bootstrap.getTtsCatalog.useQuery(undefined, {
@@ -553,7 +551,7 @@ function TtsProvidersCard(): ReactElement {
       </Card>
 
       {open ? (
-        <Modal onClose={() => setOpen(false)} width={620}>
+        <Modal presentation="panel" onClose={() => setOpen(false)} width={620}>
           <div className="weq-provider-modal">
             <header className="weq-provider-modal-head">
               <span className="weq-provider-modal-icon">

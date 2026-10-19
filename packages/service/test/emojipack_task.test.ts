@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ExportTaskManager } from '../src/account/export/task_manager';
 import type { EmojiExportItem } from '../src/account/export/emoji_export';
 
@@ -27,6 +27,7 @@ function tmp(): string {
   return d;
 }
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const r of roots) rmSync(r, { recursive: true, force: true });
   roots = [];
 });
@@ -54,6 +55,30 @@ function waitDone(mgr: ExportTaskManager, taskId: string): Promise<void> {
 }
 
 describe('ExportTaskManager · 导出表情包', () => {
+  it.each(['market', 'emoji'] as const)(
+    '同一毫秒创建 %s 任务仍各有身份，不相互覆盖',
+    async (kind) => {
+      const root = tmp();
+      const manager = new ExportTaskManager({} as never, join(root, 'cache'), {});
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
+      let first: string, second: string;
+      try {
+        first =
+          kind === 'market'
+            ? await manager.startMarketPackDownload([{ id: '100', name: '合成甲' }])
+            : await manager.startEmojiPackExport(['own']);
+        second =
+          kind === 'market'
+            ? await manager.startMarketPackDownload([{ id: '101', name: '合成乙' }])
+            : await manager.startEmojiPackExport(['received']);
+      } finally {
+        clock.mockRestore();
+      }
+      await Promise.all([waitDone(manager, first!), waitDone(manager, second!)]);
+      expect(first!).not.toBe(second!);
+      expect(manager.listTasks()).toHaveLength(2);
+    },
+  );
   it('runs scan → download → write and lands two source folders', async () => {
     const root = tmp();
     const mgr = new ExportTaskManager({} as never, join(root, 'cache'), {

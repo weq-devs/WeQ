@@ -1,16 +1,16 @@
 ﻿// @ts-nocheck
-export async function copyTextToClipboard(value: string) {
+export async function copyTextToClipboard(value: string, ownerDocument: Document = document) {
   const text = value.trimEnd();
   if (!text) {
     return false;
   }
 
-  if (copyTextWithTextarea(text)) {
+  if (copyTextWithTextarea(text, ownerDocument)) {
     return true;
   }
 
   try {
-    const clipboard = navigator.clipboard;
+    const clipboard = (ownerDocument.defaultView?.navigator ?? navigator).clipboard;
     if (clipboard?.writeText) {
       await clipboard.writeText(text);
       return true;
@@ -22,7 +22,7 @@ export async function copyTextToClipboard(value: string) {
   return false;
 }
 
-function copyTextWithTextarea(text: string) {
+function copyTextWithTextarea(text: string, document: Document) {
   const textarea = document.createElement('textarea');
   textarea.value = text;
   textarea.readOnly = true;

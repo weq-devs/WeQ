@@ -8083,3 +8083,10 @@ html[data-theme="dark"] .weq-report-root {
 .weq-qz-frame[data-focus="yes"] .weq-qz-frame-date {
   color: var(--rp-qz);
 }
+.weq-report-root[data-report-font] .weq-number,
+.weq-report-root[data-report-font] .weq-od,
+.weq-report-root[data-report-font] .weq-report-brand-year,
+.weq-report-root[data-report-font] .weq-ov-hero-num,
+.weq-report-root[data-report-font] .weq-entry-year-num,
+.weq-report-root[data-report-font] .weq-dress-hero-num { font-family: var(--rp-serif-base) !important; }
+[data-report-font] .weq-qzshare-scrim { --rp-serif: inherit !important; --rp-sans: inherit !important; }

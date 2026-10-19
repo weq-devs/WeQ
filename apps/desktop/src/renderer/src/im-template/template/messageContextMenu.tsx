@@ -8,6 +8,8 @@
   Palette,
   Quote,
   SmilePlus,
+  Forward,
+  ListPlus,
 } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 import type { Message } from './types';
@@ -19,6 +21,7 @@ export type MessageContextMenuState = {
   x: number;
   y: number;
   downloadUrl?: string;
+  imageUrl?: string;
   variant?: 'desktop' | 'mobile';
   /**
    * Click point offset within the anchored message row at open time. Used to
@@ -31,6 +34,11 @@ export type MessageContextMenuState = {
 export function MessageContextMenu({
   state,
   onCopy,
+  onExport,
+  exportLabel = '导出',
+  exportBlockedReason,
+  onForward,
+  onAddToComposition,
   onDownloadImage,
   onDelete,
   onEditRaw,
@@ -47,6 +55,11 @@ export function MessageContextMenu({
 }: {
   state: MessageContextMenuState;
   onCopy: (message: Message) => void | Promise<void>;
+  onExport?: (message: Message) => void;
+  exportLabel?: string;
+  exportBlockedReason?: string;
+  onForward?: (message: Message) => void;
+  onAddToComposition?: (message: Message) => void;
   onDownloadImage?: (url: string, message: Message) => void;
   /** QQ-style delete: message stays in the chat under a "deleted" overlay, restorable. */
   onDelete?: (message: Message) => void;
@@ -132,6 +145,33 @@ export function MessageContextMenu({
           <span>多选</span>
         </button>
       ) : null}
+      {onExport ? (
+        <button
+          type="button"
+          title={exportBlockedReason ?? exportLabel}
+          disabled={Boolean(exportBlockedReason)}
+          onClick={() => onExport(state.message)}
+        >
+          <Download size={17} />
+          <span>{exportLabel}</span>
+        </button>
+      ) : null}
+      {onAddToComposition ? (
+        <button
+          type="button"
+          title="添加到素材库"
+          onClick={() => onAddToComposition(state.message)}
+        >
+          <ListPlus size={17} />
+          <span>添加到素材库</span>
+        </button>
+      ) : null}
+      {onForward ? (
+        <button type="button" title="转发" onClick={() => onForward(state.message)}>
+          <Forward size={17} />
+          <span>转发</span>
+        </button>
+      ) : null}
       {onReply ? (
         <button
           type="button"
@@ -189,7 +229,7 @@ export function MessageContextMenu({
       {onEditRaw ? (
         <button type="button" onClick={() => onEditRaw(state.message)}>
           <Edit3 size={17} />
-          <span>修改</span>
+          <span>修改本地记录</span>
         </button>
       ) : null}
       {hasDecoration && onViewDecoration ? (

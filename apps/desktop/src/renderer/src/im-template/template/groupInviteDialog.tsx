@@ -6,6 +6,7 @@ import type { Contact } from './types';
 import type { GroupConversationView } from './conversationDetailsTypes';
 import { displayUserName } from './user';
 import { cn } from './classNames';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 
 export function GroupInviteDialog({
   conversation,
@@ -45,17 +46,13 @@ export function GroupInviteDialog({
     return () => document.removeEventListener('keydown', closeOnEscape);
   }, [onClose]);
 
-  function toggle(contactId: string) {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (next.has(contactId)) {
-        next.delete(contactId);
-      } else {
-        next.add(contactId);
-      }
-      return next;
-    });
-  }
+  const multi = useMultiSelection({
+    ids: filteredContacts.map((contact) => contact.id),
+    selected: selectedIds,
+    onChange: setSelectedIds,
+    disabled: saving,
+    onExit: onClose,
+  });
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -87,7 +84,7 @@ export function GroupInviteDialog({
         }
       }}
     >
-      <form className={cn('group-invite-dialog')} onSubmit={submit}>
+      <form className={cn('group-invite-dialog')} onSubmit={submit} {...multi.rootProps}>
         <header>
           <strong>邀请成员</strong>
           <button className={cn('icon-button')} type="button" onClick={onClose} title="关闭">
@@ -111,7 +108,7 @@ export function GroupInviteDialog({
                   key={contact.id}
                   type="button"
                   className={cn(selected ? 'active' : '')}
-                  onClick={() => toggle(contact.id)}
+                  {...multi.itemProps(contact.id)}
                 >
                   <Avatar
                     name={displayUserName(contact)}

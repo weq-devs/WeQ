@@ -3,23 +3,20 @@
  *
  * 为什么单独一层：群聊的「每人每周发言」和私聊的「双方每周消息」必须用**同一套
  * 周起点**，否则两张图放在一起会对不齐；时间轴选择、周柱状图、成员卡里的
- * sparkline 也都依赖它。这里只做纯计算（本地时区、周一为一周起点），不碰数据库。
+ * sparkline 也都依赖它。这里只做纯计算（北京时间、周一为一周起点），不碰数据库。
  */
+import { analyticsDayParts } from '../common/analytics_time';
 
-/** `YYYY-MM-DD`（本地时区）。 */
+/** `YYYY-MM-DD`（北京时间）。 */
 export function localDateKey(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
-    date.getDate(),
-  ).padStart(2, '0')}`;
+  return analyticsDayParts(date.getTime() / 1000)?.day ?? '';
 }
 
-/** 该日期所在周的周一（本地时区，00:00）。 */
+/** 该日期所在周的周一（北京时间，00:00）。 */
 export function weekStartOf(date: Date): Date {
-  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  // getDay(): 0 = 周日。把周一当作 0，周日归到上一周。
-  const offset = (day.getDay() + 6) % 7;
-  day.setDate(day.getDate() - offset);
-  return day;
+  const dayIndex = Math.floor((date.getTime() + 8 * 3600_000) / 86400_000);
+  const offset = (((dayIndex + 3) % 7) + 7) % 7;
+  return new Date((dayIndex - offset) * 86400_000 - 8 * 3600_000);
 }
 
 /** 该日期所在周的周一日期键（`YYYY-MM-DD`）。 */
@@ -41,7 +38,7 @@ export function buildWeekKeys(startSec: number, endSec: number): string[] {
   const cursor = new Date(first);
   while (cursor.getTime() <= last.getTime()) {
     keys.push(localDateKey(cursor));
-    cursor.setDate(cursor.getDate() + 7);
+    cursor.setTime(cursor.getTime() + 7 * 86400_000);
   }
   return keys;
 }
@@ -64,7 +61,7 @@ export function dailyToWeekly(daily: DailyCount[]): WeeklyCount[] {
   for (const item of daily) {
     const [y, m, d] = item.date.split('-').map(Number);
     if (!y || !m || !d) continue;
-    const key = weekStartKey(new Date(y, m - 1, d));
+    const key = weekStartKey(new Date(Date.UTC(y, m - 1, d) - 8 * 3600_000));
     byWeek.set(key, (byWeek.get(key) ?? 0) + item.count);
   }
   return [...byWeek.entries()]

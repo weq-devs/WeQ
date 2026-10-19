@@ -1,6 +1,7 @@
 /** Native Qzone UI: only already implemented web capabilities are exposed. */
 import { z } from 'zod';
-import { getHost } from '@weq/service';
+import { getHost, qzoneFeedSearchRecord } from '@weq/service';
+import { rememberQzoneAlbums, rememberQzonePosts } from '../../search_content';
 import { withQzonePaginationTimeout } from '@weq/service/qzone-pagination';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
@@ -46,13 +47,20 @@ async function request<T>(
 }
 
 export const qzoneRouter = router({
-  detail: procedure
-    .input(post)
-    .query(({ input }) =>
-      request(input, (services, signal) =>
-        services.webQuery.getQzonePostDetail(input.hostUin, input.tid, signal),
-      ),
-    ),
+  detail: procedure.input(post).query(({ input }) =>
+    request(input, async (services, signal) => {
+      const detail = await services.webQuery.getQzonePostDetail(input.hostUin, input.tid, signal);
+      if (detail.post)
+        rememberQzonePosts(
+          services.contentSearch,
+          input.hostUin,
+          [{ ...detail.post, content: detail.content }],
+          '',
+          true,
+        );
+      return detail;
+    }),
+  ),
   images: procedure
     .input(post)
     .query(({ input }) =>
@@ -73,9 +81,11 @@ export const qzoneRouter = router({
   albumPage: procedure
     .input(target.extend({ offset: z.number().int().min(0).max(100000) }))
     .query(({ input }) =>
-      request(input, (services, signal) =>
-        services.webQuery.getQzoneAlbumPage(input.hostUin, input.offset, signal),
-      ),
+      request(input, async (services, signal) => {
+        const page = await services.webQuery.getQzoneAlbumPage(input.hostUin, input.offset, signal);
+        rememberQzoneAlbums(services.contentSearch, input.hostUin, page.albums);
+        return page;
+      }),
     ),
   albumDetail: procedure
     .input(
@@ -114,6 +124,7 @@ export const qzoneRouter = router({
             // A missing cached profile does not prevent reading the space.
           }
         }
+        rememberQzonePosts(services.contentSearch, input.hostUin, page.list, nickname ?? '');
         return {
           nickname,
           total: page.total,
@@ -129,9 +140,23 @@ export const qzoneRouter = router({
       }),
     )
     .query(({ input }) =>
-      request(input, (services, signal) =>
-        services.webQuery.getQzoneFeeds(input.selfUin, 1, 10, signal, input.cursor, input.scope),
-      ),
+      request(input, async (services, signal) => {
+        const page = await services.webQuery.getQzoneFeeds(
+          input.selfUin,
+          1,
+          10,
+          signal,
+          input.cursor,
+          input.scope,
+        );
+        services.contentSearch?.remember(
+          page.feeds.flatMap((feed) => {
+            const record = qzoneFeedSearchRecord(feed);
+            return record ? [record] : [];
+          }),
+        );
+        return page;
+      }),
     ),
   interactions: procedure
     .input(

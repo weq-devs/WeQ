@@ -14,6 +14,30 @@ const row = (seq: number, extra: Partial<TimelineRow> = {}): TimelineRow => ({
 });
 
 describe('roaming timeline projection', () => {
+  it('deduplicates a protocol row against a local row by sequence, random and sender', () => {
+    const local = row(19749, { msgId: '90000000001', msgRandom: '1234', senderUid: 'u_me' });
+    const remote = row(19749, {
+      msgId: '1234',
+      msgRandom: '1234',
+      senderUid: 'u_me',
+      sourceFormat: 'protocol',
+    });
+    expect(mergeRoamingTimeline('group', [local], [remote])).toEqual([local]);
+    expect(
+      mergeRoamingTimeline('group', [local], [{ ...remote, senderUid: 'u_other' }]),
+    ).toHaveLength(2);
+  });
+  it('replaces a persisted sent row when a live roaming batch carries its server ID', () => {
+    const sent = row(120, {
+      source: 'roaming',
+      sourceFormat: 'protocol',
+      localSent: true,
+      msgRandom: '1234',
+      senderUid: 'u_me',
+    });
+    const remote = { ...sent, localSent: undefined, msgId: '900000001' };
+    expect(mergeRoamingTimeline('group', [sent], [remote])).toEqual([remote]);
+  });
   it('preserves protocol same-seq IDs across cache projection and exact local deduplication', () => {
     const local = row(2, { msgId: '9007199254740993000' });
     const incoming = [

@@ -218,6 +218,44 @@ export interface PtFetchPskeyResult {
   pskey: string;
 }
 
+/** 完整 Web 凭据：skey / p_skey / Cookie 头。 */
+export interface PtCredentialsResult {
+  success: boolean;
+  msg: string;
+  skey: string;
+  pskey: string;
+  cookie: string;
+  errorKind: string;
+}
+
+/** 本地快速登录或 OIDB 兜底拿到的 clientKey。 */
+export interface PtClientKeyResult {
+  success: boolean;
+  msg: string;
+  clientKey: string;
+  keyIndex: string;
+  ttlSeconds: number;
+}
+
+/** ptlogin2 免登录跳转地址。 */
+export interface PtJumpUrlResult {
+  success: boolean;
+  msg: string;
+  url: string;
+  clientKey: string;
+  keyIndex: string;
+}
+
+/** QQ 邮箱登录会话。 */
+export interface PtMailSessionResult {
+  success: boolean;
+  msg: string;
+  sid: string;
+  panelPskey: string;
+  cookie: string;
+  errorKind: string;
+}
+
 export interface DatabaseAlgorithms {
   pageHmacAlgorithm: string;
   kdfHmacAlgorithm: string;
@@ -595,6 +633,17 @@ export interface NtHelperBinding {
    * 仅支持已验证的四域：qun.qq.com / qzone.qq.com / pd.qq.com / vip.qq.com。
    */
   ptFetchPskey(port: number, uin: string, domain: string): Promise<PtFetchPskeyResult>;
+  /**
+   * 完整 Web 凭据：固定四域 / 邮箱走本机 ptlogin2，其他域走 clientKey jump，
+   * 失败回退 OIDB 0x102a_0。所有 HTTP 跳转与 Cookie 处理都在 native 内完成。
+   */
+  ptFetchCredentials(pid: number, uin: string, domain: string): Promise<PtCredentialsResult>;
+  /** 本地快速登录或 OIDB 兜底获取 clientKey（不注入 hook）。 */
+  ptFetchClientKey(pid: number, uin: string): Promise<PtClientKeyResult>;
+  /** 生成 ptlogin2 免登录跳转 URL。`landingUrl` 必须是 https。 */
+  ptFetchJumpUrl(pid: number, uin: string, landingUrl: string): Promise<PtJumpUrlResult>;
+  /** QQ 邮箱登录：本机 ptlogin2 → mail p_skey → `/login/login` → `sid`。 */
+  ptFetchMailSession(pid: number, uin: string): Promise<PtMailSessionResult>;
   /**
    * Probe which processes have an account's `nt_msg.db` open / locked — the
    * cross-platform way to attribute a running QQ to an account AND recover its

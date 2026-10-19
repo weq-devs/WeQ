@@ -145,3 +145,4 @@ export {
   pttTransCmd,
 } from './ptt-trans';
 export type { PttTransVoice, PttTransAck, PttTransPush } from './ptt-trans';
+export { ReportRead, type ReadReportParams } from './msg/report-read';

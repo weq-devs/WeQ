@@ -6,6 +6,7 @@ import { useMemo, useState, type ReactElement } from 'react';
 import { Check, CheckCheck, Database, FlipHorizontal2, Search, X } from 'lucide-react';
 import { PickerListSkeleton } from './ExportSkeleton';
 import { fmtBytes } from './types';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 
 export interface DbPickItem {
   name: string;
@@ -18,11 +19,13 @@ export function DatabasePicker({
   loading,
   selected,
   onChange,
+  disabled = false,
 }: {
   items: DbPickItem[];
   loading: boolean;
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
+  disabled?: boolean;
 }): ReactElement {
   const [query, setQuery] = useState('');
 
@@ -37,12 +40,12 @@ export function DatabasePicker({
   const allFilteredSelected = filtered.length > 0 && filtered.every((it) => selected.has(it.path));
   const selectedBytes = items.reduce((sum, it) => sum + (selected.has(it.path) ? it.bytes : 0), 0);
 
-  function toggle(path: string): void {
-    const next = new Set(selected);
-    if (next.has(path)) next.delete(path);
-    else next.add(path);
-    onChange(next);
-  }
+  const selection = useMultiSelection({
+    ids: filtered.map((item) => item.path),
+    selected,
+    onChange,
+    disabled,
+  });
 
   function selectAll(): void {
     const next = new Set(selected);
@@ -61,7 +64,7 @@ export function DatabasePicker({
   }
 
   return (
-    <div className="weq-exp-picker">
+    <div className="weq-exp-picker" {...selection.rootProps}>
       <div className="weq-exp-search">
         <Search size={15} aria-hidden />
         <input
@@ -76,33 +79,36 @@ export function DatabasePicker({
         ) : null}
       </div>
 
-      <div className="weq-exp-tools">
+      <div className="weq-exp-tools weq-exp-selection-tools">
         <button
           type="button"
           className="weq-exp-tool"
           onClick={selectAll}
-          disabled={filtered.length === 0}
+          disabled={disabled || filtered.length === 0}
+          title={allFilteredSelected ? '取消全选' : '全选 (Ctrl/Command+A)'}
+          aria-label={allFilteredSelected ? '取消全选' : '全选'}
         >
           <CheckCheck size={14} />
-          {allFilteredSelected ? '取消全选' : '全选'}
         </button>
         <button
           type="button"
           className="weq-exp-tool"
           onClick={invert}
-          disabled={filtered.length === 0}
+          disabled={disabled || filtered.length === 0}
+          title="反选"
+          aria-label="反选"
         >
           <FlipHorizontal2 size={14} />
-          反选
         </button>
         <button
           type="button"
           className="weq-exp-tool"
           onClick={() => onChange(new Set())}
-          disabled={selected.size === 0}
+          disabled={disabled || selected.size === 0}
+          title="清空 (Ctrl/Command+Shift+A)"
+          aria-label="清空"
         >
           <X size={14} />
-          清空
         </button>
         <span className="weq-exp-tools-spacer" />
         <span className="weq-exp-tools-count">
@@ -125,7 +131,8 @@ export function DatabasePicker({
                 key={it.path}
                 type="button"
                 className={`weq-exp-row${checked ? ' is-on' : ''}`}
-                onClick={() => toggle(it.path)}
+                disabled={disabled}
+                {...selection.itemProps(it.path)}
               >
                 <span className="weq-exp-db-icon">
                   <Database size={16} />

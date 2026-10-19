@@ -18,7 +18,7 @@ import { BellRing, ChevronRight, RotateCcw, ShieldCheck, X } from 'lucide-react'
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { useToast } from './Toast';
-import { Card, Row, Toggle } from './settings/controls';
+import { Card, Row, SettingsScopeBadge, Toggle } from './settings/controls';
 import { ConversationPicker } from '../views/export/ConversationPicker';
 import { convAvatarUrl, fmtCount, type PickItem } from '../views/export/types';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
@@ -101,10 +101,12 @@ function formatWhen(ts: number): string {
 export function AntiRecallDialog({
   onClose,
   onOpenRecalls,
+  embedded = false,
 }: {
   onClose: () => void;
   /** 打开某个会话的撤回列表（由 MainView 渲染，复用聊天区气泡与筛选）。 */
   onOpenRecalls: (kind: 'c2c' | 'group', conv: string) => void;
+  embedded?: boolean;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
   const pushToast = useToast((s) => s.push);
@@ -312,234 +314,249 @@ export function AntiRecallDialog({
     onOpenRecalls(kind === 'group' ? 'group' : 'c2c', conv);
   }
 
-  return (
-    <OverlayLayer className="modal-scrim group-keyword-scrim" onClose={onClose}>
-      <section
-        className={cn('group-keyword-dialog', 'weq-ar-dialog')}
-        role="dialog"
-        aria-modal="true"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <header>
-          <div className="group-keyword-title">
-            <span className="group-keyword-title-icon">
-              <ShieldCheck size={17} />
-            </span>
-            <div>
+  const content = (
+    <section
+      className={cn('group-keyword-dialog', 'weq-ar-dialog', embedded && 'is-embedded')}
+      role={embedded ? 'region' : 'dialog'}
+      aria-label={embedded ? '防撤回设置' : undefined}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <header>
+        <div className="group-keyword-title">
+          <span className="group-keyword-title-icon">
+            <ShieldCheck size={17} />
+          </span>
+          <div>
+            <div className="weq-settings-title-with-scope">
               <strong>防撤回</strong>
-              <span>撤回的记录留在这里，不向对方发送任何内容</span>
+              {embedded ? <SettingsScopeBadge /> : null}
             </div>
+            <span>撤回的记录留在这里，不向对方发送任何内容</span>
           </div>
+        </div>
+        {!embedded ? (
           <button className="icon-button" type="button" title="关闭" onClick={onClose}>
             <X size={18} />
           </button>
-        </header>
+        ) : null}
+      </header>
 
-        <div className="weq-ar-tabs" role="tablist">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              aria-selected={tab === t.id}
-              className={cn('weq-ar-tab', tab === t.id && 'is-on')}
-              onClick={() => setTab(t.id)}
-            >
-              <t.icon size={15} />
-              {t.label}
-            </button>
-          ))}
-        </div>
+      <div className="weq-ar-tabs" role="tablist">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            className={cn('weq-ar-tab', tab === t.id && 'is-on')}
+            onClick={() => setTab(t.id)}
+          >
+            <t.icon size={15} />
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-        <div className="group-keyword-body weq-ar-body">
-          {tab === 'protect' ? (
-            <>
-              <Card title="服务开关">
-                <Row
-                  label="启用防撤回"
-                  desc={
-                    isStaticPcOnly
-                      ? '静态账号的数据库是导入的离线快照，QQ 不会往里写入，触发器拦不到任何撤回。'
-                      : '在本地数据库上拦下撤回写入，仅影响本机记录。'
-                  }
-                  control={
-                    <Toggle
-                      checked={enabled && !isStaticPcOnly}
-                      disabled={busy || status.isLoading || isStaticPcOnly}
-                      onChange={(next) => void onToggleEnabled(next)}
-                      label="启用防撤回"
-                    />
-                  }
-                />
-                <Row
-                  label="保护范围"
-                  desc={
-                    mode === 'all'
-                      ? '不做会话筛选：所有会话（含以后新增的）都受保护。'
-                      : '只保护下面勾选的会话。'
-                  }
-                  control={
-                    <div className="weq-set-seg" role="radiogroup" aria-label="防撤回保护范围">
-                      {MODE_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          role="radio"
-                          aria-checked={mode === opt.value}
-                          className={cn('weq-set-seg-item', mode === opt.value && 'is-on')}
-                          disabled={busy || status.isLoading}
-                          onClick={() => void onSetMode(opt.value)}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  }
-                />
-                <Row
-                  label={
-                    <span className="weq-set-mcp-state">
-                      <span
-                        className={cn('weq-set-mcp-dot', installedCount > 0 && 'is-on')}
-                        aria-hidden
-                      />
-                      {installedCount > 0 ? `已安装（${installedCount} 张触发器）` : '未安装'}
-                    </span>
-                  }
-                  desc={
-                    qqRunning
-                      ? 'QQ 正在运行：随时可改，但可能要重启 QQ 才真正生效。'
-                      : 'QQ 下次启动会加载最新拦截规则。'
-                  }
-                  control={<span />}
-                />
-              </Card>
-
-              {mode === 'selected' ? (
-                <Card
-                  title="受保护的会话"
-                  action={
-                    <button
-                      type="button"
-                      className="weq-set-btn weq-set-btn-sm"
-                      disabled={busy || !dirty}
-                      onClick={() => void onSaveTargets()}
-                    >
-                      {dirty ? '保存选择' : '已保存'}
-                    </button>
-                  }
-                >
-                  <div className="weq-set-picker">
-                    <ConversationPicker
-                      items={items}
-                      loading={conversations.isLoading}
-                      selected={selected}
-                      onChange={setSelected}
-                      emptyText="暂无可保护的会话"
-                    />
+      <div className="group-keyword-body weq-ar-body">
+        {tab === 'protect' ? (
+          <>
+            <Card title="服务开关">
+              <Row
+                label="启用防撤回"
+                desc={
+                  isStaticPcOnly
+                    ? '静态账号的数据库是导入的离线快照，QQ 不会往里写入，触发器拦不到任何撤回。'
+                    : '在本地数据库上拦下撤回写入，仅影响本机记录。'
+                }
+                control={
+                  <Toggle
+                    checked={enabled && !isStaticPcOnly}
+                    disabled={busy || status.isLoading || isStaticPcOnly}
+                    onChange={(next) => void onToggleEnabled(next)}
+                    label="启用防撤回"
+                  />
+                }
+              />
+              <Row
+                label="保护范围"
+                desc={
+                  mode === 'all'
+                    ? '不做会话筛选：所有会话（含以后新增的）都受保护。'
+                    : '只保护下面勾选的会话。'
+                }
+                control={
+                  <div className="weq-set-seg" role="radiogroup" aria-label="防撤回保护范围">
+                    {MODE_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={mode === opt.value}
+                        className={cn('weq-set-seg-item', mode === opt.value && 'is-on')}
+                        disabled={busy || status.isLoading}
+                        onClick={() => void onSetMode(opt.value)}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
                   </div>
-                </Card>
-              ) : null}
-            </>
-          ) : null}
-
-          {tab === 'notify' ? (
-            <>
-              <Card title="撤回通知">
-                <Row
-                  label="撤回时通知我"
-                  desc="对方撤回被拦下时弹系统通知，点通知直接跳到那条消息。"
-                  control={
-                    <Toggle
-                      checked={notifyEnabled}
-                      disabled={busy || !enabled}
-                      onChange={(next) => void onToggleNotify(next)}
-                      label="撤回时通知我"
+                }
+              />
+              <Row
+                label={
+                  <span className="weq-set-mcp-state">
+                    <span
+                      className={cn('weq-set-mcp-dot', installedCount > 0 && 'is-on')}
+                      aria-hidden
                     />
-                  }
-                />
-                {!enabled ? (
-                  <p className="weq-set-note">先开启防撤回 —— 没有拦下的撤回就没有记录可通知。</p>
-                ) : null}
-              </Card>
+                    {installedCount > 0 ? `已安装（${installedCount} 张触发器）` : '未安装'}
+                  </span>
+                }
+                desc={
+                  qqRunning
+                    ? 'QQ 正在运行：随时可改，但可能要重启 QQ 才真正生效。'
+                    : 'QQ 下次启动会加载最新拦截规则。'
+                }
+                control={<span />}
+              />
+            </Card>
 
-              {notifyEnabled ? (
-                <Card
-                  title="通知哪些会话"
-                  action={
-                    <button
-                      type="button"
-                      className="weq-set-btn weq-set-btn-sm"
-                      disabled={busy || !notifyDirty}
-                      onClick={() => void onSaveNotify()}
-                    >
-                      {notifyDirty ? '保存选择' : '已保存'}
-                    </button>
-                  }
-                >
-                  <div className="weq-set-picker">
-                    <ConversationPicker
-                      items={notifyItems}
-                      loading={conversations.isLoading}
-                      selected={notifySelected}
-                      onChange={setNotifySelected}
-                      emptyText={mode === 'selected' ? '还没有受保护的会话' : '暂无可通知的会话'}
-                    />
-                  </div>
-                </Card>
-              ) : null}
-            </>
-          ) : null}
-
-          {tab === 'records' ? (
-            <div className="weq-ar-records">
-              {summaries.isLoading ? (
-                <div className="weq-ar-empty">加载中…</div>
-              ) : recordRows.length === 0 ? (
-                <div className="weq-ar-empty">
-                  <RotateCcw size={26} />
-                  <span>还没有撤回记录</span>
-                  <small>开启防撤回后，被撤回的消息会保留在原位，并在这里按会话汇总。</small>
+            {mode === 'selected' ? (
+              <Card
+                title="受保护的会话"
+                action={
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-sm"
+                    disabled={busy || !dirty}
+                    onClick={() => void onSaveTargets()}
+                  >
+                    {dirty ? '保存选择' : '已保存'}
+                  </button>
+                }
+              >
+                <div className="weq-set-picker">
+                  <ConversationPicker
+                    items={items}
+                    loading={conversations.isLoading}
+                    selected={selected}
+                    onChange={setSelected}
+                    emptyText="暂无可保护的会话"
+                  />
                 </div>
-              ) : (
-                recordRows.map((row) => {
-                  const meta = nameById.get(row.conv);
-                  const name = meta?.name ?? row.conv;
-                  const isGroup = row.kind === 'group';
-                  const avatarUrl =
-                    meta?.avatarUrl ??
-                    convAvatarUrl(isGroup ? 'group' : 'c2c', row.conv, meta?.uin);
-                  return (
-                    <button
-                      key={`${row.kind}:${row.conv}`}
-                      type="button"
-                      className="weq-ar-record"
-                      onClick={() => openRecords(row.kind, row.conv)}
-                    >
-                      <Avatar name={name} avatarUrl={avatarUrl} seed={row.conv} />
-                      <span className="weq-ar-record-meta">
-                        <strong title={name}>{name}</strong>
-                        <small>
-                          {fmtCount(row.count)} 条 ·{' '}
-                          {formatWhen(row.lastTs) || (isGroup ? '群聊' : '私聊')}
-                        </small>
-                      </span>
-                      <ChevronRight size={16} />
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          ) : null}
-        </div>
+              </Card>
+            ) : null}
+          </>
+        ) : null}
 
+        {tab === 'notify' ? (
+          <>
+            <Card title="撤回通知">
+              <Row
+                label="撤回时通知我"
+                desc="对方撤回被拦下时弹系统通知，点通知直接跳到那条消息。"
+                control={
+                  <Toggle
+                    checked={notifyEnabled}
+                    disabled={busy || !enabled}
+                    onChange={(next) => void onToggleNotify(next)}
+                    label="撤回时通知我"
+                  />
+                }
+              />
+              {!enabled ? (
+                <p className="weq-set-note">先开启防撤回 —— 没有拦下的撤回就没有记录可通知。</p>
+              ) : null}
+            </Card>
+
+            {notifyEnabled ? (
+              <Card
+                title="通知哪些会话"
+                action={
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-sm"
+                    disabled={busy || !notifyDirty}
+                    onClick={() => void onSaveNotify()}
+                  >
+                    {notifyDirty ? '保存选择' : '已保存'}
+                  </button>
+                }
+              >
+                <div className="weq-set-picker">
+                  <ConversationPicker
+                    items={notifyItems}
+                    loading={conversations.isLoading}
+                    selected={notifySelected}
+                    onChange={setNotifySelected}
+                    emptyText={mode === 'selected' ? '还没有受保护的会话' : '暂无可通知的会话'}
+                  />
+                </div>
+              </Card>
+            ) : null}
+          </>
+        ) : null}
+
+        {tab === 'records' ? (
+          <div className="weq-ar-records">
+            {summaries.isLoading ? (
+              <div className="weq-ar-empty">加载中…</div>
+            ) : recordRows.length === 0 ? (
+              <div className="weq-ar-empty">
+                <RotateCcw size={26} />
+                <span>还没有撤回记录</span>
+                <small>开启防撤回后，被撤回的消息会保留在原位，并在这里按会话汇总。</small>
+              </div>
+            ) : (
+              recordRows.map((row) => {
+                const meta = nameById.get(row.conv);
+                const name = meta?.name ?? row.conv;
+                const isGroup = row.kind === 'group';
+                const avatarUrl =
+                  meta?.avatarUrl ?? convAvatarUrl(isGroup ? 'group' : 'c2c', row.conv, meta?.uin);
+                return (
+                  <button
+                    key={`${row.kind}:${row.conv}`}
+                    type="button"
+                    className="weq-ar-record"
+                    onClick={() => openRecords(row.kind, row.conv)}
+                  >
+                    <Avatar name={name} avatarUrl={avatarUrl} seed={row.conv} />
+                    <span className="weq-ar-record-meta">
+                      <strong title={name}>{name}</strong>
+                      <small>
+                        {fmtCount(row.count)} 条 ·{' '}
+                        {formatWhen(row.lastTs) || (isGroup ? '群聊' : '私聊')}
+                      </small>
+                    </span>
+                    <ChevronRight size={16} />
+                  </button>
+                );
+              })
+            )}
+          </div>
+        ) : null}
+      </div>
+
+      {!embedded ? (
         <footer className="group-keyword-foot">
           <span className="group-keyword-save-state" />
           <button type="button" className="group-keyword-done" onClick={onClose}>
             完成
           </button>
         </footer>
-      </section>
+      ) : null}
+    </section>
+  );
+  return embedded ? (
+    content
+  ) : (
+    <OverlayLayer
+      presentation="panel"
+      className="modal-scrim group-keyword-scrim"
+      onClose={onClose}
+    >
+      {content}
     </OverlayLayer>
   );
 }

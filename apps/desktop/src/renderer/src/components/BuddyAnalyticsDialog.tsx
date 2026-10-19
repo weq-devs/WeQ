@@ -28,6 +28,8 @@ import {
   formatNumber,
 } from './analyticsCharts';
 import { useAnalyticsExport } from './useAnalyticsExport';
+import type { AnalysisScope } from '../views/analysis/model';
+import { AnalyticsRetry } from './AnalyticsRetry';
 import {
   GitHubTimeline,
   PersonWeekCard,
@@ -132,6 +134,9 @@ export function BuddyAnalyticsDialog({
   onClose,
   exportMode = false,
   initialData,
+  embedded = false,
+  scope,
+  periodLabel,
 }: {
   peerUid: string;
   peerName: string;
@@ -140,6 +145,9 @@ export function BuddyAnalyticsDialog({
   exportMode?: boolean;
   /** 导出时由可见窗口递过来的数据，避免同一份分析再扫一遍。 */
   initialData?: unknown;
+  embedded?: boolean;
+  scope?: AnalysisScope;
+  periodLabel?: string;
 }) {
   const [data, setData] = useState<BuddyAnalyticsData | null>(
     (initialData as BuddyAnalyticsData) ?? null,
@@ -166,7 +174,7 @@ export function BuddyAnalyticsDialog({
   );
 
   const load = useCallback(
-    async (nextRange: RangeSelection | null) => {
+    async (nextRange: RangeSelection | null = null) => {
       const seq = ++seqRef.current;
       if (!loadedOnceRef.current) setLoading(true);
       else setRefreshing(true);
@@ -174,9 +182,12 @@ export function BuddyAnalyticsDialog({
       try {
         const result = await client.account.getBuddyAnalytics.query({
           peerUid,
+          ...scope,
           ...(nextRange
             ? { startTime: nextRange.start, endTime: nextRange.end }
-            : { recentYear: true }),
+            : scope
+              ? {}
+              : { recentYear: true }),
         });
         if (seq !== seqRef.current) return;
         loadedOnceRef.current = true;
@@ -199,7 +210,7 @@ export function BuddyAnalyticsDialog({
         }
       }
     },
-    [peerUid],
+    [peerUid, scope],
   );
 
   // 导出窗口里的数据是外面递进来的：已有初始数据就别再查一遍。
@@ -218,7 +229,11 @@ export function BuddyAnalyticsDialog({
   }, [seeded, range, load]);
 
   // 「保存为图片」：把数据交给主进程 —— 它在隐藏窗口里渲染 + 抓图 + 弹保存框。
-  const { exporting, start: startExport } = useAnalyticsExport({
+  const {
+    available: imageAvailable,
+    exporting,
+    start: startExport,
+  } = useAnalyticsExport({
     enabled: !loading && !refreshing && !error && !!data && !exportMode,
     build: () =>
       data
@@ -227,6 +242,7 @@ export function BuddyAnalyticsDialog({
             title: peerName,
             label: EXPORT_LABEL,
             peerUid,
+            periodLabel,
             data,
           }
         : null,
@@ -252,24 +268,26 @@ export function BuddyAnalyticsDialog({
       </div>
 
       {/* 时间轴：所选区间周柱状图 + 可拖动的消息曲线（默认最近一年） */}
-      <section className="ba-section ca-block">
-        <div className="ca-block-head">
-          <h3>
-            <Clock size={15} />
-            活跃时间轴
-          </h3>
-          <small>所选区间每周一根 · 拖动下方曲线重排</small>
-        </div>
-        <GitHubTimeline weeks={data.timeline.weekly} range={range} />
-        <RangeTimeline
-          weeks={data.timeline.weekly}
-          daily={data.timeline.daily}
-          firstTime={data.timeline.firstMessageTime}
-          lastTime={data.timeline.lastMessageTime}
-          range={range}
-          onChange={setRange}
-        />
-      </section>
+      {data.timeline ? (
+        <section className="ba-section ca-block">
+          <div className="ca-block-head">
+            <h3>
+              <Clock size={15} />
+              活跃时间轴
+            </h3>
+            <small>所选区间每周一根 · 拖动下方曲线重排</small>
+          </div>
+          <GitHubTimeline weeks={data.timeline.weekly} range={range} />
+          <RangeTimeline
+            weeks={data.timeline.weekly}
+            daily={data.timeline.daily}
+            firstTime={data.timeline.firstMessageTime}
+            lastTime={data.timeline.lastMessageTime}
+            range={range}
+            onChange={setRange}
+          />
+        </section>
+      ) : null}
 
       <div className="ba-stat-grid">
         <div className="ba-stat">
@@ -427,7 +445,7 @@ export function BuddyAnalyticsDialog({
         <h3>
           <Flame size={15} /> 每日消息热力图
         </h3>
-        <ContributionHeatmap data={data.timeline.daily} />
+        <ContributionHeatmap data={data.timeline?.daily ?? data.daily} />
       </section>
 
       {/* Word cloud */}
@@ -482,8 +500,7 @@ export function BuddyAnalyticsDialog({
   const card = (
     <section
       className="group-album-dialog ba-dialog"
-      role="dialog"
-      aria-modal={exportMode ? undefined : 'true'}
+      role="region"
       onMouseDown={(e) => e.stopPropagation()}
     >
       <header>
@@ -496,9 +513,9 @@ export function BuddyAnalyticsDialog({
             <button
               className="icon-button"
               type="button"
-              title="保存为图片"
+              title={imageAvailable ? '保存为图片' : '当前环境不支持保存长图'}
               onClick={startExport}
-              disabled={exporting || loading || !!error || !data}
+              disabled={!imageAvailable || exporting || loading || !!error || !data}
             >
               {exporting ? <Loader2 size={18} className="weq-spin" /> : <ImageDown size={18} />}
             </button>
@@ -508,12 +525,13 @@ export function BuddyAnalyticsDialog({
           </div>
         )}
       </header>
+      {periodLabel ? <p className="weq-analysis-period">{periodLabel}</p> : null}
 
       <div className="group-album-body ba-body">
         {loading ? (
           <AnalyticsSkeleton variant="buddy" />
         ) : error ? (
-          <div className="ga-error">{error}</div>
+          <AnalyticsRetry error={error} onRetry={() => void load()} />
         ) : !data ? (
           <p className="ga-placeholder">暂无分析数据</p>
         ) : (
@@ -524,10 +542,15 @@ export function BuddyAnalyticsDialog({
   );
 
   // 导出窗口里整页就是这张卡片：不需要遮挡层。
-  if (exportMode) return card;
+  if (exportMode || embedded) return card;
 
   return (
-    <OverlayLayer className="modal-scrim group-album-scrim" onClose={onClose}>
+    <OverlayLayer
+      presentation="sidecar"
+      title="好友分析"
+      className="modal-scrim group-album-scrim"
+      onClose={onClose}
+    >
       {card}
     </OverlayLayer>
   );

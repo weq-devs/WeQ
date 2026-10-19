@@ -49,6 +49,15 @@
 	border-bottom: 0;
 }
 
+.sidebar-header.sidebar-header-no-search {
+	padding: 0;
+	border-bottom: 0;
+}
+
+.sidebar-header-no-search .contact-tools {
+	margin-top: 0;
+}
+
 .mobile-sidebar-top,
 .mobile-notice-label {
 	display: none;

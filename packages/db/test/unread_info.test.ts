@@ -12,7 +12,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { UnreadInfoDb } from '@weq/db';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 
@@ -44,10 +44,12 @@ function setup(peer: string, blobHex: string, latestSeq: number): void {
   dbPath = join(dir, 'nt_msg.db');
   const sql = fixtureDb(dbPath);
   sql.exec(`CREATE TABLE msg_unread_info_table ("48901" TEXT PRIMARY KEY, "48902" BLOB)`);
-  sql.exec(`CREATE TABLE recent_contact_v3_table ("40021" TEXT, "40003" INTEGER)`);
+  sql.exec(
+    `CREATE TABLE recent_contact_v3_table ("40021" TEXT, "40003" INTEGER, "40010" INTEGER DEFAULT 2)`,
+  );
   sql.prepare(`INSERT INTO msg_unread_info_table VALUES (?, ?)`).run(peer, blobOf(blobHex));
   sql
-    .prepare(`INSERT INTO recent_contact_v3_table VALUES (?, ?)`)
+    .prepare(`INSERT INTO recent_contact_v3_table ("40021", "40003") VALUES (?, ?)`)
     .run(peer.split('_').slice(1).join('_'), latestSeq);
   db = new UnreadInfoDb(createSqliteStub(), { dbPath });
 }
@@ -62,6 +64,49 @@ function storedHex(): string {
 }
 
 describe('UnreadInfoDb.getUnreadInfo', () => {
+  it('损坏的未读 BLOB 不影响同批其它会话，也不冒充空未读', async () => {
+    setup(`2_${GROUP}`, GROUP_BLOB, 1732);
+    fixtureDb(dbPath)
+      .prepare(`INSERT INTO msg_unread_info_table VALUES (?, ?)`)
+      .run('1_u_bad', blobOf('ff'));
+    const rows = await db.getUnreadInfos([
+      { chatType: 2, uid: GROUP },
+      { chatType: 1, uid: 'u_bad' },
+    ]);
+    expect(rows[0]).toMatchObject({ msgSeq: 1731 });
+    expect(rows[1]).toMatchObject({ uid: 'u_bad', readError: true });
+  });
+  it('批量读取包含同一快照的最新与已读序号，缺行返回空水位且目标去重', async () => {
+    setup(`2_${GROUP}`, GROUP_BLOB, 1732);
+    const nt = createSqliteStub();
+    const query = vi.spyOn(nt, 'executeSql');
+    const reader = new UnreadInfoDb(nt, { dbPath });
+    const targets = [
+      { chatType: 2, uid: GROUP },
+      { chatType: 1, uid: 'u_missing' },
+    ];
+    const rows = await reader.getUnreadInfos([...targets, targets[0]!]);
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ uid: GROUP, msgSeq: 1731, latestSeq: '1732' });
+    expect(rows[0]?.highlights).toEqual((await db.getUnreadInfo(2, GROUP))?.highlights);
+    expect(rows[1]).toMatchObject({ uid: 'u_missing', latestSeq: null, msgSeq: undefined });
+    expect(await reader.getUnreadInfos([])).toEqual([]);
+  });
+
+  it('大量会话分批读取，不超过 SQLite 参数上限，不混淆同 UID 的会话类型', async () => {
+    setup(`2_${GROUP}`, GROUP_BLOB, 1732);
+    const nt = createSqliteStub();
+    const query = vi.spyOn(nt, 'executeSql');
+    const targets = Array.from({ length: 600 }, (_, i) => ({ chatType: 1, uid: `u_${i}` }));
+    targets.push({ chatType: 1, uid: GROUP }, { chatType: 2, uid: GROUP });
+    const rows = await new UnreadInfoDb(nt, { dbPath }).getUnreadInfos(targets);
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(rows).toHaveLength(targets.length);
+    expect(rows.find((r) => r.uid === GROUP && r.chatType === 1)?.latestSeq).toBeNull();
+    expect(rows.find((r) => r.uid === GROUP && r.chatType === 2)?.latestSeq).toBe('1732');
+  });
+
   it('flattens one highlight group into one entry with its newest seq', async () => {
     setup(`2_${GROUP}`, GROUP_BLOB, 1732);
     const info = await db.getUnreadInfo(2, GROUP);
@@ -94,6 +139,58 @@ describe('UnreadInfoDb.getUnreadInfo', () => {
 });
 
 describe('UnreadInfoDb.markRead', () => {
+  it('并发更新已读水位时重新读取，不用旧 BLOB 覆盖 QQ 的新水位', async () => {
+    setup(`2_${GROUP}`, GROUP_BLOB, 1732);
+    const nt = createSqliteStub();
+    const write = nt.executeSqlWrite.bind(nt);
+    let raced = false;
+    nt.executeSqlWrite = async (...args) => {
+      if (!raced) {
+        raced = true;
+        await db.markRead(2, GROUP, '1800');
+      }
+      return write(...args);
+    };
+    const concurrent = new UnreadInfoDb(nt, { dbPath });
+    await concurrent.markRead(2, GROUP, '1732');
+    expect((await db.getUnreadInfo(2, GROUP))?.msgSeq).toBe(1800);
+  });
+
+  it('并发到达的新提醒不被本次已读清除，也不扩大确认的消息范围', async () => {
+    setup(`2_${GROUP}`, GROUP_BLOB, 1732);
+    const nt = createSqliteStub();
+    const write = nt.executeSqlWrite.bind(nt);
+    let raced = false;
+    nt.executeSqlWrite = async (...args) => {
+      if (!raced) {
+        raced = true;
+        await db.addHighlight(2, GROUP, {
+          kind: 2006,
+          msgSeq: 1740,
+          senderUid: 'u_fixture',
+          sendTime: 1,
+          text: '新提醒',
+        });
+        fixtureDb(dbPath).exec(`UPDATE recent_contact_v3_table SET "40003" = 1740`);
+      }
+      return write(...args);
+    };
+    await new UnreadInfoDb(nt, { dbPath }).markRead(2, GROUP);
+    const after = await db.getUnreadInfo(2, GROUP);
+    expect(after?.msgSeq).toBe(1732);
+    expect(after?.highlights).toMatchObject([{ kind: 'groupKeyword', msgSeq: 1740 }]);
+  });
+
+  it('持续冲突时有界退出，不能把没有写成当作成功', async () => {
+    setup(`2_${GROUP}`, GROUP_BLOB, 1732);
+    const nt = createSqliteStub();
+    const write = vi.fn(async () => 0);
+    nt.executeSqlWrite = write;
+    await expect(new UnreadInfoDb(nt, { dbPath }).markRead(2, GROUP)).rejects.toThrow('冲突');
+    expect(write.mock.calls.length).toBeLessThanOrEqual(3);
+    expect((await db.getUnreadInfo(2, GROUP))?.msgSeq).toBe(1731);
+  });
+
   it('raises the read watermark and drops the highlight, preserving unknown fields', async () => {
     setup(`2_${GROUP}`, GROUP_BLOB, 1732);
     expect(await db.markRead(2, GROUP)).toBe(true);
@@ -146,6 +243,44 @@ describe('UnreadInfoDb.markRead', () => {
 });
 
 describe('UnreadInfoDb.addHighlight', () => {
+  it('已读范围内的晚到提醒不会重新点亮会话', async () => {
+    setup(`2_${GROUP}`, GROUP_BLOB, 1732);
+    await db.markRead(2, GROUP, 1800);
+    expect(
+      await db.addHighlight(2, GROUP, {
+        kind: 2006,
+        msgSeq: 1740,
+        senderUid: 'u_fixture',
+        sendTime: 1,
+        text: '晚到提醒',
+      }),
+    ).toBe(false);
+    expect((await db.getUnreadInfo(2, GROUP))?.highlights).toBeUndefined();
+  });
+  it('新增提醒与已读并发时不把水位回退或恢复已经清除的提醒', async () => {
+    setup(`2_${GROUP}`, GROUP_BLOB, 1732);
+    const nt = createSqliteStub();
+    const write = nt.executeSqlWrite.bind(nt);
+    let raced = false;
+    nt.executeSqlWrite = async (...args) => {
+      if (!raced) {
+        raced = true;
+        await db.markRead(2, GROUP);
+      }
+      return write(...args);
+    };
+    await new UnreadInfoDb(nt, { dbPath }).addHighlight(2, GROUP, {
+      kind: 2006,
+      msgSeq: 1740,
+      senderUid: 'u_fixture',
+      sendTime: 1,
+      text: '新提醒',
+    });
+    const after = await db.getUnreadInfo(2, GROUP);
+    expect(after?.msgSeq).toBe(1732);
+    expect(after?.highlights).toMatchObject([{ kind: 'groupKeyword', msgSeq: 1740 }]);
+  });
+
   it('writes a 2006 群提醒词 highlight into an existing row', async () => {
     setup(`2_${GROUP}`, GROUP_BLOB, 1732);
     const ok = await db.addHighlight(2, GROUP, {

@@ -201,7 +201,7 @@ export interface GroupInteractionTally {
 export interface C2cPeerDayTally {
   /** Conversation peer (column 40021). */
   peerUid: string;
-  /** Local calendar day, `YYYY-MM-DD` (derived in SQL with 'localtime'). */
+  /** 北京日历日期，`YYYY-MM-DD`（SQL 使用显式八小时偏移）。 */
   date: string;
   /** Both sides combined. */
   total: number;

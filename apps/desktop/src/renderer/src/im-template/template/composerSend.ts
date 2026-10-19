@@ -566,8 +566,18 @@ function renderElementOf(
         type: 'reply',
         data: {
           origMsgSeq: element.origMsgSeq,
+          origMsgIndex: element.origMsgIndex,
+          origClientSeq: element.origMsgSeq,
           origSenderUin: element.origSenderUin,
           origMsgTime: element.origMsgTime,
+          origElements: Array.isArray(element.origElements)
+            ? element.origElements.map((quoted) => {
+                const rendered = renderElementOf(quoted, localByKey);
+                if (!rendered) return { type: 'text', data: { textContent: '[消息]' } };
+                const { text: _text, ...view } = rendered;
+                return view;
+              })
+            : [],
         },
         text: '[引用]',
       };

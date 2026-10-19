@@ -1,0 +1,32 @@
+.weq-market-back { display: none; }
+.weq-market-browser { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--weq-bg-surface); color: var(--weq-fg-primary); font-size: 13px; }
+.weq-market-head { display: flex; flex: none; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--weq-border-subtle); }
+.weq-market-title { display: flex; flex: 1; flex-wrap: wrap; align-items: center; min-width: 0; gap: 8px; color: var(--weq-accent-effective); }
+.weq-market-title h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.weq-market-total { color: var(--weq-fg-muted); font-size: 12px; overflow-wrap: anywhere; }
+.weq-market-close { display: grid; flex: none; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--weq-fg-secondary); cursor: pointer; }
+.weq-market-close:hover { background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent); color: var(--weq-fg-primary); }
+.weq-market-close:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: 2px; }
+html[data-theme="dark"] .weq-market-browser { background: var(--weq-bg-surface); color: var(--weq-fg-primary); }
+html[data-theme="dark"] .weq-market-head { border-color: var(--weq-border-subtle); }
+.weq-market-browser .weq-emb-left { min-width: 0; }
+.weq-market-browser .weq-directory-toolbar { width: 100%; box-sizing: border-box; }
+.weq-market-browser .weq-emb-fee-row .weq-mpd-fee-chip.is-active { border-color: var(--weq-accent-effective); background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); color: var(--weq-accent-effective); }
+.weq-market-selection-actions { display: flex; align-items: center; justify-content: space-between; flex: none; gap: 8px; padding: 8px 12px; color: var(--weq-fg-secondary); font-size: 12px; }
+.weq-market-selection-actions button { display: flex; align-items: center; gap: 6px; }
+.weq-market-job-status { padding: 6px 16px; color: var(--weq-fg-secondary); font-size: 12px; }
+.weq-market-description { margin: 0; padding: 8px 14px; font-size: 12px; color: var(--weq-fg-secondary); overflow-wrap: anywhere; }
+html[data-theme="dark"] .weq-market-job-status, html[data-theme="dark"] .weq-market-selection-actions { color: var(--weq-fg-secondary); }
+/*
+ * 嵌入「个性装扮 → 商城表情」页签：外层 .weq-dress-body 负责尺寸，这里铺满剩余高度，
+ * 两栏各自滚动（包列表要真正的滚动容器给 IntersectionObserver 用）。
+ */
+.weq-market-browser.is-embedded { flex: 1 1 auto; height: 100%; min-height: 0; background: transparent; }
+.weq-market-browser.is-embedded .weq-market-head.is-embedded { padding: 0 0 10px; border-bottom: 0; }
+.weq-market-browser.is-embedded .weq-market-title { flex: 0 1 auto; color: var(--weq-fg-secondary); }
+.weq-market-browser.is-embedded .weq-market-embedded-label { font-size: 12.5px; font-weight: 600; }
+.weq-market-browser.is-embedded .weq-emb-left { width: 240px; border: 1px solid var(--weq-border-subtle); border-right: 1px solid var(--weq-border-subtle); border-radius: 10px; background: color-mix(in srgb, var(--weq-bg-surface) 72%, transparent); }
+.weq-market-browser.is-embedded .weq-emb-right { padding-left: 12px; }
+.weq-market-browser.is-embedded .weq-emb-right { border-radius: 10px; }
+
+@media (max-width: 700px) { .weq-market-browser .weq-emb-left { width: 100%; border-right: 0; }.weq-market-browser .weq-emb-right { display: none; }.weq-market-browser.has-detail .weq-emb-left { display: none; }.weq-market-browser.has-detail .weq-emb-right { display: flex; width: 100%; min-width: 0; }.weq-market-browser.has-detail .weq-market-back { display: grid; flex: none; }.weq-market-browser .weq-emb-detail-head { flex-wrap: wrap; }.weq-market-browser .weq-export-save-control { gap: 8px; padding: 8px; } }

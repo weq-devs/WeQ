@@ -8,12 +8,12 @@ import {
   type ReactNode,
 } from 'react';
 import {
-  ArrowLeft,
   ChevronDown,
   MessageCircle,
   MessageSquarePlus,
   MessagesSquare,
   Plus,
+  PanelLeft,
   Sparkles,
   Trash2,
   X,
@@ -36,12 +36,13 @@ import {
   getCloneTasks,
 } from './agentlab/cloneTaskStore';
 import { PersonaSettingsModal } from './agentlab/PersonaSettingsModal';
-import { UsagePanel } from './agentlab/UsagePanel';
 import { AssistantPanel } from './agentlab/AssistantPanel';
 import { buildFaceMap, type FaceContext } from './agentlab/ChatBubble';
 import { CloneChatPanel } from './agentlab/CloneChatPanel';
 import { NewGroupModal, type GroupPersonaOption } from './agentlab/NewGroupModal';
 import { GroupChatPanel } from './agentlab/GroupChatPanel';
+import type { GeneratedSearchHit } from '../components/search/types';
+import '../styles/agentlab-workspace.css';
 
 /** 好友资料里 AgentLab 头像/名称真正用到的字段（够用即可，避免耦合完整 profile 结构）。 */
 type AgentLabProfileWire = {
@@ -220,15 +221,16 @@ function PersonaParamsPanel({
   );
 }
 
-type Selection =
+type Selection = (
   | { kind: 'home' }
   // navKey 是右侧面板的稳定挂载 key：草稿(sessionId=null) 首次发消息
   // 升级为真会话时只改 sessionId、navKey 不变，故组件不重挂载、流式不中断。
   | { kind: 'assistant'; sessionId: string | null; navKey: number }
-  // 克隆体私聊：点克隆体开新草稿会话；会话下拉切换已有会话。
+  // 共享列表恢复最近会话；显式新建才打开空草稿。
   | { kind: 'persona'; id: string; sessionId: string | null; navKey: number }
   // 克隆体群聊：同样支持多会话。
-  | { kind: 'group'; id: string; sessionId: string | null; navKey: number };
+  | { kind: 'group'; id: string; sessionId: string | null; navKey: number }
+) & { searchTarget?: GeneratedSearchHit; readOnlyLegacy?: boolean };
 
 /** 每页展开显示的会话条数（超出点「查看更多」分页）。 */
 const SESSION_PAGE = 5;
@@ -359,7 +361,28 @@ function ExpandableSessionRow({
   );
 }
 
-export function AgentLabView(): ReactElement {
+export function AgentLabView({
+  mode = 'clones',
+  searchTarget,
+  openTarget,
+  createRequest,
+  createFriendUids,
+  openGroupRequest,
+  embedded = false,
+  onBackToDirectory,
+}: {
+  mode?: 'clones' | 'assistant';
+  searchTarget?: GeneratedSearchHit | null;
+  openTarget?: { kind: 'persona' | 'group'; id: string; revision: number } | null;
+  /** 新建克隆请求的版本号；用 revision 区分「再点一次也要重新打开」。 */
+  createRequest?: { revision: number; friendUids?: string[] } | null;
+  /** 兼容旧调用：单独传好友 uid 列表（与 createRequest 二选一）。 */
+  createFriendUids?: string[];
+  /** 新建克隆体群聊请求的版本号。 */
+  openGroupRequest?: number;
+  embedded?: boolean;
+  onBackToDirectory?: () => void;
+}): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const providers = trpc.bootstrap.listAgentLabProviders.useQuery();
@@ -434,20 +457,143 @@ export function AgentLabView(): ReactElement {
     return { chat: build('chat'), embedding: build('embedding'), vision: build('vision') };
   }, [providers.data]);
 
-  const [sel, setSel] = useState<Selection>({ kind: 'home' });
+  const [sel, setSel] = useState<Selection>(() => {
+    if (searchTarget && (searchTarget.kind === 'assistant') === (mode === 'assistant')) {
+      return searchTarget.kind === 'assistant'
+        ? { kind: 'assistant', sessionId: searchTarget.sessionId, navKey: 0, searchTarget }
+        : {
+            kind: searchTarget.kind,
+            id: searchTarget.ownerId,
+            sessionId: searchTarget.sessionId,
+            navKey: 0,
+            searchTarget,
+          };
+    }
+    return mode === 'assistant'
+      ? { kind: 'assistant', sessionId: null, navKey: 0 }
+      : { kind: 'home' };
+  });
   // WeQ 助手会话列表：仅进入助手模式时拉取。
   const assistantSessionsQuery = trpc.account.listAssistantSessions.useQuery(undefined, {
     enabled: sel.kind === 'assistant',
   });
   const assistantSessions = assistantSessionsQuery.data ?? [];
   const [cloneOpen, setCloneOpen] = useState(false);
+  const [clonePreselect, setClonePreselect] = useState<string[]>([]);
+  useEffect(() => {
+    if (!createRequest) return;
+    setClonePreselect(createRequest.friendUids ?? createFriendUids ?? []);
+    setCloneOpen(true);
+  }, [createRequest, createFriendUids]);
+  useEffect(() => {
+    if (openGroupRequest) setGroupOpen(true);
+  }, [openGroupRequest]);
+  const openPersonaSessions = trpc.account.listAgentLabPersonaSessions.useQuery(
+    { personaId: openTarget?.kind === 'persona' ? openTarget.id : '' },
+    {
+      enabled: !searchTarget && openTarget?.kind === 'persona',
+      staleTime: 0,
+      refetchOnMount: 'always',
+    },
+  );
+  const openGroupSessions = trpc.account.listAgentLabGroupSessions.useQuery(
+    { groupId: openTarget?.kind === 'group' ? openTarget.id : '' },
+    {
+      enabled: !searchTarget && openTarget?.kind === 'group',
+      staleTime: 0,
+      refetchOnMount: 'always',
+    },
+  );
+  const openingSessions = openTarget?.kind === 'persona' ? openPersonaSessions : openGroupSessions;
+  const needsLegacy = Boolean(
+    openTarget &&
+      !searchTarget &&
+      openingSessions.data?.length === 0 &&
+      !openingSessions.isFetching,
+  );
+  const openPersonaLegacy = trpc.account.getAgentLabConversation.useQuery(
+    { personaId: openTarget?.kind === 'persona' ? openTarget.id : '' },
+    {
+      enabled: needsLegacy && openTarget?.kind === 'persona',
+      staleTime: 0,
+      refetchOnMount: 'always',
+    },
+  );
+  const openGroupLegacy = trpc.account.getAgentLabGroupConversation.useQuery(
+    { groupId: openTarget?.kind === 'group' ? openTarget.id : '' },
+    {
+      enabled: needsLegacy && openTarget?.kind === 'group',
+      staleTime: 0,
+      refetchOnMount: 'always',
+    },
+  );
+  const openingLegacy = openTarget?.kind === 'persona' ? openPersonaLegacy : openGroupLegacy;
+  const appliedOpenTarget = useRef<typeof openTarget>(null);
+  const openingSavedConversation = Boolean(
+    openTarget && !searchTarget && appliedOpenTarget.current !== openTarget,
+  );
+  useEffect(() => {
+    if (
+      searchTarget ||
+      !openTarget ||
+      appliedOpenTarget.current === openTarget ||
+      !openingSessions.data ||
+      openingSessions.isFetching
+    )
+      return;
+    if (needsLegacy && (!openingLegacy.isSuccess || openingLegacy.isFetching)) return;
+    appliedOpenTarget.current = openTarget;
+    navSeq.current += 1;
+    setSel({
+      kind: openTarget.kind,
+      id: openTarget.id,
+      sessionId: openingSessions.data[0]?.id ?? null,
+      readOnlyLegacy: needsLegacy && Boolean(openingLegacy.data?.length),
+      navKey: navSeq.current,
+    });
+  }, [
+    openTarget,
+    openingSessions.data,
+    openingSessions.isFetching,
+    searchTarget,
+    needsLegacy,
+    openingLegacy.data,
+    openingLegacy.isSuccess,
+    openingLegacy.isFetching,
+  ]);
   const [groupOpen, setGroupOpen] = useState(false);
   // 克隆任务列表：抬到模块级 store（脱离本组件生命周期），切出 AgentLab 再回来任务不丢（bug2）。
   const cloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
   const [viewTaskId, setViewTaskId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mobileListOpen, setMobileListOpen] = useState(false);
+  useEffect(() => setMobileListOpen(false), [sel]);
   // 递增序号，用来给每次「打开克隆体 / 群聊 / 会话」生成一个不重复的挂载 key（见 Selection.navKey）。
   const navSeq = useRef(0);
+  const appliedSearch = useRef({ target: searchTarget, mode });
+  useEffect(() => {
+    if (appliedSearch.current.target === searchTarget && appliedSearch.current.mode === mode)
+      return;
+    appliedSearch.current = { target: searchTarget, mode };
+    if (!searchTarget || (searchTarget.kind === 'assistant') !== (mode === 'assistant')) return;
+    navSeq.current += 1;
+    if (searchTarget.kind === 'assistant') {
+      setSel({
+        kind: 'assistant',
+        sessionId: searchTarget.sessionId,
+        navKey: navSeq.current,
+        searchTarget,
+      });
+    } else {
+      setSel({
+        kind: searchTarget.kind,
+        id: searchTarget.ownerId,
+        sessionId: searchTarget.sessionId,
+        navKey: navSeq.current,
+        searchTarget,
+      });
+    }
+  }, [searchTarget, mode]);
 
   const activePersona =
     sel.kind === 'persona' ? (personaList.find((item) => item.id === sel.id) ?? null) : null;
@@ -679,14 +825,28 @@ export function AgentLabView(): ReactElement {
   }, [activePersona, providers.data]);
 
   return (
-    <div className="weq-agentlab-shell">
+    <div
+      className={`weq-agentlab-shell weq-agentlab-workspace${embedded ? ' is-embedded' : ''}${sel.kind !== 'home' ? ' is-conversation' : ''}${mobileListOpen ? ' is-list-open' : ''}`}
+    >
       {/* 左侧 agent 列表 */}
-      <aside className="weq-agentlab-list">
+      <aside
+        className="weq-agentlab-list"
+        hidden={embedded}
+        style={embedded ? { display: 'none' } : undefined}
+      >
+        {sel.kind !== 'home' && !embedded ? (
+          <button
+            type="button"
+            className="weq-agentlab-mobile-nav"
+            onClick={() => setMobileListOpen(false)}
+            title="返回对话"
+            aria-label="返回对话"
+          >
+            <PanelLeft size={18} />
+          </button>
+        ) : null}
         {sel.kind === 'assistant' ? (
           <>
-            <button className="weq-agentlab-list-back" onClick={() => setSel({ kind: 'home' })}>
-              <ArrowLeft size={14} /> 返回 AgentLab
-            </button>
             <div className="weq-agentlab-list-head weq-asst-list-head">
               <Sparkles size={15} /> WeQ 助手 · 对话
             </div>
@@ -731,16 +891,7 @@ export function AgentLabView(): ReactElement {
           </>
         ) : (
           <>
-            <div className="weq-agentlab-list-head">AgentLab</div>
-            <button className="weq-agentlab-item" onClick={openAssistantDraft}>
-              <span className="weq-agentlab-item-avatar is-bot">
-                <Sparkles size={18} />
-              </span>
-              <span className="weq-agentlab-item-text">
-                <strong>WeQ 助手</strong>
-                <small>调用工具帮你完成操作</small>
-              </span>
-            </button>
+            <div className="weq-agentlab-list-head">克隆消息 · 模拟对话</div>
 
             <div className="weq-agentlab-list-label">好友克隆</div>
             <div className="weq-agentlab-list-scroll">
@@ -860,18 +1011,44 @@ export function AgentLabView(): ReactElement {
 
       {/* 右侧主区 */}
       <section className="weq-agentlab-main">
-        {sel.kind === 'home' ? (
-          <UsagePanel
-            resolveName={(id) => personaList.find((p) => p.id === id)?.name ?? '已删除的克隆'}
-            hasPersona={(id) => id === '__assistant__' || personaList.some((p) => p.id === id)}
-            personaCount={personaList.length}
-          />
+        {sel.kind !== 'home' ? (
+          <button
+            type="button"
+            className="weq-agentlab-mobile-nav"
+            onClick={() => setMobileListOpen(true)}
+            title="会话列表"
+            aria-label="会话列表"
+          >
+            <PanelLeft size={18} />
+          </button>
+        ) : null}
+        {openingSavedConversation ? (
+          <div className="weq-agentlab-empty" role="status">
+            {openingSessions.isError || (needsLegacy && openingLegacy.isError) ? (
+              <>
+                <span>读取克隆会话失败</span>
+                <button
+                  type="button"
+                  onClick={() => void (needsLegacy ? openingLegacy : openingSessions).refetch()}
+                >
+                  重试
+                </button>
+              </>
+            ) : (
+              '加载已保存的克隆会话…'
+            )}
+          </div>
+        ) : sel.kind === 'home' ? (
+          embedded ? null : (
+            <div className="weq-agentlab-empty">暂无打开的克隆会话</div>
+          )
         ) : sel.kind === 'assistant' ? (
           <AssistantPanel
             key={sel.navKey}
             sessionId={sel.sessionId}
+            searchTarget={sel.searchTarget}
             chatModels={flatModels.chat}
-            onBack={() => setSel({ kind: 'home' })}
+            onBack={openAssistantDraft}
             onSessionCreated={(newId) =>
               setSel((cur) =>
                 cur.kind === 'assistant' && cur.navKey === sel.navKey
@@ -885,11 +1062,16 @@ export function AgentLabView(): ReactElement {
             key={sel.navKey}
             groupId={sel.id}
             sessionId={sel.sessionId}
+            searchTarget={sel.searchTarget}
+            readOnlyLegacy={sel.readOnlyLegacy}
             selfUin={selfProfile.data?.uin}
             personaList={personaList}
             profileByUid={profileByUid}
             faceDescToId={faceDescToId}
-            onBack={() => setSel({ kind: 'home' })}
+            onBack={() => {
+              setSel({ kind: 'home' });
+              if (embedded) onBackToDirectory?.();
+            }}
             onDeleted={() => setSel({ kind: 'home' })}
             onSessionCreated={(sessionId) => onGroupSessionCreated(sel.id, sel.navKey, sessionId)}
           />
@@ -899,11 +1081,16 @@ export function AgentLabView(): ReactElement {
             personaId={sel.id}
             persona={activePersona}
             sessionId={sel.sessionId}
+            searchTarget={sel.searchTarget}
+            readOnlyLegacy={sel.readOnlyLegacy}
             selfUin={selfProfile.data?.uin}
             clonedUin={clonedProfile?.uin || activePersona.sourceUin}
             faces={cloneFaces}
             modelLabel={personaModelLabel}
-            onBack={() => setSel({ kind: 'home' })}
+            onBack={() => {
+              setSel({ kind: 'home' });
+              if (embedded) onBackToDirectory?.();
+            }}
             onSessionCreated={(sessionId) => onPersonaSessionCreated(sel.id, sel.navKey, sessionId)}
             onOpenSettings={() => setSettingsOpen(true)}
             onDeletePersona={() => void onDeletePersona()}
@@ -918,6 +1105,7 @@ export function AgentLabView(): ReactElement {
       {cloneOpen ? (
         <NewCloneModal
           buddies={buddyOptions}
+          initialSelectedUids={clonePreselect}
           flatModels={flatModels}
           onClose={() => setCloneOpen(false)}
           onStart={(args) => void startClone(args)}

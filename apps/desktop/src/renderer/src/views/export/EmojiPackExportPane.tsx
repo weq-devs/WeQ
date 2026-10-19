@@ -16,6 +16,7 @@ import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
+import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
 
 /** cemoji 预览地址。 */
 function cemojiUrl(addr: EmojiPreviewAddress): string {
@@ -48,7 +49,15 @@ const SCOPE_META: Record<
 /** 面板里的固定来源顺序。 */
 const SCOPES: EmojiExportScope[] = ['own', 'received'];
 
-export function EmojiPackExportPane({ onStarted }: { onStarted: () => void }): ReactElement {
+export function EmojiPackExportPane({
+  onStarted,
+  prepareSave,
+  disabled = false,
+}: {
+  onStarted: () => void;
+  prepareSave?: () => Promise<import('@weq/service').ExportSavePolicy | null>;
+  disabled?: boolean;
+}): ReactElement {
   const dialog = useAppDialog();
   const summary = trpc.account.emojiPack.summary.useQuery(undefined, { staleTime: 20_000 });
   const [selected, setSelected] = useState<Set<EmojiExportScope>>(new Set(['own', 'received']));
@@ -56,14 +65,12 @@ export function EmojiPackExportPane({ onStarted }: { onStarted: () => void }): R
 
   const data = summary.data as { own: EmojiScopeSummary; received: EmojiScopeSummary } | undefined;
 
-  const toggle = (scope: EmojiExportScope): void => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(scope)) next.delete(scope);
-      else next.add(scope);
-      return next;
-    });
-  };
+  const selection = useMultiSelection({
+    ids: SCOPES,
+    selected,
+    onChange: setSelected,
+    disabled: submitting,
+  });
 
   const selectedTotal = useMemo(() => {
     if (!data) return 0;
@@ -73,15 +80,14 @@ export function EmojiPackExportPane({ onStarted }: { onStarted: () => void }): R
   }, [data, selected]);
 
   async function start(): Promise<void> {
-    if (selected.size === 0) return;
+    if (selected.size === 0 || disabled || submitting) return;
     setSubmitting(true);
     try {
-      await client.account.emojiPack.startExport.mutate({ scopes: [...selected] });
+      const savePolicy = await prepareSave?.();
+      if (savePolicy === null) return;
+      await client.account.emojiPack.startExport.mutate({ scopes: [...selected], savePolicy });
       onStarted();
-      dialog.info(
-        '已开始导出',
-        '导出任务已加入下方「导出任务列表」，完成后点任务上的「保存文件夹…」保存到本地。',
-      );
+      dialog.success('已开始导出', '已加入任务队列。');
     } catch (e) {
       dialog.error('启动导出失败', e instanceof Error ? e.message : String(e));
     } finally {
@@ -90,7 +96,7 @@ export function EmojiPackExportPane({ onStarted }: { onStarted: () => void }): R
   }
 
   return (
-    <div className="weq-epk">
+    <div className="weq-epk" {...selection.rootProps}>
       <div className="weq-epk-head">
         <Sparkles size={15} />
         <span>
@@ -107,7 +113,7 @@ export function EmojiPackExportPane({ onStarted }: { onStarted: () => void }): R
               summary={data?.[scope]}
               loading={summary.isLoading}
               checked={selected.has(scope)}
-              onToggle={() => toggle(scope)}
+              selectionProps={selection.itemProps(scope)}
             />
           ))}
         </div>
@@ -122,7 +128,7 @@ export function EmojiPackExportPane({ onStarted }: { onStarted: () => void }): R
         <button
           type="button"
           className="weq-epk-start"
-          disabled={selected.size === 0 || submitting || summary.isLoading}
+          disabled={disabled || selected.size === 0 || submitting || summary.isLoading}
           onClick={() => void start()}
         >
           {submitting ? <Loader2 size={15} className="is-spin" /> : <Download size={15} />}
@@ -139,13 +145,13 @@ function ScopeCard({
   summary,
   loading,
   checked,
-  onToggle,
+  selectionProps,
 }: {
   scope: EmojiExportScope;
   summary?: EmojiScopeSummary;
   loading: boolean;
   checked: boolean;
-  onToggle: () => void;
+  selectionProps: MultiSelectionItemProps;
 }): ReactElement {
   const meta = SCOPE_META[scope];
   const sample = summary?.sample ?? [];
@@ -154,7 +160,7 @@ function ScopeCard({
       <button
         type="button"
         className="weq-epk-card-head"
-        onClick={onToggle}
+        {...selectionProps}
         aria-pressed={checked}
         title={checked ? '取消选择' : '选择'}
       >

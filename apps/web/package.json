@@ -10,7 +10,7 @@
     "pack:release": "node scripts/pack-release.mjs",
     "check": "tsx scripts/check-electron-free.ts && tsx scripts/check-bundle.ts",
     "start": "node dist/server.mjs",
-    "test": "tsx src/server/auth.test.ts && tsx src/server/http.test.ts",
+    "test": "tsx src/server/auth.test.ts && tsx src/server/http.test.ts && tsx src/server/security.test.ts",
     "test:dist": "tsx scripts/smoke-dist.ts",
     "typecheck": "tsc --noEmit -p tsconfig.server.json"
   },
@@ -26,12 +26,14 @@
     "@weq/native": "workspace:*",
     "@weq/platform": "workspace:*",
     "@weq/service": "workspace:*",
+    "archiver": "5.3.2",
     "superjson": "^2.2.2",
     "ws": "^8.18.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
+    "@types/archiver": "^5.3.4",
     "@types/node": "^22.10.6",
     "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^4.3.4",

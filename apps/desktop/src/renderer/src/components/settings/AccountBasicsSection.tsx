@@ -20,6 +20,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import {
   Check,
+  CheckCheck,
   ChevronDown,
   Copy,
   Database,
@@ -139,10 +140,15 @@ function formatExpiry(createTime: number, ttlSeconds: number): { text: string; e
   return { text: `${Math.floor(hours / 24)} 天后过期`, expired: false };
 }
 
-export function AccountBasicsSection(): ReactElement {
+export function AccountBasicsSection({
+  page = 'account',
+}: {
+  page?: 'account' | 'credentials' | 'media';
+}): ReactElement {
   const showError = useDialog((s) => s.showError);
 
   const profile = trpc.account.getSelfProfile.useQuery(undefined, {
+    enabled: page === 'account',
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -153,19 +159,22 @@ export function AccountBasicsSection(): ReactElement {
     refetchOnMount: 'always',
     // rkeys/clientkey are harvested in the background by the monitor; poll so a
     // fresh one shows up (and the expiry countdown re-renders) without reopening.
-    refetchInterval: 10_000,
+    refetchInterval: page === 'credentials' ? 10_000 : false,
   });
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: page !== 'credentials',
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const systemInfo = trpc.bootstrap.systemInfo.useQuery(undefined, {
+    enabled: page === 'account',
     refetchOnWindowFocus: false,
   });
 
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
   const setAutoAttachQq = trpc.bootstrap.setAutoAttachQq.useMutation();
+  const setReportReadEnabled = trpc.bootstrap.setReportReadEnabled.useMutation();
   const setNativeMediaEnabled = trpc.account.setNativeMediaEnabled.useMutation();
   const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
   const pickExternalChatpicDir = trpc.bootstrap.pickExternalChatpicDir.useMutation();
@@ -176,6 +185,7 @@ export function AccountBasicsSection(): ReactElement {
   // Local mirror for snappy toggles; re-seeded whenever server data changes.
   const [realtime, setRealtimeLocal] = useState(true);
   const [autoAttach, setAutoAttach] = useState(true);
+  const [reportRead, setReportRead] = useState(false);
   // 静态账号的原生媒体绑定存在**账号**配置里（不是全局设置），所以单独镜像一份。
   const [nativeMedia, setNativeMedia] = useState(true);
   const [savingNativeMedia, setSavingNativeMedia] = useState(false);
@@ -189,6 +199,7 @@ export function AccountBasicsSection(): ReactElement {
     if (!d) return;
     setRealtimeLocal(d.realtimeEnabled);
     setAutoAttach(d.autoAttachQq);
+    setReportRead(d.reportReadEnabled);
   }, [settings.data]);
 
   useEffect(() => {
@@ -245,6 +256,19 @@ export function AccountBasicsSection(): ReactElement {
     }
   }
 
+  async function toggleReportRead(enabled: boolean): Promise<void> {
+    const previous = reportRead;
+    setReportRead(enabled);
+    try {
+      await setReportReadEnabled.mutateAsync({ enabled });
+    } catch (error) {
+      setReportRead(previous);
+      showError('保存失败', errMsg(error));
+      return;
+    }
+    void settings.refetch();
+  }
+
   // 原生媒体绑定存在账号配置里，所以刷的是 config 而不是 settings。主进程侧
   // 装饰器惰性读这个值，翻转后立即生效，无需重开账号。
   async function toggleNativeMedia(enabled: boolean): Promise<void> {
@@ -295,205 +319,220 @@ export function AccountBasicsSection(): ReactElement {
     <div className="weq-set">
       <SectionHeader
         icon={<User size={16} strokeWidth={1.8} />}
-        title="账号基础"
-        desc="当前账号的资料、密钥，以及实时消息与媒体补全开关。"
+        title={{ account: '账号接入与消息', credentials: '账号凭据', media: '媒体来源' }[page]}
+        desc={
+          page === 'account'
+            ? '当前账号资料；数据库监听与 QQ 内存读取开关为全局设置。'
+            : page === 'credentials'
+              ? '当前账号的敏感凭据，默认隐藏。'
+              : '本机媒体关联仅影响当前账号；外部安卓缓存为全局配置。'
+        }
       />
 
       {/* Self profile hero */}
-      <Card>
-        {p ? (
-          <div className="weq-set-hero">
-            {/* uin-built avatar; ignore p.avatarUrl (can be a stale 502 link). */}
-            <QqAvatar uin={p.uin} size={56} className="weq-set-hero-avatar" />
-            <div className="weq-set-hero-info">
-              <span className="weq-set-hero-name">{p.remark || p.nick || p.uin}</span>
-              <span className="weq-set-hero-sub weq-number">QQ {p.uin}</span>
-              {p.signature ? (
-                <span className="weq-set-hero-sig" title={p.signature}>
-                  {p.signature}
-                </span>
-              ) : null}
+      {page === 'account' && (
+        <Card>
+          {p ? (
+            <div className="weq-set-hero">
+              {/* uin-built avatar; ignore p.avatarUrl (can be a stale 502 link). */}
+              <QqAvatar uin={p.uin} size={56} className="weq-set-hero-avatar" />
+              <div className="weq-set-hero-info">
+                <span className="weq-set-hero-name">{p.remark || p.nick || p.uin}</span>
+                <span className="weq-set-hero-sub weq-number">QQ {p.uin}</span>
+                {p.signature ? (
+                  <span className="weq-set-hero-sig" title={p.signature}>
+                    {p.signature}
+                  </span>
+                ) : null}
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="weq-set-empty">
-            {profile.isLoading ? '加载账号资料中…' : '暂无账号资料'}
-          </div>
-        )}
-      </Card>
+          ) : (
+            <div className="weq-set-empty">
+              {profile.isLoading ? '加载账号资料中…' : '暂无账号资料'}
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Database key */}
-      <Card title="数据库密钥">
-        <div className="weq-set-keyfield">
-          <KeyRound size={15} strokeWidth={1.8} className="weq-set-keyfield-icon" aria-hidden />
-          <code className="weq-set-keyval">
-            {dbKey ? (revealKey ? dbKey : maskedKey) : config.isLoading ? '读取中…' : '未获取'}
-          </code>
-          <div className="weq-set-keyfield-actions">
-            <button
-              type="button"
-              className="weq-set-iconbtn"
-              title={revealKey ? '隐藏' : '显示'}
-              aria-label={revealKey ? '隐藏密钥' : '显示密钥'}
-              disabled={!dbKey}
-              onClick={() => setRevealKey((v) => !v)}
-            >
-              {revealKey ? <EyeOff size={15} /> : <Eye size={15} />}
-            </button>
-            <button
-              type="button"
-              className="weq-set-iconbtn"
-              title="复制"
-              aria-label="复制密钥"
-              disabled={!dbKey}
-              onClick={() => void copyText(dbKey, () => setCopied(true))}
-            >
-              {copied ? <Check size={15} className="weq-set-ok" /> : <Copy size={15} />}
-            </button>
-          </div>
-        </div>
-        {cfg?.algos?.['nt_msg.db'] ? (
-          <p className="weq-set-note">
-            算法：page {cfg.algos['nt_msg.db'].pageHmacAlgorithm} · kdf{' '}
-            {cfg.algos['nt_msg.db'].kdfHmacAlgorithm}
-          </p>
-        ) : null}
-      </Card>
+      {page === 'credentials' && (
+        <>
+          <Card title="数据库密钥">
+            <div className="weq-set-keyfield">
+              <KeyRound size={15} strokeWidth={1.8} className="weq-set-keyfield-icon" aria-hidden />
+              <code className="weq-set-keyval">
+                {dbKey ? (revealKey ? dbKey : maskedKey) : config.isLoading ? '读取中…' : '未获取'}
+              </code>
+              <div className="weq-set-keyfield-actions">
+                <button
+                  type="button"
+                  className="weq-set-iconbtn"
+                  title={revealKey ? '隐藏' : '显示'}
+                  aria-label={revealKey ? '隐藏密钥' : '显示密钥'}
+                  disabled={!dbKey}
+                  onClick={() => setRevealKey((v) => !v)}
+                >
+                  {revealKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+                <button
+                  type="button"
+                  className="weq-set-iconbtn"
+                  title="复制"
+                  aria-label="复制密钥"
+                  disabled={!dbKey}
+                  onClick={() => void copyText(dbKey, () => setCopied(true))}
+                >
+                  {copied ? <Check size={15} className="weq-set-ok" /> : <Copy size={15} />}
+                </button>
+              </div>
+            </div>
+            {cfg?.algos?.['nt_msg.db'] ? (
+              <p className="weq-set-note">
+                算法：page {cfg.algos['nt_msg.db'].pageHmacAlgorithm} · kdf{' '}
+                {cfg.algos['nt_msg.db'].kdfHmacAlgorithm}
+              </p>
+            ) : null}
+          </Card>
 
-      {/* 会话密钥：在线 QQ 内存里采集的 a1 / a2 / d2 / d2key + 设备 guid。
+          {/* 会话密钥：在线 QQ 内存里采集的 a1 / a2 / d2 / d2key + 设备 guid。
           前四个默认打星号，点眼睛展开（和上面的 dbKey 同款交互）；guid 是设备
           标识、非敏感，直接明文。 */}
-      <Card title="会话密钥">
-        <div className="weq-set-keylist">
-          <KeyValueRow label="a1" value={cfg?.a1} secret />
-          <KeyValueRow label="a2" value={cfg?.session?.a2} secret />
-          <KeyValueRow label="d2" value={cfg?.session?.d2} secret />
-          <KeyValueRow label="d2key" value={cfg?.session?.d2Key} secret />
-          <KeyValueRow label="guid" value={cfg?.guid} />
-        </div>
-        <p className="weq-set-note">
-          a1 来自 login.db，a2 / d2 / d2key 由在线 QQ 进程内存采集（需开启「自动读取 QQ
-          内存」）；guid 是本机设备标识。账号下线后会话物料会被清空。
-        </p>
-      </Card>
+          <Card title="会话密钥">
+            <div className="weq-set-keylist">
+              <KeyValueRow label="a1" value={cfg?.a1} secret />
+              <KeyValueRow label="a2" value={cfg?.session?.a2} secret />
+              <KeyValueRow label="d2" value={cfg?.session?.d2} secret />
+              <KeyValueRow label="d2key" value={cfg?.session?.d2Key} secret />
+              <KeyValueRow label="guid" value={cfg?.guid} />
+            </div>
+            <p className="weq-set-note">
+              a1 来自 login.db，a2 / d2 / d2key 由在线 QQ 进程内存采集（需开启「自动读取 QQ
+              内存」）；guid 是本机设备标识。账号下线后会话物料会被清空。
+            </p>
+          </Card>
 
-      {/* Download rkeys (show the actual rkey value) */}
-      <Card
-        title="下载 rKey"
-        action={
-          <button
-            type="button"
-            className={`weq-set-iconbtn${config.isFetching ? ' is-spinning' : ''}`}
-            title="刷新"
-            aria-label="刷新 rKey"
-            onClick={() => void config.refetch()}
-          >
-            <RefreshCw size={14} />
-          </button>
-        }
-      >
-        {rkeys.length === 0 ? (
-          <div className="weq-set-empty">
-            {config.isLoading
-              ? '读取中…'
-              : cfg?.qqOnline
-                ? autoAttach
-                  ? '在线实例已连接，正在等待获取 rKey…'
-                  : '完全离线模式已开启（自动读取 QQ 内存 已关闭），不会获取 rKey。'
-                : '未获取到 rKey（需要登录中的 QQ 在线，且开启「自动读取 QQ 内存（完整功能）」）。'}
-          </div>
-        ) : (
-          <ul className="weq-set-rkey-list">
-            {rkeys.map((r, i) => {
-              const exp = formatExpiry(r.createTime, r.ttlSeconds);
-              return (
-                // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-                <li key={`${r.type}-${i}`} className="weq-set-rkey-item">
-                  <div className="weq-set-rkey-head">
-                    <span className="weq-set-rkey-type">
-                      {RKEY_TYPE_LABEL[r.type] ?? `类型 ${r.type}`}
-                    </span>
-                    <span className={`weq-set-rkey-exp${exp.expired ? ' is-expired' : ''}`}>
-                      {exp.text}
-                    </span>
-                    <button
-                      type="button"
-                      className="weq-set-iconbtn"
-                      title="复制 rKey"
-                      aria-label="复制 rKey"
-                      onClick={() => void copyText(r.rkey)}
-                    >
-                      <Copy size={13} />
-                    </button>
-                  </div>
-                  <code className="weq-set-rkey-val">{r.rkey}</code>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        {cfg?.rkeyUpdatedAt ? (
-          <p className="weq-set-note">
-            最近更新：{new Date(cfg.rkeyUpdatedAt).toLocaleString('zh-CN')}
-          </p>
-        ) : null}
-      </Card>
-
-      {/* ClientKey */}
-      <Card
-        title="ClientKey"
-        action={
-          <button
-            type="button"
-            className={`weq-set-iconbtn${config.isFetching ? ' is-spinning' : ''}`}
-            title="刷新"
-            aria-label="刷新 ClientKey"
-            onClick={() => void config.refetch()}
-          >
-            <RefreshCw size={14} />
-          </button>
-        }
-      >
-        {!clientKey ? (
-          <div className="weq-set-empty">
-            {config.isLoading
-              ? '读取中…'
-              : cfg?.qqOnline
-                ? autoAttach
-                  ? '在线实例已连接，正在等待获取 ClientKey…'
-                  : '完全离线模式已开启（自动读取 QQ 内存 已关闭），不会获取 ClientKey。'
-                : '未获取到 ClientKey（需要登录中的 QQ 在线，且开启「自动读取 QQ 内存（完整功能）」）。'}
-          </div>
-        ) : (
-          <div className="weq-set-rkey-item">
-            <div className="weq-set-rkey-head">
-              <span className="weq-set-rkey-type">Key Index {clientKey.keyIndex}</span>
-              <span
-                className={`weq-set-rkey-exp${
-                  formatExpiry(Math.floor(clientKey.fetchedAt / 1000), clientKey.ttlSeconds).expired
-                    ? ' is-expired'
-                    : ''
-                }`}
-              >
-                {formatExpiry(Math.floor(clientKey.fetchedAt / 1000), clientKey.ttlSeconds).text}
-              </span>
+          {/* Download rkeys (show the actual rkey value) */}
+          <Card
+            title="下载 rKey"
+            action={
               <button
                 type="button"
-                className="weq-set-iconbtn"
-                title="复制 ClientKey"
-                aria-label="复制 ClientKey"
-                onClick={() => void copyText(clientKey.clientKey)}
+                className={`weq-set-iconbtn${config.isFetching ? ' is-spinning' : ''}`}
+                title="刷新"
+                aria-label="刷新 rKey"
+                onClick={() => void config.refetch()}
               >
-                <Copy size={13} />
+                <RefreshCw size={14} />
               </button>
-            </div>
-            <code className="weq-set-rkey-val">{clientKey.clientKey}</code>
-          </div>
-        )}
-      </Card>
+            }
+          >
+            {rkeys.length === 0 ? (
+              <div className="weq-set-empty">
+                {config.isLoading
+                  ? '读取中…'
+                  : cfg?.qqOnline
+                    ? autoAttach
+                      ? '在线实例已连接，正在等待获取 rKey…'
+                      : '完全离线模式已开启（自动读取 QQ 内存 已关闭），不会获取 rKey。'
+                    : '未获取到 rKey（需要登录中的 QQ 在线，且开启「自动读取 QQ 内存（完整功能）」）。'}
+              </div>
+            ) : (
+              <ul className="weq-set-rkey-list">
+                {rkeys.map((r, i) => {
+                  const exp = formatExpiry(r.createTime, r.ttlSeconds);
+                  return (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
+                    <li key={`${r.type}-${i}`} className="weq-set-rkey-item">
+                      <div className="weq-set-rkey-head">
+                        <span className="weq-set-rkey-type">
+                          {RKEY_TYPE_LABEL[r.type] ?? `类型 ${r.type}`}
+                        </span>
+                        <span className={`weq-set-rkey-exp${exp.expired ? ' is-expired' : ''}`}>
+                          {exp.text}
+                        </span>
+                        <button
+                          type="button"
+                          className="weq-set-iconbtn"
+                          title="复制 rKey"
+                          aria-label="复制 rKey"
+                          onClick={() => void copyText(r.rkey)}
+                        >
+                          <Copy size={13} />
+                        </button>
+                      </div>
+                      <KeyValueRow label="rKey" value={r.rkey} secret />
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {cfg?.rkeyUpdatedAt ? (
+              <p className="weq-set-note">
+                最近更新：{new Date(cfg.rkeyUpdatedAt).toLocaleString('zh-CN')}
+              </p>
+            ) : null}
+          </Card>
 
+          {/* ClientKey */}
+          <Card
+            title="ClientKey"
+            action={
+              <button
+                type="button"
+                className={`weq-set-iconbtn${config.isFetching ? ' is-spinning' : ''}`}
+                title="刷新"
+                aria-label="刷新 ClientKey"
+                onClick={() => void config.refetch()}
+              >
+                <RefreshCw size={14} />
+              </button>
+            }
+          >
+            {!clientKey ? (
+              <div className="weq-set-empty">
+                {config.isLoading
+                  ? '读取中…'
+                  : cfg?.qqOnline
+                    ? autoAttach
+                      ? '在线实例已连接，正在等待获取 ClientKey…'
+                      : '完全离线模式已开启（自动读取 QQ 内存 已关闭），不会获取 ClientKey。'
+                    : '未获取到 ClientKey（需要登录中的 QQ 在线，且开启「自动读取 QQ 内存（完整功能）」）。'}
+              </div>
+            ) : (
+              <div className="weq-set-rkey-item">
+                <div className="weq-set-rkey-head">
+                  <span className="weq-set-rkey-type">Key Index {clientKey.keyIndex}</span>
+                  <span
+                    className={`weq-set-rkey-exp${
+                      formatExpiry(Math.floor(clientKey.fetchedAt / 1000), clientKey.ttlSeconds)
+                        .expired
+                        ? ' is-expired'
+                        : ''
+                    }`}
+                  >
+                    {
+                      formatExpiry(Math.floor(clientKey.fetchedAt / 1000), clientKey.ttlSeconds)
+                        .text
+                    }
+                  </span>
+                  <button
+                    type="button"
+                    className="weq-set-iconbtn"
+                    title="复制 ClientKey"
+                    aria-label="复制 ClientKey"
+                    onClick={() => void copyText(clientKey.clientKey)}
+                  >
+                    <Copy size={13} />
+                  </button>
+                </div>
+                <KeyValueRow label="ClientKey" value={clientKey.clientKey} secret />
+              </div>
+            )}
+          </Card>
+        </>
+      )}
       {/* 静态账号：关联本机原生目录读媒体 */}
-      {isStatic && (
+      {page === 'media' && isStatic && (
         <Card>
           <Row
             label={
@@ -520,165 +559,191 @@ export function AccountBasicsSection(): ReactElement {
       )}
 
       {/* Realtime / db watch */}
-      <Card>
-        <Row
-          label={
-            <span className="weq-set-row-icon">
-              <Database size={15} strokeWidth={1.8} aria-hidden />
-              启用数据库监听
-            </span>
-          }
-          desc="监听 QQ 数据库变化以实时显示新消息、撤回与表情回应。"
-          control={
-            <Toggle
-              checked={realtime}
-              disabled={settingsLoading}
-              onChange={(v) =>
-                void persist(
-                  () => setRealtimeLocal(v),
-                  () => setRealtime.mutateAsync({ enabled: v }),
-                )
+      {page === 'account' && (
+        <>
+          <Card>
+            <Row
+              label={
+                <span className="weq-set-row-icon">
+                  <Database size={15} strokeWidth={1.8} aria-hidden />
+                  启用数据库监听
+                </span>
               }
-              label="启用数据库监听"
-            />
-          }
-        />
-      </Card>
-
-      {/* 完全离线总闸：自动读取 QQ 内存（完整功能） */}
-      <Card>
-        <Row
-          label={
-            <span className="weq-set-row-icon">
-              <Plug size={15} strokeWidth={1.8} aria-hidden />
-              自动读取 QQ 内存（完整功能）
-            </span>
-          }
-          desc={
-            isMac
-              ? 'macOS 读取 QQ 内存需要管理员权限，且目标未开启强化运行时保护（QQ 已开启，因此需要先关闭 SIP）。开启后后台会以管理员权限读取登录中的 QQ 进程内存，采集 rKey / ClientKey 等凭证。'
-              : '默认开启：后台自动读取登录中的 QQ 进程内存，采集 rKey / ClientKey 等凭证，启用媒体补全、群相册、装扮等在线功能。关闭后进入完全离线模式——不再读取 QQ 内存、不再联网换取任何凭证，仅使用本地数据与本地文件。'
-          }
-          control={
-            <Toggle
-              checked={autoAttach}
-              disabled={settingsLoading}
-              onChange={(v) =>
-                void persist(
-                  () => setAutoAttach(v),
-                  () => setAutoAttachQq.mutateAsync({ enabled: v }),
-                )
+              desc="监听 QQ 数据库变化以实时显示新消息、撤回与表情回应。"
+              control={
+                <Toggle
+                  checked={realtime}
+                  disabled={settingsLoading}
+                  onChange={(v) =>
+                    void persist(
+                      () => setRealtimeLocal(v),
+                      () => setRealtime.mutateAsync({ enabled: v }),
+                    )
+                  }
+                  label="启用数据库监听"
+                />
               }
-              label="自动读取 QQ 内存（完整功能）"
             />
-          }
-        />
-      </Card>
+          </Card>
 
+          {/* 完全离线总闸：自动读取 QQ 内存（完整功能） */}
+          <Card>
+            <Row
+              label={
+                <span className="weq-set-row-icon">
+                  <CheckCheck size={15} strokeWidth={1.8} aria-hidden />
+                  同步已读状态到 QQ
+                </span>
+              }
+              desc="向 QQ 上报在 WeQ 阅读的位置，可能清除其他端的未读提醒。默认关闭，仅在线模式生效。"
+              control={
+                <Toggle
+                  checked={reportRead}
+                  disabled={settingsLoading || setReportReadEnabled.isPending}
+                  onChange={(v) => void toggleReportRead(v)}
+                  label="同步已读状态到 QQ"
+                />
+              }
+            />
+          </Card>
+
+          {/* 完全离线总闸：自动读取 QQ 内存（完整功能） */}
+          <Card>
+            <Row
+              label={
+                <span className="weq-set-row-icon">
+                  <Plug size={15} strokeWidth={1.8} aria-hidden />
+                  自动读取 QQ 内存（完整功能）
+                </span>
+              }
+              desc={
+                isMac
+                  ? 'macOS 读取 QQ 内存需要管理员权限，且目标未开启强化运行时保护（QQ 已开启，因此需要先关闭 SIP）。开启后后台会以管理员权限读取登录中的 QQ 进程内存，采集 rKey / ClientKey 等凭证。'
+                  : '默认开启：后台自动读取登录中的 QQ 进程内存，采集 rKey / ClientKey 等凭证，启用媒体补全、群相册、装扮等在线功能。关闭后进入完全离线模式——不再读取 QQ 内存、不再联网换取任何凭证，仅使用本地数据与本地文件。'
+              }
+              control={
+                <Toggle
+                  checked={autoAttach}
+                  disabled={settingsLoading}
+                  onChange={(v) =>
+                    void persist(
+                      () => setAutoAttach(v),
+                      () => setAutoAttachQq.mutateAsync({ enabled: v }),
+                    )
+                  }
+                  label="自动读取 QQ 内存（完整功能）"
+                />
+              }
+            />
+          </Card>
+        </>
+      )}
       {/* 外部安卓图片缓存（放最下面，带引导文案） */}
-      <Card title="外部安卓图片缓存">
-        <Row
-          label={
-            <span className="weq-set-row-icon">
-              <Smartphone size={15} strokeWidth={1.8} aria-hidden />
-              允许使用外部安卓图片缓存
-            </span>
-          }
-          desc={
-            externalChatpicDir
-              ? `聊天图片在本机找不到时，会先到该备份目录按 md5 寻址，再回退到网络下载。 ${externalChatpicDir}`
-              : '未导入。导入安卓 QQ 的 chatpic 缓存备份后，可找回本机缺失的聊天图片。'
-          }
-          control={
-            <Toggle
-              checked={externalChatpicEnabled}
-              disabled={!externalChatpicDir || settingsLoading}
-              onChange={(v) =>
-                void persist(
-                  () => setExternalChatpicEnabled(v),
-                  () =>
-                    setExternalChatpic.mutateAsync({
-                      dir: externalChatpicDir,
-                      enabled: v,
-                    }),
-                )
-              }
-              label="允许使用外部安卓图片缓存"
-            />
-          }
-        />
-        <Row
-          label="导入目录"
-          desc="选择已完整备份的 chatpic 目录，程序会检查 chatraw / chatimg / chatthumb 三个子目录是否齐全。"
-          indent
-          control={
-            <div className="weq-set-btn-group">
-              <button
-                type="button"
-                className="weq-set-btn"
-                disabled={pickingChatpic}
-                onClick={() => void importChatpicDir()}
-              >
-                <FolderOpen size={14} aria-hidden />
-                {pickingChatpic ? '校验中…' : '选择并导入…'}
-              </button>
-              {externalChatpicDir ? (
+      {page === 'media' && (
+        <Card title="外部安卓图片缓存">
+          <Row
+            label={
+              <span className="weq-set-row-icon">
+                <Smartphone size={15} strokeWidth={1.8} aria-hidden />
+                允许使用外部安卓图片缓存
+              </span>
+            }
+            desc={
+              externalChatpicDir
+                ? `聊天图片在本机找不到时，会先到该备份目录按 md5 寻址，再回退到网络下载。 ${externalChatpicDir}`
+                : '未导入。导入安卓 QQ 的 chatpic 缓存备份后，可找回本机缺失的聊天图片。'
+            }
+            control={
+              <Toggle
+                checked={externalChatpicEnabled}
+                disabled={!externalChatpicDir || settingsLoading}
+                onChange={(v) =>
+                  void persist(
+                    () => setExternalChatpicEnabled(v),
+                    () =>
+                      setExternalChatpic.mutateAsync({
+                        dir: externalChatpicDir,
+                        enabled: v,
+                      }),
+                  )
+                }
+                label="允许使用外部安卓图片缓存"
+              />
+            }
+          />
+          <Row
+            label="导入目录"
+            desc="选择已完整备份的 chatpic 目录，程序会检查 chatraw / chatimg / chatthumb 三个子目录是否齐全。"
+            indent
+            control={
+              <div className="weq-set-btn-group">
                 <button
                   type="button"
-                  className="weq-set-btn weq-set-btn-soft weq-set-btn-del"
-                  onClick={() => void removeChatpicDir()}
+                  className="weq-set-btn"
+                  disabled={pickingChatpic}
+                  onClick={() => void importChatpicDir()}
                 >
-                  <Trash2 size={14} aria-hidden />
-                  移除
+                  <FolderOpen size={14} aria-hidden />
+                  {pickingChatpic ? '校验中…' : '选择并导入…'}
                 </button>
-              ) : null}
-            </div>
-          }
-        />
-        <details className="weq-set-details">
-          <summary>
-            <ChevronDown size={13} aria-hidden />
-            安卓 chatpic 备份教程（点击展开）
-          </summary>
-          <div className="weq-set-details-body">
-            <p>
-              手机 QQ 的聊天图片缓存在{' '}
-              <code>/sdcard/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/chatpic</code>{' '}
-              目录（部分机型是{' '}
-              <code>
-                /storage/emulated/0/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/chatpic
-              </code>
-              ）。把这个目录<strong>完整</strong>备份到电脑，三个子目录 <code>chatraw</code> /{' '}
-              <code>chatimg</code> / <code>chatthumb</code> 都要保留。
-            </p>
-            <p className="weq-set-details-h">备份方案（任选其一）：</p>
-            <ol>
-              <li>
-                <strong>ADB 命令（推荐，最稳）</strong>：手机开启「开发者选项 → USB
-                调试」，连接电脑后执行
+                {externalChatpicDir ? (
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft weq-set-btn-del"
+                    onClick={() => void removeChatpicDir()}
+                  >
+                    <Trash2 size={14} aria-hidden />
+                    移除
+                  </button>
+                ) : null}
+              </div>
+            }
+          />
+          <details className="weq-set-details">
+            <summary>
+              <ChevronDown size={13} aria-hidden />
+              安卓 chatpic 备份教程（点击展开）
+            </summary>
+            <div className="weq-set-details-body">
+              <p>
+                手机 QQ 的聊天图片缓存在{' '}
+                <code>/sdcard/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/chatpic</code>{' '}
+                目录（部分机型是{' '}
                 <code>
-                  adb pull /sdcard/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/chatpic
-                  &lt;电脑上的目标目录&gt;
+                  /storage/emulated/0/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/chatpic
                 </code>
-                ，把整个目录拉下来。
-              </li>
-              <li>
-                <strong>文件管理器复制</strong>：Android 11+ 的系统文件管理器访问{' '}
-                <code>Android/data</code> 受限，建议用 MT 管理器等第三方文件管理器，或 Root
-                后的文件管理器，把 chatpic 整个文件夹复制到电脑。
-              </li>
-              <li>
-                <strong>手机整机备份</strong>：用手机自带的「备份与恢复」或第三方备份 App 把 QQ
-                数据整体备份，再从备份里取出 chatpic 目录。
-              </li>
-            </ol>
-            <p>
-              导入时请选择电脑上那个 chatpic 目录本身（即里面直接能看到 chatraw / chatimg /
-              chatthumb），而不是它的父目录。
-            </p>
-          </div>
-        </details>
-      </Card>
+                ）。把这个目录<strong>完整</strong>备份到电脑，三个子目录 <code>chatraw</code> /{' '}
+                <code>chatimg</code> / <code>chatthumb</code> 都要保留。
+              </p>
+              <p className="weq-set-details-h">备份方案（任选其一）：</p>
+              <ol>
+                <li>
+                  <strong>ADB 命令（推荐，最稳）</strong>：手机开启「开发者选项 → USB
+                  调试」，连接电脑后执行
+                  <code>
+                    adb pull /sdcard/Android/data/com.tencent.mobileqq/Tencent/MobileQQ/chatpic
+                    &lt;电脑上的目标目录&gt;
+                  </code>
+                  ，把整个目录拉下来。
+                </li>
+                <li>
+                  <strong>文件管理器复制</strong>：Android 11+ 的系统文件管理器访问{' '}
+                  <code>Android/data</code> 受限，建议用 MT 管理器等第三方文件管理器，或 Root
+                  后的文件管理器，把 chatpic 整个文件夹复制到电脑。
+                </li>
+                <li>
+                  <strong>手机整机备份</strong>：用手机自带的「备份与恢复」或第三方备份 App 把 QQ
+                  数据整体备份，再从备份里取出 chatpic 目录。
+                </li>
+              </ol>
+              <p>
+                导入时请选择电脑上那个 chatpic 目录本身（即里面直接能看到 chatraw / chatimg /
+                chatthumb），而不是它的父目录。
+              </p>
+            </div>
+          </details>
+        </Card>
+      )}
     </div>
   );
 }
