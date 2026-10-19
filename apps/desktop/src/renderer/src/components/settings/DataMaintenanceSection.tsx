@@ -134,7 +134,7 @@ export function DataMaintenanceDialog({
         {tool === 'database' ? (
           <DbExplorer />
         ) : tool === 'db-decrypt' ? (
-          <ExportTool initialMode="database" />
+          <ExportTool initialMode="database" lockMode />
         ) : (
           <DbRepairPanel
             currentUin={account.uin}

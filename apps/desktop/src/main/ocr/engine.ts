@@ -22,7 +22,7 @@ import { resolveChildWorkerPath } from '../worker_path';
 import type { DetOptions, OcrRect, RgbImage } from './pipeline';
 import type { OcrWorkerLine, OcrWorkerMessage, OcrWorkerParams } from './worker';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const moduleDir = dirname(fileURLToPath(import.meta.url));
 
 /**
  * 定位打好的 `ocrWorker.mjs` —— 交给共用的 {@link resolveChildWorkerPath}：
@@ -30,7 +30,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  * 不了**，子进程读不到 asar），开发态在 main 产物旁边（可能在 out/main/chunks/）。
  */
 function resolveWorkerPath(): string {
-  return resolveChildWorkerPath('ocrWorker.mjs', __dirname);
+  return resolveChildWorkerPath('ocrWorker.mjs', moduleDir);
 }
 
 export interface OcrEnginePaths {

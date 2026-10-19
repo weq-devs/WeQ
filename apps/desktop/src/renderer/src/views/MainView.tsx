@@ -66,7 +66,6 @@ import {
 import { CollectionDialog } from '../components/CollectionDialog';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { DressUpDialog } from '../components/DressUpDialog';
-import { MarketEmojiBrowserLightbox } from './export/MarketEmojiBrowserLightbox';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
 import { GroupFileDialog } from '../components/GroupFileDialog';
 import {
@@ -2595,8 +2594,7 @@ export function MainView(): ReactElement {
     Record<string, { conversation: Conversation; appearedAt: number }>
   >({});
   const [qzoneSpaceRequest, setQzoneSpaceRequest] = useState<QzoneSpaceRequest | null>(null);
-  const [marketBrowserOpen, setMarketBrowserOpen] = useState(false);
-  const [marketSearchTarget, setMarketSearchTarget] = useState<{
+  const [dressUpEmojiTarget, setDressUpEmojiTarget] = useState<{
     packId: string;
     name: string;
     revision: string;
@@ -5716,8 +5714,10 @@ export function MainView(): ReactElement {
             shell.switchView('channel');
             break;
           case 'marketEmoji':
-            setMarketSearchTarget({ packId: target.packId, name: hit.title, revision });
-            setMarketBrowserOpen(true);
+            // 商城表情已并入个性装扮的「商城表情」页签，搜索直达该页签。
+            setDressUpEmojiTarget({ packId: target.packId, name: hit.title, revision });
+            setSettingsOpen(false);
+            setDressUpOpen(true);
             break;
           case 'groupAlbum':
             setAlbumDialog({
@@ -7294,7 +7294,11 @@ export function MainView(): ReactElement {
     id: string;
     revision: number;
   } | null>(null);
-  const [cloneCreateRequest, setCloneCreateRequest] = useState(0);
+  const [cloneCreateRequest, setCloneCreateRequest] = useState<{
+    revision: number;
+    friendUids?: string[];
+  } | null>(null);
+  const [cloneGroupRequest, setCloneGroupRequest] = useState(0);
   const [conversationLocate, setConversationLocate] = useState<{
     id: string;
     revision: number;
@@ -7588,13 +7592,7 @@ export function MainView(): ReactElement {
             user={user}
             view={sidebarView}
             activeRailItem={
-              settingsOpen || maintenanceTool
-                ? 'settings'
-                : dressUpOpen
-                  ? 'dressup'
-                  : marketBrowserOpen
-                    ? 'market'
-                    : undefined
+              settingsOpen || maintenanceTool ? 'settings' : dressUpOpen ? 'dressup' : undefined
             }
             query={shell.query}
             contactTab={shell.contactTab}
@@ -7617,7 +7615,6 @@ export function MainView(): ReactElement {
               setSettingsOpen(false);
               setMaintenanceTool(null);
               setDressUpOpen(false);
-              setMarketBrowserOpen(false);
               setArkFeedState(null);
               shell.setQuery('');
               shell.switchView('messages');
@@ -7670,9 +7667,9 @@ export function MainView(): ReactElement {
             }}
             onOpenDbRepair={() => openMaintenance('db-repair')}
             onOpenQzoneAlbum={() => setQzoneAlbumOpen(true)}
-            onOpenMarketBrowser={() => setMarketBrowserOpen(true)}
             onOpenDressUp={() => {
               setSettingsOpen(false);
+              setDressUpEmojiTarget(null);
               setDressUpOpen(true);
             }}
             onOpenProfile={noopAsync}
@@ -7848,6 +7845,7 @@ export function MainView(): ReactElement {
                       searchTarget={cloneSearchTarget}
                       openTarget={virtualOpen}
                       createRequest={cloneCreateRequest}
+                      openGroupRequest={cloneGroupRequest}
                       embedded
                       onBackToDirectory={() => {
                         setVirtualOpen(null);
@@ -8170,18 +8168,18 @@ export function MainView(): ReactElement {
               openMaintenance('db-repair');
             }}
           />
-          {marketBrowserOpen ? (
-            <MarketEmojiBrowserLightbox
-              key={marketSearchTarget?.revision ?? 'catalog'}
-              initialPackId={marketSearchTarget?.packId}
-              initialPackName={marketSearchTarget?.name}
+          {dressUpOpen ? (
+            <DressUpDialog
+              key={dressUpEmojiTarget?.revision ?? 'dressup'}
+              initialKind={dressUpEmojiTarget ? 'emoji' : 'bubble'}
+              initialEmojiPackId={dressUpEmojiTarget?.packId}
+              initialEmojiPackName={dressUpEmojiTarget?.name}
               onClose={() => {
-                setMarketBrowserOpen(false);
-                setMarketSearchTarget(null);
+                setDressUpOpen(false);
+                setDressUpEmojiTarget(null);
               }}
             />
           ) : null}
-          {dressUpOpen ? <DressUpDialog onClose={() => setDressUpOpen(false)} /> : null}
           {albumDialog ? (
             <GroupAlbumDialog
               key={`${albumDialog.groupCode}:${albumDialog.initialAlbumId ?? ''}:${albumDialog.searchRevision ?? ''}`}
@@ -8619,9 +8617,17 @@ export function MainView(): ReactElement {
                   setVirtualOpen({ kind: item.kind, id: item.ownerId, revision: Date.now() });
                   shell.switchView('agentlab');
                 },
-                onCreate: () => {
+                onCreate: (friendUids) => {
                   flushAllDirtyDrafts();
-                  setCloneCreateRequest((current) => current + 1);
+                  setCloneCreateRequest((current) => ({
+                    revision: (current?.revision ?? 0) + 1,
+                    friendUids,
+                  }));
+                  shell.switchView('agentlab');
+                },
+                onCreateGroup: () => {
+                  flushAllDirtyDrafts();
+                  setCloneGroupRequest((current) => current + 1);
                   shell.switchView('agentlab');
                 },
               }}

@@ -89,6 +89,55 @@ describe('邮箱与会话入口界面细节', () => {
       f.close();
     }
   });
+  it('好友选择支持多选，一次为每个好友各起一个克隆任务', () => {
+    const onStart = vi.fn();
+    const buddies = [
+      { uid: 'u1', uin: '10001', label: '甲' },
+      { uid: 'u2', uin: '10002', label: '乙' },
+      { uid: 'u3', uin: '10003', label: '丙' },
+    ];
+    const f = mount(
+      h(NewCloneModal, {
+        buddies,
+        flatModels: {
+          chat: [{ key: 'p::m', providerId: 'p', model: 'm', label: '模型' }],
+          embedding: [],
+          vision: [],
+        },
+        onClose: vi.fn(),
+        onStart,
+      }),
+    );
+    try {
+      const rows = () => [
+        ...document.querySelectorAll<HTMLButtonElement>('.weq-exp-row.is-selectable'),
+      ];
+      expect(rows()).toHaveLength(3);
+      act(() => rows()[0]!.click());
+      act(() => rows()[1]!.click());
+      expect(document.querySelectorAll('.weq-exp-row.is-on')).toHaveLength(2);
+      // 再点一次取消多选，然后重新选两个。
+      act(() => rows()[2]!.click());
+      expect(document.querySelectorAll('.weq-exp-row.is-on')).toHaveLength(3);
+      act(() => {
+        [...document.querySelectorAll<HTMLButtonElement>('button')]
+          .find((b) => b.textContent?.includes('下一步'))!
+          .click();
+      });
+      act(() => {
+        [...document.querySelectorAll<HTMLButtonElement>('button')]
+          .find((b) => b.textContent?.includes('开始克隆'))!
+          .click();
+      });
+      expect(onStart).toHaveBeenCalledTimes(3);
+      const uids = onStart.mock.calls.map(([args]) => args.params.targetUid);
+      expect(new Set(uids)).toEqual(new Set(['u1', 'u2', 'u3']));
+      const ids = onStart.mock.calls.map(([args]) => args.params.personaId);
+      expect(new Set(ids).size).toBe(3);
+    } finally {
+      f.close();
+    }
+  });
   it.each(['paused', 'pausing'])('漫游 %s 用暂停符号，不在工具图标旁铺状态文字', (status) => {
     state.status = status;
     const base = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;

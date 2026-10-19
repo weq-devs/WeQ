@@ -7,7 +7,7 @@ import { countVisibleUnreadConversations } from '../src/renderer/src/im-template
 import { readFileSync } from 'node:fs';
 import { WorkspacePage, WorkspacePages } from '../src/renderer/src/components/WorkspacePages';
 
-it('从设置进入维护工具后仍指定设置高亮，不沿用商城表情状态', () => {
+it('从设置进入维护工具后仍指定设置高亮，不沿用其它页面状态', () => {
   const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
   expect(source.includes('settingsOpen || maintenanceTool')).toBe(true);
 });
@@ -41,7 +41,6 @@ it('收藏与后部页面入口按实际页面高亮，返回消息后清除旧�
     onViewChange: noop,
     onOpenSettings: noop,
     onOpenCollection: noop,
-    onOpenMarketBrowser: noop,
     onOpenDressUp: noop,
     onOpenProfile: noop,
     onOpenAbout: noop,
@@ -56,7 +55,7 @@ it('收藏与后部页面入口按实际页面高亮，返回消息后清除旧�
   try {
     act(() => root.render(h(AppRail, { ...props, view: 'collections' })));
     expect(host.querySelector('.rail-tab-collection')?.classList.contains('active')).toBe(true);
-    for (const activeRailItem of ['market', 'dressup', 'settings'] as const) {
+    for (const activeRailItem of ['dressup', 'settings'] as const) {
       act(() => root.render(h(AppRail, { ...props, view: 'messages', activeRailItem })));
       expect(host.querySelectorAll('.rail-tab.active')).toHaveLength(1);
       expect(host.querySelector(`.rail-tab-${activeRailItem}`)?.getAttribute('aria-current')).toBe(
@@ -111,7 +110,7 @@ it('收藏与后部页面入口按实际页面高亮，返回消息后清除旧�
       );
       expect(host.querySelectorAll('.rail-tab.active')).toHaveLength(1);
       expect(host.querySelector('.rail-tab-settings')?.getAttribute('aria-current')).toBe('page');
-      expect(host.querySelector('.rail-tab-market')?.classList.contains('active')).toBe(false);
+      expect(host.querySelector('.rail-tab-dressup')?.classList.contains('active')).toBe(false);
     }
   } finally {
     act(() => root.unmount());

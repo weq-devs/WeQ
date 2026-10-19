@@ -531,7 +531,7 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #51677c;
+  color: var(--weq-fg-secondary);
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
@@ -546,9 +546,9 @@
 }
 
 .weq-exp-seg button.is-active {
-  background: #ffffff;
+  background: var(--weq-bg-surface);
   color: var(--weq-accent-effective);
-  box-shadow: 0 1px 4px rgba(0, 122, 204, 0.18);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
 }
 
 /* ===== Spinner ===== */
@@ -687,13 +687,13 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: #97a2b0;
+  color: var(--weq-fg-muted);
   cursor: pointer;
 }
 
 .weq-exp-dialog-close:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: #5b6573;
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+  color: var(--weq-fg-secondary);
 }
 
 .weq-exp-dialog-body {
@@ -711,14 +711,14 @@
   justify-content: flex-end;
   gap: 10px;
   padding: 13px 18px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-  background: #fbfdff;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--weq-bg-surface) 72%, transparent);
 }
 
 .weq-exp-dialog-foot-note {
   margin-right: auto;
   font-size: 11.5px;
-  color: #8a94a4;
+  color: var(--weq-fg-muted);
 }
 
 .weq-exp-btn {
@@ -726,10 +726,10 @@
   align-items: center;
   gap: 6px;
   padding: 7px 15px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--border);
   border-radius: 9px;
-  background: #ffffff;
-  color: #445161;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-secondary);
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
@@ -744,12 +744,12 @@
 .weq-exp-btn.is-primary {
   border-color: var(--weq-accent-effective);
   background: var(--weq-accent-effective);
-  color: #ffffff;
+  color: var(--primary-foreground);
 }
 
 .weq-exp-btn.is-primary:hover:not(:disabled) {
   filter: brightness(1.05);
-  color: #ffffff;
+  color: var(--primary-foreground);
 }
 
 .weq-exp-btn:disabled {
@@ -763,9 +763,9 @@
   align-items: center;
   gap: 10px;
   padding: 9px 10px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: #fbfdff;
+  background: color-mix(in srgb, var(--weq-accent-effective) 2%, var(--weq-bg-surface));
   transition: border-color 140ms ease, background-color 140ms ease;
 }
 
@@ -775,7 +775,7 @@
 
 .weq-exp-master.is-on {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
-  background: color-mix(in srgb, var(--weq-accent-effective) 5%, #ffffff);
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, var(--weq-bg-surface));
 }
 
 .weq-exp-master.is-disabled {
@@ -807,7 +807,7 @@
   gap: 7px;
   font-size: 13px;
   font-weight: 600;
-  color: #1f2430;
+  color: var(--weq-fg-primary);
 }
 
 .weq-exp-master-badge {
@@ -821,7 +821,7 @@
 
 .weq-exp-master-desc {
   font-size: 11px;
-  color: #8a94a4;
+  color: var(--weq-fg-muted);
   line-height: 1.4;
 }
 
@@ -844,10 +844,10 @@
   align-items: center;
   gap: 4px;
   padding: 3.5px 9px;
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: #ffffff;
-  color: #51677c;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-secondary);
   font-size: 11px;
   cursor: pointer;
   transition: border-color 130ms ease, color 130ms ease, background-color 130ms ease;
@@ -895,10 +895,10 @@
   justify-content: center;
   gap: 5px;
   padding: 6px 8px;
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--border);
   border-radius: 9px;
-  background: #ffffff;
-  color: #51677c;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-secondary);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -928,8 +928,8 @@
 }
 
 .weq-exp-format.is-blocked:hover {
-  border-color: rgba(0, 0, 0, 0.1);
-  color: #51677c;
+  border-color: var(--border);
+  color: var(--weq-fg-secondary);
 }
 
 /* ===== 灯箱 · 补全选项 ===== */
@@ -940,7 +940,7 @@
   margin-bottom: 7px;
   font-size: 12px;
   font-weight: 600;
-  color: #445161;
+  color: var(--weq-fg-secondary);
 }
 
 .weq-exp-block-step {
@@ -959,7 +959,7 @@
   margin: 6px 0 0;
   font-size: 11px;
   line-height: 1.5;
-  color: #a0a9b5;
+  color: var(--weq-fg-muted);
 }
 
 /* 图片文字识别的模型小卡片（筛图 / 识别各一行，复用设置页的 weq-model 样式） */
@@ -979,7 +979,7 @@
 }
 
 .weq-exp-step-row + .weq-exp-step-row {
-  border-top: 1px dashed rgba(0, 0, 0, 0.07);
+  border-top: 1px dashed var(--border);
 }
 
 .weq-exp-step-head {
@@ -1006,7 +1006,7 @@
 .weq-exp-step-desc {
   font-size: 11px;
   line-height: 1.45;
-  color: #8a94a4;
+  color: var(--weq-fg-muted);
 }
 
 .weq-exp-step-ctrl {
@@ -1033,7 +1033,7 @@
   align-items: center;
   gap: 7px;
   min-width: 0;
-  color: #445161;
+  color: var(--weq-fg-secondary);
 }
 
 .weq-exp-path-txt {
@@ -1219,19 +1219,19 @@
   flex-direction: column;
   gap: 3px;
   padding: 10px 4px;
-  color: #6a7280;
+  color: var(--weq-fg-secondary);
 }
 
 .weq-exp-placeholder small {
   font-size: 11.5px;
-  color: #aeb7c3;
+  color: var(--weq-fg-muted);
 }
 
 .weq-exp-decrypt-note {
   margin-top: 10px;
   font-size: 12px;
   line-height: 1.55;
-  color: #8a94a4;
+  color: var(--weq-fg-muted);
 }
 
 /* 数字 / 时间输入 */
@@ -1240,17 +1240,17 @@
   align-items: center;
   gap: 6px;
   font-size: 12.5px;
-  color: #6a7280;
+  color: var(--weq-fg-secondary);
 }
 
 .weq-exp-num input {
   width: 76px;
   padding: 5px 8px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--border);
   border-radius: 7px;
-  background: #ffffff;
+  background: var(--weq-bg-surface);
   font-size: 12.5px;
-  color: #1f2430;
+  color: var(--weq-fg-primary);
   outline: none;
   transition: border-color 140ms ease;
 }
@@ -1347,10 +1347,10 @@
 }
 
 .weq-exp-cal {
-  border: 1px solid rgba(0, 0, 0, 0.07);
+  border: 1px solid var(--border);
   border-radius: 11px;
   padding: 7px 9px 6px;
-  background: #fbfdff;
+  background: color-mix(in srgb, var(--weq-accent-effective) 2%, var(--weq-bg-surface));
 }
 
 .weq-exp-cal-head {
@@ -1365,10 +1365,10 @@
   place-items: center;
   width: 25px;
   height: 25px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--border);
   border-radius: 7px;
-  background: #ffffff;
-  color: #51677c;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-secondary);
   cursor: pointer;
 }
 
@@ -1464,8 +1464,8 @@
   min-height: 0;
   /* 收拢时只露出 header 高度 */
   height: 36px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(255, 255, 255, 0.85);
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--weq-bg-surface) 85%, transparent);
   backdrop-filter: blur(16px);
   overflow: hidden;
   transition: height 300ms cubic-bezier(0.4, 0, 0.2, 1),
@@ -2287,24 +2287,24 @@ html[data-theme="dark"] .weq-exp-detail-stage-failures {
 
 .weq-exp-fail-chip {
   padding: 4px 11px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: #ffffff;
-  color: #51677c;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-secondary);
   font-size: 12px;
   cursor: pointer;
   transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
 }
 
 .weq-exp-fail-chip:hover {
-  border-color: rgba(0, 153, 255, 0.45);
-  color: #0099ff;
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  color: var(--weq-accent-effective);
 }
 
 .weq-exp-fail-chip.is-active {
-  border-color: #0099ff;
-  background: rgba(0, 153, 255, 0.1);
-  color: #0078cc;
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-accent-effective);
 }
 
 .weq-exp-fail-body {

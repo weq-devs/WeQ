@@ -1,4 +1,5 @@
 import type { BrowserWindowConstructorOptions, BrowserWindow } from 'electron';
+import { floatingWindowTypeOption } from './linux_window_backend';
 
 /** 只给应用自己的空白合成工作窗放行；内容由父渲染进程挂载，不注入 preload。 */
 export function compositionPopupOptions(
@@ -14,6 +15,8 @@ export function compositionPopupOptions(
     minWidth: 680,
     minHeight: 480,
     autoHideMenuBar: true,
+    // 合成工作窗同样需要浮动语义：平铺 WM 下否则会被铺满，与主窗口保持一致。
+    ...floatingWindowTypeOption(),
     webPreferences: {
       preload: undefined,
       nodeIntegration: false,

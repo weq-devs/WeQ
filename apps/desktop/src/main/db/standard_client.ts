@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { resolveChildWorkerPath } from '../worker_path';
 import type { StandardDbMethod, StandardDbRequest, StandardDbResponse } from './protocol';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const moduleDir = dirname(fileURLToPath(import.meta.url));
 
 interface PendingRequest {
   worker: ChildProcess;
@@ -99,7 +99,7 @@ export class StandardDbClient {
   private ensureWorker(): ChildProcess {
     if (this.worker) return this.worker;
 
-    const workerPath = resolveChildWorkerPath('standardDbWorker.mjs', __dirname);
+    const workerPath = resolveChildWorkerPath('standardDbWorker.mjs', moduleDir);
     const worker = fork(workerPath, [this.addonPath], {
       stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
       serialization: 'advanced',

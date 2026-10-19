@@ -1,7 +1,7 @@
 import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { Modal } from '../src/renderer/src/components/Dialog';
+import { Modal, DialogHost, useDialog } from '../src/renderer/src/components/Dialog';
 import { OverlayLayer } from '../src/renderer/src/components/OverlayLayer';
 import { OverlayAnchorProvider } from '../src/renderer/src/lib/overlayAnchor';
 
@@ -134,5 +134,54 @@ it('模态父窗中的非模态子窗只响应自己的 Escape，不连带关闭
   } finally {
     act(() => root.unmount());
     host.remove();
+  }
+});
+
+it('任务浮窗里打开删除确认后，确认框居中且不会被浮窗抢层压住', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const layerOf = (selector: string) =>
+    Number(
+      document
+        .querySelector(selector)!
+        .closest<HTMLElement>('.weq-window-layer, .weq-dialog-layer, .weq-overlay-layer')!.style
+        .zIndex,
+    );
+  try {
+    act(() =>
+      root.render(
+        h(
+          'div',
+          null,
+          h(
+            Modal,
+            { presentation: 'anchored', width: 560, title: '任务' },
+            h('button', { 'data-task': true }, '删除导出缓存'),
+          ),
+          h(DialogHost),
+        ),
+      ),
+    );
+    const trigger = document.querySelector<HTMLButtonElement>('[data-task]')!;
+    act(() => {
+      // 任务窗内先聚焦、再 pointerdown（WindowSurface 会在这两处抬层）。
+      trigger.focus();
+      trigger.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      void useDialog.getState().confirm('删除尚未保存的结果', '确认删除？');
+    });
+    const dialog = document.querySelector<HTMLElement>('[aria-modal="true"]')!;
+    expect(dialog).not.toBeNull();
+    // 全局确认框不应按入口锚定到任务窗内的按钮。
+    expect(dialog.closest('.is-anchored-popover')).toBeNull();
+    expect(layerOf('[aria-modal="true"]')).toBeGreaterThan(layerOf('[data-task]'));
+  } finally {
+    act(() => {
+      useDialog.getState().close();
+      root.unmount();
+    });
+    host.remove();
+    vi.unstubAllGlobals();
   }
 });

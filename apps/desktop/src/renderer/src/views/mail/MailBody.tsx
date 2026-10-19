@@ -64,17 +64,19 @@ export function MailBody({ html, api }: { html: string; api: MailApi }) {
   }, [images, html, api]);
 
   const applyTheme = useCallback((): void => {
-    const doc = frame.current?.contentDocument,
-      parent = container.current;
-    if (!doc || !parent) return;
+    const parent = container.current,
+      // 首次布局时 iframe 的 about:blank 文档可能还没解析出根元素，
+      // 此时 contentDocument 存在但 documentElement 为 null；等 onLoad 再应用。
+      root = frame.current?.contentDocument?.documentElement;
+    if (!root || !parent) return;
     const marker = document.createElement('span');
     marker.style.cssText = 'position:absolute;visibility:hidden';
     marker.style.setProperty('--mail-user-accent', accent || 'var(--weq-accent-effective)');
     marker.style.color = 'color-mix(in srgb, var(--mail-user-accent) 40%, var(--weq-fg-primary))';
     parent.append(marker);
-    doc.documentElement.style.setProperty('--mail-fg', getComputedStyle(parent).color);
-    doc.documentElement.style.setProperty('--mail-accent', getComputedStyle(marker).color);
-    doc.documentElement.style.setProperty('--mail-scheme', resolved);
+    root.style.setProperty('--mail-fg', getComputedStyle(parent).color);
+    root.style.setProperty('--mail-accent', getComputedStyle(marker).color);
+    root.style.setProperty('--mail-scheme', resolved);
     marker.remove();
   }, [resolved, accent]);
   useLayoutEffect(() => {

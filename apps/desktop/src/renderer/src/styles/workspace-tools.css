@@ -43,6 +43,8 @@
   background: transparent;
   color: var(--weq-fg-primary);
   font: inherit;
+  /* 输入框默认继承浏览器 16px；标题栏搜索与侧栏搜索（13.5px）保持同一档。 */
+  font-size: 13px;
   outline-offset: 3px;
   opacity: 0;
   transition: opacity 120ms ease;

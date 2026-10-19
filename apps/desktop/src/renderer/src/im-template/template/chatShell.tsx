@@ -38,7 +38,6 @@ export function ChatShell({
   onViewChange,
   onOpenSettings,
   onOpenCollection,
-  onOpenMarketBrowser,
   onOpenDressUp,
   onOpenProfile,
   onOpenAbout,
@@ -84,7 +83,6 @@ export function ChatShell({
   onViewChange: (view: MainView) => void;
   onOpenSettings: (tab?: SettingsTab) => void;
   onOpenCollection: () => void;
-  onOpenMarketBrowser: () => void;
   onOpenDressUp: () => void;
   onOpenProfile: () => void;
   onOpenAbout: () => void;
@@ -103,7 +101,7 @@ export function ChatShell({
   refreshingContacts?: boolean;
   onSidebarWidthChange: (width: number) => void;
   onGoHome?: () => void;
-  activeRailItem?: 'settings' | 'market' | 'dressup';
+  activeRailItem?: 'settings' | 'dressup';
 }) {
   const pageOpen = useWorkspacePageOpen();
   const mainPageOpen = useWorkspaceMainPageOpen();
@@ -137,7 +135,6 @@ export function ChatShell({
           onViewChange={onViewChange}
           onOpenSettings={onOpenSettings}
           onOpenCollection={onOpenCollection}
-          onOpenMarketBrowser={onOpenMarketBrowser}
           onOpenDressUp={onOpenDressUp}
           onOpenProfile={onOpenProfile}
           onOpenAbout={onOpenAbout}

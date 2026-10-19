@@ -1,7 +1,7 @@
 .weq-directory-toolbar { position: relative; display: flex; flex-wrap: nowrap; align-items: center; gap: 3px; flex: none; height: 42px; min-width: 0; padding: 5px 8px; background: var(--weq-bg-surface); border-bottom: 1px solid var(--weq-border-subtle); }
 .weq-directory-toolbar button { display: flex; align-items: center; justify-content: center; flex: 0 0 28px; width: 28px; height: 30px; border-radius: 4px; color: var(--weq-fg-secondary); }
 .weq-directory-toolbar button:hover, .weq-directory-toolbar button[aria-pressed="true"] { color: var(--weq-accent-effective); background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); }
-.weq-directory-toolbar input { flex: 1 1 60px; min-width: 24px; width: 0; height: 28px; padding: 4px; border: 1px solid var(--weq-border-strong); border-radius: 4px; background: transparent; color: var(--weq-fg-primary); }
+.weq-directory-toolbar input { flex: 1 1 60px; min-width: 24px; width: 0; height: 28px; padding: 4px; border: 1px solid var(--weq-border-strong); border-radius: 4px; background: transparent; color: var(--weq-fg-primary); font-size: 13px; }
 .weq-directory-selection-count { font-size: 12px; min-width: 18px; text-align: center; color: var(--weq-fg-secondary); }
 .weq-directory-mode { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; animation: weq-directory-expand 180ms ease-out; }
 .weq-directory-mode > svg { flex: none; margin-left: 6px; color: var(--weq-fg-secondary); }

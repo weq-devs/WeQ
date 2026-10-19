@@ -17,7 +17,10 @@ export const ConversationDirectoryContext = createContext<{
   groupAssistantIds?: ReadonlySet<string>;
   locate?: { id: string; revision: number } | null;
   onVirtual: (item: VirtualConversation) => void;
-  onCreate: () => void;
+  /** 新建好友克隆（支持批量：一次性把多个好友交给 AgentLab）。 */
+  onCreate: (friendUids?: string[]) => void;
+  /** 新建克隆体群聊：直接打开多选克隆体的建群弹窗。 */
+  onCreateGroup?: () => void;
   onAnalyze?: (conversation: Conversation) => void;
   onAnalyzeMember?: (conversation: Extract<Conversation, { type: 'group' }>, member: User) => void;
   onRoaming?: (targets: RoamingTarget[]) => void;

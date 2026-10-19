@@ -366,13 +366,20 @@ export function AgentLabView({
   searchTarget,
   openTarget,
   createRequest,
+  createFriendUids,
+  openGroupRequest,
   embedded = false,
   onBackToDirectory,
 }: {
   mode?: 'clones' | 'assistant';
   searchTarget?: GeneratedSearchHit | null;
   openTarget?: { kind: 'persona' | 'group'; id: string; revision: number } | null;
-  createRequest?: number;
+  /** 新建克隆请求的版本号；用 revision 区分「再点一次也要重新打开」。 */
+  createRequest?: { revision: number; friendUids?: string[] } | null;
+  /** 兼容旧调用：单独传好友 uid 列表（与 createRequest 二选一）。 */
+  createFriendUids?: string[];
+  /** 新建克隆体群聊请求的版本号。 */
+  openGroupRequest?: number;
   embedded?: boolean;
   onBackToDirectory?: () => void;
 }): ReactElement {
@@ -472,9 +479,15 @@ export function AgentLabView({
   });
   const assistantSessions = assistantSessionsQuery.data ?? [];
   const [cloneOpen, setCloneOpen] = useState(false);
+  const [clonePreselect, setClonePreselect] = useState<string[]>([]);
   useEffect(() => {
-    if (createRequest) setCloneOpen(true);
-  }, [createRequest]);
+    if (!createRequest) return;
+    setClonePreselect(createRequest.friendUids ?? createFriendUids ?? []);
+    setCloneOpen(true);
+  }, [createRequest, createFriendUids]);
+  useEffect(() => {
+    if (openGroupRequest) setGroupOpen(true);
+  }, [openGroupRequest]);
   const openPersonaSessions = trpc.account.listAgentLabPersonaSessions.useQuery(
     { personaId: openTarget?.kind === 'persona' ? openTarget.id : '' },
     {
@@ -1092,6 +1105,7 @@ export function AgentLabView({
       {cloneOpen ? (
         <NewCloneModal
           buddies={buddyOptions}
+          initialSelectedUids={clonePreselect}
           flatModels={flatModels}
           onClose={() => setCloneOpen(false)}
           onStart={(args) => void startClone(args)}

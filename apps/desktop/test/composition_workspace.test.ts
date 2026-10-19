@@ -625,6 +625,12 @@ describe('合成工作窗口', () => {
     expect(
       compositionPopupOptions('about:blank', 'weq-compose')?.webPreferences?.preload,
     ).toBeUndefined();
+    // 提一层窗口类型：平铺 WM 下与主窗口同为浮动窗，否则合成工作窗会被铺满。
+    expect(compositionPopupOptions('about:blank', 'weq-compose')?.type).toBe(
+      process.platform === 'linux' && process.env.WEQ_WINDOW_TYPE !== 'normal'
+        ? (process.env.WEQ_WINDOW_TYPE ?? 'toolbar')
+        : undefined,
+    );
   });
   it('记录自动保存且不另建历史，现有消息只追加一次，保存失败阻止关闭', async () => {
     const props = {

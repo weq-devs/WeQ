@@ -310,7 +310,6 @@ describe('QQ 频道内的私聊工作区', () => {
   it('内容入口按顺序直接排列，移除更多、克隆和帮助的重复入口', () => {
     const noop = () => {};
     const collection = vi.fn();
-    const market = vi.fn();
     const dress = vi.fn();
     const changeView = vi.fn();
     const f = mount(
@@ -321,7 +320,6 @@ describe('QQ 频道内的私聊工作区', () => {
         mailBadgeCount: 2,
         onOpenSettings: noop,
         onOpenCollection: collection,
-        onOpenMarketBrowser: market,
         onOpenDressUp: dress,
         onOpenProfile: noop,
         onOpenAbout: noop,
@@ -342,16 +340,14 @@ describe('QQ 频道内的私聊工作区', () => {
         'QQ 频道',
         'QQ 邮箱',
         '我的收藏',
-        '商城表情',
         '个性装扮',
         '设置',
         '应用',
       ]);
-      for (const title of ['我的收藏', '商城表情', '个性装扮']) {
+      for (const title of ['我的收藏', '个性装扮']) {
         act(() => f.host.querySelector<HTMLButtonElement>(`[title="${title}"]`)!.click());
       }
       expect(collection).toHaveBeenCalledOnce();
-      expect(market).toHaveBeenCalledOnce();
       expect(dress).toHaveBeenCalledOnce();
       const mail = f.host.querySelector<HTMLButtonElement>('[title="QQ 邮箱"]')!;
       expect(mail.querySelector('.rail-badge')?.textContent).toBe('2');

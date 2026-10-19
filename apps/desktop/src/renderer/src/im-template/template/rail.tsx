@@ -1,14 +1,5 @@
 // @ts-nocheck
-import {
-  LayoutGrid,
-  MessageCircle,
-  Settings,
-  Hash,
-  Bookmark,
-  Store,
-  Palette,
-  Mail,
-} from 'lucide-react';
+import { LayoutGrid, MessageCircle, Settings, Hash, Bookmark, Palette, Mail } from 'lucide-react';
 import { SiQzone } from 'react-icons/si';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import type { ReactNode } from 'react';
@@ -26,7 +17,6 @@ export function AppRail({
   onViewChange,
   onOpenSettings,
   onOpenCollection,
-  onOpenMarketBrowser,
   onOpenDressUp,
   onOpenProfile,
   onOpenAbout: _onOpenAbout,
@@ -45,7 +35,6 @@ export function AppRail({
   onViewChange: (view: MainView) => void;
   onOpenSettings: (tab?: SettingsTab) => void;
   onOpenCollection: () => void;
-  onOpenMarketBrowser: () => void;
   onOpenDressUp: () => void;
   onOpenProfile: () => void;
   onOpenAbout: () => void;
@@ -62,7 +51,7 @@ export function AppRail({
   showTools?: boolean;
   footerContent?: ReactNode;
   hideAvatar?: boolean;
-  activeRailItem?: 'settings' | 'market' | 'dressup';
+  activeRailItem?: 'settings' | 'dressup';
 }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [pendingView, setPendingView] = useState<MainView | null>(null);
@@ -70,19 +59,12 @@ export function AppRail({
   const railRef = useRef<HTMLElement | null>(null);
   const activeTitle = useWorkspaceActiveTitle();
   const activePage =
-    activeTitle === '商城表情'
-      ? 'market'
-      : activeTitle === '个性装扮'
-        ? 'dressup'
-        : activeTitle === '设置'
-          ? 'settings'
-          : undefined;
+    activeTitle === '个性装扮' ? 'dressup' : activeTitle === '设置' ? 'settings' : undefined;
   const activeView = activePage ?? activeRailItem ?? pendingView ?? view;
   const updateAvailable = useUpdateStore((s) => s.available);
 
   const contentItems = [
     { id: 'collection', label: '我的收藏', icon: Bookmark, onSelect: onOpenCollection },
-    { id: 'market', label: '商城表情', icon: Store, onSelect: onOpenMarketBrowser },
     { id: 'dressup', label: '个性装扮', icon: Palette, onSelect: onOpenDressUp },
   ];
 
@@ -246,7 +228,7 @@ export function AppRail({
             </span>
             <span className={cn('rail-label')}>QQ邮箱</span>
             {mailBadgeCount > 0 ? (
-              <span className="rail-badge">{formatBadgeCount(mailBadgeCount)}</span>
+              <span className="rail-badge rail-badge-mail">{formatBadgeCount(mailBadgeCount)}</span>
             ) : null}
           </button>
           {contentItems.map((item) => (

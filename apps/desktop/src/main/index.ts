@@ -1,4 +1,5 @@
 import { compositionPopupOptions, controlCompositionWindow } from './composition_window';
+import { floatingWindowTypeOption } from './linux_window_backend';
 import {
   app,
   BrowserWindow,
@@ -70,13 +71,12 @@ import { electronHost } from './host';
 import { systemAuthService } from './system_auth';
 import { totpAuthService } from './totp_auth';
 import { screenshotPage } from './link_shot';
-import { resolveOzonePlatform } from './linux_window_backend';
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const moduleDir = dirname(fileURLToPath(import.meta.url));
 
-// Must be set before the first BrowserWindow is created. See the module header
-// for why Wayland sessions use XWayland by default.
-const ozonePlatform = resolveOzonePlatform();
-if (ozonePlatform) app.commandLine.appendSwitch('ozone-platform', ozonePlatform);
+// Wayland 会话默认走 XWayland（见 linux_window_backend.ts）：这里**不能**用
+// `appendSwitch`，ozone 后端必须在 Electron 启动参数里指定。开发时由
+// electron.vite.config.ts 注入 `ELECTRON_CLI_ARGS`，打包版由 electron-builder 的
+// `linux.executableArgs` 注入。
 
 // Privileged-scheme registration must happen before app `ready`, and Electron
 // honors only ONE `registerSchemesAsPrivileged` call — register every custom
@@ -575,8 +575,6 @@ function createWindow(): BrowserWindow {
   // is the least invasive one that Hyprland/sway treat as floating (unlike
   // 'splash', it keeps the taskbar entry). Opt-out with WEQ_WINDOW_TYPE=normal
   // (or override to another value) so this can be disabled per-environment.
-  const windowType =
-    process.env.WEQ_WINDOW_TYPE ?? (process.platform === 'linux' ? 'toolbar' : undefined);
   const win = new BrowserWindow({
     width: 1120,
     height: 580,
@@ -587,10 +585,10 @@ function createWindow(): BrowserWindow {
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
     titleBarStyle: 'hidden',
-    ...(windowType && windowType !== 'normal' ? { type: windowType } : {}),
+    ...floatingWindowTypeOption(),
     ...(icon ? { icon } : {}),
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
+      preload: join(moduleDir, '../preload/index.mjs'),
       sandbox: false,
       contextIsolation: true,
       // 允许在渲染层用 <webview> 内嵌 QQ 空间 / 频道（见 QzoneView / ChannelView）。
@@ -668,7 +666,7 @@ function createWindow(): BrowserWindow {
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     void win.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'));
+    void win.loadFile(join(moduleDir, '../renderer/index.html'));
   }
   return win;
 }
