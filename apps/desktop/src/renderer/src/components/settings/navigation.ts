@@ -16,6 +16,7 @@ export type SectionId =
   | 'database-status'
   | 'maintenance'
   | 'agentlab'
+  | 'intent-sense'
   | 'voice'
   | 'tts'
   | 'ocr'
@@ -45,7 +46,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Secti
   {
     id: 'models',
     label: '模型与识别',
-    sections: ['agentlab', 'voice', 'tts', 'ocr', 'model-usage'],
+    sections: ['agentlab', 'intent-sense', 'voice', 'tts', 'ocr', 'model-usage'],
   },
   { id: 'services', label: '服务与集成', sections: ['mcp', 'sse', 'rkey', 'daemon'] },
   { id: 'advanced', label: '高级与诊断', sections: ['credentials', 'diagnostics'] },
@@ -58,7 +59,8 @@ export interface SettingsScope {
 }
 
 export function settingsScopeFor(section: SectionId): SettingsScope | null {
-  if (['anti-recall', 'model-usage', 'mail'].includes(section)) return { label: '当前账号' };
+  if (['anti-recall', 'intent-sense', 'model-usage', 'mail'].includes(section))
+    return { label: '当前账号' };
   if (section === 'database')
     return {
       label: '账号与全局',

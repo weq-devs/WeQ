@@ -48,14 +48,17 @@ const NATIVE_DEPS = {
  *   - attachWorker    — run as a pkexec child (linux, unprivileged host only)
  *   - transcribeWorker — `fork`ed so a sherpa-onnx SIGSEGV can't take the server
  *                        down with it
- * Both are `.mjs` so Node loads them as ESM regardless of the nearest
- * package.json. `attach_elevation.ts` / `transcribe/engine.ts` look for these
- * exact names next to the main bundle.
+ *   - intentSenseWorker — `fork`ed to keep Laya ONNX inference out of the server
+ *                        process (see desktop intent_sense/bridge.ts)
+ * All are `.mjs` so Node loads them as ESM regardless of the nearest
+ * package.json. `attach_elevation.ts` / `transcribe/engine.ts` /
+ * `intent_sense/bridge.ts` look for these exact names next to the main bundle.
  */
 const ENTRIES = {
   server: join(appRoot, 'src/server/index.ts'),
   attachWorker: join(desktopMain, 'attach_worker.ts'),
   transcribeWorker: join(desktopMain, 'transcribe/worker.ts'),
+  intentSenseWorker: join(desktopMain, 'intent_sense/worker.ts'),
 };
 
 const shared = {
@@ -63,7 +66,7 @@ const shared = {
   platform: 'node',
   target: 'node22',
   format: 'esm',
-  external: [...Object.keys(NATIVE_DEPS), 'sherpa-onnx-node', '*.node'],
+  external: [...Object.keys(NATIVE_DEPS), 'sherpa-onnx-node', '@receptron/laya', '*.node'],
   banner: {
     // Bundled CJS deps reach for CJS globals that don't exist in an ESM bundle.
     //   - `require`: esbuild's dynamic-require stub checks `typeof require` and

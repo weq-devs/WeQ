@@ -161,10 +161,25 @@ describe('设置归位后的实际页面', () => {
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map(
           (button) => button.textContent,
         ),
-      ).toEqual(['模型配置', '语音转写', '语音合成', '图片识别', '模型使用统计']);
+      ).toEqual(['模型配置', '意图感知', '语音转写', '语音合成', '图片识别', '模型使用统计']);
       expect(f.host.querySelector('.weq-settings-scope')?.textContent).toBe('当前账号');
       expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')).not.toBeNull();
       expect(f.host.querySelector('.weq-settings-content > .weq-settings-scope')).toBeNull();
+    } finally {
+      f.close();
+    }
+  });
+
+  it('意图感知落在模型与识别，按账号作用域展示', () => {
+    const f = mount('intent-sense');
+    try {
+      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
+        '模型与识别',
+      );
+      expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')?.textContent).toBe(
+        '当前账号',
+      );
+      expect(f.body().textContent).toContain('启用意图感知');
     } finally {
       f.close();
     }

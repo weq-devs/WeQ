@@ -22,6 +22,7 @@ import {
   BadgeCheck,
   BarChart3,
   Bot,
+  BrainCircuit,
   Cake,
   CalendarDays,
   Check,
@@ -48,6 +49,8 @@ import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { PersonalityHomeDialog } from './PersonalityHomeDialog';
 import { MemberAnalyticsDialog } from './MemberAnalyticsDialog';
+import { IntentProfileDialog } from './intentSense/IntentProfileDialog';
+import { useIntentSenseStatus } from './intentSense/context';
 import type { AnalysisTarget } from '../views/analysis/model';
 import { OverlayLayer } from './OverlayLayer';
 import { MutualMarkDialog } from './MutualMarkDialog';
@@ -110,6 +113,14 @@ export function MemberProfileCard({
   const [markOpen, setMarkOpen] = useState(false);
   // 「聊天分析」灯箱。只有从群成员列表进来时才有 groupCode —— 私聊里的资料卡不显示这个入口。
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  // 「互动画像」灯箱（意图感知）：与个性主页 / 互动标识并列，仅私聊对方可看。
+  const [portraitOpen, setPortraitOpen] = useState(false);
+  const intentStatus = useIntentSenseStatus();
+  const intentData = intentStatus.data;
+  const intentOverride = intentData?.conversationOverrides?.[`c2c:${member.id}`];
+  const intentEngineOk =
+    intentData?.engine === 'local' ? !!intentData.localReady : !!intentData?.apiConfigured;
+  const canPortrait = !!intentData?.enabled && intentOverride !== false && intentEngineOk;
   // 打开个性主页 / 互动标识后，卡片本体要自动收起，只留新的弹层。
   const [dismissed, setDismissed] = useState(false);
   // 机器人档案（profile_info_adelie）。QQ 只在客户端打开过该机器人资料卡后才
@@ -475,6 +486,19 @@ export function MemberProfileCard({
                     </button>
                   </>
                 ) : null}
+                {canPortrait ? (
+                  <button
+                    className="weq-profile-perhome"
+                    type="button"
+                    onClick={() => {
+                      setDismissed(true);
+                      setPortraitOpen(true);
+                    }}
+                  >
+                    <BrainCircuit size={13} />
+                    互动画像
+                  </button>
+                ) : null}
                 {canAnalyze ? (
                   <button
                     className="weq-profile-perhome is-analytics"
@@ -537,6 +561,16 @@ export function MemberProfileCard({
           name={name}
           onClose={() => {
             setMarkOpen(false);
+            onClose();
+          }}
+        />
+      ) : null}
+      {portraitOpen && canPortrait ? (
+        <IntentProfileDialog
+          peerUid={member.id}
+          peerName={name}
+          onClose={() => {
+            setPortraitOpen(false);
             onClose();
           }}
         />

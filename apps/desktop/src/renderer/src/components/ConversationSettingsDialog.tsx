@@ -13,7 +13,7 @@
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
-import { BellRing, ShieldCheck, X } from 'lucide-react';
+import { BellRing, BrainCircuit, ShieldCheck, X } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { Card, Row, Toggle } from './settings/controls';
@@ -30,8 +30,8 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** 左侧分类。只有群聊才有关键词那一页。 */
-type SectionId = 'antirecall' | 'keyword';
+/** 左侧分类。群聊有关键词页；c2c/group 都有意向感知页。 */
+type SectionId = 'antirecall' | 'keyword' | 'intentsense';
 
 export function ConversationSettingsDialog({
   kind,
@@ -68,6 +68,20 @@ export function ConversationSettingsDialog({
   const setNotify = trpc.account.antiRecall.setNotify.useMutation();
   const busy = setTargets.isLoading || setNotify.isLoading;
 
+  // 意图感知：全局状态（同 key 共享缓存）+ 单会话覆盖写。
+  const intentStatus = trpc.account.intentSense.getStatus.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+  const setIntentOverride = trpc.account.intentSense.setConversationOverride.useMutation();
+  const intentKind = kind === 'group' ? 'group' : 'c2c';
+  const intentData = intentStatus.data;
+  const intentOverride = intentData?.conversationOverrides?.[`${intentKind}:${conv}`];
+  const intentEngineOk =
+    intentData?.engine === 'local' ? !!intentData.localReady : !!intentData?.apiConfigured;
+  const intentOnHere = !!intentData?.enabled && intentOverride !== false && intentEngineOk;
+
   const enabled = status.data?.enabled ?? false;
   const mode = status.data?.mode ?? 'selected';
   const allProtected = mode === 'all';
@@ -95,6 +109,22 @@ export function ConversationSettingsDialog({
     } catch (e) {
       void status.refetch();
       showError(next ? '开启失败' : '关闭失败', errMsg(e));
+    }
+  }
+
+  /** 覆盖语义：关 = override false；开 = 清除覆盖（跟随全局）。 */
+  async function onToggleIntent(next: boolean): Promise<void> {
+    try {
+      const updated = await setIntentOverride.mutateAsync({
+        kind: intentKind,
+        id: conv,
+        enabled: next ? null : false,
+      });
+      // 返回值直接写共享缓存：点击即生效。
+      utils.account.intentSense.getStatus.setData(undefined, updated);
+    } catch (e) {
+      void intentStatus.refetch();
+      showError('意图感知设置失败', errMsg(e));
     }
   }
 
@@ -148,6 +178,20 @@ export function ConversationSettingsDialog({
                 <span>防撤回</span>
               </button>
             </li>
+            {kind !== 'dataline' ? (
+              <li>
+                <button
+                  type="button"
+                  className={`weq-cvs-nav-item${section === 'intentsense' ? ' is-on' : ''}`}
+                  onClick={() => setSection('intentsense')}
+                >
+                  <span className="weq-cvs-nav-icon">
+                    <BrainCircuit size={16} strokeWidth={1.8} />
+                  </span>
+                  <span>意图感知</span>
+                </button>
+              </li>
+            ) : null}
             {groupKeywords ? (
               <li>
                 <button
@@ -166,7 +210,41 @@ export function ConversationSettingsDialog({
         </nav>
 
         <div className="weq-cvs-body">
-          {groupKeywords && section === 'keyword' ? (
+          {section === 'intentsense' ? (
+            <>
+              <div className="weq-cvs-body-head">
+                <strong>意图感知</strong>
+                <span>在本会话显示消息意图/情绪胶囊与对方画像</span>
+              </div>
+              <div className="weq-cvs-body-scroll">
+                <Card title="本会话">
+                  {!intentStatus.data?.enabled ? (
+                    <p className="weq-set-note">
+                      意图感知总开关关着 —— 先去「设置 → 模型与识别 → 意图感知」打开它。
+                    </p>
+                  ) : null}
+                  <Row
+                    label="在本会话启用"
+                    desc={
+                      intentOverride === false
+                        ? '此会话已被单独关闭（不跟随全局）。'
+                        : intentEngineOk
+                          ? '在最新对方消息下显示胶囊；悬停任意消息查看；私聊右上角显示好感度。'
+                          : '引擎未就绪 —— 到「设置 → 模型与识别 → 意图感知」完成引擎配置。'
+                    }
+                    control={
+                      <Toggle
+                        checked={intentOnHere}
+                        disabled={intentStatus.isLoading || setIntentOverride.isLoading}
+                        onChange={(next) => void onToggleIntent(next)}
+                        label="在本会话启用意图感知"
+                      />
+                    }
+                  />
+                </Card>
+              </div>
+            </>
+          ) : groupKeywords && section === 'keyword' ? (
             <>
               <div className="weq-cvs-body-head">
                 <strong>群关键词</strong>
