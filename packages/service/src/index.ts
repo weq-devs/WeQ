@@ -200,6 +200,7 @@ export {
   type GroupJoinBatchReport,
   type ConversationGraphNodeView,
   type GroupConversationGraphReport,
+  type GroupTodoView,
 } from './account/group_info';
 export {
   BuddyAnalyticsService,

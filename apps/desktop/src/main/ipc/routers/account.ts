@@ -117,6 +117,7 @@ import {
   collectionItemToWire,
   forwardRecordToWire,
   groupBulletinToWire,
+  groupTodoToWire,
   groupMsgToWire,
   groupNotifyToWire,
   recentContactToWire,
@@ -2900,6 +2901,21 @@ export const accountRouter = router({
   listGroupBulletins: procedure.input(groupPageInput).query(async ({ input }) => {
     return listGroupBulletinsWithWebFallback(requireServices(), input);
   }),
+
+  /**
+   * 群待办（本地 `group_todo_top_banner` + 原消息 element）。
+   *
+   * 表不存在 / 这个群没有待办 → 空数组，不报错。`groupCode` 省略则取全部群的
+   * 当前待办（给「所有群的待办」这类总览用）。
+   */
+  listGroupTodos: procedure
+    .input(z.object({ groupCode: z.string().min(1).optional() }))
+    .query(async ({ input }) => {
+      const todos = await requireServices().groupInfo.getGroupTodos(
+        input.groupCode === undefined ? undefined : BigInt(input.groupCode),
+      );
+      return todos.map(groupTodoToWire);
+    }),
 
   /** List group essence messages. */
   listGroupEssenceMessages: procedure.input(groupPageInput).query(async ({ input }) => {

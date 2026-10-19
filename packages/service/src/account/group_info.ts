@@ -18,8 +18,11 @@ import type {
   GroupMember,
   GroupNotify,
   GroupExt,
+  GroupTodo,
   BrowseCursor,
 } from '@weq/db';
+import type { Element } from '@weq/codec';
+import { toRenderElements, type RenderElement } from './msg_view';
 import { GroupNotifyService } from './group_notify';
 import {
   JOIN_BATCH_WINDOW_SECONDS,
@@ -80,6 +83,22 @@ export interface GroupMemberAnalytics {
   commonPhrases: Array<{ phrase: string; count: number }>;
   /** Top QQ faces, carrying faceId so the renderer can draw the real emoji. */
   commonEmojis: Array<{ faceId: number; faceText: string; count: number }>;
+}
+
+/**
+ * 一条群待办：横幅摘要（来自 `group_todo_top_banner`）+ 原消息的渲染元素
+ * （按 seq/random 回 `group_msg_table` 取）。`messageFound = false` 表示本地消息库
+ * 里没有这条原消息 —— 此时 `elements` 为空，只有摘要可用。
+ */
+export interface GroupTodoView extends GroupTodo {
+  /** 原消息的渲染元素（与聊天页同一套 `RenderElement`：text / pic / file / ark …）。 */
+  elements: RenderElement[];
+  /** 原消息发送者 uid。 */
+  senderUid: string;
+  /** 原消息发送时间（unix 秒）。 */
+  sendTime: number;
+  /** 本地消息库里是否找到了原消息。 */
+  messageFound: boolean;
 }
 
 /** One word for the group word cloud. */
@@ -727,6 +746,71 @@ export class GroupInfoService {
    */
   async listAllGroupsExt(limit = 500, offset = 0): Promise<GroupExt[]> {
     return this.session.groupExt.listAll(limit, offset);
+  }
+
+  /**
+   * 群待办（本地缓存 `group_todo_top_banner`）。
+   *
+   * 表里只有横幅摘要，正文靠 `(msgSeq, msgRandom)` 回 `group_msg_table` 取原消息的
+   * 完整 element —— 所以图片、文件、链接、@ 这些都按聊天里的同一套 `RenderElement`
+   * 给出来，前端直接复用消息渲染。备份里没有那条消息（例如只导出了群信息）时
+   * `elements` 为空、`messageFound = false`，横幅摘要仍然可用。
+   *
+   * 表不存在（账号从没用过群待办）时返回 `[]`，不报错。
+   *
+   * @param groupCode 只取某个群；省略则取全部群的当前待办。
+   */
+  async getGroupTodos(groupCode?: bigint): Promise<GroupTodoView[]> {
+    const todos =
+      groupCode === undefined
+        ? await this.session.groupTodos.listAll()
+        : [await this.session.groupTodos.getForGroup(groupCode)].filter(
+            (todo): todo is GroupTodo => todo !== null,
+          );
+    return Promise.all(todos.map((todo) => this.withTodoMessage(todo)));
+  }
+
+  /**
+   * 给一条待办补上原消息的 element（按群分区查，走 (40027,40003) 索引）。
+   *
+   * 命中规则，按可信度从高到低：
+   *   1. 同 seq 里 `random` 完全一致的（绝大多数情况，msgId 就是 `seq_random`）；
+   *   2. 同 seq 只有一行；
+   *   3. 同 seq 多行时，挑第一行**不是灰条**的（灰条只是「设置了群待办」的提示）。
+   *
+   * 命中的是灰条（例如原消息已被撤回 / 备份里缺那一段）时不算找到 ——
+   * `messageFound = false`，前端退回只画横幅摘要（`text`）。
+   */
+  private async withTodoMessage(todo: GroupTodo): Promise<GroupTodoView> {
+    const base: GroupTodoView = {
+      ...todo,
+      elements: [],
+      senderUid: '',
+      sendTime: 0,
+      messageFound: false,
+    };
+    if (todo.msgSeq <= 0n) return base;
+    let rows: Awaited<ReturnType<typeof this.session.groupMsgs.listBySeqsInPartition>>;
+    try {
+      rows = await this.session.groupMsgs.listBySeqsInPartition(todo.groupCode, [todo.msgSeq]);
+    } catch {
+      return base;
+    }
+    const exact = rows.find((row) => todo.msgRandom > 0n && row.msgRandom === todo.msgRandom);
+    const hit =
+      exact ??
+      (rows.length === 1 ? rows[0] : rows.find((row) => row.elements.some((el) => !isGrayTip(el))));
+    if (!hit) return base;
+
+    const content = hit.elements.filter((el) => !isGrayTip(el));
+    if (content.length === 0) return base;
+    return {
+      ...base,
+      elements: toRenderElements(content),
+      senderUid: hit.senderUid,
+      sendTime: Number(hit.sendTime),
+      messageFound: true,
+    };
   }
 
   /**
@@ -1534,4 +1618,9 @@ export class GroupInfoService {
 
     return { windowStart: startTime ?? null, windowEnd: endTime ?? null, by, items };
   }
+}
+
+/** 灰条（系统提示）不是待办的正文 —— 图片 / 文件 / 文字才算。 */
+function isGrayTip(el: Element): boolean {
+  return el.kind.startsWith('grayTip');
 }

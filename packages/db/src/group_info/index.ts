@@ -32,3 +32,6 @@ export { GroupNotifyStatus, GroupNotifyVerifyStatus } from './notify';
 
 export { GroupExtDb } from './ext';
 export type { GroupExtDbOptions, GroupExt, GroupOwnerInfo } from './ext';
+
+export { GroupTodoDb, TODO_BIZ_TYPE_GROUP, TODO_JUMP_TYPE_MESSAGE } from './todo';
+export type { GroupTodoDbOptions, GroupTodo } from './todo';
