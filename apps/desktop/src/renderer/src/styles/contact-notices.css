@@ -131,6 +131,11 @@
   min-width: 0;
 }
 
+.weq-notice-dialog .notice-sysremark {
+  white-space: normal;
+  overflow: visible;
+}
+
 .notice-request-actions input {
   box-sizing: border-box;
   width: 100%;
