@@ -11,10 +11,12 @@
 
 import { client } from '../../trpc/client';
 import type { StartCloneArgs, CloneMode } from './NewCloneModal';
+import { useViewState } from '../../state/view';
 
 export type CloneTaskStatus = 'running' | 'done' | 'error';
 
 export interface CloneTask {
+  accountId: string | null;
   personaId: string;
   /** 展示名（克隆体名称或好友昵称）。 */
   name: string;
@@ -86,6 +88,7 @@ export async function startCloneTask(args: StartCloneArgs): Promise<void> {
   setTasks([
     ...tasks.filter((t) => t.personaId !== params.personaId),
     {
+      accountId: useViewState.getState().openedUin,
       personaId: params.personaId,
       name: meta.name,
       uin: meta.uin,
@@ -119,6 +122,6 @@ export async function startCloneTask(args: StartCloneArgs): Promise<void> {
 
 /** 从任务列表移除（done/error 后用户点关闭）。 */
 export function dismissCloneTask(personaId: string): void {
-  setTasks(tasks.filter((t) => t.personaId !== personaId));
+  setTasks(tasks.filter((t) => t.personaId !== personaId || t.status === 'running'));
   maybeStopProgressSub();
 }

@@ -20,6 +20,33 @@ function compareLayerPaths(left: number[], right: number[]): number {
   return 0;
 }
 
+const SURFACES =
+  '[aria-modal="true"], [role="dialog"], [role="menu"], [role="listbox"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window, [data-weq-surface], .weq-lightbox-layer, .weq-redbag-detail-layer, .weq-redbag-qr-layer';
+const SHELLS = '.weq-dialog-layer, .weq-overlay-layer, .weq-window-layer';
+
+export function surfaceRoot(element: HTMLElement): HTMLElement {
+  return element.closest<HTMLElement>(SHELLS) ?? element;
+}
+
+export function topSurface(document: Document): HTMLElement | undefined {
+  let top: HTMLElement | undefined;
+  for (const item of document.querySelectorAll<HTMLElement>(SURFACES)) {
+    const root = surfaceRoot(item);
+    let visible = true;
+    for (let parent: HTMLElement | null = root; parent; parent = parent.parentElement) {
+      if (
+        parent.matches('[hidden], [inert]') ||
+        document.defaultView?.getComputedStyle(parent).display === 'none'
+      ) {
+        visible = false;
+        break;
+      }
+    }
+    if (visible && (!top || compareLayerPaths(layerPath(root), layerPath(top)) >= 0)) top = root;
+  }
+  return top;
+}
+
 /** 非模态页面只处理自身焦点内的 Escape；模态层只允许最上层处理。 */
 export function useSurfaceEscape(
   ref: RefObject<HTMLElement | null>,
@@ -58,30 +85,8 @@ export function useSurfaceEscape(
     const document = element.ownerDocument;
     function handleEscape(event: KeyboardEvent) {
       if (!['Escape', 'Tab'].includes(event.key) || event.defaultPrevented || !element) return;
-      const surfaces = [
-        ...document.querySelectorAll<HTMLElement>(
-          '[aria-modal="true"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window',
-        ),
-      ].filter((item) => {
-        for (let parent: HTMLElement | null = item; parent; parent = parent.parentElement)
-          if (
-            parent.matches('[hidden], [inert]') ||
-            document.defaultView?.getComputedStyle(parent).display === 'none'
-          )
-            return false;
-        return true;
-      });
-      let topSurface: HTMLElement | undefined;
-      let topPath: number[] = [];
-      for (const item of surfaces) {
-        // 子层级只在所属窗口内比较，不能用内层的高值越过外层浮层。
-        const path = layerPath(item);
-        if (!topSurface || compareLayerPaths(path, topPath) >= 0) {
-          topPath = path;
-          topSurface = item;
-        }
-      }
-      if (topSurface && !element.contains(topSurface) && !topSurface.contains(element)) return;
+      const top = topSurface(document);
+      if (top && surfaceRoot(element) !== top) return;
       if (event.key === 'Tab') {
         if (!modal) return;
         const controls = [

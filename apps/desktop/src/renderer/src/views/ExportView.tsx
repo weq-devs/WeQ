@@ -44,6 +44,7 @@ import { SingleSelectPicker } from './export/SingleSelectPicker';
 import { EmojiPackExportPane } from './export/EmojiPackExportPane';
 import { TaskList, type UiFailure, type UiLogLine, type UiTask } from './export/TaskList';
 import { RoamingBackfillPanel } from '../components/RoamingBackfillPanel';
+import { CloneTasksPane } from './agentlab/CloneTasksPane';
 import { preflightExportEstimate } from './export/preflight';
 import { ExportLightbox, type LightboxResult, type LightboxVariant } from './export/ExportLightbox';
 import { AlbumExportLightbox, type AlbumExportResult } from './export/AlbumExportLightbox';
@@ -294,6 +295,7 @@ export function ExportTool({
   onClose,
   fixedScope = false,
   lockMode = false,
+  onOpenClone,
 }: {
   surface?: 'export' | 'tasks';
   initialSelection?: ContentSelection;
@@ -302,6 +304,7 @@ export function ExportTool({
   fixedScope?: boolean;
   /** 由入口（如维护工具）锁死导出类型：不渲染「内容种类」切换器，模式不可更改。 */
   lockMode?: boolean;
+  onOpenClone?: (id: string) => void;
 }): ReactElement {
   const utils = trpc.useUtils();
   const accountUin = useViewState((state) => state.openedUin);
@@ -348,7 +351,7 @@ export function ExportTool({
   const [execution, setExecution] = useState<'now' | 'scheduled'>(
     initialMode === 'scheduled' ? 'scheduled' : 'now',
   );
-  const [taskTab, setTaskTab] = useState<'tasks' | 'schedules' | 'roaming'>('tasks');
+  const [taskTab, setTaskTab] = useState<'tasks' | 'schedules' | 'roaming' | 'clones'>('tasks');
   // 频道私聊会话列表（guild_msg.db；只在该模式下加载）。
   const guildSessions = trpc.account.guildDirectListSessions.useQuery(undefined, {
     enabled: active && surface === 'export' && mode === 'guild',
@@ -1907,16 +1910,19 @@ export function ExportTool({
       {/* 底部任务列表（可折叠覆盖层） */}
       {surface === 'tasks' && !saveLocationTask ? (
         <>
-          <Segmented<'tasks' | 'schedules' | 'roaming'>
+          <Segmented<'tasks' | 'schedules' | 'roaming' | 'clones'>
             value={taskTab}
             onChange={setTaskTab}
             options={[
               { value: 'tasks', label: '执行任务' },
               { value: 'roaming', label: '漫游拉取' },
+              { value: 'clones', label: '好友克隆' },
               { value: 'schedules', label: '定时计划' },
             ]}
           />
-          {taskTab === 'roaming' ? (
+          {taskTab === 'clones' ? (
+            <CloneTasksPane onOpenPersona={onOpenClone} />
+          ) : taskTab === 'roaming' ? (
             <RoamingBackfillPanel surface="tasks" />
           ) : taskTab === 'schedules' ? (
             <div className="weq-exp-sched-list">

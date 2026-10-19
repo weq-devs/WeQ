@@ -3225,6 +3225,7 @@ function Composer({
       width={600}
       onClose={busy ? undefined : onClose}
       labelledBy="weq-qzn-compose-title"
+      dismissOnOutside={false}
       className="weq-qzn-compose-modal"
     >
       <section className="weq-qzn-composer">

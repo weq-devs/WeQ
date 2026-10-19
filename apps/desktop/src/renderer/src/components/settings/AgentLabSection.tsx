@@ -15,6 +15,7 @@ import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Modal } from '../../components/Dialog';
 import { Card, CheckPillGroup, Row, SectionHeader } from './controls';
+import { useDraftClose } from '../../lib/draftClose';
 
 type Capability = 'chat' | 'embedding' | 'vision';
 const CAPABILITIES: { value: Capability; label: string }[] = [
@@ -79,6 +80,11 @@ export function AgentLabSection(): ReactElement {
   const [fetchedModels, setFetchedModels] = useState<ModelForm[] | null>(null);
   /** 拉取清单里已勾选要导入的模型 id。 */
   const [checkedModelIds, setCheckedModelIds] = useState<string[]>([]);
+  const guard = useDraftClose(
+    () => setOpen(false),
+    form,
+    saveProvider.isLoading || deleteProvider.isLoading || testing || fetchingModels,
+  );
 
   /** 上一次由模板带入的 base_url / 名称：表单值与之相同 = 用户没改过，可以跟着模板切换。 */
   const templateDefaultsRef = useRef<{ baseUrl: string; name: string }>({ baseUrl: '', name: '' });
@@ -105,7 +111,7 @@ export function AgentLabSection(): ReactElement {
         baseUrl: (entry?.baseUrl ?? '').trim(),
         name: templateDisplayName(entry?.label),
       };
-      setForm({
+      const next: ProviderForm = {
         id: item.id,
         name: item.name,
         vendor: item.vendor,
@@ -116,9 +122,11 @@ export function AgentLabSection(): ReactElement {
           label: m.label ?? '',
           capabilities: m.capabilities as Capability[],
         })),
-      });
+      };
+      setForm(next);
+      guard.reset(next);
     },
-    [catalog.data],
+    [catalog.data, guard.reset],
   );
 
   useEffect(() => {
@@ -144,7 +152,9 @@ export function AgentLabSection(): ReactElement {
     templateModelIdsRef.current = new Set();
     // 表单默认选中了 DEFAULT_VENDOR 模板，这里实际应用一次模板，
     // 带入 base_url / 名称 / 推荐模型，避免「显示选中了模板但字段是空的」造成误导。
-    setForm(withVendorTemplate(emptyForm(), DEFAULT_VENDOR));
+    const next = withVendorTemplate(emptyForm(), DEFAULT_VENDOR);
+    setForm(next);
+    guard.reset(next);
     setOpen(true);
   }
 
@@ -312,6 +322,7 @@ export function AgentLabSection(): ReactElement {
         apiKey: form.apiKey.trim(),
         models,
       });
+      guard.reset(form);
       setSelectedId(id);
       setOpen(true);
       await utils.bootstrap.listAgentLabProviders.invalidate();
@@ -432,7 +443,7 @@ export function AgentLabSection(): ReactElement {
       </Card>
 
       {open ? (
-        <Modal presentation="panel" onClose={() => setOpen(false)} width={620}>
+        <Modal presentation="panel" onClose={guard.requestClose} width={620}>
           <div className="weq-provider-modal">
             <header className="weq-provider-modal-head">
               <span className="weq-provider-modal-icon">
@@ -442,7 +453,7 @@ export function AgentLabSection(): ReactElement {
               <button
                 type="button"
                 className="weq-set-iconbtn weq-provider-modal-close"
-                onClick={() => setOpen(false)}
+                onClick={guard.requestClose}
                 aria-label="关闭"
               >
                 <X size={16} />

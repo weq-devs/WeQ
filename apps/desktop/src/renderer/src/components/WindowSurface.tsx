@@ -15,6 +15,7 @@ import { useRenderDocument } from '../lib/renderDocument';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { useTabActive } from './RetainedTabs';
 import '../styles/window-surface.css';
+import { useSurfaceOutside } from '../lib/surfaceOutside';
 
 type Box = { x: number; y: number; width: number; height: number };
 const margin = 8;
@@ -33,6 +34,7 @@ export function WindowSurface({
   className,
   onClose,
   role = 'dialog',
+  dismissOnOutside = true,
 }: {
   children: ReactNode;
   open?: boolean;
@@ -44,6 +46,7 @@ export function WindowSurface({
   className?: string;
   onClose?: () => void;
   role?: 'dialog' | 'presentation';
+  dismissOnOutside?: boolean;
 }) {
   const document = useRenderDocument();
   const view = document.defaultView;
@@ -166,27 +169,9 @@ export function WindowSurface({
       observer?.disconnect();
     };
   }, [active, place, view, mode, document, anchor, origin?.element]);
-  useEffect(() => {
-    if (!active || mode !== 'anchored' || !onClose) return;
-    const outside = (event: globalThis.PointerEvent) => {
-      const target = event.target as Node | null;
-      if (
-        !target ||
-        card.current?.contains(target) ||
-        anchor?.contains(target) ||
-        hasActiveModal(document)
-      )
-        return;
-      if (
-        target instanceof Element &&
-        target.closest('.weq-dialog-layer, .weq-overlay-layer, .weq-window-layer')
-      )
-        return;
-      onClose();
-    };
-    document.addEventListener('pointerdown', outside);
-    return () => document.removeEventListener('pointerdown', outside);
-  }, [active, mode, onClose, anchor, document]);
+  useSurfaceOutside(card, onClose, active && mode === 'anchored' && dismissOnOutside, {
+    anchor: anchor ?? origin?.element,
+  });
   useSurfaceEscape(card, onClose, active, false);
   const start = (event: PointerEvent<HTMLDivElement>) => {
     placement.capture(event);

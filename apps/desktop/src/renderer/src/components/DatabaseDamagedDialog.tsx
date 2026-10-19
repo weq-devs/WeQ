@@ -162,7 +162,7 @@ export function DatabaseDamagedDialog({
   };
 
   return (
-    <Modal onClose={onClose} labelledBy="weq-db-damaged-title" width={520}>
+    <Modal onClose={onClose} dismissOnOutside={false} labelledBy="weq-db-damaged-title" width={520}>
       <div className="weq-dialog weq-dialog-error weq-db-damaged">
         <div className="weq-dialog-head">
           <span className="weq-dialog-icon">

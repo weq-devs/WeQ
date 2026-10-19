@@ -108,7 +108,13 @@ export function MergeForwardDialog({
   }
 
   return (
-    <Modal onClose={onClose} width={880} labelledBy="weq-mf-title" className="weq-mf-modal">
+    <Modal
+      onClose={onClose}
+      dismissOnOutside={false}
+      width={880}
+      labelledBy="weq-mf-title"
+      className="weq-mf-modal"
+    >
       <div className="weq-mf">
         <header className="weq-mf-head">
           {step === 'targets' ? (

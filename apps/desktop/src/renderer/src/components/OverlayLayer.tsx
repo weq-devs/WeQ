@@ -13,10 +13,8 @@
  * 3. **`-webkit-app-region: no-drag`。** Electron 的拖拽命中测试跑在合成器栈之外，
  *    z-index 挡不住它；浮层压在拖拽区上时鼠标事件会被窗口拖动吞掉，按钮点不到。
  *    这里挂的 `.weq-overlay-layer` 类名在 `styles/drag-region.css` 里统一打洞。
- * 4. **点遮罩空白处关闭**（只有点在遮罩本身、没点在内容上才关），并且**自己消费掉这次
- *    按下**（`stopPropagation`）。后者不是多余的：portal 只换 DOM 位置，React 事件仍沿
- *    **组件树**冒泡，所以「卡片里再开一层灯箱」时，内层遮罩上的按下会一路冒到外层遮罩上，
- *    不拦就是点一次关两层（历史上这几个嵌套灯箱各自手写过这段 stopPropagation）。
+ * 4. **点外关闭**交给 `useSurfaceOutside`，只允许最上层响应，并消费尾随点击。
+ *    遮罩上的 React 事件仍需阻断冒泡，避免触发所属父卡片的交互。
  *
  * 观感（scrim 底色、卡片样式）不在这里定，由调用方通过 `className` / `style` 给。
  *
@@ -51,6 +49,7 @@ import { WorkspacePage } from './WorkspacePages';
 import { useTabActive } from './RetainedTabs';
 import { useRenderDocument } from '../lib/renderDocument';
 import { WindowSurface } from './WindowSurface';
+import { useSurfaceOutside } from '../lib/surfaceOutside';
 
 export type OverlayLayerProps = {
   anchor?: HTMLElement | null;
@@ -61,6 +60,7 @@ export type OverlayLayerProps = {
   open?: boolean;
   /** 点遮罩空白处 / 按 Esc 时调用。不传则两种关闭都不响应。 */
   onClose?: () => void;
+  dismissOnOutside?: boolean;
   /** 调用方自己的浮层类名（scrim 观感）。会与 `.weq-overlay-layer` 合并。 */
   className?: string;
   /**
@@ -114,6 +114,7 @@ function OpenOverlayLayer({
   children,
   presentation = 'modal',
   anchor,
+  dismissOnOutside = true,
 }: Omit<OverlayLayerProps, 'open'>): ReactElement {
   const document = useRenderDocument();
   const layer = useOverlayLayer(true);
@@ -131,16 +132,15 @@ function OpenOverlayLayer({
   onCloseRef.current = onClose;
   const requestClose = useCallback(() => onCloseRef.current?.(), []);
   useSurfaceEscape(ref, onClose ? requestClose : undefined, true, presentation === 'modal');
+  useSurfaceOutside(ref, onClose ? requestClose : undefined, dismissOnOutside, {
+    scrim: true,
+    anchor: placement.anchor?.element,
+  });
 
-  const handleScrimMouseDown = useCallback(
-    (event: ReactMouseEvent<HTMLDivElement>) => {
-      // 先断掉冒泡：内层浮层的按下不该顺带关掉下层浮层（见文件头第 4 点）。
-      event.stopPropagation();
-      // 只认「点遮罩空白处」；点在卡片内容上（target 不是遮罩本身）不关。
-      if (event.target === event.currentTarget) requestClose();
-    },
-    [requestClose],
-  );
+  const handleScrimMouseDown = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    // 先断掉冒泡：内层浮层的按下不该顺带关掉下层浮层（见文件头第 4 点）。
+    event.stopPropagation();
+  }, []);
 
   return createPortal(
     <div

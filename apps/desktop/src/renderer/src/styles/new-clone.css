@@ -1,5 +1,6 @@
 .weq-clone-modal-head > strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .weq-clone-modal-head > button { flex: none; }
+.weq-clone-group-list { max-height: 320px; padding: 0; }
 
 /* 多选好友：复用导出页的选择行，选中态用勾选角标提示。 */
 .weq-clone-modal .weq-exp-row.is-selectable { position: relative; }

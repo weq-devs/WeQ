@@ -71,7 +71,7 @@ export function JoinGroupDialog(): ReactElement | null {
   const acknowledge = trpc.bootstrap.acknowledgeJoinGroupPrompt.useMutation();
   const join = trpc.account.joinProjectGroup.useMutation();
 
-  // 关闭即「不再提醒」：本地立刻隐藏（不等落盘往返），并写入版本号。
+  // 点外与 Escape 只隐藏本次；只有明确选择「不再提醒」才写入版本号。
   const [dismissed, setDismissed] = useState(false);
   const [note, setNote] = useState<{ tone: 'ok' | 'err'; text: string; link?: string } | null>(
     null,
@@ -88,9 +88,7 @@ export function JoinGroupDialog(): ReactElement | null {
   const data = state.data;
   const copy = MODE_COPY[data.mode];
 
-  /**
-   * 「不再提醒」—— 取消按钮 / ESC / 点遮罩都走这里：三者语义一致（这条引导我看过了，
-   * 别再弹），所以 ESC 与点遮罩都**持久化**版本号，而不是只关掉本次。 */
+  /** 明确选择不再提醒时持久化版本号。 */
   async function dismissForever(): Promise<void> {
     setDismissed(true);
     try {
@@ -136,7 +134,7 @@ export function JoinGroupDialog(): ReactElement | null {
       presentation="popover"
       labelledBy="weq-join-group-title"
       width="min(22rem, calc(100vw - 3rem))"
-      onClose={() => void dismissForever()}
+      onClose={busy || acknowledge.isLoading ? undefined : () => setDismissed(true)}
     >
       <div className="weq-join-group">
         <header className="weq-join-group-head">

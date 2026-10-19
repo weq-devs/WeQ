@@ -67,7 +67,12 @@ export function AttachHintDialog(): ReactElement | null {
   if (!open) return null;
 
   return (
-    <Modal onClose={() => respond('cancel')} labelledBy="weq-ptrace-title" width={440}>
+    <Modal
+      onClose={() => respond('cancel')}
+      dismissOnOutside={false}
+      labelledBy="weq-ptrace-title"
+      width={440}
+    >
       <div className="weq-ptrace">
         <header className="weq-ptrace-head">
           <h3 id="weq-ptrace-title" className="weq-ptrace-title">

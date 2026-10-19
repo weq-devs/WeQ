@@ -63,7 +63,7 @@ export function SequentialForwardDialog({
     }
   };
   return (
-    <Modal onClose={onClose} labelledBy="weq-forward-title" width={520}>
+    <Modal onClose={onClose} dismissOnOutside={false} labelledBy="weq-forward-title" width={520}>
       <div className="weq-sequential-forward">
         <header>
           <strong id="weq-forward-title">

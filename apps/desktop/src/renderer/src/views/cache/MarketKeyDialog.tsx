@@ -8,7 +8,7 @@
  * 照搬头像资源页「算路径」计算器的交互与视觉（主题色统一）。
  */
 
-import { useCallback, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { X, Search, Clock, Package, Copy, Check, Eye } from 'lucide-react';
 import type { MarketPackKey } from '@weq/service';
 import { Modal } from '../../components/Dialog';
@@ -16,6 +16,7 @@ import { client } from '../../trpc/client';
 import { keySourceLabel } from './MarketPackExplorer';
 
 type Mode = 'timestamp' | 'packId';
+let lastInput: { mode: Mode; value: string } = { mode: 'timestamp', value: '' };
 
 export function MarketKeyDialog({
   onClose,
@@ -25,8 +26,11 @@ export function MarketKeyDialog({
   /** 用户在 pack_id 模式查到密钥后点「查看该表情包」——跳转详情页。 */
   onView: (packId: string) => void;
 }): ReactElement {
-  const [mode, setMode] = useState<Mode>('timestamp');
-  const [value, setValue] = useState('');
+  const [mode, setMode] = useState<Mode>(lastInput.mode);
+  const [value, setValue] = useState(lastInput.value);
+  useEffect(() => {
+    lastInput = { mode, value };
+  }, [mode, value]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<MarketPackKey | null>(null);

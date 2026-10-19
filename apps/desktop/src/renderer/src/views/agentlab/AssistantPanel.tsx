@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
+import { useDraftClose } from '../../lib/draftClose';
 import { autoGrowTextarea } from '../../lib/textareaAutoGrow';
 import { Modal } from '../../components/Dialog';
 import type { AssistantStep } from '@weq/service';
@@ -325,13 +326,15 @@ function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
   const save = trpc.account.setAssistantConfig.useMutation();
   const [prompt, setPrompt] = useState('');
   const [mcp, setMcp] = useState('');
+  const guard = useDraftClose(onClose, { prompt, mcp }, save.isLoading);
 
   useEffect(() => {
     const c = config.data;
     if (!c) return;
     setPrompt(c.customPrompt ?? '');
     setMcp(c.mcpServers ?? '');
-  }, [config.data]);
+    guard.reset({ prompt: c.customPrompt ?? '', mcp: c.mcpServers ?? '' });
+  }, [config.data, guard.reset]);
 
   async function onSave(): Promise<void> {
     try {
@@ -348,7 +351,7 @@ function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
   }
 
   return (
-    <Modal onClose={onClose} width={520}>
+    <Modal onClose={guard.requestClose} width={520}>
       <div className="weq-persona-modal">
         <header className="weq-persona-modal-head">
           <Settings size={16} />
@@ -382,7 +385,7 @@ function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
             ），连接在首次使用时建立； 某个服务器不可用不会影响内置工具。
           </div>
           <div className="weq-clone-actions">
-            <button className="weq-set-btn weq-set-btn-soft" onClick={onClose}>
+            <button className="weq-set-btn weq-set-btn-soft" onClick={guard.requestClose}>
               取消
             </button>
             <button className="weq-set-btn" disabled={save.isLoading} onClick={() => void onSave()}>

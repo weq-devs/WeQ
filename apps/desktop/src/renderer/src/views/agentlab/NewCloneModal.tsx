@@ -21,6 +21,7 @@ import { Avatar } from '../export/widgets';
 import { useAppDialog } from '../../lib/dialogUtils';
 import '../../styles/export.css';
 import '../../styles/new-clone.css';
+import { useDraftClose } from '../../lib/draftClose';
 
 export interface BuddyOption {
   uid: string;
@@ -104,6 +105,17 @@ export function NewCloneModal({
   const [mode, setMode] = useState<CloneMode>('group');
   const [autoName, setAutoName] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
+  const { requestClose } = useDraftClose(onClose, {
+    targets: targets.map((target) => target.uid),
+    name,
+    chatSel,
+    embSel,
+    analyzeStickers,
+    visSel,
+    mode,
+    autoName,
+    customPrompt,
+  });
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -157,7 +169,7 @@ export function NewCloneModal({
   }
 
   return (
-    <Modal onClose={onClose} width={520} centered labelledBy="weq-new-clone-title">
+    <Modal onClose={requestClose} width={520} centered labelledBy="weq-new-clone-title">
       <div className="weq-clone-modal">
         <header className="weq-clone-modal-head">
           {!picking ? (
@@ -180,7 +192,12 @@ export function NewCloneModal({
                 ? `配置克隆：${targets[0]!.label}`
                 : `批量克隆 ${targets.length} 位好友`}
           </strong>
-          <button className="weq-set-iconbtn" type="button" aria-label="关闭" onClick={onClose}>
+          <button
+            className="weq-set-iconbtn"
+            type="button"
+            aria-label="关闭"
+            onClick={requestClose}
+          >
             <X size={16} />
           </button>
         </header>
@@ -235,7 +252,7 @@ export function NewCloneModal({
               )}
             </div>
             <div className="weq-clone-actions">
-              <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={onClose}>
+              <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={requestClose}>
                 取消
               </button>
               <button
@@ -386,7 +403,7 @@ export function NewCloneModal({
             </label>
 
             <div className="weq-clone-actions">
-              <button className="weq-set-btn weq-set-btn-soft" onClick={onClose}>
+              <button className="weq-set-btn weq-set-btn-soft" onClick={requestClose}>
                 取消
               </button>
               <button className="weq-set-btn" onClick={onStartClick} disabled={!chatSel}>

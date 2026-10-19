@@ -30,6 +30,7 @@ import { trpc, client } from '../../trpc/client';
 import { Modal, useDialog } from '../Dialog';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Card, Row, SectionHeader } from './controls';
+import { useDraftClose } from '../../lib/draftClose';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -331,6 +332,11 @@ export function TtsProvidersCard(): ReactElement {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<TtsForm>(emptyTtsForm);
   const [testing, setTesting] = useState(false);
+  const guard = useDraftClose(
+    () => setOpen(false),
+    form,
+    saveProvider.isLoading || deleteProvider.isLoading || testing,
+  );
 
   /** 把已保存的 TTS 服务商数据填进表单。 */
   const fillFormFrom = useCallback(
@@ -348,7 +354,7 @@ export function TtsProvidersCard(): ReactElement {
       format?: string | null;
       speed?: number | null;
     }) => {
-      setForm({
+      const next: TtsForm = {
         id: item.id,
         name: item.name,
         vendor: item.vendor as TtsVendorLocal,
@@ -361,9 +367,11 @@ export function TtsProvidersCard(): ReactElement {
         voice: item.voice ?? '',
         format: item.format ?? '',
         speed: item.speed !== undefined && item.speed !== null ? String(item.speed) : '',
-      });
+      };
+      setForm(next);
+      guard.reset(next);
     },
-    [],
+    [guard.reset],
   );
 
   useEffect(() => {
@@ -383,7 +391,9 @@ export function TtsProvidersCard(): ReactElement {
 
   function toggleCreate(): void {
     setSelectedId('');
-    setForm(emptyTtsForm());
+    const next = emptyTtsForm();
+    setForm(next);
+    guard.reset(next);
     setOpen(true);
   }
 
@@ -438,6 +448,7 @@ export function TtsProvidersCard(): ReactElement {
     }
     try {
       await saveProvider.mutateAsync(toPayload(id));
+      guard.reset(form);
       setSelectedId(id);
       setOpen(true);
       await utils.bootstrap.listTtsProviders.invalidate();
@@ -551,7 +562,7 @@ export function TtsProvidersCard(): ReactElement {
       </Card>
 
       {open ? (
-        <Modal presentation="panel" onClose={() => setOpen(false)} width={620}>
+        <Modal presentation="panel" onClose={guard.requestClose} width={620}>
           <div className="weq-provider-modal">
             <header className="weq-provider-modal-head">
               <span className="weq-provider-modal-icon">
@@ -561,7 +572,7 @@ export function TtsProvidersCard(): ReactElement {
               <button
                 type="button"
                 className="weq-set-iconbtn weq-provider-modal-close"
-                onClick={() => setOpen(false)}
+                onClick={guard.requestClose}
                 aria-label="关闭"
               >
                 <X size={16} />

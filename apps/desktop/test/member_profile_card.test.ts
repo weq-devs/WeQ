@@ -110,12 +110,13 @@ describe('群成员资料卡浮层', () => {
     const card = layer().querySelector('.weq-member-pop');
     expect(card).toBeTruthy();
     act(() => {
-      card!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      card!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
     });
     expect(closed).toBe(0);
 
     act(() => {
-      layer().dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      layer().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+      layer().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     });
     expect(closed).toBe(1);
   });

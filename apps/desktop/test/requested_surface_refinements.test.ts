@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GroupLeftMembersDialog } from '../src/renderer/src/components/GroupLeftMembersDialog';
 import { NewCloneModal } from '../src/renderer/src/views/agentlab/NewCloneModal';
+import { NewGroupModal } from '../src/renderer/src/views/agentlab/NewGroupModal';
 import { ConversationMessageActions } from '../src/renderer/src/components/ConversationMessageActions';
 import { OverlayAnchorContext } from '../src/renderer/src/lib/overlayAnchor';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
@@ -83,6 +84,39 @@ describe('邮箱与会话入口界面细节', () => {
       )!;
       expect(dialog.getAttribute('aria-modal')).toBe('true');
       expect(dialog.closest('.is-anchored-popover')).toBeNull();
+      act(() => dialog.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
+      expect(onClose).toHaveBeenCalledOnce();
+    } finally {
+      f.close();
+    }
+  });
+  it('克隆体群聊沿用好友克隆的居中遮罩、标题栏与选择行', () => {
+    const onClose = vi.fn();
+    const f = mount(
+      h(NewGroupModal, {
+        personas: [
+          { id: 'p1', name: '甲', sourceTitle: '好友甲' },
+          { id: 'p2', name: '乙' },
+        ],
+        onClose,
+        onCreate: vi.fn(),
+      }),
+    );
+    try {
+      const dialog = document.querySelector(
+        '[role="dialog"][aria-labelledby="weq-newgroup-title"]',
+      )!;
+      expect(dialog.getAttribute('aria-modal')).toBe('true');
+      expect(dialog.closest('.is-anchored-popover')).toBeNull();
+      expect(dialog.querySelector('.weq-clone-modal-icon')).not.toBeNull();
+      const rows = dialog.querySelectorAll<HTMLButtonElement>('.weq-exp-row.is-selectable');
+      expect(rows).toHaveLength(2);
+      act(() => rows[0]!.click());
+      expect(rows[0]!.getAttribute('aria-pressed')).toBe('true');
+      expect(rows[0]!.classList.contains('is-on')).toBe(true);
+      expect(rows[0]!.querySelector('.weq-clone-pick-check svg')).not.toBeNull();
+      act(() => rows[0]!.click());
+      expect(rows[0]!.getAttribute('aria-pressed')).toBe('false');
       act(() => dialog.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
       expect(onClose).toHaveBeenCalledOnce();
     } finally {

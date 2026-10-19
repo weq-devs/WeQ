@@ -16,7 +16,6 @@ import {
   PanelLeft,
   Sparkles,
   Trash2,
-  X,
 } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useProfileResolver } from '../hooks/useProfileResolver';
@@ -43,6 +42,7 @@ import { NewGroupModal, type GroupPersonaOption } from './agentlab/NewGroupModal
 import { GroupChatPanel } from './agentlab/GroupChatPanel';
 import type { GeneratedSearchHit } from '../components/search/types';
 import '../styles/agentlab-workspace.css';
+import { useViewState } from '../state/view';
 
 /** 好友资料里 AgentLab 头像/名称真正用到的字段（够用即可，避免耦合完整 profile 结构）。 */
 type AgentLabProfileWire = {
@@ -563,7 +563,9 @@ export function AgentLabView({
   ]);
   const [groupOpen, setGroupOpen] = useState(false);
   // 克隆任务列表：抬到模块级 store（脱离本组件生命周期），切出 AgentLab 再回来任务不丢（bug2）。
-  const cloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
+  const allCloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
+  const accountId = useViewState((state) => state.openedUin);
+  const cloneTasks = allCloneTasks.filter((task) => task.accountId === accountId);
   const [viewTaskId, setViewTaskId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mobileListOpen, setMobileListOpen] = useState(false);
@@ -960,51 +962,6 @@ export function AgentLabView({
                 <Plus size={15} /> 新建群聊
               </button>
             </div>
-
-            {cloneTasks.length > 0 ? (
-              <div className="weq-clone-tasklist">
-                {cloneTasks.map((t) => (
-                  <button
-                    key={t.personaId}
-                    type="button"
-                    className={`weq-clone-task is-${t.status}`}
-                    onClick={() => setViewTaskId(t.personaId)}
-                    title="查看克隆进度"
-                  >
-                    <QqAvatar uin={t.uin} size={28} />
-                    <span className="weq-clone-task-text">
-                      <strong>{t.name}</strong>
-                      <small>
-                        {t.status === 'running'
-                          ? `${t.phase} · ${Math.round(t.percent)}%`
-                          : t.status === 'done'
-                            ? '克隆完成 · 点击查看'
-                            : '克隆失败 · 点击查看'}
-                      </small>
-                      {t.status === 'running' ? (
-                        <span className="weq-clone-task-bar">
-                          <i style={{ width: `${Math.round(t.percent)}%` }} />
-                        </span>
-                      ) : null}
-                    </span>
-                    {t.status !== 'running' ? (
-                      <span
-                        className="weq-clone-task-close"
-                        role="button"
-                        tabIndex={0}
-                        aria-label="移除任务"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          dismissTask(t.personaId);
-                        }}
-                      >
-                        <X size={13} />
-                      </span>
-                    ) : null}
-                  </button>
-                ))}
-              </div>
-            ) : null}
           </>
         )}
       </aside>
@@ -1115,6 +1072,7 @@ export function AgentLabView({
       {groupOpen ? (
         <NewGroupModal
           personas={groupPersonaOptions}
+          creating={createGroup.isLoading}
           onClose={() => setGroupOpen(false)}
           onCreate={(args) => void onCreateGroup(args)}
         />

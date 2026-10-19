@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { getCloneTasks, subscribeCloneTasks } from '../views/agentlab/cloneTaskStore';
 import type { GeneratedSearchHit } from './search/types';
 import { BarChart3, Bot, Download, FileStack, ListTodo, Settings, X } from 'lucide-react';
 import { Modal } from './Dialog';
@@ -47,6 +48,7 @@ export function WorkspaceTools({
   currentConversation,
   analysisRequest,
   roamingRequest,
+  onOpenClone,
 }: {
   onOpenAnalysis: (report: AnalysisReportRequest) => void;
   onOpenComposition?: () => void;
@@ -55,6 +57,7 @@ export function WorkspaceTools({
   currentConversation?: Conversation | null;
   analysisRequest?: AnalysisToolRequest | null;
   roamingRequest?: { targets: RoamingTarget[]; revision: number } | null;
+  onOpenClone?: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [tool, setTool] = useState<Tool>('export');
@@ -129,9 +132,11 @@ export function WorkspaceTools({
   }, [assistantSearchTarget]);
   const selection = useCurrentContentSelection();
   const tasks = trpc.account.listExportTasks.useQuery(undefined, { refetchInterval: 5000 });
+  const cloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
   const running =
-    tasks.data?.filter((task) => task.status === 'running' || task.save?.status === 'saving')
-      .length ?? 0;
+    (tasks.data?.filter((task) => task.status === 'running' || task.save?.status === 'saving')
+      .length ?? 0) +
+    cloneTasks.filter((task) => task.accountId === accountKey && task.status === 'running').length;
   const close = () => setOpen(false);
   const select = (next: Tool, anchor?: HTMLElement) => {
     if (next === 'tasks') setTaskAnchor(anchor ?? null);
@@ -190,6 +195,7 @@ export function WorkspaceTools({
       <FloatingToolsBar items={items} running={running} hidden={hidden} />
       <Modal
         presentation="modal"
+        dismissOnOutside={false}
         open={open && tool !== 'tasks' && tool !== 'backfill'}
         onClose={close}
         width={1000}
@@ -275,7 +281,15 @@ export function WorkspaceTools({
           key={accountKey ?? 'no-account'}
           activeKey={open && tool === 'tasks' ? 'tasks' : 'closed'}
         >
-          {open && tool === 'tasks' ? <ExportTool surface="tasks" /> : null}
+          {open && tool === 'tasks' ? (
+            <ExportTool
+              surface="tasks"
+              onOpenClone={(id) => {
+                close();
+                onOpenClone?.(id);
+              }}
+            />
+          ) : null}
         </RetainedTabs>
       </Modal>
       <Modal

@@ -8139,6 +8139,12 @@ export function MainView(): ReactElement {
             }}
           />
           <WorkspaceTools
+            onOpenClone={(id) => {
+              flushAllDirtyDrafts();
+              setCloneSearchTarget(null);
+              setVirtualOpen({ kind: 'persona', id, revision: Date.now() });
+              shell.switchView('agentlab');
+            }}
             currentConversation={shell.view === 'messages' ? activeConversation : null}
             analysisRequest={analysisRequest}
             roamingRequest={roamingRequest}

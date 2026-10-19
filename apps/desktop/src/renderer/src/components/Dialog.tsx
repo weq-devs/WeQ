@@ -20,6 +20,7 @@ import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { WorkspacePage } from './WorkspacePages';
 import { WindowSurface } from './WindowSurface';
+import { useSurfaceOutside } from '../lib/surfaceOutside';
 
 export type DialogTone = 'error' | 'warning' | 'info';
 
@@ -138,6 +139,7 @@ export function Modal({
   title,
   anchor,
   centered = false,
+  dismissOnOutside = true,
 }: {
   onClose?: () => void;
   children: ReactNode;
@@ -154,6 +156,8 @@ export function Modal({
   anchor?: HTMLElement | null;
   /** 强制居中遮罩，不沿用最近的触发点。 */
   centered?: boolean;
+  /** 安全验证、编辑正文等流程可显式禁用点外关闭。 */
+  dismissOnOutside?: boolean;
 }): ReactElement | null {
   const document = useRenderDocument();
   const tabActive = useTabActive();
@@ -175,6 +179,16 @@ export function Modal({
     active && !windowed && presentation !== 'page' && presentation !== 'sidecar',
     presentation === 'modal',
   );
+  useSurfaceOutside(
+    ref,
+    onClose,
+    active &&
+      !windowed &&
+      dismissOnOutside &&
+      presentation !== 'page' &&
+      presentation !== 'sidecar',
+    { scrim: true, anchor: placement.anchor?.element },
+  );
 
   if (typeof document === 'undefined') return null;
   if (windowed)
@@ -188,6 +202,7 @@ export function Modal({
         title={title}
         className={className}
         onClose={onClose}
+        dismissOnOutside={dismissOnOutside}
       >
         {children}
       </WindowSurface>
@@ -218,7 +233,7 @@ export function Modal({
       style={{ ...placement.position, zIndex: layer, display: active ? undefined : 'none' }}
       onPointerDownCapture={placement.capture}
       onClickCapture={placement.capture}
-      onMouseDown={presentation === 'modal' ? onClose : undefined}
+      onMouseDown={(event) => event.stopPropagation()}
     >
       <div
         className={`weq-modal weq-anim-pop${className ? ` ${className}` : ''}`}
@@ -265,6 +280,7 @@ export function DialogHost(): ReactElement | null {
       // 否则会贴着触发点落在浮窗下缘（观感上像被浮窗压住）。
       centered={Boolean(current.confirm || current.password || !current.dismissible)}
       onClose={handleClose}
+      dismissOnOutside={!current.confirm && !current.password}
       labelledBy="weq-dialog-title"
       width={368}
       className={isPasswordPrompt ? 'weq-password-modal' : undefined}
