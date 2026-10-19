@@ -278,15 +278,21 @@ export class WebAuthError extends Error {
  * hammering the hook won't fix it.
  */
 export async function withRetry<T>(
-  creds: WebCredentialProvider,
+  creds: Pick<WebCredentialProvider, 'forDomain' | 'invalidate'>,
   domain: string,
   fn: (cred: WebCredential) => Promise<T>,
+  beforeSend?: () => void,
 ): Promise<T> {
+  const send = async () => {
+    const credential = await creds.forDomain(domain);
+    beforeSend?.();
+    return fn(credential);
+  };
   try {
-    return await fn(await creds.forDomain(domain));
+    return await send();
   } catch (e) {
     if (!(e instanceof WebAuthError)) throw e;
     creds.invalidate(domain);
-    return fn(await creds.forDomain(domain));
+    return send();
   }
 }

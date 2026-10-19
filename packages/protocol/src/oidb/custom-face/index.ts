@@ -445,6 +445,7 @@ export interface AddCustomFaceParams {
   imageBytes: Uint8Array;
   /** 可选日志钩子。 */
   log?: (message: string) => void;
+  beforeSend?: () => void;
 }
 
 function createMd5(bytes: Uint8Array): Uint8Array {
@@ -534,6 +535,7 @@ export namespace AddCustomFace {
 
     // 1. 拿 highway 节点。
     const session = await fetchHighwaySession(nt, pid);
+    params.beforeSend?.();
 
     // 2. 申请上传 token。
     const reqBytes = encode(BDH_REQ, {
@@ -556,6 +558,7 @@ export namespace AddCustomFace {
     });
     const raw = await nt.sendPacket(pid, BDH_CMD, Buffer.from(reqBytes), false);
     const resp = decode(BDH_RESP, new Uint8Array(raw));
+    params.beforeSend?.();
     const inner = (resp.inner ?? {}) as Record<string, unknown>;
     const token = inner.token;
     if (!(token instanceof Uint8Array) || token.length === 0) {

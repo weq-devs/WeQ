@@ -400,8 +400,11 @@ export class WebQueryService {
    * 上传一张图（base64）到 Qzone 图床，返回 richval 等元数据。
    * 多图发表：每张调一次，把 richval 收进数组再传给 {@link publishQzone}。
    */
-  async uploadQzoneImage(imageBase64: string): Promise<QzoneUploadImageResult> {
-    return withRetry(this.creds, QZONE_DOMAIN, (c) => uploadQzoneImage(c, imageBase64));
+  async uploadQzoneImage(
+    imageBase64: string,
+    beforeSend?: () => void,
+  ): Promise<QzoneUploadImageResult> {
+    return withRetry(this.creds, QZONE_DOMAIN, (c) => uploadQzoneImage(c, imageBase64), beforeSend);
   }
 
   /**
@@ -451,18 +454,29 @@ export class WebQueryService {
     groupCode: string,
     content: string,
     options: SetGroupNoticeOptions = {},
+    beforeSend?: () => void,
   ): Promise<{ noticeId?: string }> {
-    return withRetry(this.creds, QUN_DOMAIN, (c) => setGroupNotice(c, groupCode, content, options));
+    return withRetry(
+      this.creds,
+      QUN_DOMAIN,
+      (c) => setGroupNotice(c, groupCode, content, options),
+      beforeSend,
+    );
   }
 
   /** 删除一条群公告（`fid` = 列表里的 `noticeId`）。 */
-  async deleteGroupNotice(groupCode: string, fid: string): Promise<void> {
-    return withRetry(this.creds, QUN_DOMAIN, (c) => deleteGroupNotice(c, groupCode, fid));
+  async deleteGroupNotice(groupCode: string, fid: string, beforeSend?: () => void): Promise<void> {
+    return withRetry(
+      this.creds,
+      QUN_DOMAIN,
+      (c) => deleteGroupNotice(c, groupCode, fid),
+      beforeSend,
+    );
   }
 
   /** 上传公告图片，返回可直接填进 `setGroupNotice({ picId })` 的元数据。 */
-  async uploadGroupNoticeImage(image: Uint8Array) {
-    return withRetry(this.creds, QUN_DOMAIN, (c) => uploadGroupNoticeImage(c, image));
+  async uploadGroupNoticeImage(image: Uint8Array, beforeSend?: () => void) {
+    return withRetry(this.creds, QUN_DOMAIN, (c) => uploadGroupNoticeImage(c, image), beforeSend);
   }
 
   /** 某群某天的打卡列表（`dayYmd` 缺省今天，本地时区）。 */
@@ -482,13 +496,27 @@ export class WebQueryService {
 
   /** 上传一张图片到群相册（写操作，不自动重试）。 */
   async uploadGroupAlbumImage(params: UploadGroupAlbumImageParams): Promise<{ session: string }> {
-    return withRetry(this.creds, QZONE_DOMAIN, (c) => uploadGroupAlbumImage(c, params));
+    return withRetry(
+      this.creds,
+      QZONE_DOMAIN,
+      (c) => uploadGroupAlbumImage(c, params),
+      params.beforeSend,
+    );
   }
 
   /** 点赞 / 取消一条说说。 */
-  async setQzoneLike(targetUin: string, tid: string, like: boolean, abstime = 0): Promise<void> {
-    return withRetry(this.creds, QZONE_DOMAIN, (c) =>
-      setQzoneLike(c, targetUin, tid, like, abstime),
+  async setQzoneLike(
+    targetUin: string,
+    tid: string,
+    like: boolean,
+    abstime = 0,
+    beforeSend?: () => void,
+  ): Promise<void> {
+    return withRetry(
+      this.creds,
+      QZONE_DOMAIN,
+      (c) => setQzoneLike(c, targetUin, tid, like, abstime),
+      beforeSend,
     );
   }
 
@@ -499,9 +527,13 @@ export class WebQueryService {
     content: string,
     richType?: number,
     richval?: string,
+    beforeSend?: () => void,
   ): Promise<QzoneCommentResult> {
-    return withRetry(this.creds, QZONE_DOMAIN, (c) =>
-      commentQzoneMsg(c, hostUin, tid, content, richType, richval),
+    return withRetry(
+      this.creds,
+      QZONE_DOMAIN,
+      (c) => commentQzoneMsg(c, hostUin, tid, content, richType, richval),
+      beforeSend,
     );
   }
 }

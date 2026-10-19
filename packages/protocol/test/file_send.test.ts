@@ -130,6 +130,40 @@ describe('hashFileStreaming', () => {
 });
 
 describe('sendGroupFile', () => {
+  it('读图及 hash 后身份失效时，不申请上传', async () => {
+    const native = makeNative({ oidb: () => new Uint8Array(0) });
+    await expect(
+      sendGroupFile(native, 7, {
+        groupId: 123,
+        selfUin: 10001,
+        filePath,
+        beforeSend: () => {
+          throw new Error('账号改变');
+        },
+      }),
+    ).rejects.toThrow('账号改变');
+    expect(native.oidbCalls).toHaveLength(0);
+  });
+  it('秒传申请后身份失效，不继续发布消息', async () => {
+    const native = makeNative({
+      oidb: () =>
+        encode(OIDB_GROUP_FILE_UPLOAD_RESP, {
+          upload: { retCode: 0, fileId: 'fid', boolFileExist: true },
+        }),
+    });
+    let stages = 0;
+    await expect(
+      sendGroupFile(native, 7, {
+        groupId: 123,
+        selfUin: 10001,
+        filePath,
+        beforeSend: () => {
+          if (++stages === 2) throw new Error('运行时改变');
+        },
+      }),
+    ).rejects.toThrow('运行时改变');
+    expect(native.oidbCalls.map((call) => call.command)).toEqual([0x6d6]);
+  });
   it('申请 0x6D6_0（file 段）→ 命中秒传 → 发布 0x6D9_4', async () => {
     const native = makeNative({
       oidb: (call) => {

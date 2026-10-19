@@ -932,14 +932,17 @@ export class EmojiService {
    * 两步流程：0x902F 移动指令 → 0x902E_1 opType=2 上传完整新顺序。只发其中一步
    * 服务端不生效。
    */
-  async moveFavorite(emojiId: string, position = 1): Promise<void> {
+  async moveFavorite(emojiId: string, position = 1, beforeSend?: () => void): Promise<void> {
     const { nt, resolvePid } = this.requireOnline();
     const ids = await this.fetchOnlineFavoriteIds();
+    beforeSend?.();
+    if (!ids.includes(emojiId)) throw new Error('收藏表情已变化，请刷新');
     const target = parseCustomFaceId(emojiId);
     const rest = ids.filter((id) => id !== target.emojiId).map(parseCustomFaceId);
     const ordered = [...rest];
     ordered.splice(Math.max(0, Math.min(position - 1, ordered.length)), 0, target);
     await OrderCustomFace.invoke(nt, resolvePid(), { emojiId: target.emojiId, position });
+    beforeSend?.();
     await MoveCustomFace.invoke(nt, resolvePid(), { emojis: ordered });
     this.favorites = null;
   }
@@ -948,11 +951,16 @@ export class EmojiService {
    * 添加一张收藏表情（BDHExpressionRoam 申请 + highway 上传）。
    * 返回服务端可用的 emojiId。
    */
-  async addFavorite(imageBytes: Uint8Array, log?: (message: string) => void): Promise<string> {
+  async addFavorite(
+    imageBytes: Uint8Array,
+    log?: (message: string) => void,
+    beforeSend?: () => void,
+  ): Promise<string> {
     const { nt, resolvePid } = this.requireOnline();
     const params: AddCustomFaceParams = {
       selfUin: this.session.context.uin,
       imageBytes,
+      beforeSend,
       ...(log ? { log } : {}),
     };
     const emojiId = await AddCustomFace.invoke(nt, resolvePid(), params);

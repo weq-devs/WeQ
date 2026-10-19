@@ -149,6 +149,7 @@ export interface GroupFileSendParams {
   selfUin: number | string;
   /** 上传完是否发布成群聊气泡；缺省 true。 */
   publish?: boolean;
+  beforeSend?: () => void;
   log?: (message: string) => void;
 }
 
@@ -187,6 +188,7 @@ export async function sendGroupFile(
   const folderId = params.folderId?.trim() || '/';
 
   const hashes = await hashFileStreaming(filePath);
+  params.beforeSend?.();
   const upload = await invokeOidb(nt, pid, UploadGroupFile, {
     groupId,
     fileName,
@@ -223,7 +225,14 @@ export async function sendGroupFile(
     });
     // 先拿会话再开文件句柄：会话失败时不泄漏已打开的 fd（uploadHighwayHttp 拥有 source）。
     const session = await fetchHighwaySession(nt, pid);
+    params.beforeSend?.();
     const source = await FileChunkSource.open(filePath, hashes.fileSize);
+    try {
+      params.beforeSend?.();
+    } catch (cause) {
+      await source.close();
+      throw cause;
+    }
     await uploadHighwayHttp({
       session,
       uin: String(senderUin),
@@ -238,6 +247,7 @@ export async function sendGroupFile(
   }
 
   const publish = params.publish !== false;
+  params.beforeSend?.();
   if (publish) await invokeOidb(nt, pid, PublishGroupFile, { groupId, fileId });
 
   return {

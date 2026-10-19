@@ -146,6 +146,7 @@ export interface UploadGroupAlbumImageParams {
   fileName?: string;
   /** 可选取消信号。 */
   signal?: AbortSignal;
+  beforeSend?: () => void;
 }
 
 /**
@@ -212,6 +213,7 @@ export async function uploadGroupAlbumImage(
     ],
   };
   const controlUrl = `https://h5.qzone.qq.com/webapp/json/sliceUpload/FileBatchControl/${md5}?g_tk=${gtk}`;
+  params.beforeSend?.();
   const control = await webRequestJson<AlbumSliceSessionResponse>(controlUrl, {
     method: 'POST',
     cookie,
@@ -265,6 +267,7 @@ export async function uploadGroupAlbumImage(
     const url =
       `https://h5.qzone.qq.com/webapp/json/sliceUpload/FileUpload` +
       `?seq=${seq}&retry=0&offset=${offset}&end=${end}&total=${image.length}&type=form&g_tk=${gtk}`;
+    params.beforeSend?.();
     const ret = await webRequestJson<{ ret?: number; msg?: string }>(url, {
       method: 'POST',
       cookie,

@@ -403,6 +403,7 @@ export interface SendFileParams {
   fileName?: string;
   /** 群文件目录；缺省 `/`（私聊忽略）。 */
   folderId?: string;
+  beforeSend?: () => void;
 }
 
 /** 文件发送结果（JSON 安全）。 */
@@ -722,6 +723,7 @@ export class MessageSendService {
         ...(fileName ? { fileName } : {}),
         ...(params.folderId?.trim() ? { folderId: params.folderId } : {}),
         log,
+        beforeSend: params.beforeSend,
       });
       logger.info(
         result.fastUpload
