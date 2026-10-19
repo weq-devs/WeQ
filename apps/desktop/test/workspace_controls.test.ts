@@ -10,6 +10,8 @@ import { clampFloatingPosition, floatingFanLayout } from '../src/shared/floating
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
 
+vi.mock('../src/renderer/src/trpc/client', () => ({ client: {}, trpc: {} }));
+
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());

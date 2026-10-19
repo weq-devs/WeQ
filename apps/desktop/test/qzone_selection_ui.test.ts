@@ -25,6 +25,13 @@ const fixture = vi.hoisted(() => ({
   })),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: {
+    useUtils: () => ({}),
+    account: {
+      getAccountConfig: { useQuery: () => ({ data: undefined }) },
+      getGroupAlbumAccessState: { useQuery: () => ({ data: { qqOnline: false } }) },
+    },
+  },
   client: {
     account: {
       qzone: {

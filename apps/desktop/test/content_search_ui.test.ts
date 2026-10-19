@@ -27,6 +27,17 @@ const rpc = vi.hoisted(() => ({
   })),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: {
+    useUtils: () => ({}),
+    account: {
+      getAccountConfig: { useQuery: () => ({ data: undefined }) },
+      getGroupAlbumAccessState: { useQuery: () => ({ data: { qqOnline: false } }) },
+      qqActions: {
+        fileSummary: { useQuery: () => ({ data: undefined }) },
+        folders: { useQuery: () => ({ data: undefined }) },
+      },
+    },
+  },
   client: {
     account: {
       getGroupAlbumAccessState: { query: async () => ({ qqOnline: true }) },
