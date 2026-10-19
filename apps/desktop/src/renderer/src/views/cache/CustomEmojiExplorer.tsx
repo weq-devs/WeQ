@@ -29,6 +29,7 @@ import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { BlobDialog, CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
 import { GridSkeleton, InlineSkeleton } from './CacheSkeleton';
+import { FavoriteActions } from '../../components/qq-actions/FavoriteActions';
 
 const SCOPE_META: Record<CustomEmojiScope, { label: string; icon: ReactElement }> = {
   recv: { label: '收到的表情', icon: <Search size={14} /> },
@@ -79,6 +80,7 @@ export function CustomEmojiExplorer(): ReactElement {
 
   return (
     <div className="weq-cache-avatar">
+      <FavoriteActions />
       <div className="weq-cache-avatar-tabs">
         {(presentScopes.length > 0 ? presentScopes : scopeList).map((s) => (
           <button

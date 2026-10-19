@@ -158,7 +158,7 @@ const DETAIL_REQ = message([
 
 const MODIFY_ENTRY = message([
   { name: 'emoji', tag: 1, type: FACE_EMOJI },
-  { name: 'desc', tag: 2, type: 'string' },
+  { name: 'desc', tag: 2, type: 'string', force: true },
 ]);
 const MODIFY_REQ = message([
   { name: 'field1', tag: 1, type: 'uint32' },

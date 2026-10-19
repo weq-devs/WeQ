@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { AddCustomFace } from '../src/oidb/custom-face';
+import { AddCustomFace, ModifyCustomFace } from '../src/oidb/custom-face';
+import { decode, encode } from '../src/protobuf';
 
 const state = vi.hoisted(() => ({
   session: vi.fn(async () => ({ host: '127.0.0.1', port: 80 })),
@@ -21,6 +22,19 @@ beforeEach(() => {
   );
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it('清空收藏备注也显式发送 desc，不把空串变成未修改', () => {
+  const bytes = encode(
+    ModifyCustomFace.reqSchema,
+    ModifyCustomFace.serialize({
+      emojiId: '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0',
+      md5: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      desc: '',
+    }),
+  );
+  const decoded = decode(ModifyCustomFace.reqSchema, bytes);
+  expect((decoded.entry as Record<string, unknown>).desc).toBe('');
+});
 
 it('收藏表情取 Highway 会话后切号，不申请上传 token', async () => {
   const sendPacket = vi.fn(async () => Buffer.alloc(0));
