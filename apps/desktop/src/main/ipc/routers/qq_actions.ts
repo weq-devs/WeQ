@@ -3,6 +3,7 @@ import { open } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { z } from 'zod';
 import { parseCustomFaceId, type GroupRequest } from '@weq/protocol';
+import { isIncomingPendingBuddyRequest } from '@weq/service/buddy-request';
 import {
   parseGroupShareLocation,
   resolveGroupShareAuthKey,
@@ -445,7 +446,7 @@ export function createQQActionsRouter(
         read(i, async (s) => {
           if (i.kind === 'friend')
             return (await s.profile.listBuddyRequests(2000))
-              .filter((r) => r.isAccepted === 0 && r.status !== 2 && r.status !== 13)
+              .filter(isIncomingPendingBuddyRequest)
               .map((r) => ({
                 token: r.peerUid,
                 uid: r.peerUid,
@@ -516,15 +517,7 @@ export function createQQActionsRouter(
             if (i.kind === 'friend') {
               const rows = await s.profile.listBuddyRequests(2000);
               current();
-              if (
-                !rows.some(
-                  (r) =>
-                    r.peerUid === i.token &&
-                    r.isAccepted === 0 &&
-                    r.status !== 2 &&
-                    r.status !== 13,
-                )
-              )
+              if (!rows.some((r) => r.peerUid === i.token && isIncomingPendingBuddyRequest(r)))
                 throw new Error('申请已变化，请刷新');
               return s.profile.handleFriendRequest(i.token, i.approve);
             }

@@ -37,6 +37,7 @@ import { useDialog } from '../components/Dialog';
 import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
 import { useNoticeUnread } from '../hooks/useNoticeUnread';
+import { buddyRequestState } from '@weq/service/buddy-request';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { avatarFromGroupCode, avatarFromUin } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
@@ -912,12 +913,6 @@ function groupDetailToConversation(
   };
 }
 
-function requestStatus(status: number): 'pending' | 'accepted' | 'rejected' | 'cancelled' {
-  if (status === 2) return 'accepted';
-  if (status === 13) return 'cancelled';
-  return 'pending';
-}
-
 function buddyRequestToContactRequest(
   request: BuddyRequestWire,
   profileByUid: Map<string, UserProfileWire>,
@@ -937,8 +932,8 @@ function buddyRequestToContactRequest(
 
   return {
     id: `buddy-request:${request.peerUid}:${request.timestamp}`,
-    direction: request.isAccepted === 0 ? 'incoming' : 'outgoing',
-    status: requestStatus(request.status),
+    direction: request.initiator === 1 ? 'incoming' : 'outgoing',
+    status: buddyRequestState(request),
     message: request.verifyMsg || null,
     createdAt: contact.createdAt,
     respondedAt: null,

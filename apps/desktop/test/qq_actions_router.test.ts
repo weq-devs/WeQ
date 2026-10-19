@@ -73,7 +73,14 @@ function fixture() {
     },
     profile: {
       listBuddyRequests: vi.fn(async () => [
-        { peerUid: 'u_friend', isAccepted: 0, status: 1, nick: '申请人', verifyMsg: '你好' },
+        {
+          peerUid: 'u_friend',
+          isAccepted: 1,
+          initiator: 1,
+          status: 3,
+          nick: '申请人',
+          verifyMsg: '你好',
+        },
       ]),
       listDoubtFriendRequests: vi.fn(async () => [
         { uid: 'u_doubt', nick: '可疑申请', message: '你好', reason: '验证' },
@@ -403,6 +410,25 @@ describe('主动操作的账号与参数边界', () => {
     expect(f.s.profile.handleFriendRequest).not.toHaveBeenCalled();
     await f.caller.request({ ...binding, kind: 'doubtFriend', token: 'u_doubt', approve: false });
     expect(f.s.profile.rejectDoubtFriendRequest).toHaveBeenCalledWith('u_doubt');
+  });
+  it('已同意与自己发出的好友申请既不列为可处理，也不能直接调用审批', async () => {
+    const f = fixture();
+    const [pending] = await f.s.profile.listBuddyRequests();
+    f.s.profile.listBuddyRequests.mockResolvedValue([
+      pending!,
+      { ...pending!, peerUid: 'u_accepted', isAccepted: 0 },
+      { ...pending!, peerUid: 'u_outgoing', initiator: 0 },
+    ]);
+    const rows = await f.caller.requests({ ...binding, kind: 'friend' });
+    expect(rows.map((row) => row.token)).toEqual(['u_friend']);
+    for (const token of ['u_accepted', 'u_outgoing']) {
+      await expect(
+        f.caller.request({ ...binding, kind: 'friend', token, approve: true }),
+      ).rejects.toThrow('变化');
+    }
+    expect(f.s.profile.handleFriendRequest).not.toHaveBeenCalled();
+    await f.caller.request({ ...binding, kind: 'friend', token: 'u_friend', approve: true });
+    expect(f.s.profile.handleFriendRequest).toHaveBeenCalledWith('u_friend', true);
   });
   it('未知输入事件不会发包，内联按钮保留原始定位', async () => {
     const f = fixture();

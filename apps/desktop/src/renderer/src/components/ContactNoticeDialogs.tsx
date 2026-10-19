@@ -96,7 +96,11 @@ function ContactNoticeDialogBody({
                         {who}
                       </span>
                       <span className="notice-action-text">
-                        {request.direction === 'incoming' ? '请求加为好友' : '正在验证你的邀请'}
+                        {request.status === 'accepted'
+                          ? '已同意好友申请'
+                          : request.direction === 'incoming'
+                            ? '请求加为好友'
+                            : '正在验证你的邀请'}
                       </span>
                     </p>
                     <dl className="notice-fields">
@@ -142,6 +146,7 @@ const FRIEND_STATE_LABEL: Record<ContactRequest['status'], { text: string; tone:
   accepted: { text: '已同意', tone: 'is-agreed' },
   rejected: { text: '已拒绝', tone: 'is-refused' },
   cancelled: { text: '已取消', tone: 'is-refused' },
+  unknown: { text: '状态未知', tone: '' },
 };
 
 /** 61003 处理状态 → 徽标文案 + 配色修饰类。配色全部走主题色，只用填充/描边区分。 */

@@ -382,7 +382,7 @@ export type GroupSearchResult = {
 export type ContactRequest = {
   id: string;
   direction: 'incoming' | 'outgoing';
-  status: 'pending' | 'accepted' | 'rejected' | 'cancelled';
+  status: 'pending' | 'accepted' | 'rejected' | 'cancelled' | 'unknown';
   message: string | null;
   createdAt: string;
   respondedAt: string | null;
