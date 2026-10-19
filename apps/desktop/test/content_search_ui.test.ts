@@ -35,6 +35,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       qqActions: {
         fileSummary: { useQuery: () => ({ data: undefined }) },
         folders: { useQuery: () => ({ data: undefined }) },
+        groupPermissions: { useQuery: () => ({ data: undefined }) },
       },
     },
   },

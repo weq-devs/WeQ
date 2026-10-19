@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { MarketFaceDetail } from '../../components/MarketFaceLightbox';
 import { ArrowLeft, Store, X, RefreshCw, Loader2, Download } from 'lucide-react';
 import type { MarketPackFeeType, ExportSavePolicy } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
@@ -72,8 +73,17 @@ function PackDetailPane({
 }): ReactElement {
   const detail = trpc.account.marketEmoji.getPackDetail.useQuery({ packId });
   const [saving, setSaving] = useState(false);
+  /** 正在看大图的 hash；空串 = 网格。 */
+  const [detailHash, setDetailHash] = useState('');
   const fee = FEE_META[detail.data?.feeType ?? 'unknown'];
   const items = detail.data?.items ?? [];
+  const index = items.findIndex((item) => item.hash === detailHash);
+  const current = index >= 0 ? items[index] : undefined;
+
+  // 换包时退出大图，避免停在上一个包的 hash 上。
+  useEffect(() => {
+    setDetailHash('');
+  }, [packId]);
 
   async function download(intent?: ExportSavePolicy): Promise<void> {
     setSaving(true);
@@ -82,6 +92,22 @@ function PackDetailPane({
     } finally {
       setSaving(false);
     }
+  }
+
+  if (current) {
+    return (
+      <MarketFaceDetail
+        embedded
+        packId={packId}
+        packName={detail.data?.name || name || `表情包 ${packId}`}
+        item={current}
+        index={index}
+        total={items.length}
+        onBack={() => setDetailHash('')}
+        onPrev={index > 0 ? () => setDetailHash(items[index - 1]!.hash) : undefined}
+        onNext={index < items.length - 1 ? () => setDetailHash(items[index + 1]!.hash) : undefined}
+      />
+    );
   }
 
   return (
@@ -119,7 +145,13 @@ function PackDetailPane({
         <div className="weq-mface-lb-scroll weq-emb-emoji-scroll">
           <div className="weq-mface-lb-grid">
             {items.map((it) => (
-              <EmojiCell key={it.hash} packId={packId} hash={it.hash} name={it.name} />
+              <EmojiCell
+                key={it.hash}
+                packId={packId}
+                hash={it.hash}
+                name={it.name}
+                onOpen={() => setDetailHash(it.hash)}
+              />
             ))}
           </div>
         </div>
@@ -128,19 +160,26 @@ function PackDetailPane({
   );
 }
 
-/** 一张表情图：TEA 解密后的 GIF；失败显示占位。 */
+/** 一张表情图：TEA 解密后的 GIF；失败显示占位。点击看大图与解密参数。 */
 function EmojiCell({
   packId,
   hash,
   name,
+  onOpen,
 }: {
   packId: string;
   hash: string;
   name: string;
+  onOpen: () => void;
 }): ReactElement {
   const [broken, setBroken] = useState(false);
   return (
-    <figure className="weq-mface-lb-cell" title={name || hash}>
+    <button
+      type="button"
+      className="weq-mface-lb-cell is-button"
+      title={name ? `${name} · 点击查看大图` : `${hash} · 点击查看大图`}
+      onClick={onOpen}
+    >
       <span className="weq-mface-lb-stage">
         {broken ? (
           <RefreshCw size={18} strokeWidth={1.4} className="weq-mface-lb-fallback" />
@@ -154,8 +193,8 @@ function EmojiCell({
           />
         )}
       </span>
-      {name ? <figcaption className="weq-mface-lb-name">{name}</figcaption> : null}
-    </figure>
+      {name ? <span className="weq-mface-lb-name">{name}</span> : null}
+    </button>
   );
 }
 

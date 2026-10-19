@@ -1,5 +1,9 @@
 /**
  * Multi-select database picker for the decrypt flow.
+ *
+ * 数据库列表用**长方形卡片网格**呈现：每张卡片把数据库图标当作背景水印，
+ * 正面是库名、大小、来源徽标和路径。点击卡片切换选中，键盘操作沿用
+ * {@link useMultiSelection}（方向键 / 空格 / Ctrl+A）。
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
@@ -12,6 +16,8 @@ export interface DbPickItem {
   name: string;
   path: string;
   bytes: number;
+  /** `login` = 全局 login.db（固定密钥），其余为账号目录下的库。 */
+  kind?: 'account' | 'login';
 }
 
 export function DatabasePicker({
@@ -64,93 +70,91 @@ export function DatabasePicker({
   }
 
   return (
-    <div className="weq-exp-picker" {...selection.rootProps}>
-      <div className="weq-exp-search">
-        <Search size={15} aria-hidden />
-        <input
-          placeholder="搜索数据库文件名或路径"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        {query ? (
-          <button type="button" title="清空" onClick={() => setQuery('')}>
-            <X size={14} />
+    <div className="weq-db-cards" {...selection.rootProps}>
+      <div className="weq-db-cards-toolbar">
+        <div className="weq-db-cards-search">
+          <Search size={15} aria-hidden />
+          <input
+            placeholder="搜索数据库文件名或路径"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {query ? (
+            <button type="button" title="清空" aria-label="清空搜索" onClick={() => setQuery('')}>
+              <X size={14} />
+            </button>
+          ) : null}
+        </div>
+        <div className="weq-db-cards-tools">
+          <button
+            type="button"
+            onClick={selectAll}
+            disabled={disabled || filtered.length === 0}
+            title={allFilteredSelected ? '取消全选' : '全选 (Ctrl/Command+A)'}
+            aria-label={allFilteredSelected ? '取消全选' : '全选'}
+          >
+            <CheckCheck size={15} />
           </button>
-        ) : null}
+          <button
+            type="button"
+            onClick={invert}
+            disabled={disabled || filtered.length === 0}
+            title="反选"
+            aria-label="反选"
+          >
+            <FlipHorizontal2 size={15} />
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange(new Set())}
+            disabled={disabled || selected.size === 0}
+            title="清空选择 (Ctrl/Command+Shift+A)"
+            aria-label="清空选择"
+          >
+            <X size={15} />
+          </button>
+          <span className="weq-db-cards-count">
+            已选 {selected.size} · {fmtBytes(selectedBytes)}
+          </span>
+        </div>
       </div>
 
-      <div className="weq-exp-tools weq-exp-selection-tools">
-        <button
-          type="button"
-          className="weq-exp-tool"
-          onClick={selectAll}
-          disabled={disabled || filtered.length === 0}
-          title={allFilteredSelected ? '取消全选' : '全选 (Ctrl/Command+A)'}
-          aria-label={allFilteredSelected ? '取消全选' : '全选'}
-        >
-          <CheckCheck size={14} />
-        </button>
-        <button
-          type="button"
-          className="weq-exp-tool"
-          onClick={invert}
-          disabled={disabled || filtered.length === 0}
-          title="反选"
-          aria-label="反选"
-        >
-          <FlipHorizontal2 size={14} />
-        </button>
-        <button
-          type="button"
-          className="weq-exp-tool"
-          onClick={() => onChange(new Set())}
-          disabled={disabled || selected.size === 0}
-          title="清空 (Ctrl/Command+Shift+A)"
-          aria-label="清空"
-        >
-          <X size={14} />
-        </button>
-        <span className="weq-exp-tools-spacer" />
-        <span className="weq-exp-tools-count">
-          已选 {selected.size} · {fmtBytes(selectedBytes)}
-        </span>
-      </div>
-
-      <div className="weq-exp-list">
-        {loading ? (
-          <PickerListSkeleton />
-        ) : filtered.length === 0 ? (
-          <div className="weq-exp-list-state">
-            {query ? '没有匹配的数据库' : '未发现数据库文件'}
-          </div>
-        ) : (
-          filtered.map((it) => {
+      {loading ? (
+        <PickerListSkeleton />
+      ) : filtered.length === 0 ? (
+        <div className="weq-db-cards-state">{query ? '没有匹配的数据库' : '未发现数据库文件'}</div>
+      ) : (
+        <div className="weq-db-cards-grid">
+          {filtered.map((it) => {
             const checked = selected.has(it.path);
             return (
               <button
                 key={it.path}
                 type="button"
-                className={`weq-exp-row${checked ? ' is-on' : ''}`}
+                className={`weq-db-card${checked ? ' is-on' : ''}`}
                 disabled={disabled}
+                aria-pressed={checked}
+                title={it.path}
                 {...selection.itemProps(it.path)}
               >
-                <span className="weq-exp-db-icon">
-                  <Database size={16} />
+                {/* 背景水印：数据库图标 + 一圈柔光，纯装饰。 */}
+                <span className="weq-db-card-watermark" aria-hidden>
+                  <Database strokeWidth={1.2} />
                 </span>
-                <span className="weq-exp-row-meta">
-                  <strong title={it.name}>{it.name}</strong>
-                  <small title={it.path}>
-                    {fmtBytes(it.bytes)} · {it.path}
-                  </small>
+                <span className="weq-db-card-top">
+                  <span className="weq-db-card-name">{it.name}</span>
+                  {it.kind === 'login' ? <em className="weq-db-card-tag">全局</em> : null}
+                  <span className="weq-db-card-check" aria-hidden>
+                    {checked ? <Check size={13} strokeWidth={2.6} /> : null}
+                  </span>
                 </span>
-                <span className="weq-exp-row-check" aria-hidden>
-                  {checked ? <Check size={14} /> : null}
-                </span>
+                <span className="weq-db-card-meta">{fmtBytes(it.bytes)}</span>
+                <span className="weq-db-card-path">{it.path}</span>
               </button>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
     </div>
   );
 }

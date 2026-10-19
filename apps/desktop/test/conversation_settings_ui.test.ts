@@ -24,6 +24,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         setTargets: { useMutation: () => ({}) },
         setNotify: { useMutation: () => ({}) },
       },
+      intentSense: {
+        getStatus: { useQuery: () => ({ data: { enabled: false } }) },
+        setConversationOverride: { useMutation: () => ({}) },
+      },
     },
   },
 }));

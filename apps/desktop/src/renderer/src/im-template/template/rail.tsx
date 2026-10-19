@@ -1,5 +1,14 @@
 // @ts-nocheck
-import { LayoutGrid, MessageCircle, Settings, Hash, Bookmark, Palette, Mail } from 'lucide-react';
+import {
+  LayoutGrid,
+  MessageCircle,
+  Settings,
+  Hash,
+  Bookmark,
+  Palette,
+  Mail,
+  Sparkles,
+} from 'lucide-react';
 import { SiQzone } from 'react-icons/si';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import type { ReactNode } from 'react';
@@ -90,6 +99,9 @@ export function AppRail({
 
   const contentItems = [
     { id: 'collection', label: '我的收藏', icon: Bookmark, onSelect: onOpenCollection },
+    // 年度报告整页独占内容区（shell.view === 'annual'），与 QQ 空间 / 邮箱同一条
+    // 「整页视图」路径，不另开弹窗。
+    { id: 'annual', label: '年度报告', icon: Sparkles, onSelect: () => selectView('annual') },
     { id: 'dressup', label: '个性装扮', icon: Palette, onSelect: onOpenDressUp },
   ];
 

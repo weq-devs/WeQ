@@ -36,6 +36,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             'setBackground',
             'setWidget',
             'setBackgroundOpacity',
+            'saveMsgDecoration',
           ].map((name) => [name, { useMutation: () => ({}) }]),
         ),
       },
