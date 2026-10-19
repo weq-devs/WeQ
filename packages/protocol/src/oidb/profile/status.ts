@@ -16,6 +16,7 @@
 import { message } from '../../protobuf';
 import { invokeOidb, invokeTrpc, type OidbSpec, type TrpcSpec } from '../invoke';
 import { toInt } from '../shared';
+import { requireInt32, requireUint32 } from '../write-validation';
 import type { OidbNative, TrpcNative } from '../../transport';
 
 // ───────────────────────── 设置在线 / 自定义状态 ─────────────────────────
@@ -29,8 +30,8 @@ const STATUS_CUSTOM_EXT = message([
 ]);
 const SET_STATUS_REQ = message([
   { name: 'status', tag: 1, type: 'int32' },
-  { name: 'extStatus', tag: 2, type: 'int32' },
-  { name: 'batteryStatus', tag: 3, type: 'int32' },
+  { name: 'extStatus', tag: 2, type: 'int32', force: true },
+  { name: 'batteryStatus', tag: 3, type: 'int32', force: true },
   { name: 'customExt', tag: 4, type: STATUS_CUSTOM_EXT },
 ]);
 const SET_STATUS_RESP = message([
@@ -44,6 +45,8 @@ export interface SetOnlineStatusParams {
   /** 扩展状态（如 1028 听歌中）；0 = 无。 */
   extStatus?: number;
   batteryStatus?: number;
+  /** 兼容桌面端账号设置的自定义状态参数。 */
+  custom?: { faceId: number; wording: string; faceType: number };
 }
 
 export interface SetDiyOnlineStatusParams {
@@ -62,17 +65,35 @@ export namespace SetOnlineStatus {
 
   export type Params = SetOnlineStatusParams;
 
-  export const serialize = (p: Params): Record<string, unknown> => ({
-    status: p.status,
-    extStatus: p.extStatus ?? 0,
-    batteryStatus: p.batteryStatus ?? 100,
-  });
+  export const serialize = (p: Params): Record<string, unknown> => {
+    if (p.custom && (p.status !== 10 || p.extStatus !== 2000))
+      throw new Error('自定义状态必须使用 status=10、extStatus=2000');
+    if (p.custom && !p.custom.wording.trim()) throw new Error('自定义状态文案不能为空');
+    return {
+      status: requireInt32(requireUint32(p.status, 'status'), 'status'),
+      extStatus: requireInt32(requireUint32(p.extStatus ?? 0, 'extStatus', true), 'extStatus'),
+      batteryStatus: requireInt32(
+        requireUint32(p.batteryStatus ?? 100, 'batteryStatus', true),
+        'batteryStatus',
+      ),
+      ...(p.custom
+        ? {
+            customExt: {
+              faceId: requireUint32(p.custom.faceId, 'faceId', true),
+              text: p.custom.wording,
+              faceType: requireUint32(p.custom.faceType, 'faceType', true),
+            },
+          }
+        : {}),
+    };
+  };
 
   export const deserialize = (body: Record<string, unknown>): void => {
     const errMsg = typeof body.errMsg === 'string' ? body.errMsg : '';
+    const errCode = toInt(body.errCode);
     // 服务端成功时可能回 "set status success"；其他非空文案都按失败处理。
-    if (errMsg && errMsg !== 'set status success') {
-      throw new Error(`设置在线状态失败：code=${toInt(body.errCode)} ${errMsg}`);
+    if (errCode !== 0 || (errMsg && errMsg !== 'set status success')) {
+      throw new Error(`设置在线状态失败：code=${errCode} ${errMsg}`);
     }
   };
 
@@ -88,15 +109,13 @@ export namespace SetDiyOnlineStatus {
   export type Params = SetDiyOnlineStatusParams;
 
   export const serialize = (p: Params): Record<string, unknown> => {
-    const text = String(p.text ?? '');
-    if (!text.trim()) throw new Error('自定义状态文案不能为空');
-    return {
+    return SetOnlineStatus.serialize({
       // 官方客户端固定 status=10 / extStatus=2000 表示「自定义状态」。
       status: 10,
       extStatus: 2000,
       batteryStatus: 0,
-      customExt: { faceId: p.faceId, text, faceType: p.faceType },
-    };
+      custom: { faceId: p.faceId, wording: String(p.text ?? ''), faceType: p.faceType },
+    });
   };
 
   export const deserialize = SetOnlineStatus.deserialize;

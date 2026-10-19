@@ -217,11 +217,11 @@ describe('个人资料补丁与状态', () => {
     expect(SetOnlineStatus.serialize({ status: 10 })).toEqual({
       status: 10,
       extStatus: 0,
-      batteryStatus: 0,
+      batteryStatus: 100,
     });
     expect(() =>
       SetOnlineStatus.serialize({ status: 40, custom: { faceId: 1, faceType: 1, wording: 'A' } }),
     ).toThrow(/自定义/);
-    expect(() => SetOnlineStatus.deserialize({ code: 12, message: 'denied' })).toThrow(/12/);
+    expect(() => SetOnlineStatus.deserialize({ errCode: 12, errMsg: 'denied' })).toThrow(/12/);
   });
 });

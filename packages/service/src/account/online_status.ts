@@ -7,7 +7,7 @@ import type { NtHelperBinding } from '@weq/native';
 import {
   GetUserOnlineStatus,
   SetDiyOnlineStatus,
-  SetProfileOnlineStatus,
+  SetOnlineStatus,
   type UserOnlineStatus,
 } from '@weq/protocol';
 
@@ -148,7 +148,7 @@ export class OnlineStatusService {
    */
   async setOnlineStatus(status: number, extStatus = 0, batteryStatus = 100): Promise<void> {
     const { nt, resolvePid } = this.requireOnline();
-    await SetProfileOnlineStatus.invoke(nt, resolvePid(), { status, extStatus, batteryStatus });
+    await SetOnlineStatus.invoke(nt, resolvePid(), { status, extStatus, batteryStatus });
   }
 
   /** 设置自定义在线状态文案（同一条 SetStatus，extStatus 固定 2000）。 */

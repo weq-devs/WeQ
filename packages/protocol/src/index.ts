@@ -65,8 +65,6 @@ export {
   AVATAR_MAX_BYTES,
 } from './oidb/group-admin/set-group-avatar';
 export type { SetSelfAvatarParams } from './oidb/group-admin/set-group-avatar';
-// 保留上游状态接口自身的签名与回包约定，不与桌面端已有写接口互相覆盖。
-export { SetOnlineStatus as SetProfileOnlineStatus } from './oidb/profile/status';
 export {
   RedBagDetail,
   RedBagGrab,
@@ -179,7 +177,6 @@ export type {
 } from './oidb/set-peer-preference';
 export {
   SetSelfProfile,
-  SetOnlineStatus,
   PROFILE_NICKNAME,
   PROFILE_SIGNATURE,
   PROFILE_GENDER,
@@ -187,5 +184,4 @@ export {
 export type {
   SelfProfilePatch,
   SetSelfProfileParams,
-  SetOnlineStatusParams,
 } from './oidb/set-self-profile';

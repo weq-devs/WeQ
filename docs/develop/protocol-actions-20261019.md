@@ -29,6 +29,8 @@ src/oidb/misc/          OCR / 解密密钥 / clientKey / rkey / pskey / Ark / AI
 
 ## 签名策略
 
+在线状态写入统一使用 `oidb/profile/status.ts` 的 `SetOnlineStatus`，根导出、账号写操作和在线状态服务共用同一实现；旧 `oidb/set-self-profile.ts` 路径仅重导出，不再维护第二套状态协议。`StatusService.SetStatus` 不在白名单中，不额外签名。普通状态的默认电量值沿用上游 100，显式传入的扩展状态、电量 0 保留上 wire；旧 `{ custom: { faceId, wording, faceType } }` 参数兼容映射到 `customExt`，与 `SetDiyOnlineStatus` 共用校验和回包处理。非零 `errCode` 不论有无错误文案均抛错，成功文案 `set status success` 不被误判为失败。
+
 `src/sign/whitelist.ts` 收录 LagrangeV2 `BotSignProvider.cs` 的 `WhiteListCommand`
 （2026-10-19 抄录）。`invokeOidb` / `invokeTrpc` 在 spec **未显式标注** `needSign`
 时按白名单推导：**名单外不签**。
