@@ -73,9 +73,6 @@ extraResources:
   # onnxruntime-common 是纯 JS（~1 MB）且三个平台一样，留在这里一份就够。
   - from: out/main/ocrWorker.mjs
     to: out/main/ocrWorker.mjs
-  # 标准 SQLite 子进程（见 main/db/standard_worker.ts）：同样不能从 asar 里 fork。
-  - from: out/main/standardDbWorker.mjs
-    to: out/main/standardDbWorker.mjs
   - from: node_modules/onnxruntime-common
     to: node_modules/onnxruntime-common
 

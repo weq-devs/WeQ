@@ -19,7 +19,7 @@ pnpm dev
 - [SSO 历史路径统一](./unified-sso-history-20261017.md) — 单窗读取、物理请求计数、旧任务及缓存兼容
 - [消息显示、补全与导出更新](./message-display-export-20261017.md) — 紧凑元信息、隐私、共享日历、大列表与空间/收藏导出
 
-- [QQ 数据库布局与双进程拆分](./db-layout-split-20261018.md) — pending byte、锁字节与标准 SQLite 子进程
+- [QQ 数据库布局：按文件设置保留页](./db-layout-split-20261018.md) — per-Pager pending byte、锁字节与布局自动识别
 - [nt_helper.node 接口文档](./nt-helper-interface.md) — 原生模块能力总览，**写代码前先看，别重复造轮子**
 - [原生二进制与装扮资源的分发](./native-artifacts.md) — `pnpm native:fetch`、发布链路、历史清洗记录
 - [测试约定](./testing.md) — `@weq/testkit`

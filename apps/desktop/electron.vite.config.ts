@@ -46,9 +46,6 @@ export default defineConfig({
           captureWorker: resolve(__dirname, 'src/main/capture_worker.ts'),
           // 密钥扫描同理：读别的进程内存要 root，单独打成 root 子进程入口。
           keyScanWorker: resolve(__dirname, 'src/main/key_scan_worker.ts'),
-          // 标准 SQLite 的独立进程：SQLite 的 pending byte 是进程级全局量，
-          // 主进程固定 QQ layout，无 key 的库必须在另一个进程里打开。
-          standardDbWorker: resolve(__dirname, 'src/main/db/standard_worker.ts'),
         },
         output: {
           entryFileNames: (chunk) =>
@@ -56,8 +53,7 @@ export default defineConfig({
             chunk.name === 'ocrWorker' ||
             chunk.name === 'attachWorker' ||
             chunk.name === 'captureWorker' ||
-            chunk.name === 'keyScanWorker' ||
-            chunk.name === 'standardDbWorker'
+            chunk.name === 'keyScanWorker'
               ? `${chunk.name}.mjs`
               : '[name].js',
         },

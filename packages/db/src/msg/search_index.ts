@@ -300,11 +300,9 @@ export class MsgSearchIndexDb {
     // 1) Bulk-decrypt the encrypted source straight into the index file, then
     //    drop any cached handle so the CREATE/INSERT writers are not blocked.
     const method = selectDatabaseDecryptMethod(this.sourcePath);
-    // Both modes preserve QQ page numbering; await keeps this safe if a future
-    // implementation moves the export behind an async boundary.
+    // Both modes write a stock-layout database; await keeps this safe if a
+    // future implementation moves the export behind an async boundary.
     await this.nt[method](this.sourcePath, path, this.key!, this.algo!);
-    // The decrypted copy keeps QQ page numbering even though it is plaintext.
-    this.nt.markQqLayout?.(path);
     try {
       this.nt.closeDb(path);
     } catch {

@@ -22,7 +22,6 @@ import { EventEmitter } from 'node:events';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
-import { createDbRouter } from '../db/router';
 import { AnnualReportIndexDb } from '@weq/db';
 import {
   createWin32Platform,
@@ -974,11 +973,9 @@ export function initAppContext(): AppContext {
   let readUidFromConfig: (uin: string) => string | null = () => null;
   const resolveUid = (uin: string): string | null => uidRegistry.get(uin) ?? readUidFromConfig(uin);
 
-  // 主进程固定 QQ layout；无 key 的标准 SQLite 调用由 router 转到独立子进程。
-  const bundle = {
-    ...result.bundle,
-    ntHelper: createDbRouter(result.bundle.ntHelper),
-  };
+  // SQLite 的保留页现在是按文件（per-Pager）设置的，同一个进程可以同时打开
+  // QQ 库、标准库和解密产物，不再需要拆子进程。
+  const bundle = result.bundle;
 
   const platform =
     process.platform === 'linux'
