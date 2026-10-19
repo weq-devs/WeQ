@@ -4,7 +4,14 @@ import { ReportRead, type ReadReportParams } from '@weq/protocol';
 import { queueSsoWork, ssoWorkState } from './sso_lifecycle';
 import { LocalUnreadStore, type ResolvedUnreadInfo } from './local_unread';
 import { NEW_CONV_FRESH_SEC, type NewMessages } from './nt_msg_hook';
-import type { UnreadHighlightInput, UnreadInfoResult, UnreadInfoTarget } from '@weq/db';
+import type {
+  UnreadHighlightInput,
+  UnreadInfoResult,
+  UnreadInfoTarget,
+  UnreadInfoSnapshot,
+} from '@weq/db';
+import { randomUUID } from 'node:crypto';
+import type { ManualReadChange } from './local_unread';
 
 export type ReadReportState =
   | 'disabled'
@@ -43,6 +50,10 @@ export class UnreadInfoService {
     { pid: number; owner: object | undefined; sequence: number }
   >();
   private lastReport: ReadReportStatus = { state: 'disabled' };
+  private readonly readHistory = new Map<
+    string,
+    Array<UnreadInfoTarget & { change: ManualReadChange }>
+  >();
 
   constructor(
     private readonly session: AccountSession,
@@ -81,6 +92,7 @@ export class UnreadInfoService {
   dispose(): void {
     this.disposed = true;
     this.cancelReports();
+    this.readHistory.clear();
   }
 
   cancelReports(): void {
@@ -111,6 +123,71 @@ export class UnreadInfoService {
     const changed = this.local.markRead(chatType, uid, sequence);
     this.local.flush();
     return changed;
+  }
+
+  /** 手动标记只覆盖 WeQ 状态，不回退 QQ 水位或发送不可撤销的已读回执。 */
+  async setReadState(targets: UnreadInfoTarget[], unread: boolean) {
+    const unique = [
+      ...new Map(targets.map((target) => [`${target.chatType}_${target.uid}`, target])).values(),
+    ];
+    const snapshots: UnreadInfoSnapshot[] = [];
+    for (let index = 0; index < unique.length; index += 256)
+      snapshots.push(
+        ...(await this.session.unreadInfo.getUnreadInfos(unique.slice(index, index + 256))),
+      );
+    if (
+      this.disposed ||
+      snapshots.length !== unique.length ||
+      snapshots.some((row) => row.readError)
+    )
+      throw new Error('未读状态读取失败，请稍后重试');
+    const changes = snapshots.map((snapshot) => ({
+      chatType: snapshot.chatType,
+      uid: snapshot.uid,
+      change: this.local.setManualRead(this.local.resolve(snapshot), unread),
+    }));
+    try {
+      this.local.flush();
+    } catch (error) {
+      for (const row of changes) this.local.restoreManualRead(row.chatType, row.uid, row.change);
+      throw error;
+    }
+    if (this.readHistory.size >= 20) this.readHistory.delete(this.readHistory.keys().next().value!);
+    const undoToken = randomUUID();
+    this.readHistory.set(undoToken, changes);
+    return { undoToken, rows: snapshots.map((snapshot) => this.local.resolve(snapshot)) };
+  }
+
+  async undoReadState(undoToken: string) {
+    const changes = this.readHistory.get(undoToken);
+    if (!changes || this.disposed) throw new Error('撤销记录已失效');
+    // 先取快照；读取失败不消耗撤销机会，也不留下部分恢复。
+    const snapshots: UnreadInfoSnapshot[] = [];
+    for (let index = 0; index < changes.length; index += 256)
+      snapshots.push(
+        ...(await this.session.unreadInfo.getUnreadInfos(changes.slice(index, index + 256))),
+      );
+    if (
+      this.disposed ||
+      snapshots.length !== changes.length ||
+      snapshots.some((row) => row.readError)
+    )
+      throw new Error('未读状态读取失败，请稍后重试');
+    const restored: typeof changes = [];
+    for (const row of changes)
+      if (this.local.restoreManualRead(row.chatType, row.uid, row.change)) restored.push(row);
+    try {
+      this.local.flush();
+    } catch (error) {
+      for (const row of restored)
+        this.local.restoreManualRead(row.chatType, row.uid, row.change, true);
+      throw error;
+    }
+    this.readHistory.delete(undoToken);
+    return {
+      restored: restored.length,
+      rows: snapshots.map((snapshot) => this.local.resolve(snapshot)),
+    };
   }
 
   /**

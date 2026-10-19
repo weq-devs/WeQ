@@ -24,6 +24,8 @@ export const ConversationDirectoryContext = createContext<{
   onAnalyze?: (conversation: Conversation) => void;
   onAnalyzeMember?: (conversation: Extract<Conversation, { type: 'group' }>, member: User) => void;
   onRoaming?: (targets: RoamingTarget[]) => void;
+  onReadState?: (conversations: Conversation[], unread: boolean) => void;
+  readStateBusy?: boolean;
 } | null>(null);
 
 export const ContactDirectoryContext = createContext<{

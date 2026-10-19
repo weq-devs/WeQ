@@ -7,6 +7,8 @@ const fixture = vi.hoisted(() => ({
   getUnreadInfos: vi.fn(),
   markRead: vi.fn(),
   markLocalRead: vi.fn(),
+  setReadState: vi.fn(),
+  undoReadState: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({
@@ -17,6 +19,8 @@ vi.mock('../src/main/context/app_context', () => ({
         getUnreadInfos: fixture.getUnreadInfos,
         markReadAndReport: fixture.markRead,
         markLocalRead: fixture.markLocalRead,
+        setReadState: fixture.setReadState,
+        undoReadState: fixture.undoReadState,
       },
     },
   }),
@@ -43,6 +47,38 @@ beforeEach(() => {
 });
 
 describe('未读 IPC', () => {
+  it('手动批量标记及撤销强制账号隔离，结果沿用未读序列化', async () => {
+    const api = accountRouter.createCaller({});
+    const token = '00000000-0000-4000-8000-000000000001';
+    fixture.setReadState.mockResolvedValue({
+      undoToken: token,
+      rows: await fixture.getUnreadInfos(),
+    });
+    fixture.undoReadState.mockResolvedValue({ restored: 1, rows: await fixture.getUnreadInfos() });
+    expect(
+      await api.setConversationReadState({ expectedAccountUin: '10001', targets, unread: true }),
+    ).toMatchObject({
+      undoToken: token,
+      rows: [{ latestSeq: '11', highlights: [{ msgSeq: '11' }] }],
+    });
+    expect(fixture.setReadState).toHaveBeenCalledWith(targets, true);
+    expect(
+      (await api.undoConversationReadState({ expectedAccountUin: '10001', undoToken: token }))
+        .restored,
+    ).toBe(1);
+    fixture.uin = '10002';
+    await expect(
+      api.setConversationReadState({ expectedAccountUin: '10001', targets, unread: false }),
+    ).rejects.toThrow('账号已切换');
+    await expect(
+      api.undoConversationReadState({ expectedAccountUin: '10001', undoToken: token }),
+    ).rejects.toThrow('账号已切换');
+    expect(fixture.setReadState).toHaveBeenCalledTimes(1);
+    expect(fixture.undoReadState).toHaveBeenCalledTimes(1);
+    await expect(
+      api.setConversationReadState({ expectedAccountUin: '10002', targets: [], unread: true }),
+    ).rejects.toThrow();
+  });
   it('批量响应保留精确字符串字段，且限制单批大小', async () => {
     const api = accountRouter.createCaller({});
     expect(await api.getUnreadInfos({ expectedAccountUin: '10001', targets })).toMatchObject([

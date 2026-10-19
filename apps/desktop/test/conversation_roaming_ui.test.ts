@@ -54,6 +54,157 @@ const button = (host: HTMLElement, label: string) =>
   host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
 
 describe('会话底部多选栏', () => {
+  it('右键与多选标记使用完整选区，混入虚拟会话时禁用，不清空选区', () => {
+    const base = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
+    const groups = ['10001', '10002'].map((id) => ({
+      ...base,
+      id,
+      unreadCount: 0,
+      group: { ...base.group, id, name: id },
+    }));
+    const mark = vi.fn();
+    const f = mount(
+      h(
+        ContentSelectionProvider,
+        null,
+        h(
+          ConversationDirectoryContext.Provider,
+          {
+            value: {
+              real: groups,
+              virtual: [
+                { id: 'virtual:fixture', kind: 'persona', ownerId: 'fixture', name: '虚拟会话' },
+              ],
+              onVirtual: vi.fn(),
+              onCreate: vi.fn(),
+              onReadState: mark,
+            },
+          },
+          h(ConversationList, {
+            conversations: groups,
+            activeConversationId: null,
+            preferences: {},
+            drafts: {},
+            onSelect: vi.fn(),
+          }),
+        ),
+      ),
+    );
+    const row = (id: string) =>
+      f.host.querySelector<HTMLButtonElement>(`[data-conversation-id="${id}"]`)!;
+    const menuButton = (label: string) =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+        (node) => node.textContent === label,
+      )!;
+    try {
+      act(() =>
+        row('10001').dispatchEvent(
+          new MouseEvent('contextmenu', { bubbles: true, clientX: 20, clientY: 20 }),
+        ),
+      );
+      expect(menuButton('标为已读')).toBeUndefined();
+      act(() => menuButton('标为未读').click());
+      expect(mark).toHaveBeenLastCalledWith([groups[0]], true);
+      act(() => button(f.host, '多选会话').click());
+      expect(button(f.host, '标为已读').disabled).toBe(true);
+      act(() => row('10001').click());
+      act(() => row('10002').click());
+      act(() => button(f.host, '标为已读').click());
+      expect(mark).toHaveBeenLastCalledWith(groups, false);
+      expect(f.host.querySelectorAll('.is-multiselected')).toHaveLength(2);
+      act(() =>
+        row('10001').dispatchEvent(
+          new MouseEvent('contextmenu', { bubbles: true, clientX: 20, clientY: 20 }),
+        ),
+      );
+      act(() => menuButton('标为未读').click());
+      expect(mark).toHaveBeenLastCalledWith(groups, true);
+      expect(menuButton('撤销标记')).toBeUndefined();
+      expect(button(f.host, '撤销标记')).toBeNull();
+      act(() => button(f.host, '全选当前结果').click());
+      expect(button(f.host, '标为已读').disabled).toBe(true);
+      expect(button(f.host, '标为未读').disabled).toBe(true);
+      act(() =>
+        row('10001').dispatchEvent(
+          new MouseEvent('contextmenu', { bubbles: true, clientX: 20, clientY: 20 }),
+        ),
+      );
+      expect(menuButton('标为已读')).toBeUndefined();
+      expect(menuButton('标为未读').disabled).toBe(true);
+    } finally {
+      f.close();
+    }
+  });
+
+  it.each([
+    { counts: [0], unread: true },
+    { counts: [3], unread: false },
+    { counts: [0, 0], unread: true },
+    { counts: [0, 3], unread: false },
+    { counts: [2, 0], unread: false },
+  ])('右键已读菜单只显示当前选区需要的一个操作：$counts', ({ counts, unread }) => {
+    const base = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
+    const groups = counts.map((unreadCount, index) => ({
+      ...base,
+      id: String(10001 + index),
+      unreadCount,
+      group: { ...base.group, id: String(10001 + index), name: String(index) },
+    }));
+    const mark = vi.fn();
+    const f = mount(
+      h(
+        ContentSelectionProvider,
+        null,
+        h(
+          ConversationDirectoryContext.Provider,
+          {
+            value: {
+              real: groups,
+              virtual: [],
+              onVirtual: vi.fn(),
+              onCreate: vi.fn(),
+              onReadState: mark,
+            },
+          },
+          h(ConversationList, {
+            conversations: groups,
+            activeConversationId: null,
+            preferences: {},
+            drafts: {},
+            onSelect: vi.fn(),
+          }),
+        ),
+      ),
+    );
+    const row = (id: string) =>
+      f.host.querySelector<HTMLButtonElement>(`[data-conversation-id="${id}"]`)!;
+    try {
+      if (groups.length > 1) {
+        act(() => button(f.host, '多选会话').click());
+        for (const group of groups) act(() => row(group.id).click());
+      }
+      act(() =>
+        row(groups[0]!.id).dispatchEvent(
+          new MouseEvent('contextmenu', { bubbles: true, clientX: 20, clientY: 20 }),
+        ),
+      );
+      const actions = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].filter(
+        (node) => node.textContent === '标为已读' || node.textContent === '标为未读',
+      );
+      expect(actions).toHaveLength(1);
+      expect(
+        [...document.querySelectorAll('[role="menuitem"]')].some(
+          (node) => node.textContent === '撤销标记',
+        ),
+      ).toBe(false);
+      expect(actions[0]!.textContent).toBe(unread ? '标为未读' : '标为已读');
+      act(() => actions[0]!.click());
+      expect(mark).toHaveBeenCalledWith(groups, unread);
+    } finally {
+      f.close();
+    }
+  });
+
   it('修饰键鼠标多选不显示键盘焦点框，实际键盘操作恢复焦点提示', () => {
     const group = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
     const f = mount(

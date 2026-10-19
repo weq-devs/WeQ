@@ -128,6 +128,64 @@ describe('未读服务事件与阅读', () => {
     );
     expect(f.markRead).not.toHaveBeenCalled();
   });
+
+  it('批量手动标记去重并可撤销，既不写 QQ 库也不上报', async () => {
+    const f = setup(true);
+    const rows = [
+      snapshot('9000', 8990),
+      { ...snapshot('40', 40), chatType: 2, uid: '70001', peer: '2_70001' },
+    ];
+    f.getUnreadInfos.mockResolvedValue(rows);
+    const targets = rows.map(({ chatType, uid }) => ({ chatType, uid }));
+    const result = await f.service.setReadState([...targets, targets[0]!], false);
+    expect(f.getUnreadInfos).toHaveBeenCalledWith(targets);
+    expect(result.rows.map((row) => row.unreadCount)).toEqual([0, 0]);
+    expect(f.markRead).not.toHaveBeenCalled();
+    f.service.observeNewMessages(f.change);
+    f.getUnreadInfos.mockResolvedValue([{ ...rows[0]!, latestSeq: '9001' }, rows[1]!]);
+    const undone = await f.service.undoReadState(result.undoToken);
+    expect(undone.restored).toBe(2);
+    expect(undone.rows.map((row) => row.unreadCount)).toEqual([11, 0]);
+    await expect(f.service.undoReadState(result.undoToken)).rejects.toThrow('失效');
+  });
+
+  it('读错误时整批不变，撤销失败保留重试机会，账号关闭后令牌失效', async () => {
+    const f = setup();
+    const target = [{ chatType: 1, uid: 'u_fixture' }];
+    const marked = await f.service.setReadState(target, true);
+    f.getUnreadInfos.mockResolvedValue([{ ...snapshot('9000'), readError: true }]);
+    await expect(f.service.setReadState(target, false)).rejects.toThrow('读取失败');
+    await expect(f.service.undoReadState(marked.undoToken)).rejects.toThrow('读取失败');
+    f.getUnreadInfos.mockResolvedValue([snapshot('9000')]);
+    expect((await f.query())[0]?.unreadCount).toBe(1);
+    expect((await f.service.undoReadState(marked.undoToken)).restored).toBe(1);
+    const later = await f.service.setReadState(target, true);
+    f.service.dispose();
+    await expect(f.service.undoReadState(later.undoToken)).rejects.toThrow('失效');
+  });
+
+  it('持久化失败回滚内存标记，撤销写盘失败后仍可重试', async () => {
+    const f = setup();
+    const target = [{ chatType: 1, uid: 'u_fixture' }];
+    const flush = vi.spyOn(LocalUnreadStore.prototype, 'flush');
+    try {
+      flush.mockImplementationOnce(() => {
+        throw new Error('磁盘写入失败');
+      });
+      await expect(f.service.setReadState(target, true)).rejects.toThrow('磁盘写入失败');
+      expect((await f.query())[0]?.unreadCount).toBe(0);
+      const change = await f.service.setReadState(target, true);
+      flush.mockImplementationOnce(() => {
+        throw new Error('磁盘写入失败');
+      });
+      await expect(f.service.undoReadState(change.undoToken)).rejects.toThrow('磁盘写入失败');
+      expect((await f.query())[0]?.unreadCount).toBe(1);
+      expect((await f.service.undoReadState(change.undoToken)).restored).toBe(1);
+      expect((await f.query())[0]?.unreadCount).toBe(0);
+    } finally {
+      flush.mockRestore();
+    }
+  });
 });
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'weq-unread-'));
@@ -148,6 +206,47 @@ const highlight = {
 };
 
 describe('本地未读基线', () => {
+  it('手动已读即时覆盖旧快照，撤销恢复原未读且不吞掉期间的新消息', () => {
+    const { store, path } = fixture();
+    const row = snapshot('5000', 4990);
+    const before = store.resolve(row);
+    const change = store.setManualRead(before, false);
+    expect(store.resolve(row).unreadCount).toBe(0);
+    store.recordLive(1, 'u_fixture', '5001');
+    expect(store.resolve(snapshot('5001', 4990)).unreadCount).toBe(1);
+    expect(store.restoreManualRead(1, 'u_fixture', change)).toBe(true);
+    expect(store.resolve(snapshot('5001', 4990)).unreadCount).toBe(11);
+    store.setManualRead(store.resolve(snapshot('5001', 4990)), false);
+    store.flush();
+    expect(new LocalUnreadStore(path).resolve(snapshot('5001', 4990)).unreadCount).toBe(0);
+  });
+
+  it('手动未读跨重启保留，正常阅读后取消，过期撤销不覆盖后续操作', () => {
+    const { store, path } = fixture();
+    const row = snapshot('5000', 5000);
+    const change = store.setManualRead(store.resolve(row), true);
+    expect(store.resolve(row).unreadCount).toBe(1);
+    store.flush();
+    expect(new LocalUnreadStore(path).resolve(row).unreadCount).toBe(1);
+    store.markRead(1, 'u_fixture', '5000');
+    expect(store.resolve(row).unreadCount).toBe(0);
+    expect(store.restoreManualRead(1, 'u_fixture', change)).toBe(false);
+    const first = store.setManualRead(store.resolve(row), true);
+    const second = store.setManualRead(store.resolve(row), false);
+    expect(store.restoreManualRead(1, 'u_fixture', first)).toBe(false);
+    expect(store.restoreManualRead(1, 'u_fixture', second)).toBe(true);
+    expect(store.resolve(row).unreadCount).toBe(1);
+  });
+
+  it('QQ 水位刷新不会自动取消手动未读，高亮只随明确阅读清除', () => {
+    const { store } = fixture();
+    const row = { ...snapshot('5000', 4990), highlights: [highlight] };
+    store.setManualRead(store.resolve(row), false);
+    expect(store.resolve(row).highlights).toBeUndefined();
+    store.setManualRead(store.resolve(row), true);
+    expect(store.resolve(snapshot('5000', 5000)).unreadCount).toBe(1);
+  });
+
   it('缺少已读水位的历史会话首次安静对齐，导入抬高最新序号也不生成未读', () => {
     const { store } = fixture();
     expect(store.resolve(snapshot()).unreadCount).toBe(0);

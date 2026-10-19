@@ -21,6 +21,9 @@
 .weq-conversation-selection-toolbar button:hover:not(:disabled) { background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); color: var(--weq-accent-effective); }
 .weq-conversation-selection-toolbar button:disabled { opacity: 0.45; cursor: not-allowed; }
 .weq-conversation-selection-toolbar button:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: 1px; }
+.weq-conversation-selection-toolbar.has-read-state { display: grid; grid-template-columns: repeat(6, minmax(24px, 1fr)); }
+.weq-conversation-selection-toolbar.has-read-state > span { grid-column: 1 / -1; }
+.weq-conversation-selection-toolbar.has-read-state > button { justify-self: center; }
 html[data-theme="dark"] .weq-conversation-selection-toolbar { background: var(--weq-bg-surface); border-color: var(--weq-border-strong); }
 .weq-conversation-window .conversation-row, .app-shell .weq-conversation-window .conversation-row { height: 62px; min-height: 62px; box-sizing: border-box; }
 .weq-conversation-virtual { display: inline-flex; color: var(--weq-fg-secondary); flex-shrink: 0; }

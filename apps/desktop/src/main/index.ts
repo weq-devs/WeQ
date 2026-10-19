@@ -58,6 +58,7 @@ import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
 import { createMainWindowLifecycle } from './main_window_lifecycle';
 import { macApplicationMenu, nativeMenuLabels } from './application_menu';
+import { registerEditUndoIpc, undoFocusedContent } from './edit_undo';
 import { registerAttachHintIpc } from './attach_hint_ipc';
 import { registerElevationIpc } from './elevation_ipc';
 import {
@@ -732,6 +733,7 @@ void app.whenReady().then(async () => {
   registerWeqAssistantIpc();
   registerAttachHintIpc();
   registerElevationIpc();
+  registerEditUndoIpc();
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);
@@ -752,7 +754,11 @@ void app.whenReady().then(async () => {
   if (process.platform === 'darwin') {
     Menu.setApplicationMenu(
       Menu.buildFromTemplate(
-        macApplicationMenu(openMainWindow, app.getPreferredSystemLanguages()[0] ?? app.getLocale()),
+        macApplicationMenu(
+          openMainWindow,
+          app.getPreferredSystemLanguages()[0] ?? app.getLocale(),
+          undoFocusedContent,
+        ),
       ),
     );
   }

@@ -23,6 +23,8 @@ import {
   BarChart3,
   CloudDownload,
   Download,
+  Mail,
+  MailOpen,
 } from 'lucide-react';
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -260,6 +262,15 @@ export function ConversationList({
       : selectedTargets.length !== selectedIds.size
         ? '所选会话包含不支持漫游拉取的对象'
         : undefined;
+  const readStateReason = directory?.readStateBusy
+    ? '正在更新标记'
+    : !selectedIds.size
+      ? '请先选择会话'
+      : selectedIds.size > 4096
+        ? '一次最多标记 4096 个会话'
+        : selectedRows.some((row) => !row || (row.type !== 'direct' && row.type !== 'group'))
+          ? '请选择真实聊天会话'
+          : undefined;
 
   const locateId = directory?.locate?.id;
   const locateRevision = directory?.locate?.revision;
@@ -691,6 +702,14 @@ export function ConversationList({
             if (!roamingReason) directory?.onRoaming?.(selectedTargets);
           }}
           onExit={() => setSelectionMode(false)}
+          readStateReason={readStateReason}
+          onReadState={
+            directory?.onReadState
+              ? (unread) => {
+                  if (!readStateReason) directory.onReadState(selectedRows, unread);
+                }
+              : undefined
+          }
         />
       ) : null}
       {actionMenu ? (
@@ -708,7 +727,24 @@ export function ConversationList({
             const targets = actionMenu.ids
               .map((id) => conversationRoamingTarget(rows.get(id)))
               .filter(Boolean);
+            const markUnread = !actionMenu.ids.some((id) => (rows.get(id)?.unreadCount ?? 0) > 0);
             return [
+              ...(directory?.onReadState
+                ? [
+                    {
+                      label: markUnread ? '标为未读' : '标为已读',
+                      icon: markUnread ? <Mail size={16} /> : <MailOpen size={16} />,
+                      disabled:
+                        !realOnly || directory.readStateBusy || actionMenu.ids.length > 4096,
+                      reason: !realOnly ? '请选择真实聊天会话' : undefined,
+                      action: () =>
+                        directory.onReadState(
+                          actionMenu.ids.map((id) => rows.get(id)),
+                          markUnread,
+                        ),
+                    },
+                  ]
+                : []),
               ...(directory?.onAnalyze &&
               actionMenu.ids.length === 1 &&
               conversationAnalysisTarget(actionMenu.conversation)

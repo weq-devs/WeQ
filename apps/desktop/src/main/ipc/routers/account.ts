@@ -1364,6 +1364,28 @@ const PICK_SEND_FILE_SPEC: Record<
   file: { title: '选择文件', extensions: [] },
 };
 
+function unreadInfoToWire(
+  row: Awaited<ReturnType<AccountServices['unreadInfo']['getUnreadInfos']>>[number],
+) {
+  return {
+    uid: row.uid,
+    chatType: row.chatType,
+    latestSeq: row.latestSeq,
+    unreadCount: row.unreadCount,
+    readSeq: row.readSeq,
+    readError: row.readError ?? false,
+    msgSeq: row.msgSeq?.toString(),
+    highlights: row.highlights?.map((h) => ({
+      kind: h.kind,
+      rawKind: h.rawKind,
+      msgSeq: h.msgSeq.toString(),
+      senderUid: h.senderUid,
+      sendTime: h.sendTime.toString(),
+      text: h.text,
+    })),
+  };
+}
+
 export const accountRouter = router({
   qqWrite: createQQWriteRouter(
     (input) => {
@@ -2269,23 +2291,40 @@ export const accountRouter = router({
       const rows = await requireExpectedAccount(input.expectedAccountUin).unreadInfo.getUnreadInfos(
         input.targets,
       );
-      return rows.map((row) => ({
-        uid: row.uid,
-        chatType: row.chatType,
-        latestSeq: row.latestSeq,
-        unreadCount: row.unreadCount,
-        readSeq: row.readSeq,
-        readError: row.readError ?? false,
-        msgSeq: row.msgSeq?.toString(),
-        highlights: row.highlights?.map((h) => ({
-          kind: h.kind,
-          rawKind: h.rawKind,
-          msgSeq: h.msgSeq.toString(),
-          senderUid: h.senderUid,
-          sendTime: h.sendTime.toString(),
-          text: h.text,
-        })),
-      }));
+      return rows.map(unreadInfoToWire);
+    }),
+
+  setConversationReadState: procedure
+    .input(
+      z.object({
+        expectedAccountUin: z.string().min(1),
+        targets: z
+          .array(
+            z.object({
+              chatType: z.union([z.literal(1), z.literal(2)]),
+              uid: z.string().min(1),
+            }),
+          )
+          .min(1)
+          .max(4096),
+        unread: z.boolean(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const result = await requireExpectedAccount(input.expectedAccountUin).unreadInfo.setReadState(
+        input.targets,
+        input.unread,
+      );
+      return { undoToken: result.undoToken, rows: result.rows.map(unreadInfoToWire) };
+    }),
+
+  undoConversationReadState: procedure
+    .input(z.object({ expectedAccountUin: z.string().min(1), undoToken: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const result = await requireExpectedAccount(
+        input.expectedAccountUin,
+      ).unreadInfo.undoReadState(input.undoToken);
+      return { restored: result.restored, rows: result.rows.map(unreadInfoToWire) };
     }),
 
   /** Get unread message count for a conversation. */

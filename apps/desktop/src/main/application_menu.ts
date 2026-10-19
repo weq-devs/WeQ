@@ -9,6 +9,7 @@ export function nativeMenuLabels(locale: string) {
 export function macApplicationMenu(
   openMainWindow: () => void,
   locale = 'en',
+  undo?: () => void,
 ): MenuItemConstructorOptions[] {
   const labels = nativeMenuLabels(locale);
   return [
@@ -21,7 +22,32 @@ export function macApplicationMenu(
         { role: 'close' },
       ],
     },
-    { role: 'editMenu' },
+    undo
+      ? {
+          role: 'editMenu',
+          label: /^zh(?:-|_|$)/i.test(locale) ? '编辑' : 'Edit',
+          submenu: [
+            {
+              label: /^zh(?:-|_|$)/i.test(locale) ? '撤销' : 'Undo',
+              accelerator: 'CmdOrCtrl+Z',
+              click: undo,
+            },
+            { role: 'redo' },
+            { type: 'separator' },
+            { role: 'cut' },
+            { role: 'copy' },
+            { role: 'paste' },
+            { role: 'pasteAndMatchStyle' },
+            { role: 'delete' },
+            { role: 'selectAll' },
+            { type: 'separator' },
+            {
+              label: /^zh(?:-|_|$)/i.test(locale) ? '语音' : 'Speech',
+              submenu: [{ role: 'startSpeaking' }, { role: 'stopSpeaking' }],
+            },
+          ],
+        }
+      : { role: 'editMenu' },
     { role: 'viewMenu' },
     { role: 'windowMenu' },
   ];

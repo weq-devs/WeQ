@@ -5,6 +5,7 @@ declare global {
   interface Window {
     electron: ElectronAPI;
     weq: {
+      editUndo: { onUndo(handler: () => boolean): () => void };
       openLogDir(): Promise<boolean>;
       /** 用户选 / 拖 / 粘贴文件的绝对路径（Electron webUtils）；拿不到返回 ''。 */
       pathForFile(file: File): string;

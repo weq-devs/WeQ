@@ -33,6 +33,9 @@ import { useViewState } from '../state/view';
 import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
 import { useToast } from '../components/Toast';
+import { useDialog } from '../components/Dialog';
+import { Undo2 } from 'lucide-react';
+import { useReadStateUndo } from '../hooks/useReadStateUndo';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { avatarFromGroupCode, avatarFromUin } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
@@ -2251,6 +2254,7 @@ export function MainView(): ReactElement {
   const [mailUnread, setMailUnread] = useState(0);
   const utils = trpc.useUtils();
   const pushToast = useToast((s) => s.push);
+  const confirmReadState = useDialog((s) => s.confirm);
   // 群成员管理（改群昵称 / 踢人）：弹窗挂在本层（与群公告 / 群精华同层），发包也在这里。
   const renameGroupMember = trpc.account.setGroupMemberCard.useMutation();
   const kickGroupMember = trpc.account.kickGroupMember.useMutation();
@@ -3156,6 +3160,16 @@ export function MainView(): ReactElement {
   // asynchronously after the recent-contact list loads / refreshes.
   const [unreadByConv, setUnreadByConv] = useState<Record<string, number>>({});
   const unreadUpdateGuardRef = useRef(createUnreadUpdateGuard());
+  const manualReadPendingRef = useRef(new Set<string>());
+  const [readStateBusy, setReadStateBusy] = useState(false);
+  const readStateBusyRef = useRef(false);
+  const [readUndo, setReadUndo] = useState<{
+    accountUin: string;
+    token: string;
+    ids: string[];
+  } | null>(null);
+  const readUndoRef = useRef(readUndo);
+  readUndoRef.current = readUndo;
   const [highlightsByConv, setHighlightsByConv] = useState<Record<string, ConversationHighlight[]>>(
     {},
   );
@@ -4456,6 +4470,7 @@ export function MainView(): ReactElement {
     const isCurrent = () => !disposed && useViewState.getState().openedUin === openedUin;
     const guard = createUnreadUpdateGuard();
     unreadUpdateGuardRef.current = guard;
+    setReadUndo(null);
     setUnreadByConv({});
     setHighlightsByConv({});
 
@@ -5298,6 +5313,7 @@ export function MainView(): ReactElement {
         messagesTabActiveRef.current &&
         document.visibilityState !== 'hidden' &&
         selectedUidRef.current === conv.id &&
+        !manualReadPendingRef.current.has(conv.id) &&
         useViewState.getState().openedUin === openedUin;
       if (!isCurrent() || (conv.type !== 'direct' && conv.type !== 'group')) return;
       const key = `${openedUin}:${conv.type}:${conv.id}`;
@@ -5374,6 +5390,128 @@ export function MainView(): ReactElement {
     [openedUin, utils, applyUnreadRows],
   );
 
+  async function changeConversationReadState(rows: Conversation[], unread: boolean) {
+    if (!openedUin || readStateBusyRef.current || !rows.length) return;
+    const targets = rows.flatMap((row) =>
+      row.type === 'direct' || row.type === 'group'
+        ? [{ chatType: row.type === 'group' ? (2 as const) : (1 as const), uid: row.id }]
+        : [],
+    );
+    if (targets.length !== rows.length || targets.length > 4096) {
+      pushToast({ tone: 'warning', title: '请选择不超过 4096 个真实聊天会话' });
+      return;
+    }
+    readStateBusyRef.current = true;
+    setReadStateBusy(true);
+    const ids = targets.map((target) => target.uid);
+    for (const id of ids) manualReadPendingRef.current.add(id);
+    const finish = unreadUpdateGuardRef.current.begin(ids);
+    try {
+      if (unread && targets.length >= 10) {
+        const confirmed = await confirmReadState(
+          '批量标为未读',
+          `将 ${targets.length} 个会话标为未读，是否继续？`,
+          { okLabel: '标为未读', cancelLabel: '取消', tone: 'warning' },
+        );
+        if (!confirmed || useViewState.getState().openedUin !== openedUin) return;
+      }
+      // 已经发出的自动阅读先结束，不能晚于手动未读落地。
+      await Promise.all(
+        targets.map(
+          (target) =>
+            readRequestsRef.current.get(
+              `${openedUin}:${target.chatType === 2 ? 'group' : 'direct'}:${target.uid}`,
+            )?.promise,
+        ),
+      );
+      if (useViewState.getState().openedUin !== openedUin) return;
+      const result = await client.account.setConversationReadState.mutate({
+        expectedAccountUin: openedUin,
+        targets,
+        unread,
+      });
+      if (useViewState.getState().openedUin !== openedUin) return;
+      applyUnreadRows(result.rows);
+      const undo = { accountUin: openedUin, token: result.undoToken, ids };
+      readUndoRef.current = undo;
+      setReadUndo(undo);
+      pushToast({
+        tone: 'success',
+        title: (
+          <span>
+            已将 {ids.length} 个会话标为{unread ? '未读' : '已读'}{' '}
+            <button
+              type="button"
+              className="weq-toast-action"
+              title="撤销标记"
+              aria-label="撤销标记"
+              onClick={() => void undoConversationReadState(undo)}
+            >
+              <Undo2 size={16} />
+            </button>
+          </span>
+        ),
+      });
+    } catch (error) {
+      if (useViewState.getState().openedUin === openedUin)
+        pushToast({ tone: 'error', title: '标记失败', detail: String(error) });
+    } finally {
+      finish();
+      for (const id of ids) manualReadPendingRef.current.delete(id);
+      readStateBusyRef.current = false;
+      setReadStateBusy(false);
+      setUnreadRevision((revision) => revision + 1);
+    }
+  }
+
+  async function undoConversationReadState(undo = readUndoRef.current) {
+    if (!undo || undo.accountUin !== openedUin || readStateBusyRef.current) return;
+    if (readUndoRef.current?.token !== undo.token) {
+      pushToast({ tone: 'info', title: '请撤销最近一次标记' });
+      return;
+    }
+    readStateBusyRef.current = true;
+    setReadStateBusy(true);
+    const finish = unreadUpdateGuardRef.current.begin(undo.ids);
+    for (const id of undo.ids) manualReadPendingRef.current.add(id);
+    try {
+      await Promise.all(
+        undo.ids.map(
+          (id) =>
+            readRequestsRef.current.get(`${openedUin}:direct:${id}`)?.promise ??
+            readRequestsRef.current.get(`${openedUin}:group:${id}`)?.promise,
+        ),
+      );
+      if (useViewState.getState().openedUin !== openedUin) return;
+      const result = await client.account.undoConversationReadState.mutate({
+        expectedAccountUin: undo.accountUin,
+        undoToken: undo.token,
+      });
+      if (useViewState.getState().openedUin !== openedUin) return;
+      applyUnreadRows(result.rows);
+      readUndoRef.current = null;
+      setReadUndo(null);
+      pushToast({
+        tone: 'info',
+        title: result.restored
+          ? `已撤销 ${result.restored} 个会话的标记`
+          : '会话已再次阅读，未覆盖最新状态',
+      });
+    } catch (error) {
+      if (useViewState.getState().openedUin === openedUin)
+        pushToast({ tone: 'error', title: '撤销失败', detail: String(error) });
+    } finally {
+      finish();
+      for (const id of undo.ids) manualReadPendingRef.current.delete(id);
+      readStateBusyRef.current = false;
+      setReadStateBusy(false);
+      setUnreadRevision((revision) => revision + 1);
+    }
+  }
+  useReadStateUndo(
+    readUndo?.accountUin === openedUin && messagesTabActive && !readStateBusy,
+    () => void undoConversationReadState(),
+  );
   const unreadSelectionId =
     selectedConversation &&
     (selectedConversation.type === 'direct' || selectedConversation.type === 'group')
@@ -8676,6 +8814,8 @@ export function MainView(): ReactElement {
                   }));
                 },
                 onRoaming: handleRoamingTargets,
+                onReadState: (rows, unread) => void changeConversationReadState(rows, unread),
+                readStateBusy,
                 onVirtual: (item) => {
                   flushAllDirtyDrafts();
                   setCloneSearchTarget(null);
