@@ -1,3 +1,7 @@
+.weq-merged-overlay > .weq-merged-popover { max-height: min(560px, calc(100dvh - 24px)); }
+.weq-merged-popover > .weq-group-helper-search,
+.weq-merged-popover > .weq-conversation-selection-toolbar { flex-shrink: 0; }
+.weq-merged-popover .weq-merged-popover-body { min-height: 0; max-height: none; overscroll-behavior-y: contain; }
 .weq-merged-popover-row { display: flex; align-items: center; border-radius: 8px; }
 .weq-merged-popover-row .weq-merged-popover-item { flex: 1; min-width: 0; }
 .weq-merged-popover-row.is-pinned { background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent); }
