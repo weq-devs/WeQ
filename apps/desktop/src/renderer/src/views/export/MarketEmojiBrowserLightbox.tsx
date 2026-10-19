@@ -9,15 +9,16 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import { ArrowLeft, Store, X, RefreshCw, Loader2, Download, Settings2 } from 'lucide-react';
-import type { MarketPackFeeType } from '@weq/service';
+import { ArrowLeft, Store, X, RefreshCw, Loader2, Download } from 'lucide-react';
+import type { MarketPackFeeType, ExportSavePolicy } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
 import { useContentMultiSelect } from '../../state/contentSelection';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
 import { WorkspacePage } from '../../components/WorkspacePages';
-import { ExportSaveControl } from './ExportSaveControl';
+import { ExportSaveActions } from '../../components/ExportSaveActions';
+import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { MARKET_DOWNLOAD_MAX_PACKS } from '../../../../shared/market_emoji';
 import '../../styles/export.css';
 import '../../styles/workspace-tools.css';
@@ -67,17 +68,17 @@ function PackDetailPane({
   name: string;
   description: string;
   busy: boolean;
-  onDownload: (packs: { id: string; name: string }[]) => Promise<void>;
+  onDownload: (packs: { id: string; name: string }[], intent?: ExportSavePolicy) => Promise<void>;
 }): ReactElement {
   const detail = trpc.account.marketEmoji.getPackDetail.useQuery({ packId });
   const [saving, setSaving] = useState(false);
   const fee = FEE_META[detail.data?.feeType ?? 'unknown'];
   const items = detail.data?.items ?? [];
 
-  async function download(): Promise<void> {
+  async function download(intent?: ExportSavePolicy): Promise<void> {
     setSaving(true);
     try {
-      await onDownload([{ id: packId, name: name || detail.data?.name || packId }]);
+      await onDownload([{ id: packId, name: name || detail.data?.name || packId }], intent);
     } finally {
       setSaving(false);
     }
@@ -102,6 +103,10 @@ function PackDetailPane({
           {saving ? <Loader2 size={14} className="weq-emb-spin" /> : <Download size={14} />}
           一键下载
         </button>
+        <ExportSaveActions
+          disabled={saving || busy || !detail.data}
+          onSelect={(intent) => void download(intent)}
+        />
       </div>
       {description ? <p className="weq-market-description">{description}</p> : null}
       {detail.isLoading ? (
@@ -246,7 +251,6 @@ export function MarketEmojiBrowserLightbox({
   const dialog = useAppDialog();
   const save = useExportSavePolicy();
   const selection = useContentMultiSelect({ kind: 'market-emojis', container: 'catalog' });
-  const [saveOpen, setSaveOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [queued, setQueued] = useState(false);
   const pending = useRef(false);
@@ -287,14 +291,14 @@ export function MarketEmojiBrowserLightbox({
     onStart: () => selection.setSelectionMode(true),
     onExit: () => selection.setSelectionMode(false),
   });
-  async function download(packs: { id: string; name: string }[]) {
+  async function download(packs: { id: string; name: string }[], intent?: ExportSavePolicy) {
     if (pending.current || !packs.length || packs.length > MARKET_DOWNLOAD_MAX_PACKS) return;
     const targets = packs.map((pack) => ({ ...pack }));
     pending.current = true;
     setDownloading(true);
     setQueued(false);
     try {
-      const policy = await save.prepareSave();
+      const policy = await save.prepareSave(intent);
       if (!policy || !save.isCurrent()) return;
       await client.account.marketEmoji.startDownload.mutate({
         packs: targets,
@@ -319,9 +323,12 @@ export function MarketEmojiBrowserLightbox({
       if (save.isCurrent()) setDownloading(false);
     }
   }
-  function downloadSelected() {
+  function downloadSelected(intent?: ExportSavePolicy) {
     const names = new Map(entries.map((entry) => [entry.id, entry.name]));
-    void download([...selection.selectedIds].map((id) => ({ id, name: names.get(id) || id })));
+    void download(
+      [...selection.selectedIds].map((id) => ({ id, name: names.get(id) || id })),
+      intent,
+    );
   }
 
   // 防抖：输入停 300ms 落到 query。
@@ -435,6 +442,9 @@ export function MarketEmojiBrowserLightbox({
       aria-labelledby={embedded ? undefined : 'weq-market-title'}
       onMouseDown={(e) => e.stopPropagation()}
     >
+      {save.serverLocation && (
+        <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
+      )}
       {embedded ? (
         <div className="weq-market-summary">
           {selectedId ? (
@@ -489,18 +499,6 @@ export function MarketEmojiBrowserLightbox({
           </button>
         </header>
       )}
-      {saveOpen || selection.selectionMode ? (
-        <ExportSaveControl
-          value={save.policy}
-          onChange={save.setOverride}
-          onPickDirectory={() => void save.pickDirectory()}
-          onSetDefault={() => void save.setDefault()}
-          onReset={() => save.setOverride(null)}
-          overridden={save.hasOverride}
-          disabled={downloading || save.settings.isLoading}
-          picking={save.picking}
-        />
-      ) : null}
       {queued ? (
         <div className="weq-market-job-status" role="status">
           已创建下载任务
@@ -523,17 +521,7 @@ export function MarketEmojiBrowserLightbox({
                   (current) => new Set([...current, ...entries.map((entry) => entry.id)]),
                 )
               }
-            >
-              <button
-                type="button"
-                title="保存方式"
-                aria-label="保存方式"
-                aria-expanded={saveOpen}
-                onClick={() => setSaveOpen(!saveOpen)}
-              >
-                <Settings2 size={16} />
-              </button>
-            </DirectoryToolbar>
+            />
             <div className="weq-emb-fee-row" {...feeMulti.rootProps}>
               <button
                 type="button"
@@ -572,30 +560,42 @@ export function MarketEmojiBrowserLightbox({
               <span>
                 {selection.selectedIds.size} / {MARKET_DOWNLOAD_MAX_PACKS} 套
               </span>
-              <button
-                type="button"
-                className="weq-action-primary"
-                title={
-                  selection.selectedIds.size > MARKET_DOWNLOAD_MAX_PACKS
-                    ? `单次最多 ${MARKET_DOWNLOAD_MAX_PACKS} 套`
-                    : '下载选中表情包'
-                }
-                disabled={
-                  downloading ||
-                  save.picking ||
-                  save.settings.isLoading ||
-                  !selection.selectedIds.size ||
-                  selection.selectedIds.size > MARKET_DOWNLOAD_MAX_PACKS
-                }
-                onClick={downloadSelected}
-              >
-                {downloading ? (
-                  <Loader2 size={15} className="weq-emb-spin" />
-                ) : (
-                  <Download size={15} />
-                )}
-                下载选中
-              </button>
+              <div className="weq-save-action-group">
+                <button
+                  type="button"
+                  className="weq-action-primary"
+                  title={
+                    selection.selectedIds.size > MARKET_DOWNLOAD_MAX_PACKS
+                      ? `单次最多 ${MARKET_DOWNLOAD_MAX_PACKS} 套`
+                      : '下载选中表情包'
+                  }
+                  disabled={
+                    downloading ||
+                    save.picking ||
+                    save.settings.isLoading ||
+                    !selection.selectedIds.size ||
+                    selection.selectedIds.size > MARKET_DOWNLOAD_MAX_PACKS
+                  }
+                  onClick={() => downloadSelected()}
+                >
+                  {downloading ? (
+                    <Loader2 size={15} className="weq-emb-spin" />
+                  ) : (
+                    <Download size={15} />
+                  )}
+                  下载选中
+                </button>
+                <ExportSaveActions
+                  disabled={
+                    downloading ||
+                    save.picking ||
+                    save.settings.isLoading ||
+                    !selection.selectedIds.size ||
+                    selection.selectedIds.size > MARKET_DOWNLOAD_MAX_PACKS
+                  }
+                  onSelect={downloadSelected}
+                />
+              </div>
             </div>
           ) : null}
 
@@ -646,7 +646,7 @@ export function MarketEmojiBrowserLightbox({
                 (selectedId === initialPackId ? (initialPackName ?? '') : '')
               }
               description={entries.find((entry) => entry.id === selectedId)?.mark ?? ''}
-              busy={downloading || save.picking}
+              busy={downloading || save.picking || save.settings.isLoading}
               onDownload={download}
             />
           ) : null}

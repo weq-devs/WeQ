@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeft, FolderDown } from 'lucide-react';
+import { X, FolderDown } from 'lucide-react';
 
 export function SaveResultLocation({
   name,
@@ -23,7 +23,7 @@ export function SaveResultLocation({
       <label>
         服务器导出目录内的子文件夹
         <input
-          aria-label="完成后保存子目录"
+          aria-label="服务器保存子目录"
           value={directory}
           placeholder="当前导出目录"
           onChange={(event) => setDirectory(event.target.value)}
@@ -31,8 +31,8 @@ export function SaveResultLocation({
       </label>
       <div>
         <button type="button" onClick={onCancel}>
-          <ArrowLeft size={16} />
-          返回任务
+          <X size={16} />
+          取消
         </button>
         <button type="submit">
           <FolderDown size={16} />

@@ -9,7 +9,7 @@ import { resolve } from 'node:path';
 import { DEFAULT_OPTIONS } from '../src/renderer/src/views/export/types';
 import type { LightboxResult } from '../src/renderer/src/views/export/ExportLightbox';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
-import type { ExportTask } from '@weq/service';
+import type { ExportTask, ExportSavePolicy } from '@weq/service';
 import type { UiTask } from '../src/renderer/src/views/export/TaskList';
 
 const fixture = vi.hoisted(() => ({
@@ -19,7 +19,10 @@ const fixture = vi.hoisted(() => ({
   saveOutput: vi.fn(async (_input: unknown): Promise<string | null> => '/saved/result.json'),
   dialogError: vi.fn(),
   dialogInfo: vi.fn(),
-  prepare: vi.fn(async () => ({ mode: 'after' as const })),
+  prepare: vi.fn(
+    async (intent?: ExportSavePolicy): Promise<ExportSavePolicy | null> =>
+      intent ?? { mode: 'after' },
+  ),
   startContacts: vi.fn(
     async (_input: {
       scope: string;
@@ -273,7 +276,7 @@ afterEach(() => {
   fixture.saveOutput.mockReset().mockResolvedValue('/saved/result.json');
   fixture.dialogError.mockClear();
   fixture.dialogInfo.mockClear();
-  fixture.prepare.mockReset().mockResolvedValue({ mode: 'after' });
+  fixture.prepare.mockReset().mockImplementation(async (intent) => intent ?? { mode: 'after' });
   fixture.startContacts.mockReset().mockResolvedValue('contact-task');
   fixture.contactPreview.mockClear();
   fixture.nativeReads.mockClear();
@@ -319,6 +322,39 @@ function captureLayout(host: HTMLElement, name: string) {
 }
 
 describe('统一导出实际界面', () => {
+  it('正文不再单列保存配置，本次另存经确认后执行且下次主按钮恢复默认', async () => {
+    const f = mount({
+      initialSelection: {
+        owner: { kind: 'contacts', container: 'friends' },
+        scope: { type: 'items', ids: ['friend-b'] },
+      },
+    });
+    try {
+      expect(f.host.querySelector('.weq-export-save-control')).toBeNull();
+      await act(async () =>
+        f.host.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.click(),
+      );
+      const choose = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+        (node) => node.textContent === '另存到…',
+      )!;
+      expect(choose).toBeDefined();
+      act(() => choose.click());
+      expect(fixture.prepare).not.toHaveBeenCalled();
+      await act(async () => click(f.host, '夹具确认导出'));
+      expect(fixture.prepare).toHaveBeenLastCalledWith({ mode: 'before' });
+      expect(fixture.startContacts).toHaveBeenLastCalledWith(
+        expect.objectContaining({ savePolicy: { mode: 'before' } }),
+      );
+      await act(async () => click(f.host, '导出联系人'));
+      await act(async () => click(f.host, '夹具确认导出'));
+      expect(fixture.prepare).toHaveBeenLastCalledWith(undefined);
+      expect(fixture.startContacts).toHaveBeenLastCalledWith(
+        expect.objectContaining({ savePolicy: { mode: 'after' } }),
+      );
+    } finally {
+      f.close();
+    }
+  });
   it('桌面另存交由服务端按真实产物选择系统对话框，取消不报失败或丢失任务', async () => {
     fixture.tasks = [
       {

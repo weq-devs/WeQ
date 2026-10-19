@@ -5,6 +5,7 @@ import { client, trpc } from '../../trpc/client';
 import { WindowedList } from '../../components/WindowedList';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useTabActive } from '../../components/RetainedTabs';
+import { ExportSaveActions } from '../../components/ExportSaveActions';
 import {
   generatedContentContainer,
   generatedContentIdentity,
@@ -19,11 +20,13 @@ export function GeneratedExportPane({
   prepareSave,
   isCurrent,
   onStarted,
+  disabled = false,
 }: {
   initialSelection?: ContentSelection;
-  prepareSave: () => Promise<ExportSavePolicy | null>;
+  prepareSave: (intent?: ExportSavePolicy) => Promise<ExportSavePolicy | null>;
   isCurrent: () => boolean;
   onStarted: () => void;
+  disabled?: boolean;
 }) {
   const active = useTabActive();
   const account = trpc.account.getAccountConfig.useQuery();
@@ -81,9 +84,21 @@ export function GeneratedExportPane({
     !content.data || content.isFetching
       ? []
       : (ids?.filter((id) => !rows.some((row) => row.id === id)) ?? []);
-  async function submit() {
+  const canExport =
+    !disabled &&
+    ready &&
+    target &&
+    content.data &&
+    !content.isFetching &&
+    !content.isError &&
+    !busy &&
+    formats.size > 0 &&
+    ids?.length !== 0 &&
+    missing.length === 0;
+  async function submit(intent?: ExportSavePolicy) {
     if (
       !target ||
+      disabled ||
       !ready ||
       busy ||
       !formats.size ||
@@ -101,7 +116,7 @@ export function GeneratedExportPane({
     setBusy(true);
     setError('');
     try {
-      const savePolicy = await prepareSave();
+      const savePolicy = await prepareSave(intent);
       if (!savePolicy || !isCurrent()) return;
       await client.account.startGeneratedExport.mutate({ ...frozen, savePolicy });
       if (isCurrent()) onStarted();
@@ -273,25 +288,18 @@ export function GeneratedExportPane({
             </label>
           ))}
         </div>
-        <button
-          type="button"
-          className="weq-exp-primary"
-          disabled={
-            !ready ||
-            !target ||
-            !content.data ||
-            content.isFetching ||
-            content.isError ||
-            busy ||
-            !formats.size ||
-            ids?.length === 0 ||
-            missing.length > 0
-          }
-          onClick={() => void submit()}
-        >
-          <Download size={15} />
-          {busy ? '准备中…' : '导出生成对话'}
-        </button>
+        <div className="weq-save-action-group">
+          <button
+            type="button"
+            className="weq-exp-primary"
+            disabled={!canExport}
+            onClick={() => void submit()}
+          >
+            <Download size={15} />
+            {busy ? '准备中…' : '导出生成对话'}
+          </button>
+          <ExportSaveActions disabled={!canExport} onSelect={(intent) => void submit(intent)} />
+        </div>
       </footer>
     </section>
   );

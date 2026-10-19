@@ -9,10 +9,16 @@ import {
   WorkspacePage,
   WorkspacePages,
 } from '../src/renderer/src/components/WorkspacePages';
+import type { ExportSavePolicy } from '@weq/service';
+
+const saveState = vi.hoisted(() => ({
+  prepare: vi.fn(async (intent?: ExportSavePolicy) => intent ?? { mode: 'after' as const }),
+  download: vi.fn(async (_input: unknown) => 'task-a'),
+}));
 
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
-    useUtils: () => ({}),
+    useUtils: () => ({ account: { listExportTasks: { invalidate: async () => {} } } }),
     account: {
       dressup: {
         getState: { useQuery: () => ({ data: { qqOnline: false } }) },
@@ -52,6 +58,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {
       marketEmoji: {
+        startDownload: { mutate: saveState.download },
         searchCatalog: {
           query: vi.fn().mockResolvedValue({ entries: [], total: 0, nextCursor: null }),
         },
@@ -114,8 +121,40 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
     policy: { mode: 'after' },
     settings: { isLoading: false },
     picking: false,
+    accountUin: '10001',
+    isCurrent: () => true,
+    prepareSave: saveState.prepare,
   }),
 }));
+
+it('商城详情的下载菜单只覆盖本次保存方式，多选不展开保存栏', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  saveState.prepare.mockClear();
+  saveState.download.mockClear();
+  try {
+    await act(async () =>
+      root.render(h(MarketEmojiBrowserLightbox, { embedded: true, initialPackId: 'test-pack' })),
+    );
+    expect(host.querySelector('.weq-export-save-control')).toBeNull();
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.click());
+    const choose = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      (node) => node.textContent === '先生成，稍后保存',
+    )!;
+    await act(async () => choose.click());
+    expect(saveState.prepare).toHaveBeenLastCalledWith({ mode: 'after' });
+    expect(saveState.download).toHaveBeenCalledWith(
+      expect.objectContaining({ savePolicy: { mode: 'after' } }),
+    );
+    expect(host.querySelector('.weq-export-save-control')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});
 
 it('内嵌模式不套整页、不渲染关闭按钮，可直接放进个性装扮页签', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -200,6 +239,7 @@ it('目录使用预览卡片，接近视口才加载图片，返回保留目录�
     expect(host.querySelector<HTMLElement>('.weq-market-catalog')!.hidden).toBe(false);
     expect(scroll.scrollTop).toBe(120);
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="多选表情包"]')!.click());
+    expect(host.querySelector('.weq-export-save-control')).toBeNull();
     act(() => cards[1].click());
     expect(cards[1].classList.contains('is-selected')).toBe(true);
     expect(host.querySelector('.weq-emb-detail')).toBeNull();

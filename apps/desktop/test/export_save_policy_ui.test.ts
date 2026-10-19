@@ -95,6 +95,41 @@ afterEach(() => {
 });
 
 describe('保存方式目录语义', () => {
+  it('本次保存意图优先但不持久化，下一次恢复全局策略', async () => {
+    fixture.settings.exportSaveMode = 'preset';
+    const f = mountHook();
+    try {
+      await f.result.prepareSave({ mode: 'after' });
+      expect(fixture.prepare).toHaveBeenLastCalledWith({ mode: 'after' });
+      expect(f.result.policy).toEqual({ mode: 'preset', directory: '/fixture/default' });
+      await f.result.prepareSave();
+      expect(fixture.prepare).toHaveBeenLastCalledWith({
+        mode: 'preset',
+        directory: '/fixture/default',
+      });
+      expect(fixture.defaults).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+  it('准备位置期间合并重复操作，不叠加系统选择器', async () => {
+    let finish!: (policy: ExportSavePolicy) => void;
+    fixture.prepare.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const f = mountHook();
+    try {
+      const first = f.result.prepareSave();
+      expect(await f.result.prepareSave({ mode: 'before' })).toBeNull();
+      expect(fixture.prepare).toHaveBeenCalledOnce();
+      finish({ mode: 'after' });
+      await first;
+    } finally {
+      f.close();
+    }
+  });
   it('全局偏好尚未读回时不猜测用户模式或启动选择器', async () => {
     fixture.loadingSettings = true;
     const f = mountHook();

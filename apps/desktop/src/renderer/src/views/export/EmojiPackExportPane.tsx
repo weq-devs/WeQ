@@ -17,6 +17,7 @@ import { useAppDialog } from '../../lib/dialogUtils';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
+import { ExportSaveActions } from '../../components/ExportSaveActions';
 
 /** cemoji 预览地址。 */
 function cemojiUrl(addr: EmojiPreviewAddress): string {
@@ -55,7 +56,9 @@ export function EmojiPackExportPane({
   disabled = false,
 }: {
   onStarted: () => void;
-  prepareSave?: () => Promise<import('@weq/service').ExportSavePolicy | null>;
+  prepareSave?: (
+    intent?: import('@weq/service').ExportSavePolicy,
+  ) => Promise<import('@weq/service').ExportSavePolicy | null>;
   disabled?: boolean;
 }): ReactElement {
   const dialog = useAppDialog();
@@ -79,11 +82,11 @@ export function EmojiPackExportPane({
     return n;
   }, [data, selected]);
 
-  async function start(): Promise<void> {
+  async function start(intent?: import('@weq/service').ExportSavePolicy): Promise<void> {
     if (selected.size === 0 || disabled || submitting) return;
     setSubmitting(true);
     try {
-      const savePolicy = await prepareSave?.();
+      const savePolicy = await prepareSave?.(intent);
       if (savePolicy === null) return;
       await client.account.emojiPack.startExport.mutate({ scopes: [...selected], savePolicy });
       onStarted();
@@ -125,15 +128,23 @@ export function EmojiPackExportPane({
             ? '请至少选择一种来源'
             : `已选 ${selected.size} 种来源 · 约 ${selectedTotal.toLocaleString('en-US')} 张`}
         </span>
-        <button
-          type="button"
-          className="weq-epk-start"
-          disabled={disabled || selected.size === 0 || submitting || summary.isLoading}
-          onClick={() => void start()}
-        >
-          {submitting ? <Loader2 size={15} className="is-spin" /> : <Download size={15} />}
-          导出
-        </button>
+        <div className="weq-save-action-group">
+          <button
+            type="button"
+            className="weq-epk-start"
+            disabled={disabled || selected.size === 0 || submitting || summary.isLoading}
+            onClick={() => void start()}
+          >
+            {submitting ? <Loader2 size={15} className="is-spin" /> : <Download size={15} />}
+            导出
+          </button>
+          {prepareSave && (
+            <ExportSaveActions
+              disabled={disabled || selected.size === 0 || submitting || summary.isLoading}
+              onSelect={(intent) => void start(intent)}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import { client, trpc } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
 import { useToast } from '../components/Toast';
 import { useViewState } from '../state/view';
+import { IS_WEB } from '../lib/target';
 
 /** 导出与资源下载共用保存准备；单次参数不自动覆盖全局默认。 */
 export function useExportSavePolicy() {
@@ -14,7 +15,10 @@ export function useExportSavePolicy() {
   const accountUin = useViewState((state) => state.openedUin);
   const mounted = useRef(true);
   const pickInFlight = useRef(false);
+  const prepareInFlight = useRef(false);
   const [picking, setPicking] = useState(false);
+  const [serverLocation, setServerLocation] = useState<{ name: string } | null>(null);
+  const resolveServerLocation = useRef<((directory: string | null) => void) | null>(null);
   const [draft, setDraft] = useState<{
     override: ExportSavePolicy | null;
     directories: Partial<Record<'preset' | 'before', string>>;
@@ -38,6 +42,8 @@ export function useExportSavePolicy() {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      resolveServerLocation.current?.(null);
+      resolveServerLocation.current = null;
     };
   }, []);
   const mode = override?.mode ?? settings.data?.exportSaveMode ?? 'before';
@@ -49,10 +55,36 @@ export function useExportSavePolicy() {
         : undefined;
   const policy: ExportSavePolicy = { mode, ...(directory ? { directory } : {}) };
   const current = () => mounted.current && useViewState.getState().openedUin === accountUin;
-  async function prepareSave(): Promise<ExportSavePolicy | null> {
-    if (!current() || pickInFlight.current || !settings.data || settings.isLoading) return null;
-    const prepared = await client.bootstrap.prepareExportSave.mutate(policy);
-    return current() ? prepared : null;
+  async function prepareSave(intent?: ExportSavePolicy): Promise<ExportSavePolicy | null> {
+    if (
+      !current() ||
+      pickInFlight.current ||
+      prepareInFlight.current ||
+      !settings.data ||
+      settings.isLoading
+    )
+      return null;
+    prepareInFlight.current = true;
+    try {
+      let requested = intent ?? policy;
+      if (IS_WEB && requested.mode === 'before' && !requested.directory && !requested.filePath) {
+        const directory = await new Promise<string | null>((resolve) => {
+          resolveServerLocation.current = resolve;
+          setServerLocation({ name: '本次导出' });
+        });
+        if (directory === null || !current()) return null;
+        requested = { ...requested, directory: directory || undefined };
+      }
+      const prepared = await client.bootstrap.prepareExportSave.mutate(requested);
+      return current() ? prepared : null;
+    } finally {
+      prepareInFlight.current = false;
+    }
+  }
+  function chooseServerLocation(directory: string | null) {
+    resolveServerLocation.current?.(directory);
+    resolveServerLocation.current = null;
+    setServerLocation(null);
   }
   async function pickDirectory() {
     if (!current() || pickInFlight.current) return;
@@ -88,6 +120,8 @@ export function useExportSavePolicy() {
     setOverride,
     hasOverride: override !== null,
     picking,
+    serverLocation,
+    chooseServerLocation,
     prepareSave,
     pickDirectory,
     setDefault,

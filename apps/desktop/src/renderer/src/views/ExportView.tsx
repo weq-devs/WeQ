@@ -74,7 +74,8 @@ import {
 } from './export/types';
 import '../styles/export.css';
 import { MessageScopePicker } from './export/MessageScopePicker';
-import { ExportSaveControl } from './export/ExportSaveControl';
+import { ExportSaveActions } from '../components/ExportSaveActions';
+import { ServerSavePrompt } from '../components/ServerSavePrompt';
 import { SaveResultLocation } from './export/SaveResultLocation';
 import { IS_WEB } from '../lib/target';
 import type { ContentSelection } from '../../../shared/content_selection';
@@ -326,15 +327,13 @@ export function ExportTool({
   }, []);
   const {
     settings: globalSettings,
-    policy: saveRequest,
-    setOverride: setSaveOverride,
-    hasOverride: saveOverridden,
     picking: pickingSaveDirectory,
     prepareSave,
-    pickDirectory: pickSaveDirectory,
-    setDefault: setSaveDefault,
+    serverLocation,
+    chooseServerLocation,
     isCurrent,
   } = useExportSavePolicy();
+  const saveIntent = useRef<import('@weq/service').ExportSavePolicy | undefined>(undefined);
 
   const tasks = trpc.account.listExportTasks.useQuery();
   const schedules = trpc.account.listSchedules.useQuery();
@@ -850,7 +849,8 @@ export function ExportTool({
   };
 
   // ---- primary action per mode ----
-  function onPrimary(): void {
+  function onPrimary(intent?: import('@weq/service').ExportSavePolicy): void {
+    saveIntent.current = intent;
     if (editingList) {
       setEditingList(false);
       return;
@@ -904,6 +904,7 @@ export function ExportTool({
 
   /** QQ 空间导出：每个选中目标（好友 / 自己）起一个说说导出任务（json/txt/html 多选 + 配图）。 */
   async function runQzoneExport(options: ExportOptions, formats: ExportFormat[]): Promise<void> {
+    const intent = saveIntent.current;
     const targets = friendItems
       .filter((it) => convSelection.has(it.id))
       .map((item) => ({
@@ -927,7 +928,7 @@ export function ExportTool({
       : { start: options.range.start, end: options.range.end };
     setSubmitting(true);
     try {
-      const savePolicy = await prepareSave();
+      const savePolicy = await prepareSave(intent);
       if (!savePolicy) return;
       for (const t of targets) {
         if (!isCurrent()) return;
@@ -960,6 +961,7 @@ export function ExportTool({
 
   /** 导出联系人：好友列表（可按分组过滤）或某群成员列表；灯箱多选格式 + 可选头像。 */
   async function runContactsExport(options: ExportOptions, formats: ExportFormat[]): Promise<void> {
+    const intent = saveIntent.current;
     const account = exportAccount.data;
     if (!account?.uin || !account.configId) {
       dialog.error('账号资料尚未就绪', '请稍后重试。');
@@ -978,7 +980,7 @@ export function ExportTool({
     }));
     setSubmitting(true);
     try {
-      const savePolicy = await prepareSave();
+      const savePolicy = await prepareSave(intent);
       if (!savePolicy || !isCurrent()) return;
       // 多格式合并为同一个任务：所有格式写进同一 bundle，头像只带一份。
       if (contactScope === 'groups') {
@@ -1037,13 +1039,14 @@ export function ExportTool({
 
   /** 导出收藏：全部或按类型过滤，格式 json/csv/xlsx/txt（图片仅写 URL，不下载）。 */
   async function runCollectionExport(): Promise<void> {
+    const intent = saveIntent.current;
     const cfmt = format as 'json' | 'csv' | 'xlsx' | 'txt';
     const kinds = [...collectionKinds];
     const cids = [...(collectionIds ?? filteredCollectionIds)];
     if (cids.length === 0) return;
     setSubmitting(true);
     try {
-      const savePolicy = await prepareSave();
+      const savePolicy = await prepareSave(intent);
       if (!savePolicy) return;
       await client.account.startCollectionExport.mutate({
         savePolicy,
@@ -1064,6 +1067,7 @@ export function ExportTool({
     options: ExportOptions,
     opts: { formats?: ExportFormat[] } = {},
   ): Promise<void> {
+    const intent = saveIntent.current;
     const targets = convItems
       .filter((it) => convSelection.has(it.id))
       .map((item) => ({
@@ -1104,7 +1108,7 @@ export function ExportTool({
 
     setSubmitting(true);
     try {
-      const savePolicy = await prepareSave();
+      const savePolicy = await prepareSave(intent);
       if (!savePolicy) return;
       await startChatExportTasks(targets, effectiveOptions, formats, format, { savePolicy });
       if (fixedMessages) onClose?.();
@@ -1129,6 +1133,7 @@ export function ExportTool({
     options: ExportOptions,
     opts: { formats?: ExportFormat[] } = {},
   ): Promise<void> {
+    const intent = saveIntent.current;
     const targets = guildItems
       .filter((it) => guildSelection.has(it.id))
       .map((item) => ({
@@ -1153,7 +1158,7 @@ export function ExportTool({
 
     setSubmitting(true);
     try {
-      const savePolicy = await prepareSave();
+      const savePolicy = await prepareSave(intent);
       if (!savePolicy) return;
       for (const t of targets) {
         // 多格式合并为同一个任务：所有格式写进同一 bundle，媒体/头像/装扮只带一份。
@@ -1310,6 +1315,7 @@ export function ExportTool({
   /** Persist a scheduled template. Mirrors the per-task `media/range` shape
    *  from `runFullExport` so a triggered run reproduces the same output. */
   async function runCreateSchedule(result: LightboxResult): Promise<void> {
+    const intent = saveIntent.current;
     const targets = convItems.filter((it) => convSelection.has(it.id));
     if (targets.length === 0) {
       dialog.error('未选择会话', '请先选择至少一个会话再创建定时任务。');
@@ -1321,7 +1327,7 @@ export function ExportTool({
     }
     setSubmitting(true);
     try {
-      const savePolicy = await prepareSave();
+      const savePolicy = await prepareSave(intent);
       if (!savePolicy) return;
       await client.account.createSchedule.mutate({
         name: `定时 · ${targets[0]!.name}${targets.length > 1 ? ` 等 ${targets.length} 个` : ''}`,
@@ -1512,6 +1518,9 @@ export function ExportTool({
 
   return (
     <div className={`weq-exp weq-export-tool is-${surface}`}>
+      {serverLocation && (
+        <ServerSavePrompt name={serverLocation.name} onChoose={chooseServerLocation} />
+      )}
       {saveLocationTask ? (
         <SaveResultLocation
           key={saveLocationTask.id}
@@ -1526,18 +1535,6 @@ export function ExportTool({
             saveLocationPending.current = null;
             setSaveLocationTask(null);
           }}
-        />
-      ) : null}
-      {surface === 'export' && mode !== 'database' ? (
-        <ExportSaveControl
-          value={saveRequest}
-          disabled={submitting || globalSettings.isLoading}
-          picking={pickingSaveDirectory}
-          onChange={setSaveOverride}
-          onPickDirectory={() => void pickSaveDirectory()}
-          onSetDefault={() => void setSaveDefault()}
-          onReset={() => setSaveOverride(null)}
-          overridden={saveOverridden}
         />
       ) : null}
       {surface === 'export' && ((!lightbox && !fixedMessages) || editingList) ? (
@@ -1599,6 +1596,7 @@ export function ExportTool({
                   prepareSave={prepareSave}
                   isCurrent={isCurrent}
                   onStarted={refetchTasks}
+                  disabled={pickingSaveDirectory || globalSettings.isLoading}
                 />
               ) : mode === 'database' ? (
                 accountUin ? (
@@ -1963,19 +1961,32 @@ export function ExportTool({
                         : ''}
                   </span>
                 )}
-                <button
-                  type="button"
-                  className="weq-exp-primary"
-                  disabled={
-                    primaryDisabled ||
-                    submitting ||
-                    globalSettings.isLoading ||
-                    pickingSaveDirectory
-                  }
-                  onClick={onPrimary}
-                >
-                  {primaryLabel}
-                </button>
+                <div className="weq-save-action-group">
+                  <button
+                    type="button"
+                    className="weq-exp-primary"
+                    disabled={
+                      primaryDisabled ||
+                      submitting ||
+                      globalSettings.isLoading ||
+                      pickingSaveDirectory
+                    }
+                    onClick={() => onPrimary()}
+                  >
+                    {primaryLabel}
+                  </button>
+                  {mode !== 'album' && mode !== 'groupfile' && (
+                    <ExportSaveActions
+                      disabled={
+                        primaryDisabled ||
+                        submitting ||
+                        globalSettings.isLoading ||
+                        pickingSaveDirectory
+                      }
+                      onSelect={(intent) => onPrimary(intent)}
+                    />
+                  )}
+                </div>
               </footer>
             ) : null}
           </section>

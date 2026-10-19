@@ -96,6 +96,24 @@ function mount(
     },
   };
 }
+
+it('生成对话的本次菜单沿用同一提交管线，先生成意图不写全局偏好', async () => {
+  const prepare = vi.fn(async () => ({ mode: 'after' as const }));
+  const f = mount(['a'], prepare);
+  try {
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.click());
+    const button = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      (node) => node.textContent === '先生成，稍后保存',
+    )!;
+    await act(async () => button.click());
+    expect(prepare).toHaveBeenCalledWith({ mode: 'after' });
+    expect(fixture.start).toHaveBeenCalledWith(
+      expect.objectContaining({ savePolicy: { mode: 'after' }, messageIds: ['a'] }),
+    );
+  } finally {
+    f.close();
+  }
+});
 it('生成目标用结构化身份区分同名会话、旧记录与助手，不靠分隔符猜测', () => {
   const target = { kind: 'persona' as const, ownerId: 'p:1', sessionId: 's:1' };
   const selection = {
