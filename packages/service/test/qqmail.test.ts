@@ -136,6 +136,73 @@ describe('邮箱协议编码', () => {
 });
 
 describe('邮箱生命周期和提醒', () => {
+  it.each(['read-fixture', '@group-fixture'])(
+    '打开 %s 后显式提交已读，成功才返回已读正文',
+    async (id) => {
+      const auth = new MailAuth(native, '12345678', () => 42, new FakeMailTransport());
+      const cgi = vi.spyOn(auth, 'cgi').mockResolvedValueOnce({
+        item: { ret: 0, emailid: id, content: '正文', info: { unread: 1 } },
+      });
+      let completeMark: (() => void) | undefined;
+      cgi.mockImplementationOnce(
+        () => new Promise((resolve) => (completeMark = () => resolve({}))),
+      );
+      vi.spyOn(auth, 'notificationQuery').mockResolvedValue({ unread: 0 });
+      const service = new QQMailService(native, '12345678', () => 42, {
+        authFactory: () => auth,
+      });
+      const controller = new AbortController();
+      const resolved = vi.fn();
+      try {
+        const reading = service.read(id, controller.signal).then((detail) => {
+          resolved();
+          return detail;
+        });
+        await vi.waitFor(() => expect(cgi).toHaveBeenCalledTimes(2));
+        expect(cgi).toHaveBeenNthCalledWith(
+          1,
+          id.startsWith('@') ? '/groupmail/readmail' : '/read/readmail',
+          { mailid: id, func: id.startsWith('@') ? 0 : 1 },
+          { signal: controller.signal },
+        );
+        expect(cgi).toHaveBeenNthCalledWith(
+          2,
+          '/mgr/mailmgr',
+          { mailid: [id], func: 4 },
+          { signal: controller.signal, write: true },
+        );
+        expect(resolved).not.toHaveBeenCalled();
+        completeMark?.();
+        await expect(reading).resolves.toMatchObject({ id, unread: false, html: '正文' });
+      } finally {
+        completeMark?.();
+        service.dispose();
+      }
+    },
+  );
+  it.each(['正文读取', '已读提交'])('%s 失败不返回阅读成功或发布已读变化', async (stage) => {
+    const auth = new MailAuth(native, '12345678', () => 42, new FakeMailTransport());
+    const cgi = vi.spyOn(auth, 'cgi');
+    if (stage === '正文读取') cgi.mockResolvedValue({ item: { ret: -1 } });
+    else
+      cgi
+        .mockResolvedValueOnce({ item: { ret: 0, emailid: 'read-fixture', content: '正文' } })
+        .mockRejectedValueOnce(new MailFailure('network', '已读提交失败'));
+    const query = vi.spyOn(auth, 'notificationQuery');
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => auth,
+    });
+    const changed = vi.fn();
+    service.events.on('change', changed);
+    try {
+      await expect(service.read('read-fixture')).rejects.toThrow(MailFailure);
+      expect(cgi).toHaveBeenCalledTimes(stage === '正文读取' ? 1 : 2);
+      expect(query).not.toHaveBeenCalled();
+      expect(changed).not.toHaveBeenCalled();
+    } finally {
+      service.dispose();
+    }
+  });
   it.each(['open', 'read', 'unread', 'trash'] as const)(
     '%s 成功后同步账号未读数并发布角标状态，不依赖开启提醒',
     async (operation) => {
@@ -403,6 +470,7 @@ describe('邮箱生命周期和提醒', () => {
     expect(detail.thread?.[0]?.id).toBe('child-fixture');
     expect(detail.html).toBe('');
     expect(transport.calls.some((call) => call.url.pathname === '/read/readmail')).toBe(false);
+    expect(transport.calls.some((call) => call.url.pathname === '/mgr/mailmgr')).toBe(false);
     service.dispose();
   });
   it('提醒开启后去重并调用系统适配，关闭与销毁清理连接和计时器', async () => {
@@ -502,6 +570,51 @@ describe('邮箱生命周期和提醒', () => {
       vi.useRealTimers();
     }
   });
+  it.each([false, true])(
+    '首轮认证期间收到凭据后补连一次，主动断开=%s 时不复活连接',
+    async (disconnect) => {
+      vi.useFakeTimers();
+      const nt = mailNative();
+      let release: ((result: ReturnType<typeof okMailSession>) => void) | undefined;
+      nt.ptFetchMailSession.mockImplementationOnce(
+        () =>
+          new Promise<ReturnType<typeof okMailSession>>((resolve) => {
+            release = resolve;
+          }),
+      );
+      const socket = Object.assign(new EventEmitter(), {
+        send: vi.fn(),
+        close: vi.fn(),
+        terminate: vi.fn(),
+      });
+      const service = new QQMailService(nt, '12345678', () => 42, {
+        authFactory: () => new MailAuth(nt, '12345678', () => 42, new FakeMailTransport()),
+        socketFactory: () => socket,
+      });
+      try {
+        service.startBackground({ notifications: true, showUnread: false });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(nt.ptFetchMailSession).toHaveBeenCalledOnce();
+        service.credentialsAvailable();
+        service.credentialsAvailable();
+        if (disconnect) service.disconnect();
+        if (!release) throw new Error('fixture authentication did not start');
+        release({ ...okMailSession(), success: false, sid: '', msg: '旧入口不可用' });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(nt.ptFetchMailSession).toHaveBeenCalledTimes(disconnect ? 1 : 2);
+        expect(service.status().state).toBe(disconnect ? 'disconnected' : 'ready');
+        if (disconnect) {
+          service.credentialsAvailable();
+          await vi.advanceTimersByTimeAsync(5 * 60_000);
+          expect(nt.ptFetchMailSession).toHaveBeenCalledOnce();
+        }
+      } finally {
+        service.dispose();
+        expect(vi.getTimerCount()).toBe(0);
+        vi.useRealTimers();
+      }
+    },
+  );
   it('两个后台偏好均关闭时，启动与凭据刷新不连接邮箱', async () => {
     const nt = mailNative();
     const service = new QQMailService(nt, '12345678', () => 42);
