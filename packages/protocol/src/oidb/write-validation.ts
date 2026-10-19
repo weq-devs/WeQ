@@ -5,6 +5,12 @@ export function requireUint32(value: number, name: string, allowZero = false): n
   return value;
 }
 
+export function requireInt32(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value < -0x80000000 || value > 0x7fffffff)
+    throw new Error(`${name} 必须是有效的 int32`);
+  return value;
+}
+
 export function requireUid(value: string): string {
   if (!/^u_[A-Za-z0-9_-]+$/.test(value)) throw new Error('目标 UID 无效');
   return value;

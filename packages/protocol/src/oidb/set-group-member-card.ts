@@ -14,6 +14,7 @@
 import { message } from '../protobuf';
 import { invokeOidb, type OidbSpec } from './invoke';
 import type { OidbNative } from '../transport';
+import { requireUint32, requireUid } from './write-validation';
 
 const RENAME_MEMBER_BODY = message([
   { name: 'targetUid', tag: 1, type: 'string' },
@@ -46,13 +47,12 @@ export namespace SetGroupMemberCard {
   export type Params = SetGroupMemberCardParams;
 
   export const serialize = (p: Params): Record<string, unknown> => {
-    if (!Number.isSafeInteger(p.groupId) || p.groupId <= 0) {
-      throw new Error(`groupId 必须是正整数，收到 ${String(p.groupId)}`);
-    }
-    if (!p.targetUid) throw new Error('targetUid 不能为空');
     // card 为空串是合法的「清除群名片」，但 proto3 会省略 —— 这里照 SnowLuma 的
     // 语义允许空串（等于清除），不上 force。
-    return { groupUin: p.groupId, body: { targetUid: p.targetUid, targetName: p.card } };
+    return {
+      groupUin: requireUint32(p.groupId, 'groupId'),
+      body: { targetUid: requireUid(p.targetUid), targetName: p.card },
+    };
   };
 
   export const deserialize = (_body: Record<string, unknown>): void => {};

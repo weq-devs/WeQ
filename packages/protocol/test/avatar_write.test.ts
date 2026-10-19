@@ -5,6 +5,7 @@ import {
   SELF_AVATAR_HIGHWAY_CMD,
   GROUP_AVATAR_HIGHWAY_CMD,
   AVATAR_MAX_BYTES,
+  encodeGroupAvatarExtra,
 } from '../src/oidb/set-group-avatar';
 import { makeSolidPng } from '../src/highway/image-format';
 import { fetchHighwaySession, uploadHighwayHttp } from '../src/highway/highway-client';
@@ -22,6 +23,15 @@ beforeEach(() => vi.clearAllMocks());
 
 describe('个人与群头像上传', () => {
   const nt = { sendPacket: async () => Buffer.alloc(0) };
+  it('群号超出 uint32 时在编码与上传前拒绝，不能截断为另一群', async () => {
+    const groupId = 2 ** 32 + 123;
+    expect(() => encodeGroupAvatarExtra(groupId)).toThrow(/groupId/);
+    await expect(
+      setGroupAvatar(nt, 5, { groupId, uin: '10001', source: makeSolidPng(2, 2) }),
+    ).rejects.toThrow(/groupId/);
+    expect(fetchHighwaySession).not.toHaveBeenCalled();
+    expect(uploadHighwayHttp).not.toHaveBeenCalled();
+  });
   it('复用上传管线但保持不同命令号及群扩展', async () => {
     const source = makeSolidPng(2, 2);
     await setSelfAvatar(nt, 5, { uin: '10001', source });

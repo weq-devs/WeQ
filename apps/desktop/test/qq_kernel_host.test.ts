@@ -75,6 +75,33 @@ async function fixture() {
 }
 
 describe('托管 QQ 内核宿主（不加载真实 QQ）', () => {
+  it('主动刷新时的同步取消不是登录失败，其他取消仍正常报告', async () => {
+    const f = await fixture();
+    await f.host.startLogin();
+    f.listener().onLoginConnected!();
+    f.login.abortPolling.mockImplementationOnce(() => {
+      f.listener().onQRCodeSessionFailed!(7, 4, '');
+    });
+    f.host.refreshQr();
+    expect(
+      f.events.some((event) => event.type === 'error' && event.code === 'qr-session-failed'),
+    ).toBe(false);
+    f.listener().onQRCodeSessionFailed!(7, 4, '');
+    expect(f.events.at(-1)).toMatchObject({ type: 'error', code: 'qr-session-failed' });
+    await f.host.stop();
+  });
+  it('刷新取消期间已登录成功，不再创建新的匿名二维码会话', async () => {
+    const f = await fixture();
+    await f.host.startLogin();
+    f.listener().onLoginConnected!();
+    f.login.abortPolling.mockImplementationOnce(() => {
+      f.listener().onQRCodeLoginSucceed!({ uin: '10001', uid: 'u_self' });
+    });
+    f.host.refreshQr();
+    await vi.waitFor(() => expect(f.session.init).toHaveBeenCalledOnce());
+    expect(f.login.getQRCodePicture).toHaveBeenCalledOnce();
+    await f.host.stop();
+  });
   it('已收到有效登录身份后，迟到的快登结果不覆盖为验证页面', async () => {
     const f = await fixture();
     f.listener().onLoginConnected!();

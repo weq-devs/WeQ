@@ -21,7 +21,7 @@ import {
   uploadHighwayHttp,
 } from '../highway/highway-client';
 import { cleanNtLocalPath } from './shared';
-import { requireUin } from './write-validation';
+import { requireUin, requireUint32 } from './write-validation';
 import { detectImageFormat } from '../highway/image-format';
 import type { TrpcNative } from '../transport';
 
@@ -52,6 +52,8 @@ export interface SetGroupAvatarParams {
   source: string | Uint8Array;
   /** 可选日志钩子（分块上传进度 / 服务端态度）。 */
   log?: (message: string) => void;
+  /** 编排层在申请会话和开始上传前复核账号；不进入 wire。 */
+  beforeSend?: () => void;
 }
 
 /** 读取头像字节（路径来源会剥掉 NT 本地路径前缀）。 */
@@ -74,7 +76,7 @@ async function readSource(source: string | Uint8Array): Promise<Uint8Array> {
 export function encodeGroupAvatarExtra(groupId: number): Uint8Array {
   return encode(GROUP_AVATAR_EXTRA, {
     type: 101,
-    groupUin: groupId,
+    groupUin: requireUint32(groupId, 'groupId'),
     field3: { field1: 1 },
     field5: 3,
     field6: 1,
@@ -89,9 +91,6 @@ export async function setGroupAvatar(
   pid: number,
   params: SetGroupAvatarParams,
 ): Promise<void> {
-  if (!Number.isSafeInteger(params.groupId) || params.groupId <= 0) {
-    throw new Error(`groupId 必须是正整数，收到 ${String(params.groupId)}`);
-  }
   await uploadAvatar(
     nt,
     pid,
@@ -124,7 +123,9 @@ async function uploadAvatar(
   if (image.width <= 0 || image.height <= 0 || image.width > 16384 || image.height > 16384)
     throw new Error('无法识别头像图片或像素尺寸过大');
   const hashes = computeHashes(bytes);
+  params.beforeSend?.();
   const session = await fetchHighwaySession(nt, pid);
+  params.beforeSend?.();
   await uploadHighwayHttp({
     session,
     uin: String(params.uin),

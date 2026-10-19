@@ -14,6 +14,7 @@
 import { message } from '../protobuf';
 import { invokeOidb, type OidbSpec } from './invoke';
 import type { OidbNative } from '../transport';
+import { requireUint32 } from './write-validation';
 
 const ESSENCE_REQ = message([
   { name: 'groupUin', tag: 1, type: 'uint32' },
@@ -49,13 +50,11 @@ export namespace SetGroupEssence {
   export const resolveSubCommand = (p: Params): number => (p.enable ? 1 : 2);
 
   export const serialize = (p: Params): Record<string, unknown> => {
-    if (!Number.isSafeInteger(p.groupId) || p.groupId <= 0) {
-      throw new Error(`groupId 必须是正整数，收到 ${String(p.groupId)}`);
-    }
-    if (!Number.isSafeInteger(p.sequence) || p.sequence <= 0) {
-      throw new Error(`sequence 必须是正整数，收到 ${String(p.sequence)}`);
-    }
-    return { groupUin: p.groupId, sequence: p.sequence, random: p.random };
+    return {
+      groupUin: requireUint32(p.groupId, 'groupId'),
+      sequence: requireUint32(p.sequence, 'sequence'),
+      random: requireUint32(p.random, 'random', true),
+    };
   };
 
   export const deserialize = (_body: Record<string, unknown>): void => {};

@@ -14,6 +14,7 @@
 import { message } from '../protobuf';
 import { invokeOidb, type OidbSpec } from './invoke';
 import type { OidbNative } from '../transport';
+import { requireUint32, requireUid, requireInt32 } from './write-validation';
 
 /** 「永久」常量（wire 上就是 -1 的 int32）。 */
 export const SPECIAL_TITLE_PERMANENT = -1;
@@ -53,15 +54,11 @@ export namespace SetGroupSpecialTitle {
   export type Params = SetGroupSpecialTitleParams;
 
   export const serialize = (p: Params): Record<string, unknown> => {
-    if (!Number.isSafeInteger(p.groupId) || p.groupId <= 0) {
-      throw new Error(`groupId 必须是正整数，收到 ${String(p.groupId)}`);
-    }
-    if (!p.targetUid) throw new Error('targetUid 不能为空');
-    const expireTime = p.expireTime ?? SPECIAL_TITLE_PERMANENT;
+    const expireTime = requireInt32(p.expireTime ?? SPECIAL_TITLE_PERMANENT, 'expireTime');
     return {
-      groupUin: p.groupId,
+      groupUin: requireUint32(p.groupId, 'groupId'),
       body: {
-        targetUid: p.targetUid,
+        targetUid: requireUid(p.targetUid),
         specialTitle: p.title,
         expireTime,
         // uinName 必须镜像 specialTitle，否则服务端静默不生效。

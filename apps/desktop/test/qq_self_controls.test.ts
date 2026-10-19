@@ -1,8 +1,14 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SelfQQControls } from '../src/renderer/src/components/settings/SelfQQControls';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
+import { TitleBar } from '../src/renderer/src/im-template/template/TitleBar';
+import type { User } from '../src/renderer/src/im-template/template/types';
+
+vi.mock('../src/renderer/src/components/Dialog', () => ({
+  Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
+}));
 
 const state = vi.hoisted(() => ({
   configId: 'source-a',
@@ -56,17 +62,26 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 }));
 
 const cleanup: Array<() => void> = [];
-function fixture() {
+function fixture(titleBar = false) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = () => act(() => root.render(h(SelfQQControls)));
+  const user: User = {
+    id: 'self',
+    identityLabel: 'QQ',
+    identityValue: '10001',
+    username: '自己',
+    displayName: '自己',
+    avatarUrl: null,
+  };
+  const render = () =>
+    act(() => root.render(titleBar ? h(TitleBar, { user: { ...user } }) : h(SelfQQControls)));
   cleanup.push(() => {
     act(() => root.unmount());
     host.remove();
   });
   render();
-  return { host, render };
+  return { host, render, user };
 }
 function input(host: HTMLElement, name: string, value: string) {
   const field = host.querySelector<HTMLInputElement>(`[aria-label="${name}"]`)!;
@@ -87,6 +102,30 @@ afterEach(() => {
 });
 
 describe('个人资料编辑入口', () => {
+  it('标题栏头像打开真实资料编辑器，关闭后重新打开不保留草稿', async () => {
+    const f = fixture(true);
+    expect(f.host.querySelector('[role="dialog"]')).toBeNull();
+    const open = () =>
+      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="编辑 QQ 资料"]')!.click());
+    open();
+    input(f.host, 'QQ 昵称', '从标题栏修改');
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存QQ 昵称"]')!.click(),
+    );
+    expect(state.mutate).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      patch: { nickname: '从标题栏修改' },
+    });
+    input(f.host, 'QQ 昵称', '关闭时丢弃的草稿');
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="关闭资料编辑"]')!.click());
+    expect(f.host.querySelector('[role="dialog"]')).toBeNull();
+    open();
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="QQ 昵称"]')!.value).toBe('原昵称');
+    f.user.identityValue = '10002';
+    f.render();
+    expect(f.host.querySelector('[role="dialog"]')).toBeNull();
+  });
   it('修改昵称只提交昵称，不带旧签名和性别', async () => {
     const f = fixture();
     input(f.host, 'QQ 昵称', '新昵称');

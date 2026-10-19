@@ -135,6 +135,7 @@ export class QQKernelHost {
   private startupStarted = false;
   private authenticationRequested = false;
   private hasQrSession = false;
+  private cancellingQrForRefresh = false;
 
   constructor(
     private readonly api: Handle,
@@ -266,6 +267,8 @@ export class QQKernelHost {
     });
     listener.onQRCodeSessionUserScaned = this.guard(() => this.emit({ type: 'scanned' }));
     listener.onQRCodeSessionFailed = this.guard((kind, code) => {
+      // 主动刷新同步取消旧轮询；只忽略本次调用中的已知取消码。
+      if (this.cancellingQrForRefresh && kind === 7 && code === 4) return;
       if (kind === 1 && code === 3) this.emit({ type: 'qr-expired' });
       else this.fail('qr-session-failed', '二维码登录未完成，请重新获取二维码');
     });
@@ -343,7 +346,15 @@ export class QQKernelHost {
   refreshQr(): void {
     if (!this.login || this.stopped || this.account) return;
     if (!this.connected) throw new Error('QQ 登录连接尚未就绪');
-    if (this.hasQrSession) call(this.login, 'abortPolling');
+    if (this.hasQrSession) {
+      this.cancellingQrForRefresh = true;
+      try {
+        call(this.login, 'abortPolling');
+      } finally {
+        this.cancellingQrForRefresh = false;
+      }
+    }
+    if (this.stopped || this.account) return;
     this.authenticationRequested = true;
     this.hasQrSession = true;
     if (call(this.login, 'getQRCodePicture') === false) {

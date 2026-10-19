@@ -13,6 +13,7 @@
 import { message } from '../protobuf';
 import { invokeOidb, type OidbSpec } from './invoke';
 import type { OidbNative } from '../transport';
+import { requireUint32 } from './write-validation';
 
 /** 0x89A_15 inner body：groupUin + body{ targetName }。 */
 const RENAME_GROUP_BODY = message([{ name: 'targetName', tag: 3, type: 'string' }]);
@@ -42,11 +43,8 @@ export namespace SetGroupName {
   export type Params = SetGroupNameParams;
 
   export const serialize = (p: Params): Record<string, unknown> => {
-    if (!Number.isSafeInteger(p.groupId) || p.groupId <= 0) {
-      throw new Error(`groupId 必须是正整数，收到 ${String(p.groupId)}`);
-    }
     if (!p.name.trim()) throw new Error('name（群名称）不能为空');
-    return { groupUin: p.groupId, body: { targetName: p.name } };
+    return { groupUin: requireUint32(p.groupId, 'groupId'), body: { targetName: p.name } };
   };
 
   /** 空 ack，无字段可解。 */

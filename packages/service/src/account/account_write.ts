@@ -109,12 +109,26 @@ export class AccountWriteService {
   }
 
   async selfAvatar(source: string): Promise<AccountWriteOutcome> {
-    await setSelfAvatar(this.nt, this.resolvePid(), { uin: this.identity.uin, source });
+    const pid = this.resolvePid();
+    await setSelfAvatar(this.nt, pid, {
+      uin: this.identity.uin,
+      source,
+      beforeSend: () => this.assertCurrentPid(pid),
+    });
     return { state: 'accepted' };
   }
 
   async groupAvatar(groupId: number, source: string): Promise<AccountWriteOutcome> {
-    await setGroupAvatar(this.nt, this.resolvePid(), { groupId, uin: this.identity.uin, source });
+    const pid = this.resolvePid();
+    await setGroupAvatar(this.nt, pid, {
+      groupId,
+      uin: this.identity.uin,
+      source,
+      beforeSend: () => this.assertCurrentPid(pid),
+    });
     return { state: 'accepted' };
+  }
+  private assertCurrentPid(pid: number): void {
+    if (this.resolvePid() !== pid) throw new Error('QQ 运行时已切换，请重新操作');
   }
 }
