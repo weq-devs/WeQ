@@ -7,7 +7,19 @@ textarea.weq-qq-write-input { resize: vertical; min-height: 68px; max-height: 18
 .weq-qq-write-input:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: 1px; }
 .weq-qq-write-input:disabled { opacity: .55; }
 .weq-qq-write-field > button { width: 30px; height: 30px; flex-shrink: 0; }
+.weq-qq-write-field > .weq-qq-write-face-trigger { display: flex; align-items: center; gap: 8px; flex: 1; width: auto; min-width: 0; height: 40px; padding: 6px 8px; border: 1px solid var(--weq-border-strong); border-radius: 6px; color: var(--weq-fg-primary); background: var(--weq-bg-surface); cursor: pointer; }
+.weq-qq-write-face-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.weq-qq-write-face-trigger > svg, .weq-qq-write-face-trigger > .face-emoji { flex-shrink: 0; }
+.weq-qq-write-face-trigger > svg:last-child { margin-left: auto; }
+.weq-qq-write-face-trigger:disabled { opacity: .55; cursor: default; }
+.weq-qq-write-face-trigger:focus-visible, .weq-qq-write-face-picker .weq-face-cell:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: 1px; }
+.weq-qq-write-face-picker { height: 230px; max-height: 45dvh; min-width: 0; border: 1px solid var(--weq-border-subtle); border-radius: 6px; background: var(--weq-bg-surface); }
+.weq-qq-write-face-picker .weq-face-search { margin: 8px; min-width: 0; }
+.weq-qq-write-face-picker .weq-face-search-input { min-width: 0; width: 100%; }
+.weq-qq-write-face-picker .weq-face-cell[aria-pressed="true"] { background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent); }
+html[data-theme="dark"] .weq-qq-write-face-trigger { border-color: var(--weq-border-strong); background: var(--weq-bg-surface); }
 .weq-qq-write-custom { display: grid; gap: 8px; width: 240px; max-width: 100%; min-width: 0; }
+.weq-qq-write-panel .weq-set-row:has(.weq-qq-write-custom) { align-items: flex-start; }
 .weq-qq-member-edit { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--weq-border-subtle); font-size: 13px; }
 .weq-qq-member-edit > summary { cursor: pointer; color: var(--weq-fg-secondary); }
 .weq-qq-member-edit .weq-set-row { flex-wrap: wrap; gap: 8px; }

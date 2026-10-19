@@ -24,14 +24,28 @@ export interface FaceChoice {
   faceText: string;
 }
 
-export function FacePicker({ onPick }: { onPick: (choice: FaceChoice) => void }): ReactElement {
+export function FacePicker({
+  onPick,
+  purpose = 'message',
+  selectedFaceId,
+}: {
+  onPick: (choice: FaceChoice) => void;
+  purpose?: 'message' | 'status';
+  selectedFaceId?: number;
+}): ReactElement {
   const query = trpc.account.getSystemFaces.useQuery(undefined, { staleTime: Infinity });
   const [kw, setKw] = useState('');
 
   const groups = useMemo(() => {
     const faces = (query.data ?? [])
+      // 状态接口只接受经典表情的原始 QSid，不能套用消息的 Unicode 编号。
+      .filter(
+        (f) =>
+          purpose !== 'status' ||
+          (f.emojiType === 1 && Number.isInteger(f.id) && f.id >= 0 && f.id <= 0xffffffff),
+      )
       .map((f) => ({
-        faceId: f.unicodeId && f.unicodeId > 0 ? f.unicodeId : f.id,
+        faceId: purpose === 'status' ? f.id : f.unicodeId && f.unicodeId > 0 ? f.unicodeId : f.id,
         faceText: f.desc,
         emojiType: f.emojiType || 1,
       }))
@@ -46,7 +60,7 @@ export function FacePicker({ onPick }: { onPick: (choice: FaceChoice) => void })
       label: GROUP_LABEL[type] ?? '其他',
       items: filtered.filter((f) => f.emojiType === type),
     })).filter((g) => g.items.length > 0);
-  }, [query.data, kw]);
+  }, [query.data, kw, purpose]);
 
   return (
     <div className="weq-face-picker">
@@ -54,6 +68,7 @@ export function FacePicker({ onPick }: { onPick: (choice: FaceChoice) => void })
         <Search size={14} />
         <input
           className="weq-face-search-input"
+          aria-label="搜索表情"
           placeholder="搜索表情"
           value={kw}
           onChange={(e) => setKw(e.target.value)}
@@ -76,6 +91,10 @@ export function FacePicker({ onPick }: { onPick: (choice: FaceChoice) => void })
                     type="button"
                     className="weq-face-cell"
                     title={f.faceText}
+                    aria-label={f.faceText}
+                    aria-pressed={
+                      selectedFaceId === undefined ? undefined : selectedFaceId === f.faceId
+                    }
                     onClick={() => onPick({ faceId: f.faceId, faceText: f.faceText })}
                   >
                     <FaceEmoji element={{ faceId: f.faceId, faceText: f.faceText }} size={26} />

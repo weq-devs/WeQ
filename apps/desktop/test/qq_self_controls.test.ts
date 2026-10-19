@@ -56,7 +56,15 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         onlineStatus: { useMutation: () => ({ mutateAsync: state.mutate }) },
       },
       pickSendFile: { useMutation: () => ({ mutateAsync: async () => null }) },
-      getSystemFaces: { useQuery: () => ({ data: [{ id: 0, desc: '[微笑]', emojiType: 1 }] }) },
+      getSystemFaces: {
+        useQuery: () => ({
+          data: [
+            { id: 0, desc: '[微笑]', emojiType: 1, unicodeId: 0 },
+            { id: 14, desc: '[呲牙]', emojiType: 1, unicodeId: 128512 },
+            { id: 99, desc: '[动态]', emojiType: 3, unicodeId: 0 },
+          ],
+        }),
+      },
     },
   },
 }));
@@ -142,11 +150,23 @@ describe('个人资料编辑入口', () => {
   it('状态表情使用本机目录的 QSid，并保留 0 号表情', async () => {
     const f = fixture();
     input(f.host, '自定义状态文字', '测试状态');
-    const select = f.host.querySelector<HTMLSelectElement>('[aria-label="状态表情"]')!;
-    act(() => {
-      select.value = '0';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="状态表情"]')!.click());
+    expect(f.host.querySelector('[title="[动态]"]')).toBeNull();
+    act(() => f.host.querySelector<HTMLButtonElement>('button[title="[微笑]"]')!.click());
+    expect(f.host.querySelector('[aria-label="状态表情"] img')?.getAttribute('src')).toContain(
+      '/0/apng/0.png',
+    );
+    expect(f.host.querySelector('.weq-face-picker')).toBeNull();
+    expect(state.mutate).not.toHaveBeenCalled();
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="状态表情"]')!.click());
+    expect(f.host.querySelector('button[title="[微笑]"][aria-pressed="true"]')).not.toBeNull();
+    act(() =>
+      f.host
+        .querySelector('[aria-label="搜索表情"]')!
+        .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    );
+    expect(f.host.querySelector('.weq-face-picker')).toBeNull();
+    expect(document.activeElement).toBe(f.host.querySelector('[aria-label="状态表情"]'));
     await act(async () =>
       f.host.querySelector<HTMLButtonElement>('[aria-label="保存自定义状态"]')!.click(),
     );
@@ -156,6 +176,27 @@ describe('个人资料编辑入口', () => {
       status: 10,
       extStatus: 2000,
       custom: { faceId: 0, faceType: 1, wording: '测试状态' },
+    });
+  });
+  it('状态选择器可搜索图片表情，提交 QSid 而非 Unicode 编号', async () => {
+    const f = fixture();
+    input(f.host, '自定义状态文字', '新的状态');
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="状态表情"]')!.click());
+    input(f.host, '搜索表情', '呲牙');
+    expect(f.host.querySelectorAll('.weq-face-cell')).toHaveLength(1);
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-face-cell')!.click());
+    expect(f.host.querySelector('[aria-label="状态表情"] img')?.getAttribute('src')).toContain(
+      '/14/apng/14.png',
+    );
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存自定义状态"]')!.click(),
+    );
+    expect(state.mutate).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      status: 10,
+      extStatus: 2000,
+      custom: { faceId: 14, faceType: 1, wording: '新的状态' },
     });
   });
   it('同号切换数据源不携带上一个现场的未提交状态', () => {

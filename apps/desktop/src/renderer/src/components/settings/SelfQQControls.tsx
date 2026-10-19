@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import { ImageUp, RefreshCw, Save, X } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { ChevronDown, ImageUp, RefreshCw, Save, Smile, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { Card, Row } from './controls';
+import { FacePicker } from '../compose/FacePicker';
+import { FaceEmoji } from '../FaceEmoji';
 import {
   QQWriteActionRow,
   QQWriteResult,
@@ -33,15 +35,23 @@ export function SelfQQControls() {
   const [error, setError] = useState('');
   const [wording, setWording] = useState('');
   const [faceId, setFaceId] = useState('');
+  const [choosingFace, setChoosingFace] = useState(false);
+  const facePickerId = useId();
+  const faceTrigger = useRef<HTMLButtonElement>(null);
+  const facePanel = useRef<HTMLDivElement>(null);
   const identityKey = `${session.binding?.expectedAccountUin}:${session.binding?.expectedAccountConfigId}`;
   const currentIdentity = useRef(identityKey);
   currentIdentity.current = identityKey;
   useEffect(() => {
     setWording('');
     setFaceId('');
+    setChoosingFace(false);
     setError('');
   }, [identityKey]);
   const disabled = !session.available || session.busy || picking;
+  useEffect(() => {
+    if (choosingFace && !disabled) facePanel.current?.scrollIntoView({ block: 'nearest' });
+  }, [choosingFace, disabled]);
   async function refresh() {
     const updated = await profile.refetch();
     if (updated.error) throw updated.error;
@@ -62,8 +72,10 @@ export function SelfQQControls() {
     }
   }
   const statusFaces = (faces.data ?? []).filter(
-    (face) => face.emojiType === 1 && face.id >= 0 && face.id <= 0xffffffff,
+    (face) =>
+      face.emojiType === 1 && Number.isInteger(face.id) && face.id >= 0 && face.id <= 0xffffffff,
   );
+  const selectedFace = statusFaces.find((face) => String(face.id) === faceId);
   const customValid =
     wording.trim().length > 0 &&
     faceId !== '' &&
@@ -165,22 +177,32 @@ export function SelfQQControls() {
                   onChange={(event) => setWording(event.target.value)}
                 />
                 <div className="weq-qq-write-field">
-                  <select
+                  <button
+                    ref={faceTrigger}
+                    type="button"
                     aria-label="状态表情"
-                    className="weq-qq-write-input"
-                    value={faceId}
+                    title={selectedFace?.desc ?? '选择状态表情'}
+                    className="weq-qq-write-face-trigger"
+                    aria-expanded={choosingFace && !disabled}
+                    aria-controls={facePickerId}
                     disabled={disabled || statusFaces.length === 0}
-                    onChange={(event) => setFaceId(event.target.value)}
+                    onClick={() => setChoosingFace((value) => !value)}
                   >
-                    <option value="">
-                      {statusFaces.length ? '选择表情' : '本机表情目录不可用'}
-                    </option>
-                    {statusFaces.map((face) => (
-                      <option key={face.id} value={face.id}>
-                        {face.desc}
-                      </option>
-                    ))}
-                  </select>
+                    {selectedFace ? (
+                      <FaceEmoji
+                        key={selectedFace.id}
+                        element={{ faceId: selectedFace.id, faceText: selectedFace.desc }}
+                        size={24}
+                      />
+                    ) : (
+                      <Smile size={24} aria-hidden />
+                    )}
+                    <span>
+                      {selectedFace?.desc ??
+                        (statusFaces.length ? '选择表情' : '本机表情目录不可用')}
+                    </span>
+                    <ChevronDown size={14} aria-hidden />
+                  </button>
                   <button
                     type="button"
                     className="weq-set-iconbtn"
@@ -201,6 +223,32 @@ export function SelfQQControls() {
                     <Save size={16} />
                   </button>
                 </div>
+                {choosingFace && !disabled && (
+                  <div
+                    ref={facePanel}
+                    id={facePickerId}
+                    className="weq-qq-write-face-picker"
+                    role="group"
+                    aria-label="状态表情选择"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        event.stopPropagation();
+                        setChoosingFace(false);
+                        faceTrigger.current?.focus();
+                      }
+                    }}
+                  >
+                    <FacePicker
+                      purpose="status"
+                      selectedFaceId={selectedFace?.id}
+                      onPick={(face) => {
+                        setFaceId(String(face.faceId));
+                        setChoosingFace(false);
+                        faceTrigger.current?.focus();
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             }
           />
