@@ -193,6 +193,19 @@ export class InteractionService {
     });
   }
 
+  async submitGroupJoinRequest(
+    params: SendGroupJoinRequestServiceParams,
+  ): Promise<'accepted' | 'unconfirmed'> {
+    const groupCode = Number(params.groupCode);
+    if (!Number.isSafeInteger(groupCode) || groupCode <= 0 || !params.authKey)
+      throw new Error('加群参数不完整');
+    return SendGroupJoinRequest.invokeWithOutcome(this.nt, this.resolvePid(), {
+      groupCode,
+      authKey: params.authKey,
+      answer: params.answer,
+    });
+  }
+
   /** 把纯数字目标解析成 uin；非纯数字按 uid 反查本地 uid 目录。 */
   private resolveUin(input: string, what: string): number {
     const text = input.trim();

@@ -38,8 +38,8 @@
 //     - ⚠️ 注意「短信验证」不是错误码：它是 errorCode=0 的**成功**回包，body 里带挑战链接。
 //       本 spec 按空 ack 处理（不解析 body），所以拿不到那条链接；需要识别它得另加 respSchema。
 
-import { message } from '../../protobuf';
-import type { OidbNative } from '../../transport';
+import { encode, message } from '../../protobuf';
+import { sendOidb, type OidbNative } from '../../transport';
 import { invokeOidb, type OidbSpec } from '../invoke';
 
 /** 灰条富文本（f4）：服务端不校验内容，这里照抄抓包里的「新人入群」模板。 */
@@ -139,4 +139,21 @@ export namespace SendGroupJoinRequest {
     params: SendGroupJoinRequestParams,
   ): Promise<void> =>
     invokeOidb(nt, pid, SendGroupJoinRequest as OidbSpec<SendGroupJoinRequestParams, void>, params);
+
+  /** 非空回包可能携带安全挑战；未建模时不能把外层零码当成申请成功。 */
+  export async function invokeWithOutcome(
+    nt: OidbNative,
+    pid: number,
+    params: Params,
+  ): Promise<'accepted' | 'unconfirmed'> {
+    const raw = await sendOidb(
+      nt,
+      pid,
+      { command, subCommand, body: encode(reqSchema, serialize(params)) },
+      needSign,
+    );
+    return raw.length === 0 || (raw.length === 2 && raw[0] === 0x12 && raw[1] === 0)
+      ? 'accepted'
+      : 'unconfirmed';
+  }
 }

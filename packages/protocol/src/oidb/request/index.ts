@@ -32,3 +32,5 @@ export type {
   RejectDoubtFriendRequestParams,
   ApproveDoubtFriendRequestParams,
 } from './friend-requests';
+export { GetGroupJoinInfo } from './get-group-join-info';
+export type { GroupJoinInfo } from './get-group-join-info';

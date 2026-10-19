@@ -4,7 +4,11 @@
 
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
-import { FetchGroupMemberListPage, type GroupMemberListItem } from '@weq/protocol';
+import {
+  FetchGroupMemberListPage,
+  GetGroupJoinInfo,
+  type GroupMemberListItem,
+} from '@weq/protocol';
 
 /** 在线群成员缓存时长：0xFE7_3 高频会风控，60s 是 SnowLuma 验证过的折中值。 */
 const ONLINE_MEMBERS_TTL_MS = 60_000;
@@ -261,6 +265,11 @@ export class GroupInfoService {
     },
   ) {
     this.groupNotifyService = new GroupNotifyService(session);
+  }
+
+  async getJoinInfo(groupId: number) {
+    if (!this.online) throw new Error('QQ 在线能力未就绪');
+    return GetGroupJoinInfo.invoke(this.online.nt, this.online.resolvePid(), { groupId });
   }
 
   /**
