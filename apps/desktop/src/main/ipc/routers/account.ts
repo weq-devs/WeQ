@@ -5497,15 +5497,20 @@ export const accountRouter = router({
     }),
 
   /**
-   * Start a contacts export — 好友列表（scope='friends'，可按分组过滤）或某群的
-   * 成员列表（scope='group'，`groupCode` 必填）。走本地资料库，无需在线 QQ。
-   * 好友支持 vcard；群成员不支持 vcard。
+   * 名单导出：好友（friends）、群成员（group，groupCode 必填）、群聊（groups）。
+   * 走本地资料库，无需在线 QQ；只有好友名单支持 vcard，群聊目录不下载联系人头像。
    */
   startContactsExport: procedure
     .input(
       z.object({
         savePolicy: exportSavePolicyInput.optional(),
-        scope: z.enum(['friends', 'group']),
+        scope: z.enum(['friends', 'group', 'groups']),
+        expectedAccountUin: z.string().min(1).optional(),
+        expectedAccountConfigId: z.string().min(1).optional(),
+        groupIds: z
+          .array(z.string().regex(/^[1-9]\d*$/))
+          .min(1)
+          .optional(),
         groupCode: z.string().optional(),
         name: z.string().min(1),
         format: z.enum(['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard']),
@@ -5520,16 +5525,27 @@ export const accountRouter = router({
       if (input.scope === 'group' && !input.groupCode) {
         throw new Error('导出群成员需要指定群号。');
       }
+      if (
+        input.scope === 'groups' &&
+        (input.exportAvatar || input.uids || input.categoryIds || input.groupCode)
+      )
+        throw new Error('群聊名单导出不接受联系人范围或头像下载选项。');
+      if (input.scope !== 'groups' && input.groupIds)
+        throw new Error('群号列表仅用于群聊名单导出。');
       // vcard 仅好友可用；群成员传 vcard 时回退到 csv。
-      const format = input.scope === 'group' && input.format === 'vcard' ? 'csv' : input.format;
+      const format = input.scope !== 'friends' && input.format === 'vcard' ? 'csv' : input.format;
       const formats = (input.formats ?? [input.format]).map((f) =>
-        input.scope === 'group' && f === 'vcard' ? 'csv' : f,
+        input.scope !== 'friends' && f === 'vcard' ? 'csv' : f,
       ) as Array<'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt' | 'vcard'>;
-      return requireServices().exportManager.startTask({
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).exportManager.startTask({
         contacts: {
           scope: input.scope,
           ...(input.categoryIds ? { categoryIds: input.categoryIds } : {}),
           ...(input.uids ? { uids: input.uids } : {}),
+          ...(input.groupIds ? { groupIds: input.groupIds } : {}),
         },
         kind: 'c2c',
         savePolicy: input.savePolicy,

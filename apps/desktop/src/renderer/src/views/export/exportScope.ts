@@ -42,7 +42,8 @@ export function initialGuildScope(selection?: ContentSelection): {
 }
 
 export function initialContactScope(selection?: ContentSelection): {
-  scope: 'friends' | 'group';
+  scope: 'friends' | 'group' | 'groups';
+  groupListIds?: string[];
   friendUids?: string[];
   groupIds: string[];
   memberUids: Record<string, string[]>;
@@ -50,6 +51,8 @@ export function initialContactScope(selection?: ContentSelection): {
   if (selection?.owner.kind !== 'contacts')
     return { scope: 'friends', groupIds: [], memberUids: {} };
   const ids = selection.scope.type === 'items' ? [...new Set(selection.scope.ids)] : undefined;
+  if (selection.owner.container === 'group-list')
+    return { scope: 'groups', groupIds: [], memberUids: {}, ...(ids ? { groupListIds: ids } : {}) };
   if (selection.owner.container === 'groups')
     return { scope: 'group', groupIds: ids ?? [], memberUids: {} };
   if (selection.owner.container.startsWith('group:')) {

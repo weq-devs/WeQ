@@ -9,6 +9,23 @@ import {
 import type { ContentSelection } from '../src/shared/content_selection';
 
 describe('统一导出的上下文草稿', () => {
+  it('群聊名单与群成员名单使用不同容器，空的精确选择不降级为全量', () => {
+    const all: ContentSelection = {
+      owner: { kind: 'contacts', container: 'group-list' },
+      scope: { type: 'all' },
+    };
+    expect(initialExportMode(all)).toBe('contacts');
+    expect(initialContactScope(all)).toEqual({ scope: 'groups', groupIds: [], memberUids: {} });
+    expect(initialContactScope({ ...all, scope: { type: 'items', ids: [] } })).toEqual({
+      scope: 'groups',
+      groupIds: [],
+      memberUids: {},
+      groupListIds: [],
+    });
+    const selected = initialContactScope({ ...all, scope: { type: 'items', ids: ['123', '123'] } });
+    expect(selected.groupListIds).toEqual(['123']);
+    expect(selected.memberUids).toEqual({});
+  });
   it('空间按 UIN 与精确 tid 复制，非好友和空集合都不退回普通聊天', () => {
     const selection: ContentSelection = {
       owner: { kind: 'qzone-posts', container: '19999' },

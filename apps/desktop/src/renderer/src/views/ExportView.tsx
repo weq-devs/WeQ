@@ -136,7 +136,7 @@ const MODES: ModeDef[] = [
   {
     id: 'contacts',
     label: '导出联系人',
-    desc: '联系人名单 / 群成员名单',
+    desc: '联系人名单 / 群聊名单 / 群成员名单',
     icon: <Contact size={18} />,
   },
   { id: 'collection', label: '导出收藏', desc: 'QQ 收藏导出为表格', icon: <Bookmark size={18} /> },
@@ -343,7 +343,7 @@ export function ExportTool({
     initialMode === 'scheduled' ? 'full' : (initialMode ?? initialExportMode(initialSelection)),
   );
   const qzoneAccount = trpc.account.getAccountConfig.useQuery(undefined, {
-    enabled: active && surface === 'export' && mode === 'qzone',
+    enabled: active && surface === 'export' && (mode === 'qzone' || mode === 'contacts'),
   });
   const conversations = trpc.account.listConversationsWithCount.useQuery(undefined, {
     enabled: active && surface === 'export' && (mode === 'full' || mode === 'qzone'),
@@ -404,7 +404,12 @@ export function ExportTool({
   const [autoSelectTaskId, setAutoSelectTaskId] = useState<string | null>(null);
   /** 导出联系人：好友 or 群成员。 */
   const [contactInitial] = useState(() => initialContactScope(initialSelection));
-  const [contactScope, setContactScope] = useState<'friends' | 'group'>(contactInitial.scope);
+  const [contactScope, setContactScope] = useState<'friends' | 'group' | 'groups'>(
+    contactInitial.scope,
+  );
+  const [groupListIds, setGroupListIds] = useState<string[] | undefined>(
+    contactInitial.groupListIds,
+  );
   const [friendUids, setFriendUids] = useState<string[] | undefined>(contactInitial.friendUids);
   /** 好友导出：选中的分组 id（空 = 全部好友）。 */
   const [catSelection, setCatSelection] = useState<Set<number>>(new Set());
@@ -420,7 +425,7 @@ export function ExportTool({
     enabled:
       active &&
       surface === 'export' &&
-      ((mode === 'contacts' && contactScope === 'group') ||
+      ((mode === 'contacts' && contactScope !== 'friends') ||
         mode === 'album' ||
         mode === 'groupfile'),
   });
@@ -847,6 +852,7 @@ export function ExportTool({
       )
         return;
       if (contactScope === 'friends' && friendUids?.length === 0) return;
+      if (contactScope === 'groups' && groupListIds?.length === 0) return;
       setLightbox('contacts');
       return;
     }
@@ -933,9 +939,16 @@ export function ExportTool({
 
   /** 导出联系人：好友列表（可按分组过滤）或某群成员列表；灯箱多选格式 + 可选头像。 */
   async function runContactsExport(options: ExportOptions, formats: ExportFormat[]): Promise<void> {
+    const account = qzoneAccount.data;
+    if (!account?.uin || !account.configId) {
+      dialog.error('账号资料尚未就绪', '请稍后重试。');
+      return;
+    }
+    const binding = { expectedAccountUin: account.uin, expectedAccountConfigId: account.configId };
     // 联系人格式收窄到 startContactsExport 接受的集合（灯箱 chips 已保证）。
     const cfmts = [...formats] as Array<'json' | 'jsonl' | 'csv' | 'xlsx' | 'txt' | 'vcard'>;
     const cats = [...catSelection];
+    const groupIds = groupListIds === undefined ? undefined : [...groupListIds];
     const selectedFriends = friendUids === undefined ? undefined : [...friendUids];
     const selectedGroups = [...contactGroupIds].map((id) => ({
       id,
@@ -945,10 +958,21 @@ export function ExportTool({
     setSubmitting(true);
     try {
       const savePolicy = await prepareSave();
-      if (!savePolicy) return;
+      if (!savePolicy || !isCurrent()) return;
       // 多格式合并为同一个任务：所有格式写进同一 bundle，头像只带一份。
-      if (contactScope === 'friends') {
+      if (contactScope === 'groups') {
         await client.account.startContactsExport.mutate({
+          ...binding,
+          savePolicy,
+          scope: 'groups',
+          name: groupIds ? `群聊名单_${groupIds.length}个群` : '全部群聊名单',
+          groupIds,
+          format: cfmts[0] === 'vcard' ? 'csv' : (cfmts[0] ?? 'csv'),
+          formats: cfmts.map((f) => (f === 'vcard' ? 'csv' : f)),
+        });
+      } else if (contactScope === 'friends') {
+        await client.account.startContactsExport.mutate({
+          ...binding,
           savePolicy,
           scope: 'friends',
           name: selectedFriends
@@ -969,6 +993,7 @@ export function ExportTool({
         for (const g of selectedGroups) {
           if (!isCurrent()) return;
           await client.account.startContactsExport.mutate({
+            ...binding,
             savePolicy,
             scope: 'group',
             groupCode: g.id,
@@ -1385,7 +1410,9 @@ export function ExportTool({
           : mode === 'qzone'
             ? '导出空间'
             : mode === 'contacts'
-              ? '导出联系人'
+              ? contactScope === 'groups'
+                ? '导出群聊名单'
+                : '导出联系人'
               : mode === 'collection'
                 ? '导出收藏'
                 : '导出';
@@ -1404,7 +1431,9 @@ export function ExportTool({
             ? contactScope === 'group'
               ? !contactGroupIds.size ||
                 [...contactGroupIds].some((id) => memberUids[id]?.length === 0)
-              : friendUids?.length === 0
+              : contactScope === 'groups'
+                ? groupListIds?.length === 0 || groups.isError || groups.isLoading
+                : friendUids?.length === 0
             : mode === 'collection'
               ? collectionLoading || (collectionIds ?? filteredCollectionIds).length === 0
               : mode === 'guild'
@@ -1430,6 +1459,8 @@ export function ExportTool({
       return g ? `群相册 · ${g.name}` : '群相册';
     }
     if (lightbox === 'contacts') {
+      if (contactScope === 'groups')
+        return groupListIds ? `已选 ${groupListIds.length} 个群聊` : '全部本地群聊名单';
       if (contactScope === 'group') {
         return `${contactGroupIds.size} 个群`;
       }
@@ -1453,7 +1484,9 @@ export function ExportTool({
             : lightbox === 'contacts'
               ? contactScope === 'friends'
                 ? '导出好友列表'
-                : '导出群成员列表'
+                : contactScope === 'groups'
+                  ? '导出群聊名单'
+                  : '导出群成员列表'
               : '导出聊天记录';
 
   return (
@@ -1688,16 +1721,17 @@ export function ExportTool({
               ) : mode === 'contacts' ? (
                 <div className="weq-exp-contacts">
                   <div className="weq-exp-contacts-switch">
-                    <Segmented<'friends' | 'group'>
+                    <Segmented<'friends' | 'group' | 'groups'>
                       value={contactScope}
                       onChange={setContactScope}
                       options={[
-                        { value: 'friends', label: '好友', icon: <UserRound size={13} /> },
+                        { value: 'friends', label: '联系人名单', icon: <UserRound size={13} /> },
+                        { value: 'groups', label: '群聊名单', icon: <Users size={13} /> },
                         { value: 'group', label: '群成员名单', icon: <Users size={13} /> },
                       ]}
                     />
                   </div>
-                  {contactScope === 'group' && groups.isError ? (
+                  {contactScope !== 'friends' && groups.isError ? (
                     <div className="weq-search-failure" role="status">
                       <span>群目录读取失败</span>
                       <button
@@ -1737,6 +1771,14 @@ export function ExportTool({
                         }
                       />
                     </>
+                  ) : contactScope === 'groups' ? (
+                    <ConversationPicker
+                      items={groupItems}
+                      loading={groups.isLoading}
+                      selected={new Set(groupListIds ?? groupItems.map((item) => item.id))}
+                      onChange={(ids) => setGroupListIds([...ids])}
+                      emptyText="暂无群聊"
+                    />
                   ) : (
                     <div
                       className={`weq-export-message-layout${memberScopeGroup ? ' has-scope' : ''}`}
@@ -1883,9 +1925,13 @@ export function ExportTool({
                         : catSelection.size > 0
                           ? `已选 ${catSelection.size} 个分组 · 灯箱内选择格式与头像`
                           : '全部好友 · 灯箱内选择格式与头像'
-                      : contactGroupIds.size
-                        ? `已选 ${contactGroupIds.size} 个群`
-                        : '请先选择群'}
+                      : contactScope === 'groups'
+                        ? groupListIds
+                          ? `已选 ${groupListIds.length} 个群聊`
+                          : '全部本地群聊名单'
+                        : contactGroupIds.size
+                          ? `已选 ${contactGroupIds.size} 个群`
+                          : '请先选择群'}
                   </span>
                 ) : (
                   <span className="weq-exp-foot-hint">

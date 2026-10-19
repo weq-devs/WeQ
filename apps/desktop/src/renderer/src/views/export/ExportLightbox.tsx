@@ -326,7 +326,7 @@ export function ExportLightbox({
   headline: string;
   summary: string;
   /** 联系人导出范围（决定灯箱内可选格式：好友含 vCard）。 */
-  contactScope?: 'friends' | 'group';
+  contactScope?: 'friends' | 'group' | 'groups';
   calendarTargets?: CalendarTarget[];
   /**
    * 回填的上次配置（可能来自持久化预设 —— 旧版本缺 `onlineTranscribe` 等新字段，
@@ -352,7 +352,10 @@ export function ExportLightbox({
     if (!embedded && !hidden) onClose();
   });
   const pushToast = useToast((s) => s.push);
-  const [opts, setOpts] = useState<ExportOptions>(() => normalizeLightboxOptions(initialOptions));
+  const [opts, setOpts] = useState<ExportOptions>(() => {
+    const value = normalizeLightboxOptions(initialOptions);
+    return contactScope === 'groups' ? { ...value, exportAvatar: false } : value;
+  });
   const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [schedule, setSchedule] = useState<Schedule>(initialSchedule);
   const [path, setPath] = useState<string | null>(null);
@@ -832,12 +835,17 @@ export function ExportLightbox({
                     )}
                   </Card>
                 ) : (
-                  <Card title="导出联系人">
+                  <Card title={contactScope === 'groups' ? '群聊名单' : '导出联系人'}>
                     <div className="weq-exp-placeholder">
-                      <span>导出好友列表 / 群成员列表（QQ号、昵称、备注、分组、角色等）</span>
+                      <span>
+                        {contactScope === 'groups'
+                          ? '群号、群名称、群备注、人数、群主 UID、创建时间与离群标记'
+                          : '导出好友列表 / 群成员列表（QQ号、昵称、备注、分组、角色等）'}
+                      </span>
                       <small>
-                        数据来自本地资料库，无需在线 QQ。开启「导出头像」后，头像存入同目录 avatars/
-                        子文件夹（导出结果保存为文件夹）。
+                        {contactScope === 'groups'
+                          ? '本地群资料目录，创建时间按北京时间记录。'
+                          : '数据来自本地资料库，无需在线 QQ。开启「导出头像」后，头像存入同目录 avatars/ 子文件夹（导出结果保存为文件夹）。'}
                       </small>
                     </div>
                   </Card>
@@ -1065,7 +1073,7 @@ export function ExportLightbox({
                 ) : null}
 
                 {/* 导出内容 */}
-                {!isAlbum ? (
+                {!isAlbum && !(isContacts && contactScope === 'groups') ? (
                   <Card title="导出内容">
                     {isQzone ? (
                       <>
@@ -1095,13 +1103,15 @@ export function ExportLightbox({
                         />
                       </>
                     ) : isContacts ? (
-                      <MasterRow
-                        icon={<UserRound size={17} />}
-                        label="头像"
-                        desc="联系人头像存入 avatars/ 子目录"
-                        checked={opts.exportAvatar}
-                        onChange={(v) => patch({ exportAvatar: v })}
-                      />
+                      contactScope === 'groups' ? null : (
+                        <MasterRow
+                          icon={<UserRound size={17} />}
+                          label="头像"
+                          desc="联系人头像存入 avatars/ 子目录"
+                          checked={opts.exportAvatar}
+                          onChange={(v) => patch({ exportAvatar: v })}
+                        />
+                      )
                     ) : (
                       <>
                         <MasterRow

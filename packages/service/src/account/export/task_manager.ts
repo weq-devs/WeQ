@@ -58,10 +58,13 @@ import { writeFileAtomicSync } from '../../common/atomic_write';
 import {
   collectFriends,
   collectGroupMembers,
+  collectGroupDirectory,
   writeFriends,
   writeGroupMembers,
+  writeGroupDirectory,
   normaliseContactsFormats,
   type ContactsExportDeps,
+  type ContactsExportSelection,
 } from './contacts_export';
 import {
   exportCollections,
@@ -334,9 +337,8 @@ export interface ExportTask {
   qzoneTids?: string[];
   /** 好友空间导出：按 tid 补全评论 / 点赞（空间动态页 HTML 解析，best-effort）。 */
   qzoneInteractions?: boolean;
-  /** 联系人导出（好友列表 / 群成员列表；走独立的资料库拉取流水线）。
-   *  `group` 时 `conv` = 群号；`friends` 时 `conv` 为空。 */
-  contacts?: { scope: 'friends' | 'group'; categoryIds?: number[]; uids?: string[] };
+  /** 名单导出（好友 / 群成员 / 群聊目录）；只有 group 时 conv 为单个群号。 */
+  contacts?: ContactsExportSelection;
   /** 收藏导出（QQ 收藏；走独立的收藏库拉取流水线）。`kinds` 为空 = 全部类型。 */
   collection?: { kinds?: string[]; cids?: string[] };
   /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
@@ -762,7 +764,7 @@ export class ExportTaskManager extends EventEmitter {
     /** 好友空间导出：按 tid 补全评论 / 点赞（需在线 QQ；deps.qzone.fetchInteractions）。 */
     qzoneInteractions?: boolean;
     /** 联系人导出（好友 / 群成员；走独立流水线）。 */
-    contacts?: { scope: 'friends' | 'group'; categoryIds?: number[]; uids?: string[] };
+    contacts?: ContactsExportSelection;
     /** 收藏导出（QQ 收藏；走独立流水线）。 */
     collection?: { kinds?: string[]; cids?: string[] };
     /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
@@ -867,12 +869,20 @@ export class ExportTaskManager extends EventEmitter {
 
     // 联系人导出（好友 / 群成员）是独立流水线（写表 + 可选头像），不复用消息流水线。
     if (opts.contacts) {
+      if (opts.contacts.scope === 'groups' && wantAvatars)
+        throw new Error('群聊名单导出不支持联系人头像下载。');
       const formats = normaliseContactsFormats(
         opts.formats?.length ? opts.formats : [opts.format],
-        opts.contacts.scope === 'group',
+        opts.contacts.scope !== 'friends',
       );
       const cStages: TaskStage[] = [
-        { key: 'message', label: '导出联系人', status: 'pending', current: 0, total: opts.total },
+        {
+          key: 'message',
+          label: opts.contacts.scope === 'groups' ? '导出群聊名单' : '导出联系人',
+          status: 'pending',
+          current: 0,
+          total: opts.total,
+        },
       ];
       if (wantAvatars)
         cStages.push({ key: 'avatar', label: '下载头像', status: 'pending', current: 0, total: 0 });
@@ -2898,7 +2908,7 @@ export class ExportTaskManager extends EventEmitter {
 
       const formats = normaliseContactsFormats(
         task.formats?.length ? task.formats : [task.format],
-        task.contacts?.scope === 'group',
+        task.contacts?.scope !== 'friends',
       );
       task.format = formats[0]!;
       task.formats = formats;
@@ -2936,19 +2946,32 @@ export class ExportTaskManager extends EventEmitter {
         signal: abort.signal,
       };
       const snapshot =
-        task.contacts?.scope === 'group'
+        task.contacts?.scope === 'groups'
           ? {
-              scope: 'group' as const,
-              rows: await collectGroupMembers({ ...common, groupCode: task.conv }, deps),
-            }
-          : {
-              scope: 'friends' as const,
-              rows: await collectFriends(
-                { ...common, categoryIds: task.contacts?.categoryIds },
+              scope: 'groups' as const,
+              rows: await collectGroupDirectory(
+                {
+                  groupIds: task.contacts.groupIds,
+                  signal: abort.signal,
+                  onProgress: onReadProgress,
+                },
                 deps,
               ),
-            };
+            }
+          : task.contacts?.scope === 'group'
+            ? {
+                scope: 'group' as const,
+                rows: await collectGroupMembers({ ...common, groupCode: task.conv }, deps),
+              }
+            : {
+                scope: 'friends' as const,
+                rows: await collectFriends(
+                  { ...common, categoryIds: task.contacts?.categoryIds },
+                  deps,
+                ),
+              };
       task.total = snapshot.rows.length;
+      const rowUnit = snapshot.scope === 'groups' ? '个群聊' : '位联系人';
       task.current = 0;
       task.formatCounts = {};
       for (let i = 0; i < formats.length; i += 1) {
@@ -2968,12 +2991,14 @@ export class ExportTaskManager extends EventEmitter {
           {
             current: i,
             total: formats.length,
-            note: `正在写入 ${format.toUpperCase()} · ${snapshot.rows.length} 位联系人`,
+            note: `正在写入 ${format.toUpperCase()} · ${snapshot.rows.length} ${rowUnit}`,
           },
           { persist: true },
         );
         abort.signal.throwIfAborted();
-        if (snapshot.scope === 'group')
+        if (snapshot.scope === 'groups')
+          await writeGroupDirectory(snapshot.rows, format === 'vcard' ? 'csv' : format, outPath);
+        else if (snapshot.scope === 'group')
           await writeGroupMembers(snapshot.rows, format === 'vcard' ? 'csv' : format, outPath);
         else await writeFriends(snapshot.rows, format, outPath);
         if (aborted()) {
@@ -2985,9 +3010,13 @@ export class ExportTaskManager extends EventEmitter {
         this.touchStage(task, 'message', {
           current: i + 1,
           total: formats.length,
-          note: `已写入 ${format.toUpperCase()} · ${snapshot.rows.length} 位联系人`,
+          note: `已写入 ${format.toUpperCase()} · ${snapshot.rows.length} ${rowUnit}`,
         });
-        this.log(id, 'message', `格式 ${format.toUpperCase()} 完成：${snapshot.rows.length} 位`);
+        this.log(
+          id,
+          'message',
+          `格式 ${format.toUpperCase()} 完成：${snapshot.rows.length} ${rowUnit}`,
+        );
       }
 
       this.touchStage(
@@ -2999,8 +3028,8 @@ export class ExportTaskManager extends EventEmitter {
           total: formats.length,
           note:
             formats.length > 1
-              ? `${snapshot.rows.length} 位 × ${formats.length} 种格式`
-              : `${snapshot.rows.length} 位联系人`,
+              ? `${snapshot.rows.length} ${rowUnit} × ${formats.length} 种格式`
+              : `${snapshot.rows.length} ${rowUnit}`,
         },
         { persist: true },
       );

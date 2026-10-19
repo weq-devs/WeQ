@@ -1,8 +1,19 @@
 ﻿// @ts-nocheck
-import { ChevronRight, Plus, Search, UserPlus, UsersRound, RefreshCw } from 'lucide-react';
+import {
+  ChevronRight,
+  Plus,
+  Search,
+  UserPlus,
+  UsersRound,
+  RefreshCw,
+  Download,
+  Users,
+  UserRound,
+} from 'lucide-react';
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { ContactDirectoryContext } from '../../lib/conversationDirectory';
-import { useContentMultiSelect } from '../../state/contentSelection';
+import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
+import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
 import { GroupJoinAction } from '../../components/qq-actions/GroupJoinAction';
 import { allSelectionIdsSelected, toggleAllSelectionIds } from '../../lib/multiSelection';
@@ -63,6 +74,8 @@ export function SidebarHeader({
   const [joinOpen, setJoinOpen] = useState(false);
   const directory = useContext(ContactDirectoryContext);
   const selection = useContentMultiSelect({ kind: 'contacts', container: contactTab });
+  const requestExport = useRequestContentExport();
+  const [exportMenu, setExportMenu] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!addOpen) {
@@ -208,6 +221,21 @@ export function SidebarHeader({
               )
             }
           >
+            {requestExport && (
+              <button
+                type="button"
+                aria-label="导出名单"
+                title="导出名单"
+                aria-haspopup="menu"
+                aria-expanded={Boolean(exportMenu)}
+                onClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setExportMenu({ x: rect.left, y: rect.bottom + 4 });
+                }}
+              >
+                <Download size={15} />
+              </button>
+            )}
             {onRefreshContacts ? (
               <button
                 type="button"
@@ -221,6 +249,34 @@ export function SidebarHeader({
               </button>
             ) : null}
           </DirectoryToolbar>
+          {exportMenu && requestExport && (
+            <ConversationActionsMenu
+              x={exportMenu.x}
+              y={exportMenu.y}
+              label="名单导出"
+              onClose={() => setExportMenu(null)}
+              actions={[
+                {
+                  label: '导出联系人名单',
+                  icon: <UserRound size={16} />,
+                  action: () =>
+                    requestExport({
+                      owner: { kind: 'contacts', container: 'friends' },
+                      scope: { type: 'all' },
+                    }),
+                },
+                {
+                  label: '导出群聊名单',
+                  icon: <Users size={16} />,
+                  action: () =>
+                    requestExport({
+                      owner: { kind: 'contacts', container: 'group-list' },
+                      scope: { type: 'all' },
+                    }),
+                },
+              ]}
+            />
+          )}
           <button
             type="button"
             className={cn(contactToolButtonClass(activeNotice === 'friend'))}

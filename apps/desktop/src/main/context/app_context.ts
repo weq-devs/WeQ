@@ -1628,6 +1628,17 @@ export function initAppContext(): AppContext {
             },
             // 联系人导出（好友 / 群成员）：本地资料库拉取，bigint 归一化为字符串。
             contacts: {
+              listGroups: async (limit, offset) =>
+                (await groupInfo.listAllGroups(limit, offset)).map((g) => ({
+                  groupCode: g.groupCode.toString(),
+                  groupName: g.groupName,
+                  remark: g.remark,
+                  memberCount: g.memberCount,
+                  maxMemberCount: g.maxMemberCount,
+                  ownerUid: g.ownerUid,
+                  createTime: g.createTime,
+                  leaveFlag: g.leaveFlag,
+                })),
               listBuddies: async (limit, offset) => {
                 const buddies = await profile.listBuddies(limit, offset);
                 return buddies.map((b) => ({

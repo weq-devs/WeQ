@@ -16,6 +16,8 @@ import { writeFileStream, writeTable, type Col } from './table_writer';
 
 /** 注入的联系人数据拉取能力（bigint 已归一化为字符串）。 */
 export interface ContactsExportDeps {
+  /** 分页拉群资料目录；旧调用方仅导出好友／成员时可不提供。 */
+  listGroups?: (limit: number, offset: number) => Promise<GroupDirectoryRow[]>;
   /** 分页拉好友（`buddy_list`）。 */
   listBuddies: (
     limit: number,
@@ -75,6 +77,71 @@ export interface ContactsExportDeps {
   groupOwnerUid: (groupCode: string) => Promise<string | null>;
 }
 
+export interface ContactsExportSelection {
+  scope: 'friends' | 'group' | 'groups';
+  categoryIds?: number[];
+  uids?: string[];
+  groupIds?: string[];
+}
+
+export interface GroupDirectoryRow {
+  groupCode: string;
+  groupName: string;
+  remark: string;
+  memberCount: number;
+  maxMemberCount: number;
+  ownerUid: string;
+  createTime: number;
+  leaveFlag: number;
+}
+
+const GROUP_COLS: Array<Col<GroupDirectoryRow>> = [
+  { key: 'groupCode', header: '群号', get: (r) => r.groupCode },
+  { key: 'groupName', header: '群名称', get: (r) => r.groupName },
+  { key: 'remark', header: '群备注', get: (r) => r.remark },
+  { key: 'memberCount', header: '成员数', get: (r) => r.memberCount },
+  { key: 'maxMemberCount', header: '人数上限', get: (r) => r.maxMemberCount },
+  { key: 'ownerUid', header: '群主UID', get: (r) => r.ownerUid },
+  { key: 'createTime', header: '创建时间（北京时间）', get: (r) => timeText(r.createTime) },
+  { key: 'leaveFlag', header: '离群标记', get: (r) => r.leaveFlag },
+];
+
+export async function collectGroupDirectory(
+  opts: {
+    groupIds?: string[];
+    signal?: AbortSignal;
+    onProgress?: (current: number, total: number, note: string) => void;
+  },
+  deps: ContactsExportDeps,
+): Promise<GroupDirectoryRow[]> {
+  if (!deps.listGroups) throw new Error('群聊名单读取能力不可用。');
+  const groups = new Map<string, GroupDirectoryRow>();
+  for (let page = 0; ; page++) {
+    opts.signal?.throwIfAborted();
+    if (page >= MAX_PAGES) throw new Error('群聊目录超过分页上限，未导出不完整名单。');
+    const batch = await deps.listGroups(GROUP_DIRECTORY_PAGE, page * GROUP_DIRECTORY_PAGE);
+    opts.signal?.throwIfAborted();
+    for (const row of batch) groups.set(row.groupCode, { ...row });
+    opts.onProgress?.(groups.size, groups.size, `已获取 ${groups.size} 个群聊`);
+    opts.signal?.throwIfAborted();
+    if (batch.length < GROUP_DIRECTORY_PAGE) break;
+  }
+  const all = [...groups.values()];
+  if (opts.groupIds === undefined) return all;
+  const wanted = new Set(opts.groupIds);
+  if ([...wanted].some((id) => !groups.has(id)))
+    throw new Error('部分选中的群聊已不在本地目录中，请刷新后重试。');
+  return all.filter((row) => wanted.has(row.groupCode));
+}
+
+export async function writeGroupDirectory(
+  rows: GroupDirectoryRow[],
+  format: Exclude<ContactsFormat, 'vcard'>,
+  outputPath: string,
+): Promise<void> {
+  await writeTable(format, GROUP_COLS, rows, outputPath, '群聊名单');
+}
+
 /** 联系人导出格式。 */
 const CONTACT_FORMATS = ['json', 'jsonl', 'csv', 'xlsx', 'txt', 'vcard'] as const;
 export type ContactsFormat = (typeof CONTACT_FORMATS)[number];
@@ -100,6 +167,7 @@ export interface ContactsExportResult {
 
 const BUDDY_PAGE = 1000;
 const MEMBER_PAGE = 1000;
+export const GROUP_DIRECTORY_PAGE = 1000;
 const PROFILE_CHUNK = 500;
 /** 翻页安全上限，防跑飞。 */
 const MAX_PAGES = 200;
