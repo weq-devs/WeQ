@@ -73,19 +73,22 @@ export function AnalysisTool({
   onGenerate,
   initialTarget,
   messageIds,
+  fixedTarget = true,
 }: {
   onGenerate: (request: AnalysisReportRequest) => void;
   initialTarget?: AnalysisTarget;
   messageIds?: string[];
+  fixedTarget?: boolean;
 }) {
   const account = useViewState((state) => state.openedUin);
   return (
     <AnalysisToolForm
-      key={JSON.stringify([account, initialTarget])}
+      key={JSON.stringify([account, initialTarget, fixedTarget])}
       account={account}
       onGenerate={onGenerate}
       initialTarget={initialTarget}
       messageIds={messageIds}
+      fixedTarget={fixedTarget}
     />
   );
 }
@@ -95,12 +98,15 @@ function AnalysisToolForm({
   onGenerate,
   initialTarget,
   messageIds,
+  fixedTarget,
 }: {
   account: string | null;
   onGenerate: (request: AnalysisReportRequest) => void;
   initialTarget?: AnalysisTarget;
   messageIds?: string[];
+  fixedTarget: boolean;
 }) {
+  const lockedTarget = fixedTarget ? initialTarget : undefined;
   const active = useTabActive() && Boolean(account);
   const [kind, setKind] = useState<AnalysisKind>(initialTarget?.kind ?? 'annual');
   const [year, setYear] = useState(0);
@@ -252,7 +258,7 @@ function AnalysisToolForm({
     <div className="weq-analysis-tool">
       <fieldset disabled={busy} className="weq-analysis-fields">
         <div className="weq-analysis-config">
-          {!initialTarget ? (
+          {!lockedTarget ? (
             <label>
               报告类型
               <select
@@ -272,7 +278,7 @@ function AnalysisToolForm({
             </label>
           ) : (
             <strong>
-              {ANALYSIS_LABELS[initialTarget.kind]} ·{' '}
+              {ANALYSIS_LABELS[lockedTarget.kind]} ·{' '}
               {pickedFriend?.name ?? pickedGroup?.groupName ?? ''}
             </strong>
           )}
@@ -348,13 +354,13 @@ function AnalysisToolForm({
                 {years.data?.length ? `当前账号 · ${account}` : '当前账号暂无可用报告年份'}
               </p>
             )
-          ) : initialTarget &&
+          ) : lockedTarget &&
             validObject &&
-            (initialTarget.kind !== 'member' || pickedMember) &&
+            (lockedTarget.kind !== 'member' || pickedMember) &&
             !source.isLoading &&
             !source.isError ? (
             <p className="weq-analysis-state">
-              {initialTarget.kind === 'member'
+              {lockedTarget.kind === 'member'
                 ? pickedMember?.name
                 : (pickedFriend?.name ?? pickedGroup?.groupName)}
             </p>
@@ -379,7 +385,7 @@ function AnalysisToolForm({
                   <RotateCw size={16} />
                   重试读取对象
                 </button>
-              ) : initialTarget && initialTarget.kind !== 'member' ? (
+              ) : lockedTarget && lockedTarget.kind !== 'member' ? (
                 <p role="alert">本地目录中未找到此分析对象。</p>
               ) : (
                 <ObjectPicker

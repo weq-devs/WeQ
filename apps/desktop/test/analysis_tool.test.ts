@@ -71,13 +71,15 @@ function change(node: HTMLInputElement | HTMLSelectElement, value: string) {
     );
   });
 }
-function mount(initialTarget?: AnalysisTarget, messageIds?: string[]) {
+function mount(initialTarget?: AnalysisTarget, messageIds?: string[], fixedTarget = true) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host),
     generate = vi.fn();
   act(() =>
-    root.render(createElement(AnalysisTool, { onGenerate: generate, initialTarget, messageIds })),
+    root.render(
+      createElement(AnalysisTool, { onGenerate: generate, initialTarget, messageIds, fixedTarget }),
+    ),
   );
   return {
     host,
@@ -94,6 +96,33 @@ function mount(initialTarget?: AnalysisTarget, messageIds?: string[]) {
     },
   };
 }
+
+it('全局入口只预选当前位置，保留完整报告类型与对象列表并允许更换', async () => {
+  const f = mount({ kind: 'group', groupCode: '777' }, undefined, false);
+  try {
+    const types = f.host.querySelector<HTMLSelectElement>('[aria-label="报告类型"]');
+    expect(types).not.toBeNull();
+    expect(types!.value).toBe('group');
+    expect([...types!.options].map((option) => option.value)).toEqual([
+      'annual',
+      'buddy',
+      'group',
+      'member',
+    ]);
+    expect(f.button('合成群 A').getAttribute('aria-pressed')).toBe('true');
+    act(() => f.button('合成群 B').click());
+    await act(async () => f.button('生成报告').click());
+    expect(f.generate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: 'group', groupCode: '888' }),
+    );
+    f.select('报告类型', 'buddy');
+    expect(f.host.querySelector('[aria-label="搜索分析对象"]')).not.toBeNull();
+    f.select('报告类型', 'annual');
+    expect(f.host.querySelector('[aria-label="报告年份"]')).not.toBeNull();
+  } finally {
+    f.close();
+  }
+});
 
 it('会话入口固定分析对象，多选入口固定消息 ID 且不显示范围选择器', async () => {
   const ids = ['1', '4'];

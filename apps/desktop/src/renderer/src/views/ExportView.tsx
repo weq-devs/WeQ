@@ -295,6 +295,7 @@ export function ExportTool({
   onClose,
   fixedScope = false,
   lockMode = false,
+  contentListRevision,
   onOpenClone,
 }: {
   surface?: 'export' | 'tasks';
@@ -304,6 +305,8 @@ export function ExportTool({
   fixedScope?: boolean;
   /** 由入口（如维护工具）锁死导出类型：不渲染「内容种类」切换器，模式不可更改。 */
   lockMode?: boolean;
+  /** 全局入口再次打开时回到内容列表，保留草稿中的选择。 */
+  contentListRevision?: number;
   onOpenClone?: (id: string) => void;
 }): ReactElement {
   const utils = trpc.useUtils();
@@ -471,6 +474,11 @@ export function ExportTool({
       initialSelection?.owner.kind === 'conversations');
   const [editingList, setEditingList] = useState(false);
   const [lightbox, setLightbox] = useState<LightboxVariant | null>(fixedMessages ? 'full' : null);
+  useEffect(() => {
+    if (contentListRevision === undefined) return;
+    setLightbox(null);
+    setEditingList(false);
+  }, [contentListRevision]);
   const [submitting, setSubmitting] = useState(false);
   /** 各模式最近一次导出的灯箱配置快照，打开面板时自动回填。 */
   const [exportPresets, setExportPresets] = useState<ExportPresets | null>(null);

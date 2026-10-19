@@ -6,6 +6,7 @@ import { WorkspaceTools } from '../src/renderer/src/components/WorkspaceTools';
 import type { ContentSelection } from '../src/shared/content_selection';
 import { useViewState } from '../src/renderer/src/state/view';
 import { hasActiveModal } from '../src/renderer/src/lib/overlayStack';
+import type { GroupConversation } from '../src/renderer/src/im-template/template/types';
 
 const fixture = vi.hoisted(() => ({
   selection: null as ContentSelection | null,
@@ -92,6 +93,74 @@ vi.mock('../src/renderer/src/components/RoamingBackfillPanel', () => ({
 }));
 
 describe('全局工具条范围', () => {
+  it('会话入口固定范围后，全局图标恢复完整选择界面且保留当前位置预选', () => {
+    const previousAccount = useViewState.getState().openedUin;
+    useViewState.setState({ openedUin: '10002' });
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const conversation: GroupConversation = {
+      id: '777',
+      type: 'group',
+      updatedAt: '',
+      lastMessage: null,
+      otherUser: null,
+      group: {
+        id: '777',
+        name: '合成群',
+        identityLabel: '群号',
+        identityValue: '777',
+        avatarUrl: null,
+        announcement: null,
+        memberCount: 0,
+        role: 'member',
+      },
+      members: [],
+    };
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const open = (label: string) => {
+      if (!document.querySelector('[role="toolbar"]'))
+        act(() => document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
+      act(() =>
+        document
+          .querySelector<HTMLButtonElement>(`[role="toolbar"] [aria-label="${label}"]`)!
+          .click(),
+      );
+    };
+    try {
+      fixture.exportRequest = {
+        selection: {
+          owner: { kind: 'messages', container: 'group:777' },
+          scope: { type: 'all' },
+        },
+        revision: 1,
+      };
+      act(() =>
+        root.render(
+          createElement(WorkspaceTools, {
+            currentConversation: conversation,
+            analysisRequest: { target: { kind: 'group', groupCode: '777' }, revision: 1 },
+            onOpenAnalysis: vi.fn(),
+          }),
+        ),
+      );
+      expect(document.querySelector('[data-fixed-scope="true"]')).not.toBeNull();
+      open('导出');
+      expect(document.querySelector('[data-fixed-scope="false"]')).not.toBeNull();
+      open('分析与报告');
+      const types = document.querySelector<HTMLSelectElement>('[aria-label="报告类型"]');
+      expect(types?.value).toBe('group');
+      expect(types?.options.length).toBe(4);
+      expect(document.querySelector('[aria-label="搜索分析对象"]')).not.toBeNull();
+    } finally {
+      fixture.exportRequest = null;
+      act(() => root.unmount());
+      host.remove();
+      useViewState.setState({ openedUin: previousAccount });
+      vi.unstubAllGlobals();
+    }
+  });
   it.each<ContentSelection['owner']>([
     { kind: 'conversations', container: 'main-list' },
     { kind: 'messages', container: 'group:10001' },
@@ -235,7 +304,7 @@ describe('全局工具条范围', () => {
         '3,7',
       );
       expect(document.querySelector('[data-fixed-scope]')?.getAttribute('data-fixed-scope')).toBe(
-        'true',
+        'false',
       );
       expect(fixture.selection.scope).toEqual({ type: 'items', ids: ['3', '7'] });
     } finally {

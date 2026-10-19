@@ -64,6 +64,9 @@ export function WorkspaceTools({
   const [assistantSettings, setAssistantSettings] = useState(false);
   const [analysisTarget, setAnalysisTarget] = useState<AnalysisTarget | undefined>();
   const [analysisMessageIds, setAnalysisMessageIds] = useState<string[] | undefined>();
+  const [analysisFixedTarget, setAnalysisFixedTarget] = useState(false);
+  const [exportFixedScope, setExportFixedScope] = useState(false);
+  const [exportListRevision, setExportListRevision] = useState(0);
   const [roamingTargets, setRoamingTargets] = useState<RoamingTarget[]>([]);
   const [analysisSeed, setAnalysisSeed] = useState(0);
   const [roamingSeed, setRoamingSeed] = useState(0);
@@ -83,6 +86,7 @@ export function WorkspaceTools({
     )
       return;
     handledContentAnalysis.current = contentAnalysisRequest;
+    setAnalysisFixedTarget(true);
     setAnalysisTarget({ ...contentAnalysisRequest.target });
     setAnalysisMessageIds(
       contentAnalysisRequest.messageIds ? [...contentAnalysisRequest.messageIds] : undefined,
@@ -96,6 +100,7 @@ export function WorkspaceTools({
     if (!accountKey || !analysisRequest || handledAnalysisRequest.current === analysisRequest)
       return;
     handledAnalysisRequest.current = analysisRequest;
+    setAnalysisFixedTarget(true);
     setAnalysisTarget({ ...analysisRequest.target });
     setAnalysisMessageIds(undefined);
     setAnalysisSeed((previous) => previous + 1);
@@ -115,6 +120,7 @@ export function WorkspaceTools({
   useEffect(() => {
     if (!accountKey || !exportRequest || handledExportRequest.current === exportRequest) return;
     handledExportRequest.current = exportRequest;
+    setExportFixedScope(true);
     setExportDraft({
       key: JSON.stringify([accountKey, exportRequest.selection]),
       draft: createToolDraft(accountKey, exportRequest.selection),
@@ -141,15 +147,20 @@ export function WorkspaceTools({
   const select = (next: Tool, anchor?: HTMLElement) => {
     if (next === 'tasks') setTaskAnchor(anchor ?? null);
     const exportSelection = selection ?? conversationExportSelection(currentConversation);
-    if (next === 'export' && exportSelection && accountKey) {
-      const key = JSON.stringify([accountKey, exportSelection]);
-      setExportDraft((previous) =>
-        previous?.key === key
-          ? previous
-          : { key, draft: createToolDraft(accountKey, exportSelection) },
-      );
+    if (next === 'export') {
+      setExportFixedScope(false);
+      setExportListRevision((previous) => previous + 1);
+      if (exportSelection && accountKey) {
+        const key = JSON.stringify([accountKey, exportSelection]);
+        setExportDraft((previous) =>
+          previous?.key === key
+            ? previous
+            : { key, draft: createToolDraft(accountKey, exportSelection) },
+        );
+      } else setExportDraft(null);
     }
     if (next === 'analysis') {
+      setAnalysisFixedTarget(false);
       setAnalysisTarget(conversationAnalysisTarget(currentConversation) ?? undefined);
       setAnalysisMessageIds(undefined);
       setAnalysisSeed((previous) => previous + 1);
@@ -162,6 +173,12 @@ export function WorkspaceTools({
     close();
     action();
   };
+  const fixedExportScope =
+    exportFixedScope &&
+    (exportDraft?.draft.selection.owner.kind === 'messages' ||
+      (exportDraft?.draft.selection.owner.kind === 'conversations' &&
+        exportDraft.draft.selection.scope.type === 'items' &&
+        exportDraft.draft.selection.scope.ids.length > 0));
   const items: FloatingToolItem[] = [
     { id: 'export', label: '导出', icon: <Download size={20} />, action: () => select('export') },
     {
@@ -226,19 +243,18 @@ export function WorkspaceTools({
           {open && tool !== 'tasks' && tool !== 'backfill' ? (
             tool === 'export' ? (
               <ExportTool
-                key={exportDraft?.draft.accountId === accountKey ? exportDraft.key : 'empty'}
+                key={JSON.stringify([
+                  exportDraft?.draft.accountId === accountKey ? exportDraft.key : 'empty',
+                  fixedExportScope,
+                ])}
                 initialSelection={
                   exportDraft?.draft.accountId === accountKey
                     ? exportDraft.draft.selection
                     : undefined
                 }
                 onClose={close}
-                fixedScope={
-                  exportDraft?.draft.selection.owner.kind === 'messages' ||
-                  (exportDraft?.draft.selection.owner.kind === 'conversations' &&
-                    exportDraft.draft.selection.scope.type === 'items' &&
-                    exportDraft.draft.selection.scope.ids.length > 0)
-                }
+                fixedScope={fixedExportScope}
+                contentListRevision={fixedExportScope ? undefined : exportListRevision}
               />
             ) : tool === 'assistant' ? (
               <>
@@ -255,6 +271,7 @@ export function WorkspaceTools({
               <AnalysisTool
                 key={JSON.stringify([accountKey, analysisSeed])}
                 initialTarget={analysisTarget}
+                fixedTarget={analysisFixedTarget}
                 messageIds={analysisMessageIds}
                 onGenerate={(report) => leave(() => onOpenAnalysis(report))}
               />

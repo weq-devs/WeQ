@@ -291,6 +291,43 @@ function captureLayout(host: HTMLElement, name: string) {
 }
 
 describe('统一导出实际界面', () => {
+  it('全局入口预选当前会话但显示完整内容类型和会话列表', async () => {
+    const props: Parameters<typeof ExportTool>[0] = {
+      fixedScope: false,
+      contentListRevision: 1,
+      initialSelection: {
+        owner: { kind: 'messages', container: 'direct:u_fixture' },
+        scope: { type: 'all' },
+      },
+    };
+    const f = mount(props);
+    try {
+      await act(async () => {});
+      const modes = f.host.querySelector<HTMLSelectElement>('#weq-export-content-kind');
+      expect(modes?.value).toBe('full');
+      expect(modes!.options.length).toBeGreaterThan(1);
+      expect(f.host.querySelector('[data-selection]')?.getAttribute('data-selection')).toBe(
+        'u_fixture',
+      );
+      expect(f.host.querySelector('[data-config]')).toBeNull();
+      act(() => f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.click());
+      expect(f.host.querySelector('[data-config]')).not.toBeNull();
+      props.contentListRevision = 2;
+      f.setActive(true);
+      expect(f.host.querySelector('[data-config]')).toBeNull();
+      expect(f.host.querySelector('[data-selection]')?.getAttribute('data-selection')).toBe(
+        'u_fixture',
+      );
+      const reopenedModes = f.host.querySelector<HTMLSelectElement>('#weq-export-content-kind')!;
+      act(() => {
+        reopenedModes.value = 'guild';
+        reopenedModes.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      expect(reopenedModes.value).toBe('guild');
+    } finally {
+      f.close();
+    }
+  });
   it('多会话直接进入配置，编辑列表沿用选区且保留已打开的配置', async () => {
     const f = mount({
       fixedScope: true,
