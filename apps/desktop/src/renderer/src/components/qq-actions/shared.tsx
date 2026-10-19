@@ -116,6 +116,19 @@ export function ActionFeedback({ action }: { action: ReturnType<typeof useQQActi
     </>
   );
 }
+export function useQQGroupPermissions(
+  groupId: number,
+  action: Pick<ReturnType<typeof useQQAction>, 'available' | 'binding'>,
+) {
+  return trpc.account.qqActions.groupPermissions.useQuery(
+    { ...action.binding!, groupId },
+    {
+      enabled: action.available && Number.isSafeInteger(groupId) && groupId > 0,
+      staleTime: 15_000,
+      retry: false,
+    },
+  );
+}
 export function SaveAction({
   disabled,
   onClick,

@@ -20,7 +20,7 @@ import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarH
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { FavoriteActions } from '../src/renderer/src/components/qq-actions/FavoriteActions';
 import { GroupJoinAction } from '../src/renderer/src/components/qq-actions/GroupJoinAction';
-import { GroupActions } from '../src/renderer/src/components/qq-actions/GroupActions';
+import { GroupActions, GroupTodos } from '../src/renderer/src/components/qq-actions/GroupActions';
 import { TypingStatus } from '../src/renderer/src/components/qq-actions/ChatActions';
 import { QqInlineKeyboard } from '../src/renderer/src/components/QqInlineKeyboard';
 import { useViewState } from '../src/renderer/src/state/view';
@@ -93,6 +93,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     'tags',
     'todoList',
     'groupReadTools',
+    'groupPermissions',
   ];
   return {
     client: {
@@ -176,6 +177,7 @@ beforeEach(() => {
   state.picker.mockClear();
   state.prepare.mockClear();
   state.data = {
+    groupPermissions: { canManage: true, role: 'admin', selfUin: '10001' },
     fileSummary: { fileCount: 1, maxCount: 100, usedSpace: 10, totalSpace: 1000 },
     folders: { folders: [{ folderId: 'folder-b', folderName: '目录 B' }] },
     notices: [],
@@ -361,6 +363,28 @@ describe('QQ 主动操作的实际界面', () => {
     uploaderName: '自己',
     parentDirectory: 'folder-a',
   };
+  it('普通成员不显示公告管理与取消待办，文件目标仅列自己上传的文件', () => {
+    state.data.groupPermissions = { canManage: false, role: 'member', selfUin: '10001' };
+    state.data.todoList = [{ sequence: '123', text: '待办内容' }];
+    const notices = fixture(() => h(GroupNoticeActions, { groupId: 123 }));
+    expect(notices.host.querySelector('details')).toBeNull();
+    const todos = fixture(() => h(GroupTodos, { groupId: 123 }));
+    expect(todos.button('取消群待办')).toBeNull();
+    expect(todos.button('完成待办')).not.toBeNull();
+    const f = fixture(() =>
+      h(GroupFileActions, {
+        groupId: 123,
+        directory: 'folder-a',
+        files: [file, { ...file, fileId: 'other', uploaderUin: 10002 }],
+        folders: [],
+        onChanged: vi.fn(),
+      }),
+    );
+    expect(f.host.querySelector('option[value="createFolder"]')).toBeNull();
+    value(f.host, '文件操作', 'delete');
+    expect(f.host.querySelector('option[value="file-a"]')).not.toBeNull();
+    expect(f.host.querySelector('option[value="other"]')).toBeNull();
+  });
   it('删除取消不发请求，确认后保留账号、群和原文件标识', async () => {
     const changed = vi.fn();
     const f = fixture(() =>

@@ -3,7 +3,13 @@ import { ArrowLeft, FileUp, FolderPlus, Trash2, Pencil, FolderInput } from 'luci
 import { client, trpc } from '../../trpc/client';
 import type { GroupFileWire, GroupFolderWire } from '../../lib/groupFile';
 import { formatSize } from '../../lib/groupFile';
-import { ActionFeedback, ActionIcon, useQQAction, withQQAccountScope } from './shared';
+import {
+  ActionFeedback,
+  ActionIcon,
+  useQQAction,
+  useQQGroupPermissions,
+  withQQAccountScope,
+} from './shared';
 
 function GroupFileActionsBody({
   groupId,
@@ -19,9 +25,18 @@ function GroupFileActionsBody({
   onChanged: () => void;
 }) {
   const a = useQQAction(`files:${groupId}:${directory}`);
-  const [mode, setMode] = useState<
+  const permissions = useQQGroupPermissions(groupId, a);
+  const canManage = permissions.data?.canManage ?? false;
+  const manageableFiles = files.filter(
+    (file) => canManage || String(file.uploaderUin) === permissions.data?.selfUin,
+  );
+  const [selectedMode, setMode] = useState<
     'upload' | 'createFolder' | 'rename' | 'move' | 'delete' | 'renameFolder' | 'deleteFolder'
   >('createFolder');
+  const mode =
+    !canManage && ['createFolder', 'renameFolder', 'deleteFolder'].includes(selectedMode)
+      ? 'upload'
+      : selectedMode;
   const [target, setTarget] = useState('');
   const [name, setName] = useState('');
   const [destination, setDestination] = useState('/');
@@ -39,7 +54,7 @@ function GroupFileActionsBody({
   const folderMode = mode === 'renameFolder' || mode === 'deleteFolder';
   const selected = folderMode
     ? folders.find((f) => f.folderId === target)
-    : files.find((f) => f.fileId === target);
+    : manageableFiles.find((f) => f.fileId === target);
   const needsName = mode === 'rename' || mode === 'renameFolder' || mode === 'createFolder';
   const valid =
     (!needsName || Boolean(name.trim())) &&
@@ -65,13 +80,13 @@ function GroupFileActionsBody({
             setName('');
           }}
         >
-          <option value="createFolder">新建文件夹</option>
+          {canManage && <option value="createFolder">新建文件夹</option>}
           <option value="upload">上传到当前目录</option>
           <option value="rename">重命名文件</option>
           <option value="move">移动文件</option>
           <option value="delete">删除文件</option>
-          <option value="renameFolder">重命名文件夹</option>
-          <option value="deleteFolder">删除文件夹</option>
+          {canManage && <option value="renameFolder">重命名文件夹</option>}
+          {canManage && <option value="deleteFolder">删除文件夹</option>}
         </select>
         {mode === 'upload' && (
           <div className="weq-qq-action-bar">
@@ -98,7 +113,7 @@ function GroupFileActionsBody({
                     {f.folderName}
                   </option>
                 ))
-              : files.map((f) => (
+              : manageableFiles.map((f) => (
                   <option key={f.fileId} value={f.fileId}>
                     {f.fileName}
                   </option>

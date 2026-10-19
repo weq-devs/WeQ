@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import type { GroupFileListing } from '@weq/service';
 import { createQQActionsRouter, type QQActionServices } from '../src/main/ipc/routers/qq_actions';
 
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
@@ -22,7 +23,9 @@ function fixture() {
       createFolder: empty(),
       deleteFolder: empty(),
       renameFolder: empty(),
-      list: vi.fn(async () => ({ folders: [], files: [] })),
+      list: vi.fn(
+        async (): Promise<GroupFileListing> => ({ targetDirectory: '/', folders: [], files: [] }),
+      ),
     },
     groupInfo: {
       listGroupDirectory: vi.fn(async () => [{ groupCode: '123', role: 'admin' }]),
@@ -155,6 +158,65 @@ function fixture() {
 }
 
 describe('主动操作的账号与参数边界', () => {
+  it('普通成员只能管理自己上传的文件，不能管理目录或设置群待办', async () => {
+    const f = fixture();
+    f.s.groupInfo.listGroupDirectory.mockResolvedValue([{ groupCode: '123', role: 'member' }]);
+    const file = {
+      fileId: 'own',
+      fileName: '文件',
+      fileSize: 1,
+      busId: 102,
+      uploadedTime: 0,
+      expireTime: 0,
+      modifiedTime: 0,
+      downloadedTimes: 0,
+      uploaderUin: 10001,
+      uploaderName: '自己',
+      parentDirectory: '/',
+    };
+    f.s.groupFile.list.mockResolvedValue({
+      targetDirectory: '/',
+      folders: [],
+      files: [file, { ...file, fileId: 'other', uploaderUin: 10002 }],
+    });
+    await expect(f.caller.file({ ...group, action: 'delete', id: 'own' })).resolves.toEqual({
+      state: 'accepted',
+    });
+    await expect(
+      f.caller.file({ ...group, action: 'rename', id: 'other', name: '新名称' }),
+    ).rejects.toThrow(/自己/);
+    await expect(f.caller.file({ ...group, action: 'delete', id: 'missing' })).rejects.toThrow(
+      /自己|不存在/,
+    );
+    await expect(f.caller.file({ ...group, action: 'createFolder', name: '目录' })).rejects.toThrow(
+      /管理员/,
+    );
+    await expect(f.caller.todo({ ...group, sequence: '123', action: 'set' })).rejects.toThrow(
+      /管理员/,
+    );
+    await expect(f.caller.todo({ ...group, sequence: '123', action: 'cancel' })).rejects.toThrow(
+      /管理员/,
+    );
+    await expect(f.caller.todo({ ...group, sequence: '123', action: 'complete' })).resolves.toEqual(
+      { state: 'accepted' },
+    );
+    expect(f.s.groupFile.deleteFile).toHaveBeenCalledTimes(1);
+    expect(f.s.groupFile.renameFile).not.toHaveBeenCalled();
+  });
+  it('核对文件归属期间切号不提交，管理员管理文件无需额外扫描目录', async () => {
+    const f = fixture();
+    await f.caller.file({ ...group, action: 'delete', id: 'file-a' });
+    expect(f.s.groupFile.list).not.toHaveBeenCalled();
+    f.s.groupInfo.listGroupDirectory.mockResolvedValue([{ groupCode: '123', role: 'member' }]);
+    f.s.groupFile.list.mockImplementation(async () => {
+      f.switchAccount();
+      return { targetDirectory: '/', folders: [], files: [] };
+    });
+    await expect(f.caller.file({ ...group, action: 'delete', id: 'file-a' })).rejects.toThrow(
+      /切换|改变/,
+    );
+    expect(f.s.groupFile.deleteFile).toHaveBeenCalledTimes(1);
+  });
   it('通用加群不向界面泄露鉴权串，必须按读到的目标提交回答', async () => {
     const f = fixture();
     const target = await f.caller.prepareJoin({

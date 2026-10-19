@@ -3,7 +3,7 @@ import { Keyboard, ListTodo, Radio } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import type { Conversation, Message } from '../../im-template/template/types';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
-import { ActionFeedback, ActionIcon, useQQAction } from './shared';
+import { ActionFeedback, ActionIcon, useQQAction, useQQGroupPermissions } from './shared';
 
 export function MessageTodoAction({
   conversation,
@@ -15,7 +15,16 @@ export function MessageTodoAction({
   onClose: () => void;
 }) {
   const a = useQQAction(`todo:${conversation.id}:${message.id}`);
-  if (conversation.type !== 'group' || !message.msgSeq || !/^[1-9]\d*$/.test(message.msgSeq))
+  const permissions = useQQGroupPermissions(
+    conversation.type === 'group' ? Number(conversation.id) : 0,
+    a,
+  );
+  if (
+    conversation.type !== 'group' ||
+    !permissions.data?.canManage ||
+    !message.msgSeq ||
+    !/^[1-9]\d*$/.test(message.msgSeq)
+  )
     return null;
   return (
     <>

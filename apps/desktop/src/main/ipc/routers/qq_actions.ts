@@ -122,13 +122,24 @@ export function createQQActionsRouter(
     if (resolve(input) !== s) throw new Error('账号已切换，请刷新');
     return result;
   };
-  async function manager(s: QQActionServices, g: number, current: () => void) {
+  async function groupPermissions(s: QQActionServices, g: number) {
     const rows = await s.groupInfo.listGroupDirectory();
+    const role = rows.find((row) => row.groupCode === String(g))?.role ?? null;
+    return {
+      role,
+      canManage: role === 'owner' || role === 'admin',
+      selfUin: s.accountWrite.selfIdentity().uin,
+    };
+  }
+  async function manager(s: QQActionServices, g: number, current: () => void) {
+    const permissions = await groupPermissions(s, g);
     current();
-    const role = rows.find((row) => row.groupCode === String(g))?.role;
-    if (role !== 'owner' && role !== 'admin') throw new Error('此操作需要群主或管理员权限');
+    if (!permissions.canManage) throw new Error('此操作需要群主或管理员权限');
   }
   return router({
+    groupPermissions: procedure
+      .input(group)
+      .query(({ input: i }) => read(i, (s) => groupPermissions(s, i.groupId))),
     prepareJoin: procedure
       .input(binding.extend({ share: z.string().url().max(8192) }))
       .mutation(({ input: i }) =>
@@ -276,10 +287,21 @@ export function createQQActionsRouter(
         }),
       )
       .mutation(({ input: i }) =>
-        write(i, async (s) => {
+        write(i, async (s, current) => {
           if (i.action !== 'createFolder' && !i.id) throw new Error('缺少文件或文件夹标识');
           if (['rename', 'createFolder', 'renameFolder'].includes(i.action) && !i.name)
             throw new Error('名称不能为空');
+          const permissions = await groupPermissions(s, i.groupId);
+          current();
+          if (!permissions.canManage) {
+            if (['createFolder', 'deleteFolder', 'renameFolder'].includes(i.action))
+              throw new Error('管理文件夹需要群主或管理员权限');
+            const listing = await s.groupFile.list(i.groupId, i.directory);
+            current();
+            const file = listing.files.find((file) => file.fileId === i.id);
+            if (!file || !permissions.selfUin || String(file.uploaderUin) !== permissions.selfUin)
+              throw new Error('普通成员只能管理自己上传的文件，或文件已不存在');
+          }
           switch (i.action) {
             case 'delete':
               return s.groupFile.deleteFile(i.groupId, i.id!);
@@ -547,7 +569,10 @@ export function createQQActionsRouter(
         }),
       )
       .mutation(({ input: i }) =>
-        write(i, (s) => s.groupModeration.setTodo(i.groupId, BigInt(i.sequence), i.action)),
+        write(i, async (s, current) => {
+          if (i.action !== 'complete') await manager(s, i.groupId, current);
+          return s.groupModeration.setTodo(i.groupId, BigInt(i.sequence), i.action);
+        }),
       ),
     groupSettings: procedure
       .input(

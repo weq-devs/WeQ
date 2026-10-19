@@ -9,11 +9,13 @@ import {
   RefreshAction,
   SaveAction,
   useQQAction,
+  useQQGroupPermissions,
   withQQAccountScope,
 } from './shared';
 
 function GroupNoticeActionsBody({ groupId }: { groupId: number }) {
   const a = useQQAction(`notice:${groupId}`);
+  const permissions = useQQGroupPermissions(groupId, a);
   const [open, setOpen] = useState(false),
     [content, setContent] = useState('');
   const [picture, setPicture] = useState<{ path: string; fileName: string } | null>(null);
@@ -30,6 +32,7 @@ function GroupNoticeActionsBody({ groupId }: { groupId: number }) {
     const r = await notices.refetch();
     if (r.error) throw r.error;
   };
+  if (!permissions.data?.canManage) return null;
   return (
     <details className="weq-qq-actions" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary>公告管理</summary>

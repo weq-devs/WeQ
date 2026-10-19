@@ -8,6 +8,7 @@ import {
   RefreshAction,
   SaveAction,
   useQQAction,
+  useQQGroupPermissions,
   withQQAccountScope,
 } from './shared';
 
@@ -200,6 +201,7 @@ export const GroupActions = withQQAccountScope(GroupActionsBody);
 export function GroupTodos({ groupId }: { groupId: number }) {
   const a = useQQAction(`todos:${groupId}`),
     [open, setOpen] = useState(false);
+  const permissions = useQQGroupPermissions(groupId, a);
   const todos = trpc.account.qqActions.todoList.useQuery(
     { ...a.binding!, groupId },
     { enabled: open && a.available, retry: false },
@@ -239,25 +241,27 @@ export function GroupTodos({ groupId }: { groupId: number }) {
             >
               <Check size={15} />
             </ActionIcon>
-            <ActionIcon
-              label="取消群待办"
-              disabled={a.disabled}
-              onClick={() =>
-                void a.perform(
-                  (b) =>
-                    client.account.qqActions.todo.mutate({
-                      ...b,
-                      groupId,
-                      sequence: String(t.sequence),
-                      action: 'cancel',
-                    }),
-                  refresh,
-                  '取消这项群待办？',
-                )
-              }
-            >
-              <Trash2 size={15} />
-            </ActionIcon>
+            {permissions.data?.canManage && (
+              <ActionIcon
+                label="取消群待办"
+                disabled={a.disabled}
+                onClick={() =>
+                  void a.perform(
+                    (b) =>
+                      client.account.qqActions.todo.mutate({
+                        ...b,
+                        groupId,
+                        sequence: String(t.sequence),
+                        action: 'cancel',
+                      }),
+                    refresh,
+                    '取消这项群待办？',
+                  )
+                }
+              >
+                <Trash2 size={15} />
+              </ActionIcon>
+            )}
           </li>
         ))}
       </ul>
