@@ -55,7 +55,7 @@ export function ConversationSettingsDialog({
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
   const utils = trpc.useUtils();
-  const [section, setSection] = useState<SectionId>('antirecall');
+  const [section, setSection] = useState<SectionId>(kind === 'dataline' ? 'antirecall' : 'qq');
   /** 关键词编辑器的保存状态 —— 由内嵌的 editor 外抛（灯箱那套同一份实现）。 */
   const [keywordSave, setKeywordSave] = useState({ saving: false, savedAt: 0 });
 
