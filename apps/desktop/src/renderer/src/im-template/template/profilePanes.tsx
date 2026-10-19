@@ -511,9 +511,11 @@ export function ContactProfileDialog({
 export function GroupProfileDialog({
   conversation,
   onClose,
+  detailsKnown = true,
 }: {
   conversation: Extract<Conversation, { type: 'group' }> | undefined;
   onClose: () => void;
+  detailsKnown?: boolean;
 }) {
   const openChat = useContext(ChatNavigationContext);
   const [copied, setCopied] = useState(false);
@@ -582,79 +584,83 @@ export function GroupProfileDialog({
             </button>
           </div>
         ) : null}
-        <div className="weq-profile-members">
-          <div className="weq-profile-members-head">
-            <Users size={13} />
-            <span>群成员</span>
-            <strong className="weq-number">{group.memberCount}</strong>
-            <span>人</span>
-          </div>
-          {members.length ? (
-            <div className="weq-profile-members-row">
-              {members.map((member) => (
-                <span
-                  key={member.id}
-                  className="weq-profile-member"
-                  title={displayUserName(member)}
-                >
-                  <Avatar
-                    name={displayUserName(member)}
-                    avatarUrl={member.avatarUrl}
-                    seed={member.identityValue}
-                  />
-                </span>
-              ))}
+        {detailsKnown ? (
+          <div className="weq-profile-members">
+            <div className="weq-profile-members-head">
+              <Users size={13} />
+              <span>群成员</span>
+              <strong className="weq-number">{group.memberCount}</strong>
+              <span>人</span>
             </div>
-          ) : null}
-        </div>
+            {members.length ? (
+              <div className="weq-profile-members-row">
+                {members.map((member) => (
+                  <span
+                    key={member.id}
+                    className="weq-profile-member"
+                    title={displayUserName(member)}
+                  >
+                    <Avatar
+                      name={displayUserName(member)}
+                      avatarUrl={member.avatarUrl}
+                      seed={member.identityValue}
+                    />
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
-        <div className="weq-profile-list">
-          <ProfileRow
-            icon={<Megaphone size={13} />}
-            label="群公告"
-            value={group.announcement?.trim() || '未设置'}
-            multiline
-          />
-          {group.description ? (
+        {detailsKnown ? (
+          <div className="weq-profile-list">
             <ProfileRow
-              icon={<Info size={13} />}
-              label="群简介"
-              value={group.description}
+              icon={<Megaphone size={13} />}
+              label="群公告"
+              value={group.announcement?.trim() || '未设置'}
               multiline
             />
-          ) : null}
-          {group.remark ? (
-            <ProfileRow
-              icon={<Bookmark size={13} />}
-              label="群备注"
-              value={group.remark}
-              multiline
-            />
-          ) : null}
-          {group.createTime ? (
-            <ProfileRow
-              icon={<CalendarDays size={13} />}
-              label="创建时间"
-              value={formatProfileDate(group.createTime)}
-            />
-          ) : null}
-          {group.maxMemberCount ? (
-            <ProfileRow
-              icon={<Users size={13} />}
-              label="群容量"
-              value={`${group.memberCount}/${group.maxMemberCount}`}
-              mono
-            />
-          ) : null}
-          {group.entranceQ ? (
-            <ProfileRow
-              icon={<HelpCircle size={13} />}
-              label="入群问题"
-              value={group.entranceQ}
-              multiline
-            />
-          ) : null}
-        </div>
+            {group.description ? (
+              <ProfileRow
+                icon={<Info size={13} />}
+                label="群简介"
+                value={group.description}
+                multiline
+              />
+            ) : null}
+            {group.remark ? (
+              <ProfileRow
+                icon={<Bookmark size={13} />}
+                label="群备注"
+                value={group.remark}
+                multiline
+              />
+            ) : null}
+            {group.createTime ? (
+              <ProfileRow
+                icon={<CalendarDays size={13} />}
+                label="创建时间"
+                value={formatProfileDate(group.createTime)}
+              />
+            ) : null}
+            {group.maxMemberCount ? (
+              <ProfileRow
+                icon={<Users size={13} />}
+                label="群容量"
+                value={`${group.memberCount}/${group.maxMemberCount}`}
+                mono
+              />
+            ) : null}
+            {group.entranceQ ? (
+              <ProfileRow
+                icon={<HelpCircle size={13} />}
+                label="入群问题"
+                value={group.entranceQ}
+                multiline
+              />
+            ) : null}
+          </div>
+        ) : null}
       </section>
     </OverlayLayer>
   );
