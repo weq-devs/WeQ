@@ -7,6 +7,26 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { join } from 'node:path';
 import { type AccountSession, algoFor } from '@weq/account';
 import type { Platform } from '@weq/platform';
+import type { NtHelperBinding } from '@weq/native';
+import {
+  AddCustomFace,
+  DeleteCustomFace,
+  FetchCustomFaceDetail,
+  FetchCustomFaceList,
+  ModifyCustomFace,
+  MoveCustomFace,
+  OrderCustomFace,
+  parseCustomFaceId,
+  type AddCustomFaceParams,
+  type CustomFaceDetail,
+  type CustomFaceRef,
+} from '@weq/protocol';
+
+/** 收藏表情在线操作需要的最小原生面。 */
+export interface EmojiOnlineDeps {
+  nt: Pick<NtHelperBinding, 'sendOidbPacket' | 'sendPacket'>;
+  resolvePid: () => number;
+}
 import {
   BaseSysEmojiDb,
   EmojiComUsedDb,
@@ -203,7 +223,13 @@ export class EmojiService {
   constructor(
     private readonly session: AccountSession,
     private readonly platform: Platform,
+    private readonly online?: EmojiOnlineDeps,
   ) {}
+
+  private requireOnline(): EmojiOnlineDeps {
+    if (!this.online) throw new Error('该账号当前不在线，无法执行收藏表情写操作。');
+    return this.online;
+  }
 
   /**
    * 列出内置系统表情（id + 外显文字），用于前端把克隆体回复里的 `/捂脸` 这类
@@ -856,6 +882,82 @@ export class EmojiService {
     } catch {
       return null;
     }
+  }
+
+  // ───────────────────────── 收藏表情（在线） ─────────────────────────
+
+  /**
+   * 从服务端拉收藏表情 id 列表（Faceroam.OpReq opType=1）。
+   *
+   * 与 {@link listFavoriteEmojis} 的区别：后者读本地 `emoji.db`（毫秒级、离线可用，
+   * 但可能与服务端不同步）；这条是权威列表，写操作前先用它拿 emojiId。
+   */
+  async fetchOnlineFavoriteIds(): Promise<string[]> {
+    const { nt, resolvePid } = this.requireOnline();
+    return FetchCustomFaceList.invoke(nt, resolvePid(), {
+      selfUin: this.session.context.uin,
+    });
+  }
+
+  /** 拉取收藏表情的备注（Faceroam 列表 + 0x902E 详情两步合并）。 */
+  async fetchOnlineFavoriteDetails(emojis?: CustomFaceRef[]): Promise<CustomFaceDetail[]> {
+    const { nt, resolvePid } = this.requireOnline();
+    const refs = emojis ?? (await this.fetchOnlineFavoriteIds()).map(parseCustomFaceId);
+    if (refs.length === 0) return [];
+    return FetchCustomFaceDetail.invoke(nt, resolvePid(), { emojis: refs });
+  }
+
+  /** 删除一张收藏表情（Faceroam.OpReq opType=2）。 */
+  async deleteFavorite(emojiId: string): Promise<void> {
+    const { nt, resolvePid } = this.requireOnline();
+    await DeleteCustomFace.invoke(nt, resolvePid(), {
+      selfUin: this.session.context.uin,
+      emojiId,
+    });
+    this.favorites = null;
+  }
+
+  /** 修改收藏表情备注（OIDB 0x902E_1 opType=3）。 */
+  async modifyFavoriteDesc(emojiId: string, desc: string): Promise<void> {
+    const { nt, resolvePid } = this.requireOnline();
+    await ModifyCustomFace.invoke(nt, resolvePid(), {
+      ...parseCustomFaceId(emojiId),
+      desc,
+    });
+  }
+
+  /**
+   * 把一张收藏表情移到指定位置（默认最前）。
+   *
+   * 两步流程：0x902F 移动指令 → 0x902E_1 opType=2 上传完整新顺序。只发其中一步
+   * 服务端不生效。
+   */
+  async moveFavorite(emojiId: string, position = 1): Promise<void> {
+    const { nt, resolvePid } = this.requireOnline();
+    const ids = await this.fetchOnlineFavoriteIds();
+    const target = parseCustomFaceId(emojiId);
+    const rest = ids.filter((id) => id !== target.emojiId).map(parseCustomFaceId);
+    const ordered = [...rest];
+    ordered.splice(Math.max(0, Math.min(position - 1, ordered.length)), 0, target);
+    await OrderCustomFace.invoke(nt, resolvePid(), { emojiId: target.emojiId, position });
+    await MoveCustomFace.invoke(nt, resolvePid(), { emojis: ordered });
+    this.favorites = null;
+  }
+
+  /**
+   * 添加一张收藏表情（BDHExpressionRoam 申请 + highway 上传）。
+   * 返回服务端可用的 emojiId。
+   */
+  async addFavorite(imageBytes: Uint8Array, log?: (message: string) => void): Promise<string> {
+    const { nt, resolvePid } = this.requireOnline();
+    const params: AddCustomFaceParams = {
+      selfUin: this.session.context.uin,
+      imageBytes,
+      ...(log ? { log } : {}),
+    };
+    const emojiId = await AddCustomFace.invoke(nt, resolvePid(), params);
+    this.favorites = null;
+    return emojiId;
   }
 }
 
