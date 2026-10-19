@@ -54,6 +54,7 @@ export interface RepeatMessage {
   qqElements?: RepeatElement[];
   body?: string;
   optimistic?: string;
+  optimisticRejected?: boolean;
   deletedKind?: string;
   recall?: unknown;
 }
@@ -126,6 +127,17 @@ function contentIdentity(elements: RepeatElement[]): unknown[][] | null {
   return result.length ? result : null;
 }
 
+/** 与连续消息 +1 共用元素白名单，系统、交易和未知内容不能降级成文字重发。 */
+export function canRepeatMessage(message: RepeatMessage): boolean {
+  return (
+    !message.optimistic &&
+    !message.optimisticRejected &&
+    !message.deletedKind &&
+    !message.recall &&
+    contentIdentity(message.qqElements ?? []) !== null
+  );
+}
+
 /** 只判断最新的两条，不越过灰条、撤回、失败条目，也不把历史窗口末尾当作最新消息。 */
 export function repeatTarget<T extends RepeatMessage>(
   messages: readonly T[],
@@ -133,8 +145,7 @@ export function repeatTarget<T extends RepeatMessage>(
 ): T | null {
   if (!atLatest || messages.length < 2) return null;
   const pair = messages.slice(-2);
-  if (pair.some((message) => message.optimistic || message.deletedKind || message.recall))
-    return null;
+  if (pair.some((message) => !canRepeatMessage(message))) return null;
   const identities = pair.map((message) => contentIdentity(message.qqElements ?? []));
   return identities[0] &&
     identities[1] &&

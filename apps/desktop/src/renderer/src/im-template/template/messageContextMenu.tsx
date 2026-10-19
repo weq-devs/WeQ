@@ -10,11 +10,13 @@
   SmilePlus,
   Forward,
   ListPlus,
+  Repeat2,
 } from 'lucide-react';
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import type { Message } from './types';
 import { cn } from './classNames';
 import { FaceEmoji } from '../../components/FaceEmoji';
+import { canRepeatMessage } from '../../lib/messageRepeat';
 
 export type MessageContextMenuState = {
   message: Message;
@@ -38,6 +40,8 @@ export function MessageContextMenu({
   exportLabel = '导出',
   exportBlockedReason,
   onForward,
+  onRepeat,
+  repeatBlockedReason,
   onAddToComposition,
   onDownloadImage,
   onDelete,
@@ -60,6 +64,8 @@ export function MessageContextMenu({
   exportLabel?: string;
   exportBlockedReason?: string;
   onForward?: (message: Message) => void;
+  onRepeat?: (message: Message) => void;
+  repeatBlockedReason?: string | null;
   onAddToComposition?: (message: Message) => void;
   onDownloadImage?: (url: string, message: Message) => void;
   /** QQ-style delete: message stays in the chat under a "deleted" overlay, restorable. */
@@ -173,6 +179,17 @@ export function MessageContextMenu({
         <button type="button" title="转发" onClick={() => onForward(state.message)}>
           <Forward size={17} />
           <span>转发</span>
+        </button>
+      ) : null}
+      {onRepeat && canRepeatMessage(state.message) ? (
+        <button
+          type="button"
+          title={repeatBlockedReason || '发送一条相同的消息'}
+          disabled={Boolean(repeatBlockedReason)}
+          onClick={() => onRepeat(state.message)}
+        >
+          <Repeat2 size={17} />
+          <span>+1</span>
         </button>
       ) : null}
       {onReply ? (

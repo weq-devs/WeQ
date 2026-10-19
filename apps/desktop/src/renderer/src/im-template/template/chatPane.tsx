@@ -168,7 +168,7 @@ import { ReactionPicker } from './reactionPicker';
 import type { MessageContextMenuState } from './messageContextMenu';
 import type { MessageRenderer } from './messageRenderers';
 import { filterMentionMembers, mentionText } from './mentions';
-import { repeatTarget } from '../../lib/messageRepeat';
+import { canRepeatMessage, repeatTarget } from '../../lib/messageRepeat';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { exportMedia } from '../../lib/mediaExport';
 import { messageRichClipboard } from '../../lib/messageClipboard';
@@ -3686,13 +3686,28 @@ export function ChatPane({
   const redPacketPanelActive = redPacketOpen && !mobileComposerExpanded;
   const mediaSendDisabled = Boolean(sendGateReason);
   const repeatMessage = repeatTarget(messages, atLatest);
-  async function repeatLatestMessage() {
-    if (!repeatMessage || !onRepeatMessage || repeatBusy.current || sendGateReason || sending)
+  function messageCanRepeat(message: Message) {
+    return (
+      (conversation.type === 'group' || conversation.type === 'direct') &&
+      !grayTipOf(message) &&
+      !deletedIds?.has(message.id) &&
+      canRepeatMessage(message)
+    );
+  }
+  async function repeatMessageFor(message: Message) {
+    if (
+      !messageCanRepeat(message) ||
+      !onRepeatMessage ||
+      repeatBusy.current ||
+      sendGateReason ||
+      sending
+    )
       return;
+    setContextMenu(null);
     repeatBusy.current = true;
     setRepeating(true);
     try {
-      await onRepeatMessage(repeatMessage, conversation);
+      await onRepeatMessage(message, conversation);
     } catch (error) {
       pushToast({
         tone: 'error',
@@ -3967,7 +3982,7 @@ export function ChatPane({
                       !selectionMode &&
                       onRepeatMessage &&
                       repeatMessage?.id === message.id &&
-                      (conversation.type === 'group' || conversation.type === 'direct') ? (
+                      messageCanRepeat(message) ? (
                         <button
                           type="button"
                           className="weq-message-repeat"
@@ -3977,7 +3992,7 @@ export function ChatPane({
                           aria-busy={repeating}
                           onClick={(event) => {
                             event.stopPropagation();
-                            void repeatLatestMessage();
+                            void repeatMessageFor(message);
                           }}
                         >
                           {repeating ? <Loader2 size={15} className="spin" /> : '+1'}
@@ -4875,6 +4890,14 @@ export function ChatPane({
               : undefined
           }
           onCopy={copyMessage}
+          onRepeat={
+            onRepeatMessage && messageCanRepeat(contextMenu.message)
+              ? (message) => void repeatMessageFor(message)
+              : undefined
+          }
+          repeatBlockedReason={
+            sendGateReason || (sending || repeating ? '正在发送消息，请稍候' : null)
+          }
           onForward={
             onForwardMessages
               ? (message) => {

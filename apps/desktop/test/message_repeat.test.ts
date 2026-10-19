@@ -3,6 +3,7 @@ import { FaceSubType } from '@weq/codec';
 import {
   repeatSendPlan,
   repeatTarget,
+  canRepeatMessage,
   type RepeatElement,
 } from '../src/renderer/src/lib/messageRepeat';
 import {
@@ -21,6 +22,41 @@ const mention = (uid: string, label: string): RepeatElement => ({
   data: { atTargetUid: uid, textContent: label },
 });
 const message = (id: string, elements: RepeatElement[]) => ({ id, qqElements: elements });
+
+describe('单条消息 +1 可用性', () => {
+  it('不要求连续重复或位于最新窗口，支持文本、提及、表情与图片', () => {
+    for (const element of [
+      plain('历史消息'),
+      mention('u_fixture', '@昵称'),
+      { type: 'face', data: { faceId: 14 } },
+      { type: 'pic', data: { md5: 'a'.repeat(32) } },
+    ]) {
+      expect(canRepeatMessage(message('history', [element]))).toBe(true);
+    }
+  });
+  it.each(['grayTip', 'grayTipPoke', 'grayTipRecall', 'wallet', 'call', 'unknown'])(
+    '%s 即使混有文字也不能重发',
+    (type) => {
+      expect(canRepeatMessage(message('system', [{ type }]))).toBe(false);
+      expect(canRepeatMessage(message('mixed', [plain('正文'), { type }]))).toBe(false);
+    },
+  );
+  it('空内容、缺少原始元素、撤回、删除及乐观发送状态不提供入口', () => {
+    const normal = message('fixture', [plain('正文')]);
+    for (const item of [
+      { id: 'preview', body: '只有预览' },
+      message('empty', []),
+      message('empty-text', [plain('')]),
+      { ...normal, recall: {} },
+      { ...normal, deletedKind: 'qq' },
+      { ...normal, optimistic: 'sending' },
+      { ...normal, optimistic: 'failed' },
+      { ...normal, optimistic: 'sent' },
+      { ...normal, optimisticRejected: true },
+    ])
+      expect(canRepeatMessage(item)).toBe(false);
+  });
+});
 
 describe('最新连续消息 +1', () => {
   it('最近两条相同才在最新一条出现，历史、灰条、失败和撤回不跳过', () => {
