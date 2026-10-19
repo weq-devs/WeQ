@@ -248,6 +248,10 @@ pub(crate) fn no_window(cmd: &mut std::process::Command) -> &mut std::process::C
     cmd
 }
 
+/// macOS / Linux 的自注册（LaunchAgents、systemd user unit）都挂在 `$HOME` 下。
+/// Windows 走 schtasks，不需要它 —— 不加 `cfg(unix)` 的话它在 Windows 构建里是死
+/// 代码，`cargo clippy -D warnings` 会直接报错。
+#[cfg(unix)]
 fn home_dir() -> Result<std::path::PathBuf, String> {
     std::env::var_os("HOME")
         .map(std::path::PathBuf::from)

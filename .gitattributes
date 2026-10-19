@@ -13,6 +13,11 @@
 *.tsx text eol=lf
 *.js text eol=lf
 *.jsx text eol=lf
+# ESM / CJS 脚本（scripts/、apps/web/scripts/ 等）：Biome 要求 LF，不写进来就会
+# 落到上面的 `* text=auto`，在 core.autocrlf=true 的 Windows 上检出成 CRLF，
+# 于是 format:check 只在 Windows 上红。
+*.mjs text eol=lf
+*.cjs text eol=lf
 *.json text eol=lf
 *.css text eol=lf
 *.html text eol=lf

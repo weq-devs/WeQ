@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterAll, test } from 'vitest';
 import { resolveResourceRoot, walkUpForResources } from '../src/main/resource.ts';
 
@@ -62,5 +62,8 @@ test('空目录树返回 null 而不是抛错', () => {
 
 test('真实仓库里 resolveResourceRoot 能找到 resources（源码目录深度也要成立）', () => {
   // moduleDir 是 src/main，另有一条「上溯」路径兜底；这里确保它没被层级假设带偏。
-  assert.ok(resolveResourceRoot()?.endsWith('/resources'));
+  // 用 basename 而不是 endsWith('/resources')：Windows 上分隔符是反斜杠。
+  const root = resolveResourceRoot();
+  assert.ok(root);
+  assert.equal(basename(root), 'resources');
 });

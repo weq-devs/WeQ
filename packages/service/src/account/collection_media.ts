@@ -274,6 +274,22 @@ async function hashFile(
   return { md5: md5.digest('hex'), sha256: sha.digest('hex'), bytes };
 }
 
+/**
+ * 把刚写完的文件刷到磁盘（`fsync`）。
+ *
+ * 必须用**可写**句柄：Windows 上对只读句柄（`'r'`）调 `fsync` 直接抛 `EPERM`，
+ * 而在 POSIX 上完全合法 —— 用 `'r'` 写的代码在 Linux / macOS 上一路绿灯，
+ * 到 Windows 上保存附件必失败。`'r+'` 两端都成立。
+ */
+async function syncFile(path: string): Promise<void> {
+  const handle = await open(path, 'r+');
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
 function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   signal.throwIfAborted();
   return new Promise<T>((resolve, reject) => {
@@ -363,12 +379,7 @@ export class CollectionMediaStore {
       const actual = await hashFile(temp);
       if (actual.sha256 !== receipt.sha256 || actual.bytes !== receipt.bytes)
         throw new Error('附件保存校验失败。');
-      const handle = await open(temp, 'r');
-      try {
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
+      await syncFile(temp);
       await rename(temp, destination);
     } finally {
       await unlink(temp).catch(() => {});
