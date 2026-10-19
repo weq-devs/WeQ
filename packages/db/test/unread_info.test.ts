@@ -138,6 +138,50 @@ describe('UnreadInfoDb.getUnreadInfo', () => {
   });
 });
 
+describe('手动阅读状态写库与撤销', () => {
+  it('原本不存在未读行时，未发生并发变化的撤销恢复缺行而不是制造零水位', async () => {
+    setup(`2_${GROUP}`, GROUP_BLOB, 1732);
+    const change = await db.setReadState(1, 'u_fixture', '0', '1', true);
+    expect((await db.getUnreadInfo(1, 'u_fixture'))?.msgSeq).toBe(0);
+    expect(await db.undoReadState(change)).toBe(true);
+    expect(await db.getUnreadInfo(1, 'u_fixture')).toBeNull();
+  });
+  it('手动未读允许降低水位，撤销恢复原来的已读水位', async () => {
+    setup(`2_${GROUP}`, GROUP_BLOB, 1732);
+    await db.markRead(2, GROUP, '1732');
+    const change = await db.setReadState(2, GROUP, '1731', '1732', true);
+    expect((await db.getUnreadInfo(2, GROUP))?.msgSeq).toBe(1731);
+    expect(await db.undoReadState(change)).toBe(true);
+    expect((await db.getUnreadInfo(2, GROUP))?.msgSeq).toBe(1732);
+  });
+
+  it('手动已读清理旧提醒，撤销恢复旧提醒并保留新增提醒与未知字段', async () => {
+    setup(`2_${GROUP}`, GROUP_BLOB, 1732);
+    const change = await db.setReadState(2, GROUP, '1732', '1732', false);
+    expect((await db.getUnreadInfo(2, GROUP))?.highlights).toBeUndefined();
+    await db.addHighlight(2, GROUP, {
+      kind: 1000,
+      msgSeq: 1733,
+      senderUid: 'u_fixture',
+      sendTime: 1,
+      text: '',
+    });
+    expect(await db.undoReadState(change)).toBe(true);
+    const result = await db.getUnreadInfo(2, GROUP);
+    expect(result?.msgSeq).toBe(1731);
+    expect(result?.highlights?.map((hit) => hit.msgSeq).sort()).toEqual([1732, 1733]);
+    expect(storedHex()).toContain('c08414c30d');
+  });
+
+  it('QQ 后来更新阅读水位时，撤销不覆盖新水位', async () => {
+    setup(`2_${GROUP}`, GROUP_BLOB, 1732);
+    const change = await db.setReadState(2, GROUP, '1732', '1732', false);
+    await db.markRead(2, GROUP, '1800');
+    expect(await db.undoReadState(change)).toBe(false);
+    expect((await db.getUnreadInfo(2, GROUP))?.msgSeq).toBe(1800);
+  });
+});
+
 describe('UnreadInfoDb.markRead', () => {
   it('并发更新已读水位时重新读取，不用旧 BLOB 覆盖 QQ 的新水位', async () => {
     setup(`2_${GROUP}`, GROUP_BLOB, 1732);

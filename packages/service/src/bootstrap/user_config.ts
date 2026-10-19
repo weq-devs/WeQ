@@ -422,6 +422,8 @@ export interface AppSettings {
   autoAttachQq: boolean;
   /** 向 QQ 服务端上报在 WeQ 中阅读的位置，默认关闭。 */
   reportReadEnabled: boolean;
+  /** 手动标记及撤销推进已读水位时上报，独立于自动阅读，默认关闭。 */
+  manualReadReportEnabled: boolean;
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁（仍可在左栏手动上锁）。
    * 解锁方式见 {@link AppLockConfig.method}，无绕过入口。
@@ -673,6 +675,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
   autoAttachQq: false,
   reportReadEnabled: false,
+  manualReadReportEnabled: false,
   autoLockMinutes: 0,
   appLock: { enabled: true, method: 'totp' },
   voiceTranscribe: { modelId: '', ttsProviders: [] },
@@ -1168,6 +1171,7 @@ export class UserConfigService {
           : 'after',
       autoAttachQq,
       reportReadEnabled: s?.reportReadEnabled === true,
+      manualReadReportEnabled: s?.manualReadReportEnabled === true,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       appLock: {
         enabled: s?.appLock?.enabled ?? d.appLock.enabled,
@@ -1254,6 +1258,7 @@ export class UserConfigService {
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
       reportReadEnabled: patch.reportReadEnabled ?? current.reportReadEnabled,
+      manualReadReportEnabled: patch.manualReadReportEnabled ?? current.manualReadReportEnabled,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
       appLock: {
         enabled: patch.appLock?.enabled ?? current.appLock.enabled,

@@ -6,6 +6,7 @@ import { AccountBasicsSection } from '../src/renderer/src/components/settings/Ac
 const fixture = vi.hoisted(() => ({
   settings: {
     reportReadEnabled: false,
+    manualReadReportEnabled: false,
     realtimeEnabled: true,
     autoAttachQq: true,
     externalChatpic: { dir: '', enabled: false },
@@ -52,6 +53,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   fixture.settings = {
     reportReadEnabled: false,
+    manualReadReportEnabled: false,
     realtimeEnabled: true,
     autoAttachQq: true,
     externalChatpic: { dir: '', enabled: false },

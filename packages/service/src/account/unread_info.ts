@@ -9,6 +9,7 @@ import type {
   UnreadInfoResult,
   UnreadInfoTarget,
   UnreadInfoSnapshot,
+  UnreadReadChange,
 } from '@weq/db';
 import { randomUUID } from 'node:crypto';
 import type { ManualReadChange } from './local_unread';
@@ -28,6 +29,7 @@ export interface ReadReportStatus {
 export interface ReadReportOptions {
   nt: Pick<NtHelperBinding, 'sendPacket' | 'hasSsoSession'>;
   enabled(): boolean;
+  manualEnabled?(): boolean;
   /** 只返回已存在的在线会话，不读内存、不提权，不为自动上报启动登录。 */
   resolvePid(): number | null;
 }
@@ -37,6 +39,12 @@ interface PendingReport {
   pid: number;
   owner: object | undefined;
   promise: Promise<ReadReportStatus>;
+}
+
+interface ManualReadEntry extends UnreadInfoTarget {
+  change: ManualReadChange;
+  snapshot: UnreadInfoSnapshot;
+  database?: UnreadReadChange;
 }
 
 export class UnreadInfoService {
@@ -50,10 +58,7 @@ export class UnreadInfoService {
     { pid: number; owner: object | undefined; sequence: number }
   >();
   private lastReport: ReadReportStatus = { state: 'disabled' };
-  private readonly readHistory = new Map<
-    string,
-    Array<UnreadInfoTarget & { change: ManualReadChange }>
-  >();
+  private readonly readHistory = new Map<string, ManualReadEntry[]>();
 
   constructor(
     private readonly session: AccountSession,
@@ -86,7 +91,9 @@ export class UnreadInfoService {
   }
 
   getReadReportStatus(): ReadReportStatus {
-    return this.report?.enabled() ? this.lastReport : { state: 'disabled' };
+    return this.reportEnabled(false) || this.reportEnabled(true)
+      ? this.lastReport
+      : { state: 'disabled' };
   }
 
   dispose(): void {
@@ -125,7 +132,7 @@ export class UnreadInfoService {
     return changed;
   }
 
-  /** 手动标记只覆盖 WeQ 状态，不回退 QQ 水位或发送不可撤销的已读回执。 */
+  /** 可写目录同步修改 QQ 库；手动上报由独立开关控制，默认关闭。 */
   async setReadState(targets: UnreadInfoTarget[], unread: boolean) {
     const unique = [
       ...new Map(targets.map((target) => [`${target.chatType}_${target.uid}`, target])).values(),
@@ -141,20 +148,48 @@ export class UnreadInfoService {
       snapshots.some((row) => row.readError)
     )
       throw new Error('未读状态读取失败，请稍后重试');
-    const changes = snapshots.map((snapshot) => ({
+    const changes: ManualReadEntry[] = snapshots.map((snapshot) => ({
       chatType: snapshot.chatType,
       uid: snapshot.uid,
       change: this.local.setManualRead(this.local.resolve(snapshot), unread),
+      snapshot,
     }));
+    this.cancelReports();
     try {
+      if (!this.localOptions?.readOnly) {
+        for (const row of changes) {
+          if (this.disposed) throw new Error('账号已关闭');
+          row.database = await this.session.unreadInfo.setReadState(
+            row.chatType,
+            row.uid,
+            row.change.applied.readSeq ?? '0',
+            row.change.applied.latestSeq,
+            unread,
+          );
+        }
+      }
       this.local.flush();
     } catch (error) {
-      for (const row of changes) this.local.restoreManualRead(row.chatType, row.uid, row.change);
+      let rollbackFailed = false;
+      for (const row of [...changes].reverse()) {
+        try {
+          if (row.database && !(await this.session.unreadInfo.undoReadState(row.database)))
+            rollbackFailed = true;
+        } catch {
+          rollbackFailed = true;
+        }
+        this.local.restoreManualRead(row.chatType, row.uid, row.change);
+      }
+      if (rollbackFailed)
+        throw new Error('批量标记失败，部分会话因并发变化未回滚，请刷新后查看实际状态', {
+          cause: error,
+        });
       throw error;
     }
     if (this.readHistory.size >= 20) this.readHistory.delete(this.readHistory.keys().next().value!);
     const undoToken = randomUUID();
     this.readHistory.set(undoToken, changes);
+    if (!unread) this.scheduleManualReports(changes);
     return { undoToken, rows: snapshots.map((snapshot) => this.local.resolve(snapshot)) };
   }
 
@@ -173,21 +208,87 @@ export class UnreadInfoService {
       snapshots.some((row) => row.readError)
     )
       throw new Error('未读状态读取失败，请稍后重试');
+    this.cancelReports();
     const restored: typeof changes = [];
-    for (const row of changes)
-      if (this.local.restoreManualRead(row.chatType, row.uid, row.change)) restored.push(row);
+    const rowsByPeer = new Map(snapshots.map((row) => [`${row.chatType}_${row.uid}`, row]));
+    for (const row of changes) {
+      if (!this.local.hasManualRead(row.chatType, row.uid, row.change)) continue;
+      if (this.disposed) throw new Error('账号已关闭');
+      if (row.database && !(await this.session.unreadInfo.undoReadState(row.database))) continue;
+      if (this.local.restoreManualRead(row.chatType, row.uid, row.change)) {
+        restored.push(row);
+        const key = `${row.chatType}_${row.uid}`;
+        const current = rowsByPeer.get(key)!;
+        rowsByPeer.set(key, {
+          ...current,
+          msgSeq: row.database
+            ? row.database.beforeReadSeq === undefined
+              ? undefined
+              : Number(row.database.beforeReadSeq)
+            : row.snapshot.msgSeq,
+          highlights: [
+            ...new Map(
+              [
+                ...(row.snapshot.highlights ?? []),
+                ...(current.highlights ?? []).filter(
+                  (hit) => BigInt(hit.msgSeq) > BigInt(row.change.applied.latestSeq),
+                ),
+              ].map((hit) => [hit.rawKind, hit]),
+            ).values(),
+          ],
+        });
+      }
+    }
     try {
       this.local.flush();
     } catch (error) {
+      if (restored.some((row) => row.database)) {
+        this.readHistory.delete(undoToken);
+        throw new Error('撤销已写入数据库，但本地阅读状态保存失败，请刷新后查看实际状态', {
+          cause: error,
+        });
+      }
       for (const row of restored)
         this.local.restoreManualRead(row.chatType, row.uid, row.change, true);
       throw error;
     }
     this.readHistory.delete(undoToken);
+    this.scheduleManualReports(restored, true);
     return {
       restored: restored.length,
-      rows: snapshots.map((snapshot) => this.local.resolve(snapshot)),
+      rows: [...rowsByPeer.values()].map((snapshot) => this.local.resolve(snapshot)),
     };
+  }
+
+  private reportEnabled(manual: boolean): boolean {
+    return manual ? this.report?.manualEnabled?.() === true : this.report?.enabled() === true;
+  }
+
+  private scheduleManualReports(changes: ManualReadEntry[], undo = false): void {
+    if (this.localOptions?.readOnly || !this.reportEnabled(true)) return;
+    const generation = this.generation;
+    void (async () => {
+      for (const row of changes) {
+        if (this.disposed || this.generation !== generation || !this.reportEnabled(true)) return;
+        if (!undo && !this.local.hasManualRead(row.chatType, row.uid, row.change)) continue;
+        const sequence = undo
+          ? row.database
+            ? row.database.beforeReadSeq
+            : row.snapshot.msgSeq?.toString()
+          : row.change.applied.latestSeq;
+        if (
+          sequence === undefined ||
+          (undo && BigInt(sequence) <= BigInt(row.change.applied.readSeq ?? '0'))
+        )
+          continue;
+        await this.markReadAndReport(row.chatType, row.uid, sequence, {
+          manual: true,
+          write: false,
+        });
+      }
+    })().catch(() => {
+      if (!this.disposed && this.generation === generation) this.lastReport = { state: 'failed' };
+    });
   }
 
   /**
@@ -206,9 +307,11 @@ export class UnreadInfoService {
     chatType: number,
     uid: string,
     latestSeq?: string,
+    options?: { manual: boolean; write: false },
   ): Promise<{ changed: boolean; report: ReadReportStatus }> {
     const generation = this.generation;
-    const enabledAtStart = this.report?.enabled() === true;
+    const manual = options?.manual === true;
+    const enabledAtStart = this.reportEnabled(manual);
     const initialPid = enabledAtStart ? this.report!.resolvePid() : null;
     const initialOwner =
       initialPid === null ? undefined : ssoWorkState(this.report!.nt, initialPid).owner;
@@ -216,18 +319,18 @@ export class UnreadInfoService {
     if (this.disposed || snapshot?.readError)
       return { changed: false, report: { state: 'unavailable' } };
     const sequence = latestSeq ?? snapshot?.latestSeq ?? '0';
-    const changed = await this.markRead(chatType, uid, sequence);
+    const changed = options?.write === false ? false : await this.markRead(chatType, uid, sequence);
     const finish = (status: ReadReportStatus) => {
       if (!this.disposed && this.generation === generation) this.lastReport = status;
       return { changed, report: status };
     };
-    if (!enabledAtStart || !this.report?.enabled()) return finish({ state: 'disabled' });
+    if (!enabledAtStart || !this.reportEnabled(manual)) return finish({ state: 'disabled' });
     if (
       this.disposed ||
       this.generation !== generation ||
       initialPid === null ||
-      this.report.resolvePid() !== initialPid ||
-      ssoWorkState(this.report.nt, initialPid).owner !== initialOwner
+      this.report!.resolvePid() !== initialPid ||
+      ssoWorkState(this.report!.nt, initialPid).owner !== initialOwner
     )
       return finish({ state: 'unavailable' });
     const seq = BigInt(sequence);
@@ -261,13 +364,19 @@ export class UnreadInfoService {
       if (
         this.disposed ||
         this.generation !== generation ||
-        !this.report.enabled() ||
-        this.report.resolvePid() !== initialPid ||
-        ssoWorkState(this.report.nt, initialPid).owner !== initialOwner
+        !this.reportEnabled(manual) ||
+        this.report!.resolvePid() !== initialPid ||
+        ssoWorkState(this.report!.nt, initialPid).owner !== initialOwner
       )
         return finish({ state: 'unavailable' });
       const result = finish({ state: 'pending', sequence });
-      void this.reportTarget(`${chatType}_${uid}`, target).then(
+      const report = this.reportTarget(
+        `${manual ? 'manual:' : ''}${chatType}_${uid}`,
+        target,
+        manual,
+      );
+      if (manual) return finish(await report);
+      void report.then(
         (status) => {
           finish(status);
         },
@@ -281,10 +390,14 @@ export class UnreadInfoService {
     }
   }
 
-  private reportTarget(key: string, target: ReadReportParams): Promise<ReadReportStatus> {
+  private reportTarget(
+    key: string,
+    target: ReadReportParams,
+    manual = false,
+  ): Promise<ReadReportStatus> {
     const options = this.report!;
     const pid = options.resolvePid();
-    if (pid === null || this.disposed || !options.enabled())
+    if (pid === null || this.disposed || !this.reportEnabled(manual))
       return Promise.resolve({ state: 'unavailable' });
     const owner = ssoWorkState(options.nt, pid).owner;
     const generation = this.generation;
@@ -308,7 +421,7 @@ export class UnreadInfoService {
     const current = () =>
       !this.disposed &&
       this.generation === generation &&
-      options.enabled() &&
+      this.reportEnabled(manual) &&
       options.resolvePid() === pid &&
       ssoWorkState(options.nt, pid).owner === owner;
     entry.promise = (async () => {

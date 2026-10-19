@@ -175,6 +175,7 @@ export function AccountBasicsSection({
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
   const setAutoAttachQq = trpc.bootstrap.setAutoAttachQq.useMutation();
   const setReportReadEnabled = trpc.bootstrap.setReportReadEnabled.useMutation();
+  const setManualReadReportEnabled = trpc.bootstrap.setManualReadReportEnabled.useMutation();
   const setNativeMediaEnabled = trpc.account.setNativeMediaEnabled.useMutation();
   const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
   const pickExternalChatpicDir = trpc.bootstrap.pickExternalChatpicDir.useMutation();
@@ -186,6 +187,7 @@ export function AccountBasicsSection({
   const [realtime, setRealtimeLocal] = useState(true);
   const [autoAttach, setAutoAttach] = useState(true);
   const [reportRead, setReportRead] = useState(false);
+  const [manualReadReport, setManualReadReport] = useState(false);
   // 静态账号的原生媒体绑定存在**账号**配置里（不是全局设置），所以单独镜像一份。
   const [nativeMedia, setNativeMedia] = useState(true);
   const [savingNativeMedia, setSavingNativeMedia] = useState(false);
@@ -200,6 +202,7 @@ export function AccountBasicsSection({
     setRealtimeLocal(d.realtimeEnabled);
     setAutoAttach(d.autoAttachQq);
     setReportRead(d.reportReadEnabled);
+    setManualReadReport(d.manualReadReportEnabled);
   }, [settings.data]);
 
   useEffect(() => {
@@ -263,6 +266,19 @@ export function AccountBasicsSection({
       await setReportReadEnabled.mutateAsync({ enabled });
     } catch (error) {
       setReportRead(previous);
+      showError('保存失败', errMsg(error));
+      return;
+    }
+    void settings.refetch();
+  }
+
+  async function toggleManualReadReport(enabled: boolean): Promise<void> {
+    const previous = manualReadReport;
+    setManualReadReport(enabled);
+    try {
+      await setManualReadReportEnabled.mutateAsync({ enabled });
+    } catch (error) {
+      setManualReadReport(previous);
       showError('保存失败', errMsg(error));
       return;
     }
@@ -595,13 +611,25 @@ export function AccountBasicsSection({
                   同步已读状态到 QQ
                 </span>
               }
-              desc="向 QQ 上报在 WeQ 阅读的位置，可能清除其他端的未读提醒。默认关闭，仅在线模式生效。"
+              desc="向 QQ 上报在 WeQ 阅读的位置，可能清除其他端的未读提醒。默认关闭，仅在线模式生效；手动标记使用下方独立开关。"
               control={
                 <Toggle
                   checked={reportRead}
                   disabled={settingsLoading || setReportReadEnabled.isPending}
                   onChange={(v) => void toggleReportRead(v)}
                   label="同步已读状态到 QQ"
+                />
+              }
+            />
+            <Row
+              label="手动标记时上报已读位置"
+              desc="默认关闭。开启后，手动标为已读及撤销中推进已读的位置会同步到 QQ；标为未读只写本地库，不能恢复其他端已清除的提醒。"
+              control={
+                <Toggle
+                  checked={manualReadReport}
+                  disabled={settingsLoading || setManualReadReportEnabled.isPending}
+                  onChange={(v) => void toggleManualReadReport(v)}
+                  label="手动标记时上报已读位置"
                 />
               }
             />

@@ -1426,6 +1426,7 @@ export function initAppContext(): AppContext {
           {
             nt: platform.native.ntHelper,
             enabled: () => userConfig.getSettings().reportReadEnabled,
+            manualEnabled: () => userConfig.getSettings().manualReadReportEnabled,
             resolvePid: () => {
               if (
                 this.account !== session ||

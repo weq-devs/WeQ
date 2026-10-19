@@ -531,6 +531,14 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  setManualReadReportEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ manualReadReportEnabled: input.enabled });
+      if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
+      return true;
+    }),
+
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁。渲染层的 AppLockOverlay
    * 读取该值驱动空闲计时；手动上锁与之无关，始终可用。

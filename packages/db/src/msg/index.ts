@@ -31,6 +31,7 @@ export type {
   UnreadInfoResult,
   UnreadInfoTarget,
   UnreadInfoSnapshot,
+  UnreadReadChange,
   UnreadHighlight,
   UnreadHighlightInput,
   HighlightKind,

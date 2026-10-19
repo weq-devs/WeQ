@@ -9,6 +9,7 @@ afterEach(() => vi.useRealTimers());
 
 function setup() {
   let enabled = true;
+  let manualEnabled = false;
   let pid: number | null = 9;
   const nt = {
     hasSsoSession: vi.fn(async () => true),
@@ -28,6 +29,7 @@ function setup() {
   const service = new UnreadInfoService(session, {
     nt,
     enabled: () => enabled,
+    manualEnabled: () => manualEnabled,
     resolvePid: () => pid,
   });
   return {
@@ -36,6 +38,9 @@ function setup() {
     markRead,
     listFrom,
     getUnreadInfos,
+    enableManual: () => {
+      manualEnabled = true;
+    },
     disable: () => {
       enabled = false;
       service.cancelReports();
@@ -54,6 +59,22 @@ async function settled(service: UnreadInfoService, state = 'acknowledged') {
 }
 
 describe('已读上报服务', () => {
+  it('手动上报默认关闭，开启后独立于自动阅读开关且不重复写本地库', async () => {
+    const f = setup();
+    const options = { manual: true, write: false } as const;
+    expect((await f.service.markReadAndReport(2, '100', '50', options)).report.state).toBe(
+      'disabled',
+    );
+    expect(f.nt.sendPacket).not.toHaveBeenCalled();
+    expect(f.markRead).not.toHaveBeenCalled();
+    f.enableManual();
+    f.disable();
+    expect((await f.service.markReadAndReport(2, '100', '50', options)).report.state).toBe(
+      'acknowledged',
+    );
+    expect(f.nt.sendPacket).toHaveBeenCalledTimes(1);
+    expect(f.markRead).not.toHaveBeenCalled();
+  });
   it('读取消息期间会话代次变化时不向新会话补发旧请求', async () => {
     const f = setup();
     let release: (() => void) | undefined;

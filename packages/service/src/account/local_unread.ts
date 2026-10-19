@@ -20,6 +20,8 @@ interface ManualReadState {
 export interface ManualReadChange {
   previous?: ManualReadState;
   applied: ManualReadState;
+  previousPosition: Pick<ReadPosition, 'readSeq' | 'baselineSeq' | 'pending'>;
+  restoredPosition?: Pick<ReadPosition, 'readSeq' | 'baselineSeq' | 'pending'>;
 }
 
 export interface ResolvedUnreadInfo extends UnreadInfoSnapshot {
@@ -130,7 +132,15 @@ export class LocalUnreadStore {
             : latest,
       highlights: unread ? snapshot.highlights : undefined,
     };
-    const change = { previous: row.manual, applied };
+    const change = {
+      previous: row.manual,
+      applied,
+      previousPosition: {
+        readSeq: row.readSeq,
+        baselineSeq: row.baselineSeq,
+        pending: [...row.pending],
+      },
+    };
     row.manual = applied;
     this.dirty = true;
     return change;
@@ -144,9 +154,26 @@ export class LocalUnreadStore {
   ): boolean {
     const row = this.position(chatType, uid);
     if (row.manual !== (reverse ? change.previous : change.applied)) return false;
+    if (!reverse)
+      change.restoredPosition = {
+        readSeq: row.readSeq,
+        baselineSeq: row.baselineSeq,
+        pending: [...row.pending],
+      };
+    const position = reverse ? change.restoredPosition : change.previousPosition;
+    if (position) {
+      const newer = row.pending.filter((seq) => BigInt(seq) > BigInt(change.applied.latestSeq));
+      row.readSeq = position.readSeq;
+      row.baselineSeq = position.baselineSeq;
+      row.pending = [...new Set([...position.pending, ...newer])];
+    }
     row.manual = reverse ? change.applied : change.previous;
     this.dirty = true;
     return true;
+  }
+
+  hasManualRead(chatType: number, uid: string, change: ManualReadChange): boolean {
+    return this.position(chatType, uid).manual === change.applied;
   }
 
   resolve(snapshot: UnreadInfoSnapshot): ResolvedUnreadInfo {

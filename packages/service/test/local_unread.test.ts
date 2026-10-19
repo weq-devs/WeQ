@@ -21,10 +21,19 @@ describe('未读服务事件与阅读', () => {
     const { path } = fixture();
     const getUnreadInfos = vi.fn(async () => [snapshot('9000')]);
     const markRead = vi.fn(async () => false);
+    const setReadState = vi.fn(async (chatType: number, uid: string, readSeq: string) => ({
+      chatType,
+      uid,
+      existed: false,
+      before: null,
+      after: new Uint8Array([1]),
+      afterReadSeq: readSeq,
+    }));
+    const undoReadState = vi.fn(async () => true);
     const session = {
       context: { uin: '10001' },
       selfUid: 'u_self',
-      unreadInfo: { getUnreadInfos, markRead },
+      unreadInfo: { getUnreadInfos, markRead, setReadState, undoReadState },
     } as unknown as AccountSession;
     const service = new UnreadInfoService(session, undefined, { statePath: path, readOnly });
     const query = () => service.getUnreadInfos([{ chatType: 1, uid: 'u_fixture' }]);
@@ -51,7 +60,19 @@ describe('未读服务事件与阅读', () => {
       c2c: [base],
       group: [],
     };
-    return { service, query, change, base, path, markRead, getUnreadInfos, session, now };
+    return {
+      service,
+      query,
+      change,
+      base,
+      path,
+      markRead,
+      getUnreadInfos,
+      session,
+      now,
+      setReadState,
+      undoReadState,
+    };
   }
 
   it('旧消息导入、自己发送、未来时间不计数；真实新消息重复推送只记一次', async () => {
@@ -165,7 +186,7 @@ describe('未读服务事件与阅读', () => {
   });
 
   it('持久化失败回滚内存标记，撤销写盘失败后仍可重试', async () => {
-    const f = setup();
+    const f = setup(true);
     const target = [{ chatType: 1, uid: 'u_fixture' }];
     const flush = vi.spyOn(LocalUnreadStore.prototype, 'flush');
     try {
@@ -185,6 +206,22 @@ describe('未读服务事件与阅读', () => {
     } finally {
       flush.mockRestore();
     }
+  });
+
+  it('可写账号手动已读、未读和撤销写库，只读目录不写 QQ 库', async () => {
+    const f = setup();
+    const targets = [{ chatType: 1, uid: 'u_fixture' }];
+    const marked = await f.service.setReadState(targets, true);
+    expect(f.setReadState).toHaveBeenCalledWith(1, 'u_fixture', '8999', '9000', true);
+    expect((await f.service.undoReadState(marked.undoToken)).restored).toBe(1);
+    expect(f.undoReadState).toHaveBeenCalledTimes(1);
+    await f.service.setReadState(targets, false);
+    expect(f.setReadState).toHaveBeenLastCalledWith(1, 'u_fixture', '9000', '9000', false);
+    const offline = setup(true);
+    const local = await offline.service.setReadState(targets, true);
+    await offline.service.undoReadState(local.undoToken);
+    expect(offline.setReadState).not.toHaveBeenCalled();
+    expect(offline.undoReadState).not.toHaveBeenCalled();
   });
 });
 function fixture() {

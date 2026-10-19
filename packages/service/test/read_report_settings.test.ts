@@ -17,13 +17,18 @@ describe('已读上报偏好', () => {
     const platform = { kind: 'linux', appDataRoot: () => root } as unknown as Platform;
     const service = new UserConfigService(platform);
     expect(service.getSettings().reportReadEnabled).toBe(false);
+    expect(service.getSettings().manualReadReportEnabled).toBe(false);
     service.setSettings({ reportReadEnabled: true });
     expect(new UserConfigService(platform).getSettings().reportReadEnabled).toBe(true);
+    expect(new UserConfigService(platform).getSettings().manualReadReportEnabled).toBe(false);
+    service.setSettings({ manualReadReportEnabled: true });
+    expect(new UserConfigService(platform).getSettings().manualReadReportEnabled).toBe(true);
     service.setSettings({ autoAttachQq: false, realtimeEnabled: false });
     expect(service.getSettings().reportReadEnabled).toBe(true);
     service.setSettings({ reportReadEnabled: false });
     const saved = new UserConfigService(platform).getSettings();
     expect(saved.reportReadEnabled).toBe(false);
+    expect(saved.manualReadReportEnabled).toBe(true);
     expect(saved.realtimeEnabled).toBe(false);
     expect(saved.autoAttachQq).toBe(false);
   });
