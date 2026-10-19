@@ -1,4 +1,13 @@
 /* 通知入口属于联系人目录，背景沿用侧栏，不再单独绘制一块色板。 */
+.notice-entry-dot {
+  display: inline-block;
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--destructive);
+}
+
 html[data-theme] .sidebar .sidebar-header-contacts {
   background: inherit;
 }

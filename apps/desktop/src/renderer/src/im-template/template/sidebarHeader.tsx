@@ -29,8 +29,8 @@ export function SidebarHeader({
   activeNotice,
   searchPanel,
   onSearchFocus,
-  friendNoticeCount: _friendNoticeCount = 0,
-  groupNoticeCount: _groupNoticeCount = 0,
+  friendNoticeCount = 0,
+  groupNoticeCount = 0,
 }: {
   user: User;
   view: MainView;
@@ -218,6 +218,9 @@ export function SidebarHeader({
               <UserPlus size={17} aria-hidden />
               <span className={cn('desktop-notice-label')}>好友通知</span>
               <span className={cn('mobile-notice-label')}>新朋友</span>
+              {friendNoticeCount > 0 && (
+                <span className="notice-entry-dot" role="status" aria-label="有新的好友通知" />
+              )}
             </span>
             <ChevronRight size={20} />
           </button>
@@ -230,6 +233,9 @@ export function SidebarHeader({
             <span className={cn('notice-entry-label')}>
               <UsersRound size={17} aria-hidden />
               群通知
+              {groupNoticeCount > 0 && (
+                <span className="notice-entry-dot" role="status" aria-label="有新的群通知" />
+              )}
             </span>
             <ChevronRight size={20} />
           </button>

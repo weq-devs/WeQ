@@ -36,6 +36,7 @@ import { useToast } from '../components/Toast';
 import { useDialog } from '../components/Dialog';
 import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
+import { useNoticeUnread } from '../hooks/useNoticeUnread';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { avatarFromGroupCode, avatarFromUin } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
@@ -2512,6 +2513,8 @@ export function MainView(): ReactElement {
         void utils.account.listHiddenSessions.invalidate();
         void utils.account.listOfficialAccounts.invalidate();
         void utils.account.listServiceAccounts.invalidate();
+        void utils.account.listBuddyRequests.invalidate();
+        void utils.account.listGroupNotifies.invalidate();
         // 会话列表的排序键：草稿时间（41108）。
         void utils.account.listConversationDraftTimes.invalidate();
         // 草稿正文：QQ 客户端写库后也要跟手。`listDrafts` 默认 `staleTime:
@@ -3962,6 +3965,12 @@ export function MainView(): ReactElement {
         .filter((r): r is NonNullable<typeof r> => r !== null),
     [groupNotifies.data, profileByUid, groupsById],
   );
+  const noticeConfig = trpc.account.getAccountConfig.useQuery(undefined, {
+    enabled: Boolean(openedUin),
+    refetchOnMount: false,
+  });
+  const noticeAccountKey =
+    noticeConfig.data?.uin === openedUin ? `${openedUin}:${noticeConfig.data.configId}` : '';
   const shellHistory = useMemo(
     () => ({
       isMobileShell,
@@ -3983,6 +3992,20 @@ export function MainView(): ReactElement {
     sidebarWidthStorageKey: 'weq.desktop.sidebarWidth.v2',
     history: shellHistory,
   });
+  const friendNoticeCount = useNoticeUnread(
+    noticeAccountKey,
+    'friend',
+    contactRequests.map((r) => r.id),
+    shell.contactNotice === 'friend',
+    buddyRequests.isSuccess,
+  );
+  const groupNoticeCount = useNoticeUnread(
+    noticeAccountKey,
+    'group',
+    groupRequests.map((r) => r.id),
+    shell.contactNotice === 'group',
+    groupNotifies.isSuccess,
+  );
   const mailOpenRef = useRef(shell.switchView);
   mailOpenRef.current = shell.switchView;
   const openMailView = useCallback(() => mailOpenRef.current('mail'), []);
@@ -7838,7 +7861,7 @@ export function MainView(): ReactElement {
             messageBadgeCount={
               displaySettings.data?.showMessageUnreadBadge === false ? 0 : shell.messageUnreadCount
             }
-            contactBadgeCount={0}
+            contactBadgeCount={friendNoticeCount + groupNoticeCount}
             onMessageBadgeClick={() => {
               const target = firstUnreadConversation(sidebarConversations, conversationPrefs);
               if (!target) return;
@@ -7864,8 +7887,8 @@ export function MainView(): ReactElement {
                 currentAvatarUrl={user.avatarUrl}
               />
             }
-            friendNoticeCount={contactRequests.length}
-            groupNoticeCount={groupRequests.length}
+            friendNoticeCount={friendNoticeCount}
+            groupNoticeCount={groupNoticeCount}
             onViewChange={(view) => {
               setSurfaceNavigation((value) => value + 1);
               // 离开消息页 —— 另一个草稿落库时机。
