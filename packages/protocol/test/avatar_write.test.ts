@@ -6,7 +6,7 @@ import {
   GROUP_AVATAR_HIGHWAY_CMD,
   AVATAR_MAX_BYTES,
   encodeGroupAvatarExtra,
-} from '../src/oidb/set-group-avatar';
+} from '../src/oidb/group-admin/set-group-avatar';
 import { makeSolidPng } from '../src/highway/image-format';
 import { fetchHighwaySession, uploadHighwayHttp } from '../src/highway/highway-client';
 

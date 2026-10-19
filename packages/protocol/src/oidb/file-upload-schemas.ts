@@ -184,3 +184,169 @@ export const OIDB_OFFLINE_FILE_FINALIZE_RESP = message([
   { name: 'body', tag: 10, type: OIDB_OFFLINE_FILE_FINALIZE_RESP_BODY },
   { name: 'field50', tag: 50, type: 'uint32' },
 ]);
+
+// ───────────── 群文件管理 — 0x6D6_3/4/5、0x6D7_0/1/2、0x6D8_2/3 ─────────────
+//
+// 字段编号对照 SnowLuma `proto-defs/oidb-actions/group-file.ts`：
+//   - `OidbGroupFileReq` 的 delete@4 / rename@5 / move@6 共用一个外层；
+//   - `OidbGroupFileFolderReq` 的 create@1 / delete@2 / rename@3，
+//     `folderInfo` 在各自的返回块里（tag 4）；
+//   - 0x6D8_2/3 的 count@3 / space@4（不是 1/2），count 请求还要 busId=6。
+//
+// `busId=102` 是群文件业务号（列表 / 上传 / 下载一致）。
+
+const OIDB_GROUP_FILE_DELETE_REQ = message([
+  { name: 'groupUin', tag: 1, type: 'uint32' },
+  { name: 'busId', tag: 3, type: 'uint32' },
+  { name: 'fileId', tag: 5, type: 'string' },
+]);
+
+const OIDB_GROUP_FILE_RENAME_REQ = message([
+  { name: 'groupUin', tag: 1, type: 'uint32' },
+  { name: 'busId', tag: 3, type: 'uint32' },
+  { name: 'fileId', tag: 4, type: 'string' },
+  { name: 'parentFolder', tag: 5, type: 'string' },
+  { name: 'newFileName', tag: 6, type: 'string' },
+]);
+
+const OIDB_GROUP_FILE_MOVE_REQ = message([
+  { name: 'groupUin', tag: 1, type: 'uint32' },
+  { name: 'appId', tag: 2, type: 'uint32' },
+  { name: 'busId', tag: 3, type: 'uint32' },
+  { name: 'fileId', tag: 4, type: 'string' },
+  { name: 'parentDirectory', tag: 5, type: 'string' },
+  { name: 'targetDirectory', tag: 6, type: 'string' },
+]);
+
+export const OIDB_GROUP_FILE_DELETE_REQ_VIEW = message([
+  { name: 'delete', tag: 4, type: OIDB_GROUP_FILE_DELETE_REQ },
+]);
+
+export const OIDB_GROUP_FILE_RENAME_REQ_VIEW = message([
+  { name: 'rename', tag: 5, type: OIDB_GROUP_FILE_RENAME_REQ },
+]);
+
+export const OIDB_GROUP_FILE_MOVE_REQ_VIEW = message([
+  { name: 'move', tag: 6, type: OIDB_GROUP_FILE_MOVE_REQ },
+]);
+
+/** 删除 / 重命名 / 移动的回包都是同一个 `{ retCode, retMsg, clientWording }`。 */
+export const OIDB_GROUP_FILE_OP_RESULT = message([
+  { name: 'retCode', tag: 1, type: 'uint32' },
+  { name: 'retMsg', tag: 2, type: 'string' },
+  { name: 'clientWording', tag: 3, type: 'string' },
+]);
+
+export const OIDB_GROUP_FILE_DELETE_RESP = message([
+  { name: 'delete', tag: 4, type: OIDB_GROUP_FILE_OP_RESULT },
+]);
+
+export const OIDB_GROUP_FILE_RENAME_RESP = message([
+  { name: 'rename', tag: 5, type: OIDB_GROUP_FILE_OP_RESULT },
+]);
+
+export const OIDB_GROUP_FILE_MOVE_RESP = message([
+  { name: 'move', tag: 6, type: OIDB_GROUP_FILE_OP_RESULT },
+]);
+
+// 0x6D7 文件夹
+
+const OIDB_GROUP_FOLDER_CREATE_REQ = message([
+  { name: 'groupUin', tag: 1, type: 'uint32' },
+  { name: 'rootDirectory', tag: 3, type: 'string' },
+  { name: 'folderName', tag: 4, type: 'string' },
+]);
+
+const OIDB_GROUP_FOLDER_DELETE_REQ = message([
+  { name: 'groupUin', tag: 1, type: 'uint32' },
+  { name: 'folderId', tag: 3, type: 'string' },
+]);
+
+const OIDB_GROUP_FOLDER_RENAME_REQ = message([
+  { name: 'groupUin', tag: 1, type: 'uint32' },
+  { name: 'folderId', tag: 3, type: 'string' },
+  { name: 'newFolderName', tag: 4, type: 'string' },
+]);
+
+export const OIDB_GROUP_FOLDER_CREATE_REQ_VIEW = message([
+  { name: 'create', tag: 1, type: OIDB_GROUP_FOLDER_CREATE_REQ },
+]);
+
+export const OIDB_GROUP_FOLDER_DELETE_REQ_VIEW = message([
+  { name: 'delete', tag: 2, type: OIDB_GROUP_FOLDER_DELETE_REQ },
+]);
+
+export const OIDB_GROUP_FOLDER_RENAME_REQ_VIEW = message([
+  { name: 'rename', tag: 3, type: OIDB_GROUP_FOLDER_RENAME_REQ },
+]);
+
+/** 0x6D7_0 回包带的 folderInfo（`modifyUin` 在 tag 9，不是 Lagrange 写的 7）。 */
+export const OIDB_GROUP_FOLDER_INFO = message([
+  { name: 'folderId', tag: 1, type: 'string' },
+  { name: 'folderPath', tag: 2, type: 'string' },
+  { name: 'folderName', tag: 3, type: 'string' },
+  { name: 'createTime', tag: 4, type: 'uint32' },
+  { name: 'modifyTime', tag: 5, type: 'uint32' },
+  { name: 'createUin', tag: 6, type: 'uint32' },
+  { name: 'modifyUin', tag: 9, type: 'uint32' },
+]);
+
+/** create / delete / rename 共用同一返回块；只有 create 会填 folderInfo。 */
+export const OIDB_GROUP_FOLDER_OP_RESULT = message([
+  { name: 'retCode', tag: 1, type: 'uint32' },
+  { name: 'retMsg', tag: 2, type: 'string' },
+  { name: 'clientWording', tag: 3, type: 'string' },
+  { name: 'folderInfo', tag: 4, type: OIDB_GROUP_FOLDER_INFO },
+]);
+
+export const OIDB_GROUP_FOLDER_CREATE_RESP = message([
+  { name: 'create', tag: 1, type: OIDB_GROUP_FOLDER_OP_RESULT },
+]);
+
+export const OIDB_GROUP_FOLDER_DELETE_RESP = message([
+  { name: 'delete', tag: 2, type: OIDB_GROUP_FOLDER_OP_RESULT },
+]);
+
+export const OIDB_GROUP_FOLDER_RENAME_RESP = message([
+  { name: 'rename', tag: 3, type: OIDB_GROUP_FOLDER_OP_RESULT },
+]);
+
+// 0x6D8_2/3 数量与空间
+
+const OIDB_GROUP_FILE_COUNT_REQ = message([
+  { name: 'groupUin', tag: 1, type: 'uint32' },
+  { name: 'appId', tag: 2, type: 'uint32' },
+  { name: 'busId', tag: 3, type: 'uint32' },
+]);
+
+const OIDB_GROUP_FILE_SPACE_REQ = message([
+  { name: 'groupUin', tag: 1, type: 'uint32' },
+  { name: 'appId', tag: 2, type: 'uint32' },
+]);
+
+export const OIDB_GROUP_FILE_COUNT_VIEW_REQ = message([
+  { name: 'count', tag: 3, type: OIDB_GROUP_FILE_COUNT_REQ },
+]);
+
+export const OIDB_GROUP_FILE_SPACE_VIEW_REQ = message([
+  { name: 'space', tag: 4, type: OIDB_GROUP_FILE_SPACE_REQ },
+]);
+
+const OIDB_GROUP_FILE_COUNT_RESP_BLOCK = message([
+  { name: 'fileCount', tag: 4, type: 'uint32' },
+  { name: 'maxCount', tag: 6, type: 'uint32' },
+  { name: 'isFull', tag: 7, type: 'bool' },
+]);
+
+const OIDB_GROUP_FILE_SPACE_RESP_BLOCK = message([
+  { name: 'totalSpace', tag: 4, type: 'uint64' },
+  { name: 'usedSpace', tag: 5, type: 'uint64' },
+]);
+
+export const OIDB_GROUP_FILE_COUNT_VIEW_RESP = message([
+  { name: 'count', tag: 3, type: OIDB_GROUP_FILE_COUNT_RESP_BLOCK },
+]);
+
+export const OIDB_GROUP_FILE_SPACE_VIEW_RESP = message([
+  { name: 'space', tag: 4, type: OIDB_GROUP_FILE_SPACE_RESP_BLOCK },
+]);

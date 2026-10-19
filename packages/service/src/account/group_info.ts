@@ -3,6 +3,13 @@
  */
 
 import type { AccountSession } from '@weq/account';
+import type { NtHelperBinding } from '@weq/native';
+import { FetchGroupMemberListPage, type GroupMemberListItem } from '@weq/protocol';
+
+/** 在线群成员缓存时长：0xFE7_3 高频会风控，60s 是 SnowLuma 验证过的折中值。 */
+const ONLINE_MEMBERS_TTL_MS = 60_000;
+/** 单群翻页上限，兜底防止服务端 token 不收敛。 */
+const ONLINE_MEMBERS_MAX_PAGES = 200;
 import type {
   GroupEssence,
   GroupMemberLevelInfo,
@@ -241,8 +248,101 @@ export class GroupInfoService {
     ) => Promise<unknown[]>;
   };
 
-  constructor(private readonly session: AccountSession) {
+  /** 在线群成员缓存：groupId → { at, members }。 */
+  private onlineMembersCache = new Map<number, { at: number; members: GroupMemberListItem[] }>();
+  /** 同一群的并发拉取合并，避免 0xFE7_3 被并发打爆触发风控。 */
+  private onlineMembersInflight = new Map<number, Promise<GroupMemberListItem[]>>();
+
+  constructor(
+    private readonly session: AccountSession,
+    private readonly online?: {
+      nt: Pick<NtHelperBinding, 'sendOidbPacket'>;
+      resolvePid: () => number;
+    },
+  ) {
     this.groupNotifyService = new GroupNotifyService(session);
+  }
+
+  /**
+   * 在线拉取群成员列表（OIDB 0xFE7_3），带 60s TTL 缓存与并发合并。
+   *
+   * 0xFE7_3 高频会触发腾讯风控，所以这里**不暴露无缓存的实时接口**：
+   * `force` 也只是跳过缓存读、仍然走 inflight 合并。离线账号抛错，由调用方回退
+   * 到本地 `group_member3`。
+   */
+  async fetchOnlineMembers(
+    groupId: number,
+    options: { force?: boolean } = {},
+  ): Promise<GroupMemberListItem[]> {
+    if (!this.online) throw new Error('该账号当前不在线，无法拉取在线群成员。');
+    const cached = this.onlineMembersCache.get(groupId);
+    if (!options.force && cached && Date.now() - cached.at < ONLINE_MEMBERS_TTL_MS) {
+      return cached.members;
+    }
+    const inflight = this.onlineMembersInflight.get(groupId);
+    if (inflight) return inflight;
+
+    const task = (async () => {
+      const { nt, resolvePid } = this.online!;
+      const all: GroupMemberListItem[] = [];
+      let token = '';
+      for (let page = 0; page < ONLINE_MEMBERS_MAX_PAGES; page += 1) {
+        const result = await FetchGroupMemberListPage.invoke(nt, resolvePid(), {
+          groupId,
+          ...(token ? { token } : {}),
+        });
+        all.push(...result.members);
+        if (!result.token || result.token === token) break;
+        token = result.token;
+      }
+      this.onlineMembersCache.set(groupId, { at: Date.now(), members: all });
+      return all;
+    })().finally(() => {
+      this.onlineMembersInflight.delete(groupId);
+    });
+    this.onlineMembersInflight.set(groupId, task);
+    return task;
+  }
+
+  /**
+   * 群禁言列表：优先在线 `0xFE7_3`（实时），失败 / 离线时回退本地
+   * `group_member3.muteUntil`。
+   *
+   * 返回仍在禁言中的成员（`shutUpTime > now`），按到期时间升序。
+   */
+  async listMutedMembers(
+    groupCode: bigint,
+    options: { online?: boolean } = {},
+  ): Promise<Array<{ uid: string; uin: bigint; nick: string; card: string; muteUntil: number }>> {
+    const now = Math.floor(Date.now() / 1000);
+    if (options.online !== false && this.online) {
+      try {
+        const members = await this.fetchOnlineMembers(Number(groupCode));
+        return members
+          .filter((m) => m.shutUpTime > now)
+          .map((m) => ({
+            uid: m.uid,
+            uin: BigInt(m.uin),
+            nick: m.nickname,
+            card: m.card,
+            muteUntil: m.shutUpTime,
+          }))
+          .sort((a, b) => a.muteUntil - b.muteUntil);
+      } catch {
+        // 在线拉取失败（风控 / 网络）→ 回退本地；下面统一读库。
+      }
+    }
+    const rows = await this.session.groupMembers.listMembersInGroup(groupCode, 1000, 0);
+    return rows
+      .filter((m) => m.muteUntil > now)
+      .map((m) => ({
+        uid: m.uid,
+        uin: m.uin,
+        nick: m.nick,
+        card: m.card,
+        muteUntil: m.muteUntil,
+      }))
+      .sort((a, b) => a.muteUntil - b.muteUntil);
   }
 
   /**

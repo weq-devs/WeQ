@@ -3,6 +3,19 @@
  */
 
 import type { AccountSession } from '@weq/account';
+import type { NtHelperBinding } from '@weq/native';
+import {
+  GetUserOnlineStatus,
+  SetDiyOnlineStatus,
+  SetProfileOnlineStatus,
+  type UserOnlineStatus,
+} from '@weq/protocol';
+
+/** 在线写操作 / 实时查询需要的最小原生面。 */
+export interface OnlineStatusOnlineDeps {
+  nt: Pick<NtHelperBinding, 'sendOidbPacket' | 'sendPacket'>;
+  resolvePid: () => number;
+}
 
 export enum OnlineType {
   ONLINE = 10,
@@ -78,7 +91,15 @@ export interface FormattedOnlineStatus {
 }
 
 export class OnlineStatusService {
-  constructor(private readonly session: AccountSession) {}
+  constructor(
+    private readonly session: AccountSession,
+    private readonly online?: OnlineStatusOnlineDeps,
+  ) {}
+
+  private requireOnline(): OnlineStatusOnlineDeps {
+    if (!this.online) throw new Error('该账号当前不在线，无法执行在线状态操作。');
+    return this.online;
+  }
 
   editableStatuses(): Array<{ value: number; label: string }> {
     return Object.entries(ONLINE_TYPE_NAMES)
@@ -116,5 +137,34 @@ export class OnlineStatusService {
       displayStatus,
       weather: raw.weather,
     };
+  }
+
+  // ───────────────────────── 在线写操作 / 实时查询 ─────────────────────────
+
+  /**
+   * 设置本账号在线状态（trpc StatusService.SetStatus）。
+   *
+   * `status` 见 {@link OnlineType}；`extStatus` 是扩展状态（听歌中 1028 等）。
+   */
+  async setOnlineStatus(status: number, extStatus = 0, batteryStatus = 100): Promise<void> {
+    const { nt, resolvePid } = this.requireOnline();
+    await SetProfileOnlineStatus.invoke(nt, resolvePid(), { status, extStatus, batteryStatus });
+  }
+
+  /** 设置自定义在线状态文案（同一条 SetStatus，extStatus 固定 2000）。 */
+  async setDiyOnlineStatus(faceId: number, text: string, faceType: number): Promise<void> {
+    const { nt, resolvePid } = this.requireOnline();
+    await SetDiyOnlineStatus.invoke(nt, resolvePid(), { faceId, text, faceType });
+  }
+
+  /**
+   * 实时查询某个 QQ 号的在线 / 扩展状态（OIDB 0xFE1_2 key 27372）。
+   *
+   * 与 DB 里的 `getUserOnlineStatus(uid)` 不同：这条走线上，能拿到不曾在本地
+   * 库留下状态的用户。对方未暴露状态时返回 null。
+   */
+  async fetchOnlineStatus(uin: number): Promise<UserOnlineStatus | null> {
+    const { nt, resolvePid } = this.requireOnline();
+    return GetUserOnlineStatus.invoke(nt, resolvePid(), { uin });
   }
 }

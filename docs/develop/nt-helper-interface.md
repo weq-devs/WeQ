@@ -165,7 +165,7 @@ xlogin / jump 请求或解析 JSONP。
 
 对 QQ NT 加密库（SQLCipher v4 + 1024 字节 wrapper 头）的读写与导出。全部走自定义 **offset VFS** 透明跳过文件头，**连接默认缓存** —— 同一 `dbPath` 首次打开解密一次，后续调用复用句柄，极大省开销。`better-sqlite3` 在 running code 里零引用，读库统一走这里。
 
-SQLite 的 `pending_byte` 是**进程级**全局量：QQ 库因 1024 字节头，保留页是 `262144`；标准 SQLite 是 `262145`。同一进程不能混用，所以主进程固定 `qq`，无密钥的标准库查询由独立的 `standardDbWorker` 子进程固定 `standard`。详见 [QQ 数据库布局与双进程拆分](./db-layout-split-20261018.md)。
+SQLite 的保留页按**文件**设置：QQ 库因 1024 字节头保留 `262144`，标准 SQLite 保留 `262145`。nt_helper 从文件头自动识别布局，同一进程可以同时打开两类库与解密产物，不再需要子进程。详见 [QQ 数据库布局：按文件设置保留页](./db-layout-split-20261018.md)。
 
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
@@ -175,10 +175,8 @@ SQLite 的 `pending_byte` 是**进程级**全局量：QQ 库因 1024 字节头�
 | `executeSqlWriteWithKey(...)` | + `key` + `algo` | `Promise<number>` | 带密钥的写操作。 |
 | `closeDb(dbPath)` | 路径 | `number` | 关闭该路径所有缓存连接，返回关闭数。登出 / 释放文件句柄时调用。 |
 | `closeAllDb()` | — | `number` | 关闭全部缓存连接。 |
-| `setDbLayout(layout)` | `'qq'` \| `'standard'` | `void` | 选择**本进程**的 SQLite 布局，必须在打开任何数据库前调用；同进程禁止切换。 |
-| `getDbLayout()` | — | `'qq'` \| `'standard'` \| `'unset'` | 当前进程已选定的布局。 |
-| `fastDecryptDatabase(dbPath, outPath, key, algo)` | 路径们 + key + algo | `void` | 快速解密为**明文但仍保持 QQ 页号**的 SQLite（直接落盘）。调用方随后必须用主进程 router 的 `markQqLayout(outPath)` 标记产物。 |
-| `safeDecryptDatabase(dbPath, outPath, key, algo)` | 同上 | `void` | 安全解密：所有读走 SQLite（offset VFS + `sqlcipher_export`），长导出期间不怕 QQ checkpoint 撕页；无中间文件。产物同样是明文但保持 QQ 页号，调用方需 `markQqLayout`。 |
+| `fastDecryptDatabase(dbPath, outPath, key, algo)` | 路径们 + key + algo | `void` | 快速解密为**标准布局**的明文 SQLite（直接落盘），可直接被任何 SQLite 工具打开。 |
+| `safeDecryptDatabase(dbPath, outPath, key, algo)` | 同上 | `void` | 安全解密：所有读走 SQLite（offset VFS + `sqlcipher_export`），长导出期间不怕 QQ checkpoint 撕页；无中间文件。产物同样是**标准布局**明文。 |
 | `checkDatabaseHealth(dbPath, key, algo)` | 路径 + key + algo | `Promise<DatabaseHealthResult>` | `PRAGMA integrity_check` 体检；整体失败时逐表出结果。 |
 | `recoverDatabase(options, onProgress?)` | `RecoverOptions` + 可选进度回调 | `Promise<RecoverReport>` | 重建损坏库：坏页扫描 → 解密 → SQLite recover → 重新加密 → 补 QQ 头 → 自检。源库只读。`sourceLayout` / `targetLayout` 可选（默认都 `qq`）；把旧版误修复的 standard 布局迁回 QQ 时传 `sourceLayout: 'standard', targetLayout: 'qq'`，产物报告会回显实际布局。旧产物会静默忽略这两个参数、也不回显布局，调用方必须在替换前核对。 |
 | `executeSqlSalvage(dbPath, sql, params?, level?)` | 路径 + SQL + 可选参数 + 宽容级别 | `Promise<SalvageQueryOutcome>` | 宽容只读查询（独立的 salvage 连接）。**不因“损坏”抛异常**，而是返回 `ok:false` + 错误码，由调用方决定放弃还是切更小的一段；其它错误照旧抛。级别 ≥ 1 时遇到损坏会换访问路径（`NOT INDEXED`）重试。 |

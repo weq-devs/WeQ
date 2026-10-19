@@ -25,7 +25,6 @@ import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import { createDesktopQQRuntime } from '../qq_runtime/factory';
 import { managedAccountPlatform, type ManagedQQAccountSource } from '../qq_runtime/managed_account';
-import { createDbRouter } from '../db/router';
 import { AnnualReportIndexDb } from '@weq/db';
 import { QQMailService, type MailNotice } from '@weq/service/mail';
 import {
@@ -1019,11 +1018,9 @@ export function initAppContext(): AppContext {
   let readUidFromConfig: (uin: string) => string | null = () => null;
   const resolveUid = (uin: string): string | null => uidRegistry.get(uin) ?? readUidFromConfig(uin);
 
-  // 主进程固定 QQ layout；无 key 的标准 SQLite 调用由 router 转到独立子进程。
-  const bundle = {
-    ...result.bundle,
-    ntHelper: createDbRouter(result.bundle.ntHelper),
-  };
+  // SQLite 的保留页现在是按文件（per-Pager）设置的，同一个进程可以同时打开
+  // QQ 库、标准库和解密产物，不再需要拆子进程。
+  const bundle = result.bundle;
 
   const platform =
     process.platform === 'linux'
@@ -1301,9 +1298,15 @@ export function initAppContext(): AppContext {
       );
       // Shared instances also fed to the export manager's ChatLab deps (name /
       // role / profile resolution), so they're built before the services object.
-      const groupInfo = new GroupInfoService(session);
+      const groupInfo = new GroupInfoService(session, {
+        nt: platform.native.ntHelper,
+        resolvePid: resolveOnlinePid,
+      });
       groupInfo.setWebQueryService(webQuery);
-      const profile = new ProfileService(session);
+      const profile = new ProfileService(session, {
+        nt: platform.native.ntHelper,
+        resolvePid: resolveOnlinePid,
+      });
       // 收藏服务：网络优先(微云 collector)、拿不到 p_skey 回退 collection.db。
       // 既进 services，又喂给导出管理器的收藏拉取 dep（拍平投影）。
       const collectionSvc = new CollectionService(
@@ -1368,7 +1371,10 @@ export function initAppContext(): AppContext {
       antiRecall.startMonitor();
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
       // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
-      const emojiService = new EmojiService(session, platform);
+      const emojiService = new EmojiService(session, platform, {
+        nt: platform.native.ntHelper,
+        resolvePid: resolveOnlinePid,
+      });
       // 内置表情补全：QQ 的 EmojiSystermResource 目录缺失时按需下 CDN 资源包。
       // 表情全账号通用，所以缓存不按账号分目录；资源浏览器与 weq-asset 协议
       // 都把它当作 QQ 目录之后的第二个查找根。
@@ -1473,7 +1479,10 @@ export function initAppContext(): AppContext {
         forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, resolveOnlinePid),
         groupInfo,
         buddyAnalytics: new BuddyAnalyticsService(session),
-        groupNotify: new GroupNotifyService(session),
+        groupNotify: new GroupNotifyService(session, {
+          nt: platform.native.ntHelper,
+          resolvePid: resolveOnlinePid,
+        }),
         profile,
         msgSearch: new MsgSearchService(session),
         unifiedSearch: new UnifiedSearchService(session, {
@@ -1495,7 +1504,10 @@ export function initAppContext(): AppContext {
           dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
           nt: platform.native.ntHelper,
         }),
-        onlineStatus: new OnlineStatusService(session),
+        onlineStatus: new OnlineStatusService(session, {
+          nt: platform.native.ntHelper,
+          resolvePid: resolveOnlinePid,
+        }),
         collection: collectionSvc,
         redbag: redbagSvc,
         dressInstall,
@@ -2107,6 +2119,7 @@ export function initAppContext(): AppContext {
         accountConfig.getRecord()?.loginPskey,
         (domain) => accountConfig.clearLoginPskey(domain),
       );
+      // 静态账号默认离线：在线写操作会通过 `livePid` 抛错，读路径回退本地库。
       const groupInfo = new GroupInfoService(session);
       groupInfo.setWebQueryService(webQuery);
       const profile = new ProfileService(session);
@@ -2240,7 +2253,10 @@ export function initAppContext(): AppContext {
         forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, livePid),
         groupInfo,
         buddyAnalytics: new BuddyAnalyticsService(session),
-        groupNotify: new GroupNotifyService(session),
+        groupNotify: new GroupNotifyService(session, {
+          nt: platform.native.ntHelper,
+          resolvePid: livePid,
+        }),
         profile,
         msgSearch: new MsgSearchService(session),
         unifiedSearch: new UnifiedSearchService(session, {
@@ -2262,7 +2278,10 @@ export function initAppContext(): AppContext {
           dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
           nt: platform.native.ntHelper,
         }),
-        onlineStatus: new OnlineStatusService(session),
+        onlineStatus: new OnlineStatusService(session, {
+          nt: platform.native.ntHelper,
+          resolvePid: livePid,
+        }),
         collection: collectionSvc,
         redbag: redbagSvc,
         dressInstall,
