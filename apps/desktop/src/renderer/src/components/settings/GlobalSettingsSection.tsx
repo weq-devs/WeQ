@@ -36,6 +36,7 @@ import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { DesktopOnly, IS_WEB } from '../../lib/target';
+import '../../styles/save-preferences.css';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -201,6 +202,19 @@ export function GlobalSettingsSection({
       }
     } catch (e) {
       showError('选择导出保存目录失败', errMsg(e));
+    }
+  }
+
+  async function onChangeExportMode(mode: 'before' | 'preset' | 'after'): Promise<void> {
+    try {
+      if (mode === 'preset' && !settings.data?.defaultExportDir) {
+        const picked = await pickExportDir.mutateAsync();
+        if (!picked) return;
+      }
+      await setExportMode.mutateAsync({ mode });
+      await settings.refetch();
+    } catch (error) {
+      showError('更新保存方式失败', errMsg(error));
     }
   }
 
@@ -565,67 +579,66 @@ export function GlobalSettingsSection({
       )}
       {/* Default export save directory */}
       {section === 'saving' && (
-        <Card title="导出保存目录">
-          <Row
-            label="默认保存方式"
-            control={
-              <select
-                aria-label="默认导出保存方式"
-                value={settings.data?.exportSaveMode ?? 'after'}
-                disabled={settings.isLoading || setExportMode.isLoading}
-                onChange={(event) => {
-                  const mode = event.target.value;
-                  if (mode !== 'before' && mode !== 'preset' && mode !== 'after') return;
-                  void setExportMode
-                    .mutateAsync({ mode })
-                    .then(() => settings.refetch())
-                    .catch((error: unknown) => showError('更新保存方式失败', errMsg(error)));
-                }}
-              >
-                <option value="preset">使用预设目录</option>
-                <option value="before">开始前选择</option>
-                <option value="after">完成后选择</option>
-              </select>
-            }
-          />
-          <Row
-            label={
-              <span className="weq-set-path" title={settings.data?.defaultExportDir ?? ''}>
-                <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
-                <span className="weq-set-path-txt">
-                  {settings.data?.defaultExportDir ?? (settings.isLoading ? '读取中…' : '未设置')}
-                </span>
-              </span>
-            }
-            desc={
-              settings.data?.defaultExportDir
-                ? '供「使用预设目录」模式使用，单次工具调整不修改默认目录。'
-                : '尚未设置预设目录。'
-            }
-            control={
-              <div className="weq-set-btn-group">
-                <button
-                  type="button"
-                  className="weq-set-btn"
-                  disabled={pickExportDir.isLoading}
-                  onClick={() => void onPickExportDir()}
+        <div className="weq-save-preferences">
+          <Card title="保存位置">
+            <Row
+              label="默认保存方式"
+              control={
+                <select
+                  aria-label="默认导出保存方式"
+                  value={settings.data?.exportSaveMode ?? 'before'}
+                  disabled={
+                    settings.isLoading || setExportMode.isLoading || pickExportDir.isLoading
+                  }
+                  onChange={(event) => {
+                    const mode = event.target.value;
+                    if (mode !== 'before' && mode !== 'preset' && mode !== 'after') return;
+                    void onChangeExportMode(mode);
+                  }}
                 >
+                  <option value="before">每次询问保存位置</option>
+                  <option value="preset">自动保存到默认文件夹</option>
+                  {settings.data?.exportSaveMode === 'after' && (
+                    <option value="after">先生成，稍后保存（旧偏好）</option>
+                  )}
+                </select>
+              }
+            />
+            <Row
+              label={
+                <span className="weq-set-path" title={settings.data?.defaultExportDir ?? ''}>
                   <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
-                  选择目录
-                </button>
-                <button
-                  type="button"
-                  className="weq-set-btn weq-set-btn-soft"
-                  disabled={setExportDir.isLoading || !settings.data?.defaultExportDir}
-                  onClick={() => void onResetExportDir()}
-                >
-                  <RotateCcw size={14} strokeWidth={1.8} aria-hidden />
-                  清除设置
-                </button>
-              </div>
-            }
-          />
-        </Card>
+                  <span className="weq-set-path-txt">
+                    {settings.data?.defaultExportDir ?? (settings.isLoading ? '读取中…' : '未设置')}
+                  </span>
+                </span>
+              }
+              desc={settings.data?.defaultExportDir ? undefined : '未设置默认文件夹'}
+              control={
+                <div className="weq-set-btn-group">
+                  <button
+                    type="button"
+                    className="weq-set-btn"
+                    disabled={pickExportDir.isLoading}
+                    onClick={() => void onPickExportDir()}
+                  >
+                    <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
+                    选择目录
+                  </button>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft"
+                    disabled={setExportDir.isLoading || !settings.data?.defaultExportDir}
+                    onClick={() => void onResetExportDir()}
+                  >
+                    <RotateCcw size={14} strokeWidth={1.8} aria-hidden />
+                    清除设置
+                  </button>
+                </div>
+              }
+            />
+          </Card>
+        </div>
       )}
 
       {/* Clear WeQ cache */}

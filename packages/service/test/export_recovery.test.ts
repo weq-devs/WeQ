@@ -98,6 +98,21 @@ it('后台按预设自动保存且不依赖渲染界面，保留原结果与持�
   );
 });
 
+it('新的询问偏好不阻断无选择器的后台任务，也不改写全局策略', async () => {
+  const preference = { mode: 'before' as const };
+  const f = fixture(2, { exportSavePolicy: () => preference });
+  const id = await f.manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '后台生成',
+    format: 'txt',
+    total: 2,
+  });
+  await wait(() => f.manager.getTask(id)?.status === 'completed');
+  expect(f.manager.getTask(id)?.save).toEqual({ policy: { mode: 'after' }, status: 'pending' });
+  expect(preference).toEqual({ mode: 'before' });
+});
+
 it('开始前没有位置不建任务，单次覆盖保存策略不修改默认配置', async () => {
   const f = fixture(2, { exportSavePolicy: () => ({ mode: 'after' }) });
   await expect(

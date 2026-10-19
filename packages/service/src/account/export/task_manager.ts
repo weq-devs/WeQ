@@ -583,8 +583,12 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   private registerTask(task: ExportTask, policy?: ExportSavePolicy): void {
+    const preferred = policy ?? this.deps.exportSavePolicy?.() ?? { mode: 'after' as const };
+    // 后台任务没有系统选择器；未显式准备过的位置保留为稍后保存，不改写全局偏好。
     const resolved = copyExportSavePolicy(
-      policy ?? this.deps.exportSavePolicy?.() ?? { mode: 'after' },
+      !policy && preferred.mode === 'before' && !preferred.directory && !preferred.filePath
+        ? { mode: 'after' }
+        : preferred,
     );
     if (resolved.directory && this.deps.resolveSaveDirectory)
       resolved.directory = this.deps.resolveSaveDirectory(resolved.directory);

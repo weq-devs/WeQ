@@ -669,7 +669,7 @@ export type { GroupKeywordRules } from '../account/group_keyword';
 export { normalizeGroupKeywordRules } from '../account/group_keyword';
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
-  exportSaveMode: 'after',
+  exportSaveMode: 'before',
   realtimeEnabled: true,
   // 默认关闭：是否扫描 QQ 内存由首次运行欢迎框征得同意后再打开，见
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
@@ -1166,9 +1166,11 @@ export class UserConfigService {
     return {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
       exportSaveMode:
-        s?.exportSaveMode === 'before' || s?.exportSaveMode === 'preset'
+        s?.exportSaveMode === 'before' ||
+        s?.exportSaveMode === 'preset' ||
+        s?.exportSaveMode === 'after'
           ? s.exportSaveMode
-          : 'after',
+          : d.exportSaveMode,
       autoAttachQq,
       reportReadEnabled: s?.reportReadEnabled === true,
       manualReadReportEnabled: s?.manualReadReportEnabled === true,

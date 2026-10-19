@@ -7,6 +7,7 @@ import { useExportSavePolicy } from '../src/renderer/src/hooks/useExportSavePoli
 
 const fixture = vi.hoisted(() => ({
   account: 'account-a',
+  loadingSettings: false,
   settings: {
     exportSaveMode: 'after' as ExportSavePolicy['mode'],
     defaultExportDir: '/fixture/default',
@@ -19,7 +20,14 @@ const fixture = vi.hoisted(() => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({ bootstrap: { getSettings: { invalidate: vi.fn() } } }),
-    bootstrap: { getSettings: { useQuery: () => ({ data: fixture.settings, isLoading: false }) } },
+    bootstrap: {
+      getSettings: {
+        useQuery: () => ({
+          data: fixture.loadingSettings ? undefined : fixture.settings,
+          isLoading: fixture.loadingSettings,
+        }),
+      },
+    },
   },
   client: {
     bootstrap: {
@@ -77,6 +85,7 @@ function mountHook(withControl = false) {
 }
 afterEach(() => {
   fixture.account = 'account-a';
+  fixture.loadingSettings = false;
   fixture.settings.exportSaveMode = 'after';
   fixture.prepare.mockReset().mockImplementation(async (policy) => policy);
   fixture.defaults.mockClear();
@@ -86,6 +95,16 @@ afterEach(() => {
 });
 
 describe('保存方式目录语义', () => {
+  it('全局偏好尚未读回时不猜测用户模式或启动选择器', async () => {
+    fixture.loadingSettings = true;
+    const f = mountHook();
+    try {
+      expect(await f.result.prepareSave()).toBeNull();
+      expect(fixture.prepare).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
   it('目录选择期间合并重复请求，冻结保存控件且不使用旧位置启动导出', async () => {
     let resolve!: (value: string | null) => void;
     fixture.pick.mockReturnValueOnce(

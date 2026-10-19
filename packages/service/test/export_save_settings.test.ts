@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it } from 'vitest';
 import type { Platform } from '@weq/platform';
-import { UserConfigService } from '../src/bootstrap/user_config';
+import { DEFAULT_APP_SETTINGS, UserConfigService } from '../src/bootstrap/user_config';
 
 const roots: string[] = [];
 function config(raw?: unknown) {
@@ -21,12 +21,22 @@ it('旧目录字段不自动改成无人值守保存，非法模式不启用自�
   const old = config({
     settings: { defaultExportDir: '/old', preferCdn: true },
   }).service.getSettings();
-  expect(old.exportSaveMode).toBe('after');
+  expect(old.exportSaveMode).toBe(DEFAULT_APP_SETTINGS.exportSaveMode);
   expect(old.defaultExportDir).toBe('/old');
   expect(old.preferCdn).toBe(true);
   expect(
     config({ settings: { exportSaveMode: 'invalid' } }).service.getSettings().exportSaveMode,
-  ).toBe('after');
+  ).toBe(DEFAULT_APP_SETTINGS.exportSaveMode);
+});
+
+it('首次使用优先询问，但明确保存过的完成后选择保持不变', () => {
+  expect(DEFAULT_APP_SETTINGS.exportSaveMode).toBe('before');
+  expect(config().service.getSettings().exportSaveMode).toBe(DEFAULT_APP_SETTINGS.exportSaveMode);
+  expect(
+    config({
+      settings: { exportSaveMode: 'after', defaultExportDir: '/legacy' },
+    }).service.getSettings(),
+  ).toMatchObject({ exportSaveMode: 'after', defaultExportDir: '/legacy' });
 });
 
 it('三种默认策略均持久化，修改无关设置不丢失保存策略和目录', () => {

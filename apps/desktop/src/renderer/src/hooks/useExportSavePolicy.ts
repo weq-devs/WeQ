@@ -40,7 +40,7 @@ export function useExportSavePolicy() {
       mounted.current = false;
     };
   }, []);
-  const mode = override?.mode ?? settings.data?.exportSaveMode ?? 'after';
+  const mode = override?.mode ?? settings.data?.exportSaveMode ?? 'before';
   const directory =
     mode === 'preset'
       ? (override?.directory ?? draft.directories.preset ?? settings.data?.defaultExportDir)
@@ -50,7 +50,7 @@ export function useExportSavePolicy() {
   const policy: ExportSavePolicy = { mode, ...(directory ? { directory } : {}) };
   const current = () => mounted.current && useViewState.getState().openedUin === accountUin;
   async function prepareSave(): Promise<ExportSavePolicy | null> {
-    if (!current() || pickInFlight.current) return null;
+    if (!current() || pickInFlight.current || !settings.data || settings.isLoading) return null;
     const prepared = await client.bootstrap.prepareExportSave.mutate(policy);
     return current() ? prepared : null;
   }
