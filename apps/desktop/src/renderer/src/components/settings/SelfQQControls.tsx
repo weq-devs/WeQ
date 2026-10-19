@@ -16,12 +16,22 @@ import {
 
 export function SelfQQControls() {
   const session = useQQWriteSession('self-profile');
+  const utils = trpc.useUtils();
+  const identityKey = `${session.binding?.expectedAccountUin}:${session.binding?.expectedAccountConfigId}`;
+  const [syncIdentity, setSyncIdentity] = useState<string | null>(null);
+  const [syncRevision, setSyncRevision] = useState(0);
+  const syncing = syncIdentity === identityKey;
   const profile = trpc.account.qqWrite.selfState.useQuery(
     {
       expectedAccountUin: session.binding?.expectedAccountUin ?? '',
       expectedAccountConfigId: session.binding?.expectedAccountConfigId ?? '',
     },
-    { enabled: Boolean(session.binding), refetchOnMount: 'always', staleTime: 0 },
+    {
+      enabled: Boolean(session.binding),
+      refetchOnMount: 'always',
+      staleTime: 0,
+      refetchInterval: syncing ? 1000 : false,
+    },
   );
   const ownProfile =
     profile.data?.profile && profile.data.profile.uin === session.binding?.expectedAccountUin
@@ -41,7 +51,6 @@ export function SelfQQControls() {
   const facePickerId = useId();
   const faceTrigger = useRef<HTMLButtonElement>(null);
   const facePanel = useRef<HTMLDivElement>(null);
-  const identityKey = `${session.binding?.expectedAccountUin}:${session.binding?.expectedAccountConfigId}`;
   const currentIdentity = useRef(identityKey);
   currentIdentity.current = identityKey;
   useEffect(() => {
@@ -49,7 +58,21 @@ export function SelfQQControls() {
     setFaceId('');
     setChoosingFace(false);
     setError('');
+    setSyncIdentity(null);
   }, [identityKey]);
+  useEffect(() => {
+    if (!syncing) return;
+    const timer = setTimeout(() => setSyncIdentity(null), 15_000);
+    return () => clearTimeout(timer);
+  }, [syncing, syncRevision]);
+  useEffect(() => {
+    if (!syncing || currentIdentity.current !== identityKey) return;
+    // QQ 落库可能晚于写回执；每次真实回读后同步标题栏缓存，不覆盖编辑草稿。
+    void Promise.all([
+      utils.account.getSelfProfile.invalidate(),
+      utils.account.getOnlineStatus.invalidate(),
+    ]).catch(() => {});
+  }, [syncing, identityKey, profile.dataUpdatedAt, utils]);
   const disabled = !session.available || session.busy || picking;
   useEffect(() => {
     if (choosingFace && !disabled) facePanel.current?.scrollIntoView({ block: 'nearest' });
@@ -58,7 +81,14 @@ export function SelfQQControls() {
     const updated = await profile.refetch();
     if (updated.error) throw updated.error;
   }
-  const act = (action: Parameters<typeof session.run>[0]) => session.run(action, refresh);
+  const act = async (action: Parameters<typeof session.run>[0]) => {
+    const ok = await session.run(action, refresh, { backgroundRefresh: true });
+    if (ok && currentIdentity.current === identityKey) {
+      setSyncIdentity(identityKey);
+      setSyncRevision((value) => value + 1);
+    }
+    return ok;
+  };
   async function pickAvatar() {
     const capturedIdentity = identityKey;
     setPicking(true);

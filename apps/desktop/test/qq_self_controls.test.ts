@@ -15,6 +15,9 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
 const state = vi.hoisted(() => ({
   configId: 'source-a',
   profilePresent: true,
+  nick: '原昵称',
+  queryOptions: { refetchInterval: false as number | false },
+  invalidate: vi.fn(async () => undefined),
   mutate: vi.fn(async (_input: unknown) => ({ state: 'accepted' as const })),
 }));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
@@ -34,6 +37,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: { qqWrite: { onlineStatus: { mutate: (input: unknown) => state.mutate(input) } } },
   },
   trpc: {
+    useUtils: () => ({
+      account: {
+        getSelfProfile: { invalidate: state.invalidate },
+        getOnlineStatus: { invalidate: state.invalidate },
+      },
+    }),
     account: {
       qqActions: {
         liveStatus: {
@@ -49,24 +58,28 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
       qqWrite: {
         selfState: {
-          useQuery: () => ({
-            data: {
-              profile: state.profilePresent
-                ? {
-                    uid: 'u_self',
-                    uin: '10001',
-                    nick: '原昵称',
-                    signature: '原签名',
-                    gender: 2,
-                  }
-                : null,
-              status: { type: 10, subType: 0 },
-              statusOptions: [{ value: 10, label: '在线' }],
-            },
-            isLoading: false,
-            isFetching: false,
-            refetch: async () => ({ error: null }),
-          }),
+          useQuery: (_input: unknown, options: typeof state.queryOptions) => {
+            if ('refetchInterval' in options) state.queryOptions = options;
+            return {
+              data: {
+                profile: state.profilePresent
+                  ? {
+                      uid: 'u_self',
+                      uin: '10001',
+                      nick: state.nick,
+                      signature: '原签名',
+                      gender: 2,
+                    }
+                  : null,
+                status: { type: 10, subType: 0 },
+                statusOptions: [{ value: 10, label: '在线' }],
+              },
+              isLoading: false,
+              dataUpdatedAt: state.nick === '原昵称' ? 1 : 2,
+              isFetching: false,
+              refetch: async () => ({ error: null }),
+            };
+          },
         },
         selfProfile: { useMutation: () => ({ mutateAsync: state.mutate }) },
         selfAvatar: { useMutation: () => ({ mutateAsync: state.mutate }) },
@@ -119,11 +132,14 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.configId = 'source-a';
   state.profilePresent = true;
+  state.nick = '原昵称';
+  state.invalidate.mockClear();
   state.mutate.mockClear();
 });
 afterEach(() => {
   for (const close of cleanup.splice(0)) close();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe('个人资料编辑入口', () => {
@@ -186,6 +202,42 @@ describe('个人资料编辑入口', () => {
       expectedAccountConfigId: 'source-a',
       patch: { nickname: '新昵称' },
     });
+  });
+  it('保存后短时回读迟到资料并刷新标题栏，不锁住其他字段或覆盖草稿', async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    expect(state.queryOptions.refetchInterval).toBe(false);
+    input(f.host, 'QQ 昵称', '新昵称');
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存QQ 昵称"]')!.click(),
+    );
+    expect(state.queryOptions.refetchInterval).toBe(1000);
+    expect(f.host.querySelector<HTMLTextAreaElement>('[aria-label="个性签名"]')!.disabled).toBe(
+      false,
+    );
+    input(f.host, 'QQ 昵称', '下一次的草稿');
+    state.invalidate.mockClear();
+    state.nick = '新昵称';
+    f.render();
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="QQ 昵称"]')!.value).toBe(
+      '下一次的草稿',
+    );
+    expect(state.invalidate).toHaveBeenCalledTimes(2);
+    await act(async () => vi.advanceTimersByTime(15_000));
+    expect(state.queryOptions.refetchInterval).toBe(false);
+    expect(state.mutate).toHaveBeenCalledOnce();
+  });
+
+  it('等待同步期间切换数据源会停止旧资料轮询', async () => {
+    const f = fixture();
+    input(f.host, 'QQ 昵称', '新昵称');
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存QQ 昵称"]')!.click(),
+    );
+    expect(state.queryOptions.refetchInterval).toBe(1000);
+    state.configId = 'source-b';
+    f.render();
+    expect(state.queryOptions.refetchInterval).toBe(false);
   });
   it('状态表情使用本机目录的 QSid，并保留 0 号表情', async () => {
     const f = fixture();

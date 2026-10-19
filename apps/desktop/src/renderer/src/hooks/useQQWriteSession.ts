@@ -44,6 +44,7 @@ export function useQQWriteSession(scope: string) {
   latest.current = key;
   const mounted = useRef(true);
   const running = useRef(false);
+  const operation = useRef(0);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ key: string; text: string; error: boolean } | null>(null);
   useEffect(() => {
@@ -67,7 +68,7 @@ export function useQQWriteSession(scope: string) {
   async function run(
     action: (binding: QQWriteBinding) => Promise<QQWriteOutcome>,
     refresh?: () => Promise<unknown>,
-    options?: { refreshCaches?: boolean },
+    options?: { refreshCaches?: boolean; backgroundRefresh?: boolean },
   ): Promise<boolean> {
     if (
       !binding ||
@@ -78,6 +79,7 @@ export function useQQWriteSession(scope: string) {
     )
       return false;
     const captured = key;
+    const capturedOperation = ++operation.current;
     running.current = true;
     setBusy(true);
     setResult(null);
@@ -91,27 +93,31 @@ export function useQQWriteSession(scope: string) {
       setResult({ key: captured, text: qqWriteOutcomeText(outcome), error: false });
       if (options?.refreshCaches === false) return current();
       // 刷新失败与远端操作失败分开，不能诱导用户重发已经成功的写请求。
-      try {
-        await Promise.all([
-          refresh?.(),
-          utils.account.listRecentContacts.invalidate(),
-          utils.account.listTopContacts.invalidate(),
-          utils.account.listBuddies.invalidate(),
-          utils.account.getSelfProfile.invalidate(),
-          utils.account.getOnlineStatus.invalidate(),
-          utils.account.getProfile.invalidate(),
-          utils.account.getProfilesByUids.invalidate(),
-          utils.account.listAllGroups.invalidate(),
-          utils.account.getGroupDetail.invalidate(),
-        ]);
-      } catch {
-        if (current())
-          setResult({
-            key: captured,
-            text: `${qqWriteOutcomeText(outcome)}；本机刷新失败`,
-            error: false,
-          });
-      }
+      const refreshAfterWrite = async () => {
+        try {
+          await Promise.all([
+            refresh?.(),
+            utils.account.listRecentContacts.invalidate(),
+            utils.account.listTopContacts.invalidate(),
+            utils.account.listBuddies.invalidate(),
+            utils.account.getSelfProfile.invalidate(),
+            utils.account.getOnlineStatus.invalidate(),
+            utils.account.getProfile.invalidate(),
+            utils.account.getProfilesByUids.invalidate(),
+            utils.account.listAllGroups.invalidate(),
+            utils.account.getGroupDetail.invalidate(),
+          ]);
+        } catch {
+          if (current() && operation.current === capturedOperation)
+            setResult({
+              key: captured,
+              text: `${qqWriteOutcomeText(outcome)}；本机刷新失败`,
+              error: false,
+            });
+        }
+      };
+      if (options?.backgroundRefresh) void refreshAfterWrite();
+      else await refreshAfterWrite();
       return current();
     } catch (error) {
       if (current())

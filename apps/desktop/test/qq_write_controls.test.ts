@@ -299,6 +299,40 @@ describe('QQ 写操作账号与生命周期', () => {
     expect(f.host.textContent).toContain('本机刷新失败');
   });
 
+  it('资料后台刷新未结束时释放保存锁，允许继续提交其他字段', async () => {
+    const f = harness();
+    let finishRefresh!: () => void;
+    const refresh = vi.fn(() => new Promise<void>((resolve) => (finishRefresh = resolve)));
+    const action = vi.fn(async (): Promise<QQWriteOutcome> => ({ state: 'accepted' }));
+    await act(async () => {
+      expect(await f.session().run(action, refresh, { backgroundRefresh: true })).toBe(true);
+    });
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(f.session().busy).toBe(false);
+    await act(async () => {
+      expect(await f.session().run(action, undefined, { refreshCaches: false })).toBe(true);
+      finishRefresh();
+    });
+    expect(action).toHaveBeenCalledTimes(2);
+  });
+
+  it('旧后台刷新失败不覆盖下一次操作回执', async () => {
+    const f = harness();
+    let failRefresh!: (cause: Error) => void;
+    await act(async () => {
+      await f.session().run(
+        async () => ({ state: 'accepted' }),
+        () => new Promise<void>((_resolve, reject) => (failRefresh = reject)),
+        { backgroundRefresh: true },
+      );
+      await f.session().run(async () => ({ state: 'confirmed' }), undefined, {
+        refreshCaches: false,
+      });
+      failRefresh(new Error('late cache error'));
+    });
+    expect(f.host.textContent).toBe(qqWriteOutcomeText({ state: 'confirmed' }));
+  });
+
   it('离线不发请求；未确认的回包不会显示已生效', async () => {
     mocked.online = false;
     const f = harness();
