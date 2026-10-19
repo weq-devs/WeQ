@@ -28,6 +28,23 @@
   outline-offset: 1px;
 }
 
+.weq-title-online-status {
+  min-width: 0;
+  max-width: 160px;
+}
+
+.weq-title-online-status > svg,
+.weq-title-online-status > img {
+  flex-shrink: 0;
+}
+
+.weq-title-online-status > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .weq-self-profile-dialog {
   display: flex;
   flex-direction: column;

@@ -96,6 +96,7 @@ export function useQQWriteSession(scope: string) {
           utils.account.listTopContacts.invalidate(),
           utils.account.listBuddies.invalidate(),
           utils.account.getSelfProfile.invalidate(),
+          utils.account.getOnlineStatus.invalidate(),
           utils.account.getProfile.invalidate(),
           utils.account.getProfilesByUids.invalidate(),
           utils.account.listAllGroups.invalidate(),

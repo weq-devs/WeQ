@@ -47,10 +47,21 @@ const TYPE_ICONS: Record<number, () => React.ReactNode> = {
   40: () => <MinusCircle size={12} stroke="#8c8c8c" />,
 };
 
-export function OnlineStatus({ uid }: { uid: string }) {
-  const { data: status } = trpc.account.getOnlineStatus.useQuery({ uid });
+export function OnlineStatus({
+  uid,
+  className,
+  refetchInterval,
+}: {
+  uid: string;
+  className?: string;
+  refetchInterval?: number;
+}) {
+  const { data: status } = trpc.account.getOnlineStatus.useQuery(
+    { uid },
+    { refetchInterval, refetchOnMount: 'always' },
+  );
 
-  if (!status || status.typeName === '未知') return null;
+  if (!status || status.typeName === '未知' || (status.uid && status.uid !== uid)) return null;
 
   const filename = status.type === 10 && SUB_ICONS[status.subType];
   const icon = filename ? (
@@ -61,12 +72,14 @@ export function OnlineStatus({ uid }: { uid: string }) {
 
   return (
     <span
+      className={className}
+      title={status.displayStatus}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
         gap: 4,
         fontSize: 12,
-        color: '#8c8c8c',
+        color: 'var(--weq-fg-secondary)',
       }}
     >
       {icon}

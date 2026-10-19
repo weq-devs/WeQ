@@ -18,6 +18,7 @@ const mocked = vi.hoisted(() => ({
   config: { uin: '10001', configId: 'source-a' },
   online: true,
   invalidate: vi.fn(async () => undefined),
+  invalidateStatus: vi.fn(async () => undefined),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
@@ -43,11 +44,15 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
           'listTopContacts',
           'listBuddies',
           'getSelfProfile',
+          'getOnlineStatus',
           'getProfile',
           'getProfilesByUids',
           'listAllGroups',
           'getGroupDetail',
-        ].map((name) => [name, { invalidate: mocked.invalidate }]),
+        ].map((name) => [
+          name,
+          { invalidate: name === 'getOnlineStatus' ? mocked.invalidateStatus : mocked.invalidate },
+        ]),
       ),
     }),
   },
@@ -75,6 +80,7 @@ beforeEach(() => {
   mocked.config = { uin: '10001', configId: 'source-a' };
   mocked.online = true;
   mocked.invalidate.mockReset().mockResolvedValue(undefined);
+  mocked.invalidateStatus.mockReset().mockResolvedValue(undefined);
   useViewState.setState({ openedUin: '10001' });
 });
 afterEach(() => {
@@ -226,6 +232,7 @@ describe('QQ 写操作账号与生命周期', () => {
       expectedAccountConfigId: 'source-a',
     });
     expect(f.host.textContent).toContain('等待 QQ 同步');
+    expect(mocked.invalidateStatus).toHaveBeenCalledOnce();
   });
 
   it.each(['account', 'source', 'conversation'])(
@@ -256,6 +263,7 @@ describe('QQ 写操作账号与生命周期', () => {
         expect(await pending!).toBe(false);
       });
       expect(mocked.invalidate).not.toHaveBeenCalled();
+      expect(mocked.invalidateStatus).not.toHaveBeenCalled();
       expect(f.host.textContent).toBe('');
     },
   );

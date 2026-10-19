@@ -2,6 +2,7 @@ import { Minus, Square, X } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 import { Modal } from '../../components/Dialog';
 import { SelfQQControls } from '../../components/settings/SelfQQControls';
+import { OnlineStatus } from '../../components/OnlineStatus';
 import '../../styles/self-profile.css';
 import { Avatar } from './primitives';
 import type { User } from './types';
@@ -92,6 +93,14 @@ export function TitleBar({
       <div className="app-title-bar-user">
         <ProfileAvatar key={`${user.id}:${user.identityValue}`} user={user} />
         <span className="app-title-bar-nick">{displayUserName(user)}</span>
+        {user.uid && (
+          <OnlineStatus
+            key={user.uid}
+            uid={user.uid}
+            className="weq-title-online-status"
+            refetchInterval={15_000}
+          />
+        )}
         {user.signature && <span className="app-title-bar-signature">{user.signature}</span>}
       </div>
       <div className="app-title-bar-drag" />
