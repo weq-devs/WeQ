@@ -107,6 +107,13 @@ export class OnlineStatusService {
       .map(([value, label]) => ({ value: Number(value), label }));
   }
 
+  editableExtendedStatuses(): Array<{ value: number; label: string }> {
+    return Object.entries(SUB_TYPE_NAMES).map(([value, label]) => ({
+      value: Number(value),
+      label,
+    }));
+  }
+
   /**
    * Get formatted online status for a user.
    */

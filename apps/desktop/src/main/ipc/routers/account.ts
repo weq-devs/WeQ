@@ -52,6 +52,7 @@ import {
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { createQQWriteRouter } from './qq_write';
+import { createQQActionsRouter } from './qq_actions';
 import { dbExplorerRouter } from './db_explorer';
 import { annualReportRouter } from './annual_report';
 import { antiRecallRouter } from './anti_recall';
@@ -1387,6 +1388,14 @@ function unreadInfoToWire(
 }
 
 export const accountRouter = router({
+  qqActions: createQQActionsRouter((input) => {
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    requireQqOnlineForAlbum(services);
+    return services;
+  }),
   qqWrite: createQQWriteRouter(
     (input) => {
       const services = requireExpectedAccount(
