@@ -147,6 +147,13 @@ describe('真实输入区与 +1 操作', () => {
         await act(async () =>
           f.root.render(createElement(ChatPane, { ...f.props, messages, onRepeatMessage: repeat })),
         );
+        const typingButton = f.host.querySelector('.weq-qq-typing-toggle');
+        if (type === 'direct') {
+          expect(typingButton?.parentElement?.classList.contains('composer-tools')).toBe(true);
+          expect(typingButton?.parentElement?.lastElementChild).toBe(typingButton);
+        } else {
+          expect(typingButton).toBeNull();
+        }
         const buttons = f.host.querySelectorAll<HTMLButtonElement>('.weq-message-repeat');
         expect(buttons.length).toBe(1);
         expect(buttons[0]?.closest('[data-message-id]')?.getAttribute('data-message-id')).toBe(

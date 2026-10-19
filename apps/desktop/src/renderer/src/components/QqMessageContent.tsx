@@ -709,12 +709,14 @@ export function QqMessageContent({
   elements,
   sendTimeMs,
   msgId,
+  msgSeq,
   isSender = true,
   conversation,
 }: {
   elements: RenderElement[];
   sendTimeMs: number;
   msgId: string;
+  msgSeq?: string;
   isSender?: boolean;
   /**
    * 当前会话（渲染器注册表带进来的）—— 红包明细要拿 conv / 会话类型。
@@ -907,6 +909,8 @@ export function QqMessageContent({
   //
   // 闪传卡片（markdown 带 flashTransferInfo）在上面已被认领，走不到这里。
   const keyboardElement = elements.find((element) => element.type === 'inlineKeyboard');
+  const keyboardBotAppId =
+    typeof keyboardElement?.data?.botAppId === 'string' ? keyboardElement.data.botAppId : undefined;
   const botMarkdown = elements.find(
     (element) => element.type === 'markdown' && String(element.data?.markdownContent ?? '') !== '',
   );
@@ -921,7 +925,12 @@ export function QqMessageContent({
     return (
       <div className={cn('message-content', 'qq-message-inline', 'qq-bot-card')}>
         {body}
-        <QqInlineKeyboard rows={rows} />
+        <QqInlineKeyboard
+          rows={rows}
+          groupId={conversation?.type === 'group' ? conversation.id : undefined}
+          sequence={msgSeq}
+          botAppid={keyboardBotAppId}
+        />
       </div>
     );
   }
@@ -929,7 +938,12 @@ export function QqMessageContent({
   if (keyboardElement) {
     return (
       <div className={cn('message-content', 'qq-message-inline', 'qq-bot-card')}>
-        <QqInlineKeyboard rows={(keyboardElement.data?.rows ?? []) as KeyboardButton[][]} />
+        <QqInlineKeyboard
+          rows={(keyboardElement.data?.rows ?? []) as KeyboardButton[][]}
+          groupId={conversation?.type === 'group' ? conversation.id : undefined}
+          sequence={msgSeq}
+          botAppid={keyboardBotAppId}
+        />
       </div>
     );
   }
@@ -1132,7 +1146,12 @@ export const qqMessageRenderer: MessageRenderer = {
     );
   },
   render: ({ message, conversation, mine }) => {
-    const m = message as { qqElements?: RenderElement[]; createdAt?: string; msgId?: string };
+    const m = message as {
+      qqElements?: RenderElement[];
+      createdAt?: string;
+      msgId?: string;
+      msgSeq?: string;
+    };
     const elements = m.qqElements ?? [];
     const sendTimeMs = m.createdAt ? Date.parse(m.createdAt) : 0;
     const msgId = m.msgId ?? '';
@@ -1141,6 +1160,7 @@ export const qqMessageRenderer: MessageRenderer = {
         elements={elements}
         sendTimeMs={sendTimeMs}
         msgId={msgId}
+        msgSeq={m.msgSeq}
         isSender={mine}
         conversation={conversation}
       />

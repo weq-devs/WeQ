@@ -67,6 +67,7 @@ export function useQQWriteSession(scope: string) {
   async function run(
     action: (binding: QQWriteBinding) => Promise<QQWriteOutcome>,
     refresh?: () => Promise<unknown>,
+    options?: { refreshCaches?: boolean },
   ): Promise<boolean> {
     if (
       !binding ||
@@ -88,6 +89,7 @@ export function useQQWriteSession(scope: string) {
       const outcome = await action(binding);
       if (!current()) return false;
       setResult({ key: captured, text: qqWriteOutcomeText(outcome), error: false });
+      if (options?.refreshCaches === false) return current();
       // 刷新失败与远端操作失败分开，不能诱导用户重发已经成功的写请求。
       try {
         await Promise.all([

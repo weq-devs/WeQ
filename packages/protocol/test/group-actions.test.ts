@@ -291,10 +291,26 @@ describe('群管理 / 群文件 / 群待办', () => {
     const nt = makeNative(resp);
     const list = await GetGroupTodoList.invoke(nt, 1, { groupId: 100 });
     expect(list).toEqual([
-      { sourceId: '12_34', sequence: 12, random: 34, text: 'todo', createdAt: 5, updatedAt: 6 },
+      { sourceId: '12_34', sequence: '12', random: 34, text: 'todo', createdAt: 5, updatedAt: 6 },
     ]);
   });
 
+  it('群待办读回的 uint64 序号不经过 Number，越界标识拒绝使用', async () => {
+    const reply = (sequence: string) =>
+      encode(GetGroupTodoList.respSchema, {
+        banners: [{ msgId: new TextEncoder().encode(`${sequence}_1`) }],
+      });
+    const nt = makeNative(reply('18446744073709551615'));
+    expect((await GetGroupTodoList.invoke(nt, 1, { groupId: 100 }))[0]?.sequence).toBe(
+      '18446744073709551615',
+    );
+    await expect(
+      GetGroupTodoList.invoke(makeNative(reply('18446744073709551616')), 1, { groupId: 100 }),
+    ).rejects.toThrow('uint64');
+    expect(() =>
+      GroupTodo.serialize({ groupId: 100, msgSeq: 18446744073709551616n, action: 'set' }),
+    ).toThrow('uint64');
+  });
   it('SendGroupSign：0xeb7_1，不签名，uin/groupId 都是字符串', async () => {
     const nt = makeNative();
     await SendGroupSign.invoke(nt, 1, { groupId: 100, selfUin: 200 });

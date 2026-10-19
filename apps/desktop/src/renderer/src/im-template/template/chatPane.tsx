@@ -13,6 +13,7 @@ import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import '../../styles/message-selection-toolbar.css';
 import { ConversationMessageActions } from '../../components/ConversationMessageActions';
 import { QQMessageEssenceAction } from '../../components/QQMessageEssenceAction';
+import { MessageTodoAction, TypingStatus } from '../../components/qq-actions/ChatActions';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { hasActiveModal } from '../../lib/overlayStack';
@@ -4492,6 +4493,13 @@ export function ChatPane({
               <CirclePlus size={28} />
             </button>
           ) : null}
+          {conversation.type === 'direct' && (
+            <TypingStatus
+              key={conversation.id}
+              uid={conversation.otherUser.id}
+              editors={[composerEditorRef, expandedComposerEditorRef]}
+            />
+          )}
         </div>
         {mediaAttachment ? (
           <ComposerMediaStage attachment={mediaAttachment} onRemove={removeMediaAttachment} />
@@ -4847,12 +4855,19 @@ export function ChatPane({
         <MessageContextMenu
           extraActions={
             conversation.type === 'group' && !grayTipOf(contextMenu.message) ? (
-              <QQMessageEssenceAction
-                key={contextMenu.message.id}
-                conversation={conversation}
-                message={contextMenu.message}
-                onClose={() => setContextMenu(null)}
-              />
+              <>
+                <QQMessageEssenceAction
+                  key={contextMenu.message.id}
+                  conversation={conversation}
+                  message={contextMenu.message}
+                  onClose={() => setContextMenu(null)}
+                />
+                <MessageTodoAction
+                  conversation={conversation}
+                  message={contextMenu.message}
+                  onClose={() => setContextMenu(null)}
+                />
+              </>
             ) : undefined
           }
           onAddToComposition={

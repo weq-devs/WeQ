@@ -4,6 +4,7 @@ import { trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { Card } from './settings/controls';
 import { useDialog } from './Dialog';
+import { GroupActions } from './qq-actions/GroupActions';
 import {
   QQWriteActionRow,
   QQWriteResult,
@@ -224,6 +225,7 @@ export function QQConversationControls({ kind, conv }: { kind: 'c2c' | 'group'; 
               />
             </Card>
           )}
+          {kind === 'group' && <GroupActions key={conv} groupId={Number(conv)} />}
         </div>
       )}
     </div>

@@ -218,6 +218,16 @@ describe('QQ 写操作账号与生命周期', () => {
     render();
     return { ...f, render, session: () => session! };
   }
+  it('输入状态等瞬时请求可以跳过与其无关的资料缓存刷新', async () => {
+    const f = harness();
+    await act(async () => {
+      await f
+        .session()
+        .run(async () => ({ state: 'accepted' }), undefined, { refreshCaches: false });
+    });
+    expect(mocked.invalidate).not.toHaveBeenCalled();
+    expect(mocked.invalidateStatus).not.toHaveBeenCalled();
+  });
   it('快速重复点击只发一次，绑定的是提交时账号与数据源', async () => {
     const f = harness();
     const action = vi.fn(

@@ -46,11 +46,14 @@ export namespace GroupTodo {
   };
 
   export const serialize = (p: Params): Record<string, unknown> => {
-    if (!Number.isSafeInteger(p.groupId) || p.groupId <= 0) {
+    if (!Number.isSafeInteger(p.groupId) || p.groupId <= 0 || p.groupId > 0xffffffff) {
       throw new Error(`groupId 必须是正整数，收到 ${String(p.groupId)}`);
     }
+    if (typeof p.msgSeq === 'number' && !Number.isSafeInteger(p.msgSeq))
+      throw new Error('msgSeq 数字精度不足，请使用 bigint');
     const msgSeq = typeof p.msgSeq === 'bigint' ? p.msgSeq : BigInt(p.msgSeq);
-    if (msgSeq <= 0n) throw new Error('msgSeq 必须是正整数');
+    if (msgSeq <= 0n || msgSeq > 0xffffffffffffffffn)
+      throw new Error('msgSeq 必须在 uint64 正整数范围内');
     return { groupUin: p.groupId, msgSeq };
   };
 
@@ -116,7 +119,7 @@ const SOURCE_ID_PATTERN = /^([1-9]\d*)_(-?\d+)$/;
 export interface GroupTodoListItem {
   /** `"{sequence}_{random}"`，同时也出现在 jumpParam JSON 里。 */
   sourceId: string;
-  sequence: number;
+  sequence: string;
   random: number;
   text: string;
   createdAt: number;
@@ -167,12 +170,14 @@ export namespace GetGroupTodoList {
       const sourceId = decodeUtf8(banner.msgId, 'msgId');
       const match = SOURCE_ID_PATTERN.exec(sourceId);
       if (!match) throw new Error(`群待办消息标识格式非法：${sourceId}`);
+      if (match[1]!.length > 20 || BigInt(match[1]!) > 0xffffffffffffffffn)
+        throw new Error('群待办消息序号超出 uint64 范围');
       const common = (banner.commonBanner ?? {}) as Record<string, unknown>;
       const ui = (common.ui ?? {}) as Record<string, unknown>;
       const legacy = (banner.todoBanner ?? {}) as Record<string, unknown>;
       items.push({
         sourceId,
-        sequence: Number(match[1]),
+        sequence: match[1]!,
         random: Number(match[2]),
         text:
           (typeof ui.text === 'string' && ui.text) ||
