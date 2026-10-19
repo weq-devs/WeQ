@@ -4,6 +4,7 @@ import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { ContactDirectoryContext } from '../../lib/conversationDirectory';
 import { useContentMultiSelect } from '../../state/contentSelection';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
+import { GroupJoinAction } from '../../components/qq-actions/GroupJoinAction';
 import { allSelectionIdsSelected, toggleAllSelectionIds } from '../../lib/multiSelection';
 import { cn } from './classNames';
 import { Avatar } from './primitives';
@@ -59,6 +60,7 @@ export function SidebarHeader({
   groupNoticeCount?: number;
 }) {
   const [addOpen, setAddOpen] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
   const directory = useContext(ContactDirectoryContext);
   const selection = useContentMultiSelect({ kind: 'contacts', container: contactTab });
 
@@ -113,6 +115,16 @@ export function SidebarHeader({
         </button>
         {addOpen ? (
           <div className={cn('sidebar-add-menu')}>
+            <button
+              type="button"
+              onClick={() => {
+                setAddOpen(false);
+                setJoinOpen(true);
+              }}
+            >
+              <UsersRound size={18} />
+              <span>申请加入 QQ 群</span>
+            </button>
             <button type="button" onClick={handleCreateGroup}>
               <UsersRound size={18} />
               <span>创建群聊</span>
@@ -146,6 +158,7 @@ export function SidebarHeader({
       )}
     >
       <div className={cn('mobile-sidebar-top')}>
+        {joinOpen && <GroupJoinAction onClose={() => setJoinOpen(false)} />}
         <button className={cn('mobile-sidebar-avatar')} type="button" onClick={onOpenProfile}>
           <Avatar
             name={displayUserName(user)}

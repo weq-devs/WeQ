@@ -8,6 +8,8 @@ import type { User } from '../src/renderer/src/im-template/template/types';
 
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
+  useDialog: (selector: (s: { confirm: () => Promise<boolean> }) => unknown) =>
+    selector({ confirm: async () => true }),
 }));
 
 const state = vi.hoisted(() => ({
@@ -28,8 +30,23 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: {
+    account: { qqWrite: { onlineStatus: { mutate: (input: unknown) => state.mutate(input) } } },
+  },
   trpc: {
     account: {
+      qqActions: {
+        liveStatus: {
+          useQuery: () => ({
+            data: { status: 40, extStatus: 0 },
+            isFetching: false,
+            refetch: async () => ({ error: null }),
+          }),
+        },
+        extendedStatuses: {
+          useQuery: () => ({ data: [{ value: 1018, label: '学习中' }], isFetching: false }),
+        },
+      },
       qqWrite: {
         selfState: {
           useQuery: () => ({
@@ -110,6 +127,29 @@ afterEach(() => {
 });
 
 describe('个人资料编辑入口', () => {
+  it('预设扩展状态使用 status=10 和对应 extStatus，查询服务端状态不发写请求', async () => {
+    const f = fixture();
+    const select = f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!;
+    act(() => {
+      select.value = '1018';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存扩展在线状态"]')!.click(),
+    );
+    expect(state.mutate).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      status: 10,
+      extStatus: 1018,
+    });
+    state.mutate.mockClear();
+    act(() =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="查询服务端在线状态"]')!.click(),
+    );
+    expect(f.host.textContent).toContain('隐身');
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
   it('标题栏头像打开真实资料编辑器，关闭后重新打开不保留草稿', async () => {
     const f = fixture(true);
     expect(f.host.querySelector('[role="dialog"]')).toBeNull();

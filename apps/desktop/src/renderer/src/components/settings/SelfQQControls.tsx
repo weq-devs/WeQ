@@ -5,6 +5,8 @@ import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { Card, Row } from './controls';
 import { FacePicker } from '../compose/FacePicker';
 import { FaceEmoji } from '../FaceEmoji';
+import { LiveStatusReadout } from '../qq-actions/ChatActions';
+import { ExtendedStatusAction } from '../qq-actions/ExtendedStatusAction';
 import {
   QQWriteActionRow,
   QQWriteResult,
@@ -155,6 +157,8 @@ export function SelfQQControls() {
           />
         </Card>
         <Card title="QQ 状态">
+          <LiveStatusReadout />
+          <ExtendedStatusAction />
           <QQWriteSelectRow
             label="在线状态"
             initial={profile.data?.status?.subType ? null : (profile.data?.status?.type ?? null)}
