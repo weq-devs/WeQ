@@ -61,3 +61,34 @@ export async function retryConversationRead<T>(
   }
   return null;
 }
+/** 写入期间忽略旧扫描，写入结束再次推进版本，隔离期间启动的扫描。 */
+export function createUnreadUpdateGuard() {
+  let revision = 0;
+  const changed = new Map<string, number>();
+  const pending = new Map<string, number>();
+  return {
+    revision: () => revision,
+    begin(ids: string[]) {
+      revision++;
+      for (const id of ids) {
+        changed.set(id, revision);
+        pending.set(id, (pending.get(id) ?? 0) + 1);
+      }
+      let finished = false;
+      return () => {
+        if (finished) return;
+        finished = true;
+        revision++;
+        for (const id of ids) {
+          changed.set(id, revision);
+          const count = (pending.get(id) ?? 1) - 1;
+          if (count) pending.set(id, count);
+          else pending.delete(id);
+        }
+      };
+    },
+    accepts(id: string, startedAt: number) {
+      return !pending.has(id) && (changed.get(id) ?? 0) <= startedAt;
+    },
+  };
+}

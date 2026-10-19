@@ -1,9 +1,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createUnreadRefresh, retryConversationRead } from '../src/renderer/src/lib/unreadRefresh';
+import {
+  createUnreadRefresh,
+  createUnreadUpdateGuard,
+  retryConversationRead,
+} from '../src/renderer/src/lib/unreadRefresh';
 
 afterEach(() => vi.useRealTimers());
 
 describe('未读刷新调度', () => {
+  it('当前会话直接更新，旧扫描及写入期间的扫描不能覆盖，无关会话仍刷新', () => {
+    const guard = createUnreadUpdateGuard();
+    const before = guard.revision();
+    const finish = guard.begin(['u_one']);
+    const during = guard.revision();
+    expect(guard.accepts('u_one', before)).toBe(false);
+    expect(guard.accepts('u_one', during)).toBe(false);
+    expect(guard.accepts('u_other', before)).toBe(true);
+    finish();
+    expect(guard.accepts('u_one', during)).toBe(false);
+    expect(guard.accepts('u_one', guard.revision())).toBe(true);
+  });
+
   it('已读失败有限重试，切走后停止，成功的幂等结果不重试', async () => {
     vi.useFakeTimers();
     let current = true;

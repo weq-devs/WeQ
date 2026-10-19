@@ -38,7 +38,11 @@ import { avatarFromGroupCode, avatarFromUin } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
 import { previewNodes, previewNodesToText, previewIdentityIds } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
-import { createUnreadRefresh, retryConversationRead } from '../lib/unreadRefresh';
+import {
+  createUnreadRefresh,
+  createUnreadUpdateGuard,
+  retryConversationRead,
+} from '../lib/unreadRefresh';
 import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
 import {
@@ -3151,6 +3155,7 @@ export function MainView(): ReactElement {
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
   // asynchronously after the recent-contact list loads / refreshes.
   const [unreadByConv, setUnreadByConv] = useState<Record<string, number>>({});
+  const unreadUpdateGuardRef = useRef(createUnreadUpdateGuard());
   const [highlightsByConv, setHighlightsByConv] = useState<Record<string, ConversationHighlight[]>>(
     {},
   );
@@ -4449,11 +4454,14 @@ export function MainView(): ReactElement {
   useEffect(() => {
     let disposed = false;
     const isCurrent = () => !disposed && useViewState.getState().openedUin === openedUin;
+    const guard = createUnreadUpdateGuard();
+    unreadUpdateGuardRef.current = guard;
     setUnreadByConv({});
     setHighlightsByConv({});
 
     async function loadUnread(): Promise<boolean> {
       if (!isCurrent() || !openedUin) return true;
+      const startedAt = guard.revision();
       const list = unreadContactsRef.current;
       const counts: Record<string, number> = {};
       const highlights: Record<string, ConversationHighlight[]> = {};
@@ -4500,7 +4508,8 @@ export function MainView(): ReactElement {
       setUnreadByConv((current) => {
         const next: Record<string, number> = {};
         for (const id of ids) {
-          const value = succeeded.has(id) ? counts[id] : current[id];
+          const value =
+            succeeded.has(id) && guard.accepts(id, startedAt) ? counts[id] : current[id];
           if (value !== undefined) next[id] = value;
         }
         return Object.keys(next).length === Object.keys(current).length &&
@@ -4511,7 +4520,8 @@ export function MainView(): ReactElement {
       setHighlightsByConv((current) => {
         const next: Record<string, ConversationHighlight[]> = {};
         for (const id of ids) {
-          const value = succeeded.has(id) ? highlights[id] : current[id];
+          const value =
+            succeeded.has(id) && guard.accepts(id, startedAt) ? highlights[id] : current[id];
           if (value?.length) next[id] = value;
         }
         return JSON.stringify(next) === JSON.stringify(current) ? current : next;
@@ -5263,6 +5273,25 @@ export function MainView(): ReactElement {
   const readRequestsRef = useRef(
     new Map<string, { again: boolean; promise: Promise<void>; latestSeq: string | undefined }>(),
   );
+  const applyUnreadRows = useCallback(
+    (rows: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>) => {
+      setUnreadByConv((current) => {
+        const next = { ...current };
+        for (const row of rows) if (!row.readError) next[row.uid] = row.unreadCount ?? 0;
+        return next;
+      });
+      setHighlightsByConv((current) => {
+        const next = { ...current };
+        for (const row of rows) {
+          if (row.readError) continue;
+          if (row.highlights?.length) next[row.uid] = row.highlights as ConversationHighlight[];
+          else delete next[row.uid];
+        }
+        return next;
+      });
+    },
+    [],
+  );
   const markVisibleConversationRead = useCallback(
     async (conv: Conversation, capturedLatestSeq?: string) => {
       const isCurrent = () =>
@@ -5287,6 +5316,7 @@ export function MainView(): ReactElement {
         do {
           entry.again = false;
           if (!isCurrent()) break;
+          const finishUpdate = unreadUpdateGuardRef.current.begin([conv.id]);
           try {
             // 固定这次打开时的本地水位，重试不会顺带确认后来到达的新消息。
             const request = {
@@ -5295,16 +5325,44 @@ export function MainView(): ReactElement {
               latestSeq: entry.latestSeq,
               expectedAccountUin: openedUin ?? undefined,
             };
+            // 仅清除已捕获水位内的红点，后来到达的新水位留待精确查询。
+            const newest = unreadContactsRef.current.find(
+              (contact) => contact.targetUid === conv.id,
+            )?.msgSeq;
+            if (
+              request.latestSeq !== undefined &&
+              newest !== undefined &&
+              BigInt(newest) <= BigInt(request.latestSeq)
+            ) {
+              setUnreadByConv((current) => ({ ...current, [conv.id]: 0 }));
+              setHighlightsByConv((current) => {
+                const next = { ...current };
+                const remaining = next[conv.id]?.filter(
+                  (hit) => BigInt(hit.msgSeq) > BigInt(request.latestSeq!),
+                );
+                if (remaining?.length) next[conv.id] = remaining;
+                else delete next[conv.id];
+                return next;
+              });
+            }
             const changed = await retryConversationRead(
               () => client.account.markConversationRead.mutate(request),
               isCurrent,
             );
             if (changed !== null && isCurrent()) {
-              setUnreadRevision((revision) => revision + 1);
+              const rows = await client.account.getUnreadInfos.query({
+                expectedAccountUin: openedUin!,
+                targets: [{ chatType: request.chatType as 1 | 2, uid: conv.id }],
+              });
+              if (isCurrent()) applyUnreadRows(rows);
               if (changed.changed) void utils.account.listRecentContacts.invalidate();
             }
           } catch (error) {
             console.error('[unread] markConversationRead failed', error);
+          } finally {
+            finishUpdate();
+            if (useViewState.getState().openedUin === openedUin)
+              setUnreadRevision((revision) => revision + 1);
           }
         } while (entry.again && isCurrent());
       })().finally(() => {
@@ -5313,8 +5371,9 @@ export function MainView(): ReactElement {
       readRequestsRef.current.set(key, entry);
       return entry.promise;
     },
-    [openedUin, utils],
+    [openedUin, utils, applyUnreadRows],
   );
+
   const unreadSelectionId =
     selectedConversation &&
     (selectedConversation.type === 'direct' || selectedConversation.type === 'group')
