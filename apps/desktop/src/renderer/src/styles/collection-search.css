@@ -1,3 +1,26 @@
+.weq-collection-head {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.weq-collection-title-row {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.weq-collection-search {
+  flex: 1 1 180px;
+  min-width: 0;
+  max-width: none;
+  margin-left: auto;
+  padding: 5px 10px;
+}
+
+.weq-collection-search input {
+  width: 0;
+}
+
 .weq-col-search-status {
   display: flex;
   flex: none;

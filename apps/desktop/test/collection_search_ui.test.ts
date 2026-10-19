@@ -59,7 +59,13 @@ function captureLayout(host: HTMLElement, name = 'collection-search') {
   const output = process.env.WEQ_COLLECTION_LAYOUT_DIR;
   if (!output) return;
   mkdirSync(output, { recursive: true });
-  const styles = ['index.css', 'search-scope.css', 'collection-search.css']
+  const styles = [
+    'index.css',
+    'search-scope.css',
+    'workspace-tools.css',
+    'page-chrome.css',
+    'collection-search.css',
+  ]
     .map((name) => readFileSync(resolve('src/renderer/src/styles', name), 'utf8'))
     .join('\n');
   writeFileSync(
@@ -73,6 +79,36 @@ afterEach(() => {
 });
 
 describe('收藏全局搜索定位', () => {
+  it('列表搜索与标题共用顶部栏，清空按钮可重置关键词', async () => {
+    const f = mount();
+    try {
+      await act(async () =>
+        f.root.render(
+          createElement(
+            'div',
+            { className: 'weq-workspace-page weq-workspace-page-fallback' },
+            createElement(CollectionDialog, { open: true, embedded: true, onClose: vi.fn() }),
+          ),
+        ),
+      );
+      const input = f.host.querySelector<HTMLInputElement>('[aria-label="搜索收藏"]')!;
+      expect(input.parentElement?.parentElement).toBe(f.host.querySelector('.weq-collection-head'));
+      captureLayout(f.host, 'collection-header');
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+          input,
+          '合成',
+        );
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(input.value).toBe('合成');
+      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="清空搜索"]')!.click());
+      expect(input.value).toBe('');
+    } finally {
+      f.close();
+    }
+  });
+
   it('收藏来源失败时仍显示助手命中，失败只出现在对应分组并可重试', () => {
     const f = mount();
     const retry = vi.fn();

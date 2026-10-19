@@ -1133,6 +1133,7 @@ export function CollectionDialog({
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                aria-label="搜索收藏"
                 placeholder="搜索标题 / 内容 / 来源…"
                 spellCheck={false}
               />
@@ -1140,6 +1141,8 @@ export function CollectionDialog({
                 <button
                   type="button"
                   className="weq-collection-search-clear"
+                  title="清空搜索"
+                  aria-label="清空搜索"
                   onClick={() => setQuery('')}
                 >
                   <X size={13} strokeWidth={2} />
