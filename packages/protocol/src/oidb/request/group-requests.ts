@@ -10,7 +10,7 @@
 // ⚠️ `setAddRequest` 的 `message`（拒绝理由）**空值必须写 `" "`**，不能省略 ——
 // 官方客户端就是这么发的；省略会被服务端拒。
 
-import { message } from '../../protobuf';
+import { decode, message } from '../../protobuf';
 import { invokeOidb, type OidbSpec } from '../invoke';
 import { toInt } from '../shared';
 import type { OidbNative } from '../../transport';
@@ -66,6 +66,10 @@ const REQUEST_USER_UIN = message([
   { name: 'uin', tag: 1, type: 'uint32' },
   { name: 'name', tag: 2, type: 'string' },
 ]);
+const REQUEST_USER_UID = message([
+  { name: 'uid', tag: 1, type: 'string' },
+  { name: 'name', tag: 2, type: 'string' },
+]);
 
 const REQUEST_GROUP = message([
   { name: 'groupUin', tag: 1, type: 'uint32' },
@@ -88,14 +92,39 @@ function groupRequestEntry(userSchema: ReturnType<typeof message>) {
 }
 
 /** UIN 形态（`uinForm = true`）的回包：用户字段 tag 1 是 uin。 */
-const GROUP_REQUEST_RESP_BY_UIN = message([
-  { name: 'requests', tag: 1, type: groupRequestEntry(REQUEST_USER_UIN), repeated: true },
-  { name: 'cookie', tag: 2, type: 'uint64' },
-  { name: 'newLatestSeq', tag: 3, type: 'uint64' },
-  { name: 'field4', tag: 4, type: 'uint32' },
-  { name: 'field5', tag: 5, type: 'uint64' },
-  { name: 'field6', tag: 6, type: 'uint32' },
-]);
+function groupRequestResponse(userSchema: ReturnType<typeof message>) {
+  return message([
+    { name: 'requests', tag: 1, type: groupRequestEntry(userSchema), repeated: true },
+    { name: 'cookie', tag: 2, type: 'uint64' },
+    { name: 'newLatestSeq', tag: 3, type: 'uint64' },
+    { name: 'field4', tag: 4, type: 'uint32' },
+    { name: 'field5', tag: 5, type: 'uint64' },
+    { name: 'field6', tag: 6, type: 'uint32' },
+  ]);
+}
+const GROUP_REQUEST_RESP_BY_UIN = groupRequestResponse(REQUEST_USER_UIN);
+const GROUP_REQUEST_RESP_BY_UID = groupRequestResponse(REQUEST_USER_UID);
+
+/** UIN 信封内也会返回 UID 字符串；按相同记录位置合并两种 wire 形态。 */
+function decodeGroupRequests(bytes: Uint8Array): Record<string, unknown> {
+  const byUin = decode(GROUP_REQUEST_RESP_BY_UIN, bytes);
+  const byUid = decode(GROUP_REQUEST_RESP_BY_UID, bytes);
+  const uidRows = (byUid.requests ?? []) as Record<string, unknown>[];
+  const rows = (byUin.requests ?? []) as Record<string, unknown>[];
+  return {
+    ...byUin,
+    requests: rows.map((row, index) => {
+      const merged = { ...row };
+      for (const key of ['target', 'invitor', 'operatorUser']) {
+        merged[key] = {
+          ...((row[key] ?? {}) as Record<string, unknown>),
+          ...((uidRows[index]?.[key] ?? {}) as Record<string, unknown>),
+        };
+      }
+      return merged;
+    }),
+  };
+}
 
 export interface GroupRequestUser {
   uid: string;
@@ -106,9 +135,9 @@ export interface GroupRequestUser {
 export interface GroupRequest {
   /** 处理该请求的定位序号。 */
   sequence: number;
-  /** 处理时回传的 eventType。 */
+  /** 0x10C0 的通知类型（7 = 入群申请）；处理前映射为 0x10C8 操作类型。 */
   eventType: number;
-  /** 0 = 待处理（通常）。 */
+  /** 1 = 待处理，2 / 3 = 已同意 / 已拒绝。 */
   state: number;
   groupId: number;
   groupName: string;
@@ -177,6 +206,7 @@ export namespace FetchGroupRequests {
   export const reqSchema = GROUP_REQUEST_LIST_REQ;
   // uinForm=true 时用户字段 tag 1 是 uint32，必须用 UIN 形态的 schema。
   export const respSchema = GROUP_REQUEST_RESP_BY_UIN;
+  export const decodeResponseBody = decodeGroupRequests;
 
   export type Params = FetchGroupRequestsParams;
 
@@ -207,6 +237,7 @@ export namespace FetchFilteredGroupRequests {
   export const uinForm = true;
   export const reqSchema = GROUP_REQUEST_LIST_REQ;
   export const respSchema = GROUP_REQUEST_RESP_BY_UIN;
+  export const decodeResponseBody = decodeGroupRequests;
 
   export type Params = Omit<FetchGroupRequestsParams, 'filtered'>;
 

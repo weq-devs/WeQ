@@ -35,6 +35,8 @@ export interface OidbSpec<TParams, TResult> {
   uinForm?: boolean;
   reqSchema: ProtoMessage;
   respSchema: ProtoMessage;
+  /** 同一字段有多种已确认 wire 形态时，由具体协议合并解码。 */
+  decodeResponseBody?: (bytes: Uint8Array) => Record<string, unknown>;
   serialize(params: TParams): Record<string, unknown>;
   deserialize(body: Record<string, unknown>): TResult;
 }
@@ -65,7 +67,11 @@ export async function invokeOidb<TParams, TResult>(
     },
     needSign,
   );
-  return spec.deserialize(decode(spec.respSchema, respBytes));
+  return spec.deserialize(
+    spec.decodeResponseBody
+      ? spec.decodeResponseBody(respBytes)
+      : decode(spec.respSchema, respBytes),
+  );
 }
 
 /** A trpc service reached via a raw SSO command string (no OIDB envelope). */

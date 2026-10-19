@@ -146,7 +146,7 @@ describe('GroupNotifyService', () => {
       {
         groupId: 123,
         sequence: 11,
-        eventType: 2,
+        eventType: 7,
         filtered: false,
         operateTransInfo: new Uint8Array([1, 2]),
       },
@@ -155,10 +155,11 @@ describe('GroupNotifyService', () => {
     expect(nt.calls[0]).toMatchObject({ command: 0x10c8, subCommand: 1 });
     const body = decode(SetGroupRequest.reqSchema, nt.calls[0]!.body) as {
       accept: number;
-      body: { message: string; operateTransInfo: Uint8Array };
+      body: { message: string; operateTransInfo: Uint8Array; eventType: number };
     };
     expect(body.accept).toBe(2);
     expect(body.body.message).toBe(' ');
+    expect(body.body.eventType).toBe(1);
     expect(Array.from(body.body.operateTransInfo)).toEqual([1, 2]);
   });
 });

@@ -94,8 +94,8 @@ function fixture() {
         {
           groupId: 123,
           sequence: 55,
-          eventType: 1,
-          state: 0,
+          eventType: 7,
+          state: 1,
           filtered: false,
           target: { uid: 'u_friend', uin: 10002, name: '申请人' },
           groupName: '测试群',
@@ -396,12 +396,35 @@ describe('主动操作的账号与参数边界', () => {
     f.s.groupNotify.fetchOnlineRequests.mockResolvedValueOnce([
       incoming!,
       { ...incoming!, eventType: 13 },
+      { ...incoming!, eventType: 1 },
+      { ...incoming!, state: 2 },
+      { ...incoming!, state: 3 },
+      { ...incoming!, target: { uid: '', uin: 0, name: '身份缺失' } },
       { ...incoming!, target: { uid: 'u_self', uin: 10001, name: '自己' } },
     ]);
     const rows = await f.caller.requests({ ...binding, kind: 'group' });
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ uid: 'u_friend', uin: '10002', groupId: '123' });
   });
+  it.each(['group', 'filteredGroup'] as const)(
+    '%s 保留 UID 或 QQ 号可识别的待处理申请',
+    async (kind) => {
+      const f = fixture();
+      const [incoming] = await f.s.groupNotify.fetchOnlineRequests();
+      f.s.accountWrite.selfIdentity = () => ({ uin: '10001', uid: '' });
+      f.s.groupNotify.fetchOnlineRequests.mockResolvedValueOnce([
+        { ...incoming!, target: { uid: '', uin: 10002, name: 'QQ 申请人' } },
+        { ...incoming!, target: { uid: 'u_peer', uin: 0, name: 'UID 申请人' } },
+        { ...incoming!, target: { uid: '', uin: 10001, name: '自己' } },
+      ]);
+      const rows = await f.caller.requests({ ...binding, kind });
+      expect(rows).toHaveLength(2);
+      expect(rows.map(({ uid, uin }) => ({ uid, uin }))).toEqual([
+        { uid: '', uin: '10002' },
+        { uid: 'u_peer', uin: '' },
+      ]);
+    },
+  );
   it('好友和可疑申请先核对当前列表，不接受任意 UID', async () => {
     const f = fixture();
     await expect(

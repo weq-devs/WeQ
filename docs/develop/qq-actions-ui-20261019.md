@@ -52,3 +52,10 @@
 - 在途通知改动曾造成接口暂时不一致，已按最终代码重跑相关测试和类型检查；只以收尾回执为准，不沿用中途结果。
 
 未运行全量 CI，也未把本地离线验证当作真实 QQ 写入验收。用户要求本批按功能本地提交后暂停，不继续后续研究或托管开发。
+
+## 2026-10-20：入群申请按钮缺失修复
+
+- `0x10C0` 的待处理状态为 `1`、入群申请通知类型为 `7`。原界面路由错误地筛选状态 `0` 与类型 `1`，导致待处理项未获得审批 token；不能把本地通知类型或 `0x10C8` 的操作类型直接套用到在线列表。
+- UIN 信封中的用户字段既可能为数值 QQ 号，也可能为字符串 UID。读取时分别按两种 schema 解码并按同条记录合并，保留申请人、邀请人和处理人身份；发包路径、签名与不透明审批 token 保持原有边界。
+- 处理时仍将通知类型 `7` 映射成操作类型 `1`，保留服务端序号与透传字段。已处理项、其他通知类型、身份缺失及自己的申请不显示审批按钮。
+- 核对依据为 [SnowLuma 群申请读取实现](https://github.com/SnowLuma/SnowLuma/blob/main/packages/protocol/src/oidb-services/contacts/fetch-group-requests.ts)及其[请求事件回归](https://github.com/SnowLuma/SnowLuma/blob/main/packages/onebot/tests/group-request-events.test.ts)。本次回归为合成请求与模拟网络，不代表真实审批已验收。

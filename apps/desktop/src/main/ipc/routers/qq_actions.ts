@@ -478,13 +478,14 @@ export function createQQActionsRouter(
           return rows
             .filter(
               (r) =>
-                r.state === 0 &&
+                r.state === 1 &&
                 Number.isSafeInteger(r.sequence) &&
                 r.sequence > 0 &&
                 // 这里只处理他人入群申请，不把退出、邀请及自己的申请当成审批。
-                r.eventType === 1 &&
-                r.target.uid !== self.uid &&
-                String(r.target.uin) !== self.uin,
+                r.eventType === 7 &&
+                Boolean(r.target.uid || r.target.uin > 0) &&
+                !(self.uid && r.target.uid === self.uid) &&
+                !(self.uin && String(r.target.uin) === self.uin),
             )
             .map((request) => {
               const token = randomUUID();
