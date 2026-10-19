@@ -45,7 +45,7 @@ html[data-theme] :is(.weq-workspace-content, .weq-workspace-page-fallback) :is(
 
 html[data-theme] .weq-workspace-page :is(
   .weq-collection-head, .weq-market-head, .weq-dress-head,
-  .weq-wtools-pane-head, .weq-notice-head
+  .weq-wtools-pane-head, .weq-notice-head, .weq-maintenance-head
 ) { padding-right: 56px; }
 
 html[data-theme] :is(.weq-workspace-content, .weq-workspace-page-fallback) :is(
@@ -79,7 +79,8 @@ html[data-theme] .weq-workspace-page :is(
 
 html[data-theme] :is(.weq-workspace-content, .weq-workspace-page-fallback) :is(
   .weq-collection-close, .weq-market-close, .weq-dress-close,
-  .weq-settings-close, .weq-wtools-close, .weq-notice-dialog > .weq-profile-close
+  .weq-settings-close, .weq-wtools-close, .weq-maintenance-close,
+  .weq-notice-dialog > .weq-profile-close
 ) {
   position: absolute;
   top: 16px;
@@ -94,12 +95,13 @@ html[data-theme] :is(.weq-workspace-content, .weq-workspace-page-fallback) :is(
 
 html[data-theme] .weq-workspace-page :is(
   .weq-collection-close, .weq-market-close, .weq-dress-close,
-  .weq-settings-close, .weq-wtools-close, .weq-notice-dialog > .weq-profile-close
+  .weq-settings-close, .weq-wtools-close, .weq-maintenance-close,
+  .weq-notice-dialog > .weq-profile-close
 ):hover { background: var(--weq-page-hover); color: var(--weq-fg-primary); }
 
 html[data-theme] .weq-workspace-page :is(
   .weq-collection-close, .weq-market-close, .weq-dress-close,
-  .weq-settings-close, .weq-wtools-close, .weq-profile-close,
+  .weq-settings-close, .weq-wtools-close, .weq-maintenance-close, .weq-profile-close,
   .weq-dress-kind, .weq-dress-chip, .weq-dress-scope-btn,
   .weq-collection-chip, .weq-settings-nav-item, .weq-settings-subnav-item,
   .weq-wtools-nav-item
@@ -254,8 +256,8 @@ html[data-theme="dark"] .weq-workspace-content .weq-mail-workspace {
     .weq-qzn-header, .weq-mail-topbar, .weq-collection-head, .weq-market-head,
     .weq-dress-head, .weq-wtools-pane-head, .weq-notice-head, .weq-maintenance-head
   ) { min-height: 56px; flex-wrap: wrap; padding: 12px; gap: 8px; }
-  html[data-theme] .weq-workspace-page :is(.weq-collection-head, .weq-market-head, .weq-dress-head, .weq-wtools-pane-head, .weq-notice-head) { padding-right: 48px; }
-  html[data-theme] .weq-workspace-page :is(.weq-collection-close, .weq-market-close, .weq-dress-close, .weq-settings-close, .weq-wtools-close, .weq-notice-dialog > .weq-profile-close) { top: 12px; right: 10px; }
+  html[data-theme] .weq-workspace-page :is(.weq-collection-head, .weq-market-head, .weq-dress-head, .weq-wtools-pane-head, .weq-notice-head, .weq-maintenance-head) { padding-right: 48px; }
+  html[data-theme] .weq-workspace-page :is(.weq-collection-close, .weq-market-close, .weq-dress-close, .weq-settings-close, .weq-wtools-close, .weq-maintenance-close, .weq-notice-dialog > .weq-profile-close) { top: 12px; right: 10px; }
   html[data-theme] .weq-workspace-page :is(.weq-settings-body, .weq-collection-body, .weq-dress-body, .weq-wtools-pane-body) { padding: 16px 12px; }
   html[data-theme] :is(.weq-workspace-content, .weq-workspace-page-fallback) :is(.weq-qzn-navigation, .weq-collection-filters, .weq-dress-toolbar) { padding: 10px 12px; }
   html[data-theme] .weq-workspace-page .weq-settings-dialog { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }

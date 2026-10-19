@@ -1,15 +1,17 @@
 import type { ReactElement } from 'react';
 import {
-  ArrowLeft,
   ChevronRight,
   Database,
   DatabaseZap,
+  FolderOpen,
   HardDrive,
   KeyRound,
   Trash2,
+  X,
 } from 'lucide-react';
-import { Modal } from '../Dialog';
+import { WorkspacePage } from '../WorkspacePages';
 import { DbRepairPanel, type DbRepairAccountOption } from '../DbRepairPanel';
+import { CacheView } from '../../views/cache/CacheView';
 import { DbExplorer } from '../../views/cache/DbExplorer';
 import { ResourceAnalyticsDialog } from '../../views/cache/ResourceAnalyticsDialog';
 import { ResourceCleanupDialog } from '../../views/cache/ResourceCleanupDialog';
@@ -21,6 +23,7 @@ import { WonderfulToolsDialog } from '../WonderfulToolsDialog';
 import { ExportTool } from '../../views/ExportView';
 
 export type MaintenanceTool =
+  | 'cache'
   | 'database'
   | 'storage'
   | 'cleanup'
@@ -33,6 +36,7 @@ export type MaintenanceTool =
   | 'reverse';
 
 const TOOLS = [
+  { id: 'cache', label: '本地缓存', icon: FolderOpen, needsResources: true },
   { id: 'database', label: '数据库管理', icon: Database, needsResources: false },
   { id: 'storage', label: '存储占用', icon: HardDrive, needsResources: true },
   { id: 'cleanup', label: '清理缓存', icon: Trash2, needsResources: true },
@@ -114,37 +118,42 @@ export function DataMaintenanceDialog({
     return <WonderfulToolsDialog open initialTool={tool} tools={[tool]} onClose={onClose} />;
   if (tool === 'storage') return <ResourceAnalyticsDialog open onClose={onClose} />;
   if (tool === 'cleanup') return <ResourceCleanupDialog open onClose={onClose} />;
+  const label = TOOLS.find((entry) => entry.id === tool)?.label ?? '数据与维护';
+  const flush = tool === 'database' || tool === 'cache';
   return (
-    <Modal
-      presentation="page"
-      title={TOOLS.find((entry) => entry.id === tool)?.label ?? '数据与维护'}
-      onClose={onClose}
-      width={1100}
-      className="weq-maintenance-dialog"
-      labelledBy="weq-maintenance-title"
-    >
-      <header className="weq-maintenance-head">
-        <button type="button" onClick={onClose} aria-label="返回数据与维护" title="返回数据与维护">
-          <ArrowLeft size={18} />
+    <WorkspacePage title={label} onClose={onClose}>
+      <div className="weq-maintenance-dialog" role="region" aria-labelledby="weq-maintenance-title">
+        <button
+          type="button"
+          className="weq-maintenance-close"
+          onClick={onClose}
+          aria-label="关闭"
+          title="关闭"
+        >
+          <X size={18} strokeWidth={2} />
         </button>
-        <h2 id="weq-maintenance-title">{TOOLS.find((entry) => entry.id === tool)?.label}</h2>
-        <span>{account.name || account.uin}</span>
-      </header>
-      <div className={`weq-maintenance-body${tool === 'database' ? ' is-database' : ''}`}>
-        {tool === 'database' ? (
-          <DbExplorer />
-        ) : tool === 'db-decrypt' ? (
-          <ExportTool initialMode="database" lockMode />
-        ) : (
-          <DbRepairPanel
-            currentUin={account.uin}
-            accounts={[account]}
-            onRefreshAccounts={() => {
-              void utils.account.getAccountConfig.invalidate();
-            }}
-          />
-        )}
+        <header className="weq-maintenance-head">
+          <h2 id="weq-maintenance-title">{label}</h2>
+          <span>{account.name || account.uin}</span>
+        </header>
+        <div className={`weq-maintenance-body${flush ? ' is-flush' : ''}`}>
+          {tool === 'cache' ? (
+            <CacheView />
+          ) : tool === 'database' ? (
+            <DbExplorer />
+          ) : tool === 'db-decrypt' ? (
+            <ExportTool initialMode="database" lockMode />
+          ) : (
+            <DbRepairPanel
+              currentUin={account.uin}
+              accounts={[account]}
+              onRefreshAccounts={() => {
+                void utils.account.getAccountConfig.invalidate();
+              }}
+            />
+          )}
+        </div>
       </div>
-    </Modal>
+    </WorkspacePage>
   );
 }

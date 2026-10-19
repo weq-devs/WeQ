@@ -78,7 +78,7 @@ WeQ 是一个**完全自主**的 NTQQ 本地数据库解密、解析与导出工
 
 ## 相关文档
 
-- [旧本地资源页说明](./database-view.md)：历史界面参考，当前版本使用设置中的维护工具。
+- [本地资源页](./database-view.md)：维护工具里的本地缓存与数据库管理。
 - [常见问题](../../resources/help/faq.md)
 - [数据库分析](../database/index.md)
 - [Native 原理](../principles/index.md)
