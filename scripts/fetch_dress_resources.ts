@@ -696,6 +696,6 @@ main().catch((e) => {
  * 下次直接跑：
  *   pnpm tsx scripts/fetch_dress_resources.ts --bubble --font --widget --extend
  * 它会从各段真实最大 id 往后扫，连续 200 个空 id 自动收手，并至少越过旧边界 +200。
- * 
+ *
  * 2026-10-19
  * */
