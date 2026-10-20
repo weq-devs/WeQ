@@ -286,7 +286,7 @@ describe('QQ 主动操作的实际界面', () => {
       }),
     );
   });
-  it('空间点赞合并为单个切换按钮，未确认不翻转，执行期间禁用', async () => {
+  it('空间点赞即时翻转，未确认回退，执行期间禁用', async () => {
     const f = fixture(() =>
       h(QzoneWriteActions, {
         hostUin: '10002',
@@ -307,8 +307,9 @@ describe('QQ 主动操作的实际界面', () => {
         }),
     );
     act(() => f.button('点赞说说').click());
-    expect(f.button('点赞说说').disabled).toBe(true);
-    expect(f.button('点赞说说').getAttribute('aria-busy')).toBe('true');
+    expect(f.button('取消说说点赞').getAttribute('aria-pressed')).toBe('true');
+    expect(f.button('取消说说点赞').disabled).toBe(true);
+    expect(f.button('取消说说点赞').getAttribute('aria-busy')).toBe('true');
     await act(async () => finish({ state: 'accepted' }));
     expect(f.button('取消说说点赞').getAttribute('aria-pressed')).toBe('true');
     expect(f.button('点赞说说')).toBeNull();

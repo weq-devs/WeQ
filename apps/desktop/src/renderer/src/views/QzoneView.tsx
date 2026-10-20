@@ -43,7 +43,8 @@ import {
 import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { QzoneMediaPreview, type QzonePreviewMedia } from '../components/QzoneMediaPreview';
-import { QzoneWriteActions } from '../components/qq-actions/MediaActions';
+import { QzoneWriteActions, type QzoneLikeChange } from '../components/qq-actions/MediaActions';
+import { withQQAccountScope } from '../components/qq-actions/shared';
 import { albumMediaUrl, avatarFetchUrl } from '../lib/resourceUrl';
 import {
   projectQzoneFeed,
@@ -1582,7 +1583,8 @@ function Repost({
 type InteractionPost = Pick<QzoneEmotion, 'tid' | 'time'> & {
   commentNum: number | null;
 };
-function PostActions({
+const PostActions = withQQAccountScope(PostActionsBody);
+function PostActionsBody({
   selfUin,
   hostUin,
   post,
@@ -1612,7 +1614,15 @@ function PostActions({
   const [loading, setLoading] = useState(false);
   const { refresh } = useContext(QzonePageContext);
   const summaryRefresh = useRef<number | null>(null);
+  const summaryGeneration = useRef(0);
   const [writeRevision, setWriteRevision] = useState(0);
+  const [likeRevision, setLikeRevision] = useState(0);
+  const [likeChange, setLikeChange] = useState<{
+    write: QzoneLikeChange;
+    count: number | null;
+  } | null>(null);
+  const previousLikeChange = useRef(likeChange);
+  const likePending = likeChange?.write.pending === true;
   const readsPaused = useContext(QzoneReadPauseContext);
   const [commentCount, setCommentCount] = useState(post.commentNum);
   useEffect(() => {
@@ -1622,8 +1632,11 @@ function PostActions({
   const visible = useNearViewport(ref, true);
   const { run, cancel } = useQzoneRequests();
   useEffect(() => {
-    if (readsPaused || !visible || summaryRefresh.current === refresh) return undefined;
+    if (readsPaused || !visible || likePending || summaryRefresh.current === refresh)
+      return undefined;
     let live = true;
+    const generation = ++summaryGeneration.current;
+    const current = () => live && generation === summaryGeneration.current;
     setLoading(true);
     void run(
       (requestId) =>
@@ -1632,23 +1645,32 @@ function PostActions({
           hostUin,
           tid: post.tid,
           requestId,
-          needCommentCount: post.commentNum === null,
+          needCommentCount: post.commentNum === null || writeRevision > 0,
         }),
       true,
     )
       .then((result) => {
-        if (live) {
+        if (current()) {
           summaryRefresh.current = refresh;
-          if (result.likes) setLikes(result.likes);
+          if (result.likes) {
+            setLikes(result.likes);
+            setLikeChange(null);
+            previousLikeChange.current = null;
+            setLikeRevision((value) => value + 1);
+          }
           if (result.commentCount !== null) setCommentCount(result.commentCount);
-          setLikeError('');
+          setLikeError(
+            result.likes && (result.commentCount !== null || writeRevision === 0)
+              ? ''
+              : '互动数据不完整，请重试。',
+          );
         }
       })
       .catch((error: unknown) => {
-        if (live) setLikeError(errorText(error));
+        if (current()) setLikeError(errorText(error));
       })
       .finally(() => {
-        if (live) setLoading(false);
+        if (current()) setLoading(false);
       });
     return () => {
       live = false;
@@ -1665,8 +1687,10 @@ function PostActions({
     run,
     cancel,
     writeRevision,
+    likePending,
   ]);
-  const likeCount = likes?.reportedTotal ?? initialLikeCount;
+  const remoteLikeCount = likes?.reportedTotal ?? initialLikeCount;
+  const likeCount = likeChange ? likeChange.count : remoteLikeCount;
   return (
     <div ref={ref}>
       <div className="weq-qzn-actions">
@@ -1692,7 +1716,25 @@ function PostActions({
           浏览 {likes?.reportedViewCount ?? '?'}
         </span>
         {loading ? <Loader2 size={13} className="weq-spin" aria-label="正在加载互动数据" /> : null}
+        {likeError && (
+          <button
+            type="button"
+            title="重试互动数据校准"
+            aria-label="重试互动数据校准"
+            onClick={() => {
+              summaryRefresh.current = null;
+              setWriteRevision((value) => value + 1);
+            }}
+          >
+            <RefreshCw size={14} />
+          </button>
+        )}
       </div>
+      {likeError && (
+        <p className="weq-qzn-status" role="status">
+          互动数据暂未校准：{likeError}
+        </p>
+      )}
       <QzoneWriteActions
         key={`${hostUin}:${post.tid}`}
         hostUin={hostUin}
@@ -1705,9 +1747,28 @@ function PostActions({
               ? false
               : null
         }
-        onChanged={() => {
+        likeRevision={likeRevision}
+        onLikeChange={(change) => {
+          summaryGeneration.current++;
           summaryRefresh.current = null;
-          setExpanded(null);
+          if (change?.pending) {
+            previousLikeChange.current = likeChange;
+            const delta =
+              change.previous === null ? 0 : Number(change.next) - Number(change.previous);
+            setLikeChange({
+              write: change,
+              count: likeCount === null ? null : Math.max(0, likeCount + delta),
+            });
+          } else if (change) {
+            setLikeChange((current) => (current ? { ...current, write: change } : null));
+          } else {
+            setLikeChange(previousLikeChange.current);
+          }
+        }}
+        onCommentAccepted={() => setCommentCount((count) => (count === null ? null : count + 1))}
+        onChanged={() => {
+          summaryGeneration.current++;
+          summaryRefresh.current = null;
           setWriteRevision((value) => value + 1);
         }}
       />
@@ -1722,7 +1783,9 @@ function PostActions({
           initialLikes={likes}
           onCommentCount={setCommentCount}
           focusComment={focusComment}
-          readComments={readComments}
+          readComments={writeRevision > 0 ? undefined : readComments}
+          writeRevision={writeRevision}
+          writePending={likePending}
         />
       ) : null}
     </div>
@@ -1967,6 +2030,8 @@ function Interaction({
   onCommentCount,
   focusComment,
   readComments,
+  writeRevision = 0,
+  writePending = false,
 }: {
   mode: 'comments' | 'likes';
   selfUin: string;
@@ -1977,6 +2042,8 @@ function Interaction({
   onCommentCount: (count: number) => void;
   focusComment?: RelatedComment | null;
   readComments?: () => Promise<QzoneInteraction>;
+  writeRevision?: number;
+  writePending?: boolean;
 }) {
   const focusRef = useRef<HTMLDivElement>(null);
   const readsPaused = useContext(QzoneReadPauseContext);
@@ -1993,7 +2060,7 @@ function Interaction({
       focusRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [active, result, focusComment?.id]);
   useEffect(() => {
-    if (!active || readsPaused) return undefined;
+    if (!active || readsPaused || writePending) return undefined;
     let live = true;
     setError('');
     setLoading(false);
@@ -2092,6 +2159,8 @@ function Interaction({
     readyLikes,
     onCommentCount,
     readComments,
+    writeRevision,
+    writePending,
   ]);
   if (!result && !likes && readsPaused)
     return <p className="weq-qzn-status">接口暂不可用，读取已暂停</p>;
