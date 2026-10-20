@@ -248,7 +248,7 @@ describe('新增消息交互', () => {
       expect(fixture.host.querySelector('select')).toBeNull();
       const option = [
         ...fixture.host.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'),
-      ].find((item) => item.textContent === '仅虚拟会话')!;
+      ].find((item) => item.textContent === '仅克隆会话')!;
       act(() => option.click());
       expect(fixture.host.querySelectorAll('.conversation-row')).toHaveLength(1);
       act(() => button(fixture.host, '多选会话').click());
@@ -268,6 +268,69 @@ describe('新增消息交互', () => {
         input.dispatchEvent(new Event('input', { bubbles: true }));
       });
       expect(fixture.host.querySelectorAll('.conversation-row')).toHaveLength(0);
+    } finally {
+      fixture.close();
+    }
+  });
+  it('显示范围覆盖真实 / 克隆 / 频道私聊，频道私聊不再混在真实会话里', () => {
+    const fixture = mount();
+    const demo = createTemplateDemoData();
+    const virtual = {
+      id: 'virtual:persona:test',
+      kind: 'persona' as const,
+      ownerId: 'test',
+      name: '合成克隆',
+    };
+    const guild = {
+      type: 'merged' as const,
+      id: 'merged:guild-direct',
+      mergedKind: 'guildDirect' as const,
+      title: '频道私聊',
+      avatarUrl: null,
+      updatedAt: new Date().toISOString(),
+      lastMessage: null,
+      otherUser: null,
+      group: null,
+      members: [],
+    };
+    const pick = (label: string) => {
+      act(() => button(fixture.host, '显示范围').click());
+      const option = [
+        ...fixture.host.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'),
+      ].find((item) => item.textContent === label)!;
+      act(() => option.click());
+    };
+    try {
+      fixture.render(
+        h(
+          ConversationDirectoryContext.Provider,
+          { value: { virtual: [virtual], onVirtual: vi.fn(), onCreate: vi.fn() } },
+          h(ConversationList, {
+            conversations: [...demo.conversations.slice(0, 2), guild],
+            activeConversationId: null,
+            preferences: {},
+            drafts: {},
+            onSelect: vi.fn(),
+          }),
+        ),
+      );
+      // 全部：两条真实 + 克隆 + 频道私聊。
+      expect(fixture.host.querySelectorAll('.conversation-row')).toHaveLength(4);
+      pick('仅频道私聊');
+      const rows = [...fixture.host.querySelectorAll<HTMLElement>('[data-conversation-id]')];
+      expect(rows.map((row) => row.dataset.conversationId)).toEqual(['merged:guild-direct']);
+      pick('仅克隆会话');
+      expect(
+        fixture.host.querySelector('[data-conversation-id="virtual:persona:test"]'),
+      ).not.toBeNull();
+      expect(fixture.host.querySelector('[data-conversation-id="merged:guild-direct"]')).toBeNull();
+      pick('仅真实会话');
+      expect(
+        fixture.host.querySelectorAll('[data-conversation-id^="merged:guild-direct"]'),
+      ).toHaveLength(0);
+      expect(
+        fixture.host.querySelector('[data-conversation-id="virtual:persona:test"]'),
+      ).toBeNull();
     } finally {
       fixture.close();
     }

@@ -1031,6 +1031,8 @@ export function AgentLabView({
             }}
             onDeleted={() => setSel({ kind: 'home' })}
             onSessionCreated={(sessionId) => onGroupSessionCreated(sel.id, sel.navKey, sessionId)}
+            onSwitchSession={(sessionId) => onSwitchGroupSession(sel.id, sessionId)}
+            onNewSession={() => onNewGroupSession(sel.id)}
           />
         ) : sel.kind === 'persona' && activePersona ? (
           <CloneChatPanel
@@ -1049,6 +1051,8 @@ export function AgentLabView({
               if (embedded) onBackToDirectory?.();
             }}
             onSessionCreated={(sessionId) => onPersonaSessionCreated(sel.id, sel.navKey, sessionId)}
+            onSwitchSession={(sessionId) => onSwitchPersonaSession(sel.id, sessionId)}
+            onNewSession={() => onNewPersonaSession(sel.id)}
             onOpenSettings={() => setSettingsOpen(true)}
             onDeletePersona={() => void onDeletePersona()}
           />

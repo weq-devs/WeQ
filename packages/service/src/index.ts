@@ -258,6 +258,7 @@ export type {
 } from './account/agentlab';
 export { TokenUsageStore } from './account/agentlab_usage';
 export type { TokenStats, TokenUsageRecord } from './account/agentlab_usage';
+export type { AgentLabSession } from './account/agentlab_session';
 export { ConversationStore } from './account/agentlab_conversation';
 export type { ConversationTurn } from './account/agentlab_conversation';
 export {

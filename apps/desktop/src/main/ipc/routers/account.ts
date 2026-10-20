@@ -6990,12 +6990,15 @@ function latestGeneratedActivity(
       : agentLab.listGroupSessions(ownerId);
   const latest = sessions[0];
   if (!latest) return { lastMessageTime: 0, preview: '', previewMine: false };
+  // 会话时间是毫秒（Date.now()），列表要的是秒；忘了除会让空会话跑到列表最前面。
+  const sessionTime = Math.round(latest.updatedAt / 1000);
   const rows =
     kind === 'persona'
       ? agentLab.getPersonaSessionConversation(ownerId, latest.id)
       : agentLab.getGroupSessionConversation(ownerId, latest.id);
   const last = rows.at(-1);
-  if (!last) return { lastMessageTime: latest.updatedAt, preview: '', previewMine: false };
+  // 还没有消息时（刚建的空会话）用会话的创建/更新时间，别落到 0。
+  if (!last) return { lastMessageTime: sessionTime, preview: '', previewMine: false };
   const text = 'text' in last ? last.text : ((last as { text?: string }).text ?? '');
   const mine = 'role' in last ? last.role === 'user' : last.senderKind === 'user';
   return {

@@ -51,6 +51,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
           isFetching: false,
         }),
       },
+      getAgentLabGroupDetail: {
+        useQuery: () => ({ data: null, isLoading: false, isError: false }),
+      },
+      listAgentLabPersonas: { useQuery: () => ({ data: [], isLoading: false }) },
+      getSelfProfile: { useQuery: () => ({ data: { uin: '', nick: '合成我' } }) },
     },
   },
   client: { account: { startGeneratedExport: { mutate: fixture.start } } },

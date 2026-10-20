@@ -110,12 +110,8 @@ it('全局入口只预选当前位置，保留完整报告类型与对象列表�
     const types = f.host.querySelector<HTMLSelectElement>('[aria-label="报告类型"]');
     expect(types).not.toBeNull();
     expect(types!.value).toBe('group');
-    expect([...types!.options].map((option) => option.value)).toEqual([
-      'annual',
-      'buddy',
-      'group',
-      'member',
-    ]);
+    // 年度报告已挪到侧栏独立入口，分析工具里只剩这三类。
+    expect([...types!.options].map((option) => option.value)).toEqual(['group', 'buddy', 'member']);
     expect(f.button('合成群 A').getAttribute('aria-pressed')).toBe('true');
     act(() => f.button('合成群 B').click());
     await act(async () => f.button('生成报告').click());
@@ -124,8 +120,7 @@ it('全局入口只预选当前位置，保留完整报告类型与对象列表�
     );
     f.select('报告类型', 'buddy');
     expect(f.host.querySelector('[aria-label="搜索分析对象"]')).not.toBeNull();
-    f.select('报告类型', 'annual');
-    expect(f.host.querySelector('[aria-label="报告年份"]')).not.toBeNull();
+    expect(f.host.querySelector('[aria-label="报告年份"]')).toBeNull();
   } finally {
     f.close();
   }
@@ -154,17 +149,16 @@ it('会话入口固定分析对象，多选入口固定消息 ID 且不显示范
   }
 });
 
-it('年度与好友都创建真实配置，完整目录可检索末尾且 DOM 有界', async () => {
+it('群聊与好友都创建真实配置，完整目录可检索末尾且 DOM 有界', async () => {
   vi.stubGlobal('crypto', {});
   const f = mount();
   try {
-    f.chooseObject('0');
-    f.select('报告年份', '2025');
+    act(() => f.chooseObject('777').click());
     await act(async () => f.button('生成报告').click());
     expect(f.generate).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        kind: 'annual',
-        year: 2025,
+        kind: 'group',
+        groupCode: '777',
         scope: { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic' },
       }),
     );
@@ -229,18 +223,22 @@ it('确认身份期间防重复提交，切号销毁草稿并拒绝旧响应', a
   );
   const f = mount();
   try {
+    act(() => f.chooseObject('777').click());
     act(() => {
       f.button('生成报告').click();
       f.button('生成报告').click();
     });
     expect(fixture.config).toHaveBeenCalledOnce();
     act(() => useViewState.setState({ openedUin: '10002' }));
-    await act(async () => finish({ uin: '10001', configId: 'synthetic' }));
+    await act(async () => {
+      finish({ uin: '10001', configId: 'synthetic' });
+    });
     expect(f.generate).not.toHaveBeenCalled();
-    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="报告类型"]')!.value).toBe(
-      'annual',
-    );
-    expect(f.button('生成报告').disabled).toBe(false);
+    // 切号后工具按新账号重建：种类回到默认、上一轮选中的对象不再带过去，
+    // 因此要重新选对象才能生成（不是卡在「正在提交」）。
+    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="报告类型"]')!.value).toBe('group');
+    expect(f.host.querySelector('[data-analysis-choice][aria-pressed="true"]')).toBeNull();
+    expect(f.button('生成报告').disabled).toBe(true);
   } finally {
     f.close();
   }

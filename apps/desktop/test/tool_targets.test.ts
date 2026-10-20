@@ -7,7 +7,6 @@
 
 import { expect, it } from 'vitest';
 import {
-  analysisEntryLabel,
   analysisTargetForWorkspace,
   exportEntryForWorkspace,
   type WorkspaceContext,
@@ -83,16 +82,14 @@ it('空间 / 收藏 / 联系人页各自进入自己的导出种类', () => {
     mode: 'collection',
     selection: { owner: { kind: 'collections', container: 'all' } },
   });
-  const contacts = exportEntryForWorkspace(ctx({ view: 'contacts' }));
-  expect(contacts.mode).toBe('contacts');
-  expect(contacts.disabledReason).toBeUndefined();
+  expect(exportEntryForWorkspace(ctx({ view: 'contacts' })).mode).toBe('contacts');
 });
 
-it('设置 / 邮箱这类没有当前内容的页面明确禁用主按钮', () => {
-  for (const view of ['home', 'mail', 'annual']) {
+it('设置 / 邮箱这类没有当前内容的页面回退到聊天消息的完整选择，按钮仍可点', () => {
+  for (const view of ['home', 'mail', 'annual', 'settings']) {
     const entry = exportEntryForWorkspace(ctx({ view }));
-    expect(entry.blocked).toBe(true);
-    expect(entry.disabledReason).toBeTruthy();
+    expect(entry.mode).toBe('full');
+    expect(entry.selection).toBeUndefined();
   }
 });
 
@@ -132,10 +129,11 @@ it('克隆体导出走生成内容，聚合入口不硬猜会话', () => {
     group: null,
     members: [],
   };
-  expect(exportEntryForWorkspace(ctx({ conversation: merged })).disabledReason).toBeTruthy();
+  // 聚合入口没有单一会话：进聊天消息面板自己挑，不再禁用。
+  expect(exportEntryForWorkspace(ctx({ conversation: merged })).selection).toBeUndefined();
 });
 
-it('报告只对群聊与好友私聊生成，其他会话与页面给出原因', () => {
+it('报告只对群聊与好友私聊生成，其他会话与页面返回空目标', () => {
   expect(analysisTargetForWorkspace(ctx({ conversation: group }))).toEqual({
     kind: 'group',
     groupCode: '777',
@@ -149,7 +147,6 @@ it('报告只对群聊与好友私聊生成，其他会话与页面给出原因'
       ctx({ conversation: { ...direct, chatType: 103, id: 'u_official' } }),
     ),
   ).toBeNull();
-  expect(analysisEntryLabel(ctx({ view: 'settings' })).reason).toBeTruthy();
-  // 全局工具入口（fresh）不因缺上下文而禁用。
-  expect(analysisEntryLabel(ctx({ view: 'collections' }), true).reason).toBeUndefined();
+  expect(analysisTargetForWorkspace(ctx({ view: 'settings' }))).toBeNull();
+  expect(analysisTargetForWorkspace(ctx({ view: 'collections' }))).toBeNull();
 });

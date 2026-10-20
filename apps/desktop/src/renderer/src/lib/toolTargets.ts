@@ -3,8 +3,10 @@
  *
  * 这里是纯函数，方便单测：界面上看到了什么（消息页的当前会话、联系人页选中的
  * 好友 / 群、空间页正在看的空间、收藏页……），决定主按钮往哪个工具、带哪份
- * 内容进去。不支持的界面返回 `disabledReason`，由 UI 把主按钮标灰并给出说明，
- * 而不是点下去打开一个空面板。
+ * 内容进去。
+ *
+ * 推导不出目标时**照常返回默认种类**、让面板自己让人选 —— 主按钮任何时候都能点，
+ * 只有「导哪一类」和「要不要预选内容」不同。
  */
 
 import { classifyChatType } from '@weq/codec';
@@ -37,17 +39,11 @@ export interface ExportEntry {
   /** 直接进入灯箱（会话 / 精确消息这类「已经选好内容」的入口）。 */
   fixedScope?: boolean;
   label: string;
-  /**
-   * 当前界面完全不支持导出（设置、邮箱、年度报告……）时为 true：主按钮置灰。
-   * 消息页没有选中会话不算「不支持」——面板仍可打开让人选会话。
-   */
-  blocked?: boolean;
-  disabledReason?: string;
 }
 
 /**
- * 主按钮的导出目标。页面上没有任何可导出内容时返回 disabledReason —— 例如设置、
- * 邮箱、年度报告这类没有「当前内容」的界面。
+ * 主按钮的导出目标。页面上没有「当前内容」（设置、邮箱、年度报告……）时退回
+ * 聊天消息的完整选择界面 —— 主按钮任何时候都能点，选哪份内容交给面板。
  */
 export function exportEntryForWorkspace(ctx: WorkspaceContext): ExportEntry {
   const conversation = ctx.conversation;
@@ -55,14 +51,8 @@ export function exportEntryForWorkspace(ctx: WorkspaceContext): ExportEntry {
     const entry = exportEntryForConversation(conversation);
     if (entry) return entry;
     if (conversation.type === 'merged')
-      return {
-        mode: 'full',
-        label: '导出',
-        disabledReason:
-          conversation.mergedKind === 'official' || conversation.mergedKind === 'service'
-            ? '请先打开一个具体的公众号 / 服务号'
-            : '这个聚合入口没有可导出的单一会话',
-      };
+      // 聚合入口没有单一会话：仍然进聊天消息面板，由面板里自己挑。
+      return { mode: 'full', label: '导出聊天记录' };
   }
   if (ctx.view === 'messages' && ctx.officialFeed) {
     const conv = ctx.officialFeed.conversationId;
@@ -134,14 +124,7 @@ export function exportEntryForWorkspace(ctx: WorkspaceContext): ExportEntry {
       fixedScope: true,
     };
   }
-  if (ctx.view === 'messages')
-    return { mode: 'full', label: '导出聊天记录', disabledReason: '还没有选择会话' };
-  return {
-    mode: 'full',
-    label: '导出',
-    blocked: true,
-    disabledReason: '当前界面没有可导出的内容',
-  };
+  return { mode: 'full', label: '导出聊天记录' };
 }
 
 /** 单个真实会话 → 导出入口；克隆体 / 合并入口 / 不支持的会话返回 null。 */
@@ -217,30 +200,6 @@ export function analysisTargetForWorkspace(ctx: WorkspaceContext): AnalysisTarge
     if (ctx.groupConversation) return { kind: 'group', groupCode: ctx.groupConversation.group.id };
   }
   return null;
-}
-
-/**
- * 主按钮的报告标题与禁用原因。
- *
- * `fresh` = 全局工具入口（从悬浮按钮打开的）：此时还没有任何界面上下文，
- * 应当打开完整的分析选择器而不是禁用；页面内固定入口（会话右键等）才算「必须
- * 有可分析对象」。
- */
-export function analysisEntryLabel(
-  ctx: WorkspaceContext,
-  fresh = false,
-): { label: string; reason?: string } {
-  if (fresh) return { label: '生成报告' };
-  if (analysisTargetForWorkspace(ctx)) return { label: '生成报告' };
-  if (ctx.view === 'messages' && ctx.conversation)
-    return {
-      label: '分析与报告',
-      reason: ctx.conversation.id.startsWith('virtual:')
-        ? '克隆体 / 克隆群暂不支持分析报告'
-        : '只有群聊与好友私聊可以生成分析报告',
-    };
-  if (ctx.view === 'contacts') return { label: '分析与报告', reason: '请先选择好友或群聊' };
-  return { label: '分析与报告', reason: '当前界面没有可分析的会话' };
 }
 
 /**

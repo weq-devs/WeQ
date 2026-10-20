@@ -173,7 +173,7 @@ export function ConversationList({
     y: number;
   } | null>(null);
   const [keyword, setKeyword] = useState('');
-  const [scope, setScope] = useState<'all' | 'real' | 'virtual'>('all');
+  const [scope, setScope] = useState<ConversationScope>('all');
   const [scopeOpen, setScopeOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectingAll, setSelectingAll] = useState(false);
@@ -192,9 +192,17 @@ export function ConversationList({
     // 死会话 —— 现在按最近聊天时间插回正确位置。
     const needle = keyword.trim().toLocaleLowerCase();
     const real = needle ? (directory?.real ?? conversations) : conversations;
+    // 显示范围按「来源」分：真实 / 虚拟（克隆）/ 频道私聊。频道私聊是合并入口，
+    // 混在真实会话里会让人以为它是一条普通私聊，所以单独一档。
+    const isGuild = (row: Conversation) =>
+      row.type === 'merged' && row.mergedKind === 'guildDirect';
+    const realRows = real.filter((row) => !isGuild(row));
+    const guildRows = real.filter(isGuild);
+    const virtualRows = (directory?.virtual ?? []).map(virtualConversationRow);
     const rows = [
-      ...(scope === 'virtual' ? [] : real),
-      ...(scope === 'real' ? [] : (directory?.virtual ?? []).map(virtualConversationRow)),
+      ...(scope === 'all' || scope === 'real' ? realRows : []),
+      ...(scope === 'all' || scope === 'guild' ? guildRows : []),
+      ...(scope === 'all' || scope === 'virtual' ? virtualRows : []),
     ].filter(
       (row) =>
         !needle ||
@@ -393,7 +401,7 @@ export function ConversationList({
         <div className="weq-directory-scope" ref={menuRef}>
           <button
             type="button"
-            title={`显示范围：${scope === 'all' ? '真实与虚拟' : scope === 'real' ? '仅真实会话' : '仅虚拟会话'}`}
+            title={`显示范围：${SCOPE_LABELS[scope]}`}
             aria-label="显示范围"
             aria-haspopup="menu"
             aria-expanded={scopeOpen}
@@ -406,17 +414,15 @@ export function ConversationList({
               <MessagesSquare size={16} />
             ) : scope === 'real' ? (
               <UserRound size={16} />
+            ) : scope === 'guild' ? (
+              <Hash size={16} />
             ) : (
               <Bot size={16} />
             )}
           </button>
           {scopeOpen ? (
             <div role="menu" className="weq-directory-scope-menu" aria-label="会话显示范围">
-              {[
-                { id: 'all', name: '真实与虚拟', icon: MessagesSquare },
-                { id: 'real', name: '仅真实会话', icon: UserRound },
-                { id: 'virtual', name: '仅虚拟会话', icon: Bot },
-              ].map((item) => (
+              {SCOPE_OPTIONS.map((item) => (
                 <button
                   key={item.id}
                   type="button"
@@ -1519,6 +1525,22 @@ function isPinned(conversation: Conversation, preferences: ConversationPreferenc
     }.pinned,
   );
 }
+
+/** 会话列表的显示范围：真实 / 虚拟（克隆）/ 频道私聊，或全都显示。 */
+type ConversationScope = 'all' | 'real' | 'virtual' | 'guild';
+
+const SCOPE_OPTIONS: Array<{ id: ConversationScope; name: string; icon: typeof MessagesSquare }> = [
+  { id: 'all', name: '全部会话', icon: MessagesSquare },
+  { id: 'real', name: '仅真实会话', icon: UserRound },
+  { id: 'virtual', name: '仅克隆会话', icon: Bot },
+  { id: 'guild', name: '仅频道私聊', icon: Hash },
+];
+const SCOPE_LABELS: Record<ConversationScope, string> = {
+  all: '全部会话',
+  real: '仅真实会话',
+  virtual: '仅克隆会话',
+  guild: '仅频道私聊',
+};
 
 function listRowClass(active: boolean, semanticClass: 'conversation-row' | 'contact-row') {
   return cn(semanticClass, active && 'active');

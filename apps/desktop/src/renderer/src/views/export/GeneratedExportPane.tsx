@@ -6,6 +6,8 @@ import { WindowedList } from '../../components/WindowedList';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useTabActive } from '../../components/RetainedTabs';
 import { ExportSaveActions } from '../../components/ExportSaveActions';
+import { ChatBubble } from '../agentlab/ChatBubble';
+import { ChatTimeDivider, shouldShowChatTime } from '../agentlab/messageTime';
 import {
   generatedContentContainer,
   generatedContentIdentity,
@@ -15,6 +17,32 @@ import { BACKEND_FORMATS, type BackendFormat } from './types';
 import '../../styles/generated-export.css';
 
 const FORMATS: BackendFormat[] = [...BACKEND_FORMATS];
+
+/** 生成记录里的一行（渲染时用到的字段；与后端 captureGeneratedContent 对齐）。 */
+interface GeneratedRow {
+  id: string;
+  text: string;
+  ts: number;
+  role?: 'user' | 'assistant';
+  senderId?: string;
+  senderKind?: 'user' | 'persona';
+}
+
+/** 列表行里的成员：群聊要按 senderId 显示各自的名字与头像。 */
+interface MemberInfo {
+  name: string;
+  uin: string;
+  /** 克隆体 id：给 [[sticker:...]] / [[voice:...]] 用。 */
+  personaId?: string;
+}
+
+const ME: MemberInfo = { name: '我', uin: '' };
+
+/**
+ * 克隆 / 助手对话的导出面板：
+ * 左侧挑一段会话，右侧把整段对话**按聊天样式完整渲染**（头像 + 左右分栏 + 表情 / 语音 /
+ * 贴纸），再按勾选导出。以前右侧只是一行行纯文本，和「对话」这个词对不上。
+ */
 export function GeneratedExportPane({
   initialSelection,
   prepareSave,
@@ -58,9 +86,18 @@ export function GeneratedExportPane({
     { ...binding, target: target ?? { kind: 'assistant', ownerId: 'assistant', sessionId: '_' } },
     { enabled: active && ready && Boolean(target), staleTime: 0 },
   );
+  // 群聊要按成员分气泡；克隆体用源好友的头像和昵称，助手固定 Sparkles。
+  const groupDetail = trpc.account.getAgentLabGroupDetail.useQuery(
+    { groupId: target?.kind === 'group' ? target.ownerId : '' },
+    { enabled: active && target?.kind === 'group' },
+  );
+  const personas = trpc.account.listAgentLabPersonas.useQuery(undefined, {
+    enabled: active && (target?.kind === 'group' || target?.kind === 'persona'),
+  });
+  const selfProfile = trpc.account.getSelfProfile.useQuery(undefined, { enabled: active });
   const key = target ? generatedContentContainer(target) : '';
   const ids = scopes[key];
-  const rows = content.data?.messages ?? [];
+  const rows = (content.data?.messages ?? []) as GeneratedRow[];
   const selected = new Set(ids ?? []);
   const messageMulti = useMultiSelection({
     ids: rows.map((row) => row.id),
@@ -68,6 +105,42 @@ export function GeneratedExportPane({
     onChange: (next) => setScopes((current) => ({ ...current, [key]: [...next] })),
     disabled: !target || ids === undefined || busy,
   });
+
+  /** senderId → 显示名 / 头像。群聊按成员表，私聊只有「我 / 克隆体」。 */
+  const members = useMemo(() => {
+    const map = new Map<string, MemberInfo>();
+    for (const persona of personas.data ?? []) {
+      map.set(persona.id, {
+        name: persona.name,
+        uin: persona.sourceUin || '',
+        personaId: persona.id,
+      });
+    }
+    // 群成员表里有群内显示名（可能与画像名不同），以它为准。
+    for (const member of groupDetail.data?.members ?? []) {
+      const known = map.get(member.memberId);
+      if (member.kind === 'persona')
+        map.set(member.memberId, {
+          name: member.displayName || known?.name || '克隆体',
+          uin: known?.uin ?? '',
+          personaId: member.memberId,
+        });
+      else if (member.kind === 'user')
+        map.set(member.memberId, { name: member.displayName || '我', uin: '' });
+    }
+    return map;
+  }, [personas.data, groupDetail.data]);
+  const sessionTitle = target
+    ? ((sessions.data ?? []).find((item) => generatedContentContainer(item) === key)?.title ?? '')
+    : '';
+  /** 单条消息的发送者：群聊按 senderId，私聊只有我对 TA。 */
+  const senderOf = (row: GeneratedRow): MemberInfo => {
+    if (row.role === 'user' || row.senderKind === 'user') return ME;
+    if (target?.kind === 'assistant') return { name: '助手', uin: '' };
+    const bySender = row.senderId ? members.get(row.senderId) : undefined;
+    if (bySender) return bySender;
+    return { name: sessionTitle || '克隆体', uin: '' };
+  };
   const formatMulti = useMultiSelection({
     ids: FORMATS,
     selected: formats,
@@ -161,7 +234,7 @@ export function GeneratedExportPane({
           {sessions.isLoading && ready ? <p role="status">加载对话…</p> : null}
           <WindowedList
             items={visible}
-            height={320}
+            height={420}
             rowHeight={64}
             itemKey={generatedContentContainer}
             label="生成对话列表"
@@ -240,38 +313,38 @@ export function GeneratedExportPane({
                 </button>
               </header>
               {content.isFetching ? <p role="status">读取记录…</p> : null}
-              <WindowedList
-                items={rows}
-                height={320}
-                rowHeight={64}
-                itemKey={(row) => row.id}
-                resetKey={key}
-                scrollToKey={messageMulti.focusRequest?.id}
-                scrollRevision={messageMulti.focusRequest?.revision}
-                label="生成消息范围"
-                renderItem={(row) => (
-                  <label className="weq-generated-export-row" {...messageMulti.itemProps(row.id)}>
-                    <input
-                      type="checkbox"
-                      disabled={ids === undefined || busy}
-                      checked={selected.has(row.id)}
-                      readOnly
-                    />
-                    <span>
-                      <strong title={row.senderId}>
-                        {row.role === 'user' || row.senderKind === 'user'
-                          ? '我'
-                          : row.role === 'assistant' || row.senderKind === 'persona'
-                            ? target.kind === 'assistant'
-                              ? '助手'
-                              : '克隆体'
-                            : '记录'}
-                      </strong>
-                      <span title={row.text}>{row.text || '[空正文]'}</span>
-                    </span>
-                  </label>
-                )}
-              />
+              <div className="weq-generated-export-transcript">
+                {rows.length === 0 && !content.isFetching ? (
+                  <p className="weq-generated-export-empty">这段对话还没有消息。</p>
+                ) : null}
+                {rows.map((row, index) => {
+                  const sender = senderOf(row);
+                  const mine = row.role === 'user' || row.senderKind === 'user';
+                  const prevTs = index > 0 ? rows[index - 1]?.ts : undefined;
+                  const personaId =
+                    row.role === 'assistant' && target.kind !== 'assistant'
+                      ? (sender.personaId ??
+                        (target.kind === 'persona' ? target.ownerId : undefined))
+                      : undefined;
+                  return (
+                    <div
+                      key={row.id}
+                      {...messageMulti.itemProps(row.id)}
+                      className={`weq-generated-message weq-generated-export-bubble${selected.has(row.id) ? ' is-selected' : ''}`}
+                    >
+                      {shouldShowChatTime(prevTs, row.ts) ? <ChatTimeDivider ts={row.ts} /> : null}
+                      <ChatBubble
+                        mine={mine}
+                        bot={!mine && target.kind === 'assistant'}
+                        name={mine ? selfProfile.data?.nick || '我' : sender.name}
+                        uin={mine ? selfProfile.data?.uin : sender.uin}
+                        text={row.text}
+                        personaId={personaId}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
               {missing.length ? (
                 <p role="alert">
                   {missing.length} 条已选记录不存在或尚未持久化，请刷新或重新选择。

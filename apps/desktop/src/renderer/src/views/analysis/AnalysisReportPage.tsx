@@ -6,10 +6,11 @@ import { useViewState } from '../../state/view';
 import { AnnualReportView } from '../annual-report/AnnualReportView';
 import { analysisTitle, type AnalysisReportRequest } from './model';
 import '../../styles/analysis-tool.css';
-import { BarChart3, Layers, Users, UserRound } from 'lucide-react';
+import { BarChart3, Users, UserRound } from 'lucide-react';
 
+/** 年度报告只作旧请求的兼容渲染（新入口在侧栏「年度报告」）。 */
 const REPORT_ICONS = {
-  annual: Layers,
+  annual: BarChart3,
   buddy: UserRound,
   group: Users,
   member: Users,

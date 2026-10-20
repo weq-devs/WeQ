@@ -255,6 +255,38 @@ html[data-theme="dark"] .weq-tools-child-menu {
   background: var(--weq-bg-surface);
 }
 
+/* 模态体是 flex 列，但 RetainedTabs 包了一层 data-retained-panel：
+   那一层内联了 height:100%，在列方向里等于「父容器整高」，再叠上 52px 的头部
+   就会把底部（助手输入框）顶出可视区并被裁掉。这里改成由 flex 分配剩余高度。 */
+.weq-tools-modal [data-retained-panel] {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+/* WeQ 助手：铺满模态剩余高度，聊天区自己滚动，输入框固定在底部。 */
+.weq-assistant-panel {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+/* 助手面板内部再嵌一层 assistant 设置时，两者都按剩余高度分摊。 */
+.weq-assistant-panel ~ .weq-assistant-service-settings { flex: 1 1 auto; }
+.weq-assistant-panel[hidden] { display: none; }
+.weq-assistant-panel > .weq-agentlab-shell {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+.weq-assistant-panel .weq-agentlab-main,
+.weq-assistant-panel .weq-agentlab-chat {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
 .weq-tools-header {
   display: flex;
   align-items: center;
@@ -476,6 +508,59 @@ html[data-theme="dark"] .weq-tools-child-menu {
   color: var(--weq-fg-primary);
   font-size: 12px;
 }
+
+/* 内容种类：横向排列的小胶囊，比下拉一眼看全，也不再占一整行高度。 */
+.weq-exp-kinds {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 16px 10px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+/* 种类条已经紧跟面板头，两者之间的分隔线只留一条。 */
+.weq-exp-pane-head + .weq-exp-kinds { border-top: 0; }
+.weq-exp-kind-native {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.weq-exp-kinds > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background-color 130ms ease, border-color 130ms ease, color 130ms ease;
+}
+.weq-exp-kinds > button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 38%, var(--weq-border-subtle));
+  color: var(--weq-fg-primary);
+}
+.weq-exp-kinds > button.is-active {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 52%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+}
+.weq-exp-kinds > button:disabled { cursor: default; opacity: 0.55; }
+.weq-exp-kinds > button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 1px;
+}
+.weq-exp-kind-icon { display: grid; place-items: center; flex: none; }
+.weq-exp-kind-icon > svg { width: 13px; height: 13px; }
 
 /* 「已按当前内容进入」条：明确告诉用户这次导出的是哪份内容。 */
 .weq-exp-source {
@@ -723,4 +808,11 @@ html[data-theme="dark"] .weq-tools-trigger {
 .weq-tools-modal .weq-exp-seg {
   align-self: flex-start;
   margin: 8px 12px 4px;
+}
+
+/* 助手 / 导出这类「高面板」不再套模态的 780px 上限，按窗口高度留出边距即可，
+   否则窗口一矮，底部输入框 / 操作条会被挤到可视区外。 */
+.weq-tools-modal:has(.weq-assistant-panel) {
+  height: calc(100dvh - 96px);
+  max-height: calc(100dvh - 72px);
 }
