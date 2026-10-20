@@ -35,6 +35,13 @@ export function macApplicationMenu(
               accelerator: 'CmdOrCtrl+Z',
               click: undo,
               enabled: false,
+              acceleratorWorksWhenHidden: false,
+            },
+            {
+              id: 'weq-edit-native-undo',
+              role: 'undo',
+              visible: false,
+              acceleratorWorksWhenHidden: false,
             },
             redo
               ? {
@@ -43,8 +50,19 @@ export function macApplicationMenu(
                   accelerator: 'CmdOrCtrl+Shift+Z',
                   click: redo,
                   enabled: false,
+                  acceleratorWorksWhenHidden: false,
                 }
               : { role: 'redo' },
+            ...(redo
+              ? [
+                  {
+                    id: 'weq-edit-native-redo',
+                    role: 'redo' as const,
+                    visible: false,
+                    acceleratorWorksWhenHidden: false,
+                  },
+                ]
+              : []),
             { type: 'separator' },
             { role: 'cut' },
             { role: 'copy' },

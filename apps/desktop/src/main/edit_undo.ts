@@ -7,18 +7,26 @@ const states = new WeakMap<WebContents, EditMenuState>();
 export function updateEditMenu(): void {
   const focused = webContents.getFocusedWebContents();
   const state: EditMenuState =
-    focused && !focused.isDestroyed()
-      ? (states.get(focused) ??
-        (bridged.has(focused) ? EMPTY_EDIT_MENU : { undo: 'text', redo: 'text' }))
-      : EMPTY_EDIT_MENU;
+    focused && !focused.isDestroyed() ? (states.get(focused) ?? EMPTY_EDIT_MENU) : EMPTY_EDIT_MENU;
   const labels = editMenuLabels(app.getPreferredSystemLanguages()[0] ?? app.getLocale(), state);
+  const business = Boolean(
+    focused &&
+      !focused.isDestroyed() &&
+      bridged.has(focused) &&
+      (state.undo === 'mark-read' || state.undo === 'mark-unread') &&
+      state.redo === null,
+  );
+  const nativeText = !business;
   const menu = Menu.getApplicationMenu();
   for (const action of ['undo', 'redo'] as const) {
     const item = menu?.getMenuItemById(`weq-edit-${action}`);
     if (item) {
       item.label = labels[action];
       item.enabled = state[action] !== null;
+      item.visible = !nativeText;
     }
+    const nativeItem = menu?.getMenuItemById(`weq-edit-native-${action}`);
+    if (nativeItem) nativeItem.visible = nativeText;
   }
 }
 
@@ -48,7 +56,15 @@ export function registerEditUndoIpc(): void {
       event.sender.send('edit:refresh');
     }
   });
-  app.on('web-contents-created', (_event, contents) => contents.on('focus', updateEditMenu));
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('focus', updateEditMenu);
+    contents.on('render-process-gone', () => {
+      states.delete(contents);
+      bridged.delete(contents);
+      updateEditMenu();
+    });
+    contents.on('destroyed', updateEditMenu);
+  });
   app.on('browser-window-focus', updateEditMenu);
   app.on('browser-window-blur', updateEditMenu);
 }

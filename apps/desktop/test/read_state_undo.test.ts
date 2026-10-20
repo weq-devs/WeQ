@@ -13,17 +13,29 @@ it('系统编辑菜单按桥接状态控制撤销和重做，保留原生剪贴�
     (item) => item.label === '编辑',
   )!;
   const items = edit.submenu as import('electron').MenuItemConstructorOptions[];
-  expect(items[0]).toMatchObject({
+  expect(items.find((item) => item.id === 'weq-edit-undo')).toMatchObject({
     label: '撤销',
     accelerator: 'CmdOrCtrl+Z',
     click: undo,
     enabled: false,
+    acceleratorWorksWhenHidden: false,
   });
-  expect(items[1]).toMatchObject({
+  expect(items.find((item) => item.id === 'weq-edit-redo')).toMatchObject({
     label: '重做',
     accelerator: 'CmdOrCtrl+Shift+Z',
     click: redo,
     enabled: false,
+    acceleratorWorksWhenHidden: false,
+  });
+  expect(items.find((item) => item.id === 'weq-edit-native-undo')).toMatchObject({
+    role: 'undo',
+    visible: false,
+    acceleratorWorksWhenHidden: false,
+  });
+  expect(items.find((item) => item.id === 'weq-edit-native-redo')).toMatchObject({
+    role: 'redo',
+    visible: false,
+    acceleratorWorksWhenHidden: false,
   });
   expect(items.map((item) => item.role)).toEqual(
     expect.arrayContaining(['cut', 'copy', 'paste', 'selectAll']),
