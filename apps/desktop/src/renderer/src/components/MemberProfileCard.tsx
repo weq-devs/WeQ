@@ -180,18 +180,32 @@ export function MemberProfileCard({
   useLayoutEffect(() => {
     const el = cardRef.current;
     if (!el) return;
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const M = 10;
-    let left = anchor.x + 14;
-    let top = anchor.y + 8;
-    if (left + w > vw - M) left = anchor.x - w - 14;
-    if (left < M) left = M;
-    if (top + h > vh - M) top = vh - h - M;
-    if (top < M) top = M;
-    setPos({ left, top, ready: true });
+    const place = () => {
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const M = 10;
+      let left = anchor.x + 14;
+      let top = anchor.y + 8;
+      if (left + w > vw - M) left = anchor.x - w - 14;
+      left = Math.max(M, Math.min(left, vw - w - M));
+      if (top + h > vh - M) top = vh - h - M;
+      if (top < M) top = M;
+      setPos((current) =>
+        current.ready && current.left === left && current.top === top
+          ? current
+          : { left, top, ready: true },
+      );
+    };
+    place();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
+    observer?.observe(el);
+    window.addEventListener('resize', place);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', place);
+    };
   }, [anchor.x, anchor.y, loading, profile, botProfile, previewContent]);
 
   const name =

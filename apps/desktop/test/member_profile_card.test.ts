@@ -72,7 +72,7 @@ const MEMBER = {
   avatarUrl: null,
 };
 
-async function mountCard(onClose: () => void): Promise<void> {
+async function mountCard(onClose: () => void, anchor = { x: 120, y: 120 }): Promise<void> {
   const host = document.createElement('div');
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -80,7 +80,7 @@ async function mountCard(onClose: () => void): Promise<void> {
     root.render(
       createElement(MemberProfileCard, {
         member: MEMBER,
-        anchor: { x: 120, y: 120 },
+        anchor,
         onClose,
       }),
     );
@@ -106,6 +106,8 @@ describe('群成员资料卡浮层', () => {
     for (const host of hosts) host.remove();
     roots.length = 0;
     hosts.length = 0;
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('portal 到 body，且层级高于所有写死的静态 z-index', async () => {
@@ -133,5 +135,40 @@ describe('群成员资料卡浮层', () => {
       layer().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     });
     expect(closed).toBe(1);
+  });
+  it('异步编辑区改变高度后重新避让视口，卸载时释放尺寸观察', async () => {
+    let height = 80;
+    let resized: (() => void) | undefined;
+    const disconnect = vi.fn();
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(288);
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(() => height);
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          resized = callback;
+        }
+        observe() {}
+        disconnect = disconnect;
+      },
+    );
+    await mountCard(() => {});
+    const card = layer().querySelector<HTMLElement>('.weq-member-pop')!;
+    expect(resized).toBeTypeOf('function');
+    height = window.innerHeight - 40;
+    act(() => resized?.());
+    expect(Number.parseFloat(card.style.top) + height).toBeLessThanOrEqual(window.innerHeight - 10);
+    expect(Number.parseFloat(card.style.top)).toBeGreaterThanOrEqual(10);
+    const before = disconnect.mock.calls.length;
+    act(() => roots.pop()!.unmount());
+    expect(disconnect).toHaveBeenCalledTimes(before + 1);
+  });
+  it('窗口缩小后旧锚点超出视口时，也会横向夹回窗口内', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(288);
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(180);
+    await mountCard(() => {}, { x: window.innerWidth + 500, y: 120 });
+    const card = layer().querySelector<HTMLElement>('.weq-member-pop')!;
+    expect(Number.parseFloat(card.style.left) + 288).toBeLessThanOrEqual(window.innerWidth);
+    expect(Number.parseFloat(card.style.left)).toBeGreaterThanOrEqual(0);
   });
 });

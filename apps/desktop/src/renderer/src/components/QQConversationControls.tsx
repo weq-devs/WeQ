@@ -4,6 +4,7 @@ import { trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { refreshGroupAvatar } from '../hooks/useAvatarUrl';
+import { groupMemberEditing } from '../lib/groupMemberEditing';
 import { Card } from './settings/controls';
 import { useDialog } from './Dialog';
 import { GroupActions } from './qq-actions/GroupActions';
@@ -75,6 +76,7 @@ export function QQConversationControls({
   const [picking, setPicking] = useState(false);
   const [pickerError, setPickerError] = useState('');
   const state = snapshot.data;
+  const ownEditing = groupMemberEditing(state?.role, state?.role);
   const disabled = session.busy || !session.available || !state || picking;
   const friendDisabled = disabled || !state?.friend;
   async function refresh(includePolicy = false) {
@@ -261,6 +263,7 @@ export function QQConversationControls({
             <Card>
               <QQWriteTextRow
                 label="我在本群的昵称"
+                readOnly={!ownEditing.card}
                 initial={state.selfCard}
                 disabled={disabled || !state.selfUid}
                 onSave={(value) =>

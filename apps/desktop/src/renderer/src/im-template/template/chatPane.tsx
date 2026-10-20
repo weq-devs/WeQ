@@ -65,6 +65,7 @@ import {
 import { AiOutlineRedEnvelope } from 'react-icons/ai';
 import { resourceUrl } from '../../lib/resourceUrl';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
+import { groupMemberEditing } from '../../lib/groupMemberEditing';
 import { useThemeStore } from '../../state/theme';
 import {
   Fragment,
@@ -1919,7 +1920,12 @@ export function ChatPane({
    */
   function groupTargetUid(sender: User): string | null {
     if (!isSelfAvatar(sender)) {
-      return sender.uid ?? sender.id ?? null;
+      const identities = [
+        ...new Set(
+          [sender.id, sender.uid].filter((identity) => /^u_[A-Za-z0-9_-]+$/.test(identity ?? '')),
+        ),
+      ];
+      return identities.length === 1 ? identities[0] : null;
     }
     if (user.uid) {
       return user.uid;
@@ -1934,11 +1940,11 @@ export function ChatPane({
   }
 
   /**
-   * 头像菜单里群管理操作的可见性：我必须是群主 / 管理员，且目标职权低于我；
-   * 「设置管理员」仅群主。自己永远可以改自己的群昵称。非群聊返回 null。
+   * 名片／头衔与资料卡共用展示规则；踢人、禁言等仍要求目标职权更低。
    */
   function avatarModerationFlags(sender: User): {
     showChangeCard: boolean;
+    showChangeTitle: boolean;
     showKick: boolean;
     showMute: boolean;
     showSetAdmin: boolean;
@@ -1947,30 +1953,36 @@ export function ChatPane({
     if (conversation?.type !== 'group') {
       return null;
     }
-    const myRole = conversation.group.role;
+    const myRole = conversation.group.roleKnown === false ? null : conversation.group.role;
+    const targetUid = groupTargetUid(sender);
+    const targetMember = conversation.members.find((member) =>
+      selfIdentityValues(member).some((identity) => selfIdentityValues(sender).includes(identity)),
+    );
+    const targetRole = isSelfAvatar(sender) ? myRole : (targetMember?.role ?? sender.role);
+    const editing = groupMemberEditing(myRole, targetRole);
+    const validUid = Boolean(targetUid && /^u_[A-Za-z0-9_-]+$/.test(targetUid));
     if (isSelfAvatar(sender)) {
       return {
-        showChangeCard: true,
+        showChangeCard: editing.card && validUid,
+        showChangeTitle: editing.title && validUid,
         showKick: false,
         showMute: false,
         showSetAdmin: false,
         showUnsetAdmin: false,
       };
     }
-    if (myRole === 'member') {
+    if (myRole !== 'owner' && myRole !== 'admin') {
       return null;
     }
     const rank: Record<GroupMemberRole, number> = { owner: 2, admin: 1, member: 0 };
-    const targetRole = (sender.role ?? 'member') as GroupMemberRole;
-    if (rank[myRole] <= rank[targetRole]) {
-      return null;
-    }
+    const canModerate = targetRole !== undefined && rank[myRole] > rank[targetRole];
     return {
-      showChangeCard: true,
-      showKick: true,
-      showMute: true,
-      showSetAdmin: myRole === 'owner' && targetRole === 'member',
-      showUnsetAdmin: myRole === 'owner' && targetRole === 'admin',
+      showChangeCard: editing.card && validUid,
+      showChangeTitle: editing.title && validUid,
+      showKick: canModerate,
+      showMute: canModerate,
+      showSetAdmin: canModerate && myRole === 'owner' && targetRole === 'member',
+      showUnsetAdmin: canModerate && myRole === 'owner' && targetRole === 'admin',
     };
   }
 
@@ -2081,7 +2093,7 @@ export function ChatPane({
    */
   function startCardEdit(sender: User) {
     setAvatarMenu(null);
-    if (conversation?.type !== 'group') {
+    if (conversation?.type !== 'group' || !avatarModerationFlags(sender)?.showChangeCard) {
       return;
     }
     const targetUid = groupTargetUid(sender);
@@ -5129,9 +5141,7 @@ export function ChatPane({
           onToggleAdmin={toggleAvatarAdmin}
           showChangeCard={avatarMenuFlags?.showChangeCard ?? false}
           showChangeTitle={
-            conversation?.type === 'group' &&
-            conversation.group.role === 'owner' &&
-            Boolean(onChangeGroupMemberTitle)
+            Boolean(avatarMenuFlags?.showChangeTitle) && Boolean(onChangeGroupMemberTitle)
           }
           showKick={avatarMenuFlags?.showKick ?? false}
           showMute={avatarMenuFlags?.showMute ?? false}
