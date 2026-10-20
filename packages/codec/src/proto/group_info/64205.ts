@@ -11,7 +11,11 @@
 
 import { ProtoField, ScalarType } from '../../core';
 
+/** 公告内容项里的标题／类型标签，不属于正文。 */
+export const GROUP_BULLETIN_LABEL_TYPE = 10;
+
 export const GroupBulletinContentItemWire = {
+  type: ProtoField(64451, ScalarType.INT32, { optional: true }),
   textContent: ProtoField(64452, ScalarType.STRING, { optional: true }),
 };
 
