@@ -327,7 +327,8 @@ export interface ExportTask {
       | 'assistant-artifact'
       | 'market-image'
       | 'mail-attachment'
-      | 'decoration';
+      | 'decoration'
+      | 'qzone-albums';
     failed?: number;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
     cacheDirectory?: string;

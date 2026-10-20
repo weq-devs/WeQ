@@ -8,6 +8,7 @@ it.each([
   ['market-image', '商城单张表情保存'],
   ['mail-attachment', '邮件附件保存'],
   ['decoration', '装扮资源保存'],
+  ['qzone-albums', '空间相册导出'],
 ] as const)('独立资源 %s 展示真实任务类型', (kind, label) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');

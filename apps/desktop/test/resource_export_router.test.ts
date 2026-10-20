@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -11,6 +19,7 @@ import type {
   AccountDbFile,
 } from '@weq/service';
 import { accountRouter } from '../src/main/ipc/routers/account';
+import { QZONE_ALBUM_PAGE_SIZE } from '../src/shared/qzone_album_export';
 
 const state = vi.hoisted(() => ({
   uin: '10001',
@@ -18,6 +27,7 @@ const state = vi.hoisted(() => ({
   failedDatabasePath: '',
   nativePath: '',
   nativeDirectory: '',
+  serverRoot: undefined as string | undefined,
   afterPick: null as (() => void) | null,
   register: vi.fn((_path: string, _name: string, _kind: 'file' | 'directory') => ({
     url: '/download/synthetic',
@@ -36,6 +46,7 @@ vi.mock('@weq/service', async (original) => ({
   clientKeyExpiryMs: () => Date.now() + 60000,
   downloadUrlToFile: state.download,
   getHost: () => ({
+    exportRoot: state.serverRoot,
     registerDownload: state.register,
     pickSaveTarget: async () => {
       state.afterPick?.();
@@ -74,7 +85,31 @@ const albums = vi.fn(
     nextAttachInfo: '',
   }),
 );
+const qzoneVideo = vi.fn(
+  async (_host: string, _topic: string, _key: string): Promise<string | null> =>
+    'https://synthetic.invalid/movie.mp4',
+);
+const qzonePhotos = vi.fn(
+  async (
+    _host: string,
+    _topic: string,
+    _start: number,
+    _size: number,
+  ): Promise<{
+    photos: Array<{
+      id: string;
+      name: string;
+      url: string;
+      thumbUrl: string;
+      isVideo: boolean;
+      picKey: string;
+    }>;
+    totalInAlbum: number;
+  }> => ({ photos: [], totalInAlbum: 0 }),
+);
 beforeEach(() => {
+  qzoneVideo.mockReset().mockResolvedValue('https://synthetic.invalid/movie.mp4');
+  qzonePhotos.mockReset().mockResolvedValue({ photos: [], totalInAlbum: 0 });
   artifacts.clear();
   albums.mockReset().mockResolvedValue({ mediaList: [], nextAttachInfo: '' });
   const root = mkdtempSync(join(tmpdir(), 'weq-resource-router-'));
@@ -88,6 +123,7 @@ beforeEach(() => {
   state.failedDatabasePath = '';
   state.nativePath = '';
   state.nativeDirectory = '';
+  state.serverRoot = undefined;
   state.afterPick = null;
   databaseFiles = ['msg.db', 'login.db'].map((name) => {
     const path = join(root, name);
@@ -107,6 +143,7 @@ beforeEach(() => {
     groupFile: { listRecursive },
     mediaUrl: { getGroupFileUrl: fileUrl },
     groupAlbumMedia: { getMediaList: albums },
+    webQuery: { getQzoneAlbumVideoUrl: qzoneVideo, getQzoneAlbumPhotos: qzonePhotos },
     dbDecrypt: {
       listDatabases: async () => databaseFiles,
       decryptDatabases: decrypt,
@@ -467,4 +504,159 @@ it('取消并发下载等待所有在途写入结束后才清理任务暂存区'
     expect(readdirSync(cache).some((name) => name.endsWith('.partial'))).toBe(false),
   );
   expect(manager.getTask(id)?.bundleDir).toBeUndefined();
+});
+
+const selectedQzone = {
+  ...binding,
+  hostUin: '20002',
+  topicId: 'album-a',
+  name: '合成相册',
+  items: [{ id: 'placeholder', name: 'photo.jpg', url: 'https://synthetic.invalid/photo.jpg' }],
+};
+it('空间相册单张照片按真实 jpg 单文件保存，不枚举相册或扩大选择', async () => {
+  state.nativePath = join(roots[0]!, 'chosen.jpg');
+  const id = await accountRouter
+    .createCaller({})
+    .startQzoneAlbumMediaExport({ ...selectedQzone, savePolicy: { mode: 'before' } });
+  await vi.waitFor(() => expect(manager.getTask(id!)?.save?.status).toBe('saved'));
+  expect(manager.getTask(id!)?.resource?.output).toEqual({
+    kind: 'file',
+    name: 'photo',
+    extension: 'jpg',
+  });
+  expect(readFileSync(state.nativePath, 'utf8')).toBe('synthetic');
+  expect(qzonePhotos).not.toHaveBeenCalled();
+  expect(qzoneVideo).not.toHaveBeenCalled();
+  expect(state.download).toHaveBeenCalledTimes(1);
+});
+it.each([true, false])('单个视频按实际本体／封面选择后缀，本体可用=%s', async (available) => {
+  qzoneVideo.mockResolvedValueOnce(available ? 'https://synthetic.invalid/movie.mp4' : null);
+  const id = await accountRouter.createCaller({}).startQzoneAlbumMediaExport({
+    ...selectedQzone,
+    items: [{ ...selectedQzone.items[0]!, isVideo: true, picKey: 'video-key' }],
+    savePolicy: { mode: 'after' },
+  });
+  await vi.waitFor(() => expect(manager.getTask(id!)?.status).toBe('completed'));
+  expect(manager.getTask(id!)?.resource?.output?.extension).toBe(available ? 'mp4' : 'jpg');
+  expect(qzoneVideo).toHaveBeenCalledWith('20002', 'album-a', 'video-key');
+  expect(state.download.mock.calls[0]![0]).toBe(
+    available ? 'https://synthetic.invalid/movie.mp4' : selectedQzone.items[0]!.url,
+  );
+});
+it('多项空间媒体固定精确范围，重复占位 id 不合并，部分失败保留成功包', async () => {
+  const items = [
+    selectedQzone.items[0]!,
+    { ...selectedQzone.items[0]!, url: 'https://synthetic.invalid/second.jpg' },
+    { id: 'missing', name: 'missing.jpg', url: 'https://synthetic.invalid/missing' },
+  ];
+  const id = await accountRouter
+    .createCaller({})
+    .startQzoneAlbumMediaExport({ ...selectedQzone, items, savePolicy: { mode: 'after' } });
+  items[0] = { ...items[0]!, name: 'changed.jpg' };
+  await vi.waitFor(() => expect(manager.getTask(id!)?.status).toBe('completed'));
+  const task = manager.getTask(id!)!;
+  expect(task.total).toBe(3);
+  expect(task.resource?.failed).toBe(1);
+  expect(task.filePath).toBeUndefined();
+  expect(readdirSync(join(task.bundleDir!, 'files')).sort()).toEqual(['photo-2.jpg', 'photo.jpg']);
+  expect(qzonePhotos).not.toHaveBeenCalled();
+  expect(state.download).toHaveBeenCalledTimes(3);
+});
+it('空间媒体取消位置不建任务，选择期间来源变化不下载', async () => {
+  const api = accountRouter.createCaller({});
+  expect(
+    await api.startQzoneAlbumMediaExport({ ...selectedQzone, savePolicy: { mode: 'before' } }),
+  ).toBeNull();
+  state.nativePath = join(roots[0]!, 'not-created.jpg');
+  state.afterPick = () => {
+    state.configId = 'other-source';
+  };
+  await expect(
+    api.startQzoneAlbumMediaExport({ ...selectedQzone, savePolicy: { mode: 'before' } }),
+  ).rejects.toThrow('数据源已切换');
+  expect(manager.listTasks()).toEqual([]);
+  expect(state.download).not.toHaveBeenCalled();
+});
+it('整本空间相册仅遍历已选相册，分页重复作为明确失败保留已下载文件', async () => {
+  const photo = {
+    id: 'placeholder',
+    name: 'photo.jpg',
+    url: 'https://synthetic.invalid/photo.jpg',
+    thumbUrl: '',
+    isVideo: false,
+    picKey: 'key',
+  };
+  qzonePhotos.mockResolvedValue({ photos: [photo], totalInAlbum: 2 });
+  const id = await accountRouter.createCaller({}).startQzoneAlbumsExport({
+    ...binding,
+    hostUin: '20002',
+    name: '合成相册',
+    albums: [{ id: 'selected', title: '选中' }],
+    savePolicy: { mode: 'after' },
+  });
+  await vi.waitFor(() => expect(manager.getTask(id!)?.status).toBe('completed'));
+  expect(qzonePhotos.mock.calls).toEqual([
+    ['20002', 'selected', 0, QZONE_ALBUM_PAGE_SIZE],
+    ['20002', 'selected', 1, QZONE_ALBUM_PAGE_SIZE],
+  ]);
+  const task = manager.getTask(id!)!;
+  expect(task.resource?.failed).toBe(1);
+  expect(readFileSync(join(task.bundleDir!, 'resource-results.json'), 'utf8')).toContain(
+    '分页重复',
+  );
+  expect(state.download).toHaveBeenCalledTimes(1);
+});
+it('整本空间相册取页后来源变化，不继续旧相册的下载', async () => {
+  qzonePhotos.mockImplementationOnce(async () => {
+    state.configId = 'other-source';
+    return { photos: [], totalInAlbum: 0 };
+  });
+  const id = await accountRouter.createCaller({}).startQzoneAlbumsExport({
+    ...binding,
+    hostUin: '20002',
+    name: '合成相册',
+    albums: [{ id: 'selected' }],
+    savePolicy: { mode: 'after' },
+  });
+  await vi.waitFor(() => expect(manager.getTask(id!)?.status).toBe('failed'));
+  expect(manager.getTask(id!)?.bundleDir).toBeUndefined();
+  expect(state.download).not.toHaveBeenCalled();
+});
+it('Web 空间单文件只保存到服务器根内，旧入口同样拒绝越界路径', async () => {
+  state.serverRoot = join(roots[0]!, 'server');
+  mkdirSync(state.serverRoot);
+  const api = accountRouter.createCaller({});
+  const id = await api.startQzoneAlbumMediaExport({
+    ...selectedQzone,
+    savePolicy: { mode: 'before', directory: 'selected' },
+  });
+  await vi.waitFor(() => expect(manager.getTask(id!)?.save?.status).toBe('saved'));
+  expect(manager.getTask(id!)?.save?.path).toBe(
+    join(realpathSync(state.serverRoot), 'selected', 'photo.jpg'),
+  );
+  await expect(
+    api.exportQzoneAlbumMedia({ ...selectedQzone, outputDir: '/outside-server-root' }),
+  ).rejects.toThrow();
+  expect(state.download).toHaveBeenCalledTimes(1);
+});
+it('空间媒体任务取消会中止所有在途下载，半成品不发布', async () => {
+  state.download.mockImplementation(async (_url, _path, opts) => {
+    await new Promise<void>((resolve) =>
+      opts?.signal?.addEventListener('abort', () => resolve(), { once: true }),
+    );
+    return { ok: false, reason: 'aborted' };
+  });
+  const id = await accountRouter.createCaller({}).startQzoneAlbumMediaExport({
+    ...selectedQzone,
+    items: [
+      selectedQzone.items[0]!,
+      { ...selectedQzone.items[0]!, url: 'https://synthetic.invalid/second.jpg' },
+    ],
+    savePolicy: { mode: 'after' },
+  });
+  await vi.waitFor(() => expect(state.download).toHaveBeenCalledTimes(2));
+  manager.cancelTask(id!);
+  await vi.waitFor(() => expect(manager.getTask(id!)?.error).toContain('中断'));
+  expect(manager.getTask(id!)?.bundleDir).toBeUndefined();
+  expect(manager.getTask(id!)?.filePath).toBeUndefined();
 });
