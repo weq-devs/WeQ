@@ -288,7 +288,7 @@ export function MessageBubble({
 
   function selectMessageContent() {
     const content = bubbleRef.current?.querySelector('.message-content');
-    if (!content?.textContent?.trim()) {
+    if (!content || (!content.textContent?.trim() && !content.querySelector('img, [role="img"]'))) {
       return;
     }
 

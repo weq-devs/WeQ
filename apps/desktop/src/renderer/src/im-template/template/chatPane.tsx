@@ -184,14 +184,14 @@ import { filterMentionMembers, mentionText } from './mentions';
 import { canRepeatMessage, repeatTarget } from '../../lib/messageRepeat';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { exportMedia } from '../../lib/mediaExport';
-import { messageRichClipboard } from '../../lib/messageClipboard';
-import type { RepeatElement } from '../../lib/messageRepeat';
 import {
-  readMentionClipboard,
-  mentionClipboardHtml,
-  selectedMentionClipboard,
-  writeMentionClipboard,
-} from '../../lib/mentionClipboard';
+  messageContentClipboard,
+  messageNodeClipboard,
+  messageRichClipboard,
+  selectedMessageClipboard,
+} from '../../lib/messageClipboard';
+import type { RepeatElement } from '../../lib/messageRepeat';
+import { readMentionClipboard, writeMentionClipboard } from '../../lib/mentionClipboard';
 import '../../styles/message-repeat.css';
 import '../../styles/new-message-preview.css';
 import { MessageTimeDivider, shouldShowMessageTime } from './messageTime';
@@ -321,9 +321,7 @@ function imageFilenameFromUrl(url: string) {
 
 function pureImageUrl(message: Message) {
   const elements = (message.qqElements ?? []).filter(
-    (element) =>
-      element.type !== 'reply' &&
-      !(element.type === 'text' && !String(element.data?.textContent ?? '').trim()),
+    (element) => !(element.type === 'text' && !String(element.data?.textContent ?? '').trim()),
   );
   return elements.length === 1 && elements[0].type === 'pic'
     ? getMessageDownloadUrl(message)
@@ -3041,8 +3039,15 @@ export function ChatPane({
   }
 
   function openMessageMenu(event: ReactMouseEvent, message: Message) {
+    event.preventDefault();
+    const selection = window.getSelection();
+    const quote = event.target instanceof Element ? event.target.closest('.qq-reply-quote') : null;
+    const selected =
+      selection?.rangeCount && selection.getRangeAt(0).intersectsNode(event.currentTarget)
+        ? selectedMessageClipboard(event.currentTarget.closest('.chat-pane'))
+        : null;
+    const clipboard = selected ?? (quote ? messageNodeClipboard(quote) : undefined);
     if (window.matchMedia('(max-width: 760px)').matches) {
-      event.preventDefault();
       const rect = event.currentTarget.getBoundingClientRect();
       openMobileMessageMenu(
         {
@@ -3050,10 +3055,10 @@ export function ChatPane({
           y: rect.bottom,
         },
         message,
+        clipboard,
       );
       return;
     }
-    event.preventDefault();
     window.getSelection()?.removeAllRanges();
     // Record where the click landed inside the message row so the menu can
     // track that row as the list scrolls (see the reposition effect below).
@@ -3068,6 +3073,7 @@ export function ChatPane({
     setContextMenu({
       message,
       imageUrl,
+      clipboard,
       downloadUrl:
         (event.target instanceof HTMLImageElement
           ? event.target.currentSrc || event.target.src
@@ -3080,12 +3086,17 @@ export function ChatPane({
     });
   }
 
-  function openMobileMessageMenu(point: { x: number; y: number }, message: Message) {
+  function openMobileMessageMenu(
+    point: { x: number; y: number },
+    message: Message,
+    clipboard?: { text: string; html: string },
+  ) {
     const menuHalfWidth = 112;
     const maxTop = Math.max(92, window.innerHeight - 166);
     setContextMenu({
       message,
       imageUrl: pureImageUrl(message),
+      clipboard,
       downloadUrl: getMessageDownloadUrl(message),
       x: Math.min(Math.max(point.x, menuHalfWidth), window.innerWidth - menuHalfWidth),
       y: Math.min(Math.max(point.y + 10, 92), maxTop),
@@ -3638,22 +3649,17 @@ export function ChatPane({
   }
 
   async function copyMessage(message: Message) {
+    const selected = contextMenu?.clipboard;
     const image = contextMenu?.imageUrl;
-    if (image) {
+    if (image && !selected) {
       setContextMenu(null);
       const result = await exportMedia({ url: image }, 'clipboard');
       if (!result.ok) pushToast({ tone: 'error', title: '复制图片失败', detail: result.error });
       return;
     }
-    const selectedText = window.getSelection()?.toString().trim();
-    // Non-copyable messages (images/files/cards) render an empty body — fall
-    // back to a `msgid=xxx` reference so there's always something on the clipboard.
     const body = message.body?.trim() ? message.body : `msgid=${message.msgId ?? message.id}`;
-    const rich = selectedText
-      ? selectedMentionClipboard()
-      : mentionClipboardHtml(message.qqElements ?? []);
-    if (!rich || !(await writeMentionClipboard(rich)))
-      await copyTextToClipboard(selectedText || body);
+    const rich = selected ?? messageContentClipboard(message.qqElements, body);
+    if (!(await writeMentionClipboard(rich))) await copyTextToClipboard(rich.text);
     setContextMenu(null);
   }
 
@@ -3890,7 +3896,7 @@ export function ChatPane({
       onTouchMoveCapture={handleReadGesture}
       onKeyUpCapture={handleReadGesture}
       onCopyCapture={(event) => {
-        const rich = selectedMentionClipboard();
+        const rich = selectedMessageClipboard(event.currentTarget);
         if (!rich) return;
         event.clipboardData.setData('text/plain', rich.text);
         event.clipboardData.setData('text/html', rich.html);
