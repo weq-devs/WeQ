@@ -42,7 +42,6 @@ import {
   Trophy,
   X,
   Store,
-  Save,
 } from 'lucide-react';
 import type { BubbleSkin, DressBackgroundSource, DressMallItem, DressScope } from '@weq/service';
 import { trpc } from '../trpc/client';
@@ -50,7 +49,7 @@ import { useAppDialog } from '../lib/dialogUtils';
 import { dressBackgroundUrl, dressFontUrl, dressUrl, isVideoBackground } from '../lib/resourceUrl';
 import { bubblePreviewCss } from '../lib/dressSkin';
 import { syncDressSkin, syncDressSkinPreloaded } from '../hooks/useDressSkin';
-import { useToast } from './Toast';
+import { DecorationSaveControls, useDecorationSave } from './DecorationSaveControls';
 import { BACKDROP_VEIL_VAR, backdropVeil, ScreenWidget } from './ChatBackdrop';
 import { WorkspacePage } from './WorkspacePages';
 import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLightbox';
@@ -201,7 +200,7 @@ export function DressUpDialog({
   initialEmojiPackName?: string;
 }): ReactElement {
   const dialog = useAppDialog();
-  const pushToast = useToast((s) => s.push);
+  const decorationSave = useDecorationSave();
   const utils = trpc.useUtils();
 
   const [kind, setKind] = useState<DressKind>(initialKind);
@@ -283,9 +282,6 @@ export function DressUpDialog({
   const setBackground = trpc.account.dressup.setBackground.useMutation();
   const setWidget = trpc.account.dressup.setWidget.useMutation();
   const setBackgroundOpacity = trpc.account.dressup.setBackgroundOpacity.useMutation();
-  const saveDecoration = trpc.account.dressup.saveMsgDecoration.useMutation();
-  /** 正在另存的那一款（`<kind>:<itemId>`），同一时间只允许一个保存框。 */
-  const [savingKey, setSavingKey] = useState('');
 
   const refresh = useCallback(async (): Promise<void> => {
     await utils.account.dressup.getState.invalidate();
@@ -338,49 +334,6 @@ export function DressUpDialog({
       }
     },
     [mallKind, installBubble, installFont, installWidget, setActive, refresh, dialog],
-  );
-
-  /**
-   * 「另存为」：把这一款的**真实资源**落盘（字体 `.ttf`、静态气泡 / 挂件 `.png`，
-   * 多帧动画才是 zip）。走的是消息装扮卡片同一条 `saveMsgDecoration`，后端只按
-   * itemId 解析，不要求这一款当前生效。
-   *
-   * 没缓存时会触发一次在线换链；失败按后端如实报错（例如离线且本地 bundle 没有）。
-   */
-  const saveAs = useCallback(
-    async (item: DressMallItem): Promise<void> => {
-      const key = `${mallKind}:${item.itemId}`;
-      if (savingKey) return;
-      setSavingKey(key);
-      try {
-        const ids = { bubbleId: 0, fontId: 0, widgetId: 0 };
-        if (mallKind === 'bubble') ids.bubbleId = item.itemId;
-        else if (mallKind === 'font') ids.fontId = item.itemId;
-        else ids.widgetId = item.itemId;
-        const result = await saveDecoration.mutateAsync({ ...ids, kind: mallKind });
-        if (result.canceled) return;
-        // Web 版主进程只分配了 downloadId，由浏览器拉取；桌面版已经落盘。
-        if (result.downloadId) {
-          const link = document.createElement('a');
-          link.href = `/_download/${encodeURIComponent(result.downloadId)}`;
-          link.download = result.name;
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-        }
-        pushToast({
-          tone: 'success',
-          title: `已另存${item.name || mallKind}`,
-          message: result.downloadId ? '已开始下载' : result.path,
-          ttl: 6000,
-        });
-      } catch (e) {
-        dialog.error('另存为失败', e instanceof Error ? e.message : String(e));
-      } finally {
-        setSavingKey('');
-      }
-    },
-    [mallKind, savingKey, saveDecoration, pushToast, dialog],
   );
 
   /** 取消当前生效的装扮,回到默认外观。 */
@@ -616,21 +569,25 @@ export function DressUpDialog({
             )}
             <span>{isActive ? '使用中' : busy ? '装扮中' : '使用'}</span>
           </button>
-          <button
-            type="button"
+          <DecorationSaveControls
             className="weq-dress-save"
-            title="把这款装扮的真实资源另存为文件"
-            aria-label={`另存为 ${item.name || item.itemId}`}
-            disabled={applying || savingKey !== ''}
-            onClick={() => void saveAs(item)}
-          >
-            {savingKey === `${mallKind}:${item.itemId}` ? (
-              <Loader2 size={13} className="weq-dress-spin" />
-            ) : (
-              <Save size={13} />
-            )}
-            <span>另存为</span>
-          </button>
+            title={`另存为 ${item.name || item.itemId}`}
+            busy={decorationSave.savingKey === `${mallKind}:${item.itemId}`}
+            disabled={applying || decorationSave.disabled}
+            onSave={(intent, browser) =>
+              void decorationSave.run(
+                {
+                  bubbleId: mallKind === 'bubble' ? item.itemId : 0,
+                  fontId: mallKind === 'font' ? item.itemId : 0,
+                  widgetId: mallKind === 'widget' ? item.itemId : 0,
+                  kind: mallKind,
+                },
+                `${mallKind}:${item.itemId}`,
+                intent,
+                browser,
+              )
+            }
+          />
         </div>
       </div>
     );
@@ -887,6 +844,7 @@ export function DressUpDialog({
 
   return (
     <WorkspacePage title="个性装扮" onClose={onClose} standalone>
+      {decorationSave.prompt}
       <div className="weq-dress-dialog" role="region" aria-labelledby="weq-dress-title">
         <button className="weq-dress-close" onClick={onClose} title="关闭" type="button">
           <X size={18} strokeWidth={2} />

@@ -326,7 +326,8 @@ export interface ExportTask {
       | 'database'
       | 'assistant-artifact'
       | 'market-image'
-      | 'mail-attachment';
+      | 'mail-attachment'
+      | 'decoration';
     failed?: number;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
     cacheDirectory?: string;

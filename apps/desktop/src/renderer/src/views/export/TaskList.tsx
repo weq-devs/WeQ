@@ -159,6 +159,7 @@ function taskTypeLabel(t: UiTask): string {
   if (t.resource?.kind === 'assistant-artifact') return '助手报告保存';
   if (t.resource?.kind === 'market-image') return '商城单张表情保存';
   if (t.resource?.kind === 'mail-attachment') return '邮件附件保存';
+  if (t.resource?.kind === 'decoration') return '装扮资源保存';
   if (t.resource) return t.resource.kind === 'group-albums' ? '群相册导出' : '群文件导出';
   if (t.isMarketPack) return '商城表情下载';
   if (t.isEmojiPack) return '导出表情包';

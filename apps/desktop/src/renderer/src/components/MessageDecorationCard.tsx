@@ -3,13 +3,13 @@
  *
  * 右键消息气泡时显示该消息的三装扮（字体/气泡/挂件）的 ID 和预览图。
  */
-import { Download, Palette, X, ImageOff, Type, MessageCircle, Sparkles } from 'lucide-react';
+import { Palette, X, ImageOff, Type, MessageCircle, Sparkles } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { OverlayLayer } from './OverlayLayer';
 import { trpc } from '../trpc/client';
 import { dressFontUrl } from '../lib/resourceUrl';
-import { useToast } from './Toast';
+import { DecorationSaveControls, useDecorationSave } from './DecorationSaveControls';
 
 interface MessageDecorationCardProps {
   decoration: {
@@ -172,22 +172,9 @@ function DecorationItem({ type, id, label, icon }: DecorationItemProps) {
   );
 }
 
-/** Web 版把服务端生成的文件拉成浏览器下载；桌面版已在主进程落盘。 */
-function startWebDownload(downloadId: string | null | undefined, name: string): void {
-  if (!downloadId) return;
-  const link = document.createElement('a');
-  link.href = `/_download/${encodeURIComponent(downloadId)}`;
-  link.download = name;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-}
-
 export function MessageDecorationCard({ decoration, onClose }: MessageDecorationCardProps) {
   const cardRef = useRef<HTMLElement>(null);
-  const save = trpc.account.dressup.saveMsgDecoration.useMutation();
-  const pushToast = useToast((s) => s.push);
-  const [saving, setSaving] = useState<DecorationKind | 'all' | null>(null);
+  const save = useDecorationSave();
 
   const hasDecoration =
     decoration && (decoration.fontId || decoration.bubbleId || decoration.widgetId);
@@ -216,37 +203,6 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
       label: '挂件',
       icon: <Sparkles size={18} />,
     });
-  }
-
-  async function saveDecoration(kind?: DecorationKind): Promise<void> {
-    if (!decoration || saving) return;
-    const key = kind ?? 'all';
-    const label = kind ? items.find((item) => item.type === kind)?.label : null;
-    setSaving(key);
-    try {
-      const result = await save.mutateAsync({
-        bubbleId: decoration.bubbleId,
-        fontId: decoration.fontId,
-        widgetId: decoration.widgetId,
-        ...(kind ? { kind } : {}),
-      });
-      if (result.canceled) return;
-      startWebDownload(result.downloadId, result.name);
-      pushToast({
-        tone: 'success',
-        title: kind ? `已保存${label}资源` : '已保存全部装扮',
-        message: result.downloadId ? '已开始下载' : result.path,
-        ttl: 6000,
-      });
-    } catch (error) {
-      pushToast({
-        tone: 'error',
-        title: kind ? `${label}装扮保存失败` : '装扮保存失败',
-        detail: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      setSaving(null);
-    }
   }
 
   return (
@@ -278,20 +234,16 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
             <span>消息装扮</span>
           </div>
           {hasDecoration ? (
-            <button
-              type="button"
+            <DecorationSaveControls
               className="weq-decoration-card-save-all"
               title="把这条消息用到的装扮资源打包另存"
-              disabled={saving !== null}
-              onClick={() => void saveDecoration()}
-            >
-              {saving === 'all' ? (
-                <Loader2 size={14} className="weq-decoration-card-spin" />
-              ) : (
-                <Download size={14} />
-              )}
-              另存全部
-            </button>
+              label="另存全部"
+              busy={save.savingKey === 'all'}
+              disabled={save.disabled}
+              onSave={(intent, browser) => {
+                if (decoration) void save.run(decoration, 'all', intent, browser);
+              }}
+            />
           ) : null}
         </div>
 
@@ -305,25 +257,22 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
             {items.map((item) => (
               <div className="weq-decoration-card-slot" key={item.type}>
                 <DecorationItem type={item.type} id={item.id} label={item.label} icon={item.icon} />
-                <button
-                  type="button"
+                <DecorationSaveControls
                   className="weq-decoration-card-save"
                   title={`把${item.label}资源另存为文件`}
-                  disabled={saving !== null}
-                  onClick={() => void saveDecoration(item.type)}
-                >
-                  {saving === item.type ? (
-                    <Loader2 size={13} className="weq-decoration-card-spin" />
-                  ) : (
-                    <Download size={13} />
-                  )}
-                  另存为
-                </button>
+                  busy={save.savingKey === item.type}
+                  disabled={save.disabled}
+                  onSave={(intent, browser) => {
+                    if (decoration)
+                      void save.run({ ...decoration, kind: item.type }, item.type, intent, browser);
+                  }}
+                />
               </div>
             ))}
           </div>
         )}
       </section>
+      {save.prompt}
     </OverlayLayer>
   );
 }
