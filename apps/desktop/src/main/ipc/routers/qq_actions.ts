@@ -137,6 +137,15 @@ export function createQQActionsRouter(
     if (!permissions.canManage) throw new Error('此操作需要群主或管理员权限');
   }
   return router({
+    atAllMention: procedure.input(group).query(({ input: i }) =>
+      read(i, async (s) => {
+        const permissions = await groupPermissions(s, i.groupId);
+        const quota = permissions.canManage
+          ? await s.groupModeration.getAtAllRemain(i.groupId, permissions.selfUin)
+          : null;
+        return { ...permissions, quota };
+      }),
+    ),
     groupPermissions: procedure
       .input(group)
       .query(({ input: i }) => read(i, (s) => groupPermissions(s, i.groupId))),

@@ -96,7 +96,7 @@ describe('真实输入区与 +1 操作', () => {
         editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
       });
       expect(f.host.querySelector('[role="listbox"]')?.textContent).toContain('我的备注');
-      act(() => f.host.querySelector<HTMLButtonElement>('[role="option"]')!.click());
+      act(() => f.host.querySelector<HTMLButtonElement>('[role="option"]:not(:disabled)')!.click());
       expect(editor.querySelector('[data-weq-at-uid="u_member"]')?.textContent).toBe('@公开昵称');
       const rich = mentionClipboardHtml([
         { type: 'at', data: { atTargetUid: 'u_member', textContent: '@原作者备注' } },

@@ -345,6 +345,31 @@ describe('主动操作的账号与参数边界', () => {
     });
     expect(result.atAll.remainCountForUin).toBe(2);
   });
+  it('全体候选只读取当前账号额度，不顺带读取打卡或写消息', async () => {
+    const f = fixture();
+    expect(await f.caller.atAllMention(group)).toMatchObject({
+      canManage: true,
+      role: 'admin',
+      quota: { remainCountForUin: 2, remainCountForGroup: 4 },
+    });
+    expect(f.s.groupModeration.getAtAllRemain).toHaveBeenCalledWith(123, '10001');
+    expect(f.s.webQuery.getDaySignedList).not.toHaveBeenCalled();
+    f.s.groupInfo.listGroupDirectory.mockResolvedValue([{ groupCode: '123', role: 'member' }]);
+    f.s.groupModeration.getAtAllRemain.mockClear();
+    expect(await f.caller.atAllMention(group)).toMatchObject({ canManage: false, quota: null });
+    expect(f.s.groupModeration.getAtAllRemain).not.toHaveBeenCalled();
+  });
+  it('全体额度读取期间切号拒绝旧回包，不把读取错误当成额度为零', async () => {
+    const f = fixture();
+    f.s.groupModeration.getAtAllRemain.mockImplementationOnce(async () => {
+      f.switchAccount();
+      return { canAtAll: true, remainCountForUin: 2, remainCountForGroup: 4 };
+    });
+    await expect(f.caller.atAllMention(group)).rejects.toThrow();
+    const failure = fixture();
+    failure.s.groupModeration.getAtAllRemain.mockRejectedValueOnce(new Error('quota unavailable'));
+    await expect(failure.caller.atAllMention(group)).rejects.toThrow('quota unavailable');
+  });
   it('带图评论先上传再使用 richval，取图期间切号不发送评论', async () => {
     const f = fixture();
     const dir = await mkdtemp(join(tmpdir(), 'weq-qzone-comment-test-'));

@@ -20,6 +20,9 @@ import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { hasActiveModal } from '../../lib/overlayStack';
 import { useWorkspaceSidecarOpen } from '../../components/WorkspacePages';
+import { useAtAllMention } from '../../hooks/useAtAllMention';
+import { nextMentionIndex, type AtAllMentionState } from '../../lib/atAllMention';
+import '../../styles/at-all-mention.css';
 import {
   AudioLines,
   BarChart3,
@@ -795,6 +798,10 @@ export function ChatPane({
   // only backs the clear-conversation action.
   const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(new Set());
   const [mentionMenu, setMentionMenu] = useState<MentionMenuState | null>(null);
+  const atAllMention = useAtAllMention(
+    Boolean(mentionMenu && tabActive && conversation?.type === 'group'),
+    Number(conversation?.group?.identityValue),
+  );
   const [unreadJump, setUnreadJump] = useState<UnreadJumpState | null>(null);
   // 未读跳转坞：当前跳到第几个跳转点（越界即整串收起）。换了会话就归零。
   const [dockIndex, setDockIndex] = useState(0);
@@ -1715,7 +1722,7 @@ export function ChatPane({
   }
 
   function insertMention(member: GroupMember) {
-    if (currentPreference.blocked || sending) {
+    if (currentPreference.blocked || sending || (member.id === 'all' && !atAllMention.selectable)) {
       return;
     }
 
@@ -2702,8 +2709,12 @@ export function ChatPane({
           const offset = event.key === 'ArrowDown' ? 1 : -1;
           return {
             ...current,
-            activeIndex:
-              (current.activeIndex + offset + current.members.length) % current.members.length,
+            activeIndex: nextMentionIndex(
+              current.members,
+              current.activeIndex,
+              offset,
+              atAllMention.selectable,
+            ),
           };
         });
         return;
@@ -2711,7 +2722,13 @@ export function ChatPane({
 
       if (event.key === 'Enter' || event.key === 'Tab') {
         event.preventDefault();
-        const member = mentionMenu.members[mentionMenu.activeIndex] ?? mentionMenu.members[0];
+        const selected = mentionMenu.members[mentionMenu.activeIndex];
+        const member =
+          selected?.id === 'all' && !atAllMention.selectable
+            ? mentionMenu.members[
+                nextMentionIndex(mentionMenu.members, mentionMenu.activeIndex, 1, false)
+              ]
+            : selected;
         if (member) {
           insertMention(member);
         }
@@ -4742,6 +4759,7 @@ export function ChatPane({
         ) : null}
         {mentionMenu && !mobileComposerExpanded ? (
           <MentionMenu
+            atAll={atAllMention}
             menu={mentionMenu}
             menuRef={mentionMenuRef}
             onLoadMore={!mentionMenu.query ? onLoadMoreGroupMembers : undefined}
@@ -4845,6 +4863,7 @@ export function ChatPane({
             />
             {mentionMenu ? (
               <MentionMenu
+                atAll={atAllMention}
                 menu={mentionMenu}
                 menuRef={mentionMenuRef}
                 onLoadMore={!mentionMenu.query ? onLoadMoreGroupMembers : undefined}
@@ -5210,13 +5229,15 @@ function ComposerPlusPanel({
   );
 }
 
-function MentionMenu({
+export function MentionMenu({
+  atAll,
   menu,
   menuRef,
   onActiveIndexChange,
   onSelect,
   onLoadMore,
 }: {
+  atAll: AtAllMentionState;
   menu: MentionMenuState;
   menuRef: RefObject<HTMLDivElement | null>;
   onActiveIndexChange: (activeIndex: number) => void;
@@ -5238,7 +5259,10 @@ function MentionMenu({
         <button
           key={member.id}
           role="option"
-          aria-selected={index === menu.activeIndex}
+          aria-selected={index === menu.activeIndex && (member.id !== 'all' || atAll.selectable)}
+          aria-disabled={member.id === 'all' && !atAll.selectable}
+          disabled={member.id === 'all' && !atAll.selectable}
+          title={member.id === 'all' ? atAll.detail : undefined}
           type="button"
           className={cn(index === menu.activeIndex && 'active')}
           onMouseEnter={() => onActiveIndexChange(index)}
@@ -5247,13 +5271,23 @@ function MentionMenu({
           }}
           onClick={() => onSelect(member)}
         >
-          <Avatar
-            name={displayUserName(member)}
-            avatarUrl={member.avatarUrl}
-            seed={member.identityValue}
-          />
+          {member.id === 'all' ? (
+            <span className="mention-all-icon" aria-hidden="true">
+              <UsersRound size={20} />
+            </span>
+          ) : (
+            <Avatar
+              name={displayUserName(member)}
+              avatarUrl={member.avatarUrl}
+              seed={member.identityValue}
+            />
+          )}
           <span className={cn('mention-member-name')}>{displayUserName(member)}</span>
-          {member.role !== 'member' || member.kind === 'bot' ? (
+          {member.id === 'all' ? (
+            <span className="mention-all-quota" aria-label={atAll.detail}>
+              {atAll.summary}
+            </span>
+          ) : member.role !== 'member' || member.kind === 'bot' ? (
             <span className={cn('mention-member-trailing')}>
               {member.role !== 'member' ? (
                 <small

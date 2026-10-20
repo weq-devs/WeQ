@@ -1,0 +1,33 @@
+.mention-menu .mention-all-quota {
+  justify-self: end;
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.mention-menu button:disabled,
+html[data-theme="dark"] .mention-menu button:disabled {
+  color: var(--weq-fg-muted);
+  cursor: not-allowed;
+}
+
+.mention-menu button:disabled.active,
+.mention-menu button:disabled:hover,
+html[data-theme="dark"] .mention-menu button:disabled.active,
+html[data-theme="dark"] .mention-menu button:disabled:hover {
+  background: transparent;
+}
+
+html[data-theme="dark"] .mention-menu .mention-all-quota {
+  color: var(--weq-fg-secondary);
+}
+.mention-menu .mention-all-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--weq-accent-effective);
+}
+

@@ -23,9 +23,6 @@ export function filterMentionMembers(
   }
 
   const normalizedQuery = normalizeMentionQuery(query);
-  const self = conversation.members.find(
-    (member) => member.id === currentUserId || member.identityValue === currentUserId,
-  );
   const everyone: GroupMember = {
     id: 'all',
     identityLabel: '',
@@ -37,7 +34,7 @@ export function filterMentionMembers(
     joinedAt: '',
   };
   const candidates = [
-    ...(self && (self.role === 'owner' || self.role === 'admin') ? [everyone] : []),
+    everyone,
     ...conversation.members.filter(
       (member) => member.id !== currentUserId && member.identityValue !== currentUserId,
     ),
