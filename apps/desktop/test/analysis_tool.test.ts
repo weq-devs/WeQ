@@ -9,9 +9,23 @@ import { useViewState } from '../src/renderer/src/state/view';
 const fixture = vi.hoisted(() => ({
   config: vi.fn(),
   friends: [] as { uid: string; uin: string; name: string; categoryId: number }[],
+  /** 目录查询的挂起开关：验证加载骨架。 */
+  pending: false,
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {
-  const result = (data: unknown) => ({ data, isLoading: false, isError: false, refetch: vi.fn() });
+  const result = (data: unknown) => ({
+    data,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  });
+  // 目录加载中：只有 data 缺失 + isLoading，模拟真实查询的首帧。
+  const pendingResult = () => ({
+    data: undefined,
+    isLoading: true,
+    isError: false,
+    refetch: vi.fn(),
+  });
   return {
     client: { account: { getAccountConfig: { query: fixture.config } } },
     trpc: {
@@ -19,12 +33,19 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         annualReport: { getAvailableYears: { useQuery: () => result([2025, 0]) } },
         analysisGroupDirectory: {
           useQuery: () =>
-            result([
-              { groupCode: '777', groupName: '合成群 A' },
-              { groupCode: '888', groupName: '合成群 B' },
-            ]),
+            fixture.pending
+              ? pendingResult()
+              : result([
+                  { groupCode: '777', groupName: '合成群 A' },
+                  { groupCode: '888', groupName: '合成群 B' },
+                ]),
         },
-        analysisPeerDirectory: { useQuery: () => result(fixture.friends) },
+        analysisPeerDirectory: {
+          useQuery: () => (fixture.pending ? pendingResult() : result(fixture.friends)),
+        },
+        exportCalendar: {
+          useQuery: () => ({ data: [], isLoading: false, isError: false, error: null }),
+        },
         analysisMemberDirectory: {
           useQuery: (input: { groupCode?: string }) =>
             result([
@@ -56,6 +77,7 @@ beforeEach(() => {
   }));
 });
 afterEach(() => {
+  fixture.pending = false;
   useViewState.setState({ openedUin: restoreAccount });
   vi.resetAllMocks();
   vi.unstubAllGlobals();
@@ -81,11 +103,15 @@ function mount(initialTarget?: AnalysisTarget, messageIds?: string[], fixedTarge
       createElement(AnalysisTool, { onGenerate: generate, initialTarget, messageIds, fixedTarget }),
     ),
   );
+  /** 搜索过滤后虚拟列表只渲染可视行：先按关键字筛到目标再取行。 */
+  const chooseObject = (id: string) =>
+    host.querySelector<HTMLButtonElement>(`[data-analysis-choice="${id}"]`)!;
   return {
     host,
     generate,
     select: (label: string, value: string) =>
       change(host.querySelector(`[aria-label="${label}"]`)!, value),
+    chooseObject,
     button: (text: string) =>
       [...host.querySelectorAll<HTMLButtonElement>('button')].find((node) =>
         node.textContent?.includes(text),
@@ -103,12 +129,8 @@ it('全局入口只预选当前位置，保留完整报告类型与对象列表�
     const types = f.host.querySelector<HTMLSelectElement>('[aria-label="报告类型"]');
     expect(types).not.toBeNull();
     expect(types!.value).toBe('group');
-    expect([...types!.options].map((option) => option.value)).toEqual([
-      'annual',
-      'buddy',
-      'group',
-      'member',
-    ]);
+    // 年度报告已挪到侧栏独立入口，分析工具里只剩这三类。
+    expect([...types!.options].map((option) => option.value)).toEqual(['group', 'buddy', 'member']);
     expect(f.button('合成群 A').getAttribute('aria-pressed')).toBe('true');
     act(() => f.button('合成群 B').click());
     await act(async () => f.button('生成报告').click());
@@ -117,8 +139,7 @@ it('全局入口只预选当前位置，保留完整报告类型与对象列表�
     );
     f.select('报告类型', 'buddy');
     expect(f.host.querySelector('[aria-label="搜索分析对象"]')).not.toBeNull();
-    f.select('报告类型', 'annual');
-    expect(f.host.querySelector('[aria-label="报告年份"]')).not.toBeNull();
+    expect(f.host.querySelector('[aria-label="报告年份"]')).toBeNull();
   } finally {
     f.close();
   }
@@ -147,23 +168,23 @@ it('会话入口固定分析对象，多选入口固定消息 ID 且不显示范
   }
 });
 
-it('年度与好友都创建真实配置，完整目录可检索末尾且 DOM 有界', async () => {
+it('群聊与好友都创建真实配置，完整目录可检索末尾且 DOM 有界', async () => {
   vi.stubGlobal('crypto', {});
   const f = mount();
   try {
-    f.select('报告年份', '2025');
+    act(() => f.chooseObject('777').click());
     await act(async () => f.button('生成报告').click());
     expect(f.generate).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        kind: 'annual',
-        year: 2025,
+        kind: 'group',
+        groupCode: '777',
         scope: { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic' },
       }),
     );
     f.select('报告类型', 'buddy');
     expect(f.host.querySelectorAll('.weq-analysis-choice').length).toBeLessThan(30);
     f.select('搜索分析对象', '合成好友 2500');
-    act(() => f.button('合成好友 2500').click());
+    act(() => f.chooseObject('u_friend_2500').click());
     f.select('分析时间范围', 'dates');
     f.select('开始日期', '2026-10-01');
     f.select('结束日期', '2026-10-18');
@@ -191,8 +212,8 @@ it('群成员身份按群隔离，换群不沿用旧成员，非法日期不创�
   const f = mount();
   try {
     f.select('报告类型', 'member');
-    act(() => f.button('合成群 A').click());
-    act(() => f.button('合成成员 777').click());
+    act(() => f.chooseObject('777').click());
+    act(() => f.chooseObject('uid:u_777').click());
     await act(async () => f.button('生成报告').click());
     expect(f.generate).toHaveBeenLastCalledWith(
       expect.objectContaining({ kind: 'member', groupCode: '777', memberUid: 'u_777' }),
@@ -221,18 +242,38 @@ it('确认身份期间防重复提交，切号销毁草稿并拒绝旧响应', a
   );
   const f = mount();
   try {
+    act(() => f.chooseObject('777').click());
     act(() => {
       f.button('生成报告').click();
       f.button('生成报告').click();
     });
     expect(fixture.config).toHaveBeenCalledOnce();
     act(() => useViewState.setState({ openedUin: '10002' }));
-    await act(async () => finish({ uin: '10001', configId: 'synthetic' }));
+    await act(async () => {
+      finish({ uin: '10001', configId: 'synthetic' });
+    });
     expect(f.generate).not.toHaveBeenCalled();
-    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="报告类型"]')!.value).toBe(
-      'annual',
-    );
-    expect(f.button('生成报告').disabled).toBe(false);
+    // 切号后工具按新账号重建：种类回到默认、上一轮选中的对象不再带过去，
+    // 因此要重新选对象才能生成（不是卡在「正在提交」）。
+    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="报告类型"]')!.value).toBe('group');
+    expect(f.host.querySelector('[data-analysis-choice][aria-pressed="true"]')).toBeNull();
+    expect(f.button('生成报告').disabled).toBe(true);
+  } finally {
+    f.close();
+  }
+});
+
+it('读取分析对象时用骨架占位，卡片高度不塌也不闪空白', () => {
+  fixture.pending = true;
+  const f = mount();
+  try {
+    // 骨架与最终列表在同一张卡片里，卡片本身立刻存在（高度由它撑住）。
+    expect(f.host.querySelector('.weq-analysis-picker')).not.toBeNull();
+    const rows = f.host.querySelectorAll('.weq-analysis-skeleton-row');
+    expect(rows.length).toBeGreaterThan(0);
+    // 搜索框仍在原位，只是变成静态提示。
+    expect(f.host.querySelector('.weq-analysis-search.is-static')).not.toBeNull();
+    expect(f.host.textContent).not.toContain('正在读取分析对象');
   } finally {
     f.close();
   }

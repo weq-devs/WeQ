@@ -554,6 +554,25 @@ export class GroupMsgDb {
       .filter((code) => /^\d+$/.test(code) && BigInt(code) > 0n);
   }
 
+  /**
+   * 每个群最后一条消息的发送时间（unix 秒）。分析目录按「最近活跃」排序要用，
+   * 名册顺序与聊天时间无关。只扫 40027 / 40050 两列。
+   */
+  async lastSendTimes(): Promise<Map<string, number>> {
+    const rows = await this.qq.query(
+      `SELECT "40027", MAX("40050") FROM group_msg_table
+       WHERE "40027" IS NOT NULL AND "40027" != '' AND "40050" > 0
+       GROUP BY "40027"`,
+    );
+    const times = new Map<string, number>();
+    for (const row of rows) {
+      const code = String(row[0] ?? '');
+      const time = Number(row[1] ?? 0);
+      if (code && time > 0) times.set(code, time);
+    }
+    return times;
+  }
+
   /** 包括退群与无名册发言人；UID 缺失时仍保留原始 QQ 号。 */
   async listSenderIdentities(groupCode: string): Promise<Array<{ uid: string; uin: string }>> {
     const rows = await this.qq.query(

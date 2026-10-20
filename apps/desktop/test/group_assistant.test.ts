@@ -26,6 +26,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         listServiceAccounts: query,
         listHiddenSessions: query,
         listDeletedSessions: query,
+        guildDirectListSessions: query,
       },
     },
   };

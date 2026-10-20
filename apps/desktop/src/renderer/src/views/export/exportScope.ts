@@ -1,6 +1,49 @@
 import type { ContentSelection } from '../../../../shared/content_selection';
 import type { ExportMode } from './types';
 
+/**
+ * 导出面板顶部的「已按当前内容进入」摘要：把选区翻译成一句人话，
+ * 让用户不用回头确认自己点的是哪个会话 / 空间 / 收藏。
+ */
+export function fixedScopeSummary(selection: ContentSelection): string {
+  const owner = selection.owner;
+  const count = selection.scope.type === 'items' ? selection.scope.ids.length : null;
+  switch (owner.kind) {
+    case 'messages': {
+      const conv = owner.container.slice(owner.container.indexOf(':') + 1);
+      return count === null ? `会话 ${conv} · 全部消息` : `会话 ${conv} · 精确选中 ${count} 条消息`;
+    }
+    case 'conversations': {
+      const visible = owner.container === 'recent' || owner.container === 'main-list';
+      return count === null
+        ? `${visible ? '当前列表' : owner.container} · 全部会话`
+        : `已选 ${count} 个会话`;
+    }
+    case 'guild-direct':
+      return count === null ? '频道私聊 · 会话全部消息' : `频道私聊 · 精确选中 ${count} 条消息`;
+    case 'contacts':
+      return count === null ? '联系人 · 全部' : `联系人 · 精确选中 ${count} 项`;
+    case 'collections':
+      return count === null ? '收藏 · 全部' : `收藏 · 精确选中 ${count} 条`;
+    case 'qzone-posts':
+      return count === null
+        ? `空间 ${owner.container} · 全部说说`
+        : `空间 ${owner.container} · ${count} 条说说`;
+    case 'qzone-albums':
+      return '空间相册';
+    case 'group-albums':
+      return '群相册';
+    case 'group-files':
+      return '群文件';
+    case 'emojis':
+    case 'market-emojis':
+      return '表情包';
+    case 'clone-messages':
+    case 'assistant-messages':
+      return count === null ? '克隆与助手对话' : `克隆与助手对话 · ${count} 条`;
+  }
+}
+
 export function initialExportMode(selection?: ContentSelection): ExportMode {
   switch (selection?.owner.kind) {
     case 'clone-messages':

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import {
   Bookmark,
+  Bot,
   CalendarClock,
   Contact,
   Database,
@@ -84,6 +85,7 @@ import { DatabasePlainExport } from './export/DatabasePlainExport';
 import { useViewState } from '../state/view';
 import { useExportCollections } from '../hooks/useExportCollections';
 import {
+  fixedScopeSummary,
   initialContactScope,
   initialConversationIds,
   initialExportMode,
@@ -99,55 +101,82 @@ import { useTabActive } from '../components/RetainedTabs';
 interface ModeDef {
   id: ExportMode;
   label: string;
+  /** 横向种类胶囊上的短名：长标签留给面板标题，避免一排胶囊里全是「导出…」。 */
+  short: string;
   desc: string;
   icon: ReactNode;
 }
 
 const MODES: ModeDef[] = [
   {
-    id: 'database',
-    label: '明文数据库',
-    desc: '原始 SQLite 数据库副本',
-    icon: <Database size={18} />,
-  },
-  {
     id: 'full',
     label: '聊天消息导出',
+    short: '聊天消息',
     desc: 'JSON / JSONL / XLSX / CSV / TXT / HTML',
     icon: <MessagesSquare size={18} />,
   },
   {
     id: 'guild',
     label: '频道私聊数据',
+    short: '频道私聊',
     desc: '本地频道私聊 · 完整消息格式（不支持漫游拉取）',
     icon: <Radio size={18} />,
   },
   {
     id: 'generated',
     label: '克隆与助手对话',
-    desc: '本地生成记录',
-    icon: <MessagesSquare size={18} />,
+    short: '克隆与助手',
+    desc: '本地生成记录 · 按会话导出',
+    icon: <Bot size={18} />,
   },
   {
     id: 'qzone',
     label: 'QQ空间导出',
+    short: 'QQ 空间',
     desc: '空间说说 · JSON / TXT / HTML',
     icon: <Globe size={18} />,
   },
   {
     id: 'contacts',
     label: '导出联系人',
+    short: '联系人',
     desc: '联系人名单 / 群聊名单 / 群成员名单',
     icon: <Contact size={18} />,
   },
-  { id: 'collection', label: '导出收藏', desc: 'QQ 收藏导出为表格', icon: <Bookmark size={18} /> },
-  { id: 'album', label: '群相册导出', desc: '批量下载群相册', icon: <Images size={18} /> },
-  { id: 'groupfile', label: '群文件导出', desc: '批量下载群文件', icon: <FolderOpen size={18} /> },
+  {
+    id: 'collection',
+    label: '导出收藏',
+    short: '收藏',
+    desc: 'QQ 收藏导出为表格',
+    icon: <Bookmark size={18} />,
+  },
   {
     id: 'emojipack',
     label: '导出表情包',
+    short: '表情包',
     desc: '自己的 / 收到的自定义表情',
     icon: <Smile size={18} />,
+  },
+  {
+    id: 'album',
+    label: '群相册导出',
+    short: '群相册',
+    desc: '批量下载群相册',
+    icon: <Images size={18} />,
+  },
+  {
+    id: 'groupfile',
+    label: '群文件导出',
+    short: '群文件',
+    desc: '批量下载群文件',
+    icon: <FolderOpen size={18} />,
+  },
+  {
+    id: 'database',
+    label: '明文数据库',
+    short: '数据库',
+    desc: '原始 SQLite 数据库副本',
+    icon: <Database size={18} />,
   },
 ];
 
@@ -347,6 +376,9 @@ export function ExportTool({
   const [mode, setMode] = useState<ExportMode>(
     initialMode === 'scheduled' ? 'full' : (initialMode ?? initialExportMode(initialSelection)),
   );
+  // 浮动工具子项带过来的默认对象：群相册 / 群文件要从当前界面的群直接落地，
+  // 不必在面板里再选一遍群。
+  const initialGroupId = initialSelection?.owner.container ?? null;
   const exportAccount = trpc.account.getAccountConfig.useQuery(undefined, {
     enabled: active,
   });
@@ -472,13 +504,17 @@ export function ExportTool({
     },
   );
   const [albumExport, setAlbumExport] = useState<{ group: PickItem } | null>(null);
-  const [albumGroupId, setAlbumGroupId] = useState<string | null>(null);
+  const [albumGroupId, setAlbumGroupId] = useState<string | null>(
+    initialMode === 'album' ? initialGroupId : null,
+  );
   const [fileExport, setFileExport] = useState<{ group: PickItem } | null>(null);
   useEffect(() => {
     setAlbumExport(null);
     setFileExport(null);
   }, [saveBinding?.expectedAccountUin, saveBinding?.expectedAccountConfigId]);
-  const [fileGroupId, setFileGroupId] = useState<string | null>(null);
+  const [fileGroupId, setFileGroupId] = useState<string | null>(
+    initialMode === 'groupfile' ? initialGroupId : null,
+  );
   const [format, setFormat] = useState<ExportFormat>('json');
   const fixedMessages =
     fixedScope &&
@@ -1624,39 +1660,82 @@ export function ExportTool({
         />
       ) : null}
       {surface === 'export' && ((!lightbox && !fixedMessages) || editingList) ? (
-        <div className="weq-exp-top">
+        <div className="weq-exp-top is-single">
+          {fixedMessages && initialSelection ? (
+            <div className="weq-exp-source" role="status">
+              <span className="weq-exp-source-glyph" aria-hidden>
+                <Zap size={14} />
+              </span>
+              <span className="weq-exp-source-text">
+                <small>{fixedScopeSummary(initialSelection)}</small>
+              </span>
+              {editingList ? (
+                <button
+                  type="button"
+                  className="weq-exp-source-done"
+                  onClick={() => setEditingList(false)}
+                >
+                  完成调整
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {/* 右侧选择面板 */}
           <section className="weq-exp-pane">
             <header className="weq-exp-pane-head">
               <div className="weq-exp-pane-title">
-                {lockMode ? (
-                  <>
-                    <strong>{activeMode.label}</strong>
-                    <span>{activeMode.desc}</span>
-                  </>
-                ) : (
-                  <>
-                    <label htmlFor="weq-export-content-kind">内容种类</label>
-                    <select
-                      id="weq-export-content-kind"
-                      value={mode}
-                      disabled={submitting || editingList}
-                      onChange={(event) => {
-                        const selected = MODES.find((item) => item.id === event.target.value);
-                        if (selected) setMode(selected.id);
-                      }}
-                    >
-                      {MODES.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </select>
-                    <span>{activeMode.desc}</span>
-                  </>
-                )}
+                <span className="weq-exp-pane-heading">
+                  <strong>{activeMode.label}</strong>
+                  <span>{activeMode.desc}</span>
+                </span>
               </div>
+              {lockMode ? (
+                <span className="weq-exp-pane-kind">
+                  <Layers size={13} aria-hidden />
+                  {activeMode.label}
+                </span>
+              ) : null}
             </header>
+
+            {!lockMode ? (
+              <div className="weq-exp-kinds" role="tablist" aria-label="内容种类">
+                {/* 隐藏的原生 select 只保留无障碍 / 自动化语义（沿用原来的 id 与标签）。 */}
+                <select
+                  id="weq-export-content-kind"
+                  className="weq-exp-kind-native"
+                  aria-label="内容种类"
+                  value={mode}
+                  disabled={submitting || editingList}
+                  onChange={(event) => {
+                    const selected = MODES.find((item) => item.id === event.target.value);
+                    if (selected) setMode(selected.id);
+                  }}
+                >
+                  {MODES.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+                {MODES.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={item.id === mode}
+                    className={item.id === mode ? 'is-active' : ''}
+                    disabled={submitting || editingList}
+                    title={`${item.label} · ${item.desc}`}
+                    onClick={() => setMode(item.id)}
+                  >
+                    <span className="weq-exp-kind-icon" aria-hidden>
+                      {item.icon}
+                    </span>
+                    {item.short}
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
             {mode === 'full' && !editingList ? (
               <div className="weq-export-execution">

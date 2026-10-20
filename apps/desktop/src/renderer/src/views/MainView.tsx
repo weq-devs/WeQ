@@ -2267,6 +2267,8 @@ export function MainView(): ReactElement {
   const deletedSessions = trpc.account.listDeletedSessions.useQuery();
   const officialAccounts = trpc.account.listOfficialAccounts.useQuery();
   const serviceAccounts = trpc.account.listServiceAccounts.useQuery();
+  // 频道私聊聚合入口：与公众号一样只取「有没有 / 最新一条」，详情在展开面板里拉。
+  const guildDirectSessions = trpc.account.guildDirectListSessions.useQuery();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const displaySettings = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -2560,6 +2562,10 @@ export function MainView(): ReactElement {
     Record<string, { conversation: Conversation; appearedAt: number }>
   >({});
   const [qzoneSpaceRequest, setQzoneSpaceRequest] = useState<QzoneSpaceRequest | null>(null);
+  /** 空间页当前所在的空间 QQ 号（浮动工具按当前位置导出）。 */
+  const [currentQzoneUin, setCurrentQzoneUin] = useState<string | null>(null);
+  /** 频道私聊当前打开的 nodeId（浮动工具按当前位置导出）。 */
+  const [activeGuildNodeId, setActiveGuildNodeId] = useState<string | null>(null);
   const [dressUpEmojiTarget, setDressUpEmojiTarget] = useState<{
     packId: string;
     name: string;
@@ -3755,6 +3761,38 @@ export function MainView(): ReactElement {
       byId.set(merged.id, merged);
     }
 
+    // 频道私聊合并入口：本机有频道私聊记录时才出现，点开展开各会话。
+    const guildList = (guildDirectSessions.data ?? []) as Array<{
+      nodeId: string;
+      lastTime: string;
+      peerNick: string;
+      preview: unknown;
+    }>;
+    if (guildList.length > 0) {
+      const latest = guildList.reduce((a, b) => (Number(b.lastTime) > Number(a.lastTime) ? b : a));
+      const updatedAt = toIsoTime(latest.lastTime);
+      const merged: import('../im-template/template').MergedConversation = {
+        id: 'merged:guild-direct',
+        type: 'merged',
+        mergedKind: 'guildDirect',
+        title: '频道私聊',
+        avatarUrl: null,
+        otherUser: null,
+        group: null,
+        members: [],
+        updatedAt,
+        preference: fallbackPreference,
+        unreadCount: 0,
+        lastMessage: {
+          id: `merged:guild-direct:${latest.lastTime}`,
+          senderId: null,
+          body: latest.peerNick ? `${latest.peerNick}：…` : null,
+          createdAt: updatedAt,
+        },
+      };
+      byId.set('merged:guild-direct', merged);
+    }
+
     for (const [id, entry] of Object.entries(temporaryConversations)) {
       const current = byId.get(id) ?? entry.conversation;
       if (current.type === 'group' && groupAssistantIds.has(id)) {
@@ -3814,6 +3852,7 @@ export function MainView(): ReactElement {
     temporaryConversations,
     officialAccounts.data,
     serviceAccounts.data,
+    guildDirectSessions.data,
     hiddenSessions.data,
     deletedSessions.data,
     hiddenUidSet,
@@ -7764,6 +7803,8 @@ export function MainView(): ReactElement {
         name: item.name,
         uin: item.sourceUin,
         updatedAt: item.updatedAt,
+        ...(item.lastMessageTime ? { lastMessageTime: item.lastMessageTime } : {}),
+        ...(item.preview ? { preview: item.preview, previewMine: item.previewMine } : {}),
       })),
       ...(directoryGroups.data ?? []).map((item) => ({
         id: `virtual:group:${item.id}`,
@@ -7771,6 +7812,10 @@ export function MainView(): ReactElement {
         ownerId: item.id,
         name: item.name,
         updatedAt: item.updatedAt,
+        ...(item.lastMessageTime ? { lastMessageTime: item.lastMessageTime } : {}),
+        ...(item.preview ? { preview: item.preview, previewMine: item.previewMine } : {}),
+        // 九宫格头像用成员源好友的 QQ 号。
+        memberUins: item.memberUins,
       })),
     ],
     [directoryPersonas.data, directoryGroups.data],
@@ -8306,6 +8351,7 @@ export function MainView(): ReactElement {
                   selfUin={user.identityValue}
                   nickname={user.displayName}
                   spaceRequest={qzoneSpaceRequest}
+                  onSpaceChange={setCurrentQzoneUin}
                 />
                 <RetainedTabs activeKey={shell.view}>
                   {shell.view === 'messages' && arkFeedState ? (
@@ -8356,6 +8402,7 @@ export function MainView(): ReactElement {
                       renderers={messageRenderers}
                       initialDirectOpen={shell.view === 'guild-direct'}
                       searchTarget={guildSearchTarget}
+                      onActiveNodeChange={setActiveGuildNodeId}
                     />
                   ) : shell.view === 'annual' ? (
                     <AnnualReportView />
@@ -8592,6 +8639,18 @@ export function MainView(): ReactElement {
                     });
                     // 优化：选中公众号/服务号会话后，取消其它会话（普通/隐藏）的选中态。
                     shell.backConversation();
+                  } else if (mergedPanel.kind === 'guildDirect') {
+                    // 频道私聊：跳到频道页并让私聊面板定位到这一条。
+                    const nodeId = conv.id.replace(/^guild:/, '');
+                    setMergedPanel(null);
+                    setGuildSearchTarget({
+                      kind: 'guildMessage',
+                      nodeId,
+                      msgId: '',
+                      msgSeq: '',
+                      revision: crypto.randomUUID(),
+                    });
+                    shell.switchView('channel');
                   } else if (mergedPanel.kind === 'groupAssistant') {
                     handleSelectConversation(conv.id);
                   } else {
@@ -8647,6 +8706,27 @@ export function MainView(): ReactElement {
               shell.switchView('agentlab');
             }}
             currentConversation={shell.view === 'messages' ? activeConversation : null}
+            workspace={{
+              view: shell.view,
+              conversation: shell.view === 'messages' ? activeConversation : null,
+              officialFeed: shell.view === 'messages' ? arkFeedState : null,
+              contact: shell.view === 'contacts' ? (shell.selectedContact ?? null) : null,
+              groupConversation:
+                shell.view === 'contacts' ? (shell.selectedGroupConversation ?? null) : null,
+              spaceUin: shell.view === 'qzone' ? currentQzoneUin : null,
+              virtual:
+                shell.view === 'agentlab' && virtualOpen
+                  ? {
+                      kind: virtualOpen.kind,
+                      ownerId: virtualOpen.id,
+                      name:
+                        virtualRows.find(
+                          (row) => row.kind === virtualOpen.kind && row.ownerId === virtualOpen.id,
+                        )?.name ?? '',
+                    }
+                  : null,
+              guildNodeId: shell.view === 'channel' ? activeGuildNodeId : null,
+            }}
             analysisRequest={analysisRequest}
             roamingRequest={roamingRequest}
             onOpenComposition={compositionWindow.open}

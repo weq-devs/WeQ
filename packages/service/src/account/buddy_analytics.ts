@@ -148,7 +148,7 @@ export class BuddyAnalyticsService {
       string,
       { uid: string; uin: string; name: string; source: 'directory' | 'messages' }
     >();
-    const [history, buddies] = await Promise.all([
+    const [history, buddies, lastTimes] = await Promise.all([
       this.session.c2cMsgs.listPeerIdentities(),
       (async () => {
         const rows = [];
@@ -158,6 +158,8 @@ export class BuddyAnalyticsService {
           if (page.length < 500) return rows;
         }
       })(),
+      // 排序口径跟导出页一致：按会话最后一条消息时间倒序，没有记录的排最后。
+      this.session.c2cMsgs.lastSendTimes().catch(() => new Map<string, number>()),
     ]);
     for (const row of history) peers.set(row.uid, { ...row, name: '', source: 'messages' });
     for (const row of buddies) {
@@ -181,7 +183,16 @@ export class BuddyAnalyticsService {
         if (profile.uin > 0n) row.uin = String(profile.uin);
       }
     }
-    return items.map((row) => ({ ...row, name: row.name || row.uin || row.uid }));
+    return items
+      .map((row) => ({
+        ...row,
+        name: row.name || row.uin || row.uid,
+        lastMessageTime: lastTimes.get(row.uid) ?? 0,
+      }))
+      .sort(
+        (a, b) =>
+          b.lastMessageTime - a.lastMessageTime || a.name.localeCompare(b.name, 'zh-Hans-CN'),
+      );
   }
 
   async getBuddyAnalytics(
