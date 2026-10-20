@@ -178,5 +178,8 @@ it('同号切换数据源后不保留另一来源的策略草稿', () => {
 it.each([0, 1, 2, 3, 4, 99])('好友提醒级别 %s 不能冒充免打扰的权威开关状态', (level) => {
   mock.notifyLevel = level;
   const host = fixture('c2c');
-  expect(host.querySelector<HTMLSelectElement>('[aria-label="消息免打扰"]')!.value).toBe('');
+  expect(host.querySelector('select[aria-label="消息免打扰"]')).toBeNull();
+  expect(host.querySelector('[aria-label="消息免打扰"]')!.getAttribute('aria-checked')).toBe(
+    'mixed',
+  );
 });

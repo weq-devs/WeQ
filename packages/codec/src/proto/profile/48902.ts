@@ -4,14 +4,11 @@
 
 import { ProtoField, ScalarType } from '../../core';
 
-export const OnlineStatusWeatherWire = {
-  weather: ProtoField(1, ScalarType.STRING, { optional: true }),
-  locationId: ProtoField(2, ScalarType.STRING, { optional: true }),
-  zipCode: ProtoField(3, ScalarType.INT32, { optional: true }),
-  updateTime: ProtoField(4, ScalarType.UINT64, { optional: true }),
-  city: ProtoField(5, ScalarType.STRING, { optional: true }),
-  area: ProtoField(6, ScalarType.STRING, { optional: true }),
-  weatherDesc: ProtoField(9, ScalarType.STRING, { optional: true }),
+/** subType=2000 时已核对；其他扩展状态不套用此结构。 */
+export const OnlineStatusCustomWire = {
+  faceId: ProtoField(1, ScalarType.UINT32, { optional: true }),
+  text: ProtoField(2, ScalarType.STRING, { optional: true }),
+  faceType: ProtoField(3, ScalarType.UINT32, { optional: true }),
 };
 
 export const OnlineStatusDetailWire = {
@@ -20,7 +17,7 @@ export const OnlineStatusDetailWire = {
   type: ProtoField(20323, ScalarType.INT32, { optional: true }),
   subType: ProtoField(20324, ScalarType.INT32, { optional: true }),
   statusName: ProtoField(20355, ScalarType.STRING, { optional: true }),
-  weather: ProtoField(20337, () => OnlineStatusWeatherWire, { optional: true }),
+  extendedPayload: ProtoField(20337, ScalarType.BYTES, { optional: true }),
 };
 
 export const OnlineStatusInnerWire = {

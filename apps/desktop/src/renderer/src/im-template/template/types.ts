@@ -56,12 +56,7 @@ export type OnlineStatusInfo = {
   subType: number;
   subTypeName: string;
   displayStatus: string;
-  weather?: {
-    weather: string;
-    city: string;
-    area: string;
-    weatherDesc: string;
-  };
+  customStatus?: { faceId: number; text: string; faceType: number };
 };
 
 export type Contact = User & {

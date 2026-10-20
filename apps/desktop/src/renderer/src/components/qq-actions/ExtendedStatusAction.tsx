@@ -3,7 +3,7 @@ import { QQWriteSelectRow } from '../QQWriteControls';
 import { OnlineStatusIcon } from '../OnlineStatus';
 import { ActionFeedback, useQQAction } from './shared';
 
-export function ExtendedStatusAction() {
+export function ExtendedStatusAction({ onSaved }: { onSaved?: () => void } = {}) {
   const a = useQQAction('extended-status');
   const options = trpc.account.qqActions.extendedStatuses.useQuery(
     { ...a.binding! },
@@ -24,6 +24,7 @@ export function ExtendedStatusAction() {
         }
         disabled={a.disabled || options.isFetching || !options.data?.length}
         options={options.data ?? []}
+        unlistedLabel={(value) => (value === 2000 ? '自定义状态' : `未识别 (${value})`)}
         preview={(value) => {
           const selected = options.data?.find((option) => option.value === value);
           return selected ? (
@@ -33,14 +34,16 @@ export function ExtendedStatusAction() {
             </output>
           ) : null;
         }}
-        onSave={(extStatus) =>
-          a.perform(
+        onSave={async (extStatus) => {
+          const saved = await a.perform(
             (b) => client.account.qqWrite.onlineStatus.mutate({ ...b, status: 10, extStatus }),
             async () => {
               await status.refetch();
             },
-          )
-        }
+          );
+          if (saved) onSaved?.();
+          return saved;
+        }}
       />
       {options.error && <p role="alert">{options.error.message}</p>}
       <ActionFeedback action={a} />

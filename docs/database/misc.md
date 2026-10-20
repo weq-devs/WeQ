@@ -47,14 +47,11 @@ SELECT "48902" FROM online_status_kv_table WHERE "48901" = ?;
         ├── 20323  type        主状态，见下表
         ├── 20324  subType     子状态（趣味状态 id）
         ├── 20355  statusName  自定义状态文本
-        └── 20337  weather     天气子结构
-            ├── 1  weather      天气
-            ├── 2  locationId
-            ├── 3  zipCode
-            ├── 4  updateTime
-            ├── 5  city
-            ├── 6  area
-            └── 9  weatherDesc  「今日天气」状态的展示文案
+        └── 20337  extendedPayload  扩展状态负载，按 subType 解释
+            └── subType = 2000：OnlineStatusCustomWire
+                ├── 1  faceId    uint32，表情编号
+                ├── 2  text      string，自定义状态文字
+                └── 3  faceType  uint32，表情类型
 ```
 
 ## 三、type / subType 枚举
@@ -84,7 +81,12 @@ SELECT "48902" FROM online_status_kv_table WHERE "48901" = ?;
 3. `type = 10` 且 subType 有映射时，显示成 `在线 - 听歌中` 这样的组合；
 4. 行不在表里 / blob 解不出 detail，返回 `null` —— 离线好友本来就没有行。
 
-天气结构只在对方开了「今日天气」状态（subType 1030）时才有值。
+5. `type = 10`、`subType = 2000` 且自定义文字非空时，优先显示该文字。
+
+2026-10-20 只读核对本机实际缓存后发现，旧版将 `20337.1` 错定为天气字符串，
+自定义状态的数值表情编号使其抛出 `premature EOF`，连带阻断基础状态读取。
+现保留扩展负载原字节，仅在已核实的自定义状态类型下解码；其它类型（包括天气）
+没有核实结构，不套用自定义状态 schema。回归使用合成账号和文字，不保存真实样本。
 
 ---
 

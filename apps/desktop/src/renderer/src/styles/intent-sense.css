@@ -545,7 +545,9 @@ html[data-theme='dark'] .weq-intent-popover {
 
 .weq-int-radar {
   display: block;
-  max-width: 260px;
+  width: 100%;
+  max-width: 340px;
+  aspect-ratio: 340 / 280;
   margin: 0 auto;
 }
 
@@ -558,13 +560,29 @@ html[data-theme='dark'] .weq-intent-popover {
 
 .weq-int-profile-layer {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
-  padding: 32px;
+  padding: 16px;
   background: rgba(20, 20, 20, 0.18);
 }
 
 .weq-int-dialog {
-  width: min(600px, calc(100vw - 48px));
+  width: min(600px, 100%);
+  min-width: 0;
+}
+
+.weq-int-dialog .group-keyword-body,
+.weq-int-profile,
+.weq-int-profile > section {
+  min-width: 0;
+}
+
+.weq-int-profile h4 {
+  flex-wrap: wrap;
+}
+
+.weq-int-dialog header > span {
+  flex-shrink: 0;
 }
 
 .weq-int-select {

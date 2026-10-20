@@ -36,3 +36,16 @@ html[data-theme="dark"] .weq-qq-write-input { color: var(--weq-fg-primary); back
   .weq-qq-write-panel .weq-set-row-ctrl { max-width: 100%; }
   .weq-qq-write-field { width: 220px; }
 }
+.weq-qq-write-field .weq-set-toggle.is-unknown .weq-set-toggle-knob {
+  transform: translateX(8px);
+  background: var(--weq-fg-muted);
+}
+
+.weq-qq-write-field .weq-set-toggle.is-unknown .weq-set-toggle-track {
+  border: 1px dashed var(--weq-border-strong);
+  background: var(--weq-bg-surface);
+}
+
+html[data-theme="dark"] .weq-qq-write-field .weq-set-toggle.is-unknown .weq-set-toggle-track {
+  background: var(--weq-bg-surface);
+}

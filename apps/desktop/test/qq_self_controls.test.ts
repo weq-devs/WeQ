@@ -17,6 +17,11 @@ const state = vi.hoisted(() => ({
   profilePresent: true,
   nick: '原昵称',
   statusError: null as string | null,
+  status: {
+    type: 10,
+    subType: 0,
+    customStatus: undefined as { faceId: number; text: string; faceType: number } | undefined,
+  },
   queryOptions: { refetchInterval: false as number | false },
   invalidate: vi.fn(async () => undefined),
   mutate: vi.fn(async (_input: unknown) => ({ state: 'accepted' as const })),
@@ -73,7 +78,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                       gender: 2,
                     }
                   : null,
-                status: { type: 10, subType: 0 },
+                status: state.status,
                 statusError: state.statusError,
                 statusOptions: [{ value: 10, label: '在线' }],
               },
@@ -137,6 +142,7 @@ beforeEach(() => {
   state.profilePresent = true;
   state.nick = '原昵称';
   state.statusError = null;
+  state.status = { type: 10, subType: 0, customStatus: undefined };
   state.invalidate.mockClear();
   state.mutate.mockClear();
   state.pick.mockReset().mockResolvedValue(null);
@@ -148,6 +154,47 @@ afterEach(() => {
 });
 
 describe('个人资料编辑入口', () => {
+  it('自定义状态回读基础状态、文字与表情，迟到读取不覆盖文字草稿', () => {
+    state.status = {
+      type: 10,
+      subType: 2000,
+      customStatus: { faceId: 0, text: '测试状态', faceType: 1 },
+    };
+    const f = fixture();
+    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="在线状态"]')!.value).toBe('10');
+    expect(
+      f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!.selectedOptions[0]
+        .textContent,
+    ).toBe('自定义状态');
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="自定义状态文字"]')!.value).toBe(
+      '测试状态',
+    );
+    expect(f.host.querySelector('[aria-label="状态表情"]')!.getAttribute('title')).toBe('[微笑]');
+    input(f.host, '自定义状态文字', '未保存草稿');
+    state.status = {
+      ...state.status,
+      customStatus: { faceId: 14, text: '远端新状态', faceType: 1 },
+    };
+    f.render();
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="自定义状态文字"]')!.value).toBe(
+      '未保存草稿',
+    );
+    expect(f.host.querySelector('[aria-label="状态表情"]')!.getAttribute('title')).toBe('[呲牙]');
+  });
+  it('同号更换来源会清除另一来源的自定义状态草稿', () => {
+    const f = fixture();
+    input(f.host, '自定义状态文字', '来源一草稿');
+    state.configId = 'source-b';
+    state.status = {
+      type: 10,
+      subType: 2000,
+      customStatus: { faceId: 14, text: '来源二状态', faceType: 1 },
+    };
+    f.render();
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="自定义状态文字"]')!.value).toBe(
+      '来源二状态',
+    );
+  });
   it('状态读回失败仍显示并允许编辑资料，同时给出状态错误', () => {
     state.statusError = 'premature EOF';
     const f = fixture();

@@ -56,6 +56,7 @@ export function SelfQQControls() {
   const faceTrigger = useRef<HTMLButtonElement>(null);
   const facePanel = useRef<HTMLDivElement>(null);
   const currentIdentity = useRef(identityKey);
+  const previousCustom = useRef({ wording: '', faceId: '' });
   currentIdentity.current = identityKey;
   useEffect(() => {
     setWording('');
@@ -64,7 +65,24 @@ export function SelfQQControls() {
     setError('');
     setFeedbackField('QQ 状态');
     setSyncIdentity(null);
+    previousCustom.current = { wording: '', faceId: '' };
   }, [identityKey]);
+  const currentStatus = profile.data?.status;
+  const custom =
+    currentStatus?.type === 10 && currentStatus.subType === 2000
+      ? currentStatus.customStatus
+      : undefined;
+  useEffect(() => {
+    if (!currentStatus || profile.data?.statusError) return;
+    const next = {
+      wording: custom?.text ?? '',
+      faceId: custom?.faceType === 1 ? String(custom.faceId) : '',
+    };
+    const before = previousCustom.current;
+    setWording((value) => (value === before.wording ? next.wording : value));
+    setFaceId((value) => (value === before.faceId ? next.faceId : value));
+    previousCustom.current = next;
+  }, [identityKey, currentStatus, custom, profile.data?.statusError]);
   useEffect(() => {
     if (!syncing) return;
     const timer = setTimeout(() => setSyncIdentity(null), 15_000);
@@ -238,14 +256,20 @@ export function SelfQQControls() {
           {!profileFeedback && <QQWriteResult result={result} />}
           <QQWriteSelectRow
             label="在线状态"
-            initial={profile.data?.status?.subType ? null : (profile.data?.status?.type ?? null)}
+            initial={profile.data?.status?.type ?? null}
             options={profile.data?.statusOptions ?? []}
             disabled={disabled}
             onSave={(value) =>
               act((binding) => online.mutateAsync({ ...binding, status: value, extStatus: 0 }))
             }
           />
-          <ExtendedStatusAction />
+          <ExtendedStatusAction
+            onSaved={() => {
+              if (currentIdentity.current !== identityKey) return;
+              setSyncIdentity(identityKey);
+              setSyncRevision((value) => value + 1);
+            }}
+          />
           <Row
             label="自定义状态"
             control={

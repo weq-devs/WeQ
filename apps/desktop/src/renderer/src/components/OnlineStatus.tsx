@@ -2,6 +2,7 @@ import type React from 'react';
 import { trpc } from '../trpc/client';
 import { Circle, Smile, Clock, Minus, Ban, MinusCircle } from 'lucide-react';
 import { resourceUrl } from '../lib/resourceUrl';
+import { FaceEmoji } from './FaceEmoji';
 
 const SUB_ICONS: Record<number, string> = {
   1028: 'music@2x.png',
@@ -84,7 +85,11 @@ export function OnlineStatus({
         color: 'var(--weq-fg-secondary)',
       }}
     >
-      <OnlineStatusIcon type={status.type} subType={status.subType} />
+      {status.type === 10 && status.subType === 2000 && status.customStatus?.faceType === 1 ? (
+        <FaceEmoji element={{ faceId: status.customStatus.faceId }} size={16} />
+      ) : (
+        <OnlineStatusIcon type={status.type} subType={status.subType} />
+      )}
       <span>{status.displayStatus}</span>
     </span>
   );
