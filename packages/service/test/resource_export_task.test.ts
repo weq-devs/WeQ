@@ -16,6 +16,29 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('独立资源沿用导出任务生命周期', () => {
+  it('完成结果另存保留本次自动避让标记，不覆盖文件且不改任务原来的稍后保存策略', async () => {
+    const f = fixture();
+    const id = await f.manager.startResourceExport({
+      name: '合成报告',
+      kind: 'assistant-artifact',
+      output: { kind: 'file', name: '合成报告', extension: 'txt' },
+      savePolicy: { mode: 'after' },
+      run: async ({ directory }) => {
+        writeFileSync(join(directory, 'report.txt'), 'synthetic-report');
+        return { total: 1, ok: 1, failed: [], fileName: 'report.txt' };
+      },
+    });
+    await vi.waitFor(() => expect(f.manager.getTask(id)?.status).toBe('completed'));
+    const chosen = join(f.root, 'same.txt');
+    writeFileSync(chosen, 'personal');
+    const first = await f.manager.saveTaskOutput(id, undefined, chosen, true);
+    const second = await f.manager.saveTaskOutput(id, undefined, chosen, true);
+    expect(first).not.toBe(second);
+    expect(readFileSync(chosen, 'utf8')).toBe('personal');
+    expect(readFileSync(first, 'utf8')).toBe('synthetic-report');
+    expect(readFileSync(second, 'utf8')).toBe('synthetic-report');
+    expect(f.manager.getTask(id)?.save?.policy).toEqual({ mode: 'after' });
+  });
   it('单资源文件按真实扩展名保存并保留缓存，删除任务清理自己的整份缓存', async () => {
     const f = fixture(),
       target = join(f.root, 'chosen.db');

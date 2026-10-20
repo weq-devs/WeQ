@@ -12,12 +12,12 @@
  */
 
 import { z } from 'zod';
-import { SEARCH_CATEGORIES } from '@weq/service';
+import { SEARCH_CATEGORIES, saveExportOutput, exportOutputFileName } from '@weq/service';
 import {
   exportDownloadName,
   exportAccountBindingInput,
   exportSavePolicyInput,
-  pickExportOutputDestination,
+  saveCompletedExportTask,
 } from './export_save';
 import { mergeRoamingTimeline } from '../../../shared/roaming_timeline';
 import {
@@ -2118,28 +2118,99 @@ export const accountRouter = router({
    * markdown / text → 交给系统默认程序打开。id 的路径安全由 service.artifactInfo 校验。
    */
   openAssistantArtifact: procedure
-    .input(z.object({ id: z.string().min(1) }))
+    .input(exportAccountBindingInput.extend({ id: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      const { path, kind } = requireServices().assistant.artifactInfo(input.id);
+      const { path, kind } = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).assistant.artifactInfo(input.id);
       const host = getHost();
       const opened = kind === 'html' ? await host.openHtmlReport(path) : null;
       if (kind !== 'html') await host.revealPath(path);
       return { ok: true as const, openUrl: opened?.url ?? null };
     }),
 
-  /** 把助手写的报告文件另存到用户选定位置（复用 saveExportFile 范式）。 */
-  saveAssistantArtifact: procedure
-    .input(z.object({ id: z.string().min(1), name: z.string().min(1) }))
+  startAssistantArtifactSave: procedure
+    .input(
+      generatedAccountInput.extend({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        savePolicy: exportSavePolicyInput.optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
-      const { path } = requireServices().assistant.artifactInfo(input.id);
-      const { copyFileSync } = await import('node:fs');
-      const ext = extname(input.name).replace(/^\./, '') || 'html';
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const source = services.assistant.artifactInfo(input.id);
+      const extension = extname(source.path).slice(1);
+      const name = input.name.replace(/\.[^.]+$/, '') || '助手报告';
+      const output = { kind: 'file' as const, name, extension };
+      const fileName = exportOutputFileName(output);
+      return services.exportManager.startResourceExport({
+        kind: 'assistant-artifact',
+        name,
+        output,
+        savePolicy: input.savePolicy,
+        run: async (context) => {
+          if (
+            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+            services
+          )
+            throw new Error('账号或数据源已切换，请重新选择报告。');
+          context.signal.throwIfAborted();
+          const current = services.assistant.artifactInfo(input.id);
+          if (current.path !== source.path) throw new Error('报告来源已改变，请重新选择。');
+          await saveExportOutput(
+            { name, filePath: source.path },
+            { filePath: join(context.directory, fileName) },
+            context.signal,
+          );
+          return { total: 1, ok: 1, failed: [], fileName };
+        },
+      });
+    }),
+
+  assistantArtifactDownload: procedure
+    .input(generatedAccountInput.extend({ id: z.string().min(1), name: z.string().min(1) }))
+    .mutation(({ input }) => {
+      const source = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).assistant.artifactInfo(input.id);
+      const name = exportOutputFileName({
+        kind: 'file',
+        name: input.name.replace(/\.[^.]+$/, ''),
+        extension: extname(source.path).slice(1) || 'html',
+      });
+      return getHost().registerDownload?.(source.path, name, 'file') ?? null;
+    }),
+
+  /** 兼容旧报告卡片的显式另存，验证来源并无覆盖发布。 */
+  saveAssistantArtifact: procedure
+    .input(exportAccountBindingInput.extend({ id: z.string().min(1), name: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const { path } = services.assistant.artifactInfo(input.id);
+      const ext = extname(path).slice(1) || 'html';
       const target = await getHost().pickSaveTarget({
-        defaultName: input.name,
+        defaultName: exportOutputFileName({
+          kind: 'file',
+          name: input.name.replace(/\.[^.]+$/, ''),
+          extension: ext,
+        }),
         extension: ext,
       });
       if (!target) return false;
-      copyFileSync(path, target.path);
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号数据源已切换，已取消保存。');
+      await saveExportOutput({ name: input.name, filePath: path }, { filePath: target.path });
       return true;
     }),
 
@@ -5846,6 +5917,7 @@ export const accountRouter = router({
         taskId: z.string().min(1),
         directory: z.string().min(1).optional(),
         filePath: z.string().min(1).optional(),
+        uniqueFileName: z.boolean().optional(),
         expectedAccountUin: z.string().min(1).optional(),
         expectedAccountConfigId: z.string().min(1).optional(),
       }),
@@ -5855,19 +5927,51 @@ export const accountRouter = router({
         input.expectedAccountUin,
         input.expectedAccountConfigId,
       );
-      const task = services.exportManager.getTask(input.taskId);
-      if (task?.status !== 'completed') throw new Error('只能保存已完成的导出任务。');
-      if (input.directory && input.filePath) throw new Error('保存位置只能选择文件或目录之一。');
-      const policy =
-        input.directory || input.filePath
-          ? { directory: input.directory, filePath: input.filePath }
-          : await pickExportOutputDestination(task, getHost());
-      if (!policy) return null;
-      if (
-        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
-      )
-        throw new Error('账号数据源已切换，已取消保存。');
-      return services.exportManager.saveTaskOutput(input.taskId, policy.directory, policy.filePath);
+      return saveCompletedExportTask(
+        services.exportManager,
+        input.taskId,
+        getHost,
+        {
+          directory: input.directory,
+          filePath: input.filePath,
+          uniqueFileName: input.uniqueFileName,
+        },
+        () => {
+          if (
+            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+            services
+          )
+            throw new Error('账号数据源已切换，已取消保存。');
+        },
+      );
+    }),
+
+  getExportOutputReceipt: procedure
+    .input(generatedAccountInput.extend({ taskId: z.string().min(1) }))
+    .query(({ input }) => {
+      const task = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).exportManager.getTask(input.taskId);
+      if (!task) return null;
+      return {
+        id: task.id,
+        name: task.name,
+        status: task.status,
+        error: task.error,
+        save: task.save,
+        output: task.bundleDir
+          ? { kind: 'directory' as const }
+          : task.filePath
+            ? {
+                kind: 'file' as const,
+                name: task.name,
+                extension:
+                  task.resource?.output?.extension ??
+                  (extname(task.filePath).slice(1) || task.format),
+              }
+            : null,
+      };
     }),
 
   openSavedExportOutput: procedure
@@ -5893,9 +5997,12 @@ export const accountRouter = router({
     }),
 
   exportTaskDownload: procedure
-    .input(z.object({ taskId: z.string().min(1) }))
+    .input(exportAccountBindingInput.extend({ taskId: z.string().min(1) }))
     .mutation(({ input }) => {
-      const task = requireServices().exportManager.getTask(input.taskId);
+      const task = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).exportManager.getTask(input.taskId);
       if (task?.status !== 'completed') throw new Error('导出结果尚未完成。');
       const path = task.bundleDir || task.filePath;
       if (!path) throw new Error('导出结果不存在。');
@@ -6116,52 +6223,72 @@ export const accountRouter = router({
       return requireScheduler().runNow(input.id);
     }),
 
-  /** Save exported file to user-selected location. */
+  /** 兼容旧单文件另存，只接受已知任务的完整单文件结果。 */
   saveExportFile: procedure
     .input(
-      z.object({
+      exportAccountBindingInput.extend({
         sourcePath: z.string().min(1),
         defaultName: z.string().min(1),
         format: z.enum(['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html']),
       }),
     )
     .mutation(async ({ input }) => {
-      // 不再使用默认导出目录记忆：每次都弹系统保存框，避免后续保存无法选择路径。
-      const { copyFileSync, existsSync } = await import('node:fs');
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const task = services.exportManager
+        .listTasks()
+        .find((task) => task.filePath === input.sourcePath);
+      if (!task || task.bundleDir) throw new Error('单文件导出结果不存在或需要保存完整资源包。');
+      const extension =
+        task.resource?.output?.extension || extname(input.sourcePath).slice(1) || task.format;
       const target = await getHost().pickSaveTarget({
-        defaultName: input.defaultName,
-        extension: input.format,
+        defaultName: exportOutputFileName({
+          kind: 'file',
+          name: input.defaultName.replace(/\.[^.]+$/, ''),
+          extension,
+        }),
+        extension,
       });
       if (!target) return false;
-      assertDestinationCapacity(target.path, input.sourcePath);
-      copyFileSync(input.sourcePath, target.path);
-      const task = requireServices()
-        .exportManager.listTasks()
-        .find((t) => t.filePath === input.sourcePath);
-      if (task?.reportPath && existsSync(task.reportPath))
-        copyFileSync(task.reportPath, `${target.path}.report.json`);
+      await saveCompletedExportTask(
+        services.exportManager,
+        task.id,
+        getHost,
+        { filePath: target.path },
+        () => {
+          if (
+            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+            services
+          )
+            throw new Error('账号数据源已切换，已取消保存。');
+        },
+      );
       return true;
     }),
 
   /**
-   * Save an avatar-bundle task (message file + avatars/) to a user-picked
-   * folder. Copies the whole cache bundle into `<chosen>/<name>/`. Returns false
-   * if the task has no bundle or the user cancels.
+   * 兼容旧整包另存：复用任务保存，不合并已有目录；取消或没有资源包时返回 false。
    */
   saveExportBundle: procedure
-    .input(z.object({ taskId: z.string().min(1) }))
+    .input(exportAccountBindingInput.extend({ taskId: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      const task = requireServices().exportManager.getTask(input.taskId);
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const task = services.exportManager.getTask(input.taskId);
       if (!task?.bundleDir) return false;
-      const { existsSync, cpSync } = await import('node:fs');
-      if (!existsSync(task.bundleDir)) return false;
-      // 每次都弹目录选择（不再记忆默认导出目录）。
-      const picked = await getHost().pickDirectory({ title: '选择导出保存文件夹' });
-      if (!picked) return false;
-      const dest = join(picked, sanitizePathSegment(task.name, task.id));
-      assertDestinationCapacity(dest, task.bundleDir);
-      cpSync(task.bundleDir, dest, { recursive: true });
-      return true;
+      return Boolean(
+        await saveCompletedExportTask(services.exportManager, task.id, getHost, {}, () => {
+          if (
+            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+            services
+          )
+            throw new Error('账号数据源已切换，已取消保存。');
+        }),
+      );
     }),
 
   /**
@@ -6169,9 +6296,12 @@ export const accountRouter = router({
    * bundle 目录→文件管理器。taskId 即 AssistantArtifact.id。
    */
   openAssistantExport: procedure
-    .input(z.object({ taskId: z.string().min(1) }))
+    .input(exportAccountBindingInput.extend({ taskId: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      const task = requireServices().exportManager.getTask(input.taskId);
+      const task = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).exportManager.getTask(input.taskId);
       const path = task?.bundleDir || task?.filePath;
       if (!path) throw new Error('导出结果不存在（可能已被清理）。');
       await getHost().revealPath(path);
@@ -6179,40 +6309,24 @@ export const accountRouter = router({
     }),
 
   /**
-   * 另存助手导出结果（卡片「另存为」）。bundle 目录→选文件夹整目录拷贝；
-   * 单文件→保存对话框复制。镜像 saveExportBundle / saveExportFile。
+   * 兼容旧助手导出卡片的显式另存，文件／目录选择与保存回执共用统一管线。
    */
   saveAssistantExport: procedure
-    .input(z.object({ taskId: z.string().min(1) }))
+    .input(exportAccountBindingInput.extend({ taskId: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      const task = requireServices().exportManager.getTask(input.taskId);
-      if (!task) throw new Error('导出结果不存在（可能已被清理）。');
-      const host = getHost();
-      if (task.bundleDir) {
-        const { existsSync, cpSync } = await import('node:fs');
-        if (!existsSync(task.bundleDir)) return false;
-        const picked = await host.pickDirectory({ title: '选择导出保存文件夹' });
-        if (!picked) return false;
-        const dest = join(picked, sanitizePathSegment(task.name, task.id));
-        assertDestinationCapacity(dest, task.bundleDir);
-        cpSync(task.bundleDir, dest, { recursive: true });
-        return true;
-      }
-      if (!task.filePath) return false;
-      const { copyFileSync } = await import('node:fs');
-      const target = await host.pickSaveTarget({
-        defaultName: `${task.name}.${task.format}`,
-        extension: task.format,
-      });
-      if (!target) return false;
-      assertDestinationCapacity(target.path, task.filePath);
-      copyFileSync(task.filePath, target.path);
-      if (task.reportPath) {
-        const { existsSync } = await import('node:fs');
-        if (existsSync(task.reportPath))
-          copyFileSync(task.reportPath, `${target.path}.report.json`);
-      }
-      return true;
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      return Boolean(
+        await saveCompletedExportTask(services.exportManager, input.taskId, getHost, {}, () => {
+          if (
+            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+            services
+          )
+            throw new Error('账号数据源已切换，已取消保存。');
+        }),
+      );
     }),
 
   // ---- voice transcription (语音转文字) ----

@@ -14,10 +14,15 @@ import type { UiTask } from '../src/renderer/src/views/export/TaskList';
 
 const fixture = vi.hoisted(() => ({
   realPicker: false,
+  web: false,
   current: true,
   configId: 'fixture-config',
   tasks: [] as ExportTask[],
   saveOutput: vi.fn(async (_input: unknown): Promise<string | null> => '/saved/result.json'),
+  serverPrepare: vi.fn(async (_input: unknown) => ({
+    mode: 'before' as const,
+    directory: '/server/chosen',
+  })),
   dialogError: vi.fn(),
   dialogInfo: vi.fn(),
   prepare: vi.fn(
@@ -76,10 +81,20 @@ const fixture = vi.hoisted(() => ({
     },
   ],
 }));
+vi.mock('../src/renderer/src/lib/target', () => ({
+  get IS_WEB() {
+    return fixture.web;
+  },
+}));
 const emptyQuery = { data: [], isLoading: false, isError: false, refetch: vi.fn() };
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
-    useUtils: () => ({ account: { listExportTasks: { invalidate: vi.fn() } } }),
+    useUtils: () => ({
+      account: {
+        listExportTasks: { invalidate: vi.fn() },
+        getExportOutputReceipt: { invalidate: vi.fn() },
+      },
+    }),
     account: {
       getAccountConfig: {
         useQuery: () => ({ data: { uin: '10002', configId: fixture.configId }, isFetching: false }),
@@ -128,7 +143,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
   client: {
-    bootstrap: { getExportPresets: { query: async () => ({}) } },
+    bootstrap: {
+      getExportPresets: { query: async () => ({}) },
+      prepareExportSave: { mutate: fixture.serverPrepare },
+    },
     account: {
       onExportProgress: { subscribe: () => ({ unsubscribe: vi.fn() }) },
       startContactsExport: { mutate: fixture.startContacts },
@@ -296,6 +314,8 @@ function mount(props: Parameters<typeof ExportTool>[0] = {}) {
 afterEach(() => {
   vi.unstubAllGlobals();
   fixture.realPicker = false;
+  fixture.web = false;
+  fixture.serverPrepare.mockClear();
   fixture.current = true;
   fixture.configId = 'fixture-config';
   fixture.tasks = [];
@@ -427,6 +447,55 @@ function captureLayout(host: HTMLElement, name: string) {
 }
 
 describe('统一导出实际界面', () => {
+  it('Web 完成结果保存固定来源准备服务器目录，换同号来源时关闭旧位置弹窗', async () => {
+    fixture.web = true;
+    fixture.tasks = [
+      {
+        id: 'web-save',
+        kind: 'c2c',
+        conv: 'u_fixture',
+        name: '合成结果',
+        format: 'json',
+        status: 'completed',
+        progress: 100,
+        current: 1,
+        total: 1,
+        createdAt: 0,
+        updatedAt: 0,
+        filePath: '/cache/result.json',
+      },
+    ];
+    const f = mount({ surface: 'tasks' });
+    try {
+      act(() => click(f.host, '保存合成任务'));
+      expect(f.host.querySelector('.weq-save-result-location')).not.toBeNull();
+      await act(async () =>
+        f.host
+          .querySelector<HTMLFormElement>('.weq-save-result-location')!
+          .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+      );
+      expect(fixture.serverPrepare).toHaveBeenCalledWith({
+        mode: 'before',
+        directory: undefined,
+        expectedAccountUin: '10002',
+        expectedAccountConfigId: 'fixture-config',
+      });
+      expect(fixture.saveOutput).toHaveBeenCalledWith({
+        taskId: 'web-save',
+        directory: '/server/chosen',
+        expectedAccountUin: '10002',
+        expectedAccountConfigId: 'fixture-config',
+      });
+      act(() => click(f.host, '保存合成任务'));
+      fixture.configId = 'other-source';
+      await act(async () => f.setActive(true));
+      expect(f.host.querySelector('.weq-save-result-location')).toBeNull();
+      expect(fixture.serverPrepare).toHaveBeenCalledOnce();
+      expect(fixture.saveOutput).toHaveBeenCalledOnce();
+    } finally {
+      f.close();
+    }
+  });
   it('频道保存准备期间同号切换配置，不创建新数据源的任务', async () => {
     let finish!: (policy: ExportSavePolicy) => void;
     fixture.prepare.mockReturnValueOnce(

@@ -806,6 +806,7 @@ export {
   copyExportSavePolicy,
   resolveExportSaveDirectory,
   resolveExportSaveFile,
+  saveExportOutput,
 } from './account/export/save_output';
 export type {
   ExportSaveMode,

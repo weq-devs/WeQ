@@ -335,6 +335,11 @@ export function ExportTool({
     isCurrent,
   } = useExportSavePolicy();
   const saveIntent = useRef<import('@weq/service').ExportSavePolicy | undefined>(undefined);
+  useEffect(() => {
+    saveLocationPending.current?.(null);
+    saveLocationPending.current = null;
+    setSaveLocationTask(null);
+  }, [saveBinding?.expectedAccountUin, saveBinding?.expectedAccountConfigId]);
 
   const tasks = trpc.account.listExportTasks.useQuery();
   const schedules = trpc.account.listSchedules.useQuery();
@@ -754,6 +759,8 @@ export function ExportTool({
     }
     try {
       const deleted = await client.account.deleteExportTask.mutate({ taskId: t.id });
+      if (deleted && saveBinding)
+        void utils.account.getExportOutputReceipt.invalidate({ ...saveBinding, taskId: t.id });
       if (!deleted) dialog.info('暂时无法删除', '任务仍在执行或保存，请等待当前步骤收尾。');
       refetchTasks();
     } catch (error) {
@@ -765,13 +772,16 @@ export function ExportTool({
   async function saveTask(
     t: UiTask,
   ): Promise<{ status: 'saved'; path: string } | { status: 'cancelled' | 'failed' }> {
+    const account = exportAccount.data;
+    const binding =
+      account?.uin && account.configId
+        ? {
+            expectedAccountUin: account.uin,
+            expectedAccountConfigId: account.configId,
+          }
+        : null;
     try {
-      const account = exportAccount.data;
-      if (!account?.uin || !account.configId) throw new Error('账号资料尚未就绪，请稍后重试。');
-      const binding = {
-        expectedAccountUin: account.uin,
-        expectedAccountConfigId: account.configId,
-      };
+      if (!binding) throw new Error('账号资料尚未就绪，请稍后重试。');
       let selected: string | null | undefined;
       let directory: string | undefined;
       if (IS_WEB) {
@@ -782,10 +792,11 @@ export function ExportTool({
         });
         if (selected === null || !mounted.current) return { status: 'cancelled' };
         const policy = await client.bootstrap.prepareExportSave.mutate({
+          ...binding,
           mode: 'before',
           directory: selected || undefined,
         });
-        if (!policy?.directory || !mounted.current) return { status: 'cancelled' };
+        if (!policy?.directory || !mounted.current || !isCurrent()) return { status: 'cancelled' };
         directory = policy.directory;
       }
       const path = await client.account.saveExportTaskOutput.mutate({
@@ -793,12 +804,16 @@ export function ExportTool({
         taskId: t.id,
         ...(directory ? { directory } : {}),
       });
-      if (path === null || !mounted.current) return { status: 'cancelled' };
+      if (path === null || !mounted.current || !isCurrent()) return { status: 'cancelled' };
       refetchTasks();
       return { status: 'saved', path };
     } catch (e) {
+      if (!isCurrent()) return { status: 'cancelled' };
       dialog.error('保存失败', e instanceof Error ? e.message : String(e));
       return { status: 'failed' };
+    } finally {
+      if (binding)
+        void utils.account.getExportOutputReceipt.invalidate({ ...binding, taskId: t.id });
     }
   }
 
@@ -810,8 +825,12 @@ export function ExportTool({
 
   async function downloadInBrowser(t: UiTask): Promise<void> {
     try {
-      const download = await client.account.exportTaskDownload.mutate({ taskId: t.id });
-      if (!download || !mounted.current) return;
+      if (!saveBinding) throw new Error('账号资料尚未就绪，请稍后重试。');
+      const download = await client.account.exportTaskDownload.mutate({
+        ...saveBinding,
+        taskId: t.id,
+      });
+      if (!download || !mounted.current || !isCurrent()) return;
       const anchor = document.createElement('a');
       anchor.href = download.url;
       anchor.download = '';
@@ -819,7 +838,8 @@ export function ExportTool({
       anchor.click();
       anchor.remove();
     } catch (error) {
-      dialog.error('下载失败', error instanceof Error ? error.message : String(error));
+      if (isCurrent())
+        dialog.error('下载失败', error instanceof Error ? error.message : String(error));
     }
   }
 

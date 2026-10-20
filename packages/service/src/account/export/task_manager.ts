@@ -320,7 +320,7 @@ export interface MediaExportOptions {
 export interface ExportTask {
   /** 独立资源任务；下载运行器仅存在于当前进程，重启后保留结果但不冒称可续传。 */
   resource?: {
-    kind: 'group-albums' | 'group-files' | 'database';
+    kind: 'group-albums' | 'group-files' | 'database' | 'assistant-artifact';
     failed?: number;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
     cacheDirectory?: string;
@@ -690,13 +690,19 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   /** 保存结果是独立状态；失败不抹掉已经完成的导出，也不清理唯一缓存结果。 */
-  async saveTaskOutput(taskId: string, directory?: string, filePath?: string): Promise<string> {
+  async saveTaskOutput(
+    taskId: string,
+    directory?: string,
+    filePath?: string,
+    uniqueFileName = false,
+  ): Promise<string> {
     const active = this.outputSaves.get(taskId);
     if (active) return active;
     const task = this.tasks.get(taskId);
     if (task?.status !== 'completed')
       return Promise.reject(new Error('只能保存已完成的导出任务。'));
     if (directory && filePath) throw new Error('保存位置只能选择文件或目录之一。');
+    if (uniqueFileName && !filePath) throw new Error('自动文件命名仅支持单文件位置。');
     let selectedFile =
       filePath ?? (directory === undefined ? task.save?.policy.filePath : undefined);
     if (!selectedFile && directory && !task.bundleDir && task.filePath) {
@@ -716,8 +722,9 @@ export class ExportTaskManager extends EventEmitter {
     if (!selected) return Promise.reject(new Error('请先选择保存位置。'));
     const unique = Boolean(
       selectedFile &&
-        filePath === undefined &&
-        (directory !== undefined || task.save?.policy.uniqueFileName),
+        (filePath === undefined
+          ? directory !== undefined || task.save?.policy.uniqueFileName
+          : uniqueFileName),
     );
     const target = this.deps.resolveSaveDirectory
       ? unique
@@ -726,7 +733,9 @@ export class ExportTaskManager extends EventEmitter {
       : selected;
     const policy = copyExportSavePolicy({
       mode: 'before',
-      ...(selectedFile ? { filePath: target } : { directory: target }),
+      ...(selectedFile
+        ? { filePath: target, ...(unique ? { uniqueFileName: true } : {}) }
+        : { directory: target }),
     });
     const previousPath = task.save?.path;
     task.save = {
@@ -1252,7 +1261,12 @@ export class ExportTaskManager extends EventEmitter {
       stages: [
         {
           key: 'file',
-          label: opts.kind === 'database' ? '解密数据库' : '下载资源',
+          label:
+            opts.kind === 'database'
+              ? '解密数据库'
+              : opts.kind === 'assistant-artifact'
+                ? '保存报告'
+                : '下载资源',
           status: 'pending',
           current: 0,
           total: 0,

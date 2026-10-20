@@ -4,6 +4,7 @@ import {
   type ExportTask,
   type HostBridge,
   type ExportSavePolicy,
+  type ExportTaskManager,
   EXPORT_EXTENSION_PATTERN,
   type ExportOutputShape,
   exportOutputFileName,
@@ -165,4 +166,26 @@ export async function pickExportOutputDestination(
     extension: task.resource?.output?.extension ?? (task.format === 'vcard' ? 'vcf' : task.format),
   });
   return selected ? { mode: 'before', filePath: selected.path } : null;
+}
+
+/** 完成任务的所有另存入口共用，旧卡片接口不再自行覆盖复制。 */
+export async function saveCompletedExportTask(
+  manager: Pick<ExportTaskManager, 'getTask' | 'saveTaskOutput'>,
+  taskId: string,
+  host: () => Pick<HostBridge, 'exportRoot' | 'pickDirectory' | 'pickSaveTarget'>,
+  selected: Pick<ExportSavePolicy, 'directory' | 'filePath' | 'uniqueFileName'> = {},
+  check: () => void = () => {},
+): Promise<string | null> {
+  check();
+  const task = manager.getTask(taskId);
+  if (task?.status !== 'completed') throw new Error('只能保存已完成的导出任务。');
+  const explicit = selected.directory || selected.filePath;
+  if (selected.uniqueFileName && !selected.filePath)
+    throw new Error('自动文件命名仅支持单文件位置。');
+  const policy = explicit
+    ? copyExportSavePolicy({ mode: 'before', ...selected })
+    : await pickExportOutputDestination(task, host());
+  if (!policy) return null;
+  check();
+  return manager.saveTaskOutput(taskId, policy.directory, policy.filePath, policy.uniqueFileName);
 }
