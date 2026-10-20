@@ -6,7 +6,7 @@
  * staleTime；后端侧还有同消息 90s 的请求级缓存，由 getSuggestions 自己把关）。
  */
 
-import { useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { Lightbulb, RefreshCw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useIntentSenseStatus } from './context';
@@ -45,35 +45,29 @@ export function IntentSuggestionBar({
 
   const list = (suggestions.data ?? []) as SuggestionWire[];
   const loading = suggestions.isFetching || busy;
-  if (list.length === 0 && !loading) return null;
+  const visible = list.length > 0 || loading;
+  const trackRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!visible || !track) return;
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.defaultPrevented || track.scrollWidth <= track.clientWidth) return;
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (!delta) return;
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? track.clientWidth : 1;
+      // 直接消费每帧位移，避免平滑滚动反复重启；整条候选只保留一个滚动面。
+      track.scrollLeft += delta * unit;
+      event.preventDefault();
+    };
+    track.addEventListener('wheel', onWheel, { passive: false });
+    return () => track.removeEventListener('wheel', onWheel);
+  }, [visible, kind, conv]);
+  if (!visible) return null;
 
   return (
     <div className="weq-int-suggest">
       <Lightbulb size={12} className="weq-int-suggest-icon" aria-hidden />
-      <div
-        className="weq-int-suggest-track"
-        onWheel={(e) => {
-          if (e.deltaY === 0) return;
-          const target = (e.target as HTMLElement | null)?.closest(
-            '.weq-int-suggest-text',
-          ) as HTMLElement | null;
-          if (target && target.scrollWidth > target.clientWidth) {
-            const canScrollRight =
-              e.deltaY > 0 && target.scrollLeft + target.clientWidth < target.scrollWidth - 1;
-            const canScrollLeft = e.deltaY < 0 && target.scrollLeft > 0;
-            if (canScrollRight || canScrollLeft) {
-              target.scrollLeft += e.deltaY;
-              e.preventDefault();
-              return;
-            }
-          }
-          const track = e.currentTarget;
-          if (track.scrollWidth > track.clientWidth) {
-            track.scrollLeft += e.deltaY;
-            e.preventDefault();
-          }
-        }}
-      >
+      <div key={`${kind}:${conv}`} ref={trackRef} className="weq-int-suggest-track">
         {loading && list.length === 0
           ? ['skeleton-0', 'skeleton-1', 'skeleton-2'].map((key) => (
               <span key={key} className="weq-int-suggest-pill is-skeleton" style={{ minWidth: 88 }}>
@@ -87,23 +81,6 @@ export function IntentSuggestionBar({
                 className="weq-int-suggest-pill"
                 title={`${s.tone ? `[${s.tone}] ` : ''}${s.text}\n点击填入输入框`}
                 onClick={() => onInsert(s.text)}
-                onMouseEnter={(e) => {
-                  const textEl = e.currentTarget.querySelector(
-                    '.weq-int-suggest-text',
-                  ) as HTMLElement | null;
-                  if (!textEl) return;
-                  const overflow = textEl.scrollWidth - textEl.clientWidth;
-                  if (overflow > 2) {
-                    textEl.scrollTo({ left: overflow, behavior: 'smooth' });
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  const textEl = e.currentTarget.querySelector(
-                    '.weq-int-suggest-text',
-                  ) as HTMLElement | null;
-                  if (!textEl || textEl.scrollLeft === 0) return;
-                  textEl.scrollTo({ left: 0, behavior: 'smooth' });
-                }}
               >
                 {s.tone ? <span className="weq-int-suggest-tone">{s.tone}</span> : null}
                 <span className="weq-int-suggest-text">{s.text}</span>
