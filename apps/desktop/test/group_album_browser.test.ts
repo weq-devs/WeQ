@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -115,7 +116,19 @@ afterEach(() => {
   dispose?.();
   dispose = undefined;
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
+async function resumeWindow() {
+  const visibility = vi.spyOn(document, 'visibilityState', 'get');
+  await act(async () => {
+    visibility.mockReturnValue('hidden');
+    document.dispatchEvent(new Event('visibilitychange', { bubbles: true }));
+  });
+  await act(async () => {
+    visibility.mockReturnValue('visible');
+    document.dispatchEvent(new Event('visibilitychange', { bubbles: true }));
+  });
+}
 async function mount(
   options: { initialAlbums?: GroupAlbumWire[]; initialAlbumId?: string; groupCode?: string } = {},
 ) {
@@ -310,11 +323,15 @@ it('只有视频封面时按图片预览和保存，不把 jpg 传给 video', as
 it('刷新失败保留原网格，重试恢复，不以失败伪装空相册', async () => {
   await mount();
   await openFirst();
-  state.media.mockRejectedValueOnce(new Error('合成读取失败'));
-  await act(async () => button('刷新相册媒体').click());
+  state.media.mockRejectedValue(new Error('合成读取失败'));
+  await resumeWindow();
+  await act(async () => {
+    await vi.waitFor(() => expect(state.media).toHaveBeenCalledTimes(4), { timeout: 4500 });
+  });
   expect(document.querySelectorAll('.group-album-media-card')).toHaveLength(2);
   expect(document.querySelector('[role="alert"]')?.textContent).toBe('合成读取失败');
-  await act(async () => button('刷新相册媒体').click());
+  state.media.mockResolvedValue([picture('photo-a'), picture('video-b', 'video')]);
+  await act(async () => button('重试读取相册媒体').click());
   expect(document.querySelector('[role="alert"]')).toBeNull();
 });
 it('刷新返回新顺序时，已打开的预览保持原来的对象及顺序', async () => {
@@ -326,7 +343,7 @@ it('刷新返回新顺序时，已打开的预览保持原来的对象及顺序'
       finish = resolve;
     }),
   );
-  act(() => button('刷新相册媒体').click());
+  await resumeWindow();
   await act(async () => button('预览 photo-a.jpg').click());
   await act(async () => finish([picture('video-b', 'video'), picture('photo-a')]));
   expect(document.querySelector('.group-album-preview-meta strong')?.textContent).toBe(
@@ -351,7 +368,7 @@ it('搜索入口预选相册复用已有列表，离线失败可返回或重试'
   await mount({ initialAlbums: [album('a')], initialAlbumId: 'a' });
   expect(state.albums).not.toHaveBeenCalled();
   expect(document.querySelector('[role="alert"]')?.textContent).toContain('需要先登录');
-  await act(async () => button('刷新相册媒体').click());
+  await act(async () => button('重试读取相册媒体').click());
   expect(document.querySelectorAll('.group-album-media-card')).toHaveLength(2);
 });
 it('相册排序稳定且不改写后端清单', async () => {
@@ -404,7 +421,7 @@ it('原图失败保留预览图并可重试，保存仍定位原图', async () =
 it('读取中同号切源丢弃旧媒体，列表错误重试不清除已有相册', async () => {
   const view = await mount();
   state.albums.mockRejectedValueOnce(new Error('合成列表失败'));
-  await act(async () => button('刷新相册列表').click());
+  await resumeWindow();
   expect(document.querySelectorAll('.group-album-card')).toHaveLength(2);
   let finish!: (items: unknown[]) => void;
   state.media.mockReturnValueOnce(

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { ChevronDown, ImageUp, Loader2, RefreshCw, Save, Smile, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { refreshUserAvatar } from '../../hooks/useAvatarUrl';
 import { Card, Row } from './controls';
@@ -24,16 +25,15 @@ export function SelfQQControls() {
   const [syncIdentity, setSyncIdentity] = useState<string | null>(null);
   const [syncRevision, setSyncRevision] = useState(0);
   const syncing = syncIdentity === identityKey;
+  const autoRefresh = useQQAutoRefresh(Boolean(session.binding));
   const profile = trpc.account.qqWrite.selfState.useQuery(
     {
       expectedAccountUin: session.binding?.expectedAccountUin ?? '',
       expectedAccountConfigId: session.binding?.expectedAccountConfigId ?? '',
     },
     {
-      enabled: Boolean(session.binding),
-      refetchOnMount: 'always',
-      staleTime: 0,
-      refetchInterval: syncing ? 1000 : false,
+      ...autoRefresh,
+      refetchInterval: autoRefresh.enabled && syncing ? 1000 : false,
     },
   );
   const ownProfile =
@@ -151,23 +151,25 @@ export function SelfQQControls() {
     <section className="weq-qq-write-panel" aria-label="QQ 资料与状态">
       <div className="weq-qq-write-toolbar">
         <span>{session.available ? 'QQ 在线' : 'QQ 在线能力未就绪'}</span>
-        <button
-          type="button"
-          className="weq-set-iconbtn"
-          aria-label="重新读取 QQ 资料"
-          title="重新读取"
-          disabled={session.busy || picking || profile.isFetching}
-          onClick={() => {
-            setError('');
-            void refresh()
-              .then(() => setRevision((value) => value + 1))
-              .catch((cause: unknown) =>
-                setError(cause instanceof Error ? cause.message : String(cause)),
-              );
-          }}
-        >
-          <RefreshCw size={16} />
-        </button>
+        {profile.error && (
+          <button
+            type="button"
+            className="weq-set-iconbtn"
+            aria-label="重试读取 QQ 资料"
+            title="重试读取"
+            disabled={session.busy || picking || profile.isFetching}
+            onClick={() => {
+              setError('');
+              void refresh()
+                .then(() => setRevision((value) => value + 1))
+                .catch((cause: unknown) =>
+                  setError(cause instanceof Error ? cause.message : String(cause)),
+                );
+            }}
+          >
+            <RefreshCw size={16} />
+          </button>
+        )}
       </div>
       {error && <p role="alert">{error}</p>}
       <div key={`${session.binding?.expectedAccountConfigId}:${revision}`}>

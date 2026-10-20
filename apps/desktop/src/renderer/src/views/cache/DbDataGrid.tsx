@@ -27,6 +27,8 @@ import { useAppDialog } from '../../lib/dialogUtils';
 import { cellText, cellKind, cellEditText, isCellEditable, textToInput } from './cellFormat';
 import { BlobHexModal } from './BlobHexModal';
 import { TableSkeleton } from './CacheSkeleton';
+import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
+import { readWithRetry } from '../../lib/autoRead';
 
 interface PageState {
   columns: DbColumn[];
@@ -58,6 +60,11 @@ export function DbDataGrid({
   editable: boolean;
 }): ReactElement {
   const dialog = useAppDialog();
+  const activity = useQQReadActivity(true, { onlineOnly: false });
+  const readEnabled = useRef(activity.enabled);
+  readEnabled.current = activity.enabled;
+  const readController = useRef<AbortController | null>(null);
+  const refreshPending = useRef(false);
   const [page, setPage] = useState<PageState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +89,10 @@ export function DbDataGrid({
     hex: string;
     columnName: string;
   } | null>(null);
+  useEffect(() => {
+    setPage(null);
+    setError(null);
+  }, [dbPath, table]);
 
   // 输入框防抖 300ms 后才真正触发查询，避免每敲一个字符打一次后端。
   useEffect(() => {
@@ -91,19 +102,30 @@ export function DbDataGrid({
 
   const load = useCallback(
     async (cursor: string | null): Promise<void> => {
+      if (!readEnabled.current) {
+        refreshPending.current = true;
+        return;
+      }
+      readController.current?.abort();
+      const controller = new AbortController();
+      readController.current = controller;
       setLoading(true);
       setError(null);
       setEdit(null);
       try {
-        const res: TableRowsResult = await client.account.dbExplorer.getRows.query({
-          dbPath,
-          table,
-          cursor,
-          limit: 200,
-          search: search || null,
-          orderBy: sort?.column ?? null,
-          orderDir: sort?.dir,
-        });
+        const res: TableRowsResult = await readWithRetry(
+          () =>
+            client.account.dbExplorer.getRows.query({
+              dbPath,
+              table,
+              cursor,
+              limit: 200,
+              search: search || null,
+              orderBy: sort?.column ?? null,
+              orderDir: sort?.dir,
+            }),
+          controller.signal,
+        );
         setPage({
           columns: res.columns,
           rows: res.rows,
@@ -112,10 +134,10 @@ export function DbDataGrid({
           nextCursor: res.nextCursor,
         });
       } catch (e) {
+        if (controller.signal.aborted) return;
         setError(e instanceof Error ? e.message : String(e));
-        setPage(null);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     },
     [dbPath, table, search, sort],
@@ -128,6 +150,25 @@ export function DbDataGrid({
     setDraft(null);
     void load(null);
   }, [load]);
+
+  useEffect(() => () => readController.current?.abort(), []);
+  const firstActivity = useRef(true);
+  useEffect(() => {
+    if (firstActivity.current) {
+      firstActivity.current = false;
+      return;
+    }
+    refreshPending.current = true;
+    if (!activity.enabled) {
+      readController.current?.abort();
+      setLoading(false);
+    }
+  }, [activity.enabled, activity.revision]);
+  useEffect(() => {
+    if (!activity.enabled || !refreshPending.current || edit || draft || saving || blobView) return;
+    refreshPending.current = false;
+    void load(currentCursor);
+  }, [activity.enabled, activity.revision, edit, draft, saving, blobView, load, currentCursor]);
 
   // 点表头循环切换该列排序：无 → 升序 → 降序 → 无。
   function toggleSort(column: string): void {
@@ -156,10 +197,10 @@ export function DbDataGrid({
     void load(currentCursor);
   }
 
-  const canEditRows = editable && page?.hasRowid !== false;
+  const canEditRows = editable && !error && page?.hasRowid !== false;
 
   function beginEdit(rowIndex: number, colIndex: number): void {
-    if (!canEditRows || !page) return;
+    if (!canEditRows || !page || loading) return;
     const cell = page.rows[rowIndex]?.[colIndex];
     if (cell === undefined || !isCellEditable(cell)) return;
     setEdit({ rowIndex, colIndex });
@@ -250,8 +291,22 @@ export function DbDataGrid({
   if (loading && !page) {
     return <TableSkeleton />;
   }
-  if (error) {
-    return <div className="weq-cache-grid-state is-error">{error}</div>;
+  if (error && !page) {
+    return (
+      <div className="weq-cache-grid-state is-error" role="alert">
+        {error}
+        <button
+          type="button"
+          className="weq-cache-tool"
+          aria-label="重试读取表格"
+          title="重试读取表格"
+          disabled={!activity.enabled || loading}
+          onClick={refresh}
+        >
+          <RefreshCw size={14} />
+        </button>
+      </div>
+    );
   }
   if (!page) {
     return <div className="weq-cache-grid-state">无数据</div>;
@@ -302,10 +357,19 @@ export function DbDataGrid({
             {draft ? '取消新增' : '新增行'}
           </button>
         ) : null}
-        <button type="button" className="weq-cache-tool" onClick={refresh} title="刷新">
-          <RefreshCw size={14} />
-          刷新
-        </button>
+        {error && <span role="alert">{error}</span>}
+        {error && (
+          <button
+            type="button"
+            className="weq-cache-tool"
+            onClick={refresh}
+            title="重试读取表格"
+            aria-label="重试读取表格"
+            disabled={!activity.enabled || loading}
+          >
+            <RefreshCw size={14} />
+          </button>
+        )}
       </div>
 
       <div className="weq-cache-grid-scroll">

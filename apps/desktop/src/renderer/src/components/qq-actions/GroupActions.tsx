@@ -18,9 +18,10 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
   const a = useQQAction(`group:${groupId}`);
   const [category, setCategory] = useState(''),
     [tag, setTag] = useState('');
+  const tagsRefresh = useQQAutoRefresh(a.available && category !== '');
   const tags = trpc.account.qqActions.tags.useQuery(
     { ...a.binding!, category: Number(category) },
-    { enabled: a.available && category !== '', retry: false },
+    tagsRefresh,
   );
   return (
     <section className="weq-qq-actions" aria-label="更多 QQ 群操作">

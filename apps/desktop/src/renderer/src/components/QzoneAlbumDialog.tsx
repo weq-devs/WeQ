@@ -26,6 +26,7 @@ import { albumMediaUrl } from '../lib/resourceUrl';
 import { QzoneMediaPreview, type QzonePreviewMedia } from './QzoneMediaPreview';
 import { useDebouncedLoading } from '../hooks/useDebouncedLoading';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
+import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import type { ExportSavePolicy } from '@weq/service';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
@@ -144,8 +145,8 @@ export function QzoneAlbumDialog({
   hostUin,
   selfUin,
   embedded = false,
-  active = true,
-  refreshKey = 0,
+  active: requestedActive = true,
+  refreshKey: requestedRefreshKey = 0,
   albumTarget,
 }: {
   open: boolean;
@@ -158,6 +159,9 @@ export function QzoneAlbumDialog({
   refreshKey?: number;
   albumTarget?: QzoneAlbumRequest;
 }): ReactElement | null {
+  const activity = useQQReadActivity(open && requestedActive);
+  const active = activity.enabled;
+  const refreshKey = requestedRefreshKey + activity.revision;
   const [access, setAccess] = useState<{
     qqOnline: boolean;
     attachEnabled: boolean;

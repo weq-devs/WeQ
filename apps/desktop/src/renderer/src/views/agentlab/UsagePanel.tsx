@@ -7,6 +7,7 @@
 import { useMemo, useState, type ReactElement } from 'react';
 import { BarChart3, Clock, Coins, Users, Activity } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import '../../styles/api-usage.css';
 
 /** WeQ 助手在统计里的占位键（与后端 ASSISTANT_KEY 对齐）。 */
@@ -349,8 +350,10 @@ export function UsagePanel({
   hasPersona: (personaId: string) => boolean;
   personaCount: number;
 }): ReactElement {
+  const autoRefresh = useQQAutoRefresh(true);
   const stats = trpc.account.getAgentLabTokenStats.useQuery(undefined, {
-    refetchInterval: 5000,
+    ...autoRefresh,
+    refetchInterval: autoRefresh.enabled ? 5000 : false,
     refetchIntervalInBackground: false,
   });
   const d = stats.data;

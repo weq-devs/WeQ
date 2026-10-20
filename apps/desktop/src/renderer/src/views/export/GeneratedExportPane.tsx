@@ -5,6 +5,7 @@ import { client, trpc } from '../../trpc/client';
 import { WindowedList } from '../../components/WindowedList';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useTabActive } from '../../components/RetainedTabs';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { ExportSaveActions } from '../../components/ExportSaveActions';
 import {
   generatedContentContainer,
@@ -51,12 +52,11 @@ export function GeneratedExportPane({
   const [formats, setFormats] = useState(new Set<BackendFormat>(['json']));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const sessions = trpc.account.generatedConversations.useQuery(binding, {
-    enabled: active && ready,
-  });
+  const autoRefresh = useQQAutoRefresh(active && ready);
+  const sessions = trpc.account.generatedConversations.useQuery(binding, autoRefresh);
   const content = trpc.account.generatedConversation.useQuery(
     { ...binding, target: target ?? { kind: 'assistant', ownerId: 'assistant', sessionId: '_' } },
-    { enabled: active && ready && Boolean(target), staleTime: 0 },
+    { ...autoRefresh, enabled: autoRefresh.enabled && Boolean(target) },
   );
   const key = target ? generatedContentContainer(target) : '';
   const ids = scopes[key];
@@ -228,16 +228,6 @@ export function GeneratedExportPane({
                     {ids === undefined ? '整场持久对话' : `精确选中 ${ids.length} 条消息`}
                   </span>
                 </label>
-                <button
-                  type="button"
-                  className="weq-set-iconbtn"
-                  title="刷新生成记录"
-                  aria-label="刷新生成记录"
-                  disabled={busy || content.isFetching}
-                  onClick={() => void content.refetch()}
-                >
-                  <RotateCw size={15} />
-                </button>
               </header>
               {content.isFetching ? <p role="status">读取记录…</p> : null}
               <WindowedList
@@ -274,7 +264,7 @@ export function GeneratedExportPane({
               />
               {missing.length ? (
                 <p role="alert">
-                  {missing.length} 条已选记录不存在或尚未持久化，请刷新或重新选择。
+                  {missing.length} 条已选记录不存在或尚未持久化，请稍后重试或重新选择。
                 </p>
               ) : null}
             </>

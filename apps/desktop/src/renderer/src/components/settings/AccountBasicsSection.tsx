@@ -36,6 +36,7 @@ import {
   User,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useDialog } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
@@ -146,30 +147,25 @@ export function AccountBasicsSection({
   page?: 'account' | 'credentials' | 'media';
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
+  const autoRefresh = useQQAutoRefresh(true);
 
   const profile = trpc.account.getSelfProfile.useQuery(undefined, {
-    enabled: page === 'account',
-    refetchOnWindowFocus: false,
-    staleTime: 0,
-    refetchOnMount: 'always',
+    ...autoRefresh,
+    enabled: autoRefresh.enabled && page === 'account',
   });
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: 0,
-    refetchOnMount: 'always',
+    ...autoRefresh,
     // rkeys/clientkey are harvested in the background by the monitor; poll so a
     // fresh one shows up (and the expiry countdown re-renders) without reopening.
-    refetchInterval: page === 'credentials' ? 10_000 : false,
+    refetchInterval: autoRefresh.enabled && page === 'credentials' ? 10_000 : false,
   });
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
-    enabled: page !== 'credentials',
-    refetchOnWindowFocus: false,
-    staleTime: 0,
-    refetchOnMount: 'always',
+    ...autoRefresh,
+    enabled: autoRefresh.enabled && page !== 'credentials',
   });
   const systemInfo = trpc.bootstrap.systemInfo.useQuery(undefined, {
-    enabled: page === 'account',
-    refetchOnWindowFocus: false,
+    ...autoRefresh,
+    enabled: autoRefresh.enabled && page === 'account',
   });
 
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
@@ -431,15 +427,17 @@ export function AccountBasicsSection({
           <Card
             title="下载 rKey"
             action={
-              <button
-                type="button"
-                className={`weq-set-iconbtn${config.isFetching ? ' is-spinning' : ''}`}
-                title="刷新"
-                aria-label="刷新 rKey"
-                onClick={() => void config.refetch()}
-              >
-                <RefreshCw size={14} />
-              </button>
+              config.error ? (
+                <button
+                  type="button"
+                  className={`weq-set-iconbtn${config.isFetching ? ' is-spinning' : ''}`}
+                  title="重试读取 rKey"
+                  aria-label="重试读取 rKey"
+                  onClick={() => void config.refetch()}
+                >
+                  <RefreshCw size={14} />
+                </button>
+              ) : undefined
             }
           >
             {rkeys.length === 0 ? (
@@ -493,15 +491,17 @@ export function AccountBasicsSection({
           <Card
             title="ClientKey"
             action={
-              <button
-                type="button"
-                className={`weq-set-iconbtn${config.isFetching ? ' is-spinning' : ''}`}
-                title="刷新"
-                aria-label="刷新 ClientKey"
-                onClick={() => void config.refetch()}
-              >
-                <RefreshCw size={14} />
-              </button>
+              config.error ? (
+                <button
+                  type="button"
+                  className={`weq-set-iconbtn${config.isFetching ? ' is-spinning' : ''}`}
+                  title="重试读取 ClientKey"
+                  aria-label="重试读取 ClientKey"
+                  onClick={() => void config.refetch()}
+                >
+                  <RefreshCw size={14} />
+                </button>
+              ) : undefined
             }
           >
             {!clientKey ? (

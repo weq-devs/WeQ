@@ -14,6 +14,7 @@ import {
 import { classifyChatType } from '@weq/codec';
 import type { RoamingTarget } from '@weq/service';
 import { trpc } from '../trpc/client';
+import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useDialog } from './Dialog';
 import { WindowedList } from './WindowedList';
 import { useMultiSelection } from '../hooks/useMultiSelection';
@@ -77,14 +78,14 @@ export function RoamingBackfillPanel({
   const [beforeOldest, setBeforeOldest] = useState(false);
   const [intervalMs, setIntervalMs] = useState(500);
   const [error, setError] = useState<string | null>(null);
+  const autoRefresh = useQQAutoRefresh(true);
   const state = trpc.account.roamingBackfill.list.useQuery(undefined, {
-    refetchInterval: 1000,
-    staleTime: 0,
-    refetchOnWindowFocus: false,
+    ...autoRefresh,
+    refetchInterval: autoRefresh.enabled ? 1000 : false,
   });
   const contacts = trpc.account.listConversationsWithCount.useQuery(undefined, {
-    enabled: surface !== 'tasks' && !fixed,
-    refetchOnWindowFocus: false,
+    ...autoRefresh,
+    enabled: autoRefresh.enabled && surface !== 'tasks' && !fixed,
   });
   const refresh = () => {
     void utils.account.roamingBackfill.list.invalidate();

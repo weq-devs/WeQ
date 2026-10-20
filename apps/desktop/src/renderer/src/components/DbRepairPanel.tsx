@@ -64,6 +64,7 @@ import { closeFromScrim } from '../im-template/template/modalUtils';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { useDbRepairReturn } from '../state/dbRepairReturn';
 import { client, trpc } from '../trpc/client';
+import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { QqAvatar } from './QqAvatar';
 import { useToast } from './Toast';
 
@@ -885,6 +886,7 @@ export function DbRepairPanel({
 
   const uin = currentUin;
   const running = busy === 'repair' || busy === 'restore';
+  const autoRefresh = useQQAutoRefresh(uin !== null);
 
   /** 体检的「停」开关：当前这个库跑完就不再往下走。 */
   const stopScanRef = useRef(false);
@@ -892,7 +894,7 @@ export function DbRepairPanel({
   // ── 查询 ────────────────────────────────────────────────────────────────
   const statusQuery = trpc.dbRepair.status.useQuery(
     { uin: uin ?? '' },
-    { enabled: uin !== null, refetchInterval: running ? POLL_MS : false },
+    { ...autoRefresh, refetchInterval: autoRefresh.enabled && running ? POLL_MS : false },
   );
   const status = statusQuery.data as DbRepairStatusView | undefined;
   /** 该账号的 QQ 是否在线（决定要不要盯着锁状态）。 */
@@ -901,8 +903,9 @@ export function DbRepairPanel({
     { uin: uin ?? '', dbName: dbName ?? '' },
     // 没选库就不查（整段环境检查都对着某个库说话）。
     {
-      enabled: uin !== null && dbName !== null,
-      refetchInterval: !running && qqOnline ? POLL_MS : false,
+      ...autoRefresh,
+      enabled: autoRefresh.enabled && dbName !== null,
+      refetchInterval: autoRefresh.enabled && !running && qqOnline ? POLL_MS : false,
     },
   );
   const preflight = preflightQuery.data as DbRepairPreflightView | undefined;
@@ -914,14 +917,11 @@ export function DbRepairPanel({
    */
   const layoutQuery = trpc.dbRepair.detectLayout.useQuery(
     { uin: uin ?? '', dbName: dbName ?? '' },
-    { enabled: stage === 'repair' && uin !== null && dbName !== null },
+    { ...autoRefresh, enabled: autoRefresh.enabled && stage === 'repair' && dbName !== null },
   );
   const layoutProbe = layoutQuery.data as DbRepairLayoutProbeView | undefined;
   const needsMigration = layoutProbe?.needsMigration === true;
-  const historyQuery = trpc.dbRepair.history.useQuery(
-    { uin: uin ?? '' },
-    { enabled: uin !== null },
-  );
+  const historyQuery = trpc.dbRepair.history.useQuery({ uin: uin ?? '' }, autoRefresh);
   const history = useMemo(
     () => (historyQuery.data ?? []) as DbRepairRecordView[],
     [historyQuery.data],
@@ -1375,24 +1375,29 @@ export function DbRepairPanel({
             <History size={14} strokeWidth={1.9} aria-hidden />
             {history.length > 0 ? <span className="weq-rp-dot" aria-hidden /> : null}
           </button>
-          <button
-            type="button"
-            className="weq-rp-icon-btn"
-            title="刷新状态与修复记录"
-            aria-label="刷新"
-            disabled={busy !== null}
-            onClick={() => {
-              onRefreshAccounts();
-              void refreshAll();
-            }}
-          >
-            <RefreshCw
-              size={14}
-              strokeWidth={1.9}
-              className={busy !== null ? 'weq-spin' : ''}
-              aria-hidden
-            />
-          </button>
+          {(statusQuery.error ||
+            preflightQuery.error ||
+            layoutQuery.error ||
+            historyQuery.error) && (
+            <button
+              type="button"
+              className="weq-rp-icon-btn"
+              title="重试读取状态与修复记录"
+              aria-label="重试读取修复状态"
+              disabled={busy !== null}
+              onClick={() => {
+                onRefreshAccounts();
+                void refreshAll();
+              }}
+            >
+              <RefreshCw
+                size={14}
+                strokeWidth={1.9}
+                className={busy !== null ? 'weq-spin' : ''}
+                aria-hidden
+              />
+            </button>
+          )}
         </div>
       </header>
 

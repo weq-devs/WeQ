@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
-import { ImagePlus, RefreshCw, Save } from 'lucide-react';
+import { ImagePlus, Save } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import {
   useQQWriteSession,
@@ -7,6 +7,7 @@ import {
   type QQWriteOutcome,
 } from '../../hooks/useQQWriteSession';
 import { useViewState } from '../../state/view';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { QQWriteResult } from '../QQWriteControls';
 import { useDialog } from '../Dialog';
 import '../../styles/qq-actions.css';
@@ -122,12 +123,14 @@ export function useQQGroupPermissions(
   groupId: number,
   action: Pick<ReturnType<typeof useQQAction>, 'available' | 'binding'>,
 ) {
+  const autoRefresh = useQQAutoRefresh(
+    action.available && Number.isSafeInteger(groupId) && groupId > 0,
+  );
   return trpc.account.qqActions.groupPermissions.useQuery(
     { ...action.binding!, groupId },
     {
-      enabled: action.available && Number.isSafeInteger(groupId) && groupId > 0,
+      ...autoRefresh,
       staleTime: 15_000,
-      retry: false,
     },
   );
 }
@@ -143,13 +146,6 @@ export function SaveAction({
   return (
     <ActionIcon label={label} disabled={disabled} onClick={onClick}>
       <Save size={16} />
-    </ActionIcon>
-  );
-}
-export function RefreshAction({ disabled, onClick }: { disabled?: boolean; onClick: () => void }) {
-  return (
-    <ActionIcon label="刷新" disabled={disabled} onClick={onClick}>
-      <RefreshCw size={16} />
     </ActionIcon>
   );
 }

@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { act, createElement as h } from 'react';
+import { act, createElement as h, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useQQAutoRefresh } from '../src/renderer/src/hooks/useQQAutoRefresh';
+import { useQQAutoRefresh, useQQReadActivity } from '../src/renderer/src/hooks/useQQAutoRefresh';
 
 const cleanups: Array<() => void> = [];
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -32,6 +32,50 @@ function fixture(read: () => Promise<string>) {
 }
 
 describe('QQ 自动读取', () => {
+  it('手写页面合并连续恢复事件，隐藏、离线和非活动页均不读取', () => {
+    let now = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    const read = vi.fn();
+    let available = true;
+    function Reader() {
+      const activity = useQQReadActivity(available);
+      useEffect(() => {
+        if (activity.enabled) read();
+      }, [activity.enabled, activity.revision]);
+      return null;
+    }
+    const root = createRoot(document.createElement('div'));
+    cleanups.push(() => act(() => root.unmount()));
+    const render = () => act(() => root.render(h(Reader)));
+    render();
+    expect(read).toHaveBeenCalledTimes(1);
+    now = 1000;
+    act(() => window.dispatchEvent(new Event('focus')));
+    act(() => window.dispatchEvent(new Event('focus')));
+    expect(read).toHaveBeenCalledTimes(2);
+    visibility.mockReturnValue('hidden');
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    now = 2000;
+    visibility.mockReturnValue('visible');
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    act(() => window.dispatchEvent(new Event('focus')));
+    expect(read).toHaveBeenCalledTimes(3);
+    online.mockReturnValue(false);
+    act(() => window.dispatchEvent(new Event('offline')));
+    now = 3000;
+    act(() => window.dispatchEvent(new Event('focus')));
+    expect(read).toHaveBeenCalledTimes(3);
+    available = false;
+    render();
+    online.mockReturnValue(true);
+    act(() => window.dispatchEvent(new Event('online')));
+    expect(read).toHaveBeenCalledTimes(3);
+    available = true;
+    render();
+    expect(read).toHaveBeenCalledTimes(4);
+  });
   it('进入与恢复前台自动更新，隐藏及离线时不读取', async () => {
     const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
     const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);

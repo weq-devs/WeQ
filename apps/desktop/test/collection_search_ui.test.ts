@@ -67,11 +67,11 @@ function captureLayout(host: HTMLElement, name = 'collection-search') {
     'page-chrome.css',
     'index.css',
   ]
-    .map((name) => readFileSync(resolve('src/renderer/src/styles', name), 'utf8'))
+    .map((name) => `<link rel="stylesheet" href="/@fs${resolve('src/renderer/src/styles', name)}">`)
     .join('\n');
   writeFileSync(
     resolve(output, `${name}.html`),
-    `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${styles}</style><style>html,body{margin:0;font-family:system-ui}*,*::before,*::after{box-sizing:border-box}.weq-search-dropdown{position:relative;inset:auto;width:100%;max-height:100dvh}body{padding:8px;background:var(--weq-bg-surface);color:var(--weq-fg-primary)}main{width:min(720px,100%);margin:auto}</style><body><main>${host.innerHTML}</main></body></html>`,
+    `<!doctype html><html lang="zh-CN"><meta charset="utf-8">${styles}<style>html,body{margin:0;font-family:system-ui}*,*::before,*::after{box-sizing:border-box}.weq-search-dropdown{position:relative;inset:auto;width:100%;max-height:100dvh}body{padding:8px;background:var(--weq-bg-surface);color:var(--weq-fg-primary)}main{width:min(720px,100%);margin:auto}</style><body><main>${host.innerHTML}</main></body></html>`,
   );
 }
 afterEach(() => {

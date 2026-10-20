@@ -30,6 +30,8 @@ import { useToast } from './Toast';
 import { IconPicker } from './ui/iconPicker';
 import { shikiCodeHighlighter } from '../views/agentlab/shikiHighlighter';
 import { useThemeStore } from '../state/theme';
+import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
+import { readWithRetry } from '../lib/autoRead';
 import bugBanner from '@resources/brand/bug_banner.png';
 import bugBannerDark from '@resources/brand/bug_banner_2.png';
 import '../styles/group-bug.css';
@@ -172,31 +174,38 @@ export function GroupBugDialog({
   const [manualNumber, setManualNumber] = useState('');
   const [manualKind, setManualKind] = useState<'issue' | 'pr'>('issue');
   const [submittingArk, setSubmittingArk] = useState(false);
-
-  const loadIssues = async (): Promise<void> => {
-    if (issuesLoading) return;
+  const activity = useQQReadActivity(mode === 'existing' && !manualMode);
+  const [issuesRevision, setIssuesRevision] = useState(0);
+  useEffect(() => {
+    if (!activity.enabled) {
+      setIssuesLoading(false);
+      return;
+    }
+    const controller = new AbortController();
     setIssuesLoading(true);
     setIssuesError('');
-    try {
-      const res = await client.groupFeedback.listIssues.query();
-      if (!res.ok) {
-        setIssuesError(res.message);
-        setIssues(null);
-        setManualMode(true);
-        return;
-      }
-      setIssues(res.items);
-      setManualMode(false);
-      if (res.items.length > 0) setSelectedNumber(res.items[0]!.number);
-      else setManualMode(true);
-    } catch (e) {
-      setIssuesError(errMsg(e));
-      setIssues(null);
-      setManualMode(true);
-    } finally {
-      setIssuesLoading(false);
-    }
-  };
+    void readWithRetry(() => client.groupFeedback.listIssues.query(), controller.signal)
+      .then((res) => {
+        if (controller.signal.aborted) return;
+        if (!res.ok) {
+          setIssuesError(res.message);
+          return;
+        }
+        setIssues(res.items);
+        if (res.items.length > 0)
+          setSelectedNumber((current) =>
+            res.items.some((item) => item.number === current) ? current : res.items[0]!.number,
+          );
+        else setManualMode(true);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setIssuesError(errMsg(error));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIssuesLoading(false);
+      });
+    return () => controller.abort();
+  }, [activity.enabled, activity.revision, issuesRevision]);
 
   const selectedIssue = useMemo(
     () => issues?.find((it) => it.number === selectedNumber) ?? null,
@@ -391,19 +400,24 @@ export function GroupBugDialog({
               <div className="weq-group-bug-issues-head">
                 <span>选择仓库里已有的 issue / PR</span>
                 <div className="weq-group-bug-issues-actions">
-                  <button
-                    type="button"
-                    className="weq-group-bug-btn weq-group-bug-btn-soft"
-                    disabled={issuesLoading}
-                    onClick={() => void loadIssues()}
-                  >
-                    {issuesLoading ? (
-                      <Loader2 size={12} className="weq-group-bug-spin" aria-hidden />
-                    ) : (
-                      <RefreshCw size={12} aria-hidden />
-                    )}
-                    {issues ? '刷新列表' : '加载列表'}
-                  </button>
+                  {issuesError && (
+                    <button
+                      type="button"
+                      className="weq-group-bug-btn weq-group-bug-btn-soft"
+                      disabled={issuesLoading}
+                      onClick={() => {
+                        setManualMode(false);
+                        setIssuesRevision((value) => value + 1);
+                      }}
+                    >
+                      {issuesLoading ? (
+                        <Loader2 size={12} className="weq-group-bug-spin" aria-hidden />
+                      ) : (
+                        <RefreshCw size={12} aria-hidden />
+                      )}
+                      重试读取
+                    </button>
+                  )}
                   <button
                     type="button"
                     className={`weq-group-bug-btn weq-group-bug-btn-soft${manualMode ? ' is-on' : ''}`}

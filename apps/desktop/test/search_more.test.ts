@@ -137,7 +137,7 @@ describe('搜索更多的请求隔离', () => {
       );
       expect(f.host.querySelectorAll('[role="option"]')).toHaveLength(2);
       expect(f.host.textContent).toContain('结果可能已更新');
-      expect(f.host.querySelector('[aria-label="刷新搜索结果"]')).not.toBeNull();
+      expect(f.host.querySelector('[aria-label="刷新搜索结果"]')).toBeNull();
       await act(async () =>
         f.host.querySelector('.weq-search-more-body')!.dispatchEvent(new Event('scroll')),
       );

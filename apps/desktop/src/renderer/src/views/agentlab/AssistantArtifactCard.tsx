@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import type { AssistantArtifact, ExportSavePolicy } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ExportSaveActions } from '../../components/ExportSaveActions';
@@ -68,6 +69,7 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
   const [monitor, setMonitor] = useState<{ identity: string; taskId: string } | null>(null);
   const busy = operation?.identity === identity ? operation.kind : null;
   const taskId = monitor?.identity === identity ? monitor.taskId : null;
+  const autoRefresh = useQQAutoRefresh(Boolean(binding && taskId));
   const current = () => latest.current === identity && isCurrent();
   const receipt = trpc.account.getExportOutputReceipt.useQuery(
     {
@@ -76,10 +78,9 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
       taskId: taskId ?? 'not-selected',
     },
     {
-      enabled: Boolean(binding && taskId),
-      retry: false,
-      refetchOnWindowFocus: false,
+      ...autoRefresh,
       refetchInterval: (data) =>
+        autoRefresh.enabled &&
         data &&
         (data.status === 'pending' ||
           data.status === 'running' ||

@@ -96,7 +96,10 @@ beforeEach(() => {
   saveState.web = false;
   saveState.prepare.mockReset().mockResolvedValue({ mode: 'after' });
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 async function mount(
   api: MailApi,
   searchTarget?: { id: string; folderId: number; revision: string },
@@ -110,6 +113,17 @@ async function mount(
   );
   return {
     host,
+    setActive: (active: boolean) =>
+      act(async () =>
+        root.render(
+          createElement(MailPage, {
+            api,
+            selfEmail: 'self@example.invalid',
+            searchTarget,
+            active,
+          }),
+        ),
+      ),
     search: (target: { id: string; folderId: number; revision: string }) =>
       act(async () =>
         root.render(
@@ -128,6 +142,48 @@ async function mount(
 }
 
 describe('邮箱文件夹重复选择', () => {
+  it('进入与恢复前台自动读取，隐藏和离线取消读取，保留写信草稿且不重发操作', async () => {
+    const { api, list } = fixture();
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    const view = await mount(api);
+    try {
+      expect(list).toHaveBeenCalledTimes(1);
+      expect(view.host.querySelector('[aria-label="刷新邮箱"]')).toBeNull();
+      act(() => view.host.querySelector<HTMLButtonElement>('.weq-mail-primary')!.click());
+      const subject = view.host.querySelector<HTMLInputElement>('[aria-label="邮件主题"]')!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+          subject,
+          '未保存的主题',
+        );
+        subject.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      const firstSignal = list.mock.calls[0]![1]!;
+      visibility.mockReturnValue('hidden');
+      await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+      expect(firstSignal.aborted).toBe(true);
+      list.mockResolvedValue(page('恢复后新邮件'));
+      online.mockReturnValue(false);
+      visibility.mockReturnValue('visible');
+      await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+      expect(list).toHaveBeenCalledTimes(1);
+      online.mockReturnValue(true);
+      await act(async () => window.dispatchEvent(new Event('online')));
+      expect(list).toHaveBeenCalledTimes(2);
+      expect(subject.value).toBe('未保存的主题');
+      expect(view.host.textContent).toContain('恢复后新邮件');
+      await view.setActive(false);
+      expect(list.mock.calls[1]![1]!.aborted).toBe(true);
+      await view.setActive(true);
+      expect(list).toHaveBeenCalledTimes(3);
+      expect(api.subscribe).toHaveBeenCalledTimes(1);
+      expect(api.send).not.toHaveBeenCalled();
+      expect(api.action).not.toHaveBeenCalled();
+    } finally {
+      view.close();
+    }
+  });
   it('搜索命中直接读取不透明邮件 id，不依赖当前列表的第一页', async () => {
     const { api, list } = fixture();
     const view = await mount(api, {
