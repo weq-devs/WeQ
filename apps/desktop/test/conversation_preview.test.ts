@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
+import { TipGroupElementType } from '@weq/codec';
 import {
   previewNodes,
   previewNodesToText,
@@ -17,6 +18,27 @@ const preview = {
 };
 const text = (p = preview, names = new Map<string, string>()) =>
   previewNodesToText(previewNodes(p, new Set(['u_self', '67890']), names));
+
+test('群名修改摘要使用协议事件与新群名，不误报成员退出', () => {
+  for (const [fields, expected] of [
+    [{ user1Nick: '管理员', groupTipGroupName: '新群名' }, '管理员 修改群名为 新群名'],
+    [
+      { user1Nick: '昵称', user1GroupNick: '群名片', groupTipGroupName: '新群名' },
+      '群名片 修改群名为 新群名',
+    ],
+    [{ groupTipGroupName: '新群名' }, '修改群名为 新群名'],
+    [{ user1Nick: '管理员' }, '管理员 修改了群名'],
+    [{}, '修改了群名'],
+  ] as const) {
+    const nodes = previewNodes({
+      kind: 'grayTipGroup',
+      groupTipType: TipGroupElementType.KGROUPNAMEMODIFIED,
+      ...fields,
+    });
+    assert.equal(previewNodesToText(nodes), expected);
+    assert.ok(!previewNodesToText(nodes).includes('退出'));
+  }
+});
 
 test('mixed message previews keep ordered text and every face, including face zero', () => {
   assert.deepEqual(

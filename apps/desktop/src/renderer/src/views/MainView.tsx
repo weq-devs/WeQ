@@ -42,7 +42,12 @@ import { buddyRequestState } from '@weq/service/buddy-request';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { avatarFromGroupCode, avatarFromUin } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
-import { previewNodes, previewNodesToText, previewIdentityIds } from '../lib/conversationPreview';
+import {
+  previewNodes,
+  previewNodesToText,
+  previewIdentityIds,
+  groupTipText,
+} from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { isMineMessage } from '../lib/messageDirection';
 import { reconcileFileMessages, type FileSyncReceipt } from '../lib/fileSendReconcile';
@@ -53,7 +58,13 @@ import {
 } from '../lib/unreadRefresh';
 import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
-import { classifyChatType, datalineName, isGroupTempChatType, toChatTypeNumber } from '@weq/codec';
+import {
+  classifyChatType,
+  datalineName,
+  isGroupTempChatType,
+  toChatTypeNumber,
+  TipGroupElementType,
+} from '@weq/codec';
 import { conversationSortTime } from '@weq/service/conversation-order';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { useProfileResolver } from '../hooks/useProfileResolver';
@@ -1916,6 +1927,9 @@ function elementText(element: unknown): string {
     case 'grayTipPoke':
       return stringField(data, 'grayTipXmlContent') || stringField(data, 'tipJson') || '[Poke]';
     case 'grayTipGroup': {
+      if (data.groupTipType === TipGroupElementType.KGROUPNAMEMODIFIED) {
+        return groupTipText(data) ?? '[Group notice]';
+      }
       const muteDuration = data.muteDuration as number | undefined;
       const user1 =
         (data.user1GroupNick as string | undefined) || (data.user1Nick as string | undefined);
