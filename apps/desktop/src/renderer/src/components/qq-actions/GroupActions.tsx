@@ -204,6 +204,8 @@ export function GroupTodos({ groupId, embedded = false }: { groupId: number; emb
         disabled={a.disabled || todos.isFetching}
         onClick={() => void todos.refetch()}
       />
+      {!a.available && <p>QQ 在线能力未就绪</p>}
+      {a.available && todos.isFetching && !todos.data && <p role="status">读取待办中…</p>}
       {todos.error && <p role="alert">{todos.error.message}</p>}
       {todos.data?.length === 0 && <p>暂无群待办</p>}
       <ul className="weq-qq-action-list">

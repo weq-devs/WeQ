@@ -22,6 +22,8 @@ import { FavoriteActions } from '../src/renderer/src/components/qq-actions/Favor
 import { GroupJoinAction } from '../src/renderer/src/components/qq-actions/GroupJoinAction';
 import { GroupActions, GroupTodos } from '../src/renderer/src/components/qq-actions/GroupActions';
 import { GroupAnnouncementsDialog } from '../src/renderer/src/components/GroupAnnouncementsDialog';
+import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupInfoPanel';
+import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
 import { GroupSignDialog } from '../src/renderer/src/components/GroupSignDialog';
 import { TypingStatus } from '../src/renderer/src/components/qq-actions/ChatActions';
 import { QqInlineKeyboard } from '../src/renderer/src/components/QqInlineKeyboard';
@@ -238,11 +240,11 @@ describe('QQ 主动操作的实际界面', () => {
     f.update();
     expect(f.button('今日打卡').disabled).toBe(true);
   });
-  it('群待办与公告共用导航，待办不再藏在群管理折叠区', async () => {
+  it('资料、公告、待办同一侧栏独立竖排，原待办操作与权限不变', async () => {
     state.data.todoList = [{ sequence: '123', text: '统一入口的待办' }];
     const management = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(management.host.textContent).not.toContain('群待办');
-    const f = fixture(() =>
+    const announcement = fixture(() =>
       h(GroupAnnouncementsDialog, {
         groupCode: '123',
         groupName: '测试群',
@@ -250,12 +252,25 @@ describe('QQ 主动操作的实际界面', () => {
         onClose: vi.fn(),
       }),
     );
-    const tabs = f.host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
-    expect([...tabs].map((tab) => tab.textContent)).toEqual(['群公告', '群待办']);
-    expect(f.host.querySelector('[role="tabpanel"]')?.textContent).toContain('公告正文');
-    act(() => tabs[1].click());
-    expect(tabs[1].getAttribute('aria-selected')).toBe('true');
-    const panel = f.host.querySelector('[role="tabpanel"]')!;
+    expect(announcement.host.querySelector('[role="tab"]')).toBeNull();
+    expect(announcement.host.textContent).toContain('公告正文');
+    expect(announcement.host.textContent).not.toContain('群待办');
+    const original = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
+    const f = fixture(() =>
+      h(GroupInfoPanel, {
+        conversation: { ...original, group: { ...original.group, announcement: '公告摘要' } },
+        onOpenAnnouncements: vi.fn(),
+        groupTodos: h(GroupTodos, { groupId: 123, embedded: true }),
+      }),
+    );
+    const sections = [...f.host.querySelectorAll('aside > section[aria-label]')];
+    expect(sections.map((section) => section.getAttribute('aria-label'))).toEqual([
+      '群资料',
+      '群公告',
+      '群待办',
+    ]);
+    expect(sections[1].textContent).toContain('公告摘要');
+    const panel = sections[2];
     expect(panel.textContent).toContain('统一入口的待办');
     expect(panel.querySelector('summary')).toBeNull();
     expect(panel.textContent).not.toContain('公告正文');
@@ -270,11 +285,6 @@ describe('QQ 主动操作的实际界面', () => {
         action: 'complete',
       }),
     );
-    act(() =>
-      tabs[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })),
-    );
-    expect(document.activeElement).toBe(tabs[0]);
-    expect(f.host.querySelector('[role="tabpanel"]')?.textContent).toContain('公告正文');
   });
   it('空间点赞合并为单个切换按钮，未确认不翻转，执行期间禁用', async () => {
     const f = fixture(() =>

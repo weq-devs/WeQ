@@ -10,7 +10,13 @@ import {
   UserMinus,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
 import { Avatar, GroupInfoSkeleton, GroupMembersSkeleton } from './primitives';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
 import type { GroupConversationView } from './conversationDetailsTypes';
@@ -18,6 +24,7 @@ import { displayUserName } from './user';
 import { cn } from './classNames';
 import { formatShortDate } from './format';
 import '../../styles/conversation-actions.css';
+import '../../styles/group-sidebar-sections.css';
 
 export type GroupInfoDetail = 'profile' | 'albums';
 
@@ -35,6 +42,7 @@ export function GroupInfoPanel({
   onMemberContextMenu,
   onOpenLeftMembers,
   onOpenAnnouncements,
+  groupTodos,
   onOpenEssence,
   onOpenAlbums,
   onOpenFiles,
@@ -71,6 +79,7 @@ export function GroupInfoPanel({
     member: GroupConversationView['members'][number],
   ) => void;
   onOpenAnnouncements?: () => void;
+  groupTodos?: ReactNode;
   onOpenEssence?: () => void;
   onOpenAlbums?: () => void;
   onOpenFiles?: () => void;
@@ -135,7 +144,7 @@ export function GroupInfoPanel({
 
   return (
     <aside
-      className={cn('group-info-panel')}
+      className={cn('group-info-panel', groupTodos && 'weq-group-sections')}
       aria-label="群聊资料"
       onKeyDown={(event) => {
         if (event.key === 'Escape' && onClose) {
@@ -144,7 +153,7 @@ export function GroupInfoPanel({
         }
       }}
     >
-      <section className={cn('group-info-section', 'group-info-overview')}>
+      <section className={cn('group-info-section', 'group-info-overview')} aria-label="群资料">
         <header className={cn('group-info-heading')}>
           <button
             className={cn('group-info-title-button')}
@@ -188,14 +197,24 @@ export function GroupInfoPanel({
       </section>
 
       {onOpenAnnouncements ? (
-        <section className="weq-group-announcement" aria-label="群公告与待办">
-          <button type="button" onClick={onOpenAnnouncements} title="查看群公告与待办">
+        <section className="weq-group-announcement" aria-label="群公告">
+          <button type="button" onClick={onOpenAnnouncements} title="查看群公告">
             <span>
-              <strong>公告与待办</strong>
+              <strong>群公告</strong>
               <ChevronRight size={14} />
             </span>
-            <p>{announcement || '暂无公告内容，点击查看'}</p>
           </button>
+          <p tabIndex={0} aria-label="公告内容">
+            {announcement || '暂无群公告'}
+          </p>
+        </section>
+      ) : null}
+      {groupTodos ? (
+        <section className="weq-group-todos" aria-label="群待办">
+          <header className="group-info-heading">
+            <strong>群待办</strong>
+          </header>
+          <div className="weq-group-todos-body">{groupTodos}</div>
         </section>
       ) : null}
       {onOpenEssence || onOpenAlbums || onOpenFiles || onOpenSign ? (

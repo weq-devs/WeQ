@@ -1,0 +1,23 @@
+.group-info-panel.weq-group-sections { display: flex; flex-direction: column; gap: 10px; overflow: hidden; padding-top: 12px; }
+.weq-group-sections > .group-info-overview { flex: 0 1 auto; min-height: 26px; max-height: 22%; gap: 6px; overflow: hidden; }
+.weq-group-sections > .group-info-overview > .group-info-heading { flex-shrink: 0; }
+.weq-group-sections .group-info-meta-list { min-height: 0; overflow-y: auto; }
+.weq-group-sections > .weq-group-announcement { display: flex; flex-direction: column; gap: 6px; flex: 0 1 auto; min-height: 26px; max-height: 18%; padding: 0 14px; overflow: hidden; }
+.weq-group-sections > .weq-group-announcement > button { flex-shrink: 0; min-height: 26px; }
+.weq-group-sections > .weq-group-announcement > p { display: block; min-height: 0; margin: 0; overflow: auto; -webkit-line-clamp: unset; }
+.weq-group-todos { display: flex; flex-direction: column; gap: 6px; flex: 0 1 auto; min-height: 26px; max-height: 26%; overflow: hidden; }
+.weq-group-todos > .group-info-heading { flex-shrink: 0; }
+.weq-group-todos-body { min-height: 0; overflow: auto; padding: 0 14px; }
+.weq-group-todos-body > .weq-qq-actions { margin: 0; padding: 0; border: 0; font-size: 12px; }
+.weq-group-todos-body .weq-qq-action-list > li { gap: 5px; }
+.weq-group-todos-body .weq-set-iconbtn { flex-shrink: 0; width: 26px; height: 26px; }
+.weq-group-todos-body p { margin: 4px 0; }
+.weq-group-sections > .weq-group-content-actions { padding-top: 0; }
+.group-info-panel.weq-group-sections > .member-list-section { flex: 1 1 96px; min-height: 96px; margin-top: 0; gap: 6px; overflow: hidden; }
+.weq-group-sections .member-list-section > .group-info-heading, .weq-group-sections .member-list-section > .group-info-member-search { flex-shrink: 0; }
+.weq-group-sections .group-info-member-list { min-height: 0; overflow-y: auto; }
+.weq-group-sections .weq-group-announcement > button:focus-visible, .weq-group-sections .weq-group-announcement > p:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: -2px; }
+html[data-theme="dark"] .weq-group-sections { color: var(--weq-fg-primary); border-color: var(--weq-border-strong); }
+@media (max-width: 760px) {
+  .chat-pane.is-mobile-group-info-open > .group-info-panel.weq-group-sections { overflow: hidden; }
+}

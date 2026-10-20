@@ -99,6 +99,7 @@ export function ChatMainContent({
   onOpenGroupAlbums,
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
+  groupTodos,
   onOpenGroupSign,
   onOpenGroupEssence,
   onOpenGroupInfoDetail,
@@ -209,6 +210,7 @@ export function ChatMainContent({
   onOpenGroupAlbums?: (conversation: GroupConversation) => void;
   onOpenGroupFiles?: (conversation: GroupConversation) => void;
   onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
+  groupTodos?: React.ReactNode;
   onOpenGroupSign?: (conversation: GroupConversation) => void;
   onOpenGroupEssence?: (conversation: GroupConversation) => void;
   /** 群资料面板「群资料」入口：卡片本体在应用层（components/GroupInfoDetailDialog）。 */
@@ -329,6 +331,7 @@ export function ChatMainContent({
       onOpenGroupAlbums={onOpenGroupAlbums}
       onOpenGroupFiles={onOpenGroupFiles}
       onOpenGroupAnnouncements={onOpenGroupAnnouncements}
+      groupTodos={groupTodos}
       onOpenGroupSign={onOpenGroupSign}
       onOpenGroupEssence={onOpenGroupEssence}
       onOpenGroupInfoDetail={onOpenGroupInfoDetail}

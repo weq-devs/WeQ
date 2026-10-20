@@ -106,11 +106,11 @@ describe('群资料面板', () => {
     mountPanel();
     expect(document.querySelector('.group-info-member-row')?.textContent).toContain('测试成员');
   });
-  it('公告区域明确提供公告与待办的共同入口，复用原打开回调', () => {
+  it('公告区域保留独立入口，复用原打开回调', () => {
     const open = vi.fn();
     mountPanel(open);
-    const entry = document.querySelector<HTMLButtonElement>('[title="查看群公告与待办"]')!;
-    expect(entry.textContent).toContain('公告与待办');
+    const entry = document.querySelector<HTMLButtonElement>('[title="查看群公告"]')!;
+    expect(entry.textContent).toBe('群公告');
     act(() => entry.click());
     expect(open).toHaveBeenCalledOnce();
   });

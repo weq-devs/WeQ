@@ -79,6 +79,7 @@ import {
   type GroupBulletinWire,
 } from '../components/GroupAnnouncementsDialog';
 import { GroupSignDialog } from '../components/GroupSignDialog';
+import { GroupTodos } from '../components/qq-actions/GroupActions';
 import { ContactNoticeDialog, GroupNoticeDialog } from '../components/ContactNoticeDialogs';
 import { GroupInfoDetailDialog } from '../components/GroupInfoDetailDialog';
 import type { GroupInfoDetail } from '../im-template/template/conversationDetails';
@@ -8273,6 +8274,15 @@ export function MainView(): ReactElement {
                           onOpenGroupAlbums={handleOpenGroupAlbums}
                           onOpenGroupFiles={handleOpenGroupFiles}
                           onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
+                          groupTodos={
+                            selectedConversation?.type === 'group' ? (
+                              <GroupTodos
+                                key={`${noticeAccountKey}:${selectedConversation.id}`}
+                                groupId={Number(selectedConversation.group.identityValue)}
+                                embedded
+                              />
+                            ) : undefined
+                          }
                           onOpenGroupSign={handleOpenGroupSign}
                           onOpenGroupEssence={handleOpenGroupEssence}
                           onOpenGroupInfoDetail={handleOpenGroupInfoDetail}
