@@ -14,10 +14,13 @@ export function GraphCanvas({
   graph,
   selectedId,
   onSelect,
+  onOpenPerson,
 }: {
   graph: BuiltGraph;
   selectedId: string | null;
   onSelect: (node: GNode | null) => void;
+  /** 双击人节点：交给应用层打开资料卡。 */
+  onOpenPerson?: (node: GNode, anchor: { x: number; y: number }) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -403,6 +406,16 @@ export function GraphCanvas({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endPointer}
+      onDoubleClick={(e) => {
+        // 双击人节点打开资料卡（群节点没有资料卡，保持只做选中）。
+        if (!onOpenPerson) return;
+        const rect = wrapRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const hit = nodeAt(e.clientX - rect.left, e.clientY - rect.top);
+        if (hit && hit.kind === 'person' && hit.uin) {
+          onOpenPerson(hit, { x: e.clientX, y: e.clientY });
+        }
+      }}
       onPointerLeave={(e) => {
         endPointer(e);
         hoverRef.current = null;
@@ -423,6 +436,7 @@ export function GraphCanvas({
               <span>
                 {hoverNode.isFriend ? '好友' : '群友'} · 共 {hoverNode.groupCount} 群
                 {hoverNode.intimacy ? ` · 亲密度 ${hoverNode.intimacy}` : ''}
+                {onOpenPerson ? ' · 双击看资料' : ''}
               </span>
             ) : (
               <span>
