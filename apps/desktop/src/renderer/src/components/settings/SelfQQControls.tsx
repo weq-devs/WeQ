@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { ChevronDown, ImageUp, Loader2, RefreshCw, Save, Smile, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
+import { refreshUserAvatar } from '../../hooks/useAvatarUrl';
 import { Card, Row } from './controls';
 import { FacePicker } from '../compose/FacePicker';
 import { FaceEmoji } from '../FaceEmoji';
@@ -100,8 +101,14 @@ export function SelfQQControls() {
     setError('');
     try {
       const file = await picker.mutateAsync({ kind: 'image' });
-      if (file && currentIdentity.current === capturedIdentity)
-        await act((binding) => avatar.mutateAsync({ ...binding, source: file.path }), '头像');
+      if (file && currentIdentity.current === capturedIdentity) {
+        const saved = await act(
+          (binding) => avatar.mutateAsync({ ...binding, source: file.path }),
+          '头像',
+        );
+        if (saved && session.binding && currentIdentity.current === capturedIdentity)
+          refreshUserAvatar(session.binding.expectedAccountUin);
+      }
     } catch (cause) {
       if (currentIdentity.current === capturedIdentity)
         setError(cause instanceof Error ? cause.message : String(cause));
@@ -224,6 +231,9 @@ export function SelfQQControls() {
           </div>
         </Card>
         <Card title="QQ 状态">
+          {profile.data?.statusError && (
+            <p role="alert">状态读取失败：{profile.data.statusError}</p>
+          )}
           <LiveStatusReadout />
           {!profileFeedback && <QQWriteResult result={result} />}
           <QQWriteSelectRow

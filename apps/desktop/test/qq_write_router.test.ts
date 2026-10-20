@@ -205,6 +205,16 @@ describe('QQ 写 IPC 边界', () => {
     };
     await expect(f.caller.selfState(binding)).rejects.toThrow(/切换/);
   });
+  it('状态缓存解析失败不阻断资料读取，明确返回独立错误', async () => {
+    const f = fixture();
+    f.services.onlineStatus.getOnlineStatus = async () => {
+      throw new Error('premature EOF');
+    };
+    const state = await f.caller.selfState(binding);
+    expect(state.profile?.signature).toBe(self.signature);
+    expect(state.status).toBeNull();
+    expect(state.statusError).toBe('premature EOF');
+  });
 
   it('群昵称目标使用账号会话 UID，不依赖个人资料缓存已填充', async () => {
     const f = fixture();

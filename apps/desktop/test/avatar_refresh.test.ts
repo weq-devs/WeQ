@@ -2,7 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { QqAvatar } from '../src/renderer/src/components/QqAvatar';
-import { refreshGroupAvatar } from '../src/renderer/src/hooks/useAvatarUrl';
+import { refreshGroupAvatar, refreshUserAvatar } from '../src/renderer/src/hooks/useAvatarUrl';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -35,6 +35,35 @@ it('群头像改动仅刷新目标群，已挂载图片重置失败状态，不�
     expect(url.searchParams.get('fb')).toBe(source);
     expect(url.searchParams.get('_weq_avatar_remote')).toBe('1');
     expect(unchanged!.getAttribute('src')).toBe(otherBefore);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it('个人头像按 QQ 号刷新，与同号群头像隔离', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  act(() =>
+    root.render(
+      h(
+        'div',
+        null,
+        h(QqAvatar, { uin: '10001' }),
+        h(QqAvatar, { url: 'https://p.qlogo.cn/gh/10001/10001/0' }),
+      ),
+    ),
+  );
+  try {
+    const [user, group] = host.querySelectorAll('img');
+    const before = user!.getAttribute('src');
+    const groupBefore = group!.getAttribute('src');
+    act(() => refreshUserAvatar('10001'));
+    expect(user!.getAttribute('src')).not.toBe(before);
+    expect(user!.getAttribute('src')).toContain('_weq_avatar_remote=1');
+    expect(group!.getAttribute('src')).toBe(groupBefore);
   } finally {
     act(() => root.unmount());
     host.remove();

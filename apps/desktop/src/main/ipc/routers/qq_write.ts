@@ -86,9 +86,13 @@ export function createQQWriteRouter(
       const profile = await services.profile.getSelfProfile();
       if (profile && profile.uin.toString() !== identity.uin)
         throw new Error('资料缓存与当前账号不匹配');
-      const status = identity.uid
-        ? await services.onlineStatus.getOnlineStatus(identity.uid)
-        : null;
+      let status: Awaited<ReturnType<QQWriteServices['onlineStatus']['getOnlineStatus']>> = null;
+      let statusError: string | null = null;
+      try {
+        if (identity.uid) status = await services.onlineStatus.getOnlineStatus(identity.uid);
+      } catch (error) {
+        statusError = error instanceof Error ? error.message : String(error);
+      }
       if (read(input) !== services) throw new Error('账号已切换，请重新读取资料');
       return {
         profile: profile
@@ -101,6 +105,7 @@ export function createQQWriteRouter(
             }
           : null,
         status,
+        statusError,
         statusOptions: services.onlineStatus.editableStatuses(),
         source: 'qq-local-cache' as const,
         identity,
