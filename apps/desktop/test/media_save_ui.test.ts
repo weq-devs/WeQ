@@ -6,6 +6,12 @@ import { MediaSourceSave } from '../src/renderer/src/components/MediaSaveControl
 import { QqFile, QqVoice } from '../src/renderer/src/components/QqMedia';
 import { GroupFileDialog } from '../src/renderer/src/components/GroupFileDialog';
 import { ImageLightbox, openLightbox } from '../src/renderer/src/components/ImageLightbox';
+import { VideoLightbox } from '../src/renderer/src/components/VideoLightbox';
+import {
+  FlatMediaExplorer,
+  MonthMediaExplorer,
+} from '../src/renderer/src/views/cache/MediaResourceExplorers';
+import { localMediaUrl } from '../src/renderer/src/lib/resourceUrl';
 import { MessageContextMenu } from '../src/renderer/src/im-template/template/messageContextMenu';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
 import { makeSolidPng } from '@weq/protocol';
@@ -33,6 +39,7 @@ const state = vi.hoisted(() => ({
   toast: vi.fn(),
   open: vi.fn(),
   transcribe: vi.fn(),
+  cacheEntries: [] as unknown[],
   files: vi.fn(async (_input: unknown) => ({
     targetDirectory: '/',
     folders: [],
@@ -47,6 +54,17 @@ const state = vi.hoisted(() => ({
       },
     ],
   })),
+}));
+// 只替换缓存分页的数据边界，卡片、灯箱与公共保存控件走真实组件。
+vi.mock('../src/renderer/src/views/cache/CacheShared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/views/cache/CacheShared')>()),
+  useCursorPaged: () => ({
+    entries: state.cacheEntries,
+    loading: false,
+    error: null,
+    done: true,
+    sentinelRef: { current: null },
+  }),
 }));
 vi.mock('../src/renderer/src/components/qq-actions/GroupFileActions', () => ({
   GroupFileActions: () => null,
@@ -100,6 +118,7 @@ beforeEach(() => {
   state.web = false;
   state.configId = 'source-a';
   state.model = '';
+  state.cacheEntries = [];
   state.prepare.mockReset().mockResolvedValue({ mode: 'before', directory: 'selected' });
   state.save.mockReset().mockResolvedValue('media-task');
   state.receipt.mockReset().mockResolvedValue({ status: 'completed', error: undefined });
@@ -393,6 +412,87 @@ it('图片灯箱选择器取消后仍保留原图和缩放状态，不关闭浏�
     act(() => document.querySelector<HTMLButtonElement>('.weq-lightbox-close')?.click());
   }
 });
+it.each(['photoWall', 'qzone'] as const)('%s 缓存原有灯箱保存复用公共策略', async (kind) => {
+  state.cacheEntries = [{ rel: 'ab/photo', name: 'photo', size: 1024 }];
+  const view = await mount(h(FlatMediaExplorer, { kind }));
+  await mount(h(ImageLightbox));
+  act(() => view.host.querySelector<HTMLButtonElement>('.weq-cache-media-open')!.click());
+  try {
+    await click(document.body, '保存图片');
+    expect(state.save).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      source: { kind: 'url', url: localMediaUrl(kind, 'ab/photo'), name: 'photo' },
+      savePolicy: { mode: 'preset', directory: '/saved' },
+    });
+    expect(view.host.querySelector('.weq-media-save-controls')).toBeNull();
+  } finally {
+    act(() => document.querySelector<HTMLButtonElement>('.weq-lightbox-close')?.click());
+  }
+});
+it.each([true, false])('图片缓存保存保留原图优先及缩略图回退，原图=%s', async (hasOri) => {
+  const oriRel = '2026-01/Ori/photo';
+  const thumbRel = '2026-01/Thumb/photo';
+  state.cacheEntries = [
+    {
+      month: '2026-01',
+      hash: 'photo',
+      hasOri,
+      hasThumb: true,
+      oriRel: hasOri ? oriRel : null,
+      thumbRel,
+      oriBytes: hasOri ? 1024 : 0,
+      thumbBytes: 64,
+    },
+  ];
+  const view = await mount(h(MonthMediaExplorer, { kind: 'pic' }));
+  await mount(h(ImageLightbox));
+  act(() => view.host.querySelector<HTMLButtonElement>('.weq-cache-media-open')!.click());
+  try {
+    await click(document.body, '保存图片');
+    expect(state.save.mock.calls[0]![0]).toMatchObject({
+      source: { kind: 'url', url: localMediaUrl('pic', hasOri ? oriRel : thumbRel), name: 'photo' },
+    });
+  } finally {
+    act(() => document.querySelector<HTMLButtonElement>('.weq-lightbox-close')?.click());
+  }
+});
+it.each([true, false])(
+  '视频缓存只保存可播放原视频，不把封面新增为导出，原视频=%s',
+  async (hasOri) => {
+    const oriRel = '2026-01/Ori/clip.mp4';
+    state.cacheEntries = [
+      {
+        month: '2026-01',
+        hash: 'clip',
+        hasOri,
+        hasThumb: true,
+        oriRel: hasOri ? oriRel : null,
+        thumbRel: '2026-01/Thumb/clip.jpg',
+        oriBytes: hasOri ? 1024 : 0,
+        thumbBytes: 64,
+      },
+    ];
+    const view = await mount(h(MonthMediaExplorer, { kind: 'video' }));
+    await mount(h(VideoLightbox));
+    const button = view.host.querySelector<HTMLButtonElement>('.weq-cache-media-open')!;
+    expect(button.disabled).toBe(!hasOri);
+    act(() => button.click());
+    try {
+      if (hasOri) {
+        await click(document.body, '保存视频');
+        expect(state.save.mock.calls[0]![0]).toMatchObject({
+          source: { kind: 'url', url: localMediaUrl('video', oriRel), name: 'clip.mp4' },
+        });
+      } else {
+        expect(document.querySelector('.weq-lightbox-layer')).toBeNull();
+        expect(state.save).not.toHaveBeenCalled();
+      }
+    } finally {
+      act(() => document.querySelector<HTMLButtonElement>('.weq-lightbox-close')?.click());
+    }
+  },
+);
 it.each([false, true])('保存控件合成布局，Web=%s', async (web) => {
   state.web = web;
   state.model = 'synthetic';
