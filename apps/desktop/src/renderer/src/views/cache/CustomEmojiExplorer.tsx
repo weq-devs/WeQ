@@ -17,7 +17,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
-import { Search, Star } from 'lucide-react';
+import { Heart, Search, Star } from 'lucide-react';
 import type {
   CustomEmojiEntry,
   CustomEmojiScope,
@@ -30,6 +30,7 @@ import { ShimmerImage } from '../../components/ShimmerImage';
 import { BlobDialog, CURSOR_PAGE, fmtBytes, GridFooter, useCursorPaged } from './CacheShared';
 import { GridSkeleton, InlineSkeleton } from './CacheSkeleton';
 import { FavoriteActions } from '../../components/qq-actions/FavoriteActions';
+import { TabActivity } from '../../components/RetainedTabs';
 
 const SCOPE_META: Record<CustomEmojiScope, { label: string; icon: ReactElement }> = {
   recv: { label: '收到的表情', icon: <Search size={14} /> },
@@ -67,21 +68,28 @@ export function CustomEmojiExplorer(): ReactElement {
     [scopeList],
   );
 
-  const [active, setActive] = useState<CustomEmojiScope>('recv');
+  const [active, setActive] = useState<CustomEmojiScope | 'favorite'>('recv');
 
   // Auto-select the first present scope once the summary lands (if the current
   // one turned out empty).
   useEffect(() => {
-    if (presentScopes.length === 0) return;
+    if (presentScopes.length === 0 || active === 'favorite') return;
     if (!presentScopes.some((s) => s.scope === active)) {
       setActive(presentScopes[0]!.scope);
     }
   }, [presentScopes, active]);
 
   return (
-    <div className="weq-cache-avatar">
-      <FavoriteActions />
+    <div className="weq-cache-avatar weq-customemoji-explorer">
       <div className="weq-cache-avatar-tabs">
+        <button
+          type="button"
+          className={`weq-cache-avatar-tab${active === 'favorite' ? ' is-on' : ''}`}
+          onClick={() => setActive('favorite')}
+        >
+          <Heart size={14} />
+          <span>收藏表情</span>
+        </button>
         {(presentScopes.length > 0 ? presentScopes : scopeList).map((s) => (
           <button
             key={s.scope}
@@ -102,7 +110,12 @@ export function CustomEmojiExplorer(): ReactElement {
         ) : null}
       </div>
 
-      <CustomEmojiGrid key={active} scope={active} />
+      <TabActivity active={active === 'favorite'}>
+        <div hidden={active !== 'favorite'} className="weq-cache-avatar-scroll">
+          <FavoriteActions />
+        </div>
+      </TabActivity>
+      {active !== 'favorite' && <CustomEmojiGrid key={active} scope={active} />}
     </div>
   );
 }

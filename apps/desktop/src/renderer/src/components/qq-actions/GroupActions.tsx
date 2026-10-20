@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Check, LogOut, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 import '../../styles/group-content-management.css';
+import '../../styles/qq-management.css';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { GroupReadTools } from './GroupReadTools';
@@ -16,6 +17,7 @@ import {
 
 function GroupActionsBody({ groupId }: { groupId: number }) {
   const a = useQQAction(`group:${groupId}`);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [category, setCategory] = useState(''),
     [tag, setTag] = useState('');
   const tagsRefresh = useQQAutoRefresh(a.available && category !== '');
@@ -25,11 +27,26 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
   );
   return (
     <section className="weq-qq-actions" aria-label="更多 QQ 群操作">
-      <h4>群管理</h4>
+      <div className="weq-group-management-heading">
+        <h4>群管理</h4>
+        <button
+          type="button"
+          className="weq-set-iconbtn"
+          title="群管理菜单"
+          aria-label="群管理菜单"
+          disabled={a.disabled}
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            setMenu({ x: rect.left, y: rect.bottom });
+          }}
+        >
+          <MoreHorizontal size={16} />
+        </button>
+      </div>
       <div className="weq-qq-action-form">
         <GroupJoinSettings key={groupId} groupId={groupId} />
-        <details>
-          <summary>分类标签</summary>
+        <section className="weq-group-tags" aria-label="群分类标签">
+          <h5>分类标签</h5>
           <div className="weq-qq-action-form">
             <input
               aria-label="群分类编号"
@@ -101,26 +118,36 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
               ))}
             </ul>
           </div>
-        </details>
-        <div className="weq-qq-action-bar">
-          <ActionIcon
-            label="退出 QQ 群"
-            disabled={a.disabled}
-            onClick={() =>
-              void a.perform(
-                (b) =>
-                  client.account.qqActions.groupSettings.mutate({ ...b, groupId, action: 'leave' }),
-                undefined,
-                `退出 QQ 群 ${groupId}？重新加入需要再次申请，不能自动恢复。`,
-              )
-            }
-          >
-            <LogOut size={16} />
-          </ActionIcon>
-        </div>
+        </section>
         <ActionFeedback action={a} />
       </div>
       <GroupReadTools groupId={groupId} />
+      {menu && (
+        <ConversationActionsMenu
+          x={menu.x}
+          y={menu.y}
+          label="群管理菜单"
+          onClose={() => setMenu(null)}
+          actions={[
+            {
+              label: '退出 QQ 群',
+              icon: <LogOut size={16} />,
+              disabled: a.disabled,
+              action: () =>
+                void a.perform(
+                  (b) =>
+                    client.account.qqActions.groupSettings.mutate({
+                      ...b,
+                      groupId,
+                      action: 'leave',
+                    }),
+                  undefined,
+                  `退出 QQ 群 ${groupId}？重新加入需要再次申请，不能自动恢复。`,
+                ),
+            },
+          ]}
+        />
+      )}
     </section>
   );
 }

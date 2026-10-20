@@ -22,6 +22,7 @@ import type {
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { FavoriteActions } from '../src/renderer/src/components/qq-actions/FavoriteActions';
+import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { GroupJoinAction } from '../src/renderer/src/components/qq-actions/GroupJoinAction';
 import { GroupActions, GroupTodos } from '../src/renderer/src/components/qq-actions/GroupActions';
 import { GroupAnnouncementsDialog } from '../src/renderer/src/components/GroupAnnouncementsDialog';
@@ -227,6 +228,10 @@ function value(host: HTMLElement, label: string, next: string) {
     );
   });
 }
+const menuButton = (label: string) =>
+  [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+    (button) => button.textContent === label,
+  )!;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.configId = 'source-a';
@@ -1068,11 +1073,16 @@ describe('QQ 主动操作的实际界面', () => {
     expect(cards[3]!.textContent).toContain('过滤申请人');
     expect(cards[3]!.querySelector('[aria-label="拒绝申请"]')).not.toBeNull();
   });
-  it('收藏备注自动更新未编辑值，但不覆盖正在输入的草稿', () => {
+  it('收藏按行显示，备注按需编辑，自动更新不覆盖正在输入的草稿', async () => {
     const f = fixture(() => h(FavoriteActions));
     const input = () => f.host.querySelector<HTMLInputElement>('[aria-label="表情备注"]')!;
+    expect(input()).toBeNull();
+    expect(f.host.querySelector('details')).toBeNull();
     state.data.favorites = [{ emojiId: 'favorite-a', desc: '远端新备注', position: 1 }];
     f.update();
+    expect(f.host.textContent).toContain('远端新备注');
+    await act(async () => f.button('表情操作').click());
+    await act(async () => menuButton('修改表情备注').click());
     expect(input().value).toBe('远端新备注');
     value(f.host, '表情备注', '未保存草稿');
     state.data.favorites = [{ emojiId: 'favorite-a', desc: '另一端备注', position: 1 }];
@@ -1082,14 +1092,71 @@ describe('QQ 主动操作的实际界面', () => {
   });
   it('收藏备注可明确清空，排序边界不可点击', async () => {
     const f = fixture(() => h(FavoriteActions));
+    await act(async () => f.button('表情操作').click());
+    expect(menuButton('上移表情').disabled).toBe(true);
+    expect(menuButton('下移表情').disabled).toBe(true);
+    await act(async () => menuButton('修改表情备注').click());
     value(f.host, '表情备注', '');
-    expect(f.button('上移表情').disabled).toBe(true);
-    expect(f.button('下移表情').disabled).toBe(true);
     await act(async () => f.button('保存表情备注').click());
     expect(state.mutate).toHaveBeenCalledWith(
       'favorite',
       expect.objectContaining({ emojiId: 'favorite-a', action: 'rename', desc: '' }),
     );
+  });
+  it('收藏添加与退出操作按需展开，取消保留草稿且不写请求', async () => {
+    const f = fixture(() => h(FavoriteActions));
+    expect(f.button('选择图片')).toBeNull();
+    await act(async () => f.button('新建收藏表情').click());
+    await act(async () => f.button('选择图片').click());
+    state.confirm.mockResolvedValue(false);
+    await act(async () => f.button('取消添加表情').click());
+    expect(f.host.textContent).toContain('image.png');
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('群分类不再多层折叠，退群只放在群管理菜单', async () => {
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    expect(f.host.querySelector('[aria-label="群分类标签"]')).not.toBeNull();
+    expect(f.button('退出 QQ 群')).toBeNull();
+    await act(async () => f.button('群管理菜单').click());
+    expect(menuButton('退出 QQ 群')).toBeDefined();
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('收藏备注未知回执保留编辑草稿，取消也必须确认', async () => {
+    const f = fixture(() => h(FavoriteActions));
+    await act(async () => f.button('表情操作').click());
+    await act(async () => menuButton('修改表情备注').click());
+    value(f.host, '表情备注', '未确认的新备注');
+    state.mutate.mockResolvedValueOnce({ state: 'unconfirmed' });
+    await act(async () => f.button('保存表情备注').click());
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="表情备注"]')!.value).toBe(
+      '未确认的新备注',
+    );
+    state.confirm.mockResolvedValueOnce(false);
+    await act(async () => f.button('取消修改表情备注').click());
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="表情备注"]')!.value).toBe(
+      '未确认的新备注',
+    );
+    expect(state.mutate).toHaveBeenCalledTimes(1);
+  });
+  it('收藏页隐藏时关闭行菜单但保留草稿，同号切源后销毁旧草稿', async () => {
+    let active = true;
+    const f = fixture(() => h(TabActivity, { active }, h(FavoriteActions)));
+    await act(async () => f.button('表情操作').click());
+    await act(async () => menuButton('修改表情备注').click());
+    value(f.host, '表情备注', '旧来源草稿');
+    await act(async () => f.button('表情操作').click());
+    active = false;
+    f.update();
+    expect(f.host.querySelector('[role="menu"]')).toBeNull();
+    active = true;
+    f.update();
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="表情备注"]')!.value).toBe(
+      '旧来源草稿',
+    );
+    state.configId = 'source-b';
+    f.update();
+    expect(f.host.querySelector('[aria-label="表情备注"]')).toBeNull();
+    expect(state.mutate).not.toHaveBeenCalled();
   });
   it('加群显示问题，未填回答不能提交，确认后只发一次目标 token', async () => {
     const f = fixture(() => h(GroupJoinAction, { onClose: vi.fn() }));
