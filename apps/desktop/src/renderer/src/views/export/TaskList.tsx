@@ -89,7 +89,7 @@ function completionSummary(stages: UiStage[] | undefined): {
 }
 
 export interface UiTask {
-  resource?: { kind: 'group-albums' | 'group-files'; failed?: number };
+  resource?: import('@weq/service').ExportTask['resource'];
   save?: import('@weq/service').ExportSaveState;
   canResume?: boolean;
   resumeMode?: 'checkpoint' | 'restart';
@@ -155,6 +155,7 @@ function taskPct(t: UiTask): number {
 
 /** 任务类型标签（卡片 title / 详情 meta）。 */
 function taskTypeLabel(t: UiTask): string {
+  if (t.resource?.kind === 'database') return '数据库明文导出';
   if (t.resource) return t.resource.kind === 'group-albums' ? '群相册导出' : '群文件导出';
   if (t.isMarketPack) return '商城表情下载';
   if (t.isEmojiPack) return '导出表情包';

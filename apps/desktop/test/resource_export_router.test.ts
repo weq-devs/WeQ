@@ -3,12 +3,19 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ExportTaskManager } from '@weq/service';
-import type { MsgService, AlbumMediaPage } from '@weq/service';
+import type {
+  MsgService,
+  AlbumMediaPage,
+  DbDecryptOptions,
+  DbDecryptResult,
+  AccountDbFile,
+} from '@weq/service';
 import { accountRouter } from '../src/main/ipc/routers/account';
 
 const state = vi.hoisted(() => ({
   uin: '10001',
   configId: 'fixture-source',
+  failedDatabasePath: '',
   services: {} as object,
   download: vi.fn(async (_url: string, _path: string, _opts?: { signal?: AbortSignal }) => ({
     ok: true as boolean,
@@ -25,6 +32,22 @@ vi.mock('@weq/service', async (original) => ({
 }));
 const roots: string[] = [];
 let manager: ExportTaskManager;
+let databaseFiles: AccountDbFile[] = [];
+const decrypt = vi.fn(async (opts: DbDecryptOptions): Promise<DbDecryptResult[]> => {
+  opts.signal?.throwIfAborted();
+  return opts.items.map((item, index) => {
+    const outPath = join(opts.outputDir, item.name!);
+    writeFileSync(outPath, 'synthetic-plain-database');
+    opts.onProgress?.(index + 1, opts.items.length);
+    return {
+      name: item.name!,
+      dbPath: item.dbPath,
+      outPath,
+      ok: item.dbPath !== state.failedDatabasePath,
+      ...(item.dbPath === state.failedDatabasePath ? { error: '合成解密失败' } : {}),
+    };
+  });
+});
 const fileUrl = vi.fn(async (_group: number, id: string) => `https://synthetic.invalid/${id}`);
 const listRecursive = vi.fn(async () => []);
 const albums = vi.fn(
@@ -40,6 +63,12 @@ beforeEach(() => {
   manager = new ExportTaskManager({} as MsgService, join(root, 'cache'));
   state.uin = '10001';
   state.configId = 'fixture-source';
+  state.failedDatabasePath = '';
+  databaseFiles = ['msg.db', 'login.db'].map((name) => {
+    const path = join(root, name);
+    writeFileSync(path, 'synthetic-encrypted');
+    return { name, path, bytes: 19, kind: 'account' };
+  });
   state.services = {
     accountConfig: {
       getRecord: () => ({
@@ -53,6 +82,11 @@ beforeEach(() => {
     groupFile: { listRecursive },
     mediaUrl: { getGroupFileUrl: fileUrl },
     groupAlbumMedia: { getMediaList: albums },
+    dbDecrypt: {
+      listDatabases: async () => databaseFiles,
+      decryptDatabases: decrypt,
+      isQqLoggedIn: () => true,
+    },
   };
   state.download.mockImplementation(async (url, path, opts) => {
     opts?.signal?.throwIfAborted();
@@ -67,6 +101,67 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture-source' };
+it('单库后台解密使用真实 db 产物，按明确文件名保存且不改源库', async () => {
+  const target = join(roots[0]!, 'chosen.db');
+  const id = await accountRouter.createCaller({}).startDatabasePlainExport({
+    ...binding,
+    dbPaths: [databaseFiles[0]!.path],
+    mode: 'safe',
+    savePolicy: { mode: 'before', filePath: target },
+  });
+  await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
+  expect(manager.getTask(id)?.bundleDir).toBeUndefined();
+  expect(manager.getTask(id)?.resource?.output?.extension).toBe('db');
+  expect(readFileSync(target, 'utf8')).toBe('synthetic-plain-database');
+  expect(readFileSync(databaseFiles[0]!.path, 'utf8')).toBe('synthetic-encrypted');
+  expect(decrypt.mock.calls[0]![0]).toMatchObject({
+    mode: 'safe',
+    signal: expect.any(AbortSignal),
+  });
+});
+it('多库保留成功产物和失败清单，但不把失败解密的残留文件发布', async () => {
+  state.failedDatabasePath = databaseFiles[1]!.path;
+  const api = accountRouter.createCaller({});
+  const id = await api.startDatabasePlainExport({
+    ...binding,
+    dbPaths: databaseFiles.map((db) => db.path),
+    mode: 'fast',
+    savePolicy: { mode: 'after' },
+  });
+  await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
+  const task = manager.getTask(id)!;
+  expect(readdirSync(join(task.bundleDir!, 'files'))).toEqual(['msg.db']);
+  expect(task.resource?.failed).toBe(1);
+  expect(readFileSync(join(task.bundleDir!, 'resource-results.json'), 'utf8')).toContain(
+    '合成解密失败',
+  );
+  const failed = await api.startDatabasePlainExport({
+    ...binding,
+    dbPaths: [state.failedDatabasePath],
+    mode: 'safe',
+    savePolicy: { mode: 'after' },
+  });
+  await vi.waitFor(() => expect(manager.getTask(failed)?.status).toBe('failed'));
+  expect(manager.getTask(failed)?.filePath).toBeUndefined();
+  expect(manager.getTask(failed)?.error).toContain('合成解密失败');
+});
+it('明文任务与在线检查拒绝同号配置切换，范围外库不建任务', async () => {
+  const api = accountRouter.createCaller({});
+  await expect(
+    api.startDatabasePlainExport({
+      ...binding,
+      dbPaths: ['/synthetic/not-owned.db'],
+      mode: 'safe',
+    }),
+  ).rejects.toThrow('当前账号');
+  state.configId = 'other-source';
+  await expect(
+    api.startDatabasePlainExport({ ...binding, dbPaths: [databaseFiles[0]!.path], mode: 'safe' }),
+  ).rejects.toThrow('账号数据源已切换');
+  await expect(api.isQqLoggedIn(binding)).rejects.toThrow('账号数据源已切换');
+  expect(manager.listTasks()).toEqual([]);
+  expect(decrypt).not.toHaveBeenCalled();
+});
 it('群文件入口固定精确选择，在任务私有缓存下载并保留部分失败，不递归扩大范围', async () => {
   const files = [
     { fileId: 'one', fileName: 'export-report.json', path: ['folder'] },

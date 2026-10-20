@@ -16,6 +16,60 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('独立资源沿用导出任务生命周期', () => {
+  it('单资源文件按真实扩展名保存并保留缓存，删除任务清理自己的整份缓存', async () => {
+    const f = fixture(),
+      target = join(f.root, 'chosen.db');
+    const id = await f.manager.startResourceExport({
+      name: '合成数据库',
+      kind: 'database',
+      output: { kind: 'file', name: '合成数据库', extension: 'db' },
+      savePolicy: { mode: 'before', filePath: target },
+      run: async ({ directory }) => {
+        writeFileSync(join(directory, 'fixture.db'), 'synthetic-db');
+        return { total: 1, ok: 1, failed: [], fileName: 'fixture.db' };
+      },
+    });
+    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    const task = f.manager.getTask(id)!;
+    expect(task.bundleDir).toBeUndefined();
+    expect(task.filePath?.endsWith('.db')).toBe(true);
+    expect(readFileSync(target, 'utf8')).toBe('synthetic-db');
+    const restored = new ExportTaskManager({} as MsgService, f.cache);
+    expect(restored.getTask(id)?.resource?.output).toEqual({
+      kind: 'file',
+      name: '合成数据库',
+      extension: 'db',
+    });
+    const directory = task.resource!.cacheDirectory!;
+    expect(restored.deleteTask(id)).toBe(true);
+    expect(readdirSync(f.cache)).not.toContain(directory.split('/').at(-1));
+    expect(readFileSync(target, 'utf8')).toBe('synthetic-db');
+  });
+  it('单文件声明不能掩盖额外产物、缺失文件或下载失败', async () => {
+    const f = fixture();
+    for (const problem of ['extra', 'missing', 'failed']) {
+      const id = await f.manager.startResourceExport({
+        name: problem,
+        kind: 'database',
+        output: { kind: 'file', name: problem, extension: 'db' },
+        savePolicy: { mode: 'after' },
+        run: async ({ directory }) => {
+          if (problem !== 'missing') writeFileSync(join(directory, 'one.db'), 'one');
+          if (problem === 'extra') writeFileSync(join(directory, 'extra.bin'), 'extra');
+          return problem === 'failed'
+            ? {
+                total: 1,
+                ok: 0,
+                failed: [{ fileName: 'one.db', error: 'failed' }],
+                fileName: 'one.db',
+              }
+            : { total: 1, ok: 1, failed: [], fileName: 'one.db' };
+        },
+      });
+      await vi.waitFor(() => expect(f.manager.getTask(id)?.status).toBe('failed'));
+      expect(f.manager.getTask(id)?.filePath).toBeUndefined();
+    }
+  });
   it('删除尚未运行的排队任务后不会继续下载或重新生成结果', async () => {
     const f = fixture();
     let release!: () => void;

@@ -1666,7 +1666,11 @@ export function ExportTool({
                 />
               ) : mode === 'database' ? (
                 accountUin ? (
-                  <DatabasePlainExport key={accountUin} accountUin={accountUin} />
+                  <DatabasePlainExport
+                    key={accountUin}
+                    accountUin={accountUin}
+                    onStarted={refetchTasks}
+                  />
                 ) : (
                   <div role="status">请先进入账号</div>
                 )

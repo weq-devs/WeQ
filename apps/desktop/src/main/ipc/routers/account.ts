@@ -26,7 +26,7 @@ import {
   PROJECT_GROUP_SHARE_URL,
 } from '../../../shared/project_groups';
 import { observable } from '@trpc/server/observable';
-import { mkdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, stat, lstat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
@@ -4795,8 +4795,11 @@ export const accountRouter = router({
   }),
 
   /** True when QQ currently reports this account as logged in. */
-  isQqLoggedIn: procedure.query(() => {
-    return requireServices().dbDecrypt.isQqLoggedIn();
+  isQqLoggedIn: procedure.input(exportAccountBindingInput.optional()).query(({ input }) => {
+    return requireExpectedAccount(
+      input?.expectedAccountUin,
+      input?.expectedAccountConfigId,
+    ).dbDecrypt.isQqLoggedIn();
   }),
 
   /** Folder dialog for decrypted database output. */
@@ -4817,6 +4820,88 @@ export const accountRouter = router({
       return { ...result, ...(download ? { downloadUrl: download.url } : {}) };
     });
   }),
+
+  startDatabasePlainExport: procedure
+    .input(
+      generatedAccountInput.extend({
+        dbPaths: z.array(z.string().min(1)).min(1),
+        mode: z.enum(['safe', 'fast']),
+        savePolicy: exportSavePolicyInput.optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const listed = await services.dbDecrypt.listDatabases();
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换，请重新选择数据库。');
+      const allowed = new Map(listed.map((db) => [db.path, db]));
+      const names = new Set<string>();
+      const items = [...new Set(input.dbPaths)].map((path) => {
+        const db = allowed.get(path);
+        if (!db) throw new Error('数据库不在当前账号目录下，请刷新后重选。');
+        return {
+          dbPath: db.path,
+          name: uniqueFilename(sanitizePathSegment(db.name, 'database.db'), names),
+        };
+      });
+      const single = items.length === 1;
+      const name = single ? items[0]!.name.replace(/\.db$/i, '') : '数据库明文';
+      return services.exportManager.startResourceExport({
+        name,
+        kind: 'database',
+        savePolicy: input.savePolicy,
+        ...(single ? { output: { kind: 'file' as const, name, extension: 'db' } } : {}),
+        run: async (context) => {
+          if (
+            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+            services
+          )
+            throw new Error('账号或数据源已切换，请重新选择数据库。');
+          context.signal.throwIfAborted();
+          assertDestinationCapacity(
+            join(context.directory, 'database'),
+            items.map((item) => item.dbPath),
+          );
+          const receipts = await services.dbDecrypt.decryptDatabases({
+            items,
+            outputDir: context.directory,
+            mode: input.mode,
+            concurrency: 3,
+            signal: context.signal,
+            onProgress: context.progress,
+          });
+          context.signal.throwIfAborted();
+          const failed: Array<{ fileName: string; error: string }> = [];
+          let ok = 0;
+          for (const receipt of receipts) {
+            if (dirname(receipt.outPath) !== context.directory)
+              throw new Error('解密器返回了不属于本次任务的输出位置。');
+            const info = await lstat(receipt.outPath).catch(() => null);
+            if (receipt.ok && info?.isFile() && info.size > 0) ok += 1;
+            else {
+              await unlink(receipt.outPath).catch((error) => {
+                if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+              });
+              failed.push({
+                fileName: receipt.name,
+                error: receipt.error || '解密器没有生成有效文件。',
+              });
+            }
+          }
+          return {
+            total: items.length,
+            ok,
+            failed,
+            ...(single && ok === 1 ? { fileName: basename(receipts[0]!.outPath) } : {}),
+          };
+        },
+      });
+    }),
 
   // ---- 外部站点跳转（QQ 空间 / QQ 频道，网页版用） ----
 

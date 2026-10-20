@@ -6,6 +6,24 @@ import {
 } from '../src/main/ipc/routers/export_save';
 
 describe('导出下载文件名', () => {
+  it('独立单文件按资源扩展名选择与下载，不沿用占位 JSON 格式', async () => {
+    const task = {
+      id: 'resource',
+      name: '合成库',
+      format: 'json',
+      resource: {
+        kind: 'database' as const,
+        output: { kind: 'file' as const, name: '合成库', extension: 'db' },
+      },
+    };
+    expect(exportDownloadName(task)).toBe('合成库.db');
+    const host = {
+      pickDirectory: vi.fn(async () => null),
+      pickSaveTarget: vi.fn(async () => null),
+    };
+    await pickExportOutputDestination(task, host);
+    expect(host.pickSaveTarget).toHaveBeenCalledWith({ defaultName: '合成库.db', extension: 'db' });
+  });
   it('保存等待前后核对账号、配置与服务实例，纯全局选择不要求已登录账号', () => {
     let context = { uin: '10001', configId: 'source-a', services: {} };
     const original = context;

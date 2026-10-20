@@ -16,7 +16,15 @@
 
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import { readFileSync, existsSync, mkdirSync, unlinkSync, rmSync } from 'node:fs';
+import {
+  readFileSync,
+  existsSync,
+  mkdirSync,
+  unlinkSync,
+  rmSync,
+  readdirSync,
+  lstatSync,
+} from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import type { MsgService } from '../msg';
@@ -60,6 +68,7 @@ import {
   exportOutputFileName,
   type ExportOutputPlan,
   type ExportOutputCapabilities,
+  type ExportOutputShape,
 } from './output_shape';
 import { writeFileAtomicSync } from '../../common/atomic_write';
 import {
@@ -310,7 +319,12 @@ export interface MediaExportOptions {
 
 export interface ExportTask {
   /** 独立资源任务；下载运行器仅存在于当前进程，重启后保留结果但不冒称可续传。 */
-  resource?: { kind: 'group-albums' | 'group-files'; failed?: number };
+  resource?: {
+    kind: 'group-albums' | 'group-files' | 'database';
+    failed?: number;
+    output?: Extract<ExportOutputShape, { kind: 'file' }>;
+    cacheDirectory?: string;
+  };
   save?: ExportSaveState;
   resumeBinding?: { source: string; options: string; roaming?: string };
   formatCheckpoints?: Record<
@@ -390,6 +404,7 @@ export interface TaskProgress {
 }
 
 export interface ResourceExportSummary {
+  fileName?: string;
   total: number;
   ok: number;
   failed: Array<{ fileName: string; error: string }>;
@@ -625,16 +640,18 @@ export class ExportTaskManager extends EventEmitter {
           task.resource
         ? 'bundle'
         : 'messages';
-    const output = this.getOutputShape({
-      kind,
-      name: task.name,
-      format: task.format,
-      formats: task.formats,
-      contactScope: task.contacts?.scope,
-      exportAvatar: task.exportAvatar,
-      media: task.media,
-      dress: task.dress,
-    });
+    const output =
+      task.resource?.output ??
+      this.getOutputShape({
+        kind,
+        name: task.name,
+        format: task.format,
+        formats: task.formats,
+        contactScope: task.contacts?.scope,
+        exportAvatar: task.exportAvatar,
+        media: task.media,
+        dress: task.dress,
+      });
     if (resolved.filePath) {
       if (output.kind === 'directory') throw new Error('本次结果包含多个文件，请选择保存文件夹。');
     }
@@ -1215,21 +1232,32 @@ export class ExportTaskManager extends EventEmitter {
     name: string;
     kind: NonNullable<ExportTask['resource']>['kind'];
     savePolicy?: ExportSavePolicy;
+    output?: Extract<ExportOutputShape, { kind: 'file' }>;
     run(context: ResourceExportRunContext): Promise<ResourceExportSummary>;
   }): Promise<string> {
     const id = `resource-${randomUUID()}`;
+    const output = opts.output ? structuredClone(opts.output) : undefined;
+    if (output) exportOutputFileName(output);
     const task: ExportTask = {
       id,
       kind: 'c2c',
       conv: opts.kind,
       name: opts.name,
       format: 'json',
-      resource: { kind: opts.kind },
+      resource: { kind: opts.kind, ...(output ? { output } : {}) },
       status: 'pending',
       progress: 0,
       current: 0,
       total: 0,
-      stages: [{ key: 'file', label: '下载资源', status: 'pending', current: 0, total: 0 }],
+      stages: [
+        {
+          key: 'file',
+          label: opts.kind === 'database' ? '解密数据库' : '下载资源',
+          status: 'pending',
+          current: 0,
+          total: 0,
+        },
+      ],
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -1271,7 +1299,7 @@ export class ExportTaskManager extends EventEmitter {
             status: task.status,
             progress: task.progress,
             current,
-            message: `已下载 ${current}/${total}`,
+            message: `已处理 ${current}/${total}`,
           });
         },
       });
@@ -1284,20 +1312,46 @@ export class ExportTaskManager extends EventEmitter {
         summary.total !== summary.ok + summary.failed.length
       )
         throw new Error('资源下载计数不完整，未发布结果。');
-      writeFileAtomicSync(
-        join(bundle.stageDir, 'resource-results.json'),
-        JSON.stringify(
-          {
-            total: summary.total,
-            ok: summary.ok,
-            failed: summary.failed.map(({ fileName, error }) => ({ fileName, error })),
-          },
-          null,
-          2,
-        ),
-      );
+      const output = task.resource?.output;
+      if (output) {
+        if (
+          summary.total !== 1 ||
+          summary.ok !== 1 ||
+          summary.failed.length ||
+          !summary.fileName ||
+          basename(summary.fileName) !== summary.fileName ||
+          summary.fileName === '.' ||
+          summary.fileName === '..'
+        )
+          throw new Error(
+            summary.failed[0]?.error
+              ? `单文件资源生成失败：${summary.failed[0].error}`
+              : '单文件资源未成功生成，不能作为完整文件发布。',
+          );
+        const entries = readdirSync(directory);
+        if (
+          entries.length !== 1 ||
+          entries[0] !== summary.fileName ||
+          !lstatSync(join(directory, summary.fileName)).isFile()
+        )
+          throw new Error('单文件资源缺失或包含额外产物，未发布结果。');
+      } else
+        writeFileAtomicSync(
+          join(bundle.stageDir, 'resource-results.json'),
+          JSON.stringify(
+            {
+              total: summary.total,
+              ok: summary.ok,
+              failed: summary.failed.map(({ fileName, error }) => ({ fileName, error })),
+            },
+            null,
+            2,
+          ),
+        );
       bundle.publish();
-      task.bundleDir = bundle.finalDir;
+      task.resource!.cacheDirectory = bundle.finalDir;
+      if (output) task.filePath = join(bundle.finalDir, 'files', summary.fileName!);
+      else task.bundleDir = bundle.finalDir;
       task.current = stage.current = summary.ok;
       task.total = stage.total = summary.total;
       task.resource!.failed = stage.failed = summary.failed.length;
@@ -1313,7 +1367,7 @@ export class ExportTaskManager extends EventEmitter {
       if (abort.signal.aborted) {
         if (task.status === 'running') task.status = 'paused';
         stage.status = 'pending';
-        task.error = '资源下载已中断；尚未生成完整结果，请重新选择资源创建任务。';
+        task.error = '资源处理已中断；尚未生成完整结果，请重新选择资源创建任务。';
       } else {
         task.status = 'failed';
         stage.status = 'failed';
@@ -4465,6 +4519,10 @@ export class ExportTaskManager extends EventEmitter {
   /** Remove a task's on-disk output (the whole bundle folder, or the lone file). */
   private cleanupOutput(task: ExportTask): void {
     try {
+      if (task.resource?.cacheDirectory === join(this.cacheDir, `bundle-${task.id}`)) {
+        rmSync(task.resource.cacheDirectory, { recursive: true, force: true });
+        return;
+      }
       if (task.generated)
         rmSync(
           join(this.cacheDir, `generated-resources-${sanitizeSegment(task.id, 'generated')}`),
@@ -4484,6 +4542,9 @@ export class ExportTaskManager extends EventEmitter {
         const cachedReport = join(this.cacheDir, `report-${task.id}.json`);
         if (existsSync(cachedReport)) unlinkSync(cachedReport);
       }
+      const resourceReport = join(this.cacheDir, `report-${task.id}.json`);
+      if (task.resource && task.reportPath === resourceReport && existsSync(resourceReport))
+        unlinkSync(resourceReport);
     } catch {}
   }
 

@@ -8,9 +8,11 @@ import '../styles/export-save-actions.css';
 export function ExportSaveActions({
   disabled = false,
   onSelect,
+  label = '本次保存选项',
 }: {
   disabled?: boolean;
   onSelect: (policy: ExportSavePolicy) => void;
+  label?: string;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   return (
@@ -18,8 +20,8 @@ export function ExportSaveActions({
       <button
         type="button"
         className="weq-save-options"
-        aria-label="本次保存选项"
-        title="本次保存选项"
+        aria-label={label}
+        title={label}
         aria-haspopup="menu"
         aria-expanded={Boolean(menu)}
         disabled={disabled}
@@ -34,7 +36,7 @@ export function ExportSaveActions({
         <ConversationActionsMenu
           x={menu.x}
           y={menu.y}
-          label="本次保存选项"
+          label={label}
           onClose={() => setMenu(null)}
           actions={[
             {

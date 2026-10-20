@@ -17,9 +17,11 @@ import {
 } from '@weq/service';
 
 export function exportDownloadName(
-  task: Pick<ExportTask, 'id' | 'name' | 'format' | 'bundleDir'>,
+  task: Pick<ExportTask, 'id' | 'name' | 'format' | 'bundleDir' | 'resource'>,
 ): string {
-  const extension = task.bundleDir ? 'zip' : task.format === 'vcard' ? 'vcf' : task.format;
+  const extension = task.bundleDir
+    ? 'zip'
+    : (task.resource?.output?.extension ?? (task.format === 'vcard' ? 'vcf' : task.format));
   return `${sanitizeSegment(task.name, task.id, { maxLen: 120 })}.${extension}`;
 }
 
@@ -149,7 +151,7 @@ export function bindExportSaveRequest(
 
 /** 完成后的另存只根据真实产物选择系统文件框或目录框。 */
 export async function pickExportOutputDestination(
-  task: Pick<ExportTask, 'id' | 'name' | 'format' | 'bundleDir'>,
+  task: Pick<ExportTask, 'id' | 'name' | 'format' | 'bundleDir' | 'resource'>,
   host: Pick<HostBridge, 'exportRoot' | 'pickDirectory' | 'pickSaveTarget'>,
 ): Promise<ExportSavePolicy | null> {
   if (task.bundleDir || host.exportRoot) {
@@ -160,7 +162,7 @@ export async function pickExportOutputDestination(
   }
   const selected = await host.pickSaveTarget({
     defaultName: exportDownloadName(task),
-    extension: task.format === 'vcard' ? 'vcf' : task.format,
+    extension: task.resource?.output?.extension ?? (task.format === 'vcard' ? 'vcf' : task.format),
   });
   return selected ? { mode: 'before', filePath: selected.path } : null;
 }

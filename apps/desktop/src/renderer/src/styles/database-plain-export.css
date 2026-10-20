@@ -371,6 +371,7 @@
 }
 
 .weq-db-actionbar-summary {
+  margin-right: auto;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--weq-fg-secondary);
@@ -381,6 +382,13 @@
   display: flex;
   flex: none;
   gap: 8px;
+}
+
+.weq-db-export-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
 }
 
 .weq-db-export {
@@ -508,6 +516,10 @@ html[data-theme="dark"] .weq-db-actionbar {
   }
   .weq-db-actionbar-buttons {
     width: 100%;
+    flex-wrap: wrap;
+  }
+  .weq-db-export-group {
+    flex: 1 1 150px;
   }
   .weq-db-export {
     flex: 1;
