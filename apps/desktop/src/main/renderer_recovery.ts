@@ -9,6 +9,10 @@ const EXIT_REASONS = new Set([
   'memory-eviction',
 ]);
 
+export function normalizeRendererExitReason(reason: string): string {
+  return EXIT_REASONS.has(reason) ? reason : 'unknown';
+}
+
 /** 原生提示的状态独立于 renderer；重载只由用户选择触发。 */
 export function createRendererRecovery(options: {
   unavailable(): boolean;
@@ -60,7 +64,7 @@ export function createRendererRecovery(options: {
     gone(details: { reason: string; exitCode: number }) {
       if (disposed) return;
       options.record('gone', {
-        reason: EXIT_REASONS.has(details.reason) ? details.reason : 'unknown',
+        reason: normalizeRendererExitReason(details.reason),
         exitCode: details.exitCode,
       });
       if (!crashed) generation += 1;

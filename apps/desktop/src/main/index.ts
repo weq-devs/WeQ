@@ -58,6 +58,7 @@ import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
 import { createMainWindowLifecycle } from './main_window_lifecycle';
 import { createRendererRecovery } from './renderer_recovery';
+import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
 import { macApplicationMenu, nativeMenuLabels } from './application_menu';
 import { registerEditUndoIpc, undoFocusedContent } from './edit_undo';
 import { registerAttachHintIpc } from './attach_hint_ipc';
@@ -116,6 +117,7 @@ let tray: Tray | null = null;
 /** Set true right before a *real* quit so the `close` handler stops intercepting
  *  and lets the window actually close (托盘退出 / 确认框「完全退出」/ before-quit). */
 let isQuitting = false;
+let stopRendererDiagnostics: (() => void) | null = null;
 
 const mainWindowLifecycle = createMainWindowLifecycle({
   canOpen: () => mainIpcHandler !== null && !isQuitting,
@@ -750,6 +752,15 @@ void app.whenReady().then(async () => {
   setHost(electronHost);
   installUpdateActions();
   initAppContext();
+  const logDirectory = getLogDir();
+  if (logDirectory)
+    stopRendererDiagnostics = startRendererDiagnostics({
+      directory: logDirectory,
+      mainWebContentsId: () => {
+        const window = getMainWindow();
+        return window && !window.isDestroyed() ? window.webContents.id : undefined;
+      },
+    });
   // 链接卡片抓不到 og:image 时的兜底封面。截图要跑一个真浏览器，服务层不认识
   // Electron，所以实现在这里注入（app_context 保持 Electron-free，web 端共用它）。
   getAppContext().bootstrap?.linkPreview.setScreenshotHook(screenshotPage);
@@ -853,6 +864,8 @@ app.on('window-all-closed', () => {
 // flip the flag so the `close` handler stops intercepting, and drop the tray.
 app.on('before-quit', () => {
   isQuitting = true;
+  stopRendererDiagnostics?.();
+  stopRendererDiagnostics = null;
   try {
     getAppContext().services?.roamingBackfill.dispose();
   } catch (error) {

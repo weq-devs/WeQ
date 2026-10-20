@@ -14,6 +14,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
 import { createRequire } from 'node:module';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
+import { installRendererDiagnosticSampling } from './renderer_diagnostics';
 
 // Same CJS workaround as src/main/index.ts — electron-trpc 0.7's ESM
 // build statically imports `ipcMain` from 'electron', which is not
@@ -24,6 +25,8 @@ const { exposeElectronTRPC } = requireFromHere(
 ) as typeof import('electron-trpc/main');
 
 exposeElectronTRPC();
+
+installRendererDiagnosticSampling();
 
 let undoHandler: (() => boolean) | undefined;
 ipcRenderer.on('edit:undo', () => {
