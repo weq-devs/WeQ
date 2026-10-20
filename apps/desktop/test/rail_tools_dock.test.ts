@@ -12,10 +12,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mount(docked = false) {
+function mount(docked?: boolean, storage = new Storage()) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  const storage = new Storage();
-  if (docked) storage.setItem('weq:tools-docked', 'true');
+  if (docked !== undefined) storage.setItem('weq:tools-docked', String(docked));
   vi.stubGlobal('localStorage', storage);
   const host = document.createElement('div');
   document.body.append(host);
@@ -62,6 +61,45 @@ function pointer(button: Element, name: string, x: number, y: number) {
 }
 
 describe('左栏快捷控制与工具吸附', () => {
+  it('没有布局偏好时默认吸附', () => {
+    const f = mount();
+    try {
+      const tools = document.querySelector<HTMLElement>('.weq-floating-tools')!;
+      expect(tools.classList.contains('is-docked')).toBe(true);
+      expect(tools.style.left).toBe('10px');
+      expect(tools.style.top).toBe('590px');
+    } finally {
+      f.close();
+    }
+  });
+  it.each([false, true])('拖动后重新挂载恢复位置与吸附状态：%s', (dockAgain) => {
+    const f = mount(true);
+    const storage = f.storage;
+    try {
+      const button = document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!;
+      pointer(button, 'pointerdown', 32, 610);
+      pointer(button, 'pointermove', 430, 300);
+      pointer(button, 'pointerup', 430, 300);
+      if (dockAgain) {
+        pointer(button, 'pointerdown', 430, 300);
+        pointer(button, 'pointermove', 32, 610);
+        pointer(button, 'pointerup', 32, 610);
+      }
+      expect(storage.getItem('weq:tools-docked')).toBe(String(dockAgain));
+    } finally {
+      f.close();
+    }
+    const restored = mount(undefined, storage);
+    try {
+      const tools = document.querySelector<HTMLElement>('.weq-floating-tools')!;
+      const position = JSON.parse(storage.getItem('weq:tools-position')!);
+      expect(tools.classList.contains('is-docked')).toBe(dockAgain);
+      expect(tools.style.left).toBe(`${dockAgain ? 10 : position.x}px`);
+      expect(tools.style.top).toBe(`${dockAgain ? 590 : position.y}px`);
+    } finally {
+      restored.close();
+    }
+  });
   it.each([false, true])('停靠图标与快捷控制同尺寸，浮动时保留原尺寸：%s', (docked) => {
     const f = mount(docked);
     try {

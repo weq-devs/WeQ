@@ -26,9 +26,9 @@ const POSITION_KEY = 'weq:tools-position';
 const DOCK_KEY = 'weq:tools-docked';
 function initialDocked() {
   try {
-    return window.localStorage.getItem(DOCK_KEY) === 'true';
+    return window.localStorage.getItem(DOCK_KEY) !== 'false';
   } catch {
-    return false;
+    return true;
   }
 }
 function viewport() {
