@@ -47,8 +47,10 @@ export interface IntentSenseContextValue {
   isUnavailable: (msgId: string) => boolean;
   /** 悬停未命中时单条触发（带去重：同一消息本会话只发一次）。 */
   requestAnalysis: (msgId: string) => void;
-  /** 最新一条对方消息 id（常驻胶囊只挂在它下面）。 */
+  /** 当前回复目标；最新有效消息来自自己时为空。 */
   latestPeerMsgId: string | null;
+  /** 最新可分析文本（包含自己），作为常驻胶囊与增量分析目标。 */
+  latestMessageId: string | null;
   /** 本轮 ensureAnalysis 已跑完（无结果的消息不再显示加载占位）。 */
   settled: boolean;
   /** 会话类型与 id（消费组件回传后端用）。 */
@@ -77,13 +79,18 @@ export function IntentSenseProvider({
   kind,
   conv,
   latestPeerMsgId,
+  latestMessageId,
   children,
 }: {
   kind: 'c2c' | 'group';
   conv: string;
   latestPeerMsgId: string | null;
+  latestMessageId?: string | null;
   children: ReactNode;
 }) {
+  const analysisMessageId = latestMessageId === undefined ? latestPeerMsgId : latestMessageId;
+  const peerTarget = useRef(latestPeerMsgId);
+  peerTarget.current = latestPeerMsgId;
   const utils = trpc.useUtils();
   const analysesRef = useRef(new Map<string, IntentAnalysis>());
   const requestedRef = useRef(new Set<string>());
@@ -122,8 +129,42 @@ export function IntentSenseProvider({
     unavailableRef.current.clear();
   }
 
-  // 会话打开或切换引擎：拉齐缓存 + 后台增量补分析。本轮跑完置 settled —— 没出结果的
-  // 消息不再显示加载占位（引擎不可用 / 纯媒体消息 / 分析失败都不再永挂 shimmer）。
+  const requestAnalysis = useCallback(
+    (msgId: string) => {
+      const expected = `${kind}:${conv}:${engineKey}`;
+      if (prevConvKeyRef.current !== expected) return;
+      if (
+        analysesRef.current.has(msgId) ||
+        requestedRef.current.has(msgId) ||
+        unavailableRef.current.has(msgId)
+      )
+        return;
+      requestedRef.current.add(msgId);
+      return client.account.intentSense.analyzeMessage
+        .mutate({ kind, conv, msgId })
+        .then((result) => {
+          if (prevConvKeyRef.current !== expected) return false;
+          requestedRef.current.delete(msgId);
+          if (result) {
+            merge([result as IntentAnalysis]);
+            return true;
+          }
+          unavailableRef.current.add(msgId);
+          bump();
+          return false;
+        })
+        .catch(() => {
+          if (prevConvKeyRef.current !== expected) return false;
+          requestedRef.current.delete(msgId);
+          unavailableRef.current.add(msgId);
+          bump();
+          return false;
+        });
+    },
+    [kind, conv, engineKey, merge, bump],
+  );
+
+  // 会话或配置变化时拉齐缓存；增量分析由下方独立目标驱动。
   useEffect(() => {
     if (!effective || !conv) return;
     let disposed = false;
@@ -136,41 +177,57 @@ export function IntentSenseProvider({
       .catch(() => {
         /* 无账号会话等场景静默 */
       });
+    return () => {
+      disposed = true;
+    };
+  }, [kind, conv, effective, engineKey, merge]);
+
+  // 最新可分析文本包含自己；只有当前仍在等待对方回复时刷新建议。
+  useEffect(() => {
+    if (!effective || !conv) return;
+    let disposed = false;
+    const expected = `${kind}:${conv}:${engineKey}`;
+    setSettled(false);
     void client.account.intentSense.ensureAnalysis
       .mutate({ kind, conv })
-      .then((stats) => {
-        if (!disposed && stats && stats.analyzed > 0) {
+      .then(async (stats) => {
+        if (disposed || prevConvKeyRef.current !== expected) return;
+        if (stats?.skipped || stats?.error) {
+          void utils.account.intentSense.getStatus.invalidate();
+          return;
+        }
+        let extra = false;
+        if (
+          analysisMessageId &&
+          stats &&
+          !stats.error &&
+          !stats.skipped &&
+          (stats.failed ?? 0) === 0 &&
+          stats.latestMsgId !== analysisMessageId &&
+          !analysesRef.current.has(analysisMessageId)
+        ) {
+          extra = (await requestAnalysis(analysisMessageId)) === true;
+        }
+        if (disposed || prevConvKeyRef.current !== expected) return;
+        const extraPeer =
+          extra && analysisMessageId && analysesRef.current.get(analysisMessageId)?.mine === false;
+        if ((stats?.peerAnalyzed ?? stats?.analyzed ?? 0) > 0 || extraPeer) {
           if (kind === 'c2c') {
             void utils.account.intentSense.getProfile.invalidate({ peerUid: conv });
           }
-          void utils.account.intentSense.getSuggestions.invalidate({ kind, conv });
+          if (peerTarget.current)
+            void utils.account.intentSense.getSuggestions.invalidate({ kind, conv });
         }
         void utils.account.intentSense.getStatus.invalidate();
       })
       .catch(() => undefined)
       .finally(() => {
-        if (!disposed) setSettled(true);
+        if (!disposed && prevConvKeyRef.current === expected) setSettled(true);
       });
     return () => {
       disposed = true;
     };
-  }, [kind, conv, effective, engineKey, merge, utils]);
-
-  // 新消息进来后由 chatPane 重触发（依赖 latestPeerMsgId 变化即最后一条消息变了）。
-  useEffect(() => {
-    if (!effective || !conv || !latestPeerMsgId) return;
-    void client.account.intentSense.ensureAnalysis
-      .mutate({ kind, conv })
-      .then((stats) => {
-        if (stats && stats.analyzed > 0) {
-          if (kind === 'c2c') {
-            void utils.account.intentSense.getProfile.invalidate({ peerUid: conv });
-          }
-          void utils.account.intentSense.getSuggestions.invalidate({ kind, conv });
-        }
-      })
-      .catch(() => undefined);
-  }, [kind, conv, effective, latestPeerMsgId, utils]);
+  }, [kind, conv, effective, engineKey, analysisMessageId, requestAnalysis, utils]);
 
   // 增量结果订阅。
   useEffect(() => {
@@ -199,40 +256,6 @@ export function IntentSenseProvider({
   const getAnalysis = useCallback((msgId: string) => analysesRef.current.get(msgId), []);
   const isUnavailable = useCallback((msgId: string) => unavailableRef.current.has(msgId), []);
 
-  const requestAnalysis = useCallback(
-    (msgId: string) => {
-      const expected = `${kind}:${conv}:${engineKey}`;
-      if (prevConvKeyRef.current !== expected) return;
-      if (
-        analysesRef.current.has(msgId) ||
-        requestedRef.current.has(msgId) ||
-        unavailableRef.current.has(msgId)
-      ) {
-        return;
-      }
-      requestedRef.current.add(msgId);
-      void client.account.intentSense.analyzeMessage
-        .mutate({ kind, conv, msgId })
-        .then((result) => {
-          if (prevConvKeyRef.current !== expected) return;
-          if (result) {
-            merge([result as IntentAnalysis]);
-          } else {
-            unavailableRef.current.add(msgId);
-            requestedRef.current.delete(msgId);
-            bump();
-          }
-        })
-        .catch(() => {
-          if (prevConvKeyRef.current !== expected) return;
-          unavailableRef.current.add(msgId);
-          requestedRef.current.delete(msgId);
-          bump();
-        });
-    },
-    [kind, conv, engineKey, merge, bump],
-  );
-
   const value = useMemo<IntentSenseContextValue>(
     () => ({
       active: effective,
@@ -241,6 +264,7 @@ export function IntentSenseProvider({
       isUnavailable,
       requestAnalysis,
       latestPeerMsgId,
+      latestMessageId: analysisMessageId,
       settled,
       kind,
       conv,
@@ -252,6 +276,7 @@ export function IntentSenseProvider({
       isUnavailable,
       requestAnalysis,
       latestPeerMsgId,
+      analysisMessageId,
       settled,
       kind,
       conv,

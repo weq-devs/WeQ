@@ -97,6 +97,8 @@ beforeEach(() => {
   fixture.unsubscribe.mockClear();
   fixture.callbacks.length = 0;
   fixture.suggestQuery.mockReset().mockReturnValue({ data: [], isFetching: false });
+  fixture.utils.account.intentSense.getSuggestions.invalidate.mockClear();
+  fixture.utils.account.intentSense.getProfile.invalidate.mockClear();
 });
 afterEach(() => {
   for (const close of cleanups.splice(0)) close();
@@ -112,7 +114,7 @@ function renderFixture() {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = () =>
+  const render = (latestMessageId?: string | null) =>
     act(async () =>
       root.render(
         h(
@@ -121,6 +123,7 @@ function renderFixture() {
             kind: 'c2c',
             conv: 'u_peer',
             latestPeerMsgId: null,
+            latestMessageId,
           } as Parameters<typeof IntentSenseProvider>[0],
           h(Consumer),
         ),
@@ -161,7 +164,9 @@ it('旧条数的悬停请求迟到，不把新上下文标为不可分析，允�
   );
   const f = renderFixture();
   await f.render();
-  act(() => f.get().requestAnalysis('late'));
+  act(() => {
+    f.get().requestAnalysis('late');
+  });
   expect(fixture.analyze).toHaveBeenCalledTimes(1);
   fixture.status.analysisContextMessages = 0;
   fixture.status.analysisRevision++;
@@ -186,7 +191,7 @@ it('推荐缓存版本参与真实组件查询键，不复用旧条数下的客�
     root.render(h(IntentSuggestionBar, { kind: 'group', conv: '123', onInsert: () => {} })),
   );
   expect(fixture.suggestQuery).toHaveBeenLastCalledWith(
-    { kind: 'group', conv: '123', revision: 0 },
+    { kind: 'group', conv: '123', revision: 0, replyAllowed: true },
     expect.anything(),
   );
   fixture.status.suggestionRevision++;
@@ -194,7 +199,36 @@ it('推荐缓存版本参与真实组件查询键，不复用旧条数下的客�
     root.render(h(IntentSuggestionBar, { kind: 'group', conv: '123', onInsert: () => {} })),
   );
   expect(fixture.suggestQuery).toHaveBeenLastCalledWith(
-    { kind: 'group', conv: '123', revision: 1 },
+    { kind: 'group', conv: '123', revision: 1, replyAllowed: true },
     expect.anything(),
   );
+});
+
+it('自己的新消息触发增量分析，旧批次未包含它时单条补齐，不触发推荐刷新', async () => {
+  fixture.list.mockResolvedValue([]);
+  let finish!: (stats: { analyzed: number; failed: number; latestMsgId: string }) => void;
+  const pending = new Promise((resolve) => {
+    finish = resolve;
+  });
+  fixture.ensure.mockReturnValue(pending);
+  fixture.analyze.mockResolvedValue({ ...sample, msgId: 'own', mine: true });
+  const f = renderFixture();
+  await f.render(null);
+  await f.render('own');
+  expect(fixture.ensure).toHaveBeenCalledTimes(2);
+  await act(async () => finish({ analyzed: 1, failed: 0, latestMsgId: 'peer-before' }));
+  expect(fixture.analyze).toHaveBeenCalledTimes(1);
+  expect(fixture.analyze).toHaveBeenCalledWith({ kind: 'c2c', conv: 'u_peer', msgId: 'own' });
+  expect(f.get().getAnalysis('own')?.mine).toBe(true);
+  expect(f.get().latestMessageId).toBe('own');
+  expect(fixture.utils.account.intentSense.getSuggestions.invalidate).not.toHaveBeenCalled();
+});
+
+it('只更新自己的分析时，不触发对方画像或建议的模型刷新', async () => {
+  fixture.list.mockResolvedValue([]);
+  fixture.ensure.mockResolvedValue({ analyzed: 1, peerAnalyzed: 0, failed: 0, latestMsgId: 'own' });
+  const f = renderFixture();
+  await f.render('own');
+  expect(fixture.utils.account.intentSense.getProfile.invalidate).not.toHaveBeenCalled();
+  expect(fixture.utils.account.intentSense.getSuggestions.invalidate).not.toHaveBeenCalled();
 });

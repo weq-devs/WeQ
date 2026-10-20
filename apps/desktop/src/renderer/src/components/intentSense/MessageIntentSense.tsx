@@ -3,7 +3,7 @@
  *
  * 两种形态共用一套 pill：
  *  • 常驻行（.weq-intent-chips，气泡 grid 的一个子元素，位于正文下方）——只挂在
- *    「最新一条对方消息」上（context.latestPeerMsgId），分析中显示 shimmer 占位。
+ *    最新可分析文本消息上（包含自己），分析中显示 shimmer 占位。
  *  • 悬停弹层（.weq-intent-popover，portal + fixed，空间不足向上避让）——悬停任意消息
  *    250ms 后出现，未命中缓存时触发单条分析并显示加载态。悬停交互仿
  *    SetEmojiReactions 的「延迟开、延迟关」手法，弹层自身 pointer-events:none，
@@ -130,6 +130,10 @@ const HOVER_CLOSE_MS = 120;
 const POPOVER_EST_WIDTH = 220;
 const POPOVER_EST_HEIGHT = 112;
 
+function isMineBubble(bubble: HTMLElement): boolean {
+  return bubble.classList.contains('mine') || Boolean(bubble.closest('.message-line.mine'));
+}
+
 /**
  * 挂进 MessageBubble 的集成点。`bubbleRef` 是气泡本体 —— 悬停监听挂在它上面
  * （组件自身不渲染包裹层，避免动气泡 DOM 结构）。
@@ -137,9 +141,11 @@ const POPOVER_EST_HEIGHT = 112;
 export function MessageIntentSense({
   msgId,
   bubbleRef,
+  analyzable,
 }: {
   msgId: string;
   bubbleRef: React.RefObject<HTMLElement | null>;
+  analyzable?: boolean;
 }) {
   const ctx = useIntentSenseContext();
   const ownerDocument = useRenderDocument();
@@ -157,7 +163,8 @@ export function MessageIntentSense({
   const requestAnalysis = ctx?.requestAnalysis;
   const result = getAnalysis?.(msgId);
   const unavailable = isUnavailable?.(msgId) ?? false;
-  const isLatestPeer = ctx?.latestPeerMsgId === msgId;
+  const isLatestMessage =
+    (ctx?.latestMessageId === undefined ? ctx?.latestPeerMsgId : ctx.latestMessageId) === msgId;
   void version;
 
   useEffect(() => {
@@ -175,7 +182,8 @@ export function MessageIntentSense({
     const hasAnalyzableText = (): boolean => {
       if (getAnalysis(msgId)) return true;
       if (isUnavailable?.(msgId)) return false;
-      const textEl = bubble.querySelector('.message-text');
+      if (analyzable !== undefined) return analyzable;
+      const textEl = bubble.querySelector('.message-text, .qq-text-run');
       if (!textEl) return false;
       return (textEl.textContent ?? '').trim().length > 0 || textEl.querySelector('img') !== null;
     };
@@ -204,7 +212,7 @@ export function MessageIntentSense({
             { width: POPOVER_EST_WIDTH, height: POPOVER_EST_HEIGHT },
             { width: view?.innerWidth ?? 1024, height: view?.innerHeight ?? 768 },
             bubble.closest('.message-scroll')?.getBoundingClientRect(),
-            bubble.classList.contains('mine'),
+            isMineBubble(bubble),
           ),
         );
         if (!getAnalysis(msgId)) requestAnalysis(msgId);
@@ -242,7 +250,16 @@ export function MessageIntentSense({
       bubble.removeEventListener('contextmenu', closeImmediate);
       clearTimers();
     };
-  }, [bubbleRef, active, getAnalysis, isUnavailable, requestAnalysis, msgId, ownerDocument]);
+  }, [
+    bubbleRef,
+    active,
+    getAnalysis,
+    isUnavailable,
+    requestAnalysis,
+    msgId,
+    ownerDocument,
+    analyzable,
+  ]);
 
   useEffect(() => {
     setAnchor(null);
@@ -266,7 +283,7 @@ export function MessageIntentSense({
         },
         { width: view.innerWidth, height: view.innerHeight },
         area?.getBoundingClientRect(),
-        bubble.classList.contains('mine'),
+        isMineBubble(bubble),
       );
       setAnchor((current) =>
         current &&
@@ -311,15 +328,15 @@ export function MessageIntentSense({
 
   return (
     <>
-      {/* 常驻行：只挂最新一条对方消息；本轮分析结束后仍无结果则静默
+      {/* 常驻行：最新可分析文本含自己；本轮分析结束后仍无结果则静默
           （引擎不可用 / 纯媒体消息 / 分析失败都不再永挂 shimmer）。 */}
-      {isLatestPeer && !result && !ctx.settled && !unavailable ? (
+      {isLatestMessage && !result && !ctx?.settled && !unavailable ? (
         <span className="weq-intent-chips">
           <IntentPillLoading width={52} />
           <IntentPillLoading width={40} />
         </span>
       ) : null}
-      {isLatestPeer && result ? (
+      {isLatestMessage && result ? (
         <span className="weq-intent-chips">
           <IntentChips result={result} />
         </span>

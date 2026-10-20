@@ -20,32 +20,41 @@ interface SuggestionWire {
 export function IntentSuggestionBar({
   kind,
   conv,
+  replyTargetId,
   onInsert,
 }: {
   kind: 'c2c' | 'group';
   conv: string;
+  /** 明确为空时，最新消息不是对方发出；不查询或展示旧候选。 */
+  replyTargetId?: string | null;
   onInsert: (text: string) => void;
 }): ReactElement | null {
   const [busy, setBusy] = useState(false);
+  const replyAllowed = replyTargetId !== null;
   const status = useIntentSenseStatus();
   const overridden = status.data?.conversationOverrides?.[`${kind}:${conv}`];
   const engineOk =
     status.data?.engine === 'local' ? !!status.data.localReady : !!status.data?.apiConfigured;
   const active =
-    !!status.data?.enabled && overridden !== false && engineOk && !!status.data?.suggestionsEnabled;
+    replyAllowed &&
+    !!status.data?.enabled &&
+    overridden !== false &&
+    engineOk &&
+    !!status.data?.suggestionsEnabled;
   const suggestions = trpc.account.intentSense.getSuggestions.useQuery(
-    { kind, conv, revision: status.data?.suggestionRevision ?? 0 },
+    { kind, conv, revision: status.data?.suggestionRevision ?? 0, replyAllowed },
     {
       enabled: active,
       refetchOnWindowFocus: false,
       staleTime: 90_000,
+      cacheTime: 0,
       retry: false,
     },
   );
 
   const list = (suggestions.data ?? []) as SuggestionWire[];
   const loading = suggestions.isFetching || busy;
-  const visible = list.length > 0 || loading;
+  const visible = active && (list.length > 0 || loading);
   const trackRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const track = trackRef.current;

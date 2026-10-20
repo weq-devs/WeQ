@@ -138,15 +138,20 @@ export const intentSenseRouter = router({
 
   /** 候选回复（当前引擎可用且 suggestionsEnabled）。 */
   getSuggestions: procedure
-    // revision 只隔离客户端查询缓存；实际截取一律使用账号已保存的配置。
+    // 版本隔离缓存；false 可主动关闭建议，true 不能覆盖实际范围或发送者。
     .input(
       z.object({
         kind: kindSchema,
         conv: z.string().min(1),
         revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+        replyAllowed: z.boolean().optional(),
       }),
     )
-    .query(({ input }) => requireServices().intentSense.getSuggestions(input.kind, input.conv)),
+    .query(({ input }) =>
+      input.replyAllowed === false
+        ? []
+        : requireServices().intentSense.getSuggestions(input.kind, input.conv),
+    ),
 
   /** 增量分析结果推送（ensureAnalysis / analyzeMessage 落缓存后触发）。 */
   onAnalyzed: procedure.subscription(() => {

@@ -410,7 +410,10 @@ export interface IntentSenseOptions {
 export interface EnsureStats {
   cached: number;
   analyzed: number;
+  peerAnalyzed?: number;
   failed: number;
+  /** 本次读取快照的最新消息；客户端可补齐旧在途批次之后到达的目标。 */
+  latestMsgId?: string;
   skipped?: 'disabled' | 'config-changed';
   error?: string;
 }
@@ -749,6 +752,7 @@ export class IntentSenseService {
       }
     }
     let analyzed = 0;
+    let peerAnalyzed = 0;
     let failed = 0;
     if (pending.length > 0) {
       // 按最新分块优先处理（块内保持时间升序），确保用户首屏看到的最新消息最先点亮
@@ -775,6 +779,7 @@ export class IntentSenseService {
           if (result) {
             chunkResults.push(result);
             analyzed++;
+            if (!result.mine) peerAnalyzed++;
           } else {
             failed++;
           }
@@ -818,6 +823,7 @@ export class IntentSenseService {
             this.emitAnalyzed({ kind, conv, results });
           }
           analyzed += results.length;
+          peerAnalyzed += results.filter((result) => !result.mine).length;
           failed += slice.length - results.length;
         }
       }
@@ -825,7 +831,9 @@ export class IntentSenseService {
     return {
       cached: rows.length - startIndex - pending.length,
       analyzed,
+      peerAnalyzed,
       failed,
+      latestMsgId: rows.at(-1)?.msgId,
       ...(!current() ? { skipped: 'config-changed' as const } : {}),
     };
   }
@@ -1319,8 +1327,8 @@ export class IntentSenseService {
     if (rows.length === 0) return [];
     const last = rows[rows.length - 1] as SenseRow;
     if (last.mine) {
-      // 自己刚说完话没有接话需求，返回上一次的建议（若有）。
-      return this.suggestionCache.get(key)?.suggestions ?? [];
+      this.suggestionCache.delete(key);
+      return [];
     }
     const cachedHit = this.suggestionCache.get(key);
     if (
@@ -1340,6 +1348,17 @@ export class IntentSenseService {
       this.suggestionCache.set(key, { lastMsgId: last.msgId, at: Date.now(), suggestions });
       return suggestions;
     };
+
+    const stillLatestPeer = async (): Promise<boolean> => {
+      if (!current()) return false;
+      try {
+        const latest = (await this.loadMessages(kind, conv, 1))[0];
+        return current() && latest?.msgId === last.msgId && !latest.mine;
+      } catch {
+        return false;
+      }
+    };
+    const fallbackAfterRequest = async () => ((await stillLatestPeer()) ? fallbackLocal() : []);
 
     if (this.config.engine === 'local') {
       return fallbackLocal();
@@ -1373,13 +1392,14 @@ export class IntentSenseService {
       if (!res.ok) {
         if (!current()) return [];
         this.apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
-        return fallbackLocal();
+        return fallbackAfterRequest();
       }
       const body = (await res.json()) as {
         choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
       };
       reportUsage(endpoint, body);
       if (!current()) return [];
+      if (!(await stillLatestPeer())) return [];
       const parsed = extractJsonBlock(pickMessageText(body.choices?.[0]?.message)) as {
         replies?: unknown[];
       } | null;
@@ -1402,7 +1422,7 @@ export class IntentSenseService {
         event: 'intent-sense-suggestions-failed',
         ...logErrorContext(error),
       });
-      return fallbackLocal();
+      return fallbackAfterRequest();
     }
   }
 

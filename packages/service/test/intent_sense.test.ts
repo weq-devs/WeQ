@@ -164,6 +164,93 @@ describe('IntentSenseService', () => {
     expect(requests[2]).toBe('对方: 消息6');
   });
 
+  it('自己发送后不返回上一轮推荐、不发新推荐请求；下次对方发言才重新生成', async () => {
+    const msgs = [textMsg(1n, 'u_peer', '合成对方消息', 1000)];
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"replies":[{"text":"合成推荐"}]}' } }],
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      resolveEndpoint: (ref) => ({
+        baseUrl: 'http://fixture',
+        apiKey: 'fixture',
+        model: ref.model,
+      }),
+    });
+    await svc.setConfig({
+      enabled: true,
+      providerRef: { providerId: 'fixture', model: 'fixture' },
+      suggestionsEnabled: true,
+    });
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toHaveLength(1);
+    msgs.push(textMsg(2n, 'u_self', '合成自己回复', 1020));
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    msgs.push(textMsg(3n, 'u_peer', '合成新问题', 1040));
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('推荐请求期间自己已发送，迟到候选不再发布或留给旧客户端', async () => {
+    const msgs = [textMsg(1n, 'u_peer', '合成对方消息', 1000)];
+    const response = {
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"replies":[{"text":"迟到候选"}]}' } }],
+      }),
+    };
+    let finish!: (value: typeof response) => void;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      resolveEndpoint: (ref) => ({
+        baseUrl: 'http://fixture',
+        apiKey: 'fixture',
+        model: ref.model,
+      }),
+    });
+    await svc.setConfig({
+      enabled: true,
+      providerRef: { providerId: 'fixture', model: 'fixture' },
+      suggestionsEnabled: true,
+    });
+    const pending = svc.getSuggestions('c2c', 'u_peer');
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    msgs.push(textMsg(2n, 'u_self', '合成自己回复', 1020));
+    finish(response);
+    expect(await pending).toEqual([]);
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('自己的分析结果保留 mine，批次统计不把它计为新的对方分析', async () => {
+    const analyze = vi.fn(async () => ({
+      intent: 'chat' as const,
+      emotion: 'neutral' as const,
+      intensity: 20,
+      sentiment: 0,
+      confidence: 0.8,
+    }));
+    const svc = new IntentSenseService(
+      makeSession([textMsg(1n, 'u_self', '自己的合成正文', 1000)]),
+      dir,
+      { localEngine: makeLocalPort(analyze) },
+    );
+    await svc.setConfig({ enabled: true, engine: 'local' });
+    const stats = await svc.ensureAnalysis('c2c', 'u_peer');
+    expect(stats.analyzed).toBe(1);
+    expect(stats.peerAnalyzed).toBe(0);
+    expect(svc.getMessageAnalyses('c2c', 'u_peer', ['1'])[0]?.mine).toBe(true);
+  });
+
   it('旧配置回落原有实际范围，无效条数不部分写入，零值可持久化', async () => {
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ enabled: true, engine: 'local' }));
     const svc = new IntentSenseService(makeSession([]), dir);

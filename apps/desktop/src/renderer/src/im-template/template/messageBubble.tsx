@@ -13,6 +13,7 @@ import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget';
 import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
 import { MessageProvenance } from '../../components/MessageProvenance';
+import { messageHasIntentText } from '../../lib/intentTimeline';
 import '../../styles/chat-interactions.css';
 import '../../styles/composer-reedit.css';
 
@@ -515,9 +516,13 @@ export function MessageBubble({
             <span>{reeditArmed && reeditClass ? '重新编辑' : optimisticText}</span>
           </StatusTag>
         ) : null}
-        {/* 意图感知：常驻胶囊只挂最新对方消息，悬停任意消息出弹层。
+        {/* 意图感知：最新可分析文本（含自己）展示胶囊，悬停文本消息出弹层。
             数据与悬停监听都在组件内部（经 IntentSenseContext），关掉功能时渲染 null。 */}
-        <MessageIntentSense msgId={String(message.id)} bubbleRef={bubbleRef} />
+        <MessageIntentSense
+          msgId={String(message.id)}
+          bubbleRef={bubbleRef}
+          analyzable={messageHasIntentText(message)}
+        />
         {isDeleted && !hideDeletedBadge ? (
           <div
             className={cn('weq-msg-deleted-veil')}

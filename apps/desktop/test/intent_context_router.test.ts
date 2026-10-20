@@ -32,6 +32,11 @@ it('建议查询兼容旧客户端，缓存版本不覆盖服务端实际配置'
   expect(service.getSuggestions).toHaveBeenLastCalledWith('group', '123');
   await caller.getSuggestions({ kind: 'group', conv: '123' });
   expect(service.getSuggestions).toHaveBeenLastCalledWith('group', '123');
+  const calls = service.getSuggestions.mock.calls.length;
+  await expect(
+    caller.getSuggestions({ kind: 'group', conv: '123', replyAllowed: false }),
+  ).resolves.toEqual([]);
+  expect(service.getSuggestions).toHaveBeenCalledTimes(calls);
   await expect(
     caller.getSuggestions({ kind: 'group', conv: '123', revision: -1 }),
   ).rejects.toThrow();
