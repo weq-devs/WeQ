@@ -3188,6 +3188,7 @@ export function MainView(): ReactElement {
     accountUin: string;
     token: string;
     ids: string[];
+    action: 'mark-read' | 'mark-unread';
   } | null>(null);
   const readUndoRef = useRef(readUndo);
   readUndoRef.current = readUndo;
@@ -5629,7 +5630,12 @@ export function MainView(): ReactElement {
       });
       if (useViewState.getState().openedUin !== openedUin) return;
       applyUnreadRows(result.rows);
-      const undo = { accountUin: openedUin, token: result.undoToken, ids };
+      const undo = {
+        accountUin: openedUin,
+        token: result.undoToken,
+        ids,
+        action: unread ? ('mark-unread' as const) : ('mark-read' as const),
+      };
       readUndoRef.current = undo;
       setReadUndo(undo);
       pushToast({
@@ -5708,6 +5714,7 @@ export function MainView(): ReactElement {
   useReadStateUndo(
     readUndo?.accountUin === openedUin && messagesTabActive && !readStateBusy,
     () => void undoConversationReadState(),
+    readUndo?.action,
   );
   const unreadSelectionId =
     selectedConversation &&

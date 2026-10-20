@@ -1,11 +1,12 @@
 import type { ElectronAPI } from '@electron-toolkit/preload';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
+import type { EditUndoBridge } from '../shared/edit_menu';
 
 declare global {
   interface Window {
     electron: ElectronAPI;
     weq: {
-      editUndo: { onUndo(handler: () => boolean): () => void };
+      editUndo: EditUndoBridge;
       openLogDir(): Promise<boolean>;
       /** 用户选 / 拖 / 粘贴文件的绝对路径（Electron webUtils）；拿不到返回 ''。 */
       pathForFile(file: File): string;

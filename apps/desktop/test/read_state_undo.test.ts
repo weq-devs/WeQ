@@ -6,13 +6,27 @@ import { macApplicationMenu } from '../src/main/application_menu';
 
 afterEach(() => vi.unstubAllGlobals());
 
-it('系统编辑菜单使用自定义撤销并保留原生重做和剪贴板操作', () => {
+it('系统编辑菜单按桥接状态控制撤销和重做，保留原生剪贴板操作', () => {
   const undo = vi.fn();
-  const edit = macApplicationMenu(vi.fn(), 'zh-CN', undo).find((item) => item.label === '编辑')!;
+  const redo = vi.fn();
+  const edit = macApplicationMenu(vi.fn(), 'zh-CN', undo, redo).find(
+    (item) => item.label === '编辑',
+  )!;
   const items = edit.submenu as import('electron').MenuItemConstructorOptions[];
-  expect(items[0]).toMatchObject({ label: '撤销', accelerator: 'CmdOrCtrl+Z', click: undo });
+  expect(items[0]).toMatchObject({
+    label: '撤销',
+    accelerator: 'CmdOrCtrl+Z',
+    click: undo,
+    enabled: false,
+  });
+  expect(items[1]).toMatchObject({
+    label: '重做',
+    accelerator: 'CmdOrCtrl+Shift+Z',
+    click: redo,
+    enabled: false,
+  });
   expect(items.map((item) => item.role)).toEqual(
-    expect.arrayContaining(['redo', 'cut', 'copy', 'paste', 'selectAll']),
+    expect.arrayContaining(['cut', 'copy', 'paste', 'selectAll']),
   );
 });
 
@@ -20,8 +34,13 @@ it('系统撤销处理当前标记，编辑框、弹窗及无可撤销标记时�
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   let handler: (() => boolean) | undefined;
   const unsubscribe = vi.fn();
+  const update = vi.fn();
+  const originalQuery = Object.getOwnPropertyDescriptor(document, 'queryCommandEnabled');
+  const query = vi.fn((command: string) => command === 'redo');
+  Object.defineProperty(document, 'queryCommandEnabled', { configurable: true, value: query });
   vi.stubGlobal('weq', {
     editUndo: {
+      update,
       onUndo: (listener: () => boolean) => {
         handler = listener;
         return unsubscribe;
@@ -32,8 +51,14 @@ it('系统撤销处理当前标记，编辑框、弹窗及无可撤销标记时�
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  function Fixture({ enabled }: { enabled: boolean }) {
-    useReadStateUndo(enabled, undo);
+  function Fixture({
+    enabled,
+    action = 'mark-read',
+  }: {
+    enabled: boolean;
+    action?: 'mark-read' | 'mark-unread';
+  }) {
+    useReadStateUndo(enabled, undo, action);
     return h(
       'div',
       null,
@@ -45,9 +70,16 @@ it('系统撤销处理当前标记，编辑框、弹窗及无可撤销标记时�
   try {
     act(() => root.render(h(Fixture, { enabled: true })));
     host.querySelector('button')!.focus();
+    expect(update).toHaveBeenLastCalledWith({ undo: 'mark-read', redo: null });
+    act(() => root.render(h(Fixture, { enabled: true, action: 'mark-unread' })));
+    expect(update).toHaveBeenLastCalledWith({ undo: 'mark-unread', redo: null });
     expect(handler!()).toBe(true);
     expect(undo).toHaveBeenCalledTimes(1);
     host.querySelector('input')!.focus();
+    expect(update).toHaveBeenLastCalledWith({ undo: null, redo: 'text' });
+    query.mockReturnValue(true);
+    document.dispatchEvent(new Event('input'));
+    expect(update).toHaveBeenLastCalledWith({ undo: 'text', redo: 'text' });
     expect(handler!()).toBe(false);
     host.querySelector<HTMLElement>('[contenteditable]')!.focus();
     expect(handler!()).toBe(false);
@@ -58,11 +90,14 @@ it('系统撤销处理当前标记，编辑框、弹窗及无可撤销标记时�
     expect(handler!()).toBe(false);
     modal.remove();
     act(() => root.render(h(Fixture, { enabled: false })));
+    expect(update).toHaveBeenLastCalledWith({ undo: null, redo: null });
     expect(handler!()).toBe(false);
     expect(undo).toHaveBeenCalledTimes(1);
   } finally {
     act(() => root.unmount());
     host.remove();
+    if (originalQuery) Object.defineProperty(document, 'queryCommandEnabled', originalQuery);
+    else Reflect.deleteProperty(document, 'queryCommandEnabled');
   }
   expect(unsubscribe).toHaveBeenCalledTimes(1);
 });
