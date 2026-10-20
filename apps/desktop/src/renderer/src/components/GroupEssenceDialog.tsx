@@ -40,6 +40,7 @@ export function GroupEssenceDialog({
   groupName,
   essenceMessages,
   loading,
+  onlineError,
   onClose,
   onJumpToMessage,
 }: {
@@ -48,6 +49,7 @@ export function GroupEssenceDialog({
   essenceMessages?: GroupEssenceWire[];
   /** 是否正在拉取（数据库 / 联网） — 首次打开时避免闪现“暂无群精华”。 */
   loading?: boolean;
+  onlineError?: boolean;
   onClose: () => void;
   onJumpToMessage?: (seq: number) => void;
 }): ReactElement {
@@ -100,6 +102,11 @@ export function GroupEssenceDialog({
         </header>
 
         <div className="group-essence-body">
+          {onlineError && (
+            <p className="weq-essence-receipt" role="status">
+              联网精华读取失败，当前仅显示本地记录
+            </p>
+          )}
           {recent.length > 0 && (
             <p className="weq-essence-receipt" role="status">
               精华操作已受理，等待 QQ 同步
@@ -207,7 +214,11 @@ export function GroupEssenceDialog({
             <div className="group-essence-empty">
               <Sparkles size={22} />
               <span>暂无群精华</span>
-              <small>本地与联网都没有找到，去 QQ 群里把消息设为精华后再来看看</small>
+              <small>
+                {onlineError
+                  ? '本地未找到有效记录，联网结果暂不可用'
+                  : '本地与当前联网页暂无有效记录'}
+              </small>
             </div>
           )}
         </div>

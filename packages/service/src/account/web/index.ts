@@ -37,7 +37,11 @@ import {
   type SetGroupNoticeOptions,
 } from './group_notice';
 import { fetchDaySignedList, dayYmd, type SignedListMember } from './group_signin';
-import { getGroupEssence, type GroupEssenceMessage } from './group_essence';
+import {
+  getGroupEssencePage,
+  type GroupEssenceMessage,
+  type GroupEssencePage,
+} from './group_essence';
 import { getHonorList, type HonorType, type HonorMember } from './group_honor';
 import {
   getQzoneMsgList,
@@ -116,8 +120,16 @@ export class WebQueryService {
     pageStart = 0,
     pageLimit = 50,
   ): Promise<GroupEssenceMessage[]> {
+    return (await this.getGroupEssencePage(groupCode, pageStart, pageLimit)).messages;
+  }
+
+  async getGroupEssencePage(
+    groupCode: string,
+    pageStart = 0,
+    pageLimit = 50,
+  ): Promise<GroupEssencePage> {
     return withRetry(this.creds, QUN_DOMAIN, (c) =>
-      getGroupEssence(c, groupCode, pageStart, pageLimit),
+      getGroupEssencePage(c, groupCode, pageStart, pageLimit),
     );
   }
 

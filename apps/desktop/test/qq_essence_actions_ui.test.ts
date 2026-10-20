@@ -63,7 +63,7 @@ afterEach(() => {
   useViewState.setState({ openedUin: null });
   vi.unstubAllGlobals();
 });
-function fixture(active = true, overrides: Partial<GroupEssenceWire> = {}) {
+function fixture(active = true, overrides: Partial<GroupEssenceWire> = {}, onlineError = false) {
   const demo = createTemplateDemoData();
   const original = demo.conversations.find((row) => row.type === 'group')!;
   const conversation = {
@@ -113,6 +113,7 @@ function fixture(active = true, overrides: Partial<GroupEssenceWire> = {}) {
             groupCode: '123',
             groupName: '合成群',
             essenceMessages: rows,
+            onlineError,
             onClose: close,
             onJumpToMessage: jump,
           }),
@@ -129,6 +130,12 @@ function fixture(active = true, overrides: Partial<GroupEssenceWire> = {}) {
   return { host, render, close, jump, menu, remove };
 }
 describe('消息菜单与精华列表的同步', () => {
+  it('联网失败明确显示本地回退，不把失败解释为已成功查空', () => {
+    const f = fixture(false, {}, true);
+    expect(f.host.textContent).toContain('联网精华读取失败');
+    expect(f.host.textContent).toContain('联网结果暂不可用');
+    expect(f.host.textContent).not.toContain('本地与当前联网页暂无有效记录');
+  });
   it('真实本地投影无需 Web random 即可从列表取消，取消历史不再展示', async () => {
     const local = {
       msgSeq: 42,

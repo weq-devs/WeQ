@@ -1,5 +1,21 @@
 import type { GroupEssenceWire } from '../components/GroupEssenceDialog';
 
+export const GROUP_ESSENCE_ONLINE_LIMIT = 50;
+
+export function hasCompleteEssenceSnapshot(input: {
+  success: boolean;
+  complete: boolean;
+  updatedAt: number;
+  localUpdatedAt: number;
+}): boolean {
+  return (
+    input.success &&
+    input.complete &&
+    input.updatedAt > 0 &&
+    input.updatedAt >= input.localUpdatedAt
+  );
+}
+
 interface LocalEssence {
   msgSeq: number;
   msgRandom?: number;
@@ -27,6 +43,7 @@ function isoTime(seconds?: number): string {
 export function projectGroupEssence(
   local: readonly LocalEssence[],
   online: readonly OnlineEssence[],
+  onlineComplete = false,
 ): GroupEssenceWire[] {
   const webBySeq = new Map(online.map((row) => [row.msgSeq, row]));
   const bySeq = new Map<number, GroupEssenceWire>();
@@ -39,7 +56,7 @@ export function projectGroupEssence(
       senderName: item.senderNick,
       operatorName: item.operatorNick,
       createdAt: isoTime(item.timestamp),
-      active: item.setStatus === 1,
+      active: onlineComplete ? web !== undefined : item.setStatus === 1,
       content: web?.content,
       senderTime: web?.senderTime,
       canRemove: web?.canRemove,

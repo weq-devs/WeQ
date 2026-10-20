@@ -1,5 +1,8 @@
 import { expect, it } from 'vitest';
-import { projectGroupEssence } from '../src/renderer/src/lib/groupEssenceProjection';
+import {
+  projectGroupEssence,
+  hasCompleteEssenceSnapshot,
+} from '../src/renderer/src/lib/groupEssenceProjection';
 
 const local = {
   msgSeq: 42,
@@ -37,4 +40,20 @@ it('按序号合并 Web 正文，优先原始本地定位，在线独有记录�
   });
   expect(rows.find((row) => row.msgSeq === 43)).toMatchObject({ msgRandom: 88, active: true });
   expect(projectGroupEssence([{ ...local, msgRandom: undefined }], [web])[0]?.msgRandom).toBe(88);
+});
+
+it('完整在线快照确认取消时，不再被旧本地有效记录重新插回；部分分页不作此推断', () => {
+  expect(projectGroupEssence([local], [], true)[0]?.active).toBe(false);
+  expect(projectGroupEssence([local], [], false)[0]?.active).toBe(true);
+  const online = { ...local, senderTime: local.timestamp };
+  expect(projectGroupEssence([{ ...local, setStatus: 2 }], [online], true)[0]?.active).toBe(true);
+});
+
+it('只有成功、完整且不旧于本地读取的在线快照才可覆盖，短页不等于完整', () => {
+  const snapshot = { success: true, complete: true, updatedAt: 20, localUpdatedAt: 10 };
+  expect(hasCompleteEssenceSnapshot(snapshot)).toBe(true);
+  expect(hasCompleteEssenceSnapshot({ ...snapshot, success: false })).toBe(false);
+  expect(hasCompleteEssenceSnapshot({ ...snapshot, complete: false })).toBe(false);
+  expect(hasCompleteEssenceSnapshot({ ...snapshot, updatedAt: 0 })).toBe(false);
+  expect(hasCompleteEssenceSnapshot({ ...snapshot, localUpdatedAt: 21 })).toBe(false);
 });

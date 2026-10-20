@@ -104,7 +104,11 @@ import type { GroupInfoDetail } from '../im-template/template/conversationDetail
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
 import { QQRemarkDialog } from '../components/QQRemarkDialog';
 import { GroupEssenceDialog } from '../components/GroupEssenceDialog';
-import { projectGroupEssence } from '../lib/groupEssenceProjection';
+import {
+  projectGroupEssence,
+  hasCompleteEssenceSnapshot,
+  GROUP_ESSENCE_ONLINE_LIMIT,
+} from '../lib/groupEssenceProjection';
 import {
   GroupMemberKickDialog,
   GroupMemberRenameDialog,
@@ -4739,8 +4743,8 @@ export function MainView(): ReactElement {
     },
   );
   // 尝试从 Web API 获取带消息内容的精华消息（需要在线账号/有效 cookie）
-  const groupEssenceWeb = trpc.account.getGroupEssenceWithContent.useQuery(
-    { groupCode: selectedUid, pageStart: 0, pageLimit: 50 },
+  const groupEssencePage = trpc.account.getGroupEssencePageWithContent.useQuery(
+    { groupCode: selectedUid, pageStart: 0, pageLimit: GROUP_ESSENCE_ONLINE_LIMIT },
     {
       enabled: groupExtrasReady,
       retry: false,
@@ -4752,13 +4756,22 @@ export function MainView(): ReactElement {
       refetchIntervalInBackground: false,
     },
   );
+  const groupEssenceWeb = { ...groupEssencePage, data: groupEssencePage.data?.messages };
+  const completeOnlineEssence = hasCompleteEssenceSnapshot({
+    success: groupEssenceWeb.isSuccess,
+    complete: groupEssencePage.data?.complete === true,
+    updatedAt: groupEssenceWeb.dataUpdatedAt,
+    localUpdatedAt: Math.max(groupEssence.dataUpdatedAt, groupEssenceSeqs.dataUpdatedAt),
+  });
   const effectiveEssenceSeqs = useMemo(
     () =>
       essenceSequences(essenceReceipts, essenceSourceKey, Number(selectedUid), [
-        ...(groupEssenceSeqs.data ??
-          (groupEssence.data ?? [])
-            .filter((item) => item.setStatus === 1)
-            .map((item) => String(item.msgSeq))),
+        ...(completeOnlineEssence
+          ? []
+          : (groupEssenceSeqs.data ??
+            (groupEssence.data ?? [])
+              .filter((item) => item.setStatus === 1)
+              .map((item) => String(item.msgSeq)))),
         ...(groupEssenceWeb.data ?? []).map((item) => String(item.msgSeq)),
       ]),
     [
@@ -4768,6 +4781,7 @@ export function MainView(): ReactElement {
       groupEssenceSeqs.data,
       groupEssence.data,
       groupEssenceWeb.data,
+      completeOnlineEssence,
     ],
   );
   useEffect(() => {
@@ -5423,7 +5437,11 @@ export function MainView(): ReactElement {
             publisherAvatar: publisher?.avatarUrl,
           };
         }),
-        essenceMessages: projectGroupEssence(groupEssence.data ?? [], groupEssenceWeb.data ?? []),
+        essenceMessages: projectGroupEssence(
+          groupEssence.data ?? [],
+          groupEssenceWeb.data ?? [],
+          completeOnlineEssence,
+        ),
         // 该群全部当前为精华的 msgSeq（本地数据库，用于消息右下角「精华」角标）。
         essenceSeqs: effectiveEssenceSeqs,
         levelConfigs: (groupLevelInfo.data?.levelConfigs ?? []).map((item) => ({
@@ -5457,6 +5475,7 @@ export function MainView(): ReactElement {
     groupEssenceWeb.data,
     groupEssenceSeqs.data,
     effectiveEssenceSeqs,
+    completeOnlineEssence,
     groupLevelInfo.data,
     groupExt.data,
     user,
@@ -8761,9 +8780,10 @@ export function MainView(): ReactElement {
                 ) as GroupEssenceWire[];
                 const essenceWeb =
                   selectedUid === essenceDialog.groupCode ? (groupEssenceWeb.data ?? []) : [];
-                return projectGroupEssence(essence, essenceWeb);
+                return projectGroupEssence(essence, essenceWeb, completeOnlineEssence);
               })()}
               loading={groupEssence.isLoading || groupEssenceWeb.isLoading}
+              onlineError={groupEssenceWeb.isError}
               onClose={() => setEssenceDialog(null)}
               onJumpToMessage={(seq) => {
                 setEssenceDialog(null);

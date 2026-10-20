@@ -85,6 +85,7 @@ export function QQEssenceAction({
             utils.account.listGroupEssenceSeqs.invalidate(),
             utils.account.listGroupEssenceMessages.invalidate(),
             utils.account.getGroupEssenceWithContent.invalidate(),
+            utils.account.getGroupEssencePageWithContent.invalidate(),
           ]);
         },
         { backgroundRefresh: true },
