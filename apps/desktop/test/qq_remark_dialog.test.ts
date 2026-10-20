@@ -26,10 +26,12 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
     result: null,
     run: async (
       action: (binding: QQWriteBinding) => Promise<QQWriteOutcome>,
-      refresh: () => Promise<unknown>,
+      refresh?: () => Promise<unknown>,
+      options?: { readback?: () => Promise<boolean> },
     ) => {
       await action({ expectedAccountUin: '10001', expectedAccountConfigId: state.configId });
-      await refresh();
+      await options?.readback?.();
+      await refresh?.();
       return true;
     },
   }),
@@ -58,8 +60,14 @@ beforeEach(() => {
   state.configId = 'source-a';
   state.remark = '原备注';
   state.friend = true;
-  state.write.mockClear();
-  state.refetch.mockClear();
+  state.write.mockReset().mockImplementation(async (input) => {
+    if (input && typeof input === 'object' && 'remark' in input && typeof input.remark === 'string')
+      state.remark = input.remark;
+    return { state: 'accepted' };
+  });
+  state.refetch
+    .mockReset()
+    .mockImplementation(async () => ({ error: null, data: { remark: state.remark } }));
   state.confirm.mockReset().mockResolvedValue(true);
   useViewState.setState({ openedUin: '10001' });
 });

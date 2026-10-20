@@ -53,6 +53,7 @@ function fixture() {
       getProfile: vi.fn(async () => null),
       getBuddy: vi.fn(async () => null),
       getSelfProfile: vi.fn(async () => self),
+      profilesByUids: vi.fn(async (uids: string[]) => (uids.includes(self.uid) ? [self] : [])),
     },
     groupInfo: {
       getGroupDetail: vi.fn(async () => null),
@@ -95,6 +96,33 @@ function fixture() {
 }
 
 describe('QQ 写 IPC 边界', () => {
+  it('资料详情保持读取来源与目标，不返回未请求 UID，切号后丢弃', async () => {
+    const f = fixture();
+    const profiles = await f.caller.profileDetails({ ...binding, uids: [self.uid] });
+    expect(profiles[0].uin).toBe(self.uin.toString());
+    f.services.profile.profilesByUids = async () => [self];
+    await expect(f.caller.profileDetails({ ...binding, uids: ['u_other'] })).rejects.toThrow(
+      '目标不一致',
+    );
+    f.services.profile.profilesByUids = async () => {
+      f.switchAccount();
+      return [self];
+    };
+    await expect(f.caller.profileDetails({ ...binding, uids: [self.uid] })).rejects.toThrow('切换');
+  });
+  it('成员详情读取期间切号，不能回填到新来源', async () => {
+    const f = fixture();
+    await expect(
+      f.caller.memberDetails({ ...binding, groupId: 123, uid: 'u_peer' }),
+    ).resolves.toBeNull();
+    f.services.groupInfo.getMemberInfo = async () => {
+      f.switchAccount();
+      return null;
+    };
+    await expect(
+      f.caller.memberDetails({ ...binding, groupId: 123, uid: 'u_peer' }),
+    ).rejects.toThrow('切换');
+  });
   it('群消息策略单独读取服务端，保留来源并拒绝切号后的回包', async () => {
     const f = fixture();
     await expect(f.caller.groupPolicyState({ ...binding, groupId: 123 })).resolves.toEqual({

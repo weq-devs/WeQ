@@ -13,6 +13,7 @@ import {
   type QQWriteOutcome,
 } from '../src/renderer/src/hooks/useQQWriteSession';
 import { useViewState } from '../src/renderer/src/state/view';
+import { subscribeQQPeerUpdates, type QQPeerUpdate } from '../src/renderer/src/lib/qqPeerUpdates';
 
 const mocked = vi.hoisted(() => ({
   config: { uin: '10001', configId: 'source-a' },
@@ -254,6 +255,29 @@ describe('QQ 写操作账号与生命周期', () => {
       Array.from({ length: 5 }, () => [{ groupCode: '123' }]),
     );
   });
+  it('资料和群名片回读后按绑定来源通知内存缓存消费者', async () => {
+    const f = harness();
+    const observer = vi.fn(async (_update: QQPeerUpdate) => {});
+    cleanups.push(subscribeQQPeerUpdates(observer));
+    await act(async () => {
+      await f
+        .session()
+        .run(async () => ({ state: 'accepted' }), undefined, { profileUid: 'u_peer' });
+      await f.session().run(async () => ({ state: 'accepted' }), undefined, {
+        groupCode: '123',
+        memberUid: 'u_peer',
+      });
+    });
+    const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
+    expect(observer).toHaveBeenNthCalledWith(1, {
+      binding,
+      target: { kind: 'profile', uid: 'u_peer' },
+    });
+    expect(observer).toHaveBeenNthCalledWith(2, {
+      binding,
+      target: { kind: 'member', groupCode: '123', uid: 'u_peer' },
+    });
+  });
   it.each([true, false])('延后读回有上限，不重复写入；最终同步：%s', async (synced) => {
     vi.useFakeTimers();
     try {
@@ -319,6 +343,8 @@ describe('QQ 写操作账号与生命周期', () => {
     '请求期间切换 %s，迟到结果不覆盖新现场',
     async (kind) => {
       const f = harness();
+      const observer = vi.fn(async (_update: QQPeerUpdate) => {});
+      cleanups.push(subscribeQQPeerUpdates(observer));
       let resolve: (outcome: QQWriteOutcome) => void = () => {};
       const action = vi.fn(
         () =>
@@ -328,7 +354,7 @@ describe('QQ 写操作账号与生命周期', () => {
       );
       let pending: Promise<boolean>;
       act(() => {
-        pending = f.session().run(action);
+        pending = f.session().run(action, undefined, { profileUid: 'u_peer' });
       });
       act(() => {
         if (kind === 'account') {
@@ -344,6 +370,7 @@ describe('QQ 写操作账号与生命周期', () => {
       });
       expect(mocked.invalidate).not.toHaveBeenCalled();
       expect(mocked.invalidateStatus).not.toHaveBeenCalled();
+      expect(observer).not.toHaveBeenCalled();
       expect(f.host.textContent).toBe('');
     },
   );

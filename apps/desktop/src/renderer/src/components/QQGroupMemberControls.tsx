@@ -58,6 +58,7 @@ export function QQGroupMemberEditor({
                 undefined,
                 {
                   groupCode,
+                  memberUid: uid,
                   readback: async () => {
                     const updated = await state.refetch();
                     if (updated.error) throw updated.error;
@@ -78,7 +79,7 @@ export function QQGroupMemberEditor({
             session.run(
               (binding) => title.mutateAsync({ ...binding, groupId, targetUid: uid, title: value }),
               refresh,
-              { groupCode },
+              { groupCode, memberUid: uid },
             )
           }
         />

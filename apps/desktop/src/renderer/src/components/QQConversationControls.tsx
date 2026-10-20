@@ -176,14 +176,24 @@ export function QQConversationControls({
                 initial={state.remark}
                 disabled={kind === 'c2c' ? friendDisabled : disabled}
                 onSave={(value) =>
-                  act((binding) =>
-                    kind === 'c2c'
-                      ? remark.mutateAsync({ ...binding, uid: conv, remark: value })
-                      : groupRemark.mutateAsync({
-                          ...binding,
-                          groupId: Number(conv),
-                          remark: value,
-                        }),
+                  session.run(
+                    (binding) =>
+                      kind === 'c2c'
+                        ? remark.mutateAsync({ ...binding, uid: conv, remark: value })
+                        : groupRemark.mutateAsync({
+                            ...binding,
+                            groupId: Number(conv),
+                            remark: value,
+                          }),
+                    undefined,
+                    {
+                      profileUid: kind === 'c2c' ? conv : undefined,
+                      readback: async () => {
+                        const updated = await snapshot.refetch();
+                        if (updated.error) throw updated.error;
+                        return updated.data?.remark === value;
+                      },
+                    },
                   )
                 }
               />
@@ -250,6 +260,7 @@ export function QQConversationControls({
                     undefined,
                     {
                       groupCode: conv,
+                      memberUid: state.selfUid,
                       readback: async () => {
                         const updated = await snapshot.refetch();
                         if (updated.error) throw updated.error;

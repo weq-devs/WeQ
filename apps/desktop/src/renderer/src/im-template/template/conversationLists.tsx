@@ -63,7 +63,7 @@ import type {
   User,
 } from './types';
 import { GROUP_NOTIFICATION_SECTIONS, groupNotificationMode } from '../../lib/groupNotifications';
-import { displayUserName } from './user';
+import { displayGroupName, displayUserName } from './user';
 import { intimateRelationOf } from '../../lib/profileRelations';
 import '../../styles/contact-relations.css';
 
@@ -198,7 +198,9 @@ export function ConversationList({
     ].filter(
       (row) =>
         !needle ||
-        `${conversationTitle(row)} ${conversationSeed(row)}`.toLocaleLowerCase().includes(needle),
+        `${conversationTitle(row)} ${conversationSeed(row)} ${row.type === 'group' ? row.group.name : ''}`
+          .toLocaleLowerCase()
+          .includes(needle),
     );
     // 完整目录可用于查找操作目标，但不能绕过主列表的群助手归属。
     const visible = directory?.groupAssistantIds
@@ -879,7 +881,7 @@ export function GroupList({
       conversations.filter(
         (item) =>
           !needle ||
-          `${conversationTitle(item)} ${conversationSeed(item)}`
+          `${conversationTitle(item)} ${conversationSeed(item)} ${item.type === 'group' ? item.group.name : ''}`
             .toLocaleLowerCase()
             .includes(needle),
       ),
@@ -1087,13 +1089,13 @@ function GroupNotificationSection({ category, activeConversationId, onSelect, se
               onClick={(event) => onSelect(conversation.id, event)}
             >
               <Avatar
-                name={conversation.group.name}
+                name={displayGroupName(conversation.group)}
                 avatarUrl={conversation.group.avatarUrl}
                 seed={conversation.id}
               />
               <span className="row-main">
                 <strong>
-                  <span className="row-title-text">{conversation.group.name}</span>
+                  <span className="row-title-text">{displayGroupName(conversation.group)}</span>
                 </strong>
                 <span>
                   {category.historical
@@ -1368,7 +1370,7 @@ function ContactOnlineStatusIcon({ status }: { status: OnlineStatusInfo | undefi
 function conversationTitle(conversation: Conversation) {
   if (conversation.type === 'merged') return conversation.title;
   return conversation.type === 'group'
-    ? conversation.group.name
+    ? displayGroupName(conversation.group)
     : displayUserName(conversation.otherUser);
 }
 

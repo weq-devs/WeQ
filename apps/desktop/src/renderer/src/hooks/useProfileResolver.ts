@@ -24,7 +24,11 @@ export interface ProfileResolver<T> {
    * 跳过，其余按 CHUNK 分块批量查询后回填。重复调用不会产生重复请求。
    */
   resolveProfiles: (uids: Iterable<string>) => void;
-  refreshProfiles: () => Promise<void>;
+  refreshProfiles: (
+    uids?: Iterable<string>,
+    current?: () => boolean,
+    read?: (uids: string[]) => Promise<readonly T[]>,
+  ) => Promise<void>;
 }
 
 export function useProfileResolver<T extends { uid: string }>(
@@ -35,6 +39,7 @@ export function useProfileResolver<T extends { uid: string }>(
   // 已发起过请求的 uid（含查无结果的），用于去重。用 ref 以便在同一轮
   // resolveProfiles 内即时生效，不必等 state 提交。
   const inFlightRef = useRef<Set<string>>(new Set());
+  const versions = useRef(new Map<string, number>());
 
   const primedMap = useMemo(() => {
     const map = new Map<string, T>();
@@ -53,10 +58,12 @@ export function useProfileResolver<T extends { uid: string }>(
     (uids: Iterable<string>): void => {
       const inFlight = inFlightRef.current;
       const missing: string[] = [];
+      const captured = new Map<string, number>();
       for (const uid of uids) {
         if (!uid || primedMap.has(uid) || inFlight.has(uid)) continue;
         inFlight.add(uid);
         missing.push(uid);
+        captured.set(uid, versions.current.get(uid) ?? 0);
       }
       if (missing.length === 0) return;
 
@@ -68,7 +75,10 @@ export function useProfileResolver<T extends { uid: string }>(
             if (list.length > 0) {
               setResolved((prev) => {
                 const next = { ...prev };
-                for (const profile of list as unknown as T[]) next[profile.uid] = profile;
+                for (const profile of list as unknown as T[]) {
+                  if (captured.get(profile.uid) === (versions.current.get(profile.uid) ?? 0))
+                    next[profile.uid] = profile;
+                }
                 return next;
               });
             }
@@ -83,17 +93,42 @@ export function useProfileResolver<T extends { uid: string }>(
     [primedMap],
   );
 
-  const refreshProfiles = useCallback(async (): Promise<void> => {
-    const uids = Object.keys(resolved);
-    for (let i = 0; i < uids.length; i += CHUNK) {
-      const list = await client.account.getProfilesByUids.query({ uids: uids.slice(i, i + CHUNK) });
-      setResolved((previous) => {
-        const next = { ...previous };
-        for (const profile of list as unknown as T[]) next[profile.uid] = profile;
-        return next;
-      });
-    }
-  }, [resolved]);
+  const refreshProfiles = useCallback(
+    async (
+      requested?: Iterable<string>,
+      current?: () => boolean,
+      read?: (uids: string[]) => Promise<readonly T[]>,
+    ): Promise<void> => {
+      const uids = [...new Set(requested ?? Object.keys(resolved))].filter(Boolean);
+      const captured = new Map<string, number>();
+      for (const uid of uids) {
+        const version = (versions.current.get(uid) ?? 0) + 1;
+        versions.current.set(uid, version);
+        captured.set(uid, version);
+      }
+      for (let i = 0; i < uids.length; i += CHUNK) {
+        if (current && !current()) return;
+        const chunk = uids.slice(i, i + CHUNK);
+        const list = read
+          ? await read(chunk)
+          : await client.account.getProfilesByUids.query({ uids: chunk });
+        if (current && !current()) return;
+        setResolved((previous) => {
+          if (current && !current()) return previous;
+          const next = { ...previous };
+          for (const profile of list as unknown as T[]) {
+            if (
+              captured.has(profile.uid) &&
+              captured.get(profile.uid) === versions.current.get(profile.uid)
+            )
+              next[profile.uid] = profile;
+          }
+          return next;
+        });
+      }
+    },
+    [resolved],
+  );
 
   return { profileByUid, resolveProfiles, refreshProfiles };
 }

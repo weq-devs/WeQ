@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
+import { groupMemberToWire, userProfileToWire } from '../serde';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),
@@ -33,7 +34,10 @@ export interface QQWriteServices {
     AccountServices['groupModeration'],
     'setName' | 'setMemberCard' | 'setSpecialTitle' | 'setEssence'
   >;
-  profile: Pick<AccountServices['profile'], 'getProfile' | 'getBuddy' | 'getSelfProfile'>;
+  profile: Pick<
+    AccountServices['profile'],
+    'getProfile' | 'getBuddy' | 'getSelfProfile' | 'profilesByUids'
+  >;
   groupInfo: Pick<
     AccountServices['groupInfo'],
     'getGroupDetail' | 'listGroupDirectory' | 'getMemberInfo' | 'getMessagePolicy'
@@ -69,6 +73,24 @@ export function createQQWriteRouter(
   read: (input: QQWriteBinding) => QQWriteServices,
 ) {
   return router({
+    profileDetails: procedure
+      .input(binding.extend({ uids: z.array(uid).min(1).max(200) }))
+      .query(async ({ input }) => {
+        const services = read(input);
+        const profiles = await services.profile.profilesByUids(input.uids);
+        if (read(input) !== services) throw new Error('账号已切换，请重新读取资料');
+        const requested = new Set(input.uids);
+        if (profiles.some((profile) => !requested.has(profile.uid)))
+          throw new Error('返回资料与读取目标不一致');
+        return profiles.map(userProfileToWire);
+      }),
+    memberDetails: procedure.input(binding.extend({ groupId, uid })).query(async ({ input }) => {
+      const services = read(input);
+      const member = await services.groupInfo.getMemberInfo(BigInt(input.groupId), input.uid);
+      if (read(input) !== services) throw new Error('账号已切换，请重新读取成员资料');
+      if (member && member.uid !== input.uid) throw new Error('返回成员与读取目标不一致');
+      return member ? groupMemberToWire(member) : null;
+    }),
     groupPolicyState: procedure.input(binding.extend({ groupId })).query(async ({ input }) => {
       const services = resolve(input);
       const result = await services.groupInfo.getMessagePolicy(input.groupId);

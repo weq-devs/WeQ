@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
+import { publishQQPeerUpdate } from '../lib/qqPeerUpdates';
 
 export interface QQWriteBinding {
   expectedAccountUin: string;
@@ -72,6 +73,8 @@ export function useQQWriteSession(scope: string) {
       refreshCaches?: boolean;
       backgroundRefresh?: boolean;
       groupCode?: string;
+      profileUid?: string;
+      memberUid?: string;
       readback?: () => Promise<boolean>;
     },
   ): Promise<boolean> {
@@ -117,6 +120,16 @@ export function useQQWriteSession(scope: string) {
                 error: false,
               });
           }
+          if (options?.profileUid)
+            await publishQQPeerUpdate({
+              binding,
+              target: { kind: 'profile', uid: options.profileUid },
+            });
+          if (options?.groupCode && options.memberUid)
+            await publishQQPeerUpdate({
+              binding,
+              target: { kind: 'member', groupCode: options.groupCode, uid: options.memberUid },
+            });
           await Promise.all([
             refresh?.(),
             utils.account.listRecentContacts.invalidate(),
