@@ -9,10 +9,12 @@ export function ExportSaveActions({
   disabled = false,
   onSelect,
   label = '本次保存选项',
+  portalTarget,
 }: {
   disabled?: boolean;
   onSelect: (policy: ExportSavePolicy) => void;
   label?: string;
+  portalTarget?: Element | null;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   return (
@@ -37,6 +39,7 @@ export function ExportSaveActions({
           x={menu.x}
           y={menu.y}
           label={label}
+          portalTarget={portalTarget}
           onClose={() => setMenu(null)}
           actions={[
             {

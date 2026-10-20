@@ -8,6 +8,7 @@ export function ConversationActionsMenu({
   actions,
   onClose,
   label = '会话操作',
+  portalTarget,
 }: {
   x: number;
   y: number;
@@ -21,6 +22,7 @@ export function ConversationActionsMenu({
   }>;
   onClose: () => void;
   label?: string;
+  portalTarget?: Element | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -48,6 +50,7 @@ export function ConversationActionsMenu({
       presentation="popover"
       onClose={onClose}
       className="weq-conversation-actions-layer"
+      portalTarget={portalTarget}
     >
       <div
         ref={ref}

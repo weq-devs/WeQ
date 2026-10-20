@@ -1,12 +1,14 @@
 import { z } from 'zod';
 import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import type { AnnualReportPreferences, ResolvedMsgDecoration } from '@weq/service';
-import { getHost } from '@weq/service';
-import { reportPeriodLabel } from '@weq/service/report-time';
+import { exportOutputFileName, getHost } from '@weq/service';
 import { handleMediaRequest } from '../../media_protocol';
 import { handleResourceRequest } from '../../resource_protocol';
 import { procedure, router } from '../trpc';
+import { exportSavePolicyInput, prepareExportDestination } from './export_save';
+import { annualReportExportOutput } from '../../../shared/annual_report_export';
 
 /** 说说一次最多带 9 张图 —— 超出的页数在 router 层直接拒绝。 */
 const QZONE_MAX_IMAGES = 9;
@@ -167,16 +169,58 @@ function buildShareOverlay(nick: string, avatar?: Buffer): string {
   <div class="weq-shot-sign">来自 WEQ · github.com/H3CoF6/WeQ</div>`;
 }
 
-/** 保存对话框 + 落盘；用户取消返回 null。 */
-async function saveBuffer(
-  bytes: Buffer,
-  defaultName: string,
-  extension: string,
+const reportExportInput = z.object({
+  year: z.number().int().min(0),
+  html: z.string().min(1),
+  ...reportIdentity,
+  savePolicy: exportSavePolicyInput.optional(),
+});
+
+/** 沿用原生成／捕获能力；私有结果与用户位置的发布分别由公共资源任务处理。 */
+async function startReportSave(
+  input: z.infer<typeof reportExportInput>,
+  extension: 'html' | 'pdf' | 'png',
 ): Promise<string | null> {
-  const target = await getHost().pickSaveTarget({ defaultName, extension });
-  if (!target) return null;
-  await writeFile(target.path, bytes);
-  return target.path;
+  const services = requireServices(input);
+  const check = () => {
+    if (requireServices(input) !== services)
+      throw new Error('账号或数据源已切换，请重新选择报告。');
+  };
+  const output = annualReportExportOutput(input.year, extension);
+  const name = output.name;
+  const host = getHost();
+  const settings = getAppContext().bootstrap?.userConfig.getSettings();
+  const policy = await prepareExportDestination(
+    input.savePolicy ?? { mode: settings?.exportSaveMode ?? 'before' },
+    settings?.defaultExportDir,
+    host,
+    output,
+    check,
+  );
+  if (!policy) return null;
+  const fileName = exportOutputFileName(output);
+  return services.exportManager.startResourceExport({
+    kind: 'annual-report',
+    name,
+    output,
+    savePolicy: policy,
+    run: async ({ directory, signal }) => {
+      check();
+      signal.throwIfAborted();
+      const bytes =
+        extension === 'html'
+          ? Buffer.from(input.html, 'utf8')
+          : extension === 'pdf'
+            ? await host.renderHtmlToPdf(input.html)
+            : await host.renderHtmlToLongPng(input.html);
+      check();
+      signal.throwIfAborted();
+      await writeFile(join(directory, fileName), bytes, { flag: 'wx', signal });
+      check();
+      signal.throwIfAborted();
+      return { total: 1, ok: 1, failed: [], fileName };
+    },
+  });
 }
 
 export const annualReportRouter = router({
@@ -314,26 +358,13 @@ export const annualReportRouter = router({
 
   /** 导出为自包含 HTML（保存到用户选择的位置）。 */
   exportHtml: procedure
-    .input(z.object({ year: z.number().int().min(0), html: z.string().min(1), ...reportIdentity }))
-    .mutation(async ({ input }) => {
-      verifyReportIdentity(input);
-      const path = await saveBuffer(
-        Buffer.from(input.html, 'utf8'),
-        `QQ年度报告_${reportPeriodLabel(input.year)}.html`,
-        'html',
-      );
-      return { saved: path != null, path };
-    }),
+    .input(reportExportInput)
+    .mutation(({ input }) => startReportSave(input, 'html')),
 
   /** 把同一份 HTML 渲染成 A4 PDF 保存。 */
   exportPdf: procedure
-    .input(z.object({ year: z.number().int().min(0), html: z.string().min(1), ...reportIdentity }))
-    .mutation(async ({ input }) => {
-      verifyReportIdentity(input);
-      const pdf = await getHost().renderHtmlToPdf(input.html);
-      const path = await saveBuffer(pdf, `QQ年度报告_${reportPeriodLabel(input.year)}.pdf`, 'pdf');
-      return { saved: path != null, path };
-    }),
+    .input(reportExportInput)
+    .mutation(({ input }) => startReportSave(input, 'pdf')),
 
   /**
    * 全部卡片竖排成一张长图 PNG 保存。
@@ -342,17 +373,8 @@ export const annualReportRouter = router({
    * 另起 satori 排版，直接在主进程把每个 `.slide` 截下来竖向拼成一张。
    */
   exportLongImage: procedure
-    .input(z.object({ year: z.number().int().min(0), html: z.string().min(1), ...reportIdentity }))
-    .mutation(async ({ input }) => {
-      verifyReportIdentity(input);
-      const png = await getHost().renderHtmlToLongPng(input.html);
-      const path = await saveBuffer(
-        png,
-        `QQ年度报告_${reportPeriodLabel(input.year)}_长图.png`,
-        'png',
-      );
-      return { saved: path != null, path };
-    }),
+    .input(reportExportInput)
+    .mutation(({ input }) => startReportSave(input, 'png')),
 
   /**
    * 一键分享到 QQ 空间 —— 逐页渲染成 PNG（一页一图，不用长图），逐张上传到

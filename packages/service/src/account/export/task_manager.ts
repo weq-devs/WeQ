@@ -328,7 +328,8 @@ export interface ExportTask {
       | 'market-image'
       | 'mail-attachment'
       | 'decoration'
-      | 'qzone-albums';
+      | 'qzone-albums'
+      | 'annual-report';
     failed?: number;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
     cacheDirectory?: string;
@@ -1272,7 +1273,7 @@ export class ExportTaskManager extends EventEmitter {
           label:
             opts.kind === 'database'
               ? '解密数据库'
-              : opts.kind === 'assistant-artifact'
+              : opts.kind === 'assistant-artifact' || opts.kind === 'annual-report'
                 ? '保存报告'
                 : '下载资源',
           status: 'pending',
