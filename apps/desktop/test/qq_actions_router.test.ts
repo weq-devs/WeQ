@@ -157,6 +157,17 @@ function fixture() {
   };
 }
 
+describe('加群方式读回', () => {
+  it('复用现有在线资料查询，读取方式与问题但不伪造答案', async () => {
+    const f = fixture();
+    const result = await f.caller.groupJoinSettings({ ...binding, groupId: 888 });
+    expect(f.s.groupInfo.getJoinInfo).toHaveBeenCalledWith(888);
+    expect(result).toMatchObject({ option: 5, question: '为什么加入' });
+    expect(result).not.toHaveProperty('answer');
+    expect(f.s.groupModeration.setAddOption).not.toHaveBeenCalled();
+  });
+});
+
 describe('主动操作的账号与参数边界', () => {
   it('普通成员可打卡，路由只用当前绑定目标，原生失败不上报受理', async () => {
     const f = fixture();

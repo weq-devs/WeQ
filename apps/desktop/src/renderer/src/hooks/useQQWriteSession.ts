@@ -102,7 +102,7 @@ export function useQQWriteSession(scope: string) {
         try {
           if (options?.readback) {
             let synced = false;
-            // 只重读本地快照，不重复写请求；切号、卸载或新操作后停止。
+            // 只读回状态，不重复写请求；切号、卸载或新操作后停止。
             for (const delay of [0, 350, 1000, 2500]) {
               if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
               if (!current() || operation.current !== capturedOperation) return;
