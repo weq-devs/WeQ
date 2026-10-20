@@ -20,6 +20,7 @@ import {
 export function exportDownloadName(
   task: Pick<ExportTask, 'id' | 'name' | 'format' | 'bundleDir' | 'resource'>,
 ): string {
+  if (!task.bundleDir && task.resource?.output) return exportOutputFileName(task.resource.output);
   const extension = task.bundleDir
     ? 'zip'
     : (task.resource?.output?.extension ?? (task.format === 'vcard' ? 'vcf' : task.format));
@@ -37,6 +38,7 @@ const outputFormat = z.string().regex(EXPORT_EXTENSION_PATTERN);
 export const exportOutputPlanInput = z.object({
   kind: z.enum(['messages', 'contacts', 'bundle', 'file']),
   name: z.string().min(1),
+  fileName: z.string().min(1).max(512).optional(),
   format: outputFormat.optional(),
   formats: z.array(outputFormat).min(1).optional(),
   targetCount: z.number().int().positive().safe().optional(),

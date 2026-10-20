@@ -1,13 +1,14 @@
 import { statfs } from 'node:fs/promises';
-import { basename, dirname } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { TRPCError } from '@trpc/server';
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
-import { getHost } from '@weq/service';
+import { describeExportOutput, exportOutputFileName, getHost } from '@weq/service';
 import { MailFailure, type MailEvent, type QQMailService } from '@weq/service/mail';
 import { getAppContext } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { rememberMail } from '../../search_content';
+import { exportSavePolicyInput } from './export_save';
 
 const account = z.object({ selfUin: z.string().regex(/^[1-9]\d{4,19}$/) });
 const operation = account.extend({ requestId: z.string().uuid() });
@@ -58,6 +59,58 @@ async function perform<T>(
 }
 
 export const mailRouter = router({
+  saveAttachment: procedure
+    .input(
+      account.extend({
+        id: z.string().uuid(),
+        expectedAccountConfigId: z.string().min(1),
+        savePolicy: exportSavePolicyInput,
+      }),
+    )
+    .mutation(({ input }) => {
+      const mail = service(input.selfUin);
+      const services = getAppContext().services!;
+      const check = () => {
+        if (
+          service(input.selfUin) !== mail ||
+          getAppContext().services !== services ||
+          services.accountConfig.getRecord()?.configId !== input.expectedAccountConfigId
+        )
+          throw new MailFailure('auth', '账号或数据源已切换，请重新选择附件。');
+      };
+      check();
+      const attachment = mail.attachments.get(input.id);
+      const name = basename(attachment.name.replace(/\\/g, '/')) || '附件';
+      const output = describeExportOutput(
+        { kind: 'file', name, fileName: name },
+        { avatar: false, transcribe: false, ocr: false, dress: false },
+      );
+      if (output.kind !== 'file') throw new MailFailure('business', '附件保存形态无效。');
+      const fileName = exportOutputFileName(output);
+      return services.exportManager.startResourceExport({
+        kind: 'mail-attachment',
+        name,
+        output,
+        savePolicy: input.savePolicy,
+        run: async ({ directory, signal }) => {
+          check();
+          signal.throwIfAborted();
+          if (mail.attachments.get(input.id) !== attachment)
+            throw new MailFailure('business', '附件已变化，请重新选择。');
+          const space = await statfs(directory);
+          if (space.bavail * space.bsize < attachment.size + 64 * 1024 * 1024)
+            throw new MailFailure('business', '目标磁盘空间不足。');
+          try {
+            await mail.download(input.id, join(directory, fileName), signal);
+          } catch (error) {
+            throw safeError(error);
+          }
+          check();
+          signal.throwIfAborted();
+          return { total: 1, ok: 1, failed: [], fileName };
+        },
+      });
+    }),
   preferences: procedure.input(account).query(({ input }) => {
     service(input.selfUin);
     const record = getAppContext().services?.accountConfig.getRecord();

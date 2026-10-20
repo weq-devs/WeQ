@@ -320,7 +320,13 @@ export interface MediaExportOptions {
 export interface ExportTask {
   /** 独立资源任务；下载运行器仅存在于当前进程，重启后保留结果但不冒称可续传。 */
   resource?: {
-    kind: 'group-albums' | 'group-files' | 'database' | 'assistant-artifact' | 'market-image';
+    kind:
+      | 'group-albums'
+      | 'group-files'
+      | 'database'
+      | 'assistant-artifact'
+      | 'market-image'
+      | 'mail-attachment';
     failed?: number;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
     cacheDirectory?: string;

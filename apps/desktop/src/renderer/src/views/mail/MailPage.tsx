@@ -50,6 +50,11 @@ import {
   type MailDraft,
 } from './content';
 import '../../styles/mail.css';
+import type { ExportSavePolicy } from '@weq/service';
+import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
+import { ExportSaveActions } from '../../components/ExportSaveActions';
+import { ServerSavePrompt } from '../../components/ServerSavePrompt';
+import { IS_WEB } from '../../lib/target';
 
 const initialStatus: MailStatus = {
   state: 'disconnected',
@@ -88,6 +93,7 @@ export function MailPage({
   onOpenRequested?: () => void;
   searchTarget?: { id: string; folderId: number; revision: string } | null;
 }) {
+  const save = useExportSavePolicy();
   const [status, setStatus] = useState(initialStatus);
   const [folders, setFolders] = useState<MailFolder[]>([...SYSTEM_MAIL_FOLDERS]);
   const [folderId, setFolderId] = useState(1),
@@ -395,17 +401,41 @@ export function MailPage({
       setError(mailError(error));
     }
   }
-  async function saveAttachment(id: string): Promise<void> {
-    if (downloading) return;
+  async function saveAttachment(
+    id: string,
+    intent?: ExportSavePolicy,
+    browser = false,
+  ): Promise<void> {
+    if (download.current || !save.binding) return;
+    const attachment = detail?.attachments.find((item) => item.id === id);
+    if (!attachment?.available) return;
+    const binding = { ...save.binding };
     const controller = new AbortController();
     download.current = controller;
     setDownloading(id);
     try {
-      const saved = await api.download(id, controller.signal);
-      if (saved && mounted.current)
-        useToast.getState().push({ tone: 'success', title: '附件已保存' });
+      if (browser) {
+        const saved = await api.download(id, controller.signal);
+        if (saved && mounted.current && save.isCurrent())
+          useToast.getState().push({ tone: 'info', title: '已交给浏览器下载' });
+      } else {
+        const policy = await save.prepareSave(intent, {
+          kind: 'file',
+          name: attachment.name,
+          fileName: attachment.name,
+        });
+        if (!policy || controller.signal.aborted || !save.isCurrent()) return;
+        await api.save(id, policy, binding.expectedAccountConfigId);
+        if (mounted.current && save.isCurrent())
+          useToast.getState().push({
+            tone: 'info',
+            title: '附件保存任务已创建',
+            message: '可在导出任务列表查看结果与保存位置',
+          });
+      }
     } catch (error) {
-      if (mounted.current && !controller.signal.aborted) setError(mailError(error));
+      if (mounted.current && save.isCurrent() && !controller.signal.aborted)
+        setError(mailError(error));
     } finally {
       if (mounted.current) setDownloading(null);
       if (download.current === controller) download.current = null;
@@ -423,6 +453,9 @@ export function MailPage({
       data-detail={Boolean(selectedId || showCompose)}
       aria-label="QQ 邮箱"
     >
+      {save.serverLocation && (
+        <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
+      )}
       <header className="weq-mail-topbar">
         <div className="weq-mail-brand">
           <Mail size={22} />
@@ -887,9 +920,14 @@ export function MailPage({
                           </small>
                           <button
                             type="button"
-                            title="保存附件"
+                            title={IS_WEB ? '保存附件到服务器' : '保存附件'}
                             aria-label={`保存附件 ${item.name}`}
-                            disabled={!item.available || Boolean(downloading)}
+                            disabled={
+                              !item.available ||
+                              Boolean(downloading) ||
+                              !save.binding ||
+                              save.settings.isLoading
+                            }
                             onClick={() => void saveAttachment(item.id)}
                           >
                             {downloading === item.id ? (
@@ -908,6 +946,27 @@ export function MailPage({
                               <X size={14} />
                             </button>
                           ) : null}
+                          <ExportSaveActions
+                            disabled={
+                              !item.available ||
+                              Boolean(downloading) ||
+                              !save.binding ||
+                              save.settings.isLoading
+                            }
+                            onSelect={(intent) => void saveAttachment(item.id, intent)}
+                            label={`附件 ${item.name} 的本次保存选项`}
+                          />
+                          {IS_WEB && (
+                            <button
+                              type="button"
+                              title="下载到浏览器"
+                              aria-label={`下载附件 ${item.name} 到浏览器`}
+                              disabled={!item.available || Boolean(downloading) || !save.binding}
+                              onClick={() => void saveAttachment(item.id, undefined, true)}
+                            >
+                              <Download size={16} />
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
