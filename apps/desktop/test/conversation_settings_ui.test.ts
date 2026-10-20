@@ -13,7 +13,8 @@ vi.mock('../src/renderer/src/components/GroupKeywordEditor', () => ({
   GroupKeywordEditor: () => h('div', null, '关键词编辑器'),
 }));
 vi.mock('../src/renderer/src/components/QQConversationControls', () => ({
-  QQConversationControls: () => h('div', { 'data-testid': 'qq-controls' }),
+  QQConversationControls: ({ section }: { section?: string }) =>
+    h('div', { 'data-testid': 'qq-controls', 'data-section': section ?? 'conversation' }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
@@ -53,9 +54,27 @@ describe('会话设置默认页面', () => {
       ),
     );
     expect(host.querySelector('.weq-cvs-nav-item.is-on')?.textContent).toBe(
-      kind === 'dataline' ? '防撤回' : 'QQ 设置',
+      kind === 'dataline' ? '防撤回' : '会话偏好',
     );
     expect(host.querySelector('[data-testid="qq-controls"]') !== null).toBe(kind !== 'dataline');
+    const management = [...host.querySelectorAll<HTMLButtonElement>('.weq-cvs-nav-item')].find(
+      (button) => button.textContent === '群管理',
+    );
+    expect(Boolean(management)).toBe(kind === 'group');
+    if (management) {
+      act(() => management.click());
+      expect(host.querySelector('.weq-cvs-nav-item.is-on')?.textContent).toBe('群管理');
+      expect(host.querySelector('[data-testid="qq-controls"]')?.getAttribute('data-section')).toBe(
+        'group-management',
+      );
+      const preferences = [...host.querySelectorAll<HTMLButtonElement>('.weq-cvs-nav-item')].find(
+        (button) => button.textContent === '会话偏好',
+      )!;
+      act(() => preferences.click());
+      expect(host.querySelector('[data-testid="qq-controls"]')?.getAttribute('data-section')).toBe(
+        'conversation',
+      );
+    }
     const protect = [...host.querySelectorAll<HTMLButtonElement>('.weq-cvs-nav-item')].find(
       (button) => button.textContent === '防撤回',
     )!;

@@ -21,7 +21,16 @@ export const GROUP_MESSAGE_POLICY_OPTIONS = [
   { value: 3, label: '屏蔽消息' },
 ] as const;
 
-export function QQConversationControls({ kind, conv }: { kind: 'c2c' | 'group'; conv: string }) {
+export function QQConversationControls({
+  kind,
+  conv,
+  section = 'conversation',
+}: {
+  kind: 'c2c' | 'group';
+  conv: string;
+  section?: 'conversation' | 'group-management';
+}) {
+  const management = kind === 'group' && section === 'group-management';
   const session = useQQWriteSession(`${kind}:${conv}`);
   const target = kind === 'c2c' ? { kind, uid: conv } : { kind, groupId: Number(conv) };
   const queryInput = {
@@ -112,67 +121,73 @@ export function QQConversationControls({ kind, conv }: { kind: 'c2c' | 'group'; 
       <QQWriteResult result={session.result} />
       {state && (
         <div key={`${kind}:${conv}:${revision}`}>
-          <Card>
-            <QQWriteTextRow
-              label={kind === 'group' ? '群备注' : '好友备注'}
-              initial={state.remark}
-              disabled={kind === 'c2c' ? friendDisabled : disabled}
-              onSave={(value) =>
-                act((binding) =>
-                  kind === 'c2c'
-                    ? remark.mutateAsync({ ...binding, uid: conv, remark: value })
-                    : groupRemark.mutateAsync({ ...binding, groupId: Number(conv), remark: value }),
-                )
-              }
-            />
-            <QQWriteToggleRow
-              label="置顶会话"
-              initial={state.pinned}
-              disabled={kind === 'c2c' ? friendDisabled : disabled}
-              onSave={(enabled) =>
-                act((binding) => pin.mutateAsync({ ...binding, target, enabled }))
-              }
-            />
-            {kind === 'c2c' ? (
-              <>
-                <QQWriteToggleRow
-                  label="消息免打扰"
-                  initial={
-                    state.notifyLevel === null
-                      ? null
-                      : state.notifyLevel !== 0 && state.notifyLevel !== 1
-                  }
-                  disabled={friendDisabled}
-                  onSave={(enabled) =>
-                    act((binding) => disturb.mutateAsync({ ...binding, uid: conv, enabled }))
-                  }
-                />
-                <QQWriteSelectRow
-                  label="好友分组"
-                  initial={state.categoryId}
-                  disabled={friendDisabled || categories.isLoading}
-                  options={[
-                    { value: 0, label: '默认分组' },
-                    ...(categories.data ?? [])
-                      .filter((item) => item.id !== 0)
-                      .map((item) => ({ value: item.id, label: item.name })),
-                  ]}
-                  onSave={(categoryId) =>
-                    act((binding) => category.mutateAsync({ ...binding, uid: conv, categoryId }))
-                  }
-                />
-              </>
-            ) : (
-              <QQWriteSelectRow
-                label="消息接收"
-                initial={state.notifyLevel}
-                options={GROUP_MESSAGE_POLICY_OPTIONS}
-                disabled={disabled}
-                onSave={changePolicy}
+          {!management && (
+            <Card>
+              <QQWriteTextRow
+                label={kind === 'group' ? '群备注' : '好友备注'}
+                initial={state.remark}
+                disabled={kind === 'c2c' ? friendDisabled : disabled}
+                onSave={(value) =>
+                  act((binding) =>
+                    kind === 'c2c'
+                      ? remark.mutateAsync({ ...binding, uid: conv, remark: value })
+                      : groupRemark.mutateAsync({
+                          ...binding,
+                          groupId: Number(conv),
+                          remark: value,
+                        }),
+                  )
+                }
               />
-            )}
-          </Card>
-          {kind === 'group' && (
+              <QQWriteToggleRow
+                label="置顶会话"
+                initial={state.pinned}
+                disabled={kind === 'c2c' ? friendDisabled : disabled}
+                onSave={(enabled) =>
+                  act((binding) => pin.mutateAsync({ ...binding, target, enabled }))
+                }
+              />
+              {kind === 'c2c' ? (
+                <>
+                  <QQWriteToggleRow
+                    label="消息免打扰"
+                    initial={
+                      state.notifyLevel === null
+                        ? null
+                        : state.notifyLevel !== 0 && state.notifyLevel !== 1
+                    }
+                    disabled={friendDisabled}
+                    onSave={(enabled) =>
+                      act((binding) => disturb.mutateAsync({ ...binding, uid: conv, enabled }))
+                    }
+                  />
+                  <QQWriteSelectRow
+                    label="好友分组"
+                    initial={state.categoryId}
+                    disabled={friendDisabled || categories.isLoading}
+                    options={[
+                      { value: 0, label: '默认分组' },
+                      ...(categories.data ?? [])
+                        .filter((item) => item.id !== 0)
+                        .map((item) => ({ value: item.id, label: item.name })),
+                    ]}
+                    onSave={(categoryId) =>
+                      act((binding) => category.mutateAsync({ ...binding, uid: conv, categoryId }))
+                    }
+                  />
+                </>
+              ) : (
+                <QQWriteSelectRow
+                  label="消息接收"
+                  initial={state.notifyLevel}
+                  options={GROUP_MESSAGE_POLICY_OPTIONS}
+                  disabled={disabled}
+                  onSave={changePolicy}
+                />
+              )}
+            </Card>
+          )}
+          {kind === 'group' && !management && (
             <Card>
               <QQWriteTextRow
                 label="我在本群的昵称"
@@ -186,17 +201,6 @@ export function QQConversationControls({ kind, conv }: { kind: 'c2c' | 'group'; 
                       targetUid: state.selfUid,
                       card: value,
                     }),
-                  )
-                }
-              />
-              <QQWriteTextRow
-                label="群名称"
-                allowEmpty={false}
-                initial={state.groupName}
-                disabled={disabled}
-                onSave={(value) =>
-                  act((binding) =>
-                    groupName.mutateAsync({ ...binding, groupId: Number(conv), name: value }),
                   )
                 }
               />
@@ -216,6 +220,21 @@ export function QQConversationControls({ kind, conv }: { kind: 'c2c' | 'group'; 
                   )
                 }
               />
+            </Card>
+          )}
+          {management && (
+            <Card>
+              <QQWriteTextRow
+                label="群名称"
+                allowEmpty={false}
+                initial={state.groupName}
+                disabled={disabled}
+                onSave={(value) =>
+                  act((binding) =>
+                    groupName.mutateAsync({ ...binding, groupId: Number(conv), name: value }),
+                  )
+                }
+              />
               <QQWriteActionRow
                 label="更换群头像"
                 disabled={disabled}
@@ -226,7 +245,7 @@ export function QQConversationControls({ kind, conv }: { kind: 'c2c' | 'group'; 
               />
             </Card>
           )}
-          {kind === 'group' && <GroupActions key={conv} groupId={Number(conv)} />}
+          {management && <GroupActions key={conv} groupId={Number(conv)} />}
         </div>
       )}
     </div>

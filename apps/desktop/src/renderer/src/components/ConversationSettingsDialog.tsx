@@ -13,7 +13,7 @@
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
-import { BellRing, BrainCircuit, Settings2, ShieldCheck, X } from 'lucide-react';
+import { BellRing, BrainCircuit, Settings2, ShieldCheck, UsersRound, X } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { Card, Row, Toggle } from './settings/controls';
@@ -31,8 +31,8 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** 左侧分类。QQ 设置与意图感知对 c2c/group 都有；关键词页只有群聊有。 */
-type SectionId = 'qq' | 'antirecall' | 'keyword' | 'intentsense';
+/** 会话偏好与意图感知面向好友／群聊；群管理与关键词仅限群聊。 */
+type SectionId = 'qq' | 'group-management' | 'antirecall' | 'keyword' | 'intentsense';
 
 export function ConversationSettingsDialog({
   kind,
@@ -177,7 +177,21 @@ export function ConversationSettingsDialog({
                   <span className="weq-cvs-nav-icon">
                     <Settings2 size={16} strokeWidth={1.8} />
                   </span>
-                  <span>QQ 设置</span>
+                  <span>会话偏好</span>
+                </button>
+              </li>
+            )}
+            {kind === 'group' && (
+              <li>
+                <button
+                  type="button"
+                  className={`weq-cvs-nav-item${section === 'group-management' ? ' is-on' : ''}`}
+                  onClick={() => setSection('group-management')}
+                >
+                  <span className="weq-cvs-nav-icon">
+                    <UsersRound size={16} strokeWidth={1.8} />
+                  </span>
+                  <span>群管理</span>
                 </button>
               </li>
             )}
@@ -225,13 +239,18 @@ export function ConversationSettingsDialog({
         </nav>
 
         <div className="weq-cvs-body">
-          {section === 'qq' && kind !== 'dataline' ? (
+          {(section === 'qq' || section === 'group-management') && kind !== 'dataline' ? (
             <>
               <div className="weq-cvs-body-head">
-                <strong>QQ 设置</strong>
+                <strong>{section === 'group-management' ? '群管理' : '会话偏好'}</strong>
               </div>
               <div className="weq-cvs-body-scroll">
-                <QQConversationControls key={`${kind}:${conv}`} kind={kind} conv={conv} />
+                <QQConversationControls
+                  key={`${kind}:${conv}:${section}`}
+                  kind={kind}
+                  conv={conv}
+                  section={section === 'group-management' ? 'group-management' : 'conversation'}
+                />
               </div>
             </>
           ) : section === 'intentsense' ? (
