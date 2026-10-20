@@ -7,8 +7,7 @@
   border-radius: 50%;
 }
 .weq-virtual-avatar > img,
-.weq-virtual-avatar .weq-virtual-avatar-fallback,
-.weq-virtual-avatar .weq-virtual-avatar-grid {
+.weq-virtual-avatar .weq-virtual-avatar-fallback {
   display: block;
   width: 100%;
   height: 100%;
@@ -16,18 +15,8 @@
   object-fit: cover;
   overflow: hidden;
 }
-.weq-virtual-avatar-grid {
-  display: grid;
-  gap: 1px;
-  background: var(--weq-bg-surface);
-}
-.weq-virtual-avatar-grid > img,
-.weq-virtual-avatar-grid > .weq-virtual-avatar-fallback {
-  width: 100%;
-  height: 100%;
-  border-radius: 0;
-  object-fit: cover;
-}
+/* 克隆群的合成头像自带尺寸、grid 布局与圆形裁切（见 group-mosaic-avatar.css），
+   这里不能再写 display / width / height 覆盖，否则拼好的格子会塌成一张。 */
 .weq-virtual-avatar-fallback {
   display: grid;
   place-items: center;

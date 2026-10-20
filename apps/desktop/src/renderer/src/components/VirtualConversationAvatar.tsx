@@ -3,7 +3,7 @@
  *
  * - 克隆体：沿用源好友头像，右下角叠一个「对话气泡 + 星」的小角标，和 QQ 官方
  *   机器人的 Bot 图标区分开。
- * - 克隆群：用成员头像拼九宫格（最多 9 格，少于 4 人用 2×2、少于 2 人单图），
+ * - 克隆群：用成员头像拼合成头像（布局见 GroupMosaicAvatar，2/3/4 人都能铺满），
  *   右下角叠「群聊」角标 —— 一眼能看出这是「一群人」而不是单个克隆体。
  *
  * 所有颜色走 design token，深浅模式各有一套值。
@@ -12,6 +12,7 @@
 import { useState, type ReactElement } from 'react';
 import { MessagesSquare, Sparkles, Users } from 'lucide-react';
 import type { VirtualConversation } from '../lib/conversationDirectory';
+import { GroupMosaicAvatar } from './GroupMosaicAvatar';
 import { qqAvatarUrl } from './QqAvatar';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
 import '../styles/virtual-conversation.css';
@@ -50,33 +51,9 @@ function AvatarImg({
   );
 }
 
-/** 九宫格合成头像：2×2 以下用更少格子，避免小图里出现一堆空白。 */
+/** 合成头像：布局交给 GroupMosaicAvatar，会话列表 / 克隆工作区 / 导出共用一套拼格。 */
 function GridAvatar({ uins, size }: { uins: readonly string[]; size: number }): ReactElement {
-  const unique = [...new Set(uins.filter(Boolean))].slice(0, 9);
-  if (unique.length === 0)
-    return (
-      <span className="weq-virtual-avatar-fallback" style={{ width: size, height: size }}>
-        <Users size={Math.round(size * 0.5)} strokeWidth={1.7} />
-      </span>
-    );
-  const columns = unique.length >= 5 ? 3 : unique.length >= 2 ? 2 : 1;
-  const rows = Math.min(3, Math.ceil(unique.length / columns));
-  return (
-    <span
-      className="weq-virtual-avatar-grid"
-      style={{
-        width: size,
-        height: size,
-        gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-        gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
-      }}
-      aria-hidden
-    >
-      {unique.slice(0, columns * rows).map((uin) => (
-        <AvatarImg key={uin} uin={uin} size={size} />
-      ))}
-    </span>
-  );
+  return <GroupMosaicAvatar uins={uins} size={size} />;
 }
 
 export function VirtualConversationAvatar({

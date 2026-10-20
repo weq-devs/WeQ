@@ -13,6 +13,7 @@ import { useTabActive } from '../../components/RetainedTabs';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { ExportSaveActions } from '../../components/ExportSaveActions';
 import { QqAvatar } from '../../components/QqAvatar';
+import { GroupMosaicAvatar } from '../../components/GroupMosaicAvatar';
 import { ChatBubble } from '../agentlab/ChatBubble';
 import { ChatTimeDivider, shouldShowChatTime } from '../agentlab/messageTime';
 import { PickerListSkeleton } from './ExportSkeleton';
@@ -292,12 +293,8 @@ export function GeneratedExportPane({
                           <Sparkles size={16} strokeWidth={1.9} />
                         </span>
                       ) : session.kind === 'group' && (avatar.groupUins?.length ?? 0) > 0 ? (
-                        // 克隆群：成员头像九宫格，与真实群会话列表口径一致。
-                        <span className="weq-generated-export-avatar-grid">
-                          {avatar.groupUins!.slice(0, 4).map((uin) => (
-                            <QqAvatar key={uin} uin={uin} size={16} />
-                          ))}
-                        </span>
+                        // 克隆群：成员头像拼合成头像，与真实群会话列表口径一致。
+                        <GroupMosaicAvatar uins={avatar.groupUins!} size={34} />
                       ) : (
                         <QqAvatar uin={avatar.uin || null} size={34} />
                       )}
