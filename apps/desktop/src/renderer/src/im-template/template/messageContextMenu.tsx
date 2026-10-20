@@ -30,6 +30,8 @@ export type MessageContextMenuState = {
   y: number;
   downloadUrl?: string;
   imageUrl?: string;
+  /** 打开右键菜单前保存的选区或引用内容，不依赖菜单夺焦点后的原生选区。 */
+  clipboard?: { text: string; html: string };
   variant?: 'desktop' | 'mobile';
   /**
    * Click point offset within the anchored message row at open time. Used to

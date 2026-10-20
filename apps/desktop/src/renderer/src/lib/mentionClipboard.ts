@@ -1,12 +1,7 @@
 import type { RepeatElement } from './messageRepeat';
+import { messageContentClipboard } from './messageClipboard';
 
 const UID = /^(?:all|u_[A-Za-z0-9_-]+)$/;
-const MEDIA_LABELS: Record<string, string> = {
-  pic: '[图片]',
-  mface: '[表情包]',
-  video: '[视频]',
-  ptt: '[语音]',
-};
 
 /** 只读取身份和纯文字，不恢复任意 HTML、事件、图片或外部资源。 */
 export function readMentionClipboard(html: string): RepeatElement[] | null {
@@ -47,6 +42,15 @@ export function readMentionClipboard(html: string): RepeatElement[] | null {
       append('\n');
       return;
     }
+    if (node.tagName === 'BLOCKQUOTE') {
+      append(
+        `${result.length ? '\n' : ''}${(node.textContent ?? '')
+          .split('\n')
+          .map((line) => `> ${line}`)
+          .join('\n')}\n`,
+      );
+      return;
+    }
     if (['DIV', 'P', 'LI'].includes(node.tagName) && result.length) append('\n');
     node.childNodes.forEach(visit);
   };
@@ -58,34 +62,7 @@ export function mentionClipboardHtml(
   elements: RepeatElement[],
 ): { text: string; html: string } | null {
   if (!elements.some((element) => element.type === 'at')) return null;
-  const root = document.createElement('span');
-  for (const element of elements) {
-    const data = element.data ?? {};
-    if (element.type === 'at') {
-      const span = document.createElement('span');
-      if (typeof data.atTargetUid === 'string') span.dataset.weqAtUid = data.atTargetUid;
-      if (data.atTargetUin != null) span.dataset.weqAtUin = String(data.atTargetUin);
-      span.textContent = String(data.textContent ?? '@');
-      root.append(span);
-    } else if (element.type !== 'reply')
-      root.append(
-        document.createTextNode(
-          String(data.textContent ?? data.faceText ?? MEDIA_LABELS[element.type ?? ''] ?? ''),
-        ),
-      );
-  }
-  return { text: root.textContent ?? '', html: root.outerHTML };
-}
-
-export function selectedMentionClipboard(): { text: string; html: string } | null {
-  const selection = window.getSelection();
-  if (!selection?.rangeCount || selection.isCollapsed) return null;
-  const root = document.createElement('div');
-  for (let i = 0; i < selection.rangeCount; i++)
-    root.append(selection.getRangeAt(i).cloneContents());
-  return readMentionClipboard(root.innerHTML)
-    ? { text: selection.toString(), html: root.innerHTML }
-    : null;
+  return messageContentClipboard(elements);
 }
 
 export async function writeMentionClipboard(value: {

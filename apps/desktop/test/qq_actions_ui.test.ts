@@ -22,6 +22,7 @@ import type {
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { FavoriteActions } from '../src/renderer/src/components/qq-actions/FavoriteActions';
+import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { GroupJoinAction } from '../src/renderer/src/components/qq-actions/GroupJoinAction';
 import { GroupActions, GroupTodos } from '../src/renderer/src/components/qq-actions/GroupActions';
 import { GroupAnnouncementsDialog } from '../src/renderer/src/components/GroupAnnouncementsDialog';
@@ -124,7 +125,21 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     client: {
       account: {
         pickSendFile: { mutate: state.picker },
+        sendFile: {
+          mutate: async (input: unknown) => {
+            const result = await state.mutate('sendFile', input);
+            return { ok: result.state === 'accepted' || result.state === 'confirmed' };
+          },
+        },
         qqActions: {
+          folders: {
+            query: async (input: { directory: string }) => ({
+              targetDirectory: input.directory,
+              files: [],
+              folders: [],
+              ...((state.data[`listing:${input.directory}`] as object) ?? {}),
+            }),
+          },
           ...Object.fromEntries(
             names.map((name) => [name, { mutate: (input: unknown) => state.mutate(name, input) }]),
           ),
@@ -227,6 +242,10 @@ function value(host: HTMLElement, label: string, next: string) {
     );
   });
 }
+const menuButton = (label: string) =>
+  [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+    (button) => button.textContent === label,
+  )!;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.configId = 'source-a';
@@ -589,7 +608,7 @@ describe('QQ 主动操作的实际界面', () => {
     uploaderName: '自己',
     parentDirectory: 'folder-a',
   };
-  it('普通成员不显示公告管理与取消待办，文件目标仅列自己上传的文件', () => {
+  it('普通成员可查看全部文件，但只能管理自己上传的文件', () => {
     state.data.groupPermissions = { canManage: false, role: 'member', selfUin: '10001' };
     state.data.todoList = [{ sequence: '123', text: '待办内容' }];
     const notices = fixture(() => h(GroupNoticeActions, { groupId: 123 }));
@@ -601,17 +620,28 @@ describe('QQ 主动操作的实际界面', () => {
       h(GroupFileActions, {
         groupId: 123,
         directory: 'folder-a',
-        files: [file, { ...file, fileId: 'other', uploaderUin: 10002 }],
+        files: [file, { ...file, fileId: 'other', fileName: '文件 B', uploaderUin: 10002 }],
         folders: [],
         onChanged: vi.fn(),
       }),
     );
-    expect(f.host.querySelector('option[value="createFolder"]')).toBeNull();
-    value(f.host, '文件操作', 'delete');
-    expect(f.host.querySelector('option[value="file-a"]')).not.toBeNull();
-    expect(f.host.querySelector('option[value="other"]')).toBeNull();
+    expect(f.button('新建文件夹')).toBeNull();
+    expect(f.host.querySelector('[data-file-id="other"]')).not.toBeNull();
+    act(() =>
+      f.host
+        .querySelector<HTMLButtonElement>('[data-file-id="other"] .weq-file-manager-name button')!
+        .click(),
+    );
+    expect(f.button('删除所选项目').disabled).toBe(true);
+    act(() =>
+      f.host
+        .querySelector<HTMLButtonElement>('[data-file-id="file-a"] .weq-file-manager-name button')!
+        .click(),
+    );
+    expect(f.button('删除所选项目').disabled).toBe(false);
   });
   it('删除取消不发请求，确认后保留账号、群和原文件标识', async () => {
+    state.data['listing:folder-a'] = { files: [file], folders: [] };
     const changed = vi.fn();
     const f = fixture(() =>
       h(GroupFileActions, {
@@ -622,12 +652,15 @@ describe('QQ 主动操作的实际界面', () => {
         onChanged: changed,
       }),
     );
-    value(f.host, '文件操作', 'delete');
-    value(f.host, '操作目标', 'file-a');
+    act(() =>
+      f.host
+        .querySelector<HTMLButtonElement>('[data-file-id="file-a"] .weq-file-manager-name button')!
+        .click(),
+    );
     state.confirm.mockResolvedValueOnce(false);
-    await act(async () => f.button('执行文件操作').click());
+    await act(async () => f.button('删除所选项目').click());
     expect(state.mutate).not.toHaveBeenCalled();
-    await act(async () => f.button('执行文件操作').click());
+    await act(async () => f.button('删除所选项目').click());
     expect(state.mutate).toHaveBeenCalledWith(
       'file',
       expect.objectContaining({
@@ -651,12 +684,16 @@ describe('QQ 主动操作的实际界面', () => {
         onChanged: vi.fn(),
       }),
     );
-    value(f.host, '文件操作', 'upload');
     await act(async () => f.button('选择上传文件').click());
-    await act(async () => f.button('执行文件操作').click());
+    await act(async () => f.button('上传待处理文件').click());
     expect(state.mutate).toHaveBeenCalledWith(
-      'fileUpload',
-      expect.objectContaining({ groupId: 123, directory: 'folder-a', path: '/selected/image.png' }),
+      'sendFile',
+      expect.objectContaining({
+        peerType: 'group',
+        targetId: '123',
+        folderId: 'folder-a',
+        path: '/selected/image.png',
+      }),
     );
   });
   it('同号切换数据源销毁未保存的文件管理草稿', () => {
@@ -669,11 +706,348 @@ describe('QQ 主动操作的实际界面', () => {
         onChanged: vi.fn(),
       }),
     );
+    act(() => f.button('新建文件夹').click());
     value(f.host, '新名称', '旧数据源草稿');
     state.configId = 'source-b';
     f.update();
-    expect(f.host.querySelector<HTMLInputElement>('[aria-label="新名称"]')!.value).toBe('');
+    expect(f.host.querySelector('[aria-label="新名称"]')).toBeNull();
     expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('新建文件夹编辑期间失去管理权限，保留草稿但禁止提交', async () => {
+    const f = fixture(() =>
+      h(GroupFileActions, {
+        groupId: 123,
+        directory: '/',
+        files: [],
+        folders: [],
+        onChanged: vi.fn(),
+      }),
+    );
+    await act(async () => f.button('新建文件夹').click());
+    value(f.host, '新名称', '新目录');
+    state.data.groupPermissions = { canManage: false, role: 'member', selfUin: '10001' };
+    f.update();
+    expect(f.button('执行文件操作').disabled).toBe(true);
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('目录空白处菜单就近提供上传和新建，不对空选择执行保存', async () => {
+    const f = fixture(() =>
+      h(GroupFileActions, {
+        groupId: 123,
+        directory: '/',
+        files: [],
+        folders: [],
+        onChanged: vi.fn(),
+        onSaveSelected: vi.fn(),
+      }),
+    );
+    act(() =>
+      f.host
+        .querySelector('[aria-label="群文件管理器"]')!
+        .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 40 })),
+    );
+    expect(menuButton('选择上传文件')).toBeDefined();
+    expect(menuButton('保存所选项目').disabled).toBe(true);
+    await act(async () => menuButton('新建文件夹').click());
+    expect(f.host.querySelector('[aria-label="新名称"]')).not.toBeNull();
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('空或损坏的拖入对象不崩溃，不改已有文件或发请求', () => {
+    const f = fixture(() =>
+      h(GroupFileActions, {
+        groupId: 123,
+        directory: '/',
+        files: [file],
+        folders: [],
+        onChanged: vi.fn(),
+      }),
+    );
+    for (const dataTransfer of [
+      null,
+      {
+        getData: () => {
+          throw new Error('拖入资源损坏');
+        },
+      },
+    ]) {
+      const event = new Event('drop', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'dataTransfer', { value: dataTransfer });
+      act(() => f.host.querySelector('[aria-label="群文件管理器"]')!.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
+    }
+    expect(f.host.querySelector('[data-file-id="file-a"]')).not.toBeNull();
+    expect(f.host.textContent).toContain('拖入资源损坏');
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('批量删除保留每项结果，未知回执后停止且不自动重发', async () => {
+    const files = [file, { ...file, fileId: 'file-b', fileName: '文件 B' }];
+    state.data['listing:folder-a'] = { files, folders: [] };
+    const f = fixture(() =>
+      h(GroupFileActions, {
+        groupId: 123,
+        directory: 'folder-a',
+        files,
+        folders: [],
+        onChanged: vi.fn(),
+      }),
+    );
+    act(() => f.host.querySelector<HTMLInputElement>('[aria-label="选择当前可见项目"]')!.click());
+    state.mutate.mockResolvedValueOnce({ state: 'unconfirmed' });
+    await act(async () => f.button('删除所选项目').click());
+    expect(state.mutate).toHaveBeenCalledTimes(1);
+    expect(f.host.textContent).toContain('结果待核对');
+    expect(f.host.textContent).toContain('未执行');
+    expect(f.button('删除所选项目').disabled).toBe(false);
+    state.confirm.mockResolvedValueOnce(false);
+    await act(async () => f.button('删除所选项目').click());
+    expect(state.confirm).toHaveBeenLastCalledWith(
+      '确认 QQ 操作',
+      expect.stringContaining('结果未确认'),
+    );
+    expect(state.mutate).toHaveBeenCalledTimes(1);
+  });
+  it('普通点击建立锚点，Shift 点击按当前排序选择连续区间', () => {
+    const files = [
+      file,
+      { ...file, fileId: 'file-b', fileName: '文件 B' },
+      { ...file, fileId: 'file-c', fileName: '文件 C' },
+    ];
+    const f = fixture(() =>
+      h(GroupFileActions, {
+        groupId: 123,
+        directory: 'folder-a',
+        files,
+        folders: [],
+        onChanged: vi.fn(),
+      }),
+    );
+    act(() =>
+      f.host
+        .querySelector<HTMLButtonElement>('[data-file-id="file-a"] .weq-file-manager-name button')!
+        .click(),
+    );
+    act(() =>
+      f.host
+        .querySelector('[data-file-id="file-c"]')!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true })),
+    );
+    expect(f.host.querySelectorAll('tbody tr[aria-selected="true"]')).toHaveLength(3);
+  });
+  it('写入一项后切源停止余下批次，不向新账号发请求', async () => {
+    const files = [file, { ...file, fileId: 'file-b', fileName: '文件 B' }];
+    state.data['listing:folder-a'] = { files, folders: [] };
+    const f = fixture(() =>
+      h(GroupFileActions, {
+        groupId: 123,
+        directory: 'folder-a',
+        files,
+        folders: [],
+        onChanged: vi.fn(),
+      }),
+    );
+    act(() => f.host.querySelector<HTMLInputElement>('[aria-label="选择当前可见项目"]')!.click());
+    state.mutate.mockImplementationOnce(async () => {
+      state.configId = 'source-b';
+      f.update();
+      return { state: 'accepted' };
+    });
+    await act(async () => f.button('删除所选项目').click());
+    expect(state.mutate).toHaveBeenCalledTimes(1);
+  });
+  it('重命名预检同名冲突，不发送写请求并保留输入', async () => {
+    const files = [file, { ...file, fileId: 'file-b', fileName: '已有名称' }];
+    state.data['listing:folder-a'] = { files, folders: [] };
+    const f = fixture(() =>
+      h(GroupFileActions, {
+        groupId: 123,
+        directory: 'folder-a',
+        files,
+        folders: [],
+        onChanged: vi.fn(),
+      }),
+    );
+    act(() =>
+      f.host
+        .querySelector<HTMLButtonElement>('[data-file-id="file-a"] .weq-file-manager-name button')!
+        .click(),
+    );
+    await act(async () => f.button('重命名所选项目').click());
+    expect(document.activeElement).toBe(f.host.querySelector('[aria-label="新名称"]'));
+    value(f.host, '新名称', '已有名称');
+    await act(async () => f.button('执行文件操作').click());
+    expect(state.mutate).not.toHaveBeenCalled();
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="新名称"]')!.value).toBe('已有名称');
+  });
+  it('内部拖到目录先准备移动，确认后沿用真实群、文件与目标目录', async () => {
+    const folder = {
+      folderId: 'folder-b',
+      parentDirectoryId: 'folder-a',
+      folderName: '目录 B',
+      totalFileCount: 0,
+      creatorUin: 10001,
+      creatorName: '自己',
+      createTime: 0,
+      modifiedTime: 0,
+    };
+    state.data['listing:folder-a'] = { files: [file], folders: [folder] };
+    const f = fixture(() =>
+      h(GroupFileActions, {
+        groupId: 123,
+        directory: 'folder-a',
+        files: [file],
+        folders: [folder],
+        onChanged: vi.fn(),
+      }),
+    );
+    const event = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'dataTransfer', {
+      value: {
+        getData: () =>
+          JSON.stringify({
+            version: 1,
+            groupId: 123,
+            uin: '10001',
+            configId: 'source-a',
+            directory: 'folder-a',
+            ids: ['file-a'],
+          }),
+        types: ['application/x-weq-group-files'],
+      },
+    });
+    await act(async () =>
+      f.host.querySelector('[data-weq-select-id="folder:folder-b"]')!.dispatchEvent(event),
+    );
+    expect(state.mutate).not.toHaveBeenCalled();
+    expect(f.host.querySelector('[aria-label="目标目录"]')?.textContent).toContain('目录 B');
+    await act(async () => f.button('执行文件操作').click());
+    expect(state.mutate).toHaveBeenCalledWith(
+      'file',
+      expect.objectContaining({
+        groupId: 123,
+        id: 'file-a',
+        directory: 'folder-a',
+        destination: 'folder-b',
+        action: 'move',
+      }),
+    );
+  });
+  it('重复拖入本机文件只排队一次，确认前不上传，取消离开保留待上传项', async () => {
+    const open = vi.fn();
+    Reflect.set(window, 'weq', { pathForFile: () => '/local/drop.txt' });
+    const folder = {
+      folderId: 'folder-b',
+      parentDirectoryId: 'folder-a',
+      folderName: '目录 B',
+      totalFileCount: 0,
+      creatorUin: 10001,
+      creatorName: '自己',
+      createTime: 0,
+      modifiedTime: 0,
+    };
+    const f = fixture(() =>
+      h(GroupFileActions, {
+        groupId: 123,
+        directory: 'folder-a',
+        files: [],
+        folders: [folder],
+        onChanged: vi.fn(),
+        onOpenFolder: open,
+      }),
+    );
+    const dropped = new File(['data'], 'drop.txt');
+    for (let i = 0; i < 2; i++) {
+      const event = new Event('drop', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'dataTransfer', {
+        value: { getData: () => '', types: ['Files'], files: [dropped] },
+      });
+      act(() => f.host.querySelector('[aria-label="群文件管理器"]')!.dispatchEvent(event));
+    }
+    expect(f.host.querySelectorAll('.weq-file-upload-row')).toHaveLength(1);
+    expect(state.mutate).not.toHaveBeenCalled();
+    state.confirm.mockResolvedValueOnce(false);
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('.weq-file-manager-name button')!.click(),
+    );
+    expect(open).not.toHaveBeenCalled();
+    expect(f.host.textContent).toContain('待上传');
+    Reflect.deleteProperty(window, 'weq');
+  });
+  it('拖入本机文件到文件夹保留明确目标，确认后上传到该文件夹', async () => {
+    Reflect.set(window, 'weq', { pathForFile: () => '/local/drop.txt' });
+    const folder = {
+      folderId: 'folder-b',
+      parentDirectoryId: 'folder-a',
+      folderName: '目录 B',
+      totalFileCount: 0,
+      creatorUin: 10001,
+      creatorName: '自己',
+      createTime: 0,
+      modifiedTime: 0,
+    };
+    const f = fixture(() =>
+      h(GroupFileActions, {
+        groupId: 123,
+        directory: 'folder-a',
+        files: [],
+        folders: [folder],
+        onChanged: vi.fn(),
+      }),
+    );
+    try {
+      const event = new Event('drop', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'dataTransfer', {
+        value: { getData: () => '', types: ['Files'], files: [new File(['x'], 'drop.txt')] },
+      });
+      act(() =>
+        f.host.querySelector('[data-weq-select-id="folder:folder-b"]')!.dispatchEvent(event),
+      );
+      expect(f.host.querySelector('.weq-file-upload-row')?.textContent).toContain('目录 B');
+      expect(state.mutate).not.toHaveBeenCalled();
+      await act(async () => f.button('上传待处理文件').click());
+      expect(state.mutate).toHaveBeenCalledWith(
+        'sendFile',
+        expect.objectContaining({ folderId: 'folder-b', targetId: '123', path: '/local/drop.txt' }),
+      );
+    } finally {
+      Reflect.deleteProperty(window, 'weq');
+    }
+  });
+  it('上传未知回执停止后续项，手动继续只处理尚未执行的文件', async () => {
+    Reflect.set(window, 'weq', { pathForFile: (file: File) => `/local/${file.name}` });
+    const f = fixture(() =>
+      h(GroupFileActions, {
+        groupId: 123,
+        directory: '/',
+        files: [],
+        folders: [],
+        onChanged: vi.fn(),
+      }),
+    );
+    try {
+      const event = new Event('drop', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'dataTransfer', {
+        value: {
+          getData: () => '',
+          types: ['Files'],
+          files: [new File(['a'], 'a.txt'), new File(['b'], 'b.txt')],
+        },
+      });
+      act(() => f.host.querySelector('[aria-label="群文件管理器"]')!.dispatchEvent(event));
+      state.mutate.mockResolvedValueOnce({ state: 'unconfirmed' });
+      await act(async () => f.button('上传待处理文件').click());
+      expect(state.mutate).toHaveBeenCalledTimes(1);
+      expect(f.host.querySelectorAll('.weq-file-upload-row')[0]!.textContent).toContain(
+        '结果待核对',
+      );
+      expect(f.host.querySelectorAll('.weq-file-upload-row')[1]!.textContent).toContain('待上传');
+      await act(async () => f.button('上传待处理文件').click());
+      expect(state.mutate.mock.calls.map((call) => (call[1] as { path: string }).path)).toEqual([
+        '/local/a.txt',
+        '/local/b.txt',
+      ]);
+    } finally {
+      Reflect.deleteProperty(window, 'weq');
+    }
   });
   it('未确认的公告发布保留原稿，不当作已经成功发布', async () => {
     const f = fixture(() => h(GroupNoticeActions, { groupId: 123 }));
@@ -1068,11 +1442,16 @@ describe('QQ 主动操作的实际界面', () => {
     expect(cards[3]!.textContent).toContain('过滤申请人');
     expect(cards[3]!.querySelector('[aria-label="拒绝申请"]')).not.toBeNull();
   });
-  it('收藏备注自动更新未编辑值，但不覆盖正在输入的草稿', () => {
+  it('收藏按行显示，备注按需编辑，自动更新不覆盖正在输入的草稿', async () => {
     const f = fixture(() => h(FavoriteActions));
     const input = () => f.host.querySelector<HTMLInputElement>('[aria-label="表情备注"]')!;
+    expect(input()).toBeNull();
+    expect(f.host.querySelector('details')).toBeNull();
     state.data.favorites = [{ emojiId: 'favorite-a', desc: '远端新备注', position: 1 }];
     f.update();
+    expect(f.host.textContent).toContain('远端新备注');
+    await act(async () => f.button('表情操作').click());
+    await act(async () => menuButton('修改表情备注').click());
     expect(input().value).toBe('远端新备注');
     value(f.host, '表情备注', '未保存草稿');
     state.data.favorites = [{ emojiId: 'favorite-a', desc: '另一端备注', position: 1 }];
@@ -1082,14 +1461,71 @@ describe('QQ 主动操作的实际界面', () => {
   });
   it('收藏备注可明确清空，排序边界不可点击', async () => {
     const f = fixture(() => h(FavoriteActions));
+    await act(async () => f.button('表情操作').click());
+    expect(menuButton('上移表情').disabled).toBe(true);
+    expect(menuButton('下移表情').disabled).toBe(true);
+    await act(async () => menuButton('修改表情备注').click());
     value(f.host, '表情备注', '');
-    expect(f.button('上移表情').disabled).toBe(true);
-    expect(f.button('下移表情').disabled).toBe(true);
     await act(async () => f.button('保存表情备注').click());
     expect(state.mutate).toHaveBeenCalledWith(
       'favorite',
       expect.objectContaining({ emojiId: 'favorite-a', action: 'rename', desc: '' }),
     );
+  });
+  it('收藏添加与退出操作按需展开，取消保留草稿且不写请求', async () => {
+    const f = fixture(() => h(FavoriteActions));
+    expect(f.button('选择图片')).toBeNull();
+    await act(async () => f.button('新建收藏表情').click());
+    await act(async () => f.button('选择图片').click());
+    state.confirm.mockResolvedValue(false);
+    await act(async () => f.button('取消添加表情').click());
+    expect(f.host.textContent).toContain('image.png');
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('群分类不再多层折叠，退群只放在群管理菜单', async () => {
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    expect(f.host.querySelector('[aria-label="群分类标签"]')).not.toBeNull();
+    expect(f.button('退出 QQ 群')).toBeNull();
+    await act(async () => f.button('群管理菜单').click());
+    expect(menuButton('退出 QQ 群')).toBeDefined();
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('收藏备注未知回执保留编辑草稿，取消也必须确认', async () => {
+    const f = fixture(() => h(FavoriteActions));
+    await act(async () => f.button('表情操作').click());
+    await act(async () => menuButton('修改表情备注').click());
+    value(f.host, '表情备注', '未确认的新备注');
+    state.mutate.mockResolvedValueOnce({ state: 'unconfirmed' });
+    await act(async () => f.button('保存表情备注').click());
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="表情备注"]')!.value).toBe(
+      '未确认的新备注',
+    );
+    state.confirm.mockResolvedValueOnce(false);
+    await act(async () => f.button('取消修改表情备注').click());
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="表情备注"]')!.value).toBe(
+      '未确认的新备注',
+    );
+    expect(state.mutate).toHaveBeenCalledTimes(1);
+  });
+  it('收藏页隐藏时关闭行菜单但保留草稿，同号切源后销毁旧草稿', async () => {
+    let active = true;
+    const f = fixture(() => h(TabActivity, { active }, h(FavoriteActions)));
+    await act(async () => f.button('表情操作').click());
+    await act(async () => menuButton('修改表情备注').click());
+    value(f.host, '表情备注', '旧来源草稿');
+    await act(async () => f.button('表情操作').click());
+    active = false;
+    f.update();
+    expect(f.host.querySelector('[role="menu"]')).toBeNull();
+    active = true;
+    f.update();
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="表情备注"]')!.value).toBe(
+      '旧来源草稿',
+    );
+    state.configId = 'source-b';
+    f.update();
+    expect(f.host.querySelector('[aria-label="表情备注"]')).toBeNull();
+    expect(state.mutate).not.toHaveBeenCalled();
   });
   it('加群显示问题，未填回答不能提交，确认后只发一次目标 token', async () => {
     const f = fixture(() => h(GroupJoinAction, { onClose: vi.fn() }));

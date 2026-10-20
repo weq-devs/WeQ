@@ -3,6 +3,7 @@ import { resolveMessageSender } from '../im-template/template/conversationDispla
 import { displayUserName } from '../im-template/template/user';
 import { previewNodes, previewNodesToText } from './conversationPreview';
 import { selfIdentityValues } from './selfIdentity';
+import { messageContentText } from './messageClipboard';
 
 export interface SelectionModifiers {
   ctrlKey?: boolean;
@@ -85,7 +86,7 @@ export function selectedMessagesText(
               self,
             ),
           ) || '[消息]';
-      return `${displayUserName(sender) || '未知发送者'} (${time})\n${body}`;
+      return `${displayUserName(sender) || '未知发送者'} (${time})\n${messageContentText(elements, body)}`;
     })
     .join('\n\n');
 }

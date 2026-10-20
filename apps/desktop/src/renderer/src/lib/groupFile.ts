@@ -119,10 +119,19 @@ export function formatSize(bytes: number): string {
   return `${value >= 100 || i === 0 ? Math.round(value) : value.toFixed(1)} ${units[i]}`;
 }
 
-/** 秒级时间戳 → `YYYY-MM-DD HH:mm`（0/空留空）。 */
+const fileTimeFormatter = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+/** 秒级时间戳 → 北京时间 `YYYY-MM-DD HH:mm`（无效值留空）。 */
 export function formatFileTime(seconds: number): string {
-  if (!seconds) return '';
+  if (!Number.isFinite(seconds) || seconds <= 0) return '';
   const d = new Date(seconds * 1000);
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return Number.isFinite(d.getTime()) ? fileTimeFormatter.format(d) : '';
 }

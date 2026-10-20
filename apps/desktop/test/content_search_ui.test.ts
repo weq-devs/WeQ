@@ -1,9 +1,10 @@
-import { act, createElement } from 'react';
+import { act, createElement, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { GroupAlbumDialog } from '../src/renderer/src/components/GroupAlbumDialog';
 import { GroupFileDialog } from '../src/renderer/src/components/GroupFileDialog';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
+import { useViewState } from '../src/renderer/src/state/view';
 import {
   CONTENT_CATEGORY_ORDER,
   contentCoverageText,
@@ -33,8 +34,39 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       getSettings: { useQuery: () => ({ data: { exportSaveMode: 'before' }, isLoading: false }) },
     },
     account: {
-      getAccountConfig: { useQuery: () => ({ data: undefined }) },
-      getGroupAlbumAccessState: { useQuery: () => ({ data: { qqOnline: false } }) },
+      getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source-a' } }) },
+      getGroupAlbumAccessState: {
+        useQuery: () => ({
+          data: {
+            qqOnline: true,
+            attachEnabled: true,
+            hasA2: true,
+            hasD2: true,
+            hasD2Key: true,
+            hasGuid: true,
+          },
+        }),
+      },
+      listGroupFiles: {
+        useQuery: (input: { groupCode: string; folderId: string }) => {
+          const key = JSON.stringify(input);
+          const [data, setData] = useState<Awaited<ReturnType<typeof rpc.files>>>();
+          useEffect(() => {
+            let current = true;
+            void rpc.files(JSON.parse(key)).then((value) => {
+              if (current) setData(value);
+            });
+            return () => {
+              current = false;
+            };
+          }, [key]);
+          return {
+            data,
+            isFetching: !data,
+            refetch: async () => ({ data: await rpc.files(input), error: null }),
+          };
+        },
+      },
       qqActions: {
         fileSummary: { useQuery: () => ({ data: undefined }) },
         folders: { useQuery: () => ({ data: undefined }) },
@@ -54,9 +86,11 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  useViewState.setState({ openedUin: null });
 });
 function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  useViewState.setState({ openedUin: '10001' });
   vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
   const host = document.createElement('div');
   document.body.append(host);
@@ -122,7 +156,12 @@ it('同名相册跳转使用精确 id，群文件读取目标目录并高亮精�
   );
   try {
     await act(async () => {});
-    expect(rpc.files).toHaveBeenCalledWith({ groupCode: '50001', folderId: 'nested' });
+    expect(rpc.files).toHaveBeenCalledWith({
+      groupCode: '50001',
+      folderId: 'nested',
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+    });
     expect(
       document.querySelector('.group-file-dialog .is-search-hit')?.getAttribute('data-file-id'),
     ).toBe('target');

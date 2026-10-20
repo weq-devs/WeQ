@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   groupFileSelectedKeys,
+  collectGroupFileSubtree,
   resolveGroupFileSelection,
 } from '../src/renderer/src/lib/groupFileSelection';
 import type { GroupFileEntry } from '../src/renderer/src/views/export/GroupFileExportLightbox';
@@ -27,6 +28,37 @@ const folder: GroupFolderWire = {
 };
 const listing: GroupFileListing = { targetDirectory: '/', folders: [folder], files: [] };
 describe('群文件范围选择', () => {
+  it('共用子树遍历保留目录结构并防止目录环，错误目录或切源时停止', async () => {
+    const load = vi.fn(
+      async (directory: string): Promise<GroupFileListing> => ({
+        targetDirectory: directory,
+        files: [],
+        folders:
+          directory === 'folder-a'
+            ? [{ ...folder, folderId: 'child', folderName: '子目录' }]
+            : [{ ...folder, folderId: 'folder-a' }],
+      }),
+    );
+    await collectGroupFileSubtree({ id: 'folder-a', path: ['目录甲'] }, load);
+    expect(load.mock.calls.map((call) => call[0])).toEqual(['folder-a', 'child']);
+    await expect(
+      collectGroupFileSubtree({ id: 'folder-a', path: [] }, async () => ({
+        ...listing,
+        targetDirectory: 'other',
+      })),
+    ).rejects.toThrow('不一致');
+    let current = true;
+    await expect(
+      collectGroupFileSubtree(
+        { id: 'folder-a', path: [] },
+        async () => {
+          current = false;
+          return { ...listing, targetDirectory: 'folder-a' };
+        },
+        () => current,
+      ),
+    ).rejects.toThrow('停止');
+  });
   it('下载选择中目录覆盖其后代，但不误吞同前缀的兄弟目录', () => {
     const parent = { path: '/folder', isDir: true },
       child = { path: '/folder/child', isDir: false },
