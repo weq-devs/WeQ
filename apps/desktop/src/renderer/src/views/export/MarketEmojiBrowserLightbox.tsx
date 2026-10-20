@@ -338,7 +338,11 @@ export function MarketEmojiBrowserLightbox({
     setDownloading(true);
     setQueued(false);
     try {
-      const policy = await save.prepareSave(intent);
+      const policy = await save.prepareSave(intent, {
+        kind: 'bundle',
+        name: targets.length === 1 ? targets[0]!.name || targets[0]!.id : '商城表情包',
+        targetCount: targets.length,
+      });
       if (!policy || !save.isCurrent()) return;
       await client.account.marketEmoji.startDownload.mutate({
         packs: targets,

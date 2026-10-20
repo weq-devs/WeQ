@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import type { ExportSavePolicy } from '@weq/service';
+import type { ExportSavePolicy, ExportOutputPlan } from '@weq/service';
 import { client, trpc } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
 import { useToast } from '../components/Toast';
@@ -30,7 +30,10 @@ export function useExportSavePolicy() {
   });
   const binding =
     accountUin && config.data?.uin === accountUin && config.data.configId
-      ? { expectedAccountUin: accountUin, expectedAccountConfigId: config.data.configId }
+      ? Object.freeze({
+          expectedAccountUin: accountUin,
+          expectedAccountConfigId: config.data.configId,
+        })
       : null;
   const identity = `${accountUin ?? ''}:${binding?.expectedAccountConfigId ?? ''}`;
   const latestIdentity = useRef(identity);
@@ -108,7 +111,10 @@ export function useExportSavePolicy() {
     mounted.current &&
     useViewState.getState().openedUin === accountUin &&
     latestIdentity.current === identity;
-  async function prepareSave(intent?: ExportSavePolicy): Promise<ExportSavePolicy | null> {
+  async function prepareSave(
+    intent?: ExportSavePolicy,
+    output?: ExportOutputPlan,
+  ): Promise<ExportSavePolicy | null> {
     if (
       !current() ||
       pickInFlight.current ||
@@ -121,18 +127,20 @@ export function useExportSavePolicy() {
     if (!binding) throw new Error('账号资料尚未就绪，请重新打开导出工具。');
     prepareInFlight.current = true;
     try {
-      let requested = intent ?? policy;
-      if (IS_WEB && requested.mode === 'before' && !requested.directory && !requested.filePath) {
+      let requested = { ...(intent ?? policy) };
+      const frozenOutput = output ? structuredClone(output) : undefined;
+      if (IS_WEB && requested.mode !== 'after' && !requested.directory && !requested.filePath) {
         const directory = await new Promise<string | null>((resolve) => {
           resolveServerLocation.current = resolve;
-          setServerLocation({ name: '本次导出' });
+          setServerLocation({ name: frozenOutput?.name ?? '本次导出' });
         });
         if (directory === null || !current()) return null;
-        requested = { ...requested, directory: directory || undefined };
+        requested = { ...requested, mode: 'before', directory: directory || undefined };
       }
       const prepared = await client.bootstrap.prepareExportSave.mutate({
         ...requested,
         ...binding,
+        ...(frozenOutput ? { output: frozenOutput } : {}),
       });
       return current() ? prepared : null;
     } finally {

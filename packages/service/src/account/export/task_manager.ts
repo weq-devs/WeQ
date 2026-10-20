@@ -17,7 +17,7 @@
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { readFileSync, existsSync, mkdirSync, unlinkSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 import { sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import type { MsgService } from '../msg';
 import type { SenderResolveDeps } from './sender_resolve';
@@ -54,6 +54,13 @@ import {
   type ExportSaveState,
 } from './save_output';
 import { sequenceCoverage } from './sequence_coverage';
+import {
+  describeExportOutput,
+  messageOutputFlags,
+  exportOutputFileName,
+  type ExportOutputPlan,
+  type ExportOutputCapabilities,
+} from './output_shape';
 import { writeFileAtomicSync } from '../../common/atomic_write';
 import {
   collectFriends,
@@ -590,15 +597,56 @@ export class ExportTaskManager extends EventEmitter {
         ? { mode: 'after' }
         : preferred,
     );
+    const kind = task.contacts
+      ? 'contacts'
+      : task.qzone || task.generated || task.collection || task.marketpack || task.emojipack
+        ? 'bundle'
+        : 'messages';
+    const output = this.getOutputShape({
+      kind,
+      name: task.name,
+      format: task.format,
+      formats: task.formats,
+      contactScope: task.contacts?.scope,
+      exportAvatar: task.exportAvatar,
+      media: task.media,
+      dress: task.dress,
+    });
+    if (resolved.filePath) {
+      if (output.kind === 'directory') throw new Error('本次结果包含多个文件，请选择保存文件夹。');
+    }
     if (resolved.directory && this.deps.resolveSaveDirectory)
       resolved.directory = this.deps.resolveSaveDirectory(resolved.directory);
+    if (resolved.directory && output.kind === 'file') {
+      resolved.filePath = join(resolved.directory, exportOutputFileName(output, task.id));
+      resolved.uniqueFileName = true;
+      delete resolved.directory;
+    }
     if (resolved.filePath && this.deps.resolveSaveDirectory)
-      resolved.filePath = this.deps.resolveSaveDirectory(resolved.filePath);
+      resolved.filePath = resolved.uniqueFileName
+        ? join(
+            this.deps.resolveSaveDirectory(dirname(resolved.filePath)),
+            basename(resolved.filePath),
+          )
+        : this.deps.resolveSaveDirectory(resolved.filePath);
     task.save = {
       policy: resolved,
       status: 'pending',
     };
     this.tasks.set(task.id, task);
+  }
+
+  private outputCapabilities(): ExportOutputCapabilities {
+    return {
+      avatar: Boolean(this.deps.avatarCache),
+      transcribe: Boolean(this.deps.transcribe),
+      ocr: Boolean(this.deps.ocrLocal || this.deps.onlineOcr),
+      dress: Boolean(this.deps.dressInstall),
+    };
+  }
+
+  getOutputShape(plan: ExportOutputPlan) {
+    return describeExportOutput(plan, this.outputCapabilities());
   }
 
   /** 保存结果是独立状态；失败不抹掉已经完成的导出，也不清理唯一缓存结果。 */
@@ -609,11 +657,33 @@ export class ExportTaskManager extends EventEmitter {
     if (task?.status !== 'completed')
       return Promise.reject(new Error('只能保存已完成的导出任务。'));
     if (directory && filePath) throw new Error('保存位置只能选择文件或目录之一。');
-    const selectedFile =
+    let selectedFile =
       filePath ?? (directory === undefined ? task.save?.policy.filePath : undefined);
+    if (!selectedFile && directory && !task.bundleDir && task.filePath) {
+      selectedFile = join(
+        directory,
+        exportOutputFileName(
+          {
+            kind: 'file',
+            name: task.name,
+            extension: extname(task.filePath).slice(1) || task.format,
+          },
+          task.id,
+        ),
+      );
+    }
     const selected = selectedFile ?? directory ?? task.save?.policy.directory;
     if (!selected) return Promise.reject(new Error('请先选择保存位置。'));
-    const target = this.deps.resolveSaveDirectory?.(selected) ?? selected;
+    const unique = Boolean(
+      selectedFile &&
+        filePath === undefined &&
+        (directory !== undefined || task.save?.policy.uniqueFileName),
+    );
+    const target = this.deps.resolveSaveDirectory
+      ? unique
+        ? join(this.deps.resolveSaveDirectory(dirname(selected)), basename(selected))
+        : this.deps.resolveSaveDirectory(selected)
+      : selected;
     const policy = copyExportSavePolicy({
       mode: 'before',
       ...(selectedFile ? { filePath: target } : { directory: target }),
@@ -625,9 +695,14 @@ export class ExportTaskManager extends EventEmitter {
       ...(previousPath ? { path: previousPath } : {}),
     };
     this.saveTasks();
-    const saving = saveExportOutput(task, selectedFile ? { filePath: target } : target, undefined, {
-      requireExistingDirectory: true,
-    })
+    const saving = saveExportOutput(
+      task,
+      selectedFile ? { filePath: target, unique } : target,
+      undefined,
+      {
+        requireExistingDirectory: true,
+      },
+    )
       .then((path) => {
         task.save = { policy: task.save?.policy ?? policy, status: 'saved', path };
         return path;
@@ -1396,32 +1471,13 @@ export class ExportTaskManager extends EventEmitter {
         ocrCache,
         ocrFilterModelId,
       } = this.deps;
-      const wantAvatars = Boolean(task.exportAvatar && avatarCache);
-      const wantMedia = Boolean(task.media?.exportMedia);
-      const wantTranscribe = Boolean(task.media?.transcribeVoice && transcribe);
-      // 图片文字识别：在线那条腿或本地模型有一个能用就开（渲染层同样按这个口径放行）。
-      const wantOcr = Boolean(task.media?.ocrImages && (ocrLocal || onlineOcr));
-      const wantDress = Boolean(
-        task.dress &&
-          (task.dress.bubble || task.dress.font || task.dress.widget) &&
-          this.deps.dressInstall,
-      );
-      // 收集消息里用到的系统表情 faceId，sysface 阶段据此复制图片到 media/face/。
-      const wantSysFaces = Boolean(task.media?.mediaKinds?.sysface);
+      const { wantAvatars, wantMedia, wantTranscribe, wantOcr, wantDress, wantSysFaces, isBundle } =
+        messageOutputFlags(task, this.outputCapabilities());
       const needsScan = wantMedia || wantTranscribe || wantOcr;
       const formats = task.formats?.length ? task.formats : [task.format];
       // Avatars / media / transcription → output is a bundle folder; else a lone
       // file. 系统表情也产出 media/face/，需要 bundle。HTML 始终是 bundle。
       // 多格式同任务：多个文件必须放同一个 bundle 目录。
-      const isBundle =
-        wantAvatars ||
-        wantMedia ||
-        wantTranscribe ||
-        wantOcr ||
-        wantDress ||
-        wantSysFaces ||
-        task.format === 'html' ||
-        formats.length > 1;
       const outDir = join(this.cacheDir, isBundle ? `bundle-${id}` : `task-${id}`);
       mkdirSync(outDir, { recursive: true });
       const mediaRoot = join(outDir, 'media');

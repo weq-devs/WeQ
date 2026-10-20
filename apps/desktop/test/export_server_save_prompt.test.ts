@@ -7,6 +7,7 @@ import { ServerSavePrompt } from '../src/renderer/src/components/ServerSavePromp
 
 const state = vi.hoisted(() => ({
   configId: 'source-a',
+  mode: 'before' as ExportSavePolicy['mode'],
   prepare: vi.fn(async (policy: ExportSavePolicy) => ({
     mode: policy.mode,
     directory: `/server/${policy.directory ?? ''}`,
@@ -23,7 +24,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({}),
     bootstrap: {
-      getSettings: { useQuery: () => ({ data: { exportSaveMode: 'before' }, isLoading: false }) },
+      getSettings: {
+        useQuery: () => ({
+          data: { exportSaveMode: state.mode, defaultExportDir: null },
+          isLoading: false,
+        }),
+      },
     },
     account: {
       getAccountConfig: {
@@ -42,6 +48,7 @@ vi.mock('../src/renderer/src/state/view', () => ({
 afterEach(() => {
   state.prepare.mockClear();
   state.configId = 'source-a';
+  state.mode = 'before';
   vi.unstubAllGlobals();
 });
 function mount() {
@@ -123,6 +130,34 @@ it('关闭工具时取消尚未确认的服务器位置选择', async () => {
   f.close();
   expect(await pending).toBeNull();
   expect(state.prepare).not.toHaveBeenCalled();
+});
+it('Web 缺省默认文件夹仍询问本次位置，输出描述在等待前固定且不改全局模式', async () => {
+  state.mode = 'preset';
+  const f = mount();
+  const output = { kind: 'file' as const, name: '单文件导出', format: 'json' };
+  let pending!: Promise<ExportSavePolicy | null>;
+  try {
+    act(() => {
+      pending = f.result.prepareSave(undefined, output);
+    });
+    expect(f.result.serverLocation?.name).toBe('单文件导出');
+    expect(state.prepare).not.toHaveBeenCalled();
+    output.name = '后续修改';
+    await act(async () => {
+      f.result.chooseServerLocation('child');
+      await pending;
+    });
+    expect(state.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'before',
+        directory: 'child',
+        output: { kind: 'file', name: '单文件导出', format: 'json' },
+      }),
+    );
+    expect(f.result.policy).toEqual({ mode: 'preset' });
+  } finally {
+    f.close();
+  }
 });
 it('同号切换数据源关闭旧服务器位置弹窗且不提交位置', async () => {
   const f = mount();

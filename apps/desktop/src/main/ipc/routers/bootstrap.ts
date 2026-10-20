@@ -15,15 +15,20 @@
 
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
-import { copyExportSavePolicy, resolveExportSaveDirectory } from '@weq/service';
+import {
+  copyExportSavePolicy,
+  resolveExportSaveDirectory,
+  describeExportOutput,
+} from '@weq/service';
 import {
   bindExportSaveRequest,
+  exportOutputPlanInput,
+  prepareExportDestination,
   exportAccountBindingInput,
   exportSavePolicyInput,
 } from './export_save';
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { lstat, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
 import { getDaemonHealth } from '../../daemon/health';
@@ -425,7 +430,7 @@ export const bootstrapRouter = router({
     }),
 
   setExportSaveDefaults: procedure.input(exportSavePolicyInput).mutation(({ input }) => {
-    if (input.filePath) throw new Error('全局默认保存位置只能是文件夹。');
+    if (input.filePath || input.uniqueFileName) throw new Error('全局默认保存位置只能是文件夹。');
     const config = requireBootstrap().userConfig;
     if (input.mode !== 'preset') return config.setSettings({ exportSaveMode: input.mode });
     const host = getHost();
@@ -442,7 +447,12 @@ export const bootstrapRouter = router({
   ),
 
   prepareExportSave: procedure
-    .input(exportSavePolicyInput.extend(exportAccountBindingInput.shape))
+    .input(
+      exportSavePolicyInput.extend({
+        ...exportAccountBindingInput.shape,
+        output: exportOutputPlanInput.optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
       const current = bindExportSaveRequest(input, () => {
         const context = getAppContext();
@@ -453,35 +463,20 @@ export const bootstrapRouter = router({
         };
       });
       if (input.mode === 'after') return { mode: 'after' as const };
-      if (input.directory && input.filePath) throw new Error('保存位置只能选择文件或目录之一。');
       const host = getHost();
       const settings = requireBootstrap().userConfig.getSettings();
-      if (input.filePath) {
-        const filePath = host.exportRoot
-          ? resolveExportSaveDirectory(host.exportRoot, input.filePath)
-          : input.filePath;
-        const policy = copyExportSavePolicy({ mode: input.mode, filePath });
-        if (host.exportRoot) await mkdir(dirname(filePath), { recursive: true });
-        if (!(await lstat(dirname(filePath))).isDirectory())
-          throw new Error('保存目录不可用，请重新选择。');
-        current();
-        return policy;
-      }
-      let directory: string | null | undefined = input.directory;
-      if (host.exportRoot) {
-        directory = resolveExportSaveDirectory(
-          host.exportRoot,
-          directory ?? (input.mode === 'preset' ? (settings.defaultExportDir ?? '') : ''),
-        );
-      } else if (input.mode === 'before' && !directory) {
-        directory = await host.pickDirectory({ title: '选择本次导出保存位置' });
-        if (!directory) return null;
-      } else directory ??= settings.defaultExportDir;
-      if (host.exportRoot && directory) await mkdir(directory, { recursive: true });
-      if (!directory || !(await lstat(directory)).isDirectory())
-        throw new Error('保存目录不可用，请重新选择。');
-      current();
-      return copyExportSavePolicy({ mode: input.mode, directory: directory ?? undefined });
+      const manager = getAppContext().services?.exportManager;
+      const output = input.output
+        ? manager
+          ? manager.getOutputShape(input.output)
+          : describeExportOutput(input.output, {
+              avatar: false,
+              transcribe: false,
+              ocr: false,
+              dress: false,
+            })
+        : undefined;
+      return prepareExportDestination(input, settings.defaultExportDir, host, output, current);
     }),
 
   /**

@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -91,7 +99,8 @@ it('后台按预设自动保存且不依赖渲染界面，保留原结果与持�
   expect(task.save?.error).toBeUndefined();
   expect(task.save?.status).toBe('saved');
   expect(task.status).toBe('completed');
-  expect(readFileSync(join(task.save!.path!, '后台保存.txt'), 'utf8')).toContain('message 2');
+  expect(task.save!.path).toBe(join(realpathSync(target), '后台保存.txt'));
+  expect(readFileSync(task.save!.path!, 'utf8')).toContain('message 2');
   expect(readFileSync(task.filePath!, 'utf8')).toContain('message 2');
   expect(new ExportTaskManager(f.msgs, join(f.root, 'exports')).getTask(id)?.save).toEqual(
     task.save,
@@ -226,7 +235,12 @@ it('定时任务携带自己的保存策略，自动保存失败不能提前结�
     await wait(() => f.manager.getTask(ids[0]!)?.save?.status === 'failed');
     expect(f.manager.getTask(ids[0]!)?.status).toBe('completed');
     expect(scheduler.list()[0]?.history[0]?.outcome).toBe('partial');
-    expect(f.manager.getTask(ids[0]!)?.save?.policy).toEqual({ mode: 'preset', directory: bad });
+    expect(f.manager.getTask(ids[0]!)?.save?.policy).toEqual({
+      mode: 'preset',
+      filePath: join(bad, 'fixture.txt'),
+      uniqueFileName: true,
+    });
+    expect(scheduler.list()[0]?.options.savePolicy).toEqual({ mode: 'preset', directory: bad });
   } finally {
     scheduler.stop();
   }

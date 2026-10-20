@@ -791,9 +791,21 @@ export type {
 } from './account/export';
 export { ExportTaskManager } from './account/export/task_manager';
 export {
+  describeExportOutput,
+  messageOutputFlags,
+  exportOutputFileName,
+  EXPORT_EXTENSION_PATTERN,
+} from './account/export/output_shape';
+export type {
+  ExportOutputPlan,
+  ExportOutputShape,
+  ExportOutputCapabilities,
+} from './account/export/output_shape';
+export {
   normalizeExportSaveMode,
   copyExportSavePolicy,
   resolveExportSaveDirectory,
+  resolveExportSaveFile,
 } from './account/export/save_output';
 export type {
   ExportSaveMode,

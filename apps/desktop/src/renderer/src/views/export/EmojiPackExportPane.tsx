@@ -60,6 +60,7 @@ export function EmojiPackExportPane({
   onStarted: () => void;
   prepareSave?: (
     intent?: import('@weq/service').ExportSavePolicy,
+    output?: import('@weq/service').ExportOutputPlan,
   ) => Promise<import('@weq/service').ExportSavePolicy | null>;
   disabled?: boolean;
   binding?: { expectedAccountUin: string; expectedAccountConfigId: string };
@@ -91,7 +92,7 @@ export function EmojiPackExportPane({
     const request = { ...binding, scopes: [...selected] };
     setSubmitting(true);
     try {
-      const savePolicy = await prepareSave?.(intent);
+      const savePolicy = await prepareSave?.(intent, { kind: 'bundle', name: '自定义表情包' });
       if (savePolicy === null || !isCurrent()) return;
       await client.account.emojiPack.startExport.mutate({
         ...request,

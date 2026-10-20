@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   copyExportSavePolicy,
   resolveExportSaveDirectory,
+  resolveExportSaveFile,
   saveExportOutput,
 } from '../src/account/export/save_output';
 
@@ -33,6 +34,48 @@ afterEach(() => {
 });
 
 describe('导出保存策略与结果发布', () => {
+  it('服务器自动命名只规范化父目录，拒绝父目录逃逸但不跟随已有最终文件链接', () => {
+    const f = fixture();
+    const outside = join(f.source, 'private.json');
+    writeFileSync(outside, 'personal');
+    const alias = join(f.target, 'alias.json');
+    symlinkSync(outside, alias);
+    expect(resolveExportSaveFile(f.target, alias, true)).toBe(
+      join(realpathSync(f.target), 'alias.json'),
+    );
+    expect(() => resolveExportSaveFile(f.target, alias)).toThrow();
+    const outsideAlias = join(f.target, 'escape');
+    symlinkSync(f.source, outsideAlias);
+    expect(() => resolveExportSaveFile(f.target, join(outsideAlias, 'new.json'), true)).toThrow();
+    expect(readFileSync(outside, 'utf8')).toBe('personal');
+  });
+  it('自动保存为单文件时避开主文件和报告重名，保持已有内容且并发不相互覆盖', async () => {
+    const f = fixture(),
+      source = join(f.source, 'generated.json'),
+      report = join(f.source, 'report.json');
+    writeFileSync(source, 'generated');
+    writeFileSync(report, 'report');
+    const target = join(f.target, 'name.json');
+    writeFileSync(`${target}.report.json`, 'original-report');
+    const paths = await Promise.all([
+      saveExportOutput(
+        { name: '合成', filePath: source, reportPath: report },
+        { filePath: target, unique: true },
+      ),
+      saveExportOutput(
+        { name: '合成', filePath: source, reportPath: report },
+        { filePath: target, unique: true },
+      ),
+    ]);
+    expect(new Set(paths).size).toBe(2);
+    expect(existsSync(target)).toBe(false);
+    expect(readFileSync(`${target}.report.json`, 'utf8')).toBe('original-report');
+    for (const path of paths) {
+      expect(readFileSync(path, 'utf8')).toBe('generated');
+      expect(readFileSync(`${path}.report.json`, 'utf8')).toBe('report');
+    }
+    expect(readdirSync(f.target).some((name) => name.endsWith('.partial'))).toBe(false);
+  });
   it('单文件策略保留确切文件名，完成后选择清除路径，不接受文件／目录混用', () => {
     const f = fixture(),
       filePath = join(f.target, 'result.json');

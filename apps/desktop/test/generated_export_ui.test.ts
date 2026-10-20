@@ -106,7 +106,7 @@ it('生成对话的本次菜单沿用同一提交管线，先生成意图不写�
       (node) => node.textContent === '先生成，稍后保存',
     )!;
     await act(async () => button.click());
-    expect(prepare).toHaveBeenCalledWith({ mode: 'after' });
+    expect(prepare).toHaveBeenCalledWith({ mode: 'after' }, { kind: 'bundle', name: '生成对话' });
     expect(fixture.start).toHaveBeenCalledWith(
       expect.objectContaining({ savePolicy: { mode: 'after' }, messageIds: ['a'] }),
     );

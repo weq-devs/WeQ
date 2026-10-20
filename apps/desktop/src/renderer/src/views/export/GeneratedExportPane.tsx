@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Download, RotateCw, Search } from 'lucide-react';
-import type { ExportSavePolicy, GeneratedContentTarget } from '@weq/service';
+import type { ExportSavePolicy, GeneratedContentTarget, ExportOutputPlan } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { WindowedList } from '../../components/WindowedList';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
@@ -23,7 +23,10 @@ export function GeneratedExportPane({
   disabled = false,
 }: {
   initialSelection?: ContentSelection;
-  prepareSave: (intent?: ExportSavePolicy) => Promise<ExportSavePolicy | null>;
+  prepareSave: (
+    intent?: ExportSavePolicy,
+    output?: ExportOutputPlan,
+  ) => Promise<ExportSavePolicy | null>;
   isCurrent: () => boolean;
   onStarted: () => void;
   disabled?: boolean;
@@ -116,7 +119,7 @@ export function GeneratedExportPane({
     setBusy(true);
     setError('');
     try {
-      const savePolicy = await prepareSave(intent);
+      const savePolicy = await prepareSave(intent, { kind: 'bundle', name: '生成对话' });
       if (!savePolicy || !isCurrent()) return;
       await client.account.startGeneratedExport.mutate({ ...frozen, savePolicy });
       if (isCurrent()) onStarted();

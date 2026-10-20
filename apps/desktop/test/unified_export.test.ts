@@ -371,13 +371,25 @@ describe('统一导出实际界面', () => {
       act(() => choose.click());
       expect(fixture.prepare).not.toHaveBeenCalled();
       await act(async () => click(f.host, '夹具确认导出'));
-      expect(fixture.prepare).toHaveBeenLastCalledWith({ mode: 'before' });
+      expect(fixture.prepare).toHaveBeenLastCalledWith(
+        { mode: 'before' },
+        expect.objectContaining({
+          kind: 'contacts',
+          contactScope: 'friends',
+          targetCount: 1,
+          exportAvatar: DEFAULT_OPTIONS.exportAvatar,
+          formats: ['json'],
+        }),
+      );
       expect(fixture.startContacts).toHaveBeenLastCalledWith(
         expect.objectContaining({ savePolicy: { mode: 'before' } }),
       );
       await act(async () => click(f.host, '导出联系人'));
       await act(async () => click(f.host, '夹具确认导出'));
-      expect(fixture.prepare).toHaveBeenLastCalledWith(undefined);
+      expect(fixture.prepare).toHaveBeenLastCalledWith(
+        undefined,
+        expect.objectContaining({ kind: 'contacts', contactScope: 'friends', targetCount: 1 }),
+      );
       expect(fixture.startContacts).toHaveBeenLastCalledWith(
         expect.objectContaining({ savePolicy: { mode: 'after' } }),
       );

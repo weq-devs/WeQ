@@ -929,7 +929,11 @@ export function ExportTool({
       : { start: options.range.start, end: options.range.end };
     setSubmitting(true);
     try {
-      const savePolicy = await prepareSave(intent);
+      const savePolicy = await prepareSave(intent, {
+        kind: 'bundle',
+        name: targets.length === 1 ? targets[0]!.name : 'QQ 空间',
+        targetCount: targets.length,
+      });
       if (!savePolicy) return;
       for (const t of targets) {
         if (!isCurrent()) return;
@@ -979,9 +983,31 @@ export function ExportTool({
       name: groupItems.find((item) => item.id === id)?.name ?? id,
       uids: memberUids[id] === undefined ? undefined : [...memberUids[id]!],
     }));
+    const selectionName =
+      contactScope === 'groups'
+        ? groupIds
+          ? `群聊名单_${groupIds.length}个群`
+          : '全部群聊名单'
+        : contactScope === 'friends'
+          ? selectedFriends
+            ? `好友_精确${selectedFriends.length}人`
+            : cats.length
+              ? `好友_${cats.length}个分组`
+              : '全部好友'
+          : selectedGroups.length === 1
+            ? `${selectedGroups[0]!.name}_群成员`
+            : '群成员名单';
     setSubmitting(true);
     try {
-      const savePolicy = await prepareSave(intent);
+      const savePolicy = await prepareSave(intent, {
+        kind: 'contacts',
+        name: selectionName,
+        format: cfmts[0] ?? 'csv',
+        formats: cfmts,
+        contactScope,
+        exportAvatar: contactScope === 'groups' ? false : options.exportAvatar,
+        targetCount: contactScope === 'group' ? selectedGroups.length : 1,
+      });
       if (!savePolicy || !isCurrent()) return;
       // 多格式合并为同一个任务：所有格式写进同一 bundle，头像只带一份。
       if (contactScope === 'groups') {
@@ -989,7 +1015,7 @@ export function ExportTool({
           ...binding,
           savePolicy,
           scope: 'groups',
-          name: groupIds ? `群聊名单_${groupIds.length}个群` : '全部群聊名单',
+          name: selectionName,
           groupIds,
           format: cfmts[0] === 'vcard' ? 'csv' : (cfmts[0] ?? 'csv'),
           formats: cfmts.map((f) => (f === 'vcard' ? 'csv' : f)),
@@ -999,11 +1025,7 @@ export function ExportTool({
           ...binding,
           savePolicy,
           scope: 'friends',
-          name: selectedFriends
-            ? `好友_精确${selectedFriends.length}人`
-            : cats.length
-              ? `好友_${cats.length}个分组`
-              : '全部好友',
+          name: selectionName,
           format: cfmts[0] ?? 'csv',
           formats: cfmts,
           exportAvatar: options.exportAvatar,
@@ -1048,7 +1070,10 @@ export function ExportTool({
     if (cids.length === 0) return;
     setSubmitting(true);
     try {
-      const savePolicy = await prepareSave(intent);
+      const savePolicy = await prepareSave(intent, {
+        kind: 'bundle',
+        name: kinds.length ? `收藏_${kinds.length}类` : '全部收藏',
+      });
       if (!savePolicy) return;
       await client.account.startCollectionExport.mutate({
         ...binding,
@@ -1112,7 +1137,16 @@ export function ExportTool({
 
     setSubmitting(true);
     try {
-      const savePolicy = await prepareSave(intent);
+      const savePolicy = await prepareSave(intent, {
+        kind: 'messages',
+        name: targets.length === 1 ? targets[0]!.name : '聊天记录',
+        format: formats[0] ?? format,
+        formats,
+        targetCount: targets.length,
+        exportAvatar: effectiveOptions.exportAvatar,
+        dress: effectiveOptions.dress,
+        media: buildChatExportMedia(effectiveOptions),
+      });
       if (!savePolicy) return;
       await startChatExportTasks(targets, effectiveOptions, formats, format, {
         savePolicy,
@@ -1167,7 +1201,16 @@ export function ExportTool({
 
     setSubmitting(true);
     try {
-      const savePolicy = await prepareSave(intent);
+      const savePolicy = await prepareSave(intent, {
+        kind: 'messages',
+        name: targets.length === 1 ? targets[0]!.name : '频道私聊',
+        format: formats[0] ?? format,
+        formats,
+        targetCount: targets.length,
+        exportAvatar: options.exportAvatar,
+        dress: options.dress,
+        media,
+      });
       if (!savePolicy) return;
       for (const t of targets) {
         // 多格式合并为同一个任务：所有格式写进同一 bundle，媒体/头像/装扮只带一份。
@@ -1338,7 +1381,7 @@ export function ExportTool({
     }
     setSubmitting(true);
     try {
-      const savePolicy = await prepareSave(intent);
+      const savePolicy = await prepareSave(intent, { kind: 'bundle', name: '定时导出' });
       if (!savePolicy) return;
       await client.account.createSchedule.mutate({
         ...binding,

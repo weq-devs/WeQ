@@ -32,8 +32,12 @@ export function outputBytes(path: string): number {
   return bytes;
 }
 
-export function assertDestinationCapacity(target: string, source: string): void {
-  const required = outputBytes(source);
+export function assertDestinationCapacity(
+  target: string,
+  source: string | readonly string[],
+): void {
+  const sources = typeof source === 'string' ? [source] : source;
+  const required = sources.reduce((total, path) => total + outputBytes(path), 0);
   const { availableBytes } = inspectDestination(dirname(target));
   if (required > availableBytes)
     throw new Error(`目标卷可用空间不足：需要 ${required} 字节，可用 ${availableBytes} 字节。`);

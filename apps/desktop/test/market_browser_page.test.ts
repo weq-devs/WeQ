@@ -146,7 +146,10 @@ it('商城详情的下载菜单只覆盖本次保存方式，多选不展开保�
       (node) => node.textContent === '先生成，稍后保存',
     )!;
     await act(async () => choose.click());
-    expect(saveState.prepare).toHaveBeenLastCalledWith({ mode: 'after' });
+    expect(saveState.prepare).toHaveBeenLastCalledWith(
+      { mode: 'after' },
+      expect.objectContaining({ kind: 'bundle', targetCount: 1 }),
+    );
     expect(saveState.download).toHaveBeenCalledWith(
       expect.objectContaining({
         savePolicy: { mode: 'after' },
