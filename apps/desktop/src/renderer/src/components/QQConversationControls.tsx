@@ -79,8 +79,16 @@ export function QQConversationControls({
       ))
     )
       return false;
-    return act((binding) =>
-      policy.mutateAsync({ ...binding, groupId: Number(conv), policy: value }),
+    return session.run(
+      (binding) => policy.mutateAsync({ ...binding, groupId: Number(conv), policy: value }),
+      undefined,
+      {
+        readback: async () => {
+          const updated = await snapshot.refetch();
+          if (updated.error) throw updated.error;
+          return updated.data?.notifyLevel === value;
+        },
+      },
     );
   }
   async function pickAvatar() {
@@ -152,13 +160,10 @@ export function QQConversationControls({
               />
               {kind === 'c2c' ? (
                 <>
+                  {/* recent_contact 提醒级别不能证明好友免打扰的实际状态。 */}
                   <QQWriteToggleRow
                     label="消息免打扰"
-                    initial={
-                      state.notifyLevel === null
-                        ? null
-                        : state.notifyLevel !== 0 && state.notifyLevel !== 1
-                    }
+                    initial={null}
                     disabled={friendDisabled}
                     onSave={(enabled) =>
                       act((binding) => disturb.mutateAsync({ ...binding, uid: conv, enabled }))
