@@ -5,6 +5,7 @@
 .weq-qq-action-form textarea { min-height: 90px; resize: vertical; max-height: 240px; }
 .weq-qq-action-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .weq-qq-action-bar > input { flex: 1 1 100px; }
+.weq-qq-join-settings .weq-qq-action-bar > select { flex: 1 1 100px; width: auto; }
 .weq-qq-action-bar > span { min-width: 0; overflow-wrap: anywhere; }
 .weq-qq-action-bar .weq-set-iconbtn { flex-shrink: 0; width: 30px; height: 30px; }
 .weq-qq-action-options { display: flex; flex-wrap: wrap; gap: 12px; }

@@ -5,7 +5,7 @@
 
 import { useLayoutEffect, useRef, useState, type ReactElement } from 'react';
 import { UserRound } from 'lucide-react';
-import { cachedAvatarUrl } from '../lib/avatarCache';
+import { useAvatarUrl } from '../hooks/useAvatarUrl';
 import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
 
 export function qqAvatarUrl(uin: string): string {
@@ -24,7 +24,7 @@ export function QqAvatar({
   className?: string;
 }): ReactElement {
   const ownerDocument = useRenderDocument();
-  const raw = cachedAvatarUrl(url || (uin ? qqAvatarUrl(uin) : null));
+  const raw = useAvatarUrl(url || (uin ? qqAvatarUrl(uin) : null));
   const resolved = raw ? resourceForRenderDocument(raw, ownerDocument) : raw;
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);

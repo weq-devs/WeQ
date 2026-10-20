@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { Check, LogOut, Plus, Trash2 } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { GroupReadTools } from './GroupReadTools';
+import { GroupJoinSettings } from './GroupJoinSettings';
 import {
   ActionFeedback,
   ActionIcon,
   RefreshAction,
-  SaveAction,
   useQQAction,
   useQQGroupPermissions,
   withQQAccountScope,
@@ -14,9 +14,6 @@ import {
 
 function GroupActionsBody({ groupId }: { groupId: number }) {
   const a = useQQAction(`group:${groupId}`);
-  const [join, setJoin] = useState<'' | 1 | 2 | 3 | 4 | 5>(''),
-    [question, setQuestion] = useState(''),
-    [answer, setAnswer] = useState('');
   const [category, setCategory] = useState(''),
     [tag, setTag] = useState('');
   const tags = trpc.account.qqActions.tags.useQuery(
@@ -27,68 +24,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
     <section className="weq-qq-actions" aria-label="更多 QQ 群操作">
       <h4>群管理</h4>
       <div className="weq-qq-action-form">
-        <select
-          aria-label="加群方式"
-          value={join}
-          onChange={(e) =>
-            setJoin(
-              e.target.value === '' ? '' : (Number(e.target.value) as Exclude<typeof join, ''>),
-            )
-          }
-        >
-          <option value="">选择新的加群方式</option>
-          <option value={1}>允许任何人</option>
-          <option value={2}>需要审核</option>
-          <option value={3}>不允许加入</option>
-          <option value={4}>正确回答问题</option>
-          <option value={5}>回答问题并审核</option>
-        </select>
-        {(join === 4 || join === 5) && (
-          <>
-            <input
-              aria-label="加群问题"
-              placeholder="加群问题"
-              value={question}
-              maxLength={256}
-              onChange={(e) => setQuestion(e.target.value)}
-            />
-            {join === 4 && (
-              <input
-                aria-label="加群答案"
-                placeholder="加群答案"
-                value={answer}
-                maxLength={256}
-                onChange={(e) => setAnswer(e.target.value)}
-              />
-            )}
-          </>
-        )}
-        <SaveAction
-          label="保存加群方式"
-          disabled={
-            a.disabled ||
-            join === '' ||
-            ((join === 4 || join === 5) && !question.trim()) ||
-            (join === 4 && !answer.trim())
-          }
-          onClick={() =>
-            void a.perform(
-              (b) => {
-                if (join === '') return Promise.reject(new Error('请选择加群方式'));
-                return client.account.qqActions.groupSettings.mutate({
-                  ...b,
-                  groupId,
-                  action: 'join',
-                  addType: join,
-                  question,
-                  answer: join === 4 ? answer : undefined,
-                });
-              },
-              undefined,
-              `修改 QQ 群 ${groupId} 的加群方式？`,
-            )
-          }
-        />
+        <GroupJoinSettings key={groupId} groupId={groupId} />
         <details>
           <summary>分类标签</summary>
           <div className="weq-qq-action-form">
@@ -211,10 +147,13 @@ export function GroupTodos({ groupId, embedded = false }: { groupId: number; emb
       <ul className="weq-qq-action-list">
         {todos.data?.map((t) => (
           <li key={t.sequence}>
-            <span>{t.text || `消息 ${t.sequence}`}</span>
+            <span>
+              {t.text || `消息 ${t.sequence}`}
+              {t.completed ? ' · 已完成' : ''}
+            </span>
             <ActionIcon
               label="完成待办"
-              disabled={a.disabled}
+              disabled={a.disabled || t.completed}
               onClick={() =>
                 void a.perform(
                   (b) =>

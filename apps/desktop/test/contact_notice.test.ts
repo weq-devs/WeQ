@@ -94,6 +94,28 @@ describe('通知卡片操作匹配', () => {
   });
 });
 describe('通知红点', () => {
+  it.each(['friend', 'group'] as const)(
+    '查看不同批次后重载保留已读，同号不同来源独立：%s',
+    (kind) => {
+      const host = document.createElement('div');
+      const root = createRoot(host);
+      cleanups.push(() => act(() => root.unmount()));
+      function Probe({ source, ids, open }: { source: string; ids: string[]; open: boolean }) {
+        return h('span', null, useNoticeUnread(`10001:${source}`, kind, ids, open, true));
+      }
+      const render = (source: string, ids: string[], open = false) =>
+        act(() => root.render(h(Probe, { source, ids, open })));
+      render('source-a', ['old-1', 'old-2'], true);
+      render('source-a', ['new-1'], true);
+      act(() => root.render(null));
+      render('source-a', ['old-1', 'old-2', 'new-1']);
+      expect(host.textContent).toBe('0');
+      render('source-b', ['old-1', 'old-2', 'new-1']);
+      expect(host.textContent).toBe('3');
+      render('source-a', ['old-1', 'old-2', 'new-1', 'new-2']);
+      expect(host.textContent).toBe('1');
+    },
+  );
   it('进入即清除，重挂载不复现，新通知重新点亮，账号与类别独立', () => {
     const host = document.createElement('div');
     const root = createRoot(host);

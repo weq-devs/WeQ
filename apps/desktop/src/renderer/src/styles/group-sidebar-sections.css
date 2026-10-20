@@ -19,5 +19,6 @@
 .weq-group-sections .weq-group-announcement > button:focus-visible, .weq-group-sections .weq-group-announcement > p:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: -2px; }
 html[data-theme="dark"] .weq-group-sections { color: var(--weq-fg-primary); border-color: var(--weq-border-strong); }
 @media (max-width: 760px) {
-  .chat-pane.is-mobile-group-info-open > .group-info-panel.weq-group-sections { overflow: hidden; }
+  .chat-pane:not(.is-mobile-group-info-open) > .group-info-panel.weq-group-sections { display: none; }
+  .chat-pane.is-mobile-group-info-open > .group-info-panel.weq-group-sections { display: flex; overflow: hidden; }
 }

@@ -2,7 +2,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { cn } from './classNames';
 import { DefaultAvatar } from './defaultAvatar';
-import { cachedAvatarUrl } from '../../lib/avatarCache';
+import { useAvatarUrl } from '../../hooks/useAvatarUrl';
 import { useDebouncedLoading } from '../../hooks/useDebouncedLoading';
 
 export function Avatar({
@@ -17,7 +17,7 @@ export function Avatar({
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
-  const resolved = cachedAvatarUrl(avatarUrl);
+  const resolved = useAvatarUrl(avatarUrl);
 
   useLayoutEffect(() => {
     setFailed(false);

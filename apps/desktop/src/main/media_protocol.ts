@@ -222,12 +222,12 @@ async function onlineRedbagCover(skinId: string): Promise<string | null> {
  * Short `max-age`: the disk cache is the real cache (and applies its own TTL),
  * so a long browser cache would only delay a changed avatar from showing.
  */
-async function avatarFallbackResponse(src: string): Promise<Response> {
+async function avatarFallbackResponse(src: string, refresh = false): Promise<Response> {
   if (!/^https?:\/\//i.test(src)) return notFound('avatar fallback needs http url');
   const cache = getAppContext().bootstrap?.avatarCache;
   if (!cache) return notFound('avatar cache unavailable');
   try {
-    const blob = await cache.get(src);
+    const blob = await cache.get(src, 'avatar', refresh ? 0 : undefined);
     // Defensive: a broken (empty) cache entry must never become a 200 empty body.
     if (blob.data.length === 0) {
       return notFound('avatar fallback empty');
@@ -695,6 +695,10 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           const fb = q.get('fb') ?? '';
           if (scope !== 'user' && scope !== 'group' && scope !== 'cover') {
             return notFound('avatar needs scope=user|group|cover');
+          }
+          if (fb && q.get('_weq_avatar_remote') === '1') {
+            const fresh = await avatarFallbackResponse(fb, true);
+            if (fresh.ok) return fresh;
           }
           let path: string | null = null;
           if (hash) path = await services.avatarResource.resolveFile(scope, hash, variant);

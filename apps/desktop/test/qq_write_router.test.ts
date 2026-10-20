@@ -53,11 +53,17 @@ function fixture() {
       getProfile: vi.fn(async () => null),
       getBuddy: vi.fn(async () => null),
       getSelfProfile: vi.fn(async () => self),
+      profilesByUids: vi.fn(async (uids: string[]) => (uids.includes(self.uid) ? [self] : [])),
     },
     groupInfo: {
       getGroupDetail: vi.fn(async () => null),
       listGroupDirectory: vi.fn(async () => []),
       getMemberInfo: vi.fn(async () => null),
+      getMessagePolicy: vi.fn(async (groupId: number) => ({
+        groupId,
+        policy: 1 as const,
+        rawPolicy: 1,
+      })),
     },
     recentContacts: {
       getTopContacts: vi.fn(async () => []),
@@ -90,6 +96,47 @@ function fixture() {
 }
 
 describe('QQ 写 IPC 边界', () => {
+  it('资料详情保持读取来源与目标，不返回未请求 UID，切号后丢弃', async () => {
+    const f = fixture();
+    const profiles = await f.caller.profileDetails({ ...binding, uids: [self.uid] });
+    expect(profiles[0].uin).toBe(self.uin.toString());
+    f.services.profile.profilesByUids = async () => [self];
+    await expect(f.caller.profileDetails({ ...binding, uids: ['u_other'] })).rejects.toThrow(
+      '目标不一致',
+    );
+    f.services.profile.profilesByUids = async () => {
+      f.switchAccount();
+      return [self];
+    };
+    await expect(f.caller.profileDetails({ ...binding, uids: [self.uid] })).rejects.toThrow('切换');
+  });
+  it('成员详情读取期间切号，不能回填到新来源', async () => {
+    const f = fixture();
+    await expect(
+      f.caller.memberDetails({ ...binding, groupId: 123, uid: 'u_peer' }),
+    ).resolves.toBeNull();
+    f.services.groupInfo.getMemberInfo = async () => {
+      f.switchAccount();
+      return null;
+    };
+    await expect(
+      f.caller.memberDetails({ ...binding, groupId: 123, uid: 'u_peer' }),
+    ).rejects.toThrow('切换');
+  });
+  it('群消息策略单独读取服务端，保留来源并拒绝切号后的回包', async () => {
+    const f = fixture();
+    await expect(f.caller.groupPolicyState({ ...binding, groupId: 123 })).resolves.toEqual({
+      groupId: 123,
+      policy: 1,
+      rawPolicy: 1,
+      source: 'qq-server',
+    });
+    f.services.groupInfo.getMessagePolicy = async (groupId) => {
+      f.switchAccount();
+      return { groupId, policy: 3, rawPolicy: 3 };
+    };
+    await expect(f.caller.groupPolicyState({ ...binding, groupId: 123 })).rejects.toThrow('切换');
+  });
   it.each(['admin', 'member', null] as const)('非群主 %s 不能写专属头衔', async (role) => {
     const f = fixture();
     f.services.groupInfo.listGroupDirectory = vi.fn(async () => [
@@ -204,6 +251,16 @@ describe('QQ 写 IPC 边界', () => {
       return self;
     };
     await expect(f.caller.selfState(binding)).rejects.toThrow(/切换/);
+  });
+  it('状态缓存解析失败不阻断资料读取，明确返回独立错误', async () => {
+    const f = fixture();
+    f.services.onlineStatus.getOnlineStatus = async () => {
+      throw new Error('premature EOF');
+    };
+    const state = await f.caller.selfState(binding);
+    expect(state.profile?.signature).toBe(self.signature);
+    expect(state.status).toBeNull();
+    expect(state.statusError).toBe('premature EOF');
   });
 
   it('群昵称目标使用账号会话 UID，不依赖个人资料缓存已填充', async () => {

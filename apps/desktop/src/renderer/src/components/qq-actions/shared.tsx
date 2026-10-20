@@ -69,6 +69,7 @@ export function useQQAction(scope: string) {
     action: (binding: QQWriteBinding) => Promise<QQWriteOutcome>,
     refresh?: () => Promise<unknown>,
     warning?: string,
+    options?: Parameters<typeof session.run>[2],
   ) {
     if (busy.current || disabled) return false;
     busy.current = true;
@@ -76,7 +77,7 @@ export function useQQAction(scope: string) {
     try {
       if (warning && !(await confirm('确认 QQ 操作', warning))) return false;
       if (!mounted.current || latest.current !== identity) return false;
-      return await session.run(action, refresh);
+      return await session.run(action, refresh, options);
     } finally {
       busy.current = false;
       if (mounted.current) setPending(false);

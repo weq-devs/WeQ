@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
+import { groupMemberToWire, userProfileToWire } from '../serde';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),
@@ -33,10 +34,13 @@ export interface QQWriteServices {
     AccountServices['groupModeration'],
     'setName' | 'setMemberCard' | 'setSpecialTitle' | 'setEssence'
   >;
-  profile: Pick<AccountServices['profile'], 'getProfile' | 'getBuddy' | 'getSelfProfile'>;
+  profile: Pick<
+    AccountServices['profile'],
+    'getProfile' | 'getBuddy' | 'getSelfProfile' | 'profilesByUids'
+  >;
   groupInfo: Pick<
     AccountServices['groupInfo'],
-    'getGroupDetail' | 'listGroupDirectory' | 'getMemberInfo'
+    'getGroupDetail' | 'listGroupDirectory' | 'getMemberInfo' | 'getMessagePolicy'
   >;
   recentContacts: Pick<AccountServices['recentContacts'], 'getTopContacts' | 'getByTargetUids'>;
   onlineStatus: Pick<AccountServices['onlineStatus'], 'getOnlineStatus' | 'editableStatuses'>;
@@ -69,6 +73,30 @@ export function createQQWriteRouter(
   read: (input: QQWriteBinding) => QQWriteServices,
 ) {
   return router({
+    profileDetails: procedure
+      .input(binding.extend({ uids: z.array(uid).min(1).max(200) }))
+      .query(async ({ input }) => {
+        const services = read(input);
+        const profiles = await services.profile.profilesByUids(input.uids);
+        if (read(input) !== services) throw new Error('账号已切换，请重新读取资料');
+        const requested = new Set(input.uids);
+        if (profiles.some((profile) => !requested.has(profile.uid)))
+          throw new Error('返回资料与读取目标不一致');
+        return profiles.map(userProfileToWire);
+      }),
+    memberDetails: procedure.input(binding.extend({ groupId, uid })).query(async ({ input }) => {
+      const services = read(input);
+      const member = await services.groupInfo.getMemberInfo(BigInt(input.groupId), input.uid);
+      if (read(input) !== services) throw new Error('账号已切换，请重新读取成员资料');
+      if (member && member.uid !== input.uid) throw new Error('返回成员与读取目标不一致');
+      return member ? groupMemberToWire(member) : null;
+    }),
+    groupPolicyState: procedure.input(binding.extend({ groupId })).query(async ({ input }) => {
+      const services = resolve(input);
+      const result = await services.groupInfo.getMessagePolicy(input.groupId);
+      if (resolve(input) !== services) throw new Error('账号已切换，请重新读取消息策略');
+      return { ...result, source: 'qq-server' as const };
+    }),
     memberState: procedure.input(binding.extend({ groupId, uid })).query(async ({ input }) => {
       const services = read(input);
       const [member, role] = await Promise.all([
@@ -86,9 +114,13 @@ export function createQQWriteRouter(
       const profile = await services.profile.getSelfProfile();
       if (profile && profile.uin.toString() !== identity.uin)
         throw new Error('资料缓存与当前账号不匹配');
-      const status = identity.uid
-        ? await services.onlineStatus.getOnlineStatus(identity.uid)
-        : null;
+      let status: Awaited<ReturnType<QQWriteServices['onlineStatus']['getOnlineStatus']>> = null;
+      let statusError: string | null = null;
+      try {
+        if (identity.uid) status = await services.onlineStatus.getOnlineStatus(identity.uid);
+      } catch (error) {
+        statusError = error instanceof Error ? error.message : String(error);
+      }
       if (read(input) !== services) throw new Error('账号已切换，请重新读取资料');
       return {
         profile: profile
@@ -101,6 +133,7 @@ export function createQQWriteRouter(
             }
           : null,
         status,
+        statusError,
         statusOptions: services.onlineStatus.editableStatuses(),
         source: 'qq-local-cache' as const,
         identity,

@@ -18,7 +18,7 @@ import { requireUint32, requireUid } from '../write-validation';
 
 const RENAME_MEMBER_BODY = message([
   { name: 'targetUid', tag: 1, type: 'string' },
-  { name: 'targetName', tag: 8, type: 'string' },
+  { name: 'targetName', tag: 8, type: 'string', force: true },
 ]);
 const RENAME_MEMBER_REQ = message([
   { name: 'groupUin', tag: 1, type: 'uint32' },
@@ -47,8 +47,7 @@ export namespace SetGroupMemberCard {
   export type Params = SetGroupMemberCardParams;
 
   export const serialize = (p: Params): Record<string, unknown> => {
-    // card 为空串是合法的「清除群名片」，但 proto3 会省略 —— 这里照 SnowLuma 的
-    // 语义允许空串（等于清除），不上 force。
+    // 空串表示清除，必须显式上 wire；缺失 tag 8 会被服务端以 1007 拒绝。
     return {
       groupUin: requireUint32(p.groupId, 'groupId'),
       body: { targetUid: requireUid(p.targetUid), targetName: p.card },

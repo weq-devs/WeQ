@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { ConversationList } from '../src/renderer/src/im-template/template/conversationLists';
+import { chatHeaderTitle } from '../src/renderer/src/im-template/template/conversationDisplay';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
 import {
   ConversationDirectoryContext,
@@ -27,6 +28,51 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 describe('会话右键备注入口', () => {
+  it('群备注同步标题和列表，真实群名仍可搜索，清空后恢复真实群名', () => {
+    const group = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
+    const originalName = group.group.name;
+    const row = { ...group, group: { ...group.group, remark: '新群备注' } };
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = (remark: string) =>
+      act(() =>
+        root.render(
+          h(
+            ContentSelectionProvider,
+            null,
+            h(ConversationList, {
+              conversations: [{ ...row, group: { ...row.group, remark } }],
+              activeConversationId: null,
+              preferences: {},
+              drafts: {},
+              onSelect: vi.fn(),
+            }),
+          ),
+        ),
+      );
+    try {
+      render('新群备注');
+      expect(host.querySelector('.row-title-text')?.textContent).toBe('新群备注');
+      expect(chatHeaderTitle(row)).toBe(`新群备注 (${group.group.memberCount})`);
+      act(() => host.querySelector<HTMLButtonElement>('[aria-label="搜索会话"]')!.click());
+      const input = host.querySelector<HTMLInputElement>('[aria-label="搜索会话名称或号码"]')!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+          input,
+          originalName,
+        );
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(host.querySelector('.row-title-text')?.textContent).toBe('新群备注');
+      render('');
+      expect(host.querySelector('.row-title-text')?.textContent).toBe(originalName);
+      expect(row.group.name).toBe(originalName);
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
   it('群聊右键名单导出使用成员名单范围，不导出聊天消息或其他群', () => {
     const group = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
     const row = { ...group, id: '123', group: { ...group.group, id: '123' } };

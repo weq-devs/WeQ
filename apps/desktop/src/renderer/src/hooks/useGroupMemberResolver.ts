@@ -30,6 +30,7 @@ export interface GroupMemberResolver<T> {
     known: ReadonlySet<string>,
     isCurrent: () => boolean,
   ) => void;
+  updateMembers: (groupCode: string, members: readonly T[]) => void;
 }
 
 export function useGroupMemberResolver<T extends { uid: string }>(): GroupMemberResolver<T> {
@@ -37,6 +38,20 @@ export function useGroupMemberResolver<T extends { uid: string }>(): GroupMember
   // 每个群已发起过 getGroupMembersByUids 的 uid（含查无结果的，例如已退群的戳一戳
   // / 禁言对象），避免每次渲染重复请求。用 ref 以便在同一轮内即时去重。
   const attemptedRef = useRef<Record<string, Set<string>>>({});
+  const versions = useRef(new Map<string, number>());
+  const updateMembers = useCallback((groupCode: string, members: readonly T[]) => {
+    for (const member of members) {
+      const key = `${groupCode}:${member.uid}`;
+      versions.current.set(key, (versions.current.get(key) ?? 0) + 1);
+    }
+    setMissingMembers((previous) => ({
+      ...previous,
+      [groupCode]: {
+        ...previous[groupCode],
+        ...Object.fromEntries(members.map((member) => [member.uid, member])),
+      },
+    }));
+  }, []);
 
   const resolveMembers = useCallback(
     (
@@ -52,10 +67,12 @@ export function useGroupMemberResolver<T extends { uid: string }>(): GroupMember
         attemptedRef.current[groupCode] = attempted;
       }
       const missing: string[] = [];
+      const captured = new Map<string, number>();
       for (const uid of uids) {
         if (!uid || known.has(uid) || attempted.has(uid)) continue;
         attempted.add(uid);
         missing.push(uid);
+        captured.set(uid, versions.current.get(`${groupCode}:${uid}`) ?? 0);
       }
       if (missing.length === 0) return;
 
@@ -71,7 +88,13 @@ export function useGroupMemberResolver<T extends { uid: string }>(): GroupMember
             if (members.length > 0) {
               setMissingMembers((prev) => {
                 const groupCache = { ...(prev[groupCode] ?? {}) };
-                for (const member of members as unknown as T[]) groupCache[member.uid] = member;
+                for (const member of members as unknown as T[]) {
+                  if (
+                    captured.get(member.uid) ===
+                    (versions.current.get(`${groupCode}:${member.uid}`) ?? 0)
+                  )
+                    groupCache[member.uid] = member;
+                }
                 return { ...prev, [groupCode]: groupCache };
               });
             }
@@ -86,5 +109,5 @@ export function useGroupMemberResolver<T extends { uid: string }>(): GroupMember
     [],
   );
 
-  return { missingMembers, resolveMembers };
+  return { missingMembers, resolveMembers, updateMembers };
 }

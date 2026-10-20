@@ -25,7 +25,10 @@ import { GroupAnnouncementsDialog } from '../src/renderer/src/components/GroupAn
 import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupInfoPanel';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
 import { GroupSignDialog } from '../src/renderer/src/components/GroupSignDialog';
-import { TypingStatus } from '../src/renderer/src/components/qq-actions/ChatActions';
+import {
+  MessageTodoAction,
+  TypingStatus,
+} from '../src/renderer/src/components/qq-actions/ChatActions';
 import { QqInlineKeyboard } from '../src/renderer/src/components/QqInlineKeyboard';
 import { useViewState } from '../src/renderer/src/state/view';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
@@ -48,6 +51,8 @@ const state = vi.hoisted(() => ({
     alreadyMember: false,
   })),
   refreshSigns: vi.fn(async () => {}),
+  refreshTodos: vi.fn(async (_input?: unknown) => {}),
+  refreshJoin: vi.fn(async () => {}),
   data: {} as Record<string, unknown>,
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
@@ -68,9 +73,11 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
     run: async (
       action: (b: QQWriteBinding) => Promise<QQWriteOutcome>,
       refresh?: () => Promise<unknown>,
+      options?: { readback?: () => Promise<boolean> },
     ) => {
       try {
         await action({ expectedAccountUin: '10001', expectedAccountConfigId: state.configId });
+        await options?.readback?.();
         await refresh?.();
         return true;
       } catch {
@@ -105,6 +112,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     'todoList',
     'groupReadTools',
     'groupPermissions',
+    'groupJoinSettings',
   ];
   return {
     client: {
@@ -126,6 +134,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           qqActions: {
             requests: { invalidate: async () => {} },
             groupReadTools: { invalidate: state.refreshSigns },
+            todoList: { invalidate: state.refreshTodos },
           },
         },
       }),
@@ -141,7 +150,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                 data: state.data[`${name}:${input?.kind}`] ?? state.data[name],
                 isLoading: false,
                 isFetching: false,
-                refetch: async () => ({ error: null, data: state.data[name] }),
+                refetch: async () => {
+                  if (name === 'groupJoinSettings') await state.refreshJoin();
+                  return { error: null, data: state.data[name] };
+                },
               }),
             },
           ]),
@@ -191,6 +203,8 @@ beforeEach(() => {
   state.picker.mockClear();
   state.prepare.mockClear();
   state.refreshSigns.mockClear();
+  state.refreshTodos.mockClear();
+  state.refreshJoin.mockClear();
   state.data = {
     groupPermissions: { canManage: true, role: 'admin', selfUin: '10001' },
     fileSummary: { fileCount: 1, maxCount: 100, usedSpace: 10, totalSpace: 1000 },
@@ -200,6 +214,7 @@ beforeEach(() => {
     requests: [{ token: 'request-a', name: '申请人', groupName: '群 A', message: '留言' }],
     tags: [],
     todoList: [],
+    groupJoinSettings: { groupId: 123, option: 2, question: null, questionState: 'not-required' },
   };
   useViewState.setState({ openedUin: '10001' });
 });
@@ -210,6 +225,32 @@ afterEach(() => {
 });
 
 describe('QQ 主动操作的实际界面', () => {
+  it('创建群待办后刷新同账号同群列表，再关闭菜单', async () => {
+    const demo = createTemplateDemoData();
+    const group = demo.conversations.find((row) => row.type === 'group')!;
+    const close = vi.fn(() => expect(state.refreshTodos).toHaveBeenCalledOnce());
+    const f = fixture(() =>
+      h(MessageTodoAction, {
+        conversation: { ...group, id: '123' },
+        message: { ...demo.messages[0], msgSeq: '9007199254740993' },
+        onClose: close,
+      }),
+    );
+    await act(async () => f.host.querySelector<HTMLButtonElement>('button')!.click());
+    expect(state.refreshTodos).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      groupId: 123,
+    });
+    expect(close).toHaveBeenCalledOnce();
+  });
+  it('已完成的待办不再提供重复完成操作，取消仍由群管理权限控制', () => {
+    state.data.todoList = [{ sequence: '123', text: '已完成事项', completed: true }];
+    const f = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
+    expect(f.host.textContent).toContain('已完成');
+    expect(f.button('完成待办').disabled).toBe(true);
+    expect(f.button('取消群待办')).not.toBeNull();
+  });
   it('打卡页使用可见今日动作，防重复点击，成功后刷新记录，离线不可写', async () => {
     const management = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(management.button('群打卡')).toBeNull();
@@ -801,5 +842,38 @@ describe('QQ 主动操作的实际界面', () => {
     expect(f.button('保存加群方式').disabled).toBe(true);
     value(f.host, '加群方式', '5');
     expect(f.host.querySelector('[aria-label="加群答案"]')).toBeNull();
+  });
+  it('加群方式与问题来自读回，55 按审核问答显示，答案不伪造', () => {
+    state.data.groupJoinSettings = { groupId: 123, option: 55, question: '原问题' };
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="加群方式"]')!.value).toBe('5');
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="加群问题"]')!.value).toBe('原问题');
+    expect(f.host.querySelector('[aria-label="加群答案"]')).toBeNull();
+    expect(f.button('保存加群方式').disabled).toBe(true);
+  });
+  it('保存加群方式后自动回读，读回一致后清除草稿和重复提交入口', async () => {
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    value(f.host, '加群方式', '1');
+    state.mutate.mockImplementationOnce(async () => {
+      state.data.groupJoinSettings = { groupId: 123, option: 1, question: null };
+      return { state: 'accepted' };
+    });
+    await act(async () => f.button('保存加群方式').click());
+    expect(state.refreshJoin).toHaveBeenCalledOnce();
+    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="加群方式"]')!.value).toBe('1');
+    expect(f.button('保存加群方式').disabled).toBe(true);
+  });
+  it('迟到的加群资料不覆盖编辑草稿，未知答案不当作空答案回填', () => {
+    state.data.groupJoinSettings = { groupId: 123, option: 4, question: '原问题' };
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="加群答案"]')!.value).toBe('');
+    expect(f.button('保存加群方式').disabled).toBe(true);
+    value(f.host, '加群问题', '正在编辑的问题');
+    state.data.groupJoinSettings = { groupId: 123, option: 4, question: '迟到的服务端问题' };
+    f.update();
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="加群问题"]')!.value).toBe(
+      '正在编辑的问题',
+    );
+    expect(f.button('保存加群方式').disabled).toBe(true);
   });
 });

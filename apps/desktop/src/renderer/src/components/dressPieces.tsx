@@ -9,7 +9,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent, SyntheticEvent } from 'react';
 import * as d3 from 'd3';
-import { cachedAvatarUrl, refreshAvatarUrl } from '../lib/avatarCache';
+import { refreshAvatarUrl } from '../lib/avatarCache';
+import { useAvatarUrl } from '../hooks/useAvatarUrl';
 import { useTabActive } from './RetainedTabs';
 
 // 挂件是直接拼 CDN 地址、不做探测的,常年会有下架/过期 404。加载失败就把 <img> 藏起来,
@@ -38,7 +39,8 @@ export function AvatarOrb({
     revision: number;
     url: string;
   } | null>(null);
-  const resolved = refreshAvatarUrl(cachedAvatarUrl(avatarUrl), revision);
+  const avatarSource = useAvatarUrl(avatarUrl);
+  const resolved = refreshAvatarUrl(avatarSource, revision);
   const displayed =
     freshAvatar?.source === resolved && freshAvatar.revision === revision
       ? freshAvatar.url

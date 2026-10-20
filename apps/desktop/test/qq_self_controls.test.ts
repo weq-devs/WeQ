@@ -16,6 +16,7 @@ const state = vi.hoisted(() => ({
   configId: 'source-a',
   profilePresent: true,
   nick: '原昵称',
+  statusError: null as string | null,
   queryOptions: { refetchInterval: false as number | false },
   invalidate: vi.fn(async () => undefined),
   mutate: vi.fn(async (_input: unknown) => ({ state: 'accepted' as const })),
@@ -73,6 +74,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                     }
                   : null,
                 status: { type: 10, subType: 0 },
+                statusError: state.statusError,
                 statusOptions: [{ value: 10, label: '在线' }],
               },
               isLoading: false,
@@ -134,6 +136,7 @@ beforeEach(() => {
   state.configId = 'source-a';
   state.profilePresent = true;
   state.nick = '原昵称';
+  state.statusError = null;
   state.invalidate.mockClear();
   state.mutate.mockClear();
   state.pick.mockReset().mockResolvedValue(null);
@@ -145,6 +148,14 @@ afterEach(() => {
 });
 
 describe('个人资料编辑入口', () => {
+  it('状态读回失败仍显示并允许编辑资料，同时给出状态错误', () => {
+    state.statusError = 'premature EOF';
+    const f = fixture();
+    expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('状态读取失败');
+    const signature = f.host.querySelector<HTMLTextAreaElement>('[aria-label="个性签名"]')!;
+    expect(signature.value).toBe('原签名');
+    expect(signature.disabled).toBe(false);
+  });
   it('选头像期间切换数据源不提交旧文件，并恢复按钮', async () => {
     let finish!: (file: { path: string }) => void;
     state.pick.mockImplementationOnce(

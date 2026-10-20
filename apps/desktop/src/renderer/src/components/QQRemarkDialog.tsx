@@ -73,9 +73,14 @@ function QQRemarkDialogBody({ target, onClose }: { target: RoamingTarget; onClos
                   target.kind === 'group'
                     ? group.mutateAsync({ ...binding, groupId: Number(target.conv), remark })
                     : friend.mutateAsync({ ...binding, uid: target.conv, remark }),
-                async () => {
-                  const updated = await state.refetch();
-                  if (updated.error) throw updated.error;
+                undefined,
+                {
+                  profileUid: target.kind === 'c2c' ? target.conv : undefined,
+                  readback: async () => {
+                    const updated = await state.refetch();
+                    if (updated.error) throw updated.error;
+                    return updated.data?.remark === remark;
+                  },
                 },
               )
             }

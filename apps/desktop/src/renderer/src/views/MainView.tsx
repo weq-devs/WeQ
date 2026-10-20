@@ -53,7 +53,9 @@ import {
 } from '../lib/unreadRefresh';
 import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
-import { classifyChatType, datalineName, isGroupTempChatType, toChatTypeNumber } from '@weq/codec';
+import { classifyChatType, isGroupTempChatType, toChatTypeNumber } from '@weq/codec';
+import { contactSenderName, contactTitle } from '../lib/contactTitle';
+import { replaceLoadedMembers, subscribeQQPeerUpdates } from '../lib/qqPeerUpdates';
 import { conversationSortTime } from '@weq/service/conversation-order';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { useProfileResolver } from '../hooks/useProfileResolver';
@@ -775,23 +777,6 @@ function toIsoTime(seconds: string | undefined): string {
   return secondsToIsoTime(seconds) ?? new Date(0).toISOString();
 }
 
-function contactTitle(c: RecentContactWire): string {
-  // 私聊优先显示备注：40095 是「发送者」维度的列，群会话里存的是发言人的好友备注
-  // （群名在 40094），所以只在单聊/临时会话上认它。41148 是对方在共同群里的群名片，
-  // 群聊发起的临时会话往往只有它才是人能认出的名字。
-  const remark = chatTypeKind(c.chatType) === 'direct' ? c.senderRemark || c.targetGroupNick : '';
-  return (
-    remark ||
-    c.targetDisplayName ||
-    c.targetRemark ||
-    c.senderDisplayName ||
-    c.senderNick ||
-    // 数据线会话往往不带 targetDisplayName，会回退成原始 uid；优先给出设备名。
-    datalineName(c.targetUid) ||
-    c.targetUid
-  );
-}
-
 function currentUser(openedUin: string | null, selfProfile?: UserProfileWire | null): User {
   const identityValue = openedUin ?? 'unknown';
   return {
@@ -1186,13 +1171,14 @@ function contactToConversation(
   botUids: Set<string>,
   displayNames: ReadonlyMap<string, string> = new Map(),
   groupNames: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map(),
+  profiles: ReadonlyMap<string, Pick<UserProfileWire, 'nick' | 'remark'>> = new Map(),
 ): Conversation | null {
   const kind = chatTypeKind(c.chatType);
-  const title = contactTitle(c);
+  const title = contactTitle(c, profiles.get(c.targetUid));
   // 「自己」的身份集合：戳一戳灰条的预览里我这半只带 uid，需要它才能渲染成「你」。
   const names = new Map<string, string>();
   const memberNames = kind === 'group' ? groupNames.get(c.targetUid) : undefined;
-  const senderName = c.senderDisplayName || c.senderNick;
+  const senderName = contactSenderName(c, displayNames, memberNames);
   if (
     c.senderUid &&
     senderName &&
@@ -1215,7 +1201,7 @@ function contactToConversation(
   const lastMessage = {
     id: `preview:${c.targetUid}:${c.sendTime}`,
     senderId: c.senderUid || null,
-    senderDisplayName: c.senderDisplayName || c.senderNick || null,
+    senderDisplayName: senderName || null,
     // 预览元素的 kind：灰条（grayTip*）在列表里只显示内容、不加"昵称："前缀。
     kind: previewElementKind(c.preview),
     body: preview,
@@ -3202,9 +3188,16 @@ export function MainView(): ReactElement {
   // Off-page message senders resolved on demand (groupCode → uid → member),
   // batched + deduped by useGroupMemberResolver. Kept separate from the global
   // profile cache because a group card is a (group × uid) thing, not a profile.
-  const { missingMembers, resolveMembers } = useGroupMemberResolver<GroupMemberWire>();
-  const { missingMembers: previewMembers, resolveMembers: resolvePreviewMembers } =
-    useGroupMemberResolver<GroupMemberWire>();
+  const {
+    missingMembers,
+    resolveMembers,
+    updateMembers: updateCachedMembers,
+  } = useGroupMemberResolver<GroupMemberWire>();
+  const {
+    missingMembers: previewMembers,
+    resolveMembers: resolvePreviewMembers,
+    updateMembers: updatePreviewMembers,
+  } = useGroupMemberResolver<GroupMemberWire>();
   const loadingOlderRef = useRef(false);
   const loadingNewerRef = useRef(false);
 
@@ -3292,7 +3285,13 @@ export function MainView(): ReactElement {
     for (const [code, members] of Object.entries(previewMembers)) {
       const names = new Map<string, string>();
       for (const member of Object.values(members)) {
-        const name = member.card || member.nick;
+        const profile = profileByUid.get(member.uid);
+        const name = displayGroupMemberName(
+          member.card,
+          profile?.remark,
+          member.nick || profile?.nick,
+          member.uin || member.uid,
+        );
         if (!name) continue;
         names.set(member.uid, name);
         if (member.uin && member.uin !== '0') names.set(member.uin, name);
@@ -3300,7 +3299,7 @@ export function MainView(): ReactElement {
       groups.set(code, names);
     }
     return groups;
-  }, [previewMembers]);
+  }, [previewMembers, profileByUid]);
   const categoryById = useMemo(() => {
     return new Map(
       ((categories.data ?? []) as CategoryWire[]).map((category) => [category.id, category]),
@@ -3417,6 +3416,7 @@ export function MainView(): ReactElement {
         botUids,
         previewDisplayNames,
         previewGroupNames,
+        profileByUid,
       );
       if (conv) map.set(conv.id, conv);
     }
@@ -3434,6 +3434,7 @@ export function MainView(): ReactElement {
     botUids,
     previewDisplayNames,
     previewGroupNames,
+    profileByUid,
   ]);
 
   // 删除会话同样不在主列表（已从 recent_contact 消失），需要单独解析供点击后打开。
@@ -3542,6 +3543,7 @@ export function MainView(): ReactElement {
           botUids,
           previewDisplayNames,
           previewGroupNames,
+          profileByUid,
         ),
       )
       .filter((conversation): conversation is Conversation => conversation !== null)
@@ -4843,6 +4845,7 @@ export function MainView(): ReactElement {
   const selectedGroupMembersLoading = Boolean(isGroup && groupMemberLoading[selectedUid]);
   const selectedGroupMembersHasMore = Boolean(isGroup && groupMemberHasMore[selectedUid]);
   const selectedGroupMembersError = isGroup ? (groupMemberError[selectedUid] ?? null) : null;
+  const memberPageVersions = useRef(new Map<string, number>());
 
   const loadGroupMembersPage = useCallback(
     async (groupCode: string, offset: number): Promise<void> => {
@@ -4858,11 +4861,22 @@ export function MainView(): ReactElement {
       });
 
       try {
-        const page = await client.account.listGroupMembers.query({
+        let version = memberPageVersions.current.get(groupCode) ?? 0;
+        let page = await client.account.listGroupMembers.query({
           groupCode,
           limit: GROUP_MEMBER_PAGE_SIZE,
           offset,
         });
+        // 名片保存发生在分页读取途中时，最多补读一次，旧分页不能盖回新名片。
+        if (version !== (memberPageVersions.current.get(groupCode) ?? 0)) {
+          version = memberPageVersions.current.get(groupCode) ?? 0;
+          page = await client.account.listGroupMembers.query({
+            groupCode,
+            limit: GROUP_MEMBER_PAGE_SIZE,
+            offset,
+          });
+        }
+        if (version !== (memberPageVersions.current.get(groupCode) ?? 0)) return;
 
         if (selectionRef.current?.id !== groupCode) {
           // User switched away during loading - cleanup and bail
@@ -4907,6 +4921,45 @@ export function MainView(): ReactElement {
       }
     },
     [],
+  );
+
+  const peerUpdateSource = useRef(noticeAccountKey);
+  peerUpdateSource.current = noticeAccountKey;
+  useEffect(
+    () =>
+      subscribeQQPeerUpdates(async ({ binding, target }) => {
+        const source = `${binding.expectedAccountUin}:${binding.expectedAccountConfigId}`;
+        const current = () => peerUpdateSource.current === source;
+        if (!current()) return;
+        if (target.kind === 'profile') {
+          await refreshProfileCache([target.uid], current, (uids) =>
+            client.account.qqWrite.profileDetails.query({ ...binding, uids }),
+          );
+          return;
+        }
+        memberPageVersions.current.set(
+          target.groupCode,
+          (memberPageVersions.current.get(target.groupCode) ?? 0) + 1,
+        );
+        const member = await client.account.qqWrite.memberDetails.query({
+          ...binding,
+          groupId: Number(target.groupCode),
+          uid: target.uid,
+        });
+        const rows = member ? [member] : [];
+        if (!current()) return;
+        setGroupMemberPages((previous) => {
+          const loaded = previous[target.groupCode];
+          if (!current() || !loaded) return previous;
+          return {
+            ...previous,
+            [target.groupCode]: replaceLoadedMembers(loaded, rows),
+          };
+        });
+        updateCachedMembers(target.groupCode, rows);
+        updatePreviewMembers(target.groupCode, rows);
+      }),
+    [refreshProfileCache, updateCachedMembers, updatePreviewMembers],
   );
 
   const requestMoreGroupMembers = useCallback((): void => {

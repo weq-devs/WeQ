@@ -1,14 +1,14 @@
 ﻿// @ts-nocheck
 import type { Conversation, Message, User } from './types';
-import { displayUserName } from './user';
+import { isGroupTempChatType } from '@weq/codec';
+import { displayGroupName, displayUserName } from './user';
 
 export function chatHeaderTitle(conversation: Conversation) {
   if (conversation.type === 'group') {
-    return `${conversation.group.name} (${conversation.group.memberCount})`;
+    return `${displayGroupName(conversation.group)} (${conversation.group.memberCount})`;
   }
   const userName = displayUserName(conversation.otherUser);
-  const chatType = String(conversation.chatType || '');
-  if (!chatType.includes('TEMPC2CFROMGROUP')) return userName;
+  if (!isGroupTempChatType(conversation.chatType ?? '')) return userName;
   const from = conversation.tempSourceGroupName;
   return from ? `来自 ${from} 的 ${userName} 临时会话` : `${userName} 临时会话`;
 }

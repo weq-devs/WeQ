@@ -7,7 +7,9 @@ import type { NtHelperBinding } from '@weq/native';
 import {
   FetchGroupMemberListPage,
   GetGroupJoinInfo,
+  GetGroupMessagePolicies,
   type GroupMemberListItem,
+  type GroupMessagePolicySnapshot,
 } from '@weq/protocol';
 
 /** 在线群成员缓存时长：0xFE7_3 高频会风控，60s 是 SnowLuma 验证过的折中值。 */
@@ -275,6 +277,7 @@ export class GroupInfoService {
   private onlineMembersCache = new Map<number, { at: number; members: GroupMemberListItem[] }>();
   /** 同一群的并发拉取合并，避免 0xFE7_3 被并发打爆触发风控。 */
   private onlineMembersInflight = new Map<number, Promise<GroupMemberListItem[]>>();
+  private messagePoliciesInflight?: { pid: number; task: Promise<GroupMessagePolicySnapshot[]> };
 
   constructor(
     private readonly session: AccountSession,
@@ -289,6 +292,25 @@ export class GroupInfoService {
   async getJoinInfo(groupId: number) {
     if (!this.online) throw new Error('QQ 在线能力未就绪');
     return GetGroupJoinInfo.invoke(this.online.nt, this.online.resolvePid(), { groupId });
+  }
+
+  async getMessagePolicy(groupId: number): Promise<GroupMessagePolicySnapshot> {
+    if (!this.online) throw new Error('QQ 在线能力未就绪');
+    const { nt, resolvePid } = this.online;
+    const pid = resolvePid();
+    let pending = this.messagePoliciesInflight;
+    if (!pending || pending.pid !== pid) {
+      const task = GetGroupMessagePolicies.invoke(nt, pid).finally(() => {
+        if (this.messagePoliciesInflight?.task === task) this.messagePoliciesInflight = undefined;
+      });
+      pending = { pid, task };
+      this.messagePoliciesInflight = pending;
+    }
+    const rows = await pending.task;
+    if (resolvePid() !== pid) throw new Error('QQ 运行时已切换，请重新读取消息策略');
+    const target = rows.find((row) => row.groupId === groupId);
+    if (!target) throw new Error('服务端未返回该群的消息策略');
+    return target;
   }
 
   /**

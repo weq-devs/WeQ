@@ -174,6 +174,13 @@ describe('SetGroupAdmin (0x1096_1)', () => {
 });
 
 describe('SetGroupMemberCard (0x8FC_3)', () => {
+  it('清除群名片时仍显式编码空的 targetName@8', () => {
+    const bytes = encode(
+      SetGroupMemberCard.reqSchema,
+      SetGroupMemberCard.serialize({ groupId: 100, targetUid: 'u_x', card: '' }),
+    );
+    expect(bytes).toEqual(hexToBytes('08 64 1a 07 0a 03 75 5f 78 42 00'));
+  });
   it('body@3 / targetName@8（不是 2），needSign=true', () => {
     expect(SetGroupMemberCard.command).toBe(0x8fc);
     expect(SetGroupMemberCard.subCommand).toBe(3);

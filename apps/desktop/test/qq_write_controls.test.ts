@@ -13,12 +13,14 @@ import {
   type QQWriteOutcome,
 } from '../src/renderer/src/hooks/useQQWriteSession';
 import { useViewState } from '../src/renderer/src/state/view';
+import { subscribeQQPeerUpdates, type QQPeerUpdate } from '../src/renderer/src/lib/qqPeerUpdates';
 
 const mocked = vi.hoisted(() => ({
   config: { uin: '10001', configId: 'source-a' },
   online: true,
   invalidate: vi.fn(async () => undefined),
   invalidateStatus: vi.fn(async () => undefined),
+  invalidateMembers: vi.fn(async () => undefined),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
@@ -49,9 +51,21 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
           'getProfilesByUids',
           'listAllGroups',
           'getGroupDetail',
+          'listGroupMembers',
+          'listGroupMembersByLevel',
+          'getGroupMembersByUids',
+          'getGroupMembersByUins',
+          'searchGroupMembers',
         ].map((name) => [
           name,
-          { invalidate: name === 'getOnlineStatus' ? mocked.invalidateStatus : mocked.invalidate },
+          {
+            invalidate:
+              name === 'getOnlineStatus'
+                ? mocked.invalidateStatus
+                : name.includes('Members')
+                  ? mocked.invalidateMembers
+                  : mocked.invalidate,
+          },
         ]),
       ),
     }),
@@ -81,6 +95,7 @@ beforeEach(() => {
   mocked.online = true;
   mocked.invalidate.mockReset().mockResolvedValue(undefined);
   mocked.invalidateStatus.mockReset().mockResolvedValue(undefined);
+  mocked.invalidateMembers.mockReset().mockResolvedValue(undefined);
   useViewState.setState({ openedUin: '10001' });
 });
 afterEach(() => {
@@ -228,6 +243,85 @@ describe('QQ 写操作账号与生命周期', () => {
     expect(mocked.invalidate).not.toHaveBeenCalled();
     expect(mocked.invalidateStatus).not.toHaveBeenCalled();
   });
+  it('群名片受理后刷新同群成员列表、排序、解析与搜索缓存', async () => {
+    const f = harness();
+    await act(async () => {
+      await f.session().run(async () => ({ state: 'accepted' }), undefined, {
+        groupCode: '123',
+      });
+    });
+    expect(mocked.invalidateMembers).toHaveBeenCalledTimes(5);
+    expect(mocked.invalidateMembers.mock.calls).toEqual(
+      Array.from({ length: 5 }, () => [{ groupCode: '123' }]),
+    );
+  });
+  it('资料和群名片回读后按绑定来源通知内存缓存消费者', async () => {
+    const f = harness();
+    const observer = vi.fn(async (_update: QQPeerUpdate) => {});
+    cleanups.push(subscribeQQPeerUpdates(observer));
+    await act(async () => {
+      await f
+        .session()
+        .run(async () => ({ state: 'accepted' }), undefined, { profileUid: 'u_peer' });
+      await f.session().run(async () => ({ state: 'accepted' }), undefined, {
+        groupCode: '123',
+        memberUid: 'u_peer',
+      });
+    });
+    const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
+    expect(observer).toHaveBeenNthCalledWith(1, {
+      binding,
+      target: { kind: 'profile', uid: 'u_peer' },
+    });
+    expect(observer).toHaveBeenNthCalledWith(2, {
+      binding,
+      target: { kind: 'member', groupCode: '123', uid: 'u_peer' },
+    });
+  });
+  it.each([true, false])('延后读回有上限，不重复写入；最终同步：%s', async (synced) => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      const action = vi.fn(async (): Promise<QQWriteOutcome> => ({ state: 'accepted' }));
+      const readback = vi.fn(async () => false).mockResolvedValueOnce(false);
+      if (synced) readback.mockResolvedValueOnce(true);
+      let pending!: Promise<boolean>;
+      await act(async () => {
+        pending = f.session().run(action, undefined, { readback });
+      });
+      await act(async () => {
+        await vi.runAllTimersAsync();
+        expect(await pending).toBe(true);
+      });
+      expect(action).toHaveBeenCalledOnce();
+      expect(readback).toHaveBeenCalledTimes(synced ? 2 : 4);
+      expect(f.host.textContent?.includes('本机尚未同步')).toBe(!synced);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('延后读回期间切换数据源，停止旧读回和缓存刷新', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      const readback = vi.fn(async () => false);
+      let pending!: Promise<boolean>;
+      await act(async () => {
+        pending = f.session().run(async () => ({ state: 'accepted' }), undefined, { readback });
+      });
+      mocked.config = { uin: '10001', configId: 'source-b' };
+      f.render();
+      await act(async () => {
+        await vi.runAllTimersAsync();
+        expect(await pending).toBe(false);
+      });
+      expect(readback).toHaveBeenCalledOnce();
+      expect(mocked.invalidate).not.toHaveBeenCalled();
+      expect(f.host.textContent).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('快速重复点击只发一次，绑定的是提交时账号与数据源', async () => {
     const f = harness();
     const action = vi.fn(
@@ -249,6 +343,8 @@ describe('QQ 写操作账号与生命周期', () => {
     '请求期间切换 %s，迟到结果不覆盖新现场',
     async (kind) => {
       const f = harness();
+      const observer = vi.fn(async (_update: QQPeerUpdate) => {});
+      cleanups.push(subscribeQQPeerUpdates(observer));
       let resolve: (outcome: QQWriteOutcome) => void = () => {};
       const action = vi.fn(
         () =>
@@ -258,7 +354,7 @@ describe('QQ 写操作账号与生命周期', () => {
       );
       let pending: Promise<boolean>;
       act(() => {
-        pending = f.session().run(action);
+        pending = f.session().run(action, undefined, { profileUid: 'u_peer' });
       });
       act(() => {
         if (kind === 'account') {
@@ -274,6 +370,7 @@ describe('QQ 写操作账号与生命周期', () => {
       });
       expect(mocked.invalidate).not.toHaveBeenCalled();
       expect(mocked.invalidateStatus).not.toHaveBeenCalled();
+      expect(observer).not.toHaveBeenCalled();
       expect(f.host.textContent).toBe('');
     },
   );

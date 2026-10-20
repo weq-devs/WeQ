@@ -583,6 +583,9 @@ export function createQQActionsRouter(
           return s.groupModeration.setTodo(i.groupId, BigInt(i.sequence), i.action);
         }),
       ),
+    groupJoinSettings: procedure
+      .input(group)
+      .query(({ input: i }) => read(i, (s) => s.groupInfo.getJoinInfo(i.groupId))),
     groupSettings: procedure
       .input(
         group.extend({
