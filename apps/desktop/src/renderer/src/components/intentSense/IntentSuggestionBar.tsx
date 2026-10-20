@@ -1,7 +1,7 @@
 /**
  * 回复建议条 —— composer 上方的一行候选回复 pills。
  *
- * 仅当「意图感知开启 + 回复建议开启 + api 引擎可用」时由 chatPane 渲染。
+ * 仅当「意图感知开启 + 回复建议开启 + 当前引擎可用」时由 chatPane 渲染。
  * 点击一条把文本填进 composer 草稿（onInsert）。刷新按钮走 refetch()（绕过
  * staleTime；后端侧还有同消息 90s 的请求级缓存，由 getSuggestions 自己把关）。
  */
@@ -34,7 +34,7 @@ export function IntentSuggestionBar({
   const active =
     !!status.data?.enabled && overridden !== false && engineOk && !!status.data?.suggestionsEnabled;
   const suggestions = trpc.account.intentSense.getSuggestions.useQuery(
-    { kind, conv },
+    { kind, conv, revision: status.data?.suggestionRevision ?? 0 },
     {
       enabled: active,
       refetchOnWindowFocus: false,

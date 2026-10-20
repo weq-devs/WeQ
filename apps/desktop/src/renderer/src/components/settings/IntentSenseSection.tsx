@@ -6,14 +6,20 @@
  *   • 引擎选择：API（复用 agentlab provider，下拉选 provider + 模型）或
  *     本地模型（Laya / QWeQ-NineBird ONNX，~600MB 按需下载，支持 hf-mirror 镜像；
  *     下载完成可拉起 worker —— 状态实时反映在 localAvailable/engineReady）。
- *   • 回复建议开关（仅 API 引擎可用 —— Laya 是决策模型不生成文本）。
+ *   • 回复建议开关（API 生成／本地意图候选）与两套独立上文条数。
  *   • 分析缓存清理。
  *
  * 单会话粒度的开关在会话头部的「会话设置」里（ConversationSettingsDialog）。
  */
 
-import { useState, type ReactElement } from 'react';
-import { BrainCircuit, Download, Play, RotateCcw } from 'lucide-react';
+import { useEffect, useState, type ReactElement } from 'react';
+import { BrainCircuit, Download, Play, RotateCcw, Save } from 'lucide-react';
+import {
+  DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
+  DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
+  MAX_INTENT_CONTEXT_MESSAGES,
+  isIntentContextCount,
+} from '@weq/service/intent-context';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { Card, Row, SectionHeader, Toggle } from './controls';
@@ -37,6 +43,8 @@ interface StatusWire {
   engine: 'api' | 'local';
   providerRef: { providerId: string; model: string } | null;
   suggestionsEnabled: boolean;
+  analysisContextMessages: number;
+  suggestionContextMessages: number;
   hfMirror: boolean;
   apiConfigured: boolean;
   localAvailable: boolean;
@@ -108,6 +116,26 @@ export function IntentSenseSection(): ReactElement {
     (p) => p.models.length > 0,
   );
   const local = localEngine.data as LocalEngineWire | undefined;
+  const savedAnalysis = s?.analysisContextMessages ?? DEFAULT_ANALYSIS_CONTEXT_MESSAGES;
+  const savedSuggestion = s?.suggestionContextMessages ?? DEFAULT_SUGGESTION_CONTEXT_MESSAGES;
+  const contextReady =
+    isIntentContextCount(s?.analysisContextMessages) &&
+    isIntentContextCount(s?.suggestionContextMessages);
+  const [analysisCount, setAnalysisCount] = useState(String(savedAnalysis));
+  const [suggestionCount, setSuggestionCount] = useState(String(savedSuggestion));
+  useEffect(() => {
+    if (!contextReady) return;
+    setAnalysisCount(String(savedAnalysis));
+    setSuggestionCount(String(savedSuggestion));
+  }, [contextReady, savedAnalysis, savedSuggestion]);
+  const analysisNumber = Number(analysisCount);
+  const suggestionNumber = Number(suggestionCount);
+  const contextValid =
+    analysisCount.trim() !== '' &&
+    suggestionCount.trim() !== '' &&
+    isIntentContextCount(analysisNumber) &&
+    isIntentContextCount(suggestionNumber);
+  const contextDirty = analysisNumber !== savedAnalysis || suggestionNumber !== savedSuggestion;
 
   type ConfigPatch = Parameters<typeof setConfig.mutateAsync>[0];
 
@@ -213,6 +241,73 @@ export function IntentSenseSection(): ReactElement {
             </button>
           }
         />
+      </Card>
+
+      <Card title="上文范围">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!contextReady || !contextValid || !contextDirty || setConfig.isLoading) return;
+            void patch({
+              analysisContextMessages: analysisNumber,
+              suggestionContextMessages: suggestionNumber,
+            });
+          }}
+        >
+          <Row
+            label="意图分析上文（条）"
+            desc={`0–${MAX_INTENT_CONTEXT_MESSAGES} 条，不含当前消息；仍受对话时效窗口限制。`}
+            control={
+              <input
+                type="number"
+                className="weq-set-input"
+                aria-label="意图分析上文条数"
+                min={0}
+                max={MAX_INTENT_CONTEXT_MESSAGES}
+                step={1}
+                required
+                value={analysisCount}
+                disabled={!contextReady || setConfig.isLoading}
+                onChange={(event) => setAnalysisCount(event.target.value)}
+                style={{ width: 96 }}
+              />
+            }
+          />
+          <Row
+            label="推荐回复上文（条）"
+            desc={`0–${MAX_INTENT_CONTEXT_MESSAGES} 条，不含最新消息；0 表示仅使用最新消息。`}
+            control={
+              <input
+                type="number"
+                className="weq-set-input"
+                aria-label="推荐回复上文条数"
+                min={0}
+                max={MAX_INTENT_CONTEXT_MESSAGES}
+                step={1}
+                required
+                value={suggestionCount}
+                disabled={!contextReady || setConfig.isLoading}
+                onChange={(event) => setSuggestionCount(event.target.value)}
+                style={{ width: 96 }}
+              />
+            }
+          />
+          <Row
+            label={
+              contextReady ? '上文设置' : status.isLoading ? '读取中…' : '当前主进程未加载上文设置'
+            }
+            control={
+              <button
+                type="submit"
+                className="weq-set-btn"
+                disabled={!contextReady || !contextValid || !contextDirty || setConfig.isLoading}
+              >
+                <Save size={14} />
+                保存
+              </button>
+            }
+          />
+        </form>
       </Card>
 
       <Card title="引擎">

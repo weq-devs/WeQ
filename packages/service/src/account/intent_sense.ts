@@ -11,7 +11,7 @@
  *   • 引擎：`api` = OpenAI 兼容结构化 JSON 调用（复用注入的 EndpointResolver，与
  *     助手/克隆体同一套 provider 配置）；`local` = 注入的 {@link IntentLocalEnginePort}
  *     （桌面版 utilityProcess 里的 Laya ONNX worker；web 版没有，保持 null）。
- *     回复建议需要文本生成，**只有 api 引擎支持**——Laya 是决策模型不生成文本。
+ *     API 引擎生成回复建议；本地或 API 不可用时使用本地意图候选，Laya 不生成自由文本。
  *
  * 画像聚合（getProfile）以本地统计为主（消息节奏 / 发起比 / 回复延迟 / 分词话题，
  * 思路同 BuddyAnalyticsService），引擎结果（逐条情绪、MBTI 维度提示）作增强；
@@ -37,6 +37,12 @@ import { JsonStore } from '../common/json_store';
 import { segmentWords } from './text_segment';
 import { analyzePragmatics, calibrateIntentSense, type IntentContextTurn } from './intent_corpus';
 import { getLogger, logErrorContext } from '../common/logger';
+import {
+  DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
+  DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
+  MAX_INTENT_CONTEXT_MESSAGES,
+  isIntentContextCount,
+} from '../common/intent_context';
 
 const logger = getLogger().child({ scope: 'intent-sense' });
 
@@ -113,6 +119,10 @@ export interface IntentSenseConfig {
   providerRef: AgentLabModelRef | null;
   /** 回复建议开关（仅 api 引擎有效）。 */
   suggestionsEnabled: boolean;
+  /** 分析目标之前的上文条数，不含目标本身，仍受对话时效窗口限制。 */
+  analysisContextMessages: number;
+  /** 生成建议时回看的上文条数，不含最新消息。 */
+  suggestionContextMessages: number;
   /** local 引擎下载模型时走 hf-mirror.com（国内镜像）。 */
   hfMirror: boolean;
   /** 按会话覆盖：true 强制开 / false 强制关；缺省跟随全局。key `${kind}:${id}`。 */
@@ -120,6 +130,8 @@ export interface IntentSenseConfig {
 }
 
 export interface IntentSenseStatus extends IntentSenseConfig {
+  analysisRevision: number;
+  suggestionRevision: number;
   /** resolveEndpoint + providerRef 都就绪，api 引擎可用。 */
   apiConfigured: boolean;
   /** local 引擎端口已注入（桌面版有，web 版没有）。 */
@@ -135,6 +147,8 @@ const DEFAULT_CONFIG: IntentSenseConfig = {
   engine: 'api',
   providerRef: null,
   suggestionsEnabled: false,
+  analysisContextMessages: DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
+  suggestionContextMessages: DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
   hfMirror: true,
   conversationOverrides: {},
 };
@@ -226,11 +240,9 @@ export interface IntentAnalyzedEvent {
 /** 单会话缓存上限（按 sendTime 裁最旧）。 */
 const CACHE_MAX_ENTRIES = 2000;
 /** 缓存 schema 版本：升级语料库/分类体系后自动淘汰旧版无上下文缓存。 */
-const CACHE_SCHEMA_VERSION = 4;
+const CACHE_SCHEMA_VERSION = 5;
 /** ensureAnalysis 默认回看窗口。 */
 const DEFAULT_WINDOW = 300;
-/** 单条消息回看前序上下文的最大轮数。 */
-const CONTEXT_MAX_TURNS = 4;
 /** 单次相邻消息最大允许间隔（秒）：超过 8 分钟视为对话暂停/断档，切断前序上下文。 */
 const CONTEXT_MAX_ADJACENT_GAP_SEC = 8 * 60;
 /** 上下文最大追溯总跨度（秒）：超过 15 分钟的陈旧消息不再作为当前句的因果背景。 */
@@ -239,8 +251,6 @@ const CONTEXT_MAX_TOTAL_SPAN_SEC = 15 * 60;
 const API_BATCH = 12;
 /** 画像聚合最多扫描的消息数。 */
 const PROFILE_WINDOW = 800;
-/** 回复建议的上下文条数。 */
-const SUGGESTION_CONTEXT = 24;
 /** 回复建议缓存：同一最后一条消息 90s 内不重发请求。 */
 const SUGGESTION_TTL_MS = 90_000;
 
@@ -307,13 +317,17 @@ function extractJsonBlock(text: string): unknown {
   }
 }
 
-/** 提取 rows[targetIndex] 之前紧邻的对话上下文（最多 CONTEXT_MAX_TURNS 条，且严格遵守时效性窗口）。 */
-function extractContextBefore(rows: readonly SenseRow[], targetIndex: number): IntentContextTurn[] {
+/** 按配置提取目标之前的紧邻上文，严格遵守时效性窗口。 */
+function extractContextBefore(
+  rows: readonly SenseRow[],
+  targetIndex: number,
+  maxMessages: number,
+): IntentContextTurn[] {
   const target = rows[targetIndex];
   if (!target || targetIndex <= 0) return [];
   const picked: IntentContextTurn[] = [];
   let nextTime = target.sendTime;
-  for (let i = targetIndex - 1; i >= 0 && picked.length < CONTEXT_MAX_TURNS; i--) {
+  for (let i = targetIndex - 1; i >= 0 && picked.length < maxMessages; i--) {
     const prev = rows[i];
     if (!prev?.text) continue;
     // 时效性检查：相邻消息间隔不能超过 8 分钟，且距离目标消息总跨度不能超过 15 分钟
@@ -353,14 +367,17 @@ function extractContextBefore(rows: readonly SenseRow[], targetIndex: number): I
 
 interface CacheFile {
   version?: number;
+  contextMessages?: number;
   results: IntentSenseResult[];
 }
 
-function normalizeCacheFile(raw: unknown): CacheFile {
-  const obj = raw as { version?: unknown; results?: unknown } | null;
-  if (obj?.version !== CACHE_SCHEMA_VERSION) return { version: CACHE_SCHEMA_VERSION, results: [] };
+function normalizeCacheFile(raw: unknown, contextMessages: number): CacheFile {
+  const obj = raw as { version?: unknown; results?: unknown; contextMessages?: unknown } | null;
+  const empty = { version: CACHE_SCHEMA_VERSION, contextMessages, results: [] };
+  if (obj?.version !== CACHE_SCHEMA_VERSION || obj.contextMessages !== contextMessages)
+    return empty;
   const list = obj?.results;
-  if (!Array.isArray(list)) return { version: CACHE_SCHEMA_VERSION, results: [] };
+  if (!Array.isArray(list)) return empty;
   const results: IntentSenseResult[] = [];
   for (const item of list) {
     const r = item as Partial<IntentSenseResult> | null;
@@ -379,7 +396,7 @@ function normalizeCacheFile(raw: unknown): CacheFile {
       analyzedAt: Number(r.analyzedAt ?? 0) || 0,
     });
   }
-  return { version: CACHE_SCHEMA_VERSION, results };
+  return { version: CACHE_SCHEMA_VERSION, contextMessages, results };
 }
 
 export interface IntentSenseOptions {
@@ -394,7 +411,7 @@ export interface EnsureStats {
   cached: number;
   analyzed: number;
   failed: number;
-  skipped?: 'disabled';
+  skipped?: 'disabled' | 'config-changed';
   error?: string;
 }
 
@@ -404,6 +421,8 @@ const API_COOLDOWN_MS = 30_000;
 const API_TIMEOUT_MS = 30_000;
 
 export class IntentSenseService {
+  private analysisRevision = 0;
+  private suggestionRevision = 0;
   private readonly configStore: JsonStore<IntentSenseConfig>;
   private readonly analysisStores = new Map<string, JsonStore<CacheFile>>();
   /** 每会话在途 ensureAnalysis（去重并发）。 */
@@ -436,6 +455,12 @@ export class IntentSenseService {
               ? { providerId: ref.providerId, model: ref.model }
               : null,
           suggestionsEnabled: p.suggestionsEnabled === true,
+          analysisContextMessages: isIntentContextCount(p.analysisContextMessages)
+            ? p.analysisContextMessages
+            : DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
+          suggestionContextMessages: isIntentContextCount(p.suggestionContextMessages)
+            ? p.suggestionContextMessages
+            : DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
           hfMirror: p.hfMirror !== false,
           conversationOverrides:
             p.conversationOverrides && typeof p.conversationOverrides === 'object'
@@ -459,6 +484,8 @@ export class IntentSenseService {
   getStatus(): IntentSenseStatus {
     return {
       ...this.config,
+      analysisRevision: this.analysisRevision,
+      suggestionRevision: this.suggestionRevision,
       apiConfigured: !!this.opts.resolveEndpoint && !!this.config.providerRef,
       localAvailable: !!this.opts.localEngine,
       localReady: !!this.opts.localEngine?.ready,
@@ -480,6 +507,24 @@ export class IntentSenseService {
       next.suggestionsEnabled = patch.suggestionsEnabled;
     }
     if (typeof patch.hfMirror === 'boolean') next.hfMirror = patch.hfMirror;
+    for (const key of ['analysisContextMessages', 'suggestionContextMessages'] as const) {
+      if (patch[key] === undefined) continue;
+      if (!isIntentContextCount(patch[key]))
+        throw new Error(`上文条数必须是 0–${MAX_INTENT_CONTEXT_MESSAGES} 的整数`);
+      next[key] = patch[key];
+    }
+    const analysisChanged = next.analysisContextMessages !== this.config.analysisContextMessages;
+    if (analysisChanged) {
+      this.analysisRevision++;
+      this.analysisStores.clear();
+    }
+    if (
+      analysisChanged ||
+      next.suggestionContextMessages !== this.config.suggestionContextMessages
+    ) {
+      this.suggestionRevision++;
+      this.suggestionCache.clear();
+    }
     this.apiCooldownUntil = 0;
     this.lastApiError = null;
     this.configStore.data = next;
@@ -489,9 +534,15 @@ export class IntentSenseService {
 
   /** 清空当前账号下所有会话的意图分析缓存与回复建议缓存，重置 API 熔断状态。 */
   clearCache(): { clearedFiles: number } {
+    this.analysisRevision++;
+    this.suggestionRevision++;
     let clearedFiles = 0;
     for (const store of this.analysisStores.values()) {
-      store.data = { version: CACHE_SCHEMA_VERSION, results: [] };
+      store.data = {
+        version: CACHE_SCHEMA_VERSION,
+        contextMessages: this.config.analysisContextMessages,
+        results: [],
+      };
       store.save();
     }
     this.analysisStores.clear();
@@ -579,10 +630,11 @@ export class IntentSenseService {
     if (!this.effectiveFor(kind, conv)) {
       return Promise.resolve({ cached: 0, analyzed: 0, failed: 0, skipped: 'disabled' });
     }
-    const key = conversationKey(kind, conv);
+    const revision = this.analysisRevision;
+    const key = `${conversationKey(kind, conv)}:${revision}`;
     const running = this.inFlight.get(key);
     if (running) return running;
-    const task = this.runEnsure(kind, conv, limit)
+    const task = this.runEnsure(kind, conv, limit, revision)
       .catch((error): EnsureStats => {
         logger.warn('intent-sense ensureAnalysis failed', {
           event: 'intent-sense-ensure-failed',
@@ -604,6 +656,8 @@ export class IntentSenseService {
     msgId: string,
   ): Promise<IntentSenseResult | null> {
     if (!this.effectiveFor(kind, conv)) return null;
+    const revision = this.analysisRevision;
+    const contextMessages = this.config.analysisContextMessages;
     const cache = this.cacheFor(kind, conv);
     const hit = cache.data.results.find(
       (r) =>
@@ -615,30 +669,33 @@ export class IntentSenseService {
     if (hit) return hit;
 
     // 优先从最近窗口定位该消息，以便一并拿到前序对话上下文；若不在近期窗口则回退按 ID 单查。
-    const recent = await this.loadMessages(kind, conv, 60);
+    const recent = await this.loadMessages(kind, conv, Math.max(60, contextMessages + 1));
     const idx = recent.findIndex((r) => r.msgId === msgId);
     let row: SenseRow | undefined;
     let context: IntentContextTurn[] = [];
     if (idx >= 0) {
       row = recent[idx];
-      context = extractContextBefore(recent, idx);
+      context = extractContextBefore(recent, idx, contextMessages);
     } else {
       const rows = await this.loadMessages(kind, conv, 1, [msgId]);
       row = rows[0];
     }
     if (!row?.text) return null;
+    if (revision !== this.analysisRevision) return null;
 
     let result: IntentSenseResult | null = null;
     if (this.config.engine === 'local') {
       result = await this.analyzeOne(row.mine, row.sendTime, row.msgId, row.text, context);
     } else {
-      const batchOut = await this.analyzeBatchViaApi([{ ...row, context }], context);
+      const batchOut = await this.analyzeBatchViaApi([{ ...row, context }]);
+      if (revision !== this.analysisRevision) return null;
       if (batchOut !== null) {
         result = batchOut[0] ?? null;
       } else if (this.opts.localEngine?.ready) {
         result = await this.analyzeOne(row.mine, row.sendTime, row.msgId, row.text, context);
       }
     }
+    if (revision !== this.analysisRevision) return null;
     if (result) {
       this.storeResults(kind, conv, [result]);
       this.emitAnalyzed({ kind, conv, results: [result] });
@@ -665,7 +722,10 @@ export class IntentSenseService {
     kind: IntentConversationKind,
     conv: string,
     limit: number,
+    revision: number,
   ): Promise<EnsureStats> {
+    const contextMessages = this.config.analysisContextMessages;
+    const current = () => revision === this.analysisRevision;
     const cache = this.cacheFor(kind, conv);
     // 当用户切换到 api 引擎且未处于熔断期时，之前由 local 引擎产生的缓存不视为最终命中，允许升级重算为 api 结果
     const known = new Set(
@@ -678,12 +738,14 @@ export class IntentSenseService {
         )
         .map((r) => r.msgId),
     );
-    const rows = await this.loadMessages(kind, conv, limit);
+    const rows = await this.loadMessages(kind, conv, limit + contextMessages);
+    if (!current()) return { cached: 0, analyzed: 0, failed: 0, skipped: 'config-changed' };
+    const startIndex = Math.max(0, rows.length - limit);
     const pending: Array<{ row: SenseRow; context: IntentContextTurn[] }> = [];
-    for (let idx = 0; idx < rows.length; idx++) {
+    for (let idx = startIndex; idx < rows.length; idx++) {
       const r = rows[idx]!;
       if (!known.has(r.msgId) && r.text) {
-        pending.push({ row: r, context: extractContextBefore(rows, idx) });
+        pending.push({ row: r, context: extractContextBefore(rows, idx, contextMessages) });
       }
     }
     let analyzed = 0;
@@ -701,6 +763,7 @@ export class IntentSenseService {
       ): Promise<void> => {
         const chunkResults: IntentSenseResult[] = [];
         for (const { row, context } of slice) {
+          if (!current()) return;
           const result = await this.analyzeOne(
             row.mine,
             row.sendTime,
@@ -708,6 +771,7 @@ export class IntentSenseService {
             row.text,
             context,
           );
+          if (!current()) return;
           if (result) {
             chunkResults.push(result);
             analyzed++;
@@ -715,7 +779,7 @@ export class IntentSenseService {
             failed++;
           }
         }
-        if (chunkResults.length > 0) {
+        if (current() && chunkResults.length > 0) {
           this.storeResults(kind, conv, chunkResults);
           this.emitAnalyzed({ kind, conv, results: chunkResults });
         }
@@ -723,12 +787,13 @@ export class IntentSenseService {
 
       if (this.config.engine === 'local') {
         for (const slice of chunks) {
+          if (!current()) break;
           await runChunkLocal(slice);
         }
       } else {
         for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
+          if (!current()) break;
           const slice = chunks[cIdx]!;
-          const leadingContext = slice[0]?.context ?? [];
           const batchInput = slice.map(({ row, context }) => ({
             msgId: row.msgId,
             mine: row.mine,
@@ -736,7 +801,8 @@ export class IntentSenseService {
             text: row.text,
             context,
           }));
-          const results = await this.analyzeBatchViaApi(batchInput, leadingContext);
+          const results = await this.analyzeBatchViaApi(batchInput);
+          if (!current()) break;
           if (results === null) {
             // API 发生网络故障或处于熔断冷却：若本地引擎就绪则无缝降级本地引擎，否则立即中止后续批次避免刷屏报错
             if (this.opts.localEngine?.ready) {
@@ -757,9 +823,10 @@ export class IntentSenseService {
       }
     }
     return {
-      cached: rows.length - pending.length,
+      cached: rows.length - startIndex - pending.length,
       analyzed,
       failed,
+      ...(!current() ? { skipped: 'config-changed' as const } : {}),
     };
   }
 
@@ -834,32 +901,27 @@ export class IntentSenseService {
       mine: boolean;
       sendTime: number;
       text: string;
-      context?: IntentContextTurn[];
+      context: IntentContextTurn[];
     }>,
-    leadingContext: IntentContextTurn[] = [],
   ): Promise<IntentSenseResult[] | null> {
+    const revision = this.analysisRevision;
     const endpoint = this.endpoint();
     if (!endpoint) return null;
     if (Date.now() < this.apiCooldownUntil) return null;
     const baseUrl = endpoint.baseUrl.replace(/\/+$/, '');
-    const contextHeader =
-      leadingContext.length > 0
-        ? [
-            '【上文对话参考（仅供理解语境，不要输出到 results 中）】',
-            ...leadingContext.map((c) => `[上文] ${c.mine ? '我' : '对方'}: ${c.text}`),
-            '',
-            '【待分析消息】',
-          ]
-        : [];
-    const lines = batch.map((b, i) => {
-      const prag = analyzePragmatics(b.text, b.context ?? leadingContext, b.sendTime);
-      const hint = prag.promptHint ? ` （语用提示：${prag.promptHint}）` : '';
-      return `${i}. ${b.mine ? '我' : '对方'}: ${b.text}${hint}`;
+    const userContent = JSON.stringify({
+      messages: batch.map((b, i) => ({
+        i,
+        speaker: b.mine ? '我' : '对方',
+        text: b.text,
+        context: b.context.map((turn) => ({ speaker: turn.mine ? '我' : '对方', text: turn.text })),
+        hint: analyzePragmatics(b.text, b.context, b.sendTime).promptHint || undefined,
+      })),
     });
-    const userContent = [...contextHeader, ...lines].join('\n');
     const system =
       '你是精通中文互联网语境、反语、夸张修辞与网络黑话的聊天消息意图/情绪分析专家。' +
-      '请结合上下文语境，对【待分析消息】中的每条消息输出 intent/emotion/intensity/sentiment/confidence。\n' +
+      '请结合每条消息标注的上文，对输入 JSON 的 messages 中每条目标输出 intent/emotion/intensity/sentiment/confidence。\n' +
+      '输入 JSON 中每条消息的 context 是该条唯一的上文；其它待分析项不是它的上文，不使用后续消息补充语境。\n' +
       `intent 只能是: ${Object.keys(INTENT_LABELS).join(', ')}（chat=闲聊, info=通知, question=提问, request=请求, greeting=问候, share=分享, plan=约定, praise=夸赞, vent=吐槽, joke=玩梗, boast=炫耀, flattery=吹捧, banter=调侃, perfunctory=敷衍, gossip=吃瓜, coquetry=撒娇, other=其他）；\n` +
       `emotion 只能是: ${Object.keys(EMOTION_LABELS).join(', ')}（neutral=平静, joy=开心, curiosity=好奇, excitement=兴奋, admiration=赞叹, affection=亲昵, sadness=低落, anger=生气, anxiety=焦虑, fatigue=疲惫, shock=震惊, aggrieved=委屈, irony=反讽, anticipation=期待, embarrassed=尴尬）；\n` +
       '重要语用准则：\n' +
@@ -888,12 +950,13 @@ export class IntentSenseService {
         const detail = await res.text().catch(() => '');
         throw new Error(`HTTP ${res.status}: ${detail.slice(0, 200)}`);
       }
-      this.apiCooldownUntil = 0;
-      this.lastApiError = null;
       const body = (await res.json()) as {
         choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
       };
       reportUsage(endpoint, body);
+      if (revision !== this.analysisRevision) return null;
+      this.apiCooldownUntil = 0;
+      this.lastApiError = null;
       const content = pickMessageText(body.choices?.[0]?.message);
       const parsed = extractJsonBlock(content) as { results?: unknown[] } | null;
       if (!parsed || !Array.isArray(parsed.results)) return [];
@@ -913,7 +976,7 @@ export class IntentSenseService {
             confidence: clamp(Number(r.confidence ?? 0.5) || 0, 0, 1),
           },
           src.text,
-          src.context ?? leadingContext,
+          src.context,
           src.sendTime,
         );
         out.push({
@@ -931,6 +994,7 @@ export class IntentSenseService {
       }
       return out;
     } catch (error) {
+      if (revision !== this.analysisRevision) return null;
       this.apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
       const errMsg = error instanceof Error ? error.message : String(error);
       const causeMsg =
@@ -1246,8 +1310,12 @@ export class IntentSenseService {
 
   async getSuggestions(kind: IntentConversationKind, conv: string): Promise<ReplySuggestion[]> {
     if (!this.effectiveFor(kind, conv) || !this.config.suggestionsEnabled) return [];
+    const revision = this.suggestionRevision;
+    const contextMessages = this.config.suggestionContextMessages;
+    const current = () => revision === this.suggestionRevision;
     const key = conversationKey(kind, conv);
-    const rows = await this.loadMessages(kind, conv, SUGGESTION_CONTEXT);
+    const rows = await this.loadMessages(kind, conv, contextMessages + 1);
+    if (!current()) return [];
     if (rows.length === 0) return [];
     const last = rows[rows.length - 1] as SenseRow;
     if (last.mine) {
@@ -1264,9 +1332,10 @@ export class IntentSenseService {
     }
 
     const fallbackLocal = (): ReplySuggestion[] => {
+      if (!current()) return [];
       const cache = this.cacheFor(kind, conv);
       const analyzedLast = cache.data.results.find((r) => r.msgId === last.msgId);
-      const context = extractContextBefore(rows, rows.length - 1);
+      const context = extractContextBefore(rows, rows.length - 1, contextMessages);
       const suggestions = buildLocalSuggestions(last.text, analyzedLast, context, last.sendTime);
       this.suggestionCache.set(key, { lastMsgId: last.msgId, at: Date.now(), suggestions });
       return suggestions;
@@ -1302,6 +1371,7 @@ export class IntentSenseService {
         signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
       if (!res.ok) {
+        if (!current()) return [];
         this.apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
         return fallbackLocal();
       }
@@ -1309,6 +1379,7 @@ export class IntentSenseService {
         choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
       };
       reportUsage(endpoint, body);
+      if (!current()) return [];
       const parsed = extractJsonBlock(pickMessageText(body.choices?.[0]?.message)) as {
         replies?: unknown[];
       } | null;
@@ -1325,6 +1396,7 @@ export class IntentSenseService {
       this.suggestionCache.set(key, { lastMsgId: last.msgId, at: Date.now(), suggestions });
       return suggestions;
     } catch (error) {
+      if (!current()) return [];
       this.apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
       logger.debug('intent-sense suggestions failed', {
         event: 'intent-sense-suggestions-failed',
@@ -1391,8 +1463,12 @@ export class IntentSenseService {
     if (existing) return existing;
     const store = new JsonStore<CacheFile>(
       `${this.storeDir}/analysis/${fileSafe(key)}.json`,
-      () => ({ version: CACHE_SCHEMA_VERSION, results: [] }),
-      { normalize: normalizeCacheFile },
+      () => ({
+        version: CACHE_SCHEMA_VERSION,
+        contextMessages: this.config.analysisContextMessages,
+        results: [],
+      }),
+      { normalize: (raw) => normalizeCacheFile(raw, this.config.analysisContextMessages) },
     );
     this.analysisStores.set(key, store);
     return store;
@@ -1411,7 +1487,11 @@ export class IntentSenseService {
     if (all.length > CACHE_MAX_ENTRIES) {
       all = [...all].sort((a, b) => a.sendTime - b.sendTime).slice(all.length - CACHE_MAX_ENTRIES);
     }
-    store.data = { version: CACHE_SCHEMA_VERSION, results: all };
+    store.data = {
+      version: CACHE_SCHEMA_VERSION,
+      contextMessages: this.config.analysisContextMessages,
+      results: all,
+    };
     store.save();
   }
 }

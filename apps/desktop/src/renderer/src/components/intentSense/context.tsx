@@ -112,7 +112,7 @@ export function IntentSenseProvider({
     [bump],
   );
 
-  const engineKey = `${statusData?.engine ?? ''}::${statusData?.providerRef?.providerId ?? ''}::${statusData?.providerRef?.model ?? ''}`;
+  const engineKey = `${statusData?.engine ?? ''}::${statusData?.providerRef?.providerId ?? ''}::${statusData?.providerRef?.model ?? ''}::${statusData?.analysisContextMessages ?? ''}::${statusData?.analysisRevision ?? 0}`;
   // 会话切换或引擎切换时同步清空内存态（放在拉取缓存之前，避免清理掉刚拉回的同轮结果）。
   const prevConvKeyRef = useRef(`${kind}:${conv}:${engineKey}`);
   if (prevConvKeyRef.current !== `${kind}:${conv}:${engineKey}`) {
@@ -175,24 +175,34 @@ export function IntentSenseProvider({
   // 增量结果订阅。
   useEffect(() => {
     if (!effective || !conv) return;
+    let disposed = false;
+    const expected = `${kind}:${conv}:${engineKey}`;
     const sub = client.account.intentSense.onAnalyzed.subscribe(undefined, {
       onData: (event) => {
-        if (event.kind === kind && event.conv === conv) {
+        if (
+          !disposed &&
+          prevConvKeyRef.current === expected &&
+          event.kind === kind &&
+          event.conv === conv
+        ) {
           merge(event.results as IntentAnalysis[]);
         }
       },
       onError: () => undefined,
     });
     return () => {
+      disposed = true;
       void sub.unsubscribe();
     };
-  }, [kind, conv, effective, merge]);
+  }, [kind, conv, effective, engineKey, merge]);
 
   const getAnalysis = useCallback((msgId: string) => analysesRef.current.get(msgId), []);
   const isUnavailable = useCallback((msgId: string) => unavailableRef.current.has(msgId), []);
 
   const requestAnalysis = useCallback(
     (msgId: string) => {
+      const expected = `${kind}:${conv}:${engineKey}`;
+      if (prevConvKeyRef.current !== expected) return;
       if (
         analysesRef.current.has(msgId) ||
         requestedRef.current.has(msgId) ||
@@ -204,6 +214,7 @@ export function IntentSenseProvider({
       void client.account.intentSense.analyzeMessage
         .mutate({ kind, conv, msgId })
         .then((result) => {
+          if (prevConvKeyRef.current !== expected) return;
           if (result) {
             merge([result as IntentAnalysis]);
           } else {
@@ -213,12 +224,13 @@ export function IntentSenseProvider({
           }
         })
         .catch(() => {
+          if (prevConvKeyRef.current !== expected) return;
           unavailableRef.current.add(msgId);
           requestedRef.current.delete(msgId);
           bump();
         });
     },
-    [kind, conv, merge, bump],
+    [kind, conv, engineKey, merge, bump],
   );
 
   const value = useMemo<IntentSenseContextValue>(

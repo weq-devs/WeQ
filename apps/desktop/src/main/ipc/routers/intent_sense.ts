@@ -9,7 +9,7 @@
  *   getMessageAnalyses               → 批量读缓存（渲染层点亮胶囊）
  *   analyzeMessage                   → 悬停未命中时单条触发
  *   getProfile                       → 对方画像（好感度/MBTI/雷达/话题，仅私聊）
- *   getSuggestions                   → 回复建议（仅 api 引擎 + 建议开关开启）
+ *   getSuggestions                   → 回复建议（API 生成／本地候选 + 建议开关开启）
  *   onAnalyzed                       → 增量分析结果推送
  */
 
@@ -22,6 +22,7 @@ import {
   type IntentSenseModelProgress,
 } from '../../context/app_context';
 import { procedure, router } from '../trpc';
+import { MAX_INTENT_CONTEXT_MESSAGES } from '@weq/service/intent-context';
 
 function requireServices(): AccountServices {
   const ctx = getAppContext();
@@ -45,6 +46,8 @@ const configPatch = z.object({
     .nullable()
     .optional(),
   suggestionsEnabled: z.boolean().optional(),
+  analysisContextMessages: z.number().int().min(0).max(MAX_INTENT_CONTEXT_MESSAGES).optional(),
+  suggestionContextMessages: z.number().int().min(0).max(MAX_INTENT_CONTEXT_MESSAGES).optional(),
   hfMirror: z.boolean().optional(),
 });
 
@@ -133,9 +136,16 @@ export const intentSenseRouter = router({
     .input(z.object({ peerUid: z.string().min(1) }))
     .query(({ input }) => requireServices().intentSense.getProfile(input.peerUid)),
 
-  /** 候选回复（api 引擎 + suggestionsEnabled）。 */
+  /** 候选回复（当前引擎可用且 suggestionsEnabled）。 */
   getSuggestions: procedure
-    .input(z.object({ kind: kindSchema, conv: z.string().min(1) }))
+    // revision 只隔离客户端查询缓存；实际截取一律使用账号已保存的配置。
+    .input(
+      z.object({
+        kind: kindSchema,
+        conv: z.string().min(1),
+        revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+      }),
+    )
     .query(({ input }) => requireServices().intentSense.getSuggestions(input.kind, input.conv)),
 
   /** 增量分析结果推送（ensureAnalysis / analyzeMessage 落缓存后触发）。 */
