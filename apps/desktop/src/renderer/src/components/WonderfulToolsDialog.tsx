@@ -40,6 +40,8 @@ import {
   X,
 } from 'lucide-react';
 import { client } from '../trpc/client';
+import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
+import { readWithRetry } from '../lib/autoRead';
 import { QqAvatar } from './QqAvatar';
 import { OverlayLayer } from './OverlayLayer';
 import { WorkspacePage } from './WorkspacePages';
@@ -301,6 +303,10 @@ export function WonderfulToolsDialog({
     ? initialTool
     : (visibleTools[0]?.id ?? 'capture');
   const [activeTool, setActiveTool] = useState<ToolId>(selectedTool);
+  const activity = useQQReadActivity(open, { onlineOnly: false });
+  const readEnabled = useRef(activity.enabled);
+  readEnabled.current = activity.enabled;
+  const accountsController = useRef<AbortController | null>(null);
   const toolNavRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (open)
@@ -374,18 +380,23 @@ export function WonderfulToolsDialog({
   }, []);
 
   const loadAccounts = useCallback(async () => {
+    if (!readEnabled.current) return;
+    accountsController.current?.abort();
+    const controller = new AbortController();
+    accountsController.current = controller;
     setLoading(true);
     setError(null);
     try {
-      const rows = await client.wonderfulTools.overview.query();
+      const rows = await readWithRetry(
+        () => client.wonderfulTools.overview.query(),
+        controller.signal,
+      );
       setAccounts(rows);
-      // 账号列表刷新后，旧扫描结果不再可靠。
-      setResult(null);
-      setScanTarget(null);
     } catch (e) {
+      if (controller.signal.aborted) return;
       setError(errMsg(e));
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, []);
 
@@ -405,9 +416,21 @@ export function WonderfulToolsDialog({
       setFetchingKey(false);
       setOtherResult(null);
       setOtherCopied(false);
-      if (selectedTool !== 'reverse') void loadAccounts();
     }
-  }, [open, selectedTool, loadAccounts]);
+  }, [open, selectedTool]);
+
+  useEffect(() => {
+    if (
+      activity.enabled &&
+      activeTool !== 'reverse' &&
+      activeTool !== 'login-accounts' &&
+      !scanningUin &&
+      !fetchingKey
+    )
+      void loadAccounts();
+    if (!activity.enabled) setLoading(false);
+    return () => accountsController.current?.abort();
+  }, [activity.enabled, activity.revision, activeTool, scanningUin, fetchingKey, loadAccounts]);
 
   async function scanAccount(acc: AccountRow): Promise<void> {
     setScanTarget(acc);
@@ -589,67 +612,61 @@ export function WonderfulToolsDialog({
                       <span>正在读取账号与在线状态…</span>
                     </div>
                   ) : error ? (
-                    <div className="weq-wtools-state is-error">{error}</div>
+                    <div className="weq-wtools-state is-error">
+                      {error}
+                      <button
+                        type="button"
+                        className="weq-wtools-refresh"
+                        title="重试读取账号列表"
+                        aria-label="重试读取账号列表"
+                        onClick={() => void loadAccounts()}
+                      >
+                        <RefreshCw size={14} />
+                      </button>
+                    </div>
                   ) : accounts.length === 0 ? (
                     <div className="weq-wtools-state">
                       未在 login.db 中发现历史账号，请先在 QQ / WeQ 登录过账号。
                     </div>
                   ) : (
-                    <>
-                      <div className="weq-wtools-toolbar">
-                        <button
-                          type="button"
-                          className="weq-wtools-refresh"
-                          onClick={() => void loadAccounts()}
-                          disabled={loading}
-                        >
-                          <RefreshCw
-                            size={14}
-                            strokeWidth={1.9}
-                            className={loading ? 'weq-spin' : ''}
-                          />
-                          刷新
-                        </button>
-                      </div>
-                      <div className="weq-wtools-grid">
-                        {accounts.map((acc) => {
-                          const online = acc.pid !== null;
-                          const busy = scanningUin === acc.uin;
-                          return (
-                            <button
-                              key={acc.uin}
-                              type="button"
-                              className={`weq-wtools-card${online ? ' is-online' : ' is-offline'}${busy ? ' is-busy' : ''}`}
-                              onClick={() => void scanAccount(acc)}
-                              disabled={busy}
-                              title={
-                                online
-                                  ? `在线 · PID ${acc.pid} · 上次登录 ${humanTime(acc.lastLoginAt)}，点击扫描密钥`
-                                  : `离线账号 · 上次登录 ${humanTime(acc.lastLoginAt)}，点击尝试扫描`
-                              }
-                            >
-                              <span className="weq-wtools-card-avatar">
-                                <QqAvatar uin={acc.uin} url={acc.avatarUrl} size={44} />
-                                <i className="weq-wtools-card-dot" aria-hidden />
-                              </span>
-                              <span className="weq-wtools-card-id">
-                                <strong>{acc.userName || acc.uin}</strong>
-                                <em>{acc.uin}</em>
-                              </span>
-                              <span className="weq-wtools-card-status">
-                                {busy ? (
-                                  <Loader2 size={13} className="weq-spin" aria-label="扫描中" />
-                                ) : online ? (
-                                  <span className="is-online-text">在线</span>
-                                ) : (
-                                  <span className="is-offline-text">离线</span>
-                                )}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </>
+                    <div className="weq-wtools-grid">
+                      {accounts.map((acc) => {
+                        const online = acc.pid !== null;
+                        const busy = scanningUin === acc.uin;
+                        return (
+                          <button
+                            key={acc.uin}
+                            type="button"
+                            className={`weq-wtools-card${online ? ' is-online' : ' is-offline'}${busy ? ' is-busy' : ''}`}
+                            onClick={() => void scanAccount(acc)}
+                            disabled={busy}
+                            title={
+                              online
+                                ? `在线 · PID ${acc.pid} · 上次登录 ${humanTime(acc.lastLoginAt)}，点击扫描密钥`
+                                : `离线账号 · 上次登录 ${humanTime(acc.lastLoginAt)}，点击尝试扫描`
+                            }
+                          >
+                            <span className="weq-wtools-card-avatar">
+                              <QqAvatar uin={acc.uin} url={acc.avatarUrl} size={44} />
+                              <i className="weq-wtools-card-dot" aria-hidden />
+                            </span>
+                            <span className="weq-wtools-card-id">
+                              <strong>{acc.userName || acc.uin}</strong>
+                              <em>{acc.uin}</em>
+                            </span>
+                            <span className="weq-wtools-card-status">
+                              {busy ? (
+                                <Loader2 size={13} className="weq-spin" aria-label="扫描中" />
+                              ) : online ? (
+                                <span className="is-online-text">在线</span>
+                              ) : (
+                                <span className="is-offline-text">离线</span>
+                              )}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
               </>

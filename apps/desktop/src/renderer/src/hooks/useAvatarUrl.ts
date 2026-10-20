@@ -54,7 +54,8 @@ function subscribe(listener: () => void) {
 /** 只让被修改的头像重取；版本只加在本地桥，不污染上游 URL 和磁盘缓存键。 */
 export function useAvatarUrl(src: string | null | undefined, wrap = true): string | null {
   const key = avatarKey(src);
-  const revision = useSyncExternalStore(subscribe, () => (key ? (revisions.get(key) ?? 0) : 0));
+  const getSnapshot = () => (key ? (revisions.get(key) ?? 0) : 0);
+  const revision = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   let resolved = wrap || key ? cachedAvatarUrl(src) : (src ?? null);
   if (!revision || !resolved) return resolved;
   // CDN 直连偏好下，显式修改后的这一次刷新仍经本地桥强制回源。

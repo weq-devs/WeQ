@@ -55,6 +55,8 @@ import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ExportSaveActions } from '../../components/ExportSaveActions';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { IS_WEB } from '../../lib/target';
+import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
+import { readWithRetry } from '../../lib/autoRead';
 
 const initialStatus: MailStatus = {
   state: 'disconnected',
@@ -94,6 +96,7 @@ export function MailPage({
   searchTarget?: { id: string; folderId: number; revision: string } | null;
 }) {
   const save = useExportSavePolicy();
+  const activity = useQQReadActivity(active);
   const [status, setStatus] = useState(initialStatus);
   const [folders, setFolders] = useState<MailFolder[]>([...SYSTEM_MAIL_FOLDERS]);
   const [folderId, setFolderId] = useState(1),
@@ -124,7 +127,7 @@ export function MailPage({
     readSequence = useRef(0);
   const openRequested = useRef(onOpenRequested);
   openRequested.current = onOpenRequested;
-  visible.current = active;
+  visible.current = activity.enabled;
   composeVisible.current = showCompose;
   const ready = status.state === 'ready';
   const selectedFolder = folders.find((item) => item.id === folderId);
@@ -233,16 +236,19 @@ export function MailPage({
   }, [onUnreadChange, status.unread]);
 
   useEffect(() => {
-    if (!ready || !active) return;
+    if (!ready || !activity.enabled) return;
     const controller = new AbortController(),
       sequence = ++loadSequence.current;
     setLoading(true);
     setError('');
-    void api
-      .list(
-        { folderId, page: pageNumber, unreadOnly, keyword: keyword || undefined },
-        controller.signal,
-      )
+    void readWithRetry(
+      () =>
+        api.list(
+          { folderId, page: pageNumber, unreadOnly, keyword: keyword || undefined },
+          controller.signal,
+        ),
+      controller.signal,
+    )
       .then((value) => {
         if (!controller.signal.aborted && sequence === loadSequence.current) setPage(value);
       })
@@ -254,27 +260,36 @@ export function MailPage({
         if (!controller.signal.aborted && sequence === loadSequence.current) setLoading(false);
       });
     return () => controller.abort();
-  }, [api, ready, active, folderId, pageNumber, unreadOnly, keyword, revision]);
+  }, [
+    api,
+    ready,
+    activity.enabled,
+    activity.revision,
+    folderId,
+    pageNumber,
+    unreadOnly,
+    keyword,
+    revision,
+  ]);
   useEffect(() => {
-    if (!ready || !active) return;
+    if (!ready || !activity.enabled) return;
     const controller = new AbortController();
-    void api
-      .folders(controller.signal)
+    void readWithRetry(() => api.folders(controller.signal), controller.signal)
       .then((value) => {
         if (!controller.signal.aborted) setFolders(value);
       })
       .catch(() => {});
     return () => controller.abort();
-  }, [api, ready, active, revision]);
+  }, [api, ready, activity.enabled, activity.revision, revision]);
   useEffect(() => {
-    if (!selectedId || !ready) {
+    if (!selectedId || !ready || !activity.enabled) {
       setReading(false);
       return;
     }
     const controller = new AbortController(),
       sequence = ++readSequence.current;
     setReading(true);
-    setDetail(null);
+    setDetail((current) => (current?.id === selectedId ? current : null));
     setError('');
     void api
       .read(selectedId, controller.signal)
@@ -296,7 +311,7 @@ export function MailPage({
         if (!controller.signal.aborted && sequence === readSequence.current) setReading(false);
       });
     return () => controller.abort();
-  }, [api, selectedId, ready, searchReadRevision]);
+  }, [api, selectedId, ready, activity.enabled, searchReadRevision]);
 
   async function openMail(item: MailSummary): Promise<void> {
     setThreadRoot(null);
@@ -465,22 +480,26 @@ export function MailPage({
           </div>
         </div>
         <div className="weq-mail-top-actions">
-          <button
-            type="button"
-            title="刷新邮箱"
-            aria-label="刷新邮箱"
-            disabled={loading || status.state === 'connecting'}
-            onClick={() => {
-              if (ready) setRevision((value) => value + 1);
-              else void connect();
-            }}
-          >
-            {loading || status.state === 'connecting' ? (
-              <LoaderCircle size={17} className="weq-mail-spin" />
-            ) : (
-              <RefreshCw size={17} />
-            )}
-          </button>
+          {(!ready || error) && (
+            <button
+              type="button"
+              title={ready ? '重试读取邮箱' : '重新连接邮箱'}
+              aria-label={ready ? '重试读取邮箱' : '重新连接邮箱'}
+              disabled={!activity.enabled || loading || status.state === 'connecting'}
+              onClick={() => {
+                if (ready) {
+                  setRevision((value) => value + 1);
+                  if (selectedId) setSearchReadRevision((value) => value + 1);
+                } else void connect();
+              }}
+            >
+              {loading || status.state === 'connecting' ? (
+                <LoaderCircle size={17} className="weq-mail-spin" />
+              ) : (
+                <RefreshCw size={17} />
+              )}
+            </button>
+          )}
           {ready ? (
             <button
               type="button"

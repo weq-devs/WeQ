@@ -1,12 +1,7 @@
 import { useState } from 'react';
 import { client, trpc } from '../../trpc/client';
-import {
-  ActionFeedback,
-  RefreshAction,
-  SaveAction,
-  useQQAction,
-  useQQGroupPermissions,
-} from './shared';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
+import { ActionFeedback, SaveAction, useQQAction, useQQGroupPermissions } from './shared';
 
 type JoinMode = 1 | 2 | 3 | 4 | 5;
 function joinMode(value: number | null | undefined): JoinMode | '' {
@@ -17,9 +12,10 @@ function joinMode(value: number | null | undefined): JoinMode | '' {
 export function GroupJoinSettings({ groupId }: { groupId: number }) {
   const a = useQQAction(`join-settings:${groupId}`);
   const permissions = useQQGroupPermissions(groupId, a);
+  const autoRefresh = useQQAutoRefresh(a.available);
   const query = trpc.account.qqActions.groupJoinSettings.useQuery(
     { ...a.binding!, groupId },
-    { enabled: a.available, retry: false, refetchOnMount: 'always', staleTime: 30_000 },
+    autoRefresh,
   );
   const [draft, setDraft] = useState<{
     mode: JoinMode | '';
@@ -53,10 +49,6 @@ export function GroupJoinSettings({ groupId }: { groupId: number }) {
           <option value={4}>正确回答问题</option>
           <option value={5}>回答问题并审核</option>
         </select>
-        <RefreshAction
-          disabled={a.disabled || query.isFetching}
-          onClick={() => void query.refetch()}
-        />
       </div>
       {query.error && <p role="alert">{query.error.message}</p>}
       {(mode === 4 || mode === 5) && (

@@ -100,6 +100,29 @@ describe('联系人写协议', () => {
     expect(nt.calls[0]?.bytes.toString('hex')).toBe('0a03755f611000');
   });
 
+  it('好友分组仅兼容精确的已应用业务码，其他错误不能被吞掉', async () => {
+    const invoke = (error: Error) =>
+      SetFriendCategory.invoke(
+        {
+          sendOidbPacket: async () => {
+            throw error;
+          },
+        },
+        1,
+        { uid: 'u_a', categoryId: 5 },
+      );
+    await expect(
+      invoke(new Error(`OIDB error ${SetFriendCategory.alreadyAppliedCode}: applied`)),
+    ).resolves.toBeUndefined();
+    for (const message of [
+      'OIDB error 1007: denied',
+      `OIDB error ${SetFriendCategory.alreadyAppliedCode}0: denied`,
+      `Network error: OIDB error ${SetFriendCategory.alreadyAppliedCode}: unknown`,
+    ]) {
+      await expect(invoke(new Error(message))).rejects.toThrow(message);
+    }
+  });
+
   it('非法目标或整数在发送之前拒绝', async () => {
     const nt = native();
     for (const groupId of [-1, 0, 1.5, 2 ** 32, Number.NaN])

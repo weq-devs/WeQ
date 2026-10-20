@@ -82,17 +82,12 @@ export interface FormattedOnlineStatus {
   subType: number;
   subTypeName: string;
   displayStatus: string; // The combination for UI
-  weather?: {
-    weather: string;
-    city: string;
-    area: string;
-    weatherDesc: string;
-  };
+  customStatus?: { faceId: number; text: string; faceType: number };
 }
 
 export class OnlineStatusService {
   constructor(
-    private readonly session: AccountSession,
+    private readonly session: { misc: Pick<AccountSession['misc'], 'getUserOnlineStatus'> },
     private readonly online?: OnlineStatusOnlineDeps,
   ) {}
 
@@ -133,6 +128,9 @@ export class OnlineStatusService {
     if (subTypeName) {
       displayStatus = `${typeName} - ${subTypeName}`;
     }
+    if (raw.type === OnlineType.ONLINE && raw.subType === 2000 && raw.customStatus?.text) {
+      displayStatus = raw.customStatus.text;
+    }
 
     return {
       uid: raw.uid,
@@ -142,7 +140,7 @@ export class OnlineStatusService {
       subType: raw.subType,
       subTypeName,
       displayStatus,
-      weather: raw.weather,
+      customStatus: raw.customStatus,
     };
   }
 

@@ -65,6 +65,7 @@ import {
 } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
+import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { completeQzonePostText, qzoneImageCompletionScope } from '../lib/qzoneCompletion';
 import { qzoneReplyPresentation } from '../lib/qzoneReplyPresentation';
 import {
@@ -99,21 +100,24 @@ function QzonePage({
   children: ReactElement;
 }) {
   const scroll = useRef<HTMLDivElement>(null);
+  const activity = useQQReadActivity(active);
   const position = useRef(0);
-  const entered = useRef(false);
   const previousActive = useRef(false);
-  const [entryRefresh, setEntryRefresh] = useState(0);
+  const [entry, setEntry] = useState({ active, refresh: 0 });
+  let entryRefresh = entry.refresh;
+  if (entry.active !== active) {
+    if (active && position.current <= 48) entryRefresh++;
+    setEntry({ active, refresh: entryRefresh });
+  }
   useLayoutEffect(() => {
     if (active && !previousActive.current) {
       if (scroll.current) scroll.current.scrollTop = position.current;
-      if (entered.current && position.current <= 48) setEntryRefresh((value) => value + 1);
-      entered.current = true;
     }
     previousActive.current = active;
   }, [active]);
   const context = useMemo(
-    () => ({ active, refresh: refreshKey + entryRefresh }),
-    [active, refreshKey, entryRefresh],
+    () => ({ active: activity.enabled, refresh: refreshKey + entryRefresh + activity.revision }),
+    [activity.enabled, activity.revision, refreshKey, entryRefresh],
   );
   return (
     <div
@@ -192,18 +196,21 @@ const QzonePeopleContext = createContext<QzonePeople>({
   names: {},
   request: () => {},
 });
-function useQzonePeople(selfUin: string): QzonePeople {
+function useQzonePeople(selfUin: string, enabled: boolean): QzonePeople {
   const [names, setNames] = useState<Record<string, string>>({});
   const known = useRef(names);
   known.current = names;
   const pending = useRef(new Set<string>());
   const attempts = useRef(new Map<string, number>());
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const active = useRef(true);
-  const { run } = useQzoneRequests();
+  const active = useRef(enabled);
+  active.current = enabled;
+  const { run, cancel } = useQzoneRequests();
   const request = useCallback(
     (uin: string) => {
       if (
+        !enabled ||
+        !active.current ||
         !/^[1-9]\d{4,19}$/.test(uin) ||
         known.current[uin] ||
         Date.now() - (attempts.current.get(uin) ?? 0) < 60000
@@ -233,15 +240,18 @@ function useQzonePeople(selfUin: string): QzonePeople {
       };
       timer.current = setTimeout(flush, 80);
     },
-    [selfUin, run],
+    [selfUin, run, enabled],
   );
   useEffect(() => {
-    active.current = true;
+    active.current = enabled;
     return () => {
       active.current = false;
       if (timer.current !== undefined) clearTimeout(timer.current);
+      timer.current = undefined;
+      for (const id of attempts.current.keys()) if (!known.current[id]) attempts.current.delete(id);
+      cancel();
     };
-  }, []);
+  }, [enabled, cancel]);
   return useMemo(() => ({ names, request }), [names, request]);
 }
 
@@ -357,7 +367,8 @@ export function QzoneView({
   /** 当前正在看谁的空间（自己或好友的 QQ 号），供浮动工具按当前位置导出。 */
   onSpaceChange?: (uin: string) => void;
 }): ReactElement {
-  const people = useQzonePeople(selfUin);
+  const activity = useQQReadActivity(active);
+  const people = useQzonePeople(selfUin, activity.enabled);
   const initialSpace = spaceRequest?.accountUin === selfUin ? spaceRequest : null;
   const [tab, setTab] = useState<Tab>(
     initialSpace ? (initialSpace.uin === selfUin ? 'posts' : 'space') : 'feeds',
@@ -411,7 +422,6 @@ export function QzoneView({
     if (target.left < bounds.left) bar.scrollLeft += target.left - bounds.left;
     else if (target.right > bounds.right) bar.scrollLeft += target.right - bounds.right;
   }, [tab, hostUin]);
-  const selectedPage = tab === 'space' ? `space:${hostUin}` : tab;
   const refreshPage = (key: string) =>
     setRefreshes((current) => ({ ...current, [key]: (current[key] ?? 0) + 1 }));
   const [compose, setCompose] = useState(false);
@@ -499,14 +509,6 @@ export function QzoneView({
               }}
             >
               <Download size={17} />
-            </button>
-            <button
-              type="button"
-              title="刷新空间"
-              aria-label="刷新空间"
-              onClick={() => refreshPage(selectedPage)}
-            >
-              <RefreshCw size={17} />
             </button>
             <button type="button" className="weq-qzn-primary" onClick={() => setCompose(true)}>
               <Send size={15} />
@@ -830,16 +832,20 @@ function LinkedPost({
   nickname: string;
   onSpace: (uin: string, nickname?: string) => void;
 }) {
-  const { run } = useQzoneRequests();
+  const { run, cancel } = useQzoneRequests();
+  const { active } = useContext(QzonePageContext);
   const [post, setPost] = useState<QzoneEmotion | null>(null);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  const shownTid = useRef('');
   useEffect(() => {
+    if (!active) return;
     let live = true;
     setError('');
-    setPost(null);
-    ref.current?.scrollIntoView({ block: 'start' });
+    setPost((current) => (current?.tid === tid ? current : null));
+    if (shownTid.current !== tid) ref.current?.scrollIntoView({ block: 'start' });
+    shownTid.current = tid;
     void run(
       (requestId) => client.account.qzone.detail.query({ selfUin, hostUin, tid, requestId }),
       true,
@@ -854,8 +860,9 @@ function LinkedPost({
       });
     return () => {
       live = false;
+      cancel();
     };
-  }, [selfUin, hostUin, tid, retry, run]);
+  }, [active, selfUin, hostUin, tid, retry, run, cancel]);
   return (
     <div ref={ref} className="weq-qzn-linked-post">
       {post ? (
@@ -1029,7 +1036,7 @@ function Posts({
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
-  const { refresh } = useContext(QzonePageContext);
+  const { active, refresh } = useContext(QzonePageContext);
   const lastRefresh = useRef(refresh);
   const [posts, setPosts] = useState<QzoneEmotion[]>([]);
   const selection = useContentMultiSelect({ kind: 'qzone-posts', container: hostUin });
@@ -1066,6 +1073,10 @@ function Posts({
   const [retry, setRetry] = useState(0);
   const { run, cancel } = useQzoneRequests();
   useEffect(() => {
+    if (!active) {
+      setLoading(false);
+      return;
+    }
     let live = true;
     setLoading(true);
     setError('');
@@ -1129,7 +1140,7 @@ function Posts({
       live = false;
       cancel();
     };
-  }, [selfUin, hostUin, offset, pageRequest, retry, refresh, run, cancel, onOwnerNickname]);
+  }, [active, selfUin, hostUin, offset, pageRequest, retry, refresh, run, cancel, onOwnerNickname]);
   useEffect(() => {
     if (nearEnd && posts.length > 0 && !loading && !done && !error) loadOffset(nextOffset.current);
   }, [nearEnd, posts.length, loading, done, error, loadOffset]);
@@ -3318,7 +3329,7 @@ function Composer({
         setUncertain(submitted);
         setError(
           submitted
-            ? `${errorText(error)} 请先刷新我的动态确认结果，再决定是否重新发表。`
+            ? `${errorText(error)} 请先查看我的动态确认结果，再决定是否重新发表。`
             : errorText(error),
         );
       }

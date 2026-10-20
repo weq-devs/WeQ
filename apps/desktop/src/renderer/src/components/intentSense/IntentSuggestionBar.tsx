@@ -21,17 +21,20 @@ export function IntentSuggestionBar({
   kind,
   conv,
   replyTargetId,
+  latestMessageId,
   onInsert,
 }: {
   kind: 'c2c' | 'group';
   conv: string;
-  /** 明确为空时，最新消息不是对方发出；不查询或展示旧候选。 */
+  /** 明确为空时，仅在自己发言后推荐已开启且消息已发送时查询。 */
   replyTargetId?: string | null;
+  latestMessageId?: string | null;
   onInsert: (text: string) => void;
 }): ReactElement | null {
   const [busy, setBusy] = useState(false);
-  const replyAllowed = replyTargetId !== null;
   const status = useIntentSenseStatus();
+  const replyAllowed =
+    replyTargetId !== null || (status.data?.suggestAfterSelf === true && !!latestMessageId);
   const overridden = status.data?.conversationOverrides?.[`${kind}:${conv}`];
   const engineOk =
     status.data?.engine === 'local' ? !!status.data.localReady : !!status.data?.apiConfigured;
@@ -42,7 +45,13 @@ export function IntentSuggestionBar({
     engineOk &&
     !!status.data?.suggestionsEnabled;
   const suggestions = trpc.account.intentSense.getSuggestions.useQuery(
-    { kind, conv, revision: status.data?.suggestionRevision ?? 0, replyAllowed },
+    {
+      kind,
+      conv,
+      revision: status.data?.suggestionRevision ?? 0,
+      replyAllowed,
+      ...(latestMessageId !== undefined ? { targetId: latestMessageId } : {}),
+    },
     {
       enabled: active,
       refetchOnWindowFocus: false,

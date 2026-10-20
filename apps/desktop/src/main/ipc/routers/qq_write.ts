@@ -56,15 +56,20 @@ function cachedGroupRole(
   return ownerUid && role === 'owner' ? null : role;
 }
 
-async function getGroupRole(services: QQWriteServices, groupId: number) {
+async function getGroupRoleContext(services: QQWriteServices, groupId: number) {
   const selfUid = services.accountWrite.selfIdentity().uid;
-  if (!selfUid) return null;
+  if (!selfUid) return { role: null, ownerUid: undefined };
   const [detail, directory] = await Promise.all([
     services.groupInfo.getGroupDetail(BigInt(groupId)),
     services.groupInfo.listGroupDirectory(),
   ]);
+  if (detail && detail.groupCode !== BigInt(groupId)) throw new Error('返回群与读取目标不一致');
   const role = directory.find((entry) => entry.groupCode === String(groupId))?.role ?? null;
-  return cachedGroupRole(selfUid, detail?.ownerUid, role);
+  return { role: cachedGroupRole(selfUid, detail?.ownerUid, role), ownerUid: detail?.ownerUid };
+}
+
+async function getGroupRole(services: QQWriteServices, groupId: number) {
+  return (await getGroupRoleContext(services, groupId)).role;
 }
 
 /** 身份绑定和在线检查由账号路由共用入口提供，所有 mutation 都必须通过。 */
@@ -99,13 +104,29 @@ export function createQQWriteRouter(
     }),
     memberState: procedure.input(binding.extend({ groupId, uid })).query(async ({ input }) => {
       const services = read(input);
-      const [member, role] = await Promise.all([
+      const [member, group] = await Promise.all([
         services.groupInfo.getMemberInfo(BigInt(input.groupId), input.uid),
-        getGroupRole(services, input.groupId),
+        getGroupRoleContext(services, input.groupId),
       ]);
       if (read(input) !== services) throw new Error('账号已切换，请重新读取成员资料');
+      if (member && (member.uid !== input.uid || member.groupCode !== BigInt(input.groupId)))
+        throw new Error('返回成员与读取目标不一致');
+      const targetRole =
+        !group.ownerUid || !member
+          ? null
+          : member.uid === group.ownerUid
+            ? ('owner' as const)
+            : member.adminFlag > 0
+              ? ('admin' as const)
+              : ('member' as const);
       return member
-        ? { uid: member.uid, card: member.card, title: member.customTitle, role }
+        ? {
+            uid: member.uid,
+            card: member.card,
+            title: member.customTitle,
+            role: group.role,
+            targetRole,
+          }
         : null;
     }),
     selfState: procedure.input(binding).query(async ({ input }) => {
@@ -168,6 +189,14 @@ export function createQQWriteRouter(
             ? await services.groupInfo.getMemberInfo(BigInt(target.groupId), identity.uid)
             : null;
         if (read(input) !== services) throw new Error('账号已切换，请重新读取会话设置');
+        if (target.kind === 'group' && group && group.groupCode !== BigInt(target.groupId))
+          throw new Error('返回群与读取目标不一致');
+        if (
+          target.kind === 'group' &&
+          member &&
+          (member.uid !== identity.uid || member.groupCode !== BigInt(target.groupId))
+        )
+          throw new Error('返回成员与读取目标不一致');
         const entry = directory.find((item) => item.groupCode === conv);
         const notifyLevel = entry?.notifyLevel ?? rows[0]?.notifyLevel ?? null;
         return {

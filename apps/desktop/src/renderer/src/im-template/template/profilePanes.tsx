@@ -40,7 +40,6 @@ import { Avatar, EmptyState } from './primitives';
 import type { Contact, Conversation, ProfileExtInfo } from './types';
 import { displayUserName } from './user';
 import { relationMeta } from '../../lib/profileRelations';
-import { weatherLabel } from '../../lib/onlineStatus';
 import '../../styles/group-profile.css';
 
 export { relationMeta } from '../../lib/profileRelations';
@@ -241,12 +240,10 @@ export function ContactProfileDialog({
   const zodiac = constellationOf(profile.birthMonth, profile.birthDay);
   const gender = genderLabel(profile.gender);
   const genderAge = [gender, profile.age ? `${profile.age} 岁` : null].filter(Boolean).join(' · ');
-  // 在线状态对象里若带天气（1030 今日天气等），把「城市 · 天气」补在状态文案后面；
-  // 自定义状态优先，没有在线状态对象时保持原样。
-  const statusWeather = weatherLabel(profile.onlineStatusObj?.weather);
-  const statusText = [profile.customStatus || profile.onlineStatus, statusWeather]
-    .filter(Boolean)
-    .join(' · ');
+  // 自定义状态优先，没有时退回在线状态文案。
+  // 注：天气子结构在 misc.db 侧没有被建模（48902 只解出 customStatus），
+  // 所以这里不再尝试拼接「城市 · 天气」。
+  const statusText = [profile.customStatus || profile.onlineStatus].filter(Boolean).join(' · ');
   const birthday = birthdayText(profile.birthYear, profile.birthMonth, profile.birthDay);
   const createdAt = realCreatedAt(profile.createdAt);
   const intimacy = profile.intimacy ? Number(profile.intimacy).toLocaleString('en-US') : null;

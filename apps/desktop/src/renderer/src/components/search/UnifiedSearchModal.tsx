@@ -1,6 +1,13 @@
 /** Large horizontal "more" modal: full paginated results for one search category. */
 
-import { useCallback, useLayoutEffect, useRef, useState, type ReactElement } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from 'react';
 import { RotateCw, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { SearchResultCard } from './SearchResultCard';
@@ -15,6 +22,7 @@ import {
 } from './types';
 import { client } from '../../trpc/client';
 import { SearchPositionRestore, type SearchPosition } from './searchPosition';
+import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 
 export interface SearchMoreSnapshot extends SearchPosition {
   category: SearchCategory;
@@ -41,6 +49,10 @@ export function UnifiedSearchModal({
   initialSnapshot?: SearchMoreSnapshot;
   onNavigate?: (snapshot: SearchMoreSnapshot) => void;
 }): ReactElement {
+  const activity = useQQReadActivity(true);
+  const readEnabled = useRef(activity.enabled);
+  readEnabled.current = activity.enabled;
+  const debounceTimer = useRef<number | undefined>(undefined);
   const restored = useRef(initialSnapshot?.category === category ? initialSnapshot : undefined);
   const [keyword, setKeyword] = useState(restored.current?.keyword ?? initialKeyword);
   const [data, setData] = useState<(MoreSearchResult & { changed?: boolean }) | null>(
@@ -59,6 +71,7 @@ export function UnifiedSearchModal({
 
   const fetchPage = useCallback(
     async (pageKeyword: string, offset: number, append: boolean) => {
+      if (!readEnabled.current) return;
       const run = ++runRef.current;
       pending.current = true;
       setError(null);
@@ -124,12 +137,39 @@ export function UnifiedSearchModal({
     }
     setLoading(true);
     const timer = window.setTimeout(() => void fetchPage(trimmed, 0, false), 250);
+    debounceTimer.current = timer;
     return () => {
       ++runRef.current;
       pending.current = false;
       window.clearTimeout(timer);
     };
   }, [keyword, fetchPage, category]);
+
+  const previousActivity = useRef(activity);
+  const currentData = useRef(data);
+  currentData.current = data;
+  useEffect(() => {
+    const previous = previousActivity.current;
+    previousActivity.current = { enabled: activity.enabled, revision: activity.revision };
+    if (previous.enabled === activity.enabled && previous.revision === activity.revision) return;
+    if (!activity.enabled) {
+      window.clearTimeout(debounceTimer.current);
+      ++runRef.current;
+      pending.current = false;
+      setLoading(false);
+      setLoadingMore(false);
+      return;
+    }
+    // 翻页中的结果保留当前位置；回到列表头部时才需要校准第一页。
+    if (
+      keyword.trim() &&
+      !pending.current &&
+      (!currentData.current || (scrollRef.current?.scrollTop ?? 0) <= 48)
+    ) {
+      window.clearTimeout(debounceTimer.current);
+      void fetchPage(keyword.trim(), 0, false);
+    }
+  }, [activity.enabled, activity.revision, keyword, fetchPage]);
 
   // Infinite scroll: fetch the next page near the bottom.
   const onScroll = useCallback(() => {
@@ -173,19 +213,6 @@ export function UnifiedSearchModal({
           <h3 id="weq-search-more-title" className="weq-search-more-title">
             {CATEGORY_META[category].label}搜索
           </h3>
-          <button
-            type="button"
-            className="weq-dialog-x weq-search-refresh"
-            title="重新搜索"
-            aria-label="重新搜索"
-            disabled={loading || !keyword.trim()}
-            onClick={() => {
-              scrollRef.current?.scrollTo(0, 0);
-              void fetchPage(keyword.trim(), 0, false);
-            }}
-          >
-            <RotateCw size={16} />
-          </button>
           <button type="button" className="weq-dialog-x" onClick={onClose} aria-label="关闭">
             <X size={16} strokeWidth={1.9} aria-hidden />
           </button>
@@ -219,17 +246,6 @@ export function UnifiedSearchModal({
               {data.changed ? (
                 <div className="weq-search-failure" role="status">
                   <span>来源已更新</span>
-                  <button
-                    type="button"
-                    title="刷新搜索结果"
-                    aria-label="刷新搜索结果"
-                    onClick={() => {
-                      scrollRef.current?.scrollTo(0, 0);
-                      void fetchPage(keyword.trim(), 0, false);
-                    }}
-                  >
-                    <RotateCw size={14} />
-                  </button>
                 </div>
               ) : null}
               {data.items.map((hit) => (

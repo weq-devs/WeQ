@@ -3,6 +3,8 @@ import type { Conversation, GroupMember, Message, User } from '../im-template/te
 import { DOMParser, type Node } from '@xmldom/xmldom';
 import { displayUserName } from '../im-template/template/user';
 import { SELF_LABEL, isSelfIdentity, selfIdentityValues } from '../lib/selfIdentity';
+import { GrayTipPerson } from './GrayTipPerson';
+import { createGrayTipPersonKey } from '../lib/grayTipProfile';
 import littleIconUrl from '@resources/img/little_icon.png';
 
 interface GrayTipPokeMessageProps {
@@ -19,8 +21,8 @@ interface GrayTipPokeMessageProps {
       actionAttributes?: Array<{ key?: string; value?: string }>;
     };
   };
-  conversation: Conversation;
-  message: Message;
+  conversation?: Conversation;
+  message?: Message;
   /**
    * 当前登录用户。
    *
@@ -139,20 +141,20 @@ export function GrayTipPokeMessage({
       if (!gtip) return null;
 
       const memberMap = new Map<string, GroupMember>();
-      if (message.sender) {
+      if (message?.sender) {
         memberMap.set(message.sender.id, message.sender as GroupMember);
         if (message.sender.identityValue) {
           memberMap.set(message.sender.identityValue, message.sender as GroupMember);
         }
       }
-      if (conversation.type === 'group') {
+      if (conversation?.type === 'group') {
         conversation.members.forEach((m) => {
           memberMap.set(m.id, m);
           if (m.identityValue) {
             memberMap.set(m.identityValue, m);
           }
         });
-      } else if (conversation.type === 'direct') {
+      } else if (conversation?.type === 'direct') {
         memberMap.set(conversation.otherUser.id, conversation.otherUser as GroupMember);
         if (conversation.otherUser.identityValue) {
           memberMap.set(
@@ -164,6 +166,7 @@ export function GrayTipPokeMessage({
 
       const resolveName = buildNameResolver(element.data);
       let personIndex = 0;
+      const personKey = createGrayTipPersonKey();
       const nodes = Array.from(gtip.childNodes).map((node, index) => {
         if (node.nodeName === 'qq') {
           const uin = getNodeValue(node, 'uin');
@@ -181,10 +184,14 @@ export function GrayTipPokeMessage({
               key;
           personIndex += 1;
           return (
-            // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-            <span key={index} className="text-blue-500 cursor-pointer hover:underline">
-              {name}
-            </span>
+            <GrayTipPerson
+              key={personKey([uin, uid, jp], name)}
+              identities={[uin, uid, jp]}
+              name={name}
+              conversation={conversation}
+              message={message}
+              user={user}
+            />
           );
         }
         if (node.nodeName === 'nor') {
@@ -220,20 +227,20 @@ export function GrayTipPokeMessage({
       try {
         const data = JSON.parse(tipJson) as { items?: TipJsonItem[] };
         const memberMap = new Map<string, GroupMember>();
-        if (message.sender) {
+        if (message?.sender) {
           memberMap.set(message.sender.id, message.sender as GroupMember);
           if (message.sender.identityValue) {
             memberMap.set(message.sender.identityValue, message.sender as GroupMember);
           }
         }
-        if (conversation.type === 'group') {
+        if (conversation?.type === 'group') {
           conversation.members.forEach((m) => {
             memberMap.set(m.id, m);
             if (m.identityValue) {
               memberMap.set(m.identityValue, m);
             }
           });
-        } else if (conversation.type === 'direct') {
+        } else if (conversation?.type === 'direct') {
           memberMap.set(conversation.otherUser.id, conversation.otherUser as GroupMember);
           if (conversation.otherUser.identityValue) {
             memberMap.set(
@@ -245,16 +252,28 @@ export function GrayTipPokeMessage({
 
         const resolveName = buildNameResolver(element.data);
         let personIndex = 0;
+        const personKey = createGrayTipPersonKey();
         const items =
-          data.items?.map((item) => {
+          data.items?.map((item, index) => {
             const txt = item.txt || '';
-            const itemKey = `${item.type ?? 'unknown'}-${item.uid ?? item.uin ?? item.param?.[0] ?? ''}-${txt}-${item.src ?? ''}`;
+            const itemKey = `${index}-${item.type ?? 'unknown'}-${item.uid ?? item.uin ?? item.param?.[0] ?? ''}-${txt}-${item.src ?? ''}`;
 
-            // `qq` / `url` 都是「人」节点：uid 或 uin 命中群成员就用群名片,
-            // 否则退到灰条自带的 nm(手机导入的记录只有 nm、群成员表里查不到),
-            // 再退到 txt / 裸 uin。
+            // URL 动作参数不一定是人，只有明确身份或 UID 参数才进入人名解析。
             if (item.type === 'qq' || item.type === 'url') {
-              const key = item.uid || item.uin || item.param?.[0] || '';
+              const paramIdentity =
+                typeof item.param?.[0] === 'string' &&
+                (item.type === 'qq' || item.param[0].startsWith('u_'))
+                  ? item.param[0]
+                  : undefined;
+              const identities = [item.uid, item.uin, paramIdentity];
+              const key =
+                identities.find((value) => typeof value === 'string' && value.trim()) || '';
+              if (item.type === 'url' && !key)
+                return (
+                  <span key={itemKey} className="weq-graytip-accent">
+                    {item.nm || txt}
+                  </span>
+                );
               const member = key ? memberMap.get(key) : undefined;
               // 自己那一半直接写「你」（同 XML 分支）。
               const name = isSelfPerson(self, [item.uin, item.uid])
@@ -267,9 +286,14 @@ export function GrayTipPokeMessage({
               personIndex += 1;
               if (name) {
                 return (
-                  <span key={itemKey} className="text-blue-500 cursor-pointer hover:underline">
-                    {name}
-                  </span>
+                  <GrayTipPerson
+                    key={personKey(identities, name)}
+                    identities={identities}
+                    name={name}
+                    conversation={conversation}
+                    message={message}
+                    user={user}
+                  />
                 );
               }
               return null;

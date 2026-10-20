@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   configId: 'source-a',
   refreshWait: null as Promise<void> | null,
   write: vi.fn(async (_input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' })),
+  posts: vi.fn(),
   summary: vi.fn(async (_input: unknown) => ({
     likes: {
       likes: [] as { uin: string; nickname: string }[],
@@ -62,21 +63,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       qqActions: { qzone: { mutate: state.write } },
       qzone: {
         posts: {
-          query: async () => ({
-            total: 1,
-            nickname: '合成空间',
-            list: [
-              {
-                tid: 'post-a',
-                content: '合成说说',
-                time: 1,
-                images: [],
-                videos: [],
-                isPrivate: false,
-                commentNum: 2,
-              },
-            ],
-          }),
+          query: state.posts,
         },
         stats: { query: async () => ({ postCount: 1, photoCount: 0 }) },
         people: { query: async () => ({}) },
@@ -104,6 +91,21 @@ beforeEach(() => {
   state.configId = 'source-a';
   state.refreshWait = null;
   state.write.mockReset().mockResolvedValue({ state: 'accepted' });
+  state.posts.mockReset().mockResolvedValue({
+    total: 1,
+    nickname: '合成空间',
+    list: [
+      {
+        tid: 'post-a',
+        content: '合成说说',
+        time: 1,
+        images: [],
+        videos: [],
+        isPrivate: false,
+        commentNum: 2,
+      },
+    ],
+  });
   state.summary.mockReset().mockImplementation(async () => ({
     likes: { likes: [], reportedTotal: 4, reportedViewCount: 8, coverage: 'complete' },
     commentCount: 2,
@@ -116,6 +118,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 async function mount() {
+  let active = true;
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -124,7 +127,7 @@ async function mount() {
       h(QzoneView, {
         selfUin: '10001',
         nickname: '合成自己',
-        active: true,
+        active,
         spaceRequest: { accountUin: '10001', uin: '10001', revision: 'fixture' },
       }),
     );
@@ -139,8 +142,27 @@ async function mount() {
   const button = (label: string) =>
     host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
   const count = () => host.querySelector('.weq-qzn-actions')!.textContent;
-  return { host, button, count, update: () => act(() => update()) };
+  return {
+    host,
+    button,
+    count,
+    update: () => act(() => update()),
+    setActive: async (value: boolean) => {
+      active = value;
+      await act(async () => update());
+    },
+  };
 }
+it('空间隐藏页不读取，恢复时只更新一轮说说，不重发点赞或评论', async () => {
+  const view = await mount();
+  expect(state.posts).toHaveBeenCalledTimes(1);
+  expect(view.host.querySelector('[aria-label="刷新空间"]')).toBeNull();
+  await view.setActive(false);
+  expect(state.posts).toHaveBeenCalledTimes(1);
+  await view.setActive(true);
+  expect(state.posts).toHaveBeenCalledTimes(2);
+  expect(state.write).not.toHaveBeenCalled();
+});
 function enter(host: HTMLElement, content: string) {
   const input = host.querySelector<HTMLInputElement>('[aria-label="说说评论"]')!;
   act(() => {

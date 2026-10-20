@@ -20,6 +20,8 @@ import { MediaSourceSave } from './MediaSaveControls';
 import { OverlayLayer } from './OverlayLayer';
 import { GroupAlbumMediaActions, GroupAlbumUpload } from './qq-actions/MediaActions';
 import { withQQAccountScope } from './qq-actions/shared';
+import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
+import { readWithRetry } from '../lib/autoRead';
 import '../styles/group-album-browser.css';
 
 type AccountOutput = inferRouterOutputs<AppRouter>['account'];
@@ -49,13 +51,16 @@ function GroupAlbumDialogBody({
   initialAlbumId,
   onClose,
 }: GroupAlbumDialogProps): ReactElement {
+  const activity = useQQReadActivity(true);
   const alive = useRef(true);
   const run = useRef(0);
+  const mediaController = useRef<AbortController | null>(null);
   useEffect(() => {
     alive.current = true;
     return () => {
       alive.current = false;
       run.current++;
+      mediaController.current?.abort();
     };
   }, []);
   const [albums, setAlbums] = useState<GroupAlbumWire[]>(initialAlbums ?? []);
@@ -76,32 +81,39 @@ function GroupAlbumDialogBody({
   });
 
   useEffect(() => {
-    if (initialAlbums && albumRevision === 0) return undefined;
-    let cancelled = false;
+    if (!activity.enabled) {
+      setLoadingAlbums(false);
+      return;
+    }
+    if (initialAlbums && albumRevision === 0 && activity.revision === 0) return undefined;
+    const controller = new AbortController();
     setLoadingAlbums(true);
-    client.account.listGroupAlbums
-      .query({ groupCode })
+    readWithRetry(() => client.account.listGroupAlbums.query({ groupCode }), controller.signal)
       .then((page) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         setAlbums(page);
         setAlbumError(null);
       })
       .catch((e) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         setAlbumError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
-        if (!cancelled) setLoadingAlbums(false);
+        if (!controller.signal.aborted) setLoadingAlbums(false);
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [groupCode, initialAlbums, albumRevision]);
+  }, [groupCode, initialAlbums, albumRevision, activity.enabled, activity.revision]);
 
   const activeTitle = mediaState.album?.title || '';
   const bodyTitle = mediaState.album ? activeTitle : '群相册';
 
   async function openAlbum(album: GroupAlbumWire): Promise<void> {
+    if (!activity.enabled) return;
+    mediaController.current?.abort();
+    const controller = new AbortController();
+    mediaController.current = controller;
     const revision = ++run.current;
     if (!mediaState.album) listPosition.current = body.current?.scrollTop ?? 0;
     setMediaState((previous) => ({
@@ -116,10 +128,14 @@ function GroupAlbumDialogBody({
       if (!access.qqOnline) {
         throw new Error('需要先登录该账号的 QQ 客户端。');
       }
-      const items = await client.account.listGroupAlbumMedia.query({
-        groupCode,
-        albumId: album.id,
-      });
+      const items = await readWithRetry(
+        () =>
+          client.account.listGroupAlbumMedia.query({
+            groupCode,
+            albumId: album.id,
+          }),
+        controller.signal,
+      );
       if (!alive.current || revision !== run.current) return;
       setMediaState({ status: 'ready', album, items, error: null });
     } catch (e) {
@@ -135,6 +151,19 @@ function GroupAlbumDialogBody({
 
   const openRef = useRef(openAlbum);
   openRef.current = openAlbum;
+  const currentAlbum = useRef(mediaState.album);
+  currentAlbum.current = mediaState.album;
+  useEffect(() => {
+    if (activity.enabled && currentAlbum.current) void openRef.current(currentAlbum.current);
+    if (!activity.enabled)
+      setMediaState((previous) =>
+        previous.status === 'loading' ? { ...previous, status: 'ready' } : previous,
+      );
+    return () => {
+      run.current++;
+      mediaController.current?.abort();
+    };
+  }, [activity.enabled, activity.revision]);
   const handledSearch = useRef('');
   useEffect(() => {
     if (!initialAlbumId || loadingAlbums || albumError || handledSearch.current === initialAlbumId)
@@ -181,10 +210,12 @@ function GroupAlbumDialogBody({
               state={mediaState}
               groupCode={groupCode}
               onChanged={() => {
+                setAlbumRevision((value) => value + 1);
                 if (mediaState.album) void openAlbum(mediaState.album);
               }}
               onBack={() => {
                 const revision = ++run.current;
+                mediaController.current?.abort();
                 const albumId = mediaState.album?.id;
                 setMediaState({ status: 'idle', album: null, items: [], error: null });
                 requestAnimationFrame(() => {
@@ -202,7 +233,7 @@ function GroupAlbumDialogBody({
               albums={albums}
               loading={loadingAlbums}
               error={albumError}
-              disabled={mediaState.status === 'loading'}
+              disabled={!activity.enabled || mediaState.status === 'loading'}
               search={search}
               onSearch={setSearch}
               sort={sort}
@@ -276,16 +307,6 @@ function AlbumListView({
           <option value="name">名称</option>
           <option value="count">媒体数量</option>
         </select>
-        <button
-          type="button"
-          className="group-album-tool"
-          title="刷新相册列表"
-          aria-label="刷新相册列表"
-          disabled={loading}
-          onClick={onRefresh}
-        >
-          <RefreshCw size={16} className={loading ? 'weq-spin' : undefined} />
-        </button>
       </div>
       <p className="group-album-count" role="status">
         {search.trim() ? `${filtered.length} / ${albums.length} 本相册` : `${albums.length} 本相册`}
@@ -293,6 +314,16 @@ function AlbumListView({
       {error && (
         <p className="group-album-read-error" role="alert">
           {error}
+          <button
+            type="button"
+            className="group-album-tool"
+            title="重试读取相册列表"
+            aria-label="重试读取相册列表"
+            disabled={loading}
+            onClick={onRefresh}
+          >
+            <RefreshCw size={16} />
+          </button>
         </p>
       )}
       {loading && !albums.length ? (
@@ -443,16 +474,21 @@ function AlbumMediaView({
           >
             <ImagePlus size={17} />
           </button>
-          <button
-            type="button"
-            className="group-album-tool"
-            title="刷新相册媒体"
-            aria-label="刷新相册媒体"
-            disabled={state.status === 'loading'}
-            onClick={onChanged}
-          >
-            <RefreshCw size={16} className={state.status === 'loading' ? 'weq-spin' : undefined} />
-          </button>
+          {state.error && (
+            <button
+              type="button"
+              className="group-album-tool"
+              title="重试读取相册媒体"
+              aria-label="重试读取相册媒体"
+              disabled={state.status === 'loading'}
+              onClick={onChanged}
+            >
+              <RefreshCw
+                size={16}
+                className={state.status === 'loading' ? 'weq-spin' : undefined}
+              />
+            </button>
+          )}
         </div>
       </div>
       {state.album && uploadOpen && (
@@ -514,7 +550,7 @@ function AlbumMediaView({
           {items.length
             ? '没有匹配的媒体'
             : state.error
-              ? '媒体暂时无法读取，可刷新重试'
+              ? '媒体暂时无法读取，可重试读取'
               : '这个相册暂无图片或视频'}
         </div>
       ) : (

@@ -280,6 +280,7 @@ describe('QQ 主动操作的实际界面', () => {
   it('已完成的待办不再提供重复完成操作，取消仍由群管理权限控制', async () => {
     state.data.todoList = [{ sequence: '123', text: '已完成事项', completed: true }];
     const f = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
+    expect(f.button('刷新')).toBeNull();
     expect(f.host.textContent).toContain('已完成');
     expect(f.button('完成待办').disabled).toBe(true);
     expect(f.button('取消群待办')).toBeNull();
@@ -1066,6 +1067,18 @@ describe('QQ 主动操作的实际界面', () => {
     expect(cards[2]!.querySelector('button')).toBeNull();
     expect(cards[3]!.textContent).toContain('过滤申请人');
     expect(cards[3]!.querySelector('[aria-label="拒绝申请"]')).not.toBeNull();
+  });
+  it('收藏备注自动更新未编辑值，但不覆盖正在输入的草稿', () => {
+    const f = fixture(() => h(FavoriteActions));
+    const input = () => f.host.querySelector<HTMLInputElement>('[aria-label="表情备注"]')!;
+    state.data.favorites = [{ emojiId: 'favorite-a', desc: '远端新备注', position: 1 }];
+    f.update();
+    expect(input().value).toBe('远端新备注');
+    value(f.host, '表情备注', '未保存草稿');
+    state.data.favorites = [{ emojiId: 'favorite-a', desc: '另一端备注', position: 1 }];
+    f.update();
+    expect(input().value).toBe('未保存草稿');
+    expect(f.button('刷新')).toBeNull();
   });
   it('收藏备注可明确清空，排序边界不可点击', async () => {
     const f = fixture(() => h(FavoriteActions));

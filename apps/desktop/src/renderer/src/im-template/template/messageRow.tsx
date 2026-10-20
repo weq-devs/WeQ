@@ -131,10 +131,18 @@ export function GrayTipLine({
           element={gt.el as never}
           conversation={conversation as never}
           message={message as never}
+          user={user}
         />
       );
     case 'grayTipXml':
-      return <GrayTipXmlMessage element={gt.el as never} conversation={conversation as never} />;
+      return (
+        <GrayTipXmlMessage
+          element={gt.el as never}
+          conversation={conversation}
+          message={message}
+          user={user}
+        />
+      );
     case 'grayTipFileRecv':
       return <GrayTipFileRecvMessage element={gt.el as never} />;
     case 'grayTipTempSession':

@@ -1,10 +1,20 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vitest';
 import { QqAvatar } from '../src/renderer/src/components/QqAvatar';
 import { refreshGroupAvatar, refreshUserAvatar } from '../src/renderer/src/hooks/useAvatarUrl';
 
 afterEach(() => vi.unstubAllGlobals());
+
+it('静态渲染可读取头像快照，保留显式刷新后的当前版本', () => {
+  const render = () => renderToStaticMarkup(h(QqAvatar, { uin: '77777' }));
+  const before = render();
+  refreshUserAvatar('77777');
+  const after = render();
+  expect(after).not.toBe(before);
+  expect(after).toContain('_weq_avatar_remote=1');
+});
 
 it('群头像改动仅刷新目标群，已挂载图片重置失败状态，不改上游 URL', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

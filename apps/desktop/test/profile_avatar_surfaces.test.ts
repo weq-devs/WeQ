@@ -20,6 +20,17 @@ import { CollectionDialog } from '../src/renderer/src/components/CollectionDialo
 
 const rpc = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: {
+    useUtils: () => ({}),
+    account: {
+      getAccountConfig: { useQuery: () => ({ data: undefined }) },
+      getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
+      qqActions: {
+        groupPermissions: { useQuery: () => ({ data: undefined, isFetching: false }) },
+        notices: { useQuery: () => ({ data: undefined, isFetching: false }) },
+      },
+    },
+  },
   client: {
     account: {
       listCollections: { query: rpc.list },
@@ -30,9 +41,6 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
   OverlayLayer: ({ children, className }: { children: ReactNode; className?: string }) =>
     h('div', { className: `weq-overlay-layer ${className ?? ''}`, tabIndex: -1 }, children),
-}));
-vi.mock('../src/renderer/src/components/qq-actions/GroupNoticeActions', () => ({
-  GroupNoticeActions: () => null,
 }));
 
 const cleanups: Array<() => void> = [];

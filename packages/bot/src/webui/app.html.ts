@@ -597,9 +597,12 @@ const JS = `
   function loadStats(view) {
     api('/api/stats').then(function (s) {
       var today = s.byDay[s.byDay.length - 1] || { totalTokens: 0, messagesIn: 0, messagesOut: 0 };
+      var unknown = s.totals.unknownCalls || 0;
+      var known = s.totals.llmCalls - unknown;
+      var todayKnown = today.calls == null ? today.totalTokens > 0 : today.calls > (today.unknownCalls || 0);
       var cards =
-        statCard('coins', 'Token 总消耗', fmt(s.totals.totalTokens), fmtInt(s.totals.totalTokens) + ' tokens') +
-        statCard('cpu', '今日 Token', fmt(today.totalTokens), s.totals.llmCalls + ' 次调用累计') +
+        statCard('coins', '已知 Token', known > 0 ? fmt(s.totals.totalTokens) : '未知', unknown + ' 次调用用量未知') +
+        statCard('cpu', '今日已知 Token', todayKnown ? fmt(today.totalTokens) : '未知', s.totals.llmCalls + ' 次请求累计') +
         statCard('arrowDown', '收到消息', fmtInt(s.totals.messagesIn), '今日 ' + (today.messagesIn || 0)) +
         statCard('arrowUp', '发出消息', fmtInt(s.totals.messagesOut), '今日 ' + (today.messagesOut || 0));
 
@@ -608,9 +611,11 @@ const JS = `
       // 运行时长 + 输入/输出 token 拆分
       html += '<div class="grid grid-2" style="margin-top:14px">';
       html += '<div class="card"><div class="card-title">' + ic('coins', 15) + ' Token 构成</div>' +
-        row('arrowUp', '输入（prompt）', fmtInt(s.totals.promptTokens)) +
-        row('arrowDown', '输出（completion）', fmtInt(s.totals.completionTokens)) +
-        row('hash', 'LLM 调用次数', fmtInt(s.totals.llmCalls)) +
+        row('arrowUp', '输入（prompt）', s.totals.llmCalls > (s.totals.promptUnknownCalls || 0) ? fmtInt(s.totals.promptTokens) : '未知') +
+        row('arrowDown', '输出（completion）', s.totals.llmCalls > (s.totals.completionUnknownCalls || 0) ? fmtInt(s.totals.completionTokens) : '未知') +
+        row('hash', 'API 请求次数', fmtInt(s.totals.llmCalls)) +
+        row('hash', '用量未知', fmtInt(unknown)) +
+        row('hash', '失败 / 取消', fmtInt(s.totals.failedCalls || 0) + ' / ' + fmtInt(s.totals.cancelledCalls || 0)) +
         row('brain', '生成回复轮数', fmtInt(s.totals.repliesGenerated)) + '</div>';
       html += '<div class="card"><div class="card-title">' + ic('clock', 15) + ' 运行状态</div>' +
         row('clock', '本次已运行', dur(s.now - s.startedAt)) +
@@ -630,7 +635,7 @@ const JS = `
         html += '<div class="card"><div class="rows">';
         s.byModel.forEach(function (m) {
           html += '<div class="row"><span class="label">' + ic('cpu', 14) + '<span class="mono">' + esc(m.model) + '</span></span>' +
-            '<span class="val">' + fmtInt(m.totalTokens) + ' tok · ' + m.calls + ' 次</span></div>';
+            '<span class="val">' + (m.calls > (m.unknownCalls || 0) ? fmtInt(m.totalTokens) + ' 已知 tok' : '用量未知') + ' · ' + m.calls + ' 次</span></div>';
         });
         html += '</div></div>';
       }

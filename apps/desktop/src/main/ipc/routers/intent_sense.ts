@@ -46,6 +46,8 @@ const configPatch = z.object({
     .nullable()
     .optional(),
   suggestionsEnabled: z.boolean().optional(),
+  analyzeAfterSelf: z.boolean().optional(),
+  suggestAfterSelf: z.boolean().optional(),
   analysisContextMessages: z.number().int().min(0).max(MAX_INTENT_CONTEXT_MESSAGES).optional(),
   suggestionContextMessages: z.number().int().min(0).max(MAX_INTENT_CONTEXT_MESSAGES).optional(),
   hfMirror: z.boolean().optional(),
@@ -145,6 +147,7 @@ export const intentSenseRouter = router({
         conv: z.string().min(1),
         revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
         replyAllowed: z.boolean().optional(),
+        targetId: z.string().nullable().optional(),
       }),
     )
     .query(({ input }) =>

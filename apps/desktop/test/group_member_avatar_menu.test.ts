@@ -22,19 +22,25 @@ afterEach(() => {
   for (const close of cleanups.splice(0)) close();
   vi.unstubAllGlobals();
 });
-function fixture(role: GroupMemberRole, online = true, self = false) {
+function fixture(
+  role: GroupMemberRole,
+  online = true,
+  self = false,
+  targetRole: GroupMemberRole | undefined = 'member',
+  unknownUid = false,
+) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   const demo = createTemplateDemoData();
   const user = { ...demo.user, id: 'self:10001', uid: 'u_self', identityValue: '10001' };
   const peer: User = {
     ...user,
-    id: self ? 'u_self' : 'u_peer',
-    uid: self ? 'u_self' : 'u_peer',
+    id: unknownUid ? 'unknown' : self ? 'u_self' : 'u_peer',
+    uid: unknownUid ? undefined : self ? 'u_self' : 'u_peer',
     identityValue: self ? '10001' : '10002',
     uin: self ? '10001' : '10002',
     displayName: '目标成员',
-    role: 'member',
+    role: targetRole,
   };
   const original = demo.conversations.find((row) => row.type === 'group')!;
   const conversation = { ...original, members: [peer], group: { ...original.group, role } };
@@ -115,10 +121,25 @@ describe('群成员头像菜单', () => {
       },
     );
   }
-  it('普通成员仍可修改自己的名片，但不能编辑头衔', () => {
+  it('普通成员不显示自己的名片和头衔编辑入口', () => {
     const f = fixture('member', true, true);
     f.open('sidebar');
-    expect(f.button('修改群名片')).toBeDefined();
+    expect(f.button('修改群名片')).toBeUndefined();
+    expect(f.button('编辑专属头衔')).toBeUndefined();
+  });
+  it.each(['owner', 'admin', 'member'] as const)(
+    '管理员对目标 %s 不显示头衔，对群主也不显示名片编辑',
+    (targetRole) => {
+      const f = fixture('admin', true, false, targetRole);
+      f.open('sidebar');
+      expect(Boolean(f.button('修改群名片'))).toBe(targetRole !== 'owner');
+      expect(f.button('编辑专属头衔')).toBeUndefined();
+    },
+  );
+  it('缺少目标 UID 时不显示无法定位的名片和头衔入口', () => {
+    const f = fixture('owner', true, false, 'member', true);
+    f.open('sidebar');
+    expect(f.button('修改群名片')).toBeUndefined();
     expect(f.button('编辑专属头衔')).toBeUndefined();
   });
   it('离线保留群主入口并置灰，不调用任何编辑回调', () => {

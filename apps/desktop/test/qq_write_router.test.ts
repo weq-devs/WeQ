@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { UserProfile } from '@weq/db';
+import type { GroupMember, GroupDetail, UserProfile } from '@weq/db';
 import {
   createQQWriteRouter,
   type QQWriteServices,
@@ -26,6 +26,35 @@ const self: UserProfile = {
   isBot: false,
 };
 const accepted = async () => ({ state: 'accepted' as const });
+const groupDetail: GroupDetail = {
+  groupCode: 123n,
+  groupName: '合成群',
+  ownerUid: 'u_owner',
+  pinnedAnnounce: '',
+  description: '',
+  remark: '',
+  createTime: 0,
+  maxMemberCount: 100,
+  memberCount: 3,
+  labels: '',
+  entranceQ: '',
+  leaveFlag: 0,
+  customLabels: [],
+};
+const groupMember: GroupMember = {
+  groupCode: 123n,
+  uid: 'u_peer',
+  uin: 10002n,
+  card: '合成名片',
+  nick: '合成昵称',
+  joinTime: 0,
+  lastSpeakTime: 0,
+  muteUntil: 0,
+  adminFlag: 0,
+  memberFlag: 0,
+  customTitle: '合成头衔',
+  memberLevel: 0,
+};
 
 function fixture() {
   let current = true;
@@ -96,6 +125,66 @@ function fixture() {
 }
 
 describe('QQ 写 IPC 边界', () => {
+  it.each([
+    ['u_owner', 0, 'owner'],
+    ['u_peer', 1, 'admin'],
+    ['u_peer', 0, 'member'],
+  ] as const)(
+    '成员快照区分当前账号角色与目标角色：%s／%s',
+    async (targetUid, adminFlag, targetRole) => {
+      const f = fixture();
+      f.services.groupInfo.getGroupDetail = vi.fn(async () => groupDetail);
+      f.services.groupInfo.listGroupDirectory = vi.fn(async () => [
+        {
+          groupCode: '123',
+          role: 'admin',
+          pinned: false,
+          notifyLevel: 1,
+          unnamed: false,
+          memberCount: 3,
+        },
+      ]);
+      f.services.groupInfo.getMemberInfo = vi.fn(async () => ({
+        ...groupMember,
+        uid: targetUid,
+        adminFlag,
+      }));
+      expect(
+        await f.caller.memberState({ ...binding, groupId: 123, uid: targetUid }),
+      ).toMatchObject({ uid: targetUid, role: 'admin', targetRole });
+      expect(f.services.groupInfo.getGroupDetail).toHaveBeenCalledTimes(1);
+      expect(f.write).not.toHaveBeenCalled();
+    },
+  );
+  it('群主身份未读到时不把目标普通标记猜成非群主，错目标回包直接拒绝', async () => {
+    const f = fixture();
+    f.services.groupInfo.getMemberInfo = vi.fn(async () => groupMember);
+    expect(await f.caller.memberState({ ...binding, groupId: 123, uid: 'u_peer' })).toMatchObject({
+      targetRole: null,
+    });
+    await expect(
+      f.caller.memberState({ ...binding, groupId: 123, uid: 'u_other' }),
+    ).rejects.toThrow('目标不一致');
+  });
+  it('成员角色读取期间切源或读到其他群的记录时不返回权限', async () => {
+    const f = fixture();
+    f.services.groupInfo.getMemberInfo = vi.fn(async () => ({ ...groupMember, groupCode: 456n }));
+    await expect(f.caller.memberState({ ...binding, groupId: 123, uid: 'u_peer' })).rejects.toThrow(
+      '目标不一致',
+    );
+    f.services.groupInfo.getMemberInfo = vi.fn(async () => groupMember);
+    f.services.groupInfo.getGroupDetail = vi.fn(async () => ({ ...groupDetail, groupCode: 456n }));
+    await expect(f.caller.memberState({ ...binding, groupId: 123, uid: 'u_peer' })).rejects.toThrow(
+      '目标不一致',
+    );
+    f.services.groupInfo.getGroupDetail = vi.fn(async () => {
+      f.switchAccount();
+      return groupDetail;
+    });
+    await expect(f.caller.memberState({ ...binding, groupId: 123, uid: 'u_peer' })).rejects.toThrow(
+      '切换',
+    );
+  });
   it('资料详情保持读取来源与目标，不返回未请求 UID，切号后丢弃', async () => {
     const f = fixture();
     const profiles = await f.caller.profileDetails({ ...binding, uids: [self.uid] });

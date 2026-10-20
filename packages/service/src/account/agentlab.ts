@@ -982,8 +982,8 @@ export class AgentLabService extends EventEmitter {
   }
 
   /** token 用量统计（主页图表用）。 */
-  getTokenStats(): TokenStats {
-    return this.usage.getStats();
+  getTokenStats(global?: TokenUsageStore): TokenStats {
+    return this.usage.getStats(global);
   }
 
   /** 与某克隆体的历史对话（持久化，刷新不丢）。 */
@@ -1007,14 +1007,10 @@ export class AgentLabService extends EventEmitter {
       kind,
       onUsage: (u: AgentLabUsage) =>
         this.usage.record({
-          ts: Date.now(),
-          model: u.model,
-          kind: u.kind,
+          ...u,
+          ts: u.startedAt ?? Date.now(),
           personaId: ctx.personaId,
           scope: ctx.scope,
-          promptTokens: u.promptTokens,
-          completionTokens: u.completionTokens,
-          totalTokens: u.totalTokens,
         }),
     };
   }

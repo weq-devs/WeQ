@@ -1,6 +1,7 @@
 import type { Conversation, Message, User } from '../im-template/template/types';
 import { SELF_LABEL, isSelfIdentity, selfIdentityValues } from '../lib/selfIdentity';
 import { displayUserName } from '../im-template/template/user';
+import { GrayTipPerson } from './GrayTipPerson';
 
 interface GrayTipRevokeMessageProps {
   element: {
@@ -65,17 +66,35 @@ export function GrayTipRevokeMessage({
     <div className="weq-graytip text-center text-xs py-2">
       {samePerson || !knownPeople ? (
         <>
-          <span className="weq-graytip-accent">{samePerson ? sender.name : revoker.name}</span>
+          <GrayTipPerson
+            identities={[samePerson ? recallSenderUid : recallRevokeUid]}
+            name={samePerson ? sender.name : revoker.name}
+            conversation={conversation}
+            message={message}
+            user={user}
+          />
           <span className="px-1">撤回了一条消息</span>
           {recallDisplayText && <span className="weq-graytip-muted">{recallDisplayText}</span>}
         </>
       ) : (
         <>
-          <span className="weq-graytip-accent">{revoker.name}</span>
+          <GrayTipPerson
+            identities={[recallRevokeUid]}
+            name={revoker.name}
+            conversation={conversation}
+            message={message}
+            user={user}
+          />
           <span className="px-1">
             {conversation?.type === 'group' ? '撤回了一条群成员' : '撤回了一条'}
           </span>
-          <span className="weq-graytip-accent px-1">{sender.name}</span>
+          <GrayTipPerson
+            identities={[recallSenderUid]}
+            name={sender.name}
+            conversation={conversation}
+            message={message}
+            user={user}
+          />
           <span className="px-1">的消息</span>
         </>
       )}

@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { ImageUp, RefreshCw } from 'lucide-react';
 import { trpc } from '../trpc/client';
+import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { refreshGroupAvatar } from '../hooks/useAvatarUrl';
+import { groupMemberEditing } from '../lib/groupMemberEditing';
 import { Card } from './settings/controls';
 import { useDialog } from './Dialog';
 import { GroupActions } from './qq-actions/GroupActions';
@@ -32,6 +34,7 @@ export function QQConversationControls({
   section?: 'conversation' | 'group-management';
 }) {
   const management = kind === 'group' && section === 'group-management';
+  const autoRefresh = useQQAutoRefresh(true);
   const session = useQQWriteSession(`${kind}:${conv}`);
   const target = kind === 'c2c' ? { kind, uid: conv } : { kind, groupId: Number(conv) };
   const queryInput = {
@@ -40,10 +43,8 @@ export function QQConversationControls({
     target,
   };
   const snapshot = trpc.account.qqWrite.peerState.useQuery(queryInput, {
-    enabled: Boolean(session.binding),
-    staleTime: 0,
-    refetchOnMount: 'always',
-    refetchOnWindowFocus: false,
+    ...autoRefresh,
+    enabled: autoRefresh.enabled && Boolean(session.binding),
   });
   const policySnapshot = trpc.account.qqWrite.groupPolicyState.useQuery(
     {
@@ -52,9 +53,8 @@ export function QQConversationControls({
       groupId: kind === 'group' ? Number(conv) : 0,
     },
     {
-      enabled: kind === 'group' && !management && session.available,
-      retry: false,
-      staleTime: 15_000,
+      ...autoRefresh,
+      enabled: autoRefresh.enabled && kind === 'group' && !management && session.available,
       refetchOnMount: 'always',
       refetchOnWindowFocus: false,
     },
@@ -76,6 +76,7 @@ export function QQConversationControls({
   const [picking, setPicking] = useState(false);
   const [pickerError, setPickerError] = useState('');
   const state = snapshot.data;
+  const ownEditing = groupMemberEditing(state?.role, state?.role);
   const disabled = session.busy || !session.available || !state || picking;
   const friendDisabled = disabled || !state?.friend;
   async function refresh(includePolicy = false) {
@@ -134,25 +135,27 @@ export function QQConversationControls({
     >
       <div className="weq-qq-write-toolbar">
         <span>{session.available ? 'QQ 在线' : 'QQ 在线能力未就绪'}</span>
-        <button
-          type="button"
-          className="weq-set-iconbtn"
-          title="重新读取"
-          aria-label="重新读取 QQ 会话设置"
-          disabled={
-            session.busy ||
-            picking ||
-            snapshot.isFetching ||
-            (kind === 'group' && policySnapshot.isFetching)
-          }
-          onClick={() => {
-            void refresh(true)
-              .then(() => setRevision((value) => value + 1))
-              .catch(() => {});
-          }}
-        >
-          <RefreshCw size={16} />
-        </button>
+        {(snapshot.error || (kind === 'group' && policySnapshot.error)) && (
+          <button
+            type="button"
+            className="weq-set-iconbtn"
+            title="重试读取"
+            aria-label="重试读取 QQ 会话设置"
+            disabled={
+              session.busy ||
+              picking ||
+              snapshot.isFetching ||
+              (kind === 'group' && policySnapshot.isFetching)
+            }
+            onClick={() => {
+              void refresh(true)
+                .then(() => setRevision((value) => value + 1))
+                .catch(() => {});
+            }}
+          >
+            <RefreshCw size={16} />
+          </button>
+        )}
       </div>
       {snapshot.error && <p role="alert">{snapshot.error.message}</p>}
       {kind === 'group' && !management && policySnapshot.error && (
@@ -227,7 +230,21 @@ export function QQConversationControls({
                         .map((item) => ({ value: item.id, label: item.name })),
                     ]}
                     onSave={(categoryId) =>
-                      act((binding) => category.mutateAsync({ ...binding, uid: conv, categoryId }))
+                      session.run(
+                        (binding) => category.mutateAsync({ ...binding, uid: conv, categoryId }),
+                        async () => {
+                          const updated = await categories.refetch();
+                          if (updated.error) throw updated.error;
+                        },
+                        {
+                          profileUid: conv,
+                          readback: async () => {
+                            const updated = await snapshot.refetch();
+                            if (updated.error) throw updated.error;
+                            return updated.data?.categoryId === categoryId;
+                          },
+                        },
+                      )
                     }
                   />
                 </>
@@ -246,6 +263,7 @@ export function QQConversationControls({
             <Card>
               <QQWriteTextRow
                 label="我在本群的昵称"
+                readOnly={!ownEditing.card}
                 initial={state.selfCard}
                 disabled={disabled || !state.selfUid}
                 onSave={(value) =>
@@ -276,13 +294,24 @@ export function QQConversationControls({
                 readOnly={state.role !== 'owner'}
                 disabled={disabled || !state.selfUid}
                 onSave={(value) =>
-                  act((binding) =>
-                    title.mutateAsync({
-                      ...binding,
-                      groupId: Number(conv),
-                      targetUid: state.selfUid,
-                      title: value,
-                    }),
+                  session.run(
+                    (binding) =>
+                      title.mutateAsync({
+                        ...binding,
+                        groupId: Number(conv),
+                        targetUid: state.selfUid,
+                        title: value,
+                      }),
+                    undefined,
+                    {
+                      groupCode: conv,
+                      memberUid: state.selfUid,
+                      readback: async () => {
+                        const updated = await snapshot.refetch();
+                        if (updated.error) throw updated.error;
+                        return updated.data?.selfTitle === value;
+                      },
+                    },
                   )
                 }
               />

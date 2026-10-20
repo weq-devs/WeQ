@@ -50,6 +50,7 @@ import {
   salvageLevelsAscending,
 } from '@weq/service/db-tolerance-copy';
 import { trpc } from '../../trpc/client';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useToast } from '../Toast';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 
@@ -131,10 +132,11 @@ export function DatabaseToleranceSection({
   page?: 'policy' | 'status';
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
+  const autoRefresh = useQQAutoRefresh(true);
   const utils = trpc.useUtils();
-  const tolerance = trpc.account.getDbTolerance.useQuery(undefined, { staleTime: 5000 });
+  const tolerance = trpc.account.getDbTolerance.useQuery(undefined, autoRefresh);
   const setLevel = trpc.account.setDbToleranceLevel.useMutation();
-  const quarantine = trpc.account.listSalvageQuarantine.useQuery(undefined, { staleTime: 5000 });
+  const quarantine = trpc.account.listSalvageQuarantine.useQuery(undefined, autoRefresh);
   const clearQuarantine = trpc.account.clearSalvageQuarantine.useMutation();
 
   /** 正在等用户确认的**那个**级别；确认条就渲染在这一行里面。 */
@@ -403,16 +405,18 @@ export function DatabaseToleranceSection({
         <Card
           title="降级账本"
           action={
-            <button
-              type="button"
-              className={`weq-set-iconbtn${tolerance.isFetching ? ' is-spinning' : ''}`}
-              onClick={() => void utils.account.getDbTolerance.invalidate()}
-              disabled={tolerance.isFetching}
-              title="刷新账本"
-              aria-label="刷新账本"
-            >
-              <RefreshCw size={14} strokeWidth={1.9} aria-hidden />
-            </button>
+            tolerance.error ? (
+              <button
+                type="button"
+                className={`weq-set-iconbtn${tolerance.isFetching ? ' is-spinning' : ''}`}
+                onClick={() => void utils.account.getDbTolerance.invalidate()}
+                disabled={tolerance.isFetching}
+                title="重试读取账本"
+                aria-label="重试读取账本"
+              >
+                <RefreshCw size={14} strokeWidth={1.9} aria-hidden />
+              </button>
+            ) : undefined
           }
         >
           {hasLedger && summary ? (

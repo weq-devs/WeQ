@@ -28,7 +28,7 @@ import type { C2cMsg, C2cPartition, GroupMsg } from '@weq/db';
 import type { Element } from '@weq/codec';
 import {
   pickMessageText,
-  reportUsage,
+  requestApiJson,
   type AgentLabEndpoint,
   type AgentLabModelRef,
 } from '@weq/agentlab';
@@ -119,6 +119,10 @@ export interface IntentSenseConfig {
   providerRef: AgentLabModelRef | null;
   /** 回复建议开关（仅 api 引擎有效）。 */
   suggestionsEnabled: boolean;
+  /** 最新消息为自己发送时是否自动分析，旧配置默认开启。 */
+  analyzeAfterSelf: boolean;
+  /** 最新消息为自己发送时是否继续生成候选，始终不自动发送。 */
+  suggestAfterSelf: boolean;
   /** 分析目标之前的上文条数，不含目标本身，仍受对话时效窗口限制。 */
   analysisContextMessages: number;
   /** 生成建议时回看的上文条数，不含最新消息。 */
@@ -147,6 +151,8 @@ const DEFAULT_CONFIG: IntentSenseConfig = {
   engine: 'api',
   providerRef: null,
   suggestionsEnabled: false,
+  analyzeAfterSelf: true,
+  suggestAfterSelf: false,
   analysisContextMessages: DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
   suggestionContextMessages: DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
   hfMirror: true,
@@ -458,6 +464,8 @@ export class IntentSenseService {
               ? { providerId: ref.providerId, model: ref.model }
               : null,
           suggestionsEnabled: p.suggestionsEnabled === true,
+          analyzeAfterSelf: p.analyzeAfterSelf !== false,
+          suggestAfterSelf: p.suggestAfterSelf === true,
           analysisContextMessages: isIntentContextCount(p.analysisContextMessages)
             ? p.analysisContextMessages
             : DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
@@ -510,20 +518,25 @@ export class IntentSenseService {
       next.suggestionsEnabled = patch.suggestionsEnabled;
     }
     if (typeof patch.hfMirror === 'boolean') next.hfMirror = patch.hfMirror;
+    if (typeof patch.analyzeAfterSelf === 'boolean') next.analyzeAfterSelf = patch.analyzeAfterSelf;
+    if (typeof patch.suggestAfterSelf === 'boolean') next.suggestAfterSelf = patch.suggestAfterSelf;
     for (const key of ['analysisContextMessages', 'suggestionContextMessages'] as const) {
       if (patch[key] === undefined) continue;
       if (!isIntentContextCount(patch[key]))
         throw new Error(`上文条数必须是 0–${MAX_INTENT_CONTEXT_MESSAGES} 的整数`);
       next[key] = patch[key];
     }
-    const analysisChanged = next.analysisContextMessages !== this.config.analysisContextMessages;
+    const analysisChanged =
+      next.analysisContextMessages !== this.config.analysisContextMessages ||
+      next.analyzeAfterSelf !== this.config.analyzeAfterSelf;
     if (analysisChanged) {
       this.analysisRevision++;
       this.analysisStores.clear();
     }
     if (
       analysisChanged ||
-      next.suggestionContextMessages !== this.config.suggestionContextMessages
+      next.suggestionContextMessages !== this.config.suggestionContextMessages ||
+      next.suggestAfterSelf !== this.config.suggestAfterSelf
     ) {
       this.suggestionRevision++;
       this.suggestionCache.clear();
@@ -684,6 +697,7 @@ export class IntentSenseService {
       row = rows[0];
     }
     if (!row?.text) return null;
+    if (row.mine && !this.config.analyzeAfterSelf) return null;
     if (revision !== this.analysisRevision) return null;
 
     let result: IntentSenseResult | null = null;
@@ -743,6 +757,8 @@ export class IntentSenseService {
     );
     const rows = await this.loadMessages(kind, conv, limit + contextMessages);
     if (!current()) return { cached: 0, analyzed: 0, failed: 0, skipped: 'config-changed' };
+    if (rows.at(-1)?.mine && !this.config.analyzeAfterSelf)
+      return { cached: 0, analyzed: 0, failed: 0, skipped: 'disabled' };
     const startIndex = Math.max(0, rows.length - limit);
     const pending: Array<{ row: SenseRow; context: IntentContextTurn[] }> = [];
     for (let idx = startIndex; idx < rows.length; idx++) {
@@ -941,7 +957,9 @@ export class IntentSenseService {
       'intensity 0-100（情绪强度），sentiment -100..100（消极到积极），confidence 0..1。' +
       '只输出 JSON：{"results":[{"i":序号,"intent":"...","emotion":"...","intensity":0,"sentiment":0,"confidence":0}]}，不要输出其它内容。';
     try {
-      const res = await fetch(`${baseUrl}/chat/completions`, {
+      const body = await requestApiJson<{
+        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+      }>({ ...endpoint, baseUrl, feature: 'intent-analysis' }, '/chat/completions', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
         body: JSON.stringify({
@@ -954,14 +972,6 @@ export class IntentSenseService {
         }),
         signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status}: ${detail.slice(0, 200)}`);
-      }
-      const body = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-      };
-      reportUsage(endpoint, body);
       if (revision !== this.analysisRevision) return null;
       this.apiCooldownUntil = 0;
       this.lastApiError = null;
@@ -1048,7 +1058,9 @@ export class IntentSenseService {
       '"topics":["话题词"]}（topics 最多 8 个）。' +
       'leftPct 是左侧极（E/S/T/J）占比 0-100；radar value 0-100。不要输出其它内容。';
     try {
-      const res = await fetch(`${baseUrl}/chat/completions`, {
+      const body = await requestApiJson<{
+        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+      }>({ ...endpoint, baseUrl, feature: 'intent-profile' }, '/chat/completions', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
         body: JSON.stringify({
@@ -1061,14 +1073,6 @@ export class IntentSenseService {
         }),
         signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
-      if (!res.ok) {
-        this.apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
-        return tryLocalHints();
-      }
-      const body = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-      };
-      reportUsage(endpoint, body);
       const parsed = extractJsonBlock(
         pickMessageText(body.choices?.[0]?.message),
       ) as ProfileHints | null;
@@ -1326,7 +1330,7 @@ export class IntentSenseService {
     if (!current()) return [];
     if (rows.length === 0) return [];
     const last = rows[rows.length - 1] as SenseRow;
-    if (last.mine) {
+    if (last.mine && !this.config.suggestAfterSelf) {
       this.suggestionCache.delete(key);
       return [];
     }
@@ -1353,7 +1357,11 @@ export class IntentSenseService {
       if (!current()) return false;
       try {
         const latest = (await this.loadMessages(kind, conv, 1))[0];
-        return current() && latest?.msgId === last.msgId && !latest.mine;
+        return (
+          current() &&
+          latest?.msgId === last.msgId &&
+          (!latest.mine || this.config.suggestAfterSelf)
+        );
       } catch {
         return false;
       }
@@ -1376,7 +1384,9 @@ export class IntentSenseService {
       '长度接近日常聊天（一般不超过 40 字）、三条风格要有差异（如 共情/幽默/简短）。' +
       '只输出 JSON：{"replies":[{"text":"...","tone":"共情"}]}，不要输出其它内容。';
     try {
-      const res = await fetch(`${baseUrl}/chat/completions`, {
+      const body = await requestApiJson<{
+        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+      }>({ ...endpoint, baseUrl, feature: 'reply-suggestion' }, '/chat/completions', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
         body: JSON.stringify({
@@ -1389,15 +1399,6 @@ export class IntentSenseService {
         }),
         signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
-      if (!res.ok) {
-        if (!current()) return [];
-        this.apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
-        return fallbackAfterRequest();
-      }
-      const body = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-      };
-      reportUsage(endpoint, body);
       if (!current()) return [];
       if (!(await stillLatestPeer())) return [];
       const parsed = extractJsonBlock(pickMessageText(body.choices?.[0]?.message)) as {

@@ -1,0 +1,17 @@
+.weq-graytip-person > .weq-profile-avatar-button {
+  display: inline;
+  border-radius: 2px;
+  line-height: inherit;
+  vertical-align: baseline;
+  overflow-wrap: anywhere;
+}
+
+.weq-graytip-person > .weq-profile-avatar-button:hover {
+  outline: none;
+  text-decoration: underline;
+}
+
+.weq-graytip-person > .weq-profile-avatar-button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}

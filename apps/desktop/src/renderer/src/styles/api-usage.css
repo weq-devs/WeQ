@@ -1,0 +1,33 @@
+.weq-usage-accounting-status {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.weq-usage-accounting-table {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.weq-usage-accounting-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.weq-usage-accounting-table th,
+.weq-usage-accounting-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.weq-usage-accounting-table th:first-child {
+  text-align: left;
+}
+
+html[data-theme="dark"] .weq-usage-accounting-table th,
+html[data-theme="dark"] .weq-usage-accounting-table td {
+  border-color: var(--weq-border-strong);
+}

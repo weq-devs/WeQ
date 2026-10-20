@@ -209,15 +209,35 @@ describe('QQ 写控件', () => {
         h(QQWriteToggleRow, { label: '消息免打扰', initial: null, disabled: false, onSave: save }),
       ),
     );
-    expect(f.host.querySelector('[role="switch"]')).toBeNull();
-    const select = f.host.querySelector('select')!;
-    expect(select.value).toBe('');
-    act(() => {
-      select.value = '1';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    await act(async () => f.host.querySelector<HTMLButtonElement>('button')!.click());
+    expect(f.host.querySelector('select')).toBeNull();
+    const toggle = f.host.querySelector<HTMLButtonElement>('[role="checkbox"]')!;
+    expect(toggle.getAttribute('aria-checked')).toBe('mixed');
+    expect(f.host.textContent).toContain('尚未读取');
+    const submit = f.host.querySelector<HTMLButtonElement>('[aria-label="保存消息免打扰"]')!;
+    expect(submit.disabled).toBe(true);
+    act(() => toggle.click());
+    expect(save).not.toHaveBeenCalled();
+    await act(async () => submit.click());
     expect(save).toHaveBeenCalledWith(true);
+  });
+
+  it('未知开关可以明确选择关闭，保存失败保留草稿并允许重试', async () => {
+    const f = fixture();
+    const save = vi.fn(async () => false);
+    act(() =>
+      f.root.render(
+        h(QQWriteToggleRow, { label: '消息免打扰', initial: null, disabled: false, onSave: save }),
+      ),
+    );
+    const toggle = f.host.querySelector<HTMLButtonElement>('[role="checkbox"]')!;
+    act(() => toggle.click());
+    act(() => toggle.click());
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    const submit = f.host.querySelector<HTMLButtonElement>('[aria-label="保存消息免打扰"]')!;
+    await act(async () => submit.click());
+    expect(save).toHaveBeenCalledWith(false);
+    expect(submit.disabled).toBe(false);
+    expect(f.host.textContent).toContain('将设为关闭');
   });
 });
 

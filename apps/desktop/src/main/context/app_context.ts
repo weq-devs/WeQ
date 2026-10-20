@@ -698,6 +698,7 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
 }
 
 export interface BootstrapServices {
+  apiUsage: TokenUsageStore;
   detect: Win32DetectService;
   keys: KeyService;
   userConfig: UserConfigService;
@@ -1116,18 +1117,28 @@ export function initAppContext(): AppContext {
       : createDirectAttachHook(platform.native.ntHelper);
 
   const linkPreview = new LinkPreviewService(userConfig);
+  const apiUsage = new TokenUsageStore(join(userConfig.cacheDir('api_usage'), 'global.json'));
 
   const bootstrap: BootstrapServices = {
+    apiUsage,
     detect: new Win32DetectService(platform),
     keys: new KeyService(platform),
     userConfig,
     globalConfig: new GlobalConfigService(platform, userConfig),
     avatarCache: new MediaCacheService(userConfig),
     linkPreview,
-    agentLabConfig: new AgentLabConfigService(userConfig),
+    agentLabConfig: new AgentLabConfigService(userConfig, (u) =>
+      apiUsage.record({
+        ...u,
+        ts: u.startedAt ?? Date.now(),
+        scope: 'connection-test',
+      }),
+    ),
     voiceTranscribe: new VoiceTranscribeService(platform),
     ocrModels: new OcrModelService(platform),
-    tts: new TtsService(),
+    tts: new TtsService((u) =>
+      apiUsage.record({ ...u, ts: u.startedAt ?? Date.now(), scope: 'tts' }),
+    ),
     attachHook,
     externalRkey: new ExternalRkeyService(userConfig),
   };
@@ -1358,8 +1369,15 @@ export function initAppContext(): AppContext {
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
       const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
       const conversations = new ConversationStore(join(agentlabRoot, 'conversations.json'));
-      const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) =>
-        bootstrap.agentLabConfig.resolveEndpoint(ref);
+      const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) => ({
+        ...bootstrap.agentLabConfig.resolveEndpoint(ref),
+        onUsage: (u: import('@weq/agentlab').AgentLabUsage) =>
+          tokenUsage.record({
+            ...u,
+            ts: u.startedAt ?? Date.now(),
+            scope: u.feature ?? 'other',
+          }),
+      });
       // 删除记录：哪些消息是 WeQ 删的 + 原始 40011/40012（恢复用），按账号落盘。
       const deletedMsgs = new DeletedMsgStore(
         join(userConfig.cacheDir(join('deleted', exportConfigId)), 'deleted.json'),
@@ -2172,8 +2190,15 @@ export function initAppContext(): AppContext {
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
       const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
       const conversations = new ConversationStore(join(agentlabRoot, 'conversations.json'));
-      const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) =>
-        bootstrap.agentLabConfig.resolveEndpoint(ref);
+      const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) => ({
+        ...bootstrap.agentLabConfig.resolveEndpoint(ref),
+        onUsage: (u: import('@weq/agentlab').AgentLabUsage) =>
+          tokenUsage.record({
+            ...u,
+            ts: u.startedAt ?? Date.now(),
+            scope: u.feature ?? 'other',
+          }),
+      });
       // 删除记录：与在线会话同一份存储（按 exportConfigId 落盘），静态账号也可删/恢复。
       const deletedMsgs = new DeletedMsgStore(
         join(userConfig.cacheDir(join('deleted', exportConfigId)), 'deleted.json'),

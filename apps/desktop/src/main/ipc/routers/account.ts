@@ -107,6 +107,7 @@ import {
   buildBotExport,
   probeBotWebUi,
   downloadUrlToFile,
+  prepareFavoriteEmojiElements,
   checkAccountDatabaseHealth,
   collectDbDamageFeedback,
   findLatestDbHealthReport,
@@ -2152,7 +2153,7 @@ export const accountRouter = router({
 
   /** AgentLab token 用量统计（主页图表）。 */
   getAgentLabTokenStats: procedure.query(() => {
-    return requireServices().agentLab.getTokenStats();
+    return requireServices().agentLab.getTokenStats(getAppContext().bootstrap?.apiUsage);
   }),
 
   /** 系统表情清单（faceId + 外显文字），前端把克隆体回复里的 /捂脸 渲染成表情图。 */
@@ -4693,11 +4694,30 @@ export const accountRouter = router({
         input.expectedAccountConfigId,
       );
       requireQqOnlineForAlbum(services);
+      const configId = services.accountConfig.getRecord()?.configId;
+      const checkCurrent = (): void => {
+        if (
+          requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+            services ||
+          services.accountConfig.getRecord()?.configId !== configId
+        )
+          throw new Error('账号数据源已切换，已停止发送');
+        requireQqOnlineForAlbum(services);
+      };
+      const elements = await prepareFavoriteEmojiElements(
+        elementsFromEditable(input.elements) as unknown[],
+        {
+          listRows: () => services.emoji.listFavEmojiRows(),
+          resolveFile: (...args) => services.customEmoji.resolveFile(...args),
+          checkCurrent,
+        },
+      );
+      checkCurrent();
       return services.messageSend.sendElements({
         peerType: input.peerType,
         targetId: input.targetId,
         ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
-        elements: elementsFromEditable(input.elements) as never,
+        elements: elements as never,
         ...(input.dress ? { dress: input.dress as never } : {}),
       });
     }),

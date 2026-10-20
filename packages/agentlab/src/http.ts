@@ -14,6 +14,7 @@ import { humanizeText } from './typo';
 import { scoreReplyWillingness } from './willing';
 import { selectStickerByEmotion, pickRandomSticker, usableStickers } from './sticker';
 import { tokenizeText } from './segment';
+import { parseApiUsage, requestApiJson } from './api_usage';
 
 // 标记（全局，用于从文本里剥离）：[[发表情:…]] / 内部 [[sticker:md5]] / 内部 [[voice:id]]。
 const EMOTION_MARKER_G = /\[\[发表情[:：].+?\]\]/g;
@@ -40,17 +41,11 @@ interface OpenAiUsage {
 
 /** 从响应里抽出 usage 并回调 endpoint.onUsage（用于 token 记账）。 */
 export function reportUsage(endpoint: AgentLabEndpoint, raw: unknown): void {
-  if (!endpoint.onUsage) return;
-  const usage = (raw as { usage?: OpenAiUsage } | null)?.usage;
-  if (!usage) return;
-  const prompt = usage.prompt_tokens ?? 0;
-  const completion = usage.completion_tokens ?? 0;
+  if (!endpoint.onUsage || endpoint.source === 'local') return;
   endpoint.onUsage({
     model: endpoint.model,
     kind: endpoint.kind ?? 'chat',
-    promptTokens: prompt,
-    completionTokens: completion,
-    totalTokens: usage.total_tokens ?? prompt + completion,
+    ...parseApiUsage(raw),
   });
 }
 
@@ -482,7 +477,7 @@ function buildSystemPrompt(
 }
 
 async function postJson<T>(endpoint: AgentLabEndpoint, path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${endpoint.baseUrl}${path}`, {
+  return requestApiJson<T>(endpoint, path, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -490,12 +485,6 @@ async function postJson<T>(endpoint: AgentLabEndpoint, path: string, body: unkno
     },
     body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    // 带上响应体：400 时能看出是「模型不存在」还是「api key 无效」，方便定位。
-    const detail = (await res.text().catch(() => '')).trim().slice(0, 300);
-    throw new Error(`接口 ${path} 返回 HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
-  }
-  return (await res.json()) as T;
 }
 
 /** OpenAI 兼容消息里同时可能存在 content 和 reasoning_content（推理模型专用），取首个非空。 */
@@ -548,7 +537,6 @@ export async function embedTexts(
     model: endpoint.model,
     input: inputs,
   });
-  reportUsage(endpoint, data);
   const embeddings =
     data.data
       ?.map((item) => item.embedding)
@@ -807,7 +795,6 @@ export async function runPersonaChat(
     temperature: 0.7 + willing.score * 0.2,
     messages,
   });
-  reportUsage(chat, data);
   const raw = pickMessageText(data.choices?.[0]?.message);
   if (!raw) {
     throw new Error('AgentLab chat 返回为空');

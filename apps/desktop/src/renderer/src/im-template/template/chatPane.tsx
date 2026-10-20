@@ -65,6 +65,8 @@ import {
 import { AiOutlineRedEnvelope } from 'react-icons/ai';
 import { resourceUrl } from '../../lib/resourceUrl';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
+import { groupMemberEditing } from '../../lib/groupMemberEditing';
+import { canDiscardFailedMessage, isUnpositionedFailure } from '../../lib/localOutgoing';
 import { useThemeStore } from '../../state/theme';
 import {
   Fragment,
@@ -923,13 +925,13 @@ export function ChatPane({
   );
   const intentKind = conversation?.type === 'group' ? 'group' : 'c2c';
   const intentConv = intentSupported ? (conversation?.id ?? '') : '';
-  const { latestMessageId, latestPeerMsgId } = useMemo(
+  const { latestMessageId, latestPeerMsgId, latestSuggestionId } = useMemo(
     () =>
       intentSupported
         ? intentTimelineTargets(visibleMessages, new Set(selfIdentityValues(user)), (message) =>
             Boolean(grayTipOf(message)),
           )
-        : { latestMessageId: null, latestPeerMsgId: null },
+        : { latestMessageId: null, latestPeerMsgId: null, latestSuggestionId: null },
     [intentSupported, visibleMessages, user],
   );
   // 选中的消息（按时间线顺序）—— 合并转发 / 删除 / 复制 JSON 都用它。
@@ -1919,7 +1921,12 @@ export function ChatPane({
    */
   function groupTargetUid(sender: User): string | null {
     if (!isSelfAvatar(sender)) {
-      return sender.uid ?? sender.id ?? null;
+      const identities = [
+        ...new Set(
+          [sender.id, sender.uid].filter((identity) => /^u_[A-Za-z0-9_-]+$/.test(identity ?? '')),
+        ),
+      ];
+      return identities.length === 1 ? identities[0] : null;
     }
     if (user.uid) {
       return user.uid;
@@ -1934,11 +1941,11 @@ export function ChatPane({
   }
 
   /**
-   * 头像菜单里群管理操作的可见性：我必须是群主 / 管理员，且目标职权低于我；
-   * 「设置管理员」仅群主。自己永远可以改自己的群昵称。非群聊返回 null。
+   * 名片／头衔与资料卡共用展示规则；踢人、禁言等仍要求目标职权更低。
    */
   function avatarModerationFlags(sender: User): {
     showChangeCard: boolean;
+    showChangeTitle: boolean;
     showKick: boolean;
     showMute: boolean;
     showSetAdmin: boolean;
@@ -1947,30 +1954,36 @@ export function ChatPane({
     if (conversation?.type !== 'group') {
       return null;
     }
-    const myRole = conversation.group.role;
+    const myRole = conversation.group.roleKnown === false ? null : conversation.group.role;
+    const targetUid = groupTargetUid(sender);
+    const targetMember = conversation.members.find((member) =>
+      selfIdentityValues(member).some((identity) => selfIdentityValues(sender).includes(identity)),
+    );
+    const targetRole = isSelfAvatar(sender) ? myRole : (targetMember?.role ?? sender.role);
+    const editing = groupMemberEditing(myRole, targetRole);
+    const validUid = Boolean(targetUid && /^u_[A-Za-z0-9_-]+$/.test(targetUid));
     if (isSelfAvatar(sender)) {
       return {
-        showChangeCard: true,
+        showChangeCard: editing.card && validUid,
+        showChangeTitle: editing.title && validUid,
         showKick: false,
         showMute: false,
         showSetAdmin: false,
         showUnsetAdmin: false,
       };
     }
-    if (myRole === 'member') {
+    if (myRole !== 'owner' && myRole !== 'admin') {
       return null;
     }
     const rank: Record<GroupMemberRole, number> = { owner: 2, admin: 1, member: 0 };
-    const targetRole = (sender.role ?? 'member') as GroupMemberRole;
-    if (rank[myRole] <= rank[targetRole]) {
-      return null;
-    }
+    const canModerate = targetRole !== undefined && rank[myRole] > rank[targetRole];
     return {
-      showChangeCard: true,
-      showKick: true,
-      showMute: true,
-      showSetAdmin: myRole === 'owner' && targetRole === 'member',
-      showUnsetAdmin: myRole === 'owner' && targetRole === 'admin',
+      showChangeCard: editing.card && validUid,
+      showChangeTitle: editing.title && validUid,
+      showKick: canModerate,
+      showMute: canModerate,
+      showSetAdmin: canModerate && myRole === 'owner' && targetRole === 'member',
+      showUnsetAdmin: canModerate && myRole === 'owner' && targetRole === 'admin',
     };
   }
 
@@ -2081,7 +2094,7 @@ export function ChatPane({
    */
   function startCardEdit(sender: User) {
     setAvatarMenu(null);
-    if (conversation?.type !== 'group') {
+    if (conversation?.type !== 'group' || !avatarModerationFlags(sender)?.showChangeCard) {
       return;
     }
     const targetUid = groupTargetUid(sender);
@@ -3116,7 +3129,11 @@ export function ChatPane({
     const picked = selectedMessages;
     exitSelection();
     for (const message of picked) {
-      if (message.source === 'roaming' || isLocalOutgoingMessage(message)) continue;
+      if (
+        message.source === 'roaming' ||
+        (isLocalOutgoingMessage(message) && !canDiscardFailedMessage(message))
+      )
+        continue;
       void onDeleteMessage?.(message, conversation);
     }
   }
@@ -3640,15 +3657,25 @@ export function ChatPane({
     setContextMenu(null);
   }
 
-  // QQ-style delete: the DB row's type columns become (1,1) and the message
-  // STAYS in the chat, rendered under a translucent overlay (no local hiding).
+  // 失败占位只清理本机状态；原库消息仍沿用 QQ 式删除遮罩。
   function deleteMessage(message: Message) {
-    if (message.source === 'roaming' || isLocalOutgoingMessage(message)) return;
+    if (
+      message.source === 'roaming' ||
+      (isLocalOutgoingMessage(message) && !canDiscardFailedMessage(message))
+    )
+      return;
     if (!conversation) {
       return;
     }
     setContextMenu(null);
     setDecorationCard(null);
+    if (canDiscardFailedMessage(message) && selectedIds.has(message.id)) {
+      const next = new Set(selectedIds);
+      next.delete(message.id);
+      setSelectedIds(next);
+      if (!next.size) setSelectionMode(false);
+      if (selectionAnchor.current === message.id) selectionAnchor.current = null;
+    }
     void onDeleteMessage?.(message, conversation);
   }
 
@@ -4027,23 +4054,26 @@ export function ChatPane({
               // 灰条分流 + 气泡组装统一走 messageRow 的 MessageRow —— 转发窗口与合成转发
               // 预览用的是同一份实现，所以三处的画法不会再各写一套。
               const out = [];
+              let previousForGap: Message | undefined;
               visibleMessages.forEach((message, index) => {
                 // A hole in the seq run means QQ has messages here that were
                 // never synced locally. Checked for every row (gray tips
                 // included — they occupy a seq too) and emitted before the row
                 // that follows the hole.
                 const previous = visibleMessages[index - 1];
-                const gap = messageGapCount(previous, message);
+                const gapPrevious = previousForGap;
+                const gap = messageGapCount(gapPrevious, message);
+                if (!isUnpositionedFailure(message)) previousForGap = message;
                 // 跳转落空的目标落在 previous 与 message 之间、且恰好只缺这 1 条时，
                 // 默认的缺口条（只在跳空 >1 时出现）不会渲染。补一条，保证「跳到空消息」
                 // 永远有可点击的拉取入口。跳空 >1 时交给上面的自然缺口条，不重复。
                 if (
                   gap === 0 &&
                   missingJumpSeq &&
-                  previous &&
+                  gapPrevious &&
                   conversation &&
                   onOpenGapMessages &&
-                  isSeqBetween(missingJumpSeq, previous.msgSeq, message.msgSeq)
+                  isSeqBetween(missingJumpSeq, gapPrevious.msgSeq, message.msgSeq)
                 ) {
                   out.push(
                     <MessageGapDivider
@@ -4052,7 +4082,7 @@ export function ChatPane({
                       onOpen={() =>
                         onOpenGapMessages({
                           conversation,
-                          previousSeq: String(previous.msgSeq ?? ''),
+                          previousSeq: String(gapPrevious.msgSeq ?? ''),
                           currentSeq: String(message.msgSeq ?? ''),
                           count: 1,
                         })
@@ -4066,11 +4096,11 @@ export function ChatPane({
                       key={`gap-${message.id}`}
                       count={gap}
                       onOpen={
-                        conversation && onOpenGapMessages && previous
+                        conversation && onOpenGapMessages && gapPrevious
                           ? () =>
                               onOpenGapMessages({
                                 conversation,
-                                previousSeq: String(previous.msgSeq ?? ''),
+                                previousSeq: String(gapPrevious.msgSeq ?? ''),
                                 currentSeq: String(message.msgSeq ?? ''),
                                 count: gap,
                               })
@@ -4304,6 +4334,7 @@ export function ChatPane({
           kind={intentKind}
           conv={intentConv}
           replyTargetId={latestPeerMsgId}
+          latestMessageId={latestSuggestionId}
           onInsert={(text) => {
             const prefix = body.trim().length > 0 ? ' ' : '';
             insertComposerText(`${prefix}${text}`);
@@ -4416,15 +4447,19 @@ export function ChatPane({
                 disabled={
                   selectedMessages.length === 0 ||
                   selectedMessages.some(
-                    (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
+                    (message) =>
+                      message.source === 'roaming' ||
+                      (isLocalOutgoingMessage(message) && !canDiscardFailedMessage(message)),
                   )
                 }
                 title={
                   selectedMessages.some(
-                    (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
+                    (message) =>
+                      message.source === 'roaming' ||
+                      (isLocalOutgoingMessage(message) && !canDiscardFailedMessage(message)),
                   )
-                    ? '所选消息尚未入库或来自漫游缓存，不能执行原库删除'
-                    : '删除所选本地消息'
+                    ? '所选消息包含发送中、待同步或漫游记录，不能删除'
+                    : '删除所选消息；失败占位仅从本机移除'
                 }
                 onClick={deleteSelectedMessages}
               >
@@ -5071,10 +5106,13 @@ export function ChatPane({
           onDownloadImage={downloadMessageImage}
           downloadDisabled={mediaSave.disabled}
           onDelete={
-            contextMenu.message.source === 'roaming' || isLocalOutgoingMessage(contextMenu.message)
+            contextMenu.message.source === 'roaming' ||
+            (isLocalOutgoingMessage(contextMenu.message) &&
+              !canDiscardFailedMessage(contextMenu.message))
               ? undefined
               : deleteMessage
           }
+          deleteLabel={canDiscardFailedMessage(contextMenu.message) ? '移除失败消息' : '删除'}
           onEditRaw={
             onEditRaw &&
             contextMenu.message.source !== 'roaming' &&
@@ -5128,9 +5166,7 @@ export function ChatPane({
           onToggleAdmin={toggleAvatarAdmin}
           showChangeCard={avatarMenuFlags?.showChangeCard ?? false}
           showChangeTitle={
-            conversation?.type === 'group' &&
-            conversation.group.role === 'owner' &&
-            Boolean(onChangeGroupMemberTitle)
+            Boolean(avatarMenuFlags?.showChangeTitle) && Boolean(onChangeGroupMemberTitle)
           }
           showKick={avatarMenuFlags?.showKick ?? false}
           showMute={avatarMenuFlags?.showMute ?? false}

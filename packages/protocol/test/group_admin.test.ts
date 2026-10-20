@@ -194,6 +194,18 @@ describe('SetGroupMemberCard (0x8FC_3)', () => {
 });
 
 describe('SetGroupSpecialTitle (0x8FC_2)', () => {
+  it('清空头衔显式发送两个空字符串，不将清空编码成不修改', () => {
+    const bytes = encode(
+      SetGroupSpecialTitle.reqSchema,
+      SetGroupSpecialTitle.serialize({ groupId: 100, targetUid: 'u_x', title: '' }),
+    );
+    expect(bytes).toEqual(
+      hexToBytes('08 64 1a 14 0a 03 75 5f 78 2a 00 30 ff ff ff ff ff ff ff ff ff 01 3a 00'),
+    );
+    expect(decode(SetGroupSpecialTitle.reqSchema, bytes)).toMatchObject({
+      body: { specialTitle: '', uinName: '' },
+    });
+  });
   it('title@5 / expire@6(-1) / uinName@7 镜像 title，needSign=false', () => {
     expect(SetGroupSpecialTitle.command).toBe(0x8fc);
     expect(SetGroupSpecialTitle.subCommand).toBe(2);

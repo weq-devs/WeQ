@@ -1,9 +1,8 @@
 import type React from 'react';
 import { trpc } from '../trpc/client';
-import { Circle, Smile, Clock, Minus, Ban, MinusCircle, CloudSun } from 'lucide-react';
+import { Circle, Smile, Clock, Minus, Ban, MinusCircle } from 'lucide-react';
 import { resourceUrl } from '../lib/resourceUrl';
-import { weatherLabel, weatherTitle } from '../lib/onlineStatus';
-import '../styles/online-status.css';
+import { FaceEmoji } from './FaceEmoji';
 
 const SUB_ICONS: Record<number, string> = {
   1028: 'music@2x.png',
@@ -74,14 +73,10 @@ export function OnlineStatus({
 
   if (!status || status.typeName === '未知' || (status.uid && status.uid !== uid)) return null;
 
-  // 天气子结构只在「今日天气」等趣味状态里出现；拿不到就保持原来的状态文字。
-  const weather = weatherLabel(status.weather);
-  const title = [status.displayStatus, weatherTitle(status.weather)].filter(Boolean).join(' · ');
-
   return (
     <span
       className={className}
-      title={title || status.displayStatus}
+      title={status.displayStatus}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -90,14 +85,12 @@ export function OnlineStatus({
         color: 'var(--weq-fg-secondary)',
       }}
     >
-      <OnlineStatusIcon type={status.type} subType={status.subType} />
+      {status.type === 10 && status.subType === 2000 && status.customStatus?.faceType === 1 ? (
+        <FaceEmoji element={{ faceId: status.customStatus.faceId }} size={16} />
+      ) : (
+        <OnlineStatusIcon type={status.type} subType={status.subType} />
+      )}
       <span>{status.displayStatus}</span>
-      {weather ? (
-        <span className="weq-online-status-weather">
-          <CloudSun size={12} aria-hidden />
-          <span>{weather}</span>
-        </span>
-      ) : null}
     </span>
   );
 }

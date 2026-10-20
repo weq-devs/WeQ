@@ -23,6 +23,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { Card, Row, SectionHeader, Toggle } from './controls';
@@ -47,24 +48,24 @@ export function DaemonSection({
   panel?: 'background' | 'assistant' | 'updates' | 'startup';
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
+  const autoRefresh = useQQAutoRefresh(true);
   const pushToast = useToast((s) => s.push);
 
   // ---- 健康快照（轮询 10s；设置页开着时保持新鲜） ----
   const health = trpc.bootstrap.getDaemonHealth.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    refetchInterval: 10_000,
+    ...autoRefresh,
+    refetchInterval: autoRefresh.enabled ? 10_000 : false,
   });
   const binary = trpc.bootstrap.getDaemonBinaryStatus.useQuery(undefined, {
-    enabled: panel === 'background',
+    ...autoRefresh,
+    enabled: autoRefresh.enabled && panel === 'background',
   });
   const healthData = health.data;
 
   // ---- WeQ 助手（推送公众号）----
   const status = trpc.bootstrap.getWeqAssistantStatus.useQuery(undefined, {
-    enabled: panel === 'assistant',
-    refetchOnWindowFocus: false,
-    staleTime: 0,
-    refetchOnMount: 'always',
+    ...autoRefresh,
+    enabled: autoRefresh.enabled && panel === 'assistant',
   });
   const setEnabled = trpc.bootstrap.setWeqAssistantEnabled.useMutation();
   const setPort = trpc.bootstrap.setWeqAssistantPort.useMutation();
@@ -207,15 +208,17 @@ export function DaemonSection({
         <Card
           title="运行状态"
           action={
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-              onClick={() => void health.refetch()}
-              disabled={health.isFetching}
-            >
-              <RefreshCw size={13} className={health.isFetching ? 'weq-spin' : undefined} />
-              刷新
-            </button>
+            health.error ? (
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                onClick={() => void health.refetch()}
+                disabled={health.isFetching}
+              >
+                <RefreshCw size={13} className={health.isFetching ? 'weq-spin' : undefined} />
+                重试读取
+              </button>
+            ) : undefined
           }
         >
           <Row

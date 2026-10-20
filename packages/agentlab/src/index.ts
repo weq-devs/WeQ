@@ -118,3 +118,11 @@ export type {
   TtsVendorCatalogEntry,
 } from './tts';
 export type * from './types';
+export {
+  beginApiUsage,
+  fetchApi,
+  requestApiJson,
+  parseApiUsage,
+  isApiCancellation,
+  apiErrorMessage,
+} from './api_usage';

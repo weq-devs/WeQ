@@ -46,6 +46,7 @@ import { IS_WEB } from '../lib/target';
 import { CollectionExportDialog } from '../views/export/CollectionExportDialog';
 import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { useContentMultiSelect } from '../state/contentSelection';
+import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import '../styles/collection-search.css';
 
 interface PicWire {
@@ -134,16 +135,21 @@ interface DetailSyncProgress {
 }
 
 /** Page through `account.listCollections` until exhausted. 收藏集通常不大。 */
-async function fetchAllCollections(source: CollectionSource): Promise<CollectionItemWire[] | null> {
+async function fetchAllCollections(
+  source: CollectionSource,
+  signal: AbortSignal,
+): Promise<CollectionItemWire[] | null> {
   const all: CollectionItemWire[] = [];
   let offset = 0;
   const seen = new Set<string>();
   for (let page = 0; page < 1000; page++) {
+    signal.throwIfAborted();
     const res = (await client.account.listCollections.query({
       limit: 100,
       offset,
       source,
     })) as CollectionPageWire | null;
+    signal.throwIfAborted();
     // network 路径拿不到 p_skey / 请求失败时返回 null —— 保留已有的 db 结果。
     if (!res) return null;
     const inPage = new Set(seen);
@@ -556,6 +562,8 @@ export function CollectionDialog({
   embedded?: boolean;
   searchTarget?: { cid: string; revision: number } | null;
 }): ReactElement | null {
+  const activity = useQQReadActivity(open, { onlineOnly: false });
+  const networkActivity = useQQReadActivity(open);
   const [items, setItems] = useState<CollectionItemWire[]>([]);
   const multiSelect = useContentMultiSelect({ kind: 'collections', container: 'all' });
   const [loaded, setLoaded] = useState(false);
@@ -571,7 +579,7 @@ export function CollectionDialog({
   const [searchRetry, setSearchRetry] = useState(0);
   const [searchLoading, setSearchLoading] = useState(false);
   useEffect(() => {
-    if (!open || !searchTarget) return;
+    if (!activity.enabled || !searchTarget) return;
     let active = true;
     setSearchError(null);
     setSelected(null);
@@ -597,7 +605,7 @@ export function CollectionDialog({
     return () => {
       active = false;
     };
-  }, [open, searchTarget, searchRetry]);
+  }, [activity.enabled, searchTarget, searchRetry]);
   const [exportSelection, setExportSelection] = useState<{ cids?: string[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -638,15 +646,21 @@ export function CollectionDialog({
       setExportSelection(null);
       return;
     }
+    if (!activity.enabled) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+    const controller = new AbortController();
     let cancelled = false;
     setLoading(true);
     setRefreshing(false);
     setError(null);
     (async () => {
       try {
-        const local = await fetchAllCollections('db');
+        const local = await fetchAllCollections('db', controller.signal);
         if (cancelled) return;
-        setItems(local ?? []);
+        setItems((current) => (current.length > 0 ? current : (local ?? [])));
         setLoaded(true);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : '加载收藏失败');
@@ -655,20 +669,22 @@ export function CollectionDialog({
         if (!cancelled) setLoading(false);
       }
 
+      if (!networkActivity.enabled) return;
       setRefreshing(true);
       try {
-        const fresh = await fetchAllCollections('network');
+        const fresh = await fetchAllCollections('network', controller.signal);
         if (!cancelled && fresh) setItems(fresh);
-      } catch {
-        /* 网络补充失败:保留本地结果,不打扰用户 */
+      } catch (error) {
+        if (!cancelled) setError(detailErrorText(error));
       } finally {
         if (!cancelled) setRefreshing(false);
       }
     })();
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [open, reload]);
+  }, [open, reload, activity.enabled, activity.revision, networkActivity.enabled]);
 
   const selectedCid = selected?.cid;
   useEffect(() => {
@@ -721,8 +737,13 @@ export function CollectionDialog({
     }
   };
   useEffect(() => {
-    if (!open || !selectedCid) return;
+    if (!activity.enabled || !selectedCid) {
+      setDetailLoading(false);
+      return;
+    }
     let cancelled = false;
+    let syncing = false;
+    const requestId = collectionRequestId('collection-detail');
     const generation = ++detailGeneration.current;
     const cid = selectedCid;
     const force = forceDetailRefresh.current;
@@ -752,9 +773,10 @@ export function CollectionDialog({
         }
         const alreadyCached =
           local?.contentStatus === 'cached' || selectedContentStatus.current === 'cached';
-        if (alreadyCached && !force) return;
+        if ((alreadyCached && !force) || !networkActivity.enabled) return;
+        syncing = true;
         const patches = (await client.account.syncCollectionDetails.mutate({
-          requestId: collectionRequestId('collection-detail'),
+          requestId,
           cids: [cid],
           force,
         })) as CollectionDetailPatch[];
@@ -768,13 +790,16 @@ export function CollectionDialog({
           setDetailError(detailErrorText(error));
         }
       } finally {
+        syncing = false;
         if (!cancelled && generation === detailGeneration.current) setDetailLoading(false);
       }
     })();
     return () => {
       cancelled = true;
+      if (syncing)
+        void client.account.cancelCollectionDetailSync.mutate({ requestId }).catch(() => {});
     };
-  }, [open, selectedCid, detailReload]);
+  }, [activity.enabled, activity.revision, networkActivity.enabled, selectedCid, detailReload]);
 
   const syncAllDetails = async (): Promise<void> => {
     if (detailSyncRun.current) return;
@@ -1025,20 +1050,23 @@ export function CollectionDialog({
             ) : null}
             {selected ? (
               <>
-                <button
-                  type="button"
-                  className="weq-col-detail-back"
-                  title="刷新详情"
-                  disabled={detailLoading || mediaLoading}
-                  onClick={() => {
-                    setMediaResults(null);
-                    setMediaError(null);
-                    forceDetailRefresh.current = true;
-                    setDetailReload((n) => n + 1);
-                  }}
-                >
-                  <RefreshCw size={14} />
-                </button>
+                {detailError && (
+                  <button
+                    type="button"
+                    className="weq-col-detail-back"
+                    title="重试读取详情"
+                    aria-label="重试读取详情"
+                    disabled={detailLoading || mediaLoading}
+                    onClick={() => {
+                      setMediaResults(null);
+                      setMediaError(null);
+                      forceDetailRefresh.current = true;
+                      setDetailReload((n) => n + 1);
+                    }}
+                  >
+                    <RefreshCw size={14} />
+                  </button>
+                )}
                 <button
                   type="button"
                   className="weq-collection-sync-button"
@@ -1067,18 +1095,21 @@ export function CollectionDialog({
               </>
             ) : (
               <>
-                <button
-                  type="button"
-                  className="weq-col-detail-back"
-                  title="刷新收藏"
-                  disabled={loading || refreshing || Boolean(detailSyncRun.current)}
-                  onClick={() => {
-                    setDetailSync(null);
-                    setReload((n) => n + 1);
-                  }}
-                >
-                  <RefreshCw size={14} />
-                </button>
+                {error && (
+                  <button
+                    type="button"
+                    className="weq-col-detail-back"
+                    title="重试读取收藏"
+                    aria-label="重试读取收藏"
+                    disabled={loading || refreshing || Boolean(detailSyncRun.current)}
+                    onClick={() => {
+                      setDetailSync(null);
+                      setReload((n) => n + 1);
+                    }}
+                  >
+                    <RefreshCw size={14} />
+                  </button>
+                )}
                 {detailSyncRun.current ? (
                   <button
                     type="button"
@@ -1151,6 +1182,11 @@ export function CollectionDialog({
             </div>
           ) : null}
         </header>
+        {!selected && error && items.length > 0 ? (
+          <p role="alert" className="weq-col-detail-unavailable">
+            {error}
+          </p>
+        ) : null}
         {!selected ? (
           <div className="weq-collection-filters" role="tablist" aria-label="收藏类型">
             {KIND_FILTERS.filter((k) => k.id === 'all' || (counts[k.id] ?? 0) > 0).map((k) => (
@@ -1273,7 +1309,7 @@ export function CollectionDialog({
               <Loader2 size={22} className="weq-spin" />
               <span>正在加载收藏…</span>
             </div>
-          ) : error ? (
+          ) : error && items.length === 0 ? (
             <div className="weq-collection-state is-error">{error}</div>
           ) : filtered.length === 0 ? (
             <div className="weq-collection-state">

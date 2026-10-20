@@ -38,9 +38,10 @@ interface ProfileWire {
 
 /** 五轴雷达（纯 SVG；中心 0 分、外圈 100 分）。 */
 function Radar({ axes }: { axes: Array<{ axis: string; value: number }> }) {
-  const size = 220;
-  const cx = size / 2;
-  const cy = size / 2 + 6;
+  const width = 340;
+  const height = 280;
+  const cx = width / 2;
+  const cy = height / 2;
   const r = 78;
   const n = Math.max(3, axes.length);
   const point = (i: number, ratio: number): [number, number] => {
@@ -52,7 +53,7 @@ function Radar({ axes }: { axes: Array<{ axis: string; value: number }> }) {
   return (
     <svg
       className="weq-int-radar"
-      viewBox={`0 0 ${size} ${size}`}
+      viewBox={`0 0 ${width} ${height}`}
       role="img"
       aria-label="互动风格雷达"
     >
@@ -61,7 +62,7 @@ function Radar({ axes }: { axes: Array<{ axis: string; value: number }> }) {
           key={ratio}
           points={ring(ratio)}
           fill="none"
-          stroke="rgba(148,163,184,0.28)"
+          stroke="var(--weq-border-strong)"
           strokeWidth="1"
         />
       ))}
@@ -72,14 +73,14 @@ function Radar({ axes }: { axes: Array<{ axis: string; value: number }> }) {
           y1={cy}
           x2={point(i, 1)[0]}
           y2={point(i, 1)[1]}
-          stroke="rgba(148,163,184,0.28)"
+          stroke="var(--weq-border-strong)"
           strokeWidth="1"
         />
       ))}
       <polygon
         points={dataPoly}
-        fill="color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 22%, transparent)"
-        stroke="var(--weq-accent-effective, #12a8ff)"
+        fill="color-mix(in srgb, var(--weq-accent-effective) 22%, transparent)"
+        stroke="var(--weq-accent-effective)"
         strokeWidth="1.6"
         strokeLinejoin="round"
       />
@@ -93,9 +94,12 @@ function Radar({ axes }: { axes: Array<{ axis: string; value: number }> }) {
             textAnchor={x < cx - 6 ? 'end' : x > cx + 6 ? 'start' : 'middle'}
             dominantBaseline="middle"
             fontSize="11"
-            fill="var(--weq-fg-secondary, #666)"
+            fill="var(--weq-fg-secondary)"
           >
-            {a.axis} {Math.round(a.value)}
+            <tspan x={x}>{a.axis}</tspan>
+            <tspan x={x} dy="14">
+              {Math.round(a.value)}
+            </tspan>
           </text>
         );
       })}
