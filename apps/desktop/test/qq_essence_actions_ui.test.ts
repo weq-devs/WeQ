@@ -10,6 +10,7 @@ import { createTemplateDemoData } from '../src/renderer/src/im-template/template
 import { useViewState } from '../src/renderer/src/state/view';
 import { useQQEssence } from '../src/renderer/src/state/qqEssence';
 import type { QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
+import { projectGroupEssence } from '../src/renderer/src/lib/groupEssenceProjection';
 
 const state = vi.hoisted(() => ({
   configId: 'source-a',
@@ -128,6 +129,26 @@ function fixture(active = true, overrides: Partial<GroupEssenceWire> = {}) {
   return { host, render, close, jump, menu, remove };
 }
 describe('消息菜单与精华列表的同步', () => {
+  it('真实本地投影无需 Web random 即可从列表取消，取消历史不再展示', async () => {
+    const local = {
+      msgSeq: 42,
+      msgRandom: 77,
+      senderNick: '合成成员',
+      operatorNick: '',
+      timestamp: 1_700_000_000,
+      setStatus: 1,
+    };
+    const f = fixture(true, projectGroupEssence([local], [])[0]);
+    expect(f.remove().disabled).toBe(false);
+    await act(async () => f.remove().click());
+    expect(state.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ sequence: 42, random: 77, enable: false }),
+    );
+    act(() => useQQEssence.setState({ receipts: {} }));
+    const canceled = fixture(true, projectGroupEssence([{ ...local, setStatus: 2 }], [])[0]);
+    expect(canceled.host.querySelector('.group-essence-item')).toBeNull();
+    expect(canceled.host.textContent).toContain('暂无群精华');
+  });
   it.each(['menu', 'list'] as const)(
     '%s 取消受理后共同更新，不被旧读取结果重新插回',
     async (entry) => {

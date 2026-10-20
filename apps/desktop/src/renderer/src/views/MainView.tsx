@@ -103,10 +103,8 @@ import { GroupInfoDetailDialog } from '../components/GroupInfoDetailDialog';
 import type { GroupInfoDetail } from '../im-template/template/conversationDetails';
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
 import { QQRemarkDialog } from '../components/QQRemarkDialog';
-import {
-  GroupEssenceDialog,
-  type GroupEssenceWire as GroupEssenceDisplay,
-} from '../components/GroupEssenceDialog';
+import { GroupEssenceDialog } from '../components/GroupEssenceDialog';
+import { projectGroupEssence } from '../lib/groupEssenceProjection';
 import {
   GroupMemberKickDialog,
   GroupMemberRenameDialog,
@@ -571,6 +569,7 @@ type GroupDetailWire = {
 /** 数据库查询返回的原始群精华类型 */
 type GroupEssenceWire = {
   msgSeq: number;
+  msgRandom?: number;
   senderNick: string;
   setStatus: number;
   operatorNick: string;
@@ -5424,24 +5423,7 @@ export function MainView(): ReactElement {
             publisherAvatar: publisher?.avatarUrl,
           };
         }),
-        essenceMessages: ((groupEssence.data ?? []) as GroupEssenceWire[]).map((item) => {
-          // 尝试从 Web API 结果中找到匹配的消息内容（按 msgSeq 匹配）
-          const webItem = (groupEssenceWeb.data ?? []).find(
-            (web: GroupEssenceWire) => web.msgSeq === item.msgSeq,
-          );
-          return {
-            id: `essence:${item.msgSeq}:${item.timestamp}`,
-            msgSeq: item.msgSeq,
-            senderName: item.senderNick,
-            operatorName: item.operatorNick,
-            createdAt: secondsToIsoTime(item.timestamp) ?? new Date(0).toISOString(),
-            active: item.setStatus === 1,
-            // 从 Web API 补充的字段
-            content: webItem?.content,
-            senderTime: webItem?.senderTime,
-            canRemove: webItem?.canRemove,
-          };
-        }),
+        essenceMessages: projectGroupEssence(groupEssence.data ?? [], groupEssenceWeb.data ?? []),
         // 该群全部当前为精华的 msgSeq（本地数据库，用于消息右下角「精华」角标）。
         essenceSeqs: effectiveEssenceSeqs,
         levelConfigs: (groupLevelInfo.data?.levelConfigs ?? []).map((item) => ({
@@ -8779,42 +8761,7 @@ export function MainView(): ReactElement {
                 ) as GroupEssenceWire[];
                 const essenceWeb =
                   selectedUid === essenceDialog.groupCode ? (groupEssenceWeb.data ?? []) : [];
-                // 按 msgSeq 去重：数据库记录优先，Web 内容补充到匹配项上；
-                // 数据库没有、但联网拉到的精华也一并展示（联网补全）。
-                const bySeq = new Map<number, GroupEssenceDisplay>();
-                for (const item of essence) {
-                  const webItem = essenceWeb.find((web) => web.msgSeq === item.msgSeq);
-                  bySeq.set(item.msgSeq, {
-                    id: `essence:${item.msgSeq}:${item.timestamp}`,
-                    msgSeq: item.msgSeq,
-                    senderName: item.senderNick,
-                    operatorName: item.operatorNick,
-                    createdAt: secondsToIsoTime(item.timestamp) ?? new Date(0).toISOString(),
-                    active: effectiveEssenceSeqs.includes(String(item.msgSeq)),
-                    msgRandom: webItem?.msgRandom,
-                    content: webItem?.content,
-                    senderTime: webItem?.senderTime ? String(webItem.senderTime) : undefined,
-                    canRemove: webItem?.canRemove,
-                  });
-                }
-                for (const web of essenceWeb) {
-                  if (bySeq.has(web.msgSeq)) continue;
-                  bySeq.set(web.msgSeq, {
-                    id: `essence:web:${web.msgSeq}:${web.senderTime ?? ''}`,
-                    msgSeq: web.msgSeq,
-                    senderName: web.senderNick,
-                    operatorName: web.operatorNick,
-                    createdAt: secondsToIsoTime(web.senderTime) ?? new Date(0).toISOString(),
-                    active: effectiveEssenceSeqs.includes(String(web.msgSeq)),
-                    msgRandom: web.msgRandom,
-                    content: web.content,
-                    senderTime: web.senderTime ? String(web.senderTime) : undefined,
-                    canRemove: web.canRemove,
-                  });
-                }
-                return [...bySeq.values()].sort(
-                  (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-                );
+                return projectGroupEssence(essence, essenceWeb);
               })()}
               loading={groupEssence.isLoading || groupEssenceWeb.isLoading}
               onClose={() => setEssenceDialog(null)}

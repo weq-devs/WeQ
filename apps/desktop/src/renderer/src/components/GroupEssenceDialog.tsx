@@ -31,7 +31,7 @@ export interface GroupEssenceWire {
     fileName?: string;
     fileSize?: number | string;
   }>;
-  senderTime?: string;
+  senderTime?: number;
   canRemove?: boolean;
 }
 
