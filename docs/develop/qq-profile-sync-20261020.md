@@ -91,6 +91,23 @@
 - 测试结束再次核对为原策略 1。好友写入尚缺指定测试好友；本项整体仍未完成。
 - 会话设置与写操作生命周期针对性回归 27 项通过。
 
+### 消息策略服务端回补
+
+- 在前序未阻塞任务优先回补的要求下，继续核对屏蔽档，不把原本的本机读回失败当作外部阻塞。
+- 接入 `0xFE5_2` 标准群列表请求，仅解析并向 UI 返回群号和个人消息策略，不缓存群名或成员资料。
+  参考 [请求与响应字段](https://github.com/LLOneBot/LLOneBot/blob/dc2b2b90092ef0f571b5546878288b83fff1e436/src/ntqqapi/proto/oidb.ts)
+  与 [标准客户端配置](https://github.com/LLOneBot/LLOneBot/blob/dc2b2b90092ef0f571b5546878288b83fff1e436/src/main/qqProtocol/mixins/group.ts)。
+- 同一 PID 并发读回合并；运行时或账号切换后拒绝旧回包；不缓存写入前的策略来冒充新读回。
+- 真机确认屏蔽写入后服务端为 3，而本机仍为 1；根因是以本机旧缓存代替权威值。
+  现已确认 4／2／3 三种非默认策略，最终恢复原服务端值 1 并读回一致。
+- 编辑器以服务端值为准，另行提示本机尚未同步；未知枚举保留原值，不猜成正常提醒。
+- 好友部分仍未完成：参考实现请求 `13579`，但响应映射未提供；也缺指定测试好友的开关对照样本。
+  参考 [好友请求字段](https://github.com/LagrangeDev/Lagrange.Core/blob/20c2ba0/Lagrange.Core/Internal/Services/System/FetchFriendsService.cs)
+  与 [当前公开响应模型](https://github.com/LagrangeDev/Lagrange.Core/blob/20c2ba0/Lagrange.Core/Internal/Packets/Service/IncPull.cs)。
+- 补充同号切换来源的草稿回归，账号或配置 ID 改变后重建表单，不沿用旧策略草稿。
+- 相关协议 3、服务 10、桌面 42 项回归与主进程／渲染层类型检查通过；深浅色、主题色、
+  窄宽窗口的服务端／本机差异提示 4 组浏览器检查通过。没有将整项标为完成。
+
 ## 账号选择页主题（新增优先项）
 
 - 清单前部新增此项后，优先完成两个选择页的主题修复；备注／名片同步在途改动已

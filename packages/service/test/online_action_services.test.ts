@@ -11,6 +11,7 @@ import {
   DeleteGroupFile,
   DeleteGroupFolder,
   FetchGroupMemberListPage,
+  GetGroupMessagePolicies,
   FetchGroupRequests,
   ReadedReport,
   MoveGroupFile,
@@ -52,6 +53,58 @@ function makeNative(replies: Map<string, Uint8Array> = new Map()) {
     },
   };
 }
+
+describe('群消息策略在线读回', () => {
+  it('同一 PID 的并发读取合并，不以本地缓存代替未返回的群', async () => {
+    const reply = encode(GetGroupMessagePolicies.respSchema, {
+      groups: [
+        { groupId: 123, personal: { policy: 3 } },
+        { groupId: 456, personal: { policy: 4 } },
+      ],
+    });
+    const nt = makeNative(
+      new Map([
+        [
+          `${GetGroupMessagePolicies.command.toString(16)}_${GetGroupMessagePolicies.subCommand}`,
+          reply,
+        ],
+      ]),
+    );
+    const service = new GroupInfoService({} as never, { nt, resolvePid: () => 1 });
+    const [first, second] = await Promise.all([
+      service.getMessagePolicy(123),
+      service.getMessagePolicy(456),
+    ]);
+    expect(first.policy).toBe(3);
+    expect(second.policy).toBe(4);
+    expect(nt.calls).toHaveLength(1);
+    await expect(service.getMessagePolicy(999)).rejects.toThrow('未返回该群');
+    expect(nt.calls).toHaveLength(2);
+  });
+  it('读取途中 QQ 运行时改变时拒绝旧 PID 的策略', async () => {
+    let pid = 1;
+    let finish!: (data: Buffer) => void;
+    const nt = {
+      sendOidbPacket: vi.fn(
+        () =>
+          new Promise<Buffer>((resolve) => {
+            finish = resolve;
+          }),
+      ),
+    };
+    const service = new GroupInfoService({} as never, { nt, resolvePid: () => pid });
+    const pending = service.getMessagePolicy(123);
+    pid = 2;
+    finish(
+      Buffer.from(
+        encode(GetGroupMessagePolicies.respSchema, {
+          groups: [{ groupId: 123, personal: { policy: 3 } }],
+        }),
+      ),
+    );
+    await expect(pending).rejects.toThrow('运行时已切换');
+  });
+});
 
 describe('GroupModerationService', () => {
   it('退群 / 群待办走对应命令', async () => {

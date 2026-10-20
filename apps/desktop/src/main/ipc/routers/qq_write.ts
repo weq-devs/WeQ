@@ -36,7 +36,7 @@ export interface QQWriteServices {
   profile: Pick<AccountServices['profile'], 'getProfile' | 'getBuddy' | 'getSelfProfile'>;
   groupInfo: Pick<
     AccountServices['groupInfo'],
-    'getGroupDetail' | 'listGroupDirectory' | 'getMemberInfo'
+    'getGroupDetail' | 'listGroupDirectory' | 'getMemberInfo' | 'getMessagePolicy'
   >;
   recentContacts: Pick<AccountServices['recentContacts'], 'getTopContacts' | 'getByTargetUids'>;
   onlineStatus: Pick<AccountServices['onlineStatus'], 'getOnlineStatus' | 'editableStatuses'>;
@@ -69,6 +69,12 @@ export function createQQWriteRouter(
   read: (input: QQWriteBinding) => QQWriteServices,
 ) {
   return router({
+    groupPolicyState: procedure.input(binding.extend({ groupId })).query(async ({ input }) => {
+      const services = resolve(input);
+      const result = await services.groupInfo.getMessagePolicy(input.groupId);
+      if (resolve(input) !== services) throw new Error('账号已切换，请重新读取消息策略');
+      return { ...result, source: 'qq-server' as const };
+    }),
     memberState: procedure.input(binding.extend({ groupId, uid })).query(async ({ input }) => {
       const services = read(input);
       const [member, role] = await Promise.all([

@@ -1,4 +1,6 @@
 /** 群管理：改名 / 管理员 / 群名片 / 头衔 / 精华 / 头像 / 禁言 / 踢人。 */
+export { GetGroupMessagePolicies } from './get-group-message-policies';
+export type { GroupMessagePolicySnapshot } from './get-group-message-policies';
 export { SetGroupName } from './set-group-name';
 export type { SetGroupNameParams } from './set-group-name';
 export { SetGroupAdmin } from './set-group-admin';

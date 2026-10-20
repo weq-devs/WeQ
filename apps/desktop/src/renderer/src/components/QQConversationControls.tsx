@@ -45,6 +45,20 @@ export function QQConversationControls({
     refetchOnMount: 'always',
     refetchOnWindowFocus: false,
   });
+  const policySnapshot = trpc.account.qqWrite.groupPolicyState.useQuery(
+    {
+      expectedAccountUin: session.binding?.expectedAccountUin ?? '',
+      expectedAccountConfigId: session.binding?.expectedAccountConfigId ?? '',
+      groupId: kind === 'group' ? Number(conv) : 0,
+    },
+    {
+      enabled: kind === 'group' && !management && session.available,
+      retry: false,
+      staleTime: 15_000,
+      refetchOnMount: 'always',
+      refetchOnWindowFocus: false,
+    },
+  );
   const categories = trpc.account.listCategories.useQuery(undefined, { enabled: kind === 'c2c' });
   const remark = trpc.account.qqWrite.friendRemark.useMutation();
   const groupRemark = trpc.account.qqWrite.groupRemark.useMutation();
@@ -64,9 +78,13 @@ export function QQConversationControls({
   const state = snapshot.data;
   const disabled = session.busy || !session.available || !state || picking;
   const friendDisabled = disabled || !state?.friend;
-  async function refresh() {
+  async function refresh(includePolicy = false) {
     const result = await snapshot.refetch();
     if (result.error) throw result.error;
+    if (includePolicy && kind === 'group' && !management) {
+      const policyResult = await policySnapshot.refetch();
+      if (policyResult.error) throw policyResult.error;
+    }
   }
   const act = (action: Parameters<typeof session.run>[0]) => session.run(action, refresh);
   async function changePolicy(value: number): Promise<boolean> {
@@ -84,9 +102,10 @@ export function QQConversationControls({
       undefined,
       {
         readback: async () => {
-          const updated = await snapshot.refetch();
-          if (updated.error) throw updated.error;
-          return updated.data?.notifyLevel === value;
+          const [remote, local] = await Promise.all([policySnapshot.refetch(), snapshot.refetch()]);
+          if (remote.error) throw remote.error;
+          if (local.error) throw local.error;
+          return remote.data?.policy === value;
         },
       },
     );
@@ -109,7 +128,10 @@ export function QQConversationControls({
     }
   }
   return (
-    <div className="weq-qq-write-panel" key={`${kind}:${conv}`}>
+    <div
+      className="weq-qq-write-panel"
+      key={`${session.binding?.expectedAccountUin}:${session.binding?.expectedAccountConfigId}:${kind}:${conv}`}
+    >
       <div className="weq-qq-write-toolbar">
         <span>{session.available ? 'QQ 在线' : 'QQ 在线能力未就绪'}</span>
         <button
@@ -117,9 +139,14 @@ export function QQConversationControls({
           className="weq-set-iconbtn"
           title="重新读取"
           aria-label="重新读取 QQ 会话设置"
-          disabled={session.busy || picking || snapshot.isFetching}
+          disabled={
+            session.busy ||
+            picking ||
+            snapshot.isFetching ||
+            (kind === 'group' && policySnapshot.isFetching)
+          }
           onClick={() => {
-            void refresh()
+            void refresh(true)
               .then(() => setRevision((value) => value + 1))
               .catch(() => {});
           }}
@@ -128,6 +155,16 @@ export function QQConversationControls({
         </button>
       </div>
       {snapshot.error && <p role="alert">{snapshot.error.message}</p>}
+      {kind === 'group' && !management && policySnapshot.error && (
+        <p role="alert">消息策略读取失败：{policySnapshot.error.message}</p>
+      )}
+      {kind === 'group' &&
+        !management &&
+        policySnapshot.data?.policy != null &&
+        state?.notifyLevel != null &&
+        policySnapshot.data.policy !== state.notifyLevel && (
+          <p role="status">服务端与本机消息策略尚未同步</p>
+        )}
       {pickerError && <p role="alert">{pickerError}</p>}
       <QQWriteResult result={session.result} />
       {state && (
@@ -187,9 +224,9 @@ export function QQConversationControls({
               ) : (
                 <QQWriteSelectRow
                   label="消息接收"
-                  initial={state.notifyLevel}
+                  initial={policySnapshot.data?.rawPolicy ?? null}
                   options={GROUP_MESSAGE_POLICY_OPTIONS}
-                  disabled={disabled}
+                  disabled={disabled || policySnapshot.isFetching || !policySnapshot.data}
                   onSave={changePolicy}
                 />
               )}

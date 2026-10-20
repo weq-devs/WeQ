@@ -58,6 +58,11 @@ function fixture() {
       getGroupDetail: vi.fn(async () => null),
       listGroupDirectory: vi.fn(async () => []),
       getMemberInfo: vi.fn(async () => null),
+      getMessagePolicy: vi.fn(async (groupId: number) => ({
+        groupId,
+        policy: 1 as const,
+        rawPolicy: 1,
+      })),
     },
     recentContacts: {
       getTopContacts: vi.fn(async () => []),
@@ -90,6 +95,20 @@ function fixture() {
 }
 
 describe('QQ 写 IPC 边界', () => {
+  it('群消息策略单独读取服务端，保留来源并拒绝切号后的回包', async () => {
+    const f = fixture();
+    await expect(f.caller.groupPolicyState({ ...binding, groupId: 123 })).resolves.toEqual({
+      groupId: 123,
+      policy: 1,
+      rawPolicy: 1,
+      source: 'qq-server',
+    });
+    f.services.groupInfo.getMessagePolicy = async (groupId) => {
+      f.switchAccount();
+      return { groupId, policy: 3, rawPolicy: 3 };
+    };
+    await expect(f.caller.groupPolicyState({ ...binding, groupId: 123 })).rejects.toThrow('切换');
+  });
   it.each(['admin', 'member', null] as const)('非群主 %s 不能写专属头衔', async (role) => {
     const f = fixture();
     f.services.groupInfo.listGroupDirectory = vi.fn(async () => [
