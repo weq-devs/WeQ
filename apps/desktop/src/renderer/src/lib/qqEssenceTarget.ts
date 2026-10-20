@@ -12,11 +12,19 @@ export function qqEssenceTarget(
     message.optimisticRejected
   )
     return null;
-  const parts = [conversation.id, message.msgSeq, message.msgRandom];
+  return qqEssenceTargetParts(conversation.id, message.msgSeq, message.msgRandom);
+}
+
+export function qqEssenceTargetParts(
+  group: string,
+  seq?: string,
+  rand?: string,
+): { groupId: number; sequence: number; random: number } | null {
+  const parts = [group, seq, rand];
   if (parts.some((value) => !value || !/^\d+$/.test(value))) return null;
-  const groupId = Number(conversation.id);
-  const sequence = Number(message.msgSeq);
-  const random = Number(message.msgRandom);
+  const groupId = Number(group);
+  const sequence = Number(seq);
+  const random = Number(rand);
   if (
     !Number.isSafeInteger(groupId) ||
     groupId <= 0 ||

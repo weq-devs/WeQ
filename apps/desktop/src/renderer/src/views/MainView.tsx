@@ -80,6 +80,13 @@ import {
 } from '../components/GroupAnnouncementsDialog';
 import { GroupSignDialog } from '../components/GroupSignDialog';
 import { GroupTodos } from '../components/qq-actions/GroupActions';
+import {
+  essenceSequences,
+  essenceRefreshInterval,
+  essenceSource,
+  ESSENCE_RECEIPT_TTL,
+  useQQEssence,
+} from '../state/qqEssence';
 import { ContactNoticeDialog, GroupNoticeDialog } from '../components/ContactNoticeDialogs';
 import { GroupInfoDetailDialog } from '../components/GroupInfoDetailDialog';
 import type { GroupInfoDetail } from '../im-template/template/conversationDetails';
@@ -3970,6 +3977,15 @@ export function MainView(): ReactElement {
   });
   const noticeAccountKey =
     noticeConfig.data?.uin === openedUin ? `${openedUin}:${noticeConfig.data.configId}` : '';
+  const essenceReceipts = useQQEssence((state) => state.receipts);
+  const essenceSourceKey = essenceSource(
+    noticeConfig.data?.uin === openedUin
+      ? {
+          expectedAccountUin: openedUin,
+          expectedAccountConfigId: noticeConfig.data.configId,
+        }
+      : null,
+  );
   const shellHistory = useMemo(
     () => ({
       isMobileShell,
@@ -4662,13 +4678,95 @@ export function MainView(): ReactElement {
   // 供聊天窗口给对应消息打「精华」角标。
   const groupEssenceSeqs = trpc.account.listGroupEssenceSeqs.useQuery(
     { groupCode: selectedUid },
-    { enabled: groupExtrasReady, staleTime: 5 * 60 * 1000 },
+    {
+      enabled: groupExtrasReady,
+      staleTime: 5 * 60 * 1000,
+      refetchInterval: () =>
+        messagesTabActive && sendAvailable
+          ? essenceRefreshInterval(essenceReceipts, essenceSourceKey, Number(selectedUid))
+          : false,
+      refetchIntervalInBackground: false,
+    },
   );
   // 尝试从 Web API 获取带消息内容的精华消息（需要在线账号/有效 cookie）
   const groupEssenceWeb = trpc.account.getGroupEssenceWithContent.useQuery(
     { groupCode: selectedUid, pageStart: 0, pageLimit: 50 },
-    { enabled: groupExtrasReady, retry: false, staleTime: 5 * 60 * 1000 },
+    {
+      enabled: groupExtrasReady,
+      retry: false,
+      staleTime: 5 * 60 * 1000,
+      refetchInterval: () =>
+        messagesTabActive && sendAvailable
+          ? essenceRefreshInterval(essenceReceipts, essenceSourceKey, Number(selectedUid))
+          : false,
+      refetchIntervalInBackground: false,
+    },
   );
+  const effectiveEssenceSeqs = useMemo(
+    () =>
+      essenceSequences(essenceReceipts, essenceSourceKey, Number(selectedUid), [
+        ...(groupEssenceSeqs.data ??
+          (groupEssence.data ?? [])
+            .filter((item) => item.setStatus === 1)
+            .map((item) => String(item.msgSeq))),
+        ...(groupEssenceWeb.data ?? []).map((item) => String(item.msgSeq)),
+      ]),
+    [
+      essenceReceipts,
+      essenceSourceKey,
+      selectedUid,
+      groupEssenceSeqs.data,
+      groupEssence.data,
+      groupEssenceWeb.data,
+    ],
+  );
+  useEffect(() => {
+    if (!essenceSourceKey || !groupExtrasReady || !messagesTabActive) return;
+    const reconcile = () => {
+      if (
+        Object.values(essenceReceipts).some(
+          (receipt) =>
+            receipt.source === essenceSourceKey &&
+            receipt.groupId === Number(selectedUid) &&
+            !receipt.pending &&
+            Date.now() - receipt.at >= ESSENCE_RECEIPT_TTL,
+        )
+      )
+        pushToast({ tone: 'warning', message: '精华状态同步未确认，已重新显示读取结果' });
+      useQQEssence.getState().reconcile(
+        essenceSourceKey,
+        Number(selectedUid),
+        groupEssenceSeqs.data ?? [],
+        groupEssenceSeqs.dataUpdatedAt,
+        (groupEssenceWeb.data ?? []).map((item) => String(item.msgSeq)),
+        groupEssenceWeb.dataUpdatedAt,
+      );
+    };
+    reconcile();
+    const deadlines = Object.values(essenceReceipts)
+      .filter(
+        (receipt) =>
+          receipt.source === essenceSourceKey &&
+          receipt.groupId === Number(selectedUid) &&
+          !receipt.pending &&
+          receipt.at + ESSENCE_RECEIPT_TTL > Date.now(),
+      )
+      .map((receipt) => receipt.at + ESSENCE_RECEIPT_TTL);
+    if (!deadlines.length) return;
+    const timer = setTimeout(reconcile, Math.max(1, Math.min(...deadlines) - Date.now() + 1));
+    return () => clearTimeout(timer);
+  }, [
+    essenceSourceKey,
+    groupExtrasReady,
+    selectedUid,
+    essenceReceipts,
+    groupEssenceSeqs.data,
+    groupEssenceSeqs.dataUpdatedAt,
+    groupEssenceWeb.data,
+    groupEssenceWeb.dataUpdatedAt,
+    pushToast,
+    messagesTabActive,
+  ]);
   const groupLevelInfo = trpc.account.getGroupMemberLevelInfo.useQuery(
     { groupCode: selectedUid },
     { enabled: groupExtrasReady },
@@ -5294,7 +5392,7 @@ export function MainView(): ReactElement {
           };
         }),
         // 该群全部当前为精华的 msgSeq（本地数据库，用于消息右下角「精华」角标）。
-        essenceSeqs: (groupEssenceSeqs.data ?? []) as string[],
+        essenceSeqs: effectiveEssenceSeqs,
         levelConfigs: (groupLevelInfo.data?.levelConfigs ?? []).map((item) => ({
           level: item.level,
           name: item.levelName,
@@ -5325,6 +5423,7 @@ export function MainView(): ReactElement {
     groupEssence.data,
     groupEssenceWeb.data,
     groupEssenceSeqs.data,
+    effectiveEssenceSeqs,
     groupLevelInfo.data,
     groupExt.data,
     user,
@@ -8616,8 +8715,11 @@ export function MainView(): ReactElement {
               groupCode={essenceDialog.groupCode}
               groupName={essenceDialog.groupName}
               essenceMessages={(() => {
-                const essence = (groupEssence.data ?? []) as GroupEssenceWire[];
-                const essenceWeb = groupEssenceWeb.data ?? [];
+                const essence = (
+                  selectedUid === essenceDialog.groupCode ? (groupEssence.data ?? []) : []
+                ) as GroupEssenceWire[];
+                const essenceWeb =
+                  selectedUid === essenceDialog.groupCode ? (groupEssenceWeb.data ?? []) : [];
                 // 按 msgSeq 去重：数据库记录优先，Web 内容补充到匹配项上；
                 // 数据库没有、但联网拉到的精华也一并展示（联网补全）。
                 const bySeq = new Map<number, GroupEssenceDisplay>();
@@ -8629,7 +8731,8 @@ export function MainView(): ReactElement {
                     senderName: item.senderNick,
                     operatorName: item.operatorNick,
                     createdAt: secondsToIsoTime(item.timestamp) ?? new Date(0).toISOString(),
-                    active: item.setStatus === 1,
+                    active: effectiveEssenceSeqs.includes(String(item.msgSeq)),
+                    msgRandom: webItem?.msgRandom,
                     content: webItem?.content,
                     senderTime: webItem?.senderTime ? String(webItem.senderTime) : undefined,
                     canRemove: webItem?.canRemove,
@@ -8643,7 +8746,8 @@ export function MainView(): ReactElement {
                     senderName: web.senderNick,
                     operatorName: web.operatorNick,
                     createdAt: secondsToIsoTime(web.senderTime) ?? new Date(0).toISOString(),
-                    active: true,
+                    active: effectiveEssenceSeqs.includes(String(web.msgSeq)),
+                    msgRandom: web.msgRandom,
                     content: web.content,
                     senderTime: web.senderTime ? String(web.senderTime) : undefined,
                     canRemove: web.canRemove,
