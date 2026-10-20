@@ -6,12 +6,13 @@
  * 不连任何网络。
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   decode,
   encode,
   GetEmojiLikes,
   SendGroupSignup,
+  SendGroupSign,
   SendPoke,
   SetReaction,
 } from '@weq/protocol';
@@ -70,6 +71,30 @@ function fakeNative(response?: Uint8Array) {
 const PID = 4321;
 
 describe('InteractionService', () => {
+  describe('sendGroupSign (0xEB7_1)', () => {
+    it('从当前会话取本人 UIN，群号与本人以字符串写入原命令', async () => {
+      const nt = fakeNative();
+      const svc = new InteractionService(nt, fakeSession(), () => PID);
+      await svc.sendGroupSign('12345');
+      expect(nt.calls[0]).toMatchObject({
+        pid: PID,
+        command: SendGroupSign.command,
+        subCommand: SendGroupSign.subCommand,
+        isUid: false,
+      });
+      expect(decode(SendGroupSign.reqSchema, nt.calls[0]!.body)).toMatchObject({
+        signInInfo: { uin: '10001', groupId: '12345' },
+      });
+    });
+    it('原生拒绝按原错误上抛，不吞成成功或自动重发', async () => {
+      const sendOidbPacket = vi.fn(async () => {
+        throw new Error('synthetic sign rejected');
+      });
+      const svc = new InteractionService({ sendOidbPacket }, fakeSession(), () => PID);
+      await expect(svc.sendGroupSign(12345)).rejects.toThrow('synthetic sign rejected');
+      expect(sendOidbPacket).toHaveBeenCalledOnce();
+    });
+  });
   describe('sendPoke (0xED3_1)', () => {
     it('群聊：targetId 是群号、targetUin 是被戳成员', async () => {
       const nt = fakeNative();

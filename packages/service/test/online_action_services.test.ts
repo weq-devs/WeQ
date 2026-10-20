@@ -54,7 +54,7 @@ function makeNative(replies: Map<string, Uint8Array> = new Map()) {
 }
 
 describe('GroupModerationService', () => {
-  it('退群 / 群待办 / 打卡走对应命令', async () => {
+  it('退群 / 群待办走对应命令', async () => {
     const nt = makeNative();
     const svc = new GroupModerationService(nt, () => 7);
 

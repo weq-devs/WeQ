@@ -55,12 +55,18 @@ const CONVERSATION = {
   ],
 };
 
-function mountPanel(onOpenAnnouncements?: () => void): void {
+function mountPanel(onOpenAnnouncements?: () => void, onOpenSign?: () => void): void {
   const host = document.createElement('div');
   document.body.appendChild(host);
   const root = createRoot(host);
   act(() => {
-    root.render(createElement(GroupInfoPanel, { conversation: CONVERSATION, onOpenAnnouncements }));
+    root.render(
+      createElement(GroupInfoPanel, {
+        conversation: CONVERSATION,
+        onOpenAnnouncements,
+        onOpenSign,
+      }),
+    );
   });
   roots.push(root);
   hosts.push(host);
@@ -105,6 +111,14 @@ describe('群资料面板', () => {
     mountPanel(open);
     const entry = document.querySelector<HTMLButtonElement>('[title="查看群公告与待办"]')!;
     expect(entry.textContent).toContain('公告与待办');
+    act(() => entry.click());
+    expect(open).toHaveBeenCalledOnce();
+  });
+  it('群资料栏直接展示打卡入口，点击只打开页面，不直接写入', () => {
+    const open = vi.fn();
+    mountPanel(undefined, open);
+    const entry = document.querySelector<HTMLButtonElement>('.weq-group-content-actions button')!;
+    expect(entry.textContent).toBe('打卡');
     act(() => entry.click());
     expect(open).toHaveBeenCalledOnce();
   });

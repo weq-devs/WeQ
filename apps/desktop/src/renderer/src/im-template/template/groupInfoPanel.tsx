@@ -1,6 +1,7 @@
 // @ts-nocheck
 import {
   Bot,
+  CalendarCheck,
   ChevronRight,
   FolderOpen,
   Images,
@@ -36,6 +37,7 @@ export function GroupInfoPanel({
   onOpenEssence,
   onOpenAlbums,
   onOpenFiles,
+  onOpenSign,
   onClose,
 }: {
   conversation: GroupConversationView;
@@ -67,6 +69,7 @@ export function GroupInfoPanel({
   onOpenEssence?: () => void;
   onOpenAlbums?: () => void;
   onOpenFiles?: () => void;
+  onOpenSign?: () => void;
   onClose?: () => void;
 }) {
   const memberListRef = useRef<HTMLDivElement | null>(null);
@@ -190,8 +193,14 @@ export function GroupInfoPanel({
           </button>
         </section>
       ) : null}
-      {onOpenEssence || onOpenAlbums || onOpenFiles ? (
+      {onOpenEssence || onOpenAlbums || onOpenFiles || onOpenSign ? (
         <nav className="weq-group-content-actions" aria-label="群内容">
+          {onOpenSign ? (
+            <button type="button" onClick={onOpenSign}>
+              <CalendarCheck size={17} />
+              <span>打卡</span>
+            </button>
+          ) : null}
           {onOpenEssence ? (
             <button type="button" onClick={onOpenEssence}>
               <Sparkles size={17} />

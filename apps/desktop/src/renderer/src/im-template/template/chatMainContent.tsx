@@ -99,6 +99,7 @@ export function ChatMainContent({
   onOpenGroupAlbums,
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
+  onOpenGroupSign,
   onOpenGroupEssence,
   onOpenGroupInfoDetail,
   onRenameGroupMember,
@@ -207,6 +208,7 @@ export function ChatMainContent({
   onOpenGroupAlbums?: (conversation: GroupConversation) => void;
   onOpenGroupFiles?: (conversation: GroupConversation) => void;
   onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
+  onOpenGroupSign?: (conversation: GroupConversation) => void;
   onOpenGroupEssence?: (conversation: GroupConversation) => void;
   /** 群资料面板「群资料」入口：卡片本体在应用层（components/GroupInfoDetailDialog）。 */
   onOpenGroupInfoDetail?: (
@@ -321,6 +323,7 @@ export function ChatMainContent({
       onOpenGroupAlbums={onOpenGroupAlbums}
       onOpenGroupFiles={onOpenGroupFiles}
       onOpenGroupAnnouncements={onOpenGroupAnnouncements}
+      onOpenGroupSign={onOpenGroupSign}
       onOpenGroupEssence={onOpenGroupEssence}
       onOpenGroupInfoDetail={onOpenGroupInfoDetail}
       onRenameGroupMember={onRenameGroupMember}

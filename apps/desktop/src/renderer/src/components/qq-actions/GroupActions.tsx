@@ -165,17 +165,6 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
         </details>
         <div className="weq-qq-action-bar">
           <ActionIcon
-            label="群打卡"
-            disabled={a.disabled}
-            onClick={() =>
-              void a.perform((b) =>
-                client.account.qqActions.groupSettings.mutate({ ...b, groupId, action: 'sign' }),
-              )
-            }
-          >
-            <Check size={16} />
-          </ActionIcon>
-          <ActionIcon
             label="退出 QQ 群"
             disabled={a.disabled}
             onClick={() =>

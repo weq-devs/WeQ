@@ -22,6 +22,7 @@ import { FavoriteActions } from '../src/renderer/src/components/qq-actions/Favor
 import { GroupJoinAction } from '../src/renderer/src/components/qq-actions/GroupJoinAction';
 import { GroupActions, GroupTodos } from '../src/renderer/src/components/qq-actions/GroupActions';
 import { GroupAnnouncementsDialog } from '../src/renderer/src/components/GroupAnnouncementsDialog';
+import { GroupSignDialog } from '../src/renderer/src/components/GroupSignDialog';
 import { TypingStatus } from '../src/renderer/src/components/qq-actions/ChatActions';
 import { QqInlineKeyboard } from '../src/renderer/src/components/QqInlineKeyboard';
 import { useViewState } from '../src/renderer/src/state/view';
@@ -44,6 +45,7 @@ const state = vi.hoisted(() => ({
     token: '00000000-0000-4000-8000-000000000001',
     alreadyMember: false,
   })),
+  refreshSigns: vi.fn(async () => {}),
   data: {} as Record<string, unknown>,
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
@@ -119,7 +121,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         account: {
           listBuddyRequests: { invalidate: async () => {} },
           listGroupNotifies: { invalidate: async () => {} },
-          qqActions: { requests: { invalidate: async () => {} } },
+          qqActions: {
+            requests: { invalidate: async () => {} },
+            groupReadTools: { invalidate: state.refreshSigns },
+          },
         },
       }),
       account: {
@@ -183,6 +188,7 @@ beforeEach(() => {
   state.confirm.mockReset().mockResolvedValue(true);
   state.picker.mockClear();
   state.prepare.mockClear();
+  state.refreshSigns.mockClear();
   state.data = {
     groupPermissions: { canManage: true, role: 'admin', selfUin: '10001' },
     fileSummary: { fileCount: 1, maxCount: 100, usedSpace: 10, totalSpace: 1000 },
@@ -202,6 +208,36 @@ afterEach(() => {
 });
 
 describe('QQ 主动操作的实际界面', () => {
+  it('打卡页使用可见今日动作，防重复点击，成功后刷新记录，离线不可写', async () => {
+    const management = fixture(() => h(GroupActions, { groupId: 123 }));
+    expect(management.button('群打卡')).toBeNull();
+    const f = fixture(() =>
+      h(GroupSignDialog, { groupCode: '123', groupName: '测试群', onClose: vi.fn() }),
+    );
+    let finish!: (outcome: QQWriteOutcome) => void;
+    state.mutate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    act(() => f.button('今日打卡').click());
+    expect(f.button('今日打卡').disabled).toBe(true);
+    act(() => f.button('今日打卡').click());
+    expect(state.mutate).toHaveBeenCalledOnce();
+    expect(state.mutate).toHaveBeenCalledWith('groupSettings', {
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      groupId: 123,
+      action: 'sign',
+    });
+    await act(async () => finish({ state: 'accepted' }));
+    expect(state.refreshSigns).toHaveBeenCalledOnce();
+    expect(f.host.querySelector('summary')).toBeNull();
+    state.available = false;
+    f.update();
+    expect(f.button('今日打卡').disabled).toBe(true);
+  });
   it('群待办与公告共用导航，待办不再藏在群管理折叠区', async () => {
     state.data.todoList = [{ sequence: '123', text: '统一入口的待办' }];
     const management = fixture(() => h(GroupActions, { groupId: 123 }));

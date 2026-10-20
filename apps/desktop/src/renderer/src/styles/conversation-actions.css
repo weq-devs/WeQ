@@ -51,6 +51,7 @@ html[data-theme="dark"] .weq-conversation-actions-menu { border-color: var(--weq
 .weq-group-announcement > button > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
 .weq-group-announcement p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; margin: 6px 0 0; color: var(--weq-fg-secondary); font-size: 12px; line-height: 1.5; }
 .weq-group-content-actions { display: grid; flex: none; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 12px 14px 0; }
+.weq-group-content-actions:has(> button:nth-child(4)) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .weq-group-content-actions button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-width: 0; min-height: 54px; padding: 7px 4px; border: 1px solid var(--weq-border-subtle); border-radius: 4px; background: transparent; color: var(--weq-fg-primary); font-size: 12px; cursor: pointer; }
 .weq-group-content-actions button:hover, .weq-group-content-actions button:focus-visible { background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent); color: var(--weq-accent-effective); }
 .chat-actions .weq-mobile-group-info-trigger { display: none; }

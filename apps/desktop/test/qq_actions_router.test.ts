@@ -158,6 +158,23 @@ function fixture() {
 }
 
 describe('主动操作的账号与参数边界', () => {
+  it('普通成员可打卡，路由只用当前绑定目标，原生失败不上报受理', async () => {
+    const f = fixture();
+    f.s.groupInfo.listGroupDirectory.mockResolvedValue([{ groupCode: '123', role: 'member' }]);
+    await expect(f.caller.groupSettings({ ...group, action: 'sign' })).resolves.toEqual({
+      state: 'accepted',
+    });
+    expect(f.s.interaction.sendGroupSign).toHaveBeenCalledWith(123);
+    f.s.interaction.sendGroupSign.mockRejectedValueOnce(new Error('打卡被拒绝'));
+    await expect(f.caller.groupSettings({ ...group, action: 'sign' })).rejects.toThrow(
+      '打卡被拒绝',
+    );
+    f.switchAccount();
+    await expect(f.caller.groupSettings({ ...group, action: 'sign' })).rejects.toThrow(
+      '账号已切换',
+    );
+    expect(f.s.interaction.sendGroupSign).toHaveBeenCalledTimes(2);
+  });
   it('普通成员只能管理自己上传的文件，不能管理目录或设置群待办', async () => {
     const f = fixture();
     f.s.groupInfo.listGroupDirectory.mockResolvedValue([{ groupCode: '123', role: 'member' }]);

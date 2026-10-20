@@ -78,6 +78,7 @@ import {
   GroupAnnouncementsDialog,
   type GroupBulletinWire,
 } from '../components/GroupAnnouncementsDialog';
+import { GroupSignDialog } from '../components/GroupSignDialog';
 import { ContactNoticeDialog, GroupNoticeDialog } from '../components/ContactNoticeDialogs';
 import { GroupInfoDetailDialog } from '../components/GroupInfoDetailDialog';
 import type { GroupInfoDetail } from '../im-template/template/conversationDetails';
@@ -2614,6 +2615,10 @@ export function MainView(): ReactElement {
     groupCode: string;
     groupName: string;
   } | null>(null);
+  const [groupSignDialog, setGroupSignDialog] = useState<{
+    groupCode: string;
+    groupName: string;
+  } | null>(null);
   const [essenceDialog, setEssenceDialog] = useState<{
     groupCode: string;
     groupName: string;
@@ -2783,6 +2788,12 @@ export function MainView(): ReactElement {
         groupCode: conversation.id,
         groupName: conversation.group.name,
       });
+    },
+    [],
+  );
+  const handleOpenGroupSign = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>) => {
+      setGroupSignDialog({ groupCode: conversation.id, groupName: conversation.group.name });
     },
     [],
   );
@@ -8245,6 +8256,7 @@ export function MainView(): ReactElement {
                           onOpenGroupAlbums={handleOpenGroupAlbums}
                           onOpenGroupFiles={handleOpenGroupFiles}
                           onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
+                          onOpenGroupSign={handleOpenGroupSign}
                           onOpenGroupEssence={handleOpenGroupEssence}
                           onOpenGroupInfoDetail={handleOpenGroupInfoDetail}
                           onRenameGroupMember={handleRenameGroupMember}
@@ -8469,6 +8481,13 @@ export function MainView(): ReactElement {
               initialFolderId={groupFileDialog.initialFolderId}
               initialFileId={groupFileDialog.initialFileId}
               onClose={() => setGroupFileDialog(null)}
+            />
+          ) : null}
+          {groupSignDialog ? (
+            <GroupSignDialog
+              groupCode={groupSignDialog.groupCode}
+              groupName={groupSignDialog.groupName}
+              onClose={() => setGroupSignDialog(null)}
             />
           ) : null}
           {announcementsDialog ? (

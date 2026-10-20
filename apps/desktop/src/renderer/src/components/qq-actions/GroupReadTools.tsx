@@ -1,9 +1,16 @@
 import { useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { trpc } from '../../trpc/client';
-import { ActionIcon, RefreshAction, useQQAction } from './shared';
+import { CalendarCheck, ChevronLeft, ChevronRight } from 'lucide-react';
+import { client, trpc } from '../../trpc/client';
+import { ActionFeedback, ActionIcon, RefreshAction, useQQAction } from './shared';
 
-export function GroupReadTools({ groupId }: { groupId: number }) {
+export function GroupReadTools({
+  groupId,
+  signing = false,
+}: {
+  groupId: number;
+  signing?: boolean;
+}) {
+  const utils = trpc.useUtils();
   const a = useQQAction(`group-read:${groupId}`),
     [open, setOpen] = useState(false);
   const today = new Intl.DateTimeFormat('en-CA', {
@@ -17,14 +24,42 @@ export function GroupReadTools({ groupId }: { groupId: number }) {
   const query = trpc.account.qqActions.groupReadTools.useQuery(
     { ...a.binding!, groupId, day: day.replaceAll('-', ''), offset },
     {
-      enabled: open && a.available && /^\d{4}-\d{2}-\d{2}$/.test(day),
+      enabled: (signing || open) && a.available && /^\d{4}-\d{2}-\d{2}$/.test(day),
       retry: false,
       staleTime: 60_000,
     },
   );
-  return (
-    <details className="weq-qq-actions" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary>群打卡与 @全体额度</summary>
+  const content = (
+    <>
+      {signing && (
+        <div className="weq-qq-action-bar">
+          <button
+            type="button"
+            className="weq-set-btn"
+            aria-label="今日打卡"
+            disabled={a.disabled}
+            onClick={() =>
+              void a.perform(
+                (binding) =>
+                  client.account.qqActions.groupSettings.mutate({
+                    ...binding,
+                    groupId,
+                    action: 'sign',
+                  }),
+                async () => {
+                  setDay(today);
+                  setOffset(0);
+                  await utils.account.qqActions.groupReadTools.invalidate();
+                },
+              )
+            }
+          >
+            <CalendarCheck size={16} />
+            今日打卡
+          </button>
+        </div>
+      )}
+      <ActionFeedback action={a} />
       <div className="weq-qq-action-form">
         <div className="weq-qq-action-bar">
           <input
@@ -45,11 +80,13 @@ export function GroupReadTools({ groupId }: { groupId: number }) {
         {query.error && <p role="alert">{query.error.message}</p>}
         {query.data && (
           <>
-            <p>
-              @全体成员：{query.data.atAll.canAtAll ? '可用' : '不可用'} · 本账号剩余{' '}
-              {query.data.atAll.remainCountForUin} 次 · 群剩余{' '}
-              {query.data.atAll.remainCountForGroup} 次
-            </p>
+            {!signing && (
+              <p>
+                @全体成员：{query.data.atAll.canAtAll ? '可用' : '不可用'} · 本账号剩余{' '}
+                {query.data.atAll.remainCountForUin} 次 · 群剩余{' '}
+                {query.data.atAll.remainCountForGroup} 次
+              </p>
+            )}
             <ul className="weq-qq-action-list">
               {query.data.signed.map((p) => (
                 <li key={`${p.userId}:${p.time}`}>
@@ -89,6 +126,16 @@ export function GroupReadTools({ groupId }: { groupId: number }) {
           </>
         )}
       </div>
+    </>
+  );
+  return signing ? (
+    <section className="weq-qq-actions" aria-label="群打卡记录">
+      {content}
+    </section>
+  ) : (
+    <details className="weq-qq-actions" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>群打卡与 @全体额度</summary>
+      {content}
     </details>
   );
 }

@@ -401,6 +401,7 @@ export function ChatPane({
   onOpenGroupAlbums,
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
+  onOpenGroupSign,
   onOpenGroupEssence,
   onOpenGroupInfoDetail,
   onRenameGroupMember,
@@ -500,6 +501,7 @@ export function ChatPane({
   onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupFiles?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
+  onOpenGroupSign?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupEssence?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   /** 群资料面板「群资料」入口：卡片本体搬到了应用层（components/GroupInfoDetailDialog）。 */
   onOpenGroupInfoDetail?: (
@@ -4215,6 +4217,7 @@ export function ChatPane({
               onOpenAnnouncements={
                 onOpenGroupAnnouncements ? () => onOpenGroupAnnouncements(conversation) : undefined
               }
+              onOpenSign={onOpenGroupSign ? () => onOpenGroupSign(conversation) : undefined}
               onOpenEssence={
                 onOpenGroupEssence ? () => onOpenGroupEssence(conversation) : undefined
               }
