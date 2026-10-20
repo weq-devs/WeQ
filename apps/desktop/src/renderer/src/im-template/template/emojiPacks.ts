@@ -39,6 +39,8 @@ export type EmojiItem = {
    * 占位卡片上用静态小图预览。
    */
   large: boolean;
+  /** 收藏逻辑地址：发送前由主进程核对收藏记录并读取原图。 */
+  favorite?: { scope: string; bucket: string; variant: 'ori' | 'thumb'; file: string };
 };
 
 export type MessagePart =
@@ -122,6 +124,7 @@ export function favEmojiItem(
     id: `${scope}:${bucket}:${file}`,
     name: name || file,
     token: `[[chat:fav:${scope}:${bucket}:${variant}:${file}]]`,
+    favorite: { scope, bucket, variant, file },
     src: mediaUrl('cemoji', { scope, bucket, v: variant, file }),
     glyph: '',
     large: true,

@@ -682,6 +682,7 @@ export type {
 } from './account/group_album_media';
 
 export { MediaUrlService, mediaNodeFromElement, downloadUrlToFile } from './account/media_url';
+export { prepareFavoriteEmojiElements } from './account/favorite_emoji_send';
 export type { MediaElement, GroupFileDownload, DownloadOutcome } from './account/media_url';
 export { PeerStatsService } from './account/peer_stats';
 export { ChatImageOcrService } from './account/ocr_image';

@@ -166,6 +166,8 @@ export interface PanelFavItem {
   bucket: string;
   /** 原图磁盘文件名（可能为空）。 */
   oriFile: string | null;
+  /** 原图独立寻址；可能与缩略图不在同一目录。 */
+  original: { scope: 'personal' | 'recv'; bucket: string; file: string } | null;
   /** 缩略图磁盘文件名（可能为空）。 */
   thumbFile: string | null;
   /** 在线 CDN 兜底（可空）。 */
@@ -406,6 +408,7 @@ export class EmojiService {
             scope: chosen.scope,
             bucket: chosen.bucket,
             oriFile: ori?.file ?? null,
+            original: ori,
             thumbFile: thumb?.file ?? null,
             remoteUrl: row.remoteUrl,
           };
