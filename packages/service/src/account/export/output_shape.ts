@@ -4,6 +4,8 @@ import { sanitizeSegment } from '../../common/path_sanitize';
 export interface ExportOutputPlan {
   kind: 'messages' | 'contacts' | 'bundle' | 'file';
   name: string;
+  /** 已有资源的原文件名；仅 file 使用，可保留无扩展名文件。 */
+  fileName?: string;
   format?: string;
   formats?: string[];
   targetCount?: number;
@@ -32,8 +34,9 @@ export function exportOutputFileName(
   output: Extract<ExportOutputShape, { kind: 'file' }>,
   fallback = 'export',
 ): string {
-  if (!EXPORT_EXTENSION_PATTERN.test(output.extension)) throw new Error('输出扩展名无效。');
-  return `${sanitizeSegment(output.name, fallback, { maxLen: 120 })}.${output.extension}`;
+  if (output.extension && !EXPORT_EXTENSION_PATTERN.test(output.extension))
+    throw new Error('输出扩展名无效。');
+  return `${sanitizeSegment(output.name, fallback, { maxLen: 120 })}${output.extension ? `.${output.extension}` : ''}`;
 }
 
 /** 与消息写入管线共用，能力不可用时不伪造实际不存在的额外产物。 */
@@ -71,6 +74,11 @@ export function describeExportOutput(
   )
     throw new Error('未选择有效的输出目标。');
   if (plan.kind === 'bundle' || (plan.targetCount ?? 1) > 1) return { kind: 'directory' };
+  if (plan.kind === 'file' && plan.fileName !== undefined) {
+    const name = sanitizeSegment(plan.fileName.replace(/^.*[\\/]/, ''), '附件', { maxLen: 512 });
+    const split = /^(.*)\.([a-z0-9]{1,16})$/i.exec(name);
+    return { kind: 'file', name: split?.[1] || name, extension: split?.[1] ? split[2]! : '' };
+  }
   const formats = plan.formats?.length ? plan.formats : plan.format ? [plan.format] : [];
   if (!formats.length) throw new Error('单文件输出需要确定格式。');
   let normalized = formats;

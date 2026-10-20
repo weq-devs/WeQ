@@ -1,11 +1,37 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MailPage as MailPageData, MailStatus } from '@weq/service/mail';
 import { SYSTEM_MAIL_FOLDERS } from '@weq/service/mail-wire';
 import { MailPage } from '../src/renderer/src/views/mail/MailPage';
 import type { MailApi } from '../src/renderer/src/views/mail/api';
+import type { ExportSavePolicy } from '@weq/service';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const saveState = vi.hoisted(() => ({
+  current: true,
+  web: false,
+  prepare: vi.fn(
+    async (_intent?: ExportSavePolicy, _output?: unknown): Promise<ExportSavePolicy | null> => ({
+      mode: 'after',
+    }),
+  ),
+}));
+vi.mock('../src/renderer/src/lib/target', () => ({
+  get IS_WEB() {
+    return saveState.web;
+  },
+}));
+vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
+  useExportSavePolicy: () => ({
+    binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
+    settings: { isLoading: false },
+    prepareSave: saveState.prepare,
+    isCurrent: () => saveState.current,
+  }),
+}));
 
 const ready: MailStatus = {
   state: 'ready',
@@ -57,6 +83,7 @@ function fixture() {
     notifications: vi.fn(async () => ready),
     upload: vi.fn(async () => null),
     download: vi.fn(async () => false),
+    save: vi.fn(async () => 'attachment-task'),
     image: vi.fn(async () => ({ mime: 'image/png', base64: '' })),
     subscribe: vi.fn(() => () => {}),
     openLink: vi.fn(async () => {}),
@@ -64,6 +91,11 @@ function fixture() {
   };
   return { api, list };
 }
+beforeEach(() => {
+  saveState.current = true;
+  saveState.web = false;
+  saveState.prepare.mockReset().mockResolvedValue({ mode: 'after' });
+});
 afterEach(() => vi.unstubAllGlobals());
 async function mount(
   api: MailApi,
@@ -154,6 +186,106 @@ describe('邮箱文件夹重复选择', () => {
       await act(async () => release?.(page('旧响应')));
       expect(view.host.textContent).toContain('最新列表');
       expect(view.host.textContent).not.toContain('旧响应');
+    } finally {
+      view.close();
+    }
+  });
+});
+
+async function attachmentView() {
+  const { api } = fixture();
+  vi.mocked(api.read).mockResolvedValue({
+    ...page().items[0]!,
+    html: '<p>合成正文</p>',
+    replyTo: null,
+    attachments: [{ id: 'attachment-token', name: 'README', size: 7, available: true, big: false }],
+  });
+  const view = await mount(api);
+  await act(async () => view.host.querySelector<HTMLButtonElement>('.weq-mail-row-main')!.click());
+  const layout = process.env.WEQ_MAIL_SAVE_LAYOUT;
+  if (layout) {
+    mkdirSync(layout, { recursive: true });
+    const styles = ['index.css', 'mail.css', 'export-save-actions.css']
+      .map(
+        (file) => `<link rel="stylesheet" href="/@fs${resolve('src/renderer/src/styles', file)}">`,
+      )
+      .join('');
+    writeFileSync(
+      resolve(layout, saveState.web ? 'mail-web.html' : 'mail-desktop.html'),
+      `<!doctype html><html lang="zh-CN"><meta charset="utf-8">${styles}<style>html,body{margin:0;height:100%;background:var(--background);font-family:system-ui}*,*::before,*::after{box-sizing:border-box}</style><body>${view.host.innerHTML}</body></html>`,
+    );
+  }
+  return { ...view, api };
+}
+describe('附件公共保存入口', () => {
+  it('按所选附件的真实文件名准备单文件，创建任务而非直接另存', async () => {
+    const view = await attachmentView();
+    try {
+      await act(async () =>
+        view.host.querySelector<HTMLButtonElement>('[aria-label="保存附件 README"]')!.click(),
+      );
+      expect(saveState.prepare).toHaveBeenCalledWith(undefined, {
+        kind: 'file',
+        name: 'README',
+        fileName: 'README',
+      });
+      expect(view.api.save).toHaveBeenCalledWith('attachment-token', { mode: 'after' }, 'source-a');
+      expect(view.api.download).not.toHaveBeenCalled();
+      expect(view.host.textContent).toContain('README');
+    } finally {
+      view.close();
+    }
+  });
+  it('本次另存取消不发起下载，保留邮件正文和附件列表', async () => {
+    const view = await attachmentView();
+    saveState.prepare.mockResolvedValueOnce(null);
+    try {
+      act(() =>
+        view.host
+          .querySelector<HTMLButtonElement>('[aria-label="附件 README 的本次保存选项"]')!
+          .click(),
+      );
+      await act(async () =>
+        [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+          .find((item) => item.textContent === '另存到…')!
+          .click(),
+      );
+      expect(saveState.prepare.mock.calls[0]![0]).toEqual({ mode: 'before' });
+      expect(view.api.save).not.toHaveBeenCalled();
+      expect(view.api.download).not.toHaveBeenCalled();
+      expect(view.host.textContent).toContain('README');
+    } finally {
+      view.close();
+    }
+  });
+  it('准备期间来源变化，不将旧附件写入新来源', async () => {
+    const view = await attachmentView();
+    saveState.prepare.mockImplementationOnce(async () => {
+      saveState.current = false;
+      return { mode: 'after' };
+    });
+    try {
+      await act(async () =>
+        view.host.querySelector<HTMLButtonElement>('[aria-label="保存附件 README"]')!.click(),
+      );
+      expect(view.api.save).not.toHaveBeenCalled();
+    } finally {
+      view.close();
+    }
+  });
+  it('Web 浏览器下载与服务器保存分开，不准备服务器路径', async () => {
+    saveState.web = true;
+    const view = await attachmentView();
+    try {
+      expect(view.host.querySelector('[title="保存附件到服务器"]')).not.toBeNull();
+      await act(async () =>
+        view.host
+          .querySelector<HTMLButtonElement>('[aria-label="下载附件 README 到浏览器"]')!
+          .click(),
+      );
+      expect(view.api.download).toHaveBeenCalledWith('attachment-token', expect.any(AbortSignal));
+      expect(saveState.prepare).not.toHaveBeenCalled();
+      expect(view.api.save).not.toHaveBeenCalled();
     } finally {
       view.close();
     }

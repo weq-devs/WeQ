@@ -140,6 +140,7 @@ export function Modal({
   anchor,
   centered = false,
   dismissOnOutside = true,
+  portalTarget,
 }: {
   onClose?: () => void;
   children: ReactNode;
@@ -158,6 +159,7 @@ export function Modal({
   centered?: boolean;
   /** 安全验证、编辑正文等流程可显式禁用点外关闭。 */
   dismissOnOutside?: boolean;
+  portalTarget?: Element | null;
 }): ReactElement | null {
   const document = useRenderDocument();
   const tabActive = useTabActive();
@@ -250,7 +252,7 @@ export function Modal({
         </OverlayLayerContext.Provider>
       </div>
     </div>,
-    document.body,
+    portalTarget ?? document.body,
   );
 }
 

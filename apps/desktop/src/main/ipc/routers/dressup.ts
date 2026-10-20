@@ -21,7 +21,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { observable } from '@trpc/server/observable';
-import { getHost } from '@weq/service';
+import { describeExportOutput, exportOutputFileName, getHost } from '@weq/service';
 import { z } from 'zod';
 import { DressAppId, normalizeMallItems, toPeerDress, type DressMallItem } from '@weq/service';
 import {
@@ -33,6 +33,12 @@ import {
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { buildDecorationBundle, buildDecorationFile } from './dressup_export';
+import {
+  bindExportSaveRequest,
+  exportAccountBindingInput,
+  exportSavePolicyInput,
+  prepareExportDestination,
+} from './export_save';
 
 function requireServices(): AccountServices {
   const ctx = getAppContext();
@@ -368,37 +374,90 @@ export const dressupRouter = router({
    * 把一条消息的装扮资源另存到用户选定位置。
    *
    * `kind` 省略 = 三项打成一个 zip；传 `kind` = 只存那一项（字体 / 静态图给
-   * 原生文件，多帧动画才是 zip）。保存框走 HostBridge，Web 版会落到服务端导出
-   * 目录并走 `/_download/:id`（前端据此触发浏览器下载）。
+   * 原生文件，多帧动画才是 zip）。根据真实产物调用公共保存准备，再创建资源任务。
+   * Web 浏览器下载独立指定，不把服务器保存冒充本机下载。
    */
   saveMsgDecoration: procedure
     .input(
-      z.object({
-        bubbleId: z.number().int().min(0).default(0),
-        fontId: z.number().int().min(0).default(0),
-        widgetId: z.number().int().min(0).default(0),
-        kind: z.enum(['font', 'bubble', 'widget']).optional(),
-      }),
+      z
+        .object({
+          bubbleId: z.number().int().min(0).default(0),
+          fontId: z.number().int().min(0).default(0),
+          widgetId: z.number().int().min(0).default(0),
+          kind: z.enum(['font', 'bubble', 'widget']).optional(),
+          savePolicy: exportSavePolicyInput.optional(),
+          browserDownload: z.boolean().optional(),
+        })
+        .extend(exportAccountBindingInput.shape),
     )
     .mutation(async ({ input }) => {
       const services = requireServices();
+      const context = getAppContext();
+      const current = bindExportSaveRequest(
+        {
+          expectedAccountUin: input.expectedAccountUin ?? context.account?.context.uin.toString(),
+          expectedAccountConfigId:
+            input.expectedAccountConfigId ?? services.accountConfig.getRecord()?.configId,
+        },
+        () => {
+          const ctx = getAppContext();
+          return {
+            uin: ctx.account?.context.uin.toString(),
+            configId: ctx.services?.accountConfig.getRecord()?.configId,
+            services: ctx.services,
+          };
+        },
+      );
       const ids = { bubbleId: input.bubbleId, fontId: input.fontId, widgetId: input.widgetId };
       const exportFile = input.kind
         ? await buildDecorationFile(services, ids, input.kind)
         : await buildDecorationBundle(services, ids);
-      const extension = exportFile.fileName.split('.').pop() ?? 'zip';
-      const target = await getHost().pickSaveTarget({
-        defaultName: exportFile.fileName,
-        extension,
+      current();
+      const host = getHost();
+      if (input.browserDownload) {
+        if (!host.exportRoot || !host.registerDownload) throw new Error('当前环境不支持浏览器下载');
+        const target = await host.pickSaveTarget({ defaultName: exportFile.fileName });
+        if (!target) return { mode: 'cancelled' as const };
+        current();
+        await writeFile(target.path, exportFile.bytes, { flag: 'wx' });
+        current();
+        return {
+          mode: 'browser' as const,
+          downloadId: target.downloadId,
+          name: exportFile.fileName,
+        };
+      }
+      const output = describeExportOutput(
+        { kind: 'file', name: exportFile.fileName, fileName: exportFile.fileName },
+        { avatar: false, transcribe: false, ocr: false, dress: false },
+      );
+      if (output.kind !== 'file') throw new Error('装扮输出形态无效');
+      const settings = context.bootstrap?.userConfig.getSettings();
+      const policy = await prepareExportDestination(
+        input.savePolicy ?? { mode: settings?.exportSaveMode ?? 'before' },
+        settings?.defaultExportDir,
+        host,
+        output,
+        current,
+      );
+      if (!policy) return { mode: 'cancelled' as const };
+      current();
+      const fileName = exportOutputFileName(output);
+      const taskId = await services.exportManager.startResourceExport({
+        kind: 'decoration',
+        name: output.name,
+        output,
+        savePolicy: policy,
+        run: async ({ directory, signal }) => {
+          current();
+          signal.throwIfAborted();
+          await writeFile(join(directory, fileName), exportFile.bytes, { flag: 'wx', signal });
+          current();
+          signal.throwIfAborted();
+          return { total: 1, ok: 1, failed: [], fileName };
+        },
       });
-      if (!target) return { saved: false as const, canceled: true as const };
-      await writeFile(target.path, exportFile.bytes);
-      return {
-        saved: true as const,
-        path: target.path,
-        downloadId: target.downloadId,
-        name: exportFile.fileName,
-      };
+      return { mode: 'task' as const, taskId };
     }),
 
   /**

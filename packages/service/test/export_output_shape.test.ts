@@ -6,6 +6,7 @@ import { ExportTaskManager } from '../src/account/export/task_manager';
 import type { MsgService } from '../src/account/msg';
 import {
   describeExportOutput,
+  exportOutputFileName,
   messageOutputFlags,
   type ExportOutputPlan,
 } from '../src/account/export/output_shape';
@@ -22,6 +23,24 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('导出真实输出形态', () => {
+  it.each(['README', 'report.TXT', 'data.tar.gz', '.profile', '附件.特殊后缀'])(
+    '已有单文件保留原文件名 %s，不猜测或补写格式',
+    (fileName) => {
+      const output = describeExportOutput({ kind: 'file', name: fileName, fileName }, none);
+      expect(output.kind).toBe('file');
+      if (output.kind === 'file') expect(exportOutputFileName(output)).toBe(fileName);
+    },
+  );
+  it('已有文件的路径只保留末段，长名称仍保留真实扩展名', () => {
+    const output = describeExportOutput(
+      { kind: 'file', name: '附件', fileName: `folder\\${'a'.repeat(200)}.PDF` },
+      none,
+    );
+    if (output.kind !== 'file') throw new Error('应为单文件');
+    expect(output.extension).toBe('PDF');
+    expect(exportOutputFileName(output)).toMatch(/\.PDF$/);
+    expect(exportOutputFileName(output)).not.toContain('folder');
+  });
   it('实际建任务时再次拒绝多文件结果使用单文件位置，不留下任务或触发生成', async () => {
     const root = mkdtempSync(join(tmpdir(), 'weq-output-shape-'));
     roots.push(root);

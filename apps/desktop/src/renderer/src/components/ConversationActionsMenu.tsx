@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { OverlayLayer } from './OverlayLayer';
 import '../styles/conversation-actions.css';
+import { useRenderDocument } from '../lib/renderDocument';
 
 export function ConversationActionsMenu({
   x,
@@ -8,6 +9,7 @@ export function ConversationActionsMenu({
   actions,
   onClose,
   label = '会话操作',
+  portalTarget,
 }: {
   x: number;
   y: number;
@@ -21,11 +23,14 @@ export function ConversationActionsMenu({
   }>;
   onClose: () => void;
   label?: string;
+  portalTarget?: Element | null;
 }) {
+  const document = useRenderDocument();
+  const window = document.defaultView ?? globalThis.window;
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const close = (event: Event) => {
-      if (event.target instanceof Node && ref.current?.contains(event.target)) return;
+      if (event.target instanceof window.Node && ref.current?.contains(event.target)) return;
       onClose();
     };
     window.addEventListener('resize', close);
@@ -34,7 +39,7 @@ export function ConversationActionsMenu({
       window.removeEventListener('resize', close);
       document.removeEventListener('scroll', close, true);
     };
-  }, [onClose]);
+  }, [onClose, document, window]);
   useLayoutEffect(() => {
     const menu = ref.current;
     if (!menu) return;
@@ -42,12 +47,13 @@ export function ConversationActionsMenu({
     menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - rect.width - 8))}px`;
     menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))}px`;
     menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
-  }, [x, y]);
+  }, [x, y, window]);
   return (
     <OverlayLayer
       presentation="popover"
       onClose={onClose}
       className="weq-conversation-actions-layer"
+      portalTarget={portalTarget}
     >
       <div
         ref={ref}

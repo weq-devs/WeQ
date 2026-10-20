@@ -12,14 +12,21 @@
  */
 
 import { z } from 'zod';
-import { SEARCH_CATEGORIES, saveExportOutput, exportOutputFileName } from '@weq/service';
+import {
+  SEARCH_CATEGORIES,
+  saveExportOutput,
+  exportOutputFileName,
+  describeExportOutput,
+} from '@weq/service';
 import {
   exportDownloadName,
   exportAccountBindingInput,
   exportSavePolicyInput,
   saveCompletedExportTask,
+  prepareExportDestination,
 } from './export_save';
 import { mergeRoamingTimeline } from '../../../shared/roaming_timeline';
+import { QZONE_ALBUM_PAGE_SIZE } from '../../../shared/qzone_album_export';
 import {
   PROJECT_GROUP_CODE,
   PROJECT_GROUP_NAME,
@@ -71,6 +78,7 @@ import { emojiPanelRouter } from './emoji_panel';
 import { emojiPackRouter } from './emoji_export';
 import { fileResourceRouter } from './file_resource';
 import { mediaResourceRouter } from './media_resource';
+import { mediaSaveRouter } from './media_save';
 import { resourceCleanupRouter } from './resource_cleanup';
 import { dressupRouter } from './dressup';
 import { qzoneRouter } from './qzone';
@@ -415,13 +423,15 @@ const qzoneAlbumMediaItemInput = z.object({
   picKey: z.string().optional(),
 });
 
-const exportQzoneAlbumMediaInput = z.object({
-  hostUin: z.string().min(1),
-  topicId: z.string().min(1),
-  outputDir: z.string().min(1),
-  items: z.array(qzoneAlbumMediaItemInput).min(1),
-  concurrency: z.number().int().min(1).max(8).optional(),
-});
+const exportQzoneAlbumMediaInput = z
+  .object({
+    hostUin: z.string().min(1),
+    topicId: z.string().min(1),
+    outputDir: z.string().min(1),
+    items: z.array(qzoneAlbumMediaItemInput).min(1),
+    concurrency: z.number().int().min(1).max(8).optional(),
+  })
+  .merge(exportAccountBindingInput);
 /** 导出装扮资源（气泡 / 字体 / 挂件），缺省不导出。 */
 const dressInput = z
   .object({
@@ -1276,60 +1286,194 @@ async function exportGroupAlbums(
 async function exportQzoneAlbumMedia(
   services: AccountServices,
   input: z.infer<typeof exportQzoneAlbumMediaInput>,
+  context?: {
+    signal: AbortSignal;
+    check(): void;
+    progress(current: number, total: number): void;
+    resolved?: { url: string; fileName: string };
+  },
 ): Promise<QzoneAlbumMediaExportResult> {
   requireOnlineQqForWeb(services);
-
-  const work: Array<{
-    isVideo: boolean;
-    url: string;
-    picKey: string;
-    targetPath: string;
-  }> = [];
   const used = new Set<string>();
-  input.items.forEach((item, index) => {
-    const fileName = uniqueFilename(
-      filenameFromUrl(item.url, item.name ?? '', index, item.isVideo ? '.mp4' : '.jpg'),
-      used,
-    );
-    work.push({
-      isVideo: Boolean(item.isVideo),
-      url: item.url,
-      picKey: item.picKey ?? '',
-      targetPath: join(input.outputDir, fileName),
-    });
-  });
-
   const failed: QzoneAlbumMediaExportResult['failed'] = [];
   let ok = 0;
   await mkdir(input.outputDir, { recursive: true });
-  await runWithConcurrency(work, input.concurrency ?? 4, async (item) => {
-    try {
-      let url = item.url;
-      if (item.isVideo && item.picKey) {
-        try {
-          const mp4 = await services.webQuery.getQzoneAlbumVideoUrl(
-            input.hostUin,
-            input.topicId,
-            item.picKey,
-          );
-          if (mp4) url = mp4;
-        } catch {
-          // 本体取不到就下封面图，不中断整个任务。
-        }
+  await runWithConcurrency(
+    input.items.map((item, index) => ({ item, index })),
+    input.concurrency ?? 4,
+    async ({ item, index }) => {
+      let fileName = item.name || item.id;
+      try {
+        context?.check();
+        context?.signal.throwIfAborted();
+        const source =
+          context?.resolved ?? (await resolveQzoneAlbumDownload(services, input, item, index));
+        context?.check();
+        context?.signal.throwIfAborted();
+        fileName = uniqueFilename(source.fileName, used);
+        await downloadAlbumUrl(source.url, join(input.outputDir, fileName), context?.signal);
+        context?.check();
+        ok += 1;
+      } catch (e) {
+        context?.signal.throwIfAborted();
+        context?.check();
+        failed.push({
+          name: item.url,
+          fileName,
+          error: e instanceof Error ? e.message : String(e),
+        });
       }
-      await mkdir(dirname(item.targetPath), { recursive: true });
-      await downloadAlbumUrl(url, item.targetPath);
-      ok += 1;
-    } catch (e) {
+      context?.progress(ok + failed.length, input.items.length);
+    },
+    context?.signal,
+  );
+
+  return { outputDir: input.outputDir, total: input.items.length, ok, failed };
+}
+
+/** 继续沿用视频本体／封面回退，仅根据实际选中的资源修正保存后缀。 */
+async function resolveQzoneAlbumDownload(
+  services: AccountServices,
+  input: { hostUin: string; topicId: string },
+  item: z.infer<typeof qzoneAlbumMediaItemInput>,
+  index: number,
+): Promise<{ url: string; fileName: string }> {
+  let url = item.url,
+    video = false;
+  if (item.isVideo && item.picKey) {
+    try {
+      const mp4 = await services.webQuery.getQzoneAlbumVideoUrl(
+        input.hostUin,
+        input.topicId,
+        item.picKey,
+      );
+      if (mp4) {
+        url = mp4;
+        video = true;
+      }
+    } catch {
+      /* 本体不可用时仍保存既有封面，不新增媒体获取链路。 */
+    }
+  }
+  let fileName = filenameFromUrl(url, item.name ?? '', index, video ? '.mp4' : '.jpg');
+  if (item.isVideo) {
+    let extension = '.jpg';
+    if (video) extension = '.mp4';
+    else {
+      try {
+        const ext = extname(new URL(url).pathname);
+        if (/^\.(?:jpg|jpeg|png|gif|webp)$/i.test(ext)) extension = ext;
+      } catch {
+        /* 无可用后缀时沿用封面默认格式。 */
+      }
+    }
+    const old = extname(fileName);
+    fileName = `${old ? fileName.slice(0, -old.length) : fileName}${extension}`;
+  }
+  return { url, fileName };
+}
+
+/** 迁移既有整本相册分页导出，选择范围仍是用户明确勾选的相册。 */
+async function exportSelectedQzoneAlbums(
+  services: AccountServices,
+  input: { hostUin: string; albums: Array<{ id: string; title?: string }>; outputDir: string },
+  context: { signal: AbortSignal; check(): void; progress(current: number, total: number): void },
+) {
+  const failed: Array<{ fileName: string; error: string }> = [];
+  const folders = new Set<string>();
+  let total = 0,
+    ok = 0;
+  for (const album of input.albums) {
+    context.signal.throwIfAborted();
+    context.check();
+    const folder = uniqueFilename(
+      sanitizePathSegment(`${album.title || '相册'}_${album.id}`, '相册'),
+      folders,
+    );
+    let start = 0,
+      pageIndex = 0,
+      sequence = 0;
+    const seen = new Set<string>();
+    try {
+      for (;;) {
+        context.signal.throwIfAborted();
+        context.check();
+        if (++pageIndex > 10000) throw new Error('相册分页未结束，请分批重试。');
+        const page = await services.webQuery.getQzoneAlbumPhotos(
+          input.hostUin,
+          album.id,
+          start,
+          QZONE_ALBUM_PAGE_SIZE,
+        );
+        context.signal.throwIfAborted();
+        context.check();
+        const photos = page?.photos ?? [];
+        if (!photos.length) {
+          if (start < Number(page?.totalInAlbum ?? 0))
+            throw new Error('相册分页提前返回空页，未导出全部媒体。');
+          break;
+        }
+        const fresh = photos.filter((photo) => {
+          const key = `${photo.isVideo}:${photo.picKey || photo.url || photo.thumbUrl}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        if (!fresh.length) throw new Error('相册分页重复，已停止，避免重复下载。');
+        const items = fresh.flatMap((photo) => {
+          sequence++;
+          if (!photo.url && !photo.thumbUrl) {
+            total++;
+            failed.push({ fileName: `${folder}/媒体-${sequence}`, error: '媒体缺少下载地址。' });
+            return [];
+          }
+          return [
+            {
+              id: photo.id || String(sequence),
+              name: `${String(sequence).padStart(6, '0')}_${photo.name || '媒体'}`,
+              url: photo.url || photo.thumbUrl,
+              isVideo: photo.isVideo,
+              picKey: photo.picKey,
+            },
+          ];
+        });
+        if (items.length) {
+          const result = await exportQzoneAlbumMedia(
+            services,
+            {
+              hostUin: input.hostUin,
+              topicId: album.id,
+              outputDir: join(input.outputDir, folder),
+              concurrency: 4,
+              items,
+            },
+            { ...context, progress: () => {} },
+          );
+          total += result.total;
+          ok += result.ok;
+          failed.push(
+            ...result.failed.map((failure) => ({
+              fileName: `${folder}/${failure.fileName}`,
+              error: failure.error,
+            })),
+          );
+        }
+        context.progress(ok + failed.length, total);
+        start += photos.length;
+        const size = Number(page?.totalInAlbum ?? 0);
+        if (size > 0 ? start >= size : photos.length < QZONE_ALBUM_PAGE_SIZE) break;
+      }
+    } catch (error) {
+      context.signal.throwIfAborted();
+      context.check();
+      total++;
       failed.push({
-        name: item.url,
-        fileName: basename(item.targetPath),
-        error: e instanceof Error ? e.message : String(e),
+        fileName: `${folder}/相册读取`,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
-  });
-
-  return { outputDir: input.outputDir, total: work.length, ok, failed };
+  }
+  return { total, ok, failed };
 }
 
 async function exportGroupFiles(
@@ -1491,6 +1635,7 @@ export const accountRouter = router({
   fileResource: fileResourceRouter,
   // ---- 图片墙 / QQ空间 / 图片 / 视频 local media cache browser ----
   mediaResource: mediaResourceRouter,
+  mediaSave: mediaSaveRouter,
   // ---- nt_data 资源清理释放 (本地资源整理 → 清理释放) ----
   resourceCleanup: resourceCleanupRouter,
   // ---- 个性装扮（气泡九宫格 / 聊天字体）----
@@ -5314,8 +5459,140 @@ export const accountRouter = router({
 
   /** 并发下载选中的空间相册媒体（照片原图 / 视频本体）到所选文件夹。 */
   exportQzoneAlbumMedia: procedure.input(exportQzoneAlbumMediaInput).mutation(async ({ input }) => {
-    return exportQzoneAlbumMedia(requireServices(), input);
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    const check = () => {
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换，请重新选择媒体。');
+    };
+    const policy = await prepareExportDestination(
+      { mode: 'before', directory: input.outputDir },
+      undefined,
+      getHost(),
+      { kind: 'directory' },
+      check,
+    );
+    if (!policy?.directory) throw new Error('保存目录不可用');
+    return exportQzoneAlbumMedia(
+      services,
+      { ...input, outputDir: policy.directory },
+      { signal: new AbortController().signal, check, progress: () => {} },
+    );
   }),
+
+  startQzoneAlbumMediaExport: procedure
+    .input(
+      exportQzoneAlbumMediaInput
+        .omit({ outputDir: true })
+        .merge(exportAccountBindingInput)
+        .extend({ name: z.string().min(1), savePolicy: exportSavePolicyInput }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireOnlineQqForWeb(services);
+      const selected = structuredClone(input);
+      const check = () => {
+        if (
+          requireExpectedAccount(selected.expectedAccountUin, selected.expectedAccountConfigId) !==
+          services
+        )
+          throw new Error('账号或数据源已切换，请重新选择媒体。');
+      };
+      const resolved =
+        selected.items.length === 1
+          ? await resolveQzoneAlbumDownload(services, selected, selected.items[0]!, 0)
+          : undefined;
+      check();
+      const output = resolved
+        ? describeExportOutput(
+            { kind: 'file', name: selected.name, fileName: resolved.fileName },
+            { avatar: false, transcribe: false, ocr: false, dress: false },
+          )
+        : { kind: 'directory' as const };
+      const policy = await prepareExportDestination(
+        selected.savePolicy,
+        getAppContext().bootstrap?.userConfig.getSettings().defaultExportDir,
+        getHost(),
+        output,
+        check,
+      );
+      if (!policy) return null;
+      return services.exportManager.startResourceExport({
+        kind: 'qzone-albums',
+        name: selected.name,
+        savePolicy: policy,
+        ...(output.kind === 'file' ? { output } : {}),
+        run: async (context) => {
+          check();
+          const result = await exportQzoneAlbumMedia(
+            services,
+            { ...selected, outputDir: context.directory },
+            { ...context, check, resolved },
+          );
+          check();
+          return {
+            total: result.total,
+            ok: result.ok,
+            failed: result.failed,
+            ...(resolved ? { fileName: resolved.fileName } : {}),
+          };
+        },
+      });
+    }),
+
+  startQzoneAlbumsExport: procedure
+    .input(
+      exportAccountBindingInput.extend({
+        hostUin: z.string().min(1),
+        name: z.string().min(1),
+        albums: z.array(albumSelectionInput).min(1),
+        savePolicy: exportSavePolicyInput,
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireOnlineQqForWeb(services);
+      const selected = structuredClone(input);
+      const check = () => {
+        if (
+          requireExpectedAccount(selected.expectedAccountUin, selected.expectedAccountConfigId) !==
+          services
+        )
+          throw new Error('账号或数据源已切换，请重新选择相册。');
+      };
+      const policy = await prepareExportDestination(
+        selected.savePolicy,
+        getAppContext().bootstrap?.userConfig.getSettings().defaultExportDir,
+        getHost(),
+        { kind: 'directory' },
+        check,
+      );
+      if (!policy) return null;
+      return services.exportManager.startResourceExport({
+        kind: 'qzone-albums',
+        name: selected.name,
+        savePolicy: policy,
+        run: async (context) => {
+          const result = await exportSelectedQzoneAlbums(
+            services,
+            { ...selected, outputDir: context.directory },
+            { ...context, check },
+          );
+          check();
+          return result;
+        },
+      });
+    }),
 
   /** Folder dialog for group album export output. */
   pickGroupAlbumExportDir: procedure.mutation(async () => {

@@ -103,6 +103,7 @@ export function useQQAction(scope: string) {
   return {
     ...session,
     disabled,
+    pending,
     perform,
     pickImage: () => pick('image'),
     pickFile: () => pick('file'),

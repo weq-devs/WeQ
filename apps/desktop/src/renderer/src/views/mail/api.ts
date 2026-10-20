@@ -11,6 +11,7 @@ import type {
 } from '@weq/service/mail';
 import { client } from '../../trpc/client';
 import { IS_WEB } from '../../lib/target';
+import type { ExportSavePolicy } from '@weq/service';
 
 export type MailSubmission =
   | { state: 'accepted'; id: string; messageId: string }
@@ -27,6 +28,7 @@ export interface MailApi {
   notifications(enabled: boolean): Promise<MailStatus>;
   upload(signal?: AbortSignal): Promise<MailAttachment | null>;
   download(id: string, signal?: AbortSignal): Promise<boolean>;
+  save(id: string, savePolicy: ExportSavePolicy, expectedAccountConfigId: string): Promise<string>;
   image(id: string, signal?: AbortSignal): Promise<{ mime: string; base64: string }>;
   subscribe(listener: (event: MailEvent) => void): () => void;
   openLink(url: string): Promise<void>;
@@ -100,6 +102,8 @@ export function createMailApi(selfUin: string): MailApi {
     },
     image: (id, signal) =>
       request((requestId) => client.mail.image.query({ selfUin, requestId, id }), signal),
+    save: (id, savePolicy, expectedAccountConfigId) =>
+      client.mail.saveAttachment.mutate({ selfUin, id, savePolicy, expectedAccountConfigId }),
     subscribe: (listener) => {
       const subscription = client.mail.events.subscribe({ selfUin }, { onData: listener });
       return () => subscription.unsubscribe();

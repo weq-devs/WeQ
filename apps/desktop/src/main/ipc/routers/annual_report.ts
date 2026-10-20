@@ -1,12 +1,15 @@
 import { z } from 'zod';
 import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import type { AnnualReportPreferences, ResolvedMsgDecoration } from '@weq/service';
-import { getHost } from '@weq/service';
-import { reportPeriodLabel } from '@weq/service/report-time';
+import { exportOutputFileName, getHost } from '@weq/service';
 import { handleMediaRequest } from '../../media_protocol';
 import { handleResourceRequest } from '../../resource_protocol';
 import { procedure, router } from '../trpc';
+import { exportSavePolicyInput, prepareExportDestination } from './export_save';
+import { annualReportExportOutput } from '../../../shared/annual_report_export';
+import { toProtocolAssetUrl } from '../../protocol_asset_url';
 
 /** 说说一次最多带 9 张图 —— 超出的页数在 router 层直接拒绝。 */
 const QZONE_MAX_IMAGES = 9;
@@ -57,38 +60,6 @@ function exportImageMime(bytes: Buffer): string {
     return 'image/webp';
   }
   return 'application/octet-stream';
-}
-
-/**
- * 把浏览器构建的 `/_media/…` / `/_asset/…` 地址归一成自定义协议形式。
- *
- * Electron 渲染层直接用 `weq-media://…`；web 渲染层不写自定义 scheme，而是把
- * handler 挂载的 HTTP 路径（`/_media/<kind>?…`、`/_asset/<first>/…`）原样发来，
- * 这里按与 web `protocol_adapter.ts` 相同的规则翻回协议 URL 再交给原 handler。
- */
-function toProtocolAssetUrl(raw: string): string | null {
-  if (raw.startsWith('weq-media://') || raw.startsWith('weq-asset://')) return raw;
-
-  const MOUNTS = [
-    ['/_media/', 'weq-media'],
-    ['/_asset/', 'weq-asset'],
-  ] as const;
-  for (const [mount, scheme] of MOUNTS) {
-    if (!raw.startsWith(mount)) continue;
-    const rest = raw.slice(mount.length);
-    if (!rest) return null;
-    // `/_media/pic?x=1` → `weq-media://pic?x=1`；
-    // `/_asset/emoji/358/apng/358.png` → `weq-asset://emoji/358/apng/358.png`
-    const qMark = rest.indexOf('?');
-    const pathPart = qMark === -1 ? rest : rest.slice(0, qMark);
-    const query = qMark === -1 ? '' : rest.slice(qMark);
-    const slash = pathPart.indexOf('/');
-    const host = slash === -1 ? pathPart : pathPart.slice(0, slash);
-    const path = slash === -1 ? '' : pathPart.slice(slash);
-    if (!host) return null;
-    return `${scheme}://${host}${path}${query}`;
-  }
-  return null;
 }
 
 /**
@@ -167,16 +138,58 @@ function buildShareOverlay(nick: string, avatar?: Buffer): string {
   <div class="weq-shot-sign">来自 WEQ · github.com/H3CoF6/WeQ</div>`;
 }
 
-/** 保存对话框 + 落盘；用户取消返回 null。 */
-async function saveBuffer(
-  bytes: Buffer,
-  defaultName: string,
-  extension: string,
+const reportExportInput = z.object({
+  year: z.number().int().min(0),
+  html: z.string().min(1),
+  ...reportIdentity,
+  savePolicy: exportSavePolicyInput.optional(),
+});
+
+/** 沿用原生成／捕获能力；私有结果与用户位置的发布分别由公共资源任务处理。 */
+async function startReportSave(
+  input: z.infer<typeof reportExportInput>,
+  extension: 'html' | 'pdf' | 'png',
 ): Promise<string | null> {
-  const target = await getHost().pickSaveTarget({ defaultName, extension });
-  if (!target) return null;
-  await writeFile(target.path, bytes);
-  return target.path;
+  const services = requireServices(input);
+  const check = () => {
+    if (requireServices(input) !== services)
+      throw new Error('账号或数据源已切换，请重新选择报告。');
+  };
+  const output = annualReportExportOutput(input.year, extension);
+  const name = output.name;
+  const host = getHost();
+  const settings = getAppContext().bootstrap?.userConfig.getSettings();
+  const policy = await prepareExportDestination(
+    input.savePolicy ?? { mode: settings?.exportSaveMode ?? 'before' },
+    settings?.defaultExportDir,
+    host,
+    output,
+    check,
+  );
+  if (!policy) return null;
+  const fileName = exportOutputFileName(output);
+  return services.exportManager.startResourceExport({
+    kind: 'annual-report',
+    name,
+    output,
+    savePolicy: policy,
+    run: async ({ directory, signal }) => {
+      check();
+      signal.throwIfAborted();
+      const bytes =
+        extension === 'html'
+          ? Buffer.from(input.html, 'utf8')
+          : extension === 'pdf'
+            ? await host.renderHtmlToPdf(input.html)
+            : await host.renderHtmlToLongPng(input.html);
+      check();
+      signal.throwIfAborted();
+      await writeFile(join(directory, fileName), bytes, { flag: 'wx', signal });
+      check();
+      signal.throwIfAborted();
+      return { total: 1, ok: 1, failed: [], fileName };
+    },
+  });
 }
 
 export const annualReportRouter = router({
@@ -314,26 +327,13 @@ export const annualReportRouter = router({
 
   /** 导出为自包含 HTML（保存到用户选择的位置）。 */
   exportHtml: procedure
-    .input(z.object({ year: z.number().int().min(0), html: z.string().min(1), ...reportIdentity }))
-    .mutation(async ({ input }) => {
-      verifyReportIdentity(input);
-      const path = await saveBuffer(
-        Buffer.from(input.html, 'utf8'),
-        `QQ年度报告_${reportPeriodLabel(input.year)}.html`,
-        'html',
-      );
-      return { saved: path != null, path };
-    }),
+    .input(reportExportInput)
+    .mutation(({ input }) => startReportSave(input, 'html')),
 
   /** 把同一份 HTML 渲染成 A4 PDF 保存。 */
   exportPdf: procedure
-    .input(z.object({ year: z.number().int().min(0), html: z.string().min(1), ...reportIdentity }))
-    .mutation(async ({ input }) => {
-      verifyReportIdentity(input);
-      const pdf = await getHost().renderHtmlToPdf(input.html);
-      const path = await saveBuffer(pdf, `QQ年度报告_${reportPeriodLabel(input.year)}.pdf`, 'pdf');
-      return { saved: path != null, path };
-    }),
+    .input(reportExportInput)
+    .mutation(({ input }) => startReportSave(input, 'pdf')),
 
   /**
    * 全部卡片竖排成一张长图 PNG 保存。
@@ -342,17 +342,8 @@ export const annualReportRouter = router({
    * 另起 satori 排版，直接在主进程把每个 `.slide` 截下来竖向拼成一张。
    */
   exportLongImage: procedure
-    .input(z.object({ year: z.number().int().min(0), html: z.string().min(1), ...reportIdentity }))
-    .mutation(async ({ input }) => {
-      verifyReportIdentity(input);
-      const png = await getHost().renderHtmlToLongPng(input.html);
-      const path = await saveBuffer(
-        png,
-        `QQ年度报告_${reportPeriodLabel(input.year)}_长图.png`,
-        'png',
-      );
-      return { saved: path != null, path };
-    }),
+    .input(reportExportInput)
+    .mutation(({ input }) => startReportSave(input, 'png')),
 
   /**
    * 一键分享到 QQ 空间 —— 逐页渲染成 PNG（一页一图，不用长图），逐张上传到

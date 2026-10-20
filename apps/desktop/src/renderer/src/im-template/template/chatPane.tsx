@@ -9,6 +9,7 @@ import {
   conversationAnalysisTarget,
 } from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
+import { useMediaSave } from '../../components/MediaSaveControls';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
@@ -582,6 +583,7 @@ export function ChatPane({
 }) {
   // 空态占位图按深浅色切换(im_1.png / im_2.jpg),订阅主题以即时跟随。
   const theme = useThemeStore((s) => s.resolved);
+  const mediaSave = useMediaSave();
   // 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
   const jumpToSeq = useContext(ReplyJumpContext);
   const backdrop = useChatBackdrop();
@@ -3682,14 +3684,9 @@ export function ChatPane({
     setClearMessagesConfirmOpen(false);
   }
 
-  function downloadMessageImage(url: string) {
+  function downloadMessageImage(url: string, _message, intent, browser = false) {
     setContextMenu(null);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = imageFilenameFromUrl(url);
-    link.rel = 'noreferrer';
-    link.target = '_blank';
-    link.click();
+    void mediaSave.run({ kind: 'url', url, name: imageFilenameFromUrl(url) }, intent, browser);
   }
 
   if (!conversation) {
@@ -4999,6 +4996,7 @@ export function ChatPane({
           onConfirm={clearConversationMessagesLocally}
         />
       ) : null}
+      {mediaSave.prompt}
       {contextMenu ? (
         <MessageContextMenu
           onClose={() => setContextMenu(null)}
@@ -5071,6 +5069,7 @@ export function ChatPane({
               : undefined
           }
           onDownloadImage={downloadMessageImage}
+          downloadDisabled={mediaSave.disabled}
           onDelete={
             contextMenu.message.source === 'roaming' || isLocalOutgoingMessage(contextMenu.message)
               ? undefined

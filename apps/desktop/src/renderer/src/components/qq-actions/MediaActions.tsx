@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, ThumbsUp, Trash2 } from 'lucide-react';
+import { Loader2, Send, ThumbsUp, Trash2 } from 'lucide-react';
 import type { QQWriteBinding, QQWriteOutcome } from '../../hooks/useQQWriteSession';
 import { client } from '../../trpc/client';
 import { localFileUrl } from '../../lib/resourceUrl';
@@ -12,6 +12,12 @@ import {
   withQQAccountScope,
 } from './shared';
 
+export interface QzoneLikeChange {
+  previous: boolean | null;
+  next: boolean;
+  pending: boolean;
+}
+
 function LikeAction({
   action,
   label,
@@ -19,6 +25,9 @@ function LikeAction({
   disabled,
   submit,
   onChanged,
+  optimistic = false,
+  onLikeChange,
+  likeRevision = 0,
 }: {
   action: ReturnType<typeof useQQAction>;
   label: '媒体' | '说说';
@@ -26,11 +35,15 @@ function LikeAction({
   disabled?: boolean;
   submit: (binding: QQWriteBinding, enabled: boolean) => Promise<QQWriteOutcome>;
   onChanged?: () => void;
+  optimistic?: boolean;
+  onLikeChange?: (change: QzoneLikeChange | null) => void;
+  likeRevision?: number;
 }) {
   const [liked, setLiked] = useState(initialLiked);
   const [pending, setPending] = useState(false);
   const running = useRef(false);
   const mounted = useRef(true);
+  const calibrated = useRef({ initialLiked, likeRevision });
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -38,15 +51,28 @@ function LikeAction({
     };
   }, []);
   useEffect(() => {
-    if (initialLiked !== null) setLiked(initialLiked);
-  }, [initialLiked]);
+    if (running.current) return;
+    if (
+      calibrated.current.initialLiked !== initialLiked ||
+      calibrated.current.likeRevision !== likeRevision
+    ) {
+      if (initialLiked !== null) setLiked(initialLiked);
+      calibrated.current = { initialLiked, likeRevision };
+    }
+  }, [initialLiked, likeRevision, pending]);
   const actionLabel = liked ? `取消${label}点赞` : `点赞${label}`;
   async function toggle() {
     if (running.current || action.disabled || disabled) return;
     running.current = true;
     setPending(true);
+    const previous = liked;
     const next = liked !== true;
+    if (optimistic) {
+      setLiked(next);
+      onLikeChange?.({ previous, next, pending: true });
+    }
     let accepted = false;
+    let settled = false;
     try {
       await action.perform(
         async (binding) => {
@@ -55,13 +81,22 @@ function LikeAction({
           return result;
         },
         async () => {
-          if (accepted) setLiked(next);
+          if (!mounted.current) return;
+          settled = true;
+          setLiked(accepted ? next : previous);
+          if (optimistic) onLikeChange?.(accepted ? { previous, next, pending: false } : null);
           onChanged?.();
         },
       );
     } finally {
       running.current = false;
-      if (mounted.current) setPending(false);
+      if (mounted.current) {
+        if (optimistic && !accepted && !settled) {
+          setLiked(previous);
+          onLikeChange?.(null);
+        }
+        setPending(false);
+      }
     }
   }
   return (
@@ -234,32 +269,97 @@ function QzoneWriteActionsBody({
   time,
   initialLiked,
   onChanged,
+  onLikeChange,
+  likeRevision,
+  onCommentAccepted,
 }: {
   hostUin: string;
   tid: string;
   time: number;
   initialLiked?: boolean | null;
   onChanged: () => void;
+  onLikeChange?: (change: QzoneLikeChange | null) => void;
+  likeRevision?: number;
+  onCommentAccepted?: () => void;
 }) {
   const a = useQQAction(`qzone:${hostUin}:${tid}`),
     [content, setContent] = useState('');
+  const draftRevision = useRef(0);
   const [picture, setPicture] = useState<{ path: string; fileName: string } | null>(null);
+  const [commentPending, setCommentPending] = useState(false);
+  const commentRunning = useRef(false),
+    mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  async function sendComment() {
+    if (commentRunning.current || a.disabled || !content.trim()) return;
+    commentRunning.current = true;
+    setCommentPending(true);
+    const submittedContent = content;
+    const submittedPicture = picture;
+    const submittedRevision = draftRevision.current;
+    let accepted = false;
+    try {
+      await a.perform(
+        async (b) => {
+          const result = await client.account.qqActions.qzone.mutate({
+            ...b,
+            hostUin,
+            tid,
+            time,
+            action: 'comment',
+            content: submittedContent,
+            imagePath: submittedPicture?.path,
+          });
+          accepted = result.state === 'accepted' || result.state === 'confirmed';
+          return result;
+        },
+        async () => {
+          if (!mounted.current) return;
+          if (accepted) {
+            if (draftRevision.current === submittedRevision) {
+              setContent('');
+              setPicture(null);
+            }
+            onCommentAccepted?.();
+          }
+          onChanged();
+        },
+      );
+    } finally {
+      commentRunning.current = false;
+      if (mounted.current) setCommentPending(false);
+    }
+  }
   return (
     <div className="weq-qq-actions">
       {picture && (
         <div className="weq-qq-action-image">
           <img src={localFileUrl(picture.path)} alt={picture.fileName} />
-          <ActionIcon label="移除评论图片" onClick={() => setPicture(null)}>
+          <ActionIcon
+            label="移除评论图片"
+            onClick={() => {
+              draftRevision.current++;
+              setPicture(null);
+            }}
+          >
             <Trash2 size={15} />
           </ActionIcon>
         </div>
       )}
-      <div className="weq-qq-action-bar">
+      <div className="weq-qq-action-bar" aria-busy={commentPending || undefined}>
         <LikeAction
           key={`${hostUin}:${tid}`}
           action={a}
           label="说说"
           initialLiked={initialLiked}
+          optimistic
+          onLikeChange={onLikeChange}
+          likeRevision={likeRevision}
           onChanged={onChanged}
           submit={(b, enabled) =>
             client.account.qqActions.qzone.mutate({
@@ -276,39 +376,33 @@ function QzoneWriteActionsBody({
           placeholder="写评论"
           value={content}
           maxLength={4096}
-          onChange={(e) => setContent(e.target.value)}
+          onChange={(e) => {
+            draftRevision.current++;
+            setContent(e.target.value);
+          }}
         />
         <ImageAction
           disabled={a.disabled}
           onClick={() =>
             void a.pickImage().then((f) => {
-              if (f) setPicture(f);
+              if (f) {
+                draftRevision.current++;
+                setPicture(f);
+              }
             })
           }
         />
-        <SaveAction
+        <ActionIcon
           label="发送说说评论"
-          disabled={a.disabled || !content.trim()}
-          onClick={() =>
-            void a.perform(
-              (b) =>
-                client.account.qqActions.qzone.mutate({
-                  ...b,
-                  hostUin,
-                  tid,
-                  time,
-                  action: 'comment',
-                  content,
-                  imagePath: picture?.path,
-                }),
-              async () => {
-                setContent('');
-                setPicture(null);
-                onChanged();
-              },
-            )
-          }
-        />
+          disabled={a.disabled || commentPending || !content.trim()}
+          onClick={() => void sendComment()}
+        >
+          {commentPending ? (
+            <Loader2 size={16} className="weq-qq-like-spin" aria-label="正在发送评论" />
+          ) : (
+            <Send size={16} />
+          )}
+        </ActionIcon>
       </div>
       <ActionFeedback action={a} />
     </div>

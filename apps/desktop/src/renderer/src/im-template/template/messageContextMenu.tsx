@@ -1,6 +1,8 @@
 ﻿import {
   Copy,
   Download,
+  FolderOpen,
+  Clock,
   RotateCcw,
   Trash2,
   Edit3,
@@ -19,6 +21,8 @@ import { FaceEmoji } from '../../components/FaceEmoji';
 import { canRepeatMessage } from '../../lib/messageRepeat';
 import { useSurfaceOutside } from '../../lib/surfaceOutside';
 import { useTabActive } from '../../components/RetainedTabs';
+import { IS_WEB } from '../../lib/target';
+import type { ExportSavePolicy } from '@weq/service';
 
 export type MessageContextMenuState = {
   message: Message;
@@ -47,6 +51,7 @@ export function MessageContextMenu({
   repeatBlockedReason,
   onAddToComposition,
   onDownloadImage,
+  downloadDisabled = false,
   onDelete,
   onEditRaw,
   onViewDecoration,
@@ -71,7 +76,13 @@ export function MessageContextMenu({
   onRepeat?: (message: Message) => void;
   repeatBlockedReason?: string | null;
   onAddToComposition?: (message: Message) => void;
-  onDownloadImage?: (url: string, message: Message) => void;
+  onDownloadImage?: (
+    url: string,
+    message: Message,
+    intent?: ExportSavePolicy,
+    browser?: boolean,
+  ) => void;
+  downloadDisabled?: boolean;
   /** QQ-style delete: message stays in the chat under a "deleted" overlay, restorable. */
   onDelete?: (message: Message) => void;
   onEditRaw?: (message: Message) => void;
@@ -266,13 +277,48 @@ export function MessageContextMenu({
         </button>
       ) : null}
       {state.downloadUrl && onDownloadImage ? (
-        <button
-          type="button"
-          onClick={() => onDownloadImage(state.downloadUrl ?? '', state.message)}
-        >
-          <Download size={17} />
-          <span>下载</span>
-        </button>
+        <>
+          <button
+            type="button"
+            disabled={downloadDisabled}
+            onClick={() => onDownloadImage(state.downloadUrl ?? '', state.message)}
+          >
+            <Download size={17} />
+            <span>{IS_WEB ? '保存到服务器' : '下载'}</span>
+          </button>
+          <button
+            type="button"
+            disabled={downloadDisabled}
+            onClick={() =>
+              onDownloadImage(state.downloadUrl ?? '', state.message, { mode: 'before' })
+            }
+          >
+            <FolderOpen size={17} />
+            <span>{IS_WEB ? '另存到服务器…' : '另存到…'}</span>
+          </button>
+          <button
+            type="button"
+            disabled={downloadDisabled}
+            onClick={() =>
+              onDownloadImage(state.downloadUrl ?? '', state.message, { mode: 'after' })
+            }
+          >
+            <Clock size={17} />
+            <span>先生成，稍后保存</span>
+          </button>
+          {IS_WEB && (
+            <button
+              type="button"
+              disabled={downloadDisabled}
+              onClick={() =>
+                onDownloadImage(state.downloadUrl ?? '', state.message, undefined, true)
+              }
+            >
+              <Download size={17} />
+              <span>下载到浏览器</span>
+            </button>
+          )}
+        </>
       ) : null}
       {onDelete ? (
         <button type="button" onClick={() => onDelete(state.message)}>

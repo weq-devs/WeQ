@@ -1,64 +1,54 @@
-// @ts-nocheck
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { Image, Loader2, Play, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  Film,
+  Image,
+  ImagePlus,
+  Images,
+  Loader2,
+  Play,
+  RefreshCw,
+  Search,
+  X,
+} from 'lucide-react';
+import type { inferRouterOutputs } from '@trpc/server';
+import type { AppRouter } from '../../../shared/router';
 import { client } from '../trpc/client';
-import { useAppDialog } from '../lib/dialogUtils';
 import { albumMediaUrl } from '../lib/resourceUrl';
-import { openLightbox } from './ImageLightbox';
-import { openVideoLightbox } from './VideoLightbox';
+import { QzoneMediaPreview, type QzonePreviewMedia } from './QzoneMediaPreview';
+import { MediaSourceSave } from './MediaSaveControls';
 import { OverlayLayer } from './OverlayLayer';
 import { GroupAlbumMediaActions, GroupAlbumUpload } from './qq-actions/MediaActions';
+import { withQQAccountScope } from './qq-actions/shared';
+import '../styles/group-album-browser.css';
 
-export interface GroupAlbumWire {
-  id: string;
-  title: string;
-  photoCount: number;
-  coverUrl: string;
-  desc: string;
-  createUin: number;
-  createNickname: string;
-  createTime: string;
-  updateTime: string;
-}
-
-interface AlbumMediaWire {
-  type: number;
-  kind: 'image' | 'video';
-  image: {
-    name: string;
-    sloc: string;
-    lloc: string;
-    isGif: boolean;
-    hasRaw: boolean;
-  } | null;
-  video?: { id: string; cover: { lloc: string } | null } | null;
-  uploader: string;
-  batchId: string;
-  uploadTime: string;
-  previewUrl: string;
-  originalUrl: string;
-  fileName: string;
-}
+type AccountOutput = inferRouterOutputs<AppRouter>['account'];
+export type GroupAlbumWire = AccountOutput['listGroupAlbums'][number];
+type AlbumMediaWire = AccountOutput['listGroupAlbumMedia'][number];
 
 type MediaState =
   | { status: 'idle'; album: GroupAlbumWire | null; items: AlbumMediaWire[]; error: string | null }
   | { status: 'loading'; album: GroupAlbumWire; items: AlbumMediaWire[]; error: string | null }
   | { status: 'ready'; album: GroupAlbumWire; items: AlbumMediaWire[]; error: string | null };
 
-export function GroupAlbumDialog({
-  groupCode,
-  groupName,
-  initialAlbums,
-  initialAlbumId,
-  onClose,
-}: {
+interface GroupAlbumDialogProps {
   groupCode: string;
   groupName: string;
   initialAlbums?: GroupAlbumWire[];
   initialAlbumId?: string;
   onClose: () => void;
-}): ReactElement {
-  const dialog = useAppDialog();
+}
+const ScopedGroupAlbumDialog = withQQAccountScope(GroupAlbumDialogBody);
+export function GroupAlbumDialog(props: GroupAlbumDialogProps): ReactElement {
+  return <ScopedGroupAlbumDialog key={props.groupCode} {...props} />;
+}
+function GroupAlbumDialogBody({
+  groupCode,
+  groupName,
+  initialAlbums,
+  initialAlbumId,
+  onClose,
+}: GroupAlbumDialogProps): ReactElement {
   const alive = useRef(true);
   const run = useRef(0);
   useEffect(() => {
@@ -71,6 +61,13 @@ export function GroupAlbumDialog({
   const [albums, setAlbums] = useState<GroupAlbumWire[]>(initialAlbums ?? []);
   const [loadingAlbums, setLoadingAlbums] = useState(!initialAlbums);
   const [albumError, setAlbumError] = useState<string | null>(null);
+  const [albumRevision, setAlbumRevision] = useState(0);
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState('source');
+  const [albumVisibleCount, setAlbumVisibleCount] = useState(120);
+  useEffect(() => setAlbumVisibleCount(120), [search, sort]);
+  const body = useRef<HTMLDivElement>(null);
+  const listPosition = useRef(0);
   const [mediaState, setMediaState] = useState<MediaState>({
     status: 'idle',
     album: null,
@@ -79,14 +76,14 @@ export function GroupAlbumDialog({
   });
 
   useEffect(() => {
-    if (initialAlbums) return undefined;
+    if (initialAlbums && albumRevision === 0) return undefined;
     let cancelled = false;
     setLoadingAlbums(true);
     client.account.listGroupAlbums
       .query({ groupCode })
       .then((page) => {
         if (cancelled) return;
-        setAlbums(page as GroupAlbumWire[]);
+        setAlbums(page);
         setAlbumError(null);
       })
       .catch((e) => {
@@ -99,35 +96,40 @@ export function GroupAlbumDialog({
     return () => {
       cancelled = true;
     };
-  }, [groupCode, initialAlbums]);
+  }, [groupCode, initialAlbums, albumRevision]);
 
   const activeTitle = mediaState.album?.title || '';
   const bodyTitle = mediaState.album ? activeTitle : '群相册';
 
   async function openAlbum(album: GroupAlbumWire): Promise<void> {
     const revision = ++run.current;
+    if (!mediaState.album) listPosition.current = body.current?.scrollTop ?? 0;
+    setMediaState((previous) => ({
+      status: 'loading',
+      album,
+      items: previous.album?.id === album.id ? previous.items : [],
+      error: null,
+    }));
     try {
       const access = await client.account.getGroupAlbumAccessState.query();
       if (!alive.current || revision !== run.current) return;
       if (!access.qqOnline) {
-        dialog.error('无法查看群相册', '需要先登录该账号的 QQ 客户端。');
-        return;
+        throw new Error('需要先登录该账号的 QQ 客户端。');
       }
-      setMediaState({ status: 'loading', album, items: [], error: null });
-      const items = (await client.account.listGroupAlbumMedia.query({
+      const items = await client.account.listGroupAlbumMedia.query({
         groupCode,
         albumId: album.id,
-      })) as AlbumMediaWire[];
+      });
       if (!alive.current || revision !== run.current) return;
       setMediaState({ status: 'ready', album, items, error: null });
     } catch (e) {
       if (!alive.current || revision !== run.current) return;
-      setMediaState({
+      setMediaState((previous) => ({
         status: 'ready',
         album,
-        items: [],
+        items: previous.album?.id === album.id ? previous.items : [],
         error: e instanceof Error ? e.message : String(e),
-      });
+      }));
     }
   }
 
@@ -151,7 +153,7 @@ export function GroupAlbumDialog({
       onClose={onClose}
     >
       <section
-        className="group-album-dialog"
+        className="group-album-dialog group-album-browser"
         role="region"
         aria-label={`${groupName}的群相册`}
         onMouseDown={(e) => e.stopPropagation()}
@@ -161,20 +163,39 @@ export function GroupAlbumDialog({
             <strong>{bodyTitle}</strong>
             <span>{groupName}</span>
           </div>
-          <button className="icon-button" type="button" title="关闭" onClick={onClose}>
+          <button
+            className="icon-button"
+            type="button"
+            title="关闭"
+            aria-label="关闭群相册"
+            onClick={onClose}
+          >
             <X size={18} />
           </button>
         </header>
 
-        <div className="group-album-body">
+        <div className="group-album-body" ref={body}>
           {mediaState.album ? (
             <AlbumMediaView
+              key={mediaState.album.id}
               state={mediaState}
               groupCode={groupCode}
               onChanged={() => {
                 if (mediaState.album) void openAlbum(mediaState.album);
               }}
-              onBack={() => setMediaState({ status: 'idle', album: null, items: [], error: null })}
+              onBack={() => {
+                const revision = ++run.current;
+                const albumId = mediaState.album?.id;
+                setMediaState({ status: 'idle', album: null, items: [], error: null });
+                requestAnimationFrame(() => {
+                  if (alive.current && revision === run.current && body.current) {
+                    body.current.scrollTop = listPosition.current;
+                    [...body.current.querySelectorAll<HTMLButtonElement>('[data-album-id]')]
+                      .find((button) => button.dataset.albumId === albumId)
+                      ?.focus({ preventScroll: true });
+                  }
+                });
+              }}
             />
           ) : (
             <AlbumListView
@@ -182,6 +203,16 @@ export function GroupAlbumDialog({
               loading={loadingAlbums}
               error={albumError}
               disabled={mediaState.status === 'loading'}
+              search={search}
+              onSearch={setSearch}
+              sort={sort}
+              onSort={setSort}
+              visibleCount={albumVisibleCount}
+              onMore={() => setAlbumVisibleCount((count) => count + 120)}
+              onRefresh={() => {
+                handledSearch.current = '';
+                setAlbumRevision((value) => value + 1);
+              }}
               onOpenAlbum={(album) => void openAlbum(album)}
             />
           )}
@@ -197,50 +228,116 @@ function AlbumListView({
   error,
   onOpenAlbum,
   disabled,
+  search,
+  onSearch,
+  sort,
+  onSort,
+  onRefresh,
+  visibleCount,
+  onMore,
 }: {
   albums: GroupAlbumWire[];
   loading: boolean;
   error: string | null;
   onOpenAlbum: (album: GroupAlbumWire) => void;
   disabled?: boolean;
+  search: string;
+  onSearch: (value: string) => void;
+  sort: string;
+  onSort: (value: string) => void;
+  onRefresh: () => void;
+  visibleCount: number;
+  onMore: () => void;
 }): ReactElement {
-  if (loading) {
-    return (
-      <div className="group-album-state">
-        <Loader2 size={18} className="weq-spin" />
-        <span>正在查询群相册列表喵~</span>
-      </div>
+  const filtered = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    const result = albums.filter((album) =>
+      `${album.title} ${album.desc} ${album.createNickname}`.toLocaleLowerCase().includes(query),
     );
-  }
-  if (error) {
-    return <div className="group-album-state is-error">{error}</div>;
-  }
-  if (albums.length === 0) {
-    return <div className="group-album-state">暂无群相册</div>;
-  }
+    if (sort === 'name')
+      result.sort((a, b) => a.title.localeCompare(b.title, 'zh-CN', { numeric: true }));
+    else if (sort === 'count') result.sort((a, b) => b.photoCount - a.photoCount);
+    return result;
+  }, [albums, search, sort]);
   return (
-    <div className="group-album-grid">
-      {albums.map((album) => (
+    <>
+      <div className="group-album-browse-tools">
+        <label className="group-album-search">
+          <Search size={15} />
+          <input
+            aria-label="搜索群相册"
+            placeholder="搜索相册"
+            value={search}
+            onChange={(event) => onSearch(event.target.value)}
+          />
+        </label>
+        <select aria-label="相册排序" value={sort} onChange={(event) => onSort(event.target.value)}>
+          <option value="source">原有顺序</option>
+          <option value="name">名称</option>
+          <option value="count">媒体数量</option>
+        </select>
         <button
-          key={album.id}
-          className="group-album-card"
           type="button"
-          disabled={disabled}
-          onClick={() => onOpenAlbum(album)}
+          className="group-album-tool"
+          title="刷新相册列表"
+          aria-label="刷新相册列表"
+          disabled={loading}
+          onClick={onRefresh}
         >
-          <AlbumCover album={album} />
-          <span>
-            <strong>{album.title || '未命名相册'}</strong>
-            <small>{album.photoCount ?? 0} 张</small>
-          </span>
+          <RefreshCw size={16} className={loading ? 'weq-spin' : undefined} />
         </button>
-      ))}
-    </div>
+      </div>
+      <p className="group-album-count" role="status">
+        {search.trim() ? `${filtered.length} / ${albums.length} 本相册` : `${albums.length} 本相册`}
+      </p>
+      {error && (
+        <p className="group-album-read-error" role="alert">
+          {error}
+        </p>
+      )}
+      {loading && !albums.length ? (
+        <div className="group-album-state">
+          <Loader2 size={18} className="weq-spin" />
+          正在查询群相册
+        </div>
+      ) : !filtered.length ? (
+        <div className="group-album-state">
+          {search.trim() ? '没有匹配的相册' : error ? '相册暂时无法读取' : '暂无群相册'}
+        </div>
+      ) : (
+        <div className="group-album-grid">
+          {filtered.slice(0, visibleCount).map((album) => (
+            <button
+              key={album.id}
+              className="group-album-card"
+              type="button"
+              disabled={disabled}
+              onClick={() => onOpenAlbum(album)}
+              title={album.title || '未命名相册'}
+              data-album-id={album.id}
+            >
+              <AlbumCover album={album} />
+              <span>
+                <strong>{album.title || '未命名相册'}</strong>
+                <small>{album.photoCount ?? 0} 项</small>
+                {album.desc && <small>{album.desc}</small>}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {filtered.length > visibleCount && (
+        <button type="button" className="group-album-more" onClick={onMore}>
+          显示更多（{visibleCount} / {filtered.length}）
+        </button>
+      )}
+    </>
   );
 }
 
 function AlbumCover({ album }: { album: GroupAlbumWire }): ReactElement {
   const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [album.coverUrl]);
   if (!album.coverUrl || broken) {
     return (
       <span className="group-album-cover is-empty">
@@ -273,6 +370,46 @@ function AlbumMediaView({
   onChanged: () => void;
 }): ReactElement {
   const items = state.items;
+  const [search, setSearch] = useState('');
+  const [kind, setKind] = useState<'all' | 'image' | 'video'>('all');
+  const [visibleCount, setVisibleCount] = useState(120);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [preview, setPreview] = useState<{ key: string; items: AlbumMediaWire[] } | null>(null);
+  useEffect(() => setVisibleCount(120), [search, kind]);
+  const filtered = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    return items.filter(
+      (item) =>
+        (kind === 'all' || kind === item.kind) &&
+        `${item.fileName} ${item.uploader}`.toLocaleLowerCase().includes(query),
+    );
+  }, [items, search, kind]);
+  const previews = useMemo<QzonePreviewMedia[]>(
+    () =>
+      (preview?.items ?? []).map((item) => {
+        const full = item.originalUrl || item.previewUrl;
+        return {
+          key: mediaKey(item),
+          kind: item.kind === 'video' && item.originalUrl ? 'video' : 'image',
+          src: full ? albumMediaUrl(full) : '',
+          poster: item.previewUrl ? albumMediaUrl(item.previewUrl) : undefined,
+          title: item.fileName || (item.kind === 'video' ? '群相册视频' : '群相册图片'),
+          ...(item.kind === 'image' &&
+          item.previewUrl &&
+          item.originalUrl &&
+          item.previewUrl !== item.originalUrl
+            ? {
+                src: albumMediaUrl(item.previewUrl),
+                load: async () => ({
+                  src: albumMediaUrl(item.originalUrl),
+                  kind: 'image' as const,
+                }),
+              }
+            : {}),
+        };
+      }),
+    [preview],
+  );
   const countText = useMemo(() => {
     const videos = items.filter((item) => item.kind === 'video').length;
     const photos = items.length - videos;
@@ -283,66 +420,164 @@ function AlbumMediaView({
   return (
     <div className="group-album-media-view">
       <div className="group-album-toolbar">
-        <button type="button" className="group-album-back" onClick={onBack}>
-          返回相册
+        <button
+          type="button"
+          className="group-album-back"
+          title="返回相册列表"
+          aria-label="返回相册列表"
+          onClick={onBack}
+        >
+          <ArrowLeft size={15} />
+          相册
         </button>
-        <span>{countText}</span>
+        <span>{state.status === 'loading' && !items.length ? '正在读取' : countText}</span>
+        <div className="group-album-toolbar-actions">
+          <button
+            type="button"
+            className="group-album-tool"
+            title="上传图片"
+            aria-label="上传图片"
+            aria-expanded={uploadOpen}
+            disabled={state.status === 'loading'}
+            onClick={() => setUploadOpen((open) => !open)}
+          >
+            <ImagePlus size={17} />
+          </button>
+          <button
+            type="button"
+            className="group-album-tool"
+            title="刷新相册媒体"
+            aria-label="刷新相册媒体"
+            disabled={state.status === 'loading'}
+            onClick={onChanged}
+          >
+            <RefreshCw size={16} className={state.status === 'loading' ? 'weq-spin' : undefined} />
+          </button>
+        </div>
       </div>
-      {state.album && (
-        <GroupAlbumUpload
-          key={state.album.id}
-          groupId={Number(groupCode)}
-          albumId={state.album.id}
-          albumName={state.album.title}
-          onChanged={onChanged}
-        />
+      {state.album && uploadOpen && (
+        <div className="group-album-upload">
+          <GroupAlbumUpload
+            key={state.album.id}
+            groupId={Number(groupCode)}
+            albumId={state.album.id}
+            albumName={state.album.title}
+            onChanged={onChanged}
+          />
+        </div>
       )}
-      {state.status === 'loading' ? (
+      <div className="group-album-browse-tools">
+        <label className="group-album-search">
+          <Search size={15} />
+          <input
+            aria-label="搜索相册媒体"
+            placeholder="搜索文件名或上传者"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </label>
+        <div className="group-album-kind" role="group" aria-label="媒体类型">
+          {(['all', 'image', 'video'] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              aria-label={
+                value === 'all' ? '全部媒体' : value === 'image' ? '只看图片' : '只看视频'
+              }
+              title={value === 'all' ? '全部媒体' : value === 'image' ? '只看图片' : '只看视频'}
+              aria-pressed={kind === value}
+              onClick={() => setKind(value)}
+            >
+              {value === 'all' ? (
+                <Images size={16} />
+              ) : value === 'image' ? (
+                <Image size={16} />
+              ) : (
+                <Film size={16} />
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+      {state.error && (
+        <p className="group-album-read-error" role="alert">
+          {state.error}
+        </p>
+      )}
+      {state.status === 'loading' && !items.length ? (
         <div className="group-album-state">
           <Loader2 size={18} className="weq-spin" />
           <span>正在加载媒体</span>
         </div>
-      ) : state.error ? (
-        <div className="group-album-state is-error">{state.error}</div>
-      ) : items.length === 0 ? (
-        <div className="group-album-state">这个相册没有可预览的图片</div>
+      ) : filtered.length === 0 ? (
+        <div className="group-album-state">
+          {items.length
+            ? '没有匹配的媒体'
+            : state.error
+              ? '媒体暂时无法读取，可刷新重试'
+              : '这个相册暂无图片或视频'}
+        </div>
       ) : (
         <div className="group-album-media-grid">
-          {items.map((item) => {
-            const src = item.previewUrl || item.originalUrl;
-            const full = item.originalUrl || item.previewUrl;
-            const proxiedFull = full ? albumMediaUrl(full) : '';
+          {filtered.slice(0, visibleCount).map((item) => (
+            <MediaThumbnail
+              key={mediaKey(item)}
+              item={item}
+              onOpen={() => setPreview({ key: mediaKey(item), items: filtered })}
+            />
+          ))}
+        </div>
+      )}
+      {!!filtered.length && (
+        <p className="group-album-count" role="status">
+          显示 {Math.min(visibleCount, filtered.length)} / {filtered.length} 项
+          {filtered.length !== items.length ? `，相册已读取 ${items.length} 项` : ''}
+        </p>
+      )}
+      {filtered.length > visibleCount && (
+        <button
+          type="button"
+          className="group-album-more"
+          onClick={() => setVisibleCount((count) => count + 120)}
+        >
+          显示更多
+        </button>
+      )}
+      {preview && (
+        <QzoneMediaPreview
+          key={preview.key}
+          label="群相册媒体预览"
+          items={previews}
+          initialIndex={previews.findIndex((item) => item.key === preview.key)}
+          onClose={() => setPreview(null)}
+          renderActions={(current) => {
+            const item = preview.items.find((item) => mediaKey(item) === current.key);
+            if (!item) return null;
             const isVideo = item.kind === 'video';
             const mediaId = isVideo ? item.video?.id : item.image?.lloc;
+            const onlyCover = isVideo && !item.originalUrl;
             return (
-              <div
-                className="weq-qq-album-item"
-                key={mediaId || item.originalUrl || `${item.batchId}:${item.fileName}`}
-              >
-                <button
-                  type="button"
-                  className={`group-album-media-card${isVideo ? ' is-video' : ''}`}
-                  onClick={() => {
-                    if (!proxiedFull) return;
-                    // 视频走 <video> 灯箱,图片走图片灯箱。
-                    if (isVideo) {
-                      openVideoLightbox(
-                        proxiedFull,
-                        src ? albumMediaUrl(src) : undefined,
-                        item.fileName,
-                      );
-                    } else openLightbox(proxiedFull, item.fileName || '群相册图片');
+              <div className="group-album-preview-details">
+                <div className="group-album-preview-meta">
+                  <strong title={item.fileName}>{item.fileName || '未命名媒体'}</strong>
+                  <span>
+                    {onlyCover ? '视频本体不可用，仅显示封面' : isVideo ? '视频' : '图片'} · 上传者{' '}
+                    {item.uploader || '未知'}
+                  </span>
+                </div>
+                <MediaSourceSave
+                  key={`save:${current.key}`}
+                  source={{
+                    kind: 'url',
+                    url: albumMediaUrl(item.originalUrl || item.previewUrl),
+                    name: onlyCover ? `${item.fileName || '视频'}-封面` : item.fileName,
                   }}
-                >
-                  <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" />
-                  {isVideo ? (
-                    <span className="group-album-media-play" aria-hidden>
-                      <Play size={18} />
-                    </span>
-                  ) : null}
-                </button>
+                  label={onlyCover ? '保存视频封面' : isVideo ? '保存视频' : '保存图片'}
+                  className="group-album-preview-save"
+                />
                 {state.album && mediaId && /^\d+$/.test(item.batchId) && (
                   <GroupAlbumMediaActions
+                    key={`actions:${current.key}`}
                     groupId={Number(groupCode)}
                     albumId={state.album.id}
                     mediaId={mediaId}
@@ -350,14 +585,63 @@ function AlbumMediaView({
                     batchId={item.batchId}
                     uploaderUin={item.uploader}
                     uploadTime={Number(item.uploadTime)}
-                    onChanged={onChanged}
+                    onChanged={() => {
+                      setPreview(null);
+                      onChanged();
+                    }}
                   />
                 )}
               </div>
             );
-          })}
-        </div>
+          }}
+        />
       )}
     </div>
+  );
+}
+
+function mediaKey(item: AlbumMediaWire): string {
+  return `${item.kind}:${(item.kind === 'video' ? item.video?.id : item.image?.lloc) || item.originalUrl || item.previewUrl}`;
+}
+
+function MediaThumbnail({
+  item,
+  onOpen,
+}: {
+  item: AlbumMediaWire;
+  onOpen: () => void;
+}): ReactElement {
+  const [broken, setBroken] = useState(false);
+  const src = item.previewUrl || (item.kind === 'image' ? item.originalUrl : '');
+  useEffect(() => setBroken(false), [src]);
+  return (
+    <button
+      type="button"
+      className={`group-album-media-card${item.kind === 'video' ? ' is-video' : ''}`}
+      onClick={onOpen}
+      aria-label={`预览 ${item.fileName || (item.kind === 'video' ? '视频' : '图片')}`}
+      title={item.fileName || '未命名媒体'}
+    >
+      {src && !broken ? (
+        <img
+          src={albumMediaUrl(src)}
+          alt=""
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        <span className="group-album-thumbnail-fallback">
+          <Image size={24} />
+          <small>{broken ? '预览加载失败' : '暂无封面'}</small>
+        </span>
+      )}
+      {item.kind === 'video' && (
+        <span className="group-album-media-play" aria-hidden>
+          <Play size={18} />
+        </span>
+      )}
+      <span className="group-album-media-name">{item.fileName || '未命名媒体'}</span>
+    </button>
   );
 }

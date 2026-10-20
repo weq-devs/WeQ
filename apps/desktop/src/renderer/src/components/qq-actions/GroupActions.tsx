@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { Check, LogOut, Plus, Trash2 } from 'lucide-react';
+import { Check, LogOut, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
+import { ConversationActionsMenu } from '../ConversationActionsMenu';
+import '../../styles/group-content-management.css';
 import { client, trpc } from '../../trpc/client';
 import { GroupReadTools } from './GroupReadTools';
 import { GroupJoinSettings } from './GroupJoinSettings';
@@ -122,31 +124,41 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
   );
 }
 export const GroupActions = withQQAccountScope(GroupActionsBody);
-export function GroupTodos({ groupId, embedded = false }: { groupId: number; embedded?: boolean }) {
-  const a = useQQAction(`todos:${groupId}`),
-    [open, setOpen] = useState(false);
+function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedded?: boolean }) {
+  const a = useQQAction(`todos:${groupId}`);
+  const [menu, setMenu] = useState<{ x: number; y: number; sequence: string } | null>(null);
   const permissions = useQQGroupPermissions(groupId, a);
   const todos = trpc.account.qqActions.todoList.useQuery(
     { ...a.binding!, groupId },
-    { enabled: (embedded || open) && a.available, retry: false },
+    { enabled: a.available, retry: false, refetchOnMount: 'always', staleTime: 15_000 },
   );
   const refresh = async () => {
     const r = await todos.refetch();
     if (r.error) throw r.error;
   };
-  const content = (
-    <>
-      <RefreshAction
-        disabled={a.disabled || todos.isFetching}
-        onClick={() => void todos.refetch()}
-      />
+  return (
+    <section className="weq-qq-actions weq-todo-content" aria-label="群待办列表">
+      <div className="weq-content-toolbar">
+        {embedded ? <span>{todos.data?.length ?? 0} 项已读取待办</span> : <h3>群待办</h3>}
+        <RefreshAction
+          disabled={a.disabled || todos.isFetching}
+          onClick={() => void todos.refetch()}
+        />
+      </div>
       {!a.available && <p>QQ 在线能力未就绪</p>}
       {a.available && todos.isFetching && !todos.data && <p role="status">读取待办中…</p>}
       {todos.error && <p role="alert">{todos.error.message}</p>}
       {todos.data?.length === 0 && <p>暂无群待办</p>}
       <ul className="weq-qq-action-list">
         {todos.data?.map((t) => (
-          <li key={t.sequence}>
+          <li
+            key={t.sequence}
+            onContextMenu={(event) => {
+              if (!permissions.data?.canManage || a.disabled) return;
+              event.preventDefault();
+              setMenu({ x: event.clientX, y: event.clientY, sequence: String(t.sequence) });
+            }}
+          >
             <span>
               {t.text || `消息 ${t.sequence}`}
               {t.completed ? ' · 已完成' : ''}
@@ -170,40 +182,55 @@ export function GroupTodos({ groupId, embedded = false }: { groupId: number; emb
               <Check size={15} />
             </ActionIcon>
             {permissions.data?.canManage && (
-              <ActionIcon
-                label="取消群待办"
+              <button
+                type="button"
+                className="weq-set-iconbtn"
+                title="待办操作"
+                aria-label={`待办操作 ${t.sequence}`}
                 disabled={a.disabled}
-                onClick={() =>
-                  void a.perform(
-                    (b) =>
-                      client.account.qqActions.todo.mutate({
-                        ...b,
-                        groupId,
-                        sequence: String(t.sequence),
-                        action: 'cancel',
-                      }),
-                    refresh,
-                    '取消这项群待办？',
-                  )
-                }
+                onClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setMenu({ x: rect.left, y: rect.bottom, sequence: String(t.sequence) });
+                }}
               >
-                <Trash2 size={15} />
-              </ActionIcon>
+                <MoreHorizontal size={16} />
+              </button>
             )}
           </li>
         ))}
       </ul>
       <ActionFeedback action={a} />
-    </>
-  );
-  return embedded ? (
-    <section className="weq-qq-actions" aria-label="群待办列表">
-      {content}
+      {menu && permissions.data?.canManage && (
+        <ConversationActionsMenu
+          x={menu.x}
+          y={menu.y}
+          label="待办操作"
+          onClose={() => setMenu(null)}
+          actions={[
+            {
+              label: '取消群待办',
+              icon: <Trash2 size={15} />,
+              disabled: a.disabled,
+              action: () =>
+                void a.perform(
+                  (binding) =>
+                    client.account.qqActions.todo.mutate({
+                      ...binding,
+                      groupId,
+                      sequence: menu.sequence,
+                      action: 'cancel',
+                    }),
+                  refresh,
+                  '取消这项群待办？',
+                ),
+            },
+          ]}
+        />
+      )}
     </section>
-  ) : (
-    <details className="weq-qq-actions" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary>群待办</summary>
-      {content}
-    </details>
   );
+}
+const ScopedGroupTodos = withQQAccountScope(GroupTodosBody);
+export function GroupTodos(props: Parameters<typeof GroupTodosBody>[0]) {
+  return <ScopedGroupTodos key={props.groupId} {...props} />;
 }

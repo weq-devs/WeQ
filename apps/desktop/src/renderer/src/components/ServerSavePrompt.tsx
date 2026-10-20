@@ -5,9 +5,11 @@ import '../styles/server-save-prompt.css';
 export function ServerSavePrompt({
   name,
   onChoose,
+  portalTarget,
 }: {
   name: string;
   onChoose: (directory: string | null) => void;
+  portalTarget?: Element | null;
 }) {
   return (
     <Modal
@@ -17,6 +19,7 @@ export function ServerSavePrompt({
       className="weq-server-save-dialog"
       layerClassName="weq-server-save-layer"
       onClose={() => onChoose(null)}
+      portalTarget={portalTarget}
     >
       <SaveResultLocation name={name} onChoose={onChoose} onCancel={() => onChoose(null)} />
     </Modal>

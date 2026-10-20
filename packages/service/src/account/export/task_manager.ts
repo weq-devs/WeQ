@@ -320,7 +320,17 @@ export interface MediaExportOptions {
 export interface ExportTask {
   /** 独立资源任务；下载运行器仅存在于当前进程，重启后保留结果但不冒称可续传。 */
   resource?: {
-    kind: 'group-albums' | 'group-files' | 'database' | 'assistant-artifact';
+    kind:
+      | 'group-albums'
+      | 'group-files'
+      | 'database'
+      | 'assistant-artifact'
+      | 'market-image'
+      | 'mail-attachment'
+      | 'decoration'
+      | 'qzone-albums'
+      | 'annual-report'
+      | 'media';
     failed?: number;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
     cacheDirectory?: string;
@@ -1264,7 +1274,7 @@ export class ExportTaskManager extends EventEmitter {
           label:
             opts.kind === 'database'
               ? '解密数据库'
-              : opts.kind === 'assistant-artifact'
+              : opts.kind === 'assistant-artifact' || opts.kind === 'annual-report'
                 ? '保存报告'
                 : '下载资源',
           status: 'pending',
@@ -4564,7 +4574,7 @@ export class ExportTaskManager extends EventEmitter {
 
   cancelTask(id: string): boolean {
     const task = this.tasks.get(id);
-    if (!task) return false;
+    if (!task || task.status === 'completed') return false;
     if (task.status === 'running') this.abortControllers.get(id)?.abort();
     task.status = 'cancelled';
     task.updatedAt = Date.now();

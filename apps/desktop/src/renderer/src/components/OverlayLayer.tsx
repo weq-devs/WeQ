@@ -52,6 +52,7 @@ import { WindowSurface } from './WindowSurface';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
 
 export type OverlayLayerProps = {
+  portalTarget?: Element | null;
   anchor?: HTMLElement | null;
   presentation?: 'modal' | 'panel' | 'popover' | 'page' | 'sidecar' | 'floating';
   width?: number;
@@ -115,6 +116,7 @@ function OpenOverlayLayer({
   presentation = 'modal',
   anchor,
   dismissOnOutside = true,
+  portalTarget,
 }: Omit<OverlayLayerProps, 'open'>): ReactElement {
   const document = useRenderDocument();
   const layer = useOverlayLayer(true);
@@ -166,6 +168,6 @@ function OpenOverlayLayer({
         </OverlayAnchorContext.Provider>
       </OverlayLayerContext.Provider>
     </div>,
-    document.body,
+    portalTarget ?? document.body,
   );
 }

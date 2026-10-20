@@ -1,0 +1,18 @@
+.weq-dress-card-actions {
+  flex-wrap: wrap;
+}
+
+.weq-dress-card-actions > .weq-save-action-group {
+  margin-left: auto;
+  max-width: 100%;
+}
+
+.weq-decoration-card-titlebar {
+  flex-wrap: wrap;
+}
+
+.weq-decoration-card-slot > .weq-save-action-group {
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 100%;
+}

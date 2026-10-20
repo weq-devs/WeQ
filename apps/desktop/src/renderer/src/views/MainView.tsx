@@ -60,7 +60,6 @@ import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
 import {
   classifyChatType,
-  datalineName,
   isGroupTempChatType,
   toChatTypeNumber,
   TipGroupElementType,

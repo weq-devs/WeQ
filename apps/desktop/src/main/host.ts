@@ -4,7 +4,7 @@
  * before any router runs.
  */
 
-import { app, dialog, shell, nativeImage } from 'electron';
+import { app, dialog, shell, nativeImage, net } from 'electron';
 import { spawn } from 'node:child_process';
 import type { HostBridge, SaveTarget } from '@weq/service';
 
@@ -50,6 +50,7 @@ function revealInFileManager(path: string): Promise<void> {
 }
 
 export const electronHost: HostBridge = {
+  fetchMedia: (url, opts) => net.fetch(url, { signal: opts?.signal }),
   async validateImageBuffer(bytes) {
     return !nativeImage.createFromBuffer(Buffer.from(bytes)).isEmpty();
   },

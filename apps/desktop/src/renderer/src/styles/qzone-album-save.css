@@ -1,0 +1,20 @@
+.weq-qzal-selectbar {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.weq-qzal-selectbar > button {
+  flex: none;
+}
+
+.weq-qzal-selectbar .weq-qzal-download {
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 55%, var(--weq-border-subtle));
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, var(--weq-bg-surface));
+  color: var(--weq-fg-primary);
+}
+
+html[data-theme="dark"] .weq-qzal-selectbar .weq-qzal-download {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, var(--weq-border-strong));
+  color: var(--weq-fg-primary);
+}

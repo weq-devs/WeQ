@@ -27,6 +27,7 @@ import { trpc } from '@renderer/trpc/client';
 import { mediaUrl } from '@renderer/lib/resourceUrl';
 import { useOverlayLayer } from '@renderer/lib/overlayStack';
 import { useToast } from './Toast';
+import { MarketImageSave } from './MarketImageSave';
 
 /** 来源徽章元信息（与 MarketPackExplorer 保持一致）。 */
 const FEE_META: Record<MarketPackFeeType, { label: string; tone: string }> = {
@@ -300,6 +301,12 @@ export function MarketFaceDetail({
         <span className="weq-mface-lb-count">
           {index + 1} / {total}
         </span>
+        <MarketImageSave
+          key={`${packId}:${item.hash}`}
+          packId={packId}
+          hash={item.hash}
+          name={item.name || item.hash}
+        />
       </div>
 
       <div className="weq-mface-detail-body">

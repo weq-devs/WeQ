@@ -4,6 +4,52 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { TaskList, type UiTask } from '../src/renderer/src/views/export/TaskList';
 
 afterEach(() => vi.unstubAllGlobals());
+it.each([
+  ['market-image', '商城单张表情保存'],
+  ['mail-attachment', '邮件附件保存'],
+  ['decoration', '装扮资源保存'],
+  ['qzone-albums', '空间相册导出'],
+  ['annual-report', '年度报告导出'],
+  ['media', '媒体文件保存'],
+] as const)('独立资源 %s 展示真实任务类型', (kind, label) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host),
+    noop = vi.fn();
+  try {
+    act(() =>
+      root.render(
+        h(TaskList, {
+          tasks: [
+            {
+              id: 'fixture',
+              kind: 'c2c',
+              name: '合成资源',
+              format: 'json',
+              status: 'completed',
+              progress: 100,
+              current: 1,
+              total: 1,
+              resource: { kind },
+            },
+          ],
+          isExpanded: true,
+          onPause: noop,
+          onCancel: noop,
+          onDownload: noop,
+          onDelete: noop,
+          onShowFailures: noop,
+        }),
+      ),
+    );
+    expect(host.textContent).toContain(label);
+    expect(host.textContent).not.toContain('群文件导出');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
 it('资源任务不伪装为 JSON 消息导出，部分下载失败仍展示保存入口与缺失状态', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
