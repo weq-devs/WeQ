@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { X } from 'lucide-react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ExportTool } from '../src/renderer/src/views/ExportView';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DEFAULT_OPTIONS } from '../src/renderer/src/views/export/types';
 import type { LightboxResult } from '../src/renderer/src/views/export/ExportLightbox';
@@ -36,6 +36,7 @@ const fixture = vi.hoisted(() => ({
   nativeReads: vi.fn(),
   startGuild: vi.fn(async (_input: { nodeId: string; messageIds?: string[] }) => 'guild-task'),
   startQzone: vi.fn(async (_input: { targetUin: string; tids?: string[] }) => 'qzone-task'),
+  startResource: vi.fn(async (_input: unknown) => 'resource-task'),
   friends: ['a', 'b', 'c'].map((id, index) => ({
     uid: `friend-${id}`,
     uin: String(10001 + index),
@@ -134,6 +135,25 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       saveExportTaskOutput: { mutate: fixture.saveOutput },
       guildDirectStartExport: { mutate: fixture.startGuild },
       startQzoneExport: { mutate: fixture.startQzone },
+      startGroupAlbumExport: { mutate: fixture.startResource },
+      startGroupFileExport: { mutate: fixture.startResource },
+      listGroupAlbums: {
+        query: async () => [{ id: 'album-a', title: '合成相册', photoCount: 1, coverUrl: '' }],
+      },
+      listGroupFiles: {
+        query: async () => ({
+          folders: [],
+          files: [
+            {
+              fileId: 'file-a',
+              fileName: '合成文件.txt',
+              fileSize: 10,
+              busId: 102,
+              uploaderName: '合成上传者',
+            },
+          ],
+        }),
+      },
     },
   },
 }));
@@ -288,11 +308,78 @@ afterEach(() => {
   fixture.nativeReads.mockClear();
   fixture.startGuild.mockClear();
   fixture.startQzone.mockClear();
+  fixture.startResource.mockClear();
 });
 function click(host: HTMLElement, text: string) {
   const button = [...host.querySelectorAll('button')].find((item) => item.textContent === text)!;
   act(() => button.click());
 }
+
+it.each(['album', 'groupfile'] as const)(
+  '独立资源 %s 确认后准备统一保存位置、固定来源并创建后台任务，不显示路径栏',
+  async (mode) => {
+    const f = mount({ initialMode: mode });
+    try {
+      const group = [...f.host.querySelectorAll<HTMLButtonElement>('button')].find((node) =>
+        node.textContent?.includes('合成群甲'),
+      )!;
+      act(() => group.click());
+      await act(async () => f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.click());
+      if (mode === 'groupfile') {
+        await act(async () => {
+          await vi.waitFor(() => expect(f.host.querySelector('.weq-exp-file-row')).not.toBeNull());
+          f.host.querySelector<HTMLButtonElement>('.weq-exp-file-row')!.click();
+        });
+      }
+      expect(f.host.querySelector('.weq-exp-album-path')).toBeNull();
+      captureLayout(f.host, `resource-${mode}`);
+      await act(async () => {
+        const modal = f.host.querySelector<HTMLElement>('.weq-exp-album-dialog')!;
+        modal.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.click();
+      });
+      const later = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+        (node) => node.textContent === '先生成，稍后保存',
+      )!;
+      await act(async () => later.click());
+      expect(fixture.prepare).toHaveBeenCalledWith(
+        { mode: 'after' },
+        { kind: 'bundle', name: `合成群甲 ${mode === 'album' ? '群相册' : '群文件'}` },
+      );
+      expect(fixture.startResource).toHaveBeenCalledWith(
+        expect.objectContaining({
+          expectedAccountUin: '10002',
+          expectedAccountConfigId: 'fixture-config',
+          groupCode: '10001',
+          savePolicy: { mode: 'after' },
+          ...(mode === 'album'
+            ? { albums: [{ id: 'album-a', title: '合成相册' }] }
+            : { files: [{ fileId: 'file-a', fileName: '合成文件.txt', busId: 102, path: [] }] }),
+        }),
+      );
+      expect(fixture.startResource.mock.calls[0]![0]).not.toHaveProperty('outputDir');
+    } finally {
+      f.close();
+    }
+  },
+);
+
+it('相册保存准备取消后保留选择且不创建任务', async () => {
+  const f = mount({ initialMode: 'album' });
+  try {
+    act(() =>
+      [...f.host.querySelectorAll<HTMLButtonElement>('button')]
+        .find((node) => node.textContent?.includes('合成群甲'))!
+        .click(),
+    );
+    await act(async () => f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.click());
+    fixture.prepare.mockResolvedValueOnce(null);
+    await act(async () => click(f.host, '开始导出'));
+    expect(fixture.startResource).not.toHaveBeenCalled();
+    expect(f.host.querySelector('.weq-exp-album-dialog')).not.toBeNull();
+  } finally {
+    f.close();
+  }
+});
 
 function captureLayout(host: HTMLElement, name: string) {
   const output = process.env.WEQ_EXPORT_LAYOUT_DIR;
@@ -306,10 +393,22 @@ function captureLayout(host: HTMLElement, name: string) {
     'unified-export.css',
     'search-scope.css',
     'export-save-control.css',
+    'export-save-actions.css',
+    'group-media.css',
+    'resource-export.css',
   ]
-    .map((file) => readFileSync(resolve('src/renderer/src/styles', file), 'utf8'))
+    .map((file) => `<link rel="stylesheet" href="/@fs${resolve('src/renderer/src/styles', file)}">`)
     .join('\n');
   const snapshot = host.cloneNode(true) as HTMLElement;
+  snapshot.querySelectorAll<HTMLImageElement>('img').forEach((image) => {
+    const source = image.getAttribute('src') ?? '';
+    if (source.startsWith('weq-asset://'))
+      image.setAttribute(
+        'src',
+        `/@fs${resolve('../../resources', source.slice('weq-asset://'.length))}`,
+      );
+    else if (/^https?:/.test(source)) image.removeAttribute('src');
+  });
   const selects = host.querySelectorAll('select');
   snapshot.querySelectorAll('select').forEach((select, index) => {
     for (const option of select.options)
@@ -323,7 +422,7 @@ function captureLayout(host: HTMLElement, name: string) {
   const closeIcon = renderToStaticMarkup(createElement(X, { size: 18 }));
   writeFileSync(
     resolve(output, `${name}.html`),
-    `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${styles}</style><style>html,body{margin:0;box-sizing:border-box;font-family:system-ui}*,*::before,*::after{box-sizing:border-box}.weq-dialog-layer{position:fixed;inset:0;display:grid;place-items:center}.weq-tools-modal{width:1000px}button,input,select{font:inherit}body{background:var(--weq-chat-bg,var(--background))}</style><body><div class="weq-dialog-layer"><div class="weq-modal weq-tools-modal"><header class="weq-tools-header"><h2>导出</h2><button type="button" aria-label="关闭工具">${closeIcon}</button></header>${snapshot.innerHTML}</div></div></body></html>`,
+    `<!doctype html><html lang="zh-CN"><meta charset="utf-8">${styles}<style>html,body{margin:0;box-sizing:border-box;font-family:system-ui}*,*::before,*::after{box-sizing:border-box}.weq-dialog-layer{position:fixed;inset:0;display:grid;place-items:center}.weq-tools-modal{width:1000px;max-width:100vw}button,input,select{font:inherit}body{background:var(--weq-chat-bg,var(--background))}</style><body><div class="weq-dialog-layer"><div class="weq-modal weq-tools-modal"><header class="weq-tools-header"><h2>导出</h2><button type="button" aria-label="关闭工具">${closeIcon}</button></header>${snapshot.innerHTML}</div></div></body></html>`,
   );
 }
 

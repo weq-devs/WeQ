@@ -89,6 +89,7 @@ function completionSummary(stages: UiStage[] | undefined): {
 }
 
 export interface UiTask {
+  resource?: { kind: 'group-albums' | 'group-files'; failed?: number };
   save?: import('@weq/service').ExportSaveState;
   canResume?: boolean;
   resumeMode?: 'checkpoint' | 'restart';
@@ -154,6 +155,7 @@ function taskPct(t: UiTask): number {
 
 /** 任务类型标签（卡片 title / 详情 meta）。 */
 function taskTypeLabel(t: UiTask): string {
+  if (t.resource) return t.resource.kind === 'group-albums' ? '群相册导出' : '群文件导出';
   if (t.isMarketPack) return '商城表情下载';
   if (t.isEmojiPack) return '导出表情包';
   if (t.isQzone) return 'QQ 空间导出';
@@ -166,6 +168,7 @@ function taskTypeLabel(t: UiTask): string {
 
 /** 任务类型图标（消息 / 联系人 / QQ 空间 / 收藏 / 商城表情）。 */
 function taskIcon(t: UiTask): ReactElement {
+  if (t.resource) return <FolderOpen size={15} />;
   if (t.isMarketPack) return <Sticker size={15} />;
   if (t.isEmojiPack) return <Sticker size={15} />;
   if (t.isQzone) return <Globe size={15} />;
@@ -341,7 +344,7 @@ function TaskCard({
       type="button"
       className={`weq-exp-card is-${task.status}${active ? ' is-active' : ''}`}
       onClick={onSelect}
-      title={`${taskTypeLabel(task)} · ${task.name}${task.generatedResources?.missing ? ' · 部分资源缺失' : ''}`}
+      title={`${taskTypeLabel(task)} · ${task.name}${task.generatedResources?.missing || task.resource?.failed ? ' · 部分资源缺失' : ''}`}
     >
       {idle ? (
         <span className="weq-exp-card-skeleton" aria-hidden />
@@ -394,7 +397,7 @@ function TaskDetail({
 }): ReactElement {
   const overall = t.status === 'completed' ? 100 : Math.min(100, Math.max(0, t.progress));
   const completion = completionSummary(t.stages);
-  const resourceMissing = (t.generatedResources?.missing ?? 0) > 0;
+  const resourceMissing = (t.generatedResources?.missing ?? t.resource?.failed ?? 0) > 0;
   const hasCompletion = completion.ok > 0 || completion.failed > 0;
   const logs = t.logs ?? [];
   const stageLogs = (key: string): UiLogLine[] => logs.filter((l) => l.stage === key);
@@ -413,11 +416,17 @@ function TaskDetail({
           <strong>{t.name}</strong>
           <span className="weq-exp-detail-meta">
             {taskTypeLabel(t)}
-            {t.isMarketPack || t.isEmojiPack ? null : ` · ${fmtFormats(t)}`}
+            {t.isMarketPack || t.isEmojiPack || t.resource ? null : ` · ${fmtFormats(t)}`}
             {' · '}
             {fmtCount(t.current)}
             {t.total > 0 ? ` / ${fmtCount(t.total)}` : ''}{' '}
-            {t.isMarketPack || t.isEmojiPack ? '张' : t.isContacts ? '位' : '条'}
+            {t.resource
+              ? '个文件'
+              : t.isMarketPack || t.isEmojiPack
+                ? '张'
+                : t.isContacts
+                  ? '位'
+                  : '条'}
             {t.avatarCount ? ` · 含头像 ${fmtCount(t.avatarCount)}` : ''}
           </span>
         </div>
@@ -661,7 +670,9 @@ export function TaskList({
   const selected = tasks.find((t) => t.id === selectedId) ?? tasks[0];
   const completedCount = tasks.filter((t) => t.status === 'completed').length;
   const hasMissingResources = tasks.some(
-    (task) => task.status === 'completed' && (task.generatedResources?.missing ?? 0) > 0,
+    (task) =>
+      task.status === 'completed' &&
+      (task.generatedResources?.missing ?? task.resource?.failed ?? 0) > 0,
   );
   const hasTasks = tasks.length > 0;
 

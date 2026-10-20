@@ -1073,13 +1073,16 @@ async function collectAlbumMedia(
   services: AccountServices,
   groupCode: string,
   albumId: string,
+  signal?: AbortSignal,
 ): Promise<AlbumMediaWire[]> {
   const out: AlbumMediaWire[] = [];
   const seenKeys = new Set<string>();
   const seenAttachInfo = new Set<string>();
   let attachInfo = '';
   for (let guard = 0; guard < 100; guard += 1) {
+    signal?.throwIfAborted();
     const page = await services.groupAlbumMedia.getMediaList(groupCode, albumId, attachInfo);
+    signal?.throwIfAborted();
     for (const wire of page.mediaList
       .map(mediaToWire)
       .filter((media) => media.originalUrl || media.previewUrl)) {
@@ -1146,46 +1149,52 @@ function uniqueFilename(name: string, used: Set<string>): string {
   }
 }
 
-async function downloadAlbumUrl(url: string, targetPath: string): Promise<void> {
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const bytes = Buffer.from(await res.arrayBuffer());
-  if (bytes.length === 0) {
-    throw new Error('empty response');
-  }
-  await writeFile(targetPath, bytes);
+async function downloadAlbumUrl(
+  url: string,
+  targetPath: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const outcome = await downloadUrlToFile(url, targetPath, { signal });
+  if (!outcome.ok) throw new Error(outcome.reason);
 }
 
 async function runWithConcurrency<T>(
   items: T[],
   concurrency: number,
   worker: (item: T) => Promise<void>,
+  signal?: AbortSignal,
 ): Promise<void> {
   let next = 0;
   async function run(): Promise<void> {
     for (;;) {
+      signal?.throwIfAborted();
       const index = next;
       next += 1;
       if (index >= items.length) return;
       await worker(items[index]!);
     }
   }
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run));
+  const results = await Promise.allSettled(
+    Array.from({ length: Math.min(concurrency, items.length) }, run),
+  );
+  const failure = results.find((result) => result.status === 'rejected');
+  if (failure?.status === 'rejected') throw failure.reason;
 }
 
 async function exportGroupAlbums(
   services: AccountServices,
   input: z.infer<typeof exportGroupAlbumsInput>,
+  context?: { signal: AbortSignal; progress(current: number, total: number): void },
 ): Promise<AlbumExportResult> {
   requireFreshClientKeyForAlbum(services);
   const work: AlbumDownloadWork[] = [];
+  const albumNames = new Set<string>();
   for (const album of input.albums) {
-    const albumTitle = sanitizePathSegment(album.title, album.id);
+    context?.signal.throwIfAborted();
+    const albumTitle = uniqueFilename(sanitizePathSegment(album.title, album.id), albumNames);
     const albumDir = join(input.outputDir, albumTitle);
     const used = new Set<string>();
-    const media = await collectAlbumMedia(services, input.groupCode, album.id);
+    const media = await collectAlbumMedia(services, input.groupCode, album.id, context?.signal);
     media.forEach((item, index) => {
       const url = pickAlbumDownloadUrl(item);
       if (!url) return;
@@ -1206,21 +1215,28 @@ async function exportGroupAlbums(
   const failed: AlbumExportResult['failed'] = [];
   let ok = 0;
   await mkdir(input.outputDir, { recursive: true });
-  await runWithConcurrency(work, input.concurrency ?? 4, async (item) => {
-    try {
-      await mkdir(dirname(item.targetPath), { recursive: true });
-      await downloadAlbumUrl(item.url, item.targetPath);
-      ok += 1;
-    } catch (e) {
-      failed.push({
-        albumId: item.albumId,
-        albumTitle: item.albumTitle,
-        fileName: item.fileName,
-        url: item.url,
-        error: e instanceof Error ? e.message : String(e),
-      });
-    }
-  });
+  await runWithConcurrency(
+    work,
+    input.concurrency ?? 4,
+    async (item) => {
+      try {
+        await mkdir(dirname(item.targetPath), { recursive: true });
+        await downloadAlbumUrl(item.url, item.targetPath, context?.signal);
+        ok += 1;
+      } catch (e) {
+        context?.signal.throwIfAborted();
+        failed.push({
+          albumId: item.albumId,
+          albumTitle: item.albumTitle,
+          fileName: item.fileName,
+          url: item.url,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+      context?.progress(ok, work.length);
+    },
+    context?.signal,
+  );
 
   return { outputDir: input.outputDir, total: work.length, ok, failed };
 }
@@ -1292,6 +1308,7 @@ async function exportQzoneAlbumMedia(
 async function exportGroupFiles(
   services: AccountServices,
   input: z.infer<typeof exportGroupFilesInput>,
+  context?: { signal: AbortSignal; progress(current: number, total: number): void },
 ): Promise<GroupFileExportResult> {
   requireQqOnlineForAlbum(services);
 
@@ -1328,26 +1345,34 @@ async function exportGroupFiles(
   const failed: GroupFileExportResult['failed'] = [];
   let ok = 0;
   await mkdir(input.outputDir, { recursive: true });
-  await runWithConcurrency(work, input.concurrency ?? 4, async (item) => {
-    try {
-      // 直链有时效,逐个文件在下载前才换取。
-      const url = await services.mediaUrl.getGroupFileUrl(
-        Number(input.groupCode),
-        item.fileId,
-        item.busId,
-        item.fileName,
-      );
-      const outcome = await downloadUrlToFile(url, item.targetPath);
-      if (!outcome.ok) throw new Error(outcome.reason);
-      ok += 1;
-    } catch (e) {
-      failed.push({
-        fileId: item.fileId,
-        fileName: item.fileName,
-        error: e instanceof Error ? e.message : String(e),
-      });
-    }
-  });
+  await runWithConcurrency(
+    work,
+    input.concurrency ?? 4,
+    async (item) => {
+      try {
+        // 直链有时效,逐个文件在下载前才换取。
+        const url = await services.mediaUrl.getGroupFileUrl(
+          Number(input.groupCode),
+          item.fileId,
+          item.busId,
+          item.fileName,
+        );
+        context?.signal.throwIfAborted();
+        const outcome = await downloadUrlToFile(url, item.targetPath, { signal: context?.signal });
+        if (!outcome.ok) throw new Error(outcome.reason);
+        ok += 1;
+      } catch (e) {
+        context?.signal.throwIfAborted();
+        failed.push({
+          fileId: item.fileId,
+          fileName: item.fileName,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+      context?.progress(ok, work.length);
+    },
+    context?.signal,
+  );
 
   return { outputDir: input.outputDir, total: work.length, ok, failed };
 }
@@ -5112,6 +5137,41 @@ export const accountRouter = router({
     return exportGroupAlbums(requireServices(), input);
   }),
 
+  startGroupAlbumExport: procedure
+    .input(
+      exportGroupAlbumsInput
+        .omit({ outputDir: true })
+        .merge(exportAccountBindingInput)
+        .extend({ name: z.string().min(1), savePolicy: exportSavePolicyInput.optional() }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireFreshClientKeyForAlbum(services);
+      const selected = structuredClone(input);
+      return services.exportManager.startResourceExport({
+        kind: 'group-albums',
+        name: selected.name,
+        savePolicy: selected.savePolicy,
+        run: async (context) => {
+          if (
+            requireExpectedAccount(
+              selected.expectedAccountUin,
+              selected.expectedAccountConfigId,
+            ) !== services
+          )
+            throw new Error('账号或数据源已切换，请重新选择资源。');
+          return exportGroupAlbums(
+            services,
+            { ...selected, outputDir: context.directory },
+            context,
+          );
+        },
+      });
+    }),
+
   // ---- 群文件 ----
 
   /** 列出群文件某个目录下的文件+子文件夹 (OIDB 0x6D8_1)。需要在线的 QQ 进程。 */
@@ -5157,6 +5217,37 @@ export const accountRouter = router({
   exportGroupFiles: procedure.input(exportGroupFilesInput).mutation(async ({ input }) => {
     return exportGroupFiles(requireServices(), input);
   }),
+
+  startGroupFileExport: procedure
+    .input(
+      exportGroupFilesInput
+        .omit({ outputDir: true })
+        .merge(exportAccountBindingInput)
+        .extend({ name: z.string().min(1), savePolicy: exportSavePolicyInput.optional() }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      const selected = structuredClone(input);
+      return services.exportManager.startResourceExport({
+        kind: 'group-files',
+        name: selected.name,
+        savePolicy: selected.savePolicy,
+        run: async (context) => {
+          if (
+            requireExpectedAccount(
+              selected.expectedAccountUin,
+              selected.expectedAccountConfigId,
+            ) !== services
+          )
+            throw new Error('账号或数据源已切换，请重新选择资源。');
+          return exportGroupFiles(services, { ...selected, outputDir: context.directory }, context);
+        },
+      });
+    }),
 
   // ---- 收藏 (QQ favorites / collection.db) ----
 

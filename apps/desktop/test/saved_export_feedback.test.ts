@@ -4,6 +4,60 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { TaskList, type UiTask } from '../src/renderer/src/views/export/TaskList';
 
 afterEach(() => vi.unstubAllGlobals());
+it('资源任务不伪装为 JSON 消息导出，部分下载失败仍展示保存入口与缺失状态', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const noop = vi.fn();
+  const task: UiTask = {
+    id: 'resource',
+    kind: 'c2c',
+    name: '合成群文件',
+    format: 'json',
+    status: 'completed',
+    progress: 100,
+    current: 1,
+    total: 2,
+    bundleDir: '/synthetic/cache',
+    resource: { kind: 'group-files', failed: 1 },
+    stages: [
+      {
+        key: 'file',
+        label: '下载资源',
+        status: 'completed',
+        current: 1,
+        total: 2,
+        failed: 1,
+        failures: [{ stage: 'file', fileName: 'missing.bin', error: 'synthetic' }],
+      },
+    ],
+    save: { policy: { mode: 'after' }, status: 'pending' },
+  };
+  try {
+    act(() =>
+      root.render(
+        h(TaskList, {
+          tasks: [task],
+          isExpanded: true,
+          onPause: noop,
+          onCancel: noop,
+          onDownload: noop,
+          onDelete: noop,
+          onShowFailures: noop,
+        }),
+      ),
+    );
+    expect(host.textContent).toContain('群文件导出');
+    expect(host.textContent).toContain('已完成 · 资源缺失');
+    expect(host.textContent).toContain('个文件');
+    expect(host.textContent).not.toContain('JSON');
+    expect(host.querySelector('[title="保存到…"]')).not.toBeNull();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
 it('保存位置存在时提供打开与文件夹定位，另存失败仍能打开上次结果', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');

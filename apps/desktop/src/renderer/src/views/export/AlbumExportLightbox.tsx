@@ -1,6 +1,8 @@
-// @ts-nocheck
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { Check, FolderOpen, Image, Loader2, X } from 'lucide-react';
+import { Check, Image, Loader2, X } from 'lucide-react';
+import type { ExportSavePolicy } from '@weq/service';
+import { ExportSaveActions } from '../../components/ExportSaveActions';
+import '../../styles/resource-export.css';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
 import { client } from '../../trpc/client';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
@@ -8,24 +10,20 @@ import type { GroupAlbumWire } from '../../components/GroupAlbumDialog';
 import { ShimmerImage } from '../../components/ShimmerImage';
 
 export interface AlbumExportResult {
-  outputDir: string;
   selectedAlbums: GroupAlbumWire[];
+  saveIntent?: ExportSavePolicy;
 }
 
 export function AlbumExportLightbox({
   groupCode,
   groupName,
-  outputDir,
   submitting,
-  onPickPath,
   onClose,
   onConfirm,
 }: {
   groupCode: string;
   groupName: string;
-  outputDir: string | null;
   submitting?: boolean;
-  onPickPath: () => Promise<string | null>;
   onClose: () => void;
   onConfirm: (result: AlbumExportResult) => void;
 }): ReactElement {
@@ -34,7 +32,6 @@ export function AlbumExportLightbox({
   const [loadingAlbums, setLoadingAlbums] = useState(true);
   const [albumError, setAlbumError] = useState<string | null>(null);
   const [selection, setSelection] = useState<Set<string>>(() => new Set());
-  const [picking, setPicking] = useState(false);
   const selectedAlbums = useMemo(
     () => albums.filter((album) => selection.has(album.id)),
     [albums, selection],
@@ -75,23 +72,14 @@ export function AlbumExportLightbox({
     disabled: submitting,
   });
 
-  async function pickPath(): Promise<void> {
-    setPicking(true);
-    try {
-      await onPickPath();
-    } finally {
-      setPicking(false);
-    }
-  }
-
   return (
     <div
-      className="modal-scrim weq-exp-modal-scrim"
+      className="modal-scrim weq-exp-modal-scrim weq-resource-export-scrim"
       role="presentation"
       onMouseDown={closeFromScrim(onClose)}
     >
       <section
-        className="weq-exp-dialog weq-exp-album-dialog"
+        className="weq-exp-dialog weq-exp-album-dialog weq-resource-export-dialog"
         {...multi.rootProps}
         role="dialog"
         aria-modal="true"
@@ -108,22 +96,6 @@ export function AlbumExportLightbox({
         </header>
 
         <div className="weq-exp-dialog-body">
-          <section className="weq-exp-album-path">
-            <span className="weq-exp-path" title={outputDir ?? undefined}>
-              <FolderOpen size={14} aria-hidden />
-              <span className="weq-exp-path-txt">{outputDir ?? '未选择保存目录'}</span>
-            </span>
-            <button
-              type="button"
-              className="weq-exp-btn"
-              disabled={picking || submitting}
-              onClick={() => void pickPath()}
-            >
-              {picking ? <Loader2 size={14} className="weq-exp-spin" /> : <FolderOpen size={14} />}
-              选择目录
-            </button>
-          </section>
-
           <section className="weq-exp-album-tools">
             <button
               type="button"
@@ -193,17 +165,19 @@ export function AlbumExportLightbox({
             type="button"
             className="weq-exp-btn is-primary"
             disabled={
-              submitting ||
-              loadingAlbums ||
-              Boolean(albumError) ||
-              !outputDir ||
-              selectedAlbums.length === 0
+              submitting || loadingAlbums || Boolean(albumError) || selectedAlbums.length === 0
             }
-            onClick={() => outputDir && onConfirm({ outputDir, selectedAlbums })}
+            onClick={() => onConfirm({ selectedAlbums })}
           >
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}
             开始导出
           </button>
+          <ExportSaveActions
+            disabled={
+              submitting || loadingAlbums || Boolean(albumError) || selectedAlbums.length === 0
+            }
+            onSelect={(saveIntent) => onConfirm({ selectedAlbums, saveIntent })}
+          />
         </footer>
       </section>
     </div>

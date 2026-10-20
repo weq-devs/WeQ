@@ -309,6 +309,8 @@ export interface MediaExportOptions {
 }
 
 export interface ExportTask {
+  /** 独立资源任务；下载运行器仅存在于当前进程，重启后保留结果但不冒称可续传。 */
+  resource?: { kind: 'group-albums' | 'group-files'; failed?: number };
   save?: ExportSaveState;
   resumeBinding?: { source: string; options: string; roaming?: string };
   formatCheckpoints?: Record<
@@ -385,6 +387,18 @@ export interface TaskProgress {
   message: string;
   /** 一次性提示（如「可能被限流」），前端收到后 toast。 */
   notice?: string;
+}
+
+export interface ResourceExportSummary {
+  total: number;
+  ok: number;
+  failed: Array<{ fileName: string; error: string }>;
+}
+
+export interface ResourceExportRunContext {
+  directory: string;
+  signal: AbortSignal;
+  progress(current: number, total: number): void;
 }
 
 /** 任务列表 wire 视图：ExportTask + 内存日志（不持久化，重启后清空）。 */
@@ -531,7 +545,11 @@ export class ExportTaskManager extends EventEmitter {
       if (!raw) return;
       const data = JSON.parse(raw) as ExportTask[];
       for (const t of data) {
-        if (t.status === 'running' || t.status === 'pending') t.status = 'paused'; // crashed or queued tasks require explicit continuation
+        if (t.status === 'running' || t.status === 'pending') {
+          t.status = 'paused'; // crashed or queued tasks require explicit continuation
+          if (t.resource)
+            t.error = '上次资源下载被中断，请重新选择资源创建任务；已完成的其他任务结果仍保留。';
+        }
         if (!Array.isArray(t.stages)) t.stages = []; // back-compat with pre-stages tasks
         if (t.save?.status === 'saving') {
           t.save.status = 'interrupted';
@@ -599,7 +617,12 @@ export class ExportTaskManager extends EventEmitter {
     );
     const kind = task.contacts
       ? 'contacts'
-      : task.qzone || task.generated || task.collection || task.marketpack || task.emojipack
+      : task.qzone ||
+          task.generated ||
+          task.collection ||
+          task.marketpack ||
+          task.emojipack ||
+          task.resource
         ? 'bundle'
         : 'messages';
     const output = this.getOutputShape({
@@ -1185,6 +1208,131 @@ export class ExportTaskManager extends EventEmitter {
     this.saveTasks();
     this.enqueue(() => this.runMarketPackTask(id));
     return id;
+  }
+
+  /** 既有独立下载器只写私有缓存，发布、另存、取消和回执沿用同一个任务管理器。 */
+  async startResourceExport(opts: {
+    name: string;
+    kind: NonNullable<ExportTask['resource']>['kind'];
+    savePolicy?: ExportSavePolicy;
+    run(context: ResourceExportRunContext): Promise<ResourceExportSummary>;
+  }): Promise<string> {
+    const id = `resource-${randomUUID()}`;
+    const task: ExportTask = {
+      id,
+      kind: 'c2c',
+      conv: opts.kind,
+      name: opts.name,
+      format: 'json',
+      resource: { kind: opts.kind },
+      status: 'pending',
+      progress: 0,
+      current: 0,
+      total: 0,
+      stages: [{ key: 'file', label: '下载资源', status: 'pending', current: 0, total: 0 }],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    this.registerTask(task, opts.savePolicy);
+    this.log(id, 'task', `资源任务已创建：${task.name}`);
+    this.saveTasks();
+    const run = opts.run;
+    this.enqueue(() => this.runResourceTask(task, run));
+    return id;
+  }
+
+  private async runResourceTask(
+    task: ExportTask,
+    run: (context: ResourceExportRunContext) => Promise<ResourceExportSummary>,
+  ): Promise<void> {
+    if (this.tasks.get(task.id) !== task || task.status !== 'pending') return;
+    const abort = new AbortController();
+    this.abortControllers.set(task.id, abort);
+    task.status = 'running';
+    const stage = task.stages[0]!;
+    stage.status = 'running';
+    this.saveTasks();
+    let bundle: AtomicExportBundle | undefined;
+    try {
+      bundle = createAtomicExportBundle(this.cacheDir, task.id);
+      const directory = join(bundle.stageDir, 'files');
+      mkdirSync(directory);
+      const summary = await run({
+        directory,
+        signal: abort.signal,
+        progress: (current, total) => {
+          if (abort.signal.aborted) return;
+          task.current = stage.current = current;
+          task.total = stage.total = total;
+          task.progress = total ? Math.min(99, Math.floor((current / total) * 100)) : 0;
+          task.updatedAt = Date.now();
+          this.emit('progress', {
+            taskId: task.id,
+            status: task.status,
+            progress: task.progress,
+            current,
+            message: `已下载 ${current}/${total}`,
+          });
+        },
+      });
+      abort.signal.throwIfAborted();
+      if (
+        !Number.isSafeInteger(summary.total) ||
+        !Number.isSafeInteger(summary.ok) ||
+        summary.ok < 0 ||
+        summary.total < summary.ok ||
+        summary.total !== summary.ok + summary.failed.length
+      )
+        throw new Error('资源下载计数不完整，未发布结果。');
+      writeFileAtomicSync(
+        join(bundle.stageDir, 'resource-results.json'),
+        JSON.stringify(
+          {
+            total: summary.total,
+            ok: summary.ok,
+            failed: summary.failed.map(({ fileName, error }) => ({ fileName, error })),
+          },
+          null,
+          2,
+        ),
+      );
+      bundle.publish();
+      task.bundleDir = bundle.finalDir;
+      task.current = stage.current = summary.ok;
+      task.total = stage.total = summary.total;
+      task.resource!.failed = stage.failed = summary.failed.length;
+      stage.failures = summary.failed
+        .slice(0, 100)
+        .map((item) => ({ stage: 'file', fileName: item.fileName, error: item.error }));
+      stage.status = 'completed';
+      stage.note = `成功 ${summary.ok} 个，失败 ${summary.failed.length} 个`;
+      task.progress = 100;
+      task.status = 'completed';
+      this.log(task.id, 'file', stage.note, summary.failed.length ? 'warn' : 'info');
+    } catch (error) {
+      if (abort.signal.aborted) {
+        if (task.status === 'running') task.status = 'paused';
+        stage.status = 'pending';
+        task.error = '资源下载已中断；尚未生成完整结果，请重新选择资源创建任务。';
+      } else {
+        task.status = 'failed';
+        stage.status = 'failed';
+        task.error = error instanceof Error ? error.message : String(error);
+        this.log(task.id, 'file', task.error, 'error');
+      }
+    } finally {
+      bundle?.discard();
+      this.abortControllers.delete(task.id);
+      task.updatedAt = Date.now();
+      this.saveTasks();
+      this.emit('progress', {
+        taskId: task.id,
+        status: task.status,
+        progress: task.progress,
+        current: task.current,
+        message: task.error ?? stage.note ?? '资源下载已结束',
+      });
+    }
   }
 
   /**
@@ -4276,6 +4424,7 @@ export class ExportTaskManager extends EventEmitter {
       !task.collection &&
       !task.marketpack &&
       !task.emojipack &&
+      !task.resource &&
       !this.abortControllers.has(task.id)
     );
   }

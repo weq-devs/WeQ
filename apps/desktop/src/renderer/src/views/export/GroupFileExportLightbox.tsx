@@ -10,7 +10,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { groupFileSelectedKeys, resolveGroupFileSelection } from '../../lib/groupFileSelection';
-import { ArrowLeft, Check, ChevronRight, FolderOpen, Loader2, Minus, X } from 'lucide-react';
+import { ArrowLeft, Check, ChevronRight, Loader2, Minus, X } from 'lucide-react';
+import type { ExportSavePolicy } from '@weq/service';
+import { ExportSaveActions } from '../../components/ExportSaveActions';
+import '../../styles/resource-export.css';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
 import { client } from '../../trpc/client';
 import { useToast } from '../../components/Toast';
@@ -37,8 +40,8 @@ export interface GroupFileEntry {
 }
 
 export interface GroupFileExportResult {
-  outputDir: string;
   selectedFiles: GroupFileEntry[];
+  saveIntent?: ExportSavePolicy;
 }
 
 /** 目录面包屑的一层。根目录的 id 固定是 '/'。 */
@@ -93,17 +96,13 @@ function pathStartsWith(path: string[], prefix: string[]): boolean {
 export function GroupFileExportLightbox({
   groupCode,
   groupName,
-  outputDir,
   submitting,
-  onPickPath,
   onClose,
   onConfirm,
 }: {
   groupCode: string;
   groupName: string;
-  outputDir: string | null;
   submitting?: boolean;
-  onPickPath: () => Promise<string | null>;
   onClose: () => void;
   onConfirm: (result: GroupFileExportResult) => void;
 }): ReactElement {
@@ -119,7 +118,6 @@ export function GroupFileExportLightbox({
   const [subtreeCache, setSubtreeCache] = useState<Map<string, GroupFileEntry[]>>(() => new Map());
   /** 正在递归收集的文件夹（那一行的勾选框转圈）。 */
   const [loadingFolder, setLoadingFolder] = useState<string | null>(null);
-  const [picking, setPicking] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const selectionPending = useRef(false);
   const selectionActive = useRef(true);
@@ -251,23 +249,14 @@ export function GroupFileExportLightbox({
     void applySelection(next);
   }
 
-  async function pickPath(): Promise<void> {
-    setPicking(true);
-    try {
-      await onPickPath();
-    } finally {
-      setPicking(false);
-    }
-  }
-
   return (
     <div
-      className="modal-scrim weq-exp-modal-scrim"
+      className="modal-scrim weq-exp-modal-scrim weq-resource-export-scrim"
       role="presentation"
       onMouseDown={closeFromScrim(onClose)}
     >
       <section
-        className="weq-exp-dialog weq-exp-album-dialog"
+        className="weq-exp-dialog weq-exp-album-dialog weq-resource-export-dialog"
         {...multi.rootProps}
         role="dialog"
         aria-modal="true"
@@ -284,22 +273,6 @@ export function GroupFileExportLightbox({
         </header>
 
         <div className="weq-exp-dialog-body">
-          <section className="weq-exp-album-path">
-            <span className="weq-exp-path" title={outputDir ?? undefined}>
-              <FolderOpen size={14} aria-hidden />
-              <span className="weq-exp-path-txt">{outputDir ?? '未选择保存目录'}</span>
-            </span>
-            <button
-              type="button"
-              className="weq-exp-btn"
-              disabled={picking || submitting}
-              onClick={() => void pickPath()}
-            >
-              {picking ? <Loader2 size={14} className="weq-exp-spin" /> : <FolderOpen size={14} />}
-              选择目录
-            </button>
-          </section>
-
           {/* 目录浏览条：返回上级 + 面包屑 + 当前目录摘要（聊天页同款）。 */}
           <div className="group-file-toolbar weq-exp-file-toolbar">
             <div className="group-file-crumbs">
@@ -489,18 +462,19 @@ export function GroupFileExportLightbox({
             type="button"
             className="weq-exp-btn is-primary"
             disabled={
-              submitting ||
-              selecting ||
-              loading ||
-              Boolean(error) ||
-              !outputDir ||
-              selectedFiles.length === 0
+              submitting || selecting || loading || Boolean(error) || selectedFiles.length === 0
             }
-            onClick={() => outputDir && onConfirm({ outputDir, selectedFiles })}
+            onClick={() => onConfirm({ selectedFiles })}
           >
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}
             开始导出
           </button>
+          <ExportSaveActions
+            disabled={
+              submitting || selecting || loading || Boolean(error) || selectedFiles.length === 0
+            }
+            onSelect={(saveIntent) => onConfirm({ selectedFiles, saveIntent })}
+          />
         </footer>
       </section>
     </div>

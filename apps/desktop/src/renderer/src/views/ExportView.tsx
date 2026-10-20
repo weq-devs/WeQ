@@ -466,11 +466,13 @@ export function ExportTool({
         Boolean(memberScopeGroupId && contactGroupIds.has(memberScopeGroupId)),
     },
   );
-  const [albumOutputDir, setAlbumOutputDir] = useState<string | null>(null);
   const [albumExport, setAlbumExport] = useState<{ group: PickItem } | null>(null);
   const [albumGroupId, setAlbumGroupId] = useState<string | null>(null);
-  const [fileOutputDir, setFileOutputDir] = useState<string | null>(null);
   const [fileExport, setFileExport] = useState<{ group: PickItem } | null>(null);
+  useEffect(() => {
+    setAlbumExport(null);
+    setFileExport(null);
+  }, [saveBinding?.expectedAccountUin, saveBinding?.expectedAccountConfigId]);
   const [fileGroupId, setFileGroupId] = useState<string | null>(null);
   const [format, setFormat] = useState<ExportFormat>('json');
   const fixedMessages =
@@ -709,6 +711,7 @@ export function ExportTool({
       isGuild: Boolean((t as { guild?: unknown }).guild),
       isGenerated: Boolean((t as { generated?: unknown }).generated),
       generatedResources: t.generatedResources,
+      resource: t.resource,
       // 沿用既有任务的商城表情内容标记，历史下载结果仍可读取。
       isMarketPack: (t as unknown as { conv?: string }).conv === 'marketpack',
       // conv === 'emojipack' 是导出表情包任务的 sentinel（task_manager 内设定）。
@@ -1251,24 +1254,28 @@ export function ExportTool({
   }
 
   async function runAlbumExport(result: AlbumExportResult): Promise<void> {
-    if (!albumExport) return;
+    if (!albumExport || !saveBinding || submitting) return;
+    const group = { ...albumExport.group };
+    const albums = result.selectedAlbums.map((album) => ({ id: album.id, title: album.title }));
+    const binding = { ...saveBinding };
+    const intent = result.saveIntent ?? saveIntent.current;
     setSubmitting(true);
     try {
-      const exported = await client.account.exportGroupAlbums.mutate({
-        groupCode: albumExport.group.id,
-        outputDir: result.outputDir,
-        albums: result.selectedAlbums.map((album) => ({ id: album.id, title: album.title })),
+      const name = `${group.name} 群相册`;
+      const savePolicy = await prepareSave(intent, { kind: 'bundle', name });
+      if (!savePolicy || !isCurrent()) return;
+      await client.account.startGroupAlbumExport.mutate({
+        ...binding,
+        name,
+        savePolicy,
+        groupCode: group.id,
+        albums,
         concurrency: 4,
       });
-      if (exported.failed.length === 0) {
+      if (isCurrent()) {
         setAlbumGroupId(null);
         setAlbumExport(null);
-        dialog.success('群相册导出完成', `已保存 ${exported.ok} 个文件到：${exported.outputDir}`);
-      } else {
-        dialog.error(
-          '部分相册媒体导出失败',
-          `成功 ${exported.ok} 个，失败 ${exported.failed.length} 个。${exported.failed[0]?.fileName ?? ''}${exported.failed[0]?.error ? `：${exported.failed[0].error}` : ''}`,
-        );
+        refetchTasks();
       }
     } catch (e) {
       dialog.error('群相册导出失败', e instanceof Error ? e.message : String(e));
@@ -1278,29 +1285,33 @@ export function ExportTool({
   }
 
   async function runGroupFileExport(result: GroupFileExportResult): Promise<void> {
-    if (!fileExport) return;
+    if (!fileExport || !saveBinding || submitting) return;
+    const group = { ...fileExport.group };
+    const files = result.selectedFiles.map((file) => ({
+      fileId: file.fileId,
+      fileName: file.fileName,
+      busId: file.busId,
+      path: [...file.path],
+    }));
+    const binding = { ...saveBinding };
+    const intent = result.saveIntent ?? saveIntent.current;
     setSubmitting(true);
     try {
-      const exported = await client.account.exportGroupFiles.mutate({
-        groupCode: fileExport.group.id,
-        outputDir: result.outputDir,
-        files: result.selectedFiles.map((f) => ({
-          fileId: f.fileId,
-          fileName: f.fileName,
-          busId: f.busId,
-          path: f.path,
-        })),
+      const name = `${group.name} 群文件`;
+      const savePolicy = await prepareSave(intent, { kind: 'bundle', name });
+      if (!savePolicy || !isCurrent()) return;
+      await client.account.startGroupFileExport.mutate({
+        ...binding,
+        name,
+        savePolicy,
+        groupCode: group.id,
+        files,
         concurrency: 4,
       });
-      if (exported.failed.length === 0) {
+      if (isCurrent()) {
         setFileGroupId(null);
         setFileExport(null);
-        dialog.success('群文件导出完成', `已保存 ${exported.ok} 个文件到：${exported.outputDir}`);
-      } else {
-        dialog.error(
-          '部分群文件导出失败',
-          `成功 ${exported.ok} 个，失败 ${exported.failed.length} 个。${exported.failed[0]?.fileName ?? ''}${exported.failed[0]?.error ? `：${exported.failed[0].error}` : ''}`,
-        );
+        refetchTasks();
       }
     } catch (e) {
       dialog.error('群文件导出失败', e instanceof Error ? e.message : String(e));
@@ -2252,13 +2263,7 @@ export function ExportTool({
         <AlbumExportLightbox
           groupCode={albumExport.group.id}
           groupName={albumExport.group.name}
-          outputDir={albumOutputDir}
           submitting={submitting}
-          onPickPath={async () => {
-            const picked = await client.account.pickGroupAlbumExportDir.mutate();
-            if (picked) setAlbumOutputDir(picked);
-            return picked;
-          }}
           onClose={() => setAlbumExport(null)}
           onConfirm={(result) => void runAlbumExport(result)}
         />
@@ -2268,13 +2273,7 @@ export function ExportTool({
         <GroupFileExportLightbox
           groupCode={fileExport.group.id}
           groupName={fileExport.group.name}
-          outputDir={fileOutputDir}
           submitting={submitting}
-          onPickPath={async () => {
-            const picked = await client.account.pickGroupFileExportDir.mutate();
-            if (picked) setFileOutputDir(picked);
-            return picked;
-          }}
           onClose={() => setFileExport(null)}
           onConfirm={(result) => void runGroupFileExport(result)}
         />
