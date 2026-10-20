@@ -1,6 +1,9 @@
 import { act, createElement as h, createRef, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { makeSolidPng } from '@weq/protocol';
 import { GroupFileActions } from '../src/renderer/src/components/qq-actions/GroupFileActions';
 import { GroupNoticeActions } from '../src/renderer/src/components/qq-actions/GroupNoticeActions';
 import {
@@ -52,8 +55,11 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
-  useDialog: (selector: (s: { confirm: typeof state.confirm }) => unknown) =>
-    selector({ confirm: state.confirm }),
+  useDialog: Object.assign(
+    (selector: (s: { confirm: typeof state.confirm }) => unknown) =>
+      selector({ confirm: state.confirm }),
+    { getState: () => ({ confirm: state.confirm }) },
+  ),
 }));
 vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
   OverlayLayer: ({ open = true, children }: { open?: boolean; children: ReactNode }) =>
@@ -151,6 +157,33 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   };
 });
 const cleanups: Array<() => void> = [];
+function captureManagement(host: HTMLElement, name: string) {
+  const directory = process.env.WEQ_NOTICE_LAYOUT;
+  if (!directory) return;
+  mkdirSync(directory, { recursive: true });
+  const clone = host.firstElementChild!.cloneNode(true) as HTMLElement;
+  for (const image of clone.querySelectorAll('img')) {
+    image.src = `data:image/png;base64,${Buffer.from(makeSolidPng(320, 180, [35, 119, 99])).toString('base64')}`;
+  }
+  const styles = [
+    'index',
+    'workspace-surfaces',
+    'page-chrome',
+    'qq-actions',
+    'group-content-management',
+    'conversation-actions',
+    'profile-avatar',
+  ]
+    .map(
+      (name) =>
+        `<link rel="stylesheet" href="/@fs${resolve('src/renderer/src/styles', `${name}.css`)}">`,
+    )
+    .join('');
+  writeFileSync(
+    resolve(directory, `notice-${name}.html`),
+    `<!doctype html><html lang="zh-CN"><meta charset="utf-8">${styles}<style>html,body{margin:0;height:100%;font-family:system-ui;background:var(--background);color:var(--foreground)}*,*::before,*::after{box-sizing:border-box}</style><body><main class="weq-workspace-page weq-workspace-sidecar-page weq-workspace-page-fallback">${clone.outerHTML}</main></body></html>`,
+  );
+}
 function fixture(render: () => ReactNode) {
   const host = document.createElement('div');
   document.body.append(host);
@@ -588,8 +621,20 @@ describe('QQ 主动操作的实际界面', () => {
     expect(f.host.querySelector<HTMLInputElement>('[aria-label="新名称"]')!.value).toBe('');
     expect(state.mutate).not.toHaveBeenCalled();
   });
+  it('未确认的公告发布保留原稿，不当作已经成功发布', async () => {
+    const f = fixture(() => h(GroupNoticeActions, { groupId: 123 }));
+    const create = f.button('新建公告');
+    if (create) act(() => create.click());
+    value(f.host, '新公告内容', '尚未确认的公告草稿');
+    state.mutate.mockResolvedValueOnce({ state: 'unconfirmed' });
+    await act(async () => f.button('发布公告').click());
+    expect(f.host.querySelector<HTMLTextAreaElement>('[aria-label="新公告内容"]')!.value).toBe(
+      '尚未确认的公告草稿',
+    );
+  });
   it('公告界面传递弹窗提醒和群名片引导选项', async () => {
     const f = fixture(() => h(GroupNoticeActions, { groupId: 123 }));
+    act(() => f.button('新建公告').click());
     value(f.host, '新公告内容', '新的公告');
     const inputs = [...f.host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
     act(() => {
@@ -601,6 +646,209 @@ describe('QQ 主动操作的实际界面', () => {
       'notice',
       expect.objectContaining({ content: '新的公告', popup: true, editCardGuide: true }),
     );
+  });
+  it('公告按 ID 在正文旁提供菜单，不重复渲染管理清单，删除保持原目标', async () => {
+    state.data.notices = [
+      {
+        noticeId: 'notice-a',
+        senderId: 10001,
+        publishTime: 1,
+        text: '在线公告',
+        images: [],
+        readNum: 2,
+      },
+    ];
+    const f = fixture(() =>
+      h(GroupAnnouncementsDialog, {
+        groupCode: '123',
+        groupName: '合成群',
+        bulletins: [
+          {
+            fid: 'notice-a',
+            publisherUid: 'uid-a',
+            textContent: '本地旧公告',
+            ctime: '',
+            msgTime: '',
+          },
+        ],
+        onClose: vi.fn(),
+      }),
+    );
+    expect(f.host.querySelector('details')).toBeNull();
+    expect(f.host.querySelectorAll('[data-notice-key]')).toHaveLength(1);
+    expect(f.host.textContent).toContain('在线公告');
+    expect(f.host.querySelector('[aria-label="新公告内容"]')).toBeNull();
+    act(() => f.button('公告操作 notice-a').click());
+    state.confirm.mockResolvedValueOnce(false);
+    await act(async () => document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click());
+    expect(state.mutate).not.toHaveBeenCalled();
+    act(() => f.button('公告操作 notice-a').click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click());
+    expect(state.mutate).toHaveBeenCalledWith(
+      'notice',
+      expect.objectContaining({
+        groupId: 123,
+        noticeId: 'notice-a',
+        action: 'delete',
+        expectedAccountConfigId: 'source-a',
+      }),
+    );
+  });
+  it('公告编辑器按需打开，取消放弃仍保留草稿，确认后收起并恢复焦点', async () => {
+    const f = fixture(() => h(GroupNoticeActions, { groupId: 123 }));
+    act(() => f.button('新建公告').click());
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('新公告内容');
+    value(f.host, '新公告内容', '需要保留的原稿');
+    state.confirm.mockResolvedValueOnce(false);
+    await act(async () => f.button('关闭公告编辑器').click());
+    expect(f.host.querySelector<HTMLTextAreaElement>('[aria-label="新公告内容"]')!.value).toBe(
+      '需要保留的原稿',
+    );
+    await act(async () => f.button('关闭公告编辑器').click());
+    expect(f.host.querySelector('[aria-label="新公告内容"]')).toBeNull();
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('新建公告');
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('关闭公告页复用草稿保护，不丢未保存正文', async () => {
+    const close = vi.fn();
+    const f = fixture(() =>
+      h(GroupAnnouncementsDialog, { groupCode: '123', groupName: '合成群', onClose: close }),
+    );
+    act(() => f.button('新建公告').click());
+    value(f.host, '新公告内容', '尚未发布');
+    state.confirm.mockResolvedValueOnce(false);
+    await act(async () => f.button('关闭群公告').click());
+    expect(close).not.toHaveBeenCalled();
+    expect(f.host.querySelector<HTMLTextAreaElement>('[aria-label="新公告内容"]')!.value).toBe(
+      '尚未发布',
+    );
+    await act(async () => f.button('关闭群公告').click());
+    expect(close).toHaveBeenCalledOnce();
+  });
+  it('公告等待回执期间的新编辑不被成功回执清空，重复点击不多发', async () => {
+    const f = fixture(() => h(GroupNoticeActions, { groupId: 123 }));
+    act(() => f.button('新建公告').click());
+    value(f.host, '新公告内容', '第一条');
+    let finish!: (result: QQWriteOutcome) => void;
+    state.mutate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await act(async () => f.button('发布公告').click());
+    expect(f.button('发布公告').disabled).toBe(true);
+    value(f.host, '新公告内容', '第二条');
+    act(() => f.button('发布公告').click());
+    expect(state.mutate).toHaveBeenCalledOnce();
+    await act(async () => finish({ state: 'accepted' }));
+    expect(f.host.querySelector<HTMLTextAreaElement>('[aria-label="新公告内容"]')!.value).toBe(
+      '第二条',
+    );
+  });
+  it('公告受理后收起编辑器，失败保留正文和已选图片', async () => {
+    const f = fixture(() => h(GroupNoticeActions, { groupId: 123 }));
+    act(() => f.button('新建公告').click());
+    value(f.host, '新公告内容', '带图片的公告');
+    await act(async () => f.button('选择图片').click());
+    state.mutate.mockRejectedValueOnce(new Error('合成发布失败'));
+    await act(async () => f.button('发布公告').click());
+    expect(f.host.querySelector('textarea')!.value).toBe('带图片的公告');
+    expect(f.host.querySelector('.weq-qq-action-image img')?.getAttribute('alt')).toBe('image.png');
+    await act(async () => f.button('发布公告').click());
+    expect(f.host.querySelector('textarea')).toBeNull();
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('新建公告');
+  });
+  it('同号切源或切群会清除公告编辑器与菜单，不沿用旧目标', () => {
+    let groupId = 123;
+    state.data.notices = [
+      {
+        noticeId: 'notice-a',
+        senderId: 10001,
+        publishTime: 1,
+        text: '公告',
+        images: [],
+        readNum: 0,
+      },
+    ];
+    const f = fixture(() => h(GroupNoticeActions, { groupId }));
+    act(() => f.button('新建公告').click());
+    value(f.host, '新公告内容', '旧来源草稿');
+    act(() => f.button('公告操作 notice-a').click());
+    state.configId = 'source-b';
+    f.update();
+    expect(f.host.querySelector('textarea')).toBeNull();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    act(() => f.button('新建公告').click());
+    value(f.host, '新公告内容', '旧群草稿');
+    groupId = 456;
+    f.update();
+    expect(f.host.querySelector('textarea')).toBeNull();
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('待办完成留在正文旁，取消在对应行菜单，普通成员不能取消', async () => {
+    state.data.todoList = [{ sequence: 'todo-a', text: '合成待办' }];
+    const f = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
+    expect(f.host.querySelector('summary')).toBeNull();
+    expect(f.button('取消群待办')).toBeNull();
+    expect(f.button('完成待办')).not.toBeNull();
+    act(() => f.button('待办操作 todo-a').click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click());
+    expect(state.mutate).toHaveBeenCalledWith(
+      'todo',
+      expect.objectContaining({ groupId: 123, sequence: 'todo-a', action: 'cancel' }),
+    );
+    state.data.groupPermissions = { canManage: false };
+    f.update();
+    expect(f.button('待办操作 todo-a')).toBeNull();
+  });
+  it('公告阅读、发布编辑器、普通成员与待办工具合成布局', async () => {
+    state.data.notices = [
+      {
+        noticeId: 'notice-a',
+        senderId: 10001,
+        publishTime: 1,
+        text: '这是一条用于检查正文附近工具按钮和长段落换行的合成公告。\n公告第二段。',
+        images: [{ id: 'synthetic-image', width: 320, height: 180 }],
+        readNum: 2,
+      },
+    ];
+    const f = fixture(() =>
+      h(GroupAnnouncementsDialog, {
+        groupCode: '123',
+        groupName: '合成群与长名称布局检查',
+        currentAnnouncement: '当前公告摘要',
+        bulletins: [
+          {
+            fid: 'local-b',
+            publisherUid: 'uid-b',
+            publisherName: '本地发布者',
+            textContent: '本地历史公告，不因在线页未返回而消失。',
+            ctime: '2026-10-20 08:00:00',
+            msgTime: '',
+          },
+        ],
+        onClose: vi.fn(),
+      }),
+    );
+    captureManagement(f.host, 'reader');
+    act(() => f.button('新建公告').click());
+    value(f.host, '新公告内容', '准备发布的合成公告正文。\n第二行内容');
+    await act(async () => f.button('选择图片').click());
+    captureManagement(f.host, 'editor');
+    state.data.groupPermissions = { canManage: false };
+    f.update();
+    expect(f.button('新建公告')).toBeNull();
+    expect(f.button('发布公告').disabled).toBe(true);
+    await act(async () => f.button('关闭公告编辑器').click());
+    captureManagement(f.host, 'member');
+    state.data.groupPermissions = { canManage: true };
+    state.data.todoList = [
+      { sequence: 'todo-a', text: '这是一项用于检查长内容不会挤压完成按钮和菜单的合成群待办。' },
+      { sequence: 'todo-b', text: '第二项合成待办' },
+    ];
+    const todos = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
+    captureManagement(todos.host, 'todos');
   });
   it('空间评论显示所选图片，并把路径交给主进程上传', async () => {
     const f = fixture(() =>
