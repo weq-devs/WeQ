@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Play, RotateCw, Search } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Play, RotateCw, Search, Users } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useTabActive } from '../../components/RetainedTabs';
 import { WindowedList } from '../../components/WindowedList';
+import { QqAvatar } from '../../components/QqAvatar';
 import { useViewState } from '../../state/view';
 import { createMediaId } from '../../im-template/template/composerMedia';
+import { MessageCalendar } from '../../components/MessageCalendar';
+import { beijingDay } from '../../lib/messageCalendar';
+import { GroupAvatar } from '../../components/exportAvatars';
 import {
   ANALYSIS_LABELS,
   analysisDateRange,
@@ -14,57 +18,183 @@ import {
 } from './model';
 import '../../styles/analysis-tool.css';
 
-type Choice = { id: string; name: string; detail: string };
+/** 私聊目录行（analysisPeerDirectory）。 */
+interface PeerRow {
+  uid: string;
+  uin: string;
+  name: string;
+  source: 'directory' | 'messages';
+  /** 最近一条消息时间（unix 秒，0 = 没有本地记录）。 */
+  lastMessageTime?: number;
+}
+/** 群目录行（analysisGroupDirectory）。 */
+interface GroupRow {
+  groupCode: string;
+  groupName: string;
+  memberCount: number;
+  source: 'directory' | 'messages';
+  lastMessageTime?: number;
+}
+/** 群成员目录行（analysisMemberDirectory）。 */
+interface MemberRow {
+  id: string;
+  uid: string;
+  uin: string;
+  name: string;
+  source: 'directory' | 'messages';
+  lastMessageTime?: number;
+}
+
+type Choice = {
+  id: string;
+  name: string;
+  detail: string;
+  /** 头像：好友用 uid + uin，群用群号，成员同理。 */
+  avatar?: { uid?: string; uin?: string; groupCode?: string; kind: 'buddy' | 'group' };
+  lastMessageTime: number;
+  badge?: string;
+};
+
+/** 「最近聊过」的相对时间标签，避免列表里一堆绝对日期。 */
+function relativeTime(seconds: number): string {
+  if (!seconds) return '';
+  const day = new Date(seconds * 1000);
+  const diff = Date.now() - day.getTime();
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return '刚刚';
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} 天前`;
+  return beijingDay(day);
+}
+
 function ObjectPicker({
   items,
   selected,
   onSelect,
+  emptyText = '暂无匹配对象',
+  title,
+  trailing,
 }: {
   items: Choice[];
   selected: string | null;
   onSelect: (id: string) => void;
+  emptyText?: string;
+  title?: string;
+  trailing?: React.ReactNode;
 }) {
   const [query, setQuery] = useState('');
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
+    if (!needle) return items;
     return items.filter((item) =>
       `${item.name}\n${item.detail}`.toLocaleLowerCase().includes(needle),
     );
   }, [items, query]);
   return (
     <div className="weq-analysis-picker">
-      <label className="weq-analysis-search">
-        <Search size={15} />
-        <input
-          aria-label="搜索分析对象"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="名称或号码"
-        />
-      </label>
+      <div className="weq-analysis-picker-head">
+        <label className="weq-analysis-search">
+          <Search size={15} />
+          <input
+            aria-label="搜索分析对象"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="名称或号码"
+          />
+        </label>
+        {trailing}
+      </div>
+      {title ? <p className="weq-analysis-picker-title">{title}</p> : null}
       {filtered.length ? (
         <WindowedList
           items={filtered}
-          height={360}
-          rowHeight={54}
+          height={420}
+          rowHeight={58}
           itemKey={(item) => item.id}
           resetKey={query}
           label="分析对象"
-          renderItem={(item) => (
-            <button
-              type="button"
-              className={`weq-analysis-choice${selected === item.id ? ' is-selected' : ''}`}
-              aria-pressed={selected === item.id}
-              onClick={() => onSelect(item.id)}
-            >
-              <strong>{item.name}</strong>
-              <small>{item.detail}</small>
-            </button>
-          )}
+          renderItem={(item) => {
+            const active = selected === item.id;
+            return (
+              <button
+                type="button"
+                className={`weq-analysis-choice${active ? ' is-selected' : ''}`}
+                aria-pressed={active}
+                onClick={() => onSelect(item.id)}
+                data-analysis-choice={item.id}
+              >
+                <span className="weq-analysis-choice-avatar" aria-hidden>
+                  {item.avatar?.kind === 'group' ? (
+                    <GroupAvatar code={item.avatar.groupCode ?? ''} size={34} />
+                  ) : (
+                    <QqAvatar uin={item.avatar?.uin || null} size={34} />
+                  )}
+                </span>
+                <span className="weq-analysis-choice-body">
+                  <span className="weq-analysis-choice-name">
+                    <strong>{item.name}</strong>
+                    {item.badge ? <em>{item.badge}</em> : null}
+                  </span>
+                  <small>{item.detail}</small>
+                </span>
+                {item.lastMessageTime ? (
+                  <span className="weq-analysis-choice-time">
+                    {relativeTime(item.lastMessageTime)}
+                  </span>
+                ) : null}
+              </button>
+            );
+          }}
         />
       ) : (
-        <p className="weq-analysis-state">暂无匹配对象</p>
+        <p className="weq-analysis-state">{emptyText}</p>
       )}
+    </div>
+  );
+}
+
+/** 报告类型选择：小尺寸 segmented，而不是一个占满宽度的下拉。 */
+function KindTabs({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: AnalysisKind;
+  onChange: (kind: AnalysisKind) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="weq-analysis-kinds" role="tablist" aria-label="切换报告类型">
+      {/* 隐藏的原生 select 只承担无障碍 / 键盘语义（读屏与自动化都按「报告类型」找它）。 */}
+      <select
+        className="weq-analysis-kind-native"
+        aria-label="报告类型"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value as AnalysisKind)}
+      >
+        {(Object.keys(ANALYSIS_LABELS) as AnalysisKind[]).map((kind) => (
+          <option key={kind} value={kind}>
+            {ANALYSIS_LABELS[kind]}
+          </option>
+        ))}
+      </select>
+      {(Object.keys(ANALYSIS_LABELS) as AnalysisKind[]).map((kind) => (
+        <button
+          key={kind}
+          type="button"
+          role="tab"
+          aria-selected={kind === value}
+          className={kind === value ? 'is-active' : ''}
+          disabled={disabled}
+          onClick={() => onChange(kind)}
+        >
+          {ANALYSIS_LABELS[kind]}
+        </button>
+      ))}
     </div>
   );
 }
@@ -72,21 +202,25 @@ function ObjectPicker({
 export function AnalysisTool({
   onGenerate,
   initialTarget,
+  initialKind,
   messageIds,
   fixedTarget = true,
 }: {
   onGenerate: (request: AnalysisReportRequest) => void;
   initialTarget?: AnalysisTarget;
+  /** 浮动工具子项选定的报告种类（没有具体对象时只决定默认类型）。 */
+  initialKind?: AnalysisKind;
   messageIds?: string[];
   fixedTarget?: boolean;
 }) {
   const account = useViewState((state) => state.openedUin);
   return (
     <AnalysisToolForm
-      key={JSON.stringify([account, initialTarget, fixedTarget])}
+      key={JSON.stringify([account, initialTarget, initialKind, fixedTarget])}
       account={account}
       onGenerate={onGenerate}
       initialTarget={initialTarget}
+      initialKind={initialKind}
       messageIds={messageIds}
       fixedTarget={fixedTarget}
     />
@@ -97,19 +231,23 @@ function AnalysisToolForm({
   account,
   onGenerate,
   initialTarget,
+  initialKind,
   messageIds,
   fixedTarget,
 }: {
   account: string | null;
   onGenerate: (request: AnalysisReportRequest) => void;
   initialTarget?: AnalysisTarget;
+  initialKind?: AnalysisKind;
   messageIds?: string[];
   fixedTarget: boolean;
 }) {
   const lockedTarget = fixedTarget ? initialTarget : undefined;
   const active = useTabActive() && Boolean(account);
-  const [kind, setKind] = useState<AnalysisKind>(initialTarget?.kind ?? 'annual');
+  const [kind, setKind] = useState<AnalysisKind>(initialTarget?.kind ?? initialKind ?? 'annual');
   const [year, setYear] = useState(0);
+  // 年份初始值：拿到可用年份后自动落到「历史以来」；没有这一档就选最近一年。
+  const yearInitialized = useRef(false);
   const [peer, setPeer] = useState<string | null>(
     initialTarget?.kind === 'buddy' ? initialTarget.peerUid : null,
   );
@@ -134,23 +272,42 @@ function AnalysisToolForm({
   const years = trpc.account.annualReport.getAvailableYears.useQuery(undefined, {
     enabled: active && kind === 'annual',
   });
+  // 年份初始值：拿到可用年份后自动落到「历史以来」；没有这一档就选最近一年。
+  useEffect(() => {
+    if (yearInitialized.current || !years.data?.length) return;
+    yearInitialized.current = true;
+    setYear(years.data.includes(0) ? 0 : years.data[0]!);
+  }, [years.data]);
   const friends = trpc.account.analysisPeerDirectory.useQuery(
     { expectedAccountUin: account ?? '' },
     { enabled: active && kind === 'buddy' },
   );
   const groups = trpc.account.analysisGroupDirectory.useQuery(
     { expectedAccountUin: account ?? '' },
-    {
-      enabled: active && (kind === 'group' || kind === 'member'),
-    },
+    { enabled: active && (kind === 'group' || kind === 'member') },
   );
   const memberList = trpc.account.analysisMemberDirectory.useQuery(
     { groupCode: group ?? '1', expectedAccountUin: account ?? '' },
     { enabled: active && kind === 'member' && Boolean(group) && !chooseGroup },
   );
-  const groupRows = groups.data ?? [],
-    friendRows = friends.data ?? [],
-    memberRows = memberList.data ?? [];
+  // 日历按当前对象统计每日消息量，让「指定日期」能直接看到哪里有记录。
+  const calendarTargets = (() => {
+    if (kind === 'buddy' && peer) return [{ kind: 'c2c' as const, conv: peer }];
+    if (kind === 'group' && group) return [{ kind: 'group' as const, conv: group }];
+    if (kind === 'member' && group) return [{ kind: 'group' as const, conv: group }];
+    return [];
+  })();
+  const calendar = trpc.account.exportCalendar.useQuery(
+    { targets: calendarTargets },
+    {
+      enabled: active && calendarTargets.length > 0 && timeMode === 'dates',
+      staleTime: 60_000,
+      refetchOnWindowFocus: false,
+    },
+  );
+  const groupRows = (groups.data ?? []) as GroupRow[];
+  const friendRows = (friends.data ?? []) as PeerRow[];
+  const memberRows = (memberList.data ?? []) as MemberRow[];
   const pickedGroup = groupRows.find((row) => row.groupCode === group);
   const pickedFriend = friendRows.find((row) => row.uid === peer);
   const initialMember =
@@ -163,28 +320,37 @@ function AnalysisToolForm({
       : undefined;
   const selectedMemberId = group ? (members[group] ?? initialMember?.id ?? null) : null;
   const pickedMember = memberRows.find((row) => row.id === selectedMemberId);
-  const source =
-    kind === 'buddy' ? friends : kind === 'member' && !chooseGroup && group ? memberList : groups;
+
   const items: Choice[] =
     kind === 'buddy'
       ? friendRows.map((row) => ({
-          id: row.uid,
+          id: row.uid ?? row.name,
           name: row.name,
-          detail: `${row.uin || row.uid} · ${row.source === 'directory' ? '好友名册' : '仅有本地记录'}`,
+          detail: row.uin || row.uid || '',
+          avatar: { uid: row.uid, uin: row.uin, kind: 'buddy' },
+          lastMessageTime: row.lastMessageTime ?? 0,
         }))
       : kind === 'member' && !chooseGroup && group
         ? memberRows.map((row) => ({
             id: row.id,
             name: row.name,
-            detail: `${row.uin || row.uid} · ${row.source === 'directory' ? '缓存名册' : '仅有本地记录'}`,
+            detail: row.uin || row.uid || '',
+            avatar: { uid: row.uid, uin: row.uin, kind: 'buddy' },
+            lastMessageTime: row.lastMessageTime ?? 0,
+            badge: row.source === 'messages' ? '仅本地记录' : undefined,
           }))
         : groupRows.map((row) => ({
             id: row.groupCode,
-            name: row.groupName,
-            detail: `${row.groupCode} · ${row.source === 'directory' ? '缓存群资料' : '仅有本地记录'}`,
+            name: row.groupName || row.groupCode,
+            detail: row.groupCode,
+            avatar: { groupCode: row.groupCode, kind: 'group' },
+            lastMessageTime: row.lastMessageTime ?? 0,
+            badge: row.source === 'messages' ? '仅本地记录' : undefined,
           }));
   const selected =
     kind === 'buddy' ? peer : kind === 'member' && !chooseGroup && group ? selectedMemberId : group;
+  const source =
+    kind === 'buddy' ? friends : kind === 'member' && !chooseGroup && group ? memberList : groups;
   const validObject =
     kind === 'annual'
       ? years.data?.includes(year)
@@ -254,38 +420,63 @@ function AnalysisToolForm({
       }
     }
   };
+
+  /** 对象选择器的说明行：随当前种类变化，但不再出现「当前账号 xxx」。 */
+  const pickerTitle =
+    kind === 'buddy' ? '按最近聊天排序' : kind === 'group' ? '按最近活跃排序' : '按最近发言排序';
+
+  function pickDay(day: string) {
+    if (!start || end) {
+      setStart(day);
+      setEnd('');
+      return;
+    }
+    if (day < start) {
+      setEnd(start);
+      setStart(day);
+    } else setEnd(day);
+  }
+
+  // 报告类型由入口决定：浮动工具主按钮直达当前会话，子项直接选定种类；
+  // 只有「从工具里普通打开」才在这里让人切换。
+  const showKinds = !lockedTarget && initialKind === undefined;
+
   return (
     <div className="weq-analysis-tool">
+      {showKinds ? (
+        <header className="weq-analysis-tool-head">
+          <KindTabs
+            value={kind}
+            disabled={busy}
+            onChange={(next) => {
+              setKind(next);
+              setError(null);
+              // 年份要跟着真实可用年份走：默认「历史以来」（0），没有 0 就取最近一年。
+              setYear((current) => {
+                const available = years.data ?? [];
+                if (available.includes(current)) return current;
+                if (available.includes(0)) return 0;
+                return available[0] ?? current;
+              });
+            }}
+          />
+        </header>
+      ) : lockedTarget ? (
+        <header className="weq-analysis-tool-head">
+          <span className="weq-analysis-locked">
+            <strong>{ANALYSIS_LABELS[lockedTarget.kind]}</strong>
+            {(pickedFriend?.name ?? pickedGroup?.groupName)
+              ? ` · ${pickedFriend?.name ?? pickedGroup?.groupName}`
+              : ''}
+          </span>
+        </header>
+      ) : null}
       <fieldset disabled={busy} className="weq-analysis-fields">
-        <div className="weq-analysis-config">
-          {!lockedTarget ? (
-            <label>
-              报告类型
-              <select
-                aria-label="报告类型"
-                value={kind}
-                onChange={(event) => {
-                  setKind(event.target.value as AnalysisKind);
-                  setError(null);
-                }}
-              >
-                {Object.entries(ANALYSIS_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <strong>
-              {ANALYSIS_LABELS[lockedTarget.kind]} ·{' '}
-              {pickedFriend?.name ?? pickedGroup?.groupName ?? ''}
-            </strong>
-          )}
+        <aside className="weq-analysis-config">
           {kind === 'annual' ? (
-            <label>
-              时间
+            <section className="weq-analysis-card">
               <select
+                className="weq-analysis-kind-native"
                 aria-label="报告年份"
                 value={year}
                 onChange={(event) => setYear(Number(event.target.value))}
@@ -296,74 +487,151 @@ function AnalysisToolForm({
                   </option>
                 ))}
               </select>
-            </label>
-          ) : messageIds !== undefined ? (
-            <span>已选 {messageIds.length} 条消息</span>
-          ) : (
-            <>
-              <label>
-                时间
-                <select
-                  aria-label="分析时间范围"
-                  value={timeMode}
-                  onChange={(event) => setTimeMode(event.target.value as 'all' | 'dates')}
+              <h3>报告年份</h3>
+              <div className="weq-analysis-years">
+                {(years.data ?? []).map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-label={value === 0 ? '历史以来' : `${value} 年`}
+                    aria-pressed={year === value}
+                    className={year === value ? 'is-on' : ''}
+                    onClick={() => setYear(value)}
+                  >
+                    {value === 0 ? '历史以来' : `${value} 年`}
+                  </button>
+                ))}
+              </div>
+              {years.isLoading ? (
+                <p className="weq-analysis-state" role="status">
+                  正在读取报告年份
+                </p>
+              ) : years.isError ? (
+                <button
+                  type="button"
+                  className="weq-analysis-retry"
+                  onClick={() => void years.refetch()}
                 >
-                  <option value="all">全部本地历史</option>
-                  <option value="dates">指定日期</option>
-                </select>
-              </label>
+                  <RotateCw size={14} /> 重试读取年份
+                </button>
+              ) : years.data?.length ? null : (
+                <p className="weq-analysis-state">本地暂无可用报告年份</p>
+              )}
+            </section>
+          ) : messageIds !== undefined ? (
+            <section className="weq-analysis-card">
+              <h3>分析范围</h3>
+              <p className="weq-analysis-scope-note">已选 {messageIds.length} 条消息</p>
+            </section>
+          ) : (
+            <section className="weq-analysis-card">
+              <h3>时间范围</h3>
+              <div className="weq-analysis-time-modes">
+                <button
+                  type="button"
+                  aria-pressed={timeMode === 'all'}
+                  className={timeMode === 'all' ? 'is-on' : ''}
+                  onClick={() => setTimeMode('all')}
+                >
+                  全部本地历史
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={timeMode === 'dates'}
+                  className={timeMode === 'dates' ? 'is-on' : ''}
+                  onClick={() => {
+                    setTimeMode('dates');
+                    if (!start) setStart(beijingDay());
+                  }}
+                >
+                  <CalendarDays size={13} /> 指定日期
+                </button>
+              </div>
+              <select
+                className="weq-analysis-kind-native"
+                aria-label="分析时间范围"
+                value={timeMode}
+                onChange={(event) => setTimeMode(event.target.value as 'all' | 'dates')}
+              >
+                <option value="all">全部本地历史</option>
+                <option value="dates">指定日期</option>
+              </select>
               {timeMode === 'dates' ? (
-                <div className="weq-analysis-dates">
-                  <label>
-                    开始日期
-                    <input
-                      type="date"
-                      aria-label="开始日期"
-                      value={start}
-                      onChange={(event) => setStart(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    结束日期
-                    <input
-                      type="date"
-                      aria-label="结束日期"
-                      value={end}
-                      onChange={(event) => setEnd(event.target.value)}
-                    />
-                  </label>
-                  <small>北京时间</small>
-                </div>
-              ) : null}
-            </>
+                <>
+                  <p className="weq-analysis-range">
+                    <span>{start || '开始'}</span>
+                    <span aria-hidden>→</span>
+                    <span>{end || '结束'}</span>
+                    <small>北京时间</small>
+                  </p>
+                  <div className="weq-analysis-dates">
+                    <label>
+                      开始日期
+                      <input
+                        type="date"
+                        aria-label="开始日期"
+                        value={start}
+                        onChange={(event) => setStart(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      结束日期
+                      <input
+                        type="date"
+                        aria-label="结束日期"
+                        value={end}
+                        onChange={(event) => setEnd(event.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <MessageCalendar
+                    days={calendar.data ?? []}
+                    start={start}
+                    end={end}
+                    allowEmpty
+                    loading={calendar.isLoading}
+                    key={calendarTargets.map((t) => `${t.kind}:${t.conv}`).join(',') || 'none'}
+                    busy={busy}
+                    error={calendar.error?.message}
+                    onPick={pickDay}
+                  />
+                </>
+              ) : (
+                <p className="weq-analysis-scope-note">不限制时间，统计本地已有的全部记录。</p>
+              )}
+            </section>
           )}
-        </div>
+        </aside>
+
         <div className="weq-analysis-objects">
           {kind === 'annual' ? (
-            years.isLoading ? (
-              <p className="weq-analysis-state" role="status">
-                正在读取报告年份
-              </p>
-            ) : years.isError ? (
-              <button type="button" onClick={() => void years.refetch()}>
-                <RotateCw size={16} />
-                重试读取年份
-              </button>
-            ) : (
-              <p className="weq-analysis-state">
-                {years.data?.length ? `当前账号 · ${account}` : '当前账号暂无可用报告年份'}
-              </p>
-            )
+            <div className="weq-analysis-empty">
+              <span className="weq-analysis-empty-icon" aria-hidden>
+                <CalendarDays size={26} />
+              </span>
+              <strong>选择年份后生成年度报告</strong>
+              <p>年度报告会汇总这一年里的聊天量、活跃时段与关系变化。</p>
+            </div>
           ) : lockedTarget &&
             validObject &&
             (lockedTarget.kind !== 'member' || pickedMember) &&
             !source.isLoading &&
             !source.isError ? (
-            <p className="weq-analysis-state">
-              {lockedTarget.kind === 'member'
-                ? pickedMember?.name
-                : (pickedFriend?.name ?? pickedGroup?.groupName)}
-            </p>
+            <div className="weq-analysis-locked-target">
+              <span className="weq-analysis-choice-avatar" aria-hidden>
+                {lockedTarget.kind === 'group' ? (
+                  <GroupAvatar code={lockedTarget.groupCode} size={52} />
+                ) : (
+                  <QqAvatar uin={pickedFriend?.uin || null} size={52} />
+                )}
+              </span>
+              <strong>
+                {lockedTarget.kind === 'member'
+                  ? pickedMember?.name
+                  : (pickedFriend?.name ?? pickedGroup?.groupName)}
+              </strong>
+              <small>{ANALYSIS_LABELS[lockedTarget.kind]}</small>
+            </div>
           ) : (
             <>
               {kind === 'member' && !chooseGroup && pickedGroup ? (
@@ -372,8 +640,9 @@ function AnalysisToolForm({
                   className="weq-analysis-group"
                   onClick={() => setChooseGroup(true)}
                 >
-                  <ArrowLeft size={16} />
-                  {pickedGroup.groupName}
+                  <ArrowLeft size={15} />
+                  <Users size={15} />
+                  {pickedGroup.groupName || pickedGroup.groupCode}
                 </button>
               ) : null}
               {source.isLoading ? (
@@ -381,9 +650,12 @@ function AnalysisToolForm({
                   正在读取分析对象
                 </p>
               ) : source.isError ? (
-                <button type="button" onClick={() => void source.refetch()}>
-                  <RotateCw size={16} />
-                  重试读取对象
+                <button
+                  type="button"
+                  className="weq-analysis-retry"
+                  onClick={() => void source.refetch()}
+                >
+                  <RotateCw size={14} /> 重试读取对象
                 </button>
               ) : lockedTarget && lockedTarget.kind !== 'member' ? (
                 <p role="alert">本地目录中未找到此分析对象。</p>
@@ -392,6 +664,8 @@ function AnalysisToolForm({
                   key={`${kind}:${kind === 'member' && !chooseGroup ? group : 'groups'}`}
                   items={items}
                   selected={selected}
+                  title={pickerTitle}
+                  emptyText={kind === 'buddy' ? '没有可分析的私聊对象' : '没有可分析的群聊'}
                   onSelect={(id) => {
                     if (kind === 'buddy') setPeer(id);
                     else if (kind === 'member' && !chooseGroup && group)
@@ -408,13 +682,13 @@ function AnalysisToolForm({
         </div>
       </fieldset>
       <footer className="weq-analysis-foot">
-        {error ? <span role="alert">{error}</span> : <span />}
+        {error ? <span role="alert">{error}</span> : <span className="weq-analysis-hint" />}
         <button
           type="button"
           disabled={!account || !validObject || busy}
           onClick={() => void submit()}
         >
-          <Play size={16} />
+          <Play size={14} />
           {busy ? '正在确认' : '生成报告'}
         </button>
       </footer>

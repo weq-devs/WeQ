@@ -65,11 +65,12 @@ it('私聊目录合并全部好友与消息分区，不截断末尾，不丢非�
   const rows = await buddy.listAnalysisPeers();
   expect(rows).toHaveLength(2503);
   expect(rows.find((row) => row.uid === 'u_friend_2500')).toBeDefined();
-  expect(rows.find((row) => row.uid === 'u_history')).toEqual({
+  expect(rows.find((row) => row.uid === 'u_history')).toMatchObject({
     uid: 'u_history',
     uin: '9007199254740993',
     name: '历史联系人',
     source: 'messages',
+    lastMessageTime: 0,
   });
   expect(rows.filter((row) => row.uid === 'u_current')).toHaveLength(1);
   expect(
@@ -96,10 +97,24 @@ it('冲突身份不按相同 QQ 号猜测唯一 UID，也不扩大 UID 分析范
 
 it('群和成员目录包含历史群、退群成员与名册外发言人，保留真实身份并隔离群', async () => {
   const { group } = fixture();
+  // 群目录按最后一条消息时间倒序（与导出页同口径）：777 最新、888 次之、
+  // 只在名册里出现过的 999 排最后。
   expect(await group.listAnalysisGroups()).toEqual([
-    { groupCode: '777', groupName: '缓存群', memberCount: 1, source: 'directory' },
-    { groupCode: '888', groupName: '888', memberCount: 0, source: 'messages' },
-    { groupCode: '999', groupName: '999', memberCount: 0, source: 'directory' },
+    {
+      groupCode: '777',
+      groupName: '缓存群',
+      memberCount: 1,
+      source: 'directory',
+      lastMessageTime: 104,
+    },
+    {
+      groupCode: '888',
+      groupName: '888',
+      memberCount: 0,
+      source: 'messages',
+      lastMessageTime: 100,
+    },
+    { groupCode: '999', groupName: '999', memberCount: 0, source: 'directory', lastMessageTime: 0 },
   ]);
   const rows = await group.listAnalysisMembers(777n);
   expect(rows.find((row) => row.uid === 'u_old')).toMatchObject({

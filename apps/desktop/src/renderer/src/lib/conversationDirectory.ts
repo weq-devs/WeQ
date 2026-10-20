@@ -9,6 +9,14 @@ export interface VirtualConversation {
   name: string;
   uin?: string;
   updatedAt?: number;
+  /** 最近一条消息的纯文本预览（来自最近的克隆会话）。 */
+  preview?: string;
+  /** 最近一条消息的时间（unix 秒），用于插入会话列表的正确位置。 */
+  lastMessageTime?: number;
+  /** 最近一条消息是不是自己发的（决定预览要不要加昵称前缀）。 */
+  previewMine?: boolean;
+  /** 克隆群成员的 QQ 号：用来拼九宫格合成头像。 */
+  memberUins?: string[];
 }
 export const ConversationDirectoryContext = createContext<{
   virtual: VirtualConversation[];
@@ -37,7 +45,14 @@ export const ContactDirectoryContext = createContext<{
   ids: string[];
 } | null>(null);
 
+/** 克隆体的列表时间：优先用最后一条消息，其次才是画像更新时间。 */
+export function virtualConversationTime(item: VirtualConversation): number {
+  return item.lastMessageTime ?? item.updatedAt ?? 0;
+}
+
 export function virtualConversationRow(item: VirtualConversation): Conversation {
+  const seconds = virtualConversationTime(item);
+  const updatedAt = seconds > 0 ? new Date(seconds * 1000).toISOString() : '';
   return {
     id: item.id,
     type: 'direct',
@@ -53,9 +68,19 @@ export function virtualConversationRow(item: VirtualConversation): Conversation 
     },
     group: null,
     members: [],
-    updatedAt: new Date(item.updatedAt ?? 0).toISOString(),
+    updatedAt,
     preference: { pinned: false, muted: false, blocked: false },
     unreadCount: 0,
-    lastMessage: null,
+    // 让列表行直接显示最近一句；没有记录时才留空。
+    lastMessage: item.preview
+      ? {
+          id: `${item.id}:preview`,
+          senderId: item.previewMine ? null : item.ownerId,
+          senderDisplayName: item.previewMine ? '我' : item.name,
+          body: item.preview,
+          kind: 'text',
+          createdAt: updatedAt || undefined,
+        }
+      : null,
   };
 }

@@ -19,12 +19,15 @@ export function ChannelView({
   initialDirectOpen = false,
   sidebarWidth = 362,
   searchTarget,
+  onActiveNodeChange,
 }: {
   selfUser: User;
   renderers?: MessageRenderer[];
   initialDirectOpen?: boolean;
   sidebarWidth?: number;
   searchTarget?: GuildSearchTarget | null;
+  /** 当前打开的频道私聊 nodeId（浮动工具按当前位置导出）。 */
+  onActiveNodeChange?: (nodeId: string | null) => void;
 }): ReactElement {
   const [directOpen, setDirectOpen] = useState(initialDirectOpen);
   const [visited, setVisited] = useState(initialDirectOpen);
@@ -72,6 +75,7 @@ export function ChannelView({
             selfUser={selfUser}
             renderers={renderers}
             searchTarget={searchTarget}
+            onActiveSessionChange={onActiveNodeChange}
             onClose={() => setDirectOpen(false)}
           />
         </div>

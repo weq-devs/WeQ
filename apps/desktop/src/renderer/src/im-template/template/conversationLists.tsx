@@ -2,6 +2,7 @@
 import {
   BellOff,
   Bot,
+  Hash,
   PenLine,
   Pin,
   MailOpen,
@@ -22,6 +23,7 @@ import {
   RefreshCw,
   Plus,
   MessagesSquare,
+  Sparkles,
   BarChart3,
   CloudDownload,
   Download,
@@ -32,6 +34,7 @@ import {
   ContactDirectoryContext,
   virtualConversationRow,
 } from '../../lib/conversationDirectory';
+import { VirtualConversationAvatar } from '../../components/VirtualConversationAvatar';
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
 import {
   conversationAnalysisTarget,
@@ -183,13 +186,10 @@ export function ConversationList({
   const viewportRef = useRef<HTMLDivElement>(null);
   const [listHeight, setListHeight] = useState(600);
   const menuRef = useRef<HTMLDivElement>(null);
-  const virtualIds = useMemo(
-    () => new Set(directory?.virtual.map((item) => item.id)),
-    [directory?.virtual],
-  );
   const filtered = useMemo(() => {
-    // 置顶会话排最前。sort 是稳定的，所以 MainView 已排好的置顶时间（41103）
-    // 次序在这里被保留。
+    // 置顶会话排最前；其余按「最后一条消息时间」和真实会话混排。
+    // 虚拟会话（克隆体 / 克隆群）以前是直接追加到末尾，看起来像永远不活跃的
+    // 死会话 —— 现在按最近聊天时间插回正确位置。
     const needle = keyword.trim().toLocaleLowerCase();
     const real = needle ? (directory?.real ?? conversations) : conversations;
     const rows = [
@@ -206,10 +206,12 @@ export function ConversationList({
     const visible = directory?.groupAssistantIds
       ? sidebarConversationsWithoutAssistant(rows, directory.groupAssistantIds)
       : rows;
-    return visible.sort(
-      (first, second) =>
-        Number(isPinned(second, preferences)) - Number(isPinned(first, preferences)),
-    );
+    return visible.sort((first, second) => {
+      const pinnedDelta =
+        Number(isPinned(second, preferences)) - Number(isPinned(first, preferences));
+      if (pinnedDelta !== 0) return pinnedDelta;
+      return conversationSortTime(second) - conversationSortTime(first);
+    });
   }, [
     conversations,
     preferences,
@@ -567,6 +569,7 @@ export function ConversationList({
               }.muted,
             );
             const pinned = isPinned(conversation, preferences);
+            const virtualRow = directory?.virtual.find((item) => item.id === conversation.id);
 
             return (
               <button
@@ -618,6 +621,8 @@ export function ConversationList({
                       <EyeOff size={20} strokeWidth={2} />
                     ) : conversation.mergedKind === 'deleted' ? (
                       <Trash2 size={20} strokeWidth={2} />
+                    ) : conversation.mergedKind === 'guildDirect' ? (
+                      <Hash size={20} strokeWidth={2} />
                     ) : conversation.mergedKind === 'service' ||
                       conversation.mergedKind === 'groupAssistant' ? (
                       <Users size={20} strokeWidth={2} />
@@ -625,6 +630,8 @@ export function ConversationList({
                       <UserRound size={20} strokeWidth={2} />
                     )}
                   </span>
+                ) : virtualRow ? (
+                  <VirtualConversationAvatar item={virtualRow} />
                 ) : (
                   <Avatar
                     name={conversationTitle(conversation)}
@@ -635,13 +642,20 @@ export function ConversationList({
                 <span className={cn('row-main')}>
                   <strong>
                     <span className={cn('row-title-text')}>{conversationTitle(conversation)}</span>
-                    {virtualIds.has(conversation.id) ? (
+                    {virtualRow ? (
                       <small
-                        className="weq-conversation-virtual"
-                        title="虚拟会话"
+                        className={cn(
+                          'weq-conversation-virtual',
+                          virtualRow.kind === 'group' ? 'is-group' : 'is-persona',
+                        )}
+                        title={virtualRow.kind === 'group' ? '克隆群聊' : '克隆体'}
                         aria-label="虚拟会话"
                       >
-                        <Bot size={12} />
+                        {virtualRow.kind === 'group' ? (
+                          <MessagesSquare size={11} />
+                        ) : (
+                          <Sparkles size={11} />
+                        )}
                       </small>
                     ) : null}
                     {isBotConversation(conversation) ? (
@@ -1512,4 +1526,11 @@ function listRowClass(active: boolean, semanticClass: 'conversation-row' | 'cont
 
 function unreadClass(muted: boolean) {
   return cn('row-unread', muted && 'muted');
+}
+
+/** 列表排序口径：最后一条消息优先，其次才是会话本身的时间戳。 */
+function conversationSortTime(row: Conversation): number {
+  const value = row.lastMessage?.createdAt ?? row.updatedAt;
+  const ms = value ? Date.parse(value) : 0;
+  return Number.isFinite(ms) ? ms : 0;
 }

@@ -84,6 +84,7 @@ import { DatabasePlainExport } from './export/DatabasePlainExport';
 import { useViewState } from '../state/view';
 import { useExportCollections } from '../hooks/useExportCollections';
 import {
+  fixedScopeSummary,
   initialContactScope,
   initialConversationIds,
   initialExportMode,
@@ -296,6 +297,7 @@ export function ExportTool({
   onClose,
   fixedScope = false,
   lockMode = false,
+  hideTypeSwitch = false,
   contentListRevision,
   onOpenClone,
 }: {
@@ -306,6 +308,11 @@ export function ExportTool({
   fixedScope?: boolean;
   /** 由入口（如维护工具）锁死导出类型：不渲染「内容种类」切换器，模式不可更改。 */
   lockMode?: boolean;
+  /**
+   * 工具入口按当前界面锁定内容类型：种类由浮动工具的子项决定，面板里不再重复选择。
+   * 与 {@link lockMode} 的差别只在于这里仍保留正常的内容选择器（会话列表等）。
+   */
+  hideTypeSwitch?: boolean;
   /** 全局入口再次打开时回到内容列表，保留草稿中的选择。 */
   contentListRevision?: number;
   onOpenClone?: (id: string) => void;
@@ -347,6 +354,9 @@ export function ExportTool({
   const [mode, setMode] = useState<ExportMode>(
     initialMode === 'scheduled' ? 'full' : (initialMode ?? initialExportMode(initialSelection)),
   );
+  // 浮动工具子项带过来的默认对象：群相册 / 群文件要从当前界面的群直接落地，
+  // 不必在面板里再选一遍群。
+  const initialGroupId = initialSelection?.owner.container ?? null;
   const exportAccount = trpc.account.getAccountConfig.useQuery(undefined, {
     enabled: active,
   });
@@ -472,13 +482,17 @@ export function ExportTool({
     },
   );
   const [albumExport, setAlbumExport] = useState<{ group: PickItem } | null>(null);
-  const [albumGroupId, setAlbumGroupId] = useState<string | null>(null);
+  const [albumGroupId, setAlbumGroupId] = useState<string | null>(
+    initialMode === 'album' ? initialGroupId : null,
+  );
   const [fileExport, setFileExport] = useState<{ group: PickItem } | null>(null);
   useEffect(() => {
     setAlbumExport(null);
     setFileExport(null);
   }, [saveBinding?.expectedAccountUin, saveBinding?.expectedAccountConfigId]);
-  const [fileGroupId, setFileGroupId] = useState<string | null>(null);
+  const [fileGroupId, setFileGroupId] = useState<string | null>(
+    initialMode === 'groupfile' ? initialGroupId : null,
+  );
   const [format, setFormat] = useState<ExportFormat>('json');
   const fixedMessages =
     fixedScope &&
@@ -1624,38 +1638,64 @@ export function ExportTool({
         />
       ) : null}
       {surface === 'export' && ((!lightbox && !fixedMessages) || editingList) ? (
-        <div className="weq-exp-top">
+        <div className={`weq-exp-top is-single${hideTypeSwitch ? ' is-focused' : ''}`}>
+          {fixedMessages && initialSelection ? (
+            <div className="weq-exp-source" role="status">
+              <span className="weq-exp-source-glyph" aria-hidden>
+                <Zap size={14} />
+              </span>
+              <span className="weq-exp-source-text">
+                <small>{fixedScopeSummary(initialSelection)}</small>
+              </span>
+              {editingList ? (
+                <button
+                  type="button"
+                  className="weq-exp-source-done"
+                  onClick={() => setEditingList(false)}
+                >
+                  完成调整
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {/* 右侧选择面板 */}
           <section className="weq-exp-pane">
             <header className="weq-exp-pane-head">
               <div className="weq-exp-pane-title">
-                {lockMode ? (
-                  <>
-                    <strong>{activeMode.label}</strong>
-                    <span>{activeMode.desc}</span>
-                  </>
-                ) : (
-                  <>
-                    <label htmlFor="weq-export-content-kind">内容种类</label>
-                    <select
-                      id="weq-export-content-kind"
-                      value={mode}
-                      disabled={submitting || editingList}
-                      onChange={(event) => {
-                        const selected = MODES.find((item) => item.id === event.target.value);
-                        if (selected) setMode(selected.id);
-                      }}
-                    >
-                      {MODES.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </select>
-                    <span>{activeMode.desc}</span>
-                  </>
-                )}
+                <span className="weq-exp-pane-icon" aria-hidden>
+                  {activeMode.icon}
+                </span>
+                <span className="weq-exp-pane-heading">
+                  <strong>{activeMode.label}</strong>
+                  <span>{activeMode.desc}</span>
+                </span>
               </div>
+              {hideTypeSwitch && !lockMode ? (
+                <span className="weq-exp-pane-kind" title="内容种类由浮动工具的子项决定">
+                  <Layers size={13} aria-hidden />
+                  {activeMode.label}
+                </span>
+              ) : null}
+              {!hideTypeSwitch && !lockMode ? (
+                <label className="weq-exp-pane-kind is-select">
+                  <select
+                    id="weq-export-content-kind"
+                    aria-label="内容种类"
+                    value={mode}
+                    disabled={submitting || editingList}
+                    onChange={(event) => {
+                      const selected = MODES.find((item) => item.id === event.target.value);
+                      if (selected) setMode(selected.id);
+                    }}
+                  >
+                    {MODES.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </header>
 
             {mode === 'full' && !editingList ? (

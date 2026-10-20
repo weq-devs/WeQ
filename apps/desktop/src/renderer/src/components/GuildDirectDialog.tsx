@@ -180,6 +180,7 @@ export function GuildDirectDialog({
   renderers,
   embedded = false,
   searchTarget,
+  onActiveSessionChange,
 }: {
   open: boolean;
   onClose: () => void;
@@ -189,6 +190,8 @@ export function GuildDirectDialog({
   renderers?: MessageRenderer[];
   embedded?: boolean;
   searchTarget?: GuildSearchTarget | null;
+  /** 当前打开的会话 nodeId，交给外层浮动工具按当前位置导出。 */
+  onActiveSessionChange?: (nodeId: string | null) => void;
 }): ReactElement | null {
   const [sessions, setSessions] = useState<GuildDirectSessionWire[] | null>(null);
   const [selected, setSelected] = useState<GuildDirectSessionWire | null>(null);
@@ -207,6 +210,10 @@ export function GuildDirectDialog({
   const handledSearch = useRef('');
   const scrolledSearch = useRef('');
   const [searchRetry, setSearchRetry] = useState(0);
+  // 把当前打开的频道私聊同步给外层（浮动工具「导出当前频道私聊」用它定位）。
+  useEffect(() => {
+    onActiveSessionChange?.(selected?.nodeId ?? null);
+  }, [selected?.nodeId, onActiveSessionChange]);
   const selection = useContentMultiSelect({
     kind: 'guild-direct',
     container: selected?.nodeId ?? '',
@@ -296,6 +303,11 @@ export function GuildDirectDialog({
       setSearchNotice('搜索命中的频道私聊会话已删除或本地不可用。');
       return;
     }
+    // 只指定了会话、没有指定消息：直接从会话列表/聚合入口打开，不拉锚点上下文。
+    if (!searchTarget.msgId) {
+      openSession(session);
+      return;
+    }
     const run = ++runRef.current;
     setSelected(session);
     setMessages([]);
@@ -327,7 +339,7 @@ export function GuildDirectDialog({
       .finally(() => {
         if (run === runRef.current) setLatestLoading(false);
       });
-  }, [open, sessions, listLoading, searchTarget, searchRetry]);
+  }, [open, sessions, listLoading, searchTarget, searchRetry, openSession]);
   useEffect(() => {
     if (!searchMessageId || latestLoading) return;
     const key = JSON.stringify([searchTarget?.revision, searchMessageId]);

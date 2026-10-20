@@ -671,10 +671,12 @@ export class GroupInfoService {
   }
 
   async listAnalysisGroups() {
-    const [directory, current, codes] = await Promise.all([
+    const [directory, current, codes, lastTimes] = await Promise.all([
       this.listExportGroups(),
       this.listGroupDirectory(),
       this.session.groupMsgs.listGroupCodes(),
+      // 排序口径与导出页一致：最近有消息的群在前，从没聊过的按名字排。
+      this.session.groupMsgs.lastSendTimes().catch(() => new Map<string, number>()),
     ]);
     const groups = new Map(
       codes.map((groupCode) => [
@@ -700,7 +702,13 @@ export class GroupInfoService {
         groupName: row.groupName || row.groupCode,
         source: 'directory',
       });
-    return [...groups.values()];
+    return [...groups.values()]
+      .map((row) => ({ ...row, lastMessageTime: lastTimes.get(row.groupCode) ?? 0 }))
+      .sort(
+        (a, b) =>
+          b.lastMessageTime - a.lastMessageTime ||
+          (a.groupName || a.groupCode).localeCompare(b.groupName || b.groupCode, 'zh-Hans-CN'),
+      );
   }
 
   async listAnalysisMembers(groupCode: bigint) {

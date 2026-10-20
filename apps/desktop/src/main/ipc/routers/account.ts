@@ -1673,6 +1673,9 @@ export const accountRouter = router({
     return personas.map((persona) => ({
       ...persona,
       sourceUin: uinByUid.get(persona.sourceId) ?? '',
+      // 会话列表要显示「最近一句」并把虚拟会话按时间插回列表：
+      // persona.updatedAt 只在编辑画像时变，聊天本身另有会话时间与末条消息。
+      ...latestGeneratedActivity(services.agentLab, 'persona', persona.id),
     }));
   }),
 
@@ -1959,8 +1962,45 @@ export const accountRouter = router({
       });
     }),
 
-  listAgentLabGroups: procedure.query(() => {
-    return requireServices().agentLab.listGroups();
+  listAgentLabGroups: procedure.query(async () => {
+    const services = requireServices();
+    const personas = services.agentLab.listPersonas();
+    const personasById = new Map(personas.map((persona) => [persona.id, persona]));
+    const sourceUids = [
+      ...new Set(
+        personas
+          .filter((persona) => persona.sourceKind === 'c2c' && persona.sourceId)
+          .map((persona) => persona.sourceId),
+      ),
+    ];
+    // 九宫格合成头像要的是 QQ 号（CDN 头像按 uin 拼），克隆体只存了源好友 uid。
+    const uinByUid = new Map<string, string>();
+    if (sourceUids.length > 0) {
+      try {
+        for (const profile of await services.profile.profilesByUids(sourceUids)) {
+          if (profile.uin > 0n) uinByUid.set(profile.uid, profile.uin.toString());
+        }
+      } catch (error) {
+        console.error('[agentlab] resolve group member uin failed', error);
+      }
+    }
+    return services.agentLab.listGroups().map((group) => {
+      const members = services.agentLab
+        .getGroupDetail(group.id)
+        ?.members.filter((member) => member.kind === 'persona');
+      const memberUins = (members ?? [])
+        .map((member) => {
+          const persona = personasById.get(member.memberId);
+          if (persona?.sourceKind !== 'c2c' || !persona.sourceId) return '';
+          return uinByUid.get(persona.sourceId) ?? '';
+        })
+        .filter(Boolean);
+      return {
+        ...group,
+        ...latestGeneratedActivity(services.agentLab, 'group', group.id),
+        memberUins,
+      };
+    });
   }),
 
   getAgentLabGroupDetail: procedure
@@ -6932,3 +6972,39 @@ export const EMPTY_SALVAGE_SUMMARY: SalvageSummary = {
   databases: [],
   lastAt: null,
 };
+
+/**
+ * 克隆体 / 克隆群在会话列表上的「最近活动」：取最新会话的最后一条消息。
+ *
+ * 这些数据不在 QQ 数据库里，只在 AgentLab 的 JSON 会话库里；不在这里投影出去，
+ * 列表就只能显示画像更新时间、预览永远是空的。
+ */
+function latestGeneratedActivity(
+  agentLab: import('@weq/service').AgentLabService,
+  kind: 'persona' | 'group',
+  ownerId: string,
+): { lastMessageTime: number; preview: string; previewMine: boolean } {
+  const sessions =
+    kind === 'persona'
+      ? agentLab.listPersonaSessions(ownerId)
+      : agentLab.listGroupSessions(ownerId);
+  const latest = sessions[0];
+  if (!latest) return { lastMessageTime: 0, preview: '', previewMine: false };
+  const rows =
+    kind === 'persona'
+      ? agentLab.getPersonaSessionConversation(ownerId, latest.id)
+      : agentLab.getGroupSessionConversation(ownerId, latest.id);
+  const last = rows.at(-1);
+  if (!last) return { lastMessageTime: latest.updatedAt, preview: '', previewMine: false };
+  const text = 'text' in last ? last.text : ((last as { text?: string }).text ?? '');
+  const mine = 'role' in last ? last.role === 'user' : last.senderKind === 'user';
+  return {
+    lastMessageTime: Math.round(last.ts / 1000),
+    preview: text
+      .replace(/\[\[(sticker|voice):[^\]]+\]\]/g, (_, tag) =>
+        tag === 'voice' ? '[语音]' : '[表情]',
+      )
+      .slice(0, 80),
+    previewMine: mine,
+  };
+}

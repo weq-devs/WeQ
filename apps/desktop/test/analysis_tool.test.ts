@@ -25,6 +25,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             ]),
         },
         analysisPeerDirectory: { useQuery: () => result(fixture.friends) },
+        exportCalendar: {
+          useQuery: () => ({ data: [], isLoading: false, isError: false, error: null }),
+        },
         analysisMemberDirectory: {
           useQuery: (input: { groupCode?: string }) =>
             result([
@@ -81,11 +84,15 @@ function mount(initialTarget?: AnalysisTarget, messageIds?: string[], fixedTarge
       createElement(AnalysisTool, { onGenerate: generate, initialTarget, messageIds, fixedTarget }),
     ),
   );
+  /** 搜索过滤后虚拟列表只渲染可视行：先按关键字筛到目标再取行。 */
+  const chooseObject = (id: string) =>
+    host.querySelector<HTMLButtonElement>(`[data-analysis-choice="${id}"]`)!;
   return {
     host,
     generate,
     select: (label: string, value: string) =>
       change(host.querySelector(`[aria-label="${label}"]`)!, value),
+    chooseObject,
     button: (text: string) =>
       [...host.querySelectorAll<HTMLButtonElement>('button')].find((node) =>
         node.textContent?.includes(text),
@@ -151,6 +158,7 @@ it('年度与好友都创建真实配置，完整目录可检索末尾且 DOM �
   vi.stubGlobal('crypto', {});
   const f = mount();
   try {
+    f.chooseObject('0');
     f.select('报告年份', '2025');
     await act(async () => f.button('生成报告').click());
     expect(f.generate).toHaveBeenLastCalledWith(
@@ -163,7 +171,7 @@ it('年度与好友都创建真实配置，完整目录可检索末尾且 DOM �
     f.select('报告类型', 'buddy');
     expect(f.host.querySelectorAll('.weq-analysis-choice').length).toBeLessThan(30);
     f.select('搜索分析对象', '合成好友 2500');
-    act(() => f.button('合成好友 2500').click());
+    act(() => f.chooseObject('u_friend_2500').click());
     f.select('分析时间范围', 'dates');
     f.select('开始日期', '2026-10-01');
     f.select('结束日期', '2026-10-18');
@@ -191,8 +199,8 @@ it('群成员身份按群隔离，换群不沿用旧成员，非法日期不创�
   const f = mount();
   try {
     f.select('报告类型', 'member');
-    act(() => f.button('合成群 A').click());
-    act(() => f.button('合成成员 777').click());
+    act(() => f.chooseObject('777').click());
+    act(() => f.chooseObject('uid:u_777').click());
     await act(async () => f.button('生成报告').click());
     expect(f.generate).toHaveBeenLastCalledWith(
       expect.objectContaining({ kind: 'member', groupCode: '777', memberUid: 'u_777' }),

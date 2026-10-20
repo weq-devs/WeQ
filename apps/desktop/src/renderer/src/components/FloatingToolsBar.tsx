@@ -16,11 +16,27 @@ import {
   type FloatingPosition,
 } from '../../../shared/floating_tools';
 
+/** 扇形里的一个子项：主按钮保持「按当前位置一键进入」，子项负责显式挑选种类。 */
+export interface FloatingToolChild {
+  id: string;
+  label: string;
+  icon?: ReactNode;
+  action: (anchor?: HTMLElement) => void;
+}
+
 export interface FloatingToolItem {
   id: string;
   label: string;
   icon: ReactNode;
   action: (anchor?: HTMLElement) => void;
+  /** 悬停主项时展开的可选子项（不点击主项也能直接选具体种类）。 */
+  children?: FloatingToolChild[];
+  /** 当前界面没有可用的默认目标时禁用主按钮（子项仍可选）。 */
+  disabled?: boolean;
+  /** 禁用原因，作为 title / 无障碍说明。 */
+  disabledReason?: string;
+  /** 当前界面的具体目标（如「导出「产品群」」），只用于悬停提示。 */
+  hint?: string;
 }
 const POSITION_KEY = 'weq:tools-position';
 const DOCK_KEY = 'weq:tools-docked';
@@ -74,6 +90,9 @@ export function FloatingToolsBar({
   const [dockPosition, setDockPosition] = useState(position);
   const [slotVisible, setSlotVisible] = useState(false);
   const [clickSerial, setClickSerial] = useState(0);
+  /** 悬停 / 聚焦中的扇形项 id：带子项的那一项据此展开二级菜单。 */
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const closeChildTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const drag = useRef<{
     id: number;
@@ -94,10 +113,31 @@ export function FloatingToolsBar({
     if (!hidden) return;
     cancel();
     setExpanded(false);
+    setHoveredId(null);
     drag.current = null;
     setDragging(false);
     setDropTarget(false);
   }, [hidden, cancel]);
+  // 二级菜单收起也走一个小延迟：鼠标从扇形斜穿到子菜单时不会闪断。
+  const openChild = (id: string) => {
+    if (closeChildTimer.current !== null) clearTimeout(closeChildTimer.current);
+    closeChildTimer.current = null;
+    setHoveredId(id);
+  };
+  const scheduleCloseChild = () => {
+    if (closeChildTimer.current !== null) clearTimeout(closeChildTimer.current);
+    closeChildTimer.current = setTimeout(() => {
+      closeChildTimer.current = null;
+      setHoveredId(null);
+    }, 220);
+  };
+  useEffect(
+    () => () => {
+      if (closeChildTimer.current !== null) clearTimeout(closeChildTimer.current);
+    },
+    [],
+  );
+  const hoveredItem = items.find((item) => item.id === hoveredId && item.children?.length) ?? null;
   const layout = expanded
     ? floatingFanLayout(
         docked && slotVisible && !dragging ? dockPosition : position,
@@ -305,18 +345,30 @@ export function FloatingToolsBar({
           id="weq-floating-tools-bar"
           role="toolbar"
           aria-label="全局工具"
-          className="weq-floating-tools-bar weq-floating-tools-fan"
+          className={`weq-floating-tools-bar weq-floating-tools-fan${hoveredItem ? ' has-child' : ''}`}
         >
           {items.map((item, index) => {
             const sector = layout.sectors[index];
             if (!sector) return null;
+            const hasChildren = Boolean(item.children?.length);
+            const trigger = root.current?.querySelector<HTMLButtonElement>('.weq-tools-trigger');
             return (
               <button
                 key={item.id}
                 type="button"
-                title={item.label}
+                title={[
+                  item.label,
+                  item.hint && item.hint !== item.label ? item.hint : null,
+                  item.disabled && item.disabledReason ? item.disabledReason : null,
+                  hasChildren ? '悬停展开子项' : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
                 aria-label={item.label}
-                className="weq-tools-sector"
+                aria-disabled={item.disabled || undefined}
+                aria-haspopup={hasChildren ? 'menu' : undefined}
+                aria-expanded={hasChildren ? hoveredId === item.id : undefined}
+                className={`weq-tools-sector${item.disabled ? ' is-disabled' : ''}${hoveredId === item.id ? ' is-hovered' : ''}`}
                 style={{
                   left: sector.left,
                   top: sector.top,
@@ -324,13 +376,18 @@ export function FloatingToolsBar({
                   height: sector.height,
                   clipPath: sector.clipPath,
                 }}
+                onPointerEnter={() => (hasChildren ? openChild(item.id) : scheduleCloseChild())}
+                onFocus={() => (hasChildren ? openChild(item.id) : scheduleCloseChild())}
                 onClick={() => {
+                  if (item.disabled) {
+                    // 禁用态不进入工具，但保留子项入口：单击已有子项时改为展开。
+                    if (hasChildren) openChild(item.id);
+                    return;
+                  }
                   cancel();
                   setExpanded(false);
-                  item.action(
-                    root.current?.querySelector<HTMLButtonElement>('.weq-tools-trigger') ??
-                      undefined,
-                  );
+                  setHoveredId(null);
+                  item.action(trigger ?? undefined);
                 }}
               >
                 <svg viewBox={`0 0 ${sector.width} ${sector.height}`} aria-hidden="true">
@@ -350,10 +407,94 @@ export function FloatingToolsBar({
               </button>
             );
           })}
+          {hoveredItem ? (
+            <FloatingChildMenu
+              item={hoveredItem}
+              anchor={layout.sectors[items.indexOf(hoveredItem)]}
+              origin={docked && slotVisible && !dragging ? dockPosition : position}
+              viewport={size}
+              onKeep={() => openChild(hoveredItem.id)}
+              onLeave={scheduleCloseChild}
+              onPick={(child) => {
+                cancel();
+                setExpanded(false);
+                setHoveredId(null);
+                child.action(
+                  root.current?.querySelector<HTMLButtonElement>('.weq-tools-trigger') ?? undefined,
+                );
+              }}
+            />
+          ) : null}
         </div>
       ) : null}
     </div>
   );
   // 停靠只改变坐标与外观，始终留在顶层，拖动中也不受左栏的层叠/裁剪影响。
   return createPortal(content, document.body);
+}
+
+const CHILD_MENU_WIDTH = 208;
+const CHILD_MENU_ROW = 36;
+const CHILD_MENU_PADDING = 6;
+
+/**
+ * 扇形项的子菜单：紧贴在对应扇区外侧，按扇区位置自动向左或向右展开，
+ * 并夹在视口内。只承担「显式挑选种类」，点击后与主按钮走同一条 action。
+ */
+function FloatingChildMenu({
+  item,
+  anchor,
+  origin,
+  viewport: size,
+  onKeep,
+  onLeave,
+  onPick,
+}: {
+  item: FloatingToolItem;
+  anchor?: { left: number; top: number; width: number; height: number };
+  origin: FloatingPosition;
+  viewport: { width: number; height: number };
+  onKeep: () => void;
+  onLeave: () => void;
+  onPick: (child: FloatingToolChild) => void;
+}) {
+  const children = item.children ?? [];
+  if (!anchor || children.length === 0) return null;
+  const height = children.length * CHILD_MENU_ROW + CHILD_MENU_PADDING * 2 + 30;
+  const centerX = origin.x + anchor.left + anchor.width / 2;
+  const centerY = origin.y + anchor.top + anchor.height / 2;
+  const openLeft = centerX > size.width / 2;
+  const rawLeft = openLeft ? centerX + 12 : centerX - CHILD_MENU_WIDTH - 12;
+  const left = Math.min(Math.max(8, rawLeft), Math.max(8, size.width - CHILD_MENU_WIDTH - 8));
+  const top = Math.min(Math.max(52, centerY - height / 2), Math.max(52, size.height - height - 8));
+  return (
+    <div
+      className={`weq-tools-child-menu${openLeft ? ' is-left' : ''}`}
+      role="menu"
+      aria-label={`${item.label}子项`}
+      style={{ left, top, width: CHILD_MENU_WIDTH }}
+      onPointerEnter={onKeep}
+      onPointerLeave={onLeave}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') event.stopPropagation();
+      }}
+    >
+      <span className="weq-tools-child-head">{item.label}</span>
+      {children.map((child) => (
+        <button
+          key={child.id}
+          type="button"
+          role="menuitem"
+          title={child.label}
+          onClick={(event) => {
+            event.stopPropagation();
+            onPick(child);
+          }}
+        >
+          {child.icon ? <span className="weq-tools-child-icon">{child.icon}</span> : null}
+          <span>{child.label}</span>
+        </button>
+      ))}
+    </div>
+  );
 }
