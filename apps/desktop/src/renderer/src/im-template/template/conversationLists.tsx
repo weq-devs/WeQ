@@ -2,6 +2,7 @@
 import {
   BellOff,
   Bot,
+  Hash,
   PenLine,
   Pin,
   MailOpen,
@@ -22,6 +23,7 @@ import {
   RefreshCw,
   Plus,
   MessagesSquare,
+  Sparkles,
   BarChart3,
   CloudDownload,
   Download,
@@ -32,6 +34,7 @@ import {
   ContactDirectoryContext,
   virtualConversationRow,
 } from '../../lib/conversationDirectory';
+import { VirtualConversationAvatar } from '../../components/VirtualConversationAvatar';
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
 import {
   conversationAnalysisTarget,
@@ -170,7 +173,7 @@ export function ConversationList({
     y: number;
   } | null>(null);
   const [keyword, setKeyword] = useState('');
-  const [scope, setScope] = useState<'all' | 'real' | 'virtual'>('all');
+  const [scope, setScope] = useState<ConversationScope>('all');
   const [scopeOpen, setScopeOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectingAll, setSelectingAll] = useState(false);
@@ -183,18 +186,23 @@ export function ConversationList({
   const viewportRef = useRef<HTMLDivElement>(null);
   const [listHeight, setListHeight] = useState(600);
   const menuRef = useRef<HTMLDivElement>(null);
-  const virtualIds = useMemo(
-    () => new Set(directory?.virtual.map((item) => item.id)),
-    [directory?.virtual],
-  );
   const filtered = useMemo(() => {
-    // 置顶会话排最前。sort 是稳定的，所以 MainView 已排好的置顶时间（41103）
-    // 次序在这里被保留。
+    // 置顶会话排最前；其余按「最后一条消息时间」和真实会话混排。
+    // 虚拟会话（克隆体 / 克隆群）以前是直接追加到末尾，看起来像永远不活跃的
+    // 死会话 —— 现在按最近聊天时间插回正确位置。
     const needle = keyword.trim().toLocaleLowerCase();
     const real = needle ? (directory?.real ?? conversations) : conversations;
+    // 显示范围按「来源」分：真实 / 虚拟（克隆）/ 频道私聊。频道私聊是合并入口，
+    // 混在真实会话里会让人以为它是一条普通私聊，所以单独一档。
+    const isGuild = (row: Conversation) =>
+      row.type === 'merged' && row.mergedKind === 'guildDirect';
+    const realRows = real.filter((row) => !isGuild(row));
+    const guildRows = real.filter(isGuild);
+    const virtualRows = (directory?.virtual ?? []).map(virtualConversationRow);
     const rows = [
-      ...(scope === 'virtual' ? [] : real),
-      ...(scope === 'real' ? [] : (directory?.virtual ?? []).map(virtualConversationRow)),
+      ...(scope === 'all' || scope === 'real' ? realRows : []),
+      ...(scope === 'all' || scope === 'guild' ? guildRows : []),
+      ...(scope === 'all' || scope === 'virtual' ? virtualRows : []),
     ].filter(
       (row) =>
         !needle ||
@@ -206,10 +214,12 @@ export function ConversationList({
     const visible = directory?.groupAssistantIds
       ? sidebarConversationsWithoutAssistant(rows, directory.groupAssistantIds)
       : rows;
-    return visible.sort(
-      (first, second) =>
-        Number(isPinned(second, preferences)) - Number(isPinned(first, preferences)),
-    );
+    return visible.sort((first, second) => {
+      const pinnedDelta =
+        Number(isPinned(second, preferences)) - Number(isPinned(first, preferences));
+      if (pinnedDelta !== 0) return pinnedDelta;
+      return conversationSortTime(second) - conversationSortTime(first);
+    });
   }, [
     conversations,
     preferences,
@@ -391,7 +401,7 @@ export function ConversationList({
         <div className="weq-directory-scope" ref={menuRef}>
           <button
             type="button"
-            title={`显示范围：${scope === 'all' ? '真实与虚拟' : scope === 'real' ? '仅真实会话' : '仅虚拟会话'}`}
+            title={`显示范围：${SCOPE_LABELS[scope]}`}
             aria-label="显示范围"
             aria-haspopup="menu"
             aria-expanded={scopeOpen}
@@ -404,17 +414,15 @@ export function ConversationList({
               <MessagesSquare size={16} />
             ) : scope === 'real' ? (
               <UserRound size={16} />
+            ) : scope === 'guild' ? (
+              <Hash size={16} />
             ) : (
               <Bot size={16} />
             )}
           </button>
           {scopeOpen ? (
             <div role="menu" className="weq-directory-scope-menu" aria-label="会话显示范围">
-              {[
-                { id: 'all', name: '真实与虚拟', icon: MessagesSquare },
-                { id: 'real', name: '仅真实会话', icon: UserRound },
-                { id: 'virtual', name: '仅虚拟会话', icon: Bot },
-              ].map((item) => (
+              {SCOPE_OPTIONS.map((item) => (
                 <button
                   key={item.id}
                   type="button"
@@ -567,6 +575,7 @@ export function ConversationList({
               }.muted,
             );
             const pinned = isPinned(conversation, preferences);
+            const virtualRow = directory?.virtual.find((item) => item.id === conversation.id);
 
             return (
               <button
@@ -618,6 +627,8 @@ export function ConversationList({
                       <EyeOff size={20} strokeWidth={2} />
                     ) : conversation.mergedKind === 'deleted' ? (
                       <Trash2 size={20} strokeWidth={2} />
+                    ) : conversation.mergedKind === 'guildDirect' ? (
+                      <Hash size={20} strokeWidth={2} />
                     ) : conversation.mergedKind === 'service' ||
                       conversation.mergedKind === 'groupAssistant' ? (
                       <Users size={20} strokeWidth={2} />
@@ -625,6 +636,8 @@ export function ConversationList({
                       <UserRound size={20} strokeWidth={2} />
                     )}
                   </span>
+                ) : virtualRow ? (
+                  <VirtualConversationAvatar item={virtualRow} />
                 ) : (
                   <Avatar
                     name={conversationTitle(conversation)}
@@ -635,13 +648,20 @@ export function ConversationList({
                 <span className={cn('row-main')}>
                   <strong>
                     <span className={cn('row-title-text')}>{conversationTitle(conversation)}</span>
-                    {virtualIds.has(conversation.id) ? (
+                    {virtualRow ? (
                       <small
-                        className="weq-conversation-virtual"
-                        title="虚拟会话"
+                        className={cn(
+                          'weq-conversation-virtual',
+                          virtualRow.kind === 'group' ? 'is-group' : 'is-persona',
+                        )}
+                        title={virtualRow.kind === 'group' ? '克隆群聊' : '克隆体'}
                         aria-label="虚拟会话"
                       >
-                        <Bot size={12} />
+                        {virtualRow.kind === 'group' ? (
+                          <MessagesSquare size={11} />
+                        ) : (
+                          <Sparkles size={11} />
+                        )}
                       </small>
                     ) : null}
                     {isBotConversation(conversation) ? (
@@ -1506,10 +1526,33 @@ function isPinned(conversation: Conversation, preferences: ConversationPreferenc
   );
 }
 
+/** 会话列表的显示范围：真实 / 虚拟（克隆）/ 频道私聊，或全都显示。 */
+type ConversationScope = 'all' | 'real' | 'virtual' | 'guild';
+
+const SCOPE_OPTIONS: Array<{ id: ConversationScope; name: string; icon: typeof MessagesSquare }> = [
+  { id: 'all', name: '全部会话', icon: MessagesSquare },
+  { id: 'real', name: '仅真实会话', icon: UserRound },
+  { id: 'virtual', name: '仅克隆会话', icon: Bot },
+  { id: 'guild', name: '仅频道私聊', icon: Hash },
+];
+const SCOPE_LABELS: Record<ConversationScope, string> = {
+  all: '全部会话',
+  real: '仅真实会话',
+  virtual: '仅克隆会话',
+  guild: '仅频道私聊',
+};
+
 function listRowClass(active: boolean, semanticClass: 'conversation-row' | 'contact-row') {
   return cn(semanticClass, active && 'active');
 }
 
 function unreadClass(muted: boolean) {
   return cn('row-unread', muted && 'muted');
+}
+
+/** 列表排序口径：最后一条消息优先，其次才是会话本身的时间戳。 */
+function conversationSortTime(row: Conversation): number {
+  const value = row.lastMessage?.createdAt ?? row.updatedAt;
+  const ms = value ? Date.parse(value) : 0;
+  return Number.isFinite(ms) ? ms : 0;
 }

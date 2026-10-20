@@ -139,11 +139,13 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
   selfUin,
   nickname,
   spaceRequest,
+  onSpaceChange,
 }: {
   active: boolean;
   selfUin: string;
   nickname: string;
   spaceRequest?: QzoneSpaceRequest | null;
+  onSpaceChange?: (uin: string) => void;
 }) {
   const [visited, setVisited] = useState(active);
   useEffect(() => {
@@ -156,6 +158,7 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
         selfUin={selfUin}
         nickname={nickname}
         spaceRequest={spaceRequest}
+        onSpaceChange={onSpaceChange}
       />
     </div>
   ) : null;
@@ -355,11 +358,14 @@ export function QzoneView({
   nickname,
   active = true,
   spaceRequest,
+  onSpaceChange,
 }: {
   selfUin: string;
   nickname: string;
   active?: boolean;
   spaceRequest?: QzoneSpaceRequest | null;
+  /** 当前正在看谁的空间（自己或好友的 QQ 号），供浮动工具按当前位置导出。 */
+  onSpaceChange?: (uin: string) => void;
 }): ReactElement {
   const activity = useQQReadActivity(active);
   const people = useQzonePeople(selfUin, activity.enabled);
@@ -370,6 +376,10 @@ export function QzoneView({
   const handledRequest = useRef<string | null>(null);
   const tabBar = useRef<HTMLElement>(null);
   const [hostUin, setHostUin] = useState(initialSpace?.uin ?? selfUin);
+  // 把自己的空间状态同步给外层（浮动工具按当前位置导出当前空间）。
+  useEffect(() => {
+    onSpaceChange?.(hostUin);
+  }, [hostUin, onSpaceChange]);
   const [spaces, setSpaces] = useState<string[]>(
     initialSpace && initialSpace.uin !== selfUin ? [initialSpace.uin] : [],
   );

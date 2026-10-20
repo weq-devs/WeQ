@@ -240,7 +240,10 @@ export function ContactProfileDialog({
   const zodiac = constellationOf(profile.birthMonth, profile.birthDay);
   const gender = genderLabel(profile.gender);
   const genderAge = [gender, profile.age ? `${profile.age} 岁` : null].filter(Boolean).join(' · ');
-  const statusText = profile.customStatus || profile.onlineStatus;
+  // 自定义状态优先，没有时退回在线状态文案。
+  // 注：天气子结构在 misc.db 侧没有被建模（48902 只解出 customStatus），
+  // 所以这里不再尝试拼接「城市 · 天气」。
+  const statusText = [profile.customStatus || profile.onlineStatus].filter(Boolean).join(' · ');
   const birthday = birthdayText(profile.birthYear, profile.birthMonth, profile.birthDay);
   const createdAt = realCreatedAt(profile.createdAt);
   const intimacy = profile.intimacy ? Number(profile.intimacy).toLocaleString('en-US') : null;

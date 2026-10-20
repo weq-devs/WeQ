@@ -10531,16 +10531,18 @@ html[data-theme="dark"] .weq-forward-bubble {
   min-width: 0;
 }
 
-.weq-agentlab-head strong {
+/* 头部标题只命中「标题那一段」：用子选择器限定，否则头部里嵌的会话切换器
+   菜单标题也会被放大成 17px，放在整个应用里非常突兀。 */
+.weq-agentlab-head .weq-agentlab-head-left > div > strong {
   display: block;
-  font-size: 17px;
+  font-size: 15px;
   color: var(--weq-fg-primary);
 }
 
-.weq-agentlab-head span {
+.weq-agentlab-head .weq-agentlab-head-left > div > span {
   display: block;
-  margin-top: 4px;
-  font-size: 13px;
+  margin-top: 3px;
+  font-size: 12.5px;
   color: var(--weq-fg-secondary);
 }
 

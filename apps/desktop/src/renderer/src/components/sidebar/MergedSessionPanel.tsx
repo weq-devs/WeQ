@@ -19,6 +19,7 @@ import { resolveAvatar, avatarFromGroupCode } from '../../lib/avatarResolver';
 import { isAssistantPinned, type GroupAssistantPins } from '../../lib/groupAssistant';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { conversationAnalysisTarget } from '../../lib/conversationActions';
+import { previewNodes, previewNodesToText } from '../../lib/conversationPreview';
 import { useContentMultiSelect } from '../../state/contentSelection';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { allSelectionIdsSelected, toggleAllSelectionIds } from '../../lib/multiSelection';
@@ -39,6 +40,17 @@ interface DeletedSessionWire {
   senderUid: string;
   preview: unknown;
   deleteTime: string;
+}
+
+/** 频道私聊会话（serde.guildDirectSessionToWire）。 */
+interface GuildDirectSessionWire {
+  nodeId: string;
+  lastTime: string;
+  lastSeq: string;
+  peerTinyId: string;
+  peerNick: string;
+  peerAvatarUrl: string | null;
+  preview: unknown | null;
 }
 
 interface HiddenSessionWire {
@@ -220,8 +232,37 @@ export function MergedSessionPanel({
   const deletedSessions = trpc.account.listDeletedSessions.useQuery(undefined, {
     enabled: kind === 'deleted',
   });
+  // 频道私聊：与「公众号」同一种聚合入口，点开展开各私聊会话。
+  const guildSessions = trpc.account.guildDirectListSessions.useQuery(undefined, {
+    enabled: kind === 'guildDirect',
+  });
 
   const filtered = useMemo<Conversation[]>(() => {
+    if (kind === 'guildDirect') {
+      return ((guildSessions.data ?? []) as GuildDirectSessionWire[]).map((session) => ({
+        id: `guild:${session.nodeId}`,
+        type: 'direct',
+        otherUser: {
+          id: `guild:${session.nodeId}`,
+          identityLabel: '频道',
+          identityValue: session.peerTinyId,
+          username: session.peerNick || session.peerTinyId,
+          displayName: session.peerNick || session.peerTinyId,
+          avatarUrl: session.peerAvatarUrl,
+        },
+        group: null,
+        members: [],
+        updatedAt: new Date(Number(session.lastTime) * 1000).toISOString(),
+        preference: { pinned: false, muted: false, blocked: false },
+        unreadCount: 0,
+        lastMessage: {
+          id: `guild:${session.nodeId}:${session.lastSeq}`,
+          senderId: null,
+          body: previewNodesToText(previewNodes(session.preview ?? null)),
+          createdAt: new Date(Number(session.lastTime) * 1000).toISOString(),
+        },
+      }));
+    }
     if (kind === 'groupAssistant')
       return _conversations.filter(
         (conversation) => conversation.type === 'group' && groupAssistantIds?.has(conversation.id),
@@ -459,6 +500,7 @@ export function MergedSessionPanel({
     groupAssistantIds,
     deletedSessions.data,
     hiddenSessions.data,
+    guildSessions.data,
     officialAccounts.data,
     serviceAccounts.data,
     profileByUid,
@@ -492,15 +534,17 @@ export function MergedSessionPanel({
   );
 
   const title =
-    kind === 'groupAssistant'
-      ? '群助手'
-      : kind === 'hidden'
-        ? '隐藏的会话'
-        : kind === 'deleted'
-          ? '最近删除'
-          : kind === 'service'
-            ? 'QQ服务号'
-            : 'QQ官方账号';
+    kind === 'guildDirect'
+      ? '频道私聊'
+      : kind === 'groupAssistant'
+        ? '群助手'
+        : kind === 'hidden'
+          ? '隐藏的会话'
+          : kind === 'deleted'
+            ? '最近删除'
+            : kind === 'service'
+              ? 'QQ服务号'
+              : 'QQ官方账号';
   const ids = sortedThreads.map((row) => row.id);
   const allSelected = allSelectionIdsSelected(ids, selectedIds);
   const toggleAll = () => {

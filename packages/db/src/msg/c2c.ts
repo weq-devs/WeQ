@@ -558,6 +558,26 @@ export class C2cMsgDb {
     return value == null ? null : toBigint(value);
   }
 
+  /**
+   * 每个私聊分区最后一条消息的发送时间（unix 秒）。分析目录用它按「最近聊过」
+   * 排序：名册顺序是数据库插入顺序，跟会话时间无关，看起来像乱排。
+   * 只扫 40050，走覆盖索引，不做 JOIN。
+   */
+  async lastSendTimes(): Promise<Map<string, number>> {
+    const rows = await this.qq.query(
+      `SELECT "40021", MAX("40050") FROM ${this.table}
+       WHERE "40021" IS NOT NULL AND "40021" != '' AND "40050" > 0
+       GROUP BY "40021"`,
+    );
+    const times = new Map<string, number>();
+    for (const row of rows) {
+      const uid = String(row[0] ?? '');
+      const time = Number(row[1] ?? 0);
+      if (uid && time > 0) times.set(uid, time);
+    }
+    return times;
+  }
+
   /** 分析对象来自真实私聊分区，不依赖好友名册或最近会话是否还在。 */
   async listPeerIdentities(): Promise<Array<{ uid: string; uin: string }>> {
     const rows = await this.qq.query(

@@ -6,7 +6,15 @@ import { useViewState } from '../../state/view';
 import { AnnualReportView } from '../annual-report/AnnualReportView';
 import { analysisTitle, type AnalysisReportRequest } from './model';
 import '../../styles/analysis-tool.css';
-import { X } from 'lucide-react';
+import { BarChart3, Users, UserRound } from 'lucide-react';
+
+/** 年度报告只作旧请求的兼容渲染（新入口在侧栏「年度报告」）。 */
+const REPORT_ICONS = {
+  annual: BarChart3,
+  buddy: UserRound,
+  group: Users,
+  member: Users,
+} as const;
 
 export function AnalysisReportPage({
   request,
@@ -20,14 +28,21 @@ export function AnalysisReportPage({
   return (
     <WorkspacePage title={analysisTitle(request)} onClose={onClose}>
       <section className="weq-analysis-result">
-        {request.kind === 'annual' ? (
-          <header className="weq-tools-header">
-            <h2>{analysisTitle(request)}</h2>
-            <button type="button" title="关闭报告" aria-label="关闭报告" onClick={onClose}>
-              <X size={18} />
-            </button>
-          </header>
-        ) : null}
+        <header className="weq-analysis-result-head">
+          <span className="weq-analysis-result-glyph" aria-hidden>
+            {(() => {
+              const Icon = REPORT_ICONS[request.kind] ?? BarChart3;
+              return <Icon size={16} />;
+            })()}
+          </span>
+          <span className="weq-analysis-result-title">
+            <strong>{analysisTitle(request)}</strong>
+            <small>
+              {request.period}
+              {request.kind === 'annual' ? ' · 年度报告' : ''}
+            </small>
+          </span>
+        </header>
         <div className="weq-analysis-result-body">
           {request.kind === 'annual' ? (
             <AnnualReportView
@@ -40,7 +55,6 @@ export function AnalysisReportPage({
               peerUid={request.peerUid}
               peerName={request.name}
               scope={request.scope}
-              periodLabel={request.period}
               embedded
               onClose={onClose}
             />
@@ -49,7 +63,6 @@ export function AnalysisReportPage({
               groupCode={request.groupCode}
               groupName={request.name}
               scope={request.scope}
-              periodLabel={`${request.period} · 成员资料：当前本地缓存`}
               embedded
               onClose={onClose}
             />
@@ -59,7 +72,6 @@ export function AnalysisReportPage({
               groupName={request.groupName}
               member={{ uid: request.memberUid, uin: request.memberUin, name: request.name }}
               scope={request.scope}
-              periodLabel={`${request.period} · 成员资料：当前本地缓存`}
               embedded
               onClose={onClose}
             />

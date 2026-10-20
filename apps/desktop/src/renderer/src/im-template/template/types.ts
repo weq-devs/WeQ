@@ -280,7 +280,14 @@ export type GroupConversation = ConversationBase & {
 
 export type Conversation = DirectConversation | GroupConversation | MergedConversation;
 
-export type MergedKind = 'service' | 'official' | 'hidden' | 'deleted' | 'groupAssistant';
+export type MergedKind =
+  | 'service'
+  | 'official'
+  | 'hidden'
+  | 'deleted'
+  | 'groupAssistant'
+  /** QQ 频道私聊聚合入口：点开展开频道会话列表。 */
+  | 'guildDirect';
 
 export type MergedConversation = ConversationBase & {
   type: 'merged';

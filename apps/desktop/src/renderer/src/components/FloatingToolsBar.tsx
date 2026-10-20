@@ -21,6 +21,8 @@ export interface FloatingToolItem {
   label: string;
   icon: ReactNode;
   action: (anchor?: HTMLElement) => void;
+  /** 当前界面的具体目标（如「导出「产品群」」），只用于悬停提示。 */
+  hint?: string;
 }
 const POSITION_KEY = 'weq:tools-position';
 const DOCK_KEY = 'weq:tools-docked';
@@ -310,11 +312,14 @@ export function FloatingToolsBar({
           {items.map((item, index) => {
             const sector = layout.sectors[index];
             if (!sector) return null;
+            const trigger = root.current?.querySelector<HTMLButtonElement>('.weq-tools-trigger');
             return (
               <button
                 key={item.id}
                 type="button"
-                title={item.label}
+                title={[item.label, item.hint && item.hint !== item.label ? item.hint : null]
+                  .filter(Boolean)
+                  .join(' · ')}
                 aria-label={item.label}
                 className="weq-tools-sector"
                 style={{
@@ -327,10 +332,7 @@ export function FloatingToolsBar({
                 onClick={() => {
                   cancel();
                   setExpanded(false);
-                  item.action(
-                    root.current?.querySelector<HTMLButtonElement>('.weq-tools-trigger') ??
-                      undefined,
-                  );
+                  item.action(trigger ?? undefined);
                 }}
               >
                 <svg viewBox={`0 0 ${sector.width} ${sector.height}`} aria-hidden="true">

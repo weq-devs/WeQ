@@ -13,6 +13,7 @@ import { useAppDialog } from '../../lib/dialogUtils';
 import { autoGrowTextarea } from '../../lib/textareaAutoGrow';
 import { ChatBubble, type FaceContext } from './ChatBubble';
 import { ChatTimeDivider, shouldShowChatTime } from './messageTime';
+import { SessionSwitcher } from './SessionSwitcher';
 import { useGeneratedSelection } from './useGeneratedSelection';
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -48,6 +49,8 @@ export function CloneChatPanel({
   modelLabel,
   onBack,
   onSessionCreated,
+  onSwitchSession,
+  onNewSession,
   onOpenSettings,
   onDeletePersona,
 }: {
@@ -65,6 +68,9 @@ export function CloneChatPanel({
   onBack: () => void;
   /** 草稿会话首条消息落库后回调（父组件据此把选中态指向新会话，不换 key）。 */
   onSessionCreated: (sessionId: string) => void;
+  /** 切到同一克隆体的另一段会话（克隆体进了会话列表后，只剩这里能切）。 */
+  onSwitchSession: (sessionId: string) => void;
+  onNewSession: () => void;
   onOpenSettings: () => void;
   onDeletePersona: () => void;
 }): ReactElement {
@@ -72,6 +78,11 @@ export function CloneChatPanel({
   const utils = trpc.useUtils();
   const chat = trpc.account.chatWithAgentLabPersona.useMutation();
   const createSession = trpc.account.createAgentLabPersonaSession.useMutation();
+  const deleteSession = trpc.account.deleteAgentLabPersonaSession.useMutation();
+  const sessionList = trpc.account.listAgentLabPersonaSessions.useQuery(
+    { personaId },
+    { staleTime: 0 },
+  );
   // 挂载时快照初始 id：草稿(null) 与既有会话在本组件生命周期内身份固定，
   // 之后父组件把草稿升级成真会话（sessionId 由 null 变真）不重新拉历史，避免闪断。
   const initialSessionId = useRef(sessionId).current;
@@ -233,6 +244,29 @@ export function CloneChatPanel({
           </div>
         </div>
         <div className="weq-agentlab-head-actions">
+          <SessionSwitcher
+            sessions={sessionList.data ?? []}
+            activeSessionId={sessionIdRef.current}
+            draft={!legacy && !sessionIdRef.current}
+            loading={sessionList.isLoading}
+            disabled={legacy}
+            onSwitch={onSwitchSession}
+            onNew={onNewSession}
+            onDelete={(target) => {
+              void (async () => {
+                const ok = await dialog.confirm('删除会话', '确认删除这段对话？删除后无法恢复。', {
+                  okLabel: '删除',
+                  tone: 'warning',
+                });
+                // confirm 的 okLabel 已经写明是删除，不再二次确认。
+                if (!ok) return;
+                await deleteSession.mutateAsync({ personaId, sessionId: target });
+                await utils.account.listAgentLabPersonaSessions.invalidate({ personaId });
+                // 删的就是当前这段：退回新草稿，避免停在一个已不存在的会话上。
+                if (sessionIdRef.current === target) onNewSession();
+              })();
+            }}
+          />
           {selection.control}
           <button
             type="button"

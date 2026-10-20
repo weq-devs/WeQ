@@ -8,6 +8,10 @@ export interface AnalysisScope {
   messageIds?: string[];
 }
 type RequestBase = { id: string; scope: AnalysisScope; period: string };
+/**
+ * 报告请求。年度报告有独立入口（侧栏「年度报告」），这里不再产出 `annual`；
+ * 旧报告仍可能从已保存的请求里读到该种类，类型上保留以兼容渲染。
+ */
 export type AnalysisReportRequest = RequestBase &
   (
     | { kind: 'annual'; year: number }
@@ -23,6 +27,8 @@ export type AnalysisReportRequest = RequestBase &
       }
   );
 export type AnalysisKind = AnalysisReportRequest['kind'];
+/** 分析工具里可选的种类：不含年度报告（它有独立入口）。 */
+export type AnalysisToolKind = Exclude<AnalysisKind, 'annual'>;
 export type AnalysisTarget =
   | { kind: 'buddy'; peerUid: string }
   | { kind: 'group'; groupCode: string }
@@ -38,6 +44,8 @@ export const ANALYSIS_LABELS: Record<AnalysisKind, string> = {
   group: '群聊分析',
   member: '群成员分析',
 };
+/** 分析工具里展示的种类（按这个顺序横向排列）。 */
+export const ANALYSIS_TOOL_KINDS: AnalysisToolKind[] = ['group', 'buddy', 'member'];
 
 export function analysisDateRange(start: string, end: string) {
   const parse = (day: string) => {

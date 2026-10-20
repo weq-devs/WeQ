@@ -151,7 +151,8 @@ describe('全局工具条范围', () => {
       open('分析与报告');
       const types = document.querySelector<HTMLSelectElement>('[aria-label="报告类型"]');
       expect(types?.value).toBe('group');
-      expect(types?.options.length).toBe(4);
+      // 年度报告已挪到侧栏独立入口，工具里只剩群聊 / 好友 / 群成员。
+      expect(types?.options.length).toBe(3);
       expect(document.querySelector('[aria-label="搜索分析对象"]')).not.toBeNull();
     } finally {
       fixture.exportRequest = null;

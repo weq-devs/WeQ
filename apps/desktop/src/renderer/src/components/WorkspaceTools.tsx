@@ -19,6 +19,7 @@ import { DaemonSection } from './settings/DaemonSection';
 import { useViewState } from '../state/view';
 import { createToolDraft, type ToolDraft } from '../../../shared/content_selection';
 import { AnalysisTool } from '../views/analysis/AnalysisTool';
+import { initialExportMode } from '../views/export/exportScope';
 import type {
   AnalysisReportRequest,
   AnalysisTarget,
@@ -26,10 +27,15 @@ import type {
 } from '../views/analysis/model';
 import type { Conversation } from '../im-template/template/types';
 import type { RoamingTarget } from '@weq/service';
+import { conversationAnalysisTarget } from '../lib/conversationActions';
+import type { ContentSelection } from '../../../shared/content_selection';
+import type { ExportMode } from '../views/export/types';
 import {
-  conversationAnalysisTarget,
-  conversationExportSelection,
-} from '../lib/conversationActions';
+  analysisTargetForWorkspace,
+  defaultSelectionForContext,
+  exportEntryForWorkspace,
+  type WorkspaceContext,
+} from '../lib/toolTargets';
 
 type Tool = 'export' | 'tasks' | 'assistant' | 'backfill' | 'analysis';
 const TITLES: Record<Tool, string> = {
@@ -46,6 +52,7 @@ export function WorkspaceTools({
   assistantSearchTarget,
   hidden = false,
   currentConversation,
+  workspace,
   analysisRequest,
   roamingRequest,
   onOpenClone,
@@ -55,6 +62,8 @@ export function WorkspaceTools({
   assistantSearchTarget?: GeneratedSearchHit | null;
   hidden?: boolean;
   currentConversation?: Conversation | null;
+  /** 当前界面上下文：主按钮据此决定进入哪个工具、带哪份内容。 */
+  workspace?: WorkspaceContext;
   analysisRequest?: AnalysisToolRequest | null;
   roamingRequest?: { targets: RoamingTarget[]; revision: number } | null;
   onOpenClone?: (id: string) => void;
@@ -66,6 +75,7 @@ export function WorkspaceTools({
   const [analysisMessageIds, setAnalysisMessageIds] = useState<string[] | undefined>();
   const [analysisFixedTarget, setAnalysisFixedTarget] = useState(false);
   const [exportFixedScope, setExportFixedScope] = useState(false);
+  const [exportMode, setExportMode] = useState<ExportMode | undefined>();
   const [exportListRevision, setExportListRevision] = useState(0);
   const [roamingTargets, setRoamingTargets] = useState<RoamingTarget[]>([]);
   const [analysisSeed, setAnalysisSeed] = useState(0);
@@ -75,6 +85,8 @@ export function WorkspaceTools({
   const [exportDraft, setExportDraft] = useState<{ key: string; draft: ToolDraft } | null>(null);
   const exportRequest = useContentExportRequest();
   const handledExportRequest = useRef<typeof exportRequest>(null);
+  /** 最近一次内容页显式导出请求的选区（关闭工具后再次打开仍沿用这份草稿）。 */
+  const requestedSelection = useRef<ContentSelection | null>(null);
   const handledAnalysisRequest = useRef<typeof analysisRequest>(null);
   const contentAnalysisRequest = useContentAnalysisRequest();
   const handledContentAnalysis = useRef<typeof contentAnalysisRequest>(null);
@@ -120,7 +132,11 @@ export function WorkspaceTools({
   useEffect(() => {
     if (!accountKey || !exportRequest || handledExportRequest.current === exportRequest) return;
     handledExportRequest.current = exportRequest;
+    // 记录这次显式请求的来源选择，供「关闭后再点主按钮」复用同一面板现场。
+    requestedSelection.current = exportRequest.selection;
     setExportFixedScope(true);
+    // 显式请求已经把内容定死了，面板里的种类列表没有意义，直接用请求自身的种类。
+    setExportMode(initialExportMode(exportRequest.selection));
     setExportDraft({
       key: JSON.stringify([accountKey, exportRequest.selection]),
       draft: createToolDraft(accountKey, exportRequest.selection),
@@ -144,24 +160,65 @@ export function WorkspaceTools({
       .length ?? 0) +
     cloneTasks.filter((task) => task.accountId === accountKey && task.status === 'running').length;
   const close = () => setOpen(false);
+  const ctx: WorkspaceContext = workspace ?? {
+    view: 'messages',
+    conversation: currentConversation ?? null,
+  };
+  const entry = exportEntryForWorkspace(ctx);
+
+  /** 把选中的草稿交给导出面板。 */
+  const openExport = (
+    nextSelection: ContentSelection | null | undefined,
+    options: { fixed?: boolean; mode?: ExportMode } = {},
+  ) => {
+    const key = nextSelection && accountKey ? JSON.stringify([accountKey, nextSelection]) : null;
+    // 同一份选择重新打开工具时保留面板现场（输入过的草稿、已选格式都还在）。
+    // 必须重建的只有一种情况：从「固定范围」快捷入口切回完整选择界面
+    // （固定界面没有内容列表）。种类切换现在由面板自己负责，不算重建理由。
+    const sameDraft = Boolean(key && exportDraft?.key === key);
+    const modeSwitch = options.fixed === false && fixedExportScope;
+    if (sameDraft && !modeSwitch) {
+      setExportListRevision((previous) => previous + 1);
+      setTool('export');
+      setAssistantSettings(false);
+      setOpen(true);
+      return;
+    }
+    setExportFixedScope(options.fixed === true);
+    setExportMode(options.mode);
+    setExportListRevision((previous) => previous + 1);
+    setExportDraft(
+      key && nextSelection && accountKey
+        ? { key, draft: createToolDraft(accountKey, nextSelection) }
+        : null,
+    );
+    setTool('export');
+    setAssistantSettings(false);
+    setOpen(true);
+  };
+
+  /** 主按钮：按当前界面直接进入对应工具。 */
   const select = (next: Tool, anchor?: HTMLElement) => {
     if (next === 'tasks') setTaskAnchor(anchor ?? null);
-    const exportSelection = selection ?? conversationExportSelection(currentConversation);
     if (next === 'export') {
-      setExportFixedScope(false);
-      setExportListRevision((previous) => previous + 1);
-      if (exportSelection && accountKey) {
-        const key = JSON.stringify([accountKey, exportSelection]);
-        setExportDraft((previous) =>
-          previous?.key === key
-            ? previous
-            : { key, draft: createToolDraft(accountKey, exportSelection) },
-        );
-      } else setExportDraft(null);
+      // 主按钮＝按当前界面直接进入。注意不能把 `entry.selection`（带 selected 的对象）
+      // 直接放进 React 依赖里：每次渲染都是新引用，会触发导出面板反复重建。
+      // 优先级：页面内当前多选 > 内容页显式请求过的内容 > 当前界面位置。
+      // 支持与否的界面都允许打开：没有内容时面板里自己选。
+      const explicit = selection ?? requestedSelection.current ?? defaultSelectionForContext(ctx);
+      openExport(explicit, {
+        mode: explicit ? initialExportMode(explicit) : entry.mode,
+        fixed: false,
+      });
+      return;
     }
     if (next === 'analysis') {
+      // 主按钮：能确定当前对象（群聊 / 好友私聊）就直接固定它；没有就打开完整选择器，
+      // 由使用者在面板里挑（例如从悬浮工具进来、当前在别的页面）。
+      const directTarget =
+        conversationAnalysisTarget(currentConversation) ?? analysisTargetForWorkspace(ctx);
       setAnalysisFixedTarget(false);
-      setAnalysisTarget(conversationAnalysisTarget(currentConversation) ?? undefined);
+      setAnalysisTarget(directTarget ?? undefined);
       setAnalysisMessageIds(undefined);
       setAnalysisSeed((previous) => previous + 1);
     }
@@ -179,8 +236,15 @@ export function WorkspaceTools({
       (exportDraft?.draft.selection.owner.kind === 'conversations' &&
         exportDraft.draft.selection.scope.type === 'items' &&
         exportDraft.draft.selection.scope.ids.length > 0));
+
   const items: FloatingToolItem[] = [
-    { id: 'export', label: '导出', icon: <Download size={20} />, action: () => select('export') },
+    {
+      id: 'export',
+      label: '导出',
+      hint: entry.label,
+      icon: <Download size={20} />,
+      action: () => select('export'),
+    },
     {
       id: 'tasks',
       label: '任务',
@@ -246,19 +310,23 @@ export function WorkspaceTools({
                 key={JSON.stringify([
                   exportDraft?.draft.accountId === accountKey ? exportDraft.key : 'empty',
                   fixedExportScope,
+                  exportMode,
                 ])}
                 initialSelection={
                   exportDraft?.draft.accountId === accountKey
                     ? exportDraft.draft.selection
                     : undefined
                 }
+                initialMode={exportMode}
                 onClose={close}
                 fixedScope={fixedExportScope}
                 contentListRevision={fixedExportScope ? undefined : exportListRevision}
               />
             ) : tool === 'assistant' ? (
               <>
-                <div hidden={assistantSettings} style={{ height: '100%' }}>
+                {/* 助手面板自己要撑满高度：模态体是 flex 列，缺 min-height:0 时
+                    输入框会被顶到可视区外（高度溢出被裁掉）。 */}
+                <div className="weq-assistant-panel" hidden={assistantSettings}>
                   <AgentLabView mode="assistant" searchTarget={assistantSearchTarget} />
                 </div>
                 {assistantSettings && (

@@ -17,6 +17,7 @@ import { Modal } from '../../components/Dialog';
 import { QqAvatar } from '../../components/QqAvatar';
 import { ChatBubble, type FaceContext } from './ChatBubble';
 import { ChatTimeDivider, shouldShowChatTime } from './messageTime';
+import { SessionSwitcher } from './SessionSwitcher';
 import type { AgentLabGroupMessage } from '@weq/agentlab';
 import type { GeneratedSearchHit } from '../../components/search/types';
 import { GeneratedSearchNotice, useGeneratedSearchJump } from './messageSearch';
@@ -43,6 +44,8 @@ export function GroupChatPanel({
   onBack,
   onDeleted,
   onSessionCreated,
+  onSwitchSession,
+  onNewSession,
 }: {
   groupId: string;
   /** 真实会话 id；null = 草稿会话（首条消息才落库建会话）。 */
@@ -57,10 +60,17 @@ export function GroupChatPanel({
   onDeleted: () => void;
   /** 草稿会话首条消息落库后回调（父组件把选中态指向新会话，不换 key）。 */
   onSessionCreated: (sessionId: string) => void;
+  /** 切到同一群的另一段会话。 */
+  onSwitchSession: (sessionId: string) => void;
+  onNewSession: () => void;
 }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const detail = trpc.account.getAgentLabGroupDetail.useQuery({ groupId });
+  const sessionList = trpc.account.listAgentLabGroupSessions.useQuery(
+    { groupId },
+    { staleTime: 0 },
+  );
   // 当前真实会话 id：null = 草稿。草稿升级成真会话时更新状态，让 conversation 查询
   // 从「禁用」变为「按新会话拉取」——事件流万一漏了几条也能从磁盘补齐（不依赖重挂载）。
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId);
@@ -75,6 +85,7 @@ export function GroupChatPanel({
   const send = trpc.account.sendAgentLabGroupMessage.useMutation();
   const clear = trpc.account.clearAgentLabGroupConversation.useMutation();
   const createSession = trpc.account.createAgentLabGroupSession.useMutation();
+  const deleteSession = trpc.account.deleteAgentLabGroupSession.useMutation();
   const del = trpc.account.deleteAgentLabGroup.useMutation();
   const addMember = trpc.account.addAgentLabGroupMember.useMutation();
   const removeMember = trpc.account.removeAgentLabGroupMember.useMutation();
@@ -313,6 +324,27 @@ export function GroupChatPanel({
           </div>
         </div>
         <div className="weq-agentlab-head-actions">
+          <SessionSwitcher
+            sessions={sessionList.data ?? []}
+            activeSessionId={currentSessionId}
+            draft={!legacy && !currentSessionId}
+            loading={sessionList.isLoading}
+            disabled={legacy}
+            onSwitch={onSwitchSession}
+            onNew={onNewSession}
+            onDelete={(target) => {
+              void (async () => {
+                const ok = await dialog.confirm('删除会话', '确认删除这段对话？删除后无法恢复。', {
+                  okLabel: '删除',
+                  tone: 'warning',
+                });
+                if (!ok) return;
+                await deleteSession.mutateAsync({ groupId, sessionId: target });
+                await utils.account.listAgentLabGroupSessions.invalidate({ groupId });
+                if (currentSessionId === target) onNewSession();
+              })();
+            }}
+          />
           {selection.control}
           <button
             type="button"
