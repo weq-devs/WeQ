@@ -16,6 +16,8 @@ const fixture = vi.hoisted(() => ({
     engine: 'local',
     localReady: true,
     suggestionsEnabled: true,
+    analyzeAfterSelf: true,
+    suggestAfterSelf: false,
     analysisContextMessages: 0,
     analysisRevision: 0,
     suggestionRevision: 0,
@@ -87,6 +89,8 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixture.status = {
     ...fixture.status,
+    analyzeAfterSelf: true,
+    suggestAfterSelf: false,
     analysisContextMessages: DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
     analysisRevision: 0,
     suggestionRevision: 0,
@@ -222,6 +226,41 @@ it('自己的新消息触发增量分析，旧批次未包含它时单条补齐�
   expect(f.get().getAnalysis('own')?.mine).toBe(true);
   expect(f.get().latestMessageId).toBe('own');
   expect(fixture.utils.account.intentSense.getSuggestions.invalidate).not.toHaveBeenCalled();
+});
+
+it('关闭自己发送后分析时不发增量请求，推荐开关独立控制建议查询', async () => {
+  fixture.status.analyzeAfterSelf = false;
+  const f = renderFixture();
+  await f.render('own');
+  expect(fixture.ensure).not.toHaveBeenCalled();
+  expect(f.get().settled).toBe(true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  cleanups.push(() => act(() => root.unmount()));
+  const render = () =>
+    act(async () =>
+      root.render(
+        h(IntentSuggestionBar, {
+          kind: 'c2c',
+          conv: 'u_peer',
+          replyTargetId: null,
+          latestMessageId: 'own',
+          onInsert: () => {},
+        }),
+      ),
+    );
+  await render();
+  expect(fixture.suggestQuery).toHaveBeenLastCalledWith(
+    expect.objectContaining({ replyAllowed: false }),
+    expect.objectContaining({ enabled: false }),
+  );
+  fixture.status.suggestAfterSelf = true;
+  await render();
+  expect(fixture.suggestQuery).toHaveBeenLastCalledWith(
+    expect.objectContaining({ replyAllowed: true, targetId: 'own' }),
+    expect.objectContaining({ enabled: true }),
+  );
+  expect(fixture.ensure).not.toHaveBeenCalled();
 });
 
 it('只更新自己的分析时，不触发对方画像或建议的模型刷新', async () => {

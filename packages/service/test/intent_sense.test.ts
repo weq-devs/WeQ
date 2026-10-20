@@ -217,6 +217,32 @@ describe('IntentSenseService', () => {
     expect(requests[2]).toBe('对方: 消息6');
   });
 
+  it('自己发送时的两个开关独立保存，旧配置保持分析开启、推荐关闭', async () => {
+    const msgs = [textMsg(1n, 'u_self', '自己发出的合成消息', 1000)];
+    const analyze = vi.fn(async () => ({
+      intent: 'chat' as const,
+      emotion: 'neutral' as const,
+      intensity: 20,
+      sentiment: 0,
+      confidence: 0.8,
+    }));
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      localEngine: makeLocalPort(analyze),
+    });
+    await svc.setConfig({ enabled: true, engine: 'local', suggestionsEnabled: true });
+    expect(svc.getStatus()).toMatchObject({ analyzeAfterSelf: true, suggestAfterSelf: false });
+    await svc.setConfig({ analyzeAfterSelf: false, suggestAfterSelf: true });
+    expect((await svc.ensureAnalysis('c2c', 'u_peer')).analyzed).toBe(0);
+    expect(await svc.analyzeMessage('c2c', 'u_peer', '1')).toBeNull();
+    expect(analyze).not.toHaveBeenCalled();
+    expect((await svc.getSuggestions('c2c', 'u_peer')).length).toBeGreaterThan(0);
+    const reopened = new IntentSenseService(makeSession(msgs), dir);
+    expect(reopened.getStatus()).toMatchObject({ analyzeAfterSelf: false, suggestAfterSelf: true });
+    await svc.setConfig({ analyzeAfterSelf: true });
+    expect(svc.getStatus().suggestAfterSelf).toBe(true);
+    expect((await svc.ensureAnalysis('c2c', 'u_peer')).analyzed).toBe(1);
+  });
+
   it('自己发送后不返回上一轮推荐、不发新推荐请求；下次对方发言才重新生成', async () => {
     const msgs = [textMsg(1n, 'u_peer', '合成对方消息', 1000)];
     const fetchMock = vi.fn(async () => ({

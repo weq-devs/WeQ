@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { mediaUrl } from '../../lib/resourceUrl';
 import {
   ActionFeedback,
   ActionIcon,
   ImageAction,
-  RefreshAction,
   SaveAction,
   useQQAction,
   withQQAccountScope,
@@ -16,10 +16,8 @@ function FavoriteActionsBody() {
   const a = useQQAction('favorites'),
     [open, setOpen] = useState(false);
   const [picture, setPicture] = useState<{ path: string; fileName: string } | null>(null);
-  const list = trpc.account.qqActions.favorites.useQuery(
-    { ...a.binding! },
-    { enabled: open && a.available, retry: false },
-  );
+  const autoRefresh = useQQAutoRefresh(open && a.available);
+  const list = trpc.account.qqActions.favorites.useQuery({ ...a.binding! }, autoRefresh);
   const refresh = async () => {
     const r = await list.refetch();
     if (r.error) throw r.error;
@@ -56,10 +54,6 @@ function FavoriteActionsBody() {
                   },
                 );
             }}
-          />
-          <RefreshAction
-            disabled={a.disabled || list.isFetching}
-            onClick={() => void list.refetch()}
           />
         </div>
         {list.isLoading && <p role="status">读取收藏表情中…</p>}
@@ -108,15 +102,16 @@ function FavoriteRow({
   count: number;
   onChanged: () => Promise<void>;
 }) {
-  const a = useQQAction(`favorite:${emojiId}`),
-    [value, setValue] = useState(desc);
+  const a = useQQAction(`favorite:${emojiId}`);
+  const [draft, setDraft] = useState<string | null>(null);
+  const value = draft ?? desc;
   return (
     <div className="weq-qq-favorite-row">
       <input
         aria-label="表情备注"
         value={value}
         maxLength={256}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => setDraft(e.target.value)}
       />
       <div className="weq-qq-action-bar">
         <SaveAction
@@ -131,7 +126,10 @@ function FavoriteRow({
                   emojiId,
                   desc: value,
                 }),
-              onChanged,
+              async () => {
+                await onChanged();
+                setDraft((current) => (current === value ? null : current));
+              },
             )
           }
         />

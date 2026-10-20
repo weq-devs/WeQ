@@ -923,13 +923,13 @@ export function ChatPane({
   );
   const intentKind = conversation?.type === 'group' ? 'group' : 'c2c';
   const intentConv = intentSupported ? (conversation?.id ?? '') : '';
-  const { latestMessageId, latestPeerMsgId } = useMemo(
+  const { latestMessageId, latestPeerMsgId, latestSuggestionId } = useMemo(
     () =>
       intentSupported
         ? intentTimelineTargets(visibleMessages, new Set(selfIdentityValues(user)), (message) =>
             Boolean(grayTipOf(message)),
           )
-        : { latestMessageId: null, latestPeerMsgId: null },
+        : { latestMessageId: null, latestPeerMsgId: null, latestSuggestionId: null },
     [intentSupported, visibleMessages, user],
   );
   // 选中的消息（按时间线顺序）—— 合并转发 / 删除 / 复制 JSON 都用它。
@@ -4304,6 +4304,7 @@ export function ChatPane({
           kind={intentKind}
           conv={intentConv}
           replyTargetId={latestPeerMsgId}
+          latestMessageId={latestSuggestionId}
           onInsert={(text) => {
             const prefix = body.trim().length > 0 ? ' ' : '';
             insertComposerText(`${prefix}${text}`);

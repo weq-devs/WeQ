@@ -12,10 +12,11 @@ it('自己的 id／UIN／UID 都属于可分析消息，但都不是回复推荐
   for (const senderId of self)
     expect(
       intentTimelineTargets([peer, { id: 'own', senderId, body: '自己正文' }], self, system),
-    ).toEqual({ latestMessageId: 'own', latestPeerMsgId: null });
+    ).toEqual({ latestMessageId: 'own', latestPeerMsgId: null, latestSuggestionId: 'own' });
   expect(intentTimelineTargets([peer], self, system)).toEqual({
     latestMessageId: 'peer',
     latestPeerMsgId: 'peer',
+    latestSuggestionId: 'peer',
   });
 });
 
@@ -29,12 +30,14 @@ it('灰条、撤回和删除不覆盖目标；自己的媒体与发送占位会�
     expect(intentTimelineTargets([peer, own, { ...peer, ...extra }], self, system)).toEqual({
       latestMessageId: 'own',
       latestPeerMsgId: null,
+      latestSuggestionId: 'own',
     });
   }
   for (const optimistic of ['sending', 'sent', 'failed'])
     expect(intentTimelineTargets([peer, { ...own, optimistic }], self, system)).toEqual({
       latestMessageId: 'peer',
       latestPeerMsgId: null,
+      latestSuggestionId: null,
     });
   expect(
     intentTimelineTargets(
@@ -42,10 +45,11 @@ it('灰条、撤回和删除不覆盖目标；自己的媒体与发送占位会�
       self,
       system,
     ),
-  ).toEqual({ latestMessageId: 'peer', latestPeerMsgId: null });
+  ).toEqual({ latestMessageId: 'peer', latestPeerMsgId: null, latestSuggestionId: 'own' });
   expect(intentTimelineTargets([own, { ...peer, id: 'new-peer' }], self, system)).toEqual({
     latestMessageId: 'new-peer',
     latestPeerMsgId: 'new-peer',
+    latestSuggestionId: 'new-peer',
   });
 });
 

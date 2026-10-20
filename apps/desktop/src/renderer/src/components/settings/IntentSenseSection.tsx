@@ -43,6 +43,8 @@ interface StatusWire {
   engine: 'api' | 'local';
   providerRef: { providerId: string; model: string } | null;
   suggestionsEnabled: boolean;
+  analyzeAfterSelf: boolean;
+  suggestAfterSelf: boolean;
   analysisContextMessages: number;
   suggestionContextMessages: number;
   hfMirror: boolean;
@@ -223,6 +225,28 @@ export function IntentSenseSection(): ReactElement {
               }
               onChange={(next) => void patch({ suggestionsEnabled: next })}
               label="回复建议"
+            />
+          }
+        />
+        <Row
+          label="自己发送后分析"
+          control={
+            <Toggle
+              label="自己发送后分析"
+              checked={s?.analyzeAfterSelf !== false}
+              disabled={status.isLoading || setConfig.isLoading}
+              onChange={(next) => void patch({ analyzeAfterSelf: next })}
+            />
+          }
+        />
+        <Row
+          label="自己发送后推荐回复"
+          control={
+            <Toggle
+              label="自己发送后推荐回复"
+              checked={s?.suggestAfterSelf === true}
+              disabled={status.isLoading || setConfig.isLoading}
+              onChange={(next) => void patch({ suggestAfterSelf: next })}
             />
           }
         />

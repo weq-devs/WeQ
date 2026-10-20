@@ -100,10 +100,14 @@ export function IntentSenseProvider({
 
   const status = useIntentSenseStatus();
   const statusData = status.data;
+  const suggestAfterSelf = useRef(false);
+  suggestAfterSelf.current = statusData?.suggestAfterSelf === true;
   const overridden = statusData?.conversationOverrides?.[`${kind}:${conv}`];
   const engineOk =
     statusData?.engine === 'local' ? !!statusData.localReady : !!statusData?.apiConfigured;
   const effective = !!statusData?.enabled && overridden !== false && engineOk;
+  const autoAnalysisAllowed =
+    latestPeerMsgId !== null || !analysisMessageId || statusData?.analyzeAfterSelf !== false;
 
   const bump = useCallback(() => setVersion((v) => v + 1), []);
 
@@ -119,7 +123,7 @@ export function IntentSenseProvider({
     [bump],
   );
 
-  const engineKey = `${statusData?.engine ?? ''}::${statusData?.providerRef?.providerId ?? ''}::${statusData?.providerRef?.model ?? ''}::${statusData?.analysisContextMessages ?? ''}::${statusData?.analysisRevision ?? 0}`;
+  const engineKey = `${statusData?.engine ?? ''}::${statusData?.providerRef?.providerId ?? ''}::${statusData?.providerRef?.model ?? ''}::${statusData?.analysisContextMessages ?? ''}::${statusData?.analysisRevision ?? 0}::${statusData?.analyzeAfterSelf !== false}`;
   // 会话切换或引擎切换时同步清空内存态（放在拉取缓存之前，避免清理掉刚拉回的同轮结果）。
   const prevConvKeyRef = useRef(`${kind}:${conv}:${engineKey}`);
   if (prevConvKeyRef.current !== `${kind}:${conv}:${engineKey}`) {
@@ -182,9 +186,13 @@ export function IntentSenseProvider({
     };
   }, [kind, conv, effective, engineKey, merge]);
 
-  // 最新可分析文本包含自己；只有当前仍在等待对方回复时刷新建议。
+  // 最新可分析文本包含自己；建议刷新独立遵循自己发言后的推荐开关。
   useEffect(() => {
     if (!effective || !conv) return;
+    if (!autoAnalysisAllowed) {
+      setSettled(true);
+      return;
+    }
     let disposed = false;
     const expected = `${kind}:${conv}:${engineKey}`;
     setSettled(false);
@@ -215,9 +223,12 @@ export function IntentSenseProvider({
           if (kind === 'c2c') {
             void utils.account.intentSense.getProfile.invalidate({ peerUid: conv });
           }
-          if (peerTarget.current)
-            void utils.account.intentSense.getSuggestions.invalidate({ kind, conv });
         }
+        if (
+          (peerTarget.current || suggestAfterSelf.current) &&
+          ((stats?.analyzed ?? 0) > 0 || extra)
+        )
+          void utils.account.intentSense.getSuggestions.invalidate({ kind, conv });
         void utils.account.intentSense.getStatus.invalidate();
       })
       .catch(() => undefined)
@@ -227,7 +238,16 @@ export function IntentSenseProvider({
     return () => {
       disposed = true;
     };
-  }, [kind, conv, effective, engineKey, analysisMessageId, requestAnalysis, utils]);
+  }, [
+    kind,
+    conv,
+    effective,
+    autoAnalysisAllowed,
+    engineKey,
+    analysisMessageId,
+    requestAnalysis,
+    utils,
+  ]);
 
   // 增量结果订阅。
   useEffect(() => {

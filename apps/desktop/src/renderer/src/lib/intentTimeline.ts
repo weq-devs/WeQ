@@ -34,7 +34,11 @@ export function intentTimelineTargets<T extends IntentTimelineMessage>(
   messages: readonly T[],
   self: ReadonlySet<string>,
   isSystem: (message: T) => boolean,
-): { latestMessageId: string | null; latestPeerMsgId: string | null } {
+): {
+  latestMessageId: string | null;
+  latestPeerMsgId: string | null;
+  latestSuggestionId: string | null;
+} {
   let latest: T | undefined;
   let latestMessageId: string | null = null;
   for (let index = messages.length - 1; index >= 0; index--) {
@@ -62,5 +66,7 @@ export function intentTimelineTargets<T extends IntentTimelineMessage>(
     !isSelfIdentity(self, latest.senderId)
       ? latest.id
       : null;
-  return { latestMessageId, latestPeerMsgId };
+  const latestSuggestionId =
+    latest && self.size > 0 && !latest.optimistic && !latest.optimisticRejected ? latest.id : null;
+  return { latestMessageId, latestPeerMsgId, latestSuggestionId };
 }

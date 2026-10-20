@@ -3,12 +3,12 @@ import { Check, LogOut, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 import '../../styles/group-content-management.css';
 import { client, trpc } from '../../trpc/client';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { GroupReadTools } from './GroupReadTools';
 import { GroupJoinSettings } from './GroupJoinSettings';
 import {
   ActionFeedback,
   ActionIcon,
-  RefreshAction,
   useQQAction,
   useQQGroupPermissions,
   withQQAccountScope,
@@ -128,10 +128,8 @@ function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedd
   const a = useQQAction(`todos:${groupId}`);
   const [menu, setMenu] = useState<{ x: number; y: number; sequence: string } | null>(null);
   const permissions = useQQGroupPermissions(groupId, a);
-  const todos = trpc.account.qqActions.todoList.useQuery(
-    { ...a.binding!, groupId },
-    { enabled: a.available, retry: false, refetchOnMount: 'always', staleTime: 15_000 },
-  );
+  const autoRefresh = useQQAutoRefresh(a.available);
+  const todos = trpc.account.qqActions.todoList.useQuery({ ...a.binding!, groupId }, autoRefresh);
   const refresh = async () => {
     const r = await todos.refetch();
     if (r.error) throw r.error;
@@ -140,10 +138,6 @@ function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedd
     <section className="weq-qq-actions weq-todo-content" aria-label="群待办列表">
       <div className="weq-content-toolbar">
         {embedded ? <span>{todos.data?.length ?? 0} 项已读取待办</span> : <h3>群待办</h3>}
-        <RefreshAction
-          disabled={a.disabled || todos.isFetching}
-          onClick={() => void todos.refetch()}
-        />
       </div>
       {!a.available && <p>QQ 在线能力未就绪</p>}
       {a.available && todos.isFetching && !todos.data && <p role="status">读取待办中…</p>}

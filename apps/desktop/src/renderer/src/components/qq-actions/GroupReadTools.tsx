@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { CalendarCheck, ChevronLeft, ChevronRight } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
-import { ActionFeedback, ActionIcon, RefreshAction, useQQAction } from './shared';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
+import { ActionFeedback, ActionIcon, useQQAction } from './shared';
 
 export function GroupReadTools({
   groupId,
@@ -21,13 +22,12 @@ export function GroupReadTools({
   }).format(new Date());
   const [day, setDay] = useState(today);
   const [offset, setOffset] = useState(0);
+  const autoRefresh = useQQAutoRefresh(
+    (signing || open) && a.available && /^\d{4}-\d{2}-\d{2}$/.test(day),
+  );
   const query = trpc.account.qqActions.groupReadTools.useQuery(
     { ...a.binding!, groupId, day: day.replaceAll('-', ''), offset },
-    {
-      enabled: (signing || open) && a.available && /^\d{4}-\d{2}-\d{2}$/.test(day),
-      retry: false,
-      staleTime: 60_000,
-    },
+    autoRefresh,
   );
   const content = (
     <>
@@ -70,10 +70,6 @@ export function GroupReadTools({
               setDay(e.target.value);
               setOffset(0);
             }}
-          />
-          <RefreshAction
-            disabled={a.disabled || query.isFetching}
-            onClick={() => void query.refetch()}
           />
         </div>
         {query.isFetching && <p role="status">读取中…</p>}

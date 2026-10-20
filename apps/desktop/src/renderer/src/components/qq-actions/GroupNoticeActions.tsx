@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, MoreHorizontal, Plus, Send, Trash2, X } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { localFileUrl } from '../../lib/resourceUrl';
 import {
   mergeGroupNotices,
@@ -14,7 +15,6 @@ import {
   ActionFeedback,
   ActionIcon,
   ImageAction,
-  RefreshAction,
   useQQAction,
   useQQGroupPermissions,
   withQQAccountScope,
@@ -44,6 +44,7 @@ function GroupNoticeActionsBody({
   const a = useQQAction(`notice:${groupId}`);
   const permissions = useQQGroupPermissions(groupId, a);
   const canManage = permissions.data?.canManage === true;
+  const autoRefresh = useQQAutoRefresh(a.available && canManage);
   const [editor, setEditor] = useState(false);
   const [draft, setDraft] = useState(emptyDraft);
   const revision = useRef(0);
@@ -85,15 +86,7 @@ function GroupNoticeActionsBody({
     draft,
     busy,
   );
-  const notices = trpc.account.qqActions.notices.useQuery(
-    { ...a.binding!, groupId },
-    {
-      enabled: a.available && canManage,
-      retry: false,
-      refetchOnMount: 'always',
-      staleTime: 15_000,
-    },
-  );
+  const notices = trpc.account.qqActions.notices.useQuery({ ...a.binding!, groupId }, autoRefresh);
   const entries = useMemo(
     () => mergeGroupNotices(bulletins, canManage ? notices.data : undefined),
     [bulletins, canManage, notices.data],
@@ -169,10 +162,6 @@ function GroupNoticeActionsBody({
             >
               <Plus size={17} />
             </button>
-            <RefreshAction
-              disabled={busy || !a.available || notices.isFetching}
-              onClick={() => void notices.refetch()}
-            />
           </div>
         )}
       </div>
