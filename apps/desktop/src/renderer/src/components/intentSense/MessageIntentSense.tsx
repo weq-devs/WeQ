@@ -4,7 +4,7 @@
  * 两种形态共用一套 pill：
  *  • 常驻行（.weq-intent-chips，气泡 grid 的一个子元素，位于正文下方）——只挂在
  *    「最新一条对方消息」上（context.latestPeerMsgId），分析中显示 shimmer 占位。
- *  • 悬停弹层（.weq-intent-popover，fixed 锚在气泡矩形下方）——悬停任意消息
+ *  • 悬停弹层（.weq-intent-popover，portal + fixed，空间不足向上避让）——悬停任意消息
  *    250ms 后出现，未命中缓存时触发单条分析并显示加载态。悬停交互仿
  *    SetEmojiReactions 的「延迟开、延迟关」手法，弹层自身 pointer-events:none，
  *    不会打断气泡的 pointerleave。
@@ -12,7 +12,12 @@
  * 本组件不关心数据来源 —— 一切经 {@link useIntentSenseContext}。
  */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { useRenderDocument } from '../../lib/renderDocument';
+import { useOverlayLayer } from '../../lib/overlayStack';
+import { intentPopoverPosition } from '../../lib/intentPopoverPosition';
+import { useTabActive } from '../RetainedTabs';
 import {
   Award,
   CalendarCheck,
@@ -137,13 +142,16 @@ export function MessageIntentSense({
   bubbleRef: React.RefObject<HTMLElement | null>;
 }) {
   const ctx = useIntentSenseContext();
-  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  const ownerDocument = useRenderDocument();
+  const tabActive = useTabActive();
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [anchor, setAnchor] = useState<ReturnType<typeof intentPopoverPosition> | null>(null);
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 消费 version：新结果到达时重读本条。
   const version = ctx?.version ?? 0;
-  const active = ctx?.active ?? false;
+  const active = Boolean(ctx?.active && tabActive);
   const getAnalysis = ctx?.getAnalysis;
   const isUnavailable = ctx?.isUnavailable;
   const requestAnalysis = ctx?.requestAnalysis;
@@ -189,17 +197,16 @@ export function MessageIntentSense({
       openTimer.current = setTimeout(() => {
         if (shouldSuppress(null) || !hasAnalyzableText()) return;
         const rect = bubble.getBoundingClientRect();
-        const vw = window.innerWidth || 1024;
-        const vh = window.innerHeight || 768;
-        const isMine = bubble.classList.contains('mine');
-        const rawLeft = isMine ? rect.right - POPOVER_EST_WIDTH : rect.left;
-        const left = Math.max(12, Math.min(rawLeft, vw - POPOVER_EST_WIDTH - 12));
-        const belowTop = rect.bottom + 6;
-        const top =
-          belowTop + POPOVER_EST_HEIGHT > vh - 72
-            ? Math.max(12, rect.top - POPOVER_EST_HEIGHT - 6)
-            : belowTop;
-        setAnchor({ top, left });
+        const view = ownerDocument.defaultView;
+        setAnchor(
+          intentPopoverPosition(
+            rect,
+            { width: POPOVER_EST_WIDTH, height: POPOVER_EST_HEIGHT },
+            { width: view?.innerWidth ?? 1024, height: view?.innerHeight ?? 768 },
+            bubble.closest('.message-scroll')?.getBoundingClientRect(),
+            bubble.classList.contains('mine'),
+          ),
+        );
         if (!getAnalysis(msgId)) requestAnalysis(msgId);
       }, HOVER_OPEN_MS);
     };
@@ -235,23 +242,72 @@ export function MessageIntentSense({
       bubble.removeEventListener('contextmenu', closeImmediate);
       clearTimers();
     };
-  }, [bubbleRef, active, getAnalysis, isUnavailable, requestAnalysis, msgId]);
+  }, [bubbleRef, active, getAnalysis, isUnavailable, requestAnalysis, msgId, ownerDocument]);
+
+  useEffect(() => {
+    setAnchor(null);
+  }, [msgId, ctx?.conv, ctx?.kind, active]);
+
+  const showPopover = active && anchor !== null && (!!result || !unavailable);
+  const layer = useOverlayLayer(showPopover);
+  useLayoutEffect(() => {
+    const popover = popoverRef.current;
+    const bubble = bubbleRef.current;
+    const view = ownerDocument.defaultView;
+    if (!showPopover || !popover || !bubble || !view) return;
+    const area = bubble.closest('.message-scroll');
+    const place = (): void => {
+      const measured = popover.getBoundingClientRect();
+      const next = intentPopoverPosition(
+        bubble.getBoundingClientRect(),
+        {
+          width: popover.offsetWidth || measured.width,
+          height: popover.offsetHeight || measured.height,
+        },
+        { width: view.innerWidth, height: view.innerHeight },
+        area?.getBoundingClientRect(),
+        bubble.classList.contains('mine'),
+      );
+      setAnchor((current) =>
+        current &&
+        current.top === next.top &&
+        current.left === next.left &&
+        current.maxWidth === next.maxWidth &&
+        current.maxHeight === next.maxHeight
+          ? current
+          : next,
+      );
+    };
+    place();
+    const observer = new view.ResizeObserver(place);
+    observer.observe(popover);
+    observer.observe(bubble);
+    if (area) observer.observe(area);
+    return () => observer.disconnect();
+  }, [showPopover, result, bubbleRef, ownerDocument]);
 
   // 列表滚动或窗口失焦时立即收起 fixed 浮层，防止浮层悬空残留。
   useEffect(() => {
     if (!anchor) return;
+    const view = ownerDocument.defaultView;
     const dismiss = (): void => setAnchor(null);
-    window.addEventListener('scroll', dismiss, true);
-    window.addEventListener('blur', dismiss);
+    ownerDocument.addEventListener('scroll', dismiss, true);
+    ownerDocument.addEventListener('pointerdown', dismiss, true);
+    ownerDocument.addEventListener('keydown', dismiss);
+    view?.addEventListener('blur', dismiss);
+    view?.addEventListener('resize', dismiss);
+    view?.visualViewport?.addEventListener('resize', dismiss);
     return () => {
-      window.removeEventListener('scroll', dismiss, true);
-      window.removeEventListener('blur', dismiss);
+      ownerDocument.removeEventListener('scroll', dismiss, true);
+      ownerDocument.removeEventListener('pointerdown', dismiss, true);
+      ownerDocument.removeEventListener('keydown', dismiss);
+      view?.removeEventListener('blur', dismiss);
+      view?.removeEventListener('resize', dismiss);
+      view?.visualViewport?.removeEventListener('resize', dismiss);
     };
-  }, [anchor]);
+  }, [anchor, ownerDocument]);
 
-  if (!ctx?.active) return null;
-
-  const showPopover = anchor !== null && (!!result || !unavailable);
+  if (!active) return null;
 
   return (
     <>
@@ -270,46 +326,56 @@ export function MessageIntentSense({
       ) : null}
 
       {/* 悬停弹层。 */}
-      {showPopover && anchor ? (
-        <div
-          className="weq-intent-popover"
-          style={{ top: anchor.top, left: anchor.left }}
-          role="tooltip"
-        >
-          {result ? (
-            <>
-              <div className="weq-intent-popover-row">
-                <IntentChips result={result} />
-              </div>
-              <div className="weq-intent-popover-row">
-                <span>情绪强度</span>
-                <span className="weq-intent-popover-bar">
-                  <span style={{ width: `${Math.round(result.intensity)}%` }} />
-                </span>
-                <span>{Math.round(result.intensity)}</span>
-              </div>
-              <div className="weq-intent-popover-row">
-                <span>情感倾向</span>
-                <span className="weq-intent-popover-bar is-sentiment">
-                  <span style={{ width: `${Math.round((result.sentiment + 100) / 2)}%` }} />
-                </span>
-                <span>{result.sentiment > 0 ? `+${result.sentiment}` : result.sentiment}</span>
-              </div>
-              <div className="weq-intent-popover-row">
-                <span style={{ opacity: 0.65 }}>
-                  置信度 {Math.round(result.confidence * 100)}% ·{' '}
-                  {result.engine === 'local' ? '本地模型' : 'API'}
-                </span>
-              </div>
-            </>
-          ) : (
-            <div className="weq-intent-popover-row">
-              <Loader2 size={12} className="weq-spin" />
-              <span>正在分析…</span>
-            </div>
-          )}
-        </div>
-      ) : null}
+      {showPopover && anchor
+        ? createPortal(
+            <div
+              ref={popoverRef}
+              className="weq-intent-popover"
+              style={{
+                top: anchor.top,
+                left: anchor.left,
+                maxWidth: Math.min(260, anchor.maxWidth),
+                maxHeight: anchor.maxHeight,
+                zIndex: layer,
+              }}
+              role="tooltip"
+            >
+              {result ? (
+                <>
+                  <div className="weq-intent-popover-row">
+                    <IntentChips result={result} />
+                  </div>
+                  <div className="weq-intent-popover-row">
+                    <span>情绪强度</span>
+                    <span className="weq-intent-popover-bar">
+                      <span style={{ width: `${Math.round(result.intensity)}%` }} />
+                    </span>
+                    <span>{Math.round(result.intensity)}</span>
+                  </div>
+                  <div className="weq-intent-popover-row">
+                    <span>情感倾向</span>
+                    <span className="weq-intent-popover-bar is-sentiment">
+                      <span style={{ width: `${Math.round((result.sentiment + 100) / 2)}%` }} />
+                    </span>
+                    <span>{result.sentiment > 0 ? `+${result.sentiment}` : result.sentiment}</span>
+                  </div>
+                  <div className="weq-intent-popover-row">
+                    <span style={{ opacity: 0.65 }}>
+                      置信度 {Math.round(result.confidence * 100)}% ·{' '}
+                      {result.engine === 'local' ? '本地模型' : 'API'}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div className="weq-intent-popover-row">
+                  <Loader2 size={12} className="weq-spin" />
+                  <span>正在分析…</span>
+                </div>
+              )}
+            </div>,
+            ownerDocument.body,
+          )
+        : null}
     </>
   );
 }

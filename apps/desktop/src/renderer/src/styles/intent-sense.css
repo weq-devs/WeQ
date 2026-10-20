@@ -192,6 +192,8 @@ html[data-theme='dark'] .weq-intent-pill[data-emotion='embarrassed'] {
 /* 悬停弹层：fixed 定位锚在气泡矩形下方（同 ReactionLikersPanel 的手法），
    pointer-events:none 防止它把气泡的 leave 抵消掉造成闪烁。 */
 .weq-intent-popover {
+  box-sizing: border-box;
+  overflow: hidden;
   position: fixed;
   z-index: 60;
   display: grid;
