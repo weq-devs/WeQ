@@ -67,10 +67,11 @@ import {
   getLogDir,
   getLogger,
   setHost,
-  type MediaElement,
+  type ExportSavePolicy,
   type WindowCloseBehavior,
 } from '@weq/service';
 import { electronHost } from './host';
+import { mediaSaveRouter } from './ipc/routers/media_save';
 import { systemAuthService } from './system_auth';
 import { totpAuthService } from './totp_auth';
 import { screenshotPage } from './link_shot';
@@ -285,13 +286,7 @@ function registerMediaIpc(): void {
     }
   });
 
-  // OIDB completion for a chat file that isn't on disk. Resolves the download
-  // URL (group vs c2c by the message's own kind), streams it into the media
-  // cache, then reveals it in the OS file manager. Needs an online QQ.
-  //
-  // `fwdMsgId` marks a merged-forward sub-message: `msgId` is then the CARRYING
-  // message and the element comes from its 40900 cache instead of the msg
-  // tables. Such a file's original scene is unknowable, so both are tried.
+  // 兼容旧入口；资源解析与保存只走公共单文件任务。
   ipcMain.handle(
     'file:download',
     async (
@@ -302,120 +297,31 @@ function registerMediaIpc(): void {
         token: string;
         conv: string;
         fwdMsgId?: string;
-        fwdKind?: 'group' | 'c2c';
+        fwdKind?: 'c2c' | 'group';
+        savePolicy?: ExportSavePolicy;
+        expectedAccountUin?: string;
+        expectedAccountConfigId?: string;
       },
-    ): Promise<{ success: boolean; error?: string; path?: string }> => {
-      const ctx = getAppContext();
-      const services = ctx.services;
-      const boot = ctx.bootstrap;
-      if (!services || !boot) return { success: false, error: '未打开账号' };
-      const { msgId, name, token, conv, fwdMsgId = '', fwdKind = 'c2c' } = input;
-      console.log('[file:download] request', { msgId, name, token, conv, fwdMsgId });
-      logger.info('requested file download', {
-        event: 'file-download-start',
-        msgId,
-        name,
-        token,
-        conv,
-        fwdMsgId,
-      });
-      if (!msgId) return { success: false, error: '缺少消息 ID' };
-
-      // Forwarded sub-message → element from the carrier's 40900 cache, and its
-      // original scene is unknown (null). Otherwise → our own msg tables.
-      let el: MediaElement | undefined;
-      let convKind: 'group' | 'c2c' | null = null;
-      if (fwdMsgId) {
-        try {
-          el =
-            ((await services.msgs.findForwardedMediaElement(
-              fwdKind,
-              BigInt(msgId),
-              BigInt(fwdMsgId),
-              'file',
-              token,
-            )) as unknown as MediaElement | null) ?? undefined;
-        } catch (e) {
-          console.error('[file:download] forward cache lookup failed:', e);
-          return { success: false, error: '转发消息查找失败' };
-        }
-      } else {
-        let raw: Awaited<ReturnType<typeof services.msgs.getRawElements>>;
-        try {
-          raw = await services.msgs.getRawElements(BigInt(msgId));
-        } catch (e) {
-          console.error('[file:download] getRawElements failed:', e);
-          return { success: false, error: '读取消息失败' };
-        }
-        if (!raw) {
-          // 缺失消息弹窗拉到的漫游消息不在本地 msg 表：按 msgId 回退漫游缓存。
-          const gap = await services.gapHistory.findMediaElement(msgId, 'file', token);
-          if (!gap) return { success: false, error: '未找到该消息' };
-          el = gap.element;
-          convKind = gap.conv;
-        } else {
-          const matches = raw.elements.filter((e) => e.kind === 'file');
-          console.log('[file:download] kind=%s, file elements=%d', raw.kind, matches.length);
-          el = ((token
-            ? matches.find((e) => (e as { fileToken?: string }).fileToken === token)
-            : undefined) ?? matches[0]) as unknown as MediaElement | undefined;
-          convKind = raw.kind;
-        }
-      }
-      if (!el) return { success: false, error: '消息中未找到文件元素' };
-      const elToken = el.fileToken ?? '';
-      console.log('[file:download] element fileToken=%s', elToken);
-
-      const fileName = name || el.fileName || elToken || 'download';
-      const dest = join(boot.userConfig.cacheDir('media'), 'file', fileName);
-      if (fs.existsSync(dest)) {
-        logger.info('file download cache hit', {
-          event: 'file-download-cache-hit',
-          msgId,
-          path: dest,
-        });
-        shell.showItemInFolder(dest);
-        return { success: true, path: dest };
-      }
-
-      const groupId = Number(conv) || 0;
-      let url: string;
+    ) => {
       try {
-        url =
-          convKind === null
-            ? await services.mediaUrl.resolveFileUrlUnknownScene(groupId, el, fileName)
-            : await services.mediaUrl.resolveFileUrl(convKind, groupId, el, fileName);
-      } catch (e) {
-        console.error('[file:download] OIDB resolve failed:', e);
-        return {
-          success: false,
-          error: `OIDB 解析失败：${e instanceof Error ? e.message : String(e)}`,
-        };
-      }
-      console.log('[file:download] resolved url:', url ? `${url.slice(0, 120)}?` : '(empty)');
-      if (!url) return { success: false, error: 'OIDB 返回空链接（QQ 是否在线？）' };
-
-      const { downloadUrlToFile } = await import('@weq/service');
-      const outcome = await downloadUrlToFile(url, dest);
-      if (!outcome.ok) {
-        console.error('[file:download] download failed:', outcome.reason);
-        logger.warn('file download failed', {
-          event: 'file-download-failed',
-          msgId,
-          name: fileName,
-          reason: outcome.reason,
+        const taskId = await mediaSaveRouter.createCaller({}).save({
+          source: {
+            kind: 'chat-file',
+            msgId: input.msgId,
+            name: input.name,
+            token: input.token,
+            conv: input.conv,
+            fwdMsgId: input.fwdMsgId || undefined,
+            fwdKind: input.fwdKind,
+          },
+          savePolicy: input.savePolicy,
+          expectedAccountUin: input.expectedAccountUin,
+          expectedAccountConfigId: input.expectedAccountConfigId,
         });
-        return { success: false, error: `下载失败：${outcome.reason}` };
+        return taskId ? { success: true, taskId } : { success: false, canceled: true };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : '文件保存失败' };
       }
-      console.log('[file:download] saved to', dest);
-      logger.info('file downloaded successfully', {
-        event: 'file-download-success',
-        msgId,
-        name: fileName,
-        path: dest,
-      });
-      shell.showItemInFolder(dest);
-      return { success: true, path: dest };
     },
   );
 }
@@ -435,13 +341,6 @@ async function writeImageToClipboard(image: Electron.NativeImage): Promise<void>
   ]);
 }
 
-/** 文件名里剔掉路径分隔符等非法字符；空名字返回 ''。 */
-function sanitizeExportName(name: string | undefined): string {
-  const trimmed = (name ?? '').trim();
-  if (!trimmed) return '';
-  return trimmed.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120);
-}
-
 /**
  * 图片灯箱底部的「另存为 / 复制到剪贴板」。
  *
@@ -454,41 +353,44 @@ function registerMediaExportIpc(): void {
   ipcMain.handle(
     'media:export',
     async (
-      event,
-      input: { url?: string; name?: string; mode?: 'save' | 'clipboard' },
-    ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }> => {
+      _event,
+      input: {
+        url?: string;
+        name?: string;
+        mode?: 'save' | 'clipboard';
+        savePolicy?: ExportSavePolicy;
+        expectedAccountUin?: string;
+        expectedAccountConfigId?: string;
+      },
+    ): Promise<{
+      ok: boolean;
+      canceled?: boolean;
+      taskId?: string;
+      path?: string;
+      error?: string;
+    }> => {
       const url = input?.url ?? '';
       if (!url) return { ok: false, error: '没有可导出的图片来源' };
-      if (!/^(https?:|weq-media:|weq-asset:)/i.test(url)) {
+      if (!/^(https?:|weq-media:|weq-asset:)/i.test(url))
         return { ok: false, error: '这张图还没有落盘，暂时导出不了' };
-      }
       try {
+        if (input.mode !== 'clipboard') {
+          const taskId = await mediaSaveRouter.createCaller({}).save({
+            source: { kind: 'url', url, name: input.name },
+            savePolicy: input.savePolicy,
+            expectedAccountUin: input.expectedAccountUin,
+            expectedAccountConfigId: input.expectedAccountConfigId,
+          });
+          return taskId ? { ok: true, taskId } : { ok: false, canceled: true };
+        }
         const response = await net.fetch(url);
         if (!response.ok) return { ok: false, error: `读取图片失败（HTTP ${response.status}）` };
         const bytes = Buffer.from(await response.arrayBuffer());
-        if (bytes.length === 0) return { ok: false, error: '读到的图片是空的' };
-
-        if (input?.mode === 'clipboard') {
-          const image = nativeImage.createFromBuffer(bytes);
-          if (image.isEmpty()) return { ok: false, error: '这张图的格式没法写进剪贴板' };
-          await writeImageToClipboard(image);
-          return { ok: true };
-        }
-
-        let suggested = sanitizeExportName(input?.name);
-        if (suggested && !/\.[a-z0-9]{2,5}$/i.test(suggested)) suggested += '.jpg';
-        const win = BrowserWindow.fromWebContents(event.sender);
-        const result = win
-          ? await dialog.showSaveDialog(win, { defaultPath: suggested || undefined })
-          : await dialog.showSaveDialog({ defaultPath: suggested || undefined });
-        if (result.canceled || !result.filePath) return { ok: false, canceled: true };
-        await fs.promises.writeFile(result.filePath, bytes);
-        logger.info('exported media from lightbox', {
-          event: 'media-export',
-          path: result.filePath,
-          bytes: bytes.length,
-        });
-        return { ok: true, path: result.filePath };
+        if (!bytes.length) return { ok: false, error: '读到的图片是空的' };
+        const image = nativeImage.createFromBuffer(bytes);
+        if (image.isEmpty()) return { ok: false, error: '这张图的格式没法写进剪贴板' };
+        await writeImageToClipboard(image);
+        return { ok: true };
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : '导出失败' };
       }

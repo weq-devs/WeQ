@@ -329,7 +329,8 @@ export interface ExportTask {
       | 'mail-attachment'
       | 'decoration'
       | 'qzone-albums'
-      | 'annual-report';
+      | 'annual-report'
+      | 'media';
     failed?: number;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
     cacheDirectory?: string;
@@ -4573,7 +4574,7 @@ export class ExportTaskManager extends EventEmitter {
 
   cancelTask(id: string): boolean {
     const task = this.tasks.get(id);
-    if (!task) return false;
+    if (!task || task.status === 'completed') return false;
     if (task.status === 'running') this.abortControllers.get(id)?.abort();
     task.status = 'cancelled';
     task.updatedAt = Date.now();

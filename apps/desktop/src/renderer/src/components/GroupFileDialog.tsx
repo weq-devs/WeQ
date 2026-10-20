@@ -1,18 +1,12 @@
 // @ts-nocheck
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { ArrowLeft, ChevronRight, Download, Loader2, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { ArrowLeft, ChevronRight, Loader2, Square, X } from 'lucide-react';
 import { client } from '../trpc/client';
-import { useAppDialog } from '../lib/dialogUtils';
+import { MediaSaveControls, useMediaSave } from './MediaSaveControls';
 import { OverlayLayer } from './OverlayLayer';
 import { fileIconUrl } from '../lib/resourceUrl';
 import { GroupFileActions } from './qq-actions/GroupFileActions';
-import {
-  fileExtIcon,
-  formatFileTime,
-  formatSize,
-  type GroupFileListing,
-  type GroupFileWire,
-} from '../lib/groupFile';
+import { fileExtIcon, formatFileTime, formatSize, type GroupFileListing } from '../lib/groupFile';
 
 /** 目录面包屑的一层。根目录的 id 固定是 '/'。 */
 interface Crumb {
@@ -35,7 +29,7 @@ export function GroupFileDialog({
   initialFileId?: string;
   onClose: () => void;
 }): ReactElement {
-  const dialog = useAppDialog();
+  const mediaSave = useMediaSave();
   const [crumbs, setCrumbs] = useState<Crumb[]>(
     initialFolderId && initialFolderId !== '/'
       ? [ROOT, { id: initialFolderId, name: '定位目录' }]
@@ -48,7 +42,6 @@ export function GroupFileDialog({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   /** 正在换取直链的 fileId —— 用来给那一行的下载按钮转圈。 */
-  const [downloading, setDownloading] = useState<string | null>(null);
 
   const current = crumbs[crumbs.length - 1] ?? ROOT;
 
@@ -86,31 +79,6 @@ export function GroupFileDialog({
     row?.scrollIntoView({ block: 'center' });
   }, [initialFileId, initialFolderId, current.id, loading, error, listing]);
 
-  const download = useCallback(
-    async (file: GroupFileWire): Promise<void> => {
-      setDownloading(file.fileId);
-      try {
-        // 直链有时效,每次点击现取。交给浏览器/系统去下,不占主进程。
-        const url = await client.account.getGroupFileUrl.mutate({
-          groupCode,
-          fileId: file.fileId,
-          fileName: file.fileName,
-          busId: file.busId,
-        });
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = file.fileName;
-        a.rel = 'noreferrer';
-        a.click();
-      } catch (e) {
-        dialog.error('获取下载链接失败', e instanceof Error ? e.message : String(e));
-      } finally {
-        setDownloading(null);
-      }
-    },
-    [groupCode, dialog],
-  );
-
   const summary = useMemo(() => {
     if (!listing) return '';
     const parts: string[] = [];
@@ -133,11 +101,23 @@ export function GroupFileDialog({
         aria-label={`${groupName}的群文件`}
         onMouseDown={(e) => e.stopPropagation()}
       >
+        {mediaSave.prompt}
         <header>
           <div>
             <strong>群文件</strong>
             <span>{groupName}</span>
           </div>
+          {mediaSave.downloading && (
+            <button
+              className="icon-button"
+              type="button"
+              title="停止本次下载"
+              aria-label="停止当前媒体下载"
+              onClick={() => void mediaSave.cancel()}
+            >
+              <Square size={16} />
+            </button>
+          )}
           <button className="icon-button" type="button" title="关闭" onClick={onClose}>
             <X size={18} />
           </button>
@@ -230,19 +210,19 @@ export function GroupFileDialog({
                         {file.uploadedTime ? ` · ${formatFileTime(file.uploadedTime)}` : ''}
                       </small>
                     </span>
-                    <button
-                      type="button"
+                    <MediaSaveControls
+                      save={mediaSave}
+                      source={{
+                        kind: 'group-file',
+                        groupCode,
+                        fileId: file.fileId,
+                        fileName: file.fileName,
+                        busId: file.busId,
+                      }}
                       className="icon-button"
-                      title="下载"
-                      disabled={downloading === file.fileId}
-                      onClick={() => void download(file)}
-                    >
-                      {downloading === file.fileId ? (
-                        <Loader2 size={16} className="weq-spin" />
-                      ) : (
-                        <Download size={16} />
-                      )}
-                    </button>
+                      label={`保存 ${file.fileName}`}
+                      iconOnly
+                    />
                   </div>
                 </li>
               ))}

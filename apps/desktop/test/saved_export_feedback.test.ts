@@ -10,6 +10,7 @@ it.each([
   ['decoration', '装扮资源保存'],
   ['qzone-albums', '空间相册导出'],
   ['annual-report', '年度报告导出'],
+  ['media', '媒体文件保存'],
 ] as const)('独立资源 %s 展示真实任务类型', (kind, label) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');

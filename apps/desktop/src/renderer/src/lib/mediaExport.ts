@@ -1,6 +1,6 @@
 /**
- * 灯箱底部「另存为 / 复制到剪贴板」的渲染层入口 —— 实际动作在主进程
- * （`media:export`，见 src/main/index.ts）。
+ * 图片剪贴板与旧保存调用的兼容入口（`media:export`）。新保存控件直接使用公共任务，
+ * 旧 save 调用同样只返回任务受理，不把排队冒称已经落盘。
  *
  * 为什么不让渲染层自己取字节：灯箱的 `src` 可能是 `weq-media://` 代理地址，主进程用
  * `net.fetch` 走注册过的自定义 scheme 最稳；CDN 直链也一并能取。`blob:`（乐观渲染的
@@ -11,6 +11,7 @@ export type MediaExportMode = 'save' | 'clipboard';
 
 export interface MediaExportResult {
   ok: boolean;
+  taskId?: string;
   /** 用户在保存对话框里点了取消（不算错误，不用弹提示）。 */
   canceled?: boolean;
   /** 保存成功后的落盘路径。 */

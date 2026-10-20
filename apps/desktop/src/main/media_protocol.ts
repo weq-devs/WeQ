@@ -59,6 +59,7 @@ import { decodeSilkToWav, isSilkFile } from './voice';
  *  to OIDB when the local Ptt file is missing. */
 const VIDEO_RKEY_TYPES = [PRIVATE_VIDEO_RKEY_TYPE, GROUP_VIDEO_RKEY_TYPE];
 const PTT_RKEY_TYPES = [PRIVATE_PTT_RKEY_TYPE, GROUP_PTT_RKEY_TYPE];
+const mediaBinding = new AsyncLocalStorage<() => void>();
 
 /** Stable cache path for an OIDB-downloaded original by its fileToken. */
 function oidbCachePath(cacheDir: string, token: string, ext: string): string {
@@ -78,13 +79,14 @@ function oidbCachePath(cacheDir: string, token: string, ext: string): string {
  * a forwarded medium's original scene is unknowable, so the caller must try
  * both. See MediaUrlService.resolveVideoUrlUnknownScene.
  */
-async function findMediaElement(
+export async function findMediaElement(
   msgId: string,
   kind: 'video' | 'file' | 'ptt',
   token: string,
   fwdMsgId = '',
   fwdKind: 'group' | 'c2c' = 'c2c',
 ): Promise<{ element: MediaElement; conv: 'group' | 'c2c' | null } | null> {
+  mediaBinding.getStore()?.();
   const services = getAppContext().services;
   if (!services || !msgId) return null;
   if (fwdMsgId) {
@@ -371,11 +373,11 @@ async function qqshowRemoteResponse(src: string): Promise<Response> {
  * Serve one `weq-media://` request. Pure `Request`→`Response`, so the web app
  * can mount it on a plain HTTP route (see `apps/web`) without Electron.
  */
-export async function handleMediaRequest(request: Request): Promise<Response> {
+export async function handleMediaRequest(request: Request, check?: () => void): Promise<Response> {
   try {
-    return await currentRequest.run(request, async () =>
-      withCors(await routeMediaRequest(request)),
-    );
+    const serve = () =>
+      currentRequest.run(request, async () => withCors(await routeMediaRequest(request)));
+    return await (check ? mediaBinding.run(check, serve) : serve());
   } catch (e) {
     // 路由内部已经有 try/catch；这里兜住「连 AppContext 都还没初始化」这类
     // 早期错误 —— 否则响应连跨源头都没有，dev 里会被误报成 CORS 失败。
@@ -468,6 +470,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
     // 排查时会被误读成跨源问题。
     let services: ReturnType<typeof getAppContext>['services'];
     try {
+      mediaBinding.getStore()?.();
       services = getAppContext().services;
     } catch {
       return notFound('no account session');
@@ -541,6 +544,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           // with no "original"; the displayable image comes back as `thumb`.
           const picType = q.get('recv') === '1' ? 'emoji' : 'pic';
           const { source, thumb } = await services.fileSearch.findFile(tMs, name, picType);
+          mediaBinding.getStore()?.();
           const path = wantThumb ? (thumb ?? source) : (source ?? thumb);
           if (path) return fileResponse(path);
           // 本地 miss → 外部安卓 chatpic 备份兜底（按 md5 寻址），再不行才走 CDN。
@@ -550,6 +554,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           const dl = await services.mediaDownload.download(token, {
             originalUrl: q.get('orig') ?? '',
           });
+          mediaBinding.getStore()?.();
           return dl ? fileResponse(dl) : notFound('pic not found');
         }
         case 'video': {
@@ -558,14 +563,17 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           // originals, so it's intentionally not attempted).
           if (wantThumb) {
             const { thumb } = await services.fileSearch.findFile(tMs, name, 'video');
+            mediaBinding.getStore()?.();
             if (thumb) return fileResponse(thumb);
             const dl = await services.mediaDownload.download(token, {
               ext: '.jpg',
               rkeyTypes: VIDEO_RKEY_TYPES,
             });
+            mediaBinding.getStore()?.();
             return dl ? fileResponse(dl) : notFound('video cover not found');
           }
           const { source } = await services.fileSearch.findFile(tMs, name, 'video');
+          mediaBinding.getStore()?.();
           if (source) return fileResponse(source);
 
           // Missing on disk → OIDB completion (needs an online QQ). Cache the
@@ -594,6 +602,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
             return notFound('video OIDB resolve failed');
           }
           if (!url) return notFound('video OIDB returned empty url');
+          mediaBinding.getStore()?.();
           const outcome = await downloadUrlToFile(url, cachePath);
           return outcome.ok
             ? fileResponse(cachePath)
@@ -601,6 +610,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
         }
         case 'ptt': {
           const { source } = await services.fileSearch.findFile(tMs, name, 'ptt');
+          mediaBinding.getStore()?.();
           let silk = source;
           if (!silk) {
             // Missing on disk → try rkey first, then OIDB completion. The OIDB
@@ -610,6 +620,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
               ext: '.silk',
               rkeyTypes: PTT_RKEY_TYPES,
             });
+            mediaBinding.getStore()?.();
           }
           if (!silk) {
             const boot = getAppContext().bootstrap;
@@ -636,6 +647,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
                     console.error('[media] ptt OIDB resolve failed:', e);
                   }
                   if (url) {
+                    mediaBinding.getStore()?.();
                     const outcome = await downloadUrlToFile(url, cachePath);
                     if (outcome.ok) silk = cachePath;
                   }

@@ -78,6 +78,7 @@ import { emojiPanelRouter } from './emoji_panel';
 import { emojiPackRouter } from './emoji_export';
 import { fileResourceRouter } from './file_resource';
 import { mediaResourceRouter } from './media_resource';
+import { mediaSaveRouter } from './media_save';
 import { resourceCleanupRouter } from './resource_cleanup';
 import { dressupRouter } from './dressup';
 import { qzoneRouter } from './qzone';
@@ -1608,6 +1609,7 @@ export const accountRouter = router({
   fileResource: fileResourceRouter,
   // ---- 图片墙 / QQ空间 / 图片 / 视频 local media cache browser ----
   mediaResource: mediaResourceRouter,
+  mediaSave: mediaSaveRouter,
   // ---- nt_data 资源清理释放 (本地资源整理 → 清理释放) ----
   resourceCleanup: resourceCleanupRouter,
   // ---- 个性装扮（气泡九宫格 / 聊天字体）----

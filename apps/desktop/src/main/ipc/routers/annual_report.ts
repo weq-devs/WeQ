@@ -9,6 +9,7 @@ import { handleResourceRequest } from '../../resource_protocol';
 import { procedure, router } from '../trpc';
 import { exportSavePolicyInput, prepareExportDestination } from './export_save';
 import { annualReportExportOutput } from '../../../shared/annual_report_export';
+import { toProtocolAssetUrl } from '../../protocol_asset_url';
 
 /** 说说一次最多带 9 张图 —— 超出的页数在 router 层直接拒绝。 */
 const QZONE_MAX_IMAGES = 9;
@@ -59,38 +60,6 @@ function exportImageMime(bytes: Buffer): string {
     return 'image/webp';
   }
   return 'application/octet-stream';
-}
-
-/**
- * 把浏览器构建的 `/_media/…` / `/_asset/…` 地址归一成自定义协议形式。
- *
- * Electron 渲染层直接用 `weq-media://…`；web 渲染层不写自定义 scheme，而是把
- * handler 挂载的 HTTP 路径（`/_media/<kind>?…`、`/_asset/<first>/…`）原样发来，
- * 这里按与 web `protocol_adapter.ts` 相同的规则翻回协议 URL 再交给原 handler。
- */
-function toProtocolAssetUrl(raw: string): string | null {
-  if (raw.startsWith('weq-media://') || raw.startsWith('weq-asset://')) return raw;
-
-  const MOUNTS = [
-    ['/_media/', 'weq-media'],
-    ['/_asset/', 'weq-asset'],
-  ] as const;
-  for (const [mount, scheme] of MOUNTS) {
-    if (!raw.startsWith(mount)) continue;
-    const rest = raw.slice(mount.length);
-    if (!rest) return null;
-    // `/_media/pic?x=1` → `weq-media://pic?x=1`；
-    // `/_asset/emoji/358/apng/358.png` → `weq-asset://emoji/358/apng/358.png`
-    const qMark = rest.indexOf('?');
-    const pathPart = qMark === -1 ? rest : rest.slice(0, qMark);
-    const query = qMark === -1 ? '' : rest.slice(qMark);
-    const slash = pathPart.indexOf('/');
-    const host = slash === -1 ? pathPart : pathPart.slice(0, slash);
-    const path = slash === -1 ? '' : pathPart.slice(slash);
-    if (!host) return null;
-    return `${scheme}://${host}${path}${query}`;
-  }
-  return null;
 }
 
 /**

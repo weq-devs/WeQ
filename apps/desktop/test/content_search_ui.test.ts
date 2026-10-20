@@ -29,6 +29,9 @@ const rpc = vi.hoisted(() => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({}),
+    bootstrap: {
+      getSettings: { useQuery: () => ({ data: { exportSaveMode: 'before' }, isLoading: false }) },
+    },
     account: {
       getAccountConfig: { useQuery: () => ({ data: undefined }) },
       getGroupAlbumAccessState: { useQuery: () => ({ data: { qqOnline: false } }) },

@@ -23,6 +23,8 @@ import { openMarketFaceLightbox } from './MarketFaceLightbox';
 import { ShimmerImage } from './ShimmerImage';
 import { IS_ELECTRON } from '@renderer/lib/target';
 import { cdnImageUrl, cdnVideoCoverUrl, useCdn } from '@renderer/lib/cdn';
+import { MediaSaveControls, MediaSourceSave, useMediaSave } from './MediaSaveControls';
+import type { MediaSaveSource } from '../../../shared/media_save';
 
 type Data = Record<string, unknown>;
 
@@ -89,23 +91,6 @@ async function revealFile(msgId: string): Promise<boolean> {
     error?: string;
   };
   return Boolean(result?.success);
-}
-
-/** OIDB-download a file that isn't on disk, then reveal it. Needs online QQ. */
-async function downloadFile(args: {
-  msgId: string;
-  name: string;
-  token: string;
-  conv: string;
-  fwdMsgId?: string;
-  fwdKind?: 'c2c' | 'group';
-}): Promise<{ success: boolean; error?: string }> {
-  const bridge = window.electron;
-  const result = (await bridge?.ipcRenderer?.invoke?.('file:download', args)) as {
-    success: boolean;
-    error?: string;
-  };
-  return result ?? { success: false, error: '下载失败' };
 }
 
 /** Human-readable byte size. */
@@ -462,18 +447,21 @@ export function QqFile({
   conv?: string;
   fwd?: ForwardRef;
 }) {
-  const name = str(data, 'fileName');
-  const size = num(data, 'fileSize');
-  const token = str(data, 'fileToken');
-  // 合并转发编辑器里刚选的文件带 `localPath`（还没上传、也没进 file_assistant.db）——
-  // 点它只能交给系统默认程序打开，走 database/OIDB 那两条路都不适用。
+  const name = str(data, 'fileName'),
+    size = num(data, 'fileSize'),
+    token = str(data, 'fileToken');
   const localPath = str(data, 'localPath');
   const openLocal = trpc.account.fileResource.download.open.useMutation();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
+  const mediaSave = useMediaSave();
+  const source: MediaSaveSource = { kind: 'chat-file', msgId, name, token, conv, ...fwd };
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState<string | null>(null);
+  const saving = busy || mediaSave.busy;
+  useEffect(() => {
+    if (mediaSave.busy) setError(null);
+  }, [mediaSave.busy]);
   const onClick = (): void => {
-    if (busy) return;
+    if (saving) return;
     setError(null);
     if (localPath) {
       openLocal.mutate(
@@ -482,23 +470,18 @@ export function QqFile({
       );
       return;
     }
+    setBusy(true);
     void (async () => {
-      // 1. Local first: file_assistant.db → reveal in OS file manager. There's
-      //    no file manager to reveal into on web, so skip straight to (2).
-      //    Forwarded files are indexed under their own sub-msgId, so that's the
-      //    id to search by — not the carrier's.
-      const localId = fwd ? fwd.fwdMsgId : msgId;
-      if (IS_ELECTRON && localId && (await revealFile(localId))) return;
-      // 2. Not on disk → OIDB completion (needs an online QQ). Only msgId is
-      //    required; token just disambiguates multiple files in one message.
-      if (!msgId) {
-        if (IS_ELECTRON) revealMedia(sendTimeMs, name, 'file');
-        return;
-      }
-      setBusy(true);
       try {
-        const r = await downloadFile({ msgId, name, token, conv, ...fwd });
-        if (!r.success) setError(r.error ?? '下载失败');
+        const localId = fwd ? fwd.fwdMsgId : msgId;
+        if (IS_ELECTRON && localId && (await revealFile(localId))) return;
+        if (!msgId) {
+          if (IS_ELECTRON) revealMedia(sendTimeMs, name, 'file');
+          else setError('文件定位信息不足');
+          return;
+        }
+        const result = await mediaSave.run(source);
+        if (result.error) setError(result.error);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -506,44 +489,60 @@ export function QqFile({
       }
     })();
   };
-
   return (
-    <div
-      className="qq-media-file"
-      role="button"
-      title={
-        error ??
-        (busy
-          ? '正在下载…'
-          : localPath
-            ? '打开文件（本机）'
-            : IS_ELECTRON
-              ? '在文件夹中打开（本地无则尝试下载）'
-              : '下载')
-      }
-      onClick={onClick}
-    >
-      <img
-        className="qq-media-file-icon"
-        src={fileIconUrl(iconForName(name))}
-        alt=""
-        draggable={false}
-      />
-      <div className="qq-media-file-meta">
-        <div className="qq-media-file-name">{name || '[文件]'}</div>
-        <div className={cn('qq-media-file-size', error && 'qq-media-file-error')}>
-          {busy ? (
-            <span className="qq-media-file-status">
-              <Loader2 size={11} strokeWidth={2} className="weq-spin" aria-hidden /> 下载中…
+    <>
+      <div className="qq-media-file">
+        <button
+          type="button"
+          className="qq-media-file-open"
+          onClick={onClick}
+          disabled={saving}
+          title={
+            error ??
+            (saving
+              ? '准备保存…'
+              : localPath
+                ? '打开文件（本机）'
+                : IS_ELECTRON
+                  ? '本地打开，无缓存时按偏好保存'
+                  : '保存文件到服务器')
+          }
+        >
+          <img
+            className="qq-media-file-icon"
+            src={fileIconUrl(iconForName(name))}
+            alt=""
+            draggable={false}
+          />
+          <span className="qq-media-file-meta">
+            <span className="qq-media-file-name" title={name}>
+              {name || '[文件]'}
             </span>
-          ) : error ? (
-            `下载失败：${error}`
-          ) : (
-            formatSize(size)
-          )}
-        </div>
+            <span className={cn('qq-media-file-size', error && 'qq-media-file-error')}>
+              {saving ? (
+                <span className="qq-media-file-status">
+                  <Loader2 size={11} strokeWidth={2} className="weq-spin" aria-hidden /> 准备保存…
+                </span>
+              ) : error ? (
+                `保存失败：${error}`
+              ) : (
+                formatSize(size)
+              )}
+            </span>
+          </span>
+        </button>
+        {!localPath && msgId ? (
+          <MediaSaveControls
+            save={mediaSave}
+            source={source}
+            className="icon-button"
+            label="保存文件"
+            iconOnly
+          />
+        ) : null}
       </div>
-    </div>
+      {mediaSave.prompt}
+    </>
   );
 }
 
@@ -605,6 +604,18 @@ export function QqVoice({
   const localPath = str(data, 'localPath');
   const localPreviewUrl = str(data, 'localPreviewUrl');
   const waveform = Array.isArray(data.waveform) ? (data.waveform as number[]) : [];
+  const voiceSource =
+    localPreviewUrl ||
+    (localPath
+      ? localVoiceFileUrl(localPath)
+      : mediaUrl('ptt', {
+          t: sendTimeMs,
+          name,
+          token,
+          msgId: mediaMsgId || msgId,
+          conv,
+          ...(fwd ? { fwdMsgId: fwd.fwdMsgId, fwdKind: fwd.fwdKind } : {}),
+        }));
   // Duration comes from the element (wire tag 45906), NOT the waveform: AI 声聊
   // clips carry a fixed 30-byte synthetic strip, so waveform.length/10 is wrong
   // for them. Fall back to the waveform only when duration is absent (0).
@@ -653,20 +664,7 @@ export function QqVoice({
     if (!audio) {
       // mediaMsgId/conv/fwd 让主进程在本地 Ptt 文件缺失时能定位元素做 OIDB
       // 补全（转发子消息时是 carrier 的 msgId；`msgId` 留给转写写回用）。
-      audio = new Audio(
-        localPreviewUrl
-          ? localPreviewUrl
-          : localPath
-            ? localVoiceFileUrl(localPath)
-            : mediaUrl('ptt', {
-                t: sendTimeMs,
-                name,
-                token,
-                msgId: mediaMsgId || msgId,
-                conv,
-                ...(fwd ? { fwdMsgId: fwd.fwdMsgId, fwdKind: fwd.fwdKind } : {}),
-              }),
-      );
+      audio = new Audio(voiceSource);
       audio.onended = () => setPlaying(false);
       audio.onerror = () => setPlaying(false);
       audioRef.current = audio;
@@ -742,6 +740,15 @@ export function QqVoice({
           </span>
           {seconds > 0 ? <span className="qq-media-voice-time">{seconds}″</span> : null}
         </div>
+        {!localPreviewUrl ? (
+          <MediaSourceSave
+            key={voiceSource}
+            source={{ kind: 'url', url: voiceSource, name }}
+            className="qq-voice-transcribe-btn"
+            label="保存语音"
+            iconOnly
+          />
+        ) : null}
         {canTranscribe && !hasResult ? (
           <button
             type="button"

@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
-import { Copy, Download, Eye, EyeOff, Loader2, ScanText, X } from 'lucide-react';
+import { Copy, Eye, EyeOff, Loader2, ScanText, X } from 'lucide-react';
 import type { OcrBlock } from '@weq/protocol';
 import { trpc } from '@renderer/trpc/client';
 import { useOverlayLayer } from '../lib/overlayStack';
@@ -34,6 +34,7 @@ import { OcrTextPanel } from './OcrTextPanel';
 import { useToast } from './Toast';
 import { useZoomPan } from './useZoomPan';
 import { resourceForRenderDocument } from '../lib/renderDocument';
+import { MediaSourceSave } from './MediaSaveControls';
 
 /**
  * 图片的「可 OCR」上下文 —— 只有聊天消息里的图片拿得到（元素里带 `fileToken`）。
@@ -280,12 +281,6 @@ export function ImageLightbox(): ReactElement | null {
     }
   }
 
-  async function onSave(): Promise<void> {
-    const result = await exportMedia({ url: src ?? '', name: alt }, 'save', document);
-    if (result.ok || result.canceled) return;
-    useToast.getState().push({ tone: 'error', title: '另存为失败', message: result.error });
-  }
-
   async function onCopy(): Promise<void> {
     const result = await exportMedia({ url: src ?? '', name: alt }, 'clipboard', document);
     useToast
@@ -401,15 +396,13 @@ export function ImageLightbox(): ReactElement | null {
             </>
           ) : null}
           {ocrContext ? <span className="weq-lightbox-action-sep" aria-hidden /> : null}
-          <button
+          <MediaSourceSave
+            key={src}
+            source={{ kind: 'url', url: src, name: alt }}
             className="weq-lightbox-action"
-            type="button"
-            title="另存为"
-            onClick={() => void onSave()}
-          >
-            <Download size={15} />
-            另存为
-          </button>
+            label="保存图片"
+            ownerDocument={document}
+          />
           <button
             className="weq-lightbox-action"
             type="button"

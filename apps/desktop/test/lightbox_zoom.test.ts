@@ -13,6 +13,13 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Window as HappyWindow } from 'happy-dom';
+vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
+  useExportSavePolicy: () => ({
+    binding: null,
+    settings: { isLoading: false },
+    isCurrent: () => true,
+  }),
+}));
 
 // 灯箱会拉 tRPC（OCR 能力门禁）——单测不建 ipc 链接，直接给个死数据桩。
 vi.mock('@renderer/trpc/client', () => ({
