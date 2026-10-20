@@ -104,12 +104,14 @@ export function QQWriteSelectRow({
   options,
   disabled,
   onSave,
+  preview,
 }: {
   label: string;
   initial: number | null;
   options: readonly { value: number; label: string }[];
   disabled: boolean;
   onSave: (value: number) => Promise<boolean>;
+  preview?: (value: number | null) => ReactNode;
 }) {
   const [value, setValue] = useState(initial === null ? '' : String(initial));
   const [submitted, setSubmitted] = useState<string | null>(null);
@@ -124,40 +126,45 @@ export function QQWriteSelectRow({
     <Row
       label={label}
       control={
-        <div className="weq-qq-write-field">
-          <select
-            className="weq-qq-write-input"
-            aria-label={label}
-            value={value}
-            disabled={disabled}
-            onChange={(event) => {
-              setValue(event.target.value);
-              setSubmitted(null);
-            }}
-          >
-            {!options.some((option) => String(option.value) === value) && (
-              <option value={value}>{value ? `未识别 (${value})` : '尚未读取'}</option>
-            )}
-            {options.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="weq-set-iconbtn"
-            aria-label={`保存${label}`}
-            title={`保存${label}`}
-            disabled={disabled || value === '' || Number(value) === initial || value === submitted}
-            onClick={() => {
-              void onSave(Number(value)).then((ok) => {
-                if (ok) setSubmitted(value);
-              });
-            }}
-          >
-            <Save size={16} />
-          </button>
+        <div className={preview ? 'weq-qq-write-select-preview' : undefined}>
+          <div className="weq-qq-write-field">
+            <select
+              className="weq-qq-write-input"
+              aria-label={label}
+              value={value}
+              disabled={disabled}
+              onChange={(event) => {
+                setValue(event.target.value);
+                setSubmitted(null);
+              }}
+            >
+              {!options.some((option) => String(option.value) === value) && (
+                <option value={value}>{value ? `未识别 (${value})` : '尚未读取'}</option>
+              )}
+              {options.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="weq-set-iconbtn"
+              aria-label={`保存${label}`}
+              title={`保存${label}`}
+              disabled={
+                disabled || value === '' || Number(value) === initial || value === submitted
+              }
+              onClick={() => {
+                void onSave(Number(value)).then((ok) => {
+                  if (ok) setSubmitted(value);
+                });
+              }}
+            >
+              <Save size={16} />
+            </button>
+          </div>
+          {preview?.(value === '' ? null : Number(value))}
         </div>
       }
     />

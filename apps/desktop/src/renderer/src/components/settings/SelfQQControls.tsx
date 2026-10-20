@@ -188,7 +188,6 @@ export function SelfQQControls() {
         </Card>
         <Card title="QQ 状态">
           <LiveStatusReadout />
-          <ExtendedStatusAction />
           <QQWriteSelectRow
             label="在线状态"
             initial={profile.data?.status?.subType ? null : (profile.data?.status?.type ?? null)}
@@ -198,24 +197,20 @@ export function SelfQQControls() {
               act((binding) => online.mutateAsync({ ...binding, status: value, extStatus: 0 }))
             }
           />
+          <ExtendedStatusAction />
           <Row
             label="自定义状态"
             control={
               <div className="weq-qq-write-custom">
-                <input
-                  aria-label="自定义状态文字"
-                  className="weq-qq-write-input"
-                  value={wording}
-                  maxLength={1024}
-                  disabled={disabled}
-                  onChange={(event) => setWording(event.target.value)}
-                />
-                <div className="weq-qq-write-field">
+                <div className="weq-qq-write-custom-line">
                   <button
                     ref={faceTrigger}
                     type="button"
                     aria-label="状态表情"
-                    title={selectedFace?.desc ?? '选择状态表情'}
+                    title={
+                      selectedFace?.desc ??
+                      (statusFaces.length ? '选择状态表情' : '本机表情目录不可用')
+                    }
                     className="weq-qq-write-face-trigger"
                     aria-expanded={choosingFace && !disabled}
                     aria-controls={facePickerId}
@@ -231,12 +226,16 @@ export function SelfQQControls() {
                     ) : (
                       <Smile size={24} aria-hidden />
                     )}
-                    <span>
-                      {selectedFace?.desc ??
-                        (statusFaces.length ? '选择表情' : '本机表情目录不可用')}
-                    </span>
-                    <ChevronDown size={14} aria-hidden />
+                    <ChevronDown size={12} aria-hidden />
                   </button>
+                  <input
+                    aria-label="自定义状态文字"
+                    className="weq-qq-write-input"
+                    value={wording}
+                    maxLength={1024}
+                    disabled={disabled}
+                    onChange={(event) => setWording(event.target.value)}
+                  />
                   <button
                     type="button"
                     className="weq-set-iconbtn"

@@ -47,6 +47,15 @@ const TYPE_ICONS: Record<number, () => React.ReactNode> = {
   40: () => <MinusCircle size={12} stroke="#8c8c8c" />,
 };
 
+export function OnlineStatusIcon({ type, subType = 0 }: { type: number; subType?: number }) {
+  const filename = type === 10 && SUB_ICONS[subType];
+  return filename ? (
+    <img src={resourceUrl('onlinestatus', filename)} alt="" style={{ width: 16, height: 16 }} />
+  ) : (
+    TYPE_ICONS[type]?.()
+  );
+}
+
 export function OnlineStatus({
   uid,
   className,
@@ -63,13 +72,6 @@ export function OnlineStatus({
 
   if (!status || status.typeName === '未知' || (status.uid && status.uid !== uid)) return null;
 
-  const filename = status.type === 10 && SUB_ICONS[status.subType];
-  const icon = filename ? (
-    <img src={resourceUrl('onlinestatus', filename)} alt="" style={{ width: 16, height: 16 }} />
-  ) : (
-    TYPE_ICONS[status.type]?.()
-  );
-
   return (
     <span
       className={className}
@@ -82,7 +84,7 @@ export function OnlineStatus({
         color: 'var(--weq-fg-secondary)',
       }}
     >
-      {icon}
+      <OnlineStatusIcon type={status.type} subType={status.subType} />
       <span>{status.displayStatus}</span>
     </span>
   );

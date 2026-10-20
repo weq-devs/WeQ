@@ -143,6 +143,35 @@ afterEach(() => {
 });
 
 describe('个人资料编辑入口', () => {
+  it('基础状态在扩展状态上方，扩展草稿实时预览且不自动提交', () => {
+    const f = fixture();
+    const basic = f.host.querySelector('[aria-label="在线状态"]')!;
+    const extended = f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!;
+    expect(basic.compareDocumentPosition(extended) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    act(() => {
+      extended.value = '1018';
+      extended.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const preview = f.host.querySelector('[aria-label="扩展状态预览"]')!;
+    expect(preview.textContent).toBe('学习中');
+    expect(preview.querySelector('img')?.getAttribute('src')).toContain('study_3x.png');
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('自定义表情位于文字左侧，选择与输入互不覆盖', () => {
+    const f = fixture();
+    const face = f.host.querySelector<HTMLButtonElement>('[aria-label="状态表情"]')!;
+    const wording = f.host.querySelector('[aria-label="自定义状态文字"]')!;
+    expect(face.parentElement).toBe(wording.parentElement);
+    expect(face.compareDocumentPosition(wording) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    input(f.host, '自定义状态文字', '正在学习');
+    act(() => face.click());
+    act(() => f.host.querySelector<HTMLButtonElement>('button[title="[微笑]"]')!.click());
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="自定义状态文字"]')!.value).toBe(
+      '正在学习',
+    );
+    expect(face.title).toBe('[微笑]');
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
   it('预设扩展状态使用 status=10 和对应 extStatus，查询服务端状态不发写请求', async () => {
     const f = fixture();
     const select = f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!;
