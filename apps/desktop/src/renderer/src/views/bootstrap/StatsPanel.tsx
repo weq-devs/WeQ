@@ -15,38 +15,17 @@ import { client, trpc } from '../../trpc/client';
 import type { DirSizeProgress, GlobalInstallInfo } from '@weq/service';
 import logoUrl from '@resources/img/QQ.png';
 
-/** Vivid, GitHub-style language colors (TS, JS, HTML, CSS, Python, Java, C++, C#). */
-const RAMP = [
-  '#3178c6',
-  '#f1e05a',
-  '#e34c26',
-  '#563d7c',
-  '#3572a5',
-  '#b07219',
-  '#f34b7d',
-  '#178600',
-];
-
-/** Slightly brighter versions for the top of the bar gradients. */
-const RAMP_HI = [
-  '#5491d1',
-  '#f4e881',
-  '#e97051',
-  '#7654a3',
-  '#5491c1',
-  '#d1913d',
-  '#f6709d',
-  '#22ba00',
-];
+/** 图例与条形共用主题色阶，混入前景色使浅主题色在浅背景上仍可分辨。 */
+const SHADE_WEIGHTS = [55, 20, 45, 10, 50, 25, 40, 15];
 
 function shade(i: number): string {
-  return RAMP[i % RAMP.length] ?? '#0090ff';
+  return `color-mix(in srgb, var(--weq-accent-effective) ${SHADE_WEIGHTS[i % SHADE_WEIGHTS.length] ?? 55}%, var(--weq-fg-primary))`;
 }
 
 /** Vertical gradient (bright top → base bottom) for an animated column. */
 function gradient(i: number): string {
-  const base = RAMP[i % RAMP.length] ?? '#0090ff';
-  const hi = RAMP_HI[i % RAMP_HI.length] ?? '#3db4ff';
+  const base = shade(i);
+  const hi = `color-mix(in srgb, ${base} 75%, var(--weq-bg-surface))`;
   return `linear-gradient(180deg, ${hi} 0%, ${base} 100%)`;
 }
 
