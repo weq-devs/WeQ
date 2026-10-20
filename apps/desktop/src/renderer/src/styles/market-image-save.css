@@ -1,0 +1,14 @@
+.weq-mface-detail > .weq-mface-lb-head {
+  flex-wrap: wrap;
+}
+
+.weq-mface-detail > .weq-mface-lb-head > .weq-mface-lb-title {
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 100px;
+}
+
+.weq-mface-detail > .weq-mface-lb-head > .weq-save-action-group {
+  flex: none;
+  margin-left: auto;
+}
