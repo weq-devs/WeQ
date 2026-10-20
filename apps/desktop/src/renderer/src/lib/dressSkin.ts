@@ -79,6 +79,7 @@
  */
 
 import type { FontFx, ResolvedWidget } from '@weq/service';
+import { decorationImageCache } from './decodedImageCache';
 import {
   dressBubbleUrl,
   dressBubbleFrameUrl,
@@ -849,12 +850,7 @@ function bubbleFrameUrls(skin: BubbleSkinCss | null): string[] {
  * 拿不到就照常注入,由 border-image 自己空着(与预热之前的行为一致)。
  */
 function preloadImage(url: string): Promise<void> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve();
-    img.onerror = () => resolve();
-    img.src = url;
-  });
+  return decorationImageCache.preload(url);
 }
 
 /** 已注册进 document.fonts 的那个 face。换字体时要先撤掉,否则会越积越多。 */
