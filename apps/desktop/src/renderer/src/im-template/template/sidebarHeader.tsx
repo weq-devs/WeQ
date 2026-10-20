@@ -120,8 +120,11 @@ export function SidebarHeader({
     return (
       <div className={cn('sidebar-add-wrap')}>
         <button
+          type="button"
           className={cn('sidebar-add', addOpen && 'active')}
           title="添加"
+          aria-label="添加好友或群聊"
+          aria-expanded={addOpen}
           onClick={() => setAddOpen((open) => !open)}
         >
           <Plus size={24} />
@@ -325,6 +328,21 @@ export function SidebarHeader({
                 群聊
               </button>
             </div>
+            {contactTab === 'groups' && (
+              <button
+                type="button"
+                className="weq-contact-join-entry"
+                title="申请加入 QQ 群"
+                aria-label="申请加入 QQ 群"
+                onClick={() => {
+                  setAddOpen(false);
+                  setJoinOpen(true);
+                }}
+              >
+                <UsersRound size={15} aria-hidden />
+                加入群聊
+              </button>
+            )}
           </div>
         </div>
       ) : null}
