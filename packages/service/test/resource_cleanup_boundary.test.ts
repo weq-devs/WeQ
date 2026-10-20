@@ -11,6 +11,22 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+/**
+ * 造一个目录链接。POSIX 用 `symlink`；Windows 创建符号链接需要管理员权限
+ * （非提权跑单测时直接 EPERM），所以退而用 junction —— 它同样会被
+ * `realpathSync` 解析成真实路径，正是这里要测的「链接逃逸」语义。
+ */
+function linkDir(target: string, path: string): void {
+  try {
+    symlinkSync(target, path, process.platform === 'win32' ? 'junction' : 'dir');
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    // 非提权的 Windows 连 junction 都建不了时跳过，而不是假装测过。
+    if (process.platform === 'win32' && (code === 'EPERM' || code === 'EACCES')) return;
+    throw error;
+  }
+}
+
 function fixture(linkedParent = false) {
   const root = mkdtempSync(join(tmpdir(), 'weq-cleanup-boundary-'));
   roots.push(root);
@@ -24,8 +40,8 @@ function fixture(linkedParent = false) {
   if (linkedParent) {
     mkdirSync(join(outside, 'Pic', 'Ori'), { recursive: true });
     writeFileSync(join(outside, 'Pic', 'Ori', 'sentinel.bin'), 'preserve');
-    symlinkSync(outside, join(data, 'linked'), 'dir');
-  } else symlinkSync(outside, pic, 'dir');
+    linkDir(outside, join(data, 'linked'));
+  } else linkDir(outside, pic);
   const service = new ResourceCleanupService(
     { context: { uin: 'fixture' } } as AccountSession,
     { ntDataDir: () => data, picDir: () => pic } as unknown as Platform,
@@ -59,7 +75,7 @@ it('removes contained originals while retaining thumbnails and nested symlinks',
   mkdirSync(join(f.pic, 'Thumb'));
   writeFileSync(join(f.pic, 'Ori', 'original.bin'), 'delete');
   writeFileSync(join(f.pic, 'Thumb', 'preview.bin'), 'preserve');
-  symlinkSync(f.outside, join(f.pic, 'nested'), 'dir');
+  linkDir(f.outside, join(f.pic, 'nested'));
   const result = await f.service.cleanup([{ id: 'pic', variant: 'ori' }]);
   expect(result.perTarget[0]?.removed).toBe(1);
   expect(existsSync(join(f.pic, 'Ori', 'original.bin'))).toBe(false);

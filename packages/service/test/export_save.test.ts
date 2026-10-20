@@ -20,6 +20,24 @@ import {
 } from '../src/account/export/save_output';
 
 const roots: string[] = [];
+/**
+ * 造一个目录 / 文件链接。POSIX 用 `symlink`；Windows 创建符号链接需要管理员权限
+ * （非提权跑单测时直接 EPERM），所以目录链接退用 junction —— 它同样会被
+ * `realpathSync` 解析成真实路径。文件链接在 Windows 上没有免提权替代品，
+ * 建不出来时由调用方跳过对应断言。
+ */
+function makeLink(target: string, path: string, kind: 'file' | 'dir'): boolean {
+  try {
+    if (kind === 'file') symlinkSync(target, path, 'file');
+    else symlinkSync(target, path, process.platform === 'win32' ? 'junction' : 'dir');
+    return true;
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (process.platform === 'win32' && (code === 'EPERM' || code === 'EACCES')) return false;
+    throw error;
+  }
+}
+
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'weq-save-output-'));
   roots.push(root);
@@ -181,7 +199,7 @@ describe('导出保存策略与结果发布', () => {
       join(realpathSync(f.target), 'a', 'b'),
     );
     expect(() => resolveExportSaveDirectory(f.target, '../source')).toThrow('导出目录内');
-    symlinkSync(f.source, join(f.target, 'outside'));
+    expect(makeLink(f.source, join(f.target, 'outside'), 'dir')).toBe(true);
     expect(() => resolveExportSaveDirectory(f.target, 'outside/new')).toThrow('链接');
   });
   it('完成后选择不携带旧目录，其他两种模式必须先确定有效位置', () => {
@@ -247,10 +265,13 @@ describe('导出保存策略与结果发布', () => {
     const f = fixture();
     writeFileSync(join(f.target, 'original'), 'preserve');
     writeFileSync(join(f.source, 'message.txt'), 'fixture');
-    symlinkSync(join(f.source, 'message.txt'), join(f.source, 'link'));
-    await expect(
-      saveExportOutput({ name: 'fixture', bundleDir: f.source }, f.target),
-    ).rejects.toThrow('链接');
+    // Windows 非提权建不了文件符号链接 —— 那种环境跳过这段链接断言。
+    const linked = makeLink(join(f.source, 'message.txt'), join(f.source, 'link'), 'file');
+    if (linked) {
+      await expect(
+        saveExportOutput({ name: 'fixture', bundleDir: f.source }, f.target),
+      ).rejects.toThrow('链接');
+    }
     const controller = new AbortController();
     controller.abort();
     await expect(

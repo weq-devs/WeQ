@@ -29,8 +29,11 @@ export interface RelationGraphData {
   builtAt: number;
 }
 
-export type GraphMode = 'people' | 'groups';
+/** 两种力图 + 两张群成员重合图（和弦 / 矩阵）。 */
+export type GraphMode = 'people' | 'groups' | 'chord' | 'matrix';
 export type GroupFilterMode = 'all' | 'whitelist' | 'blacklist';
+/** 重合图的极值方向：看「大重叠」还是「小重叠」。 */
+export type OverlapDirection = 'large' | 'small';
 
 /** All user-tunable knobs from the control panel. */
 export interface GraphSettings {
@@ -52,6 +55,18 @@ export interface GraphSettings {
   groupFilterMode: GroupFilterMode;
   /** Selected group codes for the white/black list. */
   groupFilter: string[];
+  // ---- 重合图（和弦 / 矩阵）----
+  /** 参与重合计算的群数（按重合总量取前 N 个）。 */
+  overlapGroupLimit: number;
+  /** 重合人数阈值：看大重叠时是下限，看小重叠时是上限。 */
+  overlapThreshold: number;
+  overlapDirection: OverlapDirection;
+  /** 重合图的群排序方式。 */
+  overlapSort: 'overlap' | 'size' | 'name';
+  /** 图上显示群头像（矩阵行首 / 和弦弧内）。 */
+  showAvatars: boolean;
+  /** 矩阵格子里还写不写数值（格子够大时）。 */
+  showValues: boolean;
 }
 
 /** A node in the rendered/simulated graph. */

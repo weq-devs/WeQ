@@ -120,6 +120,12 @@ test('logout terminates only that session sockets, unsubscribes streams and bloc
     });
     await closed;
     assert.equal(first.readyState, WebSocket.CLOSED);
+    // tRPC 在 socket 关闭**之后**的下一个 tick 才调用 subscription 的 teardown，
+    // 两个事件的先后顺序随平台 / 事件循环实现而变 —— 这里等它跑完再断言，
+    // 而不是假设 close 时已经同步退订。
+    for (let i = 0; i < 50 && !unsubscribed; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
     assert.equal(unsubscribed, true);
     assert.equal(writes, 0);
     const reply = once(second, 'message');

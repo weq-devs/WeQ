@@ -26,10 +26,12 @@ describe('jieba dictionary (shared nt_qq/global tree)', () => {
     const root = tmpRoot();
     const dir = join(root, 'nt_qq', 'global', 'nt_data', 'search', 'resource_jieba');
     mkdirSync(dir, { recursive: true });
-    expect(findJiebaDictDir(undefined, root)).toBe(dir);
+    expect(findJiebaDictDir(tmpRoot(), root)).toBe(dir);
   });
 
   it('returns null when QQ never downloaded the dictionary', () => {
-    expect(findJiebaDictDir(undefined, tmpRoot())).toBeNull();
+    // home 也必须是空的临时目录：候选根里还有 `<home>/Documents/Tencent Files`
+    // 和 `user_data_info` 里记的路径，拿真实 home 跑会扫到开发机自己的 QQ 数据。
+    expect(findJiebaDictDir(tmpRoot(), tmpRoot())).toBeNull();
   });
 });

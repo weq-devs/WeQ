@@ -162,19 +162,31 @@ async function main(): Promise<void> {
       check(existsSync(join(bundle, 'chat.html')), '下载不删除已完成结果');
     }
     {
+      // Windows 创建文件符号链接需要管理员权限；非提权环境建不出来时跳过这段
+      // （POSIX 上必定执行）。
       const unsafe = join(exports, 'unsafe');
       mkdirSync(unsafe);
-      symlinkSync(text, join(unsafe, 'linked.txt'));
-      const url = register(unsafe, 'unsafe.zip', 'directory').url;
-      let rejected = false;
+      const link = join(unsafe, 'linked.txt');
+      let linked = true;
       try {
-        const res = await get(url, cookie);
-        await res.arrayBuffer();
-        rejected = res.status >= 400;
-      } catch {
-        rejected = true;
+        symlinkSync(text, link);
+      } catch (error) {
+        const code = (error as { code?: string }).code;
+        if (process.platform === 'win32' && (code === 'EPERM' || code === 'EACCES')) linked = false;
+        else throw error;
       }
-      check(rejected, '目录下载拒绝跟随符号链接');
+      if (linked) {
+        const url = register(unsafe, 'unsafe.zip', 'directory').url;
+        let rejected = false;
+        try {
+          const res = await get(url, cookie);
+          await res.arrayBuffer();
+          rejected = res.status >= 400;
+        } catch {
+          rejected = true;
+        }
+        check(rejected, '目录下载拒绝跟随符号链接');
+      }
     }
     {
       const controller = new AbortController();

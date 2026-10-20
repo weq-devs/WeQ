@@ -40,7 +40,7 @@ import {
   type GuildDirectSessionView,
   type RenderGuildDirectMsg,
 } from '@weq/service';
-import type { GroupNotice, HiddenSessionSummary } from '@weq/service';
+import type { GroupNotice, GroupTodoView, HiddenSessionSummary } from '@weq/service';
 
 export interface UserProfileWire {
   uid: string;
@@ -179,6 +179,30 @@ export interface GroupNotifyWire {
   remark: string;
   systemRemark: string;
   sourceTable: string;
+}
+
+/**
+ * 一条群待办。`text` 是横幅摘要（`[图片]` / `[文件]名字` / 正文前若干字），
+ * `elements` 是原消息的渲染元素 —— 本地消息库缺这条消息时 `messageFound = false`
+ * 且 `elements` 为空，前端应退回只画摘要。
+ */
+export interface GroupTodoWire {
+  groupCode: string;
+  msgSeq: string;
+  msgRandom: string;
+  text: string;
+  preText: string;
+  iconUrl: string;
+  jumpType: number;
+  jumpParam: string;
+  createTime: number;
+  updateTime: number;
+  expireTime: number;
+  bannerType: number;
+  senderUid: string;
+  sendTime: number;
+  messageFound: boolean;
+  elements: unknown[];
 }
 
 export interface GroupBulletinWire {
@@ -768,6 +792,31 @@ export function groupNotifyToWire(n: GroupNotify): GroupNotifyWire {
     remark: n.remark,
     systemRemark: n.systemRemark,
     sourceTable: n.sourceTable,
+  };
+}
+
+/**
+ * 一条群待办 → IPC wire。`elements` 走和聊天消息完全一样的 `sanitize`，所以前端
+ * 拿到的就是 `RenderElement[]`（text / pic / file / ark …），可以直接复用消息渲染。
+ */
+export function groupTodoToWire(t: GroupTodoView): GroupTodoWire {
+  return {
+    groupCode: t.groupCode,
+    msgSeq: t.msgSeq.toString(),
+    msgRandom: t.msgRandom.toString(),
+    text: t.text,
+    preText: t.preText,
+    iconUrl: t.iconUrl,
+    jumpType: t.jumpType,
+    jumpParam: t.jumpParam,
+    createTime: t.createTime,
+    updateTime: t.updateTime,
+    expireTime: t.expireTime,
+    bannerType: t.bannerType,
+    senderUid: t.senderUid,
+    sendTime: t.sendTime,
+    messageFound: t.messageFound,
+    elements: sanitize(t.elements),
   };
 }
 

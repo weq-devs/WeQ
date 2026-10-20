@@ -53,14 +53,27 @@ function nearBottom(el: HTMLElement): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
 }
 
+/** 排行榜里点一行用户时交给应用层打开资料卡（不在这里另造一套卡片）。 */
+export type RankingMemberRef = {
+  uid: string;
+  uin: string;
+  nick?: string;
+  card?: string;
+  /** 群成员等级排行里带上是哪个群，资料卡的「聊天分析」才有群可分析。 */
+  groupCode?: string;
+  groupName?: string;
+};
+
 export function RankingModal({
   kind,
   data,
   onClose,
+  onOpenMember,
 }: {
   kind: RankingKind;
   data: { nodes?: any[]; groups?: any[] } | null;
   onClose: () => void;
+  onOpenMember?: (member: RankingMemberRef, anchor: { x: number; y: number }) => void;
 }) {
   const meta = RANK_META[kind];
   const [group, setGroup] = useState<any | null>(null);
@@ -86,13 +99,17 @@ export function RankingModal({
         </header>
 
         {kind === 'intimacy' ? (
-          <FriendIntimacyList />
+          <FriendIntimacyList onOpenMember={onOpenMember} />
         ) : kind === 'groupActivity' ? (
           <GroupActivityList />
         ) : kind === 'common' ? (
-          <CommonGroupList nodes={data?.nodes ?? []} />
+          <CommonGroupList nodes={data?.nodes ?? []} onOpenMember={onOpenMember} />
         ) : group ? (
-          <MemberLevelList group={group} onBack={() => setGroup(null)} />
+          <MemberLevelList
+            group={group}
+            onBack={() => setGroup(null)}
+            onOpenMember={onOpenMember}
+          />
         ) : (
           <GroupChooser groups={data?.groups ?? []} onPick={setGroup} />
         )}
@@ -171,7 +188,7 @@ function ListTail({ loading, empty, hasMore, emptyText }: any) {
 }
 
 /** 好友亲密度排行：后端分页，纳入全部好友。 */
-function FriendIntimacyList() {
+function FriendIntimacyList({ onOpenMember }: { onOpenMember?: OpenMember }) {
   const { items, loading, hasMore, loadMore } = usePagedRanking('friends', PAGE, (offset) =>
     client.account.listFriendsByIntimacy.query({ limit: PAGE, offset }),
   );
@@ -192,6 +209,7 @@ function FriendIntimacyList() {
             avatar={personAvatar(f.uin)}
             title={f.remark || f.nick || f.uin || f.uid}
             value={String(f.intimacy ?? 0)}
+            onOpen={memberOpener(onOpenMember, f)}
           />
         ))}
         <ListTail
@@ -276,7 +294,15 @@ function GroupActivityList() {
 }
 
 /** 群成员等级排行：后端分页 + 滚动到底加载。 */
-function MemberLevelList({ group, onBack }: { group: any; onBack: () => void }) {
+function MemberLevelList({
+  group,
+  onBack,
+  onOpenMember,
+}: {
+  group: any;
+  onBack: () => void;
+  onOpenMember?: OpenMember;
+}) {
   const groupCode = group.code as string;
   const {
     items: members,
@@ -314,6 +340,10 @@ function MemberLevelList({ group, onBack }: { group: any; onBack: () => void }) 
             title={m.card || m.nick || m.uin || m.uid}
             subtitle={m.customTitle || (m.adminFlag ? '管理员' : null)}
             value={`Lv.${m.memberLevel ?? 0}`}
+            onOpen={memberOpener(onOpenMember, m, {
+              code: groupCode,
+              name: group.name || groupCode,
+            })}
           />
         ))}
         <ListTail
@@ -332,7 +362,7 @@ function MemberLevelList({ group, onBack }: { group: any; onBack: () => void }) 
 }
 
 /** 共同群聊数排行：从已拉好的关系图节点纯前端排序，滚动分批渐显。 */
-function CommonGroupList({ nodes }: { nodes: any[] }) {
+function CommonGroupList({ nodes, onOpenMember }: { nodes: any[]; onOpenMember?: OpenMember }) {
   const ranked = useMemo(
     () =>
       nodes
@@ -369,6 +399,7 @@ function CommonGroupList({ nodes }: { nodes: any[] }) {
               title={node.nick || node.card || node.uin || node.uid}
               subtitle={node.isFriend ? '好友' : '群友'}
               value={`${metric} 群`}
+              onOpen={memberOpener(onOpenMember, node)}
             />
           ))
         )}
@@ -449,22 +480,50 @@ function GroupChooser({ groups, onPick }: { groups: any[]; onPick: (g: any) => v
   );
 }
 
+/** 排行榜行的「打开资料卡」回调（锚点取行本身，卡片会自己夹在视口内）。 */
+type OpenMember = (member: RankingMemberRef, anchor: { x: number; y: number }) => void;
+
+function memberOpener(
+  onOpenMember: OpenMember | undefined,
+  source: any,
+  group?: { code: string; name: string },
+) {
+  if (!onOpenMember || !source?.uid) return undefined;
+  return (element: HTMLElement) => {
+    const rect = element.getBoundingClientRect();
+    onOpenMember(
+      {
+        uid: source.uid,
+        uin: source.uin,
+        nick: source.nick,
+        card: source.card,
+        groupCode: group?.code,
+        groupName: group?.name,
+      },
+      { x: rect.right - 24, y: rect.bottom },
+    );
+  };
+}
+
 function RankRow({
   rank,
   avatar,
   title,
   subtitle,
   value,
+  onOpen,
 }: {
   rank: number;
   avatar: string | null;
   title: string;
   subtitle?: string | null;
   value: string;
+  /** 传了就整行可点（打开资料卡）。 */
+  onOpen?: (element: HTMLElement) => void;
 }) {
   const top = rank <= 3 ? ` is-top is-top${rank}` : '';
-  return (
-    <div className="weq-rank-row">
+  const body = (
+    <>
       <span className={`weq-rank-num${top}`}>{rank}</span>
       <span className="weq-rank-avatar">
         {avatar ? (
@@ -478,6 +537,18 @@ function RankRow({
         {subtitle ? <small>{subtitle}</small> : null}
       </span>
       <span className="weq-rank-value">{value}</span>
-    </div>
+    </>
+  );
+  return onOpen ? (
+    <button
+      type="button"
+      className="weq-rank-row is-clickable"
+      title="查看资料卡"
+      onClick={(event) => onOpen(event.currentTarget)}
+    >
+      {body}
+    </button>
+  ) : (
+    <div className="weq-rank-row">{body}</div>
   );
 }

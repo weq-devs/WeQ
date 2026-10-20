@@ -2672,6 +2672,9 @@ export function MainView(): ReactElement {
     fromSpace?: boolean;
     /** 通知名片显式指定群上下文；null 表示好友通知，不继承当前聊天。 */
     groupContext?: { code: string; name: string } | null;
+    /** 从关系图谱进来：带上共同群，资料卡的「聊天分析」才有群可分析。 */
+    groupCode?: string;
+    groupName?: string;
   } | null>(null);
 
   const [editorState, setEditorState] = useState<{
@@ -3317,6 +3320,39 @@ export function MainView(): ReactElement {
         };
       }),
     [buddies.data, categoryById, onlineStatusByUid, profileByUid, botUids],
+  );
+  /**
+   * 关系图谱（群友圈子 / 重合图 / 排行榜）里点某个人：复用聊天里的资料卡。
+   * 能在好友列表里对上号就带上联系人对象（有备注 / 分组 / 亲密关系），否则用
+   * uid + uin 拼一个最小 User —— 卡片自己会去 profile_info_v6 补全其余字段。
+   */
+  const handleOpenGraphMember = useCallback(
+    (
+      node: { uid: string; uin: string; nick?: string; card?: string },
+      anchor: { x: number; y: number },
+      group?: { code: string; name: string },
+    ) => {
+      if (!node?.uid) return;
+      const contact = buddyContacts.find(
+        (person) => person.id === node.uid || (!!node.uin && person.identityValue === node.uin),
+      );
+      const profile = profileByUid.get(node.uid);
+      setMemberCard({
+        member: contact ?? {
+          id: node.uid,
+          identityLabel: 'QQ',
+          identityValue: node.uin || profile?.uin || '',
+          username: node.uid,
+          displayName: node.card || node.nick || profile?.nick || node.uin || node.uid,
+          avatarUrl: node.uin ? senderAvatarSrc(node.uin) : null,
+        },
+        anchor,
+        fromSpace: true,
+        groupCode: group?.code,
+        groupName: group?.name,
+      });
+    },
+    [buddyContacts, profileByUid],
   );
   // 置顶会话（recent_contact_top_table）：会话 id → 置顶时间（41103，秒）。
   const topTimeByConv = useMemo(() => {
@@ -8261,7 +8297,9 @@ export function MainView(): ReactElement {
                           user={user}
                           view={shell.view}
                           contactTab={shell.contactTab}
-                          relationGraphSlot={<RelationGraphView />}
+                          relationGraphSlot={
+                            <RelationGraphView onOpenMember={handleOpenGraphMember} />
+                          }
                           selectedContact={shell.selectedContact}
                           selectedGroupConversation={selectedGroupConversationForDetail}
                           activeConversation={activeConversation}
@@ -8776,16 +8814,18 @@ export function MainView(): ReactElement {
               groupCode={
                 memberCard.groupContext !== undefined
                   ? memberCard.groupContext?.code
-                  : !memberCard.fromSpace && selectedConversation?.type === 'group'
-                    ? selectedConversation.id
-                    : undefined
+                  : (memberCard.groupCode ??
+                    (!memberCard.fromSpace && selectedConversation?.type === 'group'
+                      ? selectedConversation.id
+                      : undefined))
               }
               groupName={
                 memberCard.groupContext !== undefined
                   ? memberCard.groupContext?.name
-                  : !memberCard.fromSpace && selectedConversation?.type === 'group'
-                    ? selectedConversation.group.name
-                    : undefined
+                  : (memberCard.groupName ??
+                    (!memberCard.fromSpace && selectedConversation?.type === 'group'
+                      ? selectedConversation.group.name
+                      : undefined))
               }
               onClose={() => setMemberCard(null)}
               onAnalyze={(target) => {

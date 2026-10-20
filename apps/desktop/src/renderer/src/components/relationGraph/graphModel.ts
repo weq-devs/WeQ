@@ -271,6 +271,162 @@ export function buildGraph(
   return settings.mode === 'groups' ? buildGroups(data, settings) : buildPeople(data, settings);
 }
 
+/* ──────────────────────────────────────────────────────────────────────
+ * 群成员重合模型（和弦图 / 重叠矩阵共用）
+ *
+ * 数据源与力图的群模式完全一致：`nodes[].groupCodes` 就是「某个人在哪些群」，
+ * 两个人同时出现在 A、B 两群，A↔B 的重合就 +1。这里只把它整理成两张图都直接
+ * 好用的形状，不再重扫数据库、也不单独再算一套。
+ * ──────────────────────────────────────────────────────────────────── */
+
+/** 一个群在重合图里的位置（已按当前排序裁到前 N）。 */
+export interface OverlapGroup {
+  code: string;
+  name: string;
+  /** 群总人数（来自 groupDetail；缺数据时为 0）。 */
+  memberCount: number;
+  /** 参与本次计算的成员数（= 所有选中群里出现过的人数，用于算重合率）。 */
+  poolSize: number;
+  /** 与其它群的共同成员总量。 */
+  overlapSum: number;
+  avatarUrl: string | null;
+}
+
+export interface OverlapPair {
+  a: string;
+  b: string;
+  /** 两个群共同成员的人数。 */
+  weight: number;
+  /** 共同成员 ÷ 较小群（重合率 0–1）。 */
+  ratio: number;
+}
+
+export interface OverlapModel {
+  groups: OverlapGroup[];
+  pairs: OverlapPair[];
+  /** 去掉阈值后的最大值（色阶 / 线宽的上限），至少 1。 */
+  maxWeight: number;
+  /** 所有选中群里出现过的人数（按人去重）。 */
+  totalPeople: number;
+}
+
+/**
+ * 按当前设置构建重合模型。`overlapDirection === 'small'` 时阈值是上限
+ * （只留下「几乎不重合」的群对，用来找「你们可能该认识一下」的圈子）。
+ */
+export function buildOverlapModel(
+  data: RelationGraphData | undefined,
+  settings: GraphSettings,
+): OverlapModel {
+  const empty: OverlapModel = {
+    groups: [],
+    pairs: [],
+    maxWeight: 1,
+    totalPeople: 0,
+  };
+  if (!data) return empty;
+
+  const allow = allowedGroupPredicate(settings);
+  const groupMeta = new Map(data.groups.map((g) => [g.code, g]));
+
+  // 1) 每个人的群列表先过白/黑名单，只用名单里的群参与共现。
+  const people = data.nodes
+    .map((n) => n.groupCodes.filter(allow))
+    .filter((codes) => codes.length > 0);
+
+  // 2) 共现计数：一个人每同时出现在一对群里，就给这对 +1。
+  const pairCount = new Map<string, number>();
+  for (const codes of people) {
+    for (let i = 0; i < codes.length; i++) {
+      for (let j = i + 1; j < codes.length; j++) {
+        const key = codes[i] < codes[j] ? `${codes[i]}|${codes[j]}` : `${codes[j]}|${codes[i]}`;
+        pairCount.set(key, (pairCount.get(key) ?? 0) + 1);
+      }
+    }
+  }
+
+  // 3) 每个群先按「重合总量」占位，排序后裁到前 N，其余群不参与图和色阶。
+  const poolByGroup = new Map<string, number>();
+  for (const codes of people) {
+    for (const code of codes) poolByGroup.set(code, (poolByGroup.get(code) ?? 0) + 1);
+  }
+
+  const overlapSum = new Map<string, number>();
+  for (const [key, weight] of pairCount) {
+    const [a, b] = key.split('|');
+    overlapSum.set(a, (overlapSum.get(a) ?? 0) + weight);
+    overlapSum.set(b, (overlapSum.get(b) ?? 0) + weight);
+  }
+
+  let codes = [...poolByGroup.keys()];
+  const sort = settings.overlapSort;
+  codes.sort((a, b) => {
+    if (sort === 'name') {
+      const nameA = groupMeta.get(a)?.name ?? a;
+      const nameB = groupMeta.get(b)?.name ?? b;
+      return nameA.localeCompare(nameB, 'zh');
+    }
+    if (sort === 'size') {
+      return (groupMeta.get(b)?.memberCount ?? 0) - (groupMeta.get(a)?.memberCount ?? 0);
+    }
+    return (overlapSum.get(b) ?? 0) - (overlapSum.get(a) ?? 0);
+  });
+  codes = codes.slice(0, settings.overlapGroupLimit);
+  const keep = new Set(codes);
+
+  let totalPeople = 0;
+  for (const codesOfPerson of people) {
+    if (codesOfPerson.some((code) => keep.has(code))) totalPeople += 1;
+  }
+
+  const groups: OverlapGroup[] = codes.map((code) => {
+    const meta = groupMeta.get(code);
+    return {
+      code,
+      name: meta?.name || code,
+      memberCount: meta?.memberCount ?? 0,
+      poolSize: poolByGroup.get(code) ?? 0,
+      overlapSum: overlapSum.get(code) ?? 0,
+      avatarUrl: groupAvatar(code),
+    };
+  });
+
+  const minKeep = Math.max(1, settings.overlapThreshold);
+
+  const pairs: OverlapPair[] = [];
+  /** 参与计算的两个群之间「本来就有共同成员」的群对，用来区分「0 人重合」和「被阈值滤掉」。 */
+  const known = new Set<string>();
+  for (const [key, weight] of pairCount) {
+    const [a, b] = key.split('|');
+    if (!keep.has(a) || !keep.has(b)) continue;
+    known.add(`${a}|${b}`);
+    if (
+      settings.overlapDirection === 'small' ? weight > settings.overlapThreshold : weight < minKeep
+    ) {
+      continue;
+    }
+    const smaller = Math.min(poolByGroup.get(a) ?? 0, poolByGroup.get(b) ?? 0);
+    pairs.push({ a, b, weight, ratio: smaller > 0 ? weight / smaller : 0 });
+  }
+
+  // 小重叠模式下，完全没有共现记录的群对才是「0 人重合」——它们才是要看的主角。
+  if (settings.overlapDirection === 'small') {
+    for (let i = 0; i < codes.length; i++) {
+      for (let j = i + 1; j < codes.length; j++) {
+        const a = codes[i];
+        const b = codes[j];
+        const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+        if (known.has(key)) continue;
+        pairs.push({ a, b, weight: 0, ratio: 0 });
+      }
+    }
+  }
+
+  const maxWeight = Math.max(1, ...pairs.map((p) => p.weight));
+
+  return { groups, pairs, maxWeight, totalPeople };
+}
+
 /**
  * Weighted label-propagation community detection — assigns each node a
  * community id (0..k-1) by repeatedly adopting the strongest neighbour label.
