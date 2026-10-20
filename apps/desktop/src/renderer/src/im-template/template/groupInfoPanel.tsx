@@ -180,10 +180,10 @@ export function GroupInfoPanel({
       </section>
 
       {onOpenAnnouncements ? (
-        <section className="weq-group-announcement" aria-label="群公告">
-          <button type="button" onClick={onOpenAnnouncements} title="查看群公告">
+        <section className="weq-group-announcement" aria-label="群公告与待办">
+          <button type="button" onClick={onOpenAnnouncements} title="查看群公告与待办">
             <span>
-              <strong>群公告</strong>
+              <strong>公告与待办</strong>
               <ChevronRight size={14} />
             </span>
             <p>{announcement || '暂无公告内容，点击查看'}</p>

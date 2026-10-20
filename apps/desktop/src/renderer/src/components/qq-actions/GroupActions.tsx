@@ -192,27 +192,25 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
         </div>
         <ActionFeedback action={a} />
       </div>
-      <GroupTodos groupId={groupId} />
       <GroupReadTools groupId={groupId} />
     </section>
   );
 }
 export const GroupActions = withQQAccountScope(GroupActionsBody);
-export function GroupTodos({ groupId }: { groupId: number }) {
+export function GroupTodos({ groupId, embedded = false }: { groupId: number; embedded?: boolean }) {
   const a = useQQAction(`todos:${groupId}`),
     [open, setOpen] = useState(false);
   const permissions = useQQGroupPermissions(groupId, a);
   const todos = trpc.account.qqActions.todoList.useQuery(
     { ...a.binding!, groupId },
-    { enabled: open && a.available, retry: false },
+    { enabled: (embedded || open) && a.available, retry: false },
   );
   const refresh = async () => {
     const r = await todos.refetch();
     if (r.error) throw r.error;
   };
-  return (
-    <details className="weq-qq-actions" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary>群待办</summary>
+  const content = (
+    <>
       <RefreshAction
         disabled={a.disabled || todos.isFetching}
         onClick={() => void todos.refetch()}
@@ -266,6 +264,16 @@ export function GroupTodos({ groupId }: { groupId: number }) {
         ))}
       </ul>
       <ActionFeedback action={a} />
+    </>
+  );
+  return embedded ? (
+    <section className="weq-qq-actions" aria-label="群待办列表">
+      {content}
+    </section>
+  ) : (
+    <details className="weq-qq-actions" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>群待办</summary>
+      {content}
     </details>
   );
 }

@@ -1,0 +1,6 @@
+.group-announcements-dialog:has(.weq-group-notice-tabs) { grid-template-rows: auto auto minmax(0, 1fr); }
+.weq-group-notice-tabs { display: flex; gap: 6px; padding: 8px 18px; border-bottom: 1px solid var(--weq-border-subtle); }
+.weq-group-notice-tabs > button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--weq-fg-secondary); font: inherit; font-size: 13px; cursor: pointer; }
+.weq-group-notice-tabs > button[aria-selected="true"] { background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent); color: var(--weq-fg-primary); }
+.weq-group-notice-tabs > button:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: 1px; }
+html[data-theme="dark"] .weq-group-notice-tabs > button[aria-selected="true"] { background: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent); color: var(--weq-fg-primary); }

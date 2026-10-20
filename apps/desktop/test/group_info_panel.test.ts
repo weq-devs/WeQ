@@ -11,7 +11,7 @@
 
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GroupInfoPanel } from '@renderer/im-template/template/groupInfoPanel';
 
@@ -55,12 +55,12 @@ const CONVERSATION = {
   ],
 };
 
-function mountPanel(): void {
+function mountPanel(onOpenAnnouncements?: () => void): void {
   const host = document.createElement('div');
   document.body.appendChild(host);
   const root = createRoot(host);
   act(() => {
-    root.render(createElement(GroupInfoPanel, { conversation: CONVERSATION }));
+    root.render(createElement(GroupInfoPanel, { conversation: CONVERSATION, onOpenAnnouncements }));
   });
   roots.push(root);
   hosts.push(host);
@@ -99,5 +99,13 @@ describe('群资料面板', () => {
   it('渲染群成员列表', () => {
     mountPanel();
     expect(document.querySelector('.group-info-member-row')?.textContent).toContain('测试成员');
+  });
+  it('公告区域明确提供公告与待办的共同入口，复用原打开回调', () => {
+    const open = vi.fn();
+    mountPanel(open);
+    const entry = document.querySelector<HTMLButtonElement>('[title="查看群公告与待办"]')!;
+    expect(entry.textContent).toContain('公告与待办');
+    act(() => entry.click());
+    expect(open).toHaveBeenCalledOnce();
   });
 });

@@ -21,6 +21,7 @@ import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { FavoriteActions } from '../src/renderer/src/components/qq-actions/FavoriteActions';
 import { GroupJoinAction } from '../src/renderer/src/components/qq-actions/GroupJoinAction';
 import { GroupActions, GroupTodos } from '../src/renderer/src/components/qq-actions/GroupActions';
+import { GroupAnnouncementsDialog } from '../src/renderer/src/components/GroupAnnouncementsDialog';
 import { TypingStatus } from '../src/renderer/src/components/qq-actions/ChatActions';
 import { QqInlineKeyboard } from '../src/renderer/src/components/QqInlineKeyboard';
 import { useViewState } from '../src/renderer/src/state/view';
@@ -51,7 +52,7 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
     selector({ confirm: state.confirm }),
 }));
 vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
-  OverlayLayer: ({ open, children }: { open: boolean; children: ReactNode }) =>
+  OverlayLayer: ({ open = true, children }: { open?: boolean; children: ReactNode }) =>
     open ? children : null,
 }));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
@@ -201,6 +202,44 @@ afterEach(() => {
 });
 
 describe('QQ 主动操作的实际界面', () => {
+  it('群待办与公告共用导航，待办不再藏在群管理折叠区', async () => {
+    state.data.todoList = [{ sequence: '123', text: '统一入口的待办' }];
+    const management = fixture(() => h(GroupActions, { groupId: 123 }));
+    expect(management.host.textContent).not.toContain('群待办');
+    const f = fixture(() =>
+      h(GroupAnnouncementsDialog, {
+        groupCode: '123',
+        groupName: '测试群',
+        currentAnnouncement: '公告正文',
+        onClose: vi.fn(),
+      }),
+    );
+    const tabs = f.host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+    expect([...tabs].map((tab) => tab.textContent)).toEqual(['群公告', '群待办']);
+    expect(f.host.querySelector('[role="tabpanel"]')?.textContent).toContain('公告正文');
+    act(() => tabs[1].click());
+    expect(tabs[1].getAttribute('aria-selected')).toBe('true');
+    const panel = f.host.querySelector('[role="tabpanel"]')!;
+    expect(panel.textContent).toContain('统一入口的待办');
+    expect(panel.querySelector('summary')).toBeNull();
+    expect(panel.textContent).not.toContain('公告正文');
+    await act(async () => f.button('完成待办').click());
+    expect(state.mutate).toHaveBeenCalledWith(
+      'todo',
+      expect.objectContaining({
+        expectedAccountUin: '10001',
+        expectedAccountConfigId: 'source-a',
+        groupId: 123,
+        sequence: '123',
+        action: 'complete',
+      }),
+    );
+    act(() =>
+      tabs[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })),
+    );
+    expect(document.activeElement).toBe(tabs[0]);
+    expect(f.host.querySelector('[role="tabpanel"]')?.textContent).toContain('公告正文');
+  });
   it('空间点赞合并为单个切换按钮，未确认不翻转，执行期间禁用', async () => {
     const f = fixture(() =>
       h(QzoneWriteActions, {
