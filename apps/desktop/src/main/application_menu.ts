@@ -1,4 +1,5 @@
 import type { MenuItemConstructorOptions } from 'electron';
+import { editMenuLabels, EMPTY_EDIT_MENU } from '../shared/edit_menu';
 
 export function nativeMenuLabels(locale: string) {
   return /^zh(?:-|_|$)/i.test(locale)
@@ -10,6 +11,7 @@ export function macApplicationMenu(
   openMainWindow: () => void,
   locale = 'en',
   undo?: () => void,
+  redo?: () => void,
 ): MenuItemConstructorOptions[] {
   const labels = nativeMenuLabels(locale);
   return [
@@ -28,11 +30,39 @@ export function macApplicationMenu(
           label: /^zh(?:-|_|$)/i.test(locale) ? '编辑' : 'Edit',
           submenu: [
             {
-              label: /^zh(?:-|_|$)/i.test(locale) ? '撤销' : 'Undo',
+              id: 'weq-edit-undo',
+              label: editMenuLabels(locale, EMPTY_EDIT_MENU).undo,
               accelerator: 'CmdOrCtrl+Z',
               click: undo,
+              enabled: false,
+              acceleratorWorksWhenHidden: false,
             },
-            { role: 'redo' },
+            {
+              id: 'weq-edit-native-undo',
+              role: 'undo',
+              visible: false,
+              acceleratorWorksWhenHidden: false,
+            },
+            redo
+              ? {
+                  id: 'weq-edit-redo',
+                  label: editMenuLabels(locale, EMPTY_EDIT_MENU).redo,
+                  accelerator: 'CmdOrCtrl+Shift+Z',
+                  click: redo,
+                  enabled: false,
+                  acceleratorWorksWhenHidden: false,
+                }
+              : { role: 'redo' },
+            ...(redo
+              ? [
+                  {
+                    id: 'weq-edit-native-redo',
+                    role: 'redo' as const,
+                    visible: false,
+                    acceleratorWorksWhenHidden: false,
+                  },
+                ]
+              : []),
             { type: 'separator' },
             { role: 'cut' },
             { role: 'copy' },

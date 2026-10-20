@@ -454,7 +454,8 @@ html[data-theme='dark'] .weq-intent-popover {
   overflow-y: hidden;
   flex-wrap: nowrap;
   scrollbar-width: none;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
+  overscroll-behavior-x: contain;
 }
 
 .weq-int-suggest-track::-webkit-scrollbar {
@@ -499,16 +500,7 @@ html[data-theme='dark'] .weq-intent-popover {
 
 .weq-int-suggest-text {
   display: inline-block;
-  max-width: 240px;
-  overflow-x: auto;
-  overflow-y: hidden;
   white-space: nowrap;
-  scrollbar-width: none;
-  scroll-behavior: smooth;
-}
-
-.weq-int-suggest-text::-webkit-scrollbar {
-  display: none;
 }
 
 .weq-int-suggest-refresh {

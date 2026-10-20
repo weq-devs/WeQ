@@ -44,6 +44,11 @@ interface RawGroupEssenceRet {
   } | null;
 }
 
+export interface GroupEssencePage {
+  messages: GroupEssenceMessage[];
+  complete: boolean;
+}
+
 /**
  * 分页获取群精华消息。
  * @param cred Web credential (skey/pskey)
@@ -57,6 +62,16 @@ export async function getGroupEssence(
   pageStart = 0,
   pageLimit = 50,
 ): Promise<GroupEssenceMessage[]> {
+  return (await getGroupEssencePage(cred, groupCode, pageStart, pageLimit)).messages;
+}
+
+/** 保留服务端 is_end，不能由短页或读取失败推断整个列表为空。 */
+export async function getGroupEssencePage(
+  cred: WebCredential,
+  groupCode: string,
+  pageStart = 0,
+  pageLimit = 50,
+): Promise<GroupEssencePage> {
   const bkn = computeBkn(cred.skey);
 
   const url = `https://qun.qq.com/cgi-bin/group_digest/digest_list?${new URLSearchParams({
@@ -72,15 +87,18 @@ export async function getGroupEssence(
     retry: WEB_READ_RETRY,
   });
 
-  if (ret.retcode !== 0 || !ret.data) return [];
+  if (ret.retcode !== 0) throw new Error(`群精华读取失败（返回码 ${ret.retcode}）`);
+  if (!ret.data) throw new Error('群精华响应缺少列表数据');
+  const complete = pageStart === 0 && ret.data.is_end === true;
 
   // 处理边界情况：is_end=true 但 msg_list 为 null/undefined
   if (ret.data.is_end === true && ret.data.msg_list == null) {
-    return [];
+    return { messages: [], complete };
   }
 
-  if (!Array.isArray(ret.data.msg_list)) return [];
+  if (!Array.isArray(ret.data.msg_list)) throw new Error('群精华响应缺少有效列表');
 
   // 过滤掉 null 条目
-  return ret.data.msg_list.filter((msg): msg is GroupEssenceMessage => msg !== null);
+  const messages = ret.data.msg_list.filter((msg): msg is GroupEssenceMessage => msg !== null);
+  return { messages, complete: complete && messages.length === ret.data.msg_list.length };
 }

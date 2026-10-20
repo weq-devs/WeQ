@@ -168,6 +168,7 @@ import { useTabActive } from '../../components/RetainedTabs';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
 import { MessageRow, grayTipOf, messageElements } from './messageRow';
 import { IntentSenseProvider } from '../../components/intentSense/context';
+import { intentTimelineTargets } from '../../lib/intentTimeline';
 import { AffinityPill } from '../../components/intentSense/AffinityPill';
 import { IntentSuggestionBar } from '../../components/intentSense/IntentSuggestionBar';
 import { useDialog } from '../../components/Dialog';
@@ -911,8 +912,7 @@ export function ChatPane({
     () => messages.filter((message) => !hiddenMessageIds.has(message.id)),
     [messages, hiddenMessageIds],
   );
-  // 意图感知：会话定位（c2c = uid，group = 群号；跳过数据线与内置助手）+ 最新一条
-  // 对方消息（跳过灰条/已撤回/已删除，常驻意图/情绪胶囊只挂在它下面）。
+  // 分析和回复使用不同目标，自己的消息不触发推荐；跳过灰条、撤回和删除。
   const intentSupported = Boolean(
     conversation &&
       conversation.chatType !== 8 &&
@@ -921,15 +921,15 @@ export function ChatPane({
   );
   const intentKind = conversation?.type === 'group' ? 'group' : 'c2c';
   const intentConv = intentSupported ? (conversation?.id ?? '') : '';
-  const latestPeerMsgId = useMemo(() => {
-    if (!intentSupported) return null;
-    for (let i = visibleMessages.length - 1; i >= 0; i--) {
-      const m = visibleMessages[i];
-      if (!m || grayTipOf(m) || m.recalled || m.deleted) continue;
-      if (m.senderId !== user?.id) return m.id;
-    }
-    return null;
-  }, [intentSupported, visibleMessages, user?.id]);
+  const { latestMessageId, latestPeerMsgId } = useMemo(
+    () =>
+      intentSupported
+        ? intentTimelineTargets(visibleMessages, new Set(selfIdentityValues(user)), (message) =>
+            Boolean(grayTipOf(message)),
+          )
+        : { latestMessageId: null, latestPeerMsgId: null },
+    [intentSupported, visibleMessages, user],
+  );
   // 选中的消息（按时间线顺序）—— 合并转发 / 删除 / 复制 JSON 都用它。
   const selectedMessages = useMemo(
     () => visibleMessages.filter((message) => selectedIds.has(message.id)),
@@ -4006,7 +4006,12 @@ export function ChatPane({
         />
       ) : null}
 
-      <IntentSenseProvider kind={intentKind} conv={intentConv} latestPeerMsgId={latestPeerMsgId}>
+      <IntentSenseProvider
+        kind={intentKind}
+        conv={intentConv}
+        latestPeerMsgId={latestPeerMsgId}
+        latestMessageId={latestMessageId}
+      >
         <div
           className={cn('message-scroll', marquee.dragging && 'is-marquee-selecting')}
           ref={messageScrollRef}
@@ -4301,6 +4306,7 @@ export function ChatPane({
         <IntentSuggestionBar
           kind={intentKind}
           conv={intentConv}
+          replyTargetId={latestPeerMsgId}
           onInsert={(text) => {
             const prefix = body.trim().length > 0 ? ' ' : '';
             insertComposerText(`${prefix}${text}`);

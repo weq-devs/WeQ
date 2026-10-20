@@ -57,6 +57,28 @@ import {
   type WeeklyCount,
 } from './analytics_weeks';
 
+export interface GroupEssenceContentView {
+  msgSeq: number;
+  msgRandom: number;
+  senderUin: string;
+  senderNick: string;
+  senderTime: number;
+  operatorUin: string;
+  operatorNick: string;
+  operatorTime: number;
+  content: Array<{ type: number; text?: string; imageUrl?: string; [key: string]: unknown }>;
+  canRemove: boolean;
+}
+
+interface GroupEssenceWebQuery {
+  getGroupEssence(groupCode: string, pageStart?: number, pageLimit?: number): Promise<unknown[]>;
+  getGroupEssencePage?(
+    groupCode: string,
+    pageStart?: number,
+    pageLimit?: number,
+  ): Promise<{ messages: unknown[]; complete: boolean }>;
+}
+
 /** Message count ranking entry. */
 export interface GroupMessageRankingItem {
   uid: string;
@@ -265,13 +287,7 @@ export class GroupInfoService {
   /** In-flight build, so concurrent callers share one heavy scan. */
   private relationGraphBuilding: Promise<RelationGraphData> | null = null;
   /** Optional Web query service for fetching essence message content. */
-  private webQueryService?: {
-    getGroupEssence: (
-      groupCode: string,
-      pageStart?: number,
-      pageLimit?: number,
-    ) => Promise<unknown[]>;
-  };
+  private webQueryService?: GroupEssenceWebQuery;
 
   /** 在线群成员缓存：groupId → { at, members }。 */
   private onlineMembersCache = new Map<number, { at: number; members: GroupMemberListItem[] }>();
@@ -398,13 +414,7 @@ export class GroupInfoService {
   /**
    * Set the web query service (called by app context after services are assembled).
    */
-  setWebQueryService(webQuery: {
-    getGroupEssence: (
-      groupCode: string,
-      pageStart?: number,
-      pageLimit?: number,
-    ) => Promise<unknown[]>;
-  }): void {
+  setWebQueryService(webQuery: GroupEssenceWebQuery): void {
     this.webQueryService = webQuery;
   }
 
@@ -567,25 +577,25 @@ export class GroupInfoService {
     groupCode: string,
     pageStart = 0,
     pageLimit = 50,
-  ): Promise<
-    Array<{
-      msgSeq: number;
-      msgRandom: number;
-      senderUin: string;
-      senderNick: string;
-      senderTime: number;
-      operatorUin: string;
-      operatorNick: string;
-      operatorTime: number;
-      content: Array<{ type: number; text?: string; imageUrl?: string; [key: string]: unknown }>;
-      canRemove: boolean;
-    }>
-  > {
-    if (!this.webQueryService) return [];
+  ): Promise<GroupEssenceContentView[]> {
+    return (await this.getEssencePageWithContent(groupCode, pageStart, pageLimit)).messages;
+  }
 
-    try {
-      const messages = await this.webQueryService.getGroupEssence(groupCode, pageStart, pageLimit);
-      return messages.map((msg: unknown) => {
+  async getEssencePageWithContent(
+    groupCode: string,
+    pageStart = 0,
+    pageLimit = 50,
+  ): Promise<{ messages: GroupEssenceContentView[]; complete: boolean }> {
+    if (!this.webQueryService) throw new Error('在线群精华查询不可用');
+    const page = this.webQueryService.getGroupEssencePage
+      ? await this.webQueryService.getGroupEssencePage(groupCode, pageStart, pageLimit)
+      : {
+          messages: await this.webQueryService.getGroupEssence(groupCode, pageStart, pageLimit),
+          complete: false,
+        };
+    return {
+      complete: page.complete,
+      messages: page.messages.map((msg: unknown) => {
         const m = msg as Record<string, unknown>;
         return {
           msgSeq: m.msg_seq as number,
@@ -609,11 +619,8 @@ export class GroupInfoService {
           })),
           canRemove: m.can_be_removed as boolean,
         };
-      });
-    } catch {
-      // Web API 失败（凭证过期/无权限/网络错误）返回空数组
-      return [];
-    }
+      }),
+    };
   }
 
   /**

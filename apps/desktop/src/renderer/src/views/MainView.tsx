@@ -42,7 +42,12 @@ import { buddyRequestState } from '@weq/service/buddy-request';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
 import { avatarFromGroupCode, avatarFromUin } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
-import { previewNodes, previewNodesToText, previewIdentityIds } from '../lib/conversationPreview';
+import {
+  previewNodes,
+  previewNodesToText,
+  previewIdentityIds,
+  groupTipText,
+} from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { isMineMessage } from '../lib/messageDirection';
 import { reconcileFileMessages, type FileSyncReceipt } from '../lib/fileSendReconcile';
@@ -53,7 +58,13 @@ import {
 } from '../lib/unreadRefresh';
 import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
-import { classifyChatType, isGroupTempChatType, toChatTypeNumber } from '@weq/codec';
+import {
+  classifyChatType,
+  datalineName,
+  isGroupTempChatType,
+  toChatTypeNumber,
+  TipGroupElementType,
+} from '@weq/codec';
 import { contactSenderName, contactTitle } from '../lib/contactTitle';
 import { replaceLoadedMembers, subscribeQQPeerUpdates } from '../lib/qqPeerUpdates';
 import { conversationSortTime } from '@weq/service/conversation-order';
@@ -94,10 +105,12 @@ import { GroupInfoDetailDialog } from '../components/GroupInfoDetailDialog';
 import type { GroupInfoDetail } from '../im-template/template/conversationDetails';
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
 import { QQRemarkDialog } from '../components/QQRemarkDialog';
+import { GroupEssenceDialog } from '../components/GroupEssenceDialog';
 import {
-  GroupEssenceDialog,
-  type GroupEssenceWire as GroupEssenceDisplay,
-} from '../components/GroupEssenceDialog';
+  projectGroupEssence,
+  hasCompleteEssenceSnapshot,
+  GROUP_ESSENCE_ONLINE_LIMIT,
+} from '../lib/groupEssenceProjection';
 import {
   GroupMemberKickDialog,
   GroupMemberRenameDialog,
@@ -562,6 +575,7 @@ type GroupDetailWire = {
 /** 数据库查询返回的原始群精华类型 */
 type GroupEssenceWire = {
   msgSeq: number;
+  msgRandom?: number;
   senderNick: string;
   setStatus: number;
   operatorNick: string;
@@ -1902,6 +1916,9 @@ function elementText(element: unknown): string {
     case 'grayTipPoke':
       return stringField(data, 'grayTipXmlContent') || stringField(data, 'tipJson') || '[Poke]';
     case 'grayTipGroup': {
+      if (data.groupTipType === TipGroupElementType.KGROUPNAMEMODIFIED) {
+        return groupTipText(data) ?? '[Group notice]';
+      }
       const muteDuration = data.muteDuration as number | undefined;
       const user1 =
         (data.user1GroupNick as string | undefined) || (data.user1Nick as string | undefined);
@@ -3174,6 +3191,7 @@ export function MainView(): ReactElement {
     accountUin: string;
     token: string;
     ids: string[];
+    action: 'mark-read' | 'mark-unread';
   } | null>(null);
   const readUndoRef = useRef(readUndo);
   readUndoRef.current = readUndo;
@@ -4727,8 +4745,8 @@ export function MainView(): ReactElement {
     },
   );
   // 尝试从 Web API 获取带消息内容的精华消息（需要在线账号/有效 cookie）
-  const groupEssenceWeb = trpc.account.getGroupEssenceWithContent.useQuery(
-    { groupCode: selectedUid, pageStart: 0, pageLimit: 50 },
+  const groupEssencePage = trpc.account.getGroupEssencePageWithContent.useQuery(
+    { groupCode: selectedUid, pageStart: 0, pageLimit: GROUP_ESSENCE_ONLINE_LIMIT },
     {
       enabled: groupExtrasReady,
       retry: false,
@@ -4740,13 +4758,22 @@ export function MainView(): ReactElement {
       refetchIntervalInBackground: false,
     },
   );
+  const groupEssenceWeb = { ...groupEssencePage, data: groupEssencePage.data?.messages };
+  const completeOnlineEssence = hasCompleteEssenceSnapshot({
+    success: groupEssenceWeb.isSuccess,
+    complete: groupEssencePage.data?.complete === true,
+    updatedAt: groupEssenceWeb.dataUpdatedAt,
+    localUpdatedAt: Math.max(groupEssence.dataUpdatedAt, groupEssenceSeqs.dataUpdatedAt),
+  });
   const effectiveEssenceSeqs = useMemo(
     () =>
       essenceSequences(essenceReceipts, essenceSourceKey, Number(selectedUid), [
-        ...(groupEssenceSeqs.data ??
-          (groupEssence.data ?? [])
-            .filter((item) => item.setStatus === 1)
-            .map((item) => String(item.msgSeq))),
+        ...(completeOnlineEssence
+          ? []
+          : (groupEssenceSeqs.data ??
+            (groupEssence.data ?? [])
+              .filter((item) => item.setStatus === 1)
+              .map((item) => String(item.msgSeq)))),
         ...(groupEssenceWeb.data ?? []).map((item) => String(item.msgSeq)),
       ]),
     [
@@ -4756,6 +4783,7 @@ export function MainView(): ReactElement {
       groupEssenceSeqs.data,
       groupEssence.data,
       groupEssenceWeb.data,
+      completeOnlineEssence,
     ],
   );
   useEffect(() => {
@@ -5462,24 +5490,11 @@ export function MainView(): ReactElement {
             publisherAvatar: publisher?.avatarUrl,
           };
         }),
-        essenceMessages: ((groupEssence.data ?? []) as GroupEssenceWire[]).map((item) => {
-          // 尝试从 Web API 结果中找到匹配的消息内容（按 msgSeq 匹配）
-          const webItem = (groupEssenceWeb.data ?? []).find(
-            (web: GroupEssenceWire) => web.msgSeq === item.msgSeq,
-          );
-          return {
-            id: `essence:${item.msgSeq}:${item.timestamp}`,
-            msgSeq: item.msgSeq,
-            senderName: item.senderNick,
-            operatorName: item.operatorNick,
-            createdAt: secondsToIsoTime(item.timestamp) ?? new Date(0).toISOString(),
-            active: item.setStatus === 1,
-            // 从 Web API 补充的字段
-            content: webItem?.content,
-            senderTime: webItem?.senderTime,
-            canRemove: webItem?.canRemove,
-          };
-        }),
+        essenceMessages: projectGroupEssence(
+          groupEssence.data ?? [],
+          groupEssenceWeb.data ?? [],
+          completeOnlineEssence,
+        ),
         // 该群全部当前为精华的 msgSeq（本地数据库，用于消息右下角「精华」角标）。
         essenceSeqs: effectiveEssenceSeqs,
         levelConfigs: (groupLevelInfo.data?.levelConfigs ?? []).map((item) => ({
@@ -5513,6 +5528,7 @@ export function MainView(): ReactElement {
     groupEssenceWeb.data,
     groupEssenceSeqs.data,
     effectiveEssenceSeqs,
+    completeOnlineEssence,
     groupLevelInfo.data,
     groupExt.data,
     user,
@@ -5682,7 +5698,12 @@ export function MainView(): ReactElement {
       });
       if (useViewState.getState().openedUin !== openedUin) return;
       applyUnreadRows(result.rows);
-      const undo = { accountUin: openedUin, token: result.undoToken, ids };
+      const undo = {
+        accountUin: openedUin,
+        token: result.undoToken,
+        ids,
+        action: unread ? ('mark-unread' as const) : ('mark-read' as const),
+      };
       readUndoRef.current = undo;
       setReadUndo(undo);
       pushToast({
@@ -5761,6 +5782,7 @@ export function MainView(): ReactElement {
   useReadStateUndo(
     readUndo?.accountUin === openedUin && messagesTabActive && !readStateBusy,
     () => void undoConversationReadState(),
+    readUndo?.action,
   );
   const unreadSelectionId =
     selectedConversation &&
@@ -8811,44 +8833,10 @@ export function MainView(): ReactElement {
                 ) as GroupEssenceWire[];
                 const essenceWeb =
                   selectedUid === essenceDialog.groupCode ? (groupEssenceWeb.data ?? []) : [];
-                // 按 msgSeq 去重：数据库记录优先，Web 内容补充到匹配项上；
-                // 数据库没有、但联网拉到的精华也一并展示（联网补全）。
-                const bySeq = new Map<number, GroupEssenceDisplay>();
-                for (const item of essence) {
-                  const webItem = essenceWeb.find((web) => web.msgSeq === item.msgSeq);
-                  bySeq.set(item.msgSeq, {
-                    id: `essence:${item.msgSeq}:${item.timestamp}`,
-                    msgSeq: item.msgSeq,
-                    senderName: item.senderNick,
-                    operatorName: item.operatorNick,
-                    createdAt: secondsToIsoTime(item.timestamp) ?? new Date(0).toISOString(),
-                    active: effectiveEssenceSeqs.includes(String(item.msgSeq)),
-                    msgRandom: webItem?.msgRandom,
-                    content: webItem?.content,
-                    senderTime: webItem?.senderTime ? String(webItem.senderTime) : undefined,
-                    canRemove: webItem?.canRemove,
-                  });
-                }
-                for (const web of essenceWeb) {
-                  if (bySeq.has(web.msgSeq)) continue;
-                  bySeq.set(web.msgSeq, {
-                    id: `essence:web:${web.msgSeq}:${web.senderTime ?? ''}`,
-                    msgSeq: web.msgSeq,
-                    senderName: web.senderNick,
-                    operatorName: web.operatorNick,
-                    createdAt: secondsToIsoTime(web.senderTime) ?? new Date(0).toISOString(),
-                    active: effectiveEssenceSeqs.includes(String(web.msgSeq)),
-                    msgRandom: web.msgRandom,
-                    content: web.content,
-                    senderTime: web.senderTime ? String(web.senderTime) : undefined,
-                    canRemove: web.canRemove,
-                  });
-                }
-                return [...bySeq.values()].sort(
-                  (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-                );
+                return projectGroupEssence(essence, essenceWeb, completeOnlineEssence);
               })()}
               loading={groupEssence.isLoading || groupEssenceWeb.isLoading}
+              onlineError={groupEssenceWeb.isError}
               onClose={() => setEssenceDialog(null)}
               onJumpToMessage={(seq) => {
                 setEssenceDialog(null);

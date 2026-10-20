@@ -8,12 +8,18 @@
  * 不需要真的 AccountSession。fetch 全局打桩驱动 api 批处理分支。
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IntentSenseService, type IntentLocalEnginePort } from '../src/account/intent_sense';
 import { detectUpstreamSignal, analyzePragmatics } from '../src/account/intent_corpus';
+import type { AccountSession } from '@weq/account';
+import {
+  DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
+  DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
+  MAX_INTENT_CONTEXT_MESSAGES,
+} from '../src/common/intent_context';
 
 interface StubMsg {
   msgId: bigint;
@@ -28,11 +34,15 @@ function makeSession(msgs: StubMsg[], peerUid = 'u_peer') {
     context: { uin: 10000n },
     uidMap: { sortNoByUid: (uid: string) => (uid === peerUid ? 7 : undefined) },
     c2cMsgs: {
-      listLatest: vi.fn(async () => [...msgs].reverse()), // db 语义：新→旧
+      listLatest: vi.fn(async (_partition: unknown, limit: number) =>
+        [...msgs].reverse().slice(0, limit),
+      ), // db 语义：新→旧
       listByMsgIds: vi.fn(async (ids: bigint[]) => msgs.filter((m) => ids.includes(m.msgId))),
     },
     groupMsgs: {
-      listLatest: vi.fn(async () => [...msgs].reverse()),
+      listLatest: vi.fn(async (_group: unknown, limit: number) =>
+        [...msgs].reverse().slice(0, limit),
+      ),
       listByMsgIds: vi.fn(async (ids: bigint[]) => msgs.filter((m) => ids.includes(m.msgId))),
     },
   } as unknown as AccountSession;
@@ -66,6 +76,424 @@ describe('IntentSenseService', () => {
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
     vi.unstubAllGlobals();
+  });
+
+  it('分析上文按独立条数实际截取，修改后缓存失效，重开仍按当前条数识别缓存', async () => {
+    const msgs = Array.from({ length: 6 }, (_, i) =>
+      textMsg(BigInt(i + 1), 'u_peer', `消息${i + 1}`, 1000 + i * 20),
+    );
+    const analyze = vi.fn(
+      async (_text: string, _options?: Parameters<IntentLocalEnginePort['analyze']>[1]) => ({
+        intent: 'chat' as const,
+        emotion: 'neutral' as const,
+        intensity: 20,
+        sentiment: 0,
+        confidence: 0.8,
+      }),
+    );
+    const opts = { localEngine: makeLocalPort(analyze) };
+    const svc = new IntentSenseService(makeSession(msgs), dir, opts);
+    await svc.setConfig({
+      enabled: true,
+      engine: 'local',
+      analysisContextMessages: 2,
+      suggestionContextMessages: 1,
+    });
+    await svc.analyzeMessage('c2c', 'u_peer', '6');
+    expect(analyze.mock.calls[0]?.[1]?.context?.map((row) => row.text)).toEqual(['消息4', '消息5']);
+    await svc.setConfig({ analysisContextMessages: 0 });
+    expect(svc.listMessageAnalyses('c2c', 'u_peer')).toEqual([]);
+    await svc.analyzeMessage('c2c', 'u_peer', '6');
+    expect(analyze.mock.calls[1]?.[1]?.context).toEqual([]);
+    const reopened = new IntentSenseService(makeSession(msgs), dir, opts);
+    await reopened.analyzeMessage('c2c', 'u_peer', '6');
+    expect(analyze).toHaveBeenCalledTimes(2);
+    await reopened.setConfig({ suggestionContextMessages: 0 });
+    await reopened.analyzeMessage('c2c', 'u_peer', '6');
+    expect(analyze).toHaveBeenCalledTimes(2);
+    await reopened.setConfig({ analysisContextMessages: 2 });
+    expect(reopened.listMessageAnalyses('c2c', 'u_peer')).toEqual([]);
+    await reopened.analyzeMessage('c2c', 'u_peer', '6');
+    expect(analyze).toHaveBeenCalledTimes(3);
+  });
+
+  it('推荐回复上文独立截取，包含当前消息，条数变化不复用旧建议', async () => {
+    const msgs = Array.from({ length: 6 }, (_, i) =>
+      textMsg(BigInt(i + 1), 'u_peer', `消息${i + 1}`, 1000 + i * 20),
+    );
+    const requests: string[] = [];
+    const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
+      requests.push(body.messages[1]!.content);
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '{"replies":[{"text":"合成建议"}]}' } }],
+        }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      resolveEndpoint: (ref) => ({
+        baseUrl: 'http://fixture',
+        apiKey: 'fixture',
+        model: ref.model,
+      }),
+    });
+    await svc.setConfig({
+      enabled: true,
+      providerRef: { providerId: 'fixture', model: 'fixture' },
+      suggestionsEnabled: true,
+      analysisContextMessages: 0,
+      suggestionContextMessages: 1,
+    });
+    await svc.getSuggestions('c2c', 'u_peer');
+    expect(requests[0]?.split('\n')).toEqual(['对方: 消息5', '对方: 消息6']);
+    await svc.getSuggestions('c2c', 'u_peer');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await svc.setConfig({ suggestionContextMessages: 3 });
+    await svc.getSuggestions('c2c', 'u_peer');
+    expect(requests[1]?.split('\n')).toEqual([
+      '对方: 消息3',
+      '对方: 消息4',
+      '对方: 消息5',
+      '对方: 消息6',
+    ]);
+    await svc.setConfig({ suggestionContextMessages: 0 });
+    await svc.getSuggestions('c2c', 'u_peer');
+    expect(requests[2]).toBe('对方: 消息6');
+  });
+
+  it('自己发送后不返回上一轮推荐、不发新推荐请求；下次对方发言才重新生成', async () => {
+    const msgs = [textMsg(1n, 'u_peer', '合成对方消息', 1000)];
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"replies":[{"text":"合成推荐"}]}' } }],
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      resolveEndpoint: (ref) => ({
+        baseUrl: 'http://fixture',
+        apiKey: 'fixture',
+        model: ref.model,
+      }),
+    });
+    await svc.setConfig({
+      enabled: true,
+      providerRef: { providerId: 'fixture', model: 'fixture' },
+      suggestionsEnabled: true,
+    });
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toHaveLength(1);
+    msgs.push(textMsg(2n, 'u_self', '合成自己回复', 1020));
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    msgs.push(textMsg(3n, 'u_peer', '合成新问题', 1040));
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('推荐请求期间自己已发送，迟到候选不再发布或留给旧客户端', async () => {
+    const msgs = [textMsg(1n, 'u_peer', '合成对方消息', 1000)];
+    const response = {
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"replies":[{"text":"迟到候选"}]}' } }],
+      }),
+    };
+    let finish!: (value: typeof response) => void;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      resolveEndpoint: (ref) => ({
+        baseUrl: 'http://fixture',
+        apiKey: 'fixture',
+        model: ref.model,
+      }),
+    });
+    await svc.setConfig({
+      enabled: true,
+      providerRef: { providerId: 'fixture', model: 'fixture' },
+      suggestionsEnabled: true,
+    });
+    const pending = svc.getSuggestions('c2c', 'u_peer');
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    msgs.push(textMsg(2n, 'u_self', '合成自己回复', 1020));
+    finish(response);
+    expect(await pending).toEqual([]);
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('自己的分析结果保留 mine，批次统计不把它计为新的对方分析', async () => {
+    const analyze = vi.fn(async () => ({
+      intent: 'chat' as const,
+      emotion: 'neutral' as const,
+      intensity: 20,
+      sentiment: 0,
+      confidence: 0.8,
+    }));
+    const svc = new IntentSenseService(
+      makeSession([textMsg(1n, 'u_self', '自己的合成正文', 1000)]),
+      dir,
+      { localEngine: makeLocalPort(analyze) },
+    );
+    await svc.setConfig({ enabled: true, engine: 'local' });
+    const stats = await svc.ensureAnalysis('c2c', 'u_peer');
+    expect(stats.analyzed).toBe(1);
+    expect(stats.peerAnalyzed).toBe(0);
+    expect(svc.getMessageAnalyses('c2c', 'u_peer', ['1'])[0]?.mine).toBe(true);
+  });
+
+  it('旧配置回落原有实际范围，无效条数不部分写入，零值可持久化', async () => {
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ enabled: true, engine: 'local' }));
+    const svc = new IntentSenseService(makeSession([]), dir);
+    const defaults = {
+      analysisContextMessages: DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
+      suggestionContextMessages: DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
+    };
+    expect(svc.getStatus()).toMatchObject(defaults);
+    for (const count of [-1, 1.5, MAX_INTENT_CONTEXT_MESSAGES + 1, Number.NaN, Infinity]) {
+      await expect(
+        svc.setConfig({ analysisContextMessages: 0, suggestionContextMessages: count }),
+      ).rejects.toThrow('上文条数');
+      expect(svc.getStatus()).toMatchObject(defaults);
+    }
+    await svc.setConfig({ analysisContextMessages: 0, suggestionContextMessages: 0 });
+    expect(new IntentSenseService(makeSession([]), dir).getStatus()).toMatchObject({
+      analysisContextMessages: 0,
+      suggestionContextMessages: 0,
+    });
+  });
+
+  it('缺少上文条数元数据的旧缓存必须重算，不硬编码缓存版本', async () => {
+    const analyze = vi.fn(async () => ({
+      intent: 'chat' as const,
+      emotion: 'neutral' as const,
+      intensity: 20,
+      sentiment: 0,
+      confidence: 0.8,
+    }));
+    const session = makeSession([textMsg(1n, 'u_peer', '合成正文', 1000)]),
+      opts = { localEngine: makeLocalPort(analyze) };
+    const svc = new IntentSenseService(session, dir, opts);
+    await svc.setConfig({ enabled: true, engine: 'local' });
+    await svc.analyzeMessage('c2c', 'u_peer', '1');
+    const file = join(dir, 'analysis/c2c_u_peer.json'),
+      raw = JSON.parse(readFileSync(file, 'utf8'));
+    delete raw.contextMessages;
+    writeFileSync(file, JSON.stringify(raw));
+    await new IntentSenseService(session, dir, opts).analyzeMessage('c2c', 'u_peer', '1');
+    expect(analyze).toHaveBeenCalledTimes(2);
+  });
+
+  it('批量窗口另取边界上文，但不把额外历史算成待分析目标', async () => {
+    const msgs = Array.from({ length: 4 }, (_, i) =>
+      textMsg(BigInt(i + 1), 'u_peer', `消息${i + 1}`, 1000 + i * 20),
+    );
+    const analyze = vi.fn(
+      async (_text: string, _options?: Parameters<IntentLocalEnginePort['analyze']>[1]) => ({
+        intent: 'chat' as const,
+        emotion: 'neutral' as const,
+        intensity: 20,
+        sentiment: 0,
+        confidence: 0.8,
+      }),
+    );
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      localEngine: makeLocalPort(analyze),
+    });
+    await svc.setConfig({ enabled: true, engine: 'local', analysisContextMessages: 2 });
+    expect((await svc.ensureAnalysis('c2c', 'u_peer', 1)).analyzed).toBe(1);
+    expect(analyze).toHaveBeenCalledTimes(1);
+    expect(analyze.mock.calls[0]?.[1]?.context?.map((row) => row.text)).toEqual(['消息2', '消息3']);
+    expect(svc.listMessageAnalyses('c2c', 'u_peer').map((row) => row.msgId)).toEqual(['4']);
+  });
+
+  it('API 批次逐条传入已截取的上文，零条配置不共享整批历史', async () => {
+    const msgs = Array.from({ length: 6 }, (_, i) =>
+      textMsg(BigInt(i + 1), 'u_peer', `消息${i + 1}`, 1000 + i * 20),
+    );
+    type Input = { messages: Array<{ i: number; text: string; context: Array<{ text: string }> }> };
+    const requests: Input[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: unknown, init?: RequestInit) => {
+        const payload = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
+        const input = JSON.parse(payload.messages[1]!.content) as Input;
+        requests.push(input);
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    results: input.messages.map((row) => ({
+                      i: row.i,
+                      intent: 'chat',
+                      emotion: 'neutral',
+                      intensity: 20,
+                      sentiment: 0,
+                      confidence: 0.8,
+                    })),
+                  }),
+                },
+              },
+            ],
+          }),
+        };
+      }),
+    );
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      resolveEndpoint: (ref) => ({
+        baseUrl: 'http://fixture',
+        apiKey: 'fixture',
+        model: ref.model,
+      }),
+    });
+    await svc.setConfig({
+      enabled: true,
+      engine: 'api',
+      providerRef: { providerId: 'fixture', model: 'fixture' },
+      analysisContextMessages: 2,
+    });
+    expect((await svc.ensureAnalysis('c2c', 'u_peer', 2)).analyzed).toBe(2);
+    expect(requests[0]?.messages.map((row) => row.context.map((turn) => turn.text))).toEqual([
+      ['消息3', '消息4'],
+      ['消息4', '消息5'],
+    ]);
+    await svc.setConfig({ analysisContextMessages: 0 });
+    expect((await svc.ensureAnalysis('c2c', 'u_peer', 2)).analyzed).toBe(2);
+    expect(requests[1]?.messages.map((row) => row.context)).toEqual([[], []]);
+  });
+
+  it.each(['count', 'clear'] as const)(
+    '重置后新批次不复用旧在途任务，旧任务不删除或污染新任务：%s',
+    async (change) => {
+      type Result = Awaited<ReturnType<IntentLocalEnginePort['analyze']>>;
+      let finishOld!: (value: Result) => void, finishNew!: (value: Result) => void;
+      const analyze = vi
+        .fn<IntentLocalEnginePort['analyze']>()
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishOld = resolve;
+            }),
+        )
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishNew = resolve;
+            }),
+        );
+      const svc = new IntentSenseService(
+        makeSession([textMsg(1n, 'u_peer', '合成正文', 1000)]),
+        dir,
+        { localEngine: makeLocalPort(analyze) },
+      );
+      const event = vi.fn();
+      svc.onAnalyzed(event);
+      await svc.setConfig({ enabled: true, engine: 'local', analysisContextMessages: 1 });
+      const old = svc.ensureAnalysis('c2c', 'u_peer');
+      await vi.waitFor(() => expect(analyze).toHaveBeenCalledTimes(1));
+      if (change === 'count') await svc.setConfig({ analysisContextMessages: 0 });
+      else svc.clearCache();
+      const next = svc.ensureAnalysis('c2c', 'u_peer');
+      await vi.waitFor(() => expect(analyze).toHaveBeenCalledTimes(2));
+      const result = {
+        intent: 'chat' as const,
+        emotion: 'neutral' as const,
+        intensity: 20,
+        sentiment: 0,
+        confidence: 0.8,
+      };
+      finishOld(result);
+      expect((await old).skipped).toBe('config-changed');
+      expect(svc.ensureAnalysis('c2c', 'u_peer')).toBe(next);
+      expect(svc.listMessageAnalyses('c2c', 'u_peer')).toEqual([]);
+      finishNew(result);
+      expect((await next).analyzed).toBe(1);
+      expect(event).toHaveBeenCalledTimes(1);
+      expect(svc.listMessageAnalyses('c2c', 'u_peer')).toHaveLength(1);
+    },
+  );
+
+  it('旧单条分析与旧推荐回复迟到时不写回新配置，也不返回旧结果', async () => {
+    type Result = Awaited<ReturnType<IntentLocalEnginePort['analyze']>>;
+    let finishAnalysis!: (value: Result) => void;
+    const analyze = vi.fn<IntentLocalEnginePort['analyze']>().mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishAnalysis = resolve;
+        }),
+    );
+    const svc = new IntentSenseService(
+      makeSession([textMsg(1n, 'u_peer', '合成正文', 1000)]),
+      dir,
+      {
+        localEngine: makeLocalPort(analyze),
+        resolveEndpoint: (ref) => ({
+          baseUrl: 'http://fixture',
+          apiKey: 'fixture',
+          model: ref.model,
+        }),
+      },
+    );
+    await svc.setConfig({ enabled: true, engine: 'local', analysisContextMessages: 1 });
+    const oldAnalysis = svc.analyzeMessage('c2c', 'u_peer', '1');
+    await vi.waitFor(() => expect(analyze).toHaveBeenCalledTimes(1));
+    await svc.setConfig({ analysisContextMessages: 0 });
+    finishAnalysis({
+      intent: 'chat',
+      emotion: 'neutral',
+      intensity: 20,
+      sentiment: 0,
+      confidence: 0.8,
+    });
+    expect(await oldAnalysis).toBeNull();
+    expect(svc.listMessageAnalyses('c2c', 'u_peer')).toEqual([]);
+    const response = (text: string) => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify({ replies: [{ text }] }) } }],
+      }),
+    });
+    let finishReply!: (value: ReturnType<typeof response>) => void;
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishReply = resolve;
+          }),
+      )
+      .mockResolvedValue(response('新建议'));
+    vi.stubGlobal('fetch', fetchMock);
+    await svc.setConfig({
+      engine: 'api',
+      providerRef: { providerId: 'fixture', model: 'fixture' },
+      suggestionsEnabled: true,
+      suggestionContextMessages: 1,
+    });
+    const oldReply = svc.getSuggestions('c2c', 'u_peer');
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await svc.setConfig({ suggestionContextMessages: 0 });
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([
+      { text: '新建议', tone: undefined },
+    ]);
+    finishReply(response('旧建议'));
+    expect(await oldReply).toEqual([]);
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([
+      { text: '新建议', tone: undefined },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('配置默认关闭；会话覆盖 false 强制关、清除后跟随全局', async () => {

@@ -60,7 +60,7 @@ import { createMainWindowLifecycle } from './main_window_lifecycle';
 import { createRendererRecovery } from './renderer_recovery';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
 import { macApplicationMenu, nativeMenuLabels } from './application_menu';
-import { registerEditUndoIpc, undoFocusedContent } from './edit_undo';
+import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
 import { registerAttachHintIpc } from './attach_hint_ipc';
 import { registerElevationIpc } from './elevation_ipc';
 import {
@@ -819,6 +819,7 @@ void app.whenReady().then(async () => {
           openMainWindow,
           app.getPreferredSystemLanguages()[0] ?? app.getLocale(),
           undoFocusedContent,
+          redoFocusedContent,
         ),
       ),
     );

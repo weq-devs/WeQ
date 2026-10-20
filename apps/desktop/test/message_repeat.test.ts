@@ -15,6 +15,7 @@ import { buildComposerSendPlan } from '../src/renderer/src/im-template/template/
 import { elementsToComposerText } from '../src/renderer/src/im-template/template/draftElements';
 import { filterMentionMembers } from '../src/renderer/src/im-template/template/mentions';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { atAllMentionState } from '../src/renderer/src/lib/atAllMention';
 
 const plain = (value: string): RepeatElement => ({ type: 'text', data: { textContent: value } });
 const mention = (uid: string, label: string): RepeatElement => ({
@@ -291,7 +292,7 @@ describe('以唯一身份复制和重发提及', () => {
     )!;
     expect(parsed).toEqual([mention('u_one', '@旧名字'), plain('\n正文')]);
   });
-  it('成员列表不截成固定八人，管理员可选全体成员', () => {
+  it('成员列表不截成固定八人，普通成员和管理员始终展示全体成员候选', () => {
     const demo = createTemplateDemoData();
     const conversation = {
       id: 'fixture',
@@ -303,11 +304,32 @@ describe('以唯一身份复制和重发提及', () => {
         role: index === 0 ? 'owner' : 'member',
       })),
     };
-    const candidates = filterMentionMembers(conversation, '', 'u_0');
-    expect(candidates.length).toBe(20);
-    expect(candidates[0]?.id).toBe('all');
+    for (const currentUserId of ['u_0', 'u_1']) {
+      const candidates = filterMentionMembers(conversation, '', currentUserId);
+      expect(candidates.length).toBe(20);
+      expect(candidates[0]?.id).toBe('all');
+    }
+  });
+  it.each([
+    { role: 'member', canManage: false, canAtAll: true, personal: 2, group: 4, selectable: false },
+    { role: 'admin', canManage: true, canAtAll: true, personal: 2, group: 4, selectable: true },
+    { role: 'admin', canManage: true, canAtAll: false, personal: 2, group: 4, selectable: false },
+    { role: 'admin', canManage: true, canAtAll: true, personal: 0, group: 4, selectable: false },
+    { role: 'admin', canManage: true, canAtAll: true, personal: 2, group: 0, selectable: false },
+  ])('全体成员可用性单独核实权限与额度：$role / $personal / $group', (fixture) => {
     expect(
-      filterMentionMembers(conversation, '', 'u_1').some((member) => member.id === 'all'),
-    ).toBe(false);
+      atAllMentionState({
+        online: true,
+        data: {
+          role: fixture.role,
+          canManage: fixture.canManage,
+          quota: {
+            canAtAll: fixture.canAtAll,
+            remainCountForUin: fixture.personal,
+            remainCountForGroup: fixture.group,
+          },
+        },
+      }).selectable,
+    ).toBe(fixture.selectable);
   });
 });

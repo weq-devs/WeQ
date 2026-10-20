@@ -570,9 +570,13 @@ describe('主动操作的账号与参数边界', () => {
   });
   it('未知输入事件不会发包，内联按钮保留原始定位', async () => {
     const f = fixture();
+    await f.caller.inputStatus({ ...binding, uid: 'u_friend', eventType: 1 });
+    expect(f.s.interaction.setInputStatus).toHaveBeenCalledTimes(1);
+    expect(f.s.interaction.setInputStatus).toHaveBeenCalledWith('u_friend', 1);
     await expect(
       f.caller.inputStatus({ ...binding, uid: 'u_friend', eventType: 0 as 1 }),
     ).rejects.toThrow();
+    expect(f.s.interaction.setInputStatus).toHaveBeenCalledTimes(1);
     await f.caller.inlineButton({
       ...group,
       botAppid: '10001',
