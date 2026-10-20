@@ -15,6 +15,7 @@ import {
   SendGroupSign,
   SendPoke,
   SetReaction,
+  SetInputStatus,
 } from '@weq/protocol';
 import type { AccountSession } from '@weq/account';
 import { InteractionService } from '../src/account/interaction';
@@ -71,6 +72,44 @@ function fakeNative(response?: Uint8Array) {
 const PID = 4321;
 
 describe('InteractionService', () => {
+  describe('setInputStatus (0xCD4_1)', () => {
+    it.each(['20002', 'u_friend'])(
+      '私聊目标 %s 解析为同一 UID，使用当前运行时发出已知输入事件',
+      async (target) => {
+        const nt = fakeNative();
+        let pid = PID;
+        const svc = new InteractionService(nt, fakeSession(), () => pid);
+        await svc.setInputStatus(target, 1);
+        pid += 1;
+        await svc.setInputStatus(target, 1);
+        expect(nt.calls.map((call) => call.pid)).toEqual([PID, PID + 1]);
+        for (const call of nt.calls) {
+          expect(call).toMatchObject({
+            command: SetInputStatus.command,
+            subCommand: SetInputStatus.subCommand,
+          });
+          const body = decode(SetInputStatus.reqSchema, call.body) as {
+            reqBody: { uid: string; chatType?: number; eventType: number };
+          };
+          expect(body.reqBody).toMatchObject({ uid: 'u_friend', eventType: 1 });
+          expect(body.reqBody.chatType ?? 0).toBe(0);
+        }
+      },
+    );
+    it('未知目标不发包，原生失败保留错误且不重发', async () => {
+      const nt = fakeNative();
+      const svc = new InteractionService(nt, fakeSession(), () => PID);
+      await expect(svc.setInputStatus('u_missing', 1)).rejects.toThrow();
+      await expect(svc.setInputStatus('99999', 1)).rejects.toThrow();
+      expect(nt.calls).toHaveLength(0);
+      const sendOidbPacket = vi.fn().mockRejectedValue(new Error('synthetic typing rejected'));
+      const rejected = new InteractionService({ sendOidbPacket }, fakeSession(), () => PID);
+      await expect(rejected.setInputStatus('u_friend', 1)).rejects.toThrow(
+        'synthetic typing rejected',
+      );
+      expect(sendOidbPacket).toHaveBeenCalledOnce();
+    });
+  });
   describe('sendGroupSign (0xEB7_1)', () => {
     it('从当前会话取本人 UIN，群号与本人以字符串写入原命令', async () => {
       const nt = fakeNative();
