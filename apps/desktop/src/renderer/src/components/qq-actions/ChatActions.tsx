@@ -15,6 +15,7 @@ export function MessageTodoAction({
   onClose: () => void;
 }) {
   const a = useQQAction(`todo:${conversation.id}:${message.id}`);
+  const utils = trpc.useUtils();
   const permissions = useQQGroupPermissions(
     conversation.type === 'group' ? Number(conversation.id) : 0,
     a,
@@ -40,7 +41,13 @@ export function MessageTodoAction({
                 sequence: message.msgSeq!,
                 action: 'set',
               }),
-            async () => onClose(),
+            async () => {
+              await utils.account.qqActions.todoList.invalidate({
+                ...a.binding!,
+                groupId: Number(conversation.id),
+              });
+              onClose();
+            },
             '将这条群消息设为群待办？',
           )
         }

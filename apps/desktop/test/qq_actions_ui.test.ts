@@ -25,7 +25,10 @@ import { GroupAnnouncementsDialog } from '../src/renderer/src/components/GroupAn
 import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupInfoPanel';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
 import { GroupSignDialog } from '../src/renderer/src/components/GroupSignDialog';
-import { TypingStatus } from '../src/renderer/src/components/qq-actions/ChatActions';
+import {
+  MessageTodoAction,
+  TypingStatus,
+} from '../src/renderer/src/components/qq-actions/ChatActions';
 import { QqInlineKeyboard } from '../src/renderer/src/components/QqInlineKeyboard';
 import { useViewState } from '../src/renderer/src/state/view';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
@@ -48,6 +51,7 @@ const state = vi.hoisted(() => ({
     alreadyMember: false,
   })),
   refreshSigns: vi.fn(async () => {}),
+  refreshTodos: vi.fn(async (_input?: unknown) => {}),
   data: {} as Record<string, unknown>,
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
@@ -126,6 +130,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           qqActions: {
             requests: { invalidate: async () => {} },
             groupReadTools: { invalidate: state.refreshSigns },
+            todoList: { invalidate: state.refreshTodos },
           },
         },
       }),
@@ -191,6 +196,7 @@ beforeEach(() => {
   state.picker.mockClear();
   state.prepare.mockClear();
   state.refreshSigns.mockClear();
+  state.refreshTodos.mockClear();
   state.data = {
     groupPermissions: { canManage: true, role: 'admin', selfUin: '10001' },
     fileSummary: { fileCount: 1, maxCount: 100, usedSpace: 10, totalSpace: 1000 },
@@ -210,6 +216,32 @@ afterEach(() => {
 });
 
 describe('QQ 主动操作的实际界面', () => {
+  it('创建群待办后刷新同账号同群列表，再关闭菜单', async () => {
+    const demo = createTemplateDemoData();
+    const group = demo.conversations.find((row) => row.type === 'group')!;
+    const close = vi.fn(() => expect(state.refreshTodos).toHaveBeenCalledOnce());
+    const f = fixture(() =>
+      h(MessageTodoAction, {
+        conversation: { ...group, id: '123' },
+        message: { ...demo.messages[0], msgSeq: '9007199254740993' },
+        onClose: close,
+      }),
+    );
+    await act(async () => f.host.querySelector<HTMLButtonElement>('button')!.click());
+    expect(state.refreshTodos).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      groupId: 123,
+    });
+    expect(close).toHaveBeenCalledOnce();
+  });
+  it('已完成的待办不再提供重复完成操作，取消仍由群管理权限控制', () => {
+    state.data.todoList = [{ sequence: '123', text: '已完成事项', completed: true }];
+    const f = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
+    expect(f.host.textContent).toContain('已完成');
+    expect(f.button('完成待办').disabled).toBe(true);
+    expect(f.button('取消群待办')).not.toBeNull();
+  });
   it('打卡页使用可见今日动作，防重复点击，成功后刷新记录，离线不可写', async () => {
     const management = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(management.button('群打卡')).toBeNull();

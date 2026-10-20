@@ -211,10 +211,13 @@ export function GroupTodos({ groupId, embedded = false }: { groupId: number; emb
       <ul className="weq-qq-action-list">
         {todos.data?.map((t) => (
           <li key={t.sequence}>
-            <span>{t.text || `消息 ${t.sequence}`}</span>
+            <span>
+              {t.text || `消息 ${t.sequence}`}
+              {t.completed ? ' · 已完成' : ''}
+            </span>
             <ActionIcon
               label="完成待办"
-              disabled={a.disabled}
+              disabled={a.disabled || t.completed}
               onClick={() =>
                 void a.perform(
                   (b) =>

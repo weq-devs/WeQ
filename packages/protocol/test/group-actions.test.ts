@@ -291,7 +291,15 @@ describe('群管理 / 群文件 / 群待办', () => {
     const nt = makeNative(resp);
     const list = await GetGroupTodoList.invoke(nt, 1, { groupId: 100 });
     expect(list).toEqual([
-      { sourceId: '12_34', sequence: '12', random: 34, text: 'todo', createdAt: 5, updatedAt: 6 },
+      {
+        sourceId: '12_34',
+        sequence: '12',
+        random: 34,
+        text: 'todo',
+        createdAt: 5,
+        updatedAt: 6,
+        completed: false,
+      },
     ]);
   });
 
@@ -310,6 +318,27 @@ describe('群管理 / 群文件 / 群待办', () => {
     expect(() =>
       GroupTodo.serialize({ groupId: 100, msgSeq: 18446744073709551616n, action: 'set' }),
     ).toThrow('uint64');
+  });
+  it('群待办保留服务端的完成状态', async () => {
+    const response = encode(GetGroupTodoList.respSchema, {
+      banners: [
+        {
+          msgId: new TextEncoder().encode('12_34'),
+          todoBanner: { text: '事项', isComplete: true },
+        },
+      ],
+    });
+    expect(await GetGroupTodoList.invoke(makeNative(response), 1, { groupId: 100 })).toEqual([
+      {
+        sourceId: '12_34',
+        sequence: '12',
+        random: 34,
+        text: '事项',
+        createdAt: 0,
+        updatedAt: 0,
+        completed: true,
+      },
+    ]);
   });
   it('SendGroupSign：0xeb7_1，不签名，uin/groupId 都是字符串', async () => {
     const nt = makeNative();

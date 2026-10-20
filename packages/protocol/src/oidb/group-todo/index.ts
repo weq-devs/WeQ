@@ -124,6 +124,7 @@ export interface GroupTodoListItem {
   text: string;
   createdAt: number;
   updatedAt: number;
+  completed: boolean;
 }
 
 export interface GetGroupTodoListParams {
@@ -184,6 +185,7 @@ export namespace GetGroupTodoList {
           (typeof legacy.text === 'string' ? legacy.text : ''),
         createdAt: parseTimestamp(common.createTime),
         updatedAt: parseTimestamp(common.updateTime),
+        completed: legacy.isComplete === true,
       });
     }
     return items;
