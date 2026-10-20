@@ -28,7 +28,7 @@ import type { C2cMsg, C2cPartition, GroupMsg } from '@weq/db';
 import type { Element } from '@weq/codec';
 import {
   pickMessageText,
-  reportUsage,
+  requestApiJson,
   type AgentLabEndpoint,
   type AgentLabModelRef,
 } from '@weq/agentlab';
@@ -941,7 +941,9 @@ export class IntentSenseService {
       'intensity 0-100（情绪强度），sentiment -100..100（消极到积极），confidence 0..1。' +
       '只输出 JSON：{"results":[{"i":序号,"intent":"...","emotion":"...","intensity":0,"sentiment":0,"confidence":0}]}，不要输出其它内容。';
     try {
-      const res = await fetch(`${baseUrl}/chat/completions`, {
+      const body = await requestApiJson<{
+        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+      }>({ ...endpoint, baseUrl, feature: 'intent-analysis' }, '/chat/completions', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
         body: JSON.stringify({
@@ -954,14 +956,6 @@ export class IntentSenseService {
         }),
         signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status}: ${detail.slice(0, 200)}`);
-      }
-      const body = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-      };
-      reportUsage(endpoint, body);
       if (revision !== this.analysisRevision) return null;
       this.apiCooldownUntil = 0;
       this.lastApiError = null;
@@ -1048,7 +1042,9 @@ export class IntentSenseService {
       '"topics":["话题词"]}（topics 最多 8 个）。' +
       'leftPct 是左侧极（E/S/T/J）占比 0-100；radar value 0-100。不要输出其它内容。';
     try {
-      const res = await fetch(`${baseUrl}/chat/completions`, {
+      const body = await requestApiJson<{
+        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+      }>({ ...endpoint, baseUrl, feature: 'intent-profile' }, '/chat/completions', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
         body: JSON.stringify({
@@ -1061,14 +1057,6 @@ export class IntentSenseService {
         }),
         signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
-      if (!res.ok) {
-        this.apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
-        return tryLocalHints();
-      }
-      const body = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-      };
-      reportUsage(endpoint, body);
       const parsed = extractJsonBlock(
         pickMessageText(body.choices?.[0]?.message),
       ) as ProfileHints | null;
@@ -1376,7 +1364,9 @@ export class IntentSenseService {
       '长度接近日常聊天（一般不超过 40 字）、三条风格要有差异（如 共情/幽默/简短）。' +
       '只输出 JSON：{"replies":[{"text":"...","tone":"共情"}]}，不要输出其它内容。';
     try {
-      const res = await fetch(`${baseUrl}/chat/completions`, {
+      const body = await requestApiJson<{
+        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+      }>({ ...endpoint, baseUrl, feature: 'reply-suggestion' }, '/chat/completions', {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
         body: JSON.stringify({
@@ -1389,15 +1379,6 @@ export class IntentSenseService {
         }),
         signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
-      if (!res.ok) {
-        if (!current()) return [];
-        this.apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
-        return fallbackAfterRequest();
-      }
-      const body = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-      };
-      reportUsage(endpoint, body);
       if (!current()) return [];
       if (!(await stillLatestPeer())) return [];
       const parsed = extractJsonBlock(pickMessageText(body.choices?.[0]?.message)) as {

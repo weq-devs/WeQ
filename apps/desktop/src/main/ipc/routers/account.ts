@@ -2112,7 +2112,7 @@ export const accountRouter = router({
 
   /** AgentLab token 用量统计（主页图表）。 */
   getAgentLabTokenStats: procedure.query(() => {
-    return requireServices().agentLab.getTokenStats();
+    return requireServices().agentLab.getTokenStats(getAppContext().bootstrap?.apiUsage);
   }),
 
   /** 系统表情清单（faceId + 外显文字），前端把克隆体回复里的 /捂脸 渲染成表情图。 */

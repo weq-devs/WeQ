@@ -14,6 +14,8 @@ import type { UsageSink } from '@weq/agentlab';
 
 /** 单日聚合桶。 */
 export interface StatsDayBucket {
+  calls?: number;
+  unknownCalls?: number;
   /** 本地日期 YYYY-MM-DD */
   date: string;
   promptTokens: number;
@@ -25,6 +27,7 @@ export interface StatsDayBucket {
 
 /** 按模型聚合。 */
 export interface StatsModelBucket {
+  unknownCalls?: number;
   model: string;
   calls: number;
   promptTokens: number;
@@ -48,6 +51,11 @@ interface StatsData {
     completionTokens: number;
     totalTokens: number;
     llmCalls: number;
+    unknownCalls: number;
+    promptUnknownCalls: number;
+    completionUnknownCalls: number;
+    failedCalls: number;
+    cancelledCalls: number;
     messagesIn: number;
     messagesOut: number;
     repliesGenerated: number;
@@ -80,6 +88,11 @@ function emptyData(now: number): StatsData {
       completionTokens: 0,
       totalTokens: 0,
       llmCalls: 0,
+      unknownCalls: 0,
+      promptUnknownCalls: 0,
+      completionUnknownCalls: 0,
+      failedCalls: 0,
+      cancelledCalls: 0,
       messagesIn: 0,
       messagesOut: 0,
       repliesGenerated: 0,
@@ -119,6 +132,7 @@ function pruneHours(
 }
 
 export class StatsStore implements UsageSink {
+  private readonly usageRequests = new Map<string, Parameters<UsageSink['record']>[0]>();
   private readonly data: StatsData;
   private readonly startedAt: number;
   private saveTimer: NodeJS.Timeout | null = null;
@@ -183,19 +197,44 @@ export class StatsStore implements UsageSink {
   }
 
   /** UsageSink：AgentRuntime 每次 LLM 调用后回调。 */
-  record(entry: {
-    ts: number;
-    model: string;
-    kind: 'chat' | 'embedding' | 'vision';
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  }): void {
+  record(input: Parameters<UsageSink['record']>[0]): void {
+    if (input.source === 'local') return;
+    const previous = input.requestId ? this.usageRequests.get(input.requestId) : undefined;
+    const entry = {
+      ...input,
+      ts: previous?.ts ?? input.ts,
+      promptTokens: input.promptTokens ?? previous?.promptTokens ?? null,
+      completionTokens: input.completionTokens ?? previous?.completionTokens ?? null,
+      totalTokens: input.totalTokens ?? previous?.totalTokens ?? null,
+      status:
+        previous && previous.status !== 'pending' && input.status === 'pending'
+          ? previous.status
+          : input.status,
+    };
+    if (entry.requestId) {
+      this.usageRequests.set(entry.requestId, entry);
+      for (const [id, record] of this.usageRequests) {
+        if (this.usageRequests.size <= 5000) break;
+        if (record.status !== 'pending') this.usageRequests.delete(id);
+      }
+    }
+    const prompt = (entry.promptTokens ?? 0) - (previous?.promptTokens ?? 0);
+    const completion = (entry.completionTokens ?? 0) - (previous?.completionTokens ?? 0);
+    const total = (entry.totalTokens ?? 0) - (previous?.totalTokens ?? 0);
+    const calls = previous ? 0 : 1;
     const t = this.data.totals;
-    t.promptTokens += entry.promptTokens;
-    t.completionTokens += entry.completionTokens;
-    t.totalTokens += entry.totalTokens;
-    t.llmCalls += 1;
+    t.promptTokens += prompt;
+    t.completionTokens += completion;
+    t.totalTokens += total;
+    t.llmCalls += calls;
+    t.unknownCalls += Number(entry.totalTokens === null) - Number(previous?.totalTokens === null);
+    t.promptUnknownCalls +=
+      Number(entry.promptTokens === null) - Number(previous?.promptTokens === null);
+    t.completionUnknownCalls +=
+      Number(entry.completionTokens === null) - Number(previous?.completionTokens === null);
+    t.failedCalls += Number(entry.status === 'failed') - Number(previous?.status === 'failed');
+    t.cancelledCalls +=
+      Number(entry.status === 'cancelled') - Number(previous?.status === 'cancelled');
 
     const model = entry.model || '(unknown)';
     let mb = this.data.byModel[model];
@@ -203,20 +242,29 @@ export class StatsStore implements UsageSink {
       mb = { model, calls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
       this.data.byModel[model] = mb;
     }
-    mb.calls += 1;
-    mb.promptTokens += entry.promptTokens;
-    mb.completionTokens += entry.completionTokens;
-    mb.totalTokens += entry.totalTokens;
+    mb.calls += calls;
+    mb.unknownCalls =
+      (mb.unknownCalls ?? 0) +
+      Number(entry.totalTokens === null) -
+      Number(previous?.totalTokens === null);
+    mb.promptTokens += prompt;
+    mb.completionTokens += completion;
+    mb.totalTokens += total;
 
     const day = this.dayBucket(entry.ts);
-    day.promptTokens += entry.promptTokens;
-    day.completionTokens += entry.completionTokens;
-    day.totalTokens += entry.totalTokens;
+    day.promptTokens += prompt;
+    day.completionTokens += completion;
+    day.totalTokens += total;
+    day.calls = (day.calls ?? 0) + calls;
+    day.unknownCalls =
+      (day.unknownCalls ?? 0) +
+      Number(entry.totalTokens === null) -
+      Number(previous?.totalTokens === null);
 
     const hk = hourKey(entry.ts);
     const hb = this.data.byHour[hk] ?? { tokens: 0, calls: 0 };
-    hb.tokens += entry.totalTokens;
-    hb.calls += 1;
+    hb.tokens += total;
+    hb.calls += calls;
     this.data.byHour[hk] = hb;
     // 长跑进程每小时新增一个键，超过阈值就裁到近 48h，防无界增长。
     if (Object.keys(this.data.byHour).length > 60) {

@@ -15,7 +15,10 @@ import {
 import type { UserConfigService } from './user_config';
 
 export class AgentLabConfigService {
-  constructor(private readonly userConfig: UserConfigService) {}
+  constructor(
+    private readonly userConfig: UserConfigService,
+    private readonly onUsage?: AgentLabEndpoint['onUsage'],
+  ) {}
 
   /**
    * 已保存的 provider 原样返回，不做任何补全。
@@ -77,6 +80,8 @@ export class AgentLabConfigService {
       baseUrl,
       apiKey: input.apiKey.trim(),
       model: input.model.trim(),
+      feature: 'connection-test',
+      onUsage: this.onUsage,
     };
     return testChatEndpoint(endpoint);
   }

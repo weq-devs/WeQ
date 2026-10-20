@@ -33,6 +33,7 @@ import type {
   AgentLabRelationStore,
   AgentLabStickerRef,
   AgentLabTypoConfig,
+  AgentLabUsage,
 } from './types';
 import { isStickerUsable } from './sticker';
 
@@ -57,16 +58,13 @@ export type EndpointResolver = (ref: AgentLabModelRef) => AgentLabEndpoint;
 
 /** token 记账落点（TokenUsageStore 满足）。 */
 export interface UsageSink {
-  record(entry: {
-    ts: number;
-    model: string;
-    kind: 'chat' | 'embedding' | 'vision';
-    personaId?: string;
-    scope: 'build' | 'chat' | 'assistant';
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  }): void;
+  record(
+    entry: AgentLabUsage & {
+      ts: number;
+      personaId?: string;
+      scope: string;
+    },
+  ): void;
 }
 
 /** 对话历史落点（ConversationStore 满足；只用 role/text/ts 三字段）。 */
@@ -204,14 +202,10 @@ export class AgentRuntime {
       kind,
       onUsage: (u) =>
         this.usage.record({
-          ts: Date.now(),
-          model: u.model,
-          kind: u.kind,
+          ...u,
+          ts: u.startedAt ?? Date.now(),
           personaId: ctx.personaId,
           scope: ctx.scope,
-          promptTokens: u.promptTokens,
-          completionTokens: u.completionTokens,
-          totalTokens: u.totalTokens,
         }),
     };
   }

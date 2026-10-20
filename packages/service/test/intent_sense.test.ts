@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IntentSenseService, type IntentLocalEnginePort } from '../src/account/intent_sense';
 import { detectUpstreamSignal, analyzePragmatics } from '../src/account/intent_corpus';
+import { TokenUsageStore } from '../src/account/agentlab_usage';
 import type { AccountSession } from '@weq/account';
 import {
   DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
@@ -77,6 +78,58 @@ describe('IntentSenseService', () => {
     rmSync(dir, { recursive: true, force: true });
     vi.unstubAllGlobals();
   });
+
+  it.each(['api', 'local'] as const)(
+    '真实 %s 分析路径仅记录实际 API 请求，缓存和本地引擎不混入 Token',
+    async (engine) => {
+      const usage = new TokenUsageStore(join(dir, 'usage.json'));
+      const fetch = vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content:
+                      '{"results":[{"i":0,"intent":"chat","emotion":"neutral","intensity":20,"sentiment":0,"confidence":0.9}]}',
+                  },
+                },
+              ],
+              usage: { prompt_tokens: 5, completion_tokens: 1, total_tokens: 6 },
+            }),
+          ),
+      );
+      vi.stubGlobal('fetch', fetch);
+      const svc = new IntentSenseService(makeSession([textMsg(1n, 'u_peer', '测试', 1000)]), dir, {
+        resolveEndpoint: () => ({
+          baseUrl: 'https://fixture.invalid',
+          apiKey: 'fixture',
+          model: 'fixture',
+          onUsage: (u) => usage.record({ ...u, ts: u.startedAt!, scope: u.feature! }),
+        }),
+        localEngine: makeLocalPort(async () => ({
+          intent: 'chat',
+          emotion: 'neutral',
+          intensity: 20,
+          sentiment: 0,
+          confidence: 0.9,
+        })),
+      });
+      await svc.setConfig({
+        enabled: true,
+        engine,
+        providerRef: { providerId: 'fixture', model: 'fixture' },
+      });
+      await svc.ensureAnalysis('c2c', 'u_peer');
+      await svc.ensureAnalysis('c2c', 'u_peer');
+      expect(fetch).toHaveBeenCalledTimes(engine === 'api' ? 1 : 0);
+      expect(usage.getStats()).toMatchObject({
+        totalCalls: engine === 'api' ? 1 : 0,
+        totalTokens: engine === 'api' ? 6 : 0,
+      });
+      if (engine === 'api') expect(usage.getStats().byFeature[0]?.feature).toBe('intent-analysis');
+    },
+  );
 
   it('分析上文按独立条数实际截取，修改后缓存失效，重开仍按当前条数识别缓存', async () => {
     const msgs = Array.from({ length: 6 }, (_, i) =>
