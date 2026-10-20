@@ -91,7 +91,7 @@ export class MediaCacheService {
   /** De-dupe concurrent fetches of the same upstream URL. */
   private readonly inFlight = new Map<string, Promise<MediaBlob>>();
 
-  constructor(private readonly userConfig: UserConfigService) {}
+  constructor(private readonly userConfig: Pick<UserConfigService, 'cacheDir'>) {}
 
   /**
    * Cache directory for a specific media type.
@@ -120,7 +120,7 @@ export class MediaCacheService {
     }
 
     const effectiveTtl = ttl ?? ttlForSubdir(subdir);
-    const hit = await this.readFromDisk(url, subdir, effectiveTtl);
+    const hit = effectiveTtl === 0 ? null : await this.readFromDisk(url, subdir, effectiveTtl);
     if (hit) return hit;
 
     // Collapse concurrent misses onto a single fetch.
@@ -128,7 +128,7 @@ export class MediaCacheService {
     const existing = this.inFlight.get(cacheKey);
     if (existing) return existing;
 
-    const promise = this.fetchAndStore(url, subdir).finally(() => {
+    const promise = this.fetchAndStore(url, subdir, effectiveTtl === 0).finally(() => {
       this.inFlight.delete(cacheKey);
     });
     this.inFlight.set(cacheKey, promise);
@@ -176,7 +176,11 @@ export class MediaCacheService {
     return null;
   }
 
-  private async fetchAndStore(url: string, subdir: CacheSubdir): Promise<MediaBlob> {
+  private async fetchAndStore(
+    url: string,
+    subdir: CacheSubdir,
+    refresh: boolean,
+  ): Promise<MediaBlob> {
     const res = await fetch(url, {
       headers: { Referer: '', 'User-Agent': 'Mozilla/5.0' },
     });
@@ -192,6 +196,13 @@ export class MediaCacheService {
     const ext = extFor(contentType, url);
     try {
       await writeFile(`${this.basePath(url, subdir)}.${ext}`, data);
+      // 显式刷新失败时保留旧图；成功后再清理旧格式，避免优先命中旧扩展名。
+      if (refresh)
+        await Promise.all(
+          ['png', 'jpg', 'gif', 'webp']
+            .filter((other) => other !== ext)
+            .map((other) => unlink(`${this.basePath(url, subdir)}.${other}`).catch(() => {})),
+        );
     } catch {
       // A cache-write failure shouldn't fail the request — serve the bytes we
       // already fetched; the next request just re-fetches.

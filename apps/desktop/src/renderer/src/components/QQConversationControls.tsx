@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ImageUp, RefreshCw } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
+import { refreshGroupAvatar } from '../hooks/useAvatarUrl';
 import { Card } from './settings/controls';
 import { useDialog } from './Dialog';
 import { GroupActions } from './qq-actions/GroupActions';
@@ -87,10 +88,12 @@ export function QQConversationControls({
     setPickerError('');
     try {
       const file = await picker.mutateAsync({ kind: 'image' });
-      if (file)
-        await act((binding) =>
+      if (file) {
+        const saved = await act((binding) =>
           avatar.mutateAsync({ ...binding, groupId: Number(conv), source: file.path }),
         );
+        if (saved) refreshGroupAvatar(conv);
+      }
     } catch (error) {
       setPickerError(error instanceof Error ? error.message : String(error));
     } finally {
