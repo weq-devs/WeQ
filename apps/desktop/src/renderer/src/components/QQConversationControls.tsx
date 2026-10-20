@@ -227,7 +227,21 @@ export function QQConversationControls({
                         .map((item) => ({ value: item.id, label: item.name })),
                     ]}
                     onSave={(categoryId) =>
-                      act((binding) => category.mutateAsync({ ...binding, uid: conv, categoryId }))
+                      session.run(
+                        (binding) => category.mutateAsync({ ...binding, uid: conv, categoryId }),
+                        async () => {
+                          const updated = await categories.refetch();
+                          if (updated.error) throw updated.error;
+                        },
+                        {
+                          profileUid: conv,
+                          readback: async () => {
+                            const updated = await snapshot.refetch();
+                            if (updated.error) throw updated.error;
+                            return updated.data?.categoryId === categoryId;
+                          },
+                        },
+                      )
                     }
                   />
                 </>
@@ -276,13 +290,24 @@ export function QQConversationControls({
                 readOnly={state.role !== 'owner'}
                 disabled={disabled || !state.selfUid}
                 onSave={(value) =>
-                  act((binding) =>
-                    title.mutateAsync({
-                      ...binding,
-                      groupId: Number(conv),
-                      targetUid: state.selfUid,
-                      title: value,
-                    }),
+                  session.run(
+                    (binding) =>
+                      title.mutateAsync({
+                        ...binding,
+                        groupId: Number(conv),
+                        targetUid: state.selfUid,
+                        title: value,
+                      }),
+                    undefined,
+                    {
+                      groupCode: conv,
+                      memberUid: state.selfUid,
+                      readback: async () => {
+                        const updated = await snapshot.refetch();
+                        if (updated.error) throw updated.error;
+                        return updated.data?.selfTitle === value;
+                      },
+                    },
                   )
                 }
               />

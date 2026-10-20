@@ -48,3 +48,60 @@
   `pnpm --filter <包> exec vitest run <指定文件>` 限定范围，不以定向通过替代其余失败项的核查。
 - 未发送真实好友免打扰或账号全局状态写请求，切换、恢复与跨端同步仍待对应范围实测。
 - 已只读确认指定测试群的当前账号为群主；头衔请求不生效的业务回执与读回尚未完成定位。
+
+## 头衔清空与读回
+
+固定空头衔回归证实，原编码省略 `0x8FC/2` 内层 tag 5 与 tag 7；服务端会将字段缺失
+理解为不修改，不等于清空。现在两个空字符串均显式保留，永久常量和其他字段不变，不恢复
+有效期 UI。自己的头衔与成员编辑器都复用写会话的有界本机读回，并定向刷新群成员缓存。
+读回不匹配保留“未同步”反馈，不重复发送写请求。
+
+本批协议 40 项、桌面 44 项针对性回归通过。仅修复了已复现的清空请求缺陷，尚未取得
+非空头衔真实写入／读回／恢复证据，不宣称整项验收通过。
+
+协议事实交叉核对（不移植实现代码）：
+
+- [上游固定版本的头衔字段定义](https://github.com/SnowLuma/SnowLuma/blob/db142db9e6398c779283eab9afc3552da1e2c361/packages/proto-defs/src/oidb-actions/base.ts)
+- [原始空字段问题报告](https://github.com/SnowLuma/SnowLuma/issues/517)
+
+## 好友分组回执与读回
+
+`0x1255/0` 的请求 UID／分组字段、UIN-form 及默认分组 0 的显式存在性保持不变。
+上游在该命令单独兼容已应用码 `2001002`；本机 native 的 `decode_oidb_reply` 则将任意
+非零信封码转换为固定形状 `OIDB error <code>: <message>` 后抛出，不提供结构化错误码。
+因此在该命令的 invoke 内仅识别精确前缀 `OIDB error 2001002:`，其他业务码、网络错误、
+相似编号均继续抛出。没有修改共享传输层的成功规则，也不将该回执提升为“已读回确认”。
+
+分组编辑器保存后有界核对 `peerState.categoryId`，随后刷新分组名册和对应好友缓存。
+读回为旧值时继续显示未同步，刷新失败不重复写入。针对性回归覆盖匹配／不匹配读回、
+精确已应用码及其他错误不被吞掉。
+
+没有指定好友和原始失败业务码，本轮未做真实好友分组写入，不能确认用户原反馈就是
+上述业务码造成；保留真实移动、读回与恢复验收。
+
+- [上游固定版本的分组回执策略](https://github.com/SnowLuma/SnowLuma/blob/db142db9e6398c779283eab9afc3552da1e2c361/packages/protocol/src/oidb-services/contacts/set-friend-category.ts)
+
+头衔与分组本批合并定向回归共 123 项通过（protocol 57、desktop 60、service 6）。
+
+## API 用量盘点（待实施）
+
+以下是当前源码证据与下一步范围，不是记账已补齐的声明。
+
+| 实际调用路径 | 当前记账缺口 |
+| --- | --- |
+| `agentlab/http.ts` 的画像聊天、embedding | 成功且有 usage 时才记；缺 usage、HTTP 失败与网络失败不记 |
+| `agentlab/extract.ts` 的画像提炼、视觉描述 | 成功后手动 reportUsage；失败无请求账目 |
+| `service/account/assistant.ts` 流式多轮 | 重试是额外 HTTP 请求但不单独记；取消或 reader 异常会跳过末尾 reportUsage，即使已收 usage 也漏记 |
+| 同文件非流式摘要与整理调用 | `callApi` 直接返回 JSON，调用方没有统一回传 usage |
+| `service/account/intent_sense.ts` 三处 API 调用 | 各自 reportUsage，但 app_context 注入的端点解析器没有 onUsage，实际回调为空；意图／画像／推荐缺独立归属 |
+| `bootstrap/agentlab_config.ts` 连通性测试 | 使用无 onUsage 的临时端点，不进入当前账号记账；实际消耗请求遗漏 |
+| `agentlab/tts.ts` 远程语音合成和测试 | 当前无 token 记账接口，需区分合成请求计数与服务商计费单位，不能将字符或音频量冒充 Token |
+| `service/account/agentlab_usage.ts` | 仅保留数值记录，无未知、结果状态、请求 ID 去重；scope 只有 build/chat/assistant |
+| `renderer/views/agentlab/UsagePanel.tsx` | 全部次数直接作 token 平均分母，没有未知用量与失败／取消覆盖说明 |
+
+后续按真实请求建立稳定 ID，重试按实际尝试分别计数，同一请求的 usage 更新不可重复相加。
+缺失的分项保留未知，不用文本估算或默认 0 冒充服务端数据。UI 聚合已知 token，同时显示
+未知调用数量；本地意图模型、启发式与本地语音推理不写入 API Token。保留已有按账号／
+来源隔离，连通性测试等全局入口单独确定落点，不能靠新建同路径 store 造成覆盖竞争。
+
+本盘点尚未实施上述变更，也未完成第 7 项验收。

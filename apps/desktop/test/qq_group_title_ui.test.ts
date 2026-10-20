@@ -8,6 +8,9 @@ import { QQGroupMemberEditor } from '../src/renderer/src/components/QQGroupMembe
 const state = vi.hoisted(() => ({
   role: null as 'owner' | 'admin' | 'member' | null,
   mutate: vi.fn(async (_input: unknown) => ({ state: 'accepted' as const })),
+  readTitle: '原头衔',
+  readbackResults: [] as boolean[],
+  refetch: vi.fn(async () => undefined),
 }));
 vi.mock('../src/renderer/src/components/qq-actions/GroupActions', () => ({
   GroupActions: () => null,
@@ -19,8 +22,14 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
     available: true,
     busy: false,
     result: null,
-    run: async (action: (binding: object) => Promise<unknown>) => {
+    run: async (
+      action: (binding: object) => Promise<unknown>,
+      refresh?: () => Promise<unknown>,
+      options?: { readback?: () => Promise<boolean> },
+    ) => {
       await action({ expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' });
+      if (options?.readback) state.readbackResults.push(await options.readback());
+      await refresh?.();
       return true;
     },
   }),
@@ -31,6 +40,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       listCategories: { useQuery: () => ({}) },
       pickSendFile: { useMutation: () => ({}) },
       qqWrite: {
+        groupPolicyState: {
+          useQuery: () => ({ data: { policy: 1, rawPolicy: 1 }, isFetching: false }),
+        },
         peerState: {
           useQuery: () => ({
             data: {
@@ -43,10 +55,20 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
               groupName: '测试群',
               notifyLevel: 1,
             },
+            refetch: async () => {
+              await state.refetch();
+              return { data: { selfTitle: state.readTitle }, error: null };
+            },
           }),
         },
         memberState: {
-          useQuery: () => ({ data: { role: state.role, card: '', title: '原头衔' } }),
+          useQuery: () => ({
+            data: { role: state.role, card: '', title: '原头衔' },
+            refetch: async () => {
+              await state.refetch();
+              return { data: { title: state.readTitle }, error: null };
+            },
+          }),
         },
         ...Object.fromEntries(
           [
@@ -72,6 +94,9 @@ const cleanups: Array<() => void> = [];
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.mutate.mockClear();
+  state.readTitle = '原头衔';
+  state.readbackResults = [];
+  state.refetch.mockReset().mockResolvedValue(undefined);
 });
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
@@ -119,6 +144,23 @@ describe('专属头衔编辑权限', () => {
       targetUid: 'u_peer',
       title: '新头衔',
     });
+    expect(state.refetch).toHaveBeenCalledOnce();
+    expect(state.readbackResults).toEqual([false]);
+  });
+  it.each(['', '新头衔'])('自己的头衔保存 %s 后按实际内容核对读回', async (title) => {
+    state.role = 'owner';
+    state.readTitle = title;
+    const host = fixture(h(QQConversationControls, { kind: 'group', conv: '123' }));
+    const input = host.querySelector<HTMLInputElement>('[aria-label="我的专属头衔"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, title);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="保存我的专属头衔"]')!.click(),
+    );
+    expect(state.readbackResults).toEqual([true]);
+    expect(state.mutate).toHaveBeenCalledOnce();
   });
   it('群名与群头像只在群管理页，保存群名复用原绑定与请求', async () => {
     state.role = 'owner';

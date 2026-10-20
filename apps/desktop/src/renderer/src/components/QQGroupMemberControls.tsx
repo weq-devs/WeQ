@@ -37,10 +37,6 @@ export function QQGroupMemberEditor({
   const card = trpc.account.qqWrite.groupMemberCard.useMutation();
   const title = trpc.account.qqWrite.groupSpecialTitle.useMutation();
   const disabled = !session.available || session.busy;
-  async function refresh() {
-    const updated = await state.refetch();
-    if (updated.error) throw updated.error;
-  }
   return (
     <div className="weq-qq-write-panel">
       <QQWriteResult result={session.result} />
@@ -78,8 +74,16 @@ export function QQGroupMemberEditor({
           onSave={(value) =>
             session.run(
               (binding) => title.mutateAsync({ ...binding, groupId, targetUid: uid, title: value }),
-              refresh,
-              { groupCode, memberUid: uid },
+              undefined,
+              {
+                groupCode,
+                memberUid: uid,
+                readback: async () => {
+                  const updated = await state.refetch();
+                  if (updated.error) throw updated.error;
+                  return updated.data?.title === value;
+                },
+              },
             )
           }
         />

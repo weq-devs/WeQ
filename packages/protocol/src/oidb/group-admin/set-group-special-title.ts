@@ -21,9 +21,9 @@ export const SPECIAL_TITLE_PERMANENT = -1;
 
 const SPECIAL_TITLE_BODY = message([
   { name: 'targetUid', tag: 1, type: 'string' },
-  { name: 'specialTitle', tag: 5, type: 'string' },
+  { name: 'specialTitle', tag: 5, type: 'string', force: true },
   { name: 'expireTime', tag: 6, type: 'int32' },
-  { name: 'uinName', tag: 7, type: 'string' },
+  { name: 'uinName', tag: 7, type: 'string', force: true },
 ]);
 const SPECIAL_TITLE_REQ = message([
   { name: 'groupUin', tag: 1, type: 'uint32' },

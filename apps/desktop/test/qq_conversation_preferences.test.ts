@@ -11,6 +11,9 @@ const mock = vi.hoisted(() => ({
   mutate: vi.fn(async (_input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' })),
   refetch: vi.fn(async () => {}),
   refetchPolicy: vi.fn(async () => {}),
+  refetchCategories: vi.fn(async () => {}),
+  readCategory: 0,
+  readbacks: [] as boolean[],
 }));
 vi.mock('../src/renderer/src/components/qq-actions/GroupActions', () => ({
   GroupActions: () => null,
@@ -31,7 +34,7 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
       options?: { readback?: () => Promise<boolean> },
     ) => {
       await action({ expectedAccountUin: '10001', expectedAccountConfigId: mock.configId });
-      await options?.readback?.();
+      if (options?.readback) mock.readbacks.push(await options.readback());
       await refresh?.();
       return true;
     },
@@ -40,7 +43,15 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     account: {
-      listCategories: { useQuery: () => ({ data: [] }) },
+      listCategories: {
+        useQuery: () => ({
+          data: [{ id: 5, name: '测试分组' }],
+          refetch: async () => {
+            await mock.refetchCategories();
+            return { error: null };
+          },
+        }),
+      },
       pickSendFile: { useMutation: () => ({ mutateAsync: async () => null }) },
       qqWrite: {
         ...Object.fromEntries(
@@ -73,7 +84,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             isFetching: false,
             refetch: async () => {
               await mock.refetch();
-              return { data: { notifyLevel: mock.notifyLevel }, error: null };
+              return {
+                data: { notifyLevel: mock.notifyLevel, categoryId: mock.readCategory },
+                error: null,
+              };
             },
           }),
         },
@@ -111,6 +125,9 @@ beforeEach(() => {
   mock.mutate.mockReset().mockResolvedValue({ state: 'accepted' });
   mock.refetch.mockReset().mockResolvedValue(undefined);
   mock.refetchPolicy.mockReset().mockResolvedValue(undefined);
+  mock.refetchCategories.mockReset().mockResolvedValue(undefined);
+  mock.readCategory = 0;
+  mock.readbacks = [];
 });
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
@@ -182,4 +199,25 @@ it.each([0, 1, 2, 3, 4, 99])('好友提醒级别 %s 不能冒充免打扰的权�
   expect(host.querySelector('[aria-label="消息免打扰"]')!.getAttribute('aria-checked')).toBe(
     'mixed',
   );
+});
+
+it.each([0, 5])('移入已有分组保存后核对实际读回 %s，不将受理当作同步', async (readCategory) => {
+  mock.readCategory = readCategory;
+  const host = fixture('c2c');
+  const select = host.querySelector<HTMLSelectElement>('[aria-label="好友分组"]')!;
+  act(() => {
+    select.value = '5';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="保存好友分组"]')!.click(),
+  );
+  expect(mock.mutate).toHaveBeenCalledWith({
+    expectedAccountUin: '10001',
+    expectedAccountConfigId: 'source-a',
+    uid: 'u_friend',
+    categoryId: 5,
+  });
+  expect(mock.readbacks).toEqual([readCategory === 5]);
+  expect(mock.refetchCategories).toHaveBeenCalledOnce();
 });
