@@ -9,7 +9,11 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
-import { groupFileSelectedKeys, resolveGroupFileSelection } from '../../lib/groupFileSelection';
+import {
+  collectGroupFileSubtree,
+  groupFileSelectedKeys,
+  resolveGroupFileSelection,
+} from '../../lib/groupFileSelection';
 import { ArrowLeft, Check, ChevronRight, Loader2, Minus, X } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import { ExportSaveActions } from '../../components/ExportSaveActions';
@@ -58,33 +62,11 @@ async function collectSubtree(
   folder: { id: string; path: string[] },
   isCurrent = () => true,
 ): Promise<GroupFileEntry[]> {
-  const out: GroupFileEntry[] = [];
-  const queue: Array<{ dir: string; path: string[] }> = [{ dir: folder.id, path: folder.path }];
-  const seen = new Set<string>([folder.id]);
-
-  while (queue.length > 0) {
-    if (!isCurrent()) throw new Error('文件夹选择已停止');
-    const { dir, path } = queue.shift()!;
-    const listing = await client.account.listGroupFiles.query({ groupCode, folderId: dir });
-    if (!isCurrent()) throw new Error('文件夹选择已停止');
-    for (const f of listing.files) {
-      out.push({
-        fileId: f.fileId,
-        fileName: f.fileName,
-        fileSize: f.fileSize,
-        busId: f.busId,
-        uploaderName: f.uploaderName,
-        path,
-      });
-    }
-    for (const sub of listing.folders) {
-      if (!sub.folderId || seen.has(sub.folderId)) continue;
-      seen.add(sub.folderId);
-      queue.push({ dir: sub.folderId, path: [...path, sub.folderName || sub.folderId] });
-    }
-  }
-
-  return out;
+  return collectGroupFileSubtree(
+    folder,
+    (dir) => client.account.listGroupFiles.query({ groupCode, folderId: dir }),
+    isCurrent,
+  );
 }
 
 /** 文件的路径段是否以 prefix 开头（即文件位于该文件夹子树下）。 */

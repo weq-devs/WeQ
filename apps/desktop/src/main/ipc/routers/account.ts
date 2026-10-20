@@ -565,11 +565,13 @@ export interface QzoneAlbumMediaExportResult {
 
 // ---- 群文件 (OIDB 0x6D8_1 列表 / 0x6D6_2 下载直链) ----
 
-const groupFileInput = z.object({
-  groupCode: z.string().min(1),
-  /** 目录:根目录 '/',子目录传 folderId。 */
-  folderId: z.string().optional(),
-});
+const groupFileInput = z
+  .object({
+    groupCode: z.string().min(1),
+    /** 目录:根目录 '/',子目录传 folderId。 */
+    folderId: z.string().optional(),
+  })
+  .merge(exportAccountBindingInput);
 
 const groupFileDownloadInput = z.object({
   groupCode: z.string().min(1),
@@ -4704,12 +4706,24 @@ export const accountRouter = router({
         input.expectedAccountConfigId,
       );
       requireQqOnlineForAlbum(services);
+      const sourceConfigId = services.accountConfig.getRecord()?.configId;
+      const sourcePid = services.accountConfig.getRecord()?.qqPid;
       return services.messageSend.sendFile({
         peerType: input.peerType,
         targetId: input.targetId,
         path: input.path,
         ...(input.fileName ? { fileName: input.fileName } : {}),
         ...(input.folderId ? { folderId: input.folderId } : {}),
+        beforeSend: () => {
+          if (
+            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+              services ||
+            services.accountConfig.getRecord()?.configId !== sourceConfigId ||
+            services.accountConfig.getRecord()?.qqPid !== sourcePid
+          )
+            throw new Error('账号数据源已切换，已停止发送文件');
+          requireQqOnlineForAlbum(services);
+        },
       });
     }),
 
@@ -5663,9 +5677,23 @@ export const accountRouter = router({
 
   /** 列出群文件某个目录下的文件+子文件夹 (OIDB 0x6D8_1)。需要在线的 QQ 进程。 */
   listGroupFiles: procedure.input(groupFileInput).query(async ({ input }) => {
-    const services = requireServices();
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
     requireQqOnlineForAlbum(services);
+    const sourceConfigId = services.accountConfig.getRecord()?.configId;
+    const sourcePid = services.accountConfig.getRecord()?.qqPid;
     const listing = await services.groupFile.list(Number(input.groupCode), input.folderId ?? '/');
+    if (
+      requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+        services ||
+      services.accountConfig.getRecord()?.configId !== sourceConfigId ||
+      services.accountConfig.getRecord()?.qqPid !== sourcePid
+    )
+      throw new Error('账号数据源已切换，已丢弃旧目录结果');
+    if (listing.targetDirectory !== (input.folderId || '/'))
+      throw new Error('返回目录与请求目标不一致');
     services.contentSearch?.remember(
       listing.files.map((file) => ({
         target: {

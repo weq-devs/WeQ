@@ -1,4 +1,4 @@
-import { act, createElement as h, type ReactNode } from 'react';
+import { act, createElement as h, useEffect, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ExportSavePolicy } from '@weq/service';
@@ -14,6 +14,7 @@ import {
 import { localMediaUrl } from '../src/renderer/src/lib/resourceUrl';
 import { MessageContextMenu } from '../src/renderer/src/im-template/template/messageContextMenu';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
+import { useViewState } from '../src/renderer/src/state/view';
 import { makeSolidPng } from '@weq/protocol';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -28,6 +29,7 @@ const state = vi.hoisted(() => ({
     }),
   ),
   save: vi.fn(async (_input: unknown): Promise<string | null> => 'media-task'),
+  exportFiles: vi.fn(async (_input: unknown) => 'group-files-task'),
   receipt: vi.fn(async (_input: unknown) => ({
     status: 'completed' as string,
     error: undefined as string | undefined,
@@ -66,9 +68,6 @@ vi.mock('../src/renderer/src/views/cache/CacheShared', async (importOriginal) =>
     sentinelRef: { current: null },
   }),
 }));
-vi.mock('../src/renderer/src/components/qq-actions/GroupFileActions', () => ({
-  GroupFileActions: () => null,
-}));
 vi.mock('../src/renderer/src/lib/target', () => ({
   get IS_WEB() {
     return state.web;
@@ -94,17 +93,60 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {
       listGroupFiles: { query: state.files },
+      startGroupFileExport: { mutate: state.exportFiles },
       mediaSave: { save: { mutate: state.save }, cancel: { mutate: state.cancel } },
       getExportOutputReceipt: { query: state.receipt },
       exportTaskDownload: { mutate: state.download },
     },
   },
   trpc: {
+    useUtils: () => ({}),
     bootstrap: {
       getSettings: { useQuery: () => ({ data: { voiceTranscribe: { modelId: state.model } } }) },
     },
     account: {
-      getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
+      getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.configId } }) },
+      getGroupAlbumAccessState: {
+        useQuery: () => ({
+          data: {
+            qqOnline: true,
+            attachEnabled: true,
+            hasA2: true,
+            hasD2: true,
+            hasD2Key: true,
+            hasGuid: true,
+          },
+        }),
+      },
+      qqActions: {
+        fileSummary: { useQuery: () => ({ data: undefined }) },
+        folders: { useQuery: () => ({ data: undefined }) },
+        groupPermissions: { useQuery: () => ({ data: { canManage: true, selfUin: '10001' } }) },
+      },
+      listGroupFiles: {
+        useQuery: (input: {
+          groupCode: string;
+          folderId: string;
+          expectedAccountConfigId?: string;
+        }) => {
+          const [data, setData] = useState<Awaited<ReturnType<typeof state.files>>>();
+          const key = JSON.stringify(input);
+          useEffect(() => {
+            let current = true;
+            void state.files(JSON.parse(key)).then((value) => {
+              if (current) setData(value);
+            });
+            return () => {
+              current = false;
+            };
+          }, [key]);
+          return {
+            data,
+            isFetching: !data,
+            refetch: async () => ({ data: await state.files(input), error: null }),
+          };
+        },
+      },
       ocrCacheLookup: { useQuery: () => ({ data: undefined }) },
       ocrChatImage: { useMutation: () => ({ mutateAsync: vi.fn() }) },
       fileResource: { download: { open: { useMutation: () => ({ mutate: state.open }) } } },
@@ -115,12 +157,14 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 const cleanup: Array<() => void> = [];
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  useViewState.setState({ openedUin: '10001' });
   state.web = false;
   state.configId = 'source-a';
   state.model = '';
   state.cacheEntries = [];
   state.prepare.mockReset().mockResolvedValue({ mode: 'before', directory: 'selected' });
   state.save.mockReset().mockResolvedValue('media-task');
+  state.exportFiles.mockClear();
   state.receipt.mockReset().mockResolvedValue({ status: 'completed', error: undefined });
   state.download.mockClear();
   state.cancel.mockClear();
@@ -133,6 +177,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   Reflect.deleteProperty(window, 'electron');
+  useViewState.setState({ openedUin: null });
 });
 async function mount(
   element: ReactNode = h(MediaSourceSave, {
@@ -410,6 +455,68 @@ it('图片灯箱选择器取消后仍保留原图和缩放状态，不关闭浏�
     expect(state.toast).not.toHaveBeenCalled();
   } finally {
     act(() => document.querySelector<HTMLButtonElement>('.weq-lightbox-close')?.click());
+  }
+});
+
+it('群文件与文件夹所选范围复用保存偏好，取消不创建任务，确认后保留目录结构', async () => {
+  const original = state.files.getMockImplementation()!;
+  const common = {
+    fileName: '资料.txt',
+    fileSize: 1,
+    busId: 102,
+    uploadedTime: 0,
+    uploaderName: '',
+  };
+  state.files.mockImplementation(async (input) => {
+    const directory = (input as { folderId?: string }).folderId ?? '/';
+    return {
+      targetDirectory: directory,
+      files: [{ ...common, fileId: directory === '/' ? 'root-file' : 'nested-file' }],
+      folders:
+        directory === '/'
+          ? [
+              {
+                folderId: 'folder-a',
+                folderName: '目录甲',
+                parentDirectoryId: '/',
+                totalFileCount: 1,
+                creatorUin: 10001,
+                creatorName: '自己',
+                createTime: 0,
+                modifiedTime: 0,
+              },
+            ]
+          : [],
+    };
+  });
+  try {
+    const f = await mount(
+      h(GroupFileDialog, { groupCode: '123', groupName: '合成群', onClose: vi.fn() }),
+    );
+    await act(async () => {});
+    act(() => f.host.querySelector<HTMLInputElement>('[aria-label="选择当前可见项目"]')!.click());
+    const save = () => f.host.querySelector<HTMLButtonElement>('[aria-label="保存所选项目"]')!;
+    state.prepare.mockResolvedValueOnce(null);
+    await act(async () => save().click());
+    expect(state.exportFiles).not.toHaveBeenCalled();
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="选择当前可见项目"]')!.checked).toBe(
+      true,
+    );
+    await act(async () => save().click());
+    expect(state.exportFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedAccountUin: '10001',
+        expectedAccountConfigId: 'source-a',
+        groupCode: '123',
+        files: expect.arrayContaining([
+          expect.objectContaining({ fileId: 'root-file', path: [] }),
+          expect.objectContaining({ fileId: 'nested-file', path: ['目录甲'] }),
+        ]),
+      }),
+    );
+    expect(state.exportFiles).toHaveBeenCalledTimes(1);
+  } finally {
+    state.files.mockImplementation(original);
   }
 });
 it.each(['photoWall', 'qzone'] as const)('%s 缓存原有灯箱保存复用公共策略', async (kind) => {

@@ -1,6 +1,36 @@
 import type { GroupFileEntry } from '../views/export/GroupFileExportLightbox';
 import type { GroupFileListing, GroupFolderWire } from './groupFile';
 
+/** 两处群文件选择共用子树遍历，按目录身份防环，换源或超限时停止。 */
+export async function collectGroupFileSubtree(
+  folder: { id: string; path: string[] },
+  load: (directory: string) => Promise<GroupFileListing>,
+  isCurrent = () => true,
+): Promise<GroupFileEntry[]> {
+  const out: GroupFileEntry[] = [];
+  const queue = [{ dir: folder.id, path: folder.path }];
+  const seen = new Set([folder.id]);
+  for (let index = 0; index < queue.length; index++) {
+    if (!isCurrent()) throw new Error('文件夹选择已停止');
+    const current = queue[index]!;
+    const listing = await load(current.dir);
+    if (!isCurrent()) throw new Error('文件夹选择已停止');
+    if (listing.targetDirectory !== current.dir) throw new Error('返回目录与选择范围不一致');
+    for (const file of listing.files) out.push({ ...file, path: current.path });
+    if (out.length > 100000) throw new Error('所选文件过多，请分批保存');
+    for (const child of listing.folders) {
+      if (!child.folderId || seen.has(child.folderId)) continue;
+      seen.add(child.folderId);
+      if (seen.size > 4096) throw new Error('所选目录过多，请分批保存');
+      queue.push({
+        dir: child.folderId,
+        path: [...current.path, child.folderName || child.folderId],
+      });
+    }
+  }
+  return out;
+}
+
 const inside = (path: readonly string[], parent: readonly string[]) =>
   parent.every((part, index) => path[index] === part);
 export function groupFileSelectedKeys(
