@@ -194,13 +194,23 @@ export function QQConversationControls({
                 initial={state.selfCard}
                 disabled={disabled || !state.selfUid}
                 onSave={(value) =>
-                  act((binding) =>
-                    card.mutateAsync({
-                      ...binding,
-                      groupId: Number(conv),
-                      targetUid: state.selfUid,
-                      card: value,
-                    }),
+                  session.run(
+                    (binding) =>
+                      card.mutateAsync({
+                        ...binding,
+                        groupId: Number(conv),
+                        targetUid: state.selfUid,
+                        card: value,
+                      }),
+                    undefined,
+                    {
+                      groupCode: conv,
+                      readback: async () => {
+                        const updated = await snapshot.refetch();
+                        if (updated.error) throw updated.error;
+                        return updated.data?.selfCard === value;
+                      },
+                    },
                   )
                 }
               />

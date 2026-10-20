@@ -68,7 +68,12 @@ export function useQQWriteSession(scope: string) {
   async function run(
     action: (binding: QQWriteBinding) => Promise<QQWriteOutcome>,
     refresh?: () => Promise<unknown>,
-    options?: { refreshCaches?: boolean; backgroundRefresh?: boolean },
+    options?: {
+      refreshCaches?: boolean;
+      backgroundRefresh?: boolean;
+      groupCode?: string;
+      readback?: () => Promise<boolean>;
+    },
   ): Promise<boolean> {
     if (
       !binding ||
@@ -95,6 +100,23 @@ export function useQQWriteSession(scope: string) {
       // 刷新失败与远端操作失败分开，不能诱导用户重发已经成功的写请求。
       const refreshAfterWrite = async () => {
         try {
+          if (options?.readback) {
+            let synced = false;
+            // 只重读本地快照，不重复写请求；切号、卸载或新操作后停止。
+            for (const delay of [0, 350, 1000, 2500]) {
+              if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+              if (!current() || operation.current !== capturedOperation) return;
+              synced = await options.readback();
+              if (synced) break;
+            }
+            if (!current() || operation.current !== capturedOperation) return;
+            if (!synced)
+              setResult({
+                key: captured,
+                text: `${qqWriteOutcomeText(outcome)}；本机尚未同步，请稍后重新读取`,
+                error: false,
+              });
+          }
           await Promise.all([
             refresh?.(),
             utils.account.listRecentContacts.invalidate(),
@@ -106,6 +128,17 @@ export function useQQWriteSession(scope: string) {
             utils.account.getProfilesByUids.invalidate(),
             utils.account.listAllGroups.invalidate(),
             utils.account.getGroupDetail.invalidate(),
+            ...(options?.groupCode
+              ? [
+                  utils.account.listGroupMembers.invalidate({ groupCode: options.groupCode }),
+                  utils.account.listGroupMembersByLevel.invalidate({
+                    groupCode: options.groupCode,
+                  }),
+                  utils.account.getGroupMembersByUids.invalidate({ groupCode: options.groupCode }),
+                  utils.account.getGroupMembersByUins.invalidate({ groupCode: options.groupCode }),
+                  utils.account.searchGroupMembers.invalidate({ groupCode: options.groupCode }),
+                ]
+              : []),
           ]);
         } catch {
           if (current() && operation.current === capturedOperation)

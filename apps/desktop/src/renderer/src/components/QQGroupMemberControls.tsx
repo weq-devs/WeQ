@@ -55,7 +55,15 @@ export function QQGroupMemberEditor({
             onSave={(value) =>
               session.run(
                 (binding) => card.mutateAsync({ ...binding, groupId, targetUid: uid, card: value }),
-                refresh,
+                undefined,
+                {
+                  groupCode,
+                  readback: async () => {
+                    const updated = await state.refetch();
+                    if (updated.error) throw updated.error;
+                    return updated.data?.card === value;
+                  },
+                },
               )
             }
           />
@@ -70,6 +78,7 @@ export function QQGroupMemberEditor({
             session.run(
               (binding) => title.mutateAsync({ ...binding, groupId, targetUid: uid, title: value }),
               refresh,
+              { groupCode },
             )
           }
         />
