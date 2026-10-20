@@ -130,7 +130,11 @@ describe('消息菜单 +1', () => {
       };
       try {
         await act(async () => root.render(createElement(ChatPane, props)));
-        expect(host.querySelector('.weq-message-repeat')).not.toBeNull();
+        const repeat = host.querySelector('.weq-message-repeat');
+        expect(repeat).not.toBeNull();
+        expect(repeat?.parentElement?.classList.contains('weq-repeat-content')).toBe(true);
+        expect(repeat?.parentElement?.querySelector('.message-content')).not.toBeNull();
+        expect(repeat?.parentElement?.querySelector('.weq-message-heading')).toBeNull();
         await openMenu();
         expect(menuButton()?.disabled).toBe(false);
         await act(async () => menuButton()!.click());

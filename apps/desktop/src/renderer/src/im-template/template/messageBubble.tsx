@@ -461,16 +461,14 @@ export function MessageBubble({
           ) : null}
           <MessageProvenance message={message} />
         </div>
-        {renderMessageWithRegistry(
-          {
-            message,
-            conversation,
-            sender,
-            mine,
-          },
-          renderers,
+        {repeatAction ? (
+          <div className="weq-repeat-content">
+            {renderMessageWithRegistry({ message, conversation, sender, mine }, renderers)}
+            {repeatAction}
+          </div>
+        ) : (
+          renderMessageWithRegistry({ message, conversation, sender, mine }, renderers)
         )}
-        {repeatAction}
         {/* 贴表情：悬停某一枚会弹出回应人名单（靠在线 QQ 实时查，见 0x9083_1）；
             只有群聊 + 有会话内序号时才可查。 */}
         <SetEmojiReactions
