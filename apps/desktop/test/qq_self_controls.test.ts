@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
   queryOptions: { refetchInterval: false as number | false },
   invalidate: vi.fn(async () => undefined),
   mutate: vi.fn(async (_input: unknown) => ({ state: 'accepted' as const })),
+  pick: vi.fn<() => Promise<{ path: string } | null>>(async () => null),
 }));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => ({
@@ -85,7 +86,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         selfAvatar: { useMutation: () => ({ mutateAsync: state.mutate }) },
         onlineStatus: { useMutation: () => ({ mutateAsync: state.mutate }) },
       },
-      pickSendFile: { useMutation: () => ({ mutateAsync: async () => null }) },
+      pickSendFile: { useMutation: () => ({ mutateAsync: state.pick }) },
       getSystemFaces: {
         useQuery: () => ({
           data: [
@@ -135,6 +136,7 @@ beforeEach(() => {
   state.nick = '原昵称';
   state.invalidate.mockClear();
   state.mutate.mockClear();
+  state.pick.mockReset().mockResolvedValue(null);
 });
 afterEach(() => {
   for (const close of cleanup.splice(0)) close();
@@ -143,6 +145,42 @@ afterEach(() => {
 });
 
 describe('个人资料编辑入口', () => {
+  it('选头像期间切换数据源不提交旧文件，并恢复按钮', async () => {
+    let finish!: (file: { path: string }) => void;
+    state.pick.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const f = fixture();
+    const avatarButton = () => f.host.querySelector<HTMLButtonElement>('[aria-label="更换头像"]')!;
+    act(() => avatarButton().click());
+    expect(avatarButton().disabled).toBe(true);
+    state.configId = 'source-b';
+    f.render();
+    await act(async () => finish({ path: '/synthetic/avatar.png' }));
+    expect(state.mutate).not.toHaveBeenCalled();
+    expect(avatarButton().disabled).toBe(false);
+  });
+  it('头像位于基本字段前，昵称与性别分组，签名独立占满编辑区', () => {
+    const f = fixture();
+    const header = f.host.querySelector('[aria-label="个人资料概览"]')!;
+    expect(header).not.toBeNull();
+    expect(header.textContent).toContain('10001');
+    expect(header.querySelector('[aria-label="更换头像"]')).not.toBeNull();
+    const basic = f.host.querySelector('[aria-label="基本资料编辑"]')!;
+    expect(basic.querySelector('[aria-label="QQ 昵称"]')).not.toBeNull();
+    expect(basic.querySelector('[aria-label="性别"]')).not.toBeNull();
+    expect(basic.querySelector('[aria-label="个性签名"]')).toBeNull();
+    const signature = f.host.querySelector('[aria-label="签名编辑"]')!;
+    expect(signature.querySelector('textarea')).not.toBeNull();
+    expect(header.compareDocumentPosition(basic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      basic.compareDocumentPosition(signature) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
   it('基础状态在扩展状态上方，扩展草稿实时预览且不自动提交', () => {
     const f = fixture();
     const basic = f.host.querySelector('[aria-label="在线状态"]')!;

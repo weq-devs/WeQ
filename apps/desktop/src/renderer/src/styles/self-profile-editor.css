@@ -1,0 +1,57 @@
+.weq-self-profile-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 0 18px;
+}
+
+.weq-self-profile-avatar {
+  position: relative;
+  flex: 0 0 64px;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--weq-bg-surface);
+  cursor: pointer;
+}
+
+.weq-self-profile-avatar:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 4px;
+}
+
+.weq-self-profile-avatar:disabled { cursor: not-allowed; }
+.weq-self-profile-avatar .weq-avatar-img,
+.weq-self-profile-avatar .weq-avatar-fallback { border-radius: inherit; }
+.weq-self-profile-avatar-action {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--weq-bg-surface);
+  border-radius: 50%;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  box-shadow: 0 0 0 1px var(--weq-border-strong);
+}
+
+.weq-self-profile-identity { display: grid; gap: 5px; min-width: 0; }
+.weq-self-profile-identity strong { font-size: 15px; overflow-wrap: anywhere; color: var(--weq-fg-primary); }
+.weq-self-profile-identity > span { font-size: 12px; color: var(--weq-fg-muted); }
+.weq-self-profile-basics { display: grid; grid-template-columns: minmax(0, 1fr) minmax(130px, 0.65fr); gap: 16px; }
+.weq-self-profile-basics .weq-set-row,
+.weq-self-profile-signature .weq-set-row { flex-direction: column; align-items: stretch; gap: 7px; }
+.weq-self-profile-basics .weq-set-row-ctrl,
+.weq-self-profile-signature .weq-set-row-ctrl { width: 100%; max-width: none; }
+.weq-self-profile-basics .weq-qq-write-field,
+.weq-self-profile-signature .weq-qq-write-field { width: 100%; align-items: flex-start; }
+.weq-self-profile-signature textarea.weq-qq-write-input { min-height: 100px; max-height: 240px; }
+.weq-self-profile-feedback { min-height: 20px; font-size: 12px; overflow-wrap: anywhere; }
+.weq-self-profile-feedback .weq-qq-write-result { margin: 4px 0; }
+html[data-theme="dark"] .weq-self-profile-avatar-action { border-color: var(--weq-bg-surface); }
+@media (max-width: 520px) { .weq-self-profile-basics { grid-template-columns: minmax(0, 1fr); gap: 0; } }

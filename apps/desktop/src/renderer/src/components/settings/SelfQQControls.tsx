@@ -1,10 +1,12 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { ChevronDown, ImageUp, RefreshCw, Save, Smile, X } from 'lucide-react';
+import { ChevronDown, ImageUp, Loader2, RefreshCw, Save, Smile, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { Card, Row } from './controls';
 import { FacePicker } from '../compose/FacePicker';
 import { FaceEmoji } from '../FaceEmoji';
+import { QqAvatar } from '../QqAvatar';
+import '../../styles/self-profile-editor.css';
 import { LiveStatusReadout } from '../qq-actions/ChatActions';
 import { ExtendedStatusAction } from '../qq-actions/ExtendedStatusAction';
 import {
@@ -45,6 +47,7 @@ export function SelfQQControls() {
   const [revision, setRevision] = useState(0);
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState('');
+  const [feedbackField, setFeedbackField] = useState('QQ 状态');
   const [wording, setWording] = useState('');
   const [faceId, setFaceId] = useState('');
   const [choosingFace, setChoosingFace] = useState(false);
@@ -58,6 +61,7 @@ export function SelfQQControls() {
     setFaceId('');
     setChoosingFace(false);
     setError('');
+    setFeedbackField('QQ 状态');
     setSyncIdentity(null);
   }, [identityKey]);
   useEffect(() => {
@@ -81,7 +85,8 @@ export function SelfQQControls() {
     const updated = await profile.refetch();
     if (updated.error) throw updated.error;
   }
-  const act = async (action: Parameters<typeof session.run>[0]) => {
+  const act = async (action: Parameters<typeof session.run>[0], field = 'QQ 状态') => {
+    setFeedbackField(field);
     const ok = await session.run(action, refresh, { backgroundRefresh: true });
     if (ok && currentIdentity.current === identityKey) {
       setSyncIdentity(identityKey);
@@ -95,7 +100,8 @@ export function SelfQQControls() {
     setError('');
     try {
       const file = await picker.mutateAsync({ kind: 'image' });
-      if (file) await act((binding) => avatar.mutateAsync({ ...binding, source: file.path }));
+      if (file && currentIdentity.current === capturedIdentity)
+        await act((binding) => avatar.mutateAsync({ ...binding, source: file.path }), '头像');
     } catch (cause) {
       if (currentIdentity.current === capturedIdentity)
         setError(cause instanceof Error ? cause.message : String(cause));
@@ -112,6 +118,10 @@ export function SelfQQControls() {
     wording.trim().length > 0 &&
     faceId !== '' &&
     statusFaces.some((face) => String(face.id) === faceId);
+  const result = session.result
+    ? { ...session.result, text: `${feedbackField}：${session.result.text}` }
+    : null;
+  const profileFeedback = feedbackField !== 'QQ 状态';
   return (
     <section className="weq-qq-write-panel" aria-label="QQ 资料与状态">
       <div className="weq-qq-write-toolbar">
@@ -123,6 +133,7 @@ export function SelfQQControls() {
           title="重新读取"
           disabled={session.busy || picking || profile.isFetching}
           onClick={() => {
+            setError('');
             void refresh()
               .then(() => setRevision((value) => value + 1))
               .catch((cause: unknown) =>
@@ -133,61 +144,88 @@ export function SelfQQControls() {
           <RefreshCw size={16} />
         </button>
       </div>
-      <QQWriteResult result={session.result} />
       {error && <p role="alert">{error}</p>}
       <div key={`${session.binding?.expectedAccountConfigId}:${revision}`}>
         <Card title="QQ 资料">
+          <div className="weq-self-profile-header" role="group" aria-label="个人资料概览">
+            <button
+              type="button"
+              className="weq-self-profile-avatar"
+              aria-label="更换头像"
+              title="更换头像"
+              disabled={disabled}
+              aria-busy={picking || (session.busy && feedbackField === '头像')}
+              onClick={() => void pickAvatar()}
+            >
+              <QqAvatar uin={session.binding?.expectedAccountUin} size={64} />
+              <span className="weq-self-profile-avatar-action" aria-hidden="true">
+                {picking || (session.busy && feedbackField === '头像') ? (
+                  <Loader2 size={14} className="weq-spin" />
+                ) : (
+                  <ImageUp size={14} />
+                )}
+              </span>
+            </button>
+            <div className="weq-self-profile-identity">
+              <strong>{ownProfile?.nick || 'QQ 资料'}</strong>
+              <span>QQ {session.binding?.expectedAccountUin ?? '尚未读取'}</span>
+            </div>
+          </div>
           {!ownProfile && (
             <p className="weq-set-empty">
               {profile.isLoading ? '读取资料中…' : '账号资料暂未读取'}
             </p>
           )}
-          <QQWriteTextRow
-            label="QQ 昵称"
-            allowEmpty={false}
-            initial={ownProfile?.nick ?? null}
-            maxLength={256}
-            disabled={disabled}
-            onSave={(nickname) =>
-              act((binding) => patch.mutateAsync({ ...binding, patch: { nickname } }))
-            }
-          />
-          <QQWriteTextRow
-            label="个性签名"
-            initial={ownProfile?.signature ?? null}
-            multiline
-            maxLength={4096}
-            disabled={disabled}
-            onSave={(signature) =>
-              act((binding) => patch.mutateAsync({ ...binding, patch: { signature } }))
-            }
-          />
-          <QQWriteSelectRow
-            label="性别"
-            initial={ownProfile?.gender ?? null}
-            disabled={disabled}
-            options={[
-              { value: 0, label: '未设置' },
-              { value: 1, label: '男' },
-              { value: 2, label: '女' },
-            ]}
-            onSave={(gender) =>
-              gender === 0 || gender === 1 || gender === 2
-                ? act((binding) => patch.mutateAsync({ ...binding, patch: { gender } }))
-                : Promise.resolve(false)
-            }
-          />
-          <QQWriteActionRow
-            label="更换头像"
-            disabled={disabled}
-            icon={<ImageUp size={15} />}
-            onClick={() => {
-              void pickAvatar();
-            }}
-          />
+          <div className="weq-self-profile-basics" role="group" aria-label="基本资料编辑">
+            <QQWriteTextRow
+              label="QQ 昵称"
+              allowEmpty={false}
+              initial={ownProfile?.nick ?? null}
+              maxLength={256}
+              disabled={disabled}
+              onSave={(nickname) =>
+                act((binding) => patch.mutateAsync({ ...binding, patch: { nickname } }), 'QQ 昵称')
+              }
+            />
+            <QQWriteSelectRow
+              label="性别"
+              initial={ownProfile?.gender ?? null}
+              disabled={disabled}
+              options={[
+                { value: 0, label: '未设置' },
+                { value: 1, label: '男' },
+                { value: 2, label: '女' },
+              ]}
+              onSave={(gender) =>
+                gender === 0 || gender === 1 || gender === 2
+                  ? act((binding) => patch.mutateAsync({ ...binding, patch: { gender } }), '性别')
+                  : Promise.resolve(false)
+              }
+            />
+          </div>
+          <div className="weq-self-profile-signature" role="group" aria-label="签名编辑">
+            <QQWriteTextRow
+              label="个性签名"
+              initial={ownProfile?.signature ?? null}
+              multiline
+              maxLength={4096}
+              disabled={disabled}
+              onSave={(signature) =>
+                act(
+                  (binding) => patch.mutateAsync({ ...binding, patch: { signature } }),
+                  '个性签名',
+                )
+              }
+            />
+          </div>
+          <div className="weq-self-profile-feedback" aria-live="polite">
+            {profileFeedback && session.busy && <p role="status">正在保存{feedbackField}…</p>}
+            {profileFeedback && <QQWriteResult result={result} />}
+          </div>
         </Card>
         <Card title="QQ 状态">
           <LiveStatusReadout />
+          {!profileFeedback && <QQWriteResult result={result} />}
           <QQWriteSelectRow
             label="在线状态"
             initial={profile.data?.status?.subType ? null : (profile.data?.status?.type ?? null)}
