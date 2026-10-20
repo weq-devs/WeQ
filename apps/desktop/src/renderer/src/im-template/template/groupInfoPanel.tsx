@@ -10,7 +10,7 @@ import {
   UserMinus,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { Avatar, GroupInfoSkeleton, GroupMembersSkeleton } from './primitives';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
 import type { GroupConversationView } from './conversationDetailsTypes';
@@ -32,6 +32,7 @@ export function GroupInfoPanel({
   profileLoading,
   onOpenDetail,
   onOpenMember,
+  onMemberContextMenu,
   onOpenLeftMembers,
   onOpenAnnouncements,
   onOpenEssence,
@@ -65,6 +66,10 @@ export function GroupInfoPanel({
    * 模板层只递一个「用户点了我」的信号。
    */
   onOpenLeftMembers?: () => void;
+  onMemberContextMenu?: (
+    event: ReactMouseEvent,
+    member: GroupConversationView['members'][number],
+  ) => void;
   onOpenAnnouncements?: () => void;
   onOpenEssence?: () => void;
   onOpenAlbums?: () => void;
@@ -283,6 +288,9 @@ export function GroupInfoPanel({
               role={onOpenMember ? 'button' : undefined}
               tabIndex={onOpenMember ? 0 : undefined}
               title={onOpenMember ? '查看资料' : undefined}
+              onContextMenu={
+                onMemberContextMenu ? (event) => onMemberContextMenu(event, member) : undefined
+              }
               onClick={
                 onOpenMember
                   ? (event) => onOpenMember(member, { x: event.clientX, y: event.clientY })

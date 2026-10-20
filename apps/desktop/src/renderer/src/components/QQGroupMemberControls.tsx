@@ -9,12 +9,20 @@ export function QQGroupMemberControls({ groupCode, uid }: { groupCode: string; u
   return (
     <details className="weq-qq-member-edit" onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary>群名片与头衔</summary>
-      {open && <OpenQQMemberControls key={`${groupCode}:${uid}`} groupCode={groupCode} uid={uid} />}
+      {open && <QQGroupMemberEditor key={`${groupCode}:${uid}`} groupCode={groupCode} uid={uid} />}
     </details>
   );
 }
 
-function OpenQQMemberControls({ groupCode, uid }: { groupCode: string; uid: string }) {
+export function QQGroupMemberEditor({
+  groupCode,
+  uid,
+  field = 'all',
+}: {
+  groupCode: string;
+  uid: string;
+  field?: 'all' | 'title';
+}) {
   const session = useQQWriteSession(`member:${groupCode}:${uid}`);
   const groupId = Number(groupCode);
   const state = trpc.account.qqWrite.memberState.useQuery(
@@ -38,18 +46,20 @@ function OpenQQMemberControls({ groupCode, uid }: { groupCode: string; uid: stri
       <QQWriteResult result={session.result} />
       {state.error && <p role="alert">{state.error.message}</p>}
       <div key={`${session.binding?.expectedAccountConfigId}:${uid}`}>
-        <QQWriteTextRow
-          label="群名片"
-          initial={state.data?.card ?? null}
-          disabled={disabled}
-          maxLength={256}
-          onSave={(value) =>
-            session.run(
-              (binding) => card.mutateAsync({ ...binding, groupId, targetUid: uid, card: value }),
-              refresh,
-            )
-          }
-        />
+        {field === 'all' && (
+          <QQWriteTextRow
+            label="群名片"
+            initial={state.data?.card ?? null}
+            disabled={disabled}
+            maxLength={256}
+            onSave={(value) =>
+              session.run(
+                (binding) => card.mutateAsync({ ...binding, groupId, targetUid: uid, card: value }),
+                refresh,
+              )
+            }
+          />
+        )}
         <QQWriteTextRow
           label="专属头衔"
           initial={state.data?.title ?? null}

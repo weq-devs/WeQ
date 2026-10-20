@@ -405,6 +405,7 @@ export function ChatPane({
   onOpenGroupEssence,
   onOpenGroupInfoDetail,
   onRenameGroupMember,
+  onChangeGroupMemberTitle,
   onKickGroupMember,
   onOpenConversationSettings,
   onOpenGroupBug,
@@ -510,6 +511,12 @@ export function ChatPane({
   ) => void;
   /** 群管理「修改群昵称」：应用层开弹窗（与群公告 / 群精华同层）。 */
   onRenameGroupMember?: (
+    conversation: Extract<Conversation, { type: 'group' }>,
+    sender: User,
+    targetUid: string,
+  ) => void;
+  /** 群主编辑成员头衔，应用层复用现有编辑器。 */
+  onChangeGroupMemberTitle?: (
     conversation: Extract<Conversation, { type: 'group' }>,
     sender: User,
     targetUid: string,
@@ -2072,6 +2079,17 @@ export function ChatPane({
       return;
     }
     onRenameGroupMember?.(conversation, sender, targetUid);
+  }
+
+  function startTitleEdit(sender: User) {
+    setAvatarMenu(null);
+    if (conversation?.type !== 'group' || conversation.group.role !== 'owner') return;
+    const targetUid = groupTargetUid(sender);
+    if (!targetUid || !/^u_[A-Za-z0-9_-]+$/.test(targetUid)) {
+      pushToast({ tone: 'warning', message: '拿不到该成员的 uid，无法编辑头衔' });
+      return;
+    }
+    onChangeGroupMemberTitle?.(conversation, sender, targetUid);
   }
 
   function startKick(sender: User) {
@@ -4225,6 +4243,7 @@ export function ChatPane({
               onOpenFiles={onOpenGroupFiles ? () => onOpenGroupFiles(conversation) : undefined}
               onClose={mobileGroupInfoOpen ? () => setMobileGroupInfoOpen(false) : undefined}
               onOpenMember={onOpenGroupMember}
+              onMemberContextMenu={!selectionMode ? openAvatarMenu : undefined}
               onLoadMoreMembers={onLoadMoreGroupMembers}
               loadingMoreMembers={groupMembersLoading}
               loadingError={groupMembersError}
@@ -5076,10 +5095,16 @@ export function ChatPane({
           onPoke={pokeAvatar}
           pokeBlockedReason={pokeBlockedReason}
           onChangeCard={startCardEdit}
+          onChangeTitle={startTitleEdit}
           onKick={startKick}
           onMute={muteAvatar}
           onToggleAdmin={toggleAvatarAdmin}
           showChangeCard={avatarMenuFlags?.showChangeCard ?? false}
+          showChangeTitle={
+            conversation?.type === 'group' &&
+            conversation.group.role === 'owner' &&
+            Boolean(onChangeGroupMemberTitle)
+          }
           showKick={avatarMenuFlags?.showKick ?? false}
           showMute={avatarMenuFlags?.showMute ?? false}
           showSetAdmin={avatarMenuFlags?.showSetAdmin ?? false}

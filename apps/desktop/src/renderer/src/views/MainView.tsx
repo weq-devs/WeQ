@@ -91,6 +91,7 @@ import {
 import {
   GroupMemberKickDialog,
   GroupMemberRenameDialog,
+  GroupMemberTitleDialog,
 } from '../components/GroupMemberModerationDialogs';
 import { MemberProfileCard } from '../components/MemberProfileCard';
 import { GroupBugDialog } from '../components/GroupBugDialog';
@@ -2633,6 +2634,11 @@ export function MainView(): ReactElement {
     | { kind: 'kick'; groupId: string; targetUid: string; name: string }
     | null
   >(null);
+  const [groupTitleDialog, setGroupTitleDialog] = useState<{
+    groupCode: string;
+    uid: string;
+    name: string;
+  } | null>(null);
   /** 防撤回面板（「更多 → 防撤回」）：弹窗，不是视图。 */
   /** 会话设置（头部顶栏的设置按钮）：群聊 / 私聊各一份。 */
   const [convSettings, setConvSettings] = useState<{
@@ -2826,6 +2832,17 @@ export function MainView(): ReactElement {
         targetUid,
         name: sender.displayName || sender.identityValue,
         initialCard: sender.displayName ?? '',
+      });
+    },
+    [],
+  );
+  const handleChangeGroupMemberTitle = useCallback(
+    (conversation: Extract<Conversation, { type: 'group' }>, sender: User, targetUid: string) => {
+      if (conversation.group.role !== 'owner') return;
+      setGroupTitleDialog({
+        groupCode: conversation.group.identityValue,
+        uid: targetUid,
+        name: sender.displayName || sender.identityValue,
       });
     },
     [],
@@ -8260,6 +8277,7 @@ export function MainView(): ReactElement {
                           onOpenGroupEssence={handleOpenGroupEssence}
                           onOpenGroupInfoDetail={handleOpenGroupInfoDetail}
                           onRenameGroupMember={handleRenameGroupMember}
+                          onChangeGroupMemberTitle={handleChangeGroupMemberTitle}
                           onKickGroupMember={handleKickGroupMember}
                           onOpenConversationSettings={handleOpenConversationSettings}
                           onOpenGroupBug={handleOpenGroupBug}
@@ -8555,6 +8573,15 @@ export function MainView(): ReactElement {
               loading={groupLeftMembers.isFetching}
               error={groupLeftMembers.error ? (groupLeftMembers.error.message ?? '查询失败') : null}
               onClose={() => setGroupLeftMembersDialog(null)}
+            />
+          ) : null}
+          {groupTitleDialog ? (
+            <GroupMemberTitleDialog
+              key={`${groupTitleDialog.groupCode}:${groupTitleDialog.uid}`}
+              groupCode={groupTitleDialog.groupCode}
+              uid={groupTitleDialog.uid}
+              memberName={groupTitleDialog.name}
+              onClose={() => setGroupTitleDialog(null)}
             />
           ) : null}
           {groupMemberDialog?.kind === 'rename' ? (

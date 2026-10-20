@@ -7,6 +7,7 @@ import {
   Pencil,
   ShieldMinus,
   ShieldPlus,
+  Award,
   UserMinus,
 } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
@@ -46,10 +47,12 @@ export function AvatarContextMenu({
   onPoke,
   pokeBlockedReason,
   onChangeCard,
+  onChangeTitle,
   onKick,
   onMute,
   onToggleAdmin,
   showChangeCard = false,
+  showChangeTitle = false,
   showKick = false,
   showMute = false,
   showSetAdmin = false,
@@ -65,6 +68,8 @@ export function AvatarContextMenu({
   pokeBlockedReason?: string | null;
   /** 修改群昵称（自己 / 职权更低的群友）。 */
   onChangeCard?: (sender: User) => void;
+  /** 编辑专属头衔（仅群主）。 */
+  onChangeTitle?: (sender: User) => void;
   /** 踢出群聊（职权更低的群友）。 */
   onKick?: (sender: User) => void;
   /** 设置禁言，`durationSeconds` 为秒。 */
@@ -72,6 +77,7 @@ export function AvatarContextMenu({
   /** 设置 / 取消管理员（仅群主）。 */
   onToggleAdmin?: (sender: User, enable: boolean) => void;
   showChangeCard?: boolean;
+  showChangeTitle?: boolean;
   showKick?: boolean;
   showMute?: boolean;
   showSetAdmin?: boolean;
@@ -84,7 +90,8 @@ export function AvatarContextMenu({
   useSurfaceOutside(menuRef, onClose, active);
   const [muteOpen, setMuteOpen] = useState(false);
   const moderationDisabled = Boolean(moderationBlockedReason);
-  const hasModeration = showChangeCard || showKick || showMute || showSetAdmin || showUnsetAdmin;
+  const hasModeration =
+    showChangeCard || showChangeTitle || showKick || showMute || showSetAdmin || showUnsetAdmin;
 
   // 与 MessageContextMenu 同款：fixed 定位后按渲染尺寸拉回窗口内。
   useLayoutEffect(() => {
@@ -142,12 +149,23 @@ export function AvatarContextMenu({
       {showChangeCard && onChangeCard ? (
         <button
           type="button"
-          title={moderationBlockedReason ?? '修改群昵称'}
+          title={moderationBlockedReason ?? '修改群名片'}
           disabled={moderationDisabled}
           onClick={() => onChangeCard(state.sender)}
         >
           <Pencil size={17} />
-          <span>修改群昵称</span>
+          <span>修改群名片</span>
+        </button>
+      ) : null}
+      {showChangeTitle && onChangeTitle ? (
+        <button
+          type="button"
+          title={moderationBlockedReason ?? '编辑专属头衔'}
+          disabled={moderationDisabled}
+          onClick={() => onChangeTitle(state.sender)}
+        >
+          <Award size={17} />
+          <span>编辑专属头衔</span>
         </button>
       ) : null}
       {showKick && onKick ? (

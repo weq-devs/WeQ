@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QQConversationControls } from '../src/renderer/src/components/QQConversationControls';
 import { QQGroupMemberControls } from '../src/renderer/src/components/QQGroupMemberControls';
+import { QQGroupMemberEditor } from '../src/renderer/src/components/QQGroupMemberControls';
 
 const state = vi.hoisted(() => ({
   role: null as 'owner' | 'admin' | 'member' | null,
@@ -62,6 +63,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
           ].map((name) => [name, { useMutation: () => ({}) }]),
         ),
         groupName: { useMutation: () => ({ mutateAsync: state.mutate }) },
+        groupSpecialTitle: { useMutation: () => ({ mutateAsync: state.mutate }) },
       },
     },
   },
@@ -93,6 +95,31 @@ function fixture(element: ReactNode) {
   return host;
 }
 describe('专属头衔编辑权限', () => {
+  it('独立头衔编辑只展示头衔，沿用现有绑定、目标与写请求', async () => {
+    state.role = 'owner';
+    const host = fixture(
+      h(QQGroupMemberEditor, { groupCode: '123', uid: 'u_peer', field: 'title' }),
+    );
+    expect(host.querySelector('[aria-label="群名片"]')).toBeNull();
+    const input = host.querySelector<HTMLInputElement>('[aria-label="专属头衔"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        '新头衔',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="保存专属头衔"]')!.click(),
+    );
+    expect(state.mutate).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      groupId: 123,
+      targetUid: 'u_peer',
+      title: '新头衔',
+    });
+  });
   it('群名与群头像只在群管理页，保存群名复用原绑定与请求', async () => {
     state.role = 'owner';
     const preferences = fixture(h(QQConversationControls, { kind: 'group', conv: '123' }));
