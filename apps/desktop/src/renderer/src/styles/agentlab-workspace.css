@@ -193,7 +193,10 @@
   font-size: 12.5px;
   font-weight: 500;
 }
-.weq-session-switcher-text small { font-size: 11px; color: var(--weq-fg-muted); }
+.weq-session-switcher-text small { 
+  font-size: 11px;
+  color: var(--weq-fg-muted); 
+}
 .weq-session-switcher-del {
   display: grid;
   place-items: center;
@@ -216,4 +219,15 @@
   font-size: 11.5px;
   line-height: 1.5;
   color: var(--weq-fg-muted);
+}
+
+/* 切换器菜单里的标题沿用列表字号：头部那条 17px 规则已收窄，这里再显式锁定一遍。 */
+.weq-session-switcher-menu strong {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.weq-session-switcher-menu span {
+  margin-top: 0;
+  font-size: inherit;
+  color: inherit;
 }

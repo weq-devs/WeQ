@@ -9,9 +9,23 @@ import { useViewState } from '../src/renderer/src/state/view';
 const fixture = vi.hoisted(() => ({
   config: vi.fn(),
   friends: [] as { uid: string; uin: string; name: string; categoryId: number }[],
+  /** 目录查询的挂起开关：验证加载骨架。 */
+  pending: false,
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {
-  const result = (data: unknown) => ({ data, isLoading: false, isError: false, refetch: vi.fn() });
+  const result = (data: unknown) => ({
+    data,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  });
+  // 目录加载中：只有 data 缺失 + isLoading，模拟真实查询的首帧。
+  const pendingResult = () => ({
+    data: undefined,
+    isLoading: true,
+    isError: false,
+    refetch: vi.fn(),
+  });
   return {
     client: { account: { getAccountConfig: { query: fixture.config } } },
     trpc: {
@@ -19,12 +33,16 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         annualReport: { getAvailableYears: { useQuery: () => result([2025, 0]) } },
         analysisGroupDirectory: {
           useQuery: () =>
-            result([
-              { groupCode: '777', groupName: '合成群 A' },
-              { groupCode: '888', groupName: '合成群 B' },
-            ]),
+            fixture.pending
+              ? pendingResult()
+              : result([
+                  { groupCode: '777', groupName: '合成群 A' },
+                  { groupCode: '888', groupName: '合成群 B' },
+                ]),
         },
-        analysisPeerDirectory: { useQuery: () => result(fixture.friends) },
+        analysisPeerDirectory: {
+          useQuery: () => (fixture.pending ? pendingResult() : result(fixture.friends)),
+        },
         exportCalendar: {
           useQuery: () => ({ data: [], isLoading: false, isError: false, error: null }),
         },
@@ -59,6 +77,7 @@ beforeEach(() => {
   }));
 });
 afterEach(() => {
+  fixture.pending = false;
   useViewState.setState({ openedUin: restoreAccount });
   vi.resetAllMocks();
   vi.unstubAllGlobals();
@@ -239,6 +258,22 @@ it('确认身份期间防重复提交，切号销毁草稿并拒绝旧响应', a
     expect(f.host.querySelector<HTMLSelectElement>('[aria-label="报告类型"]')!.value).toBe('group');
     expect(f.host.querySelector('[data-analysis-choice][aria-pressed="true"]')).toBeNull();
     expect(f.button('生成报告').disabled).toBe(true);
+  } finally {
+    f.close();
+  }
+});
+
+it('读取分析对象时用骨架占位，卡片高度不塌也不闪空白', () => {
+  fixture.pending = true;
+  const f = mount();
+  try {
+    // 骨架与最终列表在同一张卡片里，卡片本身立刻存在（高度由它撑住）。
+    expect(f.host.querySelector('.weq-analysis-picker')).not.toBeNull();
+    const rows = f.host.querySelectorAll('.weq-analysis-skeleton-row');
+    expect(rows.length).toBeGreaterThan(0);
+    // 搜索框仍在原位，只是变成静态提示。
+    expect(f.host.querySelector('.weq-analysis-search.is-static')).not.toBeNull();
+    expect(f.host.textContent).not.toContain('正在读取分析对象');
   } finally {
     f.close();
   }

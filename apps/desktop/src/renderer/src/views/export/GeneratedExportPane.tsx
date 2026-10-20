@@ -1,13 +1,20 @@
 import { useMemo, useState } from 'react';
-import { Download, RotateCw, Search } from 'lucide-react';
-import type { ExportSavePolicy, GeneratedContentTarget, ExportOutputPlan } from '@weq/service';
+import { Download, RotateCw, Search, Sparkles, Users } from 'lucide-react';
+import type {
+  ExportSavePolicy,
+  GeneratedContentTarget,
+  GeneratedConversation,
+  ExportOutputPlan,
+} from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { WindowedList } from '../../components/WindowedList';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useTabActive } from '../../components/RetainedTabs';
 import { ExportSaveActions } from '../../components/ExportSaveActions';
+import { QqAvatar } from '../../components/QqAvatar';
 import { ChatBubble } from '../agentlab/ChatBubble';
 import { ChatTimeDivider, shouldShowChatTime } from '../agentlab/messageTime';
+import { PickerListSkeleton } from './ExportSkeleton';
 import {
   generatedContentContainer,
   generatedContentIdentity,
@@ -35,6 +42,9 @@ interface MemberInfo {
   /** 克隆体 id：给 [[sticker:...]] / [[voice:...]] 用。 */
   personaId?: string;
 }
+
+/** 头像来源：克隆体 / 克隆群 / 助手各自不同，取不到就回落到图标。 */
+type AvatarInfo = { uin?: string; groupUins?: string[] };
 
 const ME: MemberInfo = { name: '我', uin: '' };
 
@@ -91,9 +101,9 @@ export function GeneratedExportPane({
     { groupId: target?.kind === 'group' ? target.ownerId : '' },
     { enabled: active && target?.kind === 'group' },
   );
-  const personas = trpc.account.listAgentLabPersonas.useQuery(undefined, {
-    enabled: active && (target?.kind === 'group' || target?.kind === 'persona'),
-  });
+  // 头像与昵称的来源：会话列表和气泡都要用，所以始终拉取（只读本地 JSON）。
+  const personas = trpc.account.listAgentLabPersonas.useQuery(undefined, { enabled: active });
+  const groupList = trpc.account.listAgentLabGroups.useQuery(undefined, { enabled: active });
   const selfProfile = trpc.account.getSelfProfile.useQuery(undefined, { enabled: active });
   const key = target ? generatedContentContainer(target) : '';
   const ids = scopes[key];
@@ -133,6 +143,15 @@ export function GeneratedExportPane({
   const sessionTitle = target
     ? ((sessions.data ?? []).find((item) => generatedContentContainer(item) === key)?.title ?? '')
     : '';
+  /** 克隆体 / 克隆群 / 助手的头像来源（会话列表项与消息气泡共用）。 */
+  const avatarFor = (owner: Pick<GeneratedConversation, 'kind' | 'ownerId'>): AvatarInfo => {
+    if (owner.kind === 'assistant') return {};
+    if (owner.kind === 'group')
+      return {
+        groupUins: groupList.data?.find((group) => group.id === owner.ownerId)?.memberUins ?? [],
+      };
+    return { uin: members.get(owner.ownerId)?.uin || undefined };
+  };
   /** 单条消息的发送者：群聊按 senderId，私聊只有我对 TA。 */
   const senderOf = (row: GeneratedRow): MemberInfo => {
     if (row.role === 'user' || row.senderKind === 'user') return ME;
@@ -141,6 +160,15 @@ export function GeneratedExportPane({
     if (bySender) return bySender;
     return { name: sessionTitle || '克隆体', uin: '' };
   };
+  /**
+   * 私聊克隆体的气泡头像：后端记录里没有 senderId 时，用当前会话对象的源好友 uin。
+   * 之前这里只能拿到空 uin，QqAvatar 直接 falling back 成灰色小人。
+   */
+  const cloneUin = target ? avatarFor(target).uin : undefined;
+  /** 群头像九宫格：复用会话列表那套合成逻辑（会话列表行直接用它）。 */
+  const groupAvatarUins = target?.kind === 'group' ? (avatarFor(target).groupUins ?? []) : [];
+  const supportsGroup = target?.kind === 'group';
+  const groupMemberCount = target?.kind === 'group' ? groupAvatarUins.length : 0;
   const formatMulti = useMultiSelection({
     ids: FORMATS,
     selected: formats,
@@ -231,36 +259,60 @@ export function GeneratedExportPane({
               </button>
             </div>
           ) : null}
-          {sessions.isLoading && ready ? <p role="status">加载对话…</p> : null}
-          <WindowedList
-            items={visible}
-            height={420}
-            rowHeight={64}
-            itemKey={generatedContentContainer}
-            label="生成对话列表"
-            scrollToKey={key}
-            resetKey={keyword}
-            renderItem={(session) => (
-              <button
-                type="button"
-                className="weq-generated-export-row"
-                disabled={busy}
-                aria-pressed={generatedContentContainer(session) === key}
-                onClick={() =>
-                  setTarget({
-                    kind: session.kind,
-                    ownerId: session.ownerId,
-                    sessionId: session.sessionId,
-                  })
-                }
-              >
-                <strong>{session.title}</strong>
-                <span>
-                  {session.sessionTitle} · {session.count} 条
-                </span>
-              </button>
-            )}
-          />
+          {sessions.isLoading && ready ? (
+            <PickerListSkeleton rows={6} />
+          ) : (
+            <WindowedList
+              items={visible}
+              height={420}
+              rowHeight={64}
+              itemKey={generatedContentContainer}
+              label="生成对话列表"
+              scrollToKey={key}
+              resetKey={keyword}
+              renderItem={(session) => {
+                const avatar = avatarFor(session);
+                return (
+                  <button
+                    type="button"
+                    className="weq-generated-export-row is-session"
+                    disabled={busy}
+                    aria-pressed={generatedContentContainer(session) === key}
+                    onClick={() =>
+                      setTarget({
+                        kind: session.kind,
+                        ownerId: session.ownerId,
+                        sessionId: session.sessionId,
+                      })
+                    }
+                  >
+                    <span className="weq-generated-export-avatar" aria-hidden>
+                      {session.kind === 'assistant' ? (
+                        <span className="weq-generated-export-avatar-fb is-assistant">
+                          <Sparkles size={16} strokeWidth={1.9} />
+                        </span>
+                      ) : session.kind === 'group' && (avatar.groupUins?.length ?? 0) > 0 ? (
+                        // 克隆群：成员头像九宫格，与真实群会话列表口径一致。
+                        <span className="weq-generated-export-avatar-grid">
+                          {avatar.groupUins!.slice(0, 4).map((uin) => (
+                            <QqAvatar key={uin} uin={uin} size={16} />
+                          ))}
+                        </span>
+                      ) : (
+                        <QqAvatar uin={avatar.uin || null} size={34} />
+                      )}
+                    </span>
+                    <span className="weq-generated-export-session-text">
+                      <strong>{session.title}</strong>
+                      <span>
+                        {session.sessionTitle} · {session.count} 条
+                      </span>
+                    </span>
+                  </button>
+                );
+              }}
+            />
+          )}
           {!sessions.isLoading && !sessions.isError && !visible.length ? (
             <p>没有本地生成对话</p>
           ) : null}
@@ -312,9 +364,10 @@ export function GeneratedExportPane({
                   <RotateCw size={15} />
                 </button>
               </header>
-              {content.isFetching ? <p role="status">读取记录…</p> : null}
               <div className="weq-generated-export-transcript">
-                {rows.length === 0 && !content.isFetching ? (
+                {content.isFetching && rows.length === 0 ? (
+                  <PickerListSkeleton rows={5} />
+                ) : rows.length === 0 ? (
                   <p className="weq-generated-export-empty">这段对话还没有消息。</p>
                 ) : null}
                 {rows.map((row, index) => {
@@ -326,6 +379,11 @@ export function GeneratedExportPane({
                       ? (sender.personaId ??
                         (target.kind === 'persona' ? target.ownerId : undefined))
                       : undefined;
+                  // 头像：群成员优先用 senderId 解析到的 uin，私聊克隆体回落到会话对象
+                  // 自己的源好友 uin —— 不能被 QqAvatar 回落成灰色小人。
+                  const rowUin = mine
+                    ? selfProfile.data?.uin
+                    : sender.uin || (target.kind === 'persona' ? cloneUin : undefined);
                   return (
                     <div
                       key={row.id}
@@ -337,7 +395,7 @@ export function GeneratedExportPane({
                         mine={mine}
                         bot={!mine && target.kind === 'assistant'}
                         name={mine ? selfProfile.data?.nick || '我' : sender.name}
-                        uin={mine ? selfProfile.data?.uin : sender.uin}
+                        uin={rowUin}
                         text={row.text}
                         personaId={personaId}
                       />
@@ -345,6 +403,13 @@ export function GeneratedExportPane({
                   );
                 })}
               </div>
+              {/* 群聊成员数：合成头像本身在会话列表 / 头部展示，这里只补一句成员概览。 */}
+              {supportsGroup ? (
+                <p className="weq-generated-export-group-hint">
+                  <Users size={12} aria-hidden />
+                  {groupMemberCount} 位成员
+                </p>
+              ) : null}
               {missing.length ? (
                 <p role="alert">
                   {missing.length} 条已选记录不存在或尚未持久化，请刷新或重新选择。

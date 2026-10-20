@@ -78,6 +78,7 @@ function ObjectPicker({
   emptyText = '暂无匹配对象',
   title,
   trailing,
+  loading = false,
 }: {
   items: Choice[];
   selected: string | null;
@@ -85,6 +86,8 @@ function ObjectPicker({
   emptyText?: string;
   title?: string;
   trailing?: React.ReactNode;
+  /** 加载中：保留搜索框与卡片高度，列表位置换成骨架 + 扫光。 */
+  loading?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const filtered = useMemo(() => {
@@ -97,19 +100,40 @@ function ObjectPicker({
   return (
     <div className="weq-analysis-picker">
       <div className="weq-analysis-picker-head">
-        <label className="weq-analysis-search">
-          <Search size={15} />
-          <input
-            aria-label="搜索分析对象"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="名称或号码"
-          />
-        </label>
-        {trailing}
+        {loading ? (
+          // 加载中也保留搜索框的位置与尺寸，只是不可输入。
+          <span className="weq-analysis-search is-static">
+            <Search size={15} />
+            <span>名称或号码</span>
+          </span>
+        ) : (
+          <label className="weq-analysis-search">
+            <Search size={15} />
+            <input
+              aria-label="搜索分析对象"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="名称或号码"
+            />
+          </label>
+        )}
+        {loading ? null : trailing}
       </div>
       {title ? <p className="weq-analysis-picker-title">{title}</p> : null}
-      {filtered.length ? (
+      {loading ? (
+        <div className="weq-analysis-skeleton" aria-hidden>
+          {Array.from({ length: 8 }, (_, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 静态占位列表
+            <div className="weq-analysis-skeleton-row" key={index}>
+              <span className="weq-analysis-skeleton-avatar" />
+              <span className="weq-analysis-skeleton-main">
+                <span className="weq-analysis-skeleton-line" />
+                <span className="weq-analysis-skeleton-line is-short" />
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : filtered.length ? (
         <WindowedList
           items={filtered}
           height={420}
@@ -530,11 +554,22 @@ function AnalysisToolForm({
         </aside>
 
         <div className="weq-analysis-objects">
-          {lockedTarget &&
-          validObject &&
-          (lockedTarget.kind !== 'member' || pickedMember) &&
-          !source.isLoading &&
-          !source.isError ? (
+          {/*
+            加载中 / 已锁定对象但目录还没读到时，用同一张卡片 + 骨架占位：
+            卡片高度从一开始就是最终高度，列表读完的一刻不会跳。
+          */}
+          {source.isLoading || (lockedTarget && !source.isError && !validObject) ? (
+            <ObjectPicker
+              items={[]}
+              selected={null}
+              loading
+              title={pickerTitle}
+              onSelect={() => undefined}
+            />
+          ) : lockedTarget &&
+            validObject &&
+            (lockedTarget.kind !== 'member' || pickedMember) &&
+            !source.isError ? (
             <div className="weq-analysis-locked-target">
               <span className="weq-analysis-choice-avatar" aria-hidden>
                 {lockedTarget.kind === 'group' ? (
@@ -563,11 +598,7 @@ function AnalysisToolForm({
                   {pickedGroup.groupName || pickedGroup.groupCode}
                 </button>
               ) : null}
-              {source.isLoading ? (
-                <p className="weq-analysis-state" role="status">
-                  正在读取分析对象
-                </p>
-              ) : source.isError ? (
+              {source.isError ? (
                 <button
                   type="button"
                   className="weq-analysis-retry"
@@ -583,6 +614,7 @@ function AnalysisToolForm({
                   items={items}
                   selected={selected}
                   title={pickerTitle}
+                  loading={source.isLoading}
                   emptyText={kind === 'buddy' ? '没有可分析的私聊对象' : '没有可分析的群聊'}
                   onSelect={(id) => {
                     if (kind === 'buddy') setPeer(id);

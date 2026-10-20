@@ -1684,9 +1684,6 @@ export function ExportTool({
           <section className="weq-exp-pane">
             <header className="weq-exp-pane-head">
               <div className="weq-exp-pane-title">
-                <span className="weq-exp-pane-icon" aria-hidden>
-                  {activeMode.icon}
-                </span>
                 <span className="weq-exp-pane-heading">
                   <strong>{activeMode.label}</strong>
                   <span>{activeMode.desc}</span>

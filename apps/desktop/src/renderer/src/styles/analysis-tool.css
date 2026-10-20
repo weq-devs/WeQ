@@ -491,3 +491,70 @@ html[data-theme="dark"] .weq-analysis-picker {
   color: var(--weq-fg-muted);
   font-size: 11.5px;
 }
+
+/* ---- 加载占位：骨架 + 扫光，撑住卡片高度避免读完瞬间跳变 ---- */
+.weq-analysis-search.is-static {
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+}
+.weq-analysis-search.is-static > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-analysis-skeleton {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.weq-analysis-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 58px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-analysis-skeleton-avatar,
+.weq-analysis-skeleton-line {
+  border-radius: 999px;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--weq-fg-primary) 7%, transparent) 25%,
+    color-mix(in srgb, var(--weq-fg-primary) 13%, transparent) 50%,
+    color-mix(in srgb, var(--weq-fg-primary) 7%, transparent) 75%
+  );
+  background-size: 200% 100%;
+  animation: weq-analysis-skeleton 1.3s ease-in-out infinite;
+}
+.weq-analysis-skeleton-avatar {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+}
+.weq-analysis-skeleton-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+.weq-analysis-skeleton-line { width: 62%; height: 11px; }
+.weq-analysis-skeleton-line.is-short { width: 38%; height: 9px; }
+@keyframes weq-analysis-skeleton {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* 配置卡片高度由内容决定、不随列表伸缩；对象卡片始终占满右栏。 */
+.weq-analysis-config { flex: 0 0 auto; max-height: 100%; }
+.weq-analysis-card { flex: none; }
+.weq-analysis-picker { min-height: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-analysis-skeleton-avatar,
+  .weq-analysis-skeleton-line { animation: none; }
+}
