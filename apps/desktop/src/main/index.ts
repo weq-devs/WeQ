@@ -57,6 +57,7 @@ import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
 import { createMainWindowLifecycle } from './main_window_lifecycle';
+import { createRendererRecovery } from './renderer_recovery';
 import { macApplicationMenu, nativeMenuLabels } from './application_menu';
 import { registerEditUndoIpc, undoFocusedContent } from './edit_undo';
 import { registerAttachHintIpc } from './attach_hint_ipc';
@@ -605,6 +606,39 @@ function createWindow(): BrowserWindow {
     },
   });
 
+  const recovery = createRendererRecovery({
+    unavailable: () => win.isDestroyed() || win.webContents.isDestroyed(),
+    quitting: () => isQuitting,
+    showDialog: async () => {
+      const result = await dialog.showMessageBox(win, {
+        type: 'error',
+        title: 'WeQ 界面已停止运行',
+        message: '界面进程意外退出，后台进程仍在运行。',
+        detail:
+          '可以重新加载界面或退出 WeQ。未保存的界面内容可能丢失；已提交操作的结果可能尚未显示，请先核对，不要直接重复提交。重新加载不会自动重发操作。',
+        buttons: ['重新加载界面', '退出 WeQ', '稍后处理'],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
+      });
+      return result.response;
+    },
+    reload: () => win.webContents.reload(),
+    quit: () => {
+      isQuitting = true;
+      app.quit();
+    },
+    record: (event, details) =>
+      logger.warn('main renderer recovery', {
+        event: `renderer-recovery-${event}`,
+        webContentsId: win.webContents.id,
+        ...details,
+      }),
+  });
+  win.webContents.on('render-process-gone', (_event, details) => recovery.gone(details));
+  win.webContents.on('did-finish-load', () => recovery.loaded());
+  win.once('closed', () => recovery.dispose());
+
   const reveal = () => {
     if (win.isDestroyed()) return;
     win.show();
@@ -630,6 +664,11 @@ function createWindow(): BrowserWindow {
   //   'ask'  → ask the renderer to show the 关闭确认框 (default, first time).
   win.on('close', (e) => {
     if (isQuitting || win !== getMainWindow()) return;
+    if (recovery.needsRecovery()) {
+      e.preventDefault();
+      recovery.request();
+      return;
+    }
     const behavior = resolveCloseBehavior();
     if (behavior === 'quit') {
       isQuitting = true;
