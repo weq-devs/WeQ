@@ -50,6 +50,14 @@ import {
 } from '../lib/conversationPreview';
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { isMineMessage } from '../lib/messageDirection';
+import { isLocalOutgoingMessage } from '../lib/messageSelection';
+import {
+  mergeOptimisticInto,
+  captureOutgoingAfterSeq,
+  needsFailedPreparation,
+  type ComposerSubmission,
+} from '../lib/localOutgoing';
+import { useFailedOutgoingRemoval } from '../hooks/useFailedOutgoingRemoval';
 import { reconcileFileMessages, type FileSyncReceipt } from '../lib/fileSendReconcile';
 import {
   createUnreadRefresh,
@@ -616,6 +624,7 @@ type OptimisticForward = {
    */
   preview: MfCardPreview;
   state: 'sending' | 'sent' | 'failed';
+  afterSeq?: string;
   /** 发送成功后的长消息 id（卡片点开可拉取）。 */
   resId?: string;
   /** 客户端 `random`（`SendMessageOutcome.random`）—— 与 Ark 同款对账主键。 */
@@ -685,6 +694,7 @@ type OptimisticArk = {
    */
   seqRejected?: boolean;
   state: 'sending' | 'sent' | 'failed';
+  afterSeq?: string;
   error?: string;
   at: number;
 };
@@ -1368,6 +1378,7 @@ function optimisticToTemplate(
     msgSeq: item.seq ?? '',
     optimisticRejected: item.seqRejected,
     optimistic: item.state,
+    optimisticAfterSeq: item.afterSeq,
     optimisticError: item.error,
     msgRandom: item.cid,
   } as Message & {
@@ -1404,6 +1415,7 @@ function optimisticArkToTemplate(
     msgSeq: item.seq ?? '',
     optimisticRejected: item.seqRejected,
     optimistic: item.state,
+    optimisticAfterSeq: item.afterSeq,
     optimisticError: item.error,
     msgRandom: item.cid,
   } as Message & {
@@ -1423,7 +1435,8 @@ function optimisticArkToTemplate(
  * 本地媒体走 `localPath` / `localPreviewUrl` 直接预览。只活在前端 state 里，不写库、
  * 不落缓存，开关应用即消失。元素形状与真实消息的 `qqElements` 同构（见
  * `composerSend.buildOptimisticRender`），所以同步到位后不会跳变。
- */ type OptimisticMessage = {
+ */
+type OptimisticMessage = {
   id: string;
   /** 目标会话 id（模板层 Conversation.id）。 */
   convId: string;
@@ -1444,6 +1457,7 @@ function optimisticArkToTemplate(
   /** 文件发布没有普通消息序号，按文件 ID 与发送前的消息快照对账。 */
   fileSync?: FileSyncReceipt;
   state: 'sending' | 'sent' | 'failed';
+  afterSeq?: string;
   error?: string;
   /** 客户端 `random`（回执带回）—— 对账主键。 */
   cid?: string;
@@ -1473,6 +1487,7 @@ function optimisticMessageToTemplate(
     msgSeq: item.seq ?? '',
     optimisticRejected: item.seqRejected,
     optimistic: item.state,
+    optimisticAfterSeq: item.afterSeq,
     optimisticError: item.error,
     composerDraft: item.composerDraft,
     msgRandom: item.cid,
@@ -1494,53 +1509,6 @@ function optimisticMessageToTemplate(
  */
 function isSeqRejected(outcome: { groupSequence?: number; privateSequence?: number }): boolean {
   return (outcome.groupSequence ?? 0) <= 0 && (outcome.privateSequence ?? 0) <= 0;
-}
-
-/**
- * 把乐观条目并入真实消息序列。
- *
- * 乐观条目带**真实 seq** 时（回执给了 groupSequence / privateSequence），按 seq 插到
- * 正确位置 —— 否则「我发一条 → 对方回一条」时，带 seq 的回复会被排到我们前面。
- * 没有 seq 的（还在发送中、回执 seq=0 的静默失败、位置卡片那条 trpc 解析不出的）
- * 留在末尾：它们没有可信位置，插进中间反而会打乱顺序。
- *
- * `real` 已按 seq 升序（最旧→最新）；同 seq 时乐观条目排在真实消息**之后**，
- * 与「自己刚发的最新一条」直觉一致。
- */
-function mergeOptimisticInto(real: Message[], pending: Message[]): Message[] {
-  if (pending.length === 0) return real;
-  const positioned = pending.filter((m): m is Message & { msgSeq: string } => Boolean(m.msgSeq));
-  const floating = pending.filter((m) => !m.msgSeq);
-  if (positioned.length === 0) return [...real, ...floating];
-
-  // 窗口下界：乐观 seq 比它还小，说明它不在当前加载的窗口里（用户往上翻过）。
-  // 那种情况下插到数组顶部会在它和窗口首条之间造出一个假缺口，所以按「无位置」处理。
-  let windowMin: bigint | null = null;
-  for (const message of real) {
-    if (!message.msgSeq) continue;
-    windowMin = BigInt(message.msgSeq);
-    break;
-  }
-  const merged = [...real];
-  const stayFloating: Message[] = [];
-  for (const item of positioned) {
-    const seq = BigInt(item.msgSeq);
-    if (windowMin !== null && seq < windowMin) {
-      stayFloating.push(item);
-      continue;
-    }
-    let at = merged.length;
-    for (let i = 0; i < merged.length; i += 1) {
-      const other = merged[i]!.msgSeq;
-      if (!other) continue; // 无 seq 的真实行（手机迁移）不参与比较
-      if (BigInt(other) > seq) {
-        at = i;
-        break;
-      }
-    }
-    merged.splice(at, 0, item);
-  }
-  return [...merged, ...stayFloating, ...floating];
 }
 
 function messageToTemplate(
@@ -2698,6 +2666,32 @@ export function MainView(): ReactElement {
   const [optimisticArks, setOptimisticArks] = useState<OptimisticArk[]>([]);
   // 同上，但发出去的是普通消息（文本 / @ / 表情 / 图片 / 视频 / 语音 / 文件…）。
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
+  const outgoingRecordsRef = useRef([optimisticMessages, optimisticArks, optimisticForwards]);
+  outgoingRecordsRef.current = [optimisticMessages, optimisticArks, optimisticForwards];
+  const outgoingAfterSeq = useCallback((convId?: string) => {
+    return captureOutgoingAfterSeq(
+      convId,
+      selectionRef.current,
+      windowRef.current.anchored,
+      loadedRef.current,
+      outgoingRecordsRef.current,
+    );
+  }, []);
+  const dismissFailedOutgoing = useFailedOutgoingRemoval(
+    (remove) => {
+      setOptimisticMessages(remove);
+      setOptimisticArks(remove);
+      setOptimisticForwards(remove);
+    },
+    async (conversations) => {
+      await Promise.all([
+        utils.account.listRecentContacts.invalidate(),
+        selectionRef.current && conversations.has(selectionRef.current.id)
+          ? refreshWindow()
+          : undefined,
+      ]);
+    },
+  );
   const consumedFileMessages = useRef(new Set<string>());
   // "删除列表" panel: which conversation is open + its fetched deleted rows.
   const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
@@ -2764,6 +2758,10 @@ export function MainView(): ReactElement {
   const handleDeleteMessage = useCallback(
     async (message: Message, conversation: Conversation) => {
       if (message.source === 'roaming') return;
+      if (isLocalOutgoingMessage(message)) {
+        dismissFailedOutgoing(message, conversation.id);
+        return;
+      }
       const { kind, conv } = convFetchKey(conversation);
       setDeletedIds((current) => new Set(current).add(message.id));
       try {
@@ -2778,7 +2776,7 @@ export function MainView(): ReactElement {
         });
       }
     },
-    [convFetchKey],
+    [convFetchKey, dismissFailedOutgoing],
   );
 
   const handleOpenGroupAlbums = useCallback(
@@ -4355,6 +4353,7 @@ export function MainView(): ReactElement {
         {
           id: optimisticId,
           convId: target.id,
+          afterSeq: outgoingAfterSeq(target.id),
           title,
           count: draft.nodes.length,
           preview,
@@ -4411,7 +4410,7 @@ export function MainView(): ReactElement {
         throw error;
       }
     },
-    [client, pushToast, user.identityValue],
+    [client, pushToast, user.identityValue, outgoingAfterSeq],
   );
 
   /**
@@ -5184,9 +5183,7 @@ export function MainView(): ReactElement {
     const pendingMessages = optimisticMessages
       .filter((item) => item.convId === selectedConversation.id)
       .map((item) => optimisticMessageToTemplate(item, selectedConversation, user));
-    // 有真实 seq 的乐观条目按 seq 插进真实消息之间（对方在我们发出后回了消息时，
-    // 那条回复不能把我们的消息挤到下面）；没有 seq 的（发送中 / 静默丢弃 / 位置卡片）
-    // 一律留在末尾 —— 它们没有可信位置。
+    // 确认过的序号按原规则插入；失败按创建时间定位，其余无可靠位置的占位仍留在末尾。
     return mergeOptimisticInto(real, [...pending, ...pendingArks, ...pendingMessages]);
   }, [
     loadedMessageWires,
@@ -6930,11 +6927,18 @@ export function MainView(): ReactElement {
 
   async function sendComposerMessage(body: string, locals?: LocalMediaRef[]): Promise<void> {
     const conversation = selectedConversation;
-    const submission = { id: `optimistic-${mfId('msg')}`, draft: { body, locals } };
+    const submission: ComposerSubmission = {
+      id: `optimistic-${mfId('msg')}`,
+      draft: { body, locals },
+      started: false,
+      accepted: false,
+      afterSeq: outgoingAfterSeq(conversation?.id),
+      at: Date.now(),
+    };
     try {
       await sendMessage(body, locals, undefined, undefined, undefined, undefined, submission);
     } catch (error) {
-      if (conversation) {
+      if (conversation && needsFailedPreparation(submission)) {
         // 在线条件或准备阶段失败也必须留下原稿，不能只有 toast 而丢掉编辑入口。
         let render = { body: '消息未发送', elements: [] as unknown[] };
         try {
@@ -6950,11 +6954,12 @@ export function MainView(): ReactElement {
                 {
                   id: submission.id,
                   convId: conversation.id,
+                  afterSeq: submission.afterSeq,
                   ...render,
                   composerDraft: submission.draft,
                   state: 'failed',
                   error: error instanceof Error ? error.message : String(error),
-                  at: Date.now(),
+                  at: submission.at ?? Date.now(),
                 },
               ],
         );
@@ -6970,7 +6975,7 @@ export function MainView(): ReactElement {
     destination?: Conversation,
     isCurrent = () => repeatContext.current === selectedConversation?.id,
     expectedAccountConfigId?: string,
-    submission?: { id: string; draft: NonNullable<Message['composerDraft']> },
+    submission?: ComposerSubmission,
   ): Promise<void> {
     const conversation = destination ?? selectedConversation;
     if (!conversation) {
@@ -7033,11 +7038,13 @@ export function MainView(): ReactElement {
       const render = repeated
         ? { body, elements: repeated.elements }
         : buildOptimisticRender({ body, locals: locals ?? [], superStickers });
+      if (submission) submission.started = true;
       setOptimisticMessages((current) => [
         ...current,
         {
           id: optimisticId,
           convId: conversation.id,
+          afterSeq: submission ? submission.afterSeq : outgoingAfterSeq(conversation.id),
           body: render.body,
           elements: render.elements,
           ...(plan.kind === 'file'
@@ -7045,7 +7052,7 @@ export function MainView(): ReactElement {
             : {}),
           composerDraft: submission?.draft,
           state: 'sending',
-          at: Date.now(),
+          at: submission?.at ?? Date.now(),
         },
       ]);
     }
@@ -7141,6 +7148,7 @@ export function MainView(): ReactElement {
       throw new Error(reason);
     }
 
+    if (submission) submission.accepted = true;
     if (outcome.hint?.includes('本地保存失败')) {
       pushToast({
         tone: 'warning',
@@ -7221,6 +7229,7 @@ export function MainView(): ReactElement {
         id: optimisticId,
         convId: conversation.id,
         body: '[窗口抖动]',
+        afterSeq: outgoingAfterSeq(conversation.id),
         elements: [{ type: 'windowShake', data: {} }],
         state: 'sending',
         at: Date.now(),
@@ -7360,6 +7369,7 @@ export function MainView(): ReactElement {
         id: optimisticId,
         convId: conversation.id,
         body: `[QQ闪传] ${title}`,
+        afterSeq: outgoingAfterSeq(conversation.id),
         elements: [
           buildFlashOptimisticElement({
             title,
@@ -7550,6 +7560,7 @@ export function MainView(): ReactElement {
           id: optimisticId,
           convId: conversation.id,
           arkData,
+          afterSeq: outgoingAfterSeq(conversation.id),
           signature: arkCardSignature(arkData),
           state: 'sending',
           at: Date.now(),

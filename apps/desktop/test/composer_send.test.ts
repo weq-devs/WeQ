@@ -88,6 +88,162 @@ function type(editor: HTMLElement, text: string) {
 }
 
 describe('输入区发送交接', () => {
+  it('失败占位提供独立移除入口，不重发也不覆盖输入草稿', async () => {
+    const f = mount();
+    const remove = vi.fn();
+    const message = {
+      id: 'optimistic-delete-me',
+      conversationId: f.props.conversation.id,
+      senderId: f.props.user.id,
+      body: '失败原文',
+      createdAt: '2026-10-21T01:00:00Z',
+      optimistic: 'failed' as const,
+    };
+    try {
+      f.render({ messages: [message], onDeleteMessage: remove });
+      act(() =>
+        f.host
+          .querySelector('[data-message-id="optimistic-delete-me"] .message-bubble')!
+          .dispatchEvent(
+            new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
+          ),
+      );
+      const button = [
+        ...f.host.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
+      ].find((button) => button.textContent === '移除失败消息');
+      expect(button).toBeDefined();
+      await act(async () => button!.click());
+      expect(remove).toHaveBeenCalledWith(message, f.props.conversation);
+      expect(serializeComposer(f.editor())).toBe('第一条');
+      expect(f.onSend).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+  it('失败占位放回时间线中间时，不遮掉真实序号缺口', async () => {
+    const f = mount();
+    const openGap = vi.fn();
+    const base = {
+      conversationId: f.props.conversation.id,
+      senderId: f.props.user.id,
+      createdAt: '2026-10-21T01:00:00Z',
+      body: '合成消息',
+    };
+    try {
+      f.render({
+        messages: [
+          { ...base, id: 'real-a', msgSeq: '10' },
+          { ...base, id: 'optimistic-failed-gap', optimistic: 'failed' },
+          { ...base, id: 'real-b', msgSeq: '14' },
+        ],
+        onOpenGapMessages: openGap,
+      });
+      const gap = f.host.querySelector<HTMLButtonElement>('.weq-gap-band-button');
+      expect(gap).not.toBeNull();
+      await act(async () => gap!.click());
+      expect(openGap).toHaveBeenCalledWith({
+        conversation: f.props.conversation,
+        previousSeq: '10',
+        currentSeq: '14',
+        count: 3,
+      });
+      expect(f.onSend).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+  it.each(['sending', 'sent', 'acknowledged-failure'] as const)(
+    '%s 不提供失败移除入口',
+    (state) => {
+      const f = mount();
+      const remove = vi.fn();
+      try {
+        f.render({
+          messages: [
+            {
+              id: 'optimistic-protected',
+              conversationId: f.props.conversation.id,
+              senderId: f.props.user.id,
+              body: '不能当失败删除',
+              createdAt: '2026-10-21T01:00:00Z',
+              optimistic: state === 'acknowledged-failure' ? 'failed' : state,
+              ...(state === 'acknowledged-failure' ? { msgSeq: '42', msgRandom: '99' } : {}),
+            },
+          ],
+          onDeleteMessage: remove,
+        });
+        act(() =>
+          f.host
+            .querySelector('[data-message-id="optimistic-protected"] .message-bubble')!
+            .dispatchEvent(
+              new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
+            ),
+        );
+        expect(
+          f.host.querySelector('.message-context-menu button[aria-label="移除失败消息"]'),
+        ).toBeNull();
+        expect(f.host.querySelector('.message-context-menu button[aria-label="删除"]')).toBeNull();
+        expect(remove).not.toHaveBeenCalled();
+        expect(f.onSend).not.toHaveBeenCalled();
+      } finally {
+        f.close();
+      }
+    },
+  );
+  it('多选可移除失败占位，混入发送成功条目时阻止整批误删', async () => {
+    const f = mount();
+    const remove = vi.fn();
+    const base = {
+      conversationId: f.props.conversation.id,
+      senderId: f.props.user.id,
+      createdAt: '2026-10-21T01:00:00Z',
+      body: '合成占位',
+      optimistic: 'failed',
+    };
+    try {
+      f.render({
+        messages: [
+          { ...base, id: 'optimistic-one' },
+          { ...base, id: 'optimistic-two' },
+          { ...base, id: 'optimistic-confirmed', optimistic: 'sent', msgSeq: '42' },
+        ],
+        onDeleteMessage: remove,
+      });
+      act(() =>
+        f.host
+          .querySelector('[data-message-id="optimistic-one"] .message-bubble')!
+          .dispatchEvent(
+            new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
+          ),
+      );
+      act(() =>
+        [...f.host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')]
+          .find((button) => button.textContent === '多选')!
+          .click(),
+      );
+      act(() => f.host.querySelector<HTMLElement>('[data-message-id="optimistic-two"]')!.click());
+      const deletion = () =>
+        f.host.querySelector<HTMLButtonElement>('button.selection-action[aria-label="删除"]')!;
+      expect(deletion().disabled).toBe(false);
+      act(() =>
+        f.host.querySelector<HTMLElement>('[data-message-id="optimistic-confirmed"]')!.click(),
+      );
+      expect(deletion().disabled).toBe(true);
+      act(() => deletion().click());
+      expect(remove).not.toHaveBeenCalled();
+      act(() =>
+        f.host.querySelector<HTMLElement>('[data-message-id="optimistic-confirmed"]')!.click(),
+      );
+      await act(async () => deletion().click());
+      expect(remove.mock.calls.map(([message]) => message.id)).toEqual([
+        'optimistic-one',
+        'optimistic-two',
+      ]);
+      expect(f.onSend).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
   it.each(['click', 'enter'])(
     '%s 提交立即清空并保持输入焦点，回执不清除下一条草稿',
     async (trigger) => {

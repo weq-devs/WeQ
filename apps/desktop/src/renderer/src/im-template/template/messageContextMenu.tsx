@@ -53,6 +53,7 @@ export function MessageContextMenu({
   onDownloadImage,
   downloadDisabled = false,
   onDelete,
+  deleteLabel = '删除',
   onEditRaw,
   onViewDecoration,
   onReply,
@@ -83,8 +84,9 @@ export function MessageContextMenu({
     browser?: boolean,
   ) => void;
   downloadDisabled?: boolean;
-  /** QQ-style delete: message stays in the chat under a "deleted" overlay, restorable. */
+  /** 原库消息保留可恢复遮罩；失败占位仅从本机移除，由宿主区分两条路径。 */
   onDelete?: (message: Message) => void;
+  deleteLabel?: string;
   onEditRaw?: (message: Message) => void;
   onViewDecoration?: (message: Message) => void;
   /** 引用：把这条消息挂到输入框上方（引用条）。 */
@@ -321,9 +323,9 @@ export function MessageContextMenu({
         </>
       ) : null}
       {onDelete ? (
-        <button type="button" onClick={() => onDelete(state.message)}>
+        <button type="button" aria-label={deleteLabel} onClick={() => onDelete(state.message)}>
           <Trash2 size={17} />
-          <span>删除</span>
+          <span>{deleteLabel}</span>
         </button>
       ) : null}
     </div>

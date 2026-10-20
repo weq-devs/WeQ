@@ -333,6 +333,8 @@ export type Message = {
   optimistic?: 'sending' | 'sent' | 'failed';
   optimisticError?: string;
   optimisticRejected?: boolean;
+  /** 发起前的已知序号水位，仅用于失败占位定位，不是本条序号或发送确认。 */
+  optimisticAfterSeq?: string;
   /** 仅当前界面的发送草稿，供失败消息重新编辑，不写入 QQ 原库。 */
   composerDraft?: { body: string; locals?: LocalMediaRef[] };
   msgRandom?: string;
