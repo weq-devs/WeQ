@@ -19,6 +19,8 @@ import { QQMessageEssenceAction } from '../../components/QQMessageEssenceAction'
 import { MessageTodoAction, TypingStatus } from '../../components/qq-actions/ChatActions';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
+import { useMessageSelectionFlow } from '../../hooks/useMessageSelectionFlow';
+import { selectionGapId, parseSelectionGap } from '../../lib/messageSelection';
 import { hasActiveModal } from '../../lib/overlayStack';
 import { useWorkspaceSidecarOpen } from '../../components/WorkspacePages';
 import { useAtAllMention } from '../../hooks/useAtAllMention';
@@ -423,6 +425,7 @@ export function ChatPane({
   onViewDeleted,
   onViewRecalled,
   onOpenGapMessages,
+  onLoadSelectionMessages,
   onSearchChatRecords,
   onOpenRoamingBackfill,
   deletedIds,
@@ -562,6 +565,7 @@ export function ChatPane({
     currentSeq: string;
     count: number;
   }) => void | Promise<void>;
+  onLoadSelectionMessages?: import('../../lib/messageSelection').LoadSelectionMessages;
   /** msgIds WeQ deleted in this conversation — rendered in place under a translucent overlay. */
   deletedIds?: Set<string>;
   /** Restore one WeQ-deleted message (the overlay's hover button). */
@@ -757,10 +761,18 @@ export function ChatPane({
     y: number;
   } | null>(null);
   // 多选：右键进入，输入框让位给批量操作；选择数不设上限。
-  const { selectionMode, setSelectionMode, selectedIds, setSelectedIds } = useContentMultiSelect({
+  const selection = useContentMultiSelect({
     kind: 'messages',
     container: `${conversation?.type ?? 'none'}:${conversation?.id ?? ''}`,
   });
+  const {
+    selectionMode,
+    setSelectionMode,
+    selectedIds,
+    setSelectedIds,
+    anchorRef: selectionAnchor,
+  } = selection;
+  const selectionCancelRef = useRef<(() => void) | null>(null);
   const requestExport = useRequestContentExport();
   const requestAnalysis = useRequestContentAnalysis();
   const [selectionMenu, setSelectionMenu] = useState<{
@@ -779,12 +791,15 @@ export function ChatPane({
     setSelectionMenu({ kind, x: rect.left, y: rect.top });
   };
   const exportMessageIds = (ids: string[]) => {
+    if (ids.some((id) => parseSelectionGap(id))) {
+      pushToast({ tone: 'warning', title: '请先补全或取消所选消息缺口' });
+      return;
+    }
     const scope = conversationExportSelection(conversation);
     if (requestExport && scope && ids.length)
       requestExport({ ...scope, scope: { type: 'items', ids: [...ids] } });
     setContextMenu(null);
   };
-  const selectionAnchor = useRef<string | null>(null);
   const [decorationCard, setDecorationCard] = useState<{
     decoration: { fontId: number; bubbleId: number; widgetId: number } | null;
     anchor: { x: number; y: number };
@@ -824,9 +839,8 @@ export function ChatPane({
     }
   }
 
-  // 切会话仅重置范围操作锚点；选择归属由账号级工作区保留。
+  // 会话选区和锚点由独立 owner 保留，只关闭临时菜单。
   useEffect(() => {
-    selectionAnchor.current = null;
     setSelectionMenu(null);
     setTitleProfileGroupId(null);
   }, [conversation?.id]);
@@ -837,8 +851,8 @@ export function ChatPane({
     function onKeyDown(event: KeyboardEvent) {
       if (hasActiveModal() || selectionMenu || event.defaultPrevented) return;
       if (event.key === 'Escape') {
+        selectionCancelRef.current?.();
         setSelectionMode(false);
-        selectionAnchor.current = null;
       }
     }
     document.addEventListener('keydown', onKeyDown);
@@ -926,37 +940,50 @@ export function ChatPane({
     [intentSupported, visibleMessages, user],
   );
   // 选中的消息（按时间线顺序）—— 合并转发 / 删除 / 复制 JSON 都用它。
-  const selectedMessages = useMemo(
-    () => visibleMessages.filter((message) => selectedIds.has(message.id)),
-    [visibleMessages, selectedIds],
-  );
-  const selectionOrder = useMemo(
-    () => visibleMessages.map((message) => message.id),
-    [visibleMessages],
-  );
+  const selectionFlow = useMessageSelectionFlow({
+    conversation,
+    messages: visibleMessages,
+    selection,
+    onLoad: onLoadSelectionMessages,
+    missingJumpSeq,
+    active: tabActive,
+  });
+  const selectedMessages = selectionFlow.selectedMessages;
+  selectionCancelRef.current = selectionFlow.cancel;
+  const selectionOrder = selectionFlow.order;
+  const selectionBlockedReason = selectionFlow.busy
+    ? '正在加载所选范围'
+    : selectionFlow.gaps.length
+      ? '请先补全或取消所选消息缺口'
+      : null;
   const multi = useMultiSelection({
     ids: selectionOrder,
     selected: selectedIds,
-    onChange: setSelectedIds,
+    onChange: selectionFlow.onChange,
     enabled: selectionMode,
-    disabled: !tabActive || Boolean(selectionMenu),
+    disabled: !tabActive || Boolean(selectionMenu) || selectionFlow.busy,
     onStart: () => setSelectionMode(true),
     onExit: exitSelection,
     anchorRef: selectionAnchor,
+    beforeSelect: selectionFlow.beforeSelect,
   });
   const marquee = useMessageMarquee({
     conversationKey: conversation?.id,
-    enabled: tabActive && Boolean(conversation) && !selectionMenu,
+    enabled: tabActive && Boolean(conversation) && !selectionMenu && !selectionFlow.busy,
     selectionMode,
     selected: selectedIds,
     orderedIds: selectionOrder,
     anchorRef: selectionAnchor,
-    onChange: setSelectedIds,
+    onChange: selectionFlow.onChange,
     onStart: () => setSelectionMode(true),
     onSelect: (id, modifiers) => multi.toggle(id, modifiers),
   });
   const copySelectedMessagesText = useCallback(async () => {
     if (!conversation) return;
+    if (selectionBlockedReason) {
+      pushToast({ tone: 'warning', title: selectionBlockedReason });
+      return;
+    }
     try {
       const copied = await copyTextToClipboard(
         selectedMessagesText(selectedMessages, conversation, user),
@@ -969,8 +996,12 @@ export function ChatPane({
         detail: error instanceof Error ? error.message : String(error),
       });
     }
-  }, [conversation, selectedMessages, user, pushToast]);
+  }, [conversation, selectedMessages, user, pushToast, selectionBlockedReason]);
   const copySelectedMessagesRich = useCallback(async () => {
+    if (selectionBlockedReason) {
+      pushToast({ tone: 'warning', title: selectionBlockedReason });
+      return;
+    }
     const value = messageRichClipboard(
       selectedMessages.map((message) => ({
         sender: displayUserName(resolveMessageSender(message, conversation, user)),
@@ -981,7 +1012,7 @@ export function ChatPane({
     );
     if (!(await writeMentionClipboard(value)))
       pushToast({ tone: 'error', message: '复制富文本失败' });
-  }, [conversation, selectedMessages, user, pushToast]);
+  }, [conversation, selectedMessages, user, pushToast, selectionBlockedReason]);
   useLayoutEffect(() => {
     if (!tabActive || !selectionMode) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -3138,6 +3169,7 @@ export function ChatPane({
     setDecorationCard(null);
     window.getSelection()?.removeAllRanges();
     setSelectionMode(true);
+    selection.messageCache.set(message.id, message);
     setSelectedIds(new Set([message.id]));
     selectionAnchor.current = message.id;
   }
@@ -3148,12 +3180,13 @@ export function ChatPane({
   }
 
   function exitSelection() {
+    selectionFlow.cancel();
     setSelectionMode(false);
     selectionAnchor.current = null;
   }
 
   function mergeForwardSelected() {
-    if (!conversation || selectedMessages.length === 0) {
+    if (!conversation || selectionBlockedReason || selectedMessages.length === 0) {
       return;
     }
     const picked = selectedMessages;
@@ -3162,7 +3195,7 @@ export function ChatPane({
   }
 
   function deleteSelectedMessages() {
-    if (!conversation) {
+    if (!conversation || selectionBlockedReason) {
       return;
     }
     const picked = selectedMessages;
@@ -3178,6 +3211,10 @@ export function ChatPane({
   }
 
   function copySelectedMessagesJson() {
+    if (selectionBlockedReason) {
+      pushToast({ tone: 'warning', title: selectionBlockedReason });
+      return;
+    }
     const payload = selectedMessages.map((message) => {
       const sender = resolveMessageSender(message, conversation as Conversation, user);
       const decoration = (message as { decoration?: unknown }).decoration ?? null;
@@ -4121,7 +4158,7 @@ export function ChatPane({
                 // that follows the hole.
                 const previous = visibleMessages[index - 1];
                 const gapPrevious = previousForGap;
-                const gap = messageGapCount(gapPrevious, message);
+                const gap = messageGapCount(gapPrevious, message, selectionMode);
                 if (!isUnpositionedFailure(message)) previousForGap = message;
                 // 跳转落空的目标落在 previous 与 message 之间、且恰好只缺这 1 条时，
                 // 默认的缺口条（只在跳空 >1 时出现）不会渲染。补一条，保证「跳到空消息」
@@ -4137,6 +4174,22 @@ export function ChatPane({
                   out.push(
                     <MessageGapDivider
                       key={`missing-jump-${message.id}`}
+                      id={selectionGapId({
+                        previousSeq: String(gapPrevious.msgSeq),
+                        currentSeq: String(message.msgSeq),
+                      })}
+                      selectionMode={selectionMode}
+                      selected={selectionFlow.gapSelected({
+                        previousSeq: String(gapPrevious.msgSeq),
+                        currentSeq: String(message.msgSeq),
+                        count: 1,
+                      })}
+                      selectionProps={multi.itemProps(
+                        selectionGapId({
+                          previousSeq: String(gapPrevious.msgSeq),
+                          currentSeq: String(message.msgSeq),
+                        }),
+                      )}
                       count={1}
                       onOpen={() =>
                         onOpenGapMessages({
@@ -4153,6 +4206,34 @@ export function ChatPane({
                   out.push(
                     <MessageGapDivider
                       key={`gap-${message.id}`}
+                      id={
+                        gapPrevious
+                          ? selectionGapId({
+                              previousSeq: String(gapPrevious.msgSeq),
+                              currentSeq: String(message.msgSeq),
+                            })
+                          : undefined
+                      }
+                      selectionMode={selectionMode}
+                      selected={
+                        gapPrevious
+                          ? selectionFlow.gapSelected({
+                              previousSeq: String(gapPrevious.msgSeq),
+                              currentSeq: String(message.msgSeq),
+                              count: gap,
+                            })
+                          : false
+                      }
+                      selectionProps={
+                        gapPrevious
+                          ? multi.itemProps(
+                              selectionGapId({
+                                previousSeq: String(gapPrevious.msgSeq),
+                                currentSeq: String(message.msgSeq),
+                              }),
+                            )
+                          : undefined
+                      }
                       count={gap}
                       onOpen={
                         conversation && onOpenGapMessages && gapPrevious
@@ -4425,6 +4506,7 @@ export function ChatPane({
             >
               <span className={cn('selection-bar-count')}>{selectedMessages.length}</span>
               <span className={cn('selection-bar-label')}>条已选</span>
+              {selectionFlow.gaps.length ? <span>{selectionFlow.gaps.length} 处缺口</span> : null}
             </div>
             <div className={cn('selection-bar-actions')}>
               {requestAnalysis && conversationAnalysisTarget(conversation) ? (
@@ -4432,8 +4514,9 @@ export function ChatPane({
                   type="button"
                   className="selection-action"
                   aria-label="分析所选消息"
-                  title="分析所选消息"
+                  title={selectionBlockedReason || '分析所选消息'}
                   disabled={
+                    Boolean(selectionBlockedReason) ||
                     !selectedMessages.length ||
                     selectedMessages.some(
                       (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
@@ -4451,8 +4534,9 @@ export function ChatPane({
                   type="button"
                   className="selection-action"
                   aria-label="导出所选消息"
-                  title="导出所选消息"
+                  title={selectionBlockedReason || '导出所选消息'}
                   disabled={
+                    Boolean(selectionBlockedReason) ||
                     !selectedIds.size ||
                     selectedMessages.some(
                       (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
@@ -4468,8 +4552,8 @@ export function ChatPane({
                   type="button"
                   className="selection-action"
                   aria-label="添加到素材库"
-                  title="添加到素材库"
-                  disabled={!selectedMessages.length}
+                  title={selectionBlockedReason || '添加到素材库'}
+                  disabled={Boolean(selectionBlockedReason) || !selectedMessages.length}
                   onClick={() => onAddToComposition([...selectedMessages])}
                 >
                   <ListPlus size={17} />
@@ -4479,10 +4563,17 @@ export function ChatPane({
                 type="button"
                 className={cn('selection-action', 'selection-action-primary')}
                 aria-label="转发"
-                title={sendGateReason ? `${sendGateReason}，暂不可发送` : '转发'}
+                title={
+                  selectionBlockedReason ||
+                  (sendGateReason ? `${sendGateReason}，暂不可发送` : '转发')
+                }
                 aria-haspopup="menu"
                 aria-expanded={selectionMenu?.kind === 'forward'}
-                disabled={Boolean(sendGateReason) || selectedMessages.length === 0}
+                disabled={
+                  Boolean(selectionBlockedReason) ||
+                  Boolean(sendGateReason) ||
+                  selectedMessages.length === 0
+                }
                 onClick={(event) => openSelectionMenu('forward', event.currentTarget)}
               >
                 <Share2 size={17} />
@@ -4491,10 +4582,10 @@ export function ChatPane({
                 type="button"
                 className="selection-action"
                 aria-label="复制"
-                title="复制"
+                title={selectionBlockedReason || '复制'}
                 aria-haspopup="menu"
                 aria-expanded={selectionMenu?.kind === 'copy'}
-                disabled={!selectedMessages.length}
+                disabled={Boolean(selectionBlockedReason) || !selectedMessages.length}
                 onClick={(event) => openSelectionMenu('copy', event.currentTarget)}
               >
                 <Copy size={17} />
@@ -4504,6 +4595,7 @@ export function ChatPane({
                 className={cn('selection-action')}
                 aria-label="删除"
                 disabled={
+                  Boolean(selectionBlockedReason) ||
                   selectedMessages.length === 0 ||
                   selectedMessages.some(
                     (message) =>
@@ -4512,13 +4604,14 @@ export function ChatPane({
                   )
                 }
                 title={
-                  selectedMessages.some(
+                  selectionBlockedReason ||
+                  (selectedMessages.some(
                     (message) =>
                       message.source === 'roaming' ||
                       (isLocalOutgoingMessage(message) && !canDiscardFailedMessage(message)),
                   )
                     ? '所选消息包含发送中、待同步或漫游记录，不能删除'
-                    : '删除所选消息；失败占位仅从本机移除'
+                    : '删除所选消息；失败占位仅从本机移除')
                 }
                 onClick={deleteSelectedMessages}
               >
@@ -5137,13 +5230,15 @@ export function ChatPane({
               : '导出'
           }
           exportBlockedReason={
-            selectionMode &&
-            selectedIds.has(contextMenu.message.id) &&
-            selectedMessages.some(
-              (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
-            )
-              ? '所选消息包含未入库记录，暂不能精确导出'
-              : undefined
+            (selectionMode &&
+              selectedIds.has(contextMenu.message.id) &&
+              (selectionBlockedReason ||
+                (selectedMessages.some(
+                  (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
+                )
+                  ? '所选消息包含未入库记录，暂不能精确导出'
+                  : undefined))) ||
+            undefined
           }
           onCopy={copyMessage}
           onRepeat={

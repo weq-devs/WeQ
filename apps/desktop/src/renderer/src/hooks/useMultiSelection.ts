@@ -30,6 +30,7 @@ export function useMultiSelection<K extends string | number>({
   onStart,
   onExit,
   anchorRef,
+  beforeSelect,
 }: {
   ids: readonly K[];
   selected: ReadonlySet<K>;
@@ -40,6 +41,8 @@ export function useMultiSelection<K extends string | number>({
   onStart?: () => void;
   onExit?: () => void;
   anchorRef?: { current: string | null };
+  /** 允许消息时间线先确认并加载未显示的范围；返回 true 表示接管本次选择。 */
+  beforeSelect?: (id: K, modifiers: SelectionModifiers) => boolean;
 }) {
   const document = useRenderDocument();
   const ElementClass = document.defaultView?.HTMLElement ?? HTMLElement;
@@ -137,6 +140,7 @@ export function useMultiSelection<K extends string | number>({
     if (locked) return;
     const key = String(id);
     if (!keys.includes(key)) return;
+    if (beforeSelect?.(id, modifiers)) return;
     if (!enabled) onStart?.();
     update(
       selectMessageIds(

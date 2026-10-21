@@ -8,6 +8,34 @@ import {
 } from '../src/renderer/src/lib/sequentialForward';
 
 describe('逐条转发执行', () => {
+  it('两种非固定间隔连同抖动一并封顶，预估与实际等待一致', async () => {
+    for (const mode of ['text', 'original'] as const) {
+      const options = { ...DEFAULT_FORWARD_OPTIONS, mode, maxIntervalMs: 2000, jitterMs: 1000 };
+      const content = [
+        { text: '很长的文本', nonText: false, timestampMs: 1 },
+        { text: '末条', nonText: true, timestampMs: 900000 },
+      ];
+      expect(forwardDelay(content[0]!, options, () => 1, content[1])).toBe(2000);
+      const estimate = estimateForwardDuration(content, options, 1);
+      expect(estimate.maxMs).toBe(mode === 'text' ? 4000 : 2000);
+      const waits: number[] = [];
+      await forwardSequentially(content, options, {
+        text: (row) => row.text,
+        nonText: (row) => row.nonText,
+        time: (row) => row.timestampMs,
+        send: vi.fn(),
+        progress: vi.fn(),
+        signal: new AbortController().signal,
+        sleep: async (ms) => {
+          waits.push(ms);
+        },
+      });
+      expect(waits.every((ms) => ms <= options.maxIntervalMs)).toBe(true);
+    }
+    expect(
+      forwardDelay('文本', { ...DEFAULT_FORWARD_OPTIONS, intervalMs: 5000, maxIntervalMs: 10 }),
+    ).toBe(5000);
+  });
   it('单条即使保留文本间隔配置也不等待，预估与执行一致', async () => {
     const options = { ...DEFAULT_FORWARD_OPTIONS, mode: 'text' as const, jitterMs: 100 };
     const sleep = vi.fn();

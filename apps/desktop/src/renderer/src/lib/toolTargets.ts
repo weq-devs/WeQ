@@ -12,6 +12,7 @@
 import { classifyChatType } from '@weq/codec';
 import type { Contact, Conversation, GroupConversation } from '../im-template/template/types';
 import type { ContentSelection } from '../../../shared/content_selection';
+import { generatedContentIdentity } from '../../../shared/content_selection';
 import type { ExportMode } from '../views/export/types';
 import type { AnalysisTarget } from '../views/analysis/model';
 
@@ -213,6 +214,32 @@ export function analysisTargetForWorkspace(ctx: WorkspaceContext): AnalysisTarge
 export function defaultSelectionForContext(ctx: WorkspaceContext): ContentSelection | undefined {
   const entry = exportEntryForWorkspace(ctx);
   return entry.selection;
+}
+
+/** 保留隐藏页面的选区，但全局工具只使用当前页面兼容的那一份。 */
+export function selectionForWorkspace(
+  ctx: WorkspaceContext,
+  selection: ContentSelection | null,
+): ContentSelection | undefined {
+  if (!selection) return;
+  const owner = selection.owner;
+  if (ctx.view === 'messages' && owner.kind === 'conversations' && owner.container === 'main-list')
+    return selection;
+  if (ctx.view === 'contacts' && owner.kind === 'contacts') return selection;
+  if (ctx.view === 'agentlab' && ctx.virtual) {
+    const target = generatedContentIdentity(selection);
+    if (target && target.kind === ctx.virtual.kind && target.ownerId === ctx.virtual.ownerId)
+      return selection;
+  }
+  const expected = defaultSelectionForContext(ctx)?.owner;
+  if (!expected || expected.kind !== owner.kind) return;
+  if (expected.container === owner.container) return selection;
+  if (
+    owner.kind === 'messages' &&
+    (ctx.conversation?.type === 'direct' || ctx.conversation?.type === 'group') &&
+    owner.container === `${ctx.conversation.type}:${ctx.conversation.id}`
+  )
+    return { ...selection, owner: expected };
 }
 
 /** 与 {@link defaultSelectionForContext} 配套的导出种类。 */

@@ -8,6 +8,7 @@ import {
 import { ChatPane } from './chatPane';
 import type { LocalMediaRef } from './composerSend';
 import type { RepeatElement } from '../../lib/messageRepeat';
+import type { LoadSelectionMessages } from '../../lib/messageSelection';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import type { FlashSendPayload } from './flashComposer';
 import type { RedPacketDraft } from './redPacketPanel';
@@ -118,6 +119,7 @@ export function ChatMainContent({
   onViewDeleted,
   onViewRecalled,
   onOpenGapMessages,
+  onLoadSelectionMessages,
   onSearchChatRecords,
   onOpenRoamingBackfill,
   deletedIds,
@@ -247,6 +249,7 @@ export function ChatMainContent({
     currentSeq: string;
     count: number;
   }) => void;
+  onLoadSelectionMessages?: LoadSelectionMessages;
   /** 顶栏「搜索聊天记录」按钮：在当前会话内搜索并跳转。 */
   onSearchChatRecords?: (conversation: Conversation) => void;
   onOpenRoamingBackfill?: (conversation: Conversation) => void;
@@ -350,6 +353,7 @@ export function ChatMainContent({
       onViewDeleted={onViewDeleted}
       onViewRecalled={onViewRecalled}
       onOpenGapMessages={onOpenGapMessages}
+      onLoadSelectionMessages={onLoadSelectionMessages}
       onSearchChatRecords={onSearchChatRecords}
       onOpenRoamingBackfill={onOpenRoamingBackfill}
       deletedIds={deletedIds}

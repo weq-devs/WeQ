@@ -51,10 +51,12 @@ import {
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { isMineMessage } from '../lib/messageDirection';
 import { isLocalOutgoingMessage } from '../lib/messageSelection';
+import type { LoadSelectionMessages } from '../lib/messageSelection';
 import {
   mergeOptimisticInto,
   captureOutgoingAfterSeq,
   needsFailedPreparation,
+  matchForwardMessages,
   type ComposerSubmission,
 } from '../lib/localOutgoing';
 import { useFailedOutgoingRemoval } from '../hooks/useFailedOutgoingRemoval';
@@ -75,7 +77,15 @@ import {
 } from '@weq/codec';
 import { contactSenderName, contactTitle } from '../lib/contactTitle';
 import { replaceLoadedMembers, subscribeQQPeerUpdates } from '../lib/qqPeerUpdates';
-import { conversationSortTime, pinOrderDelta } from '@weq/service/conversation-order';
+import {
+  conversationSortTime,
+  conversationActivityTime,
+  draftSortTimes,
+  conversationPinned,
+  pinOrderDelta,
+} from '@weq/service/conversation-order';
+import { mergeRecentContactPages } from '../lib/recentContacts';
+import { useContentSelectionScope } from '../state/contentSelection';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { ConversationWindowCache, conversationWindowKey } from '../lib/conversationWindowCache';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
@@ -2210,6 +2220,7 @@ export function MainView(): ReactElement {
         pinSession.binding.expectedAccountConfigId,
       ])
     : '';
+  useContentSelectionScope(messageScope);
   const messageActivity = useQQReadActivity(Boolean(messageScope), { onlineOnly: false });
   const messageScopeRef = useRef(messageScope);
   messageScopeRef.current = messageScope;
@@ -2243,8 +2254,26 @@ export function MainView(): ReactElement {
   const renameGroupMember = trpc.account.setGroupMemberCard.useMutation();
   const kickGroupMember = trpc.account.kickGroupMember.useMutation();
   const contacts = trpc.account.listRecentContacts.useInfiniteQuery(
-    { limit: 500 },
-    { getNextPageParam: (lastPage) => (lastPage.items.length ? lastPage.nextCursor : undefined) },
+    { limit: 500, ...pinSession.binding },
+    {
+      enabled: Boolean(pinSession.binding),
+      getNextPageParam: (lastPage) => (lastPage.items.length ? lastPage.nextCursor : undefined),
+    },
+  );
+  // 实时只读最新页，不等待完整目录的逐页刷新；旧分页继续保留已知会话。
+  const recentHead = trpc.account.listRecentContacts.useQuery(
+    { limit: 500, cursor: 0, ...pinSession.binding },
+    { enabled: Boolean(pinSession.binding), keepPreviousData: false, staleTime: 0 },
+  );
+  const headRefetchRef = useRef(recentHead.refetch);
+  headRefetchRef.current = recentHead.refetch;
+  const conversationDraftTimes = trpc.account.listConversationDraftTimes.useQuery(
+    pinSession.binding ?? undefined,
+    { enabled: Boolean(pinSession.binding), keepPreviousData: false, staleTime: 0 },
+  );
+  const draftTimesByConv = useMemo(
+    () => draftSortTimes(conversationDraftTimes.data ?? []),
+    [conversationDraftTimes.data],
   );
   // Folder membership must cover older rows too; never classify unobserved groups as folded.
   useEffect(() => {
@@ -2274,18 +2303,32 @@ export function MainView(): ReactElement {
   );
   const contactsRefreshingRef = useRef(false);
   const contactsRefreshQueuedRef = useRef(false);
-  contactsRefreshingRef.current = contacts.isFetching || Boolean(contacts.hasNextPage);
+  contactsRefreshingRef.current = recentHead.isFetching;
+  const refreshRecentHead = useCallback(() => {
+    if (contactsRefreshingRef.current) {
+      contactsRefreshQueuedRef.current = true;
+      return;
+    }
+    void headRefetchRef.current({ cancelRefetch: false });
+  }, []);
   useEffect(() => {
-    if (contacts.isFetching || contacts.hasNextPage || !contactsRefreshQueuedRef.current) return;
+    if (recentHead.isFetching || !contactsRefreshQueuedRef.current) return;
     contactsRefreshQueuedRef.current = false;
-    void utils.account.listRecentContacts.invalidate();
-  }, [contacts.isFetching, contacts.hasNextPage, utils]);
+    refreshRecentHead();
+  }, [recentHead.isFetching, refreshRecentHead]);
+  useEffect(() => {
+    contactsRefreshQueuedRef.current = false;
+  }, [messageScope]);
 
   // Flatten the paginated recent-contact pages into one list for the memos
   // below (the sidebar can scroll-load more pages past the first window).
   const recentContactsData = useMemo<RecentContactWire[]>(
-    () => (contacts.data?.pages ?? []).flatMap((page) => page.items),
-    [contacts.data],
+    () =>
+      mergeRecentContactPages([
+        recentHead.data?.items ?? [],
+        ...(contacts.data?.pages ?? []).map((page) => page.items),
+      ]),
+    [contacts.data, recentHead.data],
   );
   const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 });
   // Official QQ setting: observed 4 → 2 when switching from muted to group helper.
@@ -2507,8 +2550,7 @@ export function MainView(): ReactElement {
           conversationWindowKey(messageScope, change.kind, change.conv),
         );
         // WeQ 发送缓存不会改 QQ 库，也就不会触发 onDbChanged。
-        if (contactsRefreshingRef.current) contactsRefreshQueuedRef.current = true;
-        else void utils.account.listRecentContacts.invalidate();
+        refreshRecentHead();
         const selection = selectionRef.current;
         if (
           !selection ||
@@ -2526,7 +2568,7 @@ export function MainView(): ReactElement {
       },
     });
     return () => sub.unsubscribe();
-  }, [utils, messageScope, conversationWindows]);
+  }, [utils, messageScope, conversationWindows, refreshRecentHead]);
 
   // Subscribe once to the debounced "db changed" ping: refresh recent contacts
   // and re-read the open conversation's window. (onNewMessages stays a backend
@@ -2541,8 +2583,7 @@ export function MainView(): ReactElement {
         conversationWindows.markDirty();
         // Read watermarks can change while recent contacts remain identical.
         setUnreadRevision((revision) => revision + 1);
-        if (contactsRefreshingRef.current) contactsRefreshQueuedRef.current = true;
-        else void utils.account.listRecentContacts.invalidate();
+        refreshRecentHead();
         void utils.account.listTopContacts.invalidate();
         void utils.account.listHiddenSessions.invalidate();
         void utils.account.listOfficialAccounts.invalidate();
@@ -2564,7 +2605,7 @@ export function MainView(): ReactElement {
       },
     });
     return () => sub.unsubscribe();
-  }, [utils, refreshWindow, messageScope, conversationWindows]);
+  }, [utils, refreshWindow, messageScope, conversationWindows, refreshRecentHead]);
 
   useEffect(() => {
     const sub = client.bootstrap.onAccountForcedClosed.subscribe(undefined, {
@@ -2769,6 +2810,10 @@ export function MainView(): ReactElement {
   const compositionWindow = useCompositionWindow();
   // 发出去但还没被 QQ 同步回来的合并转发（乐观渲染；不写库、不落缓存文件）。
   const [optimisticForwards, setOptimisticForwards] = useState<OptimisticForward[]>([]);
+  const consumedForwardMessages = useRef(new Map<string, string>());
+  useEffect(() => {
+    consumedForwardMessages.current.clear();
+  }, [messageScope]);
   // 同上，但发出去的是 Ark 卡片（推荐好友 / 推荐群 / 位置 / 图文 / 自定义 JSON）。
   const [optimisticArks, setOptimisticArks] = useState<OptimisticArk[]>([]);
   // 同上，但发出去的是普通消息（文本 / @ / 表情 / 图片 / 视频 / 语音 / 文件…）。
@@ -3910,15 +3955,48 @@ export function MainView(): ReactElement {
       });
     }
 
+    const assistantDraftTime = [...groupAssistantIds].reduce(
+      (latest, id) => Math.max(latest, draftTimesByConv[id] ?? 0),
+      0,
+    );
     return (
       Array.from(byId.values())
         .map((conversation) => {
           const unread = unreadByConv[conversation.id];
           const highlights = highlightsByConv[conversation.id] ?? null;
           const topTime = topTimeByConv[conversation.id];
-          if (unread === undefined && !highlights && topTime === undefined) return conversation;
+          const pinStateKnown =
+            Boolean(topContacts.data) &&
+            (conversation.type === 'direct' || conversation.type === 'group');
+          const activityTime = Math.max(
+            draftTimesByConv[conversation.id] ?? 0,
+            temporaryConversations[conversation.id]?.appearedAt ?? 0,
+            conversation.type === 'merged' && conversation.mergedKind === 'groupAssistant'
+              ? assistantDraftTime
+              : 0,
+          );
+          if (
+            unread === undefined &&
+            !highlights &&
+            topTime === undefined &&
+            !activityTime &&
+            !pinStateKnown
+          )
+            return conversation;
           return {
             ...conversation,
+            activityTime,
+            ...(pinStateKnown
+              ? {
+                  pinStateKnown: true,
+                  pinnedAt: topTime,
+                  preference: {
+                    ...fallbackPreference,
+                    ...conversation.preference,
+                    pinned: topTime !== undefined,
+                  },
+                }
+              : {}),
             ...(unread === undefined ? {} : { unreadCount: unread }),
             ...(topTime === undefined
               ? {}
@@ -3931,19 +4009,19 @@ export function MainView(): ReactElement {
         })
         // QQ 置顶时间不能被后续列表组件重新按最后消息时间覆盖。
         .sort((a, b) => {
-          const aTop = topTimeByConv[a.id];
-          const bTop = topTimeByConv[b.id];
-          const pinDelta = pinOrderDelta(aTop !== undefined, bTop !== undefined, aTop, bTop);
+          const pinDelta = pinOrderDelta(
+            conversationPinned(a),
+            conversationPinned(b),
+            a.pinnedAt,
+            b.pinnedAt,
+          );
           if (pinDelta) return pinDelta;
           return (
-            Math.max(
-              conversationSortTime(b.lastMessage?.createdAt ?? b.updatedAt, undefined),
-              temporaryConversations[b.id]?.appearedAt ?? 0,
-            ) -
-            Math.max(
-              conversationSortTime(a.lastMessage?.createdAt ?? a.updatedAt, undefined),
-              temporaryConversations[a.id]?.appearedAt ?? 0,
-            )
+            Math.max(conversationActivityTime(b), temporaryConversations[b.id]?.appearedAt ?? 0) -
+              Math.max(
+                conversationActivityTime(a),
+                temporaryConversations[a.id]?.appearedAt ?? 0,
+              ) || a.id.localeCompare(b.id)
           );
         })
     );
@@ -3965,6 +4043,8 @@ export function MainView(): ReactElement {
     previewGroupNames,
     highlightsByConv,
     topTimeByConv,
+    topContacts.data,
+    draftTimesByConv,
     groupAssistantIds,
     groupAssistantEntry,
     botUids,
@@ -4268,6 +4348,7 @@ export function MainView(): ReactElement {
                 conv: c.group.identityValue,
                 name: c.group.name,
                 avatarUrl: c.group.avatarUrl,
+                groupAssistant: groupAssistantIds.has(c.id),
               }
             : {
                 id: c.id,
@@ -4278,7 +4359,7 @@ export function MainView(): ReactElement {
                 avatarUrl: c.otherUser.avatarUrl,
               },
         ),
-    [conversations],
+    [conversations, groupAssistantIds],
   );
 
   const mergeForwardSendAvailable = sendAvailable;
@@ -4535,6 +4616,7 @@ export function MainView(): ReactElement {
           resId: outcome.resId,
           ...(cardKeys.cid ? { cid: cardKeys.cid } : {}),
           ...(cardKeys.seq ? { seq: cardKeys.seq } : {}),
+          ...(cardKeys.seqRejected ? { seqRejected: true } : {}),
         });
         if (cardKeys.seqRejected) {
           pushToast({
@@ -5418,6 +5500,116 @@ export function MainView(): ReactElement {
     resolveProfiles,
   ]);
 
+  const loadSelectionMessages: LoadSelectionMessages = useCallback(
+    async (request, onPage, signal) => {
+      const binding = messageBindingRef.current,
+        scope = messageScopeRef.current;
+      if (!binding || !scope) throw new Error('账号或数据源尚未就绪');
+      const check = () => {
+        signal.throwIfAborted();
+        if (messageScopeRef.current !== scope) throw new Error('账号或数据源已切换');
+      };
+      const { kind, conv } = convFetchKey(request.conversation);
+      const start = BigInt(request.startSeq),
+        end = BigInt(request.endSeq);
+      if (start <= 0n || end < start) throw new Error('消息范围无效');
+      const apply = (page: MessageWire[]) => {
+        check();
+        const members =
+          request.conversation.type === 'group'
+            ? new Map(request.conversation.members.map((member) => [member.id, member]))
+            : undefined;
+        const rows = page.filter((row) => BigInt(row.msgSeq) >= start && BigInt(row.msgSeq) <= end);
+        onPage(
+          rows.map((row) => messageToTemplate(row, request.conversation, user, members, botUids)),
+        );
+        if (selectionRef.current?.id !== request.conversation.id) return;
+        setLoaded((current) => {
+          if (
+            messageScopeRef.current !== scope ||
+            selectionRef.current?.id !== request.conversation.id
+          )
+            return current;
+          const low = current.find((row) => /^[1-9]\d*$/.test(row.msgSeq))?.msgSeq;
+          const high = current.findLast((row) => /^[1-9]\d*$/.test(row.msgSeq))?.msgSeq;
+          if (!low || !high) return current;
+          const visible = rows.filter(
+            (row) => BigInt(row.msgSeq) >= BigInt(low) && BigInt(row.msgSeq) <= BigInt(high),
+          );
+          if (!visible.length) return current;
+          if (request.mode === 'roaming') return mergeRoamingTimeline(kind, current, visible);
+          const native = new Map(
+            current.filter((row) => row.source !== 'roaming').map((row) => [row.msgId, row]),
+          );
+          for (const row of visible) native.set(row.msgId, row);
+          return mergeRoamingTimeline(
+            kind,
+            [...native.values()],
+            current.filter((row) => row.source === 'roaming'),
+          );
+        });
+      };
+      if (request.mode === 'local') {
+        let afterSeq: string | undefined;
+        for (;;) {
+          check();
+          const page = await client.account.readSelectionRange.query({
+            ...binding,
+            kind,
+            conv,
+            startSeq: request.startSeq,
+            endSeq: request.endSeq,
+            afterSeq,
+            limit: 200,
+          });
+          check();
+          apply(page.items.map(toMessageWire));
+          if (page.nextSeq === null) break;
+          if (BigInt(page.nextSeq) <= BigInt(afterSeq ?? start - 1n))
+            throw new Error('消息范围分页未前进');
+          afterSeq = page.nextSeq;
+        }
+      } else {
+        if (end > 0xffffffffn) throw new Error('该序号超出现有漫游协议可读取的范围');
+        let cursor = Number(start);
+        while (cursor <= Number(end)) {
+          check();
+          const page = await client.account.fetchGapMessages.query({
+            ...binding,
+            kind,
+            conv,
+            startSeq: cursor,
+            endSeq: Number(end),
+          });
+          check();
+          if (!page.ok) throw new Error(page.message);
+          if (kind === 'c2c' && page.messages.some((row) => !row.ntSeqVerified))
+            throw new Error('漫游记录缺少已确认的 NT 序号，不能混入当前选区');
+          apply(
+            page.messages.map((row) => ({ ...toMessageWire(row), source: 'roaming' as const })),
+          );
+          if (page.nextStartSeq === null) break;
+          if (page.nextStartSeq <= cursor) throw new Error('漫游分页未前进');
+          cursor = page.nextStartSeq;
+        }
+      }
+    },
+    [convFetchKey, user, botUids],
+  );
+
+  const forwardMatches = useMemo(
+    () =>
+      selectedConversation
+        ? matchForwardMessages(
+            optimisticForwards,
+            loadedMessageWires.filter((wire) => isMineMessage(wire, selectedConversation, user)),
+            selectedConversation.id,
+            consumedForwardMessages.current,
+          )
+        : new Map<string, string>(),
+    [optimisticForwards, loadedMessageWires, selectedConversation, user],
+  );
+
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
 
@@ -5438,7 +5630,7 @@ export function MainView(): ReactElement {
       );
     // 乐观渲染的合并转发（见 {@link mergeOptimisticInto}）。
     const pending = optimisticForwards
-      .filter((item) => item.convId === selectedConversation.id)
+      .filter((item) => item.convId === selectedConversation.id && !forwardMatches.has(item.id))
       .map((item) => optimisticToTemplate(item, selectedConversation, user));
     // 乐观 Ark 卡片（同上）。
     const pendingArks = optimisticArks
@@ -5459,29 +5651,26 @@ export function MainView(): ReactElement {
     optimisticForwards,
     optimisticArks,
     optimisticMessages,
+    forwardMatches,
   ]);
 
   /**
-   * 真实的合并转发卡片同步回来之后，把对应的乐观条目收掉（靠 resId 对账）。
-   * 私聊同步可能要等一会儿，这段期间乐观卡片就是唯一反馈；一旦真消息到，两者会
-   * 同时出现一张，所以按 resId 去重。未拿到 resId 的条目（发送中 / 失败）保留。
+   * 与渲染使用同一份纯对账结果，回执更新也触发；一条真实回声只消费一次。
    */
   useEffect(() => {
-    if (optimisticForwards.length === 0) return;
-    const seen = new Set<string>();
-    for (const wire of loadedMessageWires) {
-      for (const element of wire.elements ?? []) {
-        if ((element as { type?: string }).type !== 'multiMsg') continue;
-        const resId = (element as { data?: { resId?: string } }).data?.resId;
-        if (resId) seen.add(resId);
-      }
+    if (!forwardMatches.size) return;
+    for (const [id, key] of forwardMatches) {
+      while (consumedForwardMessages.current.size >= 512)
+        consumedForwardMessages.current.delete(
+          consumedForwardMessages.current.keys().next().value!,
+        );
+      consumedForwardMessages.current.set(key, id);
     }
-    if (seen.size === 0) return;
     setOptimisticForwards((current) => {
-      const next = current.filter((item) => !item.resId || !seen.has(item.resId));
+      const next = current.filter((item) => !forwardMatches.has(item.id));
       return next.length === current.length ? current : next;
     });
-  }, [loadedMessageWires, optimisticForwards.length]);
+  }, [forwardMatches]);
 
   /**
    * Ark 卡片的真消息同步回来之后，把对应的乐观条目收掉。判据按可靠性排队：
@@ -9049,6 +9238,7 @@ export function MainView(): ReactElement {
                           onViewDeleted={handleViewDeleted}
                           onViewRecalled={handleViewRecalled}
                           onOpenGapMessages={handleOpenGapMessages}
+                          onLoadSelectionMessages={loadSelectionMessages}
                           onSearchChatRecords={handleSearchChatRecords}
                           onOpenRoamingBackfill={(conversation) => {
                             const target = conversationRoamingTarget(conversation);
@@ -9174,6 +9364,7 @@ export function MainView(): ReactElement {
             }}
           />
           <WorkspaceTools
+            key={messageScope}
             onOpenClone={(id) => {
               flushAllDirtyDrafts();
               setCloneSearchTarget(null);

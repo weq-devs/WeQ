@@ -1,3 +1,5 @@
+import { formatConversationTimestamp } from '../../lib/conversationTime';
+import { conversationActivityTime } from '@weq/service/conversation-order';
 import {
   X,
   EyeOff,
@@ -140,10 +142,11 @@ export function MergedSessionPanel({
   const [selectingAll, setSelectingAll] = useState(false);
   const directory = useContext(ConversationDirectoryContext);
   const batch = useConversationBatchActions(_conversations);
-  const { selectionMode, selectedIds, setSelectedIds, setSelectionMode } = useContentMultiSelect({
-    kind: 'conversations',
-    container: 'main-list',
-  });
+  const { selectionMode, selectedIds, setSelectedIds, setSelectionMode, anchorRef } =
+    useContentMultiSelect({
+      kind: 'conversations',
+      container: 'main-list',
+    });
   const [actionMenu, setActionMenu] = useState<{
     conversation: Conversation;
     ids: string[];
@@ -526,9 +529,9 @@ export function MergedSessionPanel({
               Number(isAssistantPinned(a, groupAssistantPins));
             if (pinOrder) return pinOrder;
           }
-          const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-          const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-          return bTime - aTime;
+          return (
+            conversationActivityTime(b) - conversationActivityTime(a) || a.id.localeCompare(b.id)
+          );
         }),
     [filtered, groupSearch, kind, groupAssistantPins],
   );
@@ -580,6 +583,7 @@ export function MergedSessionPanel({
     setSelectedIds,
   ]);
   const multi = useMultiSelection({
+    anchorRef,
     ids,
     selected: selectedIds,
     onChange: (next) => {
@@ -641,12 +645,7 @@ export function MergedSessionPanel({
           {sortedThreads.map((conv) => {
             const preview = conv.lastMessage?.body ?? '';
             const unreadCount = conv.unreadCount ?? 0;
-            const time = conv.updatedAt
-              ? new Date(conv.updatedAt).toLocaleTimeString('zh-CN', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })
-              : '';
+            const time = formatConversationTimestamp(conv.updatedAt);
             const name = conv.type === 'group' ? conv.group?.name : conv.otherUser?.displayName;
             const avatarUrl =
               conv.type === 'group' ? conv.group?.avatarUrl : conv.otherUser?.avatarUrl;

@@ -46,6 +46,30 @@ export function conversationSortTime(updatedAt: string, draftTimeMs: number | un
   return Math.max(Number.isFinite(msgMs) ? msgMs : 0, draftTimeMs ?? 0);
 }
 
+/** 主列表和真实／克隆混排共用排序时间，活动时间不改写最后一条消息的日期。 */
+export function conversationActivityTime(row: {
+  updatedAt: string;
+  activityTime?: number;
+  lastMessage?: { createdAt?: string } | null;
+}): number {
+  const activity = row.activityTime;
+  return Math.max(
+    conversationSortTime(row.updatedAt, undefined),
+    conversationSortTime(row.lastMessage?.createdAt ?? '', undefined),
+    activity !== undefined && Number.isFinite(activity) && activity > 0 ? activity : 0,
+  );
+}
+
+/** 已读回的 QQ 置顶状态优先于旧本地偏好，虚拟与聚合入口仍允许本地覆盖。 */
+export function conversationPinned(
+  row: { id: string; pinStateKnown?: boolean; preference?: { pinned?: boolean } },
+  overrides: Record<string, { pinned?: boolean }> = {},
+): boolean {
+  return row.pinStateKnown
+    ? Boolean(row.preference?.pinned)
+    : (overrides[row.id]?.pinned ?? row.preference?.pinned ?? false);
+}
+
 /** 置顶优先，置顶内按 QQ 的置顶秒级时间倒序；未知或同秒时由调用方稳定回退。 */
 export function pinOrderDelta(
   firstPinned: boolean,

@@ -9,12 +9,36 @@ import { expect, it } from 'vitest';
 import {
   analysisTargetForWorkspace,
   exportEntryForWorkspace,
+  selectionForWorkspace,
   type WorkspaceContext,
 } from '../src/renderer/src/lib/toolTargets';
 import type {
   Conversation,
   GroupConversation,
 } from '../src/renderer/src/im-template/template/types';
+import type { ContentSelection } from '../src/shared/content_selection';
+
+it('全局工具只取当前页面和会话的多选，不误用隐藏页面保留的选择', () => {
+  const contacts: ContentSelection = {
+    owner: { kind: 'contacts', container: 'friends' },
+    scope: { type: 'items', ids: ['peer'] },
+  };
+  expect(
+    selectionForWorkspace({ view: 'messages', conversation: group }, contacts),
+  ).toBeUndefined();
+  expect(selectionForWorkspace({ view: 'contacts' }, contacts)).toBe(contacts);
+  expect(selectionForWorkspace({ view: 'settings' }, contacts)).toBeUndefined();
+  const messages: ContentSelection = {
+    owner: { kind: 'messages', container: `direct:${direct.id}` },
+    scope: { type: 'items', ids: ['1'] },
+  };
+  expect(
+    selectionForWorkspace({ view: 'messages', conversation: direct }, messages)?.owner.container,
+  ).toBe(`c2c:${direct.id}`);
+  expect(
+    selectionForWorkspace({ view: 'messages', conversation: group }, messages),
+  ).toBeUndefined();
+});
 
 const group: GroupConversation = {
   id: '777',

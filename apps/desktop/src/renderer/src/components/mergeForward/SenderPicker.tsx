@@ -1,3 +1,4 @@
+import { CompositionButton } from './CompositionButton';
 /**
  * 合并转发的「发消息的人」选择器。
  *
@@ -102,9 +103,9 @@ export function SenderPicker({
   return (
     <div className="weq-mf-picker">
       <div className="weq-mf-picker-head">
-        <button type="button" className="weq-mf-icon-btn" onClick={onBack} title="返回">
+        <CompositionButton type="button" className="weq-mf-icon-btn" onClick={onBack} title="返回">
           <ChevronLeft size={18} />
-        </button>
+        </CompositionButton>
         <strong>{mode === 'global' ? '选择发送人' : '选择会话成员'}</strong>
         <span className="weq-mf-picker-spacer" />
       </div>
@@ -182,10 +183,11 @@ export function SenderPicker({
                 onChange={(e) => setManualName(e.target.value)}
               />
             </div>
-            <button
+            <CompositionButton
               type="button"
               className="weq-mf-primary"
               disabled={manualUin.trim().length < 5}
+              disabledReason="请输入至少五位 QQ 号"
               onClick={() =>
                 onPick({
                   uid: '',
@@ -195,17 +197,17 @@ export function SenderPicker({
               }
             >
               使用这个身份
-            </button>
+            </CompositionButton>
           </div>
         ) : (
-          <button
+          <CompositionButton
             type="button"
             className="weq-mf-manual-toggle"
             onClick={() => setManualOpen(true)}
           >
             <UserPlus size={15} />
             直接填写 QQ 号和昵称
-          </button>
+          </CompositionButton>
         )}
       </div>
     </div>
@@ -220,12 +222,12 @@ function PersonRow({
   onPick: (person: MfPerson) => void;
 }): ReactElement {
   return (
-    <button type="button" className="weq-mf-person" onClick={() => onPick(person)}>
+    <CompositionButton type="button" className="weq-mf-person" onClick={() => onPick(person)}>
       <QqAvatar uin={person.uin} size={30} className="weq-mf-person-avatar" />
       <span className="weq-mf-person-name">{person.name}</span>
       {person.uin && person.uin !== '0' ? (
         <span className="weq-mf-person-uin">{person.uin}</span>
       ) : null}
-    </button>
+    </CompositionButton>
   );
 }

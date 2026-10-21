@@ -1,0 +1,31 @@
+.weq-message-load-task {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-message-load-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.weq-message-load-actions progress {
+  flex: 1;
+  min-width: 0;
+  height: 6px;
+  accent-color: var(--weq-accent-effective);
+}
+.weq-message-load-actions button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+}
+html[data-theme='dark'] .weq-message-load-actions button {
+  border-color: var(--weq-border-strong);
+}

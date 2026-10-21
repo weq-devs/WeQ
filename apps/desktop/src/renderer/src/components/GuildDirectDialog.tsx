@@ -234,26 +234,21 @@ export function GuildDirectDialog({
   const [searchRetry, setSearchRetry] = useState(0);
   // 把当前打开的频道私聊同步给外层（浮动工具「导出当前频道私聊」用它定位）。
   useEffect(() => {
-    onActiveSessionChange?.(selected?.nodeId ?? null);
-  }, [selected?.nodeId, onActiveSessionChange]);
-  const selection = useContentMultiSelect({
-    kind: 'guild-direct',
-    container: selected?.nodeId ?? '',
-  });
+    onActiveSessionChange?.(active ? (selected?.nodeId ?? null) : null);
+  }, [selected?.nodeId, onActiveSessionChange, active]);
+  const selection = useContentMultiSelect(
+    {
+      kind: 'guild-direct',
+      container: selected?.nodeId ?? '',
+    },
+    active,
+  );
   const requestExport = useRequestContentExport();
   const [copyMenu, setCopyMenu] = useState<{ x: number; y: number } | null>(null);
-  const selectionAnchor = useRef<string | null>(null);
-  useEffect(
-    () => () => {
-      selection.setSelectionMode(false);
-      selectionAnchor.current = null;
-      setCopyMenu(null);
-    },
-    [selection.setSelectionMode],
-  );
+  const selectionAnchor = selection.anchorRef;
   useEffect(() => {
-    if (!active) selection.setSelectionMode(false);
-  }, [active, selection.setSelectionMode]);
+    setCopyMenu(null);
+  }, [selected?.nodeId, active]);
   const multi = useMultiSelection({
     ids: messages.map((message) => message.msgId),
     selected: selection.selectedIds,

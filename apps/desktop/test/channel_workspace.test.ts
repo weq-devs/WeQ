@@ -91,7 +91,7 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
 }
 
 describe('QQ 频道内的私聊工作区', () => {
-  it('频道所选消息可复制和请求公共导出，换会话再返回不保留旧选区', async () => {
+  it('频道所选消息可复制和导出，各会话分别保留自己的选区', async () => {
     const writeText = vi.fn(async () => {});
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
     rpc.sessions.mockResolvedValueOnce(
@@ -146,9 +146,10 @@ describe('QQ 频道内的私聊工作区', () => {
       expect(f.host.querySelector('[aria-label="撤回所选消息"]')).toBeNull();
       const sessions = f.host.querySelectorAll<HTMLButtonElement>('.weq-guild-direct-item');
       await act(async () => sessions[1]!.click());
-      await act(async () => sessions[0]!.click());
       expect(f.host.querySelector('.is-selected')).toBeNull();
-      expect(f.host.querySelector('[aria-label="多选消息"]')).not.toBeNull();
+      await act(async () => sessions[0]!.click());
+      expect(f.host.querySelectorAll('.weq-guild-direct-msg.is-selected')).toHaveLength(1);
+      expect(f.host.querySelector('[aria-label="退出消息多选"]')).not.toBeNull();
     } finally {
       f.close();
     }

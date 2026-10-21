@@ -1,3 +1,4 @@
+import { CompositionButton } from './CompositionButton';
 /**
  * MsgDressEditor —— 合并转发里给**单条预览消息**改装扮（列 40801）的小卡片。
  *
@@ -197,9 +198,14 @@ export function MsgDressEditor({
             <Sparkles size={15} />
           </span>
           <strong>编辑装扮</strong>
-          <button type="button" className="weq-mf-dress-x" title="关闭" onClick={onClose}>
+          <CompositionButton
+            type="button"
+            className="weq-mf-dress-x"
+            title="关闭"
+            onClick={onClose}
+          >
             <X size={15} strokeWidth={2} />
-          </button>
+          </CompositionButton>
         </header>
 
         <div className="weq-mf-dress-preview-wrap">
@@ -224,19 +230,24 @@ export function MsgDressEditor({
               <span className="weq-mf-dress-name" title={names[kind]}>
                 {names[kind] ?? ''}
               </span>
-              <button type="button" className="weq-mf-dress-mall" onClick={() => setPickFor(kind)}>
+              <CompositionButton
+                type="button"
+                className="weq-mf-dress-mall"
+                onClick={() => setPickFor(kind)}
+              >
                 <Search size={12} />
                 商城
-              </button>
-              <button
+              </CompositionButton>
+              <CompositionButton
                 type="button"
                 className="weq-mf-dress-clear"
                 title="清除"
                 disabled={value <= 0}
+                disabledReason="尚未设置此项装扮"
                 onClick={() => clear(kind)}
               >
                 <X size={13} strokeWidth={2} />
-              </button>
+              </CompositionButton>
             </div>
           ))}
         </div>
@@ -246,21 +257,22 @@ export function MsgDressEditor({
         ) : null}
 
         <footer className="weq-mf-dress-foot">
-          <button
+          <CompositionButton
             type="button"
             className="weq-mf-soft"
             disabled={!hasAny}
+            disabledReason="尚未设置任何装扮"
             onClick={() => {
               commit({ bubbleId: 0, fontId: 0, widgetId: 0 });
               setNames({});
             }}
           >
             清除全部
-          </button>
+          </CompositionButton>
           <span className="weq-mf-inline-spacer" />
-          <button type="button" className="weq-mf-primary" onClick={onClose}>
+          <CompositionButton type="button" className="weq-mf-primary" onClick={onClose}>
             完成
-          </button>
+          </CompositionButton>
         </footer>
       </div>
 
@@ -342,9 +354,9 @@ function DressMallPicker({
         <header className="weq-mf-dress-head">
           <span className="weq-mf-dress-head-icon">{KIND_META[kind].icon}</span>
           <strong>选择{KIND_META[kind].label}</strong>
-          <button type="button" className="weq-mf-dress-x" title="返回" onClick={onBack}>
+          <CompositionButton type="button" className="weq-mf-dress-x" title="返回" onClick={onBack}>
             <X size={15} strokeWidth={2} />
-          </button>
+          </CompositionButton>
         </header>
 
         <form
@@ -365,7 +377,7 @@ function DressMallPicker({
             onChange={(e) => setDraft(e.target.value)}
           />
           {keyword ? (
-            <button
+            <CompositionButton
               type="button"
               className="weq-mf-dress-x"
               title="清空"
@@ -375,7 +387,7 @@ function DressMallPicker({
               }}
             >
               <X size={13} strokeWidth={2} />
-            </button>
+            </CompositionButton>
           ) : null}
         </form>
 
@@ -402,7 +414,7 @@ function DressMallPicker({
         ) : (
           <div className="weq-mf-mall-grid">
             {items.map((it) => (
-              <button
+              <CompositionButton
                 key={it.itemId}
                 type="button"
                 className={cn('weq-mf-mall-item', it.itemId === currentId && 'is-current')}
@@ -427,7 +439,7 @@ function DressMallPicker({
                 </span>
                 <span className="weq-mf-mall-name">{it.name}</span>
                 <span className="weq-mf-mall-id">#{it.itemId}</span>
-              </button>
+              </CompositionButton>
             ))}
           </div>
         )}

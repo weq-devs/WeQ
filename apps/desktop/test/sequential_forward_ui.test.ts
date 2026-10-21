@@ -5,6 +5,7 @@ import { SequentialForwardDialog } from '../src/renderer/src/components/Sequenti
 import { startSequentialForward } from '../src/renderer/src/components/SequentialForwardTask';
 import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
 import { DEFAULT_FORWARD_OPTIONS } from '../src/renderer/src/lib/sequentialForward';
+import { MergeForwardTargets } from '../src/renderer/src/components/mergeForward/MergeForwardTargets';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
@@ -48,6 +49,39 @@ const messages = [
     ],
   },
 ];
+
+it('转发目标的群助手独立入口保留内外已选群', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const inside = { ...target, id: 'inside', name: '助手内群', groupAssistant: true };
+  function View() {
+    const [selected, onChange] = useState(new Set<string>());
+    return createElement(
+      'div',
+      null,
+      createElement(MergeForwardTargets, { targets: [target, inside], selected, onChange }),
+      createElement('output', null, [...selected].join(',')),
+    );
+  }
+  try {
+    act(() => root.render(createElement(View)));
+    expect(host.querySelectorAll('.weq-mf-target.checked')).toHaveLength(0);
+    act(() =>
+      host.querySelector<HTMLButtonElement>('.weq-mf-target:not(.weq-mf-assistant-entry)')!.click(),
+    );
+    act(() => host.querySelector<HTMLButtonElement>('.weq-mf-assistant-entry')!.click());
+    act(() => host.querySelector<HTMLButtonElement>('.weq-mf-target')!.click());
+    expect(host.querySelector('output')!.textContent).toBe('qa-group,inside');
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="返回全部会话"]')!.click());
+    expect(host.querySelector('output')!.textContent).toBe('qa-group,inside');
+    expect(host.querySelector('.weq-mf-target.checked')?.textContent).toContain('合成目标群');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
 
 it('单条转发隐藏间隔与抖动，保留失败策略和重试设置', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -126,18 +160,24 @@ it('先展示预估，发送后卸载弹窗仍继续转发，横幅常驻并可�
     expect(close).toHaveBeenCalledOnce();
     expect(document.querySelector('.weq-sequential-forward')).toBeNull();
     expect(document.querySelector('.weq-forward-banner')).not.toBeNull();
+    expect(document.querySelector('.weq-forward-time')?.textContent).toContain(
+      '已进行 00:00:00 / 预计用时 00:00:07',
+    );
+    expect(document.querySelector('.weq-forward-banner')?.textContent).not.toMatch(/0\/2/);
     expect(document.querySelector('.weq-toast button[aria-label="关闭"]')).toBeNull();
     expect(send).not.toHaveBeenCalled();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
     expect(send).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('.weq-forward-time')?.textContent).toContain('已进行 00:00:02');
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
     expect(send).toHaveBeenCalledTimes(2);
     expect(send.mock.calls[0]?.[2].aborted).toBe(false);
     expect(document.querySelector('.weq-forward-banner')?.textContent).toContain('转发完成');
+    expect(document.querySelector('.weq-forward-banner')?.textContent).toContain('用时 00:00:07');
     expect(document.querySelector('.weq-toast button[aria-label="关闭"]')).not.toBeNull();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60000);

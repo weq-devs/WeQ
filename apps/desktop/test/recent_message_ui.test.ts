@@ -63,6 +63,46 @@ function button(host: ParentNode, name: string) {
   return value;
 }
 describe('新增消息交互', () => {
+  it('会话活动变化即时调整行位置，草稿清除回落且置顶仍优先', () => {
+    const f = mount();
+    const base = createTemplateDemoData().conversations[0]!;
+    const a = {
+      ...base,
+      id: 'sort-a',
+      updatedAt: '2026-10-21T01:00:00Z',
+      lastMessage: { id: 'a', senderId: null, body: 'a', createdAt: '2026-10-21T01:00:00Z' },
+    };
+    const b = { ...a, id: 'sort-b', updatedAt: '2026-10-21T02:00:00Z' };
+    const render = (rows: (typeof a)[]) =>
+      f.render(
+        h(ConversationList, {
+          conversations: rows,
+          activeConversationId: null,
+          preferences: {},
+          drafts: {},
+          onSelect: vi.fn(),
+        }),
+      );
+    const order = () =>
+      [...f.host.querySelectorAll('[data-conversation-id]')].map((row) =>
+        row.getAttribute('data-conversation-id'),
+      );
+    try {
+      render([a, b]);
+      expect(order()).toEqual(['sort-b', 'sort-a']);
+      render([{ ...a, activityTime: Date.parse('2026-10-21T03:00:00Z') }, b]);
+      expect(order()).toEqual(['sort-a', 'sort-b']);
+      render([a, b]);
+      expect(order()).toEqual(['sort-b', 'sort-a']);
+      render([
+        { ...a, activityTime: Date.parse('2026-10-21T04:00:00Z') },
+        { ...b, pinnedAt: 1, preference: { pinned: true } },
+      ]);
+      expect(order()).toEqual(['sort-b', 'sort-a']);
+    } finally {
+      f.close();
+    }
+  });
   it('私聊标题复用好友名片入口，并以标题下缘定位', () => {
     const fixture = mount();
     const demo = createTemplateDemoData();
@@ -339,10 +379,15 @@ describe('新增消息交互', () => {
     const fixture = mount();
     const demo = createTemplateDemoData();
     try {
-      const conversations = Array.from({ length: 150 }, (_, index) => ({
-        ...demo.conversations[0]!,
-        id: `fixture-${index}`,
-      }));
+      const conversations = Array.from({ length: 150 }, (_, index) => {
+        const createdAt = new Date(Date.UTC(2026, 9, 21, 12) - index * 1000).toISOString();
+        return {
+          ...demo.conversations[0]!,
+          id: `fixture-${index}`,
+          updatedAt: createdAt,
+          lastMessage: { id: `preview-${index}`, senderId: null, body: '定位夹具', createdAt },
+        };
+      });
       fixture.render(
         h(
           ConversationDirectoryContext.Provider,
