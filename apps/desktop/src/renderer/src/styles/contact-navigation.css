@@ -34,7 +34,7 @@
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }
-html[data-theme="dark"] .weq-contact-join-entry:hover {
+html[data-theme='dark'] .weq-contact-join-entry:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
 }
 
@@ -59,7 +59,9 @@ html[data-theme] .sidebar .contact-tools > .weq-contact-notice-entry {
   font: inherit;
   font-size: 13px;
   line-height: 20px;
-  transition: background 140ms ease, color 140ms ease;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
 }
 
 html[data-theme] .sidebar .weq-contact-notice-entry .notice-entry-label {
@@ -89,11 +91,11 @@ html[data-theme] .sidebar .weq-contact-notice-entry:focus-visible {
   outline-offset: -2px;
 }
 
-html[data-theme="dark"] .sidebar .contact-tools > .weq-contact-notice-entry:hover {
+html[data-theme='dark'] .sidebar .contact-tools > .weq-contact-notice-entry:hover {
   background: color-mix(in srgb, var(--weq-fg-primary) 9%, transparent);
 }
 
-html[data-theme="dark"] .sidebar .contact-tools > .weq-contact-notice-entry.active {
+html[data-theme='dark'] .sidebar .contact-tools > .weq-contact-notice-entry.active {
   background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
 }
 
@@ -106,5 +108,7 @@ html[data-theme="dark"] .sidebar .contact-tools > .weq-contact-notice-entry.acti
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html[data-theme] .sidebar .contact-tools > .weq-contact-notice-entry { transition: none; }
+  html[data-theme] .sidebar .contact-tools > .weq-contact-notice-entry {
+    transition: none;
+  }
 }

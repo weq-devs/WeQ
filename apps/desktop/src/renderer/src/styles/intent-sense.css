@@ -383,7 +383,11 @@ html[data-theme='dark'] .weq-intent-popover {
   flex: 1;
   min-width: 6px;
   border-radius: 3px 3px 0 0;
-  background: linear-gradient(180deg, var(--weq-accent-effective, #12a8ff), color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 35%, transparent));
+  background: linear-gradient(
+    180deg,
+    var(--weq-accent-effective, #12a8ff),
+    color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 35%, transparent)
+  );
   transition: height 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 

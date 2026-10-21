@@ -1,12 +1,44 @@
-.weq-merged-overlay > .weq-merged-popover { max-height: min(560px, calc(100dvh - 24px)); }
+.weq-merged-overlay > .weq-merged-popover {
+  max-height: min(560px, calc(100dvh - 24px));
+}
 .weq-merged-popover > .weq-group-helper-search,
-.weq-merged-popover > .weq-conversation-selection-toolbar { flex-shrink: 0; }
-.weq-merged-popover .weq-merged-popover-body { min-height: 0; max-height: none; overscroll-behavior-y: contain; }
-.weq-merged-popover-row { display: flex; align-items: center; border-radius: 8px; }
-.weq-merged-popover-row .weq-merged-popover-item { flex: 1; min-width: 0; }
-.weq-merged-popover-row.is-pinned { background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent); }
-.weq-group-helper-pin-mark { flex-shrink: 0; color: var(--weq-fg-muted); }
-.weq-merged-popover-row.is-multiselected { background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent); outline: 1px solid color-mix(in srgb, var(--weq-accent-effective) 45%, transparent); outline-offset: -1px; }
-html[data-theme="dark"] .weq-merged-popover-row.is-pinned { background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent); }
-html[data-theme="dark"] .weq-merged-popover-row.is-multiselected { background: color-mix(in srgb, var(--weq-accent-effective) 24%, transparent); }
-@media (prefers-reduced-motion: reduce) { .weq-merged-popover-row .weq-merged-popover-item { transition: none; } }
+.weq-merged-popover > .weq-conversation-selection-toolbar {
+  flex-shrink: 0;
+}
+.weq-merged-popover .weq-merged-popover-body {
+  min-height: 0;
+  max-height: none;
+  overscroll-behavior-y: contain;
+}
+.weq-merged-popover-row {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+}
+.weq-merged-popover-row .weq-merged-popover-item {
+  flex: 1;
+  min-width: 0;
+}
+.weq-merged-popover-row.is-pinned {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+.weq-group-helper-pin-mark {
+  flex-shrink: 0;
+  color: var(--weq-fg-muted);
+}
+.weq-merged-popover-row.is-multiselected {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  outline-offset: -1px;
+}
+html[data-theme='dark'] .weq-merged-popover-row.is-pinned {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+html[data-theme='dark'] .weq-merged-popover-row.is-multiselected {
+  background: color-mix(in srgb, var(--weq-accent-effective) 24%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .weq-merged-popover-row .weq-merged-popover-item {
+    transition: none;
+  }
+}

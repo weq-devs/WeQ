@@ -140,12 +140,11 @@
   overflow: hidden;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 12px;
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--weq-accent-effective) 7%, var(--weq-bg-surface)) 0%,
-      var(--weq-bg-surface) 58%
-    );
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--weq-accent-effective) 7%, var(--weq-bg-surface)) 0%,
+    var(--weq-bg-surface) 58%
+  );
   color: var(--weq-fg-primary);
   text-align: left;
   cursor: pointer;
@@ -168,12 +167,11 @@
 
 .weq-db-card.is-on {
   border-color: var(--weq-accent-effective);
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface)) 0%,
-      var(--weq-bg-surface) 70%
-    );
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface)) 0%,
+    var(--weq-bg-surface) 70%
+  );
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
 }
 
@@ -475,25 +473,23 @@
   color: var(--destructive);
 }
 
-html[data-theme="dark"] .weq-db-card {
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-surface)) 0%,
-      var(--weq-bg-surface) 62%
-    );
+html[data-theme='dark'] .weq-db-card {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-surface)) 0%,
+    var(--weq-bg-surface) 62%
+  );
 }
 
-html[data-theme="dark"] .weq-db-card.is-on {
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--weq-accent-effective) 24%, var(--weq-bg-surface)) 0%,
-      var(--weq-bg-surface) 72%
-    );
+html[data-theme='dark'] .weq-db-card.is-on {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--weq-accent-effective) 24%, var(--weq-bg-surface)) 0%,
+    var(--weq-bg-surface) 72%
+  );
 }
 
-html[data-theme="dark"] .weq-db-actionbar {
+html[data-theme='dark'] .weq-db-actionbar {
   background: color-mix(in srgb, var(--weq-bg-surface) 92%, transparent);
   border-color: var(--weq-border-strong);
 }

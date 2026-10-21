@@ -1,10 +1,26 @@
-.weq-export-save-control:disabled { opacity: 0.65; }
+.weq-export-save-control:disabled {
+  opacity: 0.65;
+}
 .weq-export-save-control:disabled input,
 .weq-export-save-control:disabled select,
-.weq-export-save-control:disabled button { cursor: not-allowed; }
-.weq-export-save-control button:disabled { opacity: 0.5; cursor: not-allowed; }
-.weq-export-save-actions { display: flex; flex: none; align-items: center; gap: 8px; margin-left: auto; }
-.weq-export-save-control .weq-export-save-platform { flex: 1; min-width: 160px; }
+.weq-export-save-control:disabled button {
+  cursor: not-allowed;
+}
+.weq-export-save-control button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.weq-export-save-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.weq-export-save-control .weq-export-save-platform {
+  flex: 1;
+  min-width: 160px;
+}
 .weq-export-save-control input {
   flex: 1;
   min-width: 0;
@@ -17,9 +33,15 @@
   color: var(--weq-fg-primary);
   font: inherit;
 }
-.weq-export-save-control input::placeholder { color: var(--weq-fg-muted); opacity: 1; }
-.weq-export-save-control input:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: 2px; }
-html[data-theme="dark"] .weq-export-save-control input {
+.weq-export-save-control input::placeholder {
+  color: var(--weq-fg-muted);
+  opacity: 1;
+}
+.weq-export-save-control input:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+html[data-theme='dark'] .weq-export-save-control input {
   border-color: var(--weq-border-strong);
   background: var(--weq-bg-surface);
   color: var(--weq-fg-primary);

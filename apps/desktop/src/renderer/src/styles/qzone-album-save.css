@@ -13,7 +13,7 @@
   color: var(--weq-fg-primary);
 }
 
-html[data-theme="dark"] .weq-qzal-selectbar .weq-qzal-download {
+html[data-theme='dark'] .weq-qzal-selectbar .weq-qzal-download {
   background: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
   border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, var(--weq-border-strong));
   color: var(--weq-fg-primary);

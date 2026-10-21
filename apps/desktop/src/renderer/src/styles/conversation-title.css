@@ -20,10 +20,10 @@
   outline-offset: -2px;
 }
 
-html[data-theme="dark"] .weq-conversation-title-profile {
+html[data-theme='dark'] .weq-conversation-title-profile {
   color: inherit;
 }
 
-html[data-theme="dark"] .weq-conversation-title-profile:hover {
+html[data-theme='dark'] .weq-conversation-title-profile:hover {
   color: var(--weq-accent-effective);
 }

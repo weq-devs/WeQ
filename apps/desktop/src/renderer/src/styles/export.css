@@ -56,7 +56,10 @@
   backdrop-filter: blur(10px);
   cursor: pointer;
   text-align: left;
-  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .weq-exp-mode:hover {
@@ -79,7 +82,9 @@
   border-radius: 9px;
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
   color: var(--weq-accent-effective);
-  transition: background-color 140ms ease, color 140ms ease;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
 }
 
 .weq-exp-mode.is-active .weq-exp-mode-icon {
@@ -202,7 +207,10 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+  transition:
+    background-color 140ms ease,
+    box-shadow 140ms ease,
+    opacity 140ms ease;
   box-shadow: 0 10px 22px -14px rgba(0, 122, 204, 0.9);
 }
 
@@ -236,7 +244,9 @@
   border-radius: 9px;
   background: color-mix(in srgb, #ffffff 32%, transparent);
   color: #8a94a4;
-  transition: border-color 140ms ease, background-color 140ms ease;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease;
 }
 
 .weq-exp-search:focus-within {
@@ -289,7 +299,10 @@
   color: #51677c;
   font-size: 12px;
   cursor: pointer;
-  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+  transition:
+    border-color 140ms ease,
+    color 140ms ease,
+    background-color 140ms ease;
 }
 
 .weq-exp-tool:hover:not(:disabled) {
@@ -357,7 +370,11 @@
   padding: 56px 36px;
   gap: 10px;
   background:
-    radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--weq-accent-effective) 7%, transparent), transparent 60%),
+    radial-gradient(
+      ellipse at 50% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 7%, transparent),
+      transparent 60%
+    ),
     linear-gradient(160deg, rgba(255, 255, 255, 0.72), rgba(248, 252, 255, 0.6));
   border: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
   border-radius: 12px;
@@ -411,7 +428,9 @@
   background: transparent;
   cursor: pointer;
   text-align: left;
-  transition: background-color 120ms ease, border-color 120ms ease;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 
 .weq-exp-row:hover {
@@ -454,7 +473,9 @@
   border-radius: 7px;
   border: 1.5px solid rgba(0, 0, 0, 0.14);
   color: #ffffff;
-  transition: background-color 120ms ease, border-color 120ms ease;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 
 .weq-exp-row.is-on .weq-exp-row-check {
@@ -536,7 +557,9 @@
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color 140ms ease, color 140ms ease;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
 }
 
 .weq-exp-seg.is-small button {
@@ -653,9 +676,19 @@
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }
-.weq-exp-default-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
-.weq-exp-default-actions [aria-pressed="true"] { color: var(--weq-accent-effective); }
-.weq-exp-edit-list:disabled { opacity: 0.6; cursor: default; }
+.weq-exp-default-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+.weq-exp-default-actions [aria-pressed='true'] {
+  color: var(--weq-accent-effective);
+}
+.weq-exp-edit-list:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 
 .weq-exp-dialog-title {
   display: flex;
@@ -733,7 +766,10 @@
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+  transition:
+    border-color 140ms ease,
+    color 140ms ease,
+    background-color 140ms ease;
 }
 
 .weq-exp-btn:hover:not(:disabled) {
@@ -766,7 +802,9 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   background: color-mix(in srgb, var(--weq-accent-effective) 2%, var(--weq-bg-surface));
-  transition: border-color 140ms ease, background-color 140ms ease;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease;
 }
 
 .weq-exp-master + .weq-exp-master {
@@ -850,7 +888,10 @@
   color: var(--weq-fg-secondary);
   font-size: 11px;
   cursor: pointer;
-  transition: border-color 130ms ease, color 130ms ease, background-color 130ms ease;
+  transition:
+    border-color 130ms ease,
+    color 130ms ease,
+    background-color 130ms ease;
 }
 
 .weq-exp-kind:hover:not(:disabled) {
@@ -902,7 +943,10 @@
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color 130ms ease, color 130ms ease, background-color 130ms ease;
+  transition:
+    border-color 130ms ease,
+    color 130ms ease,
+    background-color 130ms ease;
 }
 
 .weq-exp-format:hover {
@@ -1084,7 +1128,9 @@
   background: transparent;
   cursor: pointer;
   text-align: left;
-  transition: background-color 120ms ease, border-color 120ms ease;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 
 .weq-exp-album-row:hover:not(:disabled) {
@@ -1188,7 +1234,10 @@
   color: #ffffff;
   cursor: pointer;
   padding: 0;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
 }
 
 .weq-exp-file-check:hover:not(:disabled) {
@@ -1283,7 +1332,10 @@
   color: #51677c;
   font-size: 12px;
   cursor: pointer;
-  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+  transition:
+    border-color 140ms ease,
+    color 140ms ease,
+    background-color 140ms ease;
 }
 
 .weq-exp-chip:hover {
@@ -1407,7 +1459,9 @@
   color: #44516a;
   font-size: 11.5px;
   cursor: pointer;
-  transition: background-color 110ms ease, color 110ms ease;
+  transition:
+    background-color 110ms ease,
+    color 110ms ease;
 }
 
 .weq-exp-cal-cell:hover:not(.is-blank) {
@@ -1468,7 +1522,8 @@
   background: color-mix(in srgb, var(--weq-bg-surface) 85%, transparent);
   backdrop-filter: blur(16px);
   overflow: hidden;
-  transition: height 300ms cubic-bezier(0.4, 0, 0.2, 1),
+  transition:
+    height 300ms cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 300ms ease;
 }
 
@@ -1506,7 +1561,9 @@
   cursor: pointer;
   user-select: none;
   border-bottom: 1px solid transparent;
-  transition: background 160ms ease, border-color 200ms ease;
+  transition:
+    background 160ms ease,
+    border-color 200ms ease;
 }
 
 .weq-exp-tasks-head:hover {
@@ -1529,7 +1586,10 @@
   background: transparent;
   color: #97a2b0;
   cursor: pointer;
-  transition: border-color 140ms ease, color 140ms ease, transform 200ms ease;
+  transition:
+    border-color 140ms ease,
+    color 140ms ease,
+    transform 200ms ease;
 }
 
 .weq-exp-tasks-toggle:hover {
@@ -1579,7 +1639,11 @@
 .weq-exp-tasks-mini-bar-fill {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, var(--weq-accent-effective), color-mix(in srgb, var(--weq-accent-effective) 72%, white));
+  background: linear-gradient(
+    90deg,
+    var(--weq-accent-effective),
+    color-mix(in srgb, var(--weq-accent-effective) 72%, white)
+  );
   transition: width 0.4s ease;
 }
 
@@ -1669,8 +1733,11 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease,
-  transform 120ms ease;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease,
+    transform 120ms ease;
 }
 
 /* 卡片背景 = 进度条：主题色自左向右填充，右缘为平滑正弦波浪（竖向流动）。 */
@@ -1718,11 +1785,11 @@
   stroke: rgba(255, 255, 255, 0.32);
 }
 
-html[data-theme="dark"] .weq-exp-card-wavefill-line {
+html[data-theme='dark'] .weq-exp-card-wavefill-line {
   stroke: rgba(255, 255, 255, 0.28);
 }
 
-html[data-theme="dark"] .weq-exp-card-wavefill-line.is-b {
+html[data-theme='dark'] .weq-exp-card-wavefill-line.is-b {
   stroke: rgba(255, 255, 255, 0.15);
 }
 
@@ -1758,7 +1825,7 @@ html[data-theme="dark"] .weq-exp-card-wavefill-line.is-b {
   animation: weq-exp-card-shimmer 1.3s linear infinite;
 }
 
-html[data-theme="dark"] .weq-exp-card-skeleton {
+html[data-theme='dark'] .weq-exp-card-skeleton {
   background: linear-gradient(
     110deg,
     transparent 22%,
@@ -1806,7 +1873,8 @@ html[data-theme="dark"] .weq-exp-card-skeleton {
 
 .weq-exp-card.is-active {
   background: color-mix(in srgb, var(--weq-accent-effective) 8%, #ffffff);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--weq-accent-effective) 18%, transparent),
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--weq-accent-effective) 18%, transparent),
     0 8px 18px -16px rgba(7, 31, 61, 0.45);
 }
 
@@ -1948,7 +2016,10 @@ html[data-theme="dark"] .weq-exp-card-skeleton {
   background: #ffffff;
   color: #51677c;
   cursor: pointer;
-  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+  transition:
+    border-color 140ms ease,
+    color 140ms ease,
+    background-color 140ms ease;
 }
 
 .weq-exp-detail-actions button:hover {
@@ -2029,7 +2100,7 @@ button.weq-exp-detail-complete.is-clickable:hover {
   grid-template-columns: minmax(72px, 116px) auto minmax(20px, 1fr) 40px 24px;
 }
 
-.weq-exp-detail-complete[role="alert"] {
+.weq-exp-detail-complete[role='alert'] {
   display: block;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -2064,23 +2135,30 @@ button.weq-exp-detail-complete.is-clickable:hover {
 }
 
 .weq-exp-detail-stage-fill.is-active {
-  background-image: linear-gradient(
+  background-image:
+    linear-gradient(
       90deg,
       color-mix(in srgb, var(--weq-accent-effective) 78%, white),
       var(--weq-accent-effective)
     ),
     linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.55) 50%, transparent 80%);
-  background-size: 100% 100%, 40% 100%;
+  background-size:
+    100% 100%,
+    40% 100%;
   background-repeat: no-repeat;
   animation: weq-exp-shimmer 1.3s linear infinite;
 }
 
 @keyframes weq-exp-shimmer {
   from {
-    background-position: 0 0, -40% 0;
+    background-position:
+      0 0,
+      -40% 0;
   }
   to {
-    background-position: 0 0, 140% 0;
+    background-position:
+      0 0,
+      140% 0;
   }
 }
 
@@ -2102,7 +2180,9 @@ button.weq-exp-detail-complete.is-clickable:hover {
   color: #c0453f;
   font-size: 10.5px;
   cursor: pointer;
-  transition: background-color 140ms ease, border-color 140ms ease;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease;
 }
 
 .weq-exp-detail-stage-failures:hover {
@@ -2110,7 +2190,7 @@ button.weq-exp-detail-complete.is-clickable:hover {
   background: rgba(224, 85, 79, 0.16);
 }
 
-html[data-theme="dark"] .weq-exp-detail-stage-failures {
+html[data-theme='dark'] .weq-exp-detail-stage-failures {
   border-color: rgba(255, 120, 112, 0.34);
   background: rgba(255, 120, 112, 0.12);
   color: #ff9a92;
@@ -2127,7 +2207,10 @@ html[data-theme="dark"] .weq-exp-detail-stage-failures {
   background: transparent;
   color: #97a2b0;
   cursor: pointer;
-  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+  transition:
+    border-color 140ms ease,
+    color 140ms ease,
+    background-color 140ms ease;
 }
 
 .weq-exp-detail-stage-toggle:hover:not(:disabled) {
@@ -2188,9 +2271,18 @@ html[data-theme="dark"] .weq-exp-detail-stage-failures {
   border-radius: 7px;
   background: #0d1420;
   color: #c8d3e0;
-  font: 11px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  transition: height 280ms cubic-bezier(0.4, 0, 0.2, 1), opacity 220ms ease,
-    margin 280ms ease, padding 280ms ease;
+  font:
+    11px / 1.65 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    'Liberation Mono',
+    monospace;
+  transition:
+    height 280ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 220ms ease,
+    margin 280ms ease,
+    padding 280ms ease;
 }
 
 .weq-exp-log.is-hidden {
@@ -2293,7 +2385,10 @@ html[data-theme="dark"] .weq-exp-detail-stage-failures {
   color: var(--weq-fg-secondary);
   font-size: 12px;
   cursor: pointer;
-  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+  transition:
+    border-color 140ms ease,
+    color 140ms ease,
+    background-color 140ms ease;
 }
 
 .weq-exp-fail-chip:hover {
@@ -2518,11 +2613,21 @@ html[data-theme="dark"] .weq-exp-detail-stage-failures {
   flex-shrink: 0;
 }
 
-.weq-exp-sched-card-history-dot.is-completed { background: #22c55e; }
-.weq-exp-sched-card-history-dot.is-partial { background: #f59e0b; }
-.weq-exp-sched-card-history-dot.is-failed { background: #ef4444; }
-.weq-exp-sched-card-history-dot.is-skipped { background: #94a3b8; }
-.weq-exp-sched-card-history-dot.is-cancelled { background: #cbd5e1; }
+.weq-exp-sched-card-history-dot.is-completed {
+  background: #22c55e;
+}
+.weq-exp-sched-card-history-dot.is-partial {
+  background: #f59e0b;
+}
+.weq-exp-sched-card-history-dot.is-failed {
+  background: #ef4444;
+}
+.weq-exp-sched-card-history-dot.is-skipped {
+  background: #94a3b8;
+}
+.weq-exp-sched-card-history-dot.is-cancelled {
+  background: #cbd5e1;
+}
 
 .weq-exp-sched-card-actions {
   display: flex;
@@ -2578,80 +2683,80 @@ html[data-theme="dark"] .weq-exp-detail-stage-failures {
   color: #8a98ad;
 }
 
-html[data-theme="dark"] .weq-exp {
+html[data-theme='dark'] .weq-exp {
   /* Canvas comes from --chat-surface; only override foreground in dark. */
   color: #e9eef5;
 }
 
-html[data-theme="dark"] .weq-exp-mode {
+html[data-theme='dark'] .weq-exp-mode {
   border-color: rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.03);
 }
 
-html[data-theme="dark"] .weq-exp-mode:hover,
-html[data-theme="dark"] .weq-exp-mode.is-active {
+html[data-theme='dark'] .weq-exp-mode:hover,
+html[data-theme='dark'] .weq-exp-mode.is-active {
   background: rgba(255, 255, 255, 0.06);
 }
 
-html[data-theme="dark"] .weq-exp-mode:hover {
+html[data-theme='dark'] .weq-exp-mode:hover {
   border-color: rgba(86, 168, 247, 0.2);
 }
 
-html[data-theme="dark"] .weq-exp-mode.is-active {
+html[data-theme='dark'] .weq-exp-mode.is-active {
   border-color: rgba(86, 168, 247, 0.36);
   box-shadow: 0 10px 26px -18px rgba(0, 0, 0, 0.58);
 }
 
-html[data-theme="dark"] .weq-exp-mode-icon {
+html[data-theme='dark'] .weq-exp-mode-icon {
   background: rgba(86, 168, 247, 0.12);
   color: #8cc4ff;
 }
 
-html[data-theme="dark"] .weq-exp-mode.is-active .weq-exp-mode-icon {
+html[data-theme='dark'] .weq-exp-mode.is-active .weq-exp-mode-icon {
   background: #56a8f7;
   color: #08131d;
 }
 
-html[data-theme="dark"] .weq-exp-mode-text strong,
-html[data-theme="dark"] .weq-exp-pane-title strong,
-html[data-theme="dark"] .weq-exp-row-meta strong,
-html[data-theme="dark"] .weq-exp-card-name,
-html[data-theme="dark"] .weq-exp-detail-title strong,
-html[data-theme="dark"] .weq-exp-sched-head-text strong,
-html[data-theme="dark"] .weq-exp-sched-card-name,
-html[data-theme="dark"] .weq-exp-sched-card-meta b,
-html[data-theme="dark"] .weq-exp-sched-empty strong {
+html[data-theme='dark'] .weq-exp-mode-text strong,
+html[data-theme='dark'] .weq-exp-pane-title strong,
+html[data-theme='dark'] .weq-exp-row-meta strong,
+html[data-theme='dark'] .weq-exp-card-name,
+html[data-theme='dark'] .weq-exp-detail-title strong,
+html[data-theme='dark'] .weq-exp-sched-head-text strong,
+html[data-theme='dark'] .weq-exp-sched-card-name,
+html[data-theme='dark'] .weq-exp-sched-card-meta b,
+html[data-theme='dark'] .weq-exp-sched-empty strong {
   color: #edf2f7;
 }
 
-html[data-theme="dark"] .weq-exp-mode-text small,
-html[data-theme="dark"] .weq-exp-pane-title span,
-html[data-theme="dark"] .weq-exp-foot-label,
-html[data-theme="dark"] .weq-exp-foot-hint,
-html[data-theme="dark"] .weq-exp-row-meta small,
-html[data-theme="dark"] .weq-exp-list-state,
-html[data-theme="dark"] .weq-exp-empty-desc,
-html[data-theme="dark"] .weq-exp-detail-meta,
-html[data-theme="dark"] .weq-exp-detail-tasklog-title,
-html[data-theme="dark"] .weq-exp-log-empty,
-html[data-theme="dark"] .weq-exp-sched-head-text small,
-html[data-theme="dark"] .weq-exp-sched-card-meta,
-html[data-theme="dark"] .weq-exp-sched-card-history,
-html[data-theme="dark"] .weq-exp-sched-empty,
-html[data-theme="dark"] .weq-exp-sched-empty small {
+html[data-theme='dark'] .weq-exp-mode-text small,
+html[data-theme='dark'] .weq-exp-pane-title span,
+html[data-theme='dark'] .weq-exp-foot-label,
+html[data-theme='dark'] .weq-exp-foot-hint,
+html[data-theme='dark'] .weq-exp-row-meta small,
+html[data-theme='dark'] .weq-exp-list-state,
+html[data-theme='dark'] .weq-exp-empty-desc,
+html[data-theme='dark'] .weq-exp-detail-meta,
+html[data-theme='dark'] .weq-exp-detail-tasklog-title,
+html[data-theme='dark'] .weq-exp-log-empty,
+html[data-theme='dark'] .weq-exp-sched-head-text small,
+html[data-theme='dark'] .weq-exp-sched-card-meta,
+html[data-theme='dark'] .weq-exp-sched-card-history,
+html[data-theme='dark'] .weq-exp-sched-empty,
+html[data-theme='dark'] .weq-exp-sched-empty small {
   color: #99a7b8;
 }
 
-html[data-theme="dark"] .weq-exp-dialog,
-html[data-theme="dark"] .weq-exp-card,
-html[data-theme="dark"] .weq-exp-detail,
-html[data-theme="dark"] .weq-exp-sched-card {
+html[data-theme='dark'] .weq-exp-dialog,
+html[data-theme='dark'] .weq-exp-card,
+html[data-theme='dark'] .weq-exp-detail,
+html[data-theme='dark'] .weq-exp-sched-card {
   border-color: rgba(255, 255, 255, 0.08);
   background: #171d25;
   box-shadow: 0 18px 40px -28px rgba(0, 0, 0, 0.5);
 }
 
-html[data-theme="dark"] .weq-exp-pane {
+html[data-theme='dark'] .weq-exp-pane {
   border-color: rgba(255, 255, 255, 0.08);
   /* Frosted in dark so the canvas glow stays visible behind the panel. */
   background: color-mix(in srgb, #171d25 56%, transparent);
@@ -2660,163 +2765,163 @@ html[data-theme="dark"] .weq-exp-pane {
 
 /* Bottom task bar: the light rgba(255,255,255,.6) base reads near-white in dark,
  * so give it a frosted dark surface that matches the panels. */
-html[data-theme="dark"] .weq-exp-tasks {
+html[data-theme='dark'] .weq-exp-tasks {
   background: color-mix(in srgb, #171d25 68%, transparent);
 }
 
-html[data-theme="dark"] .weq-exp-tasks-toggle {
+html[data-theme='dark'] .weq-exp-tasks-toggle {
   border-color: rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.03);
   color: #99a7b8;
 }
 
-html[data-theme="dark"] .weq-exp-tasks-toggle:hover {
+html[data-theme='dark'] .weq-exp-tasks-toggle:hover {
   border-color: rgba(86, 168, 247, 0.45);
   color: #56a8f7;
 }
 
-html[data-theme="dark"] .weq-exp-tasks-mini-status {
+html[data-theme='dark'] .weq-exp-tasks-mini-status {
   color: #7d8aa0;
 }
 
-html[data-theme="dark"] .weq-exp-tasks-mini-status.is-done {
+html[data-theme='dark'] .weq-exp-tasks-mini-status.is-done {
   color: #56a8f7;
 }
 
-html[data-theme="dark"] .weq-exp-tasks-mini-bar {
+html[data-theme='dark'] .weq-exp-tasks-mini-bar {
   background: rgba(86, 168, 247, 0.15);
 }
 
-html[data-theme="dark"] .weq-exp-tasks-head:hover {
+html[data-theme='dark'] .weq-exp-tasks-head:hover {
   background: rgba(255, 255, 255, 0.03);
 }
 
-html[data-theme="dark"] .weq-exp-tasks.is-expanded .weq-exp-tasks-head {
+html[data-theme='dark'] .weq-exp-tasks.is-expanded .weq-exp-tasks-head {
   border-bottom-color: rgba(255, 255, 255, 0.06);
 }
 
 /* Frosted task cards in dark (override the opaque shared card surface above). */
-html[data-theme="dark"] .weq-exp-card {
+html[data-theme='dark'] .weq-exp-card {
   background: color-mix(in srgb, #171d25 50%, transparent);
   backdrop-filter: blur(8px);
 }
 
-html[data-theme="dark"] .weq-exp-card.is-active {
+html[data-theme='dark'] .weq-exp-card.is-active {
   background: color-mix(in srgb, #56a8f7 14%, #171d25);
 }
 
 /* Translucent search field so the canvas shows through the list pane in dark. */
-html[data-theme="dark"] .weq-exp-search {
+html[data-theme='dark'] .weq-exp-search {
   background: rgba(255, 255, 255, 0.04);
 }
 
-html[data-theme="dark"] .weq-exp-pane-head,
-html[data-theme="dark"] .weq-exp-pane-foot,
-html[data-theme="dark"] .weq-exp-dialog-head,
-html[data-theme="dark"] .weq-exp-dialog-foot {
+html[data-theme='dark'] .weq-exp-pane-head,
+html[data-theme='dark'] .weq-exp-pane-foot,
+html[data-theme='dark'] .weq-exp-dialog-head,
+html[data-theme='dark'] .weq-exp-dialog-foot {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.02);
 }
 
-html[data-theme="dark"] .weq-exp-search,
-html[data-theme="dark"] .weq-exp-num,
-html[data-theme="dark"] .weq-exp-album-path,
-html[data-theme="dark"] .weq-exp-path {
+html[data-theme='dark'] .weq-exp-search,
+html[data-theme='dark'] .weq-exp-num,
+html[data-theme='dark'] .weq-exp-album-path,
+html[data-theme='dark'] .weq-exp-path {
   border-color: rgba(255, 255, 255, 0.1);
   background: #11161d;
   color: #99a7b8;
 }
 
-html[data-theme="dark"] .weq-exp-search:focus-within,
-html[data-theme="dark"] .weq-exp-num input:focus {
+html[data-theme='dark'] .weq-exp-search:focus-within,
+html[data-theme='dark'] .weq-exp-num input:focus {
   border-color: rgba(86, 168, 247, 0.44);
   background: #151c24;
 }
 
-html[data-theme="dark"] .weq-exp-search input,
-html[data-theme="dark"] .weq-exp-num input {
+html[data-theme='dark'] .weq-exp-search input,
+html[data-theme='dark'] .weq-exp-num input {
   color: #edf2f7;
 }
 
-html[data-theme="dark"] .weq-exp-row,
-html[data-theme="dark"] .weq-exp-album-row,
-html[data-theme="dark"] .weq-exp-fail-row {
+html[data-theme='dark'] .weq-exp-row,
+html[data-theme='dark'] .weq-exp-album-row,
+html[data-theme='dark'] .weq-exp-fail-row {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.02);
 }
 
-html[data-theme="dark"] .weq-exp-row:hover,
-html[data-theme="dark"] .weq-exp-album-row:hover:not(:disabled) {
+html[data-theme='dark'] .weq-exp-row:hover,
+html[data-theme='dark'] .weq-exp-album-row:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.05);
 }
 
-html[data-theme="dark"] .weq-exp-row.is-on,
-html[data-theme="dark"] .weq-exp-album-row.is-on {
+html[data-theme='dark'] .weq-exp-row.is-on,
+html[data-theme='dark'] .weq-exp-album-row.is-on {
   border-color: rgba(86, 168, 247, 0.35);
   background: rgba(86, 168, 247, 0.12);
 }
 
-html[data-theme="dark"] .weq-exp-file-row.is-on {
+html[data-theme='dark'] .weq-exp-file-row.is-on {
   border-color: rgba(86, 168, 247, 0.38);
   background: rgba(86, 168, 247, 0.13);
 }
 
-html[data-theme="dark"] .weq-exp-file-check {
+html[data-theme='dark'] .weq-exp-file-check {
   border-color: rgba(255, 255, 255, 0.28);
 }
 
-html[data-theme="dark"] .weq-exp-tool,
-html[data-theme="dark"] .weq-exp-btn,
-html[data-theme="dark"] .weq-exp-detail-actions button,
-html[data-theme="dark"] .weq-exp-detail-stage-toggle,
-html[data-theme="dark"] .weq-exp-sched-card-actions button,
-html[data-theme="dark"] .weq-exp-dialog-close,
-html[data-theme="dark"] .weq-exp-cal-head button,
-html[data-theme="dark"] .weq-exp-chip,
-html[data-theme="dark"] .weq-exp-seg {
+html[data-theme='dark'] .weq-exp-tool,
+html[data-theme='dark'] .weq-exp-btn,
+html[data-theme='dark'] .weq-exp-detail-actions button,
+html[data-theme='dark'] .weq-exp-detail-stage-toggle,
+html[data-theme='dark'] .weq-exp-sched-card-actions button,
+html[data-theme='dark'] .weq-exp-dialog-close,
+html[data-theme='dark'] .weq-exp-cal-head button,
+html[data-theme='dark'] .weq-exp-chip,
+html[data-theme='dark'] .weq-exp-seg {
   border-color: rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.03);
   color: #d5dde6;
 }
 
-html[data-theme="dark"] .weq-exp-tool:hover:not(:disabled),
-html[data-theme="dark"] .weq-exp-btn:hover:not(:disabled),
-html[data-theme="dark"] .weq-exp-detail-actions button:hover,
-html[data-theme="dark"] .weq-exp-detail-stage-toggle:hover:not(:disabled),
-html[data-theme="dark"] .weq-exp-sched-card-actions button:hover,
-html[data-theme="dark"] .weq-exp-dialog-close:hover,
-html[data-theme="dark"] .weq-exp-chip:hover,
-html[data-theme="dark"] .weq-exp-cal-head button:hover {
+html[data-theme='dark'] .weq-exp-tool:hover:not(:disabled),
+html[data-theme='dark'] .weq-exp-btn:hover:not(:disabled),
+html[data-theme='dark'] .weq-exp-detail-actions button:hover,
+html[data-theme='dark'] .weq-exp-detail-stage-toggle:hover:not(:disabled),
+html[data-theme='dark'] .weq-exp-sched-card-actions button:hover,
+html[data-theme='dark'] .weq-exp-dialog-close:hover,
+html[data-theme='dark'] .weq-exp-chip:hover,
+html[data-theme='dark'] .weq-exp-cal-head button:hover {
   background: rgba(255, 255, 255, 0.07);
 }
 
-html[data-theme="dark"] .weq-exp-primary,
-html[data-theme="dark"] .weq-exp-btn.is-primary,
-html[data-theme="dark"] .weq-exp-sched-head button {
+html[data-theme='dark'] .weq-exp-primary,
+html[data-theme='dark'] .weq-exp-btn.is-primary,
+html[data-theme='dark'] .weq-exp-sched-head button {
   background: #56a8f7;
   border-color: #56a8f7;
   color: #08131d;
   box-shadow: 0 10px 24px -18px rgba(86, 168, 247, 0.55);
 }
 
-html[data-theme="dark"] .weq-exp-primary:hover:not(:disabled),
-html[data-theme="dark"] .weq-exp-btn.is-primary:hover:not(:disabled),
-html[data-theme="dark"] .weq-exp-sched-head button:hover {
+html[data-theme='dark'] .weq-exp-primary:hover:not(:disabled),
+html[data-theme='dark'] .weq-exp-btn.is-primary:hover:not(:disabled),
+html[data-theme='dark'] .weq-exp-sched-head button:hover {
   background: #6cb4fb;
   border-color: #6cb4fb;
 }
 
-html[data-theme="dark"] .weq-exp-primary:disabled,
-html[data-theme="dark"] .weq-exp-btn:disabled {
+html[data-theme='dark'] .weq-exp-primary:disabled,
+html[data-theme='dark'] .weq-exp-btn:disabled {
   background: #394655;
   border-color: #394655;
   color: #7e8a99;
 }
 
-html[data-theme="dark"] .weq-exp-empty,
-html[data-theme="dark"] .weq-exp-placeholder,
-html[data-theme="dark"] .weq-exp-tasks-empty,
-html[data-theme="dark"] .weq-exp-sched-empty {
+html[data-theme='dark'] .weq-exp-empty,
+html[data-theme='dark'] .weq-exp-placeholder,
+html[data-theme='dark'] .weq-exp-tasks-empty,
+html[data-theme='dark'] .weq-exp-sched-empty {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.02);
 }
@@ -2883,7 +2988,10 @@ html[data-theme="dark"] .weq-exp-sched-empty {
   color: #2b3a4d;
   font-size: 12.5px;
   cursor: pointer;
-  transition: border-color 0.12s, background 0.12s, color 0.12s;
+  transition:
+    border-color 0.12s,
+    background 0.12s,
+    color 0.12s;
 }
 
 .weq-exp-chip:hover {
@@ -3001,39 +3109,39 @@ html[data-theme="dark"] .weq-exp-sched-empty {
   text-overflow: ellipsis;
 }
 
-html[data-theme="dark"] .weq-exp-col-side small {
+html[data-theme='dark'] .weq-exp-col-side small {
   color: #7d8aa0;
 }
 
-html[data-theme="dark"] .weq-exp-friends-head strong {
+html[data-theme='dark'] .weq-exp-friends-head strong {
   color: #e9eef5;
 }
 
-html[data-theme="dark"] .weq-exp-row.is-static:hover {
+html[data-theme='dark'] .weq-exp-row.is-static:hover {
   background: transparent;
 }
 
-html[data-theme="dark"] .weq-exp-contacts-switch {
+html[data-theme='dark'] .weq-exp-contacts-switch {
   border-color: rgba(255, 255, 255, 0.06);
 }
 
-html[data-theme="dark"] .weq-exp-cats-head strong {
+html[data-theme='dark'] .weq-exp-cats-head strong {
   color: #e9eef5;
 }
 
-html[data-theme="dark"] .weq-exp-chip {
+html[data-theme='dark'] .weq-exp-chip {
   border-color: rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.03);
   color: #cbd5e1;
 }
 
-html[data-theme="dark"] .weq-exp-chip.is-active {
+html[data-theme='dark'] .weq-exp-chip.is-active {
   border-color: #0099ff;
   background: rgba(0, 153, 255, 0.16);
   color: #4db8ff;
 }
 
-html[data-theme="dark"] .weq-exp-chip.is-active b {
+html[data-theme='dark'] .weq-exp-chip.is-active b {
   color: #4db8ff;
 }
 
@@ -3069,7 +3177,9 @@ html[data-theme="dark"] .weq-exp-chip.is-active b {
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.7);
   color: #6a7280;
-  transition: border-color 140ms ease, box-shadow 140ms ease;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .weq-mpd-search:focus-within {
@@ -3119,7 +3229,10 @@ html[data-theme="dark"] .weq-exp-chip.is-active b {
   color: #55606f;
   font-size: 12px;
   cursor: pointer;
-  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
 }
 
 .weq-mpd-fee-chip:hover {
@@ -3164,7 +3277,9 @@ html[data-theme="dark"] .weq-exp-chip.is-active b {
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.7);
   overflow: hidden;
-  transition: border-color 140ms ease, box-shadow 140ms ease;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .weq-mpd-card:hover {
@@ -3192,7 +3307,9 @@ html[data-theme="dark"] .weq-exp-chip.is-active b {
   background: rgba(0, 0, 0, 0.28);
   color: #ffffff;
   cursor: pointer;
-  transition: background-color 140ms ease, border-color 140ms ease;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease;
 }
 
 .weq-mpd-card.is-checked .weq-mpd-card-check {
@@ -3377,7 +3494,9 @@ html[data-theme="dark"] .weq-exp-chip.is-active b {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: filter 140ms ease, opacity 140ms ease;
+  transition:
+    filter 140ms ease,
+    opacity 140ms ease;
   box-shadow: 0 10px 22px -14px rgba(0, 122, 204, 0.9);
 }
 
@@ -3462,48 +3581,48 @@ html[data-theme="dark"] .weq-exp-chip.is-active b {
 }
 
 /* ---- 暗色 ---- */
-html[data-theme="dark"] .weq-mpd-search {
+html[data-theme='dark'] .weq-mpd-search {
   border-color: rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.04);
   color: #9aa2b0;
 }
 
-html[data-theme="dark"] .weq-mpd-search input {
+html[data-theme='dark'] .weq-mpd-search input {
   color: #e6ebf2;
 }
 
-html[data-theme="dark"] .weq-mpd-fee-chip {
+html[data-theme='dark'] .weq-mpd-fee-chip {
   border-color: rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.03);
   color: #cbd5e1;
 }
 
-html[data-theme="dark"] .weq-mpd-fee-chip.is-active {
+html[data-theme='dark'] .weq-mpd-fee-chip.is-active {
   border-color: #0099ff;
   background: rgba(0, 153, 255, 0.16);
   color: #4db8ff;
 }
 
-html[data-theme="dark"] .weq-mpd-card {
+html[data-theme='dark'] .weq-mpd-card {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
 }
 
-html[data-theme="dark"] .weq-mpd-card-name {
+html[data-theme='dark'] .weq-mpd-card-name {
   color: #e6ebf2;
 }
 
-html[data-theme="dark"] .weq-mpd-cover,
-html[data-theme="dark"] .weq-mpd-preview-stage {
+html[data-theme='dark'] .weq-mpd-cover,
+html[data-theme='dark'] .weq-mpd-preview-stage {
   background: rgba(255, 255, 255, 0.04);
 }
 
-html[data-theme="dark"] .weq-mpd-actions {
+html[data-theme='dark'] .weq-mpd-actions {
   border-top-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.02);
 }
 
-html[data-theme="dark"] .weq-mpd-clear {
+html[data-theme='dark'] .weq-mpd-clear {
   border-color: rgba(255, 255, 255, 0.1);
   color: #cbd5e1;
 }
@@ -3580,11 +3699,21 @@ html[data-theme="dark"] .weq-mpd-clear {
 }
 
 /* 明度分级同 .weq-mpd-fee。 */
-.weq-emb-fee.is-free    { background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 55%, #6b7787); }
-.weq-emb-fee.is-paid    { background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 78%, #2b3948); }
-.weq-emb-fee.is-vip     { background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 90%, #0d2f52); }
-.weq-emb-fee.is-svip    { background: var(--weq-accent-effective, #12a8ff); }
-.weq-emb-fee.is-unknown { background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 55%, #6b7787); }
+.weq-emb-fee.is-free {
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 55%, #6b7787);
+}
+.weq-emb-fee.is-paid {
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 78%, #2b3948);
+}
+.weq-emb-fee.is-vip {
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 90%, #0d2f52);
+}
+.weq-emb-fee.is-svip {
+  background: var(--weq-accent-effective, #12a8ff);
+}
+.weq-emb-fee.is-unknown {
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 55%, #6b7787);
+}
 
 .weq-emb-fee-row {
   display: flex;
@@ -3754,7 +3883,9 @@ html[data-theme="dark"] .weq-mpd-clear {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 140ms ease, opacity 140ms ease;
+  transition:
+    background-color 140ms ease,
+    opacity 140ms ease;
 }
 
 .weq-emb-download:hover:not(:disabled) {
@@ -3774,8 +3905,12 @@ html[data-theme="dark"] .weq-mpd-clear {
 
 /* 旋转动画 */
 @keyframes weq-emb-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .weq-emb-spin {
@@ -3784,44 +3919,44 @@ html[data-theme="dark"] .weq-mpd-clear {
 }
 
 /* ---- 暗色 ---- */
-html[data-theme="dark"] .weq-exp-mode-divider {
+html[data-theme='dark'] .weq-exp-mode-divider {
   background: rgba(255, 255, 255, 0.08);
 }
 
-html[data-theme="dark"] .weq-emb-left {
+html[data-theme='dark'] .weq-emb-left {
   border-right-color: rgba(255, 255, 255, 0.08);
 }
 
-html[data-theme="dark"] .weq-emb-fee-row {
+html[data-theme='dark'] .weq-emb-fee-row {
   border-bottom-color: rgba(255, 255, 255, 0.06);
 }
 
-html[data-theme="dark"] .weq-emb-pack-item:hover {
+html[data-theme='dark'] .weq-emb-pack-item:hover {
   background: rgba(255, 255, 255, 0.05);
 }
 
-html[data-theme="dark"] .weq-emb-pack-item.is-selected {
+html[data-theme='dark'] .weq-emb-pack-item.is-selected {
   background: rgba(0, 153, 255, 0.15);
 }
 
-html[data-theme="dark"] .weq-emb-pack-name {
+html[data-theme='dark'] .weq-emb-pack-name {
   color: #e6ebf2;
 }
 
-html[data-theme="dark"] .weq-emb-pack-mark {
+html[data-theme='dark'] .weq-emb-pack-mark {
   color: #7d8aa0;
 }
 
-html[data-theme="dark"] .weq-emb-pack-list-state,
-html[data-theme="dark"] .weq-emb-sentinel {
+html[data-theme='dark'] .weq-emb-pack-list-state,
+html[data-theme='dark'] .weq-emb-sentinel {
   color: #6d7a8c;
 }
 
-html[data-theme="dark"] .weq-emb-empty {
+html[data-theme='dark'] .weq-emb-empty {
   color: #6d7a8c;
 }
 
-html[data-theme="dark"] .weq-emb-detail-head {
+html[data-theme='dark'] .weq-emb-detail-head {
   border-bottom-color: rgba(255, 255, 255, 0.06);
 }
 
@@ -3843,7 +3978,7 @@ html[data-theme="dark"] .weq-emb-detail-head {
   }
 }
 
-html[data-theme="dark"] .weq-exp-skel {
+html[data-theme='dark'] .weq-exp-skel {
   background: linear-gradient(
     90deg,
     rgba(255, 255, 255, 0.06) 25%,
@@ -3926,7 +4061,7 @@ html[data-theme="dark"] .weq-exp-skel {
   background: rgba(255, 255, 255, 0.5);
 }
 
-html[data-theme="dark"] .weq-exp-skel-sched-card {
+html[data-theme='dark'] .weq-exp-skel-sched-card {
   background: rgba(255, 255, 255, 0.04);
   border-color: rgba(255, 255, 255, 0.08);
 }
@@ -4048,7 +4183,10 @@ html[data-theme="dark"] .weq-exp-skel-sched-card {
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.62);
   overflow: hidden;
-  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
 }
 
 .weq-epk-card:hover {
@@ -4084,7 +4222,9 @@ html[data-theme="dark"] .weq-exp-skel-sched-card {
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.7);
   color: #ffffff;
-  transition: background-color 140ms ease, border-color 140ms ease;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease;
 }
 
 .weq-epk-card.is-checked .weq-epk-card-check {
@@ -4253,7 +4393,9 @@ html[data-theme="dark"] .weq-exp-skel-sched-card {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: filter 140ms ease, opacity 140ms ease;
+  transition:
+    filter 140ms ease,
+    opacity 140ms ease;
   box-shadow: 0 10px 22px -14px rgba(0, 122, 204, 0.9);
 }
 
@@ -4271,59 +4413,59 @@ html[data-theme="dark"] .weq-exp-skel-sched-card {
 }
 
 /* ---- 暗色 ---- */
-html[data-theme="dark"] .weq-epk-head {
+html[data-theme='dark'] .weq-epk-head {
   color: #9aa2b0;
 }
 
-html[data-theme="dark"] .weq-epk-card {
+html[data-theme='dark'] .weq-epk-card {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
 }
 
-html[data-theme="dark"] .weq-epk-card.is-checked {
+html[data-theme='dark'] .weq-epk-card.is-checked {
   border-color: rgba(86, 168, 247, 0.5);
   background: rgba(86, 168, 247, 0.08);
 }
 
-html[data-theme="dark"] .weq-epk-card-check {
+html[data-theme='dark'] .weq-epk-card-check {
   border-color: rgba(255, 255, 255, 0.22);
   background: rgba(255, 255, 255, 0.05);
 }
 
-html[data-theme="dark"] .weq-epk-card-icon {
+html[data-theme='dark'] .weq-epk-card-icon {
   color: #8cc4ff;
   background: rgba(86, 168, 247, 0.14);
 }
 
-html[data-theme="dark"] .weq-epk-card.is-recv .weq-epk-card-icon {
+html[data-theme='dark'] .weq-epk-card.is-recv .weq-epk-card-icon {
   color: #a99bff;
   background: rgba(124, 108, 240, 0.18);
 }
 
-html[data-theme="dark"] .weq-epk-card-titles strong,
-html[data-theme="dark"] .weq-epk-stat b {
+html[data-theme='dark'] .weq-epk-card-titles strong,
+html[data-theme='dark'] .weq-epk-stat b {
   color: #e6ebf2;
 }
 
-html[data-theme="dark"] .weq-epk-card-titles small,
-html[data-theme="dark"] .weq-epk-stat {
+html[data-theme='dark'] .weq-epk-card-titles small,
+html[data-theme='dark'] .weq-epk-stat {
   color: #8b97a8;
 }
 
-html[data-theme="dark"] .weq-epk-stat {
+html[data-theme='dark'] .weq-epk-stat {
   background: rgba(255, 255, 255, 0.05);
 }
 
-html[data-theme="dark"] .weq-epk-stage {
+html[data-theme='dark'] .weq-epk-stage {
   border-top-color: rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.015);
 }
 
-html[data-theme="dark"] .weq-epk-cell {
+html[data-theme='dark'] .weq-epk-cell {
   background: rgba(255, 255, 255, 0.04);
 }
 
-html[data-theme="dark"] .weq-epk-actions {
+html[data-theme='dark'] .weq-epk-actions {
   border-top-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.02);
 }

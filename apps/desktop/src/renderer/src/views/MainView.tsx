@@ -5229,15 +5229,22 @@ export function MainView(): ReactElement {
 
   // 成员 wire → 模板层 GroupMember 的映射。群主 / 等级配置 / bot 名单只有上层有，
   // 所以搜索结果也得走这里 —— 群资料面板的搜索命中与成员分页共用一份渲染形状。
-  const mapGroupMemberWire = useCallback(
-    (m: GroupMemberWire): GroupMember =>
+  //
+  // 群主 / 等级配置只对「当前打开的群」有数据：给别的群建映射时不能借用，否则会把
+  // 当前群的群主身份套到另一个群的人头上。
+  const mapGroupMemberForGroup = useCallback(
+    (m: GroupMemberWire, groupCode: string): GroupMember =>
       groupMemberWireToMember(m, {
-        ownerUid: groupDetail.data?.ownerUid,
-        levelConfigs: groupLevelInfo.data?.levelConfigs ?? [],
+        ownerUid: groupCode === selectedUid ? groupDetail.data?.ownerUid : undefined,
+        levelConfigs: groupCode === selectedUid ? (groupLevelInfo.data?.levelConfigs ?? []) : [],
         botUids,
         profileByUid,
       }),
-    [groupDetail.data, groupLevelInfo.data, botUids, profileByUid],
+    [selectedUid, groupDetail.data, groupLevelInfo.data, botUids, profileByUid],
+  );
+  const mapGroupMemberWire = useCallback(
+    (m: GroupMemberWire): GroupMember => mapGroupMemberForGroup(m, selectedUid),
+    [mapGroupMemberForGroup, selectedUid],
   );
 
   // `loaded` is already oldest→newest; the template renders in array order.
@@ -5313,6 +5320,51 @@ export function MainView(): ReactElement {
     ];
     resolveMembers(groupCode, referencedUids, known, () => selectionRef.current?.id === groupCode);
   }, [loaded, selectedUid, isGroup, selectedGroupMemberWires, resolveMembers]);
+
+  // 「删除列表」/「撤回列表」里的发送者同样可能落在已加载成员分页之外（甚至已退群），
+  // 上面的 effect 只喂了聊天窗口，看不到这两个面板的数据 —— 不补的话气泡昵称会退化成
+  // QQ 号。而且这两个面板可以从防撤回面板/会话菜单打开**非当前会话**的群，所以群号
+  // 必须取面板自己的会话，不能复用 selectedUid。
+  useEffect(() => {
+    const panels = [
+      { conv: deletedConv, rows: deletedWires },
+      { conv: recalledConv, rows: recalledWires },
+    ];
+    for (const { conv, rows } of panels) {
+      if (conv?.type !== 'group' || rows.length === 0) continue;
+      const groupCode = conv.group.identityValue || conv.id;
+      if (!groupCode) continue;
+      // 当前群的成员分页是权威的「已知」集合；别的群没有分页，交给 resolver 的
+      // attempted 去重（重复调用不会重复请求）。
+      const known: ReadonlySet<string> =
+        groupCode === selectedUid ? new Set(selectedGroupMemberWires.map((m) => m.uid)) : new Set();
+      const uids = rows.flatMap((m) => [
+        m.senderUid,
+        // 撤回者是管理员时不是消息发送者，但卡片头要显示他的名字。
+        m.recall?.revokeUid ?? '',
+        ...extractGrayTipUids(m.elements),
+      ]);
+      resolveMembers(
+        groupCode,
+        uids,
+        known,
+        // 回填进的是 `missingMembers[groupCode]`，按群隔离；面板中途关掉也照样收下，
+        // 下次再打开就是现成的（丢弃反而会因 attempted 已记录而永不重试）。
+        () => true,
+      );
+      // 群名片里没有的昵称 / 备注由 profile 缓存兜底（同灰条 / 成员列表）。
+      resolveProfiles(uids);
+    }
+  }, [
+    deletedConv,
+    deletedWires,
+    recalledConv,
+    recalledWires,
+    selectedUid,
+    selectedGroupMemberWires,
+    resolveMembers,
+    resolveProfiles,
+  ]);
 
   // Resolve display profiles for everyone we render a name/avatar for: buddies,
   // buddy requests, and the operated user in each group notify. resolveProfiles
@@ -5628,25 +5680,45 @@ export function MainView(): ReactElement {
   }, [pendingSyncKey, refreshWindow]);
 
   // Deleted messages built through the SAME template pipeline as the live chat,
-  // so the panel's bubbles match exactly. The panel only opens for the currently
-  // selected conversation, so `currentGroupMembers` is the right member source.
+  // so the panel's bubbles match exactly. 成员来源必须按**面板自己的会话**取：
+  // 它可以从防撤回面板「记录」页被打开成非当前会话的群，那时 `currentGroupMembers`
+  // 是别的群的人。当前群直接用 currentGroupMembers，别的群用按需解析回填的
+  // missingMembers（见上面的解析 effect）。
+  const memberMapForGroup = useCallback(
+    (groupCode: string): Map<string, GroupMember> => {
+      if (groupCode === selectedUid) return new Map(currentGroupMembers.map((m) => [m.id, m]));
+      return new Map(
+        Object.values(missingMembers[groupCode] ?? {})
+          .map((wire) => mapGroupMemberForGroup(wire, groupCode))
+          .map((member) => [member.id, member]),
+      );
+    },
+    [selectedUid, currentGroupMembers, missingMembers, mapGroupMemberForGroup],
+  );
+
   const deletedTemplateMessages = useMemo(() => {
     if (!deletedConv) return [];
-    const memberMap = new Map(currentGroupMembers.map((m) => [m.id, m]));
+    const memberMap =
+      deletedConv.type === 'group'
+        ? memberMapForGroup(deletedConv.group.identityValue || deletedConv.id)
+        : new Map<string, GroupMember>();
     return deletedWires
       .filter((message) => isRenderableMessage(message))
       .map((message) => messageToTemplate(message, deletedConv, user, memberMap, botUids));
-  }, [deletedWires, deletedConv, user, currentGroupMembers, botUids]);
+  }, [deletedWires, deletedConv, user, botUids, memberMapForGroup]);
 
   // Recalled messages through the SAME template pipeline (bubbles match the chat
   // + carry the 撤回 tag). Same member source as the deleted panel.
   const recalledTemplateMessages = useMemo(() => {
     if (!recalledConv) return [];
-    const memberMap = new Map(currentGroupMembers.map((m) => [m.id, m]));
+    const memberMap =
+      recalledConv.type === 'group'
+        ? memberMapForGroup(recalledConv.group.identityValue || recalledConv.id)
+        : new Map<string, GroupMember>();
     return recalledWires
       .filter((message) => isRenderableMessage(message))
       .map((message) => messageToTemplate(message, recalledConv, user, memberMap, botUids));
-  }, [recalledWires, recalledConv, user, currentGroupMembers, botUids]);
+  }, [recalledWires, recalledConv, user, botUids, memberMapForGroup]);
 
   const activeConversation = useMemo(() => {
     if (!selectedConversation) return undefined;

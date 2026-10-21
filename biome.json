@@ -15,7 +15,6 @@
       "!**/release",
       "!**/*.tsbuildinfo",
       "!packages/ninebird",
-      "!**/*.css",
       "!resources/bot-runtime",
       "!resources/ninebird-runtime",
       "!resources/hitokoto.json",
@@ -39,6 +38,17 @@
       "quoteStyle": "single",
       "semicolons": "always",
       "trailingCommas": "all"
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    },
+    "formatter": {
+      "quoteStyle": "single"
+    },
+    "linter": {
+      "enabled": false
     }
   },
   "linter": {

@@ -19,7 +19,7 @@
   color: var(--weq-accent-effective);
 }
 
-html[data-theme="dark"] .contact-relation-mark {
+html[data-theme='dark'] .contact-relation-mark {
   border-color: var(--weq-border-strong);
   background: var(--weq-bg-surface);
 }

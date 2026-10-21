@@ -40,7 +40,10 @@
   color: var(--weq-fg-secondary);
   font-size: 12px;
 }
-.weq-col-search-status > span { min-width: 0; overflow-wrap: anywhere; }
+.weq-col-search-status > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .weq-col-search-status > button {
   display: grid;
   place-items: center;
@@ -54,5 +57,7 @@
   background: transparent;
   cursor: pointer;
 }
-html[data-theme="dark"] .weq-col-search-status,
-html[data-theme="dark"] .weq-col-search-status > button { border-color: var(--weq-border-strong); }
+html[data-theme='dark'] .weq-col-search-status,
+html[data-theme='dark'] .weq-col-search-status > button {
+  border-color: var(--weq-border-strong);
+}

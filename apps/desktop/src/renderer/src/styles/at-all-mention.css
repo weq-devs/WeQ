@@ -8,19 +8,19 @@
 }
 
 .mention-menu button:disabled,
-html[data-theme="dark"] .mention-menu button:disabled {
+html[data-theme='dark'] .mention-menu button:disabled {
   color: var(--weq-fg-muted);
   cursor: not-allowed;
 }
 
 .mention-menu button:disabled.active,
 .mention-menu button:disabled:hover,
-html[data-theme="dark"] .mention-menu button:disabled.active,
-html[data-theme="dark"] .mention-menu button:disabled:hover {
+html[data-theme='dark'] .mention-menu button:disabled.active,
+html[data-theme='dark'] .mention-menu button:disabled:hover {
   background: transparent;
 }
 
-html[data-theme="dark"] .mention-menu .mention-all-quota {
+html[data-theme='dark'] .mention-menu .mention-all-quota {
   color: var(--weq-fg-secondary);
 }
 .mention-menu .mention-all-icon {
@@ -30,4 +30,3 @@ html[data-theme="dark"] .mention-menu .mention-all-quota {
   height: 30px;
   color: var(--weq-accent-effective);
 }
-

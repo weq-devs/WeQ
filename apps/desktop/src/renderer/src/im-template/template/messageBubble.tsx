@@ -427,7 +427,6 @@ export function MessageBubble({
         <div className="weq-message-heading">
           {showSenderName ? (
             <span className={cn('message-name')}>
-              {senderName}
               {(() => {
                 const role = (sender as any).role;
                 const isRoleBadge = role === 'owner' || role === 'admin';
@@ -453,6 +452,7 @@ export function MessageBubble({
                   </small>
                 );
               })()}
+              {senderName}
               {senderKind === 'bot' ? (
                 <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
                   <Bot size={12} strokeWidth={2.4} />
