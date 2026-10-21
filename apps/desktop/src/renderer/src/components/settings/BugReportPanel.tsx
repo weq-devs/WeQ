@@ -344,6 +344,7 @@ export function BugReportPanel(): ReactElement {
       if (!linkRes.ok) parts.push(`唤起 QQ 失败：${linkRes.error}`);
       pushToast({
         tone: 'info',
+        durationKind: parts.length ? 'failure' : 'success',
         title: '已打包并打开反馈目录',
         detail: res.folder + (parts.length > 0 ? `\n${parts.join('\n')}` : ''),
       });

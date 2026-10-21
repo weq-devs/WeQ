@@ -147,6 +147,7 @@ export function DatabaseDamagedDialog({
       if (result.openError) parts.push(result.openError);
       pushToast({
         tone: 'info',
+        durationKind: parts.length ? 'failure' : 'success',
         title: '已打包反馈文件并打开文件夹',
         detail: result.folder + (parts.length > 0 ? `\n${parts.join('\n')}` : ''),
       });

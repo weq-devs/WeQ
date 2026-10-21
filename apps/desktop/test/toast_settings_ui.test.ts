@@ -81,6 +81,18 @@ function type(input: HTMLInputElement, value: string) {
   });
 }
 describe('通知停留时长设置', () => {
+  it('未改动的有效时长仍可点击保存，保存后可再次主动提交', async () => {
+    const f = fixture();
+    expect(f.button('成功').disabled).toBe(false);
+    expect(state.save).not.toHaveBeenCalled();
+    await act(async () => f.button('成功').click());
+    await act(async () => f.button('成功').click());
+    expect(state.save).toHaveBeenCalledTimes(2);
+    expect(state.save).toHaveBeenLastCalledWith({
+      kind: 'success',
+      seconds: DEFAULT_TOAST_DURATIONS.successSeconds,
+    });
+  });
   it('默认成功三秒、失败负一，分别保存、重新打开保留，立即同步横幅偏好', async () => {
     const f = fixture();
     expect(f.input('成功').value).toBe('3');

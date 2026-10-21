@@ -151,6 +151,7 @@ export function QzoneShareLightbox({
     if (shareInFlight) {
       pushToast({
         tone: 'info',
+        durationKind: 'failure',
         title: '上一次分享还没发完',
         detail: '截图与上传正在后台跑，状态就在那条「正在分享」的提示里。',
       });
@@ -163,6 +164,7 @@ export function QzoneShareLightbox({
     const toastId = pushToast({
       tone: 'info',
       title: '正在分享到 QQ 空间…',
+      durationKind: 'long',
       detail: `已选 ${indexes.length} 张图 · 正在逐页生成并上传，可以先继续看报告`,
       ttl: SHARE_PROGRESS_TTL_MS,
     });

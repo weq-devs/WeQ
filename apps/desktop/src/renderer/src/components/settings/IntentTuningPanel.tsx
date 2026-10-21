@@ -50,14 +50,13 @@ export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
   const valid = keys.every(
     (key) => draft[key]?.trim() && isIntentTuningValue(key, Number(draft[key])),
   );
-  const dirty = keys.some((key) => Number(draft[key]) !== status.data?.[key]);
 
   async function submit() {
-    if (!ready || !valid || !dirty || save.isLoading) return;
+    if (!ready || !valid || save.isLoading) return;
     try {
       const patch: Partial<Record<IntentTuningKey, number>> = {};
-      for (const key of keys)
-        if (Number(draft[key]) !== status.data?.[key]) patch[key] = Number(draft[key]);
+      const changed = keys.filter((key) => Number(draft[key]) !== status.data?.[key]);
+      for (const key of changed.length ? changed : keys) patch[key] = Number(draft[key]);
       const next = await save.mutateAsync(patch);
       utils.account.intentSense.getStatus.setData(undefined, next);
       void utils.account.intentSense.listMessageAnalyses.invalidate();
@@ -128,7 +127,7 @@ export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
               <button
                 type="submit"
                 className="weq-set-btn"
-                disabled={!ready || !valid || !dirty || save.isLoading}
+                disabled={!ready || !valid || save.isLoading}
               >
                 <Save size={14} />
                 保存

@@ -428,7 +428,7 @@ export function AntiRecallDialog({
                   <button
                     type="button"
                     className="weq-set-btn weq-set-btn-sm"
-                    disabled={busy || !dirty}
+                    disabled={busy || status.isLoading || !status.data}
                     onClick={() => void onSaveTargets()}
                   >
                     {dirty ? '保存选择' : '已保存'}

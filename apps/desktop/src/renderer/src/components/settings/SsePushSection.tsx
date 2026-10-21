@@ -192,10 +192,6 @@ export function SsePushSection(): ReactElement {
     }
   }
 
-  const tuningChanged =
-    sse !== undefined &&
-    (debounceDraft !== String(sse.debounceMs) || thresholdDraft !== String(sse.massThreshold));
-
   return (
     <div className="weq-set">
       <SectionHeader
@@ -408,7 +404,7 @@ export function SsePushSection(): ReactElement {
           <button
             type="button"
             className="weq-set-btn weq-set-btn-sm"
-            disabled={setTuning.isLoading || !tuningChanged}
+            disabled={setTuning.isLoading || !sse}
             onClick={() => void onSaveTuning()}
           >
             {setTuning.isLoading ? (

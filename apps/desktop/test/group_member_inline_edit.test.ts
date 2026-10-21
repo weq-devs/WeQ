@@ -79,6 +79,15 @@ it.each(['群名片', '专属头衔'])(
       act(() => host.querySelector<HTMLButtonElement>(`[aria-label="取消编辑${label}"]`)!.click());
       expect(rpc.run).not.toHaveBeenCalled();
       edit();
+      const unchangedSave = host.querySelector<HTMLButtonElement>(`[aria-label="保存${label}"]`)!;
+      expect(unchangedSave.disabled).toBe(false);
+      await act(async () => unchangedSave.click());
+      expect(label === '群名片' ? rpc.cardWrite : rpc.titleWrite).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          [label === '群名片' ? 'card' : 'title']: label === '群名片' ? rpc.card : rpc.title,
+        }),
+      );
+      edit();
       const input = host.querySelector('input')!;
       act(() => {
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
@@ -92,7 +101,7 @@ it.each(['群名片', '专属头衔'])(
           .querySelector('form')!
           .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
       );
-      expect(rpc.run).toHaveBeenCalledOnce();
+      expect(rpc.run).toHaveBeenCalledTimes(2);
       expect(label === '群名片' ? rpc.cardWrite : rpc.titleWrite).toHaveBeenCalledWith(
         expect.objectContaining({
           expectedAccountUin: '10001',

@@ -145,7 +145,7 @@ it('分别编辑两个条数，只提交对应配置并刷新相关缓存，支�
   expect(f.input('意图感知上文条数').value).toBe(String(DEFAULT_ANALYSIS_CONTEXT_MESSAGES));
   expect(f.input('推荐回复上文条数')).toBeNull();
   expect(f.input('意图感知上文条数').max).toBe(String(MAX_INTENT_CONTEXT_MESSAGES));
-  expect(f.save().disabled).toBe(true);
+  expect(f.save().disabled).toBe(false);
   f.edit('意图感知上文条数', '0');
   expect(f.save().disabled).toBe(false);
   await act(async () => f.save().click());
@@ -154,7 +154,7 @@ it('分别编辑两个条数，只提交对应配置并刷新相关缓存，支�
   });
   expect(fixture.invalidate).toHaveBeenCalledTimes(3);
   f.render();
-  expect(f.save().disabled).toBe(true);
+  expect(f.save().disabled).toBe(false);
   f.render('suggestions');
   expect(f.input('意图感知上文条数')).toBeNull();
   expect(f.input('推荐回复上文条数').value).toBe(String(DEFAULT_SUGGESTION_CONTEXT_MESSAGES));
@@ -163,7 +163,7 @@ it('分别编辑两个条数，只提交对应配置并刷新相关缓存，支�
   expect(fixture.save).toHaveBeenLastCalledWith({ suggestionContextMessages: 2 });
   expect(fixture.invalidate).toHaveBeenCalledTimes(6);
   f.render('suggestions');
-  expect(f.save().disabled).toBe(true);
+  expect(f.save().disabled).toBe(false);
 });
 
 it('无效、空值、在途及主进程尚未支持时不能保存或误提示成功', () => {

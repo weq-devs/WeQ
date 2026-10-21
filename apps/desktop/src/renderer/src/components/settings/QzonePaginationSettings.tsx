@@ -31,7 +31,6 @@ export function QzonePaginationSettings() {
     Number.isSafeInteger(maxPages) &&
     maxPages >= 1 &&
     maxPages <= 1000;
-  const dirty = windowSeconds !== saved?.windowSeconds || maxPages !== saved?.maxPages;
   const unavailable = !settings.isLoading && !saved;
   return (
     <Card title="在线翻页限速">
@@ -103,7 +102,7 @@ export function QzonePaginationSettings() {
             <button
               type="submit"
               className="weq-set-btn"
-              disabled={!saved || !valid || !dirty || save.isLoading}
+              disabled={!saved || !valid || save.isLoading}
             >
               {save.isLoading ? <Loader2 size={14} className="weq-spin" /> : <Save size={14} />}
               保存

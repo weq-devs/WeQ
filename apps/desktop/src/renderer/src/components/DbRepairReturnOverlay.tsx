@@ -48,6 +48,7 @@ export function DbRepairReturnOverlay(): ReactElement | null {
       await leaveAccountForBootstrap(queryClient);
       pushToast({
         tone: 'info',
+        durationKind: warn ? 'failure' : 'success',
         title: '已回到启动页',
         detail: warn
           ? '回到首页重新打开这个账号再试一次 —— 这次没能替换成功。'

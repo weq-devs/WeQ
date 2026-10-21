@@ -251,7 +251,7 @@ function MemberProfileField({
       className="weq-member-inline-field"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!disabled && draft !== initial)
+        if (!disabled)
           void onSave(draft).then((ok) => {
             if (ok) setEditing(false);
           });
@@ -276,7 +276,7 @@ function MemberProfileField({
         className="weq-profile-row-copy"
         aria-label={`保存${label}`}
         title={`保存${label}`}
-        disabled={disabled || draft === initial}
+        disabled={disabled}
       >
         <Check size={14} />
       </button>

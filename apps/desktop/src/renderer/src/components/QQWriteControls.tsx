@@ -50,6 +50,8 @@ export function QQWriteTextRow({
 }) {
   const [value, setValue] = useState(initial ?? '');
   const [submitted, setSubmitted] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const clearingUnknown = initial === null && allowEmpty && value === '';
   const actionLabel = `${clearingUnknown ? '清空' : '保存'}${label}`;
   const previous = useRef(initial ?? '');
@@ -78,7 +80,7 @@ export function QQWriteTextRow({
     value,
     maxLength,
     required: !allowEmpty,
-    disabled,
+    disabled: disabled || saving,
     autoFocus,
     onChange: (event: { target: { value: string } }) => {
       setValue(event.target.value);
@@ -97,15 +99,20 @@ export function QQWriteTextRow({
             aria-label={actionLabel}
             title={actionLabel}
             disabled={
-              disabled ||
-              (!allowEmpty && !value.trim()) ||
-              (initial !== null && value === initial) ||
-              value === submitted
+              disabled || saving || (!allowEmpty && !value.trim()) || value.length > maxLength
             }
             onClick={() => {
-              void onSave(value).then((ok) => {
-                if (ok) setSubmitted(value);
-              });
+              if (savingRef.current) return;
+              savingRef.current = true;
+              setSaving(true);
+              void onSave(value)
+                .then((ok) => {
+                  if (ok) setSubmitted(value);
+                })
+                .finally(() => {
+                  savingRef.current = false;
+                  setSaving(false);
+                });
             }}
           >
             {clearingUnknown ? <Eraser size={16} /> : <Save size={16} />}
@@ -138,7 +145,6 @@ export function QQWriteSelectRow({
   autoSave?: boolean;
 }) {
   const [value, setValue] = useState(initial === null ? '' : String(initial));
-  const [submitted, setSubmitted] = useState<string | null>(null);
   const previous = useRef(value);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -165,7 +171,6 @@ export function QQWriteSelectRow({
                 if (savingRef.current) return;
                 const next = event.target.value;
                 setValue(next);
-                setSubmitted(null);
                 if (autoSave && next !== '') {
                   savingRef.current = true;
                   setSaving(true);
@@ -173,8 +178,7 @@ export function QQWriteSelectRow({
                     setValue(latestInitial.current === null ? '' : String(latestInitial.current));
                   void onSave(Number(next))
                     .then((ok) => {
-                      if (ok) setSubmitted(next);
-                      else rollback();
+                      if (!ok) rollback();
                     }, rollback)
                     .finally(() => {
                       savingRef.current = false;
@@ -201,11 +205,15 @@ export function QQWriteSelectRow({
                 aria-label={`保存${label}`}
                 title={`保存${label}`}
                 disabled={
-                  disabled || value === '' || Number(value) === initial || value === submitted
+                  disabled || saving || !options.some((option) => String(option.value) === value)
                 }
                 onClick={() => {
-                  void onSave(Number(value)).then((ok) => {
-                    if (ok) setSubmitted(value);
+                  if (savingRef.current) return;
+                  savingRef.current = true;
+                  setSaving(true);
+                  void onSave(Number(value)).finally(() => {
+                    savingRef.current = false;
+                    setSaving(false);
                   });
                 }}
               >

@@ -27,10 +27,6 @@ export function GroupJoinSettings({ groupId }: { groupId: number }) {
   const question = draft?.question ?? query.data?.question ?? '';
   const answer = draft?.answer ?? '';
   const disabled = a.disabled || !permissions.data?.canManage;
-  const changed = Boolean(
-    draft &&
-      (mode !== currentMode || question !== (query.data?.question ?? '') || (mode === 4 && answer)),
-  );
   return (
     <div className="weq-qq-action-form weq-qq-join-settings">
       <div className="weq-qq-action-bar">
@@ -79,7 +75,6 @@ export function GroupJoinSettings({ groupId }: { groupId: number }) {
           disabled ||
           query.isFetching ||
           !query.data ||
-          !changed ||
           mode === '' ||
           ((mode === 4 || mode === 5) && !question.trim()) ||
           (mode === 4 && !answer.trim())

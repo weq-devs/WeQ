@@ -1742,15 +1742,25 @@ describe('QQ 主动操作的实际界面', () => {
     value(f.host, '加群方式', '5');
     expect(f.host.querySelector('[aria-label="加群答案"]')).toBeNull();
   });
-  it('加群方式与问题来自读回，55 按审核问答显示，答案不伪造', () => {
+  it('加群方式与问题来自读回，55 按审核问答显示，原值仍可保存且答案不伪造', async () => {
     state.data.groupJoinSettings = { groupId: 123, option: 55, question: '原问题' };
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(f.host.querySelector<HTMLSelectElement>('[aria-label="加群方式"]')!.value).toBe('5');
     expect(f.host.querySelector<HTMLInputElement>('[aria-label="加群问题"]')!.value).toBe('原问题');
     expect(f.host.querySelector('[aria-label="加群答案"]')).toBeNull();
-    expect(f.button('保存加群方式').disabled).toBe(true);
+    expect(f.button('保存加群方式').disabled).toBe(false);
+    await act(async () => f.button('保存加群方式').click());
+    expect(state.mutate).toHaveBeenCalledWith(
+      'groupSettings',
+      expect.objectContaining({
+        action: 'join',
+        addType: 5,
+        question: '原问题',
+        answer: undefined,
+      }),
+    );
   });
-  it('保存加群方式后自动回读，读回一致后清除草稿和重复提交入口', async () => {
+  it('保存加群方式后自动回读并清除草稿，仍允许主动再次提交相同值', async () => {
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     value(f.host, '加群方式', '1');
     state.mutate.mockImplementationOnce(async () => {
@@ -1760,7 +1770,10 @@ describe('QQ 主动操作的实际界面', () => {
     await act(async () => f.button('保存加群方式').click());
     expect(state.refreshJoin).toHaveBeenCalledOnce();
     expect(f.host.querySelector<HTMLSelectElement>('[aria-label="加群方式"]')!.value).toBe('1');
-    expect(f.button('保存加群方式').disabled).toBe(true);
+    expect(f.button('保存加群方式').disabled).toBe(false);
+    await act(async () => f.button('保存加群方式').click());
+    expect(state.mutate).toHaveBeenCalledTimes(2);
+    expect(state.refreshJoin).toHaveBeenCalledTimes(2);
   });
   it('迟到的加群资料不覆盖编辑草稿，未知答案不当作空答案回填', () => {
     state.data.groupJoinSettings = { groupId: 123, option: 4, question: '原问题' };

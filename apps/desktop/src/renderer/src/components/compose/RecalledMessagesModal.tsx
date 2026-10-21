@@ -180,6 +180,7 @@ export function RecalledMessagesModal({
     if (msgSeq == null || msgSeq === '') {
       pushToast({
         tone: 'info',
+        durationKind: 'failure',
         title: '未找到该消息',
         detail: '该消息可能已被撤回或删除，无法跳转定位。',
       });

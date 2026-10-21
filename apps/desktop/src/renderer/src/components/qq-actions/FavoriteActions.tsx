@@ -229,7 +229,7 @@ function FavoriteRow({
           <div className="weq-qq-action-bar">
             <SaveAction
               label="保存表情备注"
-              disabled={disabled || value === desc}
+              disabled={disabled}
               onClick={() => {
                 let accepted = false;
                 void a.perform(

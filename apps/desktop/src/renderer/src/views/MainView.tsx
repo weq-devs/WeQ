@@ -2448,10 +2448,14 @@ export function MainView(): ReactElement {
         useViewState.getState().openedUin === accountUin &&
         results.some((result) => result.isError)
       )
-        pushToast({ tone: 'info', title: '部分联系人数据刷新失败，已保留上次结果' });
+        pushToast({
+          tone: 'info',
+          durationKind: 'failure',
+          title: '部分联系人数据刷新失败，已保留上次结果',
+        });
     } catch {
       if (useViewState.getState().openedUin === accountUin)
-        pushToast({ tone: 'info', title: '联系人刷新失败，请稍后重试' });
+        pushToast({ tone: 'info', durationKind: 'failure', title: '联系人刷新失败，请稍后重试' });
     } finally {
       refreshingContactsRef.current = false;
       setRefreshingContacts(false);
@@ -3250,6 +3254,7 @@ export function MainView(): ReactElement {
           if (result.nextStartSeq === null) {
             pushToast({
               tone: 'info',
+              durationKind: 'failure',
               message: '该缺口未拉取到可用记录，消息可能已过期或未开启漫游。',
             });
             return;
@@ -3258,6 +3263,7 @@ export function MainView(): ReactElement {
         }
         pushToast({
           tone: 'info',
+          durationKind: 'failure',
           message: '已检查 240 个消息序号，暂未找到记录；可再次点击继续。',
         });
       } catch (error) {
@@ -6250,7 +6256,7 @@ export function MainView(): ReactElement {
   async function undoConversationReadState(undo = readUndoRef.current) {
     if (!undo || undo.accountUin !== openedUin || readStateBusyRef.current) return;
     if (readUndoRef.current?.token !== undo.token) {
-      pushToast({ tone: 'info', title: '请撤销最近一次标记' });
+      pushToast({ tone: 'info', durationKind: 'failure', title: '请撤销最近一次标记' });
       return;
     }
     readStateBusyRef.current = true;
@@ -6276,6 +6282,7 @@ export function MainView(): ReactElement {
       setReadUndo(null);
       pushToast({
         tone: 'info',
+        durationKind: result.restored ? 'success' : 'failure',
         title: result.restored
           ? `已撤销 ${result.restored} 个会话的标记`
           : '会话已再次阅读，未覆盖最新状态',
@@ -6486,6 +6493,7 @@ export function MainView(): ReactElement {
         console.error('[centerWindowOnSeq] fetch failed', err);
         pushToast({
           tone: 'info',
+          durationKind: 'failure',
           title: '未找到该消息',
           detail: '该消息可能已被撤回或删除。',
         });
@@ -6533,6 +6541,7 @@ export function MainView(): ReactElement {
         setMissingJumpSeq(targetSeq);
         pushToast({
           tone: 'info',
+          durationKind: 'failure',
           title: '未找到该条消息',
           detail: '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。',
         });
@@ -6566,6 +6575,7 @@ export function MainView(): ReactElement {
       const notFound = (): void => {
         pushToast({
           tone: 'info',
+          durationKind: 'failure',
           title: '未找到该条消息',
           detail: '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。',
         });
@@ -6672,6 +6682,7 @@ export function MainView(): ReactElement {
         if (toastOnMissingSeq) {
           pushToast({
             tone: 'info',
+            durationKind: 'failure',
             title: '未找到该消息位置',
             detail: '该消息可能已被撤回或删除。',
           });
@@ -7270,6 +7281,7 @@ export function MainView(): ReactElement {
       if (!pinSession.available || pinSession.busy) {
         pushToast({
           tone: 'info',
+          durationKind: 'failure',
           title: pinSession.busy ? '请等待当前置顶操作完成' : 'QQ 在线能力未就绪，未改变置顶状态',
         });
         return;
@@ -8363,7 +8375,12 @@ export function MainView(): ReactElement {
         patchOptimistic({ state: 'sent' });
         // 业务结果无法从回包判定（见服务层 hint），所以如实说明「无法确认结果」，
         // 不给一个「已送达」的假信号。
-        pushToast({ tone: 'info', message: '位置卡片请求已发出', detail: outcome.hint });
+        pushToast({
+          tone: 'info',
+          durationKind: 'failure',
+          message: '位置卡片请求已发出',
+          detail: outcome.hint,
+        });
         return;
       }
 
@@ -8529,6 +8546,7 @@ export function MainView(): ReactElement {
     if (!target) {
       pushToast({
         tone: 'info',
+        durationKind: 'failure',
         title: '找不到该会话',
         detail: '它可能已不在会话列表里，无法打开撤回列表。',
       });
@@ -8548,7 +8566,7 @@ export function MainView(): ReactElement {
         if (profile?.uid) peer = { ...peer, id: profile.uid };
       }
       if (!peer.id) {
-        pushToast({ tone: 'info', title: '暂时无法确定此人的会话身份' });
+        pushToast({ tone: 'info', durationKind: 'failure', title: '暂时无法确定此人的会话身份' });
         return;
       }
       candidate = {
@@ -9303,7 +9321,11 @@ export function MainView(): ReactElement {
                     saveGroupAssistantPins(user.identityValue, next);
                     setGroupAssistantPins(next);
                   } catch {
-                    pushToast({ tone: 'info', title: '群助手置顶保存失败，请重试' });
+                    pushToast({
+                      tone: 'info',
+                      durationKind: 'failure',
+                      title: '群助手置顶保存失败，请重试',
+                    });
                   }
                 }}
                 groupAssistantLoading={contacts.isLoading}
@@ -9659,7 +9681,11 @@ export function MainView(): ReactElement {
               }}
               onOpenChat={() => {
                 void openProfileChat({ kind: 'direct', user: memberCard.member }).catch(() =>
-                  pushToast({ tone: 'info', title: '暂时无法打开私聊，请稍后重试' }),
+                  pushToast({
+                    tone: 'info',
+                    durationKind: 'failure',
+                    title: '暂时无法打开私聊，请稍后重试',
+                  }),
                 );
               }}
               onPreviewChat={() => void previewPrivateChat(memberCard.member)}
@@ -9868,7 +9894,11 @@ export function MainView(): ReactElement {
           <ChatNavigationContext.Provider
             value={(target) => {
               void openProfileChat(target).catch(() =>
-                pushToast({ tone: 'info', title: '暂时无法打开会话，请稍后重试' }),
+                pushToast({
+                  tone: 'info',
+                  durationKind: 'failure',
+                  title: '暂时无法打开会话，请稍后重试',
+                }),
               );
             }}
           >

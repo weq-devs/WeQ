@@ -30,6 +30,58 @@ function mount() {
 const toast = () => useToast.getState().toasts[0]!;
 
 describe('通知倒计时', () => {
+  it('普通提示不再固定十秒，按成功设置计时且文案与 info 样式不变', async () => {
+    const host = mount();
+    act(() => {
+      useToast.getState().setDurations({ successSeconds: 2, failureSeconds: 7 });
+      useToast.getState().push({ tone: 'info', title: '已创建任务', detail: '原有详情' });
+    });
+    expect(toast().ttl).toBe(2000);
+    expect(host.querySelector('.weq-toast-info')).not.toBeNull();
+    expect(host.querySelector('.weq-toast-title')?.textContent).toBe('已创建任务');
+    expect(host.querySelector('.weq-toast-detail')?.textContent).toBe('原有详情');
+    await act(async () => vi.advanceTimersByTimeAsync(2500));
+    expect(useToast.getState().toasts).toHaveLength(0);
+  });
+  it('提示样式的失败使用失败设置，修改设置后仍保持失败分类', () => {
+    const store = useToast.getState();
+    store.setDurations({ successSeconds: 2, failureSeconds: 7 });
+    store.push({ tone: 'info', durationKind: 'failure', title: '未找到该消息', ttl: 10000 });
+    expect(toast()).toMatchObject({ tone: 'info', title: '未找到该消息', ttl: 7000 });
+    store.update(toast().id, { detail: '原有原因' });
+    store.setDurations({ successSeconds: 4, failureSeconds: -1 });
+    expect(toast().ttl).toBe(0);
+    store.setDurations({ successSeconds: 4, failureSeconds: 6 });
+    expect(toast().ttl).toBe(6000);
+  });
+  it('原有常驻与明确的长期横幅不跟随短期设置，结束后才改用结果时长', () => {
+    const store = useToast.getState();
+    store.setDurations({ successSeconds: 2, failureSeconds: 7 });
+    const permanent = store.push({ title: '常驻提示', ttl: 0 });
+    const long = store.push({
+      tone: 'info',
+      durationKind: 'long',
+      title: '分享处理中',
+      ttl: 900000,
+    });
+    store.setDurations({ successSeconds: 4, failureSeconds: 6 });
+    expect(useToast.getState().toasts.map((item) => item.ttl)).toEqual([0, 900000]);
+    store.update(long, { tone: 'info', durationKind: 'failure', title: '分享失败', ttl: 10000 });
+    expect(useToast.getState().toasts.find((item) => item.id === long)?.ttl).toBe(6000);
+    store.update(permanent, { tone: 'info', title: '处理完毕', ttl: 10000 });
+    expect(toast().ttl).toBe(4000);
+  });
+  it('提示从加载转为非加载时进入短期分类，失败与成功分类更新后重新计时', () => {
+    const store = useToast.getState();
+    store.setDurations({ successSeconds: 2, failureSeconds: 7 });
+    const id = store.push({ title: '处理中', loading: true, ttl: 0 });
+    store.update(id, { tone: 'info', title: '已完成', loading: false, ttl: 10000 });
+    expect(toast().ttl).toBe(2000);
+    const revision = toast().timerRevision;
+    store.update(id, { durationKind: 'failure' });
+    expect(toast().ttl).toBe(7000);
+    expect(toast().timerRevision).toBe(revision + 1);
+  });
   it('成功默认三秒后开始关闭，失败与超时警告默认常驻', async () => {
     const host = mount();
     act(() => {

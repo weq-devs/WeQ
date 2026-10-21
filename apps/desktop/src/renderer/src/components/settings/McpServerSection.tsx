@@ -176,7 +176,6 @@ export function McpServerSection(): ReactElement {
       showError('端口无效', '请输入 1–65535 之间的端口号。');
       return;
     }
-    if (data && port === data.port) return;
     try {
       const result = await setPort.mutateAsync({ port });
       await status.refetch();
@@ -247,7 +246,7 @@ export function McpServerSection(): ReactElement {
           errors.map((e) => `${e.name}：${e.message ?? '未知错误'}`).join('\n'),
         );
       } else if (result.results.length === 0) {
-        pushToast({ tone: 'info', title: '没有可安装的客户端' });
+        pushToast({ tone: 'info', durationKind: 'failure', title: '没有可安装的客户端' });
       } else {
         const parts: string[] = [];
         if (ok) parts.push(`${ok} 个成功`);
@@ -332,7 +331,7 @@ export function McpServerSection(): ReactElement {
               <button
                 type="button"
                 className="weq-set-btn weq-set-btn-sm"
-                disabled={busy || portDraft === String(data?.port ?? '')}
+                disabled={busy || status.isLoading || !data}
                 onClick={() => void onSavePort()}
               >
                 保存
