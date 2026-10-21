@@ -5,6 +5,7 @@ import {
   failedOutgoingRemoval,
   mergeOptimisticInto,
   needsFailedPreparation,
+  matchForwardMessages,
   type LocalOutgoingRecord,
 } from '../src/renderer/src/lib/localOutgoing';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
@@ -24,6 +25,85 @@ const record: LocalOutgoingRecord = {
   convId: message.conversationId,
   state: 'failed',
 };
+
+describe('合并转发占位对账', () => {
+  const pending = {
+    id: 'optimistic-forward',
+    convId: 'target',
+    state: 'sent' as const,
+    at: 1792544400000,
+    resId: 'res-fixture',
+    cid: '77',
+    seq: '42',
+  };
+  const wire = {
+    msgId: '9007199254740993',
+    msgSeq: '42',
+    msgRandom: '77',
+    sendTime: '1792544400',
+    elements: [
+      {
+        type: 'ark',
+        data: {
+          arkData: JSON.stringify({
+            app: 'com.tencent.multimsg',
+            meta: { detail: { resid: pending.resId } },
+          }),
+        },
+      },
+    ],
+  };
+  it('真实 Ark 卡片先到、回执后到时能重新对账，不依赖占位数量变化', () => {
+    expect(
+      matchForwardMessages(
+        [{ ...pending, resId: undefined, cid: undefined, seq: undefined, state: 'sending' }],
+        [wire],
+        'target',
+      ).size,
+    ).toBe(0);
+    expect([...matchForwardMessages([pending], [wire], 'target').keys()]).toEqual([pending.id]);
+    expect(matchForwardMessages([{ ...pending, seqRejected: true }], [wire], 'target').size).toBe(
+      1,
+    );
+    expect(
+      matchForwardMessages([{ ...pending, cid: undefined, seqRejected: true }], [wire], 'target')
+        .size,
+    ).toBe(0);
+  });
+  it('兼容 XML 和直接 resId，限定当前会话且不使用其他人的卡片', () => {
+    const noKeys = { ...pending, cid: undefined, seq: undefined };
+    for (const data of [
+      { resId: pending.resId },
+      { xmlContent: `<msg m_resid="${pending.resId}"/>` },
+    ]) {
+      expect(
+        matchForwardMessages(
+          [noKeys],
+          [{ ...wire, elements: [{ type: 'multiMsg', data }] }],
+          'target',
+        ).size,
+      ).toBe(1);
+    }
+    expect(matchForwardMessages([pending], [wire], 'other').size).toBe(0);
+    expect(matchForwardMessages([noKeys], [{ ...wire, sendTime: '1' }], 'target').size).toBe(0);
+    expect(
+      matchForwardMessages([pending], [{ ...wire, msgRandom: 'different', msgSeq: '40' }], 'target')
+        .size,
+    ).toBe(0);
+  });
+  it('同张卡连续两发只消耗一条真实回声，下一轮不会再消费同一条', () => {
+    const a = { ...pending, cid: undefined, seq: undefined };
+    const b = { ...a, id: 'optimistic-second' };
+    const first = matchForwardMessages([a, b], [wire], 'target');
+    expect([...first.keys()]).toEqual([a.id]);
+    const consumed = new Map([...first].map(([id, key]) => [key, id]));
+    expect(matchForwardMessages([b], [wire], 'target', consumed).size).toBe(0);
+    expect(
+      matchForwardMessages([b], [wire, { ...wire, msgId: '9007199254740994' }], 'target', consumed)
+        .size,
+    ).toBe(1);
+  });
+});
 
 describe('失败占位清理', () => {
   it('水位只来自同一最新会话，私聊未核对序号和未定位的发送不会冒充水位', () => {

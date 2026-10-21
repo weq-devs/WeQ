@@ -155,9 +155,13 @@ export type UnreadDock = {
 type ConversationBase = {
   id: string;
   updatedAt: string;
+  /** 仅用于会话列表排序：已落库草稿等活动的毫秒时间，不改写消息时间。 */
+  activityTime?: number;
   preference?: ConversationPreference;
   /** QQ 置顶时间（unix 秒）；仅用于置顶组内排序，不冒充最后消息时间。 */
   pinnedAt?: number;
+  /** QQ 置顶表已经读回，不能被旧的本地 preference 覆盖。 */
+  pinStateKnown?: boolean;
   unreadCount?: number;
   /**
    * 该会话来自 hidden_session_storage_table_v1（用户手动隐藏过的聊天），并入
@@ -319,6 +323,8 @@ export type MessageAction = {
 
 export type Message = {
   id: string;
+  /** 原始消息 ID；展示 ID 可能带漫游来源前缀，用于可靠身份对账。 */
+  msgId?: string;
   conversationId: string;
   senderId: string;
   body: string;

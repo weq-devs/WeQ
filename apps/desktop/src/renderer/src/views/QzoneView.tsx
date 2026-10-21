@@ -1044,6 +1044,7 @@ function Posts({
     ids: posts.map((post) => post.tid),
     selected: selection.selectedIds,
     onChange: selection.setSelectedIds,
+    anchorRef: selection.anchorRef,
     enabled: selection.selectionMode,
     onStart: () => selection.setSelectionMode(true),
     onExit: () => selection.setSelectionMode(false),

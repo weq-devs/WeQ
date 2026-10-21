@@ -4,6 +4,96 @@ import { displayUserName } from '../im-template/template/user';
 import { previewNodes, previewNodesToText } from './conversationPreview';
 import { selfIdentityValues } from './selfIdentity';
 import { messageContentText } from './messageClipboard';
+import { messageGapCount, isSeqBetween } from '../im-template/template/messageGap';
+import { isUnpositionedFailure } from './localOutgoing';
+
+export interface SelectionMessageLoad {
+  mode: 'local' | 'roaming';
+  conversation: Conversation;
+  startSeq: string;
+  endSeq: string;
+}
+export type LoadSelectionMessages = (
+  request: SelectionMessageLoad,
+  onPage: (messages: Message[]) => void,
+  signal: AbortSignal,
+) => Promise<void>;
+export interface SelectionGap {
+  previousSeq: string;
+  currentSeq: string;
+  count: number;
+}
+export const selectionGapId = (gap: Pick<SelectionGap, 'previousSeq' | 'currentSeq'>) =>
+  `gap:${gap.previousSeq}:${gap.currentSeq}`;
+export function parseSelectionGap(id: string): SelectionGap | null {
+  const match = /^gap:(\d{1,20}):(\d{1,20})$/.exec(id);
+  if (!match || BigInt(match[2]!) <= BigInt(match[1]!) + 1n) return null;
+  return {
+    previousSeq: match[1]!,
+    currentSeq: match[2]!,
+    count: Number(BigInt(match[2]!) - BigInt(match[1]!) - 1n),
+  };
+}
+export type MessageSelectionItem =
+  | { id: string; message: Message; gap?: never }
+  | { id: string; gap: SelectionGap; message?: never };
+export function messageSelectionItems(
+  messages: readonly Message[],
+  includeSingle = false,
+  missingJumpSeq?: string | null,
+): MessageSelectionItem[] {
+  const items: MessageSelectionItem[] = [];
+  let previous: Message | undefined;
+  for (const message of messages) {
+    const count =
+      messageGapCount(previous, message, includeSingle) ||
+      (previous && missingJumpSeq && isSeqBetween(missingJumpSeq, previous.msgSeq, message.msgSeq)
+        ? 1
+        : 0);
+    if (count && previous?.msgSeq && message.msgSeq) {
+      const gap = { previousSeq: previous.msgSeq, currentSeq: message.msgSeq, count };
+      items.push({ id: selectionGapId(gap), gap });
+    }
+    items.push({ id: message.id, message });
+    if (!isUnpositionedFailure(message)) previous = message;
+  }
+  return items;
+}
+
+export function selectionGapsBetween(
+  previousSeq: string,
+  currentSeq: string,
+  messages: readonly Pick<Message, 'msgSeq'>[],
+): SelectionGap[] {
+  const first = BigInt(previousSeq),
+    last = BigInt(currentSeq);
+  const seqs = [
+    ...new Set(
+      messages.flatMap((message) =>
+        message.msgSeq &&
+        /^\d+$/.test(message.msgSeq) &&
+        BigInt(message.msgSeq) > first &&
+        BigInt(message.msgSeq) < last
+          ? [message.msgSeq]
+          : [],
+      ),
+    ),
+  ]
+    .map(BigInt)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const gaps: SelectionGap[] = [];
+  let previous = first;
+  for (const next of [...seqs, last]) {
+    if (next > previous + 1n)
+      gaps.push({
+        previousSeq: previous.toString(),
+        currentSeq: next.toString(),
+        count: Number(next - previous - 1n),
+      });
+    previous = next;
+  }
+  return gaps;
+}
 
 export interface SelectionModifiers {
   ctrlKey?: boolean;

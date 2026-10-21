@@ -33,6 +33,7 @@ import type { ContentSelection } from '../../../shared/content_selection';
 import type { ExportMode } from '../views/export/types';
 import {
   analysisTargetForWorkspace,
+  selectionForWorkspace,
   defaultSelectionForContext,
   exportEntryForWorkspace,
   type WorkspaceContext,
@@ -219,7 +220,9 @@ export function WorkspaceTools({
       // 直接放进 React 依赖里：每次渲染都是新引用，会触发导出面板反复重建。
       // 优先级：页面内当前多选 > 内容页显式请求过的内容 > 当前界面位置。
       // 支持与否的界面都允许打开：没有内容时面板里自己选。
-      const explicit = selection ?? requestedSelection.current ?? defaultSelectionForContext(ctx);
+      const activeSelection = workspace ? selectionForWorkspace(ctx, selection) : selection;
+      const explicit =
+        activeSelection ?? requestedSelection.current ?? defaultSelectionForContext(ctx);
       openExport(explicit, {
         mode: explicit ? initialExportMode(explicit) : entry.mode,
         fixed: false,

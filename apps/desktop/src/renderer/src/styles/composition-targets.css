@@ -1,0 +1,30 @@
+.weq-mf-targets-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 0 10px;
+  color: var(--weq-fg-primary);
+}
+.weq-mf-targets-header button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+}
+.weq-mf-targets-header button:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+.weq-mf-targets-header span,
+.weq-mf-assistant-entry > span:not(.weq-mf-target-name):not(.weq-mf-target-avatar) {
+  flex-shrink: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+html[data-theme='dark'] .weq-mf-targets-header {
+  color: var(--weq-fg-primary);
+}

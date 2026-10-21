@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
   conversationSortTime,
   draftSortTimes,
+  conversationPinned,
   type ConversationDraftTimeRow,
 } from '../src/account/conversation_order';
 
@@ -21,6 +22,26 @@ const row = (targetUid: string, draftTime: string): ConversationDraftTimeRow => 
 const at = (iso: string): number => Date.parse(iso);
 
 describe('conversationSortTime', () => {
+  it('已读回的 QQ 置顶状态不能被旧本地偏好反转', () => {
+    expect(
+      conversationPinned(
+        { id: 'a', pinStateKnown: true, preference: { pinned: true } },
+        { a: { pinned: false } },
+      ),
+    ).toBe(true);
+    expect(
+      conversationPinned(
+        { id: 'a', pinStateKnown: true, preference: { pinned: false } },
+        { a: { pinned: true } },
+      ),
+    ).toBe(false);
+    expect(
+      conversationPinned(
+        { id: 'virtual:a', preference: { pinned: false } },
+        { 'virtual:a': { pinned: true } },
+      ),
+    ).toBe(true);
+  });
   it('草稿更新时按草稿时间（会话冒头）', () => {
     expect(conversationSortTime('2026-09-24T10:00:00Z', at('2026-09-25T09:00:00Z'))).toBe(
       at('2026-09-25T09:00:00Z'),

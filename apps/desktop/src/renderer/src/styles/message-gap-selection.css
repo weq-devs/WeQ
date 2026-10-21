@@ -1,0 +1,23 @@
+.weq-selectable-gap {
+  position: relative;
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+.weq-selectable-gap.is-selected {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+.weq-gap-selection-check {
+  flex: 0 0 18px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 50%;
+  color: var(--weq-accent-effective);
+}
+html[data-theme='dark'] .weq-selectable-gap.is-selected {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+}

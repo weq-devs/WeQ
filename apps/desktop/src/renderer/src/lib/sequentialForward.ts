@@ -5,6 +5,7 @@ export interface ForwardOptions {
   intervalMs: number;
   msPerCharacter: number;
   nonTextMs: number;
+  maxIntervalMs: number;
   jitterMs: number;
   maxAttempts: number;
   failure: 'skip' | 'abort';
@@ -14,6 +15,7 @@ export const DEFAULT_FORWARD_OPTIONS: ForwardOptions = {
   intervalMs: 0,
   msPerCharacter: 1000,
   nonTextMs: 5000,
+  maxIntervalMs: 3_600_000,
   jitterMs: 0,
   maxAttempts: 1,
   failure: 'abort',
@@ -50,9 +52,14 @@ export function validateForwardOptions(options: ForwardOptions): void {
     !Number.isInteger(options.maxAttempts) ||
     options.maxAttempts < 1 ||
     options.maxAttempts > 20 ||
-    [options.intervalMs, options.msPerCharacter, options.nonTextMs, options.jitterMs].some(
-      (value) => !Number.isFinite(value) || value < 0 || value > 3_600_000,
-    )
+    !Number.isInteger(options.maxIntervalMs) ||
+    [
+      options.intervalMs,
+      options.msPerCharacter,
+      options.nonTextMs,
+      options.jitterMs,
+      options.maxIntervalMs,
+    ].some((value) => !Number.isFinite(value) || value < 0 || value > 3_600_000)
   )
     throw new Error('转发参数无效');
 }
@@ -73,7 +80,8 @@ export function forwardDelay(
       : options.mode === 'original'
         ? originalMessageGap(content, nextContent)
         : options.intervalMs;
-  return Math.max(0, Math.round(base + (random() * 2 - 1) * options.jitterMs));
+  const delay = Math.max(0, Math.round(base + (random() * 2 - 1) * options.jitterMs));
+  return options.mode === 'fixed' ? delay : Math.min(options.maxIntervalMs, delay);
 }
 
 function originalMessageGap(
@@ -118,6 +126,13 @@ export function formatForwardDuration(ms: number): string {
   ]
     .filter(Boolean)
     .join(' ');
+}
+
+export function formatForwardClock(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
+    .map((value) => String(value).padStart(2, '0'))
+    .join(':');
 }
 export async function forwardSequentially<T>(
   rows: readonly T[],

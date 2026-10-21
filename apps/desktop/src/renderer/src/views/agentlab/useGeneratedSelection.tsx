@@ -19,6 +19,7 @@ export function useGeneratedSelection(
     ids: messages.flatMap((message) => (message.id ? [message.id] : [])),
     selected: selection.selectedIds,
     onChange: selection.setSelectedIds,
+    anchorRef: selection.anchorRef,
     enabled: selection.selectionMode,
     disabled: !available,
     onStart: () => selection.setSelectionMode(true),

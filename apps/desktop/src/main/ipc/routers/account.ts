@@ -2483,10 +2483,15 @@ export const accountRouter = router({
           limit: z.union([z.literal(-1), z.number().int().min(1).max(500)]).default(200),
           cursor: z.number().int().min(0).default(0),
         })
+        .merge(exportAccountBindingInput)
         .default({}),
     )
     .query(async ({ input }) => {
-      const svc = requireServices().recentContacts;
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const svc = services.recentContacts;
       // 103 = 公众号, 118 = 服务号 (see @weq/codec chat_kind).
       const excludeChatTypes = [103, 118];
       const [items, total] = await Promise.all([
@@ -2494,6 +2499,10 @@ export const accountRouter = router({
         svc.countRecentContact({ excludeChatTypes }),
       ]);
       const next = input.cursor + items.length < total ? input.cursor + items.length : undefined;
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
       return { items: items.map(recentContactToWire), total, nextCursor: next };
     }),
 
@@ -2547,13 +2556,24 @@ export const accountRouter = router({
    * 每次库变化时都刷新。这里只跑一条几行的 SELECT，不去重读 / 重解整张草稿表
    * （`listDrafts` 会解 `43002` 的 protobuf，代价大得多）。
    */
-  listConversationDraftTimes: procedure.query(async () => {
-    const map = await requireServices().recentContacts.listDraftTimes();
-    return [...map].map(([targetUid, draftTime]) => ({
-      targetUid,
-      draftTime: draftTime.toString(),
-    }));
-  }),
+  listConversationDraftTimes: procedure
+    .input(exportAccountBindingInput.optional())
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input?.expectedAccountUin,
+        input?.expectedAccountConfigId,
+      );
+      const map = await services.recentContacts.listDraftTimes();
+      if (
+        requireExpectedAccount(input?.expectedAccountUin, input?.expectedAccountConfigId) !==
+        services
+      )
+        throw new Error('账号或数据源已切换');
+      return [...map].map(([targetUid, draftTime]) => ({
+        targetUid,
+        draftTime: draftTime.toString(),
+      }));
+    }),
 
   /**
    * 写/清一份草稿。**只在离开会话、离开消息页、应用退出这类时刻调用** ——
@@ -2839,6 +2859,45 @@ export const accountRouter = router({
           senderName: m.senderName,
           content: m.content,
         })),
+      };
+    }),
+
+  readSelectionRange: procedure
+    .input(
+      convInput.merge(exportAccountBindingInput).extend({
+        startSeq: z.string().regex(/^[1-9]\d{0,19}$/),
+        endSeq: z.string().regex(/^[1-9]\d{0,19}$/),
+        afterSeq: z
+          .string()
+          .regex(/^\d{1,20}$/)
+          .optional(),
+        limit: z.number().int().min(1).max(500).default(200),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const result = await services.msgs.getSelectionRangePage(
+        input.kind,
+        input.conv,
+        BigInt(input.startSeq),
+        BigInt(input.endSeq),
+        input.afterSeq === undefined ? undefined : BigInt(input.afterSeq),
+        input.limit,
+      );
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
+      return {
+        ...result,
+        items: result.items.map((message) =>
+          input.kind === 'group'
+            ? groupMsgToWire(message as RenderGroupMsg)
+            : c2cMsgToWire(message as RenderC2cMsg),
+        ),
       };
     }),
 
@@ -3994,20 +4053,30 @@ export const accountRouter = router({
    */
   cachedGapMessages: procedure
     .input(
-      z.object({
-        kind: z.enum(['c2c', 'group']),
-        conv: z.string().min(1),
-        startSeq: z.number().int().min(0),
-        endSeq: z.number().int().min(0),
-      }),
+      z
+        .object({
+          kind: z.enum(['c2c', 'group']),
+          conv: z.string().min(1),
+          startSeq: z.number().int().min(0),
+          endSeq: z.number().int().min(0),
+        })
+        .merge(exportAccountBindingInput),
     )
     .query(async ({ input }) => {
-      const rows = await requireServices().gapHistory.cached(
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const rows = await services.gapHistory.cached(
         input.kind,
         input.conv,
         input.startSeq,
         input.endSeq,
       );
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
       return rows.map(roamingMsgToWire);
     }),
 
@@ -4079,20 +4148,30 @@ export const accountRouter = router({
    */
   fetchGapMessages: procedure
     .input(
-      z.object({
-        kind: z.enum(['c2c', 'group']),
-        conv: z.string().min(1),
-        startSeq: z.number().int().min(0),
-        endSeq: z.number().int().min(0),
-      }),
+      z
+        .object({
+          kind: z.enum(['c2c', 'group']),
+          conv: z.string().min(1),
+          startSeq: z.number().int().min(0),
+          endSeq: z.number().int().min(0),
+        })
+        .merge(exportAccountBindingInput),
     )
     .query(async ({ input }) => {
-      const result = await requireServices().gapHistory.fetch(
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const result = await services.gapHistory.fetch(
         input.kind,
         input.conv,
         input.startSeq,
         input.endSeq,
       );
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
       return result.ok ? { ...result, messages: result.messages.map(roamingMsgToWire) } : result;
     }),
 

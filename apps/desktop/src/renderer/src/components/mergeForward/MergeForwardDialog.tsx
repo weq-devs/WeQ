@@ -1,3 +1,4 @@
+import { CompositionButton } from './CompositionButton';
 /**
  * MergeForwardDialog —— 合并转发的使用场景之一：在聊天里多选消息后「合并转发」。
  *
@@ -118,14 +119,14 @@ export function MergeForwardDialog({
       <div className="weq-mf">
         <header className="weq-mf-head">
           {step === 'targets' ? (
-            <button
+            <CompositionButton
               type="button"
               className="weq-mf-icon-btn"
               title="返回编辑"
               onClick={() => setStep('edit')}
             >
               <ArrowLeft size={18} />
-            </button>
+            </CompositionButton>
           ) : (
             <span className="weq-mf-head-avatar">
               {senderAvatarUrl(self.uin) ? (
@@ -154,9 +155,14 @@ export function MergeForwardDialog({
                 : '可多选，确认后一起转发'}
             </span>
           </div>
-          <button type="button" className="weq-mf-icon-btn" title="退出" onClick={onClose}>
+          <CompositionButton
+            type="button"
+            className="weq-mf-icon-btn"
+            title="退出"
+            onClick={onClose}
+          >
             <X size={18} />
-          </button>
+          </CompositionButton>
         </header>
 
         <div className="weq-mf-body">
@@ -174,39 +180,51 @@ export function MergeForwardDialog({
         </div>
 
         <footer className="weq-mf-foot">
-          <button type="button" className="weq-mf-soft" onClick={() => void copyJson()}>
+          <CompositionButton type="button" className="weq-mf-soft" onClick={() => void copyJson()}>
             <ClipboardCopy size={15} /> 复制 JSON
-          </button>
+          </CompositionButton>
           <span className="weq-mf-foot-spacer" />
           {step === 'edit' ? (
             <>
-              <button type="button" className="weq-mf-soft" onClick={onClose}>
+              <CompositionButton type="button" className="weq-mf-soft" onClick={onClose}>
                 取消
-              </button>
-              <button
+              </CompositionButton>
+              <CompositionButton
                 type="button"
                 className="weq-mf-primary"
                 disabled={!canNext}
+                disabledReason="请先添加有内容的预览消息"
                 title={canNext ? '' : '还没有任何预览消息'}
                 onClick={() => setStep('targets')}
               >
                 下一步：选择会话
-              </button>
+              </CompositionButton>
             </>
           ) : (
             <>
-              <button type="button" className="weq-mf-soft" onClick={() => void persist()}>
+              <CompositionButton
+                type="button"
+                className="weq-mf-soft"
+                onClick={() => void persist()}
+              >
                 <Save size={15} /> 保存草稿
-              </button>
-              <button
+              </CompositionButton>
+              <CompositionButton
                 type="button"
                 className={cn('weq-mf-primary')}
                 disabled={!sendAvailable || sending || selected.size === 0}
+                disabledReason={
+                  sending
+                    ? '正在转发，请稍后'
+                    : !sendAvailable
+                      ? 'QQ 未在线或处于完全离线模式'
+                      : '请选择至少一个目标会话'
+                }
                 title={sendAvailable ? '' : 'QQ 未在线或处于完全离线模式，只能保存草稿'}
                 onClick={() => void forward()}
               >
                 <Share2 size={15} /> {sending ? '转发中…' : '转发'}
-              </button>
+              </CompositionButton>
             </>
           )}
         </footer>

@@ -941,6 +941,7 @@ export function CollectionDialog({
     ids: filtered.map((item) => item.cid),
     selected: multiSelect.selectedIds,
     onChange: multiSelect.setSelectedIds,
+    anchorRef: multiSelect.anchorRef,
     enabled: multiSelect.selectionMode,
     onStart: () => multiSelect.setSelectionMode(true),
     onExit: () => multiSelect.setSelectionMode(false),

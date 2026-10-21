@@ -58,6 +58,7 @@ function fixture() {
     const add = sql.prepare(
       `INSERT INTO ${table} ("40001","40003","40020","40021","40027","40050") VALUES(?,?,?,?,?,?)`,
     );
+    sql.exec(`ALTER TABLE ${table} ADD COLUMN "40013" INTEGER DEFAULT 0`);
     sql.exec('BEGIN');
     add.run(-1, 0, 'u_peer', 'u_peer', '777', start - 1);
     for (let i = 0; i < rows; i++)

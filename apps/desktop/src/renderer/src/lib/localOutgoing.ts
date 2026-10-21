@@ -1,4 +1,5 @@
 import type { Message } from '../im-template/template/types';
+import { forwardResIdOf } from '../components/mergeForward/model';
 
 export interface LocalOutgoingRecord {
   id: string;
@@ -9,6 +10,69 @@ export interface LocalOutgoingRecord {
   cid?: string;
   seqRejected?: boolean;
   fileSync?: { fileId: string };
+}
+
+interface ForwardSyncRow {
+  msgId: string;
+  msgSeq?: string;
+  msgRandom?: string;
+  sendTime?: string;
+  elements?: readonly unknown[];
+  sourceFormat?: 'native' | 'protocol';
+  ntSeqVerified?: boolean;
+}
+
+/** 调用方只传当前会话自己的真实消息；返回纯对账结果，渲染时即可隐藏重复占位。 */
+export function matchForwardMessages(
+  pending: readonly (LocalOutgoingRecord & { resId?: string; at: number })[],
+  real: readonly ForwardSyncRow[],
+  convId: string,
+  consumed: ReadonlyMap<string, string> = new Map(),
+): Map<string, string> {
+  const matches = new Map<string, string>();
+  const used = new Set<string>();
+  const candidates = real
+    .map((row) => {
+      const resIds = new Set<string>();
+      let forward = false;
+      for (const raw of row.elements ?? []) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+        const element = raw as Record<string, unknown>;
+        if (element.type !== 'multiMsg' && element.type !== 'ark') continue;
+        const data = element.data;
+        const id = forwardResIdOf(
+          data && typeof data === 'object' && !Array.isArray(data)
+            ? (data as Record<string, unknown>)
+            : {},
+        );
+        if (id) resIds.add(id);
+        if (id || element.type === 'multiMsg') forward = true;
+      }
+      return { row, key: `${convId}:${row.msgId}`, resIds, forward };
+    })
+    .filter((candidate) => candidate.forward);
+  for (const item of pending) {
+    if (item.convId !== convId || item.state === 'failed') continue;
+    const found = candidates.find(({ row, key, resIds }) => {
+      if (used.has(key) || (consumed.has(key) && consumed.get(key) !== item.id)) return false;
+      if (item.cid && row.msgRandom && row.msgRandom !== '0') return item.cid === row.msgRandom;
+      if (item.seqRejected) return false;
+      if (item.seq && row.msgSeq && (row.sourceFormat !== 'protocol' || row.ntSeqVerified))
+        return item.seq === row.msgSeq;
+      const time = Number(row.sendTime);
+      return Boolean(
+        item.resId &&
+          resIds.has(item.resId) &&
+          Number.isFinite(time) &&
+          time >= Math.floor(item.at / 1000) - 1,
+      );
+    });
+    if (found) {
+      used.add(found.key);
+      matches.set(item.id, found.key);
+    }
+  }
+  return matches;
 }
 
 function canDiscardRecord(item: LocalOutgoingRecord): boolean {

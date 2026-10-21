@@ -153,6 +153,21 @@ export function SequentialForwardDialog({
                       }
                     />
                   </label>
+                  {options.mode !== 'fixed' ? (
+                    <label>
+                      每条消息的最大间隔（毫秒）
+                      <input
+                        type="number"
+                        min={0}
+                        max={3600000}
+                        step={1}
+                        value={Number.isFinite(options.maxIntervalMs) ? options.maxIntervalMs : ''}
+                        onChange={(event) =>
+                          setOptions({ ...options, maxIntervalMs: event.target.valueAsNumber })
+                        }
+                      />
+                    </label>
+                  ) : null}
                 </>
               ) : null}
               <label>
@@ -198,6 +213,16 @@ export function SequentialForwardDialog({
             type="button"
             className="weq-action-primary"
             disabled={started || Boolean(invalid) || picked.length === 0 || messages.length === 0}
+            title={
+              started
+                ? '正在转发，请稍后'
+                : invalid ||
+                  (!messages.length
+                    ? '没有可转发的消息'
+                    : !picked.length
+                      ? '请选择至少一个目标会话'
+                      : '发送所选消息')
+            }
             onClick={send}
           >
             <Forward size={16} />

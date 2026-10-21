@@ -339,6 +339,8 @@ export interface MfTarget {
   conv: string;
   name: string;
   avatarUrl: string | null;
+  /** 在转发目标选择器中归入独立的群助手入口。 */
+  groupAssistant?: boolean;
 }
 
 let idSeq = 0;
@@ -1222,7 +1224,7 @@ function parseArk(raw: unknown): Record<string, unknown> | null {
  *
  * 取不到时返回 `''` —— 没有 resId 的卡片发不出去，调用方退成只读的 opaque 段。
  */
-function forwardResIdOf(element: Record<string, unknown>): string {
+export function forwardResIdOf(element: Record<string, unknown>): string {
   const direct = str(element, 'resId').trim();
   if (direct) return direct;
   const xml = str(element, 'xmlContent');

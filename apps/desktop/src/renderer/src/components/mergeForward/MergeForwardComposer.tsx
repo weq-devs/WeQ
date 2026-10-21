@@ -1,3 +1,4 @@
+import { CompositionButton } from './CompositionButton';
 /**
  * MergeForwardComposer —— 合并转发的**核心编辑组件**（SnowLuma 式分段编辑器）。
  *
@@ -436,12 +437,13 @@ export function MergeForwardComposer({
                   commit(nodes.map((item) => (item.id === node.id ? { ...item, time } : item)))
                 }
                 dragHandle={
-                  <button
+                  <CompositionButton
                     type="button"
                     className="weq-mf-sort-handle"
                     title="拖拽排序；方向键上移或下移"
                     aria-label="拖拽消息排序"
                     disabled={Boolean(editor)}
+                    disabledReason="请先保存或取消正在编辑的消息"
                     draggable={!editor}
                     onDragStart={(event) => {
                       event.stopPropagation();
@@ -466,7 +468,7 @@ export function MergeForwardComposer({
                     }}
                   >
                     <GripVertical size={14} />
-                  </button>
+                  </CompositionButton>
                 }
                 onOpen={() => startEdit(node, index)}
                 onEditDress={() => setDressFor(node.id)}
@@ -502,10 +504,14 @@ export function MergeForwardComposer({
         ) : null}
 
         {!editor ? (
-          <button type="button" className="weq-mf-add" onClick={() => startInsert(nodes.length)}>
+          <CompositionButton
+            type="button"
+            className="weq-mf-add"
+            onClick={() => startInsert(nodes.length)}
+          >
             <Plus size={15} />
             插入消息
-          </button>
+          </CompositionButton>
         ) : null}
       </div>
 
@@ -545,10 +551,15 @@ export function MergeForwardComposer({
 
 function InsertButton({ onClick }: { onClick: () => void }): ReactElement {
   return (
-    <button type="button" className="weq-mf-insert" onClick={onClick} title="在这里插入一条消息">
+    <CompositionButton
+      type="button"
+      className="weq-mf-insert"
+      onClick={onClick}
+      title="在这里插入一条消息"
+    >
       <Plus size={13} />
       <span>插入消息</span>
-    </button>
+    </CompositionButton>
   );
 }
 
@@ -589,7 +600,7 @@ function PreviewRow({
         onContextMenu(event.clientX, event.clientY);
       }}
     >
-      <button
+      <CompositionButton
         type="button"
         className="weq-forward-avatar weq-mf-avatar"
         title="点击 / 右键修改发送人"
@@ -600,23 +611,23 @@ function PreviewRow({
         }}
       >
         <QqAvatar uin={node.sender?.uin} size={40} className="weq-mf-avatar-img" />
-      </button>
+      </CompositionButton>
       <div className="weq-forward-row-main weq-mf-row-main">
         <div className="weq-forward-row-meta weq-mf-row-meta">
           {dragHandle}
           <span className="weq-forward-row-name weq-mf-row-name">{name}</span>
           <NodeTimeInput time={node.time} onChange={onChangeTime} />
-          <button type="button" className="weq-mf-row-edit" onClick={onOpen}>
+          <CompositionButton type="button" className="weq-mf-row-edit" onClick={onOpen}>
             <Pencil size={12} /> 编辑
-          </button>
-          <button
+          </CompositionButton>
+          <CompositionButton
             type="button"
             className={cn('weq-mf-row-dress', node.decoration && 'is-on')}
             title="编辑装扮（气泡 / 挂件 / 字体）"
             onClick={onEditDress}
           >
             <Sparkles size={12} /> 装扮
-          </button>
+          </CompositionButton>
         </div>
         <div className="weq-forward-bubble weq-mf-bubble qq-bubble-shell">
           <NodeBubble node={node} />
@@ -779,7 +790,7 @@ function NodeEditor({
       <div className={cn('weq-mf-inline-editor', embedded && 'weq-mf-inline-editor-embedded')}>
         {embedded ? null : (
           <div className="weq-mf-inline-head">
-            <button
+            <CompositionButton
               type="button"
               className="weq-mf-sender-chip"
               onClick={onPickSender}
@@ -787,7 +798,7 @@ function NodeEditor({
             >
               <QqAvatar uin={sender.uin} size={26} />
               <span>{sender.name || sender.uin || '未命名'}</span>
-            </button>
+            </CompositionButton>
             <span className="weq-mf-mode-tag">这条消息的内容是一份聊天记录</span>
           </div>
         )}
@@ -805,12 +816,12 @@ function NodeEditor({
         {embedded ? null : (
           <div className="weq-mf-inline-tools">
             <span className="weq-mf-inline-spacer" />
-            <button type="button" className="weq-mf-soft" onClick={onCancel}>
+            <CompositionButton type="button" className="weq-mf-soft" onClick={onCancel}>
               取消
-            </button>
-            <button type="button" className="weq-mf-primary" onClick={onSave}>
+            </CompositionButton>
+            <CompositionButton type="button" className="weq-mf-primary" onClick={onSave}>
               保存
-            </button>
+            </CompositionButton>
           </div>
         )}
 
@@ -828,7 +839,7 @@ function NodeEditor({
       )}
     >
       <div className="weq-mf-inline-head">
-        <button
+        <CompositionButton
           type="button"
           className="weq-mf-sender-chip"
           onClick={onPickSender}
@@ -836,7 +847,7 @@ function NodeEditor({
         >
           <QqAvatar uin={sender.uin} size={26} />
           <span>{sender.name || sender.uin || '未命名'}</span>
-        </button>
+        </CompositionButton>
         <span className="weq-mf-inline-hint">逐段拼内容；Ctrl/⌘ + 回车保存</span>
       </div>
 
@@ -874,7 +885,7 @@ function NodeEditor({
         <div className="weq-mf-add-wrap">
           {kinds.length > 0 ? (
             <>
-              <button
+              <CompositionButton
                 ref={addBtnRef}
                 type="button"
                 className="weq-mf-tool"
@@ -882,7 +893,7 @@ function NodeEditor({
                 title="给这条消息添加一段内容"
               >
                 <Plus size={14} /> 添加段
-              </button>
+              </CompositionButton>
               {addOpen ? (
                 <AddSegMenu
                   anchor={addBtnRef.current}
@@ -906,12 +917,12 @@ function NodeEditor({
         <span className="weq-mf-inline-spacer" />
         {embedded ? null : (
           <>
-            <button type="button" className="weq-mf-soft" onClick={onCancel}>
+            <CompositionButton type="button" className="weq-mf-soft" onClick={onCancel}>
               取消
-            </button>
-            <button type="button" className="weq-mf-primary" onClick={onSave}>
+            </CompositionButton>
+            <CompositionButton type="button" className="weq-mf-primary" onClick={onSave}>
               保存
-            </button>
+            </CompositionButton>
           </>
         )}
       </div>
@@ -953,25 +964,27 @@ function SegRow({
           {segMeta(seg).label}
         </span>
         <div className="weq-mf-seg-actions">
-          <button
+          <CompositionButton
             type="button"
             onClick={() => onMove(index - 1)}
             disabled={index === 0}
+            disabledReason="已经是第一项，不能继续上移"
             title="上移"
           >
             ↑
-          </button>
-          <button
+          </CompositionButton>
+          <CompositionButton
             type="button"
             onClick={() => onMove(index + 1)}
             disabled={index === count - 1}
+            disabledReason="已经是最后一项，不能继续下移"
             title="下移"
           >
             ↓
-          </button>
-          <button type="button" className="danger" onClick={onRemove} title="删除">
+          </CompositionButton>
+          <CompositionButton type="button" className="danger" onClick={onRemove} title="删除">
             <Trash2 size={13} />
-          </button>
+          </CompositionButton>
         </div>
       </div>
       <SegEditor
@@ -1069,7 +1082,7 @@ function AddSegMenu({
       {gridKinds.length > 0 ? (
         <div className="weq-mf-add-grid">
           {gridKinds.map((kind) => (
-            <button
+            <CompositionButton
               key={kind}
               type="button"
               className="weq-mf-add-item"
@@ -1077,7 +1090,7 @@ function AddSegMenu({
             >
               {SEG_META[kind].icon}
               <span>{SEG_META[kind].label}</span>
-            </button>
+            </CompositionButton>
           ))}
         </div>
       ) : null}
@@ -1085,14 +1098,18 @@ function AddSegMenu({
       {canRecord ? (
         <>
           {gridKinds.length > 0 ? <div className="weq-mf-add-sep" /> : null}
-          <button type="button" className="weq-mf-add-record" onClick={() => onPick('node')}>
+          <CompositionButton
+            type="button"
+            className="weq-mf-add-record"
+            onClick={() => onPick('node')}
+          >
             <Layers size={18} />
             <span className="weq-mf-add-record-text">
               <b>插入聊天记录</b>
               <em>把一份完整的聊天记录放进这条消息里</em>
             </span>
             <Plus size={14} />
-          </button>
+          </CompositionButton>
         </>
       ) : null}
     </div>,
@@ -1152,9 +1169,13 @@ function RecordContent({
         <NestedCard
           segs={segs}
           action={
-            <button type="button" className="weq-mf-record-edit" onClick={() => setEditing(true)}>
+            <CompositionButton
+              type="button"
+              className="weq-mf-record-edit"
+              onClick={() => setEditing(true)}
+            >
               <Pencil size={12} /> {count > 0 ? '编辑' : '填写内容'}
-            </button>
+            </CompositionButton>
           }
         />
       </div>
@@ -1167,9 +1188,13 @@ function RecordContent({
         <Layers size={14} />
         <span className="weq-mf-nested-bar-title">编辑聊天记录</span>
         <span className="weq-mf-nested-bar-count">{count} 条消息</span>
-        <button type="button" className="weq-mf-nested-done" onClick={() => setEditing(false)}>
+        <CompositionButton
+          type="button"
+          className="weq-mf-nested-done"
+          onClick={() => setEditing(false)}
+        >
           <Check size={13} /> 完成
-        </button>
+        </CompositionButton>
       </div>
       <RecordMessages
         messages={messages}
@@ -1283,7 +1308,7 @@ function RecordMessages({
           {editingId === msg.id ? (
             <div className="weq-mf-record-editor">
               <div className="weq-mf-inline-head">
-                <button
+                <CompositionButton
                   type="button"
                   className="weq-mf-sender-chip"
                   onClick={() => setPickerId(msg.id)}
@@ -1292,15 +1317,15 @@ function RecordMessages({
                   <QqAvatar uin={msg.userUin} size={24} />
                   <span>{msg.nickname || msg.userUin || '未命名'}</span>
                   <Pencil size={11} />
-                </button>
+                </CompositionButton>
                 <span className="weq-mf-inline-hint">这条消息的内容</span>
-                <button
+                <CompositionButton
                   type="button"
                   className="weq-mf-nested-done"
                   onClick={() => setEditingId(null)}
                 >
                   <Check size={13} /> 完成
-                </button>
+                </CompositionButton>
               </div>
 
               <NodeEditor
@@ -1333,38 +1358,40 @@ function RecordMessages({
                     time={msg.time}
                     onChange={(time) => patch(msg.id, { ...msg, time })}
                   />
-                  <button
+                  <CompositionButton
                     type="button"
                     className="weq-mf-row-edit"
                     onClick={() => setEditingId(msg.id)}
                   >
                     <Pencil size={12} /> 编辑
-                  </button>
+                  </CompositionButton>
                   <div className="weq-mf-seg-actions">
-                    <button
+                    <CompositionButton
                       type="button"
                       onClick={() => move(msg.id, -1)}
                       disabled={index === 0}
+                      disabledReason="已经是第一项，不能继续上移"
                       title="上移"
                     >
                       ↑
-                    </button>
-                    <button
+                    </CompositionButton>
+                    <CompositionButton
                       type="button"
                       onClick={() => move(msg.id, 1)}
                       disabled={index === visible.length - 1}
+                      disabledReason="已经是最后一条消息，不能继续下移"
                       title="下移"
                     >
                       ↓
-                    </button>
-                    <button
+                    </CompositionButton>
+                    <CompositionButton
                       type="button"
                       className="danger"
                       onClick={() => remove(msg.id)}
                       title="删除这条消息"
                     >
                       <Trash2 size={13} />
-                    </button>
+                    </CompositionButton>
                   </div>
                 </div>
                 <div className="weq-forward-bubble weq-mf-bubble qq-bubble-shell">
@@ -1376,9 +1403,9 @@ function RecordMessages({
         </div>
       ))}
 
-      <button type="button" className="weq-mf-add" onClick={addMessage}>
+      <CompositionButton type="button" className="weq-mf-add" onClick={addMessage}>
         <Plus size={15} /> 添加消息
-      </button>
+      </CompositionButton>
     </div>
   );
 }
@@ -1722,17 +1749,22 @@ function AtEditor({
   void depth;
   return (
     <div className="weq-mf-at-editor">
-      <button ref={btnRef} type="button" className="weq-mf-soft" onClick={() => setOpen((v) => !v)}>
+      <CompositionButton
+        ref={btnRef}
+        type="button"
+        className="weq-mf-soft"
+        onClick={() => setOpen((v) => !v)}
+      >
         {seg.all ? '@全体成员' : seg.name ? `@${seg.name}` : '选择 @ 对象'}
-      </button>
+      </CompositionButton>
       {seg.name && !seg.all ? (
-        <button
+        <CompositionButton
           type="button"
           className="weq-mf-icon-btn"
           onClick={() => onChange({ ...seg, name: '', uid: '', uin: '', all: false })}
         >
           <X size={14} />
-        </button>
+        </CompositionButton>
       ) : null}
       {open ? (
         <AtPicker
@@ -1836,9 +1868,13 @@ function AtPicker({
       </div>
 
       <div className="weq-mf-at-scroll">
-        <button type="button" className="weq-mf-at-item" onClick={() => onPick(self, true)}>
+        <CompositionButton
+          type="button"
+          className="weq-mf-at-item"
+          onClick={() => onPick(self, true)}
+        >
           @全体成员
-        </button>
+        </CompositionButton>
         {senderMode === 'global' && needle && quick.isLoading ? (
           <div className="weq-mf-empty">搜索中…</div>
         ) : rows.length === 0 ? (
@@ -1847,7 +1883,7 @@ function AtPicker({
           </div>
         ) : (
           rows.map((p) => (
-            <button
+            <CompositionButton
               key={p.uid || `uin:${p.uin}`}
               type="button"
               className="weq-mf-at-item"
@@ -1856,7 +1892,7 @@ function AtPicker({
               <QqAvatar uin={p.uin} size={22} />
               <span className="weq-mf-person-name">{p.name}</span>
               {p.uin && p.uin !== '0' ? <span className="weq-mf-person-uin">{p.uin}</span> : null}
-            </button>
+            </CompositionButton>
           ))
         )}
       </div>
@@ -1887,10 +1923,11 @@ function AtPicker({
                 onChange={(e) => setManualName(e.target.value)}
               />
             </div>
-            <button
+            <CompositionButton
               type="button"
               className="weq-mf-primary"
               disabled={!canManual}
+              disabledReason="请填写有效的 QQ 号或 UID"
               onClick={() =>
                 onPick(
                   {
@@ -1903,17 +1940,17 @@ function AtPicker({
               }
             >
               使用这个 @ 对象
-            </button>
+            </CompositionButton>
           </div>
         ) : (
-          <button
+          <CompositionButton
             type="button"
             className="weq-mf-manual-toggle"
             onClick={() => setManualOpen(true)}
           >
             <UserPlus size={15} />
             直接填写 uid / QQ 号
-          </button>
+          </CompositionButton>
         )}
       </div>
     </PortaledPopover>
@@ -1931,12 +1968,17 @@ function FaceEditor({
   const btnRef = useRef<HTMLButtonElement | null>(null);
   return (
     <div className="weq-mf-face-editor">
-      <button ref={btnRef} type="button" className="weq-mf-soft" onClick={() => setOpen((v) => !v)}>
+      <CompositionButton
+        ref={btnRef}
+        type="button"
+        className="weq-mf-soft"
+        onClick={() => setOpen((v) => !v)}
+      >
         {seg.faceId > 0 ? (
           <FaceEmoji element={{ faceId: seg.faceId, faceText: seg.faceText }} size={18} />
         ) : null}
         {seg.faceText || (seg.faceId > 0 ? `表情 ${seg.faceId}` : '选择表情')}
-      </button>
+      </CompositionButton>
       {open ? (
         <PortaledPopover
           anchor={btnRef.current}
@@ -2073,16 +2115,22 @@ function MediaField({
         <span className="weq-mf-file-name" title={value}>
           {fileName || value}
         </span>
-        <button type="button" className="weq-mf-icon-btn" onClick={onClear} title="移除">
+        <CompositionButton type="button" className="weq-mf-icon-btn" onClick={onClear} title="移除">
           <X size={14} />
-        </button>
+        </CompositionButton>
       </div>
     );
   }
   return (
-    <button type="button" className="weq-mf-soft" onClick={onPick} disabled={busy}>
+    <CompositionButton
+      type="button"
+      className="weq-mf-soft"
+      onClick={onPick}
+      disabled={busy}
+      disabledReason="正在选择或准备文件，请稍后"
+    >
       <Plus size={14} /> {busy ? '选择中…' : (label ?? '选择本机文件')}
-    </button>
+    </CompositionButton>
   );
 }
 
@@ -2124,18 +2172,18 @@ function NodeMenu({
   }, [onClose, document]);
   return createPortal(
     <div ref={menuRef} className="weq-mf-menu" style={{ left, top, zIndex: layer }} role="menu">
-      <button type="button" role="menuitem" onClick={onEdit}>
+      <CompositionButton type="button" role="menuitem" onClick={onEdit}>
         <Pencil size={15} /> 编辑内容
-      </button>
-      <button type="button" role="menuitem" onClick={onInsertAfter}>
+      </CompositionButton>
+      <CompositionButton type="button" role="menuitem" onClick={onInsertAfter}>
         <Plus size={15} /> 在下方插入
-      </button>
-      <button type="button" role="menuitem" onClick={onChangeSender}>
+      </CompositionButton>
+      <CompositionButton type="button" role="menuitem" onClick={onChangeSender}>
         <UserCog size={15} /> 修改发送人
-      </button>
-      <button type="button" role="menuitem" className="danger" onClick={onDelete}>
+      </CompositionButton>
+      <CompositionButton type="button" role="menuitem" className="danger" onClick={onDelete}>
         <X size={15} /> 删除这条
-      </button>
+      </CompositionButton>
     </div>,
     document.body,
   );

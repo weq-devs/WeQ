@@ -1,3 +1,4 @@
+import { CompositionButton } from './CompositionButton';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -28,6 +29,7 @@ import { MergeForwardTargets } from './MergeForwardTargets';
 import { SequentialForwardDialog } from '../SequentialForwardDialog';
 import { Modal } from '../Dialog';
 import { useToast } from '../Toast';
+import { HoverTooltip } from '../HoverTooltip';
 import { COMPOSITION_DISPOSE_EVENT } from '../../hooks/useCompositionWindow';
 import {
   backupComposition,
@@ -445,6 +447,7 @@ export function CompositionWorkspace({
   if (!visible) return null;
   const content = (
     <RenderDocumentContext.Provider value={ownerDocument}>
+      {ownerDocument !== document ? <HoverTooltip /> : null}
       <section
         className={`weq-composition-workspace${fallback ? ' is-fallback' : ''}`}
         aria-label="合成聊天记录"
@@ -455,15 +458,15 @@ export function CompositionWorkspace({
           <span className="weq-composition-spacer" />
           {IS_ELECTRON ? (
             <>
-              <button
+              <CompositionButton
                 type="button"
                 title="最小化合成窗口"
                 aria-label="最小化合成窗口"
                 onClick={() => window.electron?.ipcRenderer.send('composition:control', 'minimize')}
               >
                 <Minus size={16} />
-              </button>
-              <button
+              </CompositionButton>
+              <CompositionButton
                 type="button"
                 title={maximized ? '还原合成窗口' : '最大化合成窗口'}
                 aria-label={maximized ? '还原合成窗口' : '最大化合成窗口'}
@@ -472,19 +475,25 @@ export function CompositionWorkspace({
                 }
               >
                 {maximized ? <RestoreWindow size={15} /> : <Square size={15} />}
-              </button>
+              </CompositionButton>
             </>
           ) : null}
           {fallback ? (
-            <button type="button" title="打开独立窗口" aria-label="打开独立窗口" onClick={onPopOut}>
+            <CompositionButton
+              type="button"
+              title="打开独立窗口"
+              aria-label="打开独立窗口"
+              onClick={onPopOut}
+            >
               <ExternalLink size={18} />
-            </button>
+            </CompositionButton>
           ) : null}
-          <button
+          <CompositionButton
             type="button"
             title="关闭合成窗口"
             aria-label="关闭合成窗口"
             disabled={busy}
+            disabledReason="正在处理当前操作，请稍后"
             onClick={() =>
               void perform(async () => {
                 if (dirty && binding) await persist(structuredClone(working), binding);
@@ -497,7 +506,7 @@ export function CompositionWorkspace({
             }
           >
             <X size={18} />
-          </button>
+          </CompositionButton>
         </header>
         {!binding || config.isError ? (
           <div className="weq-composition-error" role={config.isError ? 'alert' : 'status'}>
@@ -508,7 +517,7 @@ export function CompositionWorkspace({
             <aside className="weq-composition-library">
               <div className="weq-composition-tabs" role="tablist" aria-label="合成资料">
                 {(['history', 'material'] as const).map((value) => (
-                  <button
+                  <CompositionButton
                     key={value}
                     type="button"
                     role="tab"
@@ -516,18 +525,19 @@ export function CompositionWorkspace({
                     onClick={() => setKind(value)}
                   >
                     {value === 'material' ? '素材库' : '合成记录'}
-                  </button>
+                  </CompositionButton>
                 ))}
                 <span className="weq-composition-spacer" />
-                <button
+                <CompositionButton
                   type="button"
                   title="新建合成记录"
                   aria-label="新建合成记录"
                   disabled={busy}
+                  disabledReason="正在处理当前操作，请稍后"
                   onClick={() => void perform(() => replace(createEmptyDraft()))}
                 >
                   <FilePlus2 size={17} />
-                </button>
+                </CompositionButton>
               </div>
               <div
                 className="weq-composition-entries"
@@ -542,7 +552,7 @@ export function CompositionWorkspace({
                 {entries.isError || (kind === 'history' && (saved.isError || history.isError)) ? (
                   <p role="alert">
                     {entries.error?.message || saved.error?.message || history.error?.message}
-                    <button
+                    <CompositionButton
                       type="button"
                       onClick={() => {
                         void entries.refetch();
@@ -551,7 +561,7 @@ export function CompositionWorkspace({
                       }}
                     >
                       重试
-                    </button>
+                    </CompositionButton>
                   </p>
                 ) : entries.isLoading ||
                   (kind === 'history' && (saved.isLoading || history.isLoading)) ? (
@@ -586,13 +596,14 @@ export function CompositionWorkspace({
                           setDropAt(null);
                         }}
                       >
-                        <button
+                        <CompositionButton
                           type="button"
                           className="weq-composition-entry-title"
                           aria-current={
                             kind === 'history' && entry.id === draft.id ? 'true' : undefined
                           }
                           disabled={busy}
+                          disabledReason="正在处理当前操作，请稍后"
                           onClick={() => {
                             if (kind === 'history' && entry.id !== draft.id)
                               void perform(() => replace(entry));
@@ -601,7 +612,7 @@ export function CompositionWorkspace({
                           }}
                         >
                           {entry.title || draftTitle(entry.nodes)}
-                        </button>
+                        </CompositionButton>
                         <span>
                           {entry.nodes.length} 条 ·{' '}
                           {new Intl.DateTimeFormat('zh-CN', {
@@ -612,21 +623,27 @@ export function CompositionWorkspace({
                         </span>
                         <p>{compositionText(entry)}</p>
                         <div className="weq-composition-entry-actions">
-                          <button
+                          <CompositionButton
                             type="button"
                             title={kind === 'history' ? '嵌套插入当前合成' : '添加到当前合成'}
                             aria-label={kind === 'history' ? '嵌套插入当前合成' : '添加到当前合成'}
                             disabled={busy || entry.id === draft.id}
+                            disabledReason={
+                              busy ? '正在处理当前操作，请稍后' : '不能把当前合成插入自身'
+                            }
                             onClick={() => void perform(async () => insert(entry, kind))}
                           >
                             <FolderPlus size={16} />
-                          </button>
+                          </CompositionButton>
                           {kind === 'history' ? (
-                            <button
+                            <CompositionButton
                               type="button"
                               title="展开插入当前合成"
                               aria-label="展开插入当前合成"
                               disabled={busy || entry.id === draft.id}
+                              disabledReason={
+                                busy ? '正在处理当前操作，请稍后' : '不能把当前合成插入自身'
+                              }
                               onClick={() =>
                                 void perform(async () =>
                                   insert(entry, kind, working.nodes.length, true),
@@ -634,56 +651,64 @@ export function CompositionWorkspace({
                               }
                             >
                               <ListPlus size={16} />
-                            </button>
+                            </CompositionButton>
                           ) : null}
-                          <button
+                          <CompositionButton
                             type="button"
                             title="创建副本"
                             aria-label="创建副本"
                             disabled={busy}
+                            disabledReason="正在处理当前操作，请稍后"
                             onClick={() => void perform(() => replace(entry, true))}
                           >
                             <FilePlus2 size={16} />
-                          </button>
-                          <button
+                          </CompositionButton>
+                          <CompositionButton
                             type="button"
                             title="复制文本"
                             aria-label="复制文本"
                             onClick={() => void perform(() => copy(entry))}
                           >
                             <Copy size={16} />
-                          </button>
-                          <button
+                          </CompositionButton>
+                          <CompositionButton
                             type="button"
                             title="导出 JSON（媒体引用本机文件）"
                             aria-label="导出 JSON"
                             onClick={() => download(entry)}
                           >
                             <Download size={16} />
-                          </button>
-                          <button
+                          </CompositionButton>
+                          <CompositionButton
                             type="button"
                             title="逐条发送"
                             aria-label="逐条发送"
                             disabled={!sendAvailable || busy}
+                            disabledReason={
+                              busy ? '正在发送，请稍后' : 'QQ 未在线或处于完全离线模式'
+                            }
                             onClick={() => void perform(() => requestSend(entry, 'sequential'))}
                           >
                             <Forward size={16} />
-                          </button>
-                          <button
+                          </CompositionButton>
+                          <CompositionButton
                             type="button"
                             title="合并转发"
                             aria-label="合并转发"
                             disabled={!sendAvailable || busy}
+                            disabledReason={
+                              busy ? '正在发送，请稍后' : 'QQ 未在线或处于完全离线模式'
+                            }
                             onClick={() => void perform(() => requestSend(entry, 'merged'))}
                           >
                             <Share2 size={16} />
-                          </button>
-                          <button
+                          </CompositionButton>
+                          <CompositionButton
                             type="button"
                             title={kind === 'history' ? '删除合成记录' : '删除素材'}
                             aria-label={kind === 'history' ? '删除合成记录' : '删除素材'}
                             disabled={busy}
+                            disabledReason="正在处理当前操作，请稍后"
                             onClick={() =>
                               void perform(async () => {
                                 if (kind === 'history') {
@@ -717,7 +742,7 @@ export function CompositionWorkspace({
                             }
                           >
                             <Trash2 size={16} />
-                          </button>
+                          </CompositionButton>
                         </div>
                       </article>
                     );
@@ -794,9 +819,14 @@ export function CompositionWorkspace({
                 placeholder={draftTitle(draft.nodes)}
                 value={draft.title}
                 disabled={busy}
+                title={busy ? '正在处理当前操作，请稍后' : '修改聊天记录标题'}
                 onChange={(event) => change({ ...draft, title: event.target.value })}
               />
-              <div className="weq-composition-canvas" inert={busy}>
+              <div
+                className="weq-composition-canvas"
+                inert={busy}
+                title={busy ? '正在发送，完成后可继续编辑' : undefined}
+              >
                 <MergeForwardComposer
                   key={`${draft.id}:${editorVersion}`}
                   draft={draft}
@@ -811,11 +841,12 @@ export function CompositionWorkspace({
                 <span>
                   {working.nodes.length} 条 · {dirty ? '未保存' : persisted ? '已保存' : '新记录'}
                 </span>
-                <button
+                <CompositionButton
                   type="button"
                   title="保存到素材库"
                   aria-label="保存到素材库"
                   disabled={busy || !working.nodes.length}
+                  disabledReason={busy ? '正在处理当前操作，请稍后' : '当前合成还没有消息'}
                   onClick={() =>
                     void perform(async () => {
                       await archive();
@@ -823,42 +854,57 @@ export function CompositionWorkspace({
                   }
                 >
                   <FolderPlus size={17} />
-                </button>
-                <button
+                </CompositionButton>
+                <CompositionButton
                   type="button"
                   title="复制文本"
                   aria-label="复制当前合成文本"
                   disabled={!working.nodes.length}
+                  disabledReason="当前合成还没有消息"
                   onClick={() => void perform(() => copy(working))}
                 >
                   <Copy size={17} />
-                </button>
-                <button
+                </CompositionButton>
+                <CompositionButton
                   type="button"
                   title="导出 JSON（媒体引用本机文件）"
                   aria-label="导出当前合成 JSON"
                   onClick={() => download(working)}
                 >
                   <Download size={17} />
-                </button>
-                <button
+                </CompositionButton>
+                <CompositionButton
                   type="button"
                   title="逐条发送"
                   aria-label="逐条发送当前合成"
                   disabled={!sendAvailable || busy || !working.nodes.length}
+                  disabledReason={
+                    busy
+                      ? '正在发送，请稍后'
+                      : !working.nodes.length
+                        ? '当前合成还没有消息'
+                        : 'QQ 未在线或处于完全离线模式'
+                  }
                   onClick={() => void perform(() => requestSend(working, 'sequential'))}
                 >
                   <Forward size={17} />
-                </button>
-                <button
+                </CompositionButton>
+                <CompositionButton
                   type="button"
                   title="合并转发"
                   aria-label="合并转发当前合成"
                   disabled={!sendAvailable || busy || !working.nodes.length}
+                  disabledReason={
+                    busy
+                      ? '正在发送，请稍后'
+                      : !working.nodes.length
+                        ? '当前合成还没有消息'
+                        : 'QQ 未在线或处于完全离线模式'
+                  }
                   onClick={() => void perform(() => requestSend(working, 'merged'))}
                 >
                   <Share2 size={17} />
-                </button>
+                </CompositionButton>
               </footer>
             </main>
           </div>
@@ -867,15 +913,16 @@ export function CompositionWorkspace({
           {busy ? <Loader2 size={15} className="spin" /> : null}
           {error || status}
           {error && dirty && binding ? (
-            <button
+            <CompositionButton
               type="button"
               title="重试保存"
               aria-label="重试保存"
               disabled={busy}
+              disabledReason="正在处理当前操作，请稍后"
               onClick={() => void perform(() => persist(structuredClone(working), binding))}
             >
               <RotateCw size={15} />
-            </button>
+            </CompositionButton>
           ) : null}
         </div>
       </section>
@@ -924,27 +971,29 @@ export function CompositionWorkspace({
           <section className="weq-composition-send">
             <header>
               <strong>合并转发</strong>
-              <button
+              <CompositionButton
                 type="button"
                 title="关闭"
                 aria-label="关闭发送目标"
                 disabled={busy}
+                disabledReason="正在处理当前操作，请稍后"
                 onClick={() => setSend(null)}
               >
                 <X size={17} />
-              </button>
+              </CompositionButton>
             </header>
             <MergeForwardTargets targets={targets} selected={selected} onChange={setSelected} />
             {error ? <p role="alert">{error}</p> : null}
-            <button
+            <CompositionButton
               type="button"
               className="weq-action-primary"
               disabled={busy || !selected.size}
+              disabledReason={busy ? '正在发送，请稍后' : '请选择至少一个目标会话'}
               onClick={() => void perform(sendMerged)}
             >
               <Share2 size={17} />
               发送
-            </button>
+            </CompositionButton>
           </section>
         </Modal>
       ) : null}

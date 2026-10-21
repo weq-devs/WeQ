@@ -101,17 +101,37 @@
   overflow-wrap: anywhere;
 }
 .weq-forward-banner-progress {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  grid-template-areas: 'time stop' 'bar stop';
+  gap: 6px 8px;
   align-items: center;
   min-width: 0;
 }
+.weq-forward-time {
+  display: flex;
+  flex-wrap: wrap;
+  grid-area: time;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.weq-forward-time > span {
+  white-space: nowrap;
+}
 .weq-forward-banner-progress progress {
-  flex: 1;
+  grid-area: bar;
   width: 100%;
   min-width: 0;
   height: 6px;
   accent-color: var(--weq-accent-effective);
+}
+.weq-forward-banner-progress > button {
+  grid-area: stop;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
 }
 .weq-forward-banner button {
   display: inline-flex;

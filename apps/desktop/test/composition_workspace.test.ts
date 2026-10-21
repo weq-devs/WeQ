@@ -185,6 +185,32 @@ function button(host: ParentNode, name: string) {
 }
 
 describe('合成工作窗口', () => {
+  it('空合成和离线状态的全部按钮有提示，禁用按钮有明确原因', () => {
+    const f = mount(
+      createElement(CompositionWorkspace, {
+        popup: null,
+        fallback: true,
+        onClose: vi.fn(),
+        onPopOut: vi.fn(),
+        self,
+        targets: [],
+        sendAvailable: false,
+        onForward: vi.fn(),
+        onSend: vi.fn(),
+        onOpenTarget: vi.fn(),
+      }),
+    );
+    try {
+      const buttons = [...f.host.querySelectorAll('button')];
+      expect(buttons.length).toBeGreaterThan(5);
+      for (const button of buttons) {
+        expect(button.title, button.outerHTML).not.toBe('');
+        if (button.disabled) expect(button.dataset.disabledReason, button.outerHTML).toBeTruthy();
+      }
+    } finally {
+      f.close();
+    }
+  });
   it('北京时间修改保留秒数，拒绝无效日期且不依赖宿主时区', () => {
     const time = Date.parse('2026-10-21T12:34:56+08:00') / 1000;
     expect(nodeTimeValue(time)).toBe('2026-10-21T12:34:56');

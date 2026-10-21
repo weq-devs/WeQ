@@ -33,6 +33,7 @@ import {
   validateComposeMessage,
   COMPOSE_ELEMENT_SPECS,
   isDatalineUid,
+  compareMessageOrder,
   type ComposeKind,
   type FieldSpec,
   type MsgCacheRecord,
@@ -693,6 +694,52 @@ export class MsgService {
     return kind === 'group'
       ? this.session.groupMsgs.boundary(conv, newest, bounds)
       : this.c2cDbFor(conv).boundary(this.c2cPartition(conv), newest, bounds);
+  }
+
+  /** 范围选择按序号分页，完整读取边界同序号记录，避免跨页漏选。 */
+  async getSelectionRangePage(
+    kind: 'c2c' | 'group',
+    conv: string,
+    start: bigint,
+    end: bigint,
+    after?: bigint,
+    limit = 200,
+  ) {
+    const cursor = after ?? start - 1n;
+    if (start <= 0n || end < start || cursor >= end)
+      return { items: [] as Array<RenderC2cMsg | RenderGroupMsg>, nextSeq: null };
+    const page: Array<C2cMsg | GroupMsg> =
+      kind === 'group'
+        ? await this.session.groupMsgs.listAfter(conv, cursor, limit)
+        : await this.c2cDbFor(conv).listAfter(this.c2cPartition(conv), cursor, limit);
+    const boundary = page.at(-1)?.msgSeq;
+    if (boundary !== undefined && boundary <= cursor) throw new Error('消息范围分页游标未前进');
+    const extra =
+      page.length >= limit && boundary !== undefined && boundary <= end
+        ? kind === 'group'
+          ? await this.session.groupMsgs.listBySeqsInPartition(conv, [boundary])
+          : await this.c2cDbFor(conv).listBySeqsInPartition(this.c2cPartition(conv), [boundary])
+        : [];
+    const rows = [
+      ...new Map(
+        [...page, ...extra]
+          .filter((row) => row.msgSeq >= start && row.msgSeq <= end)
+          .map((row) => [row.msgId, row]),
+      ).values(),
+    ].sort(compareMessageOrder);
+    await this.enrichReplyMedia(rows, kind);
+    const recalls = await this.recallMapFor(kind, conv);
+    return {
+      items: rows.map((row) =>
+        kind === 'group'
+          ? this.renderGroupWithState(row as GroupMsg, recalls)
+          : this.renderC2cWithState(row as C2cMsg, recalls),
+      ),
+      nextSeq:
+        page.length >= limit && boundary !== undefined && boundary < end
+          ? boundary.toString()
+          : null,
+    };
   }
 
   /** Private-chat page just older than `beforeSeq` (scroll-up). */
