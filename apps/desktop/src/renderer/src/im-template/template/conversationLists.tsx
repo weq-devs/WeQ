@@ -224,8 +224,6 @@ export function ConversationList({
       const pinnedDelta = pinOrderDelta(
         isPinned(first, preferences),
         isPinned(second, preferences),
-        first.pinnedAt,
-        second.pinnedAt,
       );
       if (pinnedDelta !== 0) return pinnedDelta;
       return (

@@ -4007,14 +4007,9 @@ export function MainView(): ReactElement {
             highlights,
           };
         })
-        // QQ 置顶时间不能被后续列表组件重新按最后消息时间覆盖。
+        // 与 QQ 的 41136 一致：置顶分组，两组内部都按消息／草稿活动时间排。
         .sort((a, b) => {
-          const pinDelta = pinOrderDelta(
-            conversationPinned(a),
-            conversationPinned(b),
-            a.pinnedAt,
-            b.pinnedAt,
-          );
+          const pinDelta = pinOrderDelta(conversationPinned(a), conversationPinned(b));
           if (pinDelta) return pinDelta;
           return (
             Math.max(conversationActivityTime(b), temporaryConversations[b.id]?.appearedAt ?? 0) -

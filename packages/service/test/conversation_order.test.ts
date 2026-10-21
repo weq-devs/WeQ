@@ -11,6 +11,7 @@ import {
   conversationSortTime,
   draftSortTimes,
   conversationPinned,
+  pinOrderDelta,
   type ConversationDraftTimeRow,
 } from '../src/account/conversation_order';
 
@@ -20,6 +21,15 @@ const row = (targetUid: string, draftTime: string): ConversationDraftTimeRow => 
 });
 
 const at = (iso: string): number => Date.parse(iso);
+
+describe('pinOrderDelta', () => {
+  it('只决定置顶分组，同组交还活动时间比较，不固定置顶先后', () => {
+    expect(pinOrderDelta(true, false)).toBeLessThan(0);
+    expect(pinOrderDelta(false, true)).toBeGreaterThan(0);
+    expect(pinOrderDelta(true, true)).toBe(0);
+    expect(pinOrderDelta(false, false)).toBe(0);
+  });
+});
 
 describe('conversationSortTime', () => {
   it('已读回的 QQ 置顶状态不能被旧本地偏好反转', () => {

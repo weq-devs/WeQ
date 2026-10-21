@@ -158,7 +158,7 @@ type ConversationBase = {
   /** 仅用于会话列表排序：已落库草稿等活动的毫秒时间，不改写消息时间。 */
   activityTime?: number;
   preference?: ConversationPreference;
-  /** QQ 置顶时间（unix 秒）；仅用于置顶组内排序，不冒充最后消息时间。 */
+  /** QQ 执行置顶的时间（unix 秒），不是置顶组内的活动排序键。 */
   pinnedAt?: number;
   /** QQ 置顶表已经读回，不能被旧的本地 preference 覆盖。 */
   pinStateKnown?: boolean;

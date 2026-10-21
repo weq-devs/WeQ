@@ -21,6 +21,7 @@ import { GapMessagesModal } from '../src/renderer/src/components/compose/GapMess
 import { MemberProfileCard } from '../src/renderer/src/components/MemberProfileCard';
 import { Modal } from '../src/renderer/src/components/Dialog';
 import { WorkspaceContent, WorkspacePages } from '../src/renderer/src/components/WorkspacePages';
+import type { Conversation } from '../src/renderer/src/im-template/template/types';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
@@ -63,6 +64,58 @@ function button(host: ParentNode, name: string) {
   return value;
 }
 describe('新增消息交互', () => {
+  it('QQ 置顶组内按消息与草稿活动排序，不按执行置顶的先后固定位置', () => {
+    const f = mount();
+    const base = createTemplateDemoData().conversations[0]!;
+    const pinned = (id: string, time: string, pinnedAt: number) => ({
+      ...base,
+      id,
+      updatedAt: time,
+      lastMessage: { id, senderId: null, body: id, createdAt: time },
+      preference: { pinned: true },
+      pinStateKnown: true,
+      pinnedAt,
+    });
+    const earlierPin = pinned('early-pin', '2026-10-21T03:00:00Z', 100);
+    const laterPin = pinned('late-pin', '2026-10-21T02:00:00Z', 200);
+    const unpinned = {
+      ...pinned('not-pinned', '2026-10-21T05:00:00Z', 300),
+      preference: { pinned: false },
+    };
+    const render = (rows: Conversation[]) =>
+      f.render(
+        h(ConversationList, {
+          conversations: rows,
+          activeConversationId: null,
+          // 已读回的 QQ 状态仍应胜过旧本地偏好。
+          preferences: { 'early-pin': { pinned: false }, 'not-pinned': { pinned: true } },
+          drafts: {},
+          onSelect: vi.fn(),
+        }),
+      );
+    const order = () =>
+      [...f.host.querySelectorAll('[data-conversation-id]')].map((row) =>
+        row.getAttribute('data-conversation-id'),
+      );
+    try {
+      render([laterPin, unpinned, earlierPin]);
+      expect(order()).toEqual(['early-pin', 'late-pin', 'not-pinned']);
+      const message = { ...laterPin, updatedAt: '2026-10-21T04:00:00Z' };
+      render([earlierPin, unpinned, message]);
+      expect(order()).toEqual(['late-pin', 'early-pin', 'not-pinned']);
+      render([
+        message,
+        { ...earlierPin, activityTime: Date.parse('2026-10-21T06:00:00Z') },
+        unpinned,
+      ]);
+      expect(order()).toEqual(['early-pin', 'late-pin', 'not-pinned']);
+      render([earlierPin, unpinned, message]);
+      expect(order()).toEqual(['late-pin', 'early-pin', 'not-pinned']);
+    } finally {
+      f.close();
+    }
+  });
+
   it('会话活动变化即时调整行位置，草稿清除回落且置顶仍优先', () => {
     const f = mount();
     const base = createTemplateDemoData().conversations[0]!;

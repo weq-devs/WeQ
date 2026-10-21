@@ -70,7 +70,7 @@ export interface RecentContactTop {
   id: bigint;
   /** 40010 — mapped ChatType (same enum as `RecentContact.chatType`). */
   chatType: string | number;
-  /** 41103 — when the pin was applied (unix seconds). Pin ordering key. */
+  /** 41103 — when the pin was applied (unix seconds), not the activity ordering key. */
   topTime: bigint;
   /** 1000 — c2c peer uid. Empty on group rows. */
   peerUid: string;
