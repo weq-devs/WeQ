@@ -7,6 +7,9 @@ import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/u
 const mock = vi.hoisted(() => ({
   configId: 'source-a',
   notifyLevel: 1 as number | null,
+  friendDisturb: null as boolean | null,
+  readFriendDisturb: null as boolean | null,
+  readPinned: false,
   serverPolicy: 1 as number | null,
   mutate: vi.fn(async (_input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' })),
   refetch: vi.fn(async () => {}),
@@ -72,6 +75,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
           useQuery: () => ({
             data: {
               notifyLevel: mock.notifyLevel,
+              friendDisturb: mock.friendDisturb,
               friend: true,
               remark: '',
               pinned: false,
@@ -85,7 +89,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             refetch: async () => {
               await mock.refetch();
               return {
-                data: { notifyLevel: mock.notifyLevel, categoryId: mock.readCategory },
+                data: {
+                  notifyLevel: mock.notifyLevel,
+                  categoryId: mock.readCategory,
+                  friendDisturb: mock.readFriendDisturb,
+                  pinned: mock.readPinned,
+                },
                 error: null,
               };
             },
@@ -121,6 +130,9 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   mock.configId = 'source-a';
   mock.notifyLevel = 1;
+  mock.friendDisturb = null;
+  mock.readFriendDisturb = null;
+  mock.readPinned = false;
   mock.serverPolicy = 1;
   mock.mutate.mockReset().mockResolvedValue({ state: 'accepted' });
   mock.refetch.mockReset().mockResolvedValue(undefined);
@@ -197,6 +209,53 @@ it.each([0, 1, 2, 3, 4, 99])('好友提醒级别 %s 不能冒充免打扰的权�
   expect(host.querySelector('[aria-label="消息免打扰"]')!.getAttribute('aria-checked')).toBe(
     'mixed',
   );
+});
+
+it.each([true, false])('明确的 QQ 好友资料值 %s 回填开关，并随读取更新', (enabled) => {
+  mock.friendDisturb = enabled;
+  const host = fixture('c2c');
+  expect(host.querySelector('[aria-label="消息免打扰"]')!.getAttribute('aria-checked')).toBe(
+    String(enabled),
+  );
+  mock.friendDisturb = !enabled;
+  host.render();
+  expect(host.querySelector('[aria-label="消息免打扰"]')!.getAttribute('aria-checked')).toBe(
+    String(!enabled),
+  );
+});
+
+it.each([true, false, null])('免打扰只提交一次并核对实际好友资料读回 %s', async (readback) => {
+  mock.friendDisturb = false;
+  mock.readFriendDisturb = readback;
+  mock.mutate.mockResolvedValue({ state: 'unconfirmed' });
+  const host = fixture('c2c');
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[aria-label="消息免打扰"]')!.click(),
+  );
+  expect(mock.mutate).toHaveBeenCalledOnce();
+  expect(mock.mutate).toHaveBeenCalledWith({
+    expectedAccountUin: '10001',
+    expectedAccountConfigId: 'source-a',
+    uid: 'u_friend',
+    enabled: true,
+  });
+  expect(mock.readbacks).toEqual([readback === true]);
+  expect(mock.refetch).toHaveBeenCalledTimes(2);
+});
+
+it.each(['置顶会话', '消息免打扰'])('%s 共用提交、状态核对和刷新行为', async (label) => {
+  mock.friendDisturb = false;
+  mock.readFriendDisturb = true;
+  mock.readPinned = true;
+  const host = fixture('c2c');
+  const toggle = host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
+  expect(toggle.getAttribute('role')).toBe('switch');
+  expect(toggle.className).toBe('weq-set-toggle');
+  expect(host.querySelector(`[aria-label="保存${label}"]`)).toBeNull();
+  await act(async () => toggle.click());
+  expect(mock.mutate).toHaveBeenCalledOnce();
+  expect(mock.readbacks).toEqual([true]);
+  expect(mock.refetch).toHaveBeenCalledTimes(2);
 });
 
 it.each([0, 5])('移入已有分组保存后核对实际读回 %s，不将受理当作同步', async (readCategory) => {

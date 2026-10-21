@@ -173,16 +173,16 @@ html[data-theme='dark'] .weq-qq-write-input {
     width: 220px;
   }
 }
-.weq-qq-write-field .weq-set-toggle.is-unknown .weq-set-toggle-knob {
+.weq-qq-write-panel .weq-set-toggle.is-unknown .weq-set-toggle-knob {
   transform: translateX(8px);
   background: var(--weq-fg-muted);
 }
 
-.weq-qq-write-field .weq-set-toggle.is-unknown .weq-set-toggle-track {
+.weq-qq-write-panel .weq-set-toggle.is-unknown .weq-set-toggle-track {
   border: 1px dashed var(--weq-border-strong);
   background: var(--weq-bg-surface);
 }
 
-html[data-theme='dark'] .weq-qq-write-field .weq-set-toggle.is-unknown .weq-set-toggle-track {
+html[data-theme='dark'] .weq-qq-write-panel .weq-set-toggle.is-unknown .weq-set-toggle-track {
   background: var(--weq-bg-surface);
 }

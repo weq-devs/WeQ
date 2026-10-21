@@ -125,6 +125,42 @@ function fixture() {
 }
 
 describe('QQ 写 IPC 边界', () => {
+  it.each([true, false])(
+    '好友免打扰只返回匹配目标的明确资料值 %s，非好友保持未知',
+    async (enabled) => {
+      const f = fixture();
+      f.services.profile.getProfile = vi.fn(async () => ({
+        ...self,
+        uid: 'u_peer',
+        uin: 10002n,
+        extInfo: {
+          interactMarks: [],
+          privileges: [],
+          interests: [],
+          album: [],
+          friendDisturb: enabled,
+        },
+      }));
+      f.services.profile.getBuddy = vi.fn(async () => ({
+        uid: 'u_peer',
+        qid: '',
+        uin: 10002n,
+        categoryId: 0,
+      }));
+      expect(
+        await f.caller.peerState({ ...binding, target: { kind: 'c2c', uid: 'u_peer' } }),
+      ).toMatchObject({ source: 'qq-local-cache', friendDisturb: enabled });
+      f.services.profile.getBuddy = vi.fn(async () => null);
+      expect(
+        (await f.caller.peerState({ ...binding, target: { kind: 'c2c', uid: 'u_peer' } }))
+          .friendDisturb,
+      ).toBeNull();
+      await expect(
+        f.caller.peerState({ ...binding, target: { kind: 'c2c', uid: 'u_other' } }),
+      ).rejects.toThrow('目标不一致');
+    },
+  );
+
   it.each([
     ['u_owner', 0, 'owner'],
     ['u_peer', 1, 'admin'],

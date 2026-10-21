@@ -211,68 +211,43 @@ export function QQWriteToggleRow({
   disabled: boolean;
   onSave: (value: boolean) => Promise<boolean>;
 }) {
-  const [pending, setPending] = useState<boolean | null>(null);
   const [draft, setDraft] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   useEffect(() => {
-    setPending(null);
     setDraft(null);
   }, [initial]);
-  if (initial === null)
-    return (
-      <Row
-        label={label}
-        control={
-          <div className="weq-qq-write-field">
-            <span role="status">
-              {draft === null
-                ? '尚未读取'
-                : `${saving ? '正在请求' : '已请求'}${draft ? '开启' : '关闭'}，状态待确认`}
-            </span>
-            <button
-              type="button"
-              className="weq-set-toggle is-unknown"
-              role="checkbox"
-              aria-checked="mixed"
-              aria-label={label}
-              disabled={disabled || saving}
-              onClick={async () => {
-                if (savingRef.current) return;
-                const next = !draft;
-                setDraft(next);
-                savingRef.current = true;
-                setSaving(true);
-                try {
-                  await onSave(next);
-                } catch {
-                  setDraft(null);
-                } finally {
-                  savingRef.current = false;
-                  setSaving(false);
-                }
-              }}
-            >
-              <span className="weq-set-toggle-track">
-                <span className="weq-set-toggle-knob" />
-              </span>
-            </button>
-          </div>
-        }
-      />
-    );
   return (
     <Row
       label={label}
+      desc={
+        initial === null ? (
+          <span role="status">
+            {draft === null
+              ? '尚未读取'
+              : `${saving ? '正在请求' : '已请求'}${draft ? '开启' : '关闭'}，状态待确认`}
+          </span>
+        ) : undefined
+      }
       control={
         <Toggle
           label={label}
-          checked={initial ?? false}
-          disabled={disabled || (pending !== null && pending !== initial)}
-          onChange={(next) => {
-            void onSave(next).then((ok) => {
-              if (ok) setPending(next);
-            });
+          checked={initial ?? draft ?? false}
+          indeterminate={initial === null}
+          disabled={disabled || saving}
+          onChange={async (next) => {
+            if (savingRef.current) return;
+            savingRef.current = true;
+            setSaving(true);
+            setDraft(next);
+            try {
+              await onSave(next);
+            } catch {
+              setDraft(null);
+            } finally {
+              savingRef.current = false;
+              setSaving(false);
+            }
           }}
         />
       }

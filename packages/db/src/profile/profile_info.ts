@@ -84,6 +84,8 @@ export interface AlbumPhoto {
 
 /** 21000 列解出的资料扩展信息。 */
 export interface ProfileExtInfo {
+  /** QQ 好友资料缓存的实际免打扰值；undefined 表示字段缺失或未识别，不证明远端状态。 */
+  friendDisturb?: boolean;
   interactMarks: InteractMark[];
   privileges: Privilege[];
   /** 教育经历/学校。 */
@@ -517,6 +519,12 @@ function parseExtInfo(blob: SqlValue | undefined): ProfileExtInfo | undefined {
   }));
 
   const info: ProfileExtInfo = {
+    friendDisturb:
+      ext.buddySettings?.messageDisturb === 1
+        ? true
+        : ext.buddySettings?.messageDisturb === 0
+          ? false
+          : undefined,
     interactMarks,
     privileges,
     school: ext.extInfo?.school || undefined,
@@ -535,6 +543,7 @@ function parseExtInfo(blob: SqlValue | undefined): ProfileExtInfo | undefined {
 
   // 全空则不占位
   const empty =
+    info.friendDisturb === undefined &&
     interactMarks.length === 0 &&
     privileges.length === 0 &&
     !info.school &&

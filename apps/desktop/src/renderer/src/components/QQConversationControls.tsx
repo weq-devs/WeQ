@@ -88,6 +88,25 @@ export function QQConversationControls({
     }
   }
   const act = (action: Parameters<typeof session.run>[0]) => session.run(action, refresh);
+  function changePeerToggle(field: 'pinned' | 'friendDisturb', enabled: boolean) {
+    return session.run(
+      (binding) =>
+        field === 'pinned'
+          ? pin.mutateAsync({ ...binding, target, enabled })
+          : disturb.mutateAsync({ ...binding, uid: conv, enabled }),
+      refresh,
+      {
+        profileUid: field === 'friendDisturb' ? conv : undefined,
+        requireReadback: true,
+        readbackSuccessText: `${field === 'pinned' ? '置顶' : '免打扰'}状态已与本机 QQ 核对一致`,
+        readback: async () => {
+          const updated = await snapshot.refetch();
+          if (updated.error) throw updated.error;
+          return updated.data?.[field] === enabled;
+        },
+      },
+    );
+  }
   async function changePolicy(value: number): Promise<boolean> {
     if (value !== 1 && value !== 2 && value !== 3 && value !== 4) return false;
     if (
@@ -204,30 +223,16 @@ export function QQConversationControls({
                 label="置顶会话"
                 initial={state.pinned}
                 disabled={kind === 'c2c' ? friendDisabled : disabled}
-                onSave={(enabled) =>
-                  session.run(
-                    (binding) => pin.mutateAsync({ ...binding, target, enabled }),
-                    refresh,
-                    {
-                      readback: async () => {
-                        const result = await snapshot.refetch();
-                        if (result.error) throw result.error;
-                        return result.data?.pinned === enabled;
-                      },
-                    },
-                  )
-                }
+                onSave={(enabled) => changePeerToggle('pinned', enabled)}
               />
               {kind === 'c2c' ? (
                 <>
-                  {/* recent_contact 提醒级别不能证明好友免打扰的实际状态。 */}
+                  {/* 只采用好友资料的明确布尔值，不从 recent_contact 提醒级别推断。 */}
                   <QQWriteToggleRow
                     label="消息免打扰"
-                    initial={null}
+                    initial={state.friendDisturb ?? null}
                     disabled={friendDisabled}
-                    onSave={(enabled) =>
-                      act((binding) => disturb.mutateAsync({ ...binding, uid: conv, enabled }))
-                    }
+                    onSave={(enabled) => changePeerToggle('friendDisturb', enabled)}
                   />
                   <QQWriteSelectRow
                     label="好友分组"

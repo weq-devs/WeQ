@@ -189,6 +189,11 @@ export function createQQWriteRouter(
             ? await services.groupInfo.getMemberInfo(BigInt(target.groupId), identity.uid)
             : null;
         if (read(input) !== services) throw new Error('账号已切换，请重新读取会话设置');
+        if (
+          target.kind === 'c2c' &&
+          ((profile && profile.uid !== target.uid) || (buddy && buddy.uid !== target.uid))
+        )
+          throw new Error('返回好友与读取目标不一致');
         if (target.kind === 'group' && group && group.groupCode !== BigInt(target.groupId))
           throw new Error('返回群与读取目标不一致');
         if (
@@ -204,6 +209,7 @@ export function createQQWriteRouter(
           pinned: tops.some((item) => item.targetId === conv),
           notifyLevel,
           friend: Boolean(buddy),
+          friendDisturb: buddy ? (profile?.extInfo?.friendDisturb ?? null) : null,
           categoryId: buddy?.categoryId ?? null,
           remark: profile?.remark ?? group?.remark ?? null,
           groupName: group?.groupName ?? null,

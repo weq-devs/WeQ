@@ -2,7 +2,7 @@
  * 21000 — Column in profile_info_v6 table.
  *
  * QQ 资料扩展信息(VIP/特权、好友互动标识、教育经历、所在地、兴趣标签、QQ空间相册)。
- * 只声明我们透传给前端会用到的字段；其余大量隐私开关 bool 一律省略。
+ * 只声明我们透传给前端会用到的字段；未确认的隐私开关一律省略。
  *
  * 结构(仅保留有价值分支):
  *   #21000
@@ -38,6 +38,8 @@
  *       #20039 —— 老版「个人档案」，**不是 protobuf**，是 [u16 tag][u16 len][utf8] TLV，
  *                 装着手机/电脑/相机/汽车机型等 2008 年代的问卷答案。详见
  *                 docs/database/profile_info/profile-info-v6.md 第八节。
+ *     #22006 好友设置
+ *       #20032 免打扰(明确的0/1；缺失不猜关闭)
  *     #22007 杂项开关
  *       #29100 机器人标识 —— 只有机器人有这一块；但不完整，需 uin 号段兜底
  *         #29101 botType  1=第三方机器人, 2=QQ官方AI(小Q)
@@ -181,6 +183,12 @@ export const MiscFlagsWire = {
   botMark: ProtoField(29100, () => BotMarkWire, { optional: true }),
 };
 
+/** #22006 —— 官方好友名册用 #20032 同步免打扰；缺字段不等于关闭。 */
+export const BuddySettingsWire = {
+  // 保留数值以拒绝未知枚举，不能把任意非零值强转为 true。
+  messageDisturb: ProtoField(20032, ScalarType.UINT32, { optional: true }),
+};
+
 /** #21000 内层各分块。 */
 export const ProfileExtInnerWire = {
   /** #22003: 好友互动标识。 */
@@ -189,6 +197,8 @@ export const ProfileExtInnerWire = {
   privilege: ProtoField(22004, () => PrivilegeGroupWire, { optional: true }),
   /** #22005: 扩展资料(教育/所在地/兴趣)。 */
   extInfo: ProtoField(22005, () => ExtInfoWire, { optional: true }),
+  /** #22006: 已确认的好友设置。 */
+  buddySettings: ProtoField(22006, () => BuddySettingsWire, { optional: true }),
   /** #22007: 杂项开关，含机器人标识。 */
   miscFlags: ProtoField(22007, () => MiscFlagsWire, { optional: true }),
   /** #22009: QQ空间相册。 */

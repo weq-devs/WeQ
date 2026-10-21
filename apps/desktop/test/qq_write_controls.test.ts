@@ -183,23 +183,35 @@ describe('QQ 写控件', () => {
     expect(save).toHaveBeenCalledWith(3);
   });
 
-  it('开关等待缓存同步期间不把期望值伪装成真实值', async () => {
-    const f = fixture();
-    const save = vi.fn(async () => true);
-    const render = (initial: boolean) =>
-      act(() =>
-        f.root.render(
-          h(QQWriteToggleRow, { label: '置顶', initial, disabled: false, onSave: save }),
-        ),
+  it.each(['置顶', '消息免打扰'])(
+    '%s 切换即提交、在途防重，读回未同步不伪造也不锁死',
+    async (label) => {
+      const f = fixture();
+      let finish!: (ok: boolean) => void;
+      const save = vi.fn(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finish = resolve;
+          }),
       );
-    render(false);
-    await act(async () => f.host.querySelector<HTMLButtonElement>('button')!.click());
-    expect(f.host.querySelector('button')!.getAttribute('aria-checked')).toBe('false');
-    expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
-    render(true);
-    expect(f.host.querySelector('button')!.getAttribute('aria-checked')).toBe('true');
-    expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(false);
-  });
+      const render = (initial: boolean) =>
+        act(() =>
+          f.root.render(h(QQWriteToggleRow, { label, initial, disabled: false, onSave: save })),
+        );
+      render(false);
+      act(() => f.host.querySelector<HTMLButtonElement>('button')!.click());
+      expect(f.host.querySelector('button')!.getAttribute('aria-checked')).toBe('false');
+      expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+      act(() => f.host.querySelector<HTMLButtonElement>('button')!.click());
+      expect(save).toHaveBeenCalledOnce();
+      await act(async () => finish(false));
+      expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(false);
+      expect(f.host.querySelector('button')!.getAttribute('aria-checked')).toBe('false');
+      render(true);
+      expect(f.host.querySelector('button')!.getAttribute('aria-checked')).toBe('true');
+      expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(false);
+    },
+  );
 
   it('免打扰状态未知时不伪装为关闭，但允许用户明确设置', async () => {
     const f = fixture();
@@ -213,6 +225,8 @@ describe('QQ 写控件', () => {
     const toggle = f.host.querySelector<HTMLButtonElement>('[role="checkbox"]')!;
     expect(toggle.getAttribute('aria-checked')).toBe('mixed');
     expect(f.host.textContent).toContain('尚未读取');
+    expect(f.host.querySelector('.weq-set-row-ctrl [role="status"]')).toBeNull();
+    expect(f.host.querySelector('.weq-set-row-main [role="status"]')).not.toBeNull();
     expect(f.host.querySelector('[aria-label="保存消息免打扰"]')).toBeNull();
     await act(async () => toggle.click());
     expect(save).toHaveBeenCalledWith(true);
@@ -318,6 +332,35 @@ describe('QQ 写操作账号与生命周期', () => {
       vi.useRealTimers();
     }
   });
+  it.each([true, false])(
+    '免打扰必须核对实际值才进入已提交态，服务端未确认仍不冒称确认：%s',
+    async (synced) => {
+      vi.useFakeTimers();
+      try {
+        const f = harness();
+        const action = vi.fn(async (): Promise<QQWriteOutcome> => ({ state: 'unconfirmed' }));
+        const readback = vi.fn(async () => synced);
+        let pending!: Promise<boolean>;
+        await act(async () => {
+          pending = f.session().run(action, undefined, {
+            readback,
+            requireReadback: true,
+            readbackSuccessText: '本机 QQ 状态已核对；服务端子回执仍未确认',
+          });
+        });
+        await act(async () => {
+          await vi.runAllTimersAsync();
+          expect(await pending).toBe(synced);
+        });
+        expect(action).toHaveBeenCalledOnce();
+        expect(readback).toHaveBeenCalledTimes(synced ? 1 : 4);
+        expect(f.host.textContent).toContain(synced ? '本机 QQ 状态已核对' : '本机尚未同步');
+        expect(f.host.textContent).not.toContain('服务端已确认');
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
   it('延后读回期间切换数据源，停止旧读回和缓存刷新', async () => {
     vi.useFakeTimers();
     try {

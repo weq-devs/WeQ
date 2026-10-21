@@ -105,11 +105,13 @@ export function Row({
 /** iOS-style switch. Renders as a `role="switch"` button for a11y. */
 export function Toggle({
   checked,
+  indeterminate = false,
   disabled,
   onChange,
   label,
 }: {
   checked: boolean;
+  indeterminate?: boolean;
   disabled?: boolean;
   onChange: (next: boolean) => void;
   label?: string;
@@ -117,9 +119,9 @@ export function Toggle({
   return (
     <button
       type="button"
-      className={`weq-set-toggle${checked ? ' is-on' : ''}`}
-      role="switch"
-      aria-checked={checked}
+      className={`weq-set-toggle${indeterminate ? ' is-unknown' : checked ? ' is-on' : ''}`}
+      role={indeterminate ? 'checkbox' : 'switch'}
+      aria-checked={indeterminate ? 'mixed' : checked}
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}

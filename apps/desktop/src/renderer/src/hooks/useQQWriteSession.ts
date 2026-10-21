@@ -76,6 +76,9 @@ export function useQQWriteSession(scope: string) {
       profileUid?: string;
       memberUid?: string;
       readback?: () => Promise<boolean>;
+      readbackSuccessText?: string;
+      /** 有读回要求的开关不能在未同步时进入已提交锁定态。 */
+      requireReadback?: boolean;
     },
   ): Promise<boolean> {
     if (
@@ -99,7 +102,8 @@ export function useQQWriteSession(scope: string) {
       const outcome = await action(binding);
       if (!current()) return false;
       setResult({ key: captured, text: qqWriteOutcomeText(outcome), error: false });
-      if (options?.refreshCaches === false) return current();
+      if (options?.refreshCaches === false) return current() && !options.requireReadback;
+      let readbackMatched = false;
       // 刷新失败与远端操作失败分开，不能诱导用户重发已经成功的写请求。
       const refreshAfterWrite = async () => {
         try {
@@ -113,6 +117,9 @@ export function useQQWriteSession(scope: string) {
               if (synced) break;
             }
             if (!current() || operation.current !== capturedOperation) return;
+            readbackMatched = synced;
+            if (synced && options.readbackSuccessText)
+              setResult({ key: captured, text: options.readbackSuccessText, error: false });
             if (!synced)
               setResult({
                 key: captured,
@@ -162,9 +169,9 @@ export function useQQWriteSession(scope: string) {
             });
         }
       };
-      if (options?.backgroundRefresh) void refreshAfterWrite();
+      if (options?.backgroundRefresh && !options.requireReadback) void refreshAfterWrite();
       else await refreshAfterWrite();
-      return current();
+      return current() && (!options?.requireReadback || readbackMatched);
     } catch (error) {
       if (current())
         setResult({
