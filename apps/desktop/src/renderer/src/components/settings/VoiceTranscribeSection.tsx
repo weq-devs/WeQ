@@ -32,6 +32,12 @@ import { useAppDialog } from '../../lib/dialogUtils';
 import { Card, Row, SectionHeader } from './controls';
 import { useDraftClose } from '../../lib/draftClose';
 import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
+import {
+  connectionTestKey,
+  runConnectionTest,
+  useConnectionTestTasks,
+} from '../../lib/connectionTestTask';
+import { useToast } from '../Toast';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -311,16 +317,16 @@ export function TtsProvidersCard(): ReactElement {
   const saveProvider = trpc.bootstrap.saveTtsProvider.useMutation();
   const providerLabels = providerDisplayLabels(providers.data ?? []);
   const deleteProvider = trpc.bootstrap.deleteTtsProvider.useMutation();
-  const testProvider = trpc.bootstrap.testTtsProvider.useMutation();
 
   const [selectedId, setSelectedId] = useState<string>('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<TtsForm>(emptyTtsForm);
-  const [testing, setTesting] = useState(false);
+  const testKey = connectionTestKey('tts', form.id);
+  const testing = useConnectionTestTasks((state) => state.running.has(testKey));
   const guard = useDraftClose(
     () => setOpen(false),
     form,
-    saveProvider.isLoading || deleteProvider.isLoading || testing,
+    saveProvider.isLoading || deleteProvider.isLoading,
   );
 
   /** 把已保存的 TTS 服务商数据填进表单。 */
@@ -463,30 +469,32 @@ export function TtsProvidersCard(): ReactElement {
     }
   }
 
-  async function onTest(): Promise<void> {
+  function onTest(): void {
     if (!form.baseUrl.trim()) {
-      dialog.error('无法测试', '请先填写服务地址（Base URL）。');
+      useToast
+        .getState()
+        .push({ tone: 'warning', title: '无法测试', detail: '请先填写服务地址（Base URL）。' });
       return;
     }
-    setTesting(true);
-    try {
-      const res = await testProvider.mutateAsync(toPayload(form.id));
-      if (!res.ok) {
-        dialog.error('测试失败', res.error ?? '未知错误');
-        return;
-      }
+    const input = toPayload(form.id);
+    const label = `${form.name.trim() || 'TTS'} · ${form.id.slice(-8)}`;
+    void runConnectionTest(testKey, label, async () => {
+      const res = await client.bootstrap.testTtsProvider.mutate(input);
+      if (!res.ok) throw new Error(res.error ?? '未知错误');
       if (res.audioBase64) {
         const audio = new Audio(`data:audio/${res.format ?? 'mp3'};base64,${res.audioBase64}`);
-        void audio.play().catch(() => {});
-        dialog.success('测试成功', '已生成样例语音，正在播放。');
-      } else {
-        dialog.success('测试通过', res.error ?? '配置可用。');
+        const play = () => {
+          void audio.play().catch((error: unknown) => {
+            useToast
+              .getState()
+              .push({ tone: 'warning', title: '样例语音播放失败', detail: errMsg(error) });
+          });
+        };
+        play();
+        return { detail: '已生成样例语音。', action: { label: '播放样例语音', run: play } };
       }
-    } catch (error) {
-      dialog.error('测试失败', error instanceof Error ? error.message : String(error));
-    } finally {
-      setTesting(false);
-    }
+      return { detail: res.error ?? '配置可用。' };
+    });
   }
 
   return (

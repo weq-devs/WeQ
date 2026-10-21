@@ -32,10 +32,15 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { trpc } from '../../trpc/client';
+import { trpc, client } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { Card, Row, SectionHeader, Toggle } from './controls';
+import {
+  connectionTestKey,
+  runConnectionTest,
+  useConnectionTestTasks,
+} from '../../lib/connectionTestTask';
 
 interface ServerForm {
   id: string;
@@ -74,11 +79,13 @@ export function ExternalRkeySection(): ReactElement {
   const saveServer = trpc.bootstrap.saveExternalRkeyServer.useMutation();
   const deleteServer = trpc.bootstrap.deleteExternalRkeyServer.useMutation();
   const setEnabled = trpc.bootstrap.setExternalRkeyEnabled.useMutation();
-  const testServer = trpc.bootstrap.testExternalRkeyServer.useMutation();
 
   const [form, setForm] = useState<ServerForm | null>(null);
   const [revealToken, setRevealToken] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [draftId, setDraftId] = useState(() => crypto.randomUUID());
+  const runningTests = useConnectionTestTasks((state) => state.running);
+  const testKey = connectionTestKey('rkey', form?.id || draftId);
+  const testing = runningTests.has(testKey);
 
   const external = settings.data?.externalRkey;
   const servers = external?.servers ?? [];
@@ -94,6 +101,7 @@ export function ExternalRkeySection(): ReactElement {
   }
 
   function startCreate(): void {
+    setDraftId(crypto.randomUUID());
     setForm(EMPTY_FORM);
     setRevealToken(false);
   }
@@ -159,48 +167,34 @@ export function ExternalRkeySection(): ReactElement {
     }
   }
 
-  async function onTestFromList(server: ServerForm): Promise<void> {
-    try {
-      const result = await testServer.mutateAsync({
-        baseUrl: server.baseUrl,
-        accessToken: server.accessToken,
-      });
-      pushToast({
-        tone: 'success',
-        title: '连接成功',
-        message: result.name
-          ? `${result.name} · ${formatCacheExpiry(result.expiredTime).text}`
-          : '服务器正常响应',
-      });
-    } catch (err) {
-      showError('连接失败', errMsg(err));
-    }
+  function onTestFromList(server: ServerForm): void {
+    testConnection(server, connectionTestKey('rkey', server.id));
   }
 
-  async function onTestForm(): Promise<void> {
+  function onTestForm(): void {
     if (!form) return;
-    if (!form.baseUrl.trim() || !form.accessToken.trim()) {
-      showError('信息不完整', '请先填写服务器地址与 access_token。');
+    testConnection(form, testKey);
+  }
+
+  function testConnection(server: ServerForm, key: string): void {
+    if (!server.baseUrl.trim() || !server.accessToken.trim()) {
+      pushToast({
+        tone: 'warning',
+        title: '信息不完整',
+        detail: '请先填写服务器地址与 access_token。',
+      });
       return;
     }
-    setTesting(true);
-    try {
-      const result = await testServer.mutateAsync({
-        baseUrl: form.baseUrl,
-        accessToken: form.accessToken,
-      });
-      pushToast({
-        tone: 'success',
-        title: '连接成功',
-        message: result.name
+    const input = { baseUrl: server.baseUrl.trim(), accessToken: server.accessToken.trim() };
+    const label = `${server.name.trim() || 'RKEY'} · ${(server.id || draftId).slice(-8)}`;
+    void runConnectionTest(key, label, async () => {
+      const result = await client.bootstrap.testExternalRkeyServer.mutate(input);
+      return {
+        detail: result.name
           ? `${result.name} · ${formatCacheExpiry(result.expiredTime).text}`
           : '服务器正常响应',
-      });
-    } catch (err) {
-      showError('连接失败', errMsg(err));
-    } finally {
-      setTesting(false);
-    }
+      };
+    });
   }
 
   return (
@@ -288,10 +282,10 @@ export function ExternalRkeySection(): ReactElement {
                       className="weq-set-iconbtn"
                       title="测试连接"
                       aria-label="测试连接"
-                      disabled={busy || testServer.isLoading}
+                      disabled={busy || runningTests.has(connectionTestKey('rkey', server.id))}
                       onClick={() => void onTestFromList(server)}
                     >
-                      {testServer.isLoading ? (
+                      {runningTests.has(connectionTestKey('rkey', server.id)) ? (
                         <Loader2 size={14} className="weq-set-spin" />
                       ) : (
                         <RefreshCw size={14} />

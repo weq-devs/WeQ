@@ -6,6 +6,7 @@ import { AgentLabSection } from '../src/renderer/src/components/settings/AgentLa
 import { ApiModelSelect } from '../src/renderer/src/components/settings/ApiModelSelect';
 import { TtsProvidersCard } from '../src/renderer/src/components/settings/VoiceTranscribeSection';
 import { providerDisplayLabels } from '../src/renderer/src/lib/providerDisplayLabels';
+import { useToast } from '../src/renderer/src/components/Toast';
 
 const state = vi.hoisted(() => ({
   providers: [] as AgentLabProviderConfig[],
@@ -15,6 +16,8 @@ const state = vi.hoisted(() => ({
   remove: vi.fn(),
   error: vi.fn(),
   confirm: vi.fn(async () => true),
+  testLlm: vi.fn(),
+  testTts: vi.fn(),
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => children,
@@ -37,6 +40,12 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     },
   ];
   return {
+    client: {
+      bootstrap: {
+        testAgentLabProvider: { mutate: state.testLlm },
+        testTtsProvider: { mutate: state.testTts },
+      },
+    },
     trpc: {
       useUtils: () => ({
         bootstrap: {
@@ -53,7 +62,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         deleteAgentLabProvider: {
           useMutation: () => ({ mutateAsync: state.remove, isLoading: false }),
         },
-        testAgentLabProvider: { useMutation: () => ({ isLoading: false }) },
+        testAgentLabProvider: {
+          useMutation: () => ({ mutateAsync: state.testLlm, isLoading: false }),
+        },
         fetchAgentLabModels: { useMutation: () => ({ isLoading: false }) },
         getTtsCatalog: {
           useQuery: () => ({
@@ -70,7 +81,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         listTtsProviders: { useQuery: () => ({ data: state.tts }) },
         saveTtsProvider: { useMutation: () => ({ mutateAsync: state.saveTts, isLoading: false }) },
         deleteTtsProvider: { useMutation: () => ({ isLoading: false }) },
-        testTtsProvider: { useMutation: () => ({ isLoading: false }) },
+        testTtsProvider: { useMutation: () => ({ mutateAsync: state.testTts, isLoading: false }) },
       },
     },
   };
@@ -91,6 +102,9 @@ beforeEach(() => {
     },
   ];
   state.error.mockReset();
+  state.testLlm.mockReset();
+  state.testTts.mockReset();
+  useToast.setState({ toasts: [], leaving: [], seq: 0 });
   state.confirm.mockClear();
   state.tts = [
     {
@@ -133,10 +147,14 @@ function mount(tts = false) {
   const render = () =>
     act(() => root.render(createElement(tts ? TtsProvidersCard : AgentLabSection)));
   render();
-  cleanups.push(() => {
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
     act(() => root.unmount());
     host.remove();
-  });
+  };
+  cleanups.push(close);
   const button = (text: string) =>
     [...host.querySelectorAll<HTMLButtonElement>('button')].find(
       (row) => row.textContent?.trim() === text,
@@ -147,9 +165,101 @@ function mount(tts = false) {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
-  return { host, render, button, set };
+  return { host, render, button, set, close };
 }
 describe('多 API provider 配置', () => {
+  it.each([false, true])(
+    '%s 提供方测试挂起时仍可关闭与编辑其他配置，迟到结果只更新原横幅',
+    async (tts) => {
+      const test = tts ? state.testTts : state.testLlm;
+      let finish!: (result: { ok: boolean; error?: string }) => void;
+      test.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const f = mount(tts);
+      try {
+        act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+        await act(async () => f.button(tts ? '测试' : '测试连通性').click());
+        await act(async () =>
+          f.host.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click(),
+        );
+        expect(f.host.querySelector('.weq-provider-modal')).toBeNull();
+        expect(useToast.getState().toasts).toHaveLength(1);
+        expect(useToast.getState().toasts[0]!.loading).toBe(true);
+        expect(test.mock.calls[0]![0]).toMatchObject({
+          apiKey: tts ? 'synthetic-voice-first' : 'synthetic-first-key',
+        });
+        act(() => f.button('新建').click());
+        expect(f.button(tts ? '测试' : '测试连通性').disabled).toBe(false);
+        const draftKey = f.host.querySelector<HTMLInputElement>('input[type="password"]')!.value;
+        await act(async () => finish({ ok: false, error: '合成连通性失败' }));
+        expect(useToast.getState().toasts).toHaveLength(1);
+        expect(useToast.getState().toasts[0]).toMatchObject({
+          tone: 'error',
+          loading: false,
+          detail: '合成连通性失败',
+        });
+        expect(f.host.querySelector<HTMLInputElement>('input[type="password"]')!.value).toBe(
+          draftKey,
+        );
+        expect(state.error).not.toHaveBeenCalled();
+      } finally {
+        if (finish) await act(async () => finish({ ok: true }));
+      }
+    },
+  );
+  it.each([false, true])('%s 测试不依赖设置组件挂载，卸载后仍能完成原任务', async (tts) => {
+    const test = tts ? state.testTts : state.testLlm;
+    let finish!: (result: { ok: boolean }) => void;
+    test.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const f = mount(tts);
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    await act(async () => f.button(tts ? '测试' : '测试连通性').click());
+    f.close();
+    await act(async () => finish({ ok: true }));
+    expect(useToast.getState().toasts[0]).toMatchObject({ tone: 'success', loading: false });
+    expect(state.error).not.toHaveBeenCalled();
+  });
+  it.each([false, true])('%s 测试输入缺失只提示横幅，不发请求或打开错误弹窗', async (tts) => {
+    const f = mount(tts);
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    f.set('input[placeholder^="https://"]', '');
+    await act(async () => f.button(tts ? '测试' : '测试连通性').click());
+    expect(tts ? state.testTts : state.testLlm).not.toHaveBeenCalled();
+    expect(useToast.getState().toasts[0]).toMatchObject({ tone: 'warning', title: '无法测试' });
+    expect(state.error).not.toHaveBeenCalled();
+  });
+  it('TTS 测试保留样例播放与横幅重播入口，不依赖仍打开编辑器', async () => {
+    const sources: string[] = [];
+    const play = vi.fn(async () => undefined);
+    vi.stubGlobal(
+      'Audio',
+      class {
+        constructor(source: string) {
+          sources.push(source);
+        }
+        play = play;
+      },
+    );
+    state.testTts.mockResolvedValueOnce({ ok: true, audioBase64: 'U1lOVEhFVElD', format: 'wav' });
+    const f = mount(true);
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    await act(async () => f.button('测试').click());
+    expect(sources).toEqual(['data:audio/wav;base64,U1lOVEhFVElD']);
+    expect(play).toHaveBeenCalledOnce();
+    f.close();
+    useToast.getState().toasts[0]!.action!.run();
+    expect(play).toHaveBeenCalledTimes(2);
+    expect(useToast.getState().toasts[0]).toMatchObject({ tone: 'success', loading: false });
+  });
   it('同一 API 页面中的 TTS 同名配置也能并存，重复保存不制造新配置', async () => {
     const f = mount(true);
     const original = structuredClone(state.tts[0]!);

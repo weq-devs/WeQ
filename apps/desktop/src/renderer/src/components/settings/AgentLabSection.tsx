@@ -11,12 +11,18 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { trpc } from '../../trpc/client';
+import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Modal } from '../../components/Dialog';
 import { Card, CheckPillGroup, Row, SectionHeader } from './controls';
 import { useDraftClose } from '../../lib/draftClose';
 import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
+import {
+  connectionTestKey,
+  runConnectionTest,
+  useConnectionTestTasks,
+} from '../../lib/connectionTestTask';
+import { useToast } from '../Toast';
 
 type Capability = 'chat' | 'embedding' | 'vision';
 const CAPABILITIES: { value: Capability; label: string }[] = [
@@ -69,13 +75,13 @@ export function AgentLabSection(): ReactElement {
   const saveProvider = trpc.bootstrap.saveAgentLabProvider.useMutation();
   const providerLabels = providerDisplayLabels(providers.data ?? []);
   const deleteProvider = trpc.bootstrap.deleteAgentLabProvider.useMutation();
-  const testProvider = trpc.bootstrap.testAgentLabProvider.useMutation();
   const fetchModels = trpc.bootstrap.fetchAgentLabModels.useMutation();
 
   const [selectedId, setSelectedId] = useState<string>('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ProviderForm>(emptyForm);
-  const [testing, setTesting] = useState(false);
+  const testKey = connectionTestKey('llm', form.id);
+  const testing = useConnectionTestTasks((state) => state.running.has(testKey));
   const [fetchingModels, setFetchingModels] = useState(false);
   /** 从 base_url 拉回来的模型清单（待用户勾选导入）；null = 未拉取。 */
   const [fetchedModels, setFetchedModels] = useState<ModelForm[] | null>(null);
@@ -84,7 +90,7 @@ export function AgentLabSection(): ReactElement {
   const guard = useDraftClose(
     () => setOpen(false),
     form,
-    saveProvider.isLoading || deleteProvider.isLoading || testing || fetchingModels,
+    saveProvider.isLoading || deleteProvider.isLoading || fetchingModels,
   );
 
   /** 上一次由模板带入的 base_url / 名称：表单值与之相同 = 用户没改过，可以跟着模板切换。 */
@@ -332,38 +338,33 @@ export function AgentLabSection(): ReactElement {
   }
 
   /** 测试连通性：用表单里第一个带「聊天」能力的模型探活，把详细错误（状态码/响应体）展示出来。 */
-  async function onTest(): Promise<void> {
+  function onTest(): void {
     if (!form.baseUrl.trim()) {
-      dialog.error('无法测试', '请先填写 Base URL。');
+      useToast
+        .getState()
+        .push({ tone: 'warning', title: '无法测试', detail: '请先填写 Base URL。' });
       return;
     }
     const chatModel = form.models
       .find((m) => m.capabilities.includes('chat') && m.id.trim())
       ?.id.trim();
     if (!chatModel) {
-      dialog.error('无法测试', '请先添加并填写一个带「聊天」能力的模型。');
+      useToast.getState().push({
+        tone: 'warning',
+        title: '无法测试',
+        detail: '请先添加并填写一个带「聊天」能力的模型。',
+      });
       return;
     }
-    setTesting(true);
-    try {
-      const res = await testProvider.mutateAsync({
-        baseUrl: form.baseUrl.trim(),
-        apiKey: form.apiKey.trim(),
-        model: chatModel,
-      });
-      if (res.ok) {
-        dialog.success(
-          '测试通过',
-          `模型「${chatModel}」可正常调用${res.reply ? `，回了：${res.reply}` : '。'}`,
-        );
-      } else {
-        dialog.error('测试失败', res.error ?? '未知错误');
-      }
-    } catch (error) {
-      dialog.error('测试失败', error instanceof Error ? error.message : String(error));
-    } finally {
-      setTesting(false);
-    }
+    const input = { baseUrl: form.baseUrl.trim(), apiKey: form.apiKey.trim(), model: chatModel };
+    const label = `${form.name.trim() || 'API'} · ${form.id.slice(-8)} · ${chatModel}`;
+    void runConnectionTest(testKey, label, async () => {
+      const res = await client.bootstrap.testAgentLabProvider.mutate(input);
+      if (!res.ok) throw new Error(res.error ?? '未知错误');
+      return {
+        detail: `模型「${chatModel}」可正常调用${res.reply ? `，回了：${res.reply}` : '。'}`,
+      };
+    });
   }
 
   async function onDelete(): Promise<void> {

@@ -30,10 +30,15 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { trpc } from '../../trpc/client';
+import { trpc, client } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { Card, Row, SectionHeader, Toggle } from './controls';
+import {
+  connectionTestKey,
+  runConnectionTest,
+  useConnectionTestTasks,
+} from '../../lib/connectionTestTask';
 
 interface PushForm {
   id: string;
@@ -61,11 +66,12 @@ export function SsePushSection(): ReactElement {
   const deleteServer = trpc.bootstrap.deleteSsePushServer.useMutation();
   const setEnabled = trpc.bootstrap.setSsePushEnabled.useMutation();
   const setTuning = trpc.bootstrap.setSsePushTuning.useMutation();
-  const testServer = trpc.bootstrap.testSsePushServer.useMutation();
 
   const [form, setForm] = useState<PushForm | null>(null);
   const [revealToken, setRevealToken] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [draftId, setDraftId] = useState(() => crypto.randomUUID());
+  const testKey = connectionTestKey('sse', form?.id || draftId);
+  const testing = useConnectionTestTasks((state) => state.running.has(testKey));
   const [debounceDraft, setDebounceDraft] = useState('2000');
   const [thresholdDraft, setThresholdDraft] = useState('50');
 
@@ -89,6 +95,7 @@ export function SsePushSection(): ReactElement {
   }
 
   function startCreate(): void {
+    setDraftId(crypto.randomUUID());
     setForm(EMPTY_FORM);
     setRevealToken(false);
   }
@@ -170,26 +177,19 @@ export function SsePushSection(): ReactElement {
     }
   }
 
-  async function onTest(): Promise<void> {
+  function onTest(): void {
     const pushUrl = form?.pushUrl.trim() ?? '';
     if (!pushUrl) {
-      showError('信息不完整', '请先填写推送地址。');
+      pushToast({ tone: 'warning', title: '信息不完整', detail: '请先填写推送地址。' });
       return;
     }
     const accessToken = form?.accessToken.trim() ?? '';
-    setTesting(true);
-    try {
-      const result = await testServer.mutateAsync({ pushUrl, accessToken });
-      pushToast({
-        tone: 'success',
-        title: '连接成功',
-        message: `已发送 ping 事件，耗时 ${result.latencyMs}ms`,
-      });
-    } catch (err) {
-      showError('连接失败', errMsg(err));
-    } finally {
-      setTesting(false);
-    }
+    const input = { pushUrl, accessToken };
+    const label = `${form?.name.trim() || 'SSE'} · ${(form?.id || draftId).slice(-8)}`;
+    void runConnectionTest(testKey, label, async () => {
+      const result = await client.bootstrap.testSsePushServer.mutate(input);
+      return { detail: `已发送 ping 事件，耗时 ${result.latencyMs}ms` };
+    });
   }
 
   return (
