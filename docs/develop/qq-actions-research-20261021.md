@@ -64,3 +64,27 @@
 - 新增协议 3 项、服务 3 项通过；桌面 QQ 操作界面／路由、三个真实挂载入口、既有资料浮层与写会话结果共 116 项通过。
 - 协议、服务与桌面主进程／渲染层类型检查通过；修改文件 Biome 检查通过。未运行全量 CI。
 - 弹窗以 1280px 浅色、390px 深色、320px 浅色检查，换三种强调色并启用减少动态效果；长昵称换行、次数和图标按钮均在界内，无横向溢出。截图为离线组件检查，不证明真实写入。
+
+## 特别关心
+
+- 现有名单来自 Qzone `specialcare_get.cgi`，是空间侧只读结果。参考客户端类型分别包含 `isSpecialCareOpen` / `isSpecialCareZone`；这证明需要区分字段，不证明两者必然独立或自动同步。
+- NapCat 的 `NodeIKernelBuddyService.SetSpecialCare` 是内核接口声明，不是可直接复用的 SSO 请求／响应。当前未找到足以确认 QQ 消息侧开关的完整写入、取消和权威读回契约，不将空间名单或未读标签当作该开关值。
+- [参考类型](https://github.com/NapNeko/NapCatQQ/blob/859eb530c5801577633c2c3ae871d23586edf281/packages/napcat-core/types/user.ts)、[内核方法声明](https://github.com/NapNeko/NapCatQQ/blob/859eb530c5801577633c2c3ae871d23586edf281/packages/napcat-core/services/NodeIKernelBuddyService.ts)。仍需正常客户端切换前后样本，整项保持未完成。
+
+## 其他输入事件
+
+- SnowLuma `SetInputStatus` 只将 `eventType` 数字透传到 `0xCD4_1`；NapCat 的设置入口示例为 1，其内核声明和入站事件同样没有停止输入／录音事件的完整枚举。
+- 因此不把 0、2 等猜成停止或录音，不将“能够编码数字”当成“接收端会按指定含义显示”。当前默认关闭、主动启用且十秒节流的正在输入路径保留。
+- [设置实现](https://github.com/SnowLuma/SnowLuma/blob/db142db9e6398c779283eab9afc3552da1e2c361/packages/protocol/src/oidb-services/profile/set-input-status.ts)、[NapCat 设置入口](https://github.com/NapNeko/NapCatQQ/blob/859eb530c5801577633c2c3ae871d23586edf281/packages/napcat-onebot/action/extends/SetInputStatus.ts)。新事件仍待真实发送与接收端对照。
+
+## 好友免打扰
+
+- 当前 `SetFriendDisturb` 已保留 `0x5D6_19` 根 tag 3 的原始结果项，但未建模每项 UID 与业务码；`deserialize` 始终返回 `unconfirmed`。已有本地资料读回和自动刷新不等于权威服务端映射。
+- 复核独立参考后，未取得补齐该结果项的充分依据，不套用好友置顶等其他子命令的结果，不重复开发已完成的群消息四档策略。
+- 仍需同一好友开／关／恢复的正常客户端样本与服务端读回；原始研究见本机免打扰专项，缺口未解决前继续保持未确认。
+
+## 自定义状态表情
+
+- `SetStatus.customExt` 已有 `faceId/text/faceType` 写字段，本机经典表情选择走既有 QSid；本地缓存的 `customStatus` 不能冒充远端读回。
+- 当前 `GetUserOnlineStatus` 只读取 `0xFE1_2` 属性 27372 的打包状态字，只能给出基础／扩展状态，不能从扩展状态 2000 还原图标、文字或表情类型。
+- 未取得完整远端自定义状态结构和跨端标识对照样本，保留现有经典表情入口，不将 Unicode、表情索引和 QSid 混用。整项仍未完成。
