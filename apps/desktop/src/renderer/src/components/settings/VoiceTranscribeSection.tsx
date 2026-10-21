@@ -150,13 +150,10 @@ export function VoiceTranscribeSection(): ReactElement {
 
   return (
     <div className="weq-set">
-      <SectionHeader
-        icon={<AudioLines size={18} strokeWidth={1.8} />}
-        title="语音转写"
-        desc="离线语音识别模型的下载与选择。"
-      />
+      <SectionHeader icon={<AudioLines size={18} strokeWidth={1.8} />} title="语音识别" />
 
-      <Card title="转录模型">
+      <Card title="本地语音模型">
+        <p className="weq-set-note">识别在本机完成，不会将语音发送给 API 服务商。</p>
         {modelList.length === 0 ? (
           <div className="weq-set-empty">{models.isLoading ? '加载中…' : '暂无可用模型'}</div>
         ) : (
@@ -247,9 +244,7 @@ export function VoiceTranscribeSection(): ReactElement {
             })}
           </div>
         )}
-        <p className="weq-set-note">
-          模型文件较大，请在网络良好时下载。模型保存在本地，删除「账号缓存」不会影响它。
-        </p>
+        <p className="weq-set-note">模型保存在本地，删除「账号缓存」不会影响它。</p>
       </Card>
     </div>
   );
@@ -519,12 +514,11 @@ export function TtsProvidersCard(): ReactElement {
         }
       >
         <p className="weq-set-desc">
-          配置文字转语音服务商。配好后，克隆体（好友克隆）才能发语音；支持复刻的厂商（CosyVoice /
-          GPT-SoVITS）可用 TA 本人的声音说话。
+          用于好友克隆的文字转语音与声音复刻；合成时会向所选服务商提交对应文本或参考语音。
         </p>
         {(providers.data ?? []).length === 0 ? (
           <div className="weq-set-row-desc" style={{ padding: '4px 2px' }}>
-            还没有 TTS 服务商，点右上角「新建」添加一个。推荐 CosyVoice（免费、可复刻）。
+            暂无语音合成服务商。
           </div>
         ) : (
           <div className="weq-agentlab-provider-list">

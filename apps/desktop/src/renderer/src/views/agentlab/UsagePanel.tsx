@@ -17,7 +17,7 @@ const SCOPE_LABEL: Record<string, string> = {
   build: '构建克隆',
   chat: '与克隆体聊天',
   assistant: 'WeQ 助手',
-  'intent-analysis': '意图分析',
+  'intent-analysis': '意图感知',
   'intent-profile': '互动画像',
   'reply-suggestion': '推荐回复',
   'connection-test': '全局模型测试',

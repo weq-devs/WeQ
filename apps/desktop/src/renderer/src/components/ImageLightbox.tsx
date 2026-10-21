@@ -231,7 +231,7 @@ export function ImageLightbox(): ReactElement | null {
             ? localBlocker
             : serverExpired
               ? '这张图的服务端副本已过期（QQ 只保留约 9 天），也没下本地识别模型'
-              : '需要在线 QQ，或先在「设置 → 模型与识别 → 语音与图片识别」里下好本地识别模型';
+              : '需要在线 QQ，或先在「设置 → 模型与识别 → 图片识别」里下好本地识别模型';
 
   async function runOcr(): Promise<void> {
     if (!ocrContext) return;

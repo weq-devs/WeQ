@@ -1,5 +1,5 @@
 /**
- * 意图画像 Dialog —— 好感度胶囊点击打开。
+ * 互动画像 Dialog —— 好感度胶囊点击打开。
  *
  * 内容：好感度数字 + 档位、近期走势条形、MBTI 四维（左极占比条）、互动风格
  * 雷达（纯 SVG，五边形网格 + 数据面 + 标签，动画同 agentlab UsagePanel 的
@@ -12,6 +12,7 @@ import { BrainCircuit, RefreshCw, X } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { OverlayLayer } from '../OverlayLayer';
 import { AnalyticsSkeleton } from '../AnalyticsSkeleton';
+import { useIntentSenseStatus } from './context';
 import '../../styles/intent-sense.css';
 
 const MBTI_LABELS: Record<string, [string, string]> = {
@@ -117,9 +118,14 @@ export function IntentProfileDialog({
   onClose: () => void;
 }): ReactElement {
   const [refreshing, setRefreshing] = useState(false);
+  const status = useIntentSenseStatus();
   const profile = trpc.account.intentSense.getProfile.useQuery(
     { peerUid },
-    { refetchOnWindowFocus: false, staleTime: 30_000, retry: false },
+    {
+      refetchOnWindowFocus: false,
+      staleTime: (status.data?.profileCacheSeconds ?? 60) * 1000,
+      retry: false,
+    },
   );
 
   const data = profile.data as ProfileWire | undefined;
@@ -145,7 +151,7 @@ export function IntentProfileDialog({
         className="group-keyword-dialog weq-int-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label={`意图画像：${peerName}`}
+        aria-label={`互动画像：${peerName}`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header>
@@ -154,7 +160,7 @@ export function IntentProfileDialog({
               <BrainCircuit size={17} />
             </span>
             <div>
-              <strong>意图画像</strong>
+              <strong>互动画像</strong>
               <span>{peerName}</span>
             </div>
           </div>

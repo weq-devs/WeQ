@@ -547,12 +547,16 @@ export async function embedTexts(
   return embeddings;
 }
 
-function rankPairsByKeywords(pairs: AgentLabStoredPair[], input: string): AgentLabStoredPair[] {
+function rankPairsByKeywords(
+  pairs: AgentLabStoredPair[],
+  input: string,
+  k = 5,
+): AgentLabStoredPair[] {
   return pairs
     .map((pair) => ({ pair, score: scorePairByKeywords(pair, input) }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 5)
+    .slice(0, k)
     .map((entry) => entry.pair);
 }
 
@@ -561,6 +565,7 @@ function rankPairs(
   pairs: AgentLabStoredPair[],
   input: string,
   queryEmbedding: number[] | null,
+  k = 5,
 ): AgentLabStoredPair[] {
   if (queryEmbedding && queryEmbedding.length > 0) {
     const vectorPairs = pairs.filter(
@@ -571,12 +576,12 @@ function rankPairs(
         .map((pair) => ({ pair, score: cosineSimilarity(pair.embedding ?? [], queryEmbedding) }))
         .filter((entry) => entry.score > 0.15)
         .sort((a, b) => b.score - a.score)
-        .slice(0, 5)
+        .slice(0, k)
         .map((entry) => entry.pair);
       if (ranked.length > 0) return ranked;
     }
   }
-  return rankPairsByKeywords(pairs, input);
+  return rankPairsByKeywords(pairs, input, k);
 }
 
 // ── 把模型输出解析成有序动作（text / sticker / voice）────────────────────────
@@ -733,14 +738,17 @@ export async function runPersonaChat(
   req: AgentLabChatRequest,
 ): Promise<AgentLabChatResult> {
   const willing = scoreReplyWillingness(req.input, req.history);
+  const generation = normalizeCloneGeneration(req.persona.generation);
 
   const memoryPool = req.memories ?? [];
   // 查询向量只算一次，问答对与记忆共用（省一次 embedding 调用）。仅当确有向量可比时才算。
   let queryEmbedding: number[] | null = null;
   if (embedding) {
     const needVec =
-      req.pairs.some((p) => Array.isArray(p.embedding) && p.embedding.length > 0) ||
-      memoryPool.some((m) => Array.isArray(m.embedding) && m.embedding.length > 0);
+      (generation.pairExamples > 0 &&
+        req.pairs.some((p) => Array.isArray(p.embedding) && p.embedding.length > 0)) ||
+      (generation.memoryItems > 0 &&
+        memoryPool.some((m) => Array.isArray(m.embedding) && m.embedding.length > 0));
     if (needVec) {
       try {
         const [qe] = await embedTexts(embedding, req.input);
@@ -750,12 +758,12 @@ export async function runPersonaChat(
       }
     }
   }
-  const matches = rankPairs(req.pairs, req.input, queryEmbedding);
-  const usedMemories = rankMemories(memoryPool, req.input, queryEmbedding);
+  const matches = rankPairs(req.pairs, req.input, queryEmbedding, generation.pairExamples);
+  const usedMemories = rankMemories(memoryPool, req.input, queryEmbedding, generation.memoryItems);
   const expressions = selectExpressions(
     req.persona.expressions ?? [],
     req.input,
-    willing.score < 0.4 ? 2 : 4,
+    willing.score < 0.4 ? Math.min(2, generation.expressionItems) : generation.expressionItems,
   );
 
   const system = buildSystemPrompt(
@@ -771,9 +779,9 @@ export async function runPersonaChat(
     { role: 'system', content: system },
     // 历史里的内部表情标记 [[sticker:md5]] 脱敏成 [表情]，否则模型会照着历史模仿、
     // 把这个内部格式（连带真实 md5）原样吐回来。
-    ...req.history
-      .slice(-8)
-      .map((item) => ({ role: item.role, content: sanitizeHistoryText(item.text) })),
+    ...(generation.historyMessages === 0 ? [] : req.history.slice(-generation.historyMessages)).map(
+      (item) => ({ role: item.role, content: sanitizeHistoryText(item.text) }),
+    ),
   ];
   // 群聊决策层的开口动机（如「被点名」「聊到感兴趣的」）：让回复贴合「为什么接这句话」的
   // 念头，但明确要求别在回复里复述或解释原因本身。
@@ -792,7 +800,8 @@ export async function runPersonaChat(
   }>(chat, '/chat/completions', {
     model: chat.model,
     // 意愿越高越放得开（temperature 略高），越敷衍越稳一点。
-    temperature: 0.7 + willing.score * 0.2,
+    temperature: generation.temperature ?? 0.7 + willing.score * 0.2,
+    ...(generation.maxOutputTokens > 0 ? { max_tokens: generation.maxOutputTokens } : {}),
     messages,
   });
   const raw = pickMessageText(data.choices?.[0]?.message);
@@ -848,3 +857,4 @@ export async function runPersonaChat(
     sticker: firstSticker?.sticker ?? null,
   };
 }
+import { normalizeCloneGeneration } from './generation';

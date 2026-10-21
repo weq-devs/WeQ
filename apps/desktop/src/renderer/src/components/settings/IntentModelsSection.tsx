@@ -91,7 +91,7 @@ export function IntentModelsSection({ embedded = false }: { embedded?: boolean }
             !engine.data?.available
               ? '本地引擎仅桌面版可用'
               : engine.data.modelDownloaded
-                ? '模型已就绪'
+                ? `模型已就绪 · ${engine.data.modelDir.includes('QWeQ-NineBird') ? 'QWeQ-NineBird-v1' : 'Laya 多语言 ONNX'}`
                 : '模型尚未就绪'
           }
           control={null}

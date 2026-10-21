@@ -192,8 +192,7 @@ export async function runLocalOcrFile(imagePath: string): Promise<OcrImageOutcom
   const blocker = localOcrBlocker();
   if (blocker) return { ok: false, error: blocker };
   const model = resolveLocalOcrModel();
-  if (!model)
-    return { ok: false, error: '没有可用的本地识别模型（设置 → 模型与识别 → 语音与图片识别）' };
+  if (!model) return { ok: false, error: '没有可用的本地识别模型（设置 → 模型与识别 → 图片识别）' };
   try {
     const r = await runLocalOcr(imagePath, model);
     return {

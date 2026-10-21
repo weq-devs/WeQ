@@ -40,6 +40,7 @@ import {
   ShieldCheck,
   Sun,
   User,
+  Users,
   X,
 } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
@@ -52,7 +53,8 @@ import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
 import { IntentModelsSection } from './settings/IntentModelsSection';
-import { LocalModelsSection } from './settings/LocalModelsSection';
+import { CloneSettingsSection } from './settings/CloneSettingsSection';
+import { InteractionProfileSection } from './settings/InteractionProfileSection';
 import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTranscribeSection';
 import { OcrModelsSection } from './settings/OcrModelsSection';
 import { McpServerSection } from './settings/McpServerSection';
@@ -173,7 +175,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'voice',
-    label: '语音识别模型',
+    label: '语音识别',
     icon: <AudioLines size={16} strokeWidth={1.8} />,
     render: () => <VoiceTranscribeSection />,
   },
@@ -207,7 +209,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'ocr',
-    label: '图片识别模型',
+    label: '图片识别',
     icon: <ScanText size={16} strokeWidth={1.8} />,
     render: () => <OcrModelsSection />,
   },
@@ -226,9 +228,21 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'local-models',
-    label: '语音与图片识别',
+    label: '语音识别',
     icon: <HardDrive size={16} strokeWidth={1.8} />,
-    render: () => <LocalModelsSection />,
+    render: () => <VoiceTranscribeSection />,
+  },
+  {
+    id: 'clone-settings',
+    label: '好友克隆',
+    icon: <Users size={16} />,
+    render: () => <CloneSettingsSection />,
+  },
+  {
+    id: 'interaction-profile',
+    label: '互动画像',
+    icon: <BrainCircuit size={16} />,
+    render: () => <InteractionProfileSection />,
   },
   {
     id: 'reply-suggestions',
@@ -457,11 +471,6 @@ export function SettingsDialog({
                     onClose();
                     onOpenRecalls(kind, conv);
                   }}
-                />
-              ) : active.id === 'local-models' ? (
-                <LocalModelsSection
-                  key={initialSection}
-                  initialKind={initialSection === 'ocr' ? 'ocr' : 'voice'}
                 />
               ) : (
                 active.render(onOpenMaintenance)

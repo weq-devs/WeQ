@@ -88,7 +88,7 @@ it('只有未知用量时不显示累计或平均 0 Token，按功能显示未�
   expect(kpis[0].textContent).toBe('未知');
   expect(kpis[3].textContent).toBe('未知');
   expect([...host.querySelectorAll('tbody th, tbody td')].map((cell) => cell.textContent)).toEqual([
-    '意图分析',
+    '意图感知',
     '1',
     '未知',
     '1',

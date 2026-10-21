@@ -20,6 +20,8 @@ export type SectionId =
   | 'intent-models'
   | 'local-models'
   | 'reply-suggestions'
+  | 'clone-settings'
+  | 'interaction-profile'
   | 'voice'
   | 'tts'
   | 'ocr'
@@ -49,7 +51,16 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Secti
   {
     id: 'models',
     label: '模型与识别',
-    sections: ['agentlab', 'model-usage', 'intent-sense', 'reply-suggestions', 'local-models'],
+    sections: [
+      'agentlab',
+      'model-usage',
+      'intent-sense',
+      'reply-suggestions',
+      'clone-settings',
+      'interaction-profile',
+      'voice',
+      'ocr',
+    ],
   },
   { id: 'services', label: '服务与集成', sections: ['mcp', 'sse', 'rkey', 'daemon'] },
   { id: 'advanced', label: '高级与诊断', sections: ['credentials', 'diagnostics'] },
@@ -62,7 +73,17 @@ export interface SettingsScope {
 }
 
 export function settingsScopeFor(section: SectionId): SettingsScope | null {
-  if (['anti-recall', 'intent-sense', 'reply-suggestions', 'model-usage', 'mail'].includes(section))
+  if (
+    [
+      'anti-recall',
+      'intent-sense',
+      'reply-suggestions',
+      'clone-settings',
+      'interaction-profile',
+      'model-usage',
+      'mail',
+    ].includes(section)
+  )
     return { label: '当前账号' };
   if (section === 'database')
     return {
@@ -74,7 +95,7 @@ export function settingsScopeFor(section: SectionId): SettingsScope | null {
 
 /** 旧分区 ID 继续有效，故障弹窗、维护返回与外部入口无需猜测新位置。 */
 export function settingsSectionFor(section: SectionId): SectionId {
-  if (section === 'voice' || section === 'ocr') return 'local-models';
+  if (section === 'local-models') return 'voice';
   if (section === 'intent-models') return 'intent-sense';
   if (section === 'tts') return 'agentlab';
   return section;

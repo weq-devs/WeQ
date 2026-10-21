@@ -22,7 +22,11 @@ import {
   type IntentSenseModelProgress,
 } from '../../context/app_context';
 import { procedure, router } from '../trpc';
-import { MAX_INTENT_CONTEXT_MESSAGES } from '@weq/service/intent-context';
+import {
+  MAX_INTENT_CONTEXT_MESSAGES,
+  INTENT_TUNING,
+  type IntentTuningKey,
+} from '@weq/service/intent-context';
 
 function requireServices(): AccountServices {
   const ctx = getAppContext();
@@ -41,8 +45,41 @@ export function isIntentModelDownloading(): boolean {
 }
 
 const kindSchema = z.enum(['c2c', 'group']);
+const tuning = (key: IntentTuningKey) => {
+  const rule = INTENT_TUNING[key];
+  const schema = z.number().min(rule.min).max(rule.max);
+  return ('step' in rule ? schema : schema.int()).optional();
+};
 
 const configPatch = z.object({
+  analysisTemperature: tuning('analysisTemperature'),
+  suggestionTemperature: tuning('suggestionTemperature'),
+  suggestionCount: tuning('suggestionCount'),
+  suggestionTargetChars: tuning('suggestionTargetChars'),
+  profileTemperature: tuning('profileTemperature'),
+  profileDecayDays: tuning('profileDecayDays'),
+  profileModelTopics: tuning('profileModelTopics'),
+  profileCacheSeconds: tuning('profileCacheSeconds'),
+  backfillMessages: tuning('backfillMessages'),
+  apiBatchMessages: tuning('apiBatchMessages'),
+  contextGapMinutes: tuning('contextGapMinutes'),
+  contextSpanMinutes: tuning('contextSpanMinutes'),
+  cacheEntries: tuning('cacheEntries'),
+  apiTimeoutSeconds: tuning('apiTimeoutSeconds'),
+  apiCooldownSeconds: tuning('apiCooldownSeconds'),
+  suggestionCacheSeconds: tuning('suggestionCacheSeconds'),
+  profileMessages: tuning('profileMessages'),
+  profileSamples: tuning('profileSamples'),
+  profileMinSamples: tuning('profileMinSamples'),
+  profileGapMinutes: tuning('profileGapMinutes'),
+  profileTrendDays: tuning('profileTrendDays'),
+  profileTopicLimit: tuning('profileTopicLimit'),
+  profileEngine: z.enum(['follow', 'api', 'local', 'heuristic']).optional(),
+  profileEnabled: z.boolean().optional(),
+  profileProviderRef: z
+    .object({ providerId: z.string().min(1), model: z.string().min(1) })
+    .nullable()
+    .optional(),
   enabled: z.boolean().optional(),
   engine: z.enum(['api', 'local']).optional(),
   providerRef: z

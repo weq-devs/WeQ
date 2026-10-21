@@ -278,6 +278,7 @@ export interface AgentLabPersona {
   sourceTitle: string;
   /** 每个任务选用的 provider+model */
   models: AgentLabModels;
+  generation?: import('./generation').AgentLabGenerationConfig;
   /** 用户自定义提示，拼进 system prompt */
   customPrompt?: string;
   /** 发言意愿配置（意愿闸调节；缺省=群聊按默认闸、私聊必回）。 */

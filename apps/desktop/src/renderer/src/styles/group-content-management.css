@@ -117,6 +117,10 @@
 .weq-todo-content .weq-content-toolbar {
   margin-bottom: 6px;
 }
+.weq-todo-content .weq-todo-empty {
+  min-height: 0;
+  padding: 18px 0;
+}
 .weq-todo-list {
   list-style: none;
   margin: 0;
