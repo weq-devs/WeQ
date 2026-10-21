@@ -43,6 +43,9 @@ interface StatusWire {
   enabled: boolean;
   engine: 'api' | 'local';
   providerRef: { providerId: string; model: string } | null;
+  suggestionProviderRef: { providerId: string; model: string } | null;
+  suggestionApiConfigured: boolean;
+  lastSuggestionApiError?: string | null;
   suggestionsEnabled: boolean;
   analyzeAfterSelf: boolean;
   suggestAfterSelf: boolean;
@@ -96,6 +99,15 @@ export function IntentSenseSection({
   const s = status.data as StatusWire | undefined;
   const providerList = ((providers.data ?? []) as ProviderWire[]).filter(
     (p) => p.models.length > 0,
+  );
+  const suggestionModels = providerList.flatMap((provider) =>
+    provider.models
+      .filter((model) => !model.capabilities || model.capabilities.includes('chat'))
+      .map((model) => ({
+        key: JSON.stringify([provider.id, model.id]),
+        label: `${provider.name} · ${model.label ?? model.id}`,
+        ref: { providerId: provider.id, model: model.id },
+      })),
   );
   const local = localEngine.data as LocalEngineWire | undefined;
   const savedAnalysis = s?.analysisContextMessages ?? DEFAULT_ANALYSIS_CONTEXT_MESSAGES;
@@ -177,20 +189,11 @@ export function IntentSenseSection({
         {suggestionsPage ? (
           <Row
             label="回复建议"
-            desc={
-              s?.engine === 'api'
-                ? '在输入框上方生成 3 条候选回复（API 生成，离线时自动回落本地意图候选）。'
-                : '基于对方最新消息的意图与情绪，在输入框上方推荐 3 条候选回复。'
-            }
+            desc={'所选 API 生成候选回复；不可用时只保留规则候选，不使用本地模型生成文字。'}
             control={
               <Toggle
                 checked={!!s?.suggestionsEnabled}
-                disabled={
-                  status.isLoading ||
-                  setConfig.isLoading ||
-                  !s?.enabled ||
-                  (s?.engine === 'api' ? !s?.apiConfigured : !local?.modelDownloaded)
-                }
+                disabled={status.isLoading || setConfig.isLoading || !s?.enabled}
                 onChange={(next) => void patch({ suggestionsEnabled: next })}
                 label="回复建议"
               />
@@ -242,9 +245,43 @@ export function IntentSenseSection({
         ) : null}
         {suggestionsPage ? (
           <Row
-            label="引擎"
-            desc={`${s?.engine === 'api' ? 'API' : '本地模型'} · 沿用意图感知所选引擎${s?.enabled ? '' : '；意图感知尚未启用'}`}
-            control={null}
+            label="推荐回复 API 模型"
+            desc={
+              s?.lastSuggestionApiError
+                ? `最近调用失败：${s.lastSuggestionApiError}`
+                : !s?.enabled
+                  ? '意图功能总开关尚未启用'
+                  : undefined
+            }
+            control={
+              <select
+                className="weq-set-input"
+                aria-label="推荐回复 API 模型"
+                value={
+                  s?.suggestionProviderRef
+                    ? JSON.stringify([
+                        s.suggestionProviderRef.providerId,
+                        s.suggestionProviderRef.model,
+                      ])
+                    : ''
+                }
+                disabled={status.isLoading || setConfig.isLoading}
+                onChange={(event) =>
+                  void patch({
+                    suggestionProviderRef:
+                      suggestionModels.find((model) => model.key === event.target.value)?.ref ??
+                      null,
+                  })
+                }
+              >
+                <option value="">未选择（仅规则候选）</option>
+                {suggestionModels.map((model) => (
+                  <option key={model.key} value={model.key}>
+                    {model.label}
+                  </option>
+                ))}
+              </select>
+            }
           />
         ) : null}
       </Card>

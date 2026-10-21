@@ -197,6 +197,7 @@ describe('IntentSenseService', () => {
       enabled: true,
       providerRef: { providerId: 'fixture', model: 'fixture' },
       suggestionsEnabled: true,
+      suggestionProviderRef: { providerId: 'fixture', model: 'fixture' },
       analysisContextMessages: 0,
       suggestionContextMessages: 1,
     });
@@ -263,6 +264,7 @@ describe('IntentSenseService', () => {
       enabled: true,
       providerRef: { providerId: 'fixture', model: 'fixture' },
       suggestionsEnabled: true,
+      suggestionProviderRef: { providerId: 'fixture', model: 'fixture' },
     });
     expect(await svc.getSuggestions('c2c', 'u_peer')).toHaveLength(1);
     msgs.push(textMsg(2n, 'u_self', '合成自己回复', 1020));
@@ -300,6 +302,7 @@ describe('IntentSenseService', () => {
       enabled: true,
       providerRef: { providerId: 'fixture', model: 'fixture' },
       suggestionsEnabled: true,
+      suggestionProviderRef: { providerId: 'fixture', model: 'fixture' },
     });
     const pending = svc.getSuggestions('c2c', 'u_peer');
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -559,6 +562,7 @@ describe('IntentSenseService', () => {
       engine: 'api',
       providerRef: { providerId: 'fixture', model: 'fixture' },
       suggestionsEnabled: true,
+      suggestionProviderRef: { providerId: 'fixture', model: 'fixture' },
       suggestionContextMessages: 1,
     });
     const oldReply = svc.getSuggestions('c2c', 'u_peer');

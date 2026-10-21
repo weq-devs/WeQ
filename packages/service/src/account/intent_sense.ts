@@ -117,7 +117,9 @@ export interface IntentSenseConfig {
   engine: 'api' | 'local';
   /** api 引擎用的 provider 引用（与 agentlab provider 目录同一套）。 */
   providerRef: AgentLabModelRef | null;
-  /** 回复建议开关（仅 api 引擎有效）。 */
+  /** 推荐回复独立使用的 API 模型，不跟随分析引擎或本地模型。 */
+  suggestionProviderRef: AgentLabModelRef | null;
+  /** 回复建议开关；生成式回复使用 API，失败时保留规则候选兜底。 */
   suggestionsEnabled: boolean;
   /** 最新消息为自己发送时是否自动分析，旧配置默认开启。 */
   analyzeAfterSelf: boolean;
@@ -138,6 +140,8 @@ export interface IntentSenseStatus extends IntentSenseConfig {
   suggestionRevision: number;
   /** resolveEndpoint + providerRef 都就绪，api 引擎可用。 */
   apiConfigured: boolean;
+  suggestionApiConfigured: boolean;
+  lastSuggestionApiError?: string | null;
   /** local 引擎端口已注入（桌面版有，web 版没有）。 */
   localAvailable: boolean;
   /** local 引擎 worker 已启动且模型加载完成（分析真正可跑）。 */
@@ -150,6 +154,7 @@ const DEFAULT_CONFIG: IntentSenseConfig = {
   enabled: false,
   engine: 'api',
   providerRef: null,
+  suggestionProviderRef: null,
   suggestionsEnabled: false,
   analyzeAfterSelf: true,
   suggestAfterSelf: false,
@@ -446,22 +451,33 @@ export class IntentSenseService {
   private apiCooldownUntil = 0;
   /** 最近一次 API 请求失败信息（供设置面板提示用户排查网络/Provider）。 */
   private lastApiError: string | null = null;
+  private suggestionApiCooldownUntil = 0;
+  private lastSuggestionApiError: string | null = null;
 
   constructor(
     private readonly session: AccountSession,
     private readonly storeDir: string,
     private readonly opts: IntentSenseOptions = {},
   ) {
+    let migrateSuggestionRef = false;
     this.configStore = new JsonStore(`${storeDir}/config.json`, () => ({ ...DEFAULT_CONFIG }), {
       normalize: (raw) => {
         const p = (raw ?? {}) as Partial<IntentSenseConfig>;
         const ref = p.providerRef as AgentLabModelRef | null | undefined;
+        migrateSuggestionRef = p.suggestionProviderRef === undefined;
+        const suggestionRef = migrateSuggestionRef ? ref : p.suggestionProviderRef;
         return {
           enabled: p.enabled === true,
           engine: p.engine === 'local' ? 'local' : 'api',
           providerRef:
             ref && typeof ref.providerId === 'string' && typeof ref.model === 'string'
               ? { providerId: ref.providerId, model: ref.model }
+              : null,
+          suggestionProviderRef:
+            suggestionRef &&
+            typeof suggestionRef.providerId === 'string' &&
+            typeof suggestionRef.model === 'string'
+              ? { providerId: suggestionRef.providerId, model: suggestionRef.model }
               : null,
           suggestionsEnabled: p.suggestionsEnabled === true,
           analyzeAfterSelf: p.analyzeAfterSelf !== false,
@@ -484,6 +500,7 @@ export class IntentSenseService {
         };
       },
     });
+    if (migrateSuggestionRef) this.configStore.save();
   }
 
   // ── 配置与状态 ───────────────────────────────────────────────────────────
@@ -498,6 +515,8 @@ export class IntentSenseService {
       analysisRevision: this.analysisRevision,
       suggestionRevision: this.suggestionRevision,
       apiConfigured: !!this.opts.resolveEndpoint && !!this.config.providerRef,
+      suggestionApiConfigured: !!this.opts.resolveEndpoint && !!this.config.suggestionProviderRef,
+      lastSuggestionApiError: this.lastSuggestionApiError,
       localAvailable: !!this.opts.localEngine,
       localReady: !!this.opts.localEngine?.ready,
       lastApiError: this.lastApiError,
@@ -513,6 +532,12 @@ export class IntentSenseService {
     if (patch.providerRef !== undefined) {
       next.providerRef =
         patch.providerRef?.providerId && patch.providerRef.model ? { ...patch.providerRef } : null;
+    }
+    if (patch.suggestionProviderRef !== undefined) {
+      next.suggestionProviderRef =
+        patch.suggestionProviderRef?.providerId && patch.suggestionProviderRef.model
+          ? { ...patch.suggestionProviderRef }
+          : null;
     }
     if (typeof patch.suggestionsEnabled === 'boolean') {
       next.suggestionsEnabled = patch.suggestionsEnabled;
@@ -535,6 +560,8 @@ export class IntentSenseService {
     }
     if (
       analysisChanged ||
+      next.suggestionProviderRef?.providerId !== this.config.suggestionProviderRef?.providerId ||
+      next.suggestionProviderRef?.model !== this.config.suggestionProviderRef?.model ||
       next.suggestionContextMessages !== this.config.suggestionContextMessages ||
       next.suggestAfterSelf !== this.config.suggestAfterSelf
     ) {
@@ -543,6 +570,8 @@ export class IntentSenseService {
     }
     this.apiCooldownUntil = 0;
     this.lastApiError = null;
+    this.suggestionApiCooldownUntil = 0;
+    this.lastSuggestionApiError = null;
     this.configStore.data = next;
     this.configStore.save();
     return this.getStatus();
@@ -565,6 +594,8 @@ export class IntentSenseService {
     this.suggestionCache.clear();
     this.apiCooldownUntil = 0;
     this.lastApiError = null;
+    this.suggestionApiCooldownUntil = 0;
+    this.lastSuggestionApiError = null;
     const analysisDir = join(this.storeDir, 'analysis');
     if (existsSync(analysisDir)) {
       try {
@@ -906,10 +937,12 @@ export class IntentSenseService {
 
   // ── API 引擎 ─────────────────────────────────────────────────────────────
 
-  private endpoint(): AgentLabEndpoint | null {
-    if (!this.opts.resolveEndpoint || !this.config.providerRef) return null;
+  private endpoint(
+    ref: AgentLabModelRef | null = this.config.providerRef,
+  ): AgentLabEndpoint | null {
+    if (!this.opts.resolveEndpoint || !ref) return null;
     try {
-      return this.opts.resolveEndpoint(this.config.providerRef);
+      return this.opts.resolveEndpoint(ref);
     } catch {
       return null;
     }
@@ -1321,7 +1354,12 @@ export class IntentSenseService {
   // ── 回复建议（API 引擎优先 + 本地意图候选兜底）─────────────────────────────
 
   async getSuggestions(kind: IntentConversationKind, conv: string): Promise<ReplySuggestion[]> {
-    if (!this.effectiveFor(kind, conv) || !this.config.suggestionsEnabled) return [];
+    if (
+      !this.config.enabled ||
+      this.config.conversationOverrides[conversationKey(kind, conv)] === false ||
+      !this.config.suggestionsEnabled
+    )
+      return [];
     const revision = this.suggestionRevision;
     const contextMessages = this.config.suggestionContextMessages;
     const current = () => revision === this.suggestionRevision;
@@ -1368,12 +1406,8 @@ export class IntentSenseService {
     };
     const fallbackAfterRequest = async () => ((await stillLatestPeer()) ? fallbackLocal() : []);
 
-    if (this.config.engine === 'local') {
-      return fallbackLocal();
-    }
-
-    const endpoint = this.endpoint();
-    if (!endpoint || Date.now() < this.apiCooldownUntil) {
+    const endpoint = this.endpoint(this.config.suggestionProviderRef);
+    if (!endpoint || Date.now() < this.suggestionApiCooldownUntil) {
       return fallbackLocal();
     }
     const baseUrl = endpoint.baseUrl.replace(/\/+$/, '');
@@ -1401,6 +1435,7 @@ export class IntentSenseService {
       });
       if (!current()) return [];
       if (!(await stillLatestPeer())) return [];
+      this.lastSuggestionApiError = null;
       const parsed = extractJsonBlock(pickMessageText(body.choices?.[0]?.message)) as {
         replies?: unknown[];
       } | null;
@@ -1418,7 +1453,8 @@ export class IntentSenseService {
       return suggestions;
     } catch (error) {
       if (!current()) return [];
-      this.apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
+      this.suggestionApiCooldownUntil = Date.now() + API_COOLDOWN_MS;
+      this.lastSuggestionApiError = error instanceof Error ? error.message : String(error);
       logger.debug('intent-sense suggestions failed', {
         event: 'intent-sense-suggestions-failed',
         ...logErrorContext(error),

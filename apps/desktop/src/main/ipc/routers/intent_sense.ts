@@ -49,6 +49,10 @@ const configPatch = z.object({
     .object({ providerId: z.string().min(1), model: z.string().min(1) })
     .nullable()
     .optional(),
+  suggestionProviderRef: z
+    .object({ providerId: z.string().min(1), model: z.string().min(1) })
+    .nullable()
+    .optional(),
   suggestionsEnabled: z.boolean().optional(),
   analyzeAfterSelf: z.boolean().optional(),
   suggestAfterSelf: z.boolean().optional(),
