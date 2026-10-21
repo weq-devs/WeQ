@@ -804,7 +804,7 @@ describe('decodeMessage 简化消息解码', () => {
       {
         kind: 'reply',
         origMsgSeq: 1553,
-        origMsgIndex: 1553,
+        origClientSeq: 1553,
         origSenderUin: 1707889225,
         origMsgTime: 1787607889,
         origSenderUid: 'u_mGIBTBW7gF4Wocw8zapc6w',

@@ -51,9 +51,15 @@ export function formatNumber(n: number): string {
 }
 
 export function formatDate(ts: number | null): string {
-  if (!ts) return '-';
+  if (!ts || !Number.isFinite(ts) || ts < 0) return '-';
   const d = new Date(ts * 1000);
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+  if (!Number.isFinite(d.getTime())) return '-';
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+  }).format(d);
 }
 
 /** Human-readable duration from seconds: 12秒 / 3分20秒 / 1.5小时 / 2天. */

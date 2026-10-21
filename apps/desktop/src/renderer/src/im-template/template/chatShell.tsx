@@ -1,5 +1,11 @@
 ﻿// @ts-nocheck
 import type { CSSProperties, ReactNode } from 'react';
+import { TitleBarSearch } from '../../components/TitleBarSearch';
+import {
+  useWorkspaceMainPageOpen,
+  useWorkspacePageOpen,
+  useWorkspaceSidecarOpen,
+} from '../../components/WorkspacePages';
 import { cn } from './classNames';
 import { AppRail } from './rail';
 import { SidebarHeader, SidebarResizeHandle } from './sidebar';
@@ -16,32 +22,30 @@ export function ChatShell({
   sidebarWidth,
   mainOpen,
   messageBadgeCount,
+  onMessageBadgeClick,
   contactBadgeCount,
+  mailBadgeCount,
   showTools = true,
   railFooterContent,
   friendNoticeCount,
   groupNoticeCount,
   searchPanel,
   onSearchFocus,
+  onSearchReturn,
   sidebarContent,
   mainContent,
   children,
   onViewChange,
   onOpenSettings,
   onOpenCollection,
-  onOpenMarketBrowser,
   onOpenDressUp,
   onOpenProfile,
   onOpenAbout,
-  onOpenHelp,
-  onOpenHelp: _onOpenHelp, // Not used but kept for interface consistency
   onOpenInvite,
   onOpenWonderfulTools,
   onOpenAntiRecall,
   onOpenDbRepair,
-  onOpenGuildDirect,
   onOpenQzoneAlbum,
-  onOpenMergeForward,
   onQueryChange,
   onQuickInvite,
   onCreateGroup,
@@ -52,6 +56,7 @@ export function ChatShell({
   refreshingContacts,
   onSidebarWidthChange,
   onGoHome,
+  activeRailItem,
 }: {
   user: User;
   view: MainView;
@@ -61,32 +66,31 @@ export function ChatShell({
   sidebarWidth: number;
   mainOpen: boolean;
   messageBadgeCount: number;
+  onMessageBadgeClick?: () => void;
   contactBadgeCount: number;
+  mailBadgeCount?: number;
   showTools?: boolean;
-  railFooterContent?: ReactNode;
+  railFooterContent?: ReactNode | ((settingsButton: ReactNode) => ReactNode);
   friendNoticeCount: number;
   groupNoticeCount: number;
   /** 搜索框下方的浮层（统一搜索下拉 / 最近搜索）。 */
   searchPanel?: ReactNode;
   onSearchFocus?: () => void;
+  onSearchReturn?: () => boolean;
   sidebarContent: ReactNode;
   mainContent: ReactNode;
   children?: ReactNode;
   onViewChange: (view: MainView) => void;
   onOpenSettings: (tab?: SettingsTab) => void;
   onOpenCollection: () => void;
-  onOpenMarketBrowser: () => void;
   onOpenDressUp: () => void;
   onOpenProfile: () => void;
   onOpenAbout: () => void;
-  onOpenHelp: () => void;
   onOpenInvite: () => void;
   onOpenWonderfulTools: () => void;
   onOpenAntiRecall: () => void;
   onOpenDbRepair: () => void;
-  onOpenGuildDirect: () => void;
   onOpenQzoneAlbum: () => void;
-  onOpenMergeForward: () => void;
   onQueryChange: (query: string) => void;
   onQuickInvite: () => void;
   onCreateGroup: () => void;
@@ -97,51 +101,71 @@ export function ChatShell({
   refreshingContacts?: boolean;
   onSidebarWidthChange: (width: number) => void;
   onGoHome?: () => void;
+  activeRailItem?: 'settings' | 'dressup';
 }) {
+  const pageOpen = useWorkspacePageOpen();
+  const mainPageOpen = useWorkspaceMainPageOpen();
+  const sidecarOpen = useWorkspaceSidecarOpen();
+  const sidebarHidden = mainPageOpen || (view === 'messages' && sidecarOpen);
   const shellStyle = {
-    '--sidebar-width': `${sidebarWidth}px`,
+    '--sidebar-width': `${sidebarHidden ? 0 : sidebarWidth}px`,
   } as CSSProperties;
 
   return (
     <div className={cn('app-shell-root', IS_MAC && 'is-mac')}>
-      <TitleBar user={user} homeActive={view === 'home'} onGoHome={onGoHome} />
+      <TitleBar
+        user={user}
+        homeActive={view === 'home'}
+        onGoHome={onGoHome}
+        search={
+          <TitleBarSearch
+            query={query}
+            onQueryChange={onQueryChange}
+            onSearchFocus={onSearchFocus}
+            onReturn={onSearchReturn}
+            results={searchPanel}
+          />
+        }
+      />
       <div className={cn('app-shell', view === 'tools' && 'app-shell-tools')} style={shellStyle}>
         <AppRail
           user={user}
+          activeRailItem={activeRailItem}
           view={view}
           onViewChange={onViewChange}
           onOpenSettings={onOpenSettings}
           onOpenCollection={onOpenCollection}
-          onOpenMarketBrowser={onOpenMarketBrowser}
           onOpenDressUp={onOpenDressUp}
           onOpenProfile={onOpenProfile}
           onOpenAbout={onOpenAbout}
-          onOpenHelp={onOpenHelp}
           onOpenInvite={onOpenInvite}
           onOpenWonderfulTools={onOpenWonderfulTools}
           onOpenAntiRecall={onOpenAntiRecall}
           onOpenDbRepair={onOpenDbRepair}
-          onOpenGuildDirect={onOpenGuildDirect}
           onOpenQzoneAlbum={onOpenQzoneAlbum}
-          onOpenMergeForward={onOpenMergeForward}
           messageBadgeCount={messageBadgeCount}
+          onMessageBadgeClick={onMessageBadgeClick}
           contactBadgeCount={contactBadgeCount}
+          mailBadgeCount={mailBadgeCount}
           showTools={showTools}
           footerContent={railFooterContent}
           hideAvatar={true}
         />
         <aside
+          hidden={sidebarHidden}
           className={cn(
             'sidebar',
             view === 'home' && 'is-home-view',
             view === 'agentlab' && 'is-agentlab-view',
             view === 'cache' && 'is-cache-view',
             view === 'qzone' && 'is-qzone-view',
+            view === 'mail' && 'is-mail-view',
             view === 'channel' && 'is-channel-view',
           )}
         >
           <SidebarHeader
             user={user}
+            showSearch={false}
             view={view}
             query={query}
             onQueryChange={onQueryChange}
@@ -164,8 +188,12 @@ export function ChatShell({
             {sidebarContent}
           </div>
         </aside>
-        <SidebarResizeHandle width={sidebarWidth} onWidthChange={onSidebarWidthChange} />
-        <main className={cn('chat-main', mainOpen && 'chat-main-open')}>{mainContent}</main>
+        {!sidebarHidden && (
+          <SidebarResizeHandle width={sidebarWidth} onWidthChange={onSidebarWidthChange} />
+        )}
+        <main className={cn('chat-main', (mainOpen || pageOpen) && 'chat-main-open')}>
+          {mainContent}
+        </main>
       </div>
       {children}
     </div>

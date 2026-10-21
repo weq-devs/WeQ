@@ -21,7 +21,9 @@ import {
 import { randomUUID } from 'node:crypto';
 import { basename, extname, join, resolve, sep } from 'node:path';
 import {
-  reportUsage,
+  fetchApi,
+  isApiCancellation,
+  apiErrorMessage,
   pickMessageText,
   type AgentLabEndpoint,
   type AgentLabModelRef,
@@ -375,6 +377,7 @@ interface ApiMessage {
 
 /** OpenAI 兼容流式响应的一片（`data: {...}`）；只声明我们会读的字段。 */
 interface StreamChunk {
+  error?: unknown;
   choices?: Array<{
     delta?: {
       content?: unknown;
@@ -806,12 +809,18 @@ export class AssistantService {
   }
 
   /**
-   * 让模型用一句短语概括对话主题，作为会话标题。轻量调用（无工具、不记账），
+   * 让模型用一句短语概括对话主题，作为会话标题。轻量调用（无工具），
    * 失败/为空时返回 ''（上层保留占位标题）。
    */
   private async generateTitle(userText: string, reply: string): Promise<string> {
     if (!this.config.model) return '';
-    const endpoint: AgentLabEndpoint = { ...this.resolveEndpoint(this.config.model), kind: 'chat' };
+    const endpoint: AgentLabEndpoint = {
+      ...this.resolveEndpoint(this.config.model),
+      kind: 'chat',
+      feature: 'assistant-title',
+      onUsage: (u) =>
+        this.usage.record({ ...u, ts: u.startedAt ?? Date.now(), scope: 'assistant' }),
+    };
     const data = await this.callApi(
       endpoint,
       [
@@ -849,13 +858,9 @@ export class AssistantService {
       kind: 'chat',
       onUsage: (u: AgentLabUsage) =>
         this.usage.record({
-          ts: Date.now(),
-          model: u.model,
-          kind: u.kind,
+          ...u,
+          ts: u.startedAt ?? Date.now(),
           scope: 'assistant',
-          promptTokens: u.promptTokens,
-          completionTokens: u.completionTokens,
-          totalTokens: u.totalTokens,
         }),
     };
 
@@ -1073,7 +1078,7 @@ export class AssistantService {
     let summary = '';
     try {
       const data = await this.callApi(
-        endpoint,
+        { ...endpoint, feature: 'assistant-summary' },
         [
           { role: 'system', content: summarySystemPrompt() },
           { role: 'user', content: userContent },
@@ -1347,7 +1352,7 @@ export class AssistantService {
     specs: AssistantToolSpec[],
     options: { maxTokens?: number } = {},
   ): Promise<{ choices?: Array<{ message?: ApiMessage }>; usage?: unknown }> {
-    const res = await fetch(`${endpoint.baseUrl}/chat/completions`, {
+    const { response: res, usage } = await fetchApi(endpoint, '/chat/completions', {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
       body: JSON.stringify({
@@ -1358,11 +1363,27 @@ export class AssistantService {
         ...(specs.length ? { tools: specs, tool_choice: 'auto' } : {}),
       }),
     });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(httpErrorMessage(res.status, detail));
+    try {
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        try {
+          usage.report(JSON.parse(detail));
+        } catch {}
+        throw new Error(httpErrorMessage(res.status, detail));
+      }
+      const data = (await res.json()) as {
+        choices?: Array<{ message?: ApiMessage }>;
+        usage?: unknown;
+      };
+      usage.report(data);
+      const error = apiErrorMessage(data);
+      if (error) throw new Error(`模型服务错误：${error}`);
+      usage.finish('success');
+      return data;
+    } catch (error) {
+      usage.finish('failed');
+      throw error;
     }
-    return (await res.json()) as { choices?: Array<{ message?: ApiMessage }>; usage?: unknown };
   }
 
   /**
@@ -1395,13 +1416,34 @@ export class AssistantService {
         ...(specs.length ? { tools: specs, tool_choice: 'auto' } : {}),
       });
 
-    const post = (reasoning: boolean): Promise<Response> =>
-      fetch(`${endpoint.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
-        body: buildBody(reasoning),
-        signal,
-      });
+    let accounting: Awaited<ReturnType<typeof fetchApi>>['usage'] | undefined;
+    const post = async (reasoning: boolean): Promise<Response> => {
+      accounting?.finish('failed');
+      const result = await fetchApi(
+        endpoint,
+        '/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${endpoint.apiKey}`,
+          },
+          body: buildBody(reasoning),
+          signal,
+        },
+        true,
+      );
+      accounting = result.usage;
+      return result.response;
+    };
+    const rejectResponse = async (response: Response) => {
+      const detail = await response.text().catch(() => '');
+      try {
+        accounting?.report(JSON.parse(detail));
+      } catch {}
+      accounting?.finish('failed');
+      return detail;
+    };
 
     let res: Response;
     try {
@@ -1409,22 +1451,25 @@ export class AssistantService {
       // provider 不识别 reasoning_effort → 400：去掉重试一次，并记住本进程内别再带。
       if (!res.ok && res.status === 400 && withReasoning) {
         this.reasoningUnsupported = true;
+        await rejectResponse(res);
         res = await post(false);
       }
       // 429 限流/额度：退避 ~1.5s（可被停止打断）后重试一次；仍失败则落到下面的分类报错。
       if (res.status === 429) {
+        await rejectResponse(res);
         await sleep(1500, signal);
         res = await post(withReasoning && !this.reasoningUnsupported);
       }
     } catch (error) {
       // 用户取消（AbortError）原样放行，交给上层 aborted 分支；其余多为网络层失败（fetch 抛 TypeError）。
+      accounting?.finish(isApiCancellation(error, signal) ? 'cancelled' : 'failed');
       if (error instanceof Error && error.name === 'AbortError') throw error;
       throw new Error(
         `网络连接失败：无法连接到模型服务（${hostOf(endpoint.baseUrl)}），请检查网络或服务地址是否正确。`,
       );
     }
     if (!res.ok || !res.body) {
-      const detail = await res.text().catch(() => '');
+      const detail = await rejectResponse(res);
       throw new Error(httpErrorMessage(res.status, detail));
     }
 
@@ -1432,7 +1477,6 @@ export class AssistantService {
     let reasoning = '';
     // 按 index 累积的工具调用槽（流式下 arguments 是逐片拼接的）。
     const toolSlots = new Map<number, { id: string; name: string; args: string }>();
-    let usage: unknown;
 
     // 消费一个完整 SSE 事件（可能含多行；只认 `data:` 行）。
     const consumeEvent = (rawEvent: string): void => {
@@ -1447,7 +1491,9 @@ export class AssistantService {
         } catch {
           continue; // 半个 JSON（理论上被事件切分保护，兜底跳过）
         }
-        if (chunk.usage) usage = chunk.usage;
+        if (chunk.usage) accounting?.report({ usage: chunk.usage });
+        const error = apiErrorMessage(chunk);
+        if (error) throw new Error(`模型服务错误：${error}`);
         const delta = chunk.choices?.[0]?.delta;
         if (!delta) continue;
         if (typeof delta.content === 'string' && delta.content) {
@@ -1487,11 +1533,13 @@ export class AssistantService {
       }
       // 流结束后残留的最后一个事件（provider 未补尾部空行时）。
       if (buffer.trim()) consumeEvent(buffer);
+      accounting?.finish('success');
+    } catch (error) {
+      accounting?.finish(isApiCancellation(error, signal) ? 'cancelled' : 'failed');
+      throw error;
     } finally {
       reader.releaseLock();
     }
-
-    if (usage) reportUsage(endpoint, { usage });
 
     const toolCalls = [...toolSlots.entries()]
       .sort((a, b) => a[0] - b[0])

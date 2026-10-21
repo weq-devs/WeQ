@@ -1,6 +1,7 @@
 import { TipGroupElementType } from '@weq/codec';
-import type { Conversation, GroupMember, Message } from '../im-template/template/types';
+import type { Conversation, GroupMember, Message, User } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
+import { GrayTipPerson } from './GrayTipPerson';
 
 interface GrayTipGroupMessageProps {
   element: {
@@ -8,8 +9,10 @@ interface GrayTipGroupMessageProps {
     data?: {
       groupTipType?: number;
       user1Nick?: string;
+      user1Uid?: string;
       user1GroupNick?: string;
       user2Nick?: string;
+      user2Uid?: string;
       user2GroupNick?: string;
       groupTipGroupName?: string;
       muteInfo?: {
@@ -20,8 +23,9 @@ interface GrayTipGroupMessageProps {
       };
     };
   };
-  conversation: Conversation;
-  message: Message;
+  conversation?: Conversation;
+  message?: Message;
+  user?: User;
 }
 
 function formatMuteDuration(seconds: number): string {
@@ -41,31 +45,47 @@ function Tip({ children }: { children: React.ReactNode }) {
 }
 
 function Name({ children }: { children: React.ReactNode }) {
-  return <span className="text-blue-500">{children}</span>;
+  return <span className="weq-graytip-accent">{children}</span>;
 }
 
-export function GrayTipGroupMessage({ element, conversation, message }: GrayTipGroupMessageProps) {
+export function GrayTipGroupMessage({
+  element,
+  conversation,
+  message,
+  user,
+}: GrayTipGroupMessageProps) {
   const {
     groupTipType,
     user1Nick,
+    user1Uid,
     user1GroupNick,
     user2Nick,
+    user2Uid,
     user2GroupNick,
     groupTipGroupName,
     muteInfo,
   } = element.data || {};
   const user1Display = user1GroupNick || user1Nick;
   const user2Display = user2GroupNick || user2Nick;
+  const person = (identity: string | undefined, name: string | undefined, alias?: string) => (
+    <GrayTipPerson
+      identities={[identity, alias]}
+      name={name ?? ''}
+      conversation={conversation}
+      message={message}
+      user={user}
+    />
+  );
 
   // 构建成员映射
   const memberMap = new Map<string, GroupMember>();
-  if (message.sender) {
+  if (message?.sender) {
     memberMap.set(message.sender.id, message.sender as GroupMember);
     if (message.sender.identityValue) {
       memberMap.set(message.sender.identityValue, message.sender as GroupMember);
     }
   }
-  if (conversation.type === 'group') {
+  if (conversation?.type === 'group') {
     conversation.members.forEach((m) => {
       memberMap.set(m.id, m);
       if (m.identityValue) {
@@ -79,7 +99,7 @@ export function GrayTipGroupMessage({ element, conversation, message }: GrayTipG
       if (!user1Display) return null;
       return (
         <Tip>
-          <Name>{user1Display}</Name>
+          {person(user1Uid, user1Display)}
           <span className="px-1">加入了群聊</span>
         </Tip>
       );
@@ -96,7 +116,7 @@ export function GrayTipGroupMessage({ element, conversation, message }: GrayTipG
       if (!user1Display) return null;
       return (
         <Tip>
-          <Name>{user1Display}</Name>
+          {person(user1Uid, user1Display)}
           <span className="px-1">已将你移出群聊</span>
         </Tip>
       );
@@ -104,7 +124,7 @@ export function GrayTipGroupMessage({ element, conversation, message }: GrayTipG
     case TipGroupElementType.KCREATED:
       return (
         <Tip>
-          {user1Display ? <Name>{user1Display}</Name> : null}
+          {user1Display ? person(user1Uid, user1Display) : null}
           <span className="px-1">创建了群聊{groupTipGroupName ? ` ${groupTipGroupName}` : ''}</span>
         </Tip>
       );
@@ -112,7 +132,7 @@ export function GrayTipGroupMessage({ element, conversation, message }: GrayTipG
     case TipGroupElementType.KGROUPNAMEMODIFIED:
       return (
         <Tip>
-          {user1Display ? <Name>{user1Display}</Name> : null}
+          {user1Display ? person(user1Uid, user1Display) : null}
           <span className="px-1">修改群名为</span>
           <Name>{groupTipGroupName || '新群名'}</Name>
         </Tip>
@@ -123,9 +143,9 @@ export function GrayTipGroupMessage({ element, conversation, message }: GrayTipG
       const action = groupTipType === TipGroupElementType.KBLOCK ? '加入了黑名单' : '移出了黑名单';
       return (
         <Tip>
-          {user1Display ? <Name>{user1Display}</Name> : null}
+          {user1Display ? person(user1Uid, user1Display) : null}
           <span className="px-1">将</span>
-          <Name>{user2Display || '某成员'}</Name>
+          {person(user2Uid, user2Display || '某成员')}
           <span className="px-1">{action}</span>
         </Tip>
       );
@@ -135,13 +155,13 @@ export function GrayTipGroupMessage({ element, conversation, message }: GrayTipG
     case TipGroupElementType.KSHUTUP: {
       if (!muteInfo) return null;
       const duration = muteInfo.duration || 0;
-      const operatorUid = muteInfo.operator?.uid;
+      const operatorUid = muteInfo.operator?.uid || user1Uid;
       const operatorMember = operatorUid ? memberMap.get(operatorUid) : null;
       const operatorNick = operatorMember
         ? displayUserName(operatorMember)
         : user1GroupNick || operatorUid;
 
-      const targetUid = muteInfo.mutedUser?.uid;
+      const targetUid = muteInfo.mutedUser?.uid || user2Uid;
       const targetMember = targetUid ? memberMap.get(targetUid) : null;
       const targetNick =
         muteInfo.mutedUser?.groupNick ||
@@ -150,23 +170,23 @@ export function GrayTipGroupMessage({ element, conversation, message }: GrayTipG
       if (!targetNick) {
         return (
           <Tip>
-            <Name>{operatorNick}</Name>
+            {person(operatorUid, operatorNick, user1Uid)}
             <span> {duration > 0 ? '开启' : '关闭'}了全员禁言</span>
           </Tip>
         );
       }
       return duration > 0 ? (
         <Tip>
-          <Name>{targetNick}</Name>
+          {person(targetUid, targetNick, user2Uid)}
           <span> 被 </span>
-          <Name>{operatorNick}</Name>
+          {person(operatorUid, operatorNick, user1Uid)}
           <span> 禁言了{formatMuteDuration(duration)}</span>
         </Tip>
       ) : (
         <Tip>
-          <Name>{operatorNick}</Name>
+          {person(operatorUid, operatorNick, user1Uid)}
           <span> 结束了 </span>
-          <Name>{targetNick}</Name>
+          {person(targetUid, targetNick, user2Uid)}
           <span> 的禁言</span>
         </Tip>
       );

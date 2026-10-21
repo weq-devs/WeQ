@@ -43,10 +43,12 @@ const consoleLogger: RuntimeLogger = {
  * 从 config 的 ttsProviders 构造 TtsPort（复用下沉到 @weq/agentlab 的 TtsService，纯 fetch）。
  * 门控：只有开了 features.voice 且配了 provider 才启用；否则返回 undefined（克隆体降级纯文字）。
  */
-function buildTtsPort(config: BotConfig): TtsPort | undefined {
+function buildTtsPort(config: BotConfig, stats: StatsStore): TtsPort | undefined {
   const providers = config.ttsProviders ?? [];
   if (!config.features?.voice || providers.length === 0) return undefined;
-  const service = new TtsService();
+  const service = new TtsService((u) =>
+    stats.record({ ...u, ts: u.startedAt ?? Date.now(), scope: 'tts' }),
+  );
   const byId = new Map<string, TtsProviderConfig>(providers.map((p) => [p.id, p]));
   return {
     getCapabilities: (id) => {
@@ -112,7 +114,7 @@ async function boot(
     notes: new JsonNotesStore(join(dataDir, 'notes.json')),
     relations: new JsonRelationStore(join(dataDir, 'relations.json')),
     selfId: config.selfId,
-    tts: buildTtsPort(config),
+    tts: buildTtsPort(config, stats),
     logger: consoleLogger,
   });
 

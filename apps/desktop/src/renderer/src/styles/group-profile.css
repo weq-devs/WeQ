@@ -1,0 +1,3 @@
+.weq-group-profile-layer.weq-nonmodal-layer[tabindex] > .weq-profile-dialog {
+  width: min(360px, calc(100vw - 16px));
+}

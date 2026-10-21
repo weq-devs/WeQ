@@ -23,11 +23,12 @@ import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import { AnnualReportIndexDb } from '@weq/db';
+import { QQMailService, type MailNotice } from '@weq/service/mail';
 import {
   createWin32Platform,
   createLinuxPlatform,
   createDarwinPlatform,
-  isTencentFilesRoot,
+  normalizeQqDataRoot,
   withResourceRoots,
   type Platform,
 } from '@weq/platform';
@@ -39,11 +40,15 @@ import { createReportQzoneCapability } from '../report_qzone';
 import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
 import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
 import { aiToolSpecs, runAssistantTool } from '../mcp/openai_tools';
+import { bindAccountTools, invalidateAccountTools } from '../mcp/account_scope';
+import { cancelAssistantRuns } from '../mcp/assistant_bus';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
 import { sampleHitokoto } from '../hitokoto';
 import { getQqProtocolExe } from './qq_protocol_cache';
+import { searchAccountContent } from '../search_content';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
+import type { IntentLocalEnginePort } from '@weq/service';
 import { resolveLocalOcrFilterModel, runLocalOcrFile, runLocalOcrFilterFile } from '../ocr/local';
 import { OnlineImageOcr } from '../ocr/online';
 import { createLinuxAttachHook } from '../attach_elevation';
@@ -62,6 +67,9 @@ import {
   TtsService,
   getVoiceModel,
   MsgService,
+  getHost,
+  resolveExportSaveDirectory,
+  resolveGeneratedResource,
   RecentContactService,
   HiddenSessionService,
   DraftService,
@@ -85,6 +93,8 @@ import {
   EmojiService,
   MsgSearchService,
   UnifiedSearchService,
+  ContentSearchStore,
+  type GeneratedSearchSources,
   OnlineStatusService,
   AgentLabService,
   AssistantService,
@@ -98,6 +108,7 @@ import {
   ConversationStore,
   DeletedMsgStore,
   AntiRecallService,
+  IntentSenseService,
   DbDecryptService,
   DbExplorerService,
   AvatarResourceService,
@@ -124,6 +135,7 @@ import {
   ChatImageOcrService,
   InteractionService,
   GroupModerationService,
+  AccountWriteService,
   DbWatchService,
   checkAccountDatabaseHealth,
   createNtMsgDbHook,
@@ -268,8 +280,53 @@ let groupKeywordNotifier: ((hit: GroupKeywordHit) => void | Promise<void>) | nul
  * 由 app 层注入 —— app_context 保持 Electron-free（web 端共用它）。
  */
 let recallNotifier: ((event: RecallNotifyEvent) => void) | null = null;
+let mailNotifier: ((uin: string, notice: MailNotice) => void) | null = null;
+export function setMailNotifier(
+  notifier: ((uin: string, notice: MailNotice) => void) | null,
+): void {
+  mailNotifier = notifier;
+}
 /** 当前账号的防撤回 service（仅为了在切换/关闭账号时停掉它的撤回监听）。 */
 let activeAntiRecall: AntiRecallService | null = null;
+
+/** 意图感知本地模型下载进度（bridge 的 BundleProgress，结构化复述保持 electron-free）。 */
+export interface IntentSenseModelProgress {
+  filesDone: number;
+  filesTotal: number;
+  received: number;
+  total: number;
+  currentFile: string | null;
+  done: boolean;
+}
+
+/**
+ * 意图感知本地引擎（Laya ONNX worker）的控制面。实现在 `intent_sense/bridge.ts`
+ * —— 那个文件 import 了 electron，只能由桌面版入口注入；web 端恒为 null
+ *（`intentSense.localAvailable === false`，UI 相应隐藏本地引擎入口）。
+ */
+export interface IntentSenseLocalEngineControl extends IntentLocalEnginePort {
+  listModels?(): Array<{ id: string; name: string; downloaded: boolean; downloadable: boolean }>;
+  modelDir(): string;
+  isModelDownloaded(): boolean;
+  download(options: {
+    mirror: boolean;
+    onProgress?: (p: IntentSenseModelProgress) => void;
+  }): Promise<void>;
+  start(): Promise<void>;
+  stop(): Promise<void>;
+}
+
+let intentSenseLocalEngine: IntentSenseLocalEngineControl | null = null;
+
+/** app 层注入意图感知本地引擎控制面（桌面版启动时调用一次）。 */
+export function setIntentSenseLocalEngine(engine: IntentSenseLocalEngineControl | null): void {
+  intentSenseLocalEngine = engine;
+}
+
+/** 当前注入的本地引擎控制面（未注入 = web / 未初始化）。 */
+export function getActiveIntentSenseLocalEngine(): IntentSenseLocalEngineControl | null {
+  return intentSenseLocalEngine;
+}
 
 /** app 层注入群关键词命中的处理（弹系统通知 + 写高亮）。 */
 export function setGroupKeywordNotifier(
@@ -293,6 +350,8 @@ let accountMonitor: AccountMonitorService | null = null;
 let dbHealthCheckSeq = 0;
 /** Guards against running more than one full health check at a time. */
 let dbHealthCheckRunning = false;
+/** 同一会话持续失败时限制扫描与弹窗频率，避免每个轮询查询都触发一次。 */
+const dbHealthFailureAt = new WeakMap<AccountSession, number>();
 /**
  * 年度报告索引的一次性预热句柄（每次开账号重置）。
  *
@@ -321,7 +380,16 @@ function mountDbWatch(session: AccountSession): void {
     createNtMsgDbHook(session, {
       onDbChanged: emitChanged,
       onNewMessages: (change: NewMessages) => {
+        const ctx = getAppContext();
+        if (ctx.account === session) {
+          try {
+            ctx.services?.unreadInfo.observeNewMessages(change);
+          } catch (error) {
+            console.error('[unread] 保存本地未读状态失败', error);
+          }
+        }
         dbEventBus.emit('new', change);
+        emitChanged(change.file);
       },
     }),
   );
@@ -532,6 +600,8 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
   if (dbHealthCheckRunning) return;
   // Ignore late triggers from a session that has already been replaced/closed.
   if (ctx.account !== session) return;
+  const lastFailure = dbHealthFailureAt.get(session);
+  if (lastFailure !== undefined && Date.now() - lastFailure < 60_000) return;
   dbHealthCheckRunning = true;
   const seq = ++dbHealthCheckSeq;
   const dbDir = platform.ntDbDir(session.context.uin) ?? dirname(session.msgDbPath);
@@ -554,13 +624,18 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
       }
 
       const details = formatDbHealthFailures(failures);
+      const confirmed = failures.some((failure) => !failure.error);
+      dbHealthFailureAt.set(session, Date.now());
       const reportPath = writeDbHealthReport({ failures, uin: session.context.uin, dbDir });
-      logger.error('database corruption confirmed', {
-        event: 'db-health-check-failed',
-        failureCount: failures.length,
-        details,
-        reportPath,
-      });
+      logger.error(
+        confirmed ? 'database corruption confirmed' : 'database health check incomplete',
+        {
+          event: 'db-health-check-failed',
+          failureCount: failures.length,
+          details,
+          reportPath,
+        },
+      );
       if (reminderSuppressed()) {
         logger.info('database damage reminder suppressed', {
           event: 'db-health-reminder-suppressed',
@@ -570,17 +645,19 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
       }
       accountEventBus.emit('forcedClosed', {
         reason: 'database-damaged',
-        kind: 'confirmed',
+        kind: confirmed ? 'confirmed' : 'check-error',
         uin: session.context.uin,
-        title: '数据库损坏',
-        message:
-          '检测到 QQ 数据库损坏，问题出在 QQ 数据库本身，不是 WeQ 软件导致。已生成检查报告，可以按弹窗里的修复方案尝试修复，也可以继续使用。',
+        title: confirmed ? '数据库损坏' : '数据库无法读取',
+        message: confirmed
+          ? '数据库健康检查检出了损坏，已生成检查报告；请保留原件并核对原因后再决定是否修复。'
+          : '数据库健康检查未能完成，尚不能确认文件损坏。请先核对账号数据源、密钥和加密算法，不要直接替换或修复原库。',
         details,
         failures,
         reportPath,
       } satisfies AccountForcedClosedEvent);
     } catch (e) {
       if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
+      dbHealthFailureAt.set(session, Date.now());
       logger.error('database health check crashed', {
         event: 'db-health-check-error',
         ...logErrorContext(e),
@@ -608,20 +685,21 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
         reason: 'database-damaged',
         kind: 'check-error',
         uin: session.context.uin,
-        title: '数据库损坏',
+        title: '数据库无法读取',
         message:
-          '检测 QQ 数据库健康状态时发生错误，为避免继续读取损坏数据，建议尽快修复或备份数据库。问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。',
+          '数据库健康检查未能完成，尚不能确认文件损坏。请先核对数据源、密钥和加密算法，并保留原库。',
         details: formatDbHealthFailures([failure]),
         failures: [failure],
         reportPath,
       } satisfies AccountForcedClosedEvent);
     } finally {
-      dbHealthCheckRunning = false;
+      if (seq === dbHealthCheckSeq) dbHealthCheckRunning = false;
     }
   })();
 }
 
 export interface BootstrapServices {
+  apiUsage: TokenUsageStore;
   detect: Win32DetectService;
   keys: KeyService;
   userConfig: UserConfigService;
@@ -677,6 +755,7 @@ export interface AccountServices {
   profile: ProfileService;
   msgSearch: MsgSearchService;
   unifiedSearch: UnifiedSearchService;
+  contentSearch: ContentSearchStore;
   onlineStatus: OnlineStatusService;
   /** Locate on-disk media (pic/video/ptt/file) for the media protocol. */
   fileSearch: FileSearchService;
@@ -700,6 +779,8 @@ export interface AccountServices {
   dbExplorer: DbExplorerService;
   /** 防撤回：安装/卸载拦截 QQ 撤回的 SQL 触发器 + 按会话选择配置。 */
   antiRecall: AntiRecallService;
+  /** 意图感知：消息意图/情绪分析 + 对方画像 + 回复建议。 */
+  intentSense: IntentSenseService;
   /** Browse the account's local avatar cache (nt_data/avatar/*). */
   avatarResource: AvatarResourceService;
   /** Browse the account's built-in system emoji resource dir. */
@@ -722,6 +803,7 @@ export interface AccountServices {
   resourceCleanup: ResourceCleanupService;
   /** Web CGI queries that need the already-hooked online QQ process. */
   webQuery: WebQueryService;
+  mail: import('@weq/service/mail').QQMailService;
   /** Group album media listing over the already-hooked online QQ process. */
   groupAlbumMedia: GroupAlbumMediaService;
   /** 群文件目录列表 (OIDB 0x6D8_1),同样需要在线的已读取 QQ 内存 进程。 */
@@ -741,6 +823,7 @@ export interface AccountServices {
   interaction: InteractionService;
   /** 会话治理：撤回 + 群管理（改群名片 / 踢人 / 禁言 / 设撤管理员，需在线 QQ 发包）。 */
   groupModeration: GroupModerationService;
+  accountWrite: AccountWriteService;
   /** 闪传浏览 / 下载（匿名 HTTP2RPC，不需 QQ 在线）。 */
   flashTransferFiles: FlashTransferFilesService;
   /** 腾讯位置服务（WebService 只读）：位置卡片的搜索与逆地址解析，不需 QQ 在线。 */
@@ -973,12 +1056,16 @@ export function initAppContext(): AppContext {
   let readUidFromConfig: (uin: string) => string | null = () => null;
   const resolveUid = (uin: string): string | null => uidRegistry.get(uin) ?? readUidFromConfig(uin);
 
+  // SQLite 的保留页现在是按文件（per-Pager）设置的，同一个进程可以同时打开
+  // QQ 库、标准库和解密产物，不再需要拆子进程。
+  const bundle = result.bundle;
+
   const platform =
     process.platform === 'linux'
-      ? createLinuxPlatform(result.bundle, () => readDataRootOverride(), resolveUid)
+      ? createLinuxPlatform(bundle, () => readDataRootOverride(), resolveUid)
       : process.platform === 'darwin'
-        ? createDarwinPlatform(result.bundle, () => readDataRootOverride(), resolveUid)
-        : createWin32Platform(result.bundle, () => readDataRootOverride(), getQqProtocolExe);
+        ? createDarwinPlatform(bundle, () => readDataRootOverride(), resolveUid)
+        : createWin32Platform(bundle, () => readDataRootOverride(), getQqProtocolExe);
   initLogger(platform.appDataRoot());
   const logger = getLogger().child({ scope: 'app-context' });
   logger.info('initializing app context', {
@@ -987,9 +1074,9 @@ export function initAppContext(): AppContext {
     logDir: getLogDir(),
   });
   const userConfig = new UserConfigService(platform);
-  // 词云 / 常用语的分词优先用 QQ 自带结巴词典（进程级单例，读不到就回落到
-  // 内置 Intl.Segmenter）。账号无关、非关键路径，fire-and-forget 即可。
-  void warmJiebaDict(platform.jiebaDictDir());
+  // 词云 / 常用语的分词优先用 QQ 自带结巴词典，读不到时用随包的
+  // resources/jieba（进程级单例）。账号无关、非关键路径，fire-and-forget 即可。
+  void warmJiebaDict([platform.jiebaDictDir(), resolveResource('jieba')]);
   readDataRootOverride = () => userConfig.read().tencentFilesRootOverride ?? null;
   readUidFromConfig = (uin: string): string | null => {
     for (const rec of userConfig.listAccountConfigs()) {
@@ -998,19 +1085,28 @@ export function initAppContext(): AppContext {
     return null;
   };
 
-  // Sanitize a legacy / malformed data-dir override on launch: a stored path
-  // that no longer exists or doesn't end in `Tencent Files` (e.g. an old build
-  // that saved `…\Tencent Files\<uin>`) is dropped so detection re-runs and the
-  // user isn't stuck with a path that silently resolves nothing.
+  // Sanitize the stored data-dir override on launch. Any folder name is fine
+  // (migrated installs often use one), so we only (a) drop a path that no
+  // longer exists so detection re-runs instead of resolving nothing, and
+  // (b) repair a legacy override saved one level too deep — an old build
+  // stored the per-account `…\<uin>` dir instead of the root.
   const storedOverride = userConfig.read().tencentFilesRootOverride ?? null;
-  if (storedOverride && (!existsSync(storedOverride) || !isTencentFilesRoot(storedOverride))) {
+  if (storedOverride && !existsSync(storedOverride)) {
     userConfig.write({ tencentFilesRootOverride: null });
-    logger.warn('cleared invalid Tencent Files override on launch', {
+    logger.warn('cleared missing QQ data dir override on launch', {
       event: 'sanitize-data-root-override',
       override: storedOverride,
-      exists: existsSync(storedOverride),
-      endsWithTencentFiles: isTencentFilesRoot(storedOverride),
     });
+  } else if (storedOverride) {
+    const normalized = normalizeQqDataRoot(storedOverride);
+    if (normalized !== storedOverride) {
+      userConfig.write({ tencentFilesRootOverride: normalized });
+      logger.warn('repaired QQ data dir override on launch', {
+        event: 'sanitize-data-root-override',
+        override: storedOverride,
+        normalized,
+      });
+    }
   }
 
   // 日志保留清理：启动时先按用户设置的保留天数清一轮旧日志，之后每 6 小时兜底一次
@@ -1031,18 +1127,28 @@ export function initAppContext(): AppContext {
       : createDirectAttachHook(platform.native.ntHelper);
 
   const linkPreview = new LinkPreviewService(userConfig);
+  const apiUsage = new TokenUsageStore(join(userConfig.cacheDir('api_usage'), 'global.json'));
 
   const bootstrap: BootstrapServices = {
+    apiUsage,
     detect: new Win32DetectService(platform),
     keys: new KeyService(platform),
     userConfig,
     globalConfig: new GlobalConfigService(platform, userConfig),
     avatarCache: new MediaCacheService(userConfig),
     linkPreview,
-    agentLabConfig: new AgentLabConfigService(userConfig),
+    agentLabConfig: new AgentLabConfigService(userConfig, (u) =>
+      apiUsage.record({
+        ...u,
+        ts: u.startedAt ?? Date.now(),
+        scope: 'connection-test',
+      }),
+    ),
     voiceTranscribe: new VoiceTranscribeService(platform),
     ocrModels: new OcrModelService(platform),
-    tts: new TtsService(),
+    tts: new TtsService((u) =>
+      apiUsage.record({ ...u, ts: u.startedAt ?? Date.now(), scope: 'tts' }),
+    ),
     attachHook,
     externalRkey: new ExternalRkeyService(userConfig),
   };
@@ -1051,7 +1157,7 @@ export function initAppContext(): AppContext {
   // need the same "silk → text" pipeline (model resolved lazily so a model
   // change between 进入 and 使用 is honoured). Factored here to avoid duplication.
   const transcribeSilk = async (silkPath: string): Promise<TranscribeSilkResult> => {
-    const modelId = userConfig.getSettings().voiceTranscribe.modelId;
+    const modelId = userConfig.getLocalModelId('voice');
     if (!modelId) return { ok: false, error: '未选择转录模型' };
     const model = getVoiceModel(modelId);
     if (!model) return { ok: false, error: '转录模型不存在' };
@@ -1074,7 +1180,7 @@ export function initAppContext(): AppContext {
   };
   /** True only when a transcription model is configured AND downloaded. */
   const voiceReady = (): boolean => {
-    const modelId = userConfig.getSettings().voiceTranscribe.modelId;
+    const modelId = userConfig.getLocalModelId('voice');
     return !!modelId && Boolean(bootstrap.voiceTranscribe.getModelStatus(modelId)?.downloaded);
   };
   /** AgentLab media deps factory: media completion + voice for a given session. */
@@ -1106,6 +1212,13 @@ export function initAppContext(): AppContext {
       accountCtx: AccountContext,
       metadata: AccountConfigMetadata = {},
     ): Promise<void> {
+      const base = this.platform;
+      if (!base) throw new Error('原生组件尚未就绪');
+      const platform = base;
+      invalidateAccountTools(this.account);
+      cancelAssistantRuns();
+      this.scheduler?.stop();
+      this.scheduler = null;
       logger.info('opening account session', {
         event: 'open-account-start',
         accountUin: accountCtx.uin,
@@ -1119,6 +1232,8 @@ export function initAppContext(): AppContext {
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       this.services?.roamingBackfill.dispose();
+      this.services?.mail.dispose();
+      this.services?.unreadInfo.dispose();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -1210,9 +1325,15 @@ export function initAppContext(): AppContext {
       );
       // Shared instances also fed to the export manager's ChatLab deps (name /
       // role / profile resolution), so they're built before the services object.
-      const groupInfo = new GroupInfoService(session);
+      const groupInfo = new GroupInfoService(session, {
+        nt: platform.native.ntHelper,
+        resolvePid: resolveOnlinePid,
+      });
       groupInfo.setWebQueryService(webQuery);
-      const profile = new ProfileService(session);
+      const profile = new ProfileService(session, {
+        nt: platform.native.ntHelper,
+        resolvePid: resolveOnlinePid,
+      });
       // 收藏服务：网络优先(微云 collector)、拿不到 p_skey 回退 collection.db。
       // 既进 services，又喂给导出管理器的收藏拉取 dep（拍平投影）。
       const collectionSvc = new CollectionService(
@@ -1258,8 +1379,15 @@ export function initAppContext(): AppContext {
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
       const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
       const conversations = new ConversationStore(join(agentlabRoot, 'conversations.json'));
-      const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) =>
-        bootstrap.agentLabConfig.resolveEndpoint(ref);
+      const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) => ({
+        ...bootstrap.agentLabConfig.resolveEndpoint(ref),
+        onUsage: (u: import('@weq/agentlab').AgentLabUsage) =>
+          tokenUsage.record({
+            ...u,
+            ts: u.startedAt ?? Date.now(),
+            scope: u.feature ?? 'other',
+          }),
+      });
       // 删除记录：哪些消息是 WeQ 删的 + 原始 40011/40012（恢复用），按账号落盘。
       const deletedMsgs = new DeletedMsgStore(
         join(userConfig.cacheDir(join('deleted', exportConfigId)), 'deleted.json'),
@@ -1277,7 +1405,10 @@ export function initAppContext(): AppContext {
       antiRecall.startMonitor();
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
       // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
-      const emojiService = new EmojiService(session, platform);
+      const emojiService = new EmojiService(session, platform, {
+        nt: platform.native.ntHelper,
+        resolvePid: resolveOnlinePid,
+      });
       // 内置表情补全：QQ 的 EmojiSystermResource 目录缺失时按需下 CDN 资源包。
       // 表情全账号通用，所以缓存不按账号分目录；资源浏览器与 weq-asset 协议
       // 都把它当作 QQ 目录之后的第二个查找根。
@@ -1308,17 +1439,59 @@ export function initAppContext(): AppContext {
         msgs,
         gapHistory,
       );
+      // 只捕获本账号的服务，不在查询时读取可能已切号的 this.services。
+      const contentSearch = new ContentSearchStore(
+        join(userConfig.cacheDir(join('content-search', exportConfigId)), 'observed.json'),
+      );
+      let generatedSources: GeneratedSearchSources | undefined;
       this.services = {
         msgs,
         roamingBackfill,
-        recentContacts: new RecentContactService(session),
+        recentContacts: new RecentContactService(session, () => gapHistory.latestSent()),
         guildDirect,
+        contentSearch,
         hiddenSessions: new HiddenSessionService(session),
         drafts: new DraftService(session),
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
         serviceAccount: new ServiceAccountService(session),
-        unreadInfo: new UnreadInfoService(session),
+        unreadInfo: new UnreadInfoService(
+          session,
+          {
+            nt: platform.native.ntHelper,
+            enabled: () => userConfig.getSettings().reportReadEnabled,
+            manualEnabled: () => userConfig.getSettings().manualReadReportEnabled,
+            resolvePid: () => {
+              if (
+                this.account !== session ||
+                this.accountIsStatic ||
+                userConfig.getSettings().autoAttachQq === false
+              )
+                return null;
+              const record = accountConfig.getRecord();
+              if (
+                !record?.qqOnline ||
+                !record.qqPid ||
+                record.session?.pid !== record.qqPid ||
+                !record.session.a2 ||
+                !record.session.d2 ||
+                !record.session.d2Key ||
+                !record.guid
+              )
+                return null;
+              return record.qqPid;
+            },
+          },
+          {
+            statePath: join(
+              platform.appDataRoot(),
+              'config',
+              'accounts',
+              exportConfigId,
+              'unread.json',
+            ),
+          },
+        ),
         accountConfig,
         annualReport: new AnnualReportService(session, {
           preferences: accountConfig.getRecord()?.annualReport,
@@ -1341,16 +1514,35 @@ export function initAppContext(): AppContext {
         forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, resolveOnlinePid),
         groupInfo,
         buddyAnalytics: new BuddyAnalyticsService(session),
-        groupNotify: new GroupNotifyService(session),
+        groupNotify: new GroupNotifyService(session, {
+          nt: platform.native.ntHelper,
+          resolvePid: resolveOnlinePid,
+        }),
         profile,
         msgSearch: new MsgSearchService(session),
         unifiedSearch: new UnifiedSearchService(session, {
+          searchContent: (category, keyword, limit, offset) =>
+            searchAccountContent(
+              contentSearch,
+              guildDirect,
+              category,
+              keyword,
+              limit,
+              offset,
+              String(session.context.uin),
+            ),
+          searchCollections: (keyword, limit, offset) =>
+            collectionSvc.searchLocal(keyword, limit, offset),
+          generatedSources: () => generatedSources,
           // 本地 trigram 搜索索引：首查后台构建（群库约 20s），之后毫秒级。
           // 构建失败自动回退 LIKE 扫描，搜索功能不受影响。
           dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
           nt: platform.native.ntHelper,
         }),
-        onlineStatus: new OnlineStatusService(session),
+        onlineStatus: new OnlineStatusService(session, {
+          nt: platform.native.ntHelper,
+          resolvePid: resolveOnlinePid,
+        }),
         collection: collectionSvc,
         redbag: redbagSvc,
         dressInstall,
@@ -1385,7 +1577,7 @@ export function initAppContext(): AppContext {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
             // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
-            run: runAssistantTool,
+            run: bindAccountTools(session, () => this.account, runAssistantTool),
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
             syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
             // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
@@ -1399,6 +1591,27 @@ export function initAppContext(): AppContext {
           new MsgService(session, undefined, undefined, exportSalvageSource(this.dbTolerance)),
           userConfig.cacheDir(join('export', exportConfigId)),
           {
+            generatedResource: (ref) => {
+              const services = this.services;
+              if (
+                this.account !== session ||
+                !services ||
+                services.accountConfig.getRecord()?.configId !== exportConfigId
+              )
+                throw new Error('生成资源所属账号已关闭。');
+              return resolveGeneratedResource(ref, services);
+            },
+            exportSavePolicy: () => ({
+              mode: userConfig.getSettings().exportSaveMode,
+              directory:
+                userConfig.getSettings().exportSaveMode === 'preset'
+                  ? (userConfig.getSettings().defaultExportDir ?? getHost().exportRoot)
+                  : undefined,
+            }),
+            resolveSaveDirectory: (directory) => {
+              const root = getHost().exportRoot;
+              return root ? resolveExportSaveDirectory(root, directory) : directory;
+            },
             // Cache-first avatar resolution for the 导出头像 option.
             guildDirect,
             avatarCache: bootstrap.avatarCache,
@@ -1485,6 +1698,17 @@ export function initAppContext(): AppContext {
             },
             // 联系人导出（好友 / 群成员）：本地资料库拉取，bigint 归一化为字符串。
             contacts: {
+              listGroups: async (limit, offset) =>
+                (await groupInfo.listAllGroups(limit, offset)).map((g) => ({
+                  groupCode: g.groupCode.toString(),
+                  groupName: g.groupName,
+                  remark: g.remark,
+                  memberCount: g.memberCount,
+                  maxMemberCount: g.maxMemberCount,
+                  ownerUid: g.ownerUid,
+                  createTime: g.createTime,
+                  leaveFlag: g.leaveFlag,
+                })),
               listBuddies: async (limit, offset) => {
                 const buddies = await profile.listBuddies(limit, offset);
                 return buddies.map((b) => ({
@@ -1608,6 +1832,13 @@ export function initAppContext(): AppContext {
         dbDecrypt: new DbDecryptService(session, platform),
         dbExplorer: new DbExplorerService(session, platform),
         antiRecall,
+        // 意图感知：api 引擎复用 agentlab provider 端点解析；本地 Laya 引擎的
+        // 端口由 intent_sense/bridge.ts 提供（worker 启动后 ready 才为 true）。
+        intentSense: new IntentSenseService(
+          session,
+          userConfig.cacheDir(join('intent_sense', exportConfigId)),
+          { resolveEndpoint: resolveAgentEndpoint, localEngine: getActiveIntentSenseLocalEngine() },
+        ),
         avatarResource: new AvatarResourceService(session, platform),
         sysEmoji: new SysEmojiResourceService(session, platform, () => sysEmojiDownload.root()),
         sysEmojiDownload,
@@ -1619,6 +1850,18 @@ export function initAppContext(): AppContext {
         composeImage: new ComposeImageService(session, platform),
         resourceCleanup: new ResourceCleanupService(session, platform),
         webQuery,
+        mail: new QQMailService(
+          platform.native.ntHelper,
+          String(session.context.uin),
+          () => {
+            const record = accountConfig.getRecord();
+            return record?.qqOnline ? (record.qqPid ?? null) : null;
+          },
+          {
+            notificationsEnabled: accountConfig.getRecord()?.mailNotifications ?? false,
+            onNotice: (notice) => mailNotifier?.(String(session.context.uin), notice),
+          },
+        ),
         groupAlbumMedia: new GroupAlbumMediaService(
           platform.native.ntHelper,
           session,
@@ -1639,12 +1882,36 @@ export function initAppContext(): AppContext {
           resolveOnlinePid,
           // 商城表情包的密钥解析：发 mface 时把空 encryptKey 补上（同 getMarketPackKey）。
           (packId) => emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
+          async (message) => {
+            await gapHistory.retainForBatch([message]);
+            if (getAppContext().account !== session) return;
+            dbEventBus.emit('roaming', {
+              session,
+              kind: message.kind,
+              conv: message.conv,
+              messages: [message],
+            } satisfies RoamingCacheChange);
+          },
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, resolveOnlinePid),
+        accountWrite: new AccountWriteService(
+          platform.native.ntHelper,
+          {
+            uin: session.context.uin,
+            selfUid: session.selfUid,
+            getBuddy: (uid) => session.buddies.getBuddy(uid),
+            listCategories: () => session.categories.listCategories(),
+          },
+          () => {
+            if (this.account !== session) throw new Error('账号已切换，请重新打开操作');
+            return resolveOnlinePid();
+          },
+        ),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
         lbs: new LbsService(),
       };
+      generatedSources = { agentLab: this.services.agentLab, assistant: this.services.assistant };
       // Scheduled export manager — fires saved templates through the export
       // manager on a single setTimeout wake. Per-account cache mirrors the
       // export manager's isolation (see exportConfigId above). The online
@@ -1665,6 +1932,11 @@ export function initAppContext(): AppContext {
       // Persist credentials + metadata, keyed by data directory. Must run
       // before the monitor starts so its patches land on an existing record.
       accountConfig.save(metadata);
+      const mail = this.services.mail;
+      mail.startBackground({
+        notifications: accountConfig.getRecord()?.mailNotifications ?? false,
+        showUnread: accountConfig.getRecord()?.mailShowUnread ?? true,
+      });
 
       // Start the background login/pid monitor for this account. Injection +
       // harvesting (rkey / clientkey / 装扮快照) inside it is gated live by the
@@ -1683,6 +1955,7 @@ export function initAppContext(): AppContext {
           // 同步比首屏那次 getState 晚几秒，不推前端会一直显示旧清单。
           emitDressChanged();
         },
+        () => mail.credentialsAvailable(),
       );
       accountMonitor.start();
       logger.info('opened account session', {
@@ -1776,6 +2049,8 @@ export function initAppContext(): AppContext {
         mobile?: boolean;
       } = {},
     ): Promise<void> {
+      invalidateAccountTools(this.account);
+      cancelAssistantRuns();
       logger.info('opening static account session', {
         event: 'open-static-account-start',
         accountUin: selfPreview.uin,
@@ -1789,6 +2064,8 @@ export function initAppContext(): AppContext {
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       this.services?.roamingBackfill.dispose();
+      this.services?.mail.dispose();
+      this.services?.unreadInfo.dispose();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -1884,6 +2161,7 @@ export function initAppContext(): AppContext {
         accountConfig.getRecord()?.loginPskey,
         (domain) => accountConfig.clearLoginPskey(domain),
       );
+      // 静态账号默认离线：在线写操作会通过 `livePid` 抛错，读路径回退本地库。
       const groupInfo = new GroupInfoService(session);
       groupInfo.setWebQueryService(webQuery);
       const profile = new ProfileService(session);
@@ -1922,8 +2200,15 @@ export function initAppContext(): AppContext {
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
       const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
       const conversations = new ConversationStore(join(agentlabRoot, 'conversations.json'));
-      const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) =>
-        bootstrap.agentLabConfig.resolveEndpoint(ref);
+      const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) => ({
+        ...bootstrap.agentLabConfig.resolveEndpoint(ref),
+        onUsage: (u: import('@weq/agentlab').AgentLabUsage) =>
+          tokenUsage.record({
+            ...u,
+            ts: u.startedAt ?? Date.now(),
+            scope: u.feature ?? 'other',
+          }),
+      });
       // 删除记录：与在线会话同一份存储（按 exportConfigId 落盘），静态账号也可删/恢复。
       const deletedMsgs = new DeletedMsgStore(
         join(userConfig.cacheDir(join('deleted', exportConfigId)), 'deleted.json'),
@@ -1970,17 +2255,31 @@ export function initAppContext(): AppContext {
         msgs,
         gapHistory,
       );
+      const contentSearch = new ContentSearchStore(
+        join(userConfig.cacheDir(join('content-search', exportConfigId)), 'observed.json'),
+      );
+      let generatedSources: GeneratedSearchSources | undefined;
       this.services = {
         msgs,
         roamingBackfill,
-        recentContacts: new RecentContactService(session),
+        recentContacts: new RecentContactService(session, () => gapHistory.latestSent()),
         guildDirect,
+        contentSearch,
         hiddenSessions: new HiddenSessionService(session),
         drafts: new DraftService(session),
         deletedSessions: new DeletedSessionService(session),
         officialAccount: new OfficialAccountService(session),
         serviceAccount: new ServiceAccountService(session),
-        unreadInfo: new UnreadInfoService(session),
+        unreadInfo: new UnreadInfoService(session, undefined, {
+          statePath: join(
+            platform.appDataRoot(),
+            'config',
+            'accounts',
+            exportConfigId,
+            'unread.json',
+          ),
+          readOnly: !this.accountIsAndroidBackup,
+        }),
         accountConfig,
         annualReport: new AnnualReportService(session, {
           preferences: accountConfig.getRecord()?.annualReport,
@@ -2003,16 +2302,35 @@ export function initAppContext(): AppContext {
         forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, livePid),
         groupInfo,
         buddyAnalytics: new BuddyAnalyticsService(session),
-        groupNotify: new GroupNotifyService(session),
+        groupNotify: new GroupNotifyService(session, {
+          nt: platform.native.ntHelper,
+          resolvePid: livePid,
+        }),
         profile,
         msgSearch: new MsgSearchService(session),
         unifiedSearch: new UnifiedSearchService(session, {
+          searchContent: (category, keyword, limit, offset) =>
+            searchAccountContent(
+              contentSearch,
+              guildDirect,
+              category,
+              keyword,
+              limit,
+              offset,
+              String(session.context.uin),
+            ),
+          searchCollections: (keyword, limit, offset) =>
+            collectionSvc.searchLocal(keyword, limit, offset),
           // 本地 trigram 搜索索引：首查后台构建（群库约 20s），之后毫秒级。
+          generatedSources: () => generatedSources,
           // 构建失败自动回退 LIKE 扫描，搜索功能不受影响。
           dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
           nt: platform.native.ntHelper,
         }),
-        onlineStatus: new OnlineStatusService(session),
+        onlineStatus: new OnlineStatusService(session, {
+          nt: platform.native.ntHelper,
+          resolvePid: livePid,
+        }),
         collection: collectionSvc,
         redbag: redbagSvc,
         dressInstall,
@@ -2046,7 +2364,7 @@ export function initAppContext(): AppContext {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
             // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
-            run: runAssistantTool,
+            run: bindAccountTools(session, () => this.account, runAssistantTool),
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
             syncExternalMcp: (raw) => getExternalMcpHub().configure(raw),
             // 写报告时随机抽一批「一言」候选，供模型挑一句做主题大字（多元化）。
@@ -2061,6 +2379,27 @@ export function initAppContext(): AppContext {
           userConfig.cacheDir(join('export', exportConfigId)),
           {
             guildDirect,
+            generatedResource: (ref) => {
+              const services = this.services;
+              if (
+                this.account !== session ||
+                !services ||
+                services.accountConfig.getRecord()?.configId !== exportConfigId
+              )
+                throw new Error('生成资源所属账号已关闭。');
+              return resolveGeneratedResource(ref, services);
+            },
+            exportSavePolicy: () => ({
+              mode: userConfig.getSettings().exportSaveMode,
+              directory:
+                userConfig.getSettings().exportSaveMode === 'preset'
+                  ? (userConfig.getSettings().defaultExportDir ?? getHost().exportRoot)
+                  : undefined,
+            }),
+            resolveSaveDirectory: (directory) => {
+              const root = getHost().exportRoot;
+              return root ? resolveExportSaveDirectory(root, directory) : directory;
+            },
             avatarCache: bootstrap.avatarCache,
             mediaDownload,
             mediaUrl,
@@ -2189,6 +2528,12 @@ export function initAppContext(): AppContext {
         dbDecrypt: new DbDecryptService(session, staticPlatform),
         dbExplorer: new DbExplorerService(session, staticPlatform),
         antiRecall,
+        // 静态账号同样给意图感知（只读分析，不发消息）。
+        intentSense: new IntentSenseService(
+          session,
+          userConfig.cacheDir(join('intent_sense', exportConfigId)),
+          { resolveEndpoint: resolveAgentEndpoint, localEngine: getActiveIntentSenseLocalEngine() },
+        ),
         avatarResource: new AvatarResourceService(session, staticPlatform),
         sysEmoji: new SysEmojiResourceService(session, staticPlatform, () =>
           sysEmojiDownload.root(),
@@ -2202,20 +2547,59 @@ export function initAppContext(): AppContext {
         composeImage: new ComposeImageService(session, staticPlatform),
         resourceCleanup: new ResourceCleanupService(session, staticPlatform),
         webQuery,
+        mail: new QQMailService(
+          platform.native.ntHelper,
+          String(session.context.uin),
+          () => {
+            const record = accountConfig.getRecord();
+            return record?.qqOnline ? (record.qqPid ?? null) : null;
+          },
+          {
+            notificationsEnabled: accountConfig.getRecord()?.mailNotifications ?? false,
+            onNotice: (notice) => mailNotifier?.(String(session.context.uin), notice),
+          },
+        ),
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, livePid),
         gapHistory,
         groupFile: new GroupFileService(platform.native.ntHelper, session, livePid),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
         chatImageOcr: new ChatImageOcrService(platform.native.ntHelper, session, livePid),
         flashTransfer: new FlashTransferService(platform.native.ntHelper, session, livePid),
-        messageSend: new MessageSendService(platform.native.ntHelper, session, livePid, (packId) =>
-          emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
+        messageSend: new MessageSendService(
+          platform.native.ntHelper,
+          session,
+          livePid,
+          (packId) => emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
+          async (message) => {
+            await gapHistory.retainForBatch([message]);
+            if (getAppContext().account !== session) return;
+            dbEventBus.emit('roaming', {
+              session,
+              kind: message.kind,
+              conv: message.conv,
+              messages: [message],
+            } satisfies RoamingCacheChange);
+          },
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, livePid),
+        accountWrite: new AccountWriteService(
+          platform.native.ntHelper,
+          {
+            uin: session.context.uin,
+            selfUid: session.selfUid,
+            getBuddy: (uid) => session.buddies.getBuddy(uid),
+            listCategories: () => session.categories.listCategories(),
+          },
+          () => {
+            if (this.account !== session) throw new Error('账号已切换，请重新打开操作');
+            return livePid();
+          },
+        ),
         flashTransferFiles: new FlashTransferFilesService(userConfig.cacheDir('flash')),
         lbs: new LbsService(),
       };
+      generatedSources = { agentLab: this.services.agentLab, assistant: this.services.assistant };
 
       // Persist metadata keyed by the decrypted-db directory, so re-opening
       // works without re-selecting the folder. `static: true` is the marker
@@ -2228,6 +2612,11 @@ export function initAppContext(): AppContext {
         ...(nativeDir ? { nativeMediaDir: nativeDir } : {}),
         ...(selfPreview.displayName ? { displayName: selfPreview.displayName } : {}),
         ...(selfPreview.avatarUrl ? { avatarUrl: selfPreview.avatarUrl } : {}),
+      });
+      const mail = this.services.mail;
+      mail.startBackground({
+        notifications: accountConfig.getRecord()?.mailNotifications ?? false,
+        showUnread: accountConfig.getRecord()?.mailShowUnread ?? true,
       });
       logger.info('opened static account session', {
         event: 'open-static-account-success',
@@ -2254,6 +2643,8 @@ export function initAppContext(): AppContext {
         accountConfig,
         () => userConfig.getSettings().autoAttachQq,
         bootstrap.attachHook,
+        undefined,
+        () => mail.credentialsAvailable(),
       );
       accountMonitor.start();
 
@@ -2287,6 +2678,8 @@ export function initAppContext(): AppContext {
       // Still no anti-recall triggers, no health check and no scheduler.
     },
     clearAccount(): void {
+      invalidateAccountTools(this.account);
+      cancelAssistantRuns();
       logger.info('clearing account session', {
         event: 'clear-account',
         accountUin: this.account?.context.uin ?? null,
@@ -2316,6 +2709,10 @@ export function initAppContext(): AppContext {
       unmountGroupKeyword();
       unmountAntiRecallMonitor();
       this.services?.roamingBackfill.dispose();
+      this.services?.mail.dispose();
+      this.services?.unreadInfo.dispose();
+      this.services?.contentSearch.close();
+      this.services?.guildDirect.cancelSearch();
       this.account?.dispose();
       this.account = null;
       this.services = null;
@@ -2555,5 +2952,5 @@ export function requirePlatform(): Platform {
   if (!ctx.platform) {
     throw new Error('Native bundle unavailable — QQ helper failed to initialize.');
   }
-  return ctx.platform;
+  return !ctx.accountIsStatic && ctx.resourcePlatform ? ctx.resourcePlatform : ctx.platform;
 }

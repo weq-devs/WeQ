@@ -1,0 +1,29 @@
+.weq-conversation-title-profile {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weq-conversation-title-profile:hover {
+  color: var(--weq-accent-effective);
+}
+
+.weq-conversation-title-profile:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+
+html[data-theme='dark'] .weq-conversation-title-profile {
+  color: inherit;
+}
+
+html[data-theme='dark'] .weq-conversation-title-profile:hover {
+  color: var(--weq-accent-effective);
+}

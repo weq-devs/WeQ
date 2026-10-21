@@ -63,16 +63,48 @@ export function tencentFilesRootFromUserDataInfo(home = homedir()): string | nul
 }
 
 /**
- * True when `p`'s last path segment is literally `Tencent Files` (case- and
- * trailing-separator-insensitive). The user-data root QQ creates is always
- * `…\Tencent Files`; a path pointing one level too deep (e.g. the per-account
- * `…\Tencent Files\<uin>`) or anywhere else is rejected. Used to validate a
- * user-picked override before we trust it.
+ * True when `p` is a per-account data directory rather than the data root:
+ *   win32:   `<root>/<uin>`             (`nt_qq/nt_db`, no root-level `nt_qq/global`)
+ *   linux/macOS: `<root>/nt_qq_<hash>`
+ *
+ * The `nt_qq/global` check keeps a data root that happens to be named like an
+ * account (`D:\1234`) from being mistaken for one.
  */
-export function isTencentFilesRoot(p: string): boolean {
-  const trimmed = p.replace(/[\\/]+$/, '');
-  const base = trimmed.split(/[\\/]/).pop() ?? '';
-  return base.trim().toLowerCase() === 'tencent files';
+function isAccountDataDir(p: string): boolean {
+  const base = p.split(/[\\/]/).pop() ?? '';
+  if (/^\d+$/.test(base)) {
+    // win32 `<root>/<uin>/nt_qq/nt_db`; a root also has `nt_qq/global` beside it.
+    return existsSync(join(p, 'nt_qq', 'nt_db')) && !existsSync(join(p, 'nt_qq', 'global'));
+  }
+  if (/^nt_qq_[0-9a-f]+$/i.test(base)) {
+    // linux/macOS `<root>/nt_qq_<hash>/nt_db` — no middle `nt_qq` level.
+    return existsSync(join(p, 'nt_db'));
+  }
+  return false;
+}
+
+/**
+ * Normalize a user-picked QQ data directory.
+ *
+ * There is deliberately NO folder-name rule here: QQ lets the user relocate
+ * its data directory, and installs migrated from older clients often keep an
+ * arbitrary folder name (`D:\QQData`, `E:\备份\QQ`, …). The only correction we
+ * make is the common off-by-one pick — the per-account directory itself — which
+ * is walked up to its parent (the actual root).
+ *
+ * Returns the normalized path, which may be the input unchanged.
+ */
+export function normalizeQqDataRoot(picked: string): string {
+  // Keep a bare drive root (`D:\`) intact — stripping its separator would turn
+  // it into the drive-relative `D:`, which resolves against the cwd.
+  if (/^[A-Za-z]:[\\/]$/.test(picked)) return picked;
+  const trimmed = picked.replace(/[\\/]+$/, '');
+  if (!trimmed) return picked;
+  if (isAccountDataDir(trimmed)) {
+    const parent = dirname(trimmed);
+    return parent === trimmed ? trimmed : parent;
+  }
+  return trimmed;
 }
 
 /**

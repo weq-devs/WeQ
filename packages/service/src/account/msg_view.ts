@@ -394,6 +394,7 @@ export interface ForwardMessage {
 
 /** 机器人内联键盘的一个按钮。 */
 export interface RenderKeyboardButton {
+  buttonId?: string;
   /** 按钮文案。 */
   label: string;
   /** 点击目标：链接（actionType=2）或指令文本。 */
@@ -1006,6 +1007,7 @@ function mapInlineKeyboard(el: InlineKeyboardElement): RenderInlineKeyboardEleme
           (row.buttons ?? [])
             .filter((b) => b.label)
             .map((b) => ({
+              buttonId: b.buttonId,
               label: b.label ?? '',
               action: b.action ?? '',
               actionType: b.actionType ?? 0,

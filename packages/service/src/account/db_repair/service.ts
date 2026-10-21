@@ -42,6 +42,7 @@ import {
   sweepStaleProducts,
 } from './files';
 import { DEFAULT_BACKUP_KEEP, DbRepairHistory } from './history';
+import { probeDbLayout, type DbLayoutProbe } from './layout_migration';
 import { classifyLock, type DbRepairLockClassification, type DbRepairLockProbe } from './lock';
 import {
   dbRepairPaths,
@@ -188,6 +189,13 @@ export interface DbRepairRequest {
   lostAndFoundName?: string;
   /** 先建索引再灌数据（默认 `false`）：进度更连续但整体更慢。 */
   slowIndexes?: boolean;
+  /**
+   * 走「布局迁移」而不是通用修复。
+   *
+   * 迁移的源页布局固定按 `standard` 读、目标写回 `qq`；它与通用修复共用备份 /
+   * 替换 / 回滚，只是多带这两个 native 参数，并把记录标成 `layout-migration`。
+   */
+  layoutMigration?: boolean;
 }
 
 /** 备份的产出。 */
@@ -205,6 +213,13 @@ export class DbRepairService {
   private running: { dbPath: string; startedAt: string } | null = null;
 
   constructor(private readonly deps: DbRepairDeps) {}
+
+  /** 只读检测旧版误修复留下的页布局；不落盘、不碰 native。 */
+  probeLayout(uin: string, dbName: string): DbLayoutProbe {
+    // 检测只看文件大小与两个原始页，**不要求密钥 / 算法**：用户还没打开过账号、
+    // 或密钥暂时不可用时，仍然应该能判断出这是不是旧版误修复的库。
+    return probeDbLayout(this.resolveDatabasePath(uin, dbName).dbPath);
+  }
 
   /** 是否有修复在进行（界面用来禁用按钮）。 */
   isBusy(): boolean {
@@ -245,22 +260,12 @@ export class DbRepairService {
    * `dbName` 来自渲染层，所以这里必须挡住路径穿越（只接受纯文件名）。
    */
   resolveTarget(uin: string, dbName: string): DbRepairTarget {
-    if (!isPlainDatabaseName(dbName)) {
-      throw new DbRepairError('not-found', `非法的数据库文件名：${dbName}`);
-    }
-    const info = this.accountInfo(uin);
+    const { info, dbDir, dbPath } = this.resolveDatabasePath(uin, dbName);
     if (info.dbKey === '') {
       throw new DbRepairError(
         'no-credentials',
         `账号 ${uin} 没有可用的数据库密钥，无法修复（先用 WeQ 打开一次该账号）`,
       );
-    }
-    const dbDir = info.dbDir;
-    const dbPath = join(dbDir, dbName);
-    // 必须是**普通文件**：只查 existsSync 的话 `..` 这类名字会指向目录，
-    // 而后面所有步骤都假定 dbPath 是一个可以整体替换的库文件。
-    if (!isRegularFile(dbPath)) {
-      throw new DbRepairError('not-found', `数据库不存在或不是文件：${dbPath}`);
     }
     // 逐库算法缺失时回退 nt_msg.db 那份（与 `algoFor` 同一个口径）。
     const algo = info.algos[dbName] ?? info.algos['nt_msg.db'];
@@ -268,6 +273,30 @@ export class DbRepairService {
       throw new DbRepairError('no-credentials', `账号配置里没有 ${dbName} 的加密算法信息`);
     }
     return { uin, dataDir: info.dataDir, dbName, dbDir, dbPath, key: info.dbKey, algo };
+  }
+
+  /**
+   * 只解析库路径，不要求密钥。
+   *
+   * 布局检测只需要读文件；把路径解析从 {@link resolveTarget} 拆出来后，检测不会因为
+   * 账号还没登录 / 没解出密钥而失效。`dbName` 来自渲染层，所以这里同样要挡住路径穿越。
+   */
+  private resolveDatabasePath(
+    uin: string,
+    dbName: string,
+  ): { info: DbRepairAccountInfo; dbDir: string; dbPath: string } {
+    if (!isPlainDatabaseName(dbName)) {
+      throw new DbRepairError('not-found', `非法的数据库文件名：${dbName}`);
+    }
+    const info = this.accountInfo(uin);
+    const dbDir = info.dbDir;
+    const dbPath = join(dbDir, dbName);
+    // 必须是**普通文件**：只查 existsSync 的话 `..` 这类名字会指向目录，
+    // 而后面所有步骤都假定 dbPath 是一个可以整体替换的库文件。
+    if (!isRegularFile(dbPath)) {
+      throw new DbRepairError('not-found', `数据库不存在或不是文件：${dbPath}`);
+    }
+    return { info, dbDir, dbPath };
   }
 
   /**
@@ -368,6 +397,7 @@ export class DbRepairService {
       dbPath: target.dbPath,
       strictPages: request.strictPages ?? false,
       backup: request.backup !== false,
+      layoutMigration: request.layoutMigration === true,
     });
 
     let backup: DbRepairBackupResult | null = null;
@@ -410,9 +440,25 @@ export class DbRepairService {
           recoverFreelist: request.recoverFreelist,
           lostAndFoundName: request.lostAndFoundName,
           slowIndexes: request.slowIndexes,
+          ...(request.layoutMigration
+            ? { sourceLayout: 'standard' as const, targetLayout: 'qq' as const }
+            : {}),
         },
         (progress) => emit(progress),
       );
+
+      // 旧产物会静默忽略未知参数：迁移请求传下去后，它仍按 QQ 布局读 standard 源，
+      // 产出一个看似成功、实际错位的库。native 新版本会把实际使用的布局回显在报告
+      // 里；没回显（或不是 standard → qq）就在替换之前中止，源库一个字节不动。
+      if (
+        request.layoutMigration &&
+        (recovered.sourceLayout !== 'standard' || recovered.targetLayout !== 'qq')
+      ) {
+        throw new DbRepairError(
+          'recover-failed',
+          '当前 native 产物不支持页布局迁移（没有回显 sourceLayout=standard / targetLayout=qq）。请先更新对应平台的 nt_helper 产物，再重试；本次没有替换源库。',
+        );
+      }
 
       // ── 保险：修复期间源库被写过就中止（源库一个字节没动） ──
       const current = hashFileSync(target.dbPath);
@@ -491,6 +537,7 @@ export class DbRepairService {
         recovered: { ...recovered, verification },
         pendingWalBytes: pendingWal,
         walMerged,
+        layoutMigration: request.layoutMigration === true,
         durationMs: Date.now() - startMs,
         startedAt,
       });
@@ -519,6 +566,7 @@ export class DbRepairService {
         recovered: recovered && verification ? { ...recovered, verification } : recovered,
         pendingWalBytes: pendingWal,
         walMerged,
+        layoutMigration: request.layoutMigration === true,
         durationMs: Date.now() - startMs,
         startedAt,
       });
@@ -828,6 +876,7 @@ export class DbRepairService {
       startedAt: string;
       pendingWalBytes: number;
       walMerged: boolean;
+      layoutMigration: boolean;
     },
   ): DbRepairRecord {
     const { target, recovered } = input;
@@ -850,12 +899,15 @@ export class DbRepairService {
       zeroPages: recovered?.zeroPages ?? [],
       pageSize: recovered?.pageSize ?? null,
       headerOffset: recovered?.headerOffset ?? null,
+      kind: input.layoutMigration ? 'layout-migration' : 'repair',
       strictPages: recovered?.strictPages ?? false,
       sourcePages: recovered?.sourcePages ?? null,
       outputPages: recovered?.outputPages ?? null,
       scannedCells: recovered?.scannedCells ?? null,
       phases: recovered?.phases ?? [],
       verification: recovered?.verification ?? null,
+      ...(recovered?.sourceLayout ? { sourceLayout: recovered.sourceLayout } : {}),
+      ...(recovered?.targetLayout ? { targetLayout: recovered.targetLayout } : {}),
       pendingWalBytes: input.pendingWalBytes,
       walMerged: input.walMerged,
       durationMs: input.durationMs,

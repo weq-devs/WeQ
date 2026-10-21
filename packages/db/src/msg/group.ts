@@ -45,7 +45,12 @@ import {
 import { appendClonedRow, type AppendMsgFields, type AppendMsgResult } from './append';
 import { QqDb } from '../qq_db';
 import { queryMessageDays, queryMessageBoundary, type MessageBounds } from './calendar';
-import { browseConditions, type BrowseFilter, type BrowseCursor } from './browse';
+import {
+  browseConditions,
+  type BrowseFilter,
+  type BrowseCursor,
+  type BrowseDirection,
+} from './browse';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 
 // 40002 (msgRandom) is appended LAST on purpose: every row mapper below indexes
@@ -103,10 +108,17 @@ export class GroupMsgDb {
     return queryMessageDays(this.qq, 'group_msg_table', '"40027"=?', targetGroupCode);
   }
 
-  async browse(conv: string, filter: BrowseFilter, cursor?: BrowseCursor, limit = 500) {
-    const query = browseConditions('"40027"=?', conv, filter, cursor);
+  async browse(
+    conv: string,
+    filter: BrowseFilter,
+    cursor?: BrowseCursor,
+    limit = 500,
+    direction: BrowseDirection = 'older',
+  ) {
+    const query = browseConditions('"40027"=?', conv, filter, cursor, direction);
+    const order = direction === 'older' ? 'DESC' : 'ASC';
     const rows = await this.qq.query(
-      `SELECT rowid,${SELECT_COLUMNS} FROM group_msg_table WHERE ${query.clause} ORDER BY COALESCE("40050",0) DESC,rowid DESC LIMIT ?`,
+      `SELECT rowid,${SELECT_COLUMNS} FROM group_msg_table WHERE ${query.clause} ORDER BY COALESCE("40050",0) ${order},rowid ${order} LIMIT ?`,
       [...query.params, BigInt(limit)],
     );
     return rows.map((row) => ({ rowId: String(row[0]), message: rowToGroupMsg(row.slice(1)) }));
@@ -534,36 +546,66 @@ export class GroupMsgDb {
     return value == null ? null : toBigint(value);
   }
 
+  /** 无需正文解码，保留不在当前群资料缓存中的历史群。 */
+  async listGroupCodes(): Promise<string[]> {
+    const rows = await this.qq.query(`SELECT DISTINCT "40027" FROM group_msg_table`);
+    return rows
+      .map((row) => String(row[0] ?? ''))
+      .filter((code) => /^\d+$/.test(code) && BigInt(code) > 0n);
+  }
+
   /**
-   * The distinct local-time years in which the table holds at least one
-   * message. Deliberately does NOT filter by sender/own marker: this is the
-   * cheap year-eligibility probe for the report entry page, and it runs on the
-   * day-midnight column 40058, which is covered by the `(40027,40058)` index —
-   * SQLite resolves it as a covering index scan without touching message rows.
-   * Rows with a 0 / NULL day timestamp (malformed or system rows) are skipped
-   * with `"40058" > 0`.
-   *
-   * The year is derived with `'localtime'` so buckets line up with the
-   * report's local-midnight year boundaries.
-   *
-   * 先对 `40058` 做 DISTINCT 再转年份，而不是直接 `DISTINCT strftime(...)`：
-   * 后者逐行算 `strftime`（大库上 1s 级），前者只在真正互异的日期上算。`strftime`
-   * 是 `40058` 的纯函数，结果集严格相同。
+   * 每个群最后一条消息的发送时间（unix 秒）。分析目录按「最近活跃」排序要用，
+   * 名册顺序与聊天时间无关。只扫 40027 / 40050 两列。
+   */
+  async lastSendTimes(): Promise<Map<string, number>> {
+    const rows = await this.qq.query(
+      `SELECT "40027", MAX("40050") FROM group_msg_table
+       WHERE "40027" IS NOT NULL AND "40027" != '' AND "40050" > 0
+       GROUP BY "40027"`,
+    );
+    const times = new Map<string, number>();
+    for (const row of rows) {
+      const code = String(row[0] ?? '');
+      const time = Number(row[1] ?? 0);
+      if (code && time > 0) times.set(code, time);
+    }
+    return times;
+  }
+
+  /** 包括退群与无名册发言人；UID 缺失时仍保留原始 QQ 号。 */
+  async listSenderIdentities(groupCode: string): Promise<Array<{ uid: string; uin: string }>> {
+    const rows = await this.qq.query(
+      `SELECT COALESCE("40020",''),COALESCE("40033",0) FROM group_msg_table
+       WHERE "40027" = ? AND (COALESCE("40020",'') != '' OR "40033" > 0)
+       GROUP BY COALESCE("40020",''),COALESCE("40033",0)`,
+      [groupCode],
+    );
+    return rows.map((row) => ({
+      uid: String(row[0]),
+      uin: BigInt(String(row[1])) > 0n ? String(row[1]) : '',
+    }));
+  }
+
+  /**
+   * 从真实发送时间取北京日历年份，不依赖可能缺失或滞后的 40058 日字段。
+   * 先按整数北京日去重，再转换年份；不筛方向，调用方按数据修订缓存。
    */
   async yearsWithMessages(): Promise<number[]> {
     const rows = await this.qq.query(
-      `SELECT DISTINCT CAST(strftime('%Y', d, 'unixepoch', 'localtime') AS INTEGER) AS y
-       FROM (SELECT DISTINCT "40058" AS d FROM group_msg_table WHERE "40058" > 0)`,
+      `SELECT DISTINCT CAST(strftime('%Y', day * 86400, 'unixepoch') AS INTEGER) AS y
+       FROM (SELECT DISTINCT CAST(("40050" + 28800) / 86400 AS INTEGER) AS day
+             FROM group_msg_table WHERE "40050" > 0)`,
     );
     return rows.map((row) => Number(row[0] ?? 0)).filter((year) => year > 0);
   }
 
   /**
-   * 一个时间窗内**自己发出的**群聊按「星期 × 本地小时」聚合，返回 7×24 矩阵。
+   * 一个时间窗内**自己发出的**群聊按「星期 × 北京小时」聚合，返回 7×24 矩阵。
    *
    * 自证 marker 用 senderUid 优先、selfUin 兜底；两者都没有时返回全零矩阵 ——
    * 分不清哪些群消息是自己的时候，全群算给自己会把别人的作息也算进来。
-   * 小时/星期用 `'localtime'` 与报告口径对齐。
+   * 小时/星期用显式八小时偏移与报告口径对齐，不读取主机时区。
    */
   async sentWeekdayHourlyTallies(
     opts: { startTime?: number; endTime?: number; selfUin?: bigint; senderUid?: string } = {},
@@ -586,8 +628,8 @@ export class GroupMsgDb {
       params.push(BigInt(opts.endTime));
     }
     const rows = await this.qq.query(
-      `SELECT CAST(strftime('%w',"40050",'unixepoch','localtime') AS INTEGER) AS dow,
-              CAST(strftime('%H',"40050",'unixepoch','localtime') AS INTEGER) AS hour,
+      `SELECT CAST(strftime('%w',"40050",'unixepoch','+8 hours') AS INTEGER) AS dow,
+              CAST(strftime('%H',"40050",'unixepoch','+8 hours') AS INTEGER) AS hour,
               COUNT(*) AS n
        FROM group_msg_table
        WHERE ${conditions.join(' AND ')}
@@ -1050,12 +1092,16 @@ export class GroupMsgDb {
    * 「活人团」还得看发言量；走 SQL 聚合比 {@link GroupMsgDb.listBatch} 逐条读
    * 40800 再在 JS 里数便宜一个量级。空 uid（本地系统消息 / 灰条等）不计入。
    */
-  async countBySenders(targetGroupCode: string): Promise<Record<string, number>> {
+  async countBySenders(
+    targetGroupCode: string,
+    filter: BrowseFilter = {},
+  ): Promise<Record<string, number>> {
+    const query = browseConditions('"40027"=?', targetGroupCode, filter);
     const rows = await this.qq.query(
       `SELECT "40020", COUNT(*) FROM group_msg_table
-       WHERE "40027" = ? AND "40020" != ''
+       WHERE ${query.clause} AND "40020" != ''
        GROUP BY "40020"`,
-      [targetGroupCode],
+      query.params,
     );
     const result: Record<string, number> = {};
     for (const row of rows) {
@@ -1090,6 +1136,74 @@ export class GroupMsgDb {
       uid: String(row[0] ?? ''),
       sendTime: Number(row[1] ?? 0),
       seq: toBigint(row[2]),
+    }));
+  }
+
+  async browseSenderTimeline(
+    conv: string,
+    filter: BrowseFilter,
+    cursor?: BrowseCursor,
+    limit = 2000,
+  ) {
+    const query = browseConditions('"40027"=?', conv, filter, cursor, 'newer');
+    const rows = await this.qq.query(
+      `SELECT rowid,"40020",COALESCE("40050",0) FROM group_msg_table WHERE ${query.clause} AND "40020" != '' ORDER BY COALESCE("40050",0) ASC,rowid ASC LIMIT ?`,
+      [...query.params, BigInt(limit)],
+    );
+    return rows.map((row) => ({
+      rowId: String(row[0]),
+      uid: String(row[1] ?? ''),
+      sendTime: Number(row[2] ?? 0),
+      cursorTime: toBigint(row[2]),
+    }));
+  }
+
+  /**
+   * 每个群在时间窗内**按周**的消息数 —— 年度报告「我的主场」群聊卡片的 sparkline。
+   *
+   * 只扫发送时间与群号两列，一次 `GROUP BY 群号, 周序号`；周序号以 `startTime`
+   * 所在周的周一为 0（本地时区），与渲染层的周柱状图同一套口径。不解码任何正文。
+   * 时间窗与报告其它页面一致，使用半开区间 [startTime, endTime)。
+   */
+  async countWeeklyByGroups(
+    groupCodes: string[],
+    opts: { startTime: number; endTime: number },
+  ): Promise<Array<{ groupCode: string; week: number; count: number }>> {
+    if (groupCodes.length === 0) return [];
+    const placeholders = groupCodes.map(() => '?').join(',');
+    const conditions = [`"40027" IN (${placeholders})`];
+    const whereParams: SqlValue[] = [...groupCodes];
+    if (opts.startTime > 0) {
+      conditions.push(`"40050" >= ?`);
+      whereParams.push(BigInt(opts.startTime));
+    }
+    if (opts.endTime > 0) {
+      conditions.push(`"40050" < ?`);
+      whereParams.push(BigInt(opts.endTime));
+    }
+    let anchor = opts.startTime;
+    if (!(opts.startTime > 0)) {
+      const first = await this.qq.query(
+        `SELECT MIN("40050") FROM group_msg_table WHERE "40027" IN (${placeholders})`,
+        groupCodes,
+      );
+      anchor = Number(first[0]?.[0] ?? 0);
+    }
+    const firstWeek = weekStartDate(anchor);
+    const rows = await this.qq.query(
+      `SELECT "40027",
+              CAST((julianday(date("40050", 'unixepoch', 'localtime')) -
+                    julianday(?)) / 7 AS INTEGER) AS week,
+              COUNT(*)
+         FROM group_msg_table
+        WHERE ${conditions.join(' AND ')}
+        GROUP BY "40027", week`,
+      [firstWeek, ...whereParams],
+    );
+    return rows.map((row) => ({
+      groupCode: String(row[0] ?? ''),
+      week: Number(row[1] ?? 0),
+      count: Number(row[2] ?? 0),
     }));
   }
 
@@ -1138,6 +1252,16 @@ export class GroupMsgDb {
   close(): void {
     this.qq.close();
   }
+}
+
+/** unix 秒所在周的周一（本地时区）的 `YYYY-MM-DD`，给周序号 SQL 做固定锚点。 */
+function weekStartDate(seconds: number): string {
+  const date = new Date(seconds * 1000);
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  day.setDate(day.getDate() - ((day.getDay() + 6) % 7));
+  return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(
+    day.getDate(),
+  ).padStart(2, '0')}`;
 }
 
 function rowToGroupMsg(row: SqlRow): GroupMsg {

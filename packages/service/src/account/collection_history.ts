@@ -117,6 +117,13 @@ export class CollectionHistoryStore {
     return item ? structuredClone(item) : null;
   }
 
+  *localItems(): IterableIterator<CollectionPageCapture['items'][number]> {
+    for (const cid of Object.keys(this.ledger.latest)) {
+      const item = this.getByCid(cid);
+      if (item) yield item;
+    }
+  }
+
   summary(): CollectionHistorySummary {
     return {
       items: Object.keys(this.ledger.latest).length,

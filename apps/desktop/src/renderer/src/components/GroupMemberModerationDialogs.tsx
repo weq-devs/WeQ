@@ -11,6 +11,7 @@ import type { ReactElement } from 'react';
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { OverlayLayer } from './OverlayLayer';
+import { QQGroupMemberEditor } from './QQGroupMemberControls';
 
 function DialogHeader({
   title,
@@ -34,6 +35,39 @@ function DialogHeader({
   );
 }
 
+export function GroupMemberTitleDialog({
+  groupCode,
+  uid,
+  memberName,
+  onClose,
+}: {
+  groupCode: string;
+  uid: string;
+  memberName: string;
+  onClose: () => void;
+}): ReactElement {
+  return (
+    <OverlayLayer
+      presentation="popover"
+      title="编辑专属头衔"
+      className="modal-scrim group-member-scrim"
+      onClose={onClose}
+    >
+      <section
+        className="group-member-dialog weq-set"
+        role="dialog"
+        aria-label="编辑专属头衔"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <DialogHeader title="编辑专属头衔" subtitle={memberName} onClose={onClose} />
+        <div className="group-member-body">
+          <QQGroupMemberEditor groupCode={groupCode} uid={uid} field="title" />
+        </div>
+      </section>
+    </OverlayLayer>
+  );
+}
+
 export function GroupMemberRenameDialog({
   memberName,
   initialCard,
@@ -50,30 +84,34 @@ export function GroupMemberRenameDialog({
   const [value, setValue] = useState(initialCard ?? '');
 
   return (
-    <OverlayLayer className="modal-scrim group-member-scrim" onClose={onCancel}>
+    <OverlayLayer
+      presentation="popover"
+      className="modal-scrim group-member-scrim"
+      onClose={onCancel}
+    >
       <section
         className="group-member-dialog"
         role="dialog"
-        aria-modal="true"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <DialogHeader title="修改群昵称" subtitle={memberName} onClose={onCancel} />
+        <DialogHeader title="修改群名片" subtitle={memberName} onClose={onCancel} />
         <div className="group-member-body">
           <input
             className="group-member-input"
             value={value}
-            placeholder="输入新的群昵称（留空 = 清除）"
+            placeholder="输入新的群名片（留空 = 清除）"
             autoFocus
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 onConfirm(value);
               } else if (event.key === 'Escape') {
+                event.preventDefault();
                 onCancel();
               }
             }}
           />
-          <p className="group-member-hint">留空并保存将清除该成员的群昵称。</p>
+          <p className="group-member-hint">留空并保存将清除该成员的群名片。</p>
         </div>
         <footer className="group-member-actions">
           <button type="button" onClick={onCancel} disabled={busy}>

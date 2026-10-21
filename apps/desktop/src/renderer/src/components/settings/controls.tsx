@@ -6,7 +6,22 @@
  * switch but lives under its own `weq-set-*` classes so the two never couple.
  */
 
-import type { ReactElement, ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  type ButtonHTMLAttributes,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
+import type { SettingsScope } from './navigation';
+
+export const SettingsScopeContext = createContext<SettingsScope | null>(null);
+
+export function SettingsScopeBadge() {
+  const scope = useContext(SettingsScopeContext);
+  return scope ? <span className="weq-settings-scope">{scope.label}</span> : null;
+}
 
 /** Section heading + optional description (and optional leading icon), shown at the top of each panel. */
 export function SectionHeader({
@@ -20,6 +35,7 @@ export function SectionHeader({
   icon?: ReactNode;
   titleClassName?: string;
 }): ReactElement {
+  const scope = useContext(SettingsScopeContext);
   return (
     <header className="weq-set-head">
       <div className="weq-set-head-title">
@@ -29,8 +45,10 @@ export function SectionHeader({
           </span>
         ) : null}
         <h3 className={`weq-set-title${titleClassName ? ` ${titleClassName}` : ''}`}>{title}</h3>
+        <SettingsScopeBadge />
       </div>
       {desc ? <p className="weq-set-desc">{desc}</p> : null}
+      {scope?.detail ? <p className="weq-set-desc">{scope.detail}</p> : null}
     </header>
   );
 }
@@ -38,10 +56,13 @@ export function SectionHeader({
 /** A bordered card grouping related rows, with an optional title + action. */
 export function Card({
   title,
+  icon,
   action,
   children,
 }: {
   title?: string;
+  /** 标题前的图标（lucide 组件或资源图），与设置页各分区的视觉语言保持一致。 */
+  icon?: ReactNode;
   action?: ReactNode;
   children: ReactNode;
 }): ReactElement {
@@ -49,7 +70,18 @@ export function Card({
     <section className="weq-set-card">
       {title || action ? (
         <div className="weq-set-card-head">
-          {title ? <div className="weq-set-card-title">{title}</div> : <span />}
+          {title ? (
+            <div className="weq-set-card-title">
+              {icon ? (
+                <span className="weq-set-card-icon" aria-hidden>
+                  {icon}
+                </span>
+              ) : null}
+              {title}
+            </div>
+          ) : (
+            <span />
+          )}
           {action ? <div className="weq-set-card-action">{action}</div> : null}
         </div>
       ) : null}
@@ -87,11 +119,13 @@ export function Row({
 /** iOS-style switch. Renders as a `role="switch"` button for a11y. */
 export function Toggle({
   checked,
+  indeterminate = false,
   disabled,
   onChange,
   label,
 }: {
   checked: boolean;
+  indeterminate?: boolean;
   disabled?: boolean;
   onChange: (next: boolean) => void;
   label?: string;
@@ -99,9 +133,9 @@ export function Toggle({
   return (
     <button
       type="button"
-      className={`weq-set-toggle${checked ? ' is-on' : ''}`}
-      role="switch"
-      aria-checked={checked}
+      className={`weq-set-toggle${indeterminate ? ' is-unknown' : checked ? ' is-on' : ''}`}
+      role={indeterminate ? 'checkbox' : 'switch'}
+      aria-checked={indeterminate ? 'mixed' : checked}
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
@@ -113,20 +147,56 @@ export function Toggle({
   );
 }
 
+export function CheckPillGroup<T extends string>({
+  options,
+  selected,
+  onChange,
+  disabled = false,
+}: {
+  options: readonly { value: T; label: ReactNode }[];
+  selected: readonly T[];
+  onChange: (next: T[]) => void;
+  disabled?: boolean;
+}) {
+  const multi = useMultiSelection({
+    ids: options.map((option) => option.value),
+    selected: new Set(selected),
+    onChange: (next) => onChange([...next]),
+    disabled,
+  });
+  return (
+    <div className="weq-set-pill-group" {...multi.rootProps}>
+      {options.map((option) => (
+        <CheckPill
+          key={option.value}
+          checked={selected.includes(option.value)}
+          disabled={disabled}
+          onChange={() => multi.toggle(option.value)}
+          {...multi.itemProps(option.value)}
+        >
+          {option.label}
+        </CheckPill>
+      ))}
+    </div>
+  );
+}
+
 /** A single checkbox pill, used by the media-type picker. */
 export function CheckPill({
   checked,
   disabled,
   onChange,
   children,
+  ...buttonProps
 }: {
   checked: boolean;
   disabled?: boolean;
   onChange: (next: boolean) => void;
   children: ReactNode;
-}): ReactElement {
+} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onChange'>): ReactElement {
   return (
     <button
+      {...buttonProps}
       type="button"
       className={`weq-set-chk${checked ? ' is-on' : ''}`}
       role="checkbox"

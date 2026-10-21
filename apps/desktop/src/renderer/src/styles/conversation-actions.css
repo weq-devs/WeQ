@@ -1,0 +1,227 @@
+.weq-overlay-layer.weq-nonmodal-layer.weq-conversation-actions-layer {
+  background: transparent;
+  pointer-events: auto;
+  padding: 0;
+}
+.weq-overlay-layer.weq-conversation-actions-layer[tabindex] > .weq-conversation-actions-menu {
+  position: fixed;
+  display: grid;
+  min-width: 170px;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  box-shadow: var(--weq-shadow-card);
+}
+.weq-conversation-actions-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+}
+.weq-conversation-actions-menu button:hover:not(:disabled),
+.weq-conversation-actions-menu button:focus-visible {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+  outline: 1px solid var(--weq-accent-effective);
+}
+.weq-conversation-actions-menu button:disabled {
+  color: var(--weq-fg-muted);
+  cursor: default;
+}
+.chat-actions .weq-conversation-message-actions {
+  width: auto;
+  gap: 5px;
+  padding-inline: 8px;
+}
+.weq-conversation-message-actions small {
+  font-size: 11px;
+  color: var(--weq-accent-effective);
+  white-space: nowrap;
+}
+.weq-conversation-message-actions {
+  position: relative;
+}
+.weq-roaming-paused-indicator {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  display: grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 50%;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-secondary);
+}
+.weq-conversation-actions-menu button.has-separator {
+  margin-top: 4px;
+  border-top: 1px solid var(--weq-border-subtle);
+  border-radius: 0 0 4px 4px;
+}
+html[data-theme='dark'] .weq-conversation-actions-menu {
+  border-color: var(--weq-border-strong);
+}
+
+.group-info-panel .group-info-heading {
+  justify-content: space-between;
+}
+.group-info-panel:has(.weq-group-content-actions) {
+  overflow-y: auto;
+}
+.group-info-panel:has(.weq-group-content-actions) .member-list-section {
+  min-height: 160px;
+}
+.weq-group-info-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+.weq-group-announcement {
+  flex: none;
+  min-width: 0;
+  padding: 12px 14px 0;
+}
+.weq-group-announcement > button {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  text-align: left;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  cursor: pointer;
+}
+.weq-group-announcement > button > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+.weq-group-announcement p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  margin: 6px 0 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.weq-group-content-actions {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 12px 14px 0;
+}
+.weq-group-content-actions:has(> button:nth-child(4)) {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.weq-group-content-actions button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  min-height: 54px;
+  padding: 7px 4px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.weq-group-content-actions button:hover,
+.weq-group-content-actions button:focus-visible {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-accent-effective);
+}
+.chat-actions .weq-mobile-group-info-trigger {
+  display: none;
+}
+html[data-theme='dark'] .weq-group-content-actions button {
+  border-color: var(--weq-border-strong);
+}
+@media (max-width: 760px) {
+  .chat-pane:has(.chat-header-roaming-action, .weq-conversation-message-actions) {
+    --chat-header-height: 84px !important;
+  }
+  .chat-pane:has(.chat-header-roaming-action, .weq-conversation-message-actions) > .chat-header {
+    grid-template-rows: 42px 42px;
+    gap: 0 4px;
+  }
+  .chat-pane:has(.chat-header-roaming-action, .weq-conversation-message-actions)
+    .chat-header
+    > .back-button {
+    grid-row: 1;
+    grid-column: 1;
+  }
+  .chat-pane:has(.chat-header-roaming-action, .weq-conversation-message-actions) .chat-title {
+    grid-row: 1;
+    grid-column: 2 / -1;
+    overflow: hidden;
+  }
+  .chat-pane:has(.chat-header-roaming-action, .weq-conversation-message-actions) .chat-actions {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    min-width: 0;
+    width: 100%;
+    overflow-x: auto;
+    justify-content: flex-start;
+    scrollbar-width: thin;
+  }
+  .chat-pane:has(.chat-header-roaming-action, .weq-conversation-message-actions)
+    .chat-actions
+    .icon-button {
+    flex: 0 0 36px;
+  }
+  .chat-pane:has(.weq-conversation-message-actions)
+    .chat-actions
+    .weq-conversation-message-actions {
+    flex: 0 0 auto;
+    min-width: 36px;
+  }
+  .chat-actions .weq-mobile-group-info-trigger {
+    display: inline-flex;
+  }
+  .chat-pane.with-group-info.is-mobile-group-info-open > .group-info-panel {
+    display: flex;
+    position: absolute;
+    grid-area: auto;
+    inset: var(--chat-header-height) 0 0 auto;
+    z-index: 8;
+    width: min(320px, 100%);
+    height: auto;
+    overflow-y: auto;
+    background: var(--weq-bg-surface);
+    border-color: var(--weq-border-subtle);
+    box-shadow: var(--weq-shadow-card);
+  }
+  html[data-theme='dark'] .chat-pane.is-mobile-group-info-open > .group-info-panel {
+    border-color: var(--weq-border-strong);
+  }
+}

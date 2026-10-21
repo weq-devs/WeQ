@@ -1,0 +1,258 @@
+.weq-directory-toolbar {
+  position: relative;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  height: 42px;
+  min-width: 0;
+  padding: 5px 8px;
+  background: var(--weq-bg-surface);
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-directory-toolbar button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 30px;
+  border-radius: 4px;
+  color: var(--weq-fg-secondary);
+}
+.weq-directory-toolbar button:hover,
+.weq-directory-toolbar button[aria-pressed='true'] {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+.weq-directory-toolbar input {
+  flex: 1 1 60px;
+  min-width: 24px;
+  width: 0;
+  height: 28px;
+  padding: 4px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+}
+.weq-directory-selection-count {
+  font-size: 12px;
+  min-width: 18px;
+  text-align: center;
+  color: var(--weq-fg-secondary);
+}
+.weq-directory-mode {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  animation: weq-directory-expand 180ms ease-out;
+}
+.weq-directory-mode > svg {
+  flex: none;
+  margin-left: 6px;
+  color: var(--weq-fg-secondary);
+}
+.weq-directory-selection-mode .weq-directory-selection-count {
+  flex: 1;
+  text-align: left;
+  padding-left: 4px;
+}
+@keyframes weq-directory-expand {
+  from {
+    opacity: 0.3;
+    clip-path: inset(0 60% 0 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .weq-directory-mode {
+    animation: none;
+  }
+}
+.weq-directory-scope {
+  position: static;
+}
+.weq-directory-scope-menu {
+  position: absolute;
+  z-index: 100;
+  top: 40px;
+  left: 8px;
+  right: 8px;
+  padding: 4px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  box-shadow: var(--weq-shadow-card);
+}
+.weq-directory-scope-menu button {
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 4px 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.weq-directory-scope-menu button[aria-checked='true'] {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+/* 选择器带上 `.list-stack`：根节点同时带两个类，而 `.list-stack { display: grid }`
+ * 在 sidebar.css 里、加载顺序更靠后，同特异性的 `.weq-conversation-directory`
+ * 会被它覆盖成 grid —— grid 默认 align-content: stretch 会把剩余高度平分给
+ * 「工具栏 + viewport」两行，筛出少量会话时整块列表被推到垂直中间。提一档
+ * 特异性（0,2,0）把 flex 布局钉死，viewport 的 flex:1 才真正生效。 */
+.list-stack.weq-conversation-directory {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  gap: 0;
+}
+.weq-conversation-directory > .conversation-list-load-more {
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  flex: 0 0 1px;
+  overflow: hidden;
+}
+.weq-conversation-window {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.weq-conversation-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.weq-conversation-selection-toolbar {
+  display: flex;
+  align-items: center;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 44px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--weq-border-subtle);
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+}
+.weq-conversation-selection-toolbar > span {
+  flex: 1 1 48px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.weq-conversation-selection-toolbar button {
+  display: inline-flex;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 30px;
+  border-radius: 4px;
+  color: var(--weq-fg-secondary);
+}
+.weq-conversation-selection-toolbar button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+}
+.weq-conversation-selection-toolbar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.weq-conversation-selection-toolbar button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 1px;
+}
+.weq-conversation-selection-toolbar.has-read-state {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(24px, 1fr));
+}
+.weq-conversation-selection-toolbar.has-read-state > span {
+  grid-column: 1 / -1;
+}
+.weq-conversation-selection-toolbar.has-read-state > button {
+  justify-self: center;
+}
+html[data-theme='dark'] .weq-conversation-selection-toolbar {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}
+.weq-conversation-window .conversation-row,
+.app-shell .weq-conversation-window .conversation-row {
+  height: 62px;
+  min-height: 62px;
+  box-sizing: border-box;
+}
+.weq-conversation-virtual {
+  display: inline-flex;
+  color: var(--weq-fg-secondary);
+  flex-shrink: 0;
+}
+.conversation-row.is-multiselected,
+.contact-row.is-multiselected,
+.app-shell .conversation-row.is-multiselected,
+.app-shell .contact-row.is-multiselected {
+  background: color-mix(in srgb, var(--weq-accent-effective) 22%, var(--weq-bg-surface));
+  color: var(--weq-fg-primary);
+  box-shadow: inset 3px 0 var(--weq-accent-effective);
+}
+html[data-theme='dark'] .weq-directory-toolbar,
+html[data-theme='dark'] .weq-directory-scope-menu {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}
+.weq-conversation-action-confirm {
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: var(--weq-shadow-card);
+  overflow-wrap: anywhere;
+}
+.weq-conversation-action-confirm h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+.weq-conversation-action-confirm ul {
+  max-height: 240px;
+  overflow: auto;
+  padding-left: 20px;
+}
+.weq-conversation-action-confirm p {
+  color: var(--weq-fg-secondary);
+}
+.weq-conversation-action-confirm > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.weq-conversation-action-confirm button {
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  color: var(--foreground);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+html[data-theme='dark'] .weq-conversation-action-confirm {
+  background: var(--background);
+  border-color: var(--weq-border-strong);
+}

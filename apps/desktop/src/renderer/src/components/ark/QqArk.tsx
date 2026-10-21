@@ -20,10 +20,20 @@
  *     自己的 com.tencent.map 包），远程图统一走 weq-avatar:// 磁盘缓存。
  */
 
-import { useMemo, type ReactElement, type ReactNode } from 'react';
+import { useContext, useMemo, useState, type ReactElement, type ReactNode } from 'react';
+import { QzoneCardNavigationContext, qzoneCardTarget } from '../../lib/qzoneNavigation';
 import { MapPin, Megaphone, ShieldAlert } from 'lucide-react';
 import { cachedAvatarUrl } from '../../lib/avatarCache';
 import { resolveArkCard, type ArkValues } from './arkCards';
+import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
+import { GroupProfileDialog } from '../../im-template/template/profilePanes';
+import {
+  groupShareTarget,
+  groupShareValues,
+  sharedGroupConversation,
+  type GroupShareTarget,
+} from './groupShareCard';
+import '../../styles/group-share-card.css';
 
 // ---- types ---------------------------------------------------------------
 
@@ -83,19 +93,34 @@ function ArkShell({
   className,
   children,
   footer,
+  onActivate,
 }: {
   jump?: string;
   className?: string;
   children: ReactNode;
   footer?: ReactNode;
+  onActivate?: () => void;
 }): ReactElement {
-  const onOpen = openHandler(jump);
+  const navigate = useContext(QzoneCardNavigationContext);
+  const target = jump ? qzoneCardTarget(jump) : null;
+  const onOpen = onActivate ?? (target && navigate ? () => navigate(target) : openHandler(jump));
   return (
     <div
       className={className ? `weq-ark-container ${className}` : 'weq-ark-container'}
-      role={onOpen ? 'link' : undefined}
-      title={onOpen ? jump : undefined}
-      onClick={onOpen}
+      role={onActivate ? 'button' : onOpen ? 'link' : undefined}
+      title={onActivate ? '查看群名片' : onOpen ? jump : undefined}
+      onClick={(event) => {
+        if (onActivate) event.stopPropagation();
+        onOpen?.();
+      }}
+      tabIndex={onOpen ? 0 : undefined}
+      onKeyDown={(event) => {
+        if (onOpen && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          if (onActivate) event.stopPropagation();
+          onOpen();
+        }
+      }}
     >
       <div className="weq-ark-content">{children}</div>
       {footer}
@@ -118,35 +143,55 @@ function ArkFooter({ source, icon }: { source?: string; icon?: string }): ReactE
 // ---- layout components ----------------------------------------------------
 
 /** 名片：左头像 + 右昵称/副标题，底部来源标签（contact / cardshare / 名片分享变体）。 */
-function ContactCard({ v }: { v: ArkValues }): ReactElement {
+function ContactCard({ v, group }: { v: ArkValues; group?: GroupShareTarget }): ReactElement {
+  const directory = useContext(ConversationDirectoryContext);
+  const [open, setOpen] = useState(false);
+  const known = group
+    ? directory?.real?.find((conv) => conv.type === 'group' && conv.id === group.code)
+    : undefined;
+  const conversation =
+    known?.type === 'group' ? known : group ? sharedGroupConversation(group) : undefined;
   return (
-    <ArkShell
-      jump={v.jump}
-      className="weq-ark-contact"
-      footer={<ArkFooter source={v.footerSource} icon={v.footerIcon} />}
-    >
-      <div className="weq-ark-contact-body">
-        {v.avatar ? (
-          <img
-            className="weq-ark-contact-avatar"
-            src={arkImg(v.avatar)}
-            alt=""
-            loading="lazy"
-            onError={(e) => {
-              // 号拼出来的外链头像（推荐卡占位）遇到不存在的号码会 404，
-              // 宁可不出图，也不要一个碎图标（与 ArkLocation 同一条规则）。
-              e.currentTarget.style.display = 'none';
-            }}
-          />
-        ) : null}
-        <div className="weq-ark-contact-main">
-          <div className="weq-ark-contact-name">{v.name || v.title || v.source || '推荐名片'}</div>
-          {v.desc || v.summary ? (
-            <div className="weq-ark-contact-sub">{v.desc || v.summary}</div>
+    <>
+      <ArkShell
+        jump={group ? undefined : v.jump}
+        onActivate={group ? () => setOpen(true) : undefined}
+        className={group ? 'weq-ark-contact weq-ark-group-share' : 'weq-ark-contact'}
+        footer={<ArkFooter source={v.footerSource} icon={v.footerIcon} />}
+      >
+        <div className="weq-ark-contact-body">
+          {v.avatar ? (
+            <img
+              className="weq-ark-contact-avatar"
+              src={arkImg(v.avatar)}
+              alt=""
+              loading="lazy"
+              onError={(e) => {
+                // 号拼出来的外链头像（推荐卡占位）遇到不存在的号码会 404，
+                // 宁可不出图，也不要一个碎图标（与 ArkLocation 同一条规则）。
+                e.currentTarget.style.display = 'none';
+              }}
+            />
           ) : null}
+          <div className="weq-ark-contact-main">
+            <div className="weq-ark-contact-name">
+              {v.name || v.title || v.source || '推荐名片'}
+            </div>
+            {v.desc || v.summary ? (
+              <div className="weq-ark-contact-sub">{v.desc || v.summary}</div>
+            ) : null}
+          </div>
         </div>
-      </div>
-    </ArkShell>
+      </ArkShell>
+      {open && group ? (
+        <GroupProfileDialog
+          key={group.code}
+          conversation={conversation}
+          detailsKnown={Boolean(known)}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -962,6 +1007,9 @@ export function QqArk({ arkData }: { arkData: unknown }): ReactElement | null {
   }
 
   const { layout, values } = resolveArkCard(app, data.meta ?? {});
+  const group = groupShareTarget(app, data.meta ?? {});
+  if (group)
+    return <ContactCard key={group.code} v={groupShareValues(group, values)} group={group} />;
   switch (layout) {
     case 'contact':
       return <ContactCard v={values!} />;

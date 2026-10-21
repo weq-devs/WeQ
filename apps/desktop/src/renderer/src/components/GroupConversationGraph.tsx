@@ -12,6 +12,9 @@
  * 交互参考联系人关系网：拖节点、滚轮缩放、悬停高亮这个人的圈子和连线。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTabActive } from './RetainedTabs';
+import { useThemeStore } from '../state/theme';
+import { usePrefersReducedMotion } from '../views/annual-report/Odometer';
 import * as d3 from 'd3';
 import { cachedAvatarUrl } from '../lib/avatarCache';
 import { formatNumber } from './analyticsCharts';
@@ -94,14 +97,56 @@ const COMMUNITY_COLORS = [
   '#d98c4a',
 ];
 
-function communityColor(community: number): string {
-  return COMMUNITY_COLORS[community % COMMUNITY_COLORS.length]!;
+function communityColor(community: number, accent = 'var(--weq-accent-effective)'): string {
+  const index = community % COMMUNITY_COLORS.length;
+  return index === 0 ? accent : COMMUNITY_COLORS[index]!;
 }
 
 function personAvatar(uin: string): string | null {
   return uin && uin !== '0'
     ? cachedAvatarUrl(`https://thirdqq.qlogo.cn/g?b=sdk&s=100&nk=${uin}`)
     : null;
+}
+
+/**
+ * 头像缺位时的简笔人像：头 + 肩，画在节点圆内。
+ *
+ * 画布上没法复用 React 的默认头像（`DefaultAvatar` 是聊天消息用的卡通占位，缩到
+ * 十几像素后五官糊成一团），所以这里用两笔几何图形表达「这是个人」。
+ */
+function drawPersonGlyph(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  color: string,
+): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y - radius * 0.22, radius * 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x, y + radius * 0.62, radius * 0.62, Math.PI * 1.08, Math.PI * 1.92);
+  ctx.fill();
+  ctx.restore();
+}
+
+/**
+ * 社区色 → 同色系的淡底。
+ *
+ * canvas 的 `fillStyle` 不认 `color-mix()` / CSS 变量，只能自己把十六进制拆成 rgba。
+ * 社区色可能是 `var(--weq-accent-effective)`（主题色，运行时被浏览器解析成十六进制），
+ * 也可能是硬编码色；解析不出来时退回中性灰底。
+ */
+function colorMixForGlyph(color: string): string {
+  const hex = color.trim().match(/^#([\da-f]{6})$/i)?.[1];
+  if (!hex) return 'rgba(128, 138, 150, 0.2)';
+  const channel = (offset: number) => Number.parseInt(hex.slice(offset, offset + 2), 16);
+  return `rgba(${channel(0)}, ${channel(2)}, ${channel(4)}, 0.2)`;
 }
 
 /**
@@ -214,12 +259,17 @@ function buildModel(report: ConversationGraphReport): {
 
 export function GroupConversationGraph({
   report,
-  instant = false,
+  instant: forceInstant = false,
 }: {
   report: ConversationGraphReport;
   /** 离屏导出舞台用：一把算完布局，不等动画降温。 */
   instant?: boolean;
 }) {
+  const tabActive = useTabActive();
+  const reduce = usePrefersReducedMotion();
+  const instant = forceInstant || reduce;
+  const theme = useThemeStore((state) => state.resolved);
+  const accentSetting = useThemeStore((state) => state.accent);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
@@ -290,6 +340,7 @@ export function GroupConversationGraph({
 
   // 图变化时重建模拟：复用上一次的坐标，避免节点满屏乱飞。
   useEffect(() => {
+    if (!tabActive) return;
     const { w, h } = sizeRef.current;
     const prevSim = simulationRef.current;
     if (prevSim) {
@@ -341,9 +392,10 @@ export function GroupConversationGraph({
         drawRafRef.current = 0;
       }
     };
-  }, [model, instant]);
+  }, [model, instant, tabActive]);
 
   useEffect(() => {
+    if (!tabActive) return;
     const wrap = wrapRef.current;
     const canvas = canvasRef.current;
     if (!wrap || !canvas) return undefined;
@@ -377,7 +429,11 @@ export function GroupConversationGraph({
     ro.observe(wrap);
     return () => ro.disconnect();
     // `instant` 决定首次定完尺寸后是「直接算完」还是「让力图自己降温」，所以它变了得重挂。
-  }, [instant]);
+  }, [instant, tabActive]);
+
+  useEffect(() => {
+    if (tabActive) drawRef.current();
+  }, [theme, accentSetting, tabActive]);
 
   function draw() {
     const canvas = canvasRef.current;
@@ -388,9 +444,11 @@ export function GroupConversationGraph({
 
     const { w, h, dpr } = sizeRef.current;
     const v = viewRef.current;
-    const dark = document.documentElement.dataset.theme === 'dark';
-    const labelFill = dark ? '#c8d0da' : '#33455a';
-    const labelHalo = dark ? 'rgba(8,10,13,0.85)' : 'rgba(255,255,255,0.85)';
+    const styles = getComputedStyle(canvas);
+    const accent = styles.getPropertyValue('--weq-accent-effective').trim();
+    const labelFill = styles.getPropertyValue('--weq-fg-primary').trim();
+    const labelHalo = styles.getPropertyValue('--weq-bg-surface').trim();
+    const neutral = styles.getPropertyValue('--weq-border-strong').trim();
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
@@ -420,7 +478,8 @@ export function GroupConversationGraph({
       ctx.beginPath();
       ctx.moveTo(s.x, s.y);
       ctx.lineTo(t.x, t.y);
-      ctx.strokeStyle = active ? 'rgba(0,153,255,0.6)' : 'rgba(120,140,165,0.16)';
+      ctx.strokeStyle = active ? accent : neutral;
+      ctx.globalAlpha = active ? 0.6 : 0.4;
       ctx.lineWidth = active ? 1 + t01 * 3 : 0.5 + t01 * 2.4;
       ctx.stroke();
     }
@@ -428,14 +487,16 @@ export function GroupConversationGraph({
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     for (const n of nodes) {
-      const color = communityColor(n.community);
+      const color = communityColor(n.community, accent);
       const dim = focus && n.id !== focus && !focusNeighbours.has(n.id);
       const r = n.radius;
       ctx.globalAlpha = dim ? 0.3 : 1;
 
       ctx.beginPath();
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = color;
+      // 默认头像也不能是一整块高饱和的社区色 —— 那会被误读成「某人的头像」。
+      // 底色压成低饱和的同色底，让人像剪影读得出来。
+      ctx.fillStyle = n.avatarUrl ? color : colorMixForGlyph(color);
       ctx.fill();
 
       const img = n.avatarUrl ? getImage(n.avatarUrl) : null;
@@ -447,14 +508,14 @@ export function GroupConversationGraph({
         ctx.drawImage(img, n.x - r, n.y - r, r * 2, r * 2);
         ctx.restore();
       } else {
-        ctx.fillStyle = '#ffffff';
-        ctx.font = `600 ${Math.round(r)}px var(--font-sans, sans-serif)`;
-        ctx.fillText((n.label || '?').slice(0, 1), n.x, n.y + 1);
+        // 拿不到头像时画一枚简笔人像（与列表里的默认头像同一语义），
+        // 不用昵称首字 —— 中文名取首字既认不出人，也和头像的圆形语义不符。
+        drawPersonGlyph(ctx, n.x, n.y, r, labelFill);
       }
 
       const isFocus = n.id === focus;
       ctx.lineWidth = isFocus ? 3 : 1.5;
-      ctx.strokeStyle = isFocus ? '#0099ff' : color;
+      ctx.strokeStyle = isFocus ? accent : color;
       ctx.globalAlpha = dim ? 0.35 : 1;
       ctx.beginPath();
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
@@ -463,7 +524,7 @@ export function GroupConversationGraph({
       if (!dim && (isFocus || focusNeighbours.has(n.id) || r >= 20 || v.scale >= 1.1)) {
         ctx.globalAlpha = 1;
         const fontPx = Math.max(10, 11 / v.scale);
-        ctx.font = `500 ${fontPx}px var(--font-sans, sans-serif)`;
+        ctx.font = `500 ${fontPx}px ${styles.fontFamily}`;
         const label = n.label.length > 10 ? `${n.label.slice(0, 10)}…` : n.label;
         ctx.lineWidth = 3 / v.scale;
         ctx.strokeStyle = labelHalo;

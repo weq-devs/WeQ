@@ -36,6 +36,9 @@ import { FaceEmoji } from './FaceEmoji';
 import { AnalyticsSkeleton } from './AnalyticsSkeleton';
 import { useAnalyticsExport } from './useAnalyticsExport';
 import { HourlyBarChart, formatDate, formatNumber } from './analyticsCharts';
+import type { AnalysisScope } from '../views/analysis/model';
+import { AnalyticsRetry } from './AnalyticsRetry';
+import { resolveAvatar } from '../lib/avatarResolver';
 
 /** 导出图片的默认文件名前缀。 */
 const EXPORT_LABEL = '成员分析';
@@ -93,6 +96,9 @@ export function MemberAnalyticsDialog({
   onClose,
   exportMode = false,
   initialData,
+  embedded = false,
+  scope,
+  periodLabel,
 }: {
   groupCode: string;
   groupName: string;
@@ -102,6 +108,9 @@ export function MemberAnalyticsDialog({
   exportMode?: boolean;
   /** 导出时由可见窗口递过来的数据，避免同一份分析再扫一遍。 */
   initialData?: unknown;
+  embedded?: boolean;
+  scope?: AnalysisScope;
+  periodLabel?: string;
 }) {
   const [data, setData] = useState<MemberAnalyticsData | null>(
     (initialData as MemberAnalyticsData) ?? null,
@@ -116,6 +125,8 @@ export function MemberAnalyticsDialog({
       const result = await client.account.getGroupMemberAnalytics.query({
         groupCode,
         memberUid: member.uid,
+        ...(member.uin && /^[1-9]\d*$/.test(member.uin) ? { memberUin: member.uin } : {}),
+        ...scope,
       });
       setData(result as MemberAnalyticsData);
     } catch (e) {
@@ -123,7 +134,7 @@ export function MemberAnalyticsDialog({
     } finally {
       setLoading(false);
     }
-  }, [groupCode, member.uid]);
+  }, [groupCode, member.uid, member.uin, scope]);
 
   // 导出窗口里的数据是外面递进来的：已有初始数据就别再扫一遍。
   const seeded = Boolean(initialData);
@@ -133,7 +144,11 @@ export function MemberAnalyticsDialog({
   }, [seeded, load]);
 
   // 「保存为图片」：把数据交给主进程 —— 它在隐藏窗口里渲染 + 抓图 + 弹保存框。
-  const { exporting, start: startExport } = useAnalyticsExport({
+  const {
+    available: imageAvailable,
+    exporting,
+    start: startExport,
+  } = useAnalyticsExport({
     enabled: !loading && !error && !!data && !exportMode,
     build: () =>
       data
@@ -144,6 +159,7 @@ export function MemberAnalyticsDialog({
             groupCode,
             groupName,
             member,
+            periodLabel,
             data,
           }
         : null,
@@ -156,7 +172,11 @@ export function MemberAnalyticsDialog({
   const renderSections = () => (
     <>
       <div className="ba-hero">
-        <Avatar name={member.name} avatarUrl={member.avatarUrl ?? null} />
+        <Avatar
+          name={member.name}
+          seed={member.uid}
+          avatarUrl={resolveAvatar({ uin: member.uin, profileAvatarUrl: member.avatarUrl })}
+        />
         <div className="ba-hero-info">
           <strong>{member.name}</strong>
           <span>
@@ -263,8 +283,7 @@ export function MemberAnalyticsDialog({
   const card = (
     <section
       className="group-album-dialog ma-dialog"
-      role="dialog"
-      aria-modal={exportMode ? undefined : 'true'}
+      role="region"
       aria-label={`${member.name} 在 ${groupName} 的聊天分析`}
       onMouseDown={(event) => event.stopPropagation()}
     >
@@ -280,9 +299,9 @@ export function MemberAnalyticsDialog({
             <button
               className="icon-button"
               type="button"
-              title="保存为图片"
+              title={imageAvailable ? '保存为图片' : '当前环境不支持保存长图'}
               onClick={startExport}
-              disabled={exporting || loading || !!error || !data}
+              disabled={!imageAvailable || exporting || loading || !!error || !data}
             >
               {exporting ? <Loader2 size={18} className="weq-spin" /> : <ImageDown size={18} />}
             </button>
@@ -292,12 +311,13 @@ export function MemberAnalyticsDialog({
           </div>
         )}
       </header>
+      {periodLabel ? <p className="weq-analysis-period">{periodLabel}</p> : null}
 
       <div className="group-album-body ma-body">
         {loading ? (
           <AnalyticsSkeleton variant="member" />
         ) : error ? (
-          <div className="ga-error">{error}</div>
+          <AnalyticsRetry error={error} onRetry={() => void load()} />
         ) : !data || !stats ? (
           <p className="ga-placeholder">未能加载该成员的分析数据</p>
         ) : (
@@ -308,10 +328,15 @@ export function MemberAnalyticsDialog({
   );
 
   // 导出窗口里整页就是这张卡片：不需要遮挡层。
-  if (exportMode) return card;
+  if (exportMode || embedded) return card;
 
   return (
-    <OverlayLayer className="weq-profile-layer weq-mutual-layer" onClose={onClose}>
+    <OverlayLayer
+      presentation="sidecar"
+      title="成员分析"
+      className="weq-profile-layer weq-mutual-layer"
+      onClose={onClose}
+    >
       {card}
     </OverlayLayer>
   );

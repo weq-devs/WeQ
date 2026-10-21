@@ -1,24 +1,13 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 import {
-  Bot,
   LayoutGrid,
   MessageCircle,
-  MessagesSquare,
-  Download,
   Settings,
   Hash,
   Bookmark,
-  HardDrive,
-  Store,
   Palette,
-  MoreHorizontal,
-  Wand2,
-  HelpCircle,
-  BarChart3,
-  Images,
-  DatabaseZap,
-  FileStack,
-  ShieldCheck,
+  Mail,
+  Sparkles,
 } from 'lucide-react';
 import { SiQzone } from 'react-icons/si';
 import { useEffect, useRef, useState, useTransition } from 'react';
@@ -28,6 +17,9 @@ import { Avatar } from './primitives';
 import type { MainView, SettingsTab, User } from './types';
 import { displayUserName } from './user';
 import { useUpdateStore } from '../../state/update';
+import '../../styles/rail-navigation.css';
+import '../../styles/rail-utility-dock.css';
+import { useWorkspaceActiveTitle } from '../../components/WorkspacePages';
 
 export function AppRail({
   user,
@@ -35,72 +27,82 @@ export function AppRail({
   onViewChange,
   onOpenSettings,
   onOpenCollection,
-  onOpenMarketBrowser,
   onOpenDressUp,
   onOpenProfile,
   onOpenAbout: _onOpenAbout,
-  onOpenHelp,
   onOpenInvite,
-  onOpenWonderfulTools,
-  /** 防撤回面板（不是视图：弹窗，只有 onSelect）。 */
-  onOpenAntiRecall,
-  onOpenDbRepair,
-  onOpenGuildDirect,
-  onOpenQzoneAlbum,
-  onOpenMergeForward,
   messageBadgeCount = 0,
+  onMessageBadgeClick,
   contactBadgeCount = 0,
+  mailBadgeCount = 0,
   showTools = true,
   footerContent,
   hideAvatar = false,
+  activeRailItem,
 }: {
   user: User;
   view: MainView;
   onViewChange: (view: MainView) => void;
   onOpenSettings: (tab?: SettingsTab) => void;
   onOpenCollection: () => void;
-  onOpenMarketBrowser: () => void;
   onOpenDressUp: () => void;
   onOpenProfile: () => void;
   onOpenAbout: () => void;
-  onOpenHelp: () => void;
   onOpenInvite: () => void;
   onOpenWonderfulTools: () => void;
   onOpenAntiRecall: () => void;
   /** 妙妙工具那一页的直达入口：打开同一个弹窗，但先落到「数据库修复」。 */
   onOpenDbRepair: () => void;
-  onOpenGuildDirect: () => void;
   onOpenQzoneAlbum: () => void;
-  /** 「合成聊天记录」—— 合并转发的草稿箱（离线也能拼，存 weq 目录）。 */
-  onOpenMergeForward: () => void;
   messageBadgeCount?: number;
+  onMessageBadgeClick?: () => void;
   contactBadgeCount?: number;
+  mailBadgeCount?: number;
   showTools?: boolean;
-  footerContent?: ReactNode;
+  footerContent?: ReactNode | ((settingsButton: ReactNode) => ReactNode);
   hideAvatar?: boolean;
+  activeRailItem?: 'settings' | 'dressup';
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [pendingView, setPendingView] = useState<MainView | null>(null);
   const [, startViewTransition] = useTransition();
   const railRef = useRef<HTMLElement | null>(null);
-  const moreRef = useRef<HTMLDivElement | null>(null);
-  const activeView = pendingView ?? view;
+  const activeTitle = useWorkspaceActiveTitle();
+  const activePage =
+    activeTitle === '个性装扮' ? 'dressup' : activeTitle === '设置' ? 'settings' : undefined;
+  const activeView = activePage ?? activeRailItem ?? pendingView ?? view;
   const updateAvailable = useUpdateStore((s) => s.available);
+  const settingsButton = (mobile = false) => (
+    <button
+      className={cn(
+        railButtonClass(activeView === 'settings'),
+        mobile
+          ? 'rail-tab rail-tab-settings rail-mobile-settings'
+          : 'weq-rail-control weq-rail-settings',
+      )}
+      aria-current={activeView === 'settings' ? 'page' : undefined}
+      aria-label="设置"
+      onClick={() => {
+        setProfileOpen(false);
+        onOpenSettings();
+      }}
+      title={updateAvailable ? '设置 · 有新版本可更新' : '设置'}
+      type="button"
+    >
+      <Settings size={mobile ? 22 : 18} strokeWidth={mobile ? 1.5 : 2} aria-hidden />
+      {mobile ? <span className="rail-label">设置</span> : null}
+      {updateAvailable ? (
+        <span className="rail-badge rail-badge-dot" aria-label="有新版本可更新" />
+      ) : null}
+    </button>
+  );
 
-  // 「更多功能」里的功能入口（灯箱弹窗 + 帮助对话框）。它们都不是视图
-  // （不占 MainView 的 view 位），所以只有 onSelect，没有 active 态。
-  const moreItems = [
-    { id: 'dressup', label: '个性装扮', icon: Palette, onSelect: onOpenDressUp },
+  const contentItems = [
     { id: 'collection', label: '我的收藏', icon: Bookmark, onSelect: onOpenCollection },
-    { id: 'market', label: '商城表情', icon: Store, onSelect: onOpenMarketBrowser },
-    { id: 'wonderful', label: '妙妙工具', icon: Wand2, onSelect: onOpenWonderfulTools },
-    { id: 'antiRecall', label: '防撤回', icon: ShieldCheck, onSelect: onOpenAntiRecall },
-    { id: 'dbRepair', label: '数据库修复', icon: DatabaseZap, onSelect: onOpenDbRepair },
-    { id: 'mergeForward', label: '合成聊天记录', icon: FileStack, onSelect: onOpenMergeForward },
-    { id: 'guildDirect', label: '频道私聊', icon: MessagesSquare, onSelect: onOpenGuildDirect },
-    { id: 'qzoneAlbum', label: '空间相册', icon: Images, onSelect: onOpenQzoneAlbum },
-    { id: 'help', label: '帮助', icon: HelpCircle, onSelect: onOpenHelp },
+    // 年度报告整页独占内容区（shell.view === 'annual'），与 QQ 空间 / 邮箱同一条
+    // 「整页视图」路径，不另开弹窗。
+    { id: 'annual', label: '年度报告', icon: Sparkles, onSelect: () => selectView('annual') },
+    { id: 'dressup', label: '个性装扮', icon: Palette, onSelect: onOpenDressUp },
   ];
 
   useEffect(() => {
@@ -110,7 +112,7 @@ export function AppRail({
   }, [view, pendingView]);
 
   useEffect(() => {
-    if (!menuOpen && !profileOpen) {
+    if (!profileOpen) {
       return;
     }
 
@@ -119,11 +121,6 @@ export function AppRail({
       if (!(target instanceof Node)) {
         return;
       }
-      // 「更多」用自己的容器判定,而不是整条 rail —— 否则点 rail 上别的按钮
-      // (设置、导出…)时弹框会留在屏幕上。
-      if (!moreRef.current?.contains(target)) {
-        setMenuOpen(false);
-      }
       if (!railRef.current?.contains(target)) {
         setProfileOpen(false);
       }
@@ -131,7 +128,6 @@ export function AppRail({
 
     function closeOnEscape(event: globalThis.KeyboardEvent) {
       if (event.key === 'Escape') {
-        setMenuOpen(false);
         setProfileOpen(false);
       }
     }
@@ -142,10 +138,9 @@ export function AppRail({
       document.removeEventListener('mousedown', closeFloating);
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [menuOpen, profileOpen]);
+  }, [profileOpen]);
 
   function selectView(nextView: MainView) {
-    setMenuOpen(false);
     setProfileOpen(false);
     // Paint the active-state change immediately, then push the heavy
     // view switch into a transition so the button animation isn't blocked
@@ -163,7 +158,6 @@ export function AppRail({
           className={cn('rail-avatar')}
           title={displayUserName(user)}
           onClick={() => {
-            setMenuOpen(false);
             setProfileOpen((open) => !open);
           }}
         >
@@ -194,19 +188,37 @@ export function AppRail({
           aria-label="Primary"
           onMouseDown={(event) => event.stopPropagation()}
         >
-          <button
-            className={cn(railButtonClass(activeView === 'messages'), 'rail-tab rail-tab-messages')}
-            onClick={() => selectView('messages')}
-            title="消息"
-          >
-            <span className={cn('rail-tab-icon')}>
-              <MessageCircle size={22} strokeWidth={1.5} />
-            </span>
-            <span className={cn('rail-label')}>消息</span>
+          <div className="rail-message-entry">
+            <button
+              className={cn(
+                railButtonClass(activeView === 'messages'),
+                'rail-tab rail-tab-messages',
+              )}
+              onClick={() => selectView('messages')}
+              title="消息"
+            >
+              <span className={cn('rail-tab-icon')}>
+                <MessageCircle size={22} strokeWidth={1.5} />
+              </span>
+              <span className={cn('rail-label')}>消息</span>
+            </button>
             {messageBadgeCount > 0 ? (
-              <span className={cn('rail-badge')}>{formatBadgeCount(messageBadgeCount)}</span>
+              <button
+                type="button"
+                className={cn('rail-badge rail-message-badge')}
+                title="定位首条未读会话"
+                aria-label={`定位首条未读会话，共 ${messageBadgeCount} 条未读消息`}
+                onClick={() => {
+                  setProfileOpen(false);
+                  setPendingView('messages');
+                  if (onMessageBadgeClick) onMessageBadgeClick();
+                  else selectView('messages');
+                }}
+              >
+                {formatBadgeCount(messageBadgeCount)}
+              </button>
             ) : null}
-          </button>
+          </div>
           <button
             className={cn(railButtonClass(activeView === 'contacts'), 'rail-tab rail-tab-contacts')}
             onClick={() => selectView('contacts')}
@@ -217,7 +229,11 @@ export function AppRail({
             </span>
             <span className={cn('rail-label')}>联系人</span>
             {contactBadgeCount > 0 ? (
-              <span className={cn('rail-badge')}>{formatBadgeCount(contactBadgeCount)}</span>
+              <span
+                className={cn('rail-badge rail-badge-dot')}
+                role="status"
+                aria-label="有新的好友或群通知"
+              />
             ) : null}
           </button>
           <button
@@ -243,100 +259,48 @@ export function AppRail({
             <span className={cn('rail-label')}>QQ频道</span>
           </button>
           <button
-            className={cn(railButtonClass(activeView === 'export'), 'rail-tab rail-tab-export')}
-            onClick={() => selectView('export')}
-            title="导出"
-          >
-            <span className={cn('rail-tab-icon')}>
-              <Download size={22} strokeWidth={1.5} />
-            </span>
-            <span className={cn('rail-label')}>导出</span>
-          </button>
-          <button
-            className={cn(railButtonClass(activeView === 'agentlab'), 'rail-tab rail-tab-agentlab')}
-            onClick={() => selectView('agentlab')}
-            title="AgentLab"
-          >
-            <span className={cn('rail-tab-icon')}>
-              <Bot size={22} strokeWidth={1.5} />
-            </span>
-            <span className={cn('rail-label')}>AgentLab</span>
-          </button>
-          <button
-            className={cn(railButtonClass(activeView === 'cache'), 'rail-tab rail-tab-cache')}
-            onClick={() => selectView('cache')}
-            title="本地缓存资源"
-          >
-            <span className={cn('rail-tab-icon')}>
-              <HardDrive size={22} strokeWidth={1.5} />
-            </span>
-            <span className={cn('rail-label')}>缓存</span>
-          </button>
-          <button
-            className={cn(railButtonClass(activeView === 'annual'), 'rail-tab rail-tab-annual')}
-            onClick={() => selectView('annual')}
-            title="年度报告"
             type="button"
+            className={cn(railButtonClass(activeView === 'mail'), 'rail-tab rail-tab-mail')}
+            onClick={() => selectView('mail')}
+            title="QQ 邮箱"
           >
             <span className={cn('rail-tab-icon')}>
-              <BarChart3 size={22} strokeWidth={1.5} />
+              <Mail size={22} strokeWidth={1.5} />
             </span>
-            <span className={cn('rail-label')}>年度报告</span>
+            <span className={cn('rail-label')}>QQ邮箱</span>
+            {mailBadgeCount > 0 ? (
+              <span className="rail-badge rail-badge-mail">{formatBadgeCount(mailBadgeCount)}</span>
+            ) : null}
           </button>
-          {/* 相对定位的壳:弹出框要贴在这个按钮右边,而不是整条 rail 的某个固定高度。 */}
-          <div className={cn('rail-more-wrap')} ref={moreRef}>
+          {contentItems.map((item) => (
             <button
-              className={cn(menuOpen && 'active', 'rail-tab rail-tab-more')}
+              key={item.id}
+              className={cn(
+                railButtonClass(
+                  activeView === (item.id === 'collection' ? 'collections' : item.id),
+                ),
+                'rail-tab',
+                `rail-tab-${item.id}`,
+              )}
+              aria-current={
+                activeView === (item.id === 'collection' ? 'collections' : item.id)
+                  ? 'page'
+                  : undefined
+              }
               onClick={() => {
                 setProfileOpen(false);
-                setMenuOpen((open) => !open);
+                item.onSelect();
               }}
-              title="更多功能"
+              title={item.label}
               type="button"
-              aria-expanded={menuOpen}
             >
               <span className={cn('rail-tab-icon')}>
-                <MoreHorizontal size={22} strokeWidth={1.5} />
+                <item.icon size={22} strokeWidth={1.5} />
               </span>
-              <span className={cn('rail-label')}>更多</span>
+              <span className={cn('rail-label')}>{item.label}</span>
             </button>
-            {menuOpen ? (
-              <div className={cn('rail-more-popover')} role="menu" aria-label="更多功能">
-                {moreItems.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="menuitem"
-                    className={cn('rail-more-tile')}
-                    title={item.label}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      item.onSelect();
-                    }}
-                  >
-                    <item.icon size={20} strokeWidth={1.6} />
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-          <button
-            className={cn('rail-tab rail-tab-settings')}
-            onClick={() => {
-              setMenuOpen(false);
-              onOpenSettings();
-            }}
-            title={updateAvailable ? '设置 · 有新版本可更新' : '设置'}
-            type="button"
-          >
-            <span className={cn('rail-tab-icon')}>
-              <Settings size={22} strokeWidth={1.5} />
-            </span>
-            <span className={cn('rail-label')}>设置</span>
-            {updateAvailable ? (
-              <span className={cn('rail-badge', 'rail-badge-dot')} aria-label="有新版本可更新" />
-            ) : null}
-          </button>
+          ))}
+          {settingsButton(true)}
           <button
             className={cn(
               railButtonClass(activeView === 'tools'),
@@ -354,7 +318,16 @@ export function AppRail({
           </button>
         </nav>
       </div>
-      <div className={cn('rail-footer')}>{footerContent}</div>
+      <div className={cn('rail-footer')}>
+        {typeof footerContent === 'function' ? (
+          footerContent(settingsButton())
+        ) : (
+          <>
+            {settingsButton()}
+            {footerContent}
+          </>
+        )}
+      </div>
     </aside>
   );
 }

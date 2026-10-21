@@ -1,14 +1,14 @@
 /**
- * 设置 → 图片识别（本地模型）.
+ * 设置 → 模型与识别 → 图片识别（本地模型）.
  *
  * 这一屏只管**模型的下载与选择**：识别模型（PP-OCR，出逐行文字 + 像素坐标框）和
  * 筛图模型（只判断「图里有没有文字」，用于批量 OCR 前先筛掉风景 / 人像）。识别模型
  * 已经接进图片灯箱的 OCR 按钮（在线那条路走不通时在本机跑）；筛图模型先用不着 ——
  * 导出侧的批量自动 OCR 是单独一轮的事。
  *
- * 与「语音配置」同构：设置项在全局配置（`bootstrap.getSettings().ocr`），下载进度
+ * 与语音模型共用资源配置（`bootstrap.getSettings().modelResources`），下载进度
  * 走 `onOcrModelProgress` 这一条共享订阅，注册表 + 落盘状态来自
- * `bootstrap.ocrModels`。
+ * `bootstrap.localModelResources`。
  *
  * Freshness：和其它设置面板一样用 `staleTime: 0` + `refetchOnMount: 'always'`，
  * 重新打开设置总是拿到最新状态。
@@ -18,7 +18,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { AlertTriangle, Check, Download, Loader2, ScanText, Trash2 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useDialog } from '../Dialog';
-import { Card, SectionHeader } from './controls';
+import { Card, Row, SectionHeader } from './controls';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -202,13 +202,9 @@ function ModelKindCard({
 
 export function OcrModelsSection(): ReactElement {
   const showError = useDialog((s) => s.showError);
+  const utils = trpc.useUtils();
 
-  const models = trpc.bootstrap.ocrModels.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: 0,
-    refetchOnMount: 'always',
-  });
-  const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+  const models = trpc.bootstrap.localModelResources.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -216,7 +212,7 @@ export function OcrModelsSection(): ReactElement {
 
   const download = trpc.bootstrap.downloadOcrModel.useMutation();
   const remove = trpc.bootstrap.deleteOcrModel.useMutation();
-  const setModel = trpc.bootstrap.setOcrModel.useMutation();
+  const setModel = trpc.bootstrap.setLocalModelResource.useMutation();
 
   const [progress, setProgress] = useState<LiveProgress | null>(null);
 
@@ -253,8 +249,8 @@ export function OcrModelsSection(): ReactElement {
     return () => sub.unsubscribe();
   }, []);
 
-  const selectedOcr = settings.data?.ocr.modelId ?? '';
-  const selectedFilter = settings.data?.ocr.filterModelId ?? '';
+  const selectedOcr = models.data?.selected.ocr ?? '';
+  const selectedFilter = models.data?.selected.filter ?? '';
 
   async function onDownload(id: string): Promise<void> {
     try {
@@ -267,12 +263,12 @@ export function OcrModelsSection(): ReactElement {
   }
 
   /** 删掉的正好是当前选用的话，顺手把选择也清掉（否则会指向一个不存在的模型）。 */
-  async function onDelete(id: string, selectedId: string, kind: 'ocr' | 'filter'): Promise<void> {
+  async function onDelete(id: string): Promise<void> {
     try {
-      await remove.mutateAsync({ id });
-      if (selectedId === id) await setModel.mutateAsync({ kind, modelId: '' });
+      const removed = await remove.mutateAsync({ id });
+      if (!removed) throw new Error('模型正在下载，暂不能删除');
       await models.refetch();
-      await settings.refetch();
+      await utils.bootstrap.getSettings.invalidate();
     } catch (e) {
       showError('删除模型失败', errMsg(e));
     }
@@ -282,13 +278,14 @@ export function OcrModelsSection(): ReactElement {
     try {
       // Toggle off if already selected.
       await setModel.mutateAsync({ kind, modelId: selectedId === id ? '' : id });
-      await settings.refetch();
+      await models.refetch();
+      await utils.bootstrap.getSettings.invalidate();
     } catch (e) {
       showError('设置当前模型失败', errMsg(e));
     }
   }
 
-  const all = models.data?.models ?? [];
+  const all = models.data?.ocr ?? [];
   /** 平台能力：本机没有推理引擎时（如 macOS Intel）整屏只留一句原因。 */
   const engineBlocker = models.data?.engineBlocker ?? null;
   const ocrModels = all.filter((m) => m.kind === 'ocr');
@@ -297,10 +294,11 @@ export function OcrModelsSection(): ReactElement {
 
   return (
     <div className="weq-set">
-      <SectionHeader
-        icon={<ScanText size={18} strokeWidth={1.8} />}
-        title="图片识别"
-        desc="本地图片文字识别（OCR）的模型下载与选择。识别模型出文字和每行文字的像素坐标框；筛图模型只判断「图里有没有文字」，用在批量识别之前把没有文字的图先筛掉。"
+      <SectionHeader icon={<ScanText size={18} strokeWidth={1.8} />} title="图片识别" />
+      <Row
+        label="QQ 在线 OCR"
+        desc="由 QQ 服务端提供，不是本地模型；需要 QQ 在线及对应凭据，无需下载下方资源。"
+        control={null}
       />
 
       <ModelKindCard
@@ -314,7 +312,7 @@ export function OcrModelsSection(): ReactElement {
         busy={busy}
         engineBlocker={engineBlocker}
         onDownload={(id) => void onDownload(id)}
-        onDelete={(id) => void onDelete(id, selectedOcr, 'ocr')}
+        onDelete={(id) => void onDelete(id)}
         onSelect={(id) => void onSelect(id, 'ocr', selectedOcr)}
       />
 
@@ -329,15 +327,11 @@ export function OcrModelsSection(): ReactElement {
         busy={busy}
         engineBlocker={engineBlocker}
         onDownload={(id) => void onDownload(id)}
-        onDelete={(id) => void onDelete(id, selectedFilter, 'filter')}
+        onDelete={(id) => void onDelete(id)}
         onSelect={(id) => void onSelect(id, 'filter', selectedFilter)}
       />
 
-      <p className="weq-set-note">
-        模型保存在本地，删除「账号缓存」不会影响它。识别模型下好之后，聊天图片灯箱的
-        「OCR」按钮就会在在线那条路走不通时用它出文字；筛图模型留给导出侧的批量自动
-        识别，现在只负责下载与选择。
-      </p>
+      <p className="weq-set-note">本地模型用于离线识别，删除「账号缓存」不会影响这些资源。</p>
     </div>
   );
 }

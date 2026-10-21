@@ -47,6 +47,8 @@ import {
   type AgentLabMessage,
   type AgentLabModelRef,
   type AgentLabModels,
+  type AgentLabGenerationConfig,
+  normalizeCloneGeneration,
   type AgentLabPersona,
   type AgentLabPersonaDeepProfile,
   type AgentLabPersonaNotes,
@@ -982,8 +984,8 @@ export class AgentLabService extends EventEmitter {
   }
 
   /** token 用量统计（主页图表用）。 */
-  getTokenStats(): TokenStats {
-    return this.usage.getStats();
+  getTokenStats(global?: TokenUsageStore): TokenStats {
+    return this.usage.getStats(global);
   }
 
   /** 与某克隆体的历史对话（持久化，刷新不丢）。 */
@@ -1007,14 +1009,10 @@ export class AgentLabService extends EventEmitter {
       kind,
       onUsage: (u: AgentLabUsage) =>
         this.usage.record({
-          ts: Date.now(),
-          model: u.model,
-          kind: u.kind,
+          ...u,
+          ts: u.startedAt ?? Date.now(),
           personaId: ctx.personaId,
           scope: ctx.scope,
-          promptTokens: u.promptTokens,
-          completionTokens: u.completionTokens,
-          totalTokens: u.totalTokens,
         }),
     };
   }
@@ -1191,6 +1189,8 @@ export class AgentLabService extends EventEmitter {
     personaId: string,
     patch: {
       name?: string;
+      chatModel?: AgentLabModelRef;
+      generation?: Partial<AgentLabGenerationConfig>;
       customPrompt?: string;
       voiceCloneEnabled?: boolean;
       voice?: AgentLabVoiceBinding | null;
@@ -1201,6 +1201,12 @@ export class AgentLabService extends EventEmitter {
     const record = this.store.getPersona(personaId);
     if (!record) return null;
     const persona = record.persona;
+    if (patch.chatModel) {
+      if (!this.resolveEndpoint(patch.chatModel)) throw new Error('所选聊天模型不可用');
+      persona.models = { ...persona.models, chat: { ...patch.chatModel } };
+    }
+    if (patch.generation)
+      persona.generation = normalizeCloneGeneration({ ...persona.generation, ...patch.generation });
     if (patch.name !== undefined) persona.name = patch.name.trim() || persona.name;
     if (patch.customPrompt !== undefined)
       persona.customPrompt = patch.customPrompt.trim() || undefined;

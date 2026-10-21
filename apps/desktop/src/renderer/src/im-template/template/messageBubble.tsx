@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { Bot, Check, LoaderCircle, RotateCcw, Sparkle, TriangleAlert, X } from 'lucide-react';
@@ -7,12 +7,15 @@ import { Avatar } from './primitives';
 import type { Conversation, Message, MessageAction, User } from './types';
 import { cn } from './classNames';
 import { SetEmojiReactions, type ReactionRemoval } from '../../components/SetEmojiReactions';
+import { MessageIntentSense } from '../../components/intentSense/MessageIntentSense';
 import { useSelfPendant } from '../../hooks/useSelfPendant';
 import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget';
 import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
 import { MessageProvenance } from '../../components/MessageProvenance';
+import { messageHasIntentText } from '../../lib/intentTimeline';
 import '../../styles/chat-interactions.css';
+import '../../styles/composer-reedit.css';
 
 // 猜测式回退（newPreview 拼接，见 msg_decoration.ts）常年会有下架/过期 404。加载失败
 // 就把 <img> 本身藏起来，别让浏览器画那个裂图占位——头像本体照常显示，只是没有这个
@@ -84,12 +87,15 @@ export function MessageBubble({
   onContextMenu,
   onLongPress,
   onAction,
+  onReedit,
   onAvatarClick,
   onAvatarContextMenu,
   selected,
   selectionMode,
   onToggleSelect,
   reactionRemoval,
+  repeatAction,
+  pendingAction,
 }: {
   message: Message;
   conversation: Conversation;
@@ -132,6 +138,7 @@ export function MessageBubble({
   onContextMenu: (event: ReactMouseEvent, message: Message) => void;
   onLongPress: (point: { x: number; y: number }, message: Message) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
+  onReedit?: (message: Message) => Promise<boolean>;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
   /** 右键头像：弹出「@他 / 戳一戳」轻互动菜单。 */
   onAvatarContextMenu?: (event: ReactMouseEvent, sender: User) => void;
@@ -141,6 +148,8 @@ export function MessageBubble({
   selectionMode?: boolean;
   onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;
   reactionRemoval?: ReactionRemoval;
+  repeatAction?: import('react').ReactNode;
+  pendingAction?: import('react').ReactNode;
 }) {
   const longPressTimerRef = useRef<number | null>(null);
   const longPressPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -148,6 +157,9 @@ export function MessageBubble({
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
+  const [reeditArmed, setReeditArmed] = useState(false);
+  const [reeditBusy, setReeditBusy] = useState(false);
+  const reeditPending = useRef(false);
   // 自己头像的挂件（设置 → 个性显示可关）。他人的挂件要逐个走 SSR 页面查，
   // 一条消息一次网络往返不现实，故只叠自己的。
   const pendantUrl = useSelfPendant();
@@ -197,6 +209,38 @@ export function MessageBubble({
         ? '你撤回了这条消息'
         : '对方撤回了这条消息'
       : `${recallRevokerName?.trim() || '管理员'} 撤回了这条消息`;
+  useEffect(
+    () => setReeditArmed(false),
+    [message.id, optimistic, optimisticRejected, recall?.recallTs],
+  );
+  const StatusTag = mine && onReedit && !selectionMode ? 'button' : 'div';
+  const reeditClass =
+    StatusTag === 'button' ? cn('weq-msg-reedit-trigger', reeditArmed && 'is-armed') : undefined;
+  async function activateReedit(event: ReactMouseEvent) {
+    event.stopPropagation();
+    if (reeditPending.current) return;
+    if (!reeditArmed) {
+      setReeditArmed(true);
+      return;
+    }
+    reeditPending.current = true;
+    setReeditBusy(true);
+    try {
+      if (await onReedit?.(message)) setReeditArmed(false);
+    } finally {
+      reeditPending.current = false;
+      setReeditBusy(false);
+    }
+  }
+  const statusProps =
+    StatusTag === 'button'
+      ? {
+          type: 'button' as const,
+          onClick: activateReedit,
+          disabled: reeditBusy,
+          'aria-busy': reeditBusy,
+        }
+      : {};
 
   // 群精华角标：消息 seq 命中本地 group_essence 表（仅数据库，不联网）时，
   // 在气泡右下角打「四芒星 精华」标。
@@ -244,7 +288,7 @@ export function MessageBubble({
 
   function selectMessageContent() {
     const content = bubbleRef.current?.querySelector('.message-content');
-    if (!content?.textContent?.trim()) {
+    if (!content || (!content.textContent?.trim() && !content.querySelector('img, [role="img"]'))) {
       return;
     }
 
@@ -308,6 +352,8 @@ export function MessageBubble({
         selected && 'is-selected',
       )}
       data-message-id={message.id}
+      data-weq-select-id={selectionMode ? message.id : undefined}
+      tabIndex={selectionMode ? 0 : undefined}
       onClickCapture={
         selectionMode && onToggleSelect
           ? (event) => {
@@ -381,7 +427,6 @@ export function MessageBubble({
         <div className="weq-message-heading">
           {showSenderName ? (
             <span className={cn('message-name')}>
-              {senderName}
               {(() => {
                 const role = (sender as any).role;
                 const isRoleBadge = role === 'owner' || role === 'admin';
@@ -407,6 +452,7 @@ export function MessageBubble({
                   </small>
                 );
               })()}
+              {senderName}
               {senderKind === 'bot' ? (
                 <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
                   <Bot size={12} strokeWidth={2.4} />
@@ -416,14 +462,13 @@ export function MessageBubble({
           ) : null}
           <MessageProvenance message={message} />
         </div>
-        {renderMessageWithRegistry(
-          {
-            message,
-            conversation,
-            sender,
-            mine,
-          },
-          renderers,
+        {repeatAction ? (
+          <div className="weq-repeat-content">
+            {renderMessageWithRegistry({ message, conversation, sender, mine }, renderers)}
+            {repeatAction}
+          </div>
+        ) : (
+          renderMessageWithRegistry({ message, conversation, sender, mine }, renderers)
         )}
         {/* 贴表情：悬停某一枚会弹出回应人名单（靠在线 QQ 实时查，见 0x9083_1）；
             只有群聊 + 有会话内序号时才可查。 */}
@@ -433,6 +478,7 @@ export function MessageBubble({
           sequence={Number((message as { msgSeq?: unknown }).msgSeq) || 0}
           removal={selectionMode ? undefined : reactionRemoval}
         />
+        {pendingAction}
         {isEssence ? (
           <span className={cn('weq-msg-essence-badge')} title="该消息为群精华">
             <Sparkle size={10} strokeWidth={2.6} />
@@ -440,15 +486,21 @@ export function MessageBubble({
           </span>
         ) : null}
         {recallText && !hideRecallTag ? (
-          <div className={cn('weq-msg-recall-tag')} title="防撤回已保留原消息">
+          <StatusTag
+            {...statusProps}
+            className={cn('weq-msg-recall-tag', reeditClass)}
+            title="防撤回已保留原消息"
+          >
             <RotateCcw size={12} />
-            <span>{recallText}</span>
-          </div>
+            <span>{reeditArmed && reeditClass ? '重新编辑' : recallText}</span>
+          </StatusTag>
         ) : null}
         {optimisticText ? (
-          <div
+          <StatusTag
+            {...statusProps}
             className={cn(
               'weq-msg-optimistic-tag',
+              reeditClass,
               `is-${optimistic}`,
               optimisticRejected && 'is-rejected',
             )}
@@ -461,9 +513,16 @@ export function MessageBubble({
             }
           >
             {optimistic === 'failed' ? <X size={12} /> : <TriangleAlert size={12} />}
-            <span>{optimisticText}</span>
-          </div>
+            <span>{reeditArmed && reeditClass ? '重新编辑' : optimisticText}</span>
+          </StatusTag>
         ) : null}
+        {/* 意图感知：最新可分析文本（含自己）展示胶囊，悬停文本消息出弹层。
+            数据与悬停监听都在组件内部（经 IntentSenseContext），关掉功能时渲染 null。 */}
+        <MessageIntentSense
+          msgId={String(message.id)}
+          bubbleRef={bubbleRef}
+          analyzable={messageHasIntentText(message)}
+        />
         {isDeleted && !hideDeletedBadge ? (
           <div
             className={cn('weq-msg-deleted-veil')}

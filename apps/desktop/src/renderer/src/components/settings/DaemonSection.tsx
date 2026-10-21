@@ -23,6 +23,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { Card, Row, SectionHeader, Toggle } from './controls';
@@ -41,23 +42,30 @@ function StateDot({ on, label }: { on: boolean; label: string }): ReactElement {
   );
 }
 
-export function DaemonSection(): ReactElement {
+export function DaemonSection({
+  panel = 'background',
+}: {
+  panel?: 'background' | 'assistant' | 'updates' | 'startup';
+}): ReactElement {
   const showError = useDialog((s) => s.showError);
+  const autoRefresh = useQQAutoRefresh(true);
   const pushToast = useToast((s) => s.push);
 
   // ---- 健康快照（轮询 10s；设置页开着时保持新鲜） ----
   const health = trpc.bootstrap.getDaemonHealth.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    refetchInterval: 10_000,
+    ...autoRefresh,
+    refetchInterval: autoRefresh.enabled ? 10_000 : false,
   });
-  const binary = trpc.bootstrap.getDaemonBinaryStatus.useQuery();
+  const binary = trpc.bootstrap.getDaemonBinaryStatus.useQuery(undefined, {
+    ...autoRefresh,
+    enabled: autoRefresh.enabled && panel === 'background',
+  });
   const healthData = health.data;
 
   // ---- WeQ 助手（推送公众号）----
   const status = trpc.bootstrap.getWeqAssistantStatus.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: 0,
-    refetchOnMount: 'always',
+    ...autoRefresh,
+    enabled: autoRefresh.enabled && panel === 'assistant',
   });
   const setEnabled = trpc.bootstrap.setWeqAssistantEnabled.useMutation();
   const setPort = trpc.bootstrap.setWeqAssistantPort.useMutation();
@@ -184,229 +192,246 @@ export function DaemonSection(): ReactElement {
     <div className="weq-set">
       <SectionHeader
         icon={<Activity size={16} strokeWidth={1.8} />}
-        title="守护进程"
-        desc="weq-daemon 是 WeQ 的伴生进程：WeQ 启动时自动运行，服务推文静态文件、监控 GitHub Release、开机时负责拉起 WeQ。它不碰 QQ 数据库，只听 WeQ 的指挥。"
+        title={
+          {
+            background: '后台服务',
+            assistant: 'QQ 公众号推送',
+            updates: '更新提醒',
+            startup: '开机启动',
+          }[panel]
+        }
+        desc={panel === 'assistant' ? '推送服务为全局配置，推文写入当前打开的账号。' : undefined}
       />
 
       {/* ── 1. 健康性 ─────────────────────────────────────────── */}
-      <Card
-        title="运行状态"
-        action={
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-            onClick={() => void health.refetch()}
-            disabled={health.isFetching}
-          >
-            <RefreshCw size={13} className={health.isFetching ? 'weq-spin' : undefined} />
-            刷新
-          </button>
-        }
-      >
-        <Row
-          label={
-            <StateDot
-              on={healthData?.alive ?? false}
-              label={
-                healthData?.alive ? `运行中 · v${healthData.version ?? '?'}` : '守护进程未运行'
-              }
-            />
-          }
-          desc={
-            healthData?.alive
-              ? '控制管道连通。守护进程随 WeQ 启动自动运行，无需手动开启。'
-              : binary.data?.available === false
-                ? '未找到守护进程二进制（resources/daemon/<platform>-<arch>/）。请先运行 pnpm build:daemon 或重新安装。'
-                : '守护进程未运行。WeQ 启动时会自动拉起；若仍未恢复，请检查守护进程二进制或重启 WeQ。'
-          }
-          control={<Activity size={14} className="weq-set-ok" aria-hidden />}
-        />
-        <Row
-          label="静态文件服务"
-          desc={
-            healthData?.http?.running
-              ? `运行中 · 127.0.0.1:${healthData.http.port ?? '?'}`
-              : '未运行（推文封面 / 跳转页由它服务）'
-          }
-          control={
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-              disabled={!healthData?.http?.docroot}
-              onClick={() => {
-                const docroot = healthData?.http?.docroot;
-                if (docroot) void window.weq?.revealPath?.(docroot);
-              }}
-            >
-              <FolderSearch size={13} />
-              打开 docroot
-            </button>
-          }
-        />
-        {releaseData?.lastError ? (
-          <p className="weq-set-note weq-set-note-warn">
-            GitHub 轮询最近一次失败：{releaseData.lastError}（会自动重试，不影响其它功能）
-          </p>
-        ) : null}
-      </Card>
-
-      {/* ── 2. 推送到 QQ 公众号（原 WeQ 助手） ───────────────── */}
-      <Card title="推送到 QQ 公众号（WeQ 助手）">
-        <Row
-          label="启用 WeQ 助手"
-          desc="开启后在当前账号的 QQ 数据库里创建「WeQ助手」会话，用于推送每日推文、群数据周报与「更新可用」推文。需关闭 QQ 本体后再开启查看。"
-          control={
-            <Toggle
-              checked={enabled}
-              disabled={busy || status.isLoading}
-              onChange={(next) => void onToggleAssistant(next)}
-              label="启用 WeQ 助手"
-            />
-          }
-        />
-        <Row
-          label={
-            <StateDot
-              on={running}
-              label={running ? '运行中' : enabled ? '已启用（等待账号）' : '已停止'}
-            />
-          }
-          desc={data ? data.url : '—'}
-          control={
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-              disabled={!data?.url}
-              onClick={() => void copyUrl()}
-            >
-              {copiedUrl ? <Check size={13} className="weq-set-ok" /> : <Copy size={13} />}
-              复制地址
-            </button>
-          }
-        />
-        <Row
-          label="端口"
-          desc="20000–65535。修改后会重启服务，并同步重写 QQ 里卡片的封面 / 跳转地址。"
-          control={
-            <div className="weq-set-btn-group">
-              <input
-                className="weq-set-input weq-set-input-sm weq-number"
-                value={portDraft}
-                inputMode="numeric"
-                spellCheck={false}
-                disabled={busy}
-                onChange={(e) => setPortDraft(e.target.value.replace(/[^0-9]/g, ''))}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void onSavePort();
-                }}
-                aria-label="WeQ 助手端口"
-              />
+      {panel === 'background' && (
+        <Card
+          title="运行状态"
+          action={
+            health.error ? (
               <button
                 type="button"
-                className="weq-set-btn weq-set-btn-sm"
-                disabled={busy || portDraft === String(data?.port ?? '')}
-                onClick={() => void onSavePort()}
+                className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                onClick={() => void health.refetch()}
+                disabled={health.isFetching}
               >
-                保存
+                <RefreshCw size={13} className={health.isFetching ? 'weq-spin' : undefined} />
+                重试读取
               </button>
-            </div>
+            ) : undefined
           }
-        />
-        <p className="weq-set-note">
-          仅监听本机 127.0.0.1。打包版应用内更新检查发现新版本时，会追加一条
-          「更新可用」推文（同版本只写一次），内容取仓库 CHANGELOG.md 对应章节。
-        </p>
-      </Card>
+        >
+          <Row
+            label={
+              <StateDot
+                on={healthData?.alive ?? false}
+                label={
+                  healthData?.alive ? `运行中 · v${healthData.version ?? '?'}` : '守护进程未运行'
+                }
+              />
+            }
+            desc={
+              healthData?.alive
+                ? '控制管道连通。守护进程随 WeQ 启动自动运行，无需手动开启。'
+                : binary.data?.available === false
+                  ? '未找到守护进程二进制（resources/daemon/<platform>-<arch>/）。请先运行 pnpm build:daemon 或重新安装。'
+                  : '守护进程未运行。WeQ 启动时会自动拉起；若仍未恢复，请检查守护进程二进制或重启 WeQ。'
+            }
+            control={<Activity size={14} className="weq-set-ok" aria-hidden />}
+          />
+          <Row
+            label="静态文件服务"
+            desc={
+              healthData?.http?.running
+                ? `运行中 · 127.0.0.1:${healthData.http.port ?? '?'}`
+                : '未运行（推文封面 / 跳转页由它服务）'
+            }
+            control={
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                disabled={!healthData?.http?.docroot}
+                onClick={() => {
+                  const docroot = healthData?.http?.docroot;
+                  if (docroot) void window.weq?.revealPath?.(docroot);
+                }}
+              >
+                <FolderSearch size={13} />
+                打开 docroot
+              </button>
+            }
+          />
+          {releaseData?.lastError ? (
+            <p className="weq-set-note weq-set-note-warn">
+              GitHub 轮询最近一次失败：{releaseData.lastError}（会自动重试，不影响其它功能）
+            </p>
+          ) : null}
+        </Card>
+      )}
+
+      {/* ── 2. 推送到 QQ 公众号（原 WeQ 助手） ───────────────── */}
+      {panel === 'assistant' && (
+        <Card title="推送到 QQ 公众号（WeQ 助手）">
+          <Row
+            label="启用 WeQ 助手"
+            desc="开启后在当前账号的 QQ 数据库里创建「WeQ助手」会话，用于推送每日推文、群数据周报与「更新可用」推文。需关闭 QQ 本体后再开启查看。"
+            control={
+              <Toggle
+                checked={enabled}
+                disabled={busy || status.isLoading}
+                onChange={(next) => void onToggleAssistant(next)}
+                label="启用 WeQ 助手"
+              />
+            }
+          />
+          <Row
+            label={
+              <StateDot
+                on={running}
+                label={running ? '运行中' : enabled ? '已启用（等待账号）' : '已停止'}
+              />
+            }
+            desc={data ? data.url : '—'}
+            control={
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                disabled={!data?.url}
+                onClick={() => void copyUrl()}
+              >
+                {copiedUrl ? <Check size={13} className="weq-set-ok" /> : <Copy size={13} />}
+                复制地址
+              </button>
+            }
+          />
+          <Row
+            label="端口"
+            desc="20000–65535。修改后会重启服务，并同步重写 QQ 里卡片的封面 / 跳转地址。"
+            control={
+              <div className="weq-set-btn-group">
+                <input
+                  className="weq-set-input weq-set-input-sm weq-number"
+                  value={portDraft}
+                  inputMode="numeric"
+                  spellCheck={false}
+                  disabled={busy}
+                  onChange={(e) => setPortDraft(e.target.value.replace(/[^0-9]/g, ''))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void onSavePort();
+                  }}
+                  aria-label="WeQ 助手端口"
+                />
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-sm"
+                  disabled={busy || portDraft === String(data?.port ?? '')}
+                  onClick={() => void onSavePort()}
+                >
+                  保存
+                </button>
+              </div>
+            }
+          />
+          <p className="weq-set-note">
+            仅监听本机 127.0.0.1。打包版应用内更新检查发现新版本时，会追加一条
+            「更新可用」推文（同版本只写一次），内容取仓库 CHANGELOG.md 对应章节。
+          </p>
+        </Card>
+      )}
 
       {/* ── 3. GitHub Release 监控 ───────────────────────────── */}
-      <Card title="GitHub Release 监控">
-        <Row
-          label="监控新版本发布"
-          desc="守护进程（Rust）每小时轮询一次 GitHub Release；发现新版本时弹系统通知提醒更新。推文由打包版更新检查负责，这里不重复写入。"
-          control={
-            <Toggle
-              checked={watching}
-              disabled={setReleaseWatch.isLoading || !healthData?.alive}
-              onChange={(next) => void onToggleReleaseWatch(next)}
-              label="监控新版本发布"
-            />
-          }
-        />
-        <Row
-          label={
-            <StateDot
-              on={watching}
-              label={
-                watching
-                  ? releaseData?.pending
-                    ? `发现新版本 v${releaseData.pending}`
-                    : releaseData?.latestSeen
-                      ? `最新 v${releaseData.latestSeen}`
-                      : '等待首次轮询'
-                  : '未监控'
-              }
-            />
-          }
-          desc={
-            releaseData?.currentVersion
-              ? `当前版本 v${releaseData.currentVersion} · 仓库 H3CoF6/WeQ`
-              : '仓库 H3CoF6/WeQ'
-          }
-          control={
-            <a
-              className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-              href="https://github.com/H3CoF6/WeQ/releases"
-              target="_blank"
-              rel="noreferrer"
-            >
-              <Github size={13} />
-              Release 页
-            </a>
-          }
-        />
-      </Card>
+      {panel === 'updates' && (
+        <Card title="GitHub Release 监控">
+          <Row
+            label="监控新版本发布"
+            desc="守护进程（Rust）每小时轮询一次 GitHub Release；发现新版本时弹系统通知提醒更新。推文由打包版更新检查负责，这里不重复写入。"
+            control={
+              <Toggle
+                checked={watching}
+                disabled={setReleaseWatch.isLoading || !healthData?.alive}
+                onChange={(next) => void onToggleReleaseWatch(next)}
+                label="监控新版本发布"
+              />
+            }
+          />
+          <Row
+            label={
+              <StateDot
+                on={watching}
+                label={
+                  watching
+                    ? releaseData?.pending
+                      ? `发现新版本 v${releaseData.pending}`
+                      : releaseData?.latestSeen
+                        ? `最新 v${releaseData.latestSeen}`
+                        : '等待首次轮询'
+                    : '未监控'
+                }
+              />
+            }
+            desc={
+              releaseData?.currentVersion
+                ? `当前版本 v${releaseData.currentVersion} · 仓库 H3CoF6/WeQ`
+                : '仓库 H3CoF6/WeQ'
+            }
+            control={
+              <a
+                className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                href="https://github.com/H3CoF6/WeQ/releases"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Github size={13} />
+                Release 页
+              </a>
+            }
+          />
+        </Card>
+      )}
 
       {/* ── 4. 开机自动启动（守护进程拉起） ──────────────────── */}
-      <Card title="开机自动启动">
-        <Row
-          label="开机自动启动 WeQ"
-          desc={
-            healthData?.autostartSupported === false
-              ? '当前环境不支持开机自启：浏览器版的启动由部署方用 systemd / 计划任务管理；开发模式（pnpm dev）没有稳定的可执行路径。'
-              : 'WeQ 不注册任何系统自启动：开关只把意图交给守护进程（weq-daemon）记住，开机后由它以独立进程拉起 WeQ。'
-          }
-          control={
-            <Toggle
-              checked={autostartEnabled}
-              disabled={
-                setAutostart.isLoading ||
-                !healthData?.alive ||
-                healthData?.autostartSupported === false
-              }
-              onChange={(next) => void onToggleAutostart(next)}
-              label="开机自动启动 WeQ"
-            />
-          }
-        />
-        <Row
-          label={
-            <StateDot
-              on={autostartData?.registered ?? false}
-              label={
-                healthData?.autostartSupported === false
-                  ? '当前环境不支持'
-                  : !healthData?.alive
-                    ? '需要守护进程运行'
-                    : autostartData?.registered
-                      ? '守护进程已注册自启'
-                      : '守护进程未注册自启'
-              }
-            />
-          }
-          desc="守护进程自身随系统自启动（全机唯一的原生注册），WeQ 只由它拉起。"
-          control={<Sparkles size={14} className="weq-set-ok" aria-hidden />}
-        />
-      </Card>
+      {panel === 'startup' && (
+        <Card title="开机自动启动">
+          <Row
+            label="开机自动启动 WeQ"
+            desc={
+              healthData?.autostartSupported === false
+                ? '当前环境不支持开机自启：浏览器版的启动由部署方用 systemd / 计划任务管理；开发模式（pnpm dev）没有稳定的可执行路径。'
+                : 'WeQ 不注册任何系统自启动：开关只把意图交给守护进程（weq-daemon）记住，开机后由它以独立进程拉起 WeQ。'
+            }
+            control={
+              <Toggle
+                checked={autostartEnabled}
+                disabled={
+                  setAutostart.isLoading ||
+                  !healthData?.alive ||
+                  healthData?.autostartSupported === false
+                }
+                onChange={(next) => void onToggleAutostart(next)}
+                label="开机自动启动 WeQ"
+              />
+            }
+          />
+          <Row
+            label={
+              <StateDot
+                on={autostartData?.registered ?? false}
+                label={
+                  healthData?.autostartSupported === false
+                    ? '当前环境不支持'
+                    : !healthData?.alive
+                      ? '需要守护进程运行'
+                      : autostartData?.registered
+                        ? '守护进程已注册自启'
+                        : '守护进程未注册自启'
+                }
+              />
+            }
+            desc="守护进程自身随系统自启动（全机唯一的原生注册），WeQ 只由它拉起。"
+            control={<Sparkles size={14} className="weq-set-ok" aria-hidden />}
+          />
+        </Card>
+      )}
 
       {/*<div className="weq-set-footnote" aria-hidden>*/}
       {/*  <MonitorUp size={12} />*/}

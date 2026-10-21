@@ -1,0 +1,37 @@
+.weq-save-action-group {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+.weq-generated-export .weq-save-action-group .weq-exp-primary {
+  min-width: 140px;
+}
+.weq-save-options {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  cursor: pointer;
+}
+.weq-save-options:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+.weq-save-options:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.weq-save-options:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+html[data-theme='dark'] .weq-save-options:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+}

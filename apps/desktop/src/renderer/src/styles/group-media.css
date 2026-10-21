@@ -7,361 +7,401 @@
  */
 
 .group-album-scrim {
-	z-index: 74;
+  z-index: 74;
 }
 
 .group-album-dialog {
-	display: grid;
-	width: min(720px, calc(100vw - 48px));
-	max-height: min(720px, calc(100vh - 64px));
-	grid-template-rows: auto minmax(0, 1fr);
-	overflow: hidden;
-	border: 1px solid var(--weq-border-subtle);
-	border-radius: 14px;
-	background:
-		linear-gradient(
-			180deg,
-			color-mix(in srgb, var(--weq-accent-effective) 5%, var(--weq-bg-surface)),
-			var(--weq-bg-surface)
-		);
-	box-shadow: var(--weq-shadow-card);
-	backdrop-filter: blur(18px);
-	/* Electron's drag-region hit test runs OUTSIDE the normal compositor stack,
+  display: grid;
+  width: min(720px, calc(100vw - 48px));
+  max-height: min(720px, calc(100vh - 64px));
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 14px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--weq-accent-effective) 5%, var(--weq-bg-surface)),
+    var(--weq-bg-surface)
+  );
+  box-shadow: var(--weq-shadow-card);
+  backdrop-filter: blur(18px);
+  /* Electron's drag-region hit test runs OUTSIDE the normal compositor stack,
 	   so z-index alone can't stop the chat header's `-webkit-app-region: drag`
 	   from swallowing clicks (e.g. the close button) when this dialog overlaps
 	   it near the top. Punch a no-drag hole over the whole dialog. */
-	-webkit-app-region: no-drag;
+  -webkit-app-region: no-drag;
 }
 
 .group-album-dialog header {
-	display: flex;
-	min-width: 0;
-	align-items: center;
-	justify-content: space-between;
-	gap: 14px;
-	padding: 16px 18px;
-	border-bottom: 1px solid var(--weq-border-subtle);
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
 .group-album-dialog header div {
-	display: grid;
-	min-width: 0;
-	gap: 4px;
+  display: grid;
+  min-width: 0;
+  gap: 4px;
 }
 
 .group-album-dialog header strong {
-	color: var(--weq-fg-primary);
-	font-size: 17px;
-	font-weight: 600;
+  color: var(--weq-fg-primary);
+  font-size: 17px;
+  font-weight: 600;
 }
 
 .group-album-dialog header span {
-	overflow: hidden;
-	color: var(--weq-fg-muted);
-	font-size: 12px;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+  overflow: hidden;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .group-album-body {
-	min-height: 0;
-	overflow: auto;
-	padding: 16px 18px 18px;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 18px 18px;
+}
+
+.weq-workspace-page .group-album-body,
+.weq-workspace-page .ba-card {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.weq-workspace-page .ba-donut-grid,
+.weq-workspace-page .ba-reply-grid,
+.weq-workspace-page .ba-two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@container (max-width: 620px) {
+  .weq-workspace-page .ba-donut-grid,
+  .weq-workspace-page .ba-reply-grid,
+  .weq-workspace-page .ba-two-col {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .weq-workspace-page .ba-stat-grid,
+  .weq-workspace-page .ga-ov-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 360px) {
+  .weq-workspace-sidecar-page .ba-donut {
+    flex-direction: column;
+  }
 }
 
 .group-album-grid {
-	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
-	gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 10px;
 }
 
 .group-album-card {
-	display: grid;
-	min-width: 0;
-	gap: 8px;
-	padding: 0;
-	border: 1px solid var(--weq-border-subtle);
-	border-radius: 12px;
-	overflow: hidden;
-	background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
-	box-shadow: 0 10px 24px -18px color-mix(in srgb, var(--weq-accent-effective) 22%, black);
-	text-align: left;
-	cursor: pointer;
-	transition:
-		border-color 150ms ease,
-		background-color 150ms ease,
-		transform 150ms ease,
-		box-shadow 150ms ease;
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 0;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
+  box-shadow: 0 10px 24px -18px color-mix(in srgb, var(--weq-accent-effective) 22%, black);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    transform 150ms ease,
+    box-shadow 150ms ease;
 }
 
 .group-album-card:hover {
-	border-color: var(--weq-border-strong);
-	background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-surface));
-	transform: translateY(-1px);
-	box-shadow: 0 18px 34px -24px color-mix(in srgb, var(--weq-accent-effective) 38%, black);
+  border-color: var(--weq-border-strong);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-surface));
+  transform: translateY(-1px);
+  box-shadow: 0 18px 34px -24px color-mix(in srgb, var(--weq-accent-effective) 38%, black);
 }
 
 .group-album-card:disabled {
-	cursor: not-allowed;
-	opacity: 0.62;
+  cursor: not-allowed;
+  opacity: 0.62;
 }
 
 .group-album-cover {
-	display: grid;
-	aspect-ratio: 4 / 3;
-	place-items: center;
-	background:
-		linear-gradient(
-			135deg,
-			color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-elevated)),
-			color-mix(in srgb, var(--weq-accent-effective) 4%, var(--weq-bg-surface))
-		);
-	color: var(--weq-fg-muted);
+  display: grid;
+  aspect-ratio: 4 / 3;
+  place-items: center;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-elevated)),
+    color-mix(in srgb, var(--weq-accent-effective) 4%, var(--weq-bg-surface))
+  );
+  color: var(--weq-fg-muted);
 }
 
 .group-album-cover img {
-	width: 100%;
-	height: 100%;
-	object-fit: cover;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .group-album-card > span {
-	display: grid;
-	gap: 3px;
-	min-width: 0;
-	padding: 0 10px 10px;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 0 10px 10px;
 }
 
 .group-album-card strong,
 .group-album-card small {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .group-album-card strong {
-	color: var(--weq-fg-primary);
-	font-size: 13px;
-	font-weight: 600;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .group-album-card small {
-	color: var(--weq-fg-muted);
-	font-size: 12px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
 }
 
 .group-album-state {
-	display: flex;
-	min-height: 220px;
-	align-items: center;
-	justify-content: center;
-	gap: 8px;
-	color: var(--weq-fg-muted);
-	font-size: 13px;
+  display: flex;
+  min-height: 220px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--weq-fg-muted);
+  font-size: 13px;
 }
 
 .group-album-state.is-error {
-	color: var(--destructive);
+  color: var(--destructive);
 }
 
 .group-album-media-view {
-	display: grid;
-	min-height: 0;
-	gap: 12px;
+  display: grid;
+  min-height: 0;
+  gap: 12px;
 }
 
 .group-album-toolbar {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 10px;
-	color: var(--weq-fg-muted);
-	font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
 }
 
 .group-album-back {
-	min-height: 28px;
-	padding: 0 10px;
-	border: 1px solid var(--weq-border-subtle);
-	border-radius: 6px;
-	background: color-mix(in srgb, var(--weq-bg-surface) 84%, transparent);
-	color: var(--weq-fg-primary);
-	font-size: 12px;
-	cursor: pointer;
-	transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--weq-bg-surface) 84%, transparent);
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease;
 }
 
 .group-album-back:hover {
-	border-color: var(--weq-border-strong);
-	background: color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-surface));
-	color: color-mix(in srgb, var(--weq-accent-effective) 62%, var(--weq-fg-primary));
+  border-color: var(--weq-border-strong);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-surface));
+  color: color-mix(in srgb, var(--weq-accent-effective) 62%, var(--weq-fg-primary));
 }
 
 /* ── 群文件（复用相册灯箱外壳，内容改成文件列表） ── */
 
 .group-file-toolbar {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 10px;
-	margin-bottom: 12px;
-	color: var(--weq-fg-muted);
-	font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
 }
 
 .group-file-crumbs {
-	display: flex;
-	min-width: 0;
-	align-items: center;
-	gap: 8px;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
 }
 
 .group-file-crumbs > span {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .group-file-crumbs .group-album-back {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
 }
 
 .group-file-summary {
-	flex: none;
+  flex: none;
 }
 
 .group-file-list {
-	display: grid;
-	gap: 6px;
-	margin: 0;
-	padding: 0;
-	list-style: none;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .group-file-row {
-	display: flex;
-	width: 100%;
-	min-width: 0;
-	align-items: center;
-	gap: 12px;
-	padding: 10px 12px;
-	border: 1px solid var(--weq-border-subtle);
-	border-radius: 10px;
-	background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
-	color: var(--weq-fg-muted);
-	text-align: left;
-	transition: border-color 150ms ease, background-color 150ms ease;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
+  color: var(--weq-fg-muted);
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease;
 }
 
 .group-file-icon {
-	width: 32px;
-	height: 32px;
-	flex: none;
-	object-fit: contain;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  object-fit: contain;
 }
 
 .group-file-row.is-folder {
-	cursor: pointer;
-	background: color-mix(in srgb, #f59e0b 8%, var(--weq-bg-surface));
-	border-color: color-mix(in srgb, #f59e0b 22%, var(--weq-border-subtle));
+  cursor: pointer;
+  background: color-mix(in srgb, #f59e0b 8%, var(--weq-bg-surface));
+  border-color: color-mix(in srgb, #f59e0b 22%, var(--weq-border-subtle));
 }
 
 .group-file-row.is-folder:hover {
-	background: color-mix(in srgb, #f59e0b 15%, var(--weq-bg-surface));
-	border-color: color-mix(in srgb, #f59e0b 42%, var(--weq-border-subtle));
+  background: color-mix(in srgb, #f59e0b 15%, var(--weq-bg-surface));
+  border-color: color-mix(in srgb, #f59e0b 42%, var(--weq-border-subtle));
 }
 
 .group-file-chevron {
-	flex: none;
-	opacity: 0.4;
-	transition: opacity 150ms ease, transform 150ms ease;
+  flex: none;
+  opacity: 0.4;
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
 }
 
 .group-file-row.is-folder:hover .group-file-chevron {
-	opacity: 0.8;
-	transform: translateX(2px);
+  opacity: 0.8;
+  transform: translateX(2px);
 }
 
 .group-file-row:not(.is-folder):hover {
-	border-color: var(--weq-border-strong);
-	background: color-mix(in srgb, var(--weq-accent-effective) 7%, var(--weq-bg-surface));
+  border-color: var(--weq-border-strong);
+  background: color-mix(in srgb, var(--weq-accent-effective) 7%, var(--weq-bg-surface));
 }
 
 .group-file-main {
-	display: grid;
-	min-width: 0;
-	flex: 1;
-	gap: 2px;
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
 }
 
 .group-file-main strong,
 .group-file-main small {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .group-file-main strong {
-	color: var(--weq-fg-primary);
-	font-size: 13px;
-	font-weight: 600;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .group-file-main small {
-	color: var(--weq-fg-muted);
-	font-size: 11px;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
 }
 
 .group-album-media-grid {
-	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
-	gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  gap: 8px;
 }
 
 .group-album-media-card {
-	display: grid;
-	aspect-ratio: 1;
-	place-items: center;
-	padding: 0;
-	border: 0;
-	border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
-	border-radius: 10px;
-	overflow: hidden;
-	background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-elevated));
-	cursor: zoom-in;
-	transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+  display: grid;
+  aspect-ratio: 1;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  border-radius: 10px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-elevated));
+  cursor: zoom-in;
+  transition:
+    transform 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
 }
 
 .group-album-media-card:hover {
-	transform: translateY(-1px);
-	border-color: var(--weq-border-strong);
-	box-shadow: 0 16px 30px -24px color-mix(in srgb, var(--weq-accent-effective) 42%, black);
+  transform: translateY(-1px);
+  border-color: var(--weq-border-strong);
+  box-shadow: 0 16px 30px -24px color-mix(in srgb, var(--weq-accent-effective) 42%, black);
 }
 
 .group-album-media-card img {
-	width: 100%;
-	height: 100%;
-	object-fit: cover;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .group-album-media-card.is-video {
-	position: relative;
-	cursor: pointer;
+  position: relative;
+  cursor: pointer;
 }
 
 .group-album-media-play {
-	position: absolute;
-	display: grid;
-	width: 34px;
-	height: 34px;
-	place-items: center;
-	border-radius: 50%;
-	background: color-mix(in srgb, black 55%, transparent);
-	color: white;
-	pointer-events: none;
+  position: absolute;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, black 55%, transparent);
+  color: white;
+  pointer-events: none;
 }
 
 /* ---- 导出根（保存为图片时用的隐藏窗口）---- */
@@ -383,9 +423,9 @@
 /* 注意：这里不能碰 `html, body` —— chat.css 在主窗口里也加载。导出页的边距清零写在
    它自己的 export.html 里（那里才是「窗口高度 = 卡片高度」的地方）。 */
 .weq-export-root {
-	display: block;
-	width: fit-content;
-	margin: 0;
+  display: block;
+  width: fit-content;
+  margin: 0;
 }
 
 /*
@@ -396,28 +436,28 @@
  * 否则卡片会被 92vw 卡在 772.8px（840 的窗口里比预期窄 67px）。
  */
 .weq-export-root .group-album-dialog {
-	display: block;
-	position: static;
-	width: 840px;
-	max-width: none;
-	max-height: none;
-	height: auto;
-	margin: 0;
-	background-color: var(--weq-bg-elevated);
-	box-shadow: none;
-	backdrop-filter: none;
+  display: block;
+  position: static;
+  width: 840px;
+  max-width: none;
+  max-height: none;
+  height: auto;
+  margin: 0;
+  background-color: var(--weq-bg-elevated);
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .weq-export-root .group-album-body {
-	max-height: none;
-	height: auto;
-	overflow: visible;
+  max-height: none;
+  height: auto;
+  overflow: visible;
 }
 
 /* 热力图那 53 列本身就是固定宽度：导出图里要完整，不要横向滚动条。 */
 .weq-export-root .ga-hm-scroll,
 .weq-export-root .ga-hm-inner {
-	overflow: visible;
+  overflow: visible;
 }
 
 /* 抓帧要的是「定住」：关掉过渡 / 动画，滚动条一律不许出现。 */
@@ -425,15 +465,23 @@
 .weq-export-root *,
 .weq-export-root *::before,
 .weq-export-root *::after {
-	transition: none !important;
-	animation: none !important;
-	scroll-behavior: auto !important;
-	scrollbar-width: none !important;
-	scrollbar-gutter: auto !important;
+  transition: none !important;
+  animation: none !important;
+  scroll-behavior: auto !important;
+  scrollbar-width: none !important;
+  scrollbar-gutter: auto !important;
 }
 
 .weq-export-root ::-webkit-scrollbar {
-	display: none !important;
-	width: 0 !important;
-	height: 0 !important;
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+.group-file-dialog .is-search-hit {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+html[data-theme='dark'] .group-file-dialog .is-search-hit {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
 }

@@ -1,6 +1,7 @@
 ﻿// @ts-nocheck
 import type { PreviewNode } from '../../lib/conversationPreview';
 import type { SetEmojiItem } from '@weq/codec';
+import type { LocalMediaRef } from './composerSend';
 
 export type User = {
   id: string;
@@ -55,12 +56,7 @@ export type OnlineStatusInfo = {
   subType: number;
   subTypeName: string;
   displayStatus: string;
-  weather?: {
-    weather: string;
-    city: string;
-    area: string;
-    weatherDesc: string;
-  };
+  customStatus?: { faceId: number; text: string; faceType: number };
 };
 
 export type Contact = User & {
@@ -160,6 +156,8 @@ type ConversationBase = {
   id: string;
   updatedAt: string;
   preference?: ConversationPreference;
+  /** QQ 置顶时间（unix 秒）；仅用于置顶组内排序，不冒充最后消息时间。 */
+  pinnedAt?: number;
   unreadCount?: number;
   /**
    * 该会话来自 hidden_session_storage_table_v1（用户手动隐藏过的聊天），并入
@@ -284,7 +282,14 @@ export type GroupConversation = ConversationBase & {
 
 export type Conversation = DirectConversation | GroupConversation | MergedConversation;
 
-export type MergedKind = 'service' | 'official' | 'hidden' | 'deleted' | 'groupAssistant';
+export type MergedKind =
+  | 'service'
+  | 'official'
+  | 'hidden'
+  | 'deleted'
+  | 'groupAssistant'
+  /** QQ 频道私聊聚合入口：点开展开频道会话列表。 */
+  | 'guildDirect';
 
 export type MergedConversation = ConversationBase & {
   type: 'merged';
@@ -333,9 +338,14 @@ export type Message = {
   clientSeq?: string;
   source?: 'roaming';
   sourceFormat?: 'native' | 'protocol';
+  localSent?: boolean;
   optimistic?: 'sending' | 'sent' | 'failed';
   optimisticError?: string;
   optimisticRejected?: boolean;
+  /** 发起前的已知序号水位，仅用于失败占位定位，不是本条序号或发送确认。 */
+  optimisticAfterSeq?: string;
+  /** 仅当前界面的发送草稿，供失败消息重新编辑，不写入 QQ 原库。 */
+  composerDraft?: { body: string; locals?: LocalMediaRef[] };
   msgRandom?: string;
   setEmojiList?: SetEmojiItem[];
   ntSeqVerified?: boolean;
@@ -378,7 +388,7 @@ export type GroupSearchResult = {
 export type ContactRequest = {
   id: string;
   direction: 'incoming' | 'outgoing';
-  status: 'pending' | 'accepted' | 'rejected' | 'cancelled';
+  status: 'pending' | 'accepted' | 'rejected' | 'cancelled' | 'unknown';
   message: string | null;
   createdAt: string;
   respondedAt: string | null;
@@ -420,11 +430,14 @@ export type MainView =
   | 'home'
   | 'messages'
   | 'contacts'
+  | 'collections'
+  | 'guild-direct'
   | 'export'
   | 'agentlab'
   | 'cache'
   | 'tools'
   | 'qzone'
+  | 'mail'
   | 'channel'
   | 'annual';
 export type ContactTab = 'friends' | 'groups';

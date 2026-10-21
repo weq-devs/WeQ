@@ -57,7 +57,7 @@ export function ConversationCalendar({
     }
   }
   return (
-    <Modal onClose={onClose} width={440} labelledBy="message-calendar-title">
+    <Modal presentation="popover" onClose={onClose} width={440} labelledBy="message-calendar-title">
       <div className="weq-message-calendar">
         <header>
           <h3 id="message-calendar-title">聊天日历</h3>

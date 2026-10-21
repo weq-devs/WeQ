@@ -10,11 +10,23 @@
  *   nt_data/avatar/user/2b/s_2b0f…c1   ← "small" thumbnail of the same hash
  *   nt_data/avatar/group/temp/8029…    ← occasional un-prefixed staging file
  *
- * The `b_` (big) and `s_` (small) files for one hash are the SAME avatar at two
- * resolutions, so we MERGE them into a single {@link AvatarEntry} carrying which
- * variants exist and each one's byte size. This is what lets the UI prefer the
- * big image while still labelling the source (大图 / 缩略图 / 大图+缩略图) and,
- * later, drive a "keep only thumbnails" cleanup.
+ * The `b_` (big) and `s_` (small) files for one hash are normally the SAME
+ * avatar at two resolutions, so we MERGE them into a single {@link AvatarEntry}
+ * carrying which variants exist and each one's byte size. This is what lets the
+ * UI prefer the big image while still labelling the source (大图 / 缩略图 /
+ * 大图+缩略图) and, later, drive a "keep only thumbnails" cleanup.
+ *
+ * …but "normally" is doing a lot of work there. When someone changes their
+ * avatar QQ re-downloads the thumbnail (it appears in every list) while the big
+ * file is only fetched on demand — so `s_` can be the CURRENT picture while `b_`
+ * is months old, and the two no longer show the same person. Measured on a real
+ * cache (1060 merged entries): whenever `s_` is newer, 38/40 sampled pairs were
+ * different images; whenever `b_` is newer, 40/40 were identical. Every positive
+ * gap was > 1 day, so {@link AVATAR_VARIANT_STALE_MS} cleanly separates "just a
+ * second copy of the same picture" from "a newer avatar". {@link
+ * AvatarResourceService.resolveByUidFile} therefore picks the NEWER of the two
+ * variants, and reports which one it picked so the protocol can fall back to the
+ * CDN (higher resolution + authoritative) when only the thumbnail is current.
  *
  * This service only enumerates + resolves paths (all inside the account's
  * `nt_data/avatar` tree); the bytes themselves are streamed to the renderer by
@@ -48,6 +60,32 @@ export type AvatarScope = 'user' | 'group' | 'cover';
 
 /** Which resolution of one avatar hash. */
 export type AvatarVariant = 'big' | 'small';
+
+/**
+ * 大图比缩略图旧到这个程度，就认定「换过头像、大图没跟着更新」。
+ *
+ * 实测本机 1060 个 b_/s_ 并存的条目：所有「s 更新」的正向差值都 **> 1 天**（433 个，
+ * 最小也有 1 天出头），而 s 略新于 b 的那种「同一张图的两份拷贝」从没出现过。所以
+ * 1 天既能区分两种语义，又不会被同时下载造成的秒级抖动误伤。
+ */
+export const AVATAR_VARIANT_STALE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * One resolved local avatar file, plus which variant it actually is and whether
+ * it is a *stale* pick — i.e. the caller asked for the big picture but only the
+ * thumbnail is current (the big file is an old avatar). Callers that have a CDN
+ * url should prefer it over a stale thumbnail: it is both newer and larger.
+ */
+export interface AvatarLocalFile {
+  /** Absolute path of the file on disk. */
+  path: string;
+  /** Which file this actually is (`b_` → big, `s_` → small). */
+  variant: AvatarVariant;
+  /** True when `big` was requested but the (newer) thumbnail was chosen. */
+  stale: boolean;
+  /** File mtime (ms) — lets callers compare it against their own caches. */
+  mtimeMs: number;
+}
 
 export const AVATAR_SCOPES: readonly AvatarScope[] = ['user', 'group', 'cover'];
 
@@ -229,6 +267,16 @@ export class AvatarResourceService {
     hash: string,
     variant: AvatarVariant,
   ): Promise<string | null> {
+    const hit = await this.statVariant(scope, hash, variant);
+    return hit?.path ?? null;
+  }
+
+  /** {@link resolveFile} plus the file's mtime (for freshness comparisons). */
+  private async statVariant(
+    scope: AvatarScope,
+    hash: string,
+    variant: AvatarVariant,
+  ): Promise<{ path: string; mtimeMs: number } | null> {
     if (!AVATAR_SCOPES.includes(scope)) return null;
     if (!/^[0-9a-f]{1,64}$/i.test(hash)) return null;
     const dir = this.scopeDir(scope);
@@ -255,7 +303,7 @@ export class AvatarResourceService {
       if (abs !== base && !abs.startsWith(base + sep)) continue;
       try {
         const st = await stat(abs);
-        if (st.isFile()) return abs;
+        if (st.isFile()) return { path: abs, mtimeMs: st.mtimeMs };
       } catch {
         /* not this candidate */
       }
@@ -276,12 +324,48 @@ export class AvatarResourceService {
     uid: string,
     variant: AvatarVariant,
   ): Promise<string | null> {
+    const hit = await this.resolveByUidFile(scope, uid, variant);
+    return hit?.path ?? null;
+  }
+
+  /**
+   * Like {@link resolveByUid}, but picks the NEWER of the two cached variants
+   * and reports which one that was.
+   *
+   * Both files share one hash, and QQ only re-downloads the big picture on
+   * demand: after an avatar change `s_` is the current picture while `b_` can be
+   * months old (see the module comment — 38/40 sampled "s newer" pairs were
+   * different images, all gaps > 1 day). Blindly preferring `b_` therefore pins
+   * the old avatar forever. So:
+   *
+   *   - requested variant missing → the other one, never `stale`;
+   *   - both present, requested one is newer (or within
+   *     {@link AVATAR_VARIANT_STALE_MS}) → the requested one;
+   *   - `big` requested but the thumbnail is > 1 day newer → the thumbnail,
+   *     flagged `stale: true` so a caller with a CDN url can prefer that
+   *     instead (same picture, full resolution) and only use the thumbnail as
+   *     an offline fallback.
+   *
+   * A `small` request never upgrades to the big file: the caller asked for the
+   * cheap variant (list rows, notification icons) and the bytes differ in size.
+   */
+  async resolveByUidFile(
+    scope: AvatarScope,
+    uid: string,
+    variant: AvatarVariant,
+  ): Promise<AvatarLocalFile | null> {
     if (!uid) return null;
     const hash = avatarHashForUid(uid);
-    const primary = await this.resolveFile(scope, hash, variant);
-    if (primary) return primary;
+    const requested = await this.statVariant(scope, hash, variant);
     const other: AvatarVariant = variant === 'big' ? 'small' : 'big';
-    return this.resolveFile(scope, hash, other);
+    const alternate = await this.statVariant(scope, hash, other);
+    if (!alternate) return requested ? { ...requested, variant, stale: false } : null;
+    if (!requested) return { ...alternate, variant: other, stale: false };
+    // `big` asked, thumbnail clearly newer → the big file is an old avatar.
+    const thumbIsCurrent =
+      variant === 'big' && alternate.mtimeMs - requested.mtimeMs > AVATAR_VARIANT_STALE_MS;
+    if (thumbIsCurrent) return { ...alternate, variant: other, stale: true };
+    return { ...requested, variant, stale: false };
   }
 
   /**
@@ -299,6 +383,18 @@ export class AvatarResourceService {
     if (scope === 'group') return this.resolveByUid(scope, uin, variant);
     const uid = this.session.uidMap.uidByUin(BigInt(uin));
     return uid ? this.resolveByUid(scope, uid, variant) : null;
+  }
+
+  /** {@link resolveByUin} returning the variant/freshness metadata too. */
+  async resolveByUinFile(
+    scope: AvatarScope,
+    uin: string,
+    variant: AvatarVariant,
+  ): Promise<AvatarLocalFile | null> {
+    if (!/^\d+$/.test(uin) || uin === '0') return null;
+    if (scope === 'group') return this.resolveByUidFile(scope, uin, variant);
+    const uid = this.session.uidMap.uidByUin(BigInt(uin));
+    return uid ? this.resolveByUidFile(scope, uid, variant) : null;
   }
 
   /**

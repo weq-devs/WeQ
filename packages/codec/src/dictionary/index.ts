@@ -30,6 +30,7 @@ import * as groupBulletin from '../proto/group_info/64205';
 import * as groupMemberLevel from '../proto/group_info/67103';
 import * as groupList from '../proto/group_info/group_list';
 import * as groupNotify from '../proto/group_info/notify';
+import * as groupTodo from '../proto/group_info/todo';
 import * as recentContact from '../proto/msg/40051';
 import * as msgEmoji from '../proto/msg/40062';
 import * as msgBody from '../proto/msg/40800';
@@ -53,6 +54,7 @@ const MODULES: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
   ['group_info/67103', groupMemberLevel],
   ['group_info/group_list', groupList],
   ['group_info/notify', groupNotify],
+  ['group_info/todo', groupTodo],
   ['msg/40051', recentContact],
   ['msg/40062', msgEmoji],
   ['msg/40800', msgBody],

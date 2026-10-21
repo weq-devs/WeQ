@@ -1,95 +1,90 @@
 .emoji-panel {
-	position: absolute;
-	bottom: calc(100% - 1px);
-	left: 12px;
-	z-index: 30;
-	display: grid;
-	width: min(420px, calc(100% - 28px));
-	height: min(
-		344px,
-		calc(
-			100dvh -
-			var(--chat-header-height, 74px) -
-			var(--composer-height, 190px) -
-			28px
-		)
-	);
-	min-height: 260px;
-	grid-template-rows: minmax(0, 1fr) 46px;
-	overflow: hidden;
-	border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
-	border-radius: 12px;
-	background: var(--popover, #ffffff);
-	box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
+  position: absolute;
+  bottom: calc(100% - 1px);
+  left: 12px;
+  z-index: 30;
+  display: grid;
+  width: min(420px, calc(100% - 28px));
+  height: min(
+    344px,
+    calc(100dvh - var(--chat-header-height, 74px) - var(--composer-height, 190px) - 28px)
+  );
+  min-height: 260px;
+  grid-template-rows: minmax(0, 1fr) 46px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
+  border-radius: 12px;
+  background: var(--popover, #ffffff);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
 }
 
 .emoji-panel-body {
-	min-height: 0;
-	padding: 14px 14px 12px;
-	overflow: auto;
-	scrollbar-color: color-mix(in srgb, var(--weq-fg-muted, #858585) 34%, transparent) transparent;
-	scrollbar-width: thin;
+  min-height: 0;
+  padding: 14px 14px 12px;
+  overflow: auto;
+  scrollbar-color: color-mix(in srgb, var(--weq-fg-muted, #858585) 34%, transparent) transparent;
+  scrollbar-width: thin;
 }
 
 .emoji-panel-body::-webkit-scrollbar {
-	width: 8px;
+  width: 8px;
 }
 
 .emoji-panel-body::-webkit-scrollbar-track {
-	background: transparent;
+  background: transparent;
 }
 
 .emoji-panel-body::-webkit-scrollbar-thumb {
-	min-height: 34px;
-	border: 2px solid transparent;
-	border-radius: 999px;
-	background-color: color-mix(in srgb, var(--weq-fg-muted, #858585) 34%, transparent);
-	background-clip: padding-box;
+  min-height: 34px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--weq-fg-muted, #858585) 34%, transparent);
+  background-clip: padding-box;
 }
 
 .emoji-state {
-	display: grid;
-	min-height: 120px;
-	place-items: center;
-	color: var(--weq-fg-muted, #858585);
-	font-size: 12.5px;
-	text-align: center;
+  display: grid;
+  min-height: 120px;
+  place-items: center;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 12.5px;
+  text-align: center;
 }
 
 .emoji-section {
-	display: grid;
-	gap: 10px;
+  display: grid;
+  gap: 10px;
 }
 
 .emoji-section h3 {
-	margin: 0;
-	color: var(--weq-fg-secondary, #777777);
-	font-size: 12px;
-	font-weight: 600;
-	line-height: 1.2;
+  margin: 0;
+  color: var(--weq-fg-secondary, #777777);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 .emoji-section-head {
-	display: flex;
-	min-width: 0;
-	align-items: center;
-	gap: 8px;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
 }
 
 .emoji-section-head h3 {
-	min-width: 0;
-	overflow: hidden;
-	color: var(--weq-fg-primary, #111111);
-	font-size: 13px;
-	font-weight: 600;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .emoji-grid {
-	display: grid;
-	grid-template-columns: repeat(auto-fill, 36px);
-	gap: 3px 4px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 36px);
+  gap: 3px 4px;
 }
 
 .emoji-grid button,
@@ -99,669 +94,677 @@
 .emoji-pack-card,
 .emoji-back-btn,
 .emoji-add-btn {
-	border: 0;
-	background: transparent;
-	cursor: pointer;
-	font: inherit;
-	color: inherit;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
 }
 
 .emoji-cell {
-	display: grid;
-	width: 36px;
-	height: 36px;
-	place-items: center;
-	border-radius: 8px;
-	transition: background 120ms ease, transform 120ms ease;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 8px;
+  transition:
+    background 120ms ease,
+    transform 120ms ease;
 }
 
 .emoji-cell:hover {
-	background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 9%, transparent);
-	transform: translateY(-1px);
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 9%, transparent);
+  transform: translateY(-1px);
 }
 
 .emoji-cell img {
-	display: block;
-	max-width: 27px;
-	max-height: 27px;
-	object-fit: contain;
-	pointer-events: none;
-	user-select: none;
-	-webkit-user-drag: none;
+  display: block;
+  max-width: 27px;
+  max-height: 27px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .emoji-glyph {
-	font-size: 22px;
-	line-height: 1;
+  font-size: 22px;
+  line-height: 1;
 }
 
 .emoji-cell-fallback {
-	display: grid;
-	place-items: center;
-	color: var(--weq-fg-muted, #9a9aa2);
+  display: grid;
+  place-items: center;
+  color: var(--weq-fg-muted, #9a9aa2);
 }
 
 .emoji-char-grid {
-	grid-template-columns: repeat(auto-fill, 40px);
-	gap: 4px;
+  grid-template-columns: repeat(auto-fill, 40px);
+  gap: 4px;
 }
 
 .emoji-char-grid .emoji-cell {
-	width: 40px;
-	height: 40px;
+  width: 40px;
+  height: 40px;
 }
 
 .emoji-char-grid .emoji-glyph {
-	font-size: 26px;
+  font-size: 26px;
 }
 
 .emoji-sticker-grid {
-	grid-template-columns: repeat(auto-fill, 60px);
-	gap: 5px;
+  grid-template-columns: repeat(auto-fill, 60px);
+  gap: 5px;
 }
 
 .emoji-sticker-grid .emoji-cell {
-	width: 60px;
-	height: 60px;
+  width: 60px;
+  height: 60px;
 }
 
 .emoji-sticker-grid .emoji-cell img {
-	max-width: 54px;
-	max-height: 54px;
+  max-width: 54px;
+  max-height: 54px;
 }
 
 /* 大图网格：每行四个（商城 / 收藏 / GIF）——方形大贴纸。 */
 .emoji-big-grid {
-	grid-template-columns: repeat(4, minmax(0, 1fr));
-	gap: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .emoji-big-grid .emoji-cell {
-	width: auto;
-	height: auto;
-	aspect-ratio: 1 / 1;
-	border-radius: 10px;
+  width: auto;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
 }
 
 .emoji-big-grid .emoji-cell img {
-	max-width: 86%;
-	max-height: 86%;
+  max-width: 86%;
+  max-height: 86%;
 }
 
 .emoji-big-grid .emoji-glyph {
-	font-size: 30px;
+  font-size: 30px;
 }
 
 /* 超级表情：每行五个，比贴纸再小一号。 */
 .emoji-super-grid {
-	grid-template-columns: repeat(5, minmax(0, 1fr));
-	gap: 5px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
 }
 
 .emoji-super-grid .emoji-cell {
-	width: auto;
-	height: auto;
-	aspect-ratio: 1 / 1;
-	border-radius: 8px;
+  width: auto;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
 }
 
 .emoji-super-grid .emoji-cell img {
-	max-width: 88%;
-	max-height: 88%;
+  max-width: 88%;
+  max-height: 88%;
 }
 
 .emoji-super-grid .emoji-glyph {
-	font-size: 24px;
+  font-size: 24px;
 }
 
 /* 系统表情分块（小黄脸 / 超级表情）与块内分类分栏。 */
 .emoji-group {
-	display: grid;
-	gap: 10px;
+  display: grid;
+  gap: 10px;
 }
 
 .emoji-group > h3 {
-	margin: 0;
-	color: var(--weq-fg-primary, #111111);
-	font-size: 13px;
-	font-weight: 600;
-	line-height: 1.2;
+  margin: 0;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 .emoji-subgroup {
-	display: grid;
-	gap: 6px;
+  display: grid;
+  gap: 6px;
 }
 
 .emoji-subgroup h4 {
-	margin: 0;
-	color: var(--weq-fg-muted, #858585);
-	font-size: 11.5px;
-	font-weight: 600;
-	letter-spacing: 0.2px;
-	line-height: 1.2;
+  margin: 0;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  line-height: 1.2;
 }
 
 /* 「超级表情只能单独发送」的说明条 —— 贴在超级表情栏顶部，点之前就讲清楚它跟普通
    表情的区别。 */
 .emoji-super-hint {
-	display: flex;
-	align-items: center;
-	gap: 5px;
-	padding: 6px 9px;
-	border-radius: 8px;
-	background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 8%, transparent);
-	color: color-mix(
-		in srgb,
-		var(--weq-accent-effective, #12a8ff) 82%,
-		var(--weq-fg-secondary, #666666)
-	);
-	font-size: 11.5px;
-	line-height: 1.4;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 8%, transparent);
+  color: color-mix(
+    in srgb,
+    var(--weq-accent-effective, #12a8ff) 82%,
+    var(--weq-fg-secondary, #666666)
+  );
+  font-size: 11.5px;
+  line-height: 1.4;
 }
 
 /* 分类 / 标签横滑片。 */
 .emoji-chip-row {
-	display: flex;
-	min-width: 0;
-	gap: 6px;
-	padding-bottom: 2px;
-	overflow-x: auto;
-	scrollbar-width: none;
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  padding-bottom: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
 .emoji-chip-row::-webkit-scrollbar {
-	display: none;
+  display: none;
 }
 
 .emoji-chip {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	flex: 0 0 auto;
-	padding: 3px 10px;
-	border-radius: 999px;
-	background: color-mix(in srgb, var(--weq-fg-muted, #858585) 10%, transparent);
-	color: var(--weq-fg-secondary, #666666);
-	font-size: 12px;
-	white-space: nowrap;
-	transition: background 120ms ease, color 120ms ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 10%, transparent);
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 12px;
+  white-space: nowrap;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
 }
 
 .emoji-chip:hover {
-	background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 12%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 12%, transparent);
 }
 
 .emoji-chip.active {
-	background: var(--weq-accent-effective, #12a8ff);
-	color: #ffffff;
+  background: var(--weq-accent-effective, #12a8ff);
+  color: #ffffff;
 }
 
 .emoji-chip em {
-	font-size: 10px;
-	font-style: normal;
-	opacity: 0.7;
+  font-size: 10px;
+  font-style: normal;
+  opacity: 0.7;
 }
 
 .emoji-back-btn {
-	display: inline-flex;
-	align-items: center;
-	gap: 3px;
-	flex: 0 0 auto;
-	padding: 2px 6px;
-	border-radius: 6px;
-	color: var(--weq-fg-secondary, #666666);
-	font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: var(--weq-fg-secondary, #666666);
+  font-size: 12px;
 }
 
 .emoji-back-btn:hover {
-	background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 10%, transparent);
-	color: var(--weq-accent-effective, #12a8ff);
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 10%, transparent);
+  color: var(--weq-accent-effective, #12a8ff);
 }
 
 .emoji-add-btn {
-	display: inline-flex;
-	align-items: center;
-	gap: 3px;
-	flex: 0 0 auto;
-	margin-left: auto;
-	padding: 3px 10px;
-	border-radius: 999px;
-	background: var(--weq-accent-effective, #12a8ff);
-	color: #ffffff;
-	font-size: 12px;
-	font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--weq-accent-effective, #12a8ff);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .emoji-add-btn:hover {
-	filter: brightness(1.06);
+  filter: brightness(1.06);
 }
 
 .emoji-count {
-	flex: 0 0 auto;
-	margin-left: auto;
-	color: var(--weq-fg-muted, #858585);
-	font-size: 11.5px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11.5px;
 }
 
 /* 商城表情包列表。 */
 .emoji-pack-list {
-	display: grid;
-	gap: 6px;
+  display: grid;
+  gap: 6px;
 }
 
 .emoji-pack-card {
-	display: grid;
-	gap: 2px;
-	padding: 9px 12px;
-	border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
-	border-radius: 10px;
-	background: color-mix(in srgb, var(--weq-fg-muted, #858585) 4%, transparent);
-	text-align: left;
-	transition: border-color 120ms ease, background 120ms ease;
+  display: grid;
+  gap: 2px;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 4%, transparent);
+  text-align: left;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
 }
 
 .emoji-pack-card:hover {
-	border-color: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 46%, transparent);
-	background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 7%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 46%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 7%, transparent);
 }
 
 .emoji-pack-name {
-	color: var(--weq-fg-primary, #111111);
-	font-size: 13px;
-	font-weight: 500;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .emoji-pack-summary {
-	overflow: hidden;
-	color: var(--weq-fg-muted, #858585);
-	font-size: 11.5px;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+  overflow: hidden;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .kaomoji-grid {
-	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(126px, 1fr));
-	gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(126px, 1fr));
+  gap: 8px;
 }
 
 .kaomoji-grid button {
-	display: grid;
-	min-height: 46px;
-	align-content: center;
-	gap: 2px;
-	padding: 6px 10px;
-	border-radius: 8px;
-	text-align: left;
+  display: grid;
+  min-height: 46px;
+  align-content: center;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  text-align: left;
 }
 
 .kaomoji-grid button:hover {
-	background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 8%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 8%, transparent);
 }
 
 .kaomoji-grid span {
-	color: var(--weq-fg-muted, #858585);
-	font-size: 12px;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 12px;
 }
 
 .kaomoji-grid strong {
-	min-width: 0;
-	overflow: hidden;
-	color: var(--weq-fg-primary, #111111);
-	font-size: 15px;
-	font-weight: 400;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 15px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── 表情搜索灯箱 ─────────────────────────────────────────────────────────── */
 
 .emoji-lb-layer {
-	position: fixed;
-	inset: 0;
-	display: grid;
-	place-items: center;
-	padding: 24px;
-	background: rgba(0, 0, 0, 0.4);
-	backdrop-filter: blur(2px);
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
 }
 
 .emoji-lb {
-	display: grid;
-	width: min(560px, 100%);
-	height: min(560px, calc(100dvh - 48px));
-	grid-template-rows: auto minmax(0, 1fr);
-	overflow: hidden;
-	border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
-	border-radius: 16px;
-	background: var(--popover, #ffffff);
-	box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+  display: grid;
+  width: min(560px, 100%);
+  height: min(560px, calc(100dvh - 48px));
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
+  border-radius: 16px;
+  background: var(--popover, #ffffff);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
 }
 
 .emoji-lb-head {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	padding: 12px 14px;
-	border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 76%, transparent);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 76%, transparent);
 }
 
 .emoji-lb-title {
-	display: inline-flex;
-	align-items: center;
-	gap: 6px;
-	flex: 0 0 auto;
-	color: var(--weq-fg-primary, #111111);
-	font-size: 14px;
-	font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .emoji-lb-search {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	min-width: 0;
-	flex: 1 1 auto;
-	padding: 5px 10px;
-	border-radius: 999px;
-	background: color-mix(in srgb, var(--weq-fg-muted, #858585) 10%, transparent);
-	color: var(--weq-fg-muted, #858585);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 10%, transparent);
+  color: var(--weq-fg-muted, #858585);
 }
 
 .emoji-lb-search input {
-	min-width: 0;
-	flex: 1 1 auto;
-	border: 0;
-	outline: 0;
-	background: transparent;
-	color: var(--weq-fg-primary, #111111);
-	font-size: 13px;
+  min-width: 0;
+  flex: 1 1 auto;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 13px;
 }
 
 .emoji-lb-close {
-	display: grid;
-	width: 30px;
-	height: 30px;
-	flex: 0 0 auto;
-	place-items: center;
-	border: 0;
-	border-radius: 50%;
-	background: transparent;
-	color: var(--weq-fg-secondary, #666666);
-	cursor: pointer;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--weq-fg-secondary, #666666);
+  cursor: pointer;
 }
 
 .emoji-lb-close:hover {
-	background: color-mix(in srgb, var(--weq-fg-muted, #858585) 14%, transparent);
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 14%, transparent);
 }
 
 .emoji-lb-body {
-	min-height: 0;
-	padding: 14px;
-	overflow: auto;
+  min-height: 0;
+  padding: 14px;
+  overflow: auto;
 }
 
-html[data-theme="dark"] .emoji-panel,
-html[data-theme="dark"] .emoji-lb {
-	box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+html[data-theme='dark'] .emoji-panel,
+html[data-theme='dark'] .emoji-lb {
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
 }
 
 .emoji-tabs {
-	display: flex;
-	min-width: 0;
-	align-items: center;
-	gap: 4px;
-	padding: 5px 8px;
-	overflow-x: auto;
-	border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 78%, transparent);
-	background: color-mix(in srgb, var(--weq-fg-muted, #858585) 4%, transparent);
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  overflow-x: auto;
+  border-top: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 78%, transparent);
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 4%, transparent);
 }
 
 .emoji-tabs::-webkit-scrollbar {
-	display: none;
+  display: none;
 }
 
 .emoji-tabs button {
-	display: grid;
-	width: 34px;
-	height: 34px;
-	flex: 0 0 auto;
-	place-items: center;
-	border-radius: 9px;
-	color: var(--weq-fg-secondary, #666666);
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--weq-fg-secondary, #666666);
 }
 
 .emoji-tabs button:hover {
-	background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 10%, transparent);
-	color: var(--weq-accent-effective, #12a8ff);
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 10%, transparent);
+  color: var(--weq-accent-effective, #12a8ff);
 }
 
 .emoji-tabs button.active {
-	background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 16%, transparent);
-	color: var(--weq-accent-effective, #12a8ff);
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 16%, transparent);
+  color: var(--weq-accent-effective, #12a8ff);
 }
 
 .composer-editor {
-	min-width: 0;
-	width: 100%;
-	height: 100%;
-	min-height: 0;
-	padding-right: 16px;
-	border: 0;
-	outline: 0;
-	background: transparent;
-	color: var(--weq-fg-primary, #111111);
-	font-size: 13.5px;
-	line-height: 1.5;
-	overflow: auto;
-	white-space: pre-wrap;
-	word-break: break-word;
-	scrollbar-color: transparent transparent;
-	scrollbar-width: thin;
-	scrollbar-gutter: stable;
-	transition: scrollbar-color 120ms ease-out;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding-right: 16px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 13.5px;
+  line-height: 1.5;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  transition: scrollbar-color 120ms ease-out;
 }
 
 .composer-editor::-webkit-scrollbar {
-	width: 8px;
+  width: 8px;
 }
 
 .composer-editor::-webkit-scrollbar-track {
-	background: transparent;
+  background: transparent;
 }
 
 .composer-editor::-webkit-scrollbar-thumb {
-	min-height: 38px;
-	border: 2px solid transparent;
-	border-radius: 999px;
-	background-color: transparent;
-	background-clip: padding-box;
-	transition: background-color 120ms ease-out;
+  min-height: 38px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: transparent;
+  background-clip: padding-box;
+  transition: background-color 120ms ease-out;
 }
 
 .composer-editor:hover {
-	scrollbar-color: rgba(0, 0, 0, 0.14) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.14) transparent;
 }
 
 .composer-editor:hover::-webkit-scrollbar-thumb {
-	background-color: rgba(0, 0, 0, 0.14);
-	background-clip: padding-box;
+  background-color: rgba(0, 0, 0, 0.14);
+  background-clip: padding-box;
 }
 
 .composer-editor::-webkit-scrollbar-thumb:hover {
-	background-color: rgba(0, 0, 0, 0.2);
-	background-clip: padding-box;
+  background-color: rgba(0, 0, 0, 0.2);
+  background-clip: padding-box;
 }
 
-.composer-editor[aria-disabled="true"] {
-	cursor: not-allowed;
-	opacity: 0.62;
+.composer-editor[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.62;
 }
 
 .composer-token-image {
-	object-fit: contain;
-	user-select: none;
-	-webkit-user-drag: none;
-	-webkit-user-select: none;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
 }
 
 .composer-inline-emoji {
-	display: inline-block;
-	width: 24px;
-	height: 24px;
-	margin: 0 1px;
-	vertical-align: -5px;
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  margin: 0 1px;
+  vertical-align: -5px;
 }
 
 .composer-sticker-token {
-	display: inline-block;
-	width: 104px;
-	height: 104px;
-	margin: 4px 6px 0 0;
-	vertical-align: bottom;
+  display: inline-block;
+  width: 104px;
+  height: 104px;
+  margin: 4px 6px 0 0;
+  vertical-align: bottom;
 }
 
 /* 草稿里的元素 chip：输入框表达不了的元素（图片 / 视频 / 文件 / markdown /
    ark / 引用…）在这里显示成 `[图片]` 这样的标签。内部的 chatToken 存着可无损
    还原整条 wire 元素的 token（见 draftElements.ts）。 */
 .composer-element-token {
-	display: inline-block;
-	margin: 0 2px;
-	padding: 1px 7px;
-	border: 1px solid color-mix(in srgb, var(--weq-accent-effective, #0099ff) 26%, transparent);
-	border-radius: 6px;
-	background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 10%, transparent);
-	color: var(--weq-accent-effective, #0099ff);
-	font-size: 0.94em;
-	line-height: 1.5;
-	white-space: nowrap;
-	user-select: none;
-	-webkit-user-select: none;
+  display: inline-block;
+  margin: 0 2px;
+  padding: 1px 7px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective, #0099ff) 26%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 10%, transparent);
+  color: var(--weq-accent-effective, #0099ff);
+  font-size: 0.94em;
+  line-height: 1.5;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* QQ face elements (FaceEmoji component): static APNG or Lottie. */
 .face-emoji {
-	display: inline-block;
-	width: 1.4em;
-	height: 1.4em;
-	vertical-align: -0.28em;
-	object-fit: contain;
-	user-select: none;
+  display: inline-block;
+  width: 1.4em;
+  height: 1.4em;
+  vertical-align: -0.28em;
+  object-fit: contain;
+  user-select: none;
 }
 
 .face-emoji-lottie {
-	line-height: 0;
+  line-height: 0;
 }
 
 .face-emoji-lottie svg,
 .face-emoji-lottie canvas {
-	display: block;
-	width: 100%;
-	height: 100%;
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 /* Text-size fallback shown when a face image fails to load. */
 .face-emoji-fallback {
-	width: auto;
-	height: auto;
-	vertical-align: baseline;
-	color: inherit;
+  width: auto;
+  height: auto;
+  vertical-align: baseline;
+  color: inherit;
 }
 
 /* Message body mixing inline text and faces — preserve QQ line breaks. */
 .message-content.qq-message-inline {
-	white-space: pre-wrap;
+  white-space: pre-wrap;
 }
 
 /* Larger inline faces read better centered on the text line. */
 .message-content.qq-message-inline .face-emoji {
-	vertical-align: -0.45em;
+  vertical-align: -0.45em;
 }
 
 /* 图片类媒体（见 QqMessageContent 的 BLOCK_MEDIA_KINDS）各占一行：包一层块级容器后，
    图片既不会和文字排在同一行，也不会和另一张图片并排。换行由块级容器提供，文字里
    紧贴媒体的那个换行符在渲染时已剥掉，所以不会多出一个空行。 */
 .message-content .qq-media-line {
-	display: block;
+  display: block;
 }
 
 /* 和上一个元素之间留一点缝：连续两张图不至于贴在一起，图跟在文字后面也有呼吸感。 */
 .message-content .qq-media-line:not(:first-child) {
-	margin-top: 4px;
+  margin-top: 4px;
 }
 
 /* Lone sticker face: box is already cleared of bubble chrome via .sticker-only. */
 .message-content.sticker-only .face-emoji {
-	vertical-align: bottom;
+  vertical-align: bottom;
 }
 
 /* ---- Sticker reactions (贴表情, SetEmojiReactions) ------------------------ */
 
 /* Sits below the original message; wraps after 7 emoji kinds per row. */
 .msg-reactions {
-	display: inline-grid;
-	grid-template-columns: repeat(7, max-content);
-	gap: 4px 6px;
-	margin-top: 6px;
-	justify-content: start;
+  display: inline-grid;
+  grid-template-columns: repeat(7, max-content);
+  gap: 4px 6px;
+  margin-top: 6px;
+  justify-content: start;
 }
 
 .msg-reaction {
-	display: inline-flex;
-	align-items: center;
-	gap: 3px;
-	padding: 1px 7px 1px 5px;
-	border: 1px solid transparent;
-	border-radius: 999px;
-	background: rgba(0, 0, 0, 0.05);
-	font-size: 12px;
-	line-height: 18px;
-	user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px 1px 5px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  font-size: 12px;
+  line-height: 18px;
+  user-select: none;
 }
 
 /* A reaction the logged-in account set itself. */
 .msg-reaction.is-self {
-	border-color: color-mix(in srgb, var(--weq-accent-effective) 50%, transparent);
-	background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 50%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
 
 .msg-reaction .face-emoji {
-	width: 18px;
-	height: 18px;
-	vertical-align: middle;
+  width: 18px;
+  height: 18px;
+  vertical-align: middle;
 }
 
 .msg-reaction-count {
-	color: var(--weq-fg-secondary, #666666);
-	font-variant-numeric: tabular-nums;
+  color: var(--weq-fg-secondary, #666666);
+  font-variant-numeric: tabular-nums;
 }
 
 .msg-reaction.is-self .msg-reaction-count {
-	color: color-mix(in srgb, var(--weq-accent-effective) 82%, #0f2d4c);
+  color: color-mix(in srgb, var(--weq-accent-effective) 82%, #0f2d4c);
 }
 
 .msg-reaction-raw {
-	font-size: 14px;
-	line-height: 18px;
+  font-size: 14px;
+  line-height: 18px;
 }
 
 /* 能查回应人名单的 chip（群聊 + 有会话内序号）给一点可交互手感；`.is-open` 是
    当前弹着面板的那一枚。 */
-.msg-reaction[role="button"] {
-	cursor: pointer;
-	transition: background-color 120ms ease, border-color 120ms ease;
+.msg-reaction[role='button'] {
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 
-.msg-reaction[role="button"]:hover,
+.msg-reaction[role='button']:hover,
 .msg-reaction.is-open {
-	border-color: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 42%, transparent);
-	background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 14%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 42%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 14%, transparent);
 }
 
 .msg-reaction:focus-visible {
-	outline: 2px solid color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 62%, transparent);
-	outline-offset: 1px;
+  outline: 2px solid color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 62%, transparent);
+  outline-offset: 1px;
 }
 
 /* ---- 贴表情的「谁贴了」悬停面板（ReactionLikersPanel） ---------------------- */
@@ -769,806 +772,815 @@ html[data-theme="dark"] .emoji-lb {
 /* 面板自己的底 / 描边 / 强调三件套都从主题 token 派生：换强调色、切深浅模式都
    不用改这里。半透明 + backdrop-filter 造出浮在聊天背景上的玻璃感。 */
 .reaction-likers {
-	--likers-surface: color-mix(in srgb, var(--popover, #ffffff) 92%, transparent);
-	--likers-line: color-mix(in srgb, var(--weq-fg-muted, #858585) 24%, transparent);
-	--likers-accent: var(--weq-accent-effective, #12a8ff);
-	position: fixed;
-	z-index: 47; /* 在表情面板（30）之上、模态（50）之下 */
-	display: flex;
-	flex-direction: column;
-	width: 272px;
-	max-height: min(344px, calc(100dvh - 24px));
-	overflow: hidden;
-	border: 1px solid var(--likers-line);
-	border-radius: 14px;
-	background: var(--likers-surface);
-	box-shadow:
-		0 18px 46px rgba(15, 26, 42, 0.2),
-		0 2px 10px rgba(15, 26, 42, 0.08);
-	backdrop-filter: blur(18px) saturate(1.6);
-	color: var(--weq-fg-primary, #111111);
-	transform-origin: 12% 0;
-	animation: reaction-likers-in 132ms cubic-bezier(0.22, 1, 0.36, 1);
-	user-select: none;
+  --likers-surface: color-mix(in srgb, var(--popover, #ffffff) 92%, transparent);
+  --likers-line: color-mix(in srgb, var(--weq-fg-muted, #858585) 24%, transparent);
+  --likers-accent: var(--weq-accent-effective, #12a8ff);
+  position: fixed;
+  z-index: 47; /* 在表情面板（30）之上、模态（50）之下 */
+  display: flex;
+  flex-direction: column;
+  width: 272px;
+  max-height: min(344px, calc(100dvh - 24px));
+  overflow: hidden;
+  border: 1px solid var(--likers-line);
+  border-radius: 14px;
+  background: var(--likers-surface);
+  box-shadow:
+    0 18px 46px rgba(15, 26, 42, 0.2),
+    0 2px 10px rgba(15, 26, 42, 0.08);
+  backdrop-filter: blur(18px) saturate(1.6);
+  color: var(--weq-fg-primary, #111111);
+  transform-origin: 12% 0;
+  animation: reaction-likers-in 132ms cubic-bezier(0.22, 1, 0.36, 1);
+  user-select: none;
 }
 
 @keyframes reaction-likers-in {
-	from {
-		opacity: 0;
-		transform: translateY(-4px) scale(0.97);
-	}
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
 
-	to {
-		opacity: 1;
-		transform: none;
-	}
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .reaction-likers-head {
-	display: flex;
-	align-items: center;
-	gap: 7px;
-	padding: 9px 12px;
-	border-bottom: 1px solid var(--likers-line);
-	background: color-mix(in srgb, var(--likers-accent) 7%, transparent);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--likers-line);
+  background: color-mix(in srgb, var(--likers-accent) 7%, transparent);
 }
 
 .reaction-likers-emoji {
-	display: inline-flex;
-	align-items: center;
+  display: inline-flex;
+  align-items: center;
 }
 
 .reaction-likers-emoji .face-emoji {
-	width: 20px;
-	height: 20px;
-	vertical-align: middle;
+  width: 20px;
+  height: 20px;
+  vertical-align: middle;
 }
 
 .reaction-likers-emoji .msg-reaction-raw {
-	font-size: 15px;
-	line-height: 1;
+  font-size: 15px;
+  line-height: 1;
 }
 
 .reaction-likers-title {
-	min-width: 0;
-	flex: 1 1 auto;
-	overflow: hidden;
-	color: var(--weq-fg-primary, #111111);
-	font-size: 12.5px;
-	font-weight: 600;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .reaction-likers-head-icon {
-	flex: 0 0 auto;
-	color: color-mix(in srgb, var(--likers-accent) 70%, var(--weq-fg-muted, #858585));
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--likers-accent) 70%, var(--weq-fg-muted, #858585));
 }
 
 .reaction-likers-body {
-	min-height: 0;
-	flex: 1 1 auto;
-	padding: 5px 6px;
-	overflow-y: auto;
-	overscroll-behavior: contain;
-	scrollbar-color: color-mix(in srgb, var(--weq-fg-muted, #858585) 32%, transparent) transparent;
-	scrollbar-width: thin;
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 5px 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: color-mix(in srgb, var(--weq-fg-muted, #858585) 32%, transparent) transparent;
+  scrollbar-width: thin;
 }
 
 .reaction-likers-body::-webkit-scrollbar {
-	width: 8px;
+  width: 8px;
 }
 
 .reaction-likers-body::-webkit-scrollbar-track {
-	background: transparent;
+  background: transparent;
 }
 
 .reaction-likers-body::-webkit-scrollbar-thumb {
-	min-height: 30px;
-	border: 2px solid transparent;
-	border-radius: 999px;
-	background-color: color-mix(in srgb, var(--weq-fg-muted, #858585) 32%, transparent);
-	background-clip: padding-box;
+  min-height: 30px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--weq-fg-muted, #858585) 32%, transparent);
+  background-clip: padding-box;
 }
 
 .reaction-likers-row {
-	display: flex;
-	align-items: center;
-	gap: 9px;
-	padding: 5px 7px;
-	border-radius: 10px;
-	transition: background-color 110ms ease;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 7px;
+  border-radius: 10px;
+  transition: background-color 110ms ease;
 }
 
 .reaction-likers-row:hover {
-	background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
 }
 
 /* 自己那一行：强调色底 + 左侧色条（起手就把「我也贴了」标出来）。 */
 .reaction-likers-row.is-self {
-	background: color-mix(in srgb, var(--likers-accent) 12%, transparent);
-	box-shadow: inset 2px 0 0 var(--likers-accent);
+  background: color-mix(in srgb, var(--likers-accent) 12%, transparent);
+  box-shadow: inset 2px 0 0 var(--likers-accent);
 }
 
 .reaction-likers-row.is-self:hover {
-	background: color-mix(in srgb, var(--likers-accent) 18%, transparent);
+  background: color-mix(in srgb, var(--likers-accent) 18%, transparent);
 }
 
 .reaction-likers-avatar {
-	flex: 0 0 auto;
-	border-radius: 50%;
-	background: var(--weq-bg-elevated, #f2f3f5);
-	box-shadow: 0 0 0 1px color-mix(in srgb, var(--weq-fg-muted, #858585) 26%, transparent);
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--weq-bg-elevated, #f2f3f5);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--weq-fg-muted, #858585) 26%, transparent);
 }
 
 .reaction-likers-row.is-self .reaction-likers-avatar {
-	box-shadow: 0 0 0 1.5px var(--likers-accent);
+  box-shadow: 0 0 0 1.5px var(--likers-accent);
 }
 
 .reaction-likers-meta {
-	display: flex;
-	min-width: 0;
-	flex: 1 1 auto;
-	flex-direction: column;
-	gap: 1px;
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .reaction-likers-name {
-	overflow: hidden;
-	color: var(--weq-fg-primary, #111111);
-	font-size: 13px;
-	line-height: 1.25;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+  overflow: hidden;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 13px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .reaction-likers-row.is-self .reaction-likers-name {
-	font-weight: 600;
+  font-weight: 600;
 }
 
 .reaction-likers-uin {
-	color: var(--weq-fg-muted, #858585);
-	font-size: 11px;
-	font-variant-numeric: tabular-nums;
-	line-height: 1.2;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
 }
 
 .reaction-likers-tag {
-	flex: 0 0 auto;
-	padding: 1px 6px;
-	border-radius: 999px;
-	background: var(--likers-accent);
-	color: #ffffff;
-	font-size: 10.5px;
-	font-weight: 600;
-	line-height: 1.5;
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--likers-accent);
+  color: #ffffff;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 
 .reaction-likers-state {
-	display: grid;
-	gap: 8px;
-	place-items: center;
-	padding: 20px 14px;
-	text-align: center;
+  display: grid;
+  gap: 8px;
+  place-items: center;
+  padding: 20px 14px;
+  text-align: center;
 }
 
 .reaction-likers-state-text {
-	color: var(--weq-fg-muted, #858585);
-	font-size: 12.5px;
-	line-height: 1.5;
+  color: var(--weq-fg-muted, #858585);
+  font-size: 12.5px;
+  line-height: 1.5;
 }
 
 /* 离线 / 风控：把错误原因直接写在面板里（而不是显示成「没人贴」）。 */
 .reaction-likers-state.is-error .reaction-likers-state-text {
-	color: color-mix(in srgb, #d9534f 76%, var(--weq-fg-primary, #111111));
+  color: color-mix(in srgb, #d9534f 76%, var(--weq-fg-primary, #111111));
 }
 
 .reaction-likers-retry {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	padding: 3px 10px;
-	border: 1px solid color-mix(in srgb, var(--likers-accent) 40%, transparent);
-	border-radius: 999px;
-	background: transparent;
-	color: var(--likers-accent);
-	font: inherit;
-	font-size: 12px;
-	cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--likers-accent) 40%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--likers-accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .reaction-likers-retry:hover {
-	background: color-mix(in srgb, var(--likers-accent) 12%, transparent);
+  background: color-mix(in srgb, var(--likers-accent) 12%, transparent);
 }
 
 .reaction-likers-foot {
-	flex: 0 0 auto;
-	padding: 6px 12px;
-	border-top: 1px solid var(--likers-line);
-	color: var(--weq-fg-muted, #858585);
-	font-size: 11px;
-	text-align: center;
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-top: 1px solid var(--likers-line);
+  color: var(--weq-fg-muted, #858585);
+  font-size: 11px;
+  text-align: center;
 }
 
 .reaction-likers-row.is-skeleton {
-	pointer-events: none;
+  pointer-events: none;
 }
 
 .reaction-likers-skel {
-	display: block;
-	border-radius: 999px;
-	background: linear-gradient(
-		90deg,
-		color-mix(in srgb, var(--weq-fg-muted, #858585) 12%, transparent) 0%,
-		color-mix(in srgb, var(--weq-fg-muted, #858585) 22%, transparent) 50%,
-		color-mix(in srgb, var(--weq-fg-muted, #858585) 12%, transparent) 100%
-	);
-	background-size: 200% 100%;
-	animation: reaction-likers-shimmer 1.15s ease-in-out infinite;
+  display: block;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--weq-fg-muted, #858585) 12%, transparent) 0%,
+    color-mix(in srgb, var(--weq-fg-muted, #858585) 22%, transparent) 50%,
+    color-mix(in srgb, var(--weq-fg-muted, #858585) 12%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: reaction-likers-shimmer 1.15s ease-in-out infinite;
 }
 
 .reaction-likers-skel.is-avatar {
-	width: 30px;
-	height: 30px;
-	flex: 0 0 auto;
-	border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 50%;
 }
 
 .reaction-likers-skel.is-name {
-	width: 58%;
-	height: 11px;
+  width: 58%;
+  height: 11px;
 }
 
 @keyframes reaction-likers-shimmer {
-	from {
-		background-position: 130% 0;
-	}
+  from {
+    background-position: 130% 0;
+  }
 
-	to {
-		background-position: -30% 0;
-	}
+  to {
+    background-position: -30% 0;
+  }
 }
 
 /* 深色底上的投影要更重才浮得起来（与 .emoji-panel 的处理一致）。 */
-html[data-theme="dark"] .reaction-likers {
-	box-shadow:
-		0 20px 52px rgba(0, 0, 0, 0.55),
-		0 2px 10px rgba(0, 0, 0, 0.4);
+html[data-theme='dark'] .reaction-likers {
+  box-shadow:
+    0 20px 52px rgba(0, 0, 0, 0.55),
+    0 2px 10px rgba(0, 0, 0, 0.4);
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.reaction-likers,
-	.reaction-likers-skel {
-		animation: none;
-	}
+  .reaction-likers,
+  .reaction-likers-skel {
+    animation: none;
+  }
 }
 
 /* ---- QQ rich media (image / video / file / voice / market-face) ---------- */
 
 .qq-media-image {
-	display: block;
-	max-width: 280px;
-	max-height: 360px;
-	border-radius: 8px;
-	object-fit: cover;
-	cursor: zoom-in;
-	user-select: none;
-	-webkit-user-drag: none;
+  display: block;
+  max-width: 280px;
+  max-height: 360px;
+  border-radius: 8px;
+  object-fit: cover;
+  cursor: zoom-in;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 /* 图片外层容器：relative + 内联收缩，让 ShimmerImage 的扫光占位（absolute inset 0）
    只盖住图片本身，而不是铺满整条气泡；border-radius 与图片一致，扫光圆角不穿帮。 */
 .qq-media-wrap {
-	position: relative;
-	display: inline-block;
-	line-height: 0;
-	border-radius: 8px;
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  border-radius: 8px;
 }
 
 /* 动画表情是方形图，无需圆角。 */
 .qq-media-wrap-emoji {
-	border-radius: 0;
+  border-radius: 0;
 }
 
 .qq-media-mface {
-	display: block;
-	object-fit: contain;
-	user-select: none;
-	-webkit-user-drag: none;
+  display: block;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 /* 商城表情：图片外包一层容器，右下角贴一个商城角标，与普通图片表情区分；
    整块可点击弹出「整组表情」灯箱。 */
 .qq-mface-wrap {
-	position: relative;
-	display: inline-block;
-	cursor: pointer;
-	line-height: 0;
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+  line-height: 0;
 }
 
 .qq-mface-wrap .qq-media-mface {
-	width: 100%;
-	height: 100%;
+  width: 100%;
+  height: 100%;
 }
 
 /* 悬停时角标微亮 + 图片轻抬，暗示「可点开」。 */
 .qq-mface-wrap:hover .qq-mface-badge {
-	opacity: 1;
-	transform: scale(1.06);
+  opacity: 1;
+  transform: scale(1.06);
 }
 
 .qq-mface-badge {
-	position: absolute;
-	right: -3px;
-	bottom: -3px;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 18px;
-	height: 18px;
-	color: #ffffff;
-	background: linear-gradient(135deg, #ff9d3d, #ff5f6d);
-	border-radius: 50%;
-	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28), 0 0 0 1.5px var(--im-color-chat-surface, #ffffff);
-	opacity: 0.92;
-	transition: opacity 0.15s ease, transform 0.15s ease;
-	pointer-events: none;
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #ff9d3d, #ff5f6d);
+  border-radius: 50%;
+  box-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.28),
+    0 0 0 1.5px var(--im-color-chat-surface, #ffffff);
+  opacity: 0.92;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+  pointer-events: none;
 }
 
 /* Video: poster image with a centered play badge and a duration chip. */
 .qq-media-video {
-	position: relative;
-	display: block;
-	max-width: 280px;
-	border-radius: 8px;
-	overflow: hidden;
-	cursor: pointer;
-	background: #000000;
+  position: relative;
+  display: block;
+  max-width: 280px;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  background: #000000;
 }
 
 .qq-media-video-poster,
 .qq-media-video-noposter,
 .qq-media-video-player {
-	display: block;
-	width: 100%;
-	height: 100%;
-	object-fit: cover;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .qq-media-video-player {
-	object-fit: contain;
-	background: #000000;
+  object-fit: contain;
+  background: #000000;
 }
 
 /* Centered download spinner shown while the original video loads. */
 .qq-media-spinner {
-	position: absolute;
-	top: 50%;
-	left: 50%;
-	width: 34px;
-	height: 34px;
-	margin: -17px 0 0 -17px;
-	border-radius: 50%;
-	border: 3px solid rgba(255, 255, 255, 0.35);
-	border-top-color: #ffffff;
-	animation: qq-media-spin 0.9s linear infinite;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 34px;
+  height: 34px;
+  margin: -17px 0 0 -17px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+  animation: qq-media-spin 0.9s linear infinite;
 }
 
 @keyframes qq-media-spin {
-	to {
-		transform: rotate(360deg);
-	}
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .qq-media-video-noposter {
-	min-height: 120px;
-	background: linear-gradient(135deg, #2b2b2b, #4a4a4a);
+  min-height: 120px;
+  background: linear-gradient(135deg, #2b2b2b, #4a4a4a);
 }
 
 .qq-media-video-play {
-	position: absolute;
-	top: 50%;
-	left: 50%;
-	width: 46px;
-	height: 46px;
-	transform: translate(-50%, -50%);
-	border-radius: 50%;
-	background: rgba(0, 0, 0, 0.5);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 46px;
+  height: 46px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
 }
 
 .qq-media-video-play::after {
-	content: "";
-	position: absolute;
-	top: 50%;
-	left: 54%;
-	transform: translate(-50%, -50%);
-	border-style: solid;
-	border-width: 9px 0 9px 15px;
-	border-color: transparent transparent transparent #ffffff;
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 54%;
+  transform: translate(-50%, -50%);
+  border-style: solid;
+  border-width: 9px 0 9px 15px;
+  border-color: transparent transparent transparent #ffffff;
 }
 
 .qq-media-video-duration {
-	position: absolute;
-	right: 6px;
-	bottom: 6px;
-	padding: 1px 6px;
-	border-radius: 4px;
-	background: rgba(0, 0, 0, 0.55);
-	color: #ffffff;
-	font-size: 12px;
-	line-height: 1.5;
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 /* File: an icon + name + size card. */
 .qq-media-file {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	width: 240px;
-	max-width: 100%;
-	padding: 4px 2px;
-	cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 240px;
+  max-width: 100%;
+  padding: 4px 2px;
+  cursor: pointer;
 }
 
 .qq-media-file-icon {
-	width: 40px;
-	height: 40px;
-	flex: 0 0 auto;
-	object-fit: contain;
-	user-select: none;
-	-webkit-user-drag: none;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 /* Online (cloud) file/folder — same skeleton as a regular file, but with a
    small cloud badge over the icon corner so the eye flags it as remote. */
-.qq-media-file-online { cursor: default; }
+.qq-media-file-online {
+  cursor: default;
+}
 .qq-media-file-icon-wrap {
-	position: relative;
-	width: 40px;
-	height: 40px;
-	flex: 0 0 auto;
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
 }
 .qq-media-file-icon-wrap .qq-media-file-icon {
-	width: 100%;
-	height: 100%;
+  width: 100%;
+  height: 100%;
 }
 .qq-media-file-online-badge {
-	position: absolute;
-	right: -3px;
-	bottom: -3px;
-	color: #ffffff;
-	background: #2f71df;
-	border-radius: 50%;
-	padding: 2px;
-	box-shadow: 0 0 0 1.5px #ffffff;
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  color: #ffffff;
+  background: #2f71df;
+  border-radius: 50%;
+  padding: 2px;
+  box-shadow: 0 0 0 1.5px #ffffff;
 }
 
 .qq-media-file-meta {
-	min-width: 0;
-	display: flex;
-	flex-direction: column;
-	gap: 3px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .qq-media-file-name {
-	overflow: hidden;
-	color: inherit;
-	font-size: 14px;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+  overflow: hidden;
+  color: inherit;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .qq-media-file-size {
-	color: #999999;
-	font-size: 12px;
+  color: #999999;
+  font-size: 12px;
 }
 .qq-media-file-size.qq-media-file-error {
-	color: #d9534f;
+  color: #d9534f;
 }
 .qq-media-file-status {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	color: var(--weq-accent-effective, #0099ff);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--weq-accent-effective, #0099ff);
 }
 
 /* Voice: the play strip is a self-contained bubble (play button + amplitude
    bars + duration). It owns its background so it stays legible regardless of
    the surrounding message bubble; the 转文字 button lives OUTSIDE it. */
 .qq-media-voice {
-	display: inline-flex;
-	align-items: center;
-	gap: 9px;
-	box-sizing: border-box;
-	min-width: 120px;
-	max-width: 240px;
-	padding: 8px 13px 8px 9px;
-	border-radius: 14px;
-	background: var(--weq-chat-bubble-other, #ffffff);
-	border: 1px solid rgba(0, 0, 0, 0.06);
-	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-	color: var(--weq-fg-primary, #1f2937);
-	cursor: pointer;
-	user-select: none;
-	transition: box-shadow 120ms ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  box-sizing: border-box;
+  min-width: 120px;
+  max-width: 240px;
+  padding: 8px 13px 8px 9px;
+  border-radius: 14px;
+  background: var(--weq-chat-bubble-other, #ffffff);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  color: var(--weq-fg-primary, #1f2937);
+  cursor: pointer;
+  user-select: none;
+  transition: box-shadow 120ms ease;
 }
 
 .qq-media-voice:hover {
-	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.09);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.09);
 }
 
 .qq-media-voice-play {
-	display: grid;
-	width: 26px;
-	height: 26px;
-	flex: 0 0 auto;
-	place-items: center;
-	border-radius: 50%;
-	background: var(--weq-accent-effective, #12a8ff);
-	color: #ffffff;
-	font-size: 11px;
-	line-height: 1;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--weq-accent-effective, #12a8ff);
+  color: #ffffff;
+  font-size: 11px;
+  line-height: 1;
 }
 
 /* Voice-changer badge: a small filled star before the waveform marking a
    变声语音 (voiceChanged) clip. */
 .qq-media-voice-changed {
-	flex: 0 0 auto;
-	color: var(--weq-accent-effective, #12a8ff);
-	fill: currentColor;
+  flex: 0 0 auto;
+  color: var(--weq-accent-effective, #12a8ff);
+  fill: currentColor;
 }
 
 /* AI 声聊 badge (element tag 45915): a small pill before the waveform. */
 .qq-media-voice-ai {
-	display: inline-flex;
-	align-items: center;
-	gap: 2px;
-	flex: 0 0 auto;
-	padding: 1px 5px;
-	border-radius: 999px;
-	background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
-	color: var(--weq-accent-effective, #12a8ff);
-	font-size: 10px;
-	font-weight: 600;
-	line-height: 1.4;
-	letter-spacing: 0.3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  color: var(--weq-accent-effective, #12a8ff);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.3px;
 }
 
 .qq-media-voice-wave {
-	display: flex;
-	align-items: center;
-	gap: 2px;
-	height: 26px;
-	/* Shrink to fit the strip: with many bars (long clips) the fixed-width
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 26px;
+  /* Shrink to fit the strip: with many bars (long clips) the fixed-width
 	   bars would otherwise push past the bubble's max-width. Flexing + clipping
 	   keeps the waveform inside the frame. */
-	flex: 1 1 auto;
-	min-width: 0;
-	overflow: hidden;
-	color: var(--weq-accent-effective, #12a8ff);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--weq-accent-effective, #12a8ff);
 }
 
 .qq-media-voice-wave i {
-	display: block;
-	width: 2px;
-	min-height: 3px;
-	border-radius: 1px;
-	background: currentColor;
-	opacity: 0.55;
+  display: block;
+  width: 2px;
+  min-height: 3px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.55;
 }
 
 .qq-media-voice.is-playing .qq-media-voice-wave i {
-	opacity: 0.9;
+  opacity: 0.9;
 }
 
 .qq-media-voice-time {
-	color: #8a9099;
-	font-size: 12px;
-	font-variant-numeric: tabular-nums;
-	white-space: nowrap;
+  color: #8a9099;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* ---- my own (sent) voice: solid accent strip, everything reversed to white
    so the play button, waveform, duration and badges all read clearly (fixes
    the old blue-on-blue mush). ------------------------------------------------ */
 .message-line.mine .qq-media-voice {
-	background: var(--weq-chat-bubble-mine, #12a8ff);
-	border-color: transparent;
-	box-shadow: 0 1px 3px color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 40%, transparent);
-	color: #ffffff;
+  background: var(--weq-chat-bubble-mine, #12a8ff);
+  border-color: transparent;
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 40%, transparent);
+  color: #ffffff;
 }
 
 .message-line.mine .qq-media-voice:hover {
-	box-shadow: 0 2px 7px color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 48%, transparent);
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 48%, transparent);
 }
 
 .message-line.mine .qq-media-voice-play {
-	background: #ffffff;
-	color: var(--weq-accent-effective, #12a8ff);
+  background: #ffffff;
+  color: var(--weq-accent-effective, #12a8ff);
 }
 
 .message-line.mine .qq-media-voice-wave {
-	color: #ffffff;
+  color: #ffffff;
 }
 
 .message-line.mine .qq-media-voice-wave i {
-	opacity: 0.72;
+  opacity: 0.72;
 }
 
 .message-line.mine .qq-media-voice.is-playing .qq-media-voice-wave i {
-	opacity: 1;
+  opacity: 1;
 }
 
 .message-line.mine .qq-media-voice-time {
-	color: rgba(255, 255, 255, 0.9);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .message-line.mine .qq-media-voice-changed {
-	color: #ffffff;
+  color: #ffffff;
 }
 
 .message-line.mine .qq-media-voice-ai {
-	background: rgba(255, 255, 255, 0.22);
-	color: #ffffff;
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
 }
 
 /* Voice transcription: wrapper around the play strip + hover 转文字 button and
    the result bubble below it. The button stays hidden until the wrapper is
    hovered, mirroring QQ's on-demand transcription affordance. */
 .qq-voice-wrap {
-	display: inline-flex;
-	flex-direction: column;
-	gap: 6px;
-	max-width: 280px;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 280px;
 }
 
 .qq-voice-row {
-	display: inline-flex;
-	align-items: center;
-	gap: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
 }
 
 /* On my own (right-aligned) messages the 转文字 button sits to the LEFT of the
    strip; flip the row so the play strip stays hugging the bubble edge. */
 .message-line.mine .qq-voice-row {
-	flex-direction: row-reverse;
+  flex-direction: row-reverse;
 }
 
 .qq-voice-transcribe-btn {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	flex: 0 0 auto;
-	padding: 4px 10px;
-	border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 35%, transparent);
-	border-radius: 999px;
-	background: var(--weq-bg-elevated, #ffffff);
-	color: var(--weq-accent-effective, #0099ff);
-	font-size: 12px;
-	line-height: 1;
-	white-space: nowrap;
-	cursor: pointer;
-	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-	opacity: 0;
-	transform: scale(0.94);
-	transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 35%, transparent);
+  border-radius: 999px;
+  background: var(--weq-bg-elevated, #ffffff);
+  color: var(--weq-accent-effective, #0099ff);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  opacity: 0;
+  transform: scale(0.94);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease,
+    background 120ms ease;
 }
 
 .qq-voice-wrap:hover .qq-voice-transcribe-btn,
 .qq-voice-transcribe-btn:focus-visible {
-	opacity: 1;
-	transform: scale(1);
+  opacity: 1;
+  transform: scale(1);
 }
 
 .qq-voice-transcribe-btn:hover:not(:disabled) {
-	background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-elevated, #fff));
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-elevated, #fff));
 }
 
 .qq-voice-transcribe-btn:disabled {
-	opacity: 1;
-	cursor: progress;
-	color: #999999;
-	border-color: rgba(0, 0, 0, 0.12);
-	background: rgba(0, 0, 0, 0.03);
+  opacity: 1;
+  cursor: progress;
+  color: #999999;
+  border-color: rgba(0, 0, 0, 0.12);
+  background: rgba(0, 0, 0, 0.03);
 }
 
 .qq-voice-transcript {
-	max-width: 280px;
-	padding: 7px 11px;
-	border: 1px solid rgba(0, 0, 0, 0.07);
-	border-radius: 4px 12px 12px 12px;
-	background: color-mix(in srgb, var(--weq-accent-effective) 7%, white);
-	color: #1f2937;
-	font-size: 13px;
-	line-height: 1.55;
-	white-space: pre-wrap;
-	word-break: break-word;
+  max-width: 280px;
+  padding: 7px 11px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 4px 12px 12px 12px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 7%, white);
+  color: #1f2937;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* Keep the transcript reading light-on-... it stays a light bubble even under my
    own messages (it's a result panel, not part of the accent strip). */
 .message-line.mine .qq-voice-transcript {
-	align-self: flex-end;
-	border-radius: 12px 4px 12px 12px;
+  align-self: flex-end;
+  border-radius: 12px 4px 12px 12px;
 }
 
 .qq-voice-transcript.is-error {
-	background: #fdf2f2;
-	border-color: rgba(220, 80, 80, 0.25);
-	color: #c0392b;
+  background: #fdf2f2;
+  border-color: rgba(220, 80, 80, 0.25);
+  color: #c0392b;
 }
 
 /* 语气徽标：情绪 + 识别到的非语音声音事件（来自 SenseVoice 富标签）。 */
 .qq-voice-tone {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 4px;
-	margin-bottom: 5px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 5px;
 }
 
 .qq-voice-tone-chip {
-	display: inline-flex;
-	align-items: center;
-	padding: 1px 7px;
-	border: 1px solid rgba(0, 0, 0, 0.07);
-	border-radius: 999px;
-	background: rgba(0, 0, 0, 0.035);
-	color: #5b6472;
-	font-size: 11px;
-	line-height: 1.6;
-	white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.035);
+  color: #5b6472;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: nowrap;
 }
 
 .qq-voice-tone-chip.is-emotion {
-	border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
-	background: color-mix(in srgb, var(--weq-accent-effective) 10%, white);
-	color: color-mix(in srgb, var(--weq-accent-effective) 70%, #1f2937);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, white);
+  color: color-mix(in srgb, var(--weq-accent-effective) 70%, #1f2937);
 }
 
 /* Fallback chip when a media element can't be located/decoded. */
 .qq-media-fallback {
-	color: inherit;
-	opacity: 0.7;
+  color: inherit;
+  opacity: 0.7;
 }
 
 /* Gray broken-media box shown when a file is missing on disk and via CDN. */
 .qq-media-missing {
-	display: inline-flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-	gap: 6px;
-	box-sizing: border-box;
-	min-width: 96px;
-	min-height: 72px;
-	max-width: 280px;
-	padding: 12px;
-	border: 1px solid rgba(0, 0, 0, 0.08);
-	border-radius: 8px;
-	background: #ededf0;
-	color: #9a9aa2;
-	user-select: none;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-width: 96px;
+  min-height: 72px;
+  max-width: 280px;
+  padding: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: #ededf0;
+  color: #9a9aa2;
+  user-select: none;
 }
 
 .qq-media-missing-icon {
-	width: 30px;
-	height: 30px;
-	flex: 0 0 auto;
-	opacity: 0.7;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  opacity: 0.7;
 }
 
 .qq-media-missing-text {
-	font-size: 12px;
-	line-height: 1.3;
-	text-align: center;
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: center;
 }
 
-html[data-theme="dark"] .qq-media-missing {
-	background: rgba(255, 255, 255, 0.08);
-	border-color: rgba(255, 255, 255, 0.12);
-	color: rgba(255, 255, 255, 0.55);
+html[data-theme='dark'] .qq-media-missing {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.55);
 }
 
 .face-poke-mirror {
-	transform: scaleX(-1);
+  transform: scaleX(-1);
 }

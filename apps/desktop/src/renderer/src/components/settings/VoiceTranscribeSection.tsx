@@ -3,11 +3,11 @@
  *
  * Account-independent: downloads & selects the offline transcription model used
  * by the chat 转文字 feature. The selected model id lives in the global config
- * (`bootstrap.getSettings().voiceTranscribe.modelId`); empty = feature off.
+ * (`bootstrap.getSettings().modelResources.voice`); empty = feature off.
  *
  * Download progress arrives over the `onVoiceModelProgress` subscription (one
  * shared stream for all models, keyed by model id). The model registry +
- * on-disk status come from `bootstrap.voiceModels`.
+ * on-disk status come from `bootstrap.localModelResources`.
  *
  * Freshness: like the other settings panels, queries use `staleTime: 0` +
  * `refetchOnMount: 'always'` so reopening the dialog always shows fresh state.
@@ -30,6 +30,7 @@ import { trpc, client } from '../../trpc/client';
 import { Modal, useDialog } from '../Dialog';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Card, Row, SectionHeader } from './controls';
+import { useDraftClose } from '../../lib/draftClose';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -62,13 +63,9 @@ interface LiveProgress {
 
 export function VoiceTranscribeSection(): ReactElement {
   const showError = useDialog((s) => s.showError);
+  const utils = trpc.useUtils();
 
-  const models = trpc.bootstrap.voiceModels.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: 0,
-    refetchOnMount: 'always',
-  });
-  const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+  const models = trpc.bootstrap.localModelResources.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -76,7 +73,7 @@ export function VoiceTranscribeSection(): ReactElement {
 
   const download = trpc.bootstrap.downloadVoiceModel.useMutation();
   const remove = trpc.bootstrap.deleteVoiceModel.useMutation();
-  const setModel = trpc.bootstrap.setVoiceModel.useMutation();
+  const setModel = trpc.bootstrap.setLocalModelResource.useMutation();
 
   const [progress, setProgress] = useState<LiveProgress | null>(null);
 
@@ -115,7 +112,7 @@ export function VoiceTranscribeSection(): ReactElement {
     return () => sub.unsubscribe();
   }, []);
 
-  const selectedId = settings.data?.voiceTranscribe.modelId ?? '';
+  const selectedId = models.data?.selected.voice ?? '';
 
   async function onDownload(id: string): Promise<void> {
     try {
@@ -129,11 +126,10 @@ export function VoiceTranscribeSection(): ReactElement {
 
   async function onDelete(id: string): Promise<void> {
     try {
-      await remove.mutateAsync({ id });
-      // If the deleted model was selected, clear the selection too.
-      if (selectedId === id) await setModel.mutateAsync({ modelId: '' });
+      const removed = await remove.mutateAsync({ id });
+      if (!removed) throw new Error('模型正在下载，暂不能删除');
       await models.refetch();
-      await settings.refetch();
+      await utils.bootstrap.getSettings.invalidate();
     } catch (e) {
       showError('删除模型失败', errMsg(e));
     }
@@ -142,24 +138,22 @@ export function VoiceTranscribeSection(): ReactElement {
   async function onSelect(id: string): Promise<void> {
     try {
       // Toggle off if already selected.
-      await setModel.mutateAsync({ modelId: selectedId === id ? '' : id });
-      await settings.refetch();
+      await setModel.mutateAsync({ kind: 'voice', modelId: selectedId === id ? '' : id });
+      await models.refetch();
+      await utils.bootstrap.getSettings.invalidate();
     } catch (e) {
       showError('设置当前模型失败', errMsg(e));
     }
   }
 
-  const modelList = models.data ?? [];
+  const modelList = models.data?.voice ?? [];
 
   return (
     <div className="weq-set">
-      <SectionHeader
-        icon={<AudioLines size={18} strokeWidth={1.8} />}
-        title="语音配置"
-        desc="语音相关功能统一在这里配置：离线语音识别（转文字）的模型下载与选择，以及文字转语音（TTS）的服务商。"
-      />
+      <SectionHeader icon={<AudioLines size={18} strokeWidth={1.8} />} title="语音识别" />
 
-      <Card title="转录模型">
+      <Card title="本地语音模型">
+        <p className="weq-set-note">识别在本机完成，不会将语音发送给 API 服务商。</p>
         {modelList.length === 0 ? (
           <div className="weq-set-empty">{models.isLoading ? '加载中…' : '暂无可用模型'}</div>
         ) : (
@@ -250,12 +244,8 @@ export function VoiceTranscribeSection(): ReactElement {
             })}
           </div>
         )}
-        <p className="weq-set-note">
-          模型文件较大，请在网络良好时下载。模型保存在本地，删除「账号缓存」不会影响它。
-        </p>
+        <p className="weq-set-note">模型保存在本地，删除「账号缓存」不会影响它。</p>
       </Card>
-
-      <TtsProvidersCard />
     </div>
   );
 }
@@ -313,7 +303,7 @@ function normalizeId(input: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-function TtsProvidersCard(): ReactElement {
+export function TtsProvidersCard(): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const catalog = trpc.bootstrap.getTtsCatalog.useQuery(undefined, {
@@ -333,6 +323,11 @@ function TtsProvidersCard(): ReactElement {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<TtsForm>(emptyTtsForm);
   const [testing, setTesting] = useState(false);
+  const guard = useDraftClose(
+    () => setOpen(false),
+    form,
+    saveProvider.isLoading || deleteProvider.isLoading || testing,
+  );
 
   /** 把已保存的 TTS 服务商数据填进表单。 */
   const fillFormFrom = useCallback(
@@ -350,7 +345,7 @@ function TtsProvidersCard(): ReactElement {
       format?: string | null;
       speed?: number | null;
     }) => {
-      setForm({
+      const next: TtsForm = {
         id: item.id,
         name: item.name,
         vendor: item.vendor as TtsVendorLocal,
@@ -363,9 +358,11 @@ function TtsProvidersCard(): ReactElement {
         voice: item.voice ?? '',
         format: item.format ?? '',
         speed: item.speed !== undefined && item.speed !== null ? String(item.speed) : '',
-      });
+      };
+      setForm(next);
+      guard.reset(next);
     },
-    [],
+    [guard.reset],
   );
 
   useEffect(() => {
@@ -385,7 +382,9 @@ function TtsProvidersCard(): ReactElement {
 
   function toggleCreate(): void {
     setSelectedId('');
-    setForm(emptyTtsForm());
+    const next = emptyTtsForm();
+    setForm(next);
+    guard.reset(next);
     setOpen(true);
   }
 
@@ -440,6 +439,7 @@ function TtsProvidersCard(): ReactElement {
     }
     try {
       await saveProvider.mutateAsync(toPayload(id));
+      guard.reset(form);
       setSelectedId(id);
       setOpen(true);
       await utils.bootstrap.listTtsProviders.invalidate();
@@ -514,12 +514,11 @@ function TtsProvidersCard(): ReactElement {
         }
       >
         <p className="weq-set-desc">
-          配置文字转语音服务商。配好后，克隆体（好友克隆）才能发语音；支持复刻的厂商（CosyVoice /
-          GPT-SoVITS）可用 TA 本人的声音说话。
+          用于好友克隆的文字转语音与声音复刻；合成时会向所选服务商提交对应文本或参考语音。
         </p>
         {(providers.data ?? []).length === 0 ? (
           <div className="weq-set-row-desc" style={{ padding: '4px 2px' }}>
-            还没有 TTS 服务商，点右上角「新建」添加一个。推荐 CosyVoice（免费、可复刻）。
+            暂无语音合成服务商。
           </div>
         ) : (
           <div className="weq-agentlab-provider-list">
@@ -553,7 +552,7 @@ function TtsProvidersCard(): ReactElement {
       </Card>
 
       {open ? (
-        <Modal onClose={() => setOpen(false)} width={620}>
+        <Modal presentation="panel" onClose={guard.requestClose} width={620}>
           <div className="weq-provider-modal">
             <header className="weq-provider-modal-head">
               <span className="weq-provider-modal-icon">
@@ -563,7 +562,7 @@ function TtsProvidersCard(): ReactElement {
               <button
                 type="button"
                 className="weq-set-iconbtn weq-provider-modal-close"
-                onClick={() => setOpen(false)}
+                onClick={guard.requestClose}
                 aria-label="关闭"
               >
                 <X size={16} />

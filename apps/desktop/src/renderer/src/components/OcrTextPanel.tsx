@@ -97,7 +97,7 @@ export function OcrTextPanel({ blocks, source, cached, onExit }: OcrTextPanelPro
       <div className="weq-ocr-panel-head" onMouseDown={onHeadDown}>
         <span className="weq-ocr-panel-title">识别结果</span>
         <span className="weq-ocr-panel-meta">
-          {blocks.length} 段 · {source === 'local' ? '本地模型' : '在线'}
+          {blocks.length} 段 · {source === 'local' ? '本地模型' : 'QQ 在线 OCR'}
           {cached ? '（缓存）' : ''} · 可拖动
         </span>
         <button

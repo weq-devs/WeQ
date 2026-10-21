@@ -10,7 +10,7 @@
  * the preview points at the same `weq-media://avatar` protocol the grid uses.
  */
 
-import { useCallback, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import { X, Search, User, Users, Copy, Check } from 'lucide-react';
 import type { AvatarPathProbe } from '@weq/service';
 import { Modal } from '../../components/Dialog';
@@ -19,6 +19,7 @@ import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 
 type Kind = 'user' | 'group';
+let lastInput: { kind: Kind; qq: string } = { kind: 'user', qq: '' };
 
 function fmtBytes(bytes: number): string {
   if (!bytes) return '0 B';
@@ -38,8 +39,11 @@ function previewSrc(probe: AvatarPathProbe, variant: 'big' | 'small'): string {
 }
 
 export function AvatarPathDialog({ onClose }: { onClose: () => void }): ReactElement {
-  const [kind, setKind] = useState<Kind>('user');
-  const [qq, setQq] = useState('');
+  const [kind, setKind] = useState<Kind>(lastInput.kind);
+  const [qq, setQq] = useState(lastInput.qq);
+  useEffect(() => {
+    lastInput = { kind, qq };
+  }, [kind, qq]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [probe, setProbe] = useState<AvatarPathProbe | null>(null);
@@ -72,7 +76,7 @@ export function AvatarPathDialog({ onClose }: { onClose: () => void }): ReactEle
   }, [kind, qq]);
 
   return (
-    <Modal onClose={onClose} labelledBy="weq-avpath-title" width={452}>
+    <Modal presentation="popover" onClose={onClose} labelledBy="weq-avpath-title" width={452}>
       <div className="weq-avpath">
         <div className="weq-avpath-head">
           <h3 id="weq-avpath-title" className="weq-avpath-title">

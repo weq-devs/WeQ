@@ -1,8 +1,14 @@
 ﻿// @ts-nocheck
-import type { User } from './types';
+import type { GroupConversation, User } from './types';
 
 export function displayUserName(user: Pick<User, 'displayName' | 'username'>) {
   return user.displayName || user.username;
+}
+
+export function displayGroupName(
+  group: Pick<GroupConversation['group'], 'name' | 'remark'>,
+): string {
+  return group.remark?.trim() || group.name;
 }
 
 /** QQ group display name: group card, local friend remark, then account nickname. */

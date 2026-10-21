@@ -16,24 +16,25 @@
  * 下载工具函数）。加载态用 skeleton + shimmer 占位。
  */
 
-import {
-  useCallback,
-  useMemo,
-  useEffect,
-  useRef,
-  useState,
-  type ReactElement,
-  type MouseEvent,
-  type PointerEvent,
-} from 'react';
+import { useCallback, useMemo, useEffect, useRef, useState, type ReactElement } from 'react';
 import { Check, Download, Images, Inbox, Loader2, Play, X } from 'lucide-react';
 import { Modal, useDialog } from './Dialog';
+import { useToast } from './Toast';
 import type { QzoneAlbumRequest } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { QzoneMediaPreview, type QzonePreviewMedia } from './QzoneMediaPreview';
 import { useDebouncedLoading } from '../hooks/useDebouncedLoading';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
+import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
+import { useMultiSelection } from '../hooks/useMultiSelection';
+import type { ExportSavePolicy } from '@weq/service';
+import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
+import { ExportSaveActions } from './ExportSaveActions';
+import { ServerSavePrompt } from './ServerSavePrompt';
+import { IS_WEB } from '../lib/target';
+import { QZONE_ALBUM_PAGE_SIZE as PAGE_NUM } from '../../../shared/qzone_album_export';
+import '../styles/qzone-album-save.css';
 
 /** 相册列表 wire（service QzoneAlbum）。 */
 export interface QzoneAlbumWire {
@@ -69,56 +70,25 @@ function photoKey(photo: QzoneAlbumPhotoWire): string {
 }
 
 /** Use stable keys as the range anchor so prepended/removed media cannot shift it. */
-function useAlbumSelection(keys: string[]) {
+function useAlbumSelection(keys: string[], disabled: boolean) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const anchor = useRef<string | null>(null);
-  const pointerSelection = useRef<string | null>(null);
-  const toggle = (key: string, range = false): void => {
-    const start = anchor.current ? keys.indexOf(anchor.current) : -1;
-    const end = keys.indexOf(key);
-    setSelected((previous) => {
-      const next = new Set(previous);
-      const selecting = !next.has(key);
-      const targets =
-        range && start >= 0 && end >= 0
-          ? keys.slice(Math.min(start, end), Math.max(start, end) + 1)
-          : [key];
-      for (const target of targets) {
-        if (selecting) next.add(target);
-        else next.delete(target);
-      }
-      return next;
-    });
-    if (!range || start < 0) anchor.current = key;
-  };
-  const modified = (event: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): boolean =>
-    event.ctrlKey || event.metaKey || event.shiftKey;
-  const handlers = (key: string, disabled: boolean) => ({
-    onPointerDownCapture: (event: PointerEvent<HTMLDivElement>) => {
-      pointerSelection.current = null;
-      if (event.button !== 0 || !modified(event)) return;
-      pointerSelection.current = key;
-      event.preventDefault();
-      event.stopPropagation();
-      if (!disabled) toggle(key, event.shiftKey);
-    },
-    onClickCapture: (event: MouseEvent<HTMLDivElement>) => {
-      const handledPointer = pointerSelection.current === key;
-      pointerSelection.current = null;
-      if (!handledPointer && !modified(event)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      // Also swallow the click if the modifier was released after pointerdown.
-      if (!handledPointer && !disabled) toggle(key, event.shiftKey);
-    },
-    onContextMenuCapture: (event: MouseEvent<HTMLDivElement>) => {
-      if (event.ctrlKey) event.preventDefault();
-    },
+  const multi = useMultiSelection({
+    ids: keys,
+    selected,
+    onChange: setSelected,
+    enabled: selected.size > 0,
+    disabled,
+    normalClick: 'passthrough',
+    onExit: () => setSelected(new Set()),
   });
-  return { selected, setSelected, toggle, handlers };
+  return {
+    selected,
+    setSelected,
+    toggle: (key: string) => multi.toggle(key),
+    handlers: multi.itemProps,
+    rootProps: multi.rootProps,
+  };
 }
-
-const PAGE_NUM = 30;
 
 /** 秒级时间戳 → `YYYY-MM-DD`（媒体格子的日期角标）。 */
 function fmtDay(sec: number): string {
@@ -175,8 +145,8 @@ export function QzoneAlbumDialog({
   hostUin,
   selfUin,
   embedded = false,
-  active = true,
-  refreshKey = 0,
+  active: requestedActive = true,
+  refreshKey: requestedRefreshKey = 0,
   albumTarget,
 }: {
   open: boolean;
@@ -189,6 +159,9 @@ export function QzoneAlbumDialog({
   refreshKey?: number;
   albumTarget?: QzoneAlbumRequest;
 }): ReactElement | null {
+  const activity = useQQReadActivity(open && requestedActive);
+  const active = activity.enabled;
+  const refreshKey = requestedRefreshKey + activity.revision;
   const [access, setAccess] = useState<{
     qqOnline: boolean;
     attachEnabled: boolean;
@@ -674,13 +647,19 @@ export function QzoneAlbumDialog({
   return embedded ? (
     body
   ) : (
-    <Modal onClose={onClose} width={1080} labelledBy="weq-qzone-album-title">
+    <Modal
+      presentation="page"
+      title="空间相册"
+      onClose={onClose}
+      width={1080}
+      labelledBy="weq-qzone-album-title"
+    >
       {body}
     </Modal>
   );
 }
 
-function AlbumGridView({
+export function AlbumGridView({
   albums,
   hostUin,
   onOpen,
@@ -689,19 +668,26 @@ function AlbumGridView({
   hostUin: string;
   onOpen: (album: QzoneAlbumWire) => void;
 }): ReactElement {
+  const [exporting, setExporting] = useState(false);
   const {
     selected: checked,
     setSelected: setChecked,
     toggle,
     handlers,
-  } = useAlbumSelection(albums.map((album) => album.id));
-  const [exporting, setExporting] = useState(false);
-  const [progress, setProgress] = useState('');
-  const [stopping, setStopping] = useState(false);
+    rootProps,
+  } = useAlbumSelection(
+    albums.map((album) => album.id),
+    exporting,
+  );
+  const save = useExportSavePolicy();
+  const sourceIdentity = `${save.binding?.expectedAccountUin}:${save.binding?.expectedAccountConfigId}:${hostUin}`;
+  useEffect(() => {
+    setChecked(new Set());
+  }, [sourceIdentity, setChecked]);
   const locked = useRef(false);
   const cancelled = useRef(false);
   const active = useRef(true);
-  const showInfo = useDialog((s) => s.showInfo);
+  const pushToast = useToast((s) => s.push);
   const showError = useDialog((s) => s.showError);
   useEffect(() => {
     active.current = true;
@@ -712,133 +698,41 @@ function AlbumGridView({
   }, []);
   const allChecked = albums.length > 0 && albums.every((album) => checked.has(album.id));
 
-  async function exportAlbums(): Promise<void> {
-    if (locked.current || checked.size === 0) return;
+  async function exportAlbums(intent?: ExportSavePolicy): Promise<void> {
+    if (locked.current || checked.size === 0 || !save.binding) return;
+    const targets = albums
+      .filter((album) => checked.has(album.id))
+      .map((album) => ({ id: album.id, title: album.name }));
+    const binding = { ...save.binding };
     locked.current = true;
     cancelled.current = false;
     setExporting(true);
-    setStopping(false);
-    setProgress('选择保存位置…');
-    let saved = 0;
-    const failures: string[] = [];
-    const completed = new Set<string>();
     try {
-      const outputDir = await client.account.pickQzoneAlbumExportDir.mutate();
-      if (!outputDir || cancelled.current) {
-        if (active.current) setProgress('');
-        return;
-      }
-      const batchRoot = `${outputDir.replace(/[\\/]+$/, '')}/空间相册_${new Date().toISOString().replace(/[:.]/g, '-')}_${crypto.randomUUID().slice(0, 8)}`;
-      const targets = albums.filter((album) => checked.has(album.id));
-      for (const [index, album] of targets.entries()) {
-        if (cancelled.current) break;
-        const safe = (value: string): string =>
-          value
-            .replace(/[<>:"/\\|?*]/g, '_')
-            .split('')
-            .map((char) => (char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 ? '_' : char))
-            .join('')
-            .trim()
-            .slice(0, 80) || '相册';
-        const folder = `${batchRoot}/${safe(album.name)}_${safe(album.id)}`;
-        let start = 0,
-          pageIndex = 0,
-          sequence = 0;
-        const seen = new Set<string>();
-        let albumFailed = false;
-        try {
-          while (!cancelled.current) {
-            if (++pageIndex > 10000) throw new Error('相册分页未结束，请分批重试。');
-            if (active.current)
-              setProgress(
-                `${index + 1}/${targets.length} · ${album.name || '未命名相册'} · 已保存 ${saved} 个文件`,
-              );
-            const page = await client.account.qzoneAlbumMedia.query({
-              hostUin,
-              topicId: album.id,
-              pageStart: start,
-              pageNum: PAGE_NUM,
-            });
-            if (cancelled.current) break;
-            const photos = (page?.photos ?? []) as QzoneAlbumPhotoWire[];
-            if (!photos.length) {
-              if (start < Number(page?.totalInAlbum ?? 0))
-                throw new Error('相册分页提前返回空页，未导出全部媒体。');
-              break;
-            }
-            const fresh = photos.filter((photo) => {
-              const key = `${photo.isVideo}:${photo.picKey || photo.url || photo.thumbUrl}`;
-              if (seen.has(key)) return false;
-              seen.add(key);
-              return true;
-            });
-            if (!fresh.length) throw new Error('相册分页重复，已停止，避免重复下载。');
-            const items = fresh
-              .filter((photo) => {
-                if (photo.url || photo.thumbUrl) return true;
-                albumFailed = true;
-                failures.push(`${album.name}：有媒体缺少下载地址。`);
-                return false;
-              })
-              .map((photo) => {
-                sequence++;
-                return {
-                  id: photo.id || String(sequence),
-                  name: `${String(sequence).padStart(6, '0')}_${photo.name || '媒体'}`,
-                  url: photo.url || photo.thumbUrl,
-                  isVideo: photo.isVideo,
-                  picKey: photo.picKey,
-                };
-              });
-            if (items.length) {
-              const result = await client.account.exportQzoneAlbumMedia.mutate({
-                hostUin,
-                topicId: album.id,
-                outputDir: folder,
-                concurrency: 4,
-                items,
-              });
-              saved += result.ok;
-              if (result.failed.length) {
-                albumFailed = true;
-                failures.push(
-                  `${album.name}：${result.failed.length} 个媒体失败${result.failed[0]?.error ? `（${result.failed[0].error}）` : ''}`,
-                );
-              }
-            }
-            start += photos.length;
-            const total = Number(page?.totalInAlbum ?? 0);
-            if (total > 0 ? start >= total : photos.length < PAGE_NUM) break;
-          }
-          if (!cancelled.current && !albumFailed) completed.add(album.id);
-        } catch (error) {
-          failures.push(`${album.name}：${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-      if (!active.current) return;
-      setChecked((current) => new Set([...current].filter((id) => !completed.has(id))));
-      setProgress(`已保存 ${saved} 个文件${cancelled.current ? ' · 已停止' : ''}`);
-      if (failures.length)
-        showError('部分相册导出失败', `已保存 ${saved} 个文件。${failures.slice(0, 5).join('；')}`);
-      else
-        showInfo(
-          cancelled.current ? '导出已停止' : '导出完成',
-          `已保存 ${saved} 个文件到：${batchRoot}`,
-        );
+      const policy = await save.prepareSave(intent, { kind: 'bundle', name: '空间相册' });
+      if (!policy || cancelled.current || !save.isCurrent()) return;
+      const taskId = await client.account.startQzoneAlbumsExport.mutate({
+        ...binding,
+        hostUin,
+        name: '空间相册',
+        albums: targets,
+        savePolicy: policy,
+      });
+      if (taskId && active.current && save.isCurrent())
+        pushToast({ tone: 'info', title: '空间相册导出任务已创建' });
     } catch (error) {
-      if (active.current)
+      if (active.current && save.isCurrent())
         showError('相册导出失败', error instanceof Error ? error.message : String(error));
     } finally {
       locked.current = false;
-      if (active.current) {
-        setExporting(false);
-        setStopping(false);
-      }
+      if (active.current) setExporting(false);
     }
   }
 
   return (
     <div className="weq-qzal-album-list">
+      {save.serverLocation && (
+        <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
+      )}
       <div className="weq-qzal-selectbar">
         <button
           type="button"
@@ -857,32 +751,18 @@ function AlbumGridView({
         <button
           type="button"
           className="weq-qzal-download"
-          disabled={exporting || !checked.size}
+          disabled={exporting || !checked.size || !save.binding || save.settings.isLoading}
           onClick={() => void exportAlbums()}
         >
           {exporting ? <Loader2 size={13} className="weq-spin" /> : <Download size={13} />}
-          {exporting ? '导出中…' : '导出选中相册'}
+          {exporting ? '准备中…' : '导出选中相册'}
         </button>
-        {exporting ? (
-          <button
-            type="button"
-            disabled={stopping}
-            onClick={() => {
-              cancelled.current = true;
-              setStopping(true);
-              setProgress('正在停止，等待当前批次完成…');
-            }}
-          >
-            {stopping ? '正在停止…' : '停止'}
-          </button>
-        ) : null}
+        <ExportSaveActions
+          disabled={exporting || !checked.size || !save.binding || save.settings.isLoading}
+          onSelect={(intent) => void exportAlbums(intent)}
+        />
       </div>
-      {progress ? (
-        <p className="weq-qzal-export-progress" role="status">
-          {progress}
-        </p>
-      ) : null}
-      <div className="weq-qzal-album-grid">
+      <div className="weq-qzal-album-grid" {...rootProps}>
         {albums.map((album) => (
           <div
             key={album.id}
@@ -934,7 +814,7 @@ function AlbumGridView({
   );
 }
 
-function MediaView({
+export function MediaView({
   active = true,
   photos,
   total,
@@ -966,7 +846,10 @@ function MediaView({
   onLoadMore: () => Promise<boolean>;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
-  const showInfo = useDialog((s) => s.showInfo);
+  const pushToast = useToast((s) => s.push);
+  const [downloading, setDownloading] = useState(false);
+  const save = useExportSavePolicy();
+  const downloadLock = useRef(false);
 
   /** 勾选的媒体行键集合（全选作用于已加载的条目）。
    *
@@ -978,7 +861,8 @@ function MediaView({
     setSelected,
     toggle: toggleSelect,
     handlers,
-  } = useAlbumSelection(photos.map(photoKey));
+    rootProps,
+  } = useAlbumSelection(photos.map(photoKey), downloading);
   /** 正在取 mp4 播放地址的视频行键（同上，不能裸用 photo.id）。 */
   const [videoResolving, setVideoResolving] = useState<string | null>(null);
   const [preview, setPreview] = useState<number | null>(null);
@@ -997,7 +881,6 @@ function MediaView({
       cancelDetail();
     };
   }, [active, cancelDetail]);
-  const [downloading, setDownloading] = useState(false);
   /** 上一页加载失败：哨兵停止自动触发，底部显示「点击重试」。 */
   const [loadFailed, setLoadFailed] = useState(false);
 
@@ -1046,6 +929,10 @@ function MediaView({
   const rowKey = (index: number): string => photoKey(photos[index]!);
 
   const allSelected = photos.length > 0 && photos.every((_, i) => selected.has(rowKey(i)));
+  const sourceIdentity = `${save.binding?.expectedAccountUin}:${save.binding?.expectedAccountConfigId}:${selfUin}:${hostUin}:${topicId}`;
+  useEffect(() => {
+    setSelected(new Set());
+  }, [sourceIdentity, setSelected]);
   const toggleSelectAll = (): void => {
     setSelected(allSelected ? new Set() : new Set(photos.map((_, i) => rowKey(i))));
   };
@@ -1098,46 +985,49 @@ function MediaView({
     setPreview(photos.indexOf(photo));
   }
 
-  /** 勾选媒体并发下载保存：先选文件夹，再由主进程并发拉取落盘。 */
-  async function downloadSelected(): Promise<void> {
-    const items = photos.filter((_, i) => selected.has(rowKey(i)));
-    if (items.length === 0) return;
+  /** 固定所选媒体与来源；实际文件／资源包位置由公共保存准备决定。 */
+  async function downloadSelected(intent?: ExportSavePolicy): Promise<void> {
+    const items = photos
+      .filter((_, i) => selected.has(rowKey(i)))
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        url: p.url || p.thumbUrl,
+        isVideo: p.isVideo,
+        picKey: p.picKey,
+      }));
+    if (!items.length || downloadLock.current || !save.binding) return;
+    const binding = { ...save.binding };
+    downloadLock.current = true;
     setDownloading(true);
     try {
-      const outputDir = await client.account.pickQzoneAlbumExportDir.mutate();
-      if (!outputDir) return;
-      const res = await client.account.exportQzoneAlbumMedia.mutate({
+      const policy = IS_WEB
+        ? await save.prepareSave(intent, { kind: 'bundle', name: albumName })
+        : (intent ?? save.policy);
+      if (!policy || !save.isCurrent()) return;
+      const taskId = await client.account.startQzoneAlbumMediaExport.mutate({
+        ...binding,
         hostUin,
         topicId,
-        outputDir,
+        name: albumName || '空间相册媒体',
+        savePolicy: policy,
         concurrency: 4,
-        items: items.map((p) => ({
-          id: p.id,
-          name: p.name,
-          url: p.url || p.thumbUrl,
-          isVideo: p.isVideo,
-          picKey: p.picKey,
-        })),
+        items,
       });
-      if (res.failed.length === 0) {
-        setSelected(new Set());
-        showInfo('下载完成', `已保存 ${res.ok} 个文件到：${res.outputDir}`);
-      } else {
-        setSelected(new Set());
-        showError(
-          '部分媒体下载失败',
-          `成功 ${res.ok} 个，失败 ${res.failed.length} 个。${res.failed[0]?.fileName ?? ''}${res.failed[0]?.error ? `：${res.failed[0].error}` : ''}`,
-        );
-      }
+      if (taskId && save.isCurrent()) pushToast({ tone: 'info', title: '空间相册保存任务已创建' });
     } catch (e) {
-      showError('下载失败', e instanceof Error ? e.message : String(e));
+      if (save.isCurrent()) showError('下载失败', e instanceof Error ? e.message : String(e));
     } finally {
+      downloadLock.current = false;
       setDownloading(false);
     }
   }
 
   return (
     <div className="weq-qzal-media-view">
+      {save.serverLocation && (
+        <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
+      )}
       {preview !== null ? (
         <QzoneMediaPreview
           items={previewItems}
@@ -1175,7 +1065,9 @@ function MediaView({
           <button
             type="button"
             className="weq-qzal-download"
-            disabled={selected.size === 0 || downloading}
+            disabled={
+              selected.size === 0 || downloading || !save.binding || save.settings.isLoading
+            }
             onClick={() => void downloadSelected()}
           >
             {downloading ? (
@@ -1183,8 +1075,14 @@ function MediaView({
             ) : (
               <Download size={13} strokeWidth={2.2} />
             )}
-            {downloading ? '下载中…' : '下载选中'}
+            {downloading ? '准备中…' : IS_WEB ? '保存选中到服务器' : '下载选中'}
           </button>
+          <ExportSaveActions
+            disabled={
+              selected.size === 0 || downloading || !save.binding || save.settings.isLoading
+            }
+            onSelect={(intent) => void downloadSelected(intent)}
+          />
         </div>
       ) : null}
       {loading ? (
@@ -1202,7 +1100,7 @@ function MediaView({
         </div>
       ) : (
         <>
-          <div className="weq-qzal-media-grid">
+          <div className="weq-qzal-media-grid" {...rootProps}>
             {photos.map((photo, index) => {
               const row = rowKey(index);
               const proxied = albumMediaUrl(photo.url || photo.thumbUrl);

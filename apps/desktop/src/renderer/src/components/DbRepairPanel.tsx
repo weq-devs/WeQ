@@ -64,6 +64,7 @@ import { closeFromScrim } from '../im-template/template/modalUtils';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { useDbRepairReturn } from '../state/dbRepairReturn';
 import { client, trpc } from '../trpc/client';
+import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { QqAvatar } from './QqAvatar';
 import { useToast } from './Toast';
 
@@ -82,11 +83,15 @@ interface DbRepairRecordView {
   at: string;
   dbName: string;
   state: 'applied' | 'aborted' | 'apply-failed' | 'rolled-back';
+  /** 旧记录没有这个字段，按 `repair` 处理。 */
+  kind?: 'repair' | 'layout-migration';
   badPages: number[];
   durationMs: number;
   beforeBytes: number;
   afterBytes: number | null;
   strictPages: boolean;
+  sourceLayout?: 'qq' | 'standard';
+  targetLayout?: 'qq' | 'standard';
   error?: string;
   reportPath: string | null;
   canRestore: boolean;
@@ -141,6 +146,20 @@ interface DbRepairRestorePreviewView {
   backupExists: boolean;
   currentSha: string | null;
   matchesAfter: boolean;
+}
+
+/** 与主进程 `DbRepairLayoutProbe` 对齐。 */
+interface DbRepairLayoutProbeView {
+  dbPath: string;
+  fileBytes: number;
+  headerOffset: number;
+  pageSize: number;
+  pageCount: number;
+  page262144: 'data' | 'zero' | 'missing';
+  page262145: 'data' | 'zero' | 'missing';
+  layout: 'qq' | 'standard' | 'unknown';
+  needsMigration: boolean;
+  summary: string;
 }
 
 /** 与主进程 `DbRepairErrorCode` 对齐（会被展示的那几种）。 */
@@ -225,7 +244,7 @@ interface DbRepairCheckupView {
   /** 结构检查（`PRAGMA integrity_check`）。 */
   integrity:
     | { ran: true; healthy: boolean; corruptedTables: string[] }
-    | { ran: false; error: string };
+    | { ran: false; error: string; corrupt?: boolean };
   /** 页级检查（坏页地图）。`usedHmac === false` = 跑成了但**没法判**。 */
   pages: { ran: true; report: BadPageScanReportView } | { ran: false; error: string };
   verdict: 'healthy' | 'healthy-unverified' | 'pages-bad' | 'corrupted' | 'error';
@@ -282,6 +301,11 @@ const STATE_BADGES: Record<
     hint: '重建或自检没过，发生在替换之前，源库一个字节都没改。',
   },
 };
+
+/** 任务类型 → 徽章。旧记录没有 `kind`，按通用修复展示。 */
+function recordKindBadge(record: DbRepairRecordView): { label: string; tone: Tone } | null {
+  return record.kind === 'layout-migration' ? { label: '布局迁移', tone: 'ok' } : null;
+}
 
 /** 体检结论 → 徽章（文案就是结论本身）。 */
 function checkupBadge(row: DbRepairCheckupView): { label: string; tone: Tone } {
@@ -637,6 +661,7 @@ function HistoryLightbox({
             <ol className="weq-rp-recs">
               {records.map((record) => {
                 const badge = STATE_BADGES[record.state];
+                const kindBadge = recordKindBadge(record);
                 const isConfirming = confirming?.id === record.id;
                 return (
                   <li
@@ -648,6 +673,7 @@ function HistoryLightbox({
                       <div className="weq-rp-rec-head">
                         <span className="weq-rp-mono">{record.dbName}</span>
                         <Chip tone={badge.tone}>{badge.label}</Chip>
+                        {kindBadge ? <Chip tone={kindBadge.tone}>{kindBadge.label}</Chip> : null}
                         <span className="weq-rp-rec-time">{shortTime(record.at)}</span>
                       </div>
                       <div className="weq-rp-rec-meta">
@@ -668,8 +694,21 @@ function HistoryLightbox({
                             <span>坏页已清零</span>
                           </>
                         ) : null}
+                        {record.sourceLayout && record.targetLayout ? (
+                          <>
+                            <span className="weq-rp-sep" aria-hidden />
+                            <span>
+                              {record.sourceLayout} → {record.targetLayout}
+                            </span>
+                          </>
+                        ) : null}
                       </div>
-                      <p className="weq-rp-hint">{record.error ?? badge.hint}</p>
+                      <p className="weq-rp-hint">
+                        {record.error ??
+                          (record.kind === 'layout-migration'
+                            ? '把旧版误修复的 standard 页布局迁回 QQ 布局。'
+                            : badge.hint)}
+                      </p>
 
                       {/* 确认一律内联在这一行里 —— 位置与操作对象永远一致。 */}
                       {isConfirming && confirming?.action === 'restore' ? (
@@ -827,7 +866,8 @@ export function DbRepairPanel({
   /** 「其他数据库」是否展开：完好的库默认收在开关后面。 */
   const [showOthers, setShowOthers] = useState(false);
   /** 修复前的确认（点「开始修复」不会立刻开跑）。 */
-  const [confirmRepair, setConfirmRepair] = useState(false);
+  /** 确认卡是哪种操作：通用修复 / 布局迁移。 */
+  const [confirmRepair, setConfirmRepair] = useState<'repair' | 'layout-migration' | null>(null);
   /** 正在跑的那件事（按钮据此禁用，避免同时发起两个任务）。 */
   const [busy, setBusy] = useState<'repair' | 'restore' | 'backup' | 'checkup' | 'kill' | null>(
     null,
@@ -846,6 +886,7 @@ export function DbRepairPanel({
 
   const uin = currentUin;
   const running = busy === 'repair' || busy === 'restore';
+  const autoRefresh = useQQAutoRefresh(uin !== null);
 
   /** 体检的「停」开关：当前这个库跑完就不再往下走。 */
   const stopScanRef = useRef(false);
@@ -853,7 +894,7 @@ export function DbRepairPanel({
   // ── 查询 ────────────────────────────────────────────────────────────────
   const statusQuery = trpc.dbRepair.status.useQuery(
     { uin: uin ?? '' },
-    { enabled: uin !== null, refetchInterval: running ? POLL_MS : false },
+    { ...autoRefresh, refetchInterval: autoRefresh.enabled && running ? POLL_MS : false },
   );
   const status = statusQuery.data as DbRepairStatusView | undefined;
   /** 该账号的 QQ 是否在线（决定要不要盯着锁状态）。 */
@@ -862,15 +903,25 @@ export function DbRepairPanel({
     { uin: uin ?? '', dbName: dbName ?? '' },
     // 没选库就不查（整段环境检查都对着某个库说话）。
     {
-      enabled: uin !== null && dbName !== null,
-      refetchInterval: !running && qqOnline ? POLL_MS : false,
+      ...autoRefresh,
+      enabled: autoRefresh.enabled && dbName !== null,
+      refetchInterval: autoRefresh.enabled && !running && qqOnline ? POLL_MS : false,
     },
   );
   const preflight = preflightQuery.data as DbRepairPreflightView | undefined;
-  const historyQuery = trpc.dbRepair.history.useQuery(
-    { uin: uin ?? '' },
-    { enabled: uin !== null },
+  /**
+   * 页布局检测：只在修复页选中库时跑（不在启动 / 面板挂载时自动跑）。
+   *
+   * 判据只有「文件 > 1 GiB」和「262144 / 262145 两页状态」，所以这是一次两次 4 KiB
+   * 的只读读盘，不需要整库扫描，也不会和体检抢 IO。
+   */
+  const layoutQuery = trpc.dbRepair.detectLayout.useQuery(
+    { uin: uin ?? '', dbName: dbName ?? '' },
+    { ...autoRefresh, enabled: autoRefresh.enabled && stage === 'repair' && dbName !== null },
   );
+  const layoutProbe = layoutQuery.data as DbRepairLayoutProbeView | undefined;
+  const needsMigration = layoutProbe?.needsMigration === true;
+  const historyQuery = trpc.dbRepair.history.useQuery({ uin: uin ?? '' }, autoRefresh);
   const history = useMemo(
     () => (historyQuery.data ?? []) as DbRepairRecordView[],
     [historyQuery.data],
@@ -891,6 +942,7 @@ export function DbRepairPanel({
     await Promise.all([
       utils.dbRepair.status.invalidate(),
       utils.dbRepair.preflight.invalidate(),
+      utils.dbRepair.detectLayout.invalidate(),
       utils.dbRepair.history.invalidate(),
     ]);
     onRefreshAccounts();
@@ -1045,10 +1097,13 @@ export function DbRepairPanel({
    *      是个坏界面（会话列表在、头像没有、点不开消息）。
    */
   const reportFailure = (
-    verb: '修复' | '回滚',
+    verb: '修复' | '布局迁移' | '回滚',
     failure: Extract<DbRepairTaskResultView, { ok: false }>,
   ): void => {
-    const title = FAILURE_TITLES[failure.code] ?? `${verb}失败`;
+    const title =
+      verb === '布局迁移' && failure.code === 'recover-failed'
+        ? '布局迁移失败'
+        : (FAILURE_TITLES[failure.code] ?? `${verb}失败`);
     const detail = PRE_SWAP_FAILURES.has(failure.code)
       ? `${failure.error}（替换还没开始，源库一个字节都没动）`
       : failure.error;
@@ -1072,11 +1127,11 @@ export function DbRepairPanel({
     }
   };
 
-  const handleRepair = async (): Promise<void> => {
+  const handleRepair = async (layoutMigration: boolean): Promise<void> => {
     if (uin === null || dbName === null) return;
     // 任务期间的 `dbName` 可能被用户改掉（面板不拦），所以先把目标钉住。
     const target = dbName;
-    setConfirmRepair(false);
+    setConfirmRepair(null);
     setBusy('repair');
     setNotice(null);
     setOutcome(null);
@@ -1085,20 +1140,28 @@ export function DbRepairPanel({
       const result = (await startRepair.mutateAsync({
         uin,
         dbName: target,
+        ...(layoutMigration ? { layoutMigration: true } : {}),
       })) as DbRepairTaskResultView;
       // 分类好的失败是**返回值**（这样才带得回「账号是否已被关掉」），不是异常。
       if (!result.ok) {
-        reportFailure('修复', result);
+        reportFailure(layoutMigration ? '布局迁移' : '修复', result);
         return;
       }
       const record = result.record;
-      const summary = [
-        `坏页 ${record.badPages.length} 个已被重建排除`,
-        record.verification
-          ? `自检通过：${record.verification.tables} 表 / ${record.verification.indexes} 索引`
-          : '自检信息缺失',
-      ].join(' · ');
-      const title = `修复完成（${(record.durationMs / 1000).toFixed(1)}s）`;
+      const summary = layoutMigration
+        ? [
+            '页布局已从 standard 迁回 QQ 布局（保留页 262144）',
+            record.verification
+              ? `自检通过：${record.verification.tables} 表 / ${record.verification.indexes} 索引`
+              : '自检信息缺失',
+          ].join(' · ')
+        : [
+            `坏页 ${record.badPages.length} 个已被重建排除`,
+            record.verification
+              ? `自检通过：${record.verification.tables} 表 / ${record.verification.indexes} 索引`
+              : '自检信息缺失',
+          ].join(' · ');
+      const title = `${layoutMigration ? '布局迁移' : '修复'}完成（${(record.durationMs / 1000).toFixed(1)}s）`;
       setOutcome({ tone: 'ok', title, detail: summary, closedAccount: result.closedAccount });
       if (result.closedAccount) {
         // 主进程里当前账号已经被关掉了，渲染层还停在主界面上 —— 必须回首页重开。
@@ -1115,7 +1178,11 @@ export function DbRepairPanel({
     } catch (error) {
       // 能到这里的只有「连服务都没进得去」的意外（例如 IPC 断了）；照样给一条 toast。
       const text = errMsg(error);
-      pushToast({ tone: 'error', title: '修复请求失败', detail: text });
+      pushToast({
+        tone: 'error',
+        title: layoutMigration ? '布局迁移请求失败' : '修复请求失败',
+        detail: text,
+      });
       setNotice(text);
     } finally {
       setProgress(null);
@@ -1229,7 +1296,7 @@ export function DbRepairPanel({
   /** 从体检页进修复页。带上库名 = 预选它。 */
   const goRepair = (name: string | null): void => {
     setDbName(name);
-    setConfirmRepair(false);
+    setConfirmRepair(null);
     setNotice(null);
     setOutcome(null);
     setShowOthers(false);
@@ -1308,24 +1375,29 @@ export function DbRepairPanel({
             <History size={14} strokeWidth={1.9} aria-hidden />
             {history.length > 0 ? <span className="weq-rp-dot" aria-hidden /> : null}
           </button>
-          <button
-            type="button"
-            className="weq-rp-icon-btn"
-            title="刷新状态与修复记录"
-            aria-label="刷新"
-            disabled={busy !== null}
-            onClick={() => {
-              onRefreshAccounts();
-              void refreshAll();
-            }}
-          >
-            <RefreshCw
-              size={14}
-              strokeWidth={1.9}
-              className={busy !== null ? 'weq-spin' : ''}
-              aria-hidden
-            />
-          </button>
+          {(statusQuery.error ||
+            preflightQuery.error ||
+            layoutQuery.error ||
+            historyQuery.error) && (
+            <button
+              type="button"
+              className="weq-rp-icon-btn"
+              title="重试读取状态与修复记录"
+              aria-label="重试读取修复状态"
+              disabled={busy !== null}
+              onClick={() => {
+                onRefreshAccounts();
+                void refreshAll();
+              }}
+            >
+              <RefreshCw
+                size={14}
+                strokeWidth={1.9}
+                className={busy !== null ? 'weq-spin' : ''}
+                aria-hidden
+              />
+            </button>
+          )}
         </div>
       </header>
 
@@ -1583,7 +1655,7 @@ export function DbRepairPanel({
                       aria-pressed={active}
                       onClick={() => {
                         setDbName(row.dbName);
-                        setConfirmRepair(false);
+                        setConfirmRepair(null);
                         setNotice(null);
                         setOutcome(null);
                       }}
@@ -1753,6 +1825,52 @@ export function DbRepairPanel({
                 </Note>
               ) : null}
 
+              {/* 布局迁移的优先路径：只在进入修复页、选中库后才检测。检测只读两个
+                  4 KiB 页，不扫全库；没有命中就完全不打扰通用修复流程。 */}
+              {layoutQuery.isFetching && !layoutProbe ? (
+                <Note tone="muted" icon={<Loader2 size={14} className="weq-spin" />}>
+                  正在检查页布局…
+                </Note>
+              ) : needsMigration ? (
+                <div className="weq-rp-migrate" role="status">
+                  <span className="weq-rp-migrate-icon" aria-hidden>
+                    <ShieldAlert size={16} strokeWidth={2} />
+                  </span>
+                  <div className="weq-rp-migrate-main">
+                    <strong>检测到旧版误修复留下的页布局</strong>
+                    <p>
+                      第 262144 页有数据、第 262145 页是保留页 —— 这是 standard SQLite
+                      布局，旧版修复曾把它写进带 QQ 头的库。继续按 QQ 布局读，超过 1 GiB
+                      的真实页会被当成保留页。
+                    </p>
+                    <p className="weq-rp-hint">
+                      建议先做布局迁移：按 standard 页号读出全部数据，再写回 QQ 布局。它与修复
+                      一样会先备份、重建、自检、替换，之后可回滚。
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-danger weq-set-btn-sm"
+                    disabled={!canStart}
+                    onClick={() => {
+                      setConfirmRepair('layout-migration');
+                      setNotice(null);
+                      setOutcome(null);
+                    }}
+                  >
+                    <Play size={12} strokeWidth={2} aria-hidden />
+                    布局迁移
+                  </button>
+                </div>
+              ) : layoutProbe ? (
+                <Note tone="ok" icon={<CheckCircle2 size={14} strokeWidth={2} />}>
+                  {layoutProbe.summary}
+                </Note>
+              ) : null}
+              {layoutQuery.error ? (
+                <Note tone="warn">页布局检测没跑起来：{errMsg(layoutQuery.error)}</Note>
+              ) : null}
+
               {/* 结果 / 进度二选一：跑着的时候只该看见进度。 */}
               {running && progress ? (
                 <RepairProgress progress={progress} />
@@ -1784,7 +1902,9 @@ export function DbRepairPanel({
                 <div className="weq-rp-confirm is-strong" role="alert">
                   <div className="weq-rp-confirm-head">
                     <ShieldAlert size={14} strokeWidth={2} aria-hidden />
-                    修复 = 重建 + 替换这个库
+                    {confirmRepair === 'layout-migration'
+                      ? '布局迁移 = 按 standard 读 + 重建回 QQ 布局'
+                      : '修复 = 重建 + 替换这个库'}
                   </div>
                   <ul>
                     <li>
@@ -1792,7 +1912,11 @@ export function DbRepairPanel({
                       {currentRow ? `（${formatBytes(currentRow.bytes)}）` : ''}。
                     </li>
                     <li>替换前先备份（保留最近 {preflight?.backupsKept ?? 3} 份），之后可回滚。</li>
-                    <li>坏页里的内容会被排除；替换前会关掉这个账号，修完自动回启动页。</li>
+                    <li>
+                      {confirmRepair === 'layout-migration'
+                        ? '全部页按 standard 页号读出后写回 QQ 布局；读不出的 cell 仍会丢。'
+                        : '坏页里的内容会被排除；替换前会关掉这个账号，修完自动回启动页。'}
+                    </li>
                   </ul>
                   {currentCheckup ? null : (
                     <p className="weq-rp-hint">这个库还没体检过（不体检也能修，那就是盲修）。</p>
@@ -1802,15 +1926,15 @@ export function DbRepairPanel({
                       type="button"
                       className="weq-set-btn weq-set-btn-danger"
                       disabled={!canStart}
-                      onClick={() => void handleRepair()}
+                      onClick={() => void handleRepair(confirmRepair === 'layout-migration')}
                     >
                       <Play size={13} strokeWidth={2} aria-hidden />
-                      确认替换并修复
+                      {confirmRepair === 'layout-migration' ? '确认迁移并替换' : '确认替换并修复'}
                     </button>
                     <button
                       type="button"
                       className="weq-set-btn weq-set-btn-soft"
-                      onClick={() => setConfirmRepair(false)}
+                      onClick={() => setConfirmRepair(null)}
                     >
                       取消
                     </button>
@@ -1877,7 +2001,11 @@ export function DbRepairPanel({
                     <p>页级检查没跑起来：{currentCheckup.pages.error}</p>
                   )}
                   {!currentCheckup.integrity.ran ? (
-                    <p>结构检查没跑起来：{currentCheckup.integrity.error}</p>
+                    <p>
+                      {currentCheckup.integrity.corrupt
+                        ? `结构检查读到损坏错误：${currentCheckup.integrity.error}`
+                        : `结构检查没跑起来：${currentCheckup.integrity.error}`}
+                    </p>
                   ) : null}
                 </Disclosure>
               ) : null}
@@ -1900,10 +2028,10 @@ export function DbRepairPanel({
                 {!confirmRepair ? (
                   <button
                     type="button"
-                    className="weq-set-btn weq-set-btn-danger"
+                    className={`weq-set-btn ${needsMigration ? 'weq-set-btn-soft' : 'weq-set-btn-danger'}`}
                     disabled={!canStart}
                     onClick={() => {
-                      setConfirmRepair(true);
+                      setConfirmRepair('repair');
                       setNotice(null);
                       setOutcome(null);
                     }}
@@ -1913,7 +2041,7 @@ export function DbRepairPanel({
                     ) : (
                       <Play size={13} strokeWidth={2} aria-hidden />
                     )}
-                    {running ? '正在修复…' : '开始修复'}
+                    {running ? '正在修复…' : needsMigration ? '仍要通用修复' : '开始修复'}
                   </button>
                 ) : null}
               </div>

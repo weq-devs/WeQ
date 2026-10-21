@@ -7,8 +7,8 @@
  * — so the business logic lives here exactly once.
  *
  * Each tool's `run` resolves the *current* account's services via
- * `getAppContext().services`, so tools automatically follow account switches and
- * throw cleanly when no account is open. Results are converted to IPC-safe wire
+ * `getAppContext().services`, with assistant calls bound to their originating
+ * session so they cannot follow account switches. Results use IPC-safe wire
  * shapes (bigint → string) with the same `serde` helpers the tRPC router uses.
  */
 
@@ -17,6 +17,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../context/app_context';
+import { assertAccountToolScope } from './account_scope';
 import {
   classifyChatType,
   datalineName,
@@ -96,8 +97,13 @@ export interface AiTool {
   assistantOnly?: boolean;
 }
 
+function toolContext(): ReturnType<typeof getAppContext> {
+  assertAccountToolScope();
+  return getAppContext();
+}
+
 function services(): AccountServices {
-  const svc = getAppContext().services;
+  const svc = toolContext().services;
   if (!svc) {
     throw new Error('当前没有已登录的账号，请先在 WeQ 里进入一个账号。');
   }
@@ -108,7 +114,7 @@ function services(): AccountServices {
 
 /** 当前账号的 QQ 进程 pid；离线 / 完全离线模式时抛可读错误。 */
 function onlinePid(): number {
-  const ctx = getAppContext();
+  const ctx = toolContext();
   const record = services().accountConfig.getRecord();
   if (!record?.qqOnline || !record.qqPid) {
     throw new Error('需要先登录该账号的 QQ 客户端（本工具要走在线实例）。');
@@ -121,7 +127,7 @@ function onlinePid(): number {
 
 /** 当前账号的 uin（字符串形式）。 */
 function currentUin(): string {
-  const uin = getAppContext().account?.context.uin;
+  const uin = toolContext().account?.context.uin;
   if (!uin) throw new Error('当前没有已登录的账号。');
   return String(uin);
 }
@@ -138,7 +144,7 @@ function currentUin(): string {
 function ocrOnlineBlocker(): string | null {
   const record = services().accountConfig.getRecord();
   if (!record?.qqOnline || !record.qqPid) return '该账号的 QQ 未在线，走不了在线识别。';
-  if (getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq === false) {
+  if (toolContext().bootstrap?.userConfig.getSettings().autoAttachQq === false) {
     return '已开启完全离线模式（自动读取 QQ 内存 已关闭），在线识别不可用。';
   }
   const session = record.session;
@@ -173,7 +179,7 @@ function ocrBoxes(blocks: readonly OcrBlock[]): Array<Record<string, unknown>> {
  * bootstrap 没就绪时返回 null —— 缓存只是加速，拿不到就照常识别。
  */
 function ocrResultCache(): OcrResultCache | null {
-  const boot = getAppContext().bootstrap;
+  const boot = toolContext().bootstrap;
   if (!boot) return null;
   try {
     return ocrCacheFor(boot.userConfig.cacheDir('ocr'));
@@ -194,7 +200,7 @@ function ocrCacheKeyOf(md5: string, fileName: string): string | null {
 
 /** 原生 ntHelper 绑定（未加载时抛错）。 */
 function ntHelper() {
-  const nt = getAppContext().platform?.native.ntHelper;
+  const nt = toolContext().platform?.native.ntHelper;
   if (!nt) throw new Error('原生组件未加载。');
   return nt;
 }
@@ -591,7 +597,7 @@ async function resolveRedBagTarget(
   if (input.kind === 'group') {
     peerUin = input.conv;
   } else {
-    const peerUinFromConv = String(getAppContext().account?.uidMap.uinByUid(input.conv) ?? '');
+    const peerUinFromConv = String(toolContext().account?.uidMap.uinByUid(input.conv) ?? '');
     const selfUin = String((await svc.profile.getSelfProfile())?.uin ?? '');
     const msg = await svc.msgs.getC2cMessageById(input.conv, id);
     const sentBySelf = selfUin !== '' && msg !== null && String(msg.senderUin) === selfUin;
@@ -2254,7 +2260,7 @@ export const AI_TOOLS: AiTool[] = [
         .describe('要保护的会话清单（仅 mode=selected 时有意义）'),
     }),
     run: async ({ enabled, mode, targets }) => {
-      const ctx = getAppContext();
+      const ctx = toolContext();
       if (enabled && ctx.accountIsStatic && !ctx.accountIsAndroidBackup) {
         throw new Error('静态账号的数据库是离线快照，QQ 不会写入，防撤回无法生效。');
       }
@@ -2576,7 +2582,7 @@ export const AI_TOOLS: AiTool[] = [
         .describe('可选：只转写该文件名的 ptt（同一消息带多个语音时用）'),
     }),
     run: async ({ kind, conv, msgId, fileName }) => {
-      const ctx = getAppContext();
+      const ctx = toolContext();
       const id = safeBigint(msgId);
       if (id === null) throw new Error(`msgId 无效：${msgId}（应为数字字符串）`);
       const row =
@@ -2669,7 +2675,7 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '查【图片文字识别】两条腿现在各能不能走，调 ocr_image_text 之前用它决定 engine 传什么。' +
       '\n① `online`：在线接口（QQ 图片文字识别 OIDB 0xe07_0），需要该账号 QQ 在线 + 未开完全离线模式 + 物料齐全（a2 / d2 / d2key / guid）；精度更好，但 QQ 的图片链接只保留约 9 天。' +
-      '\n② `local`：本地离线模型（PP-OCR，设置 → 图片识别里下载并选中），在本机推理、不把图发出去；精度略低一档，CPU 推理较慢。' +
+      '\n② `local`：本地离线模型（PP-OCR，设置 → 模型与识别 → 图片识别里下载并选中），在本机推理、不把图发出去；精度略低一档，CPU 推理较慢。' +
       '\n只读，不发网络包，也不改设置。',
     input: z.object({}),
     run: async () => {
@@ -2689,7 +2695,7 @@ export const AI_TOOLS: AiTool[] = [
             : {
                 reason:
                   localEngine ??
-                  '还没选本地识别模型：去「设置 → 图片识别」下载并选中一个识别模型。',
+                  '还没选本地识别模型：去「设置 → 模型与识别 → 图片识别」下载并选中一个识别模型。',
               }),
         },
         policy:
@@ -2703,7 +2709,7 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '识别【图片里的文字】，**返回值明确标出这次走的是在线接口还是本地离线模型**。' +
       '\n【两条腿】① 在线：把图片的 CDN 地址交给 QQ 的图片文字识别接口（OIDB 0xe07_0），精度更好，但需要该账号 QQ 在线、未开完全离线、物料齐全，且 QQ 的图片链接只保留约 9 天（过期图必然失败）。' +
-      '② 本地：用 WeQ 里已下载的 PP-OCR 离线模型在本机推理（设置 → 图片识别），不把图片发到任何服务，但精度略低一档、CPU 推理较慢。' +
+      '② 本地：用 WeQ 里已下载的 PP-OCR 离线模型在本机推理（设置 → 模型与识别 → 图片识别），不把图片发到任何服务，但精度略低一档、CPU 推理较慢。' +
       '\n【怎么选】engine 默认 auto = 在线可用就先走在线，在线失败或不可用再回退本地；也可以指定 online / local 只走那一条（不可用时直接报错，不会偷偷换腿）。先调 get_ocr_status 看两条腿的可用性。' +
       '\n【结果怎么看】`source`（`online` / `local`）+ `engine`（中文说明用的哪条腿）+ `offline`（`true` 即本地离线模型）三者标出实际通道；`notes` 说明中途有没有回退、以及为什么没用在线；`text` 是识别出的整段文字，`lineCount` 是段数，`boxes`（可选）带每段的像素坐标框。' +
       '\n【怎么定图】给 kind + conv + msgId（msgId 来自 get_messages 的 includeIds 输出）定位聊天里的图片，同一条消息多张图时用 imageIndex 指定第几张（0 起）；也可以直接给 path —— 本机图片文件（绝对路径或 ~/ 开头）。注意 path 那种图**只能走本地模型**：在线那条腿要的是聊天图片的 fileToken，本机文件里没有。' +
@@ -2896,7 +2902,7 @@ export const AI_TOOLS: AiTool[] = [
           // 平台能力优先：没有引擎的机器（如 macOS Intel）别把用户指去下模型。
           throw new Error(
             localOcrBlocker() ??
-              '还没选本地识别模型：去「设置 → 图片识别」下载并选中一个识别模型。',
+              '还没选本地识别模型：去「设置 → 模型与识别 → 图片识别」下载并选中一个识别模型。',
           );
         }
         legs.push('local');
@@ -3007,7 +3013,7 @@ export const AI_TOOLS: AiTool[] = [
         error:
           failure ?? notes[notes.length - 1] ?? '这次没识别成功：在线与本地两条腿都没能跑起来。',
         notes,
-        hint: '先用 get_ocr_status 看两条腿的可用性：在线要 QQ 在线 + 物料齐全；本地要「设置 → 图片识别」里下好识别模型，且本机缓存过这张图。',
+        hint: '先用 get_ocr_status 看两条腿的可用性：在线要 QQ 在线 + 物料齐全；本地要「设置 → 模型与识别 → 图片识别」里下好识别模型，且本机缓存过这张图。',
       };
     },
   }),
@@ -3746,7 +3752,7 @@ export const AI_TOOLS: AiTool[] = [
     input: z.object({}),
     run: async () => {
       onlinePid(); // 只要求在线；clientKey 由 hook 提供
-      const ck = await fetchClientKey(ntHelper(), onlinePid());
+      const ck = await fetchClientKey(ntHelper(), onlinePid(), currentUin());
       if (!ck.clientKey) {
         return {
           ok: false,
@@ -3807,21 +3813,20 @@ export const AI_TOOLS: AiTool[] = [
         site === 'qzone'
           ? `https://user.qzone.qq.com/${uin}/infocenter?loginfrom=31`
           : 'https://pd.qq.com/';
-      const ck = await fetchClientKey(ntHelper(), pid);
-      if (!ck.clientKey) {
+      const result = await ntHelper().ptFetchJumpUrl(pid, uin, landing);
+      if (!result.success || !result.url) {
         return {
           ok: false,
           site,
           url: landing,
           autoLogin: false,
-          hint: 'clientKey 不可用，退回裸地址（需手动登录）。',
+          hint: result.msg || 'clientKey 不可用，退回裸地址（需手动登录）。',
         };
       }
-      const { buildPtlogin2JumpUrl } = await import('@weq/service');
       return {
         ok: true,
         site,
-        url: buildPtlogin2JumpUrl(ck, uin, landing),
+        url: result.url,
         autoLogin: true,
         hint: 'URL 含一次性凭据，仅在本次会话使用，不要转发。',
       };

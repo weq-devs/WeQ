@@ -66,32 +66,40 @@ function contentTypeForExt(ext: string): string {
 }
 
 /**
- * How long a cached resource stays fresh.
+ * 各缓存子目录的磁盘 TTL。
  *
- * Default TTL (7 days): QQ's avatar URLs carry no version, so the sha1(url) key
- * can never invalidate itself — without an expiry a changed avatar would show
- * the old bytes forever. Seven days trades a weekly re-fetch for bounded staleness.
+ * avatar（1 小时）：头像走「本地文件优先」——`nt_data/avatar` 里 QQ 自己就地覆盖同名
+ * 文件，`media_protocol` 读它时无 TTL、只按 Last-Modified 回 304。这里的 URL 磁盘
+ * 缓存只是本地文件缺失时的 CDN 兜底；QQ 头像 URL 不带版本号，sha1(url) 自身永远
+ * 失效不了，所以 TTL 越短，换头像后兜底图跟上得越快。1 小时足够吸收重复请求，
+ * 又不至于让旧头像挂上一周。
  *
- * Dress assets (30 days): more stable than avatars, longer TTL reduces refetches.
+ * collection / linkpreview（7 天）：图片与网页预览的 URL 本身可能长期不变，长缓存
+ * 减少重复抓取；过期后重新拉一次即可。
  *
- * QQ 秀形象同 dress：URL 自带版本号，换形象即换 URL，30 天 TTL 不会出现旧图。
- *
- * The LOCAL `nt_data/avatar` path (see AvatarResourceService) deliberately has
- * no TTL: its filename is derived from the uid, so QQ overwrites the same file
- * in place and our next read already sees the new bytes.
+ * dress / qqshow（30 天）：URL 自带版本号，换装扮 / 形象即换 URL，长 TTL 不会出现旧图。
  */
-const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const DRESS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 
-function ttlForSubdir(subdir: CacheSubdir): number {
-  return subdir === 'dress' || subdir === 'qqshow' ? DRESS_TTL_MS : DEFAULT_TTL_MS;
+const TTL_BY_SUBDIR: Record<CacheSubdir, number> = {
+  avatar: HOUR_MS,
+  collection: 7 * DAY_MS,
+  linkpreview: 7 * DAY_MS,
+  dress: 30 * DAY_MS,
+  qqshow: 30 * DAY_MS,
+};
+
+/** 某个子目录的默认磁盘 TTL（毫秒）；`get` 的显式 `ttl` 参数优先。 */
+export function ttlForSubdir(subdir: CacheSubdir): number {
+  return TTL_BY_SUBDIR[subdir];
 }
 
 export class MediaCacheService {
   /** De-dupe concurrent fetches of the same upstream URL. */
   private readonly inFlight = new Map<string, Promise<MediaBlob>>();
 
-  constructor(private readonly userConfig: UserConfigService) {}
+  constructor(private readonly userConfig: Pick<UserConfigService, 'cacheDir'>) {}
 
   /**
    * Cache directory for a specific media type.
@@ -120,7 +128,7 @@ export class MediaCacheService {
     }
 
     const effectiveTtl = ttl ?? ttlForSubdir(subdir);
-    const hit = await this.readFromDisk(url, subdir, effectiveTtl);
+    const hit = effectiveTtl === 0 ? null : await this.readFromDisk(url, subdir, effectiveTtl);
     if (hit) return hit;
 
     // Collapse concurrent misses onto a single fetch.
@@ -128,11 +136,31 @@ export class MediaCacheService {
     const existing = this.inFlight.get(cacheKey);
     if (existing) return existing;
 
-    const promise = this.fetchAndStore(url, subdir).finally(() => {
+    const promise = this.fetchAndStore(url, subdir, effectiveTtl === 0).finally(() => {
       this.inFlight.delete(cacheKey);
     });
     this.inFlight.set(cacheKey, promise);
     return promise;
+  }
+
+  /**
+   * 缓存条目的落盘时间（ms），没有条目时返回 null。
+   *
+   * 头像 URL 不带版本号，光看「命中/未命中」分不出新旧；调用方拿到本地文件的
+   * mtime 后可以用它判断「本地这张比缓存里的新」，从而决定是否强制回源。
+   * 不看 TTL —— 这里只回答「磁盘上这份是什么时候写的」。
+   */
+  async cachedAt(url: string, subdir: CacheSubdir = 'avatar'): Promise<number | null> {
+    const base = this.basePath(url, subdir);
+    for (const ext of ['png', 'jpg', 'gif', 'webp']) {
+      try {
+        const st = await stat(`${base}.${ext}`);
+        return st.mtimeMs;
+      } catch {
+        // 试下一个扩展名
+      }
+    }
+    return null;
   }
 
   /** `<cacheDir(subdir)>/<sha1(url)>` (no extension — we glob on read). */
@@ -176,7 +204,11 @@ export class MediaCacheService {
     return null;
   }
 
-  private async fetchAndStore(url: string, subdir: CacheSubdir): Promise<MediaBlob> {
+  private async fetchAndStore(
+    url: string,
+    subdir: CacheSubdir,
+    refresh: boolean,
+  ): Promise<MediaBlob> {
     const res = await fetch(url, {
       headers: { Referer: '', 'User-Agent': 'Mozilla/5.0' },
     });
@@ -192,6 +224,13 @@ export class MediaCacheService {
     const ext = extFor(contentType, url);
     try {
       await writeFile(`${this.basePath(url, subdir)}.${ext}`, data);
+      // 显式刷新失败时保留旧图；成功后再清理旧格式，避免优先命中旧扩展名。
+      if (refresh)
+        await Promise.all(
+          ['png', 'jpg', 'gif', 'webp']
+            .filter((other) => other !== ext)
+            .map((other) => unlink(`${this.basePath(url, subdir)}.${other}`).catch(() => {})),
+        );
     } catch {
       // A cache-write failure shouldn't fail the request — serve the bytes we
       // already fetched; the next request just re-fetches.

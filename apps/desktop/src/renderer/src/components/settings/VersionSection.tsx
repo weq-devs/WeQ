@@ -14,6 +14,7 @@
 import { useState, type ReactElement } from 'react';
 import { Boxes, Info, Package, RefreshCw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { Card, SectionHeader } from './controls';
 import { UpdateCard } from './UpdateCard';
 import { DesktopOnly } from '../../lib/target';
@@ -40,15 +41,9 @@ function fmtRemaining(expireMs: number): string {
 }
 
 export function VersionSection(): ReactElement {
-  const version = trpc.bootstrap.getVersionInfo.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: Infinity,
-  });
-  const native = trpc.bootstrap.getNativeBuildInfo.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: 0,
-    refetchOnMount: 'always',
-  });
+  const autoRefresh = useQQAutoRefresh(true);
+  const version = trpc.bootstrap.getVersionInfo.useQuery(undefined, autoRefresh);
+  const native = trpc.bootstrap.getNativeBuildInfo.useQuery(undefined, autoRefresh);
 
   const [refreshing, setRefreshing] = useState(false);
   const v = version.data;
@@ -93,21 +88,23 @@ export function VersionSection(): ReactElement {
               </span>
             ) : null}
           </div>
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-soft"
-            disabled={refreshing}
-            onClick={() => void onRefresh()}
-            title="重新读取版本与内置组件信息"
-          >
-            <RefreshCw
-              size={14}
-              strokeWidth={1.8}
-              aria-hidden
-              className={refreshing ? 'weq-spin' : undefined}
-            />
-            刷新
-          </button>
+          {(version.error || native.error) && (
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-soft"
+              disabled={refreshing}
+              onClick={() => void onRefresh()}
+              title="重试读取版本与内置组件信息"
+            >
+              <RefreshCw
+                size={14}
+                strokeWidth={1.8}
+                aria-hidden
+                className={refreshing ? 'weq-spin' : undefined}
+              />
+              重试读取
+            </button>
+          )}
         </div>
         <p className="weq-set-note">
           <Info size={12} strokeWidth={1.9} aria-hidden /> WeQ 完全自主解密解析 QQ

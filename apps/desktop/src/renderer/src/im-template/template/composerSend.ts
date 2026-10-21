@@ -162,9 +162,15 @@ function mapEmoji(item: EmojiItem, superStickers: Map<string, SuperStickerEntry>
     }
     case 'unicode':
       return { kind: 'text', textContent: item.glyph || item.name };
-    case 'fav':
+    case 'fav': {
+      if (!item.favorite) throw new Error('收藏表情 token 不完整，请重新选择。');
+      return {
+        kind: 'image',
+        source: { kind: 'favoriteEmoji', ...item.favorite },
+      };
+    }
     case 'related':
-      throw new Error('收藏表情 / 关联 GIF 的发送还没接线（拿不到本地文件字节）。');
+      throw new Error('关联 GIF 的发送还没接线（拿不到本地文件字节）。');
     default:
       throw new Error(`不认识的输入框表情：${String((item as { kind?: unknown }).kind)}`);
   }
@@ -475,8 +481,15 @@ export function buildOptimisticRender(input: {
         case 'unicode':
           pushText(item.glyph || item.name);
           break;
+        case 'fav':
+          elements.push({
+            type: 'pic',
+            data: { localPreviewUrl: item.src, subType: 1, summary: '[表情]' },
+          });
+          bodyParts.push('[表情]');
+          break;
         default:
-          // 收藏 / 关联 GIF 的乐观预览做不了（拿不到本地文件），退化成文本。
+          // 未接发送的关联 GIF 保留文字回退。
           pushText(item.name || '[表情]');
           break;
       }
@@ -566,8 +579,18 @@ function renderElementOf(
         type: 'reply',
         data: {
           origMsgSeq: element.origMsgSeq,
+          origMsgIndex: element.origMsgIndex,
+          origClientSeq: element.origMsgSeq,
           origSenderUin: element.origSenderUin,
           origMsgTime: element.origMsgTime,
+          origElements: Array.isArray(element.origElements)
+            ? element.origElements.map((quoted) => {
+                const rendered = renderElementOf(quoted, localByKey);
+                if (!rendered) return { type: 'text', data: { textContent: '[消息]' } };
+                const { text: _text, ...view } = rendered;
+                return view;
+              })
+            : [],
         },
         text: '[引用]',
       };

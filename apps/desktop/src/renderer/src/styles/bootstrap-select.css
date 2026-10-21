@@ -1,0 +1,360 @@
+/* 登录来源共享主题色与表面，避免旧浅色样式透进深色页面。 */
+.weq-home-shell:has(.weq-select) {
+  background: var(--weq-bg-app);
+  color: var(--weq-fg-primary);
+}
+
+.weq-select-head {
+  flex-shrink: 0;
+}
+
+.weq-select-body {
+  min-height: min-content;
+}
+
+.weq-home-shell:has(.weq-select)::before,
+.weq-home-shell:has(.weq-select)::after {
+  display: none;
+}
+
+.weq-select {
+  --weq-select-accent-fg: color-mix(
+    in srgb,
+    var(--weq-accent-effective) 40%,
+    var(--weq-fg-primary)
+  );
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-app);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.weq-select-head-title {
+  min-width: 0;
+}
+
+.weq-select-head-h {
+  overflow-wrap: anywhere;
+}
+
+.weq-select
+  :is(
+    .weq-select-head-h,
+    .weq-static-backup-title,
+    .weq-static-label,
+    .weq-stats-version,
+    .weq-auto-enter:has(input:checked),
+    .weq-acct-name,
+    .weq-acct-row-name,
+    .weq-keyfield-text,
+    .weq-bignum-v:not(.is-accent),
+    .weq-chart-title,
+    .weq-legend-name
+  ) {
+  color: var(--weq-fg-primary);
+}
+
+.weq-select
+  :is(
+    .weq-select-loading,
+    .weq-select-empty,
+    .weq-auto-enter,
+    .weq-stats-title-label,
+    .weq-static-help,
+    .weq-keyfield-icon,
+    .weq-acct-uin,
+    .weq-acct-row-uin,
+    .weq-bignum-l,
+    .weq-chart-empty,
+    .weq-stats-path-txt,
+    .weq-legend-size,
+    .weq-col-size,
+    .weq-col-name
+  ) {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-select .weq-static-hint,
+.weq-select .weq-static-input::placeholder,
+.weq-select .weq-keyfield-text::placeholder {
+  color: var(--weq-fg-muted);
+}
+
+.weq-select :is(.weq-keyfield-input, .weq-acct-pop, .weq-bignum, .weq-chart) {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}
+
+.weq-select
+  :is(
+    .weq-select-head,
+    .weq-acct-foot,
+    .weq-acct-row + .weq-acct-row,
+    .weq-source-tabs,
+    .weq-auto-enter
+  ) {
+  border-color: var(--weq-border-subtle);
+}
+
+.weq-select .weq-acct-avatar {
+  border-color: var(--weq-border-strong);
+  box-shadow: var(--weq-shadow-soft);
+}
+
+.weq-select
+  :is(
+    .weq-select-head-tag,
+    .weq-acct-switch,
+    .weq-acct-new,
+    .weq-login-status,
+    .weq-keyfield-lead,
+    .weq-stats-path,
+    .weq-line-icon,
+    .weq-bignum-v.is-accent
+  ) {
+  color: var(--weq-select-accent-fg);
+}
+
+.weq-select :is(.weq-acct-row.is-active, .weq-source-tab.is-active) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--weq-select-accent-fg) 50%, transparent);
+}
+
+.weq-select .weq-auto-enter input:checked {
+  background: var(--weq-select-accent-fg);
+  border-color: var(--weq-select-accent-fg);
+}
+
+.weq-select .weq-auto-enter input:checked::after {
+  border-color: var(--weq-bg-surface);
+}
+
+.weq-select .weq-acct-pop {
+  box-shadow: var(--weq-shadow-card);
+}
+
+.weq-select .weq-auto-enter {
+  background: var(--weq-bg-surface);
+}
+
+.weq-select .weq-auto-enter:hover,
+.weq-select .weq-acct-row:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-surface));
+}
+
+.weq-select .weq-auto-enter:has(input:checked),
+.weq-select .weq-acct-row.is-active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 15%, var(--weq-bg-surface));
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, var(--weq-border-strong));
+}
+
+.weq-select :is(.weq-icon-button, .weq-action-soft) {
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}
+
+.weq-select .weq-action-primary {
+  color: var(--weq-fg-primary);
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, var(--weq-bg-surface));
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, var(--weq-border-strong));
+}
+
+.weq-select :is(.weq-action-primary, .weq-action-soft, .weq-icon-button):hover:not(:disabled) {
+  color: var(--weq-fg-primary);
+  background: color-mix(in srgb, var(--weq-accent-effective) 28%, var(--weq-bg-surface));
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-select :is(button, input):focus-visible {
+  outline: 2px solid var(--weq-select-accent-fg);
+  outline-offset: 2px;
+}
+
+.weq-select .weq-keyfield-text:focus-visible {
+  outline: none;
+}
+
+.weq-select .weq-keyfield-input:focus-within {
+  border-color: var(--weq-select-accent-fg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-select-accent-fg) 15%, transparent);
+}
+
+.weq-select .weq-keyfield-icon:hover:not(:disabled),
+.weq-select .weq-stats-path-btn:hover .weq-stats-path-txt {
+  color: var(--weq-select-accent-fg);
+}
+
+html[data-theme]
+  .weq-select
+  :is(.weq-keyfield-icon, .weq-action-primary, .weq-action-soft):disabled {
+  color: var(--weq-fg-muted);
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-subtle);
+  opacity: 0.65;
+}
+
+.weq-select :is(.weq-select-loading, .weq-chart-title) > svg,
+html[data-theme] .weq-select .weq-bignum-v.is-accent {
+  color: var(--weq-select-accent-fg);
+}
+
+.weq-select :is(.weq-skel, .weq-skel-line) {
+  background-image: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--weq-accent-effective) 6%, transparent) 30%,
+    color-mix(in srgb, var(--weq-accent-effective) 16%, transparent) 50%,
+    color-mix(in srgb, var(--weq-accent-effective) 6%, transparent) 70%
+  );
+}
+
+.weq-select .weq-langbar-seg + .weq-langbar-seg {
+  box-shadow: -1px 0 0 var(--weq-bg-surface);
+}
+
+.weq-home-shell:has(.weq-select) :is(.weq-shell-log-btn, .weq-shell-close-btn) {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-home-shell:has(.weq-select) :is(.weq-shell-log-btn, .weq-shell-close-btn):hover {
+  color: var(--weq-fg-primary);
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+}
+
+html[data-theme] body:has(.weq-select) > .weq-acct-ctx-menu {
+  background: var(--weq-bg-elevated);
+  border-color: var(--weq-border-strong);
+  box-shadow: var(--weq-shadow-card);
+}
+
+html[data-theme] body:has(.weq-select) > .weq-acct-ctx-menu button {
+  color: color-mix(in srgb, var(--destructive) 80%, var(--weq-fg-primary));
+}
+
+html[data-theme] body:has(.weq-select) > .weq-acct-ctx-menu button:hover {
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+}
+
+.weq-select .weq-static-input,
+.weq-select .weq-auto-enter input:not(:checked) {
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-elevated);
+  border-color: var(--weq-border-strong);
+}
+
+.weq-select .weq-stats-head {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, var(--weq-bg-surface));
+}
+
+.weq-select .weq-static-backup-logo {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-subtle);
+  box-shadow: var(--weq-shadow-soft);
+}
+
+.weq-select .weq-static-help {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  border-color: var(--weq-border-strong);
+}
+
+.weq-select .weq-static-help svg {
+  color: var(--weq-select-accent-fg);
+}
+
+.weq-select .weq-static-label svg {
+  color: var(--weq-select-accent-fg);
+}
+
+.weq-select .weq-keyfield-hint {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-select .weq-static-error {
+  color: color-mix(in srgb, var(--destructive) 80%, var(--weq-fg-primary));
+  overflow-wrap: anywhere;
+}
+
+html[data-theme] .weq-select :is(.weq-static-error, .weq-static-input.is-error) {
+  border-color: var(--destructive);
+  background: color-mix(in srgb, var(--destructive) 8%, var(--weq-bg-surface));
+}
+
+.weq-select .weq-static-input:focus {
+  border-color: var(--weq-select-accent-fg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--weq-select-accent-fg) 15%, transparent);
+}
+
+html[data-theme] .weq-select .weq-static-input.is-error:focus {
+  border-color: var(--destructive);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--destructive) 15%, transparent);
+}
+
+.weq-select .weq-static-badge {
+  background: var(--weq-select-accent-fg);
+  color: var(--weq-bg-surface);
+  box-shadow: 0 0 0 2px var(--weq-bg-surface);
+}
+
+.weq-select .weq-static-badge.is-lg {
+  box-shadow: 0 0 0 3px var(--weq-bg-surface);
+}
+
+.weq-select .weq-source-tab {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-select .weq-source-tab:hover,
+.weq-select .weq-source-tab.is-active {
+  color: var(--weq-fg-primary);
+  background: color-mix(in srgb, var(--weq-accent-effective) 15%, var(--weq-bg-surface));
+  box-shadow: none;
+}
+
+.weq-select .weq-select-right {
+  border-color: var(--weq-border-subtle);
+}
+
+html[data-theme='dark'] .weq-select :is(.weq-stats-head, .weq-static-help) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-surface));
+}
+
+html[data-theme='dark'] .weq-select .weq-acct-avatar {
+  border-color: var(--weq-border-strong);
+  box-shadow: var(--weq-shadow-soft);
+}
+
+html[data-theme='dark'] .weq-select .weq-source-tab.is-active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
+}
+
+html[data-theme='dark'] .weq-select :is(.weq-acct-pop, .weq-keyfield-input) {
+  background: var(--weq-bg-elevated);
+}
+
+html[data-theme='dark'] .weq-select .weq-action-primary,
+html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
+  background: color-mix(in srgb, var(--weq-accent-effective) 22%, var(--weq-bg-surface));
+}
+
+@media (max-width: 980px) {
+  .weq-select .weq-select-body {
+    flex: 0 0 auto;
+    grid-template-rows: auto auto;
+  }
+
+  .weq-select .weq-login-panel {
+    flex: none;
+  }
+
+  .weq-select .weq-select-right {
+    overflow: visible;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme] .weq-select,
+  html[data-theme] .weq-select *,
+  html[data-theme] body:has(.weq-select) > .weq-acct-ctx-menu {
+    animation: none;
+    transition: none;
+  }
+}

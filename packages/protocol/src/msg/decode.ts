@@ -385,7 +385,7 @@ function liftNotOnlineFileElem(pb: Record<string, unknown>): Record<string, unkn
 
 /**
  * 把老 wire 的 srcMsg（REPLY_ELEMENT）提升成 codec 风格 reply 元素：
- * origMsgSeq / origMsgIndex 都取 tag 1，origSenderUid 取 pbReserve(8).6，
+ * origMsgSeq / origClientSeq 取 tag 1（私聊不能当会话序号），origSenderUid 取 pbReserve(8).6，
  * origElements 来自 tag 5（逐条解码并提升成 codec 风格）。
  */
 function liftReplyElem(src: Record<string, unknown>): Record<string, unknown> {
@@ -413,7 +413,8 @@ function liftReplyElem(src: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { kind: 'reply' };
   if (seq !== undefined) {
     out.origMsgSeq = seq;
-    out.origMsgIndex = seq;
+    // 私聊 tag 1 是发送方 client sequence，不能冒充 NT 会话序号。
+    out.origClientSeq = seq;
   }
   if (src.origSenderUin !== undefined) out.origSenderUin = Number(src.origSenderUin);
   if (src.origMsgTime !== undefined) out.origMsgTime = src.origMsgTime;
@@ -519,6 +520,7 @@ export interface DecodedMessage {
     sequence: number;
     /** NT conversation sequence, distinct from the sender client sequence. */
     ntMsgSeq?: number;
+    clientSequence?: number;
     timestamp: number;
   };
   sender: { uin: number; uid: string };
@@ -589,6 +591,7 @@ export function decodeMessage(bytes: Uint8Array): DecodedMessage {
       msgId: head.msgId ?? 0,
       sequence: !grp.groupUin && (head.ntMsgSeq ?? 0) > 0 ? head.ntMsgSeq! : (head.sequence ?? 0),
       ...(head.ntMsgSeq ? { ntMsgSeq: head.ntMsgSeq } : {}),
+      ...(!grp.groupUin && head.sequence ? { clientSequence: head.sequence } : {}),
       timestamp: head.timestamp ?? 0,
     },
     sender: { uin: sender.fromUin ?? 0, uid: sender.fromUid ?? '' },

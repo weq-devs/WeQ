@@ -48,7 +48,7 @@ import type { SalvageSkippedRange } from '@weq/native';
 import type { MsgSalvageSource, MsgService, RenderGroupMsg, RenderC2cMsg } from '../msg';
 import type { GapFetchedMessage } from '../gap_history';
 import type { ExportedMessage, ExportTimeRange } from './types';
-import { matchesMessageFilter } from '../message_filter';
+import { compileMessageFilter, messageSelectionKey } from '../message_filter';
 
 /** 允许分块容错续读的最低宽容级别（跳过数据必须由用户授权）。 */
 const SALVAGE_MIN_LEVEL = 2;
@@ -198,6 +198,8 @@ async function* roamMessageStream<T extends { sendTime: bigint }>(
           senderUid: m.senderUid,
           senderUin: BigInt(m.senderUin),
           elements: m.elements,
+          source: 'roaming',
+          sourceFormat: m.sourceFormat,
         }) as unknown as T,
     );
   adapted.sort((a, b) => (a.sendTime < b.sendTime ? -1 : a.sendTime > b.sendTime ? 1 : 0));
@@ -207,10 +209,11 @@ async function* roamMessageStream<T extends { sendTime: bigint }>(
 /** 合并后按 msgId 去重：本地 DB 行（先到）优先，漫游重复副本丢弃。 */
 async function* dedupeByMsgId<T extends { msgId: bigint }>(
   source: AsyncGenerator<T>,
+  identity: (message: T) => string | null = (message) => String(message.msgId),
 ): AsyncGenerator<T> {
   const seen = new Set<string>();
   for await (const m of source) {
-    const key = m.msgId.toString();
+    const key = identity(m) ?? m.msgId.toString();
     if (seen.has(key)) continue;
     seen.add(key);
     yield m;
@@ -230,6 +233,7 @@ export async function* iterateGroupMessages(
   opts: IterateOptions = {},
 ): AsyncGenerator<RenderGroupMsg> {
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
+  const matches = compileMessageFilter(msgs.exportFilter);
   const salvage = opts.salvage ?? msgs.salvage;
   let merged: AsyncGenerator<RenderGroupMsg> = mergeBySendTime(
     pageGroupBySeq(msgs, groupCode, pageSize, salvage),
@@ -238,11 +242,12 @@ export async function* iterateGroupMessages(
   if (opts.roam) {
     merged = mergeBySendTime(merged, roamMessageStream<RenderGroupMsg>(groupCode, opts.roam));
   }
-  const deduped = opts.roam ? dedupeByMsgId(merged) : merged;
+  const deduped = opts.roam
+    ? dedupeByMsgId(merged, msgs.exportFilter?.messageIds ? messageSelectionKey : undefined)
+    : merged;
   for await (const m of deduped) {
     msgs.exportSignal?.throwIfAborted();
-    if (withinRange(Number(m.sendTime), opts.range) && matchesMessageFilter(m, msgs.exportFilter))
-      yield m;
+    if (withinRange(Number(m.sendTime), opts.range) && matches(m)) yield m;
   }
 }
 
@@ -317,20 +322,25 @@ export async function* iterateC2cMessages(
   peerUid: string,
   opts: IterateOptions = {},
 ): AsyncGenerator<RenderC2cMsg> {
+  if (msgs.exportFilter?.messageIds?.length === 0) return;
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
+  const matches = compileMessageFilter(msgs.exportFilter);
   const salvage = opts.salvage ?? msgs.salvage;
-  let merged: AsyncGenerator<RenderC2cMsg> = mergeBySendTime(
-    pageC2cBySeq(msgs, peerUid, pageSize, salvage),
-    pageC2cBySeqlessRowId(msgs, peerUid, pageSize, salvage),
-  );
+  let merged: AsyncGenerator<RenderC2cMsg> =
+    msgs.exportC2cMessages?.(peerUid, pageSize) ??
+    mergeBySendTime(
+      pageC2cBySeq(msgs, peerUid, pageSize, salvage),
+      pageC2cBySeqlessRowId(msgs, peerUid, pageSize, salvage),
+    );
   if (opts.roam) {
     merged = mergeBySendTime(merged, roamMessageStream<RenderC2cMsg>(peerUid, opts.roam));
   }
-  const deduped = opts.roam ? dedupeByMsgId(merged) : merged;
+  const deduped = opts.roam
+    ? dedupeByMsgId(merged, msgs.exportFilter?.messageIds ? messageSelectionKey : undefined)
+    : merged;
   for await (const m of deduped) {
     msgs.exportSignal?.throwIfAborted();
-    if (withinRange(Number(m.sendTime), opts.range) && matchesMessageFilter(m, msgs.exportFilter))
-      yield m;
+    if (withinRange(Number(m.sendTime), opts.range) && matches(m)) yield m;
   }
 }
 
@@ -470,7 +480,7 @@ async function* pageServiceBySeqlessRowId(
 
 /** Check if a message contains at least one ARK element. */
 function hasArkElement(m: RenderC2cMsg | RenderGroupMsg): boolean {
-  return m.elements.some((el) => 'elementType' in el && el.elementType === 'ark');
+  return m.elements.some((el) => el.type === 'ark');
 }
 
 /** Normalize a render message into the export record (bigints → strings). */

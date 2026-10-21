@@ -237,7 +237,7 @@ export function EmojiPanel({
 
 // ── 表情 / 字符网格 ───────────────────────────────────────────────────────────
 
-type GridCell = { key: string; title: string; item: EmojiItem };
+type GridCell = { key: string; title: string; item: EmojiItem; previewSrc?: string | null };
 
 function FaceGrid({
   items,
@@ -279,6 +279,7 @@ function FaceGrid({
 function FaceCell({ cell, onSelect }: { cell: GridCell; onSelect: (item: EmojiItem) => void }) {
   const [broken, setBroken] = useState(false);
   const { item } = cell;
+  const src = cell.previewSrc ?? item.src;
   return (
     <button
       type="button"
@@ -289,12 +290,12 @@ function FaceCell({ cell, onSelect }: { cell: GridCell; onSelect: (item: EmojiIt
     >
       {item.glyph ? (
         <span className={cn('emoji-glyph')}>{item.glyph}</span>
-      ) : broken || !item.src ? (
+      ) : broken || !src ? (
         <span className={cn('emoji-cell-fallback')}>
           <Smile size={22} strokeWidth={1.4} />
         </span>
       ) : (
-        <img src={item.src} alt={cell.title} draggable={false} onError={() => setBroken(true)} />
+        <img src={src} alt={cell.title} draggable={false} onError={() => setBroken(true)} />
       )}
     </button>
   );
@@ -479,6 +480,7 @@ function FavTab({
     scope: string;
     bucket: string;
     oriFile: string | null;
+    original?: { scope: string; bucket: string; file: string } | null;
     thumbFile: string | null;
     remoteUrl: string;
   }>;
@@ -494,11 +496,20 @@ function FavTab({
         const variant = fav.thumbFile ? 'thumb' : 'ori';
         const file = fav.thumbFile ?? fav.oriFile;
         if (!file) return null;
-        const item = favEmojiItem(fav.scope, fav.bucket, variant, file, fav.hash);
+        const preview = favEmojiItem(fav.scope, fav.bucket, variant, file, fav.hash);
+        const item = fav.original
+          ? favEmojiItem(
+              fav.original.scope,
+              fav.original.bucket,
+              'ori',
+              fav.original.file,
+              fav.hash,
+            )
+          : preview;
         return (
           <FaceCell
             key={fav.id}
-            cell={{ key: fav.id, title: fav.hash, item }}
+            cell={{ key: fav.id, title: fav.hash, item, previewSrc: preview.src }}
             onSelect={onSelect}
           />
         );

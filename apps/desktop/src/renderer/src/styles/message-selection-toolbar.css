@@ -1,0 +1,27 @@
+.chat-pane .selection-bar {
+  gap: 8px;
+}
+.chat-pane .selection-bar-info {
+  flex: none;
+  white-space: nowrap;
+}
+.chat-pane .selection-bar-actions {
+  min-width: 0;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 2px;
+}
+.chat-pane .selection-action {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 6px;
+}
+@media (max-width: 480px) {
+  .chat-pane .selection-bar-label {
+    display: none;
+  }
+}

@@ -13,12 +13,32 @@
  */
 import type { NtHelperBinding } from '@weq/native';
 import {
+  AddGroupCategoryTag,
+  DeleteGroupCategoryTag,
+  GetGroupAtAllRemain,
+  GetGroupCategoryTags,
+  GetGroupTodoList,
+  GroupTodo,
   KickGroupMember,
+  LeaveGroup,
   MuteGroupMember,
   RecallGroup,
   RecallPrivate,
+  SetGroupAddOption,
   SetGroupAdmin,
   SetGroupMemberCard,
+  SetGroupName,
+  SetGroupSpecialTitle,
+  SetGroupEssence,
+  setGroupAvatar,
+  type SetGroupNameParams,
+  type SetGroupSpecialTitleParams,
+  type SetGroupEssenceParams,
+  type SetGroupAvatarParams,
+  type AtAllRemain,
+  type GroupCategoryTag,
+  type GroupTodoAction,
+  type GroupTodoListItem,
 } from '@weq/protocol';
 
 /** 撤回一条消息的定位参数。 */
@@ -33,7 +53,7 @@ export interface RecallMessageParams {
   random?: number;
   /** 该消息发送时间（unix 秒）；私聊撤回要用。 */
   timestamp?: number;
-  /** 私聊的 clientSeq；本地库里没有这一列，缺省 0。 */
+  /** 私聊的 clientSeq（本地库 40005）。 */
   clientSequence?: number;
 }
 
@@ -118,6 +138,22 @@ export class GroupModerationService {
     });
   }
 
+  async setName(params: SetGroupNameParams): Promise<void> {
+    await SetGroupName.invoke(this.nt, this.resolvePid(), params);
+  }
+
+  async setSpecialTitle(params: SetGroupSpecialTitleParams): Promise<void> {
+    await SetGroupSpecialTitle.invoke(this.nt, this.resolvePid(), params);
+  }
+
+  async setEssence(params: SetGroupEssenceParams): Promise<void> {
+    await SetGroupEssence.invoke(this.nt, this.resolvePid(), params);
+  }
+
+  async setAvatar(params: SetGroupAvatarParams): Promise<void> {
+    await setGroupAvatar(this.nt, this.resolvePid(), params);
+  }
+
   /** 踢出单个群成员（OIDB 0x8A0_1，群主 / 管理员）。 */
   async kickMember(params: KickMemberServiceParams): Promise<void> {
     await KickGroupMember.invoke(this.nt, this.resolvePid(), {
@@ -144,5 +180,66 @@ export class GroupModerationService {
       targetUid: requireTargetUid(params.targetUid),
       enable: params.enable,
     });
+  }
+
+  /** 退群（OIDB 0x1097_1）。 */
+  async leaveGroup(groupId: string | number): Promise<void> {
+    await LeaveGroup.invoke(this.nt, this.resolvePid(), { groupId: Number(groupId) });
+  }
+
+  /** 设置加群方式（OIDB 0x89A_0）。`addType` 见 {@link SetGroupAddOptionParams}。 */
+  async setAddOption(params: {
+    groupId: string | number;
+    addType: number;
+    groupQuestion?: string;
+    groupAnswer?: string;
+  }): Promise<void> {
+    await SetGroupAddOption.invoke(this.nt, this.resolvePid(), {
+      groupId: Number(params.groupId),
+      addType: params.addType,
+      ...(params.groupQuestion !== undefined ? { groupQuestion: params.groupQuestion } : {}),
+      ...(params.groupAnswer !== undefined ? { groupAnswer: params.groupAnswer } : {}),
+    });
+  }
+
+  /** 查询当前账号在该群还剩多少次 @全体成员（OIDB 0x8A7_0）。 */
+  async getAtAllRemain(groupId: string | number, selfUin: string | number): Promise<AtAllRemain> {
+    return GetGroupAtAllRemain.invoke(this.nt, this.resolvePid(), {
+      groupId: Number(groupId),
+      selfUin,
+    });
+  }
+
+  /** 群分类下的资料标签（OIDB 0x967C_0）。 */
+  async getCategoryTags(groupClass: number): Promise<GroupCategoryTag[]> {
+    return GetGroupCategoryTags.invoke(this.nt, this.resolvePid(), { groupClass });
+  }
+
+  /** 添加资料标签（OIDB 0x967D_0）。 */
+  async addCategoryTag(groupClass: number, name: string): Promise<void> {
+    await AddGroupCategoryTag.invoke(this.nt, this.resolvePid(), { groupClass, name });
+  }
+
+  /** 删除资料标签（OIDB 0x967E_0）。 */
+  async deleteCategoryTag(groupClass: number, name: string): Promise<void> {
+    await DeleteGroupCategoryTag.invoke(this.nt, this.resolvePid(), { groupClass, name });
+  }
+
+  /** 设置 / 完成 / 取消群待办（OIDB 0xF90）。 */
+  async setTodo(
+    groupId: string | number,
+    msgSeq: number | bigint,
+    action: GroupTodoAction,
+  ): Promise<void> {
+    await GroupTodo.invoke(this.nt, this.resolvePid(), {
+      groupId: Number(groupId),
+      msgSeq,
+      action,
+    });
+  }
+
+  /** 当前群的群待办列表（OIDB 0x9474_0）。 */
+  async getTodoList(groupId: string | number): Promise<GroupTodoListItem[]> {
+    return GetGroupTodoList.invoke(this.nt, this.resolvePid(), { groupId: Number(groupId) });
   }
 }

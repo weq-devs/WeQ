@@ -347,6 +347,27 @@ export interface OcrModelsConfig {
   filterModelId: string;
 }
 
+/** 各功能引用的共享本地资源；模型文件仍由原有 ModelStore / 意图引擎管理。 */
+export interface LocalModelResources {
+  voice: string;
+  ocr: string;
+  filter: string;
+  /** auto 保留旧版自研模型优先、Laya 兜底的行为。 */
+  intent: string;
+}
+
+function localModelResources(settings: DeepPartial<AppSettings> | undefined): LocalModelResources {
+  const refs = settings?.modelResources;
+  const stringOr = (value: unknown, fallback: string): string =>
+    typeof value === 'string' ? value : fallback;
+  return {
+    voice: stringOr(refs?.voice, stringOr(settings?.voiceTranscribe?.modelId, '')),
+    ocr: stringOr(refs?.ocr, stringOr(settings?.ocr?.modelId, '')),
+    filter: stringOr(refs?.filter, stringOr(settings?.ocr?.filterModelId, '')),
+    intent: stringOr(refs?.intent, 'auto'),
+  };
+}
+
 /**
  * Local MCP server config. The server is account-bound — it only listens while
  * an account is open and stops when the account switches / logs out. Bound to
@@ -406,6 +427,7 @@ export interface LinkPreviewConfig {
 }
 
 export interface AppSettings {
+  exportSaveMode: import('../account/export/save_output').ExportSaveMode;
   realtimeEnabled: boolean;
   /**
    * 完全离线总闸（设置 → 账号基础 → 自动读取 QQ 内存）。
@@ -419,12 +441,17 @@ export interface AppSettings {
    * 数据库与本地文件。唯一豁免：登录时的数据库密钥提取。
    */
   autoAttachQq: boolean;
+  /** 向 QQ 服务端上报在 WeQ 中阅读的位置，默认关闭。 */
+  reportReadEnabled: boolean;
+  /** 手动标记及撤销推进已读水位时上报，独立于自动阅读，默认关闭。 */
+  manualReadReportEnabled: boolean;
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁（仍可在左栏手动上锁）。
    * 解锁方式见 {@link AppLockConfig.method}，无绕过入口。
    */
   autoLockMinutes: number;
   appLock: AppLockConfig;
+  modelResources: LocalModelResources;
   voiceTranscribe: VoiceTranscribeConfig;
   /** 本地图片文字识别（OCR）的模型选择。 */
   ocr: OcrModelsConfig;
@@ -467,6 +494,8 @@ export interface AppSettings {
   showMessageSeq: boolean;
   /** 逐条显示精确到秒的北京时间，与序号开关独立。 */
   showMessageTime: boolean;
+  /** 左栏「消息」入口显示汇总未读角标，不改变阅读状态。 */
+  showMessageUnreadBadge: boolean;
   /**
    * 外部安卓 chatpic 目录（聊天图片本地 miss 后、CDN 下载前的兜底）。
    * 见 account/chatpic.ts 的寻址与校验。
@@ -662,12 +691,16 @@ export type { GroupKeywordRules } from '../account/group_keyword';
 export { normalizeGroupKeywordRules } from '../account/group_keyword';
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
+  exportSaveMode: 'before',
   realtimeEnabled: true,
   // 默认关闭：是否扫描 QQ 内存由首次运行欢迎框征得同意后再打开，见
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
   autoAttachQq: false,
+  reportReadEnabled: false,
+  manualReadReportEnabled: false,
   autoLockMinutes: 0,
   appLock: { enabled: true, method: 'totp' },
+  modelResources: { voice: '', ocr: '', filter: '', intent: 'auto' },
   voiceTranscribe: { modelId: '', ttsProviders: [] },
   // 本地图片文字识别：两个用途各自独立选模型（都空 = 未启用）。
   ocr: { modelId: '', filterModelId: '' },
@@ -685,6 +718,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showMsgDecoration: true,
   showMessageSeq: false,
   showMessageTime: false,
+  showMessageUnreadBadge: true,
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
   ssePush: { servers: [], enabledServerId: null, debounceMs: 2000, massThreshold: 50 },
@@ -1137,6 +1171,11 @@ export class UserConfigService {
   getSettings(): AppSettings {
     const s = this.read().settings;
     const d = DEFAULT_APP_SETTINGS;
+    const resources = localModelResources(s);
+    // 只补资源引用，不重写原始 provider / 密钥和未知旧字段；不搬动任何模型文件。
+    if (s && !s.modelResources) {
+      this.write({ settings: { ...s, modelResources: resources } });
+    }
     // 三端现在都能读内存：macOS 需要 root **且**目标未开启强化运行时保护
     // （QQ 已开启，所以要先关 SIP），但门槛只是「能不能读」，不再是平台开关 ——
     // 由用户在设置里自己决定，这里不再按平台归一化。
@@ -1154,7 +1193,15 @@ export class UserConfigService {
       s?.suppressAttachHint ?? legacySuppressAttachHint ?? d.suppressAttachHint;
     return {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
+      exportSaveMode:
+        s?.exportSaveMode === 'before' ||
+        s?.exportSaveMode === 'preset' ||
+        s?.exportSaveMode === 'after'
+          ? s.exportSaveMode
+          : d.exportSaveMode,
       autoAttachQq,
+      reportReadEnabled: s?.reportReadEnabled === true,
+      manualReadReportEnabled: s?.manualReadReportEnabled === true,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       appLock: {
         enabled: s?.appLock?.enabled ?? d.appLock.enabled,
@@ -1168,6 +1215,7 @@ export class UserConfigService {
       showMsgDecoration: s?.showMsgDecoration ?? d.showMsgDecoration,
       showMessageSeq: s?.showMessageSeq ?? d.showMessageSeq,
       showMessageTime: s?.showMessageTime ?? d.showMessageTime,
+      showMessageUnreadBadge: s?.showMessageUnreadBadge ?? d.showMessageUnreadBadge,
       externalChatpic: {
         dir: s?.externalChatpic?.dir ?? d.externalChatpic.dir,
         enabled: s?.externalChatpic?.enabled ?? d.externalChatpic.enabled,
@@ -1197,14 +1245,15 @@ export class UserConfigService {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
       },
+      modelResources: resources,
       voiceTranscribe: {
-        modelId: s?.voiceTranscribe?.modelId ?? d.voiceTranscribe.modelId,
+        modelId: resources.voice,
         ttsProviders:
           normalizeTtsProviders(s?.voiceTranscribe?.ttsProviders) ?? d.voiceTranscribe.ttsProviders,
       },
       ocr: {
-        modelId: s?.ocr?.modelId ?? d.ocr.modelId,
-        filterModelId: s?.ocr?.filterModelId ?? d.ocr.filterModelId,
+        modelId: resources.ocr,
+        filterModelId: resources.filter,
       },
       mcp: {
         enabled: s?.mcp?.enabled ?? d.mcp.enabled,
@@ -1233,11 +1282,24 @@ export class UserConfigService {
 
   setSettings(patch: DeepPartial<AppSettings>): AppSettings {
     const current = this.getSettings();
+    const resources: LocalModelResources = {
+      voice:
+        patch.modelResources?.voice ??
+        patch.voiceTranscribe?.modelId ??
+        current.modelResources.voice,
+      ocr: patch.modelResources?.ocr ?? patch.ocr?.modelId ?? current.modelResources.ocr,
+      filter:
+        patch.modelResources?.filter ?? patch.ocr?.filterModelId ?? current.modelResources.filter,
+      intent: patch.modelResources?.intent ?? current.modelResources.intent,
+    };
     // 不再按平台归一化 —— macOS 也能读内存（需 root + 关 SIP），由用户自己选。
     const autoAttachQq = patch.autoAttachQq ?? current.autoAttachQq;
     const next: AppSettings = {
+      exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
+      reportReadEnabled: patch.reportReadEnabled ?? current.reportReadEnabled,
+      manualReadReportEnabled: patch.manualReadReportEnabled ?? current.manualReadReportEnabled,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
       appLock: {
         enabled: patch.appLock?.enabled ?? current.appLock.enabled,
@@ -1251,6 +1313,7 @@ export class UserConfigService {
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
       showMessageSeq: patch.showMessageSeq ?? current.showMessageSeq,
       showMessageTime: patch.showMessageTime ?? current.showMessageTime,
+      showMessageUnreadBadge: patch.showMessageUnreadBadge ?? current.showMessageUnreadBadge,
       externalChatpic: {
         dir: patch.externalChatpic?.dir ?? current.externalChatpic.dir,
         enabled: patch.externalChatpic?.enabled ?? current.externalChatpic.enabled,
@@ -1294,16 +1357,17 @@ export class UserConfigService {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,
       },
+      modelResources: resources,
       voiceTranscribe: {
-        modelId: patch.voiceTranscribe?.modelId ?? current.voiceTranscribe.modelId,
+        modelId: resources.voice,
         ttsProviders:
           patch.voiceTranscribe?.ttsProviders !== undefined
             ? normalizeTtsProviders(patch.voiceTranscribe.ttsProviders)
             : current.voiceTranscribe.ttsProviders,
       },
       ocr: {
-        modelId: patch.ocr?.modelId ?? current.ocr.modelId,
-        filterModelId: patch.ocr?.filterModelId ?? current.ocr.filterModelId,
+        modelId: resources.ocr,
+        filterModelId: resources.filter,
       },
       mcp: {
         enabled: patch.mcp?.enabled ?? current.mcp.enabled,
@@ -1342,6 +1406,10 @@ export class UserConfigService {
       externalRkeyEnabled: next.externalRkey.enabledServerId !== null,
     });
     return next;
+  }
+
+  getLocalModelId(kind: keyof LocalModelResources): string {
+    return this.getSettings().modelResources[kind];
   }
 
   /** 导出中心各模式的最近一次灯箱配置；无缓存时返回空对象。 */

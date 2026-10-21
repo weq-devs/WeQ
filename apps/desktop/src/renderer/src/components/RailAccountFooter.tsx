@@ -13,8 +13,10 @@
  * staleTime=5min + refetchOnMount=false 会把这个窗口放大到几分钟。
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useOverlayLayer } from '../lib/overlayStack';
+import { useSurfaceOutside } from '../lib/surfaceOutside';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   LockKeyhole,
@@ -35,6 +37,7 @@ import { useAppLock } from '../state/lock';
 import { useThemeStore } from '../state/theme';
 import { usePrivacyStore } from '../state/privacy';
 import { useAccountSwitch } from '../state/accountSwitch';
+import { confirmMailAccountLeave } from '../state/mailDraft';
 import { runAccountWarmup } from '../lib/accountWarmup';
 import {
   fetchSystemAuthStatus,
@@ -46,6 +49,7 @@ import { useDialog } from './Dialog';
 import { useToast } from './Toast';
 import { QqAvatar } from './QqAvatar';
 import { DesktopOnly, shellBridge } from '../lib/target';
+import { RailUtilityDock } from './RailUtilityDock';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -55,10 +59,12 @@ export function RailAccountFooter({
   currentUin,
   currentName,
   currentAvatarUrl,
+  children,
 }: {
   currentUin: string;
   currentName: string;
   currentAvatarUrl?: string | null;
+  children?: ReactNode;
 }): ReactElement {
   const setOpenedUin = useViewState((s) => s.setOpenedUin);
   const goTo = useViewState((s) => s.goTo);
@@ -181,14 +187,15 @@ export function RailAccountFooter({
     x: number;
     y: number;
   } | null>(null);
+  const menuLayer = useOverlayLayer(!!ctxMenu);
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useSurfaceOutside(menuRef, closeCtxMenu, !!ctxMenu);
 
   useEffect(() => {
     if (!ctxMenu) return;
-    document.addEventListener('mousedown', closeCtxMenu);
     document.addEventListener('keydown', closeCtxMenu);
     return () => {
-      document.removeEventListener('mousedown', closeCtxMenu);
       document.removeEventListener('keydown', closeCtxMenu);
     };
   }, [ctxMenu, closeCtxMenu]);
@@ -255,6 +262,10 @@ export function RailAccountFooter({
   async function signOut(): Promise<void> {
     if (busy) return;
     setBusy(true);
+    if (!(await confirmMailAccountLeave())) {
+      setBusy(false);
+      return;
+    }
     setOpen(false);
     try {
       await leaveAccountForBootstrap(queryClient);
@@ -281,6 +292,10 @@ export function RailAccountFooter({
     // 按 configId 判「点的是不是当前账号」—— 同 uin 的另一种账号必须能切过去。
     if (currentConfigId ? cfg.configId === currentConfigId : cfg.uin === currentUin) return;
     setBusy(true);
+    if (!(await confirmMailAccountLeave())) {
+      setBusy(false);
+      return;
+    }
     setOpen(false);
     // 从这一刻起 App 渲染载入页、不渲染 MainView（见 state/accountSwitch）。
     // 过渡期间 MainView 完全不挂载，所以下面 setOpenedUin(null) 不会再触发
@@ -349,56 +364,59 @@ export function RailAccountFooter({
 
   return (
     <>
-      <DesktopOnly>
+      <RailUtilityDock>
+        <DesktopOnly>
+          <button
+            type="button"
+            className="weq-rail-capture-btn"
+            title="截图当前窗口（复制到剪贴板）"
+            aria-label="截图当前窗口"
+            onClick={() => void captureNow()}
+          >
+            <Camera size={18} strokeWidth={1.8} aria-hidden />
+          </button>
+        </DesktopOnly>
         <button
           type="button"
-          className="weq-rail-capture-btn"
-          title="截图当前窗口（复制到剪贴板）"
-          aria-label="截图当前窗口"
-          onClick={() => void captureNow()}
+          className={`weq-rail-privacy-btn${privacyEnabled ? ' is-on' : ''}`}
+          title={privacyEnabled ? '关闭隐私模式' : '开启隐私模式'}
+          aria-label={privacyEnabled ? '关闭隐私模式' : '开启隐私模式'}
+          aria-pressed={privacyEnabled}
+          onClick={togglePrivacy}
         >
-          <Camera size={18} strokeWidth={1.8} aria-hidden />
+          {privacyEnabled ? (
+            <EyeOff size={18} strokeWidth={1.8} aria-hidden />
+          ) : (
+            <Eye size={18} strokeWidth={1.8} aria-hidden />
+          )}
         </button>
-      </DesktopOnly>
-      <button
-        type="button"
-        className={`weq-rail-privacy-btn${privacyEnabled ? ' is-on' : ''}`}
-        title={privacyEnabled ? '关闭隐私模式' : '开启隐私模式'}
-        aria-label={privacyEnabled ? '关闭隐私模式' : '开启隐私模式'}
-        aria-pressed={privacyEnabled}
-        onClick={togglePrivacy}
-      >
-        {privacyEnabled ? (
-          <EyeOff size={18} strokeWidth={1.8} aria-hidden />
-        ) : (
-          <Eye size={18} strokeWidth={1.8} aria-hidden />
-        )}
-      </button>
-      <button
-        type="button"
-        className="weq-rail-theme-btn"
-        title={resolvedTheme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
-        aria-label={resolvedTheme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
-        onClick={toggleTheme}
-      >
-        {resolvedTheme === 'dark' ? (
-          <Sun size={18} strokeWidth={1.8} aria-hidden />
-        ) : (
-          <Moon size={18} strokeWidth={1.8} aria-hidden />
-        )}
-      </button>
-      <DesktopOnly>
         <button
           type="button"
-          className="weq-rail-lock-btn"
-          title={lockBlockReason() ?? '锁定 WeQ'}
-          aria-label="锁定 WeQ"
-          onClick={() => void lockNow()}
-          disabled={busy || lockBlockReason() !== null}
+          className="weq-rail-theme-btn"
+          title={resolvedTheme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+          aria-label={resolvedTheme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+          onClick={toggleTheme}
         >
-          <LockKeyhole size={18} strokeWidth={1.8} aria-hidden />
+          {resolvedTheme === 'dark' ? (
+            <Sun size={18} strokeWidth={1.8} aria-hidden />
+          ) : (
+            <Moon size={18} strokeWidth={1.8} aria-hidden />
+          )}
         </button>
-      </DesktopOnly>
+        <DesktopOnly>
+          <button
+            type="button"
+            className="weq-rail-lock-btn"
+            title={lockBlockReason() ?? '锁定 WeQ'}
+            aria-label="锁定 WeQ"
+            onClick={() => void lockNow()}
+            disabled={busy || lockBlockReason() !== null}
+          >
+            <LockKeyhole size={18} strokeWidth={1.8} aria-hidden />
+          </button>
+        </DesktopOnly>
+      </RailUtilityDock>
+      {children}
       <div ref={wrapRef} className="weq-rail-account-footer">
         <button
           type="button"
@@ -480,7 +498,9 @@ export function RailAccountFooter({
           createPortal(
             <div
               className="weq-rail-account-ctx-menu"
-              style={{ left: ctxMenu.x, top: ctxMenu.y }}
+              ref={menuRef}
+              role="menu"
+              style={{ left: ctxMenu.x, top: ctxMenu.y, zIndex: menuLayer }}
               onMouseDown={(e) => e.stopPropagation()}
             >
               <button

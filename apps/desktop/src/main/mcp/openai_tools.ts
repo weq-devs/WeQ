@@ -10,6 +10,7 @@
 import type { z } from 'zod';
 import { getExternalMcpHub } from './external';
 import { AI_TOOLS } from './tools';
+import { assertAccountToolScope } from './account_scope';
 
 export interface OpenAiToolSpec {
   type: 'function';
@@ -133,6 +134,7 @@ export async function runAssistantTool(
   name: string,
   args: Record<string, unknown>,
 ): Promise<unknown> {
+  assertAccountToolScope();
   if (name.startsWith('mcp__')) return getExternalMcpHub().run(name, args);
   return runAiTool(name, args);
 }

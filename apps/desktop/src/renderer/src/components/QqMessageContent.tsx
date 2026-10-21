@@ -58,6 +58,9 @@ export interface ReplyJumpTarget {
   seq?: number | string;
   /** origMsgIndex (tag 47419) — the 40003 anchor for C2C messages. */
   index?: number | string;
+  clientSeq?: number | string;
+  senderUin?: number | string;
+  sendTime?: number | string;
 }
 export const ReplyJumpContext = createContext<(target: ReplyJumpTarget) => void | Promise<void>>(
   () => {},
@@ -369,6 +372,10 @@ function ElementNode({
     return (
       <span
         className="qq-at-element cursor-pointer hover:underline"
+        data-weq-at-uid={String(element.data?.atTargetUid ?? '') || undefined}
+        data-weq-at-uin={
+          element.data?.atTargetUin != null ? String(element.data.atTargetUin) : undefined
+        }
         title={`UID: ${element.data?.atTargetUid || 'unknown'}`}
       >
         {text}
@@ -568,7 +575,14 @@ function ReplyPreviewNode({
   }
   if (element.type === 'at') {
     const text = String(element.data?.textContent ?? '');
-    return <span className="qq-at-element">{text}</span>;
+    return (
+      <span
+        className="qq-at-element"
+        data-weq-at-uid={String(element.data?.atTargetUid ?? '') || undefined}
+      >
+        {text}
+      </span>
+    );
   }
   if (element.type && REPLY_MEDIA_LABEL[element.type]) {
     const name = inlineLabel(element);
@@ -643,13 +657,21 @@ function ReplyQuote({ data, sendTimeMs }: { data: Record<string, unknown>; sendT
   // against the live DB: group → origMsgSeq(47402), c2c → origMsgIndex(47419).
   const seq = data.origMsgSeq as number | string | undefined;
   const index = data.origMsgIndex as number | string | undefined;
+  const clientSeq = data.origClientSeq as number | string | undefined;
   const isUsable = (v: unknown): boolean =>
-    typeof v === 'number' || (typeof v === 'string' && v.length > 0);
-  const canJump = isUsable(seq) || isUsable(index);
+    (typeof v === 'number' || typeof v === 'string') && /^\d+$/.test(String(v)) && BigInt(v) > 0n;
+  const canJump = isUsable(seq) || isUsable(index) || isUsable(clientSeq);
 
   function handleJump(event: ReactMouseEvent | ReactKeyboardEvent): void {
     event.stopPropagation();
-    if (canJump) jumpToSeq({ seq, index });
+    if (canJump)
+      jumpToSeq({
+        seq,
+        index,
+        clientSeq,
+        senderUin: data.origSenderUin as number | string | undefined,
+        sendTime: data.origMsgTime as number | string | undefined,
+      });
   }
 
   return (
@@ -687,12 +709,14 @@ export function QqMessageContent({
   elements,
   sendTimeMs,
   msgId,
+  msgSeq,
   isSender = true,
   conversation,
 }: {
   elements: RenderElement[];
   sendTimeMs: number;
   msgId: string;
+  msgSeq?: string;
   isSender?: boolean;
   /**
    * 当前会话（渲染器注册表带进来的）—— 红包明细要拿 conv / 会话类型。
@@ -885,6 +909,8 @@ export function QqMessageContent({
   //
   // 闪传卡片（markdown 带 flashTransferInfo）在上面已被认领，走不到这里。
   const keyboardElement = elements.find((element) => element.type === 'inlineKeyboard');
+  const keyboardBotAppId =
+    typeof keyboardElement?.data?.botAppId === 'string' ? keyboardElement.data.botAppId : undefined;
   const botMarkdown = elements.find(
     (element) => element.type === 'markdown' && String(element.data?.markdownContent ?? '') !== '',
   );
@@ -899,7 +925,12 @@ export function QqMessageContent({
     return (
       <div className={cn('message-content', 'qq-message-inline', 'qq-bot-card')}>
         {body}
-        <QqInlineKeyboard rows={rows} />
+        <QqInlineKeyboard
+          rows={rows}
+          groupId={conversation?.type === 'group' ? conversation.id : undefined}
+          sequence={msgSeq}
+          botAppid={keyboardBotAppId}
+        />
       </div>
     );
   }
@@ -907,7 +938,12 @@ export function QqMessageContent({
   if (keyboardElement) {
     return (
       <div className={cn('message-content', 'qq-message-inline', 'qq-bot-card')}>
-        <QqInlineKeyboard rows={(keyboardElement.data?.rows ?? []) as KeyboardButton[][]} />
+        <QqInlineKeyboard
+          rows={(keyboardElement.data?.rows ?? []) as KeyboardButton[][]}
+          groupId={conversation?.type === 'group' ? conversation.id : undefined}
+          sequence={msgSeq}
+          botAppid={keyboardBotAppId}
+        />
       </div>
     );
   }
@@ -1110,7 +1146,12 @@ export const qqMessageRenderer: MessageRenderer = {
     );
   },
   render: ({ message, conversation, mine }) => {
-    const m = message as { qqElements?: RenderElement[]; createdAt?: string; msgId?: string };
+    const m = message as {
+      qqElements?: RenderElement[];
+      createdAt?: string;
+      msgId?: string;
+      msgSeq?: string;
+    };
     const elements = m.qqElements ?? [];
     const sendTimeMs = m.createdAt ? Date.parse(m.createdAt) : 0;
     const msgId = m.msgId ?? '';
@@ -1119,6 +1160,7 @@ export const qqMessageRenderer: MessageRenderer = {
         elements={elements}
         sendTimeMs={sendTimeMs}
         msgId={msgId}
+        msgSeq={m.msgSeq}
         isSender={mine}
         conversation={conversation}
       />

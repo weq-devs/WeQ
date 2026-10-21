@@ -1,18 +1,8 @@
 /* ──────────────────────────────────────────────────────────────────────────
- * 个性装扮灯箱样式。与收藏灯箱同一套壳(fixed 层 + 居中面板 + 右上关闭),内容区沿用
+ * 个性装扮整页样式，内容区沿用
  * weq 设计语言：主题色描边、小圆角、轻量留白。所有类名以 weq-dress- 前缀。
  * 注意与 dressSkin.ts 注入的 `#weq-dress-skin` 无关 —— 那个作用在聊天气泡上。
  * ────────────────────────────────────────────────────────────────────────── */
-
-.weq-dress-layer {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  display: grid;
-  place-items: center;
-  background: rgba(246, 247, 248, 0.55);
-  backdrop-filter: blur(4px);
-}
 
 .weq-dress-dialog {
   position: relative;
@@ -22,10 +12,10 @@
   height: min(660px, calc(100vh - 72px));
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.99);
+  background: var(--weq-bg-surface);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.16);
   overflow: hidden;
-  color: #161616;
+  color: var(--weq-fg-primary);
   font-size: 13px;
 }
 
@@ -78,6 +68,7 @@
 
 .weq-dress-kinds {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   flex: none;
 }
@@ -93,7 +84,10 @@
   color: #6b7686;
   font-size: 12.5px;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
 }
 
 .weq-dress-kind:hover {
@@ -146,6 +140,34 @@
 
 .weq-dress-search-clear:hover {
   background: rgba(0, 0, 0, 0.07);
+}
+
+.weq-workspace-page .weq-dress-head,
+.weq-workspace-page .weq-dress-kinds,
+.weq-workspace-page .weq-dress-toolbar,
+.weq-workspace-page .weq-dress-toolbar-right {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.weq-workspace-page .weq-dress-search {
+  flex: 1 1 220px;
+  min-width: 0;
+  margin-left: 0;
+}
+
+.weq-workspace-page .weq-dress-kinds {
+  flex: 1 1 100%;
+}
+
+.weq-workspace-page .weq-dress-search input {
+  flex: 1;
+  min-width: 0;
+  width: 0;
+}
+
+.weq-workspace-page .weq-dress-toolbar-right {
+  margin-left: 0;
 }
 
 /* ===== 工具栏：已装筛选 + 渲染范围 + 取消当前 ===== */
@@ -215,7 +237,9 @@
   color: #6b7686;
   font-size: 12px;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 .weq-dress-scope-btn.is-active {
@@ -285,6 +309,14 @@
   min-height: 0;
   overflow-y: auto;
   padding: 14px 16px 16px;
+}
+
+/* 商城表情页签自带左右两栏滚动，外层不再整体滚动。 */
+.weq-dress-body.is-embedded-market {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
 }
 
 .weq-dress-grid {
@@ -357,19 +389,34 @@
   white-space: nowrap;
 }
 
-.weq-dress-use {
+/* 卡片底部两个动作并排：主操作「使用」占满，次操作「另存为」按内容宽。
+ * 窄卡片时仍能放下，所以两枚按钮都允许收缩文字。 */
+.weq-dress-card-actions {
   display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin: 0 10px 10px;
+}
+
+.weq-dress-use,
+.weq-dress-save {
+  display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  margin: 0 10px 10px;
-  padding: 6px 0;
+  padding: 6px 8px;
   border: 1px solid var(--weq-accent-effective, #12a8ff);
   border-radius: 7px;
   background: transparent;
   color: var(--weq-accent-effective, #12a8ff);
   font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.weq-dress-use {
+  flex: 1 1 auto;
 }
 
 .weq-dress-use:hover:not(:disabled) {
@@ -381,6 +428,29 @@
   border-color: var(--weq-border, rgba(0, 0, 0, 0.12));
   color: #a8b0bd;
   cursor: not-allowed;
+}
+
+/* 另存为：描边弱一档，避免和「使用」抢主次。 */
+.weq-dress-save {
+  flex: 0 0 auto;
+  border-color: var(--weq-border, rgba(0, 0, 0, 0.12));
+  color: var(--weq-fg-secondary, #6a7d90);
+}
+
+.weq-dress-save:hover:not(:disabled) {
+  border-color: var(--weq-accent-effective, #12a8ff);
+  color: var(--weq-accent-effective, #12a8ff);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-dress-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+html[data-theme='dark'] .weq-dress-save {
+  border-color: var(--weq-border-strong);
+  color: var(--weq-fg-secondary);
 }
 
 /* ===== 列表加载骨架(shimmer) =====
@@ -410,8 +480,8 @@
 }
 
 .weq-dress-skel-btn {
+  flex: 1 1 auto;
   height: 26px;
-  margin: 0 10px 10px;
   border-radius: 7px;
 }
 
@@ -682,8 +752,8 @@
   width: 100%;
   margin-bottom: 8px;
   aspect-ratio: 4 / 3;
-  background: repeating-conic-gradient(rgba(0, 0, 0, 0.04) 0% 25%, transparent 0% 50%) 50% / 12px
-    12px;
+  background:
+    repeating-conic-gradient(rgba(0, 0, 0, 0.04) 0% 25%, transparent 0% 50%) 50% / 12px 12px;
 }
 
 .weq-dress-bg-preview img,
@@ -765,8 +835,8 @@
   overflow: hidden;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 9px;
-  background: repeating-conic-gradient(rgba(0, 0, 0, 0.04) 0% 25%, transparent 0% 50%) 50% / 10px
-    10px;
+  background:
+    repeating-conic-gradient(rgba(0, 0, 0, 0.04) 0% 25%, transparent 0% 50%) 50% / 10px 10px;
   cursor: pointer;
 }
 
@@ -807,80 +877,76 @@
 }
 
 /* ===== 深色 ===== */
-html[data-theme="dark"] .weq-dress-layer {
-  background: rgba(10, 12, 16, 0.42);
-}
-
-html[data-theme="dark"] .weq-dress-dialog {
+html[data-theme='dark'] .weq-dress-dialog {
   border-color: rgba(255, 255, 255, 0.08);
-  background: #161a20;
+  background: var(--weq-bg-surface);
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
-  color: #edf2f7;
+  color: var(--weq-fg-primary);
 }
 
-html[data-theme="dark"] .weq-dress-close {
+html[data-theme='dark'] .weq-dress-close {
   color: #98a4b3;
 }
 
-html[data-theme="dark"] .weq-dress-close:hover,
-html[data-theme="dark"] .weq-dress-close:focus-visible {
+html[data-theme='dark'] .weq-dress-close:hover,
+html[data-theme='dark'] .weq-dress-close:focus-visible {
   background: rgba(255, 255, 255, 0.08);
   color: #f7fbff;
 }
 
-html[data-theme="dark"] .weq-dress-head,
-html[data-theme="dark"] .weq-dress-toolbar {
+html[data-theme='dark'] .weq-dress-head,
+html[data-theme='dark'] .weq-dress-toolbar {
   border-color: rgba(255, 255, 255, 0.09);
 }
 
-html[data-theme="dark"] .weq-dress-card {
+html[data-theme='dark'] .weq-dress-card {
   border-color: rgba(255, 255, 255, 0.09);
   background: #1f2429;
 }
 
-html[data-theme="dark"] .weq-dress-search,
-html[data-theme="dark"] .weq-dress-scope {
+html[data-theme='dark'] .weq-dress-search,
+html[data-theme='dark'] .weq-dress-scope {
   border-color: rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.06);
 }
 
-html[data-theme="dark"] .weq-dress-chip,
-html[data-theme="dark"] .weq-dress-clear {
+html[data-theme='dark'] .weq-dress-chip,
+html[data-theme='dark'] .weq-dress-clear {
   border-color: rgba(255, 255, 255, 0.12);
 }
 
-html[data-theme="dark"] .weq-dress-search-clear:hover {
+html[data-theme='dark'] .weq-dress-search-clear:hover {
   background: rgba(255, 255, 255, 0.1);
 }
 
-html[data-theme="dark"] .weq-dress-card-preview {
+html[data-theme='dark'] .weq-dress-card-preview {
   background:
     repeating-conic-gradient(rgba(255, 255, 255, 0.05) 0% 25%, transparent 0% 50%) 50% / 12px 12px;
 }
 
-html[data-theme="dark"] .weq-dress-applying {
+html[data-theme='dark'] .weq-dress-applying {
   background: rgba(16, 19, 24, 0.62);
 }
 
-html[data-theme="dark"] .weq-dress-applying-box {
+html[data-theme='dark'] .weq-dress-applying-box {
   background: #1f2429;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
   color: #edf2f7;
 }
 
-html[data-theme="dark"] .weq-dress-bg-card,
-html[data-theme="dark"] .weq-dress-widget,
-html[data-theme="dark"] .weq-dress-pick {
+html[data-theme='dark'] .weq-dress-bg-card,
+html[data-theme='dark'] .weq-dress-widget,
+html[data-theme='dark'] .weq-dress-pick {
   border-color: rgba(255, 255, 255, 0.1);
 }
 
-html[data-theme="dark"] .weq-dress-bg-preview,
-html[data-theme="dark"] .weq-dress-widget {
-  background: repeating-conic-gradient(rgba(255, 255, 255, 0.05) 0% 25%, transparent 0% 50%) 50% /
-    12px 12px;
+html[data-theme='dark'] .weq-dress-bg-preview,
+html[data-theme='dark'] .weq-dress-widget {
+  background:
+    repeating-conic-gradient(rgba(255, 255, 255, 0.05) 0% 25%, transparent 0% 50%) 50% / 12px 12px;
 }
 
-html[data-theme="dark"] .weq-dress-skel-block {
+html[data-theme='dark'] .weq-dress-skel-block {
   background: linear-gradient(
     90deg,
     rgba(255, 255, 255, 0.055) 25%,
@@ -890,6 +956,6 @@ html[data-theme="dark"] .weq-dress-skel-block {
   background-size: 200% 100%;
 }
 
-html[data-theme="dark"] .weq-dress-font-preview {
+html[data-theme='dark'] .weq-dress-font-preview {
   color: #edf2f7;
 }

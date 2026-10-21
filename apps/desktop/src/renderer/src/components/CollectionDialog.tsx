@@ -26,6 +26,7 @@ import {
   Layers,
   Link2,
   Loader2,
+  ListChecks,
   MapPin,
   Music,
   Play,
@@ -36,12 +37,17 @@ import {
 } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
+import { ProfileAvatar } from './ProfileAvatar';
 import { openLightbox } from './ImageLightbox';
 import { collectionImageUrl } from '../lib/resourceUrl';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 import { CollectionContent, collectionContentText } from './CollectionContent';
 import { IS_WEB } from '../lib/target';
 import { CollectionExportDialog } from '../views/export/CollectionExportDialog';
+import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
+import { useContentMultiSelect } from '../state/contentSelection';
+import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
+import '../styles/collection-search.css';
 
 interface PicWire {
   uri: string;
@@ -129,16 +135,21 @@ interface DetailSyncProgress {
 }
 
 /** Page through `account.listCollections` until exhausted. 收藏集通常不大。 */
-async function fetchAllCollections(source: CollectionSource): Promise<CollectionItemWire[] | null> {
+async function fetchAllCollections(
+  source: CollectionSource,
+  signal: AbortSignal,
+): Promise<CollectionItemWire[] | null> {
   const all: CollectionItemWire[] = [];
   let offset = 0;
   const seen = new Set<string>();
   for (let page = 0; page < 1000; page++) {
+    signal.throwIfAborted();
     const res = (await client.account.listCollections.query({
       limit: 100,
       offset,
       source,
     })) as CollectionPageWire | null;
+    signal.throwIfAborted();
     // network 路径拿不到 p_skey / 请求失败时返回 null —— 保留已有的 db 结果。
     if (!res) return null;
     const inPage = new Set(seen);
@@ -490,14 +501,33 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
 function CollectionCard({
   it,
   onOpen,
+  selected,
+  selecting,
+  selectionProps,
 }: {
   it: CollectionItemWire;
   onOpen: (item: CollectionItemWire) => void;
+  selected?: boolean;
+  selecting?: boolean;
+  selectionProps: MultiSelectionItemProps;
 }): ReactElement {
   return (
-    <article className="weq-col-card">
+    <article className="weq-col-card" {...selectionProps}>
       <header className="weq-col-card-head">
-        <QqAvatar uin={it.authorUin || undefined} size={26} className="weq-col-avatar" />
+        {selecting ? (
+          <input
+            type="checkbox"
+            aria-label={`选择收藏 ${it.cid}`}
+            checked={selected ?? false}
+            readOnly
+          />
+        ) : null}
+        <ProfileAvatar
+          enabled={!selecting}
+          target={{ identity: it.authorUin, name: it.authorName }}
+        >
+          <QqAvatar uin={it.authorUin || undefined} size={26} className="weq-col-avatar" />
+        </ProfileAvatar>
         <span className="weq-col-card-who">
           <span className="weq-col-card-name">{it.authorName || '未知'}</span>
           {it.groupName ? <span className="weq-col-card-group">{it.groupName}</span> : null}
@@ -524,11 +554,18 @@ function CollectionCard({
 export function CollectionDialog({
   open,
   onClose,
+  embedded = false,
+  searchTarget,
 }: {
   open: boolean;
   onClose: () => void;
+  embedded?: boolean;
+  searchTarget?: { cid: string; revision: number } | null;
 }): ReactElement | null {
+  const activity = useQQReadActivity(open, { onlineOnly: false });
+  const networkActivity = useQQReadActivity(open);
   const [items, setItems] = useState<CollectionItemWire[]>([]);
+  const multiSelect = useContentMultiSelect({ kind: 'collections', container: 'all' });
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -538,6 +575,37 @@ export function CollectionDialog({
   const [page, setPage] = useState(0);
   const [reload, setReload] = useState(0);
   const [selected, setSelected] = useState<CollectionItemWire | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchRetry, setSearchRetry] = useState(0);
+  const [searchLoading, setSearchLoading] = useState(false);
+  useEffect(() => {
+    if (!activity.enabled || !searchTarget) return;
+    let active = true;
+    setSearchError(null);
+    setSelected(null);
+    setSearchLoading(true);
+    void client.account.localCollectionItem
+      .query({ cid: searchTarget.cid })
+      .then(
+        (item) => {
+          if (!active) return;
+          if (!item) {
+            setSearchError('这条收藏已不在当前账号的本地缓存中。');
+            return;
+          }
+          setSelected(item);
+        },
+        () => {
+          if (active) setSearchError('读取收藏失败，请重试。');
+        },
+      )
+      .finally(() => {
+        if (active) setSearchLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [activity.enabled, searchTarget, searchRetry]);
   const [exportSelection, setExportSelection] = useState<{ cids?: string[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -553,6 +621,7 @@ export function CollectionDialog({
   const selectedContentStatus = useRef<CollectionItemWire['contentStatus']>(undefined);
   selectedContentStatus.current = selected?.contentStatus;
   useEscapeToClose(() => {
+    if (embedded) return;
     if (exportSelection) return;
     if (selected) setSelected(null);
     else onClose();
@@ -577,15 +646,21 @@ export function CollectionDialog({
       setExportSelection(null);
       return;
     }
+    if (!activity.enabled) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+    const controller = new AbortController();
     let cancelled = false;
     setLoading(true);
     setRefreshing(false);
     setError(null);
     (async () => {
       try {
-        const local = await fetchAllCollections('db');
+        const local = await fetchAllCollections('db', controller.signal);
         if (cancelled) return;
-        setItems(local ?? []);
+        setItems((current) => (current.length > 0 ? current : (local ?? [])));
         setLoaded(true);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : '加载收藏失败');
@@ -594,20 +669,22 @@ export function CollectionDialog({
         if (!cancelled) setLoading(false);
       }
 
+      if (!networkActivity.enabled) return;
       setRefreshing(true);
       try {
-        const fresh = await fetchAllCollections('network');
+        const fresh = await fetchAllCollections('network', controller.signal);
         if (!cancelled && fresh) setItems(fresh);
-      } catch {
-        /* 网络补充失败:保留本地结果,不打扰用户 */
+      } catch (error) {
+        if (!cancelled) setError(detailErrorText(error));
       } finally {
         if (!cancelled) setRefreshing(false);
       }
     })();
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [open, reload]);
+  }, [open, reload, activity.enabled, activity.revision, networkActivity.enabled]);
 
   const selectedCid = selected?.cid;
   useEffect(() => {
@@ -660,8 +737,13 @@ export function CollectionDialog({
     }
   };
   useEffect(() => {
-    if (!open || !selectedCid) return;
+    if (!activity.enabled || !selectedCid) {
+      setDetailLoading(false);
+      return;
+    }
     let cancelled = false;
+    let syncing = false;
+    const requestId = collectionRequestId('collection-detail');
     const generation = ++detailGeneration.current;
     const cid = selectedCid;
     const force = forceDetailRefresh.current;
@@ -691,9 +773,10 @@ export function CollectionDialog({
         }
         const alreadyCached =
           local?.contentStatus === 'cached' || selectedContentStatus.current === 'cached';
-        if (alreadyCached && !force) return;
+        if ((alreadyCached && !force) || !networkActivity.enabled) return;
+        syncing = true;
         const patches = (await client.account.syncCollectionDetails.mutate({
-          requestId: collectionRequestId('collection-detail'),
+          requestId,
           cids: [cid],
           force,
         })) as CollectionDetailPatch[];
@@ -707,13 +790,16 @@ export function CollectionDialog({
           setDetailError(detailErrorText(error));
         }
       } finally {
+        syncing = false;
         if (!cancelled && generation === detailGeneration.current) setDetailLoading(false);
       }
     })();
     return () => {
       cancelled = true;
+      if (syncing)
+        void client.account.cancelCollectionDetailSync.mutate({ requestId }).catch(() => {});
     };
-  }, [open, selectedCid, detailReload]);
+  }, [activity.enabled, activity.revision, networkActivity.enabled, selectedCid, detailReload]);
 
   const syncAllDetails = async (): Promise<void> => {
     if (detailSyncRun.current) return;
@@ -851,20 +937,55 @@ export function CollectionDialog({
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
   const pageItems = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const selection = useMultiSelection({
+    ids: filtered.map((item) => item.cid),
+    selected: multiSelect.selectedIds,
+    onChange: multiSelect.setSelectedIds,
+    enabled: multiSelect.selectionMode,
+    onStart: () => multiSelect.setSelectionMode(true),
+    onExit: () => multiSelect.setSelectionMode(false),
+  });
+  useEffect(() => {
+    if (!selection.focusRequest) return;
+    const index = filtered.findIndex((item) => item.cid === selection.focusRequest!.id);
+    if (index >= 0) setPage(Math.floor(index / PAGE_SIZE));
+  }, [selection.focusRequest, filtered]);
 
   if (!open) return null;
 
   return (
-    <div className="weq-collection-layer" role="presentation" onMouseDown={closeFromScrim(onClose)}>
+    <div
+      className={embedded ? 'weq-content-collection' : 'weq-collection-layer'}
+      role="presentation"
+      onMouseDown={embedded ? undefined : closeFromScrim(onClose)}
+    >
       <div
         className="weq-collection-dialog"
-        role="dialog"
-        aria-modal="true"
+        role={embedded ? 'region' : 'dialog'}
+        aria-modal={embedded ? undefined : true}
         aria-labelledby="weq-collection-title"
+        {...selection.rootProps}
       >
-        <button className="weq-collection-close" onClick={onClose} title="关闭" type="button">
-          <X size={18} strokeWidth={2} />
-        </button>
+        {searchLoading || searchError ? (
+          <div className="weq-col-search-status" role="status">
+            <span>{searchLoading ? '正在定位收藏…' : searchError}</span>
+            {searchError ? (
+              <button
+                type="button"
+                title="重试定位收藏"
+                aria-label="重试定位收藏"
+                onClick={() => setSearchRetry((value) => value + 1)}
+              >
+                <RefreshCw size={14} />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {!embedded ? (
+          <button className="weq-collection-close" onClick={onClose} title="关闭" type="button">
+            <X size={18} strokeWidth={2} />
+          </button>
+        ) : null}
         <header className="weq-collection-head">
           <div className="weq-collection-title-row">
             {selected ? (
@@ -879,43 +1000,73 @@ export function CollectionDialog({
             ) : null}
             <Bookmark size={18} strokeWidth={1.9} />
             <h2 id="weq-collection-title">{selected ? '收藏详情' : '我的收藏'}</h2>
-            <button
-              type="button"
-              className="weq-col-detail-back"
-              title={selected ? '导出当前收藏' : '导出收藏'}
-              aria-label={selected ? '导出当前收藏' : '导出收藏'}
-              disabled={loading || (Boolean(query || kind !== 'all') && !filtered.length)}
-              onClick={() =>
-                setExportSelection(
-                  selected
-                    ? { cids: [selected.cid] }
-                    : query || kind !== 'all'
-                      ? { cids: filtered.map((item) => item.cid) }
-                      : {},
-                )
-              }
-            >
-              <Download size={17} />
-            </button>
+            {!selected ? (
+              <button
+                type="button"
+                className="weq-col-detail-back"
+                title={multiSelect.selectionMode ? '退出多选' : '多选收藏'}
+                aria-label={multiSelect.selectionMode ? '退出多选' : '多选收藏'}
+                aria-pressed={multiSelect.selectionMode}
+                onClick={() => multiSelect.setSelectionMode(!multiSelect.selectionMode)}
+              >
+                <ListChecks size={17} />
+              </button>
+            ) : null}
+            {multiSelect.selectionMode && !selected ? (
+              <>
+                <span>已选 {multiSelect.selectedIds.size} 条收藏</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    multiSelect.setSelectedIds(new Set(filtered.map((item) => item.cid)))
+                  }
+                >
+                  全选筛选结果
+                </button>
+              </>
+            ) : null}
+            {!embedded ? (
+              <button
+                type="button"
+                className="weq-col-detail-back"
+                title={selected ? '导出当前收藏' : '导出收藏'}
+                aria-label={selected ? '导出当前收藏' : '导出收藏'}
+                disabled={loading || (Boolean(query || kind !== 'all') && !filtered.length)}
+                onClick={() =>
+                  setExportSelection(
+                    selected
+                      ? { cids: [selected.cid] }
+                      : query || kind !== 'all'
+                        ? { cids: filtered.map((item) => item.cid) }
+                        : {},
+                  )
+                }
+              >
+                <Download size={17} />
+              </button>
+            ) : null}
             {loaded && !selected ? (
               <span className="weq-collection-total">{items.length}</span>
             ) : null}
             {selected ? (
               <>
-                <button
-                  type="button"
-                  className="weq-col-detail-back"
-                  title="刷新详情"
-                  disabled={detailLoading || mediaLoading}
-                  onClick={() => {
-                    setMediaResults(null);
-                    setMediaError(null);
-                    forceDetailRefresh.current = true;
-                    setDetailReload((n) => n + 1);
-                  }}
-                >
-                  <RefreshCw size={14} />
-                </button>
+                {detailError && (
+                  <button
+                    type="button"
+                    className="weq-col-detail-back"
+                    title="重试读取详情"
+                    aria-label="重试读取详情"
+                    disabled={detailLoading || mediaLoading}
+                    onClick={() => {
+                      setMediaResults(null);
+                      setMediaError(null);
+                      forceDetailRefresh.current = true;
+                      setDetailReload((n) => n + 1);
+                    }}
+                  >
+                    <RefreshCw size={14} />
+                  </button>
+                )}
                 <button
                   type="button"
                   className="weq-collection-sync-button"
@@ -944,18 +1095,21 @@ export function CollectionDialog({
               </>
             ) : (
               <>
-                <button
-                  type="button"
-                  className="weq-col-detail-back"
-                  title="刷新收藏"
-                  disabled={loading || refreshing || Boolean(detailSyncRun.current)}
-                  onClick={() => {
-                    setDetailSync(null);
-                    setReload((n) => n + 1);
-                  }}
-                >
-                  <RefreshCw size={14} />
-                </button>
+                {error && (
+                  <button
+                    type="button"
+                    className="weq-col-detail-back"
+                    title="重试读取收藏"
+                    aria-label="重试读取收藏"
+                    disabled={loading || refreshing || Boolean(detailSyncRun.current)}
+                    onClick={() => {
+                      setDetailSync(null);
+                      setReload((n) => n + 1);
+                    }}
+                  >
+                    <RefreshCw size={14} />
+                  </button>
+                )}
                 {detailSyncRun.current ? (
                   <button
                     type="button"
@@ -1010,6 +1164,7 @@ export function CollectionDialog({
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                aria-label="搜索收藏"
                 placeholder="搜索标题 / 内容 / 来源…"
                 spellCheck={false}
               />
@@ -1017,6 +1172,8 @@ export function CollectionDialog({
                 <button
                   type="button"
                   className="weq-collection-search-clear"
+                  title="清空搜索"
+                  aria-label="清空搜索"
                   onClick={() => setQuery('')}
                 >
                   <X size={13} strokeWidth={2} />
@@ -1025,6 +1182,11 @@ export function CollectionDialog({
             </div>
           ) : null}
         </header>
+        {!selected && error && items.length > 0 ? (
+          <p role="alert" className="weq-col-detail-unavailable">
+            {error}
+          </p>
+        ) : null}
         {!selected ? (
           <div className="weq-collection-filters" role="tablist" aria-label="收藏类型">
             {KIND_FILTERS.filter((k) => k.id === 'all' || (counts[k.id] ?? 0) > 0).map((k) => (
@@ -1052,7 +1214,9 @@ export function CollectionDialog({
           {selected ? (
             <section className="weq-col-detail">
               <div className="weq-col-detail-meta">
-                <QqAvatar uin={selected.authorUin || undefined} size={30} />
+                <ProfileAvatar target={{ identity: selected.authorUin, name: selected.authorName }}>
+                  <QqAvatar uin={selected.authorUin || undefined} size={30} />
+                </ProfileAvatar>
                 <span>
                   {selected.authorName || '未知'}
                   {selected.groupName ? ` · ${selected.groupName}` : ''}
@@ -1145,7 +1309,7 @@ export function CollectionDialog({
               <Loader2 size={22} className="weq-spin" />
               <span>正在加载收藏…</span>
             </div>
-          ) : error ? (
+          ) : error && items.length === 0 ? (
             <div className="weq-collection-state is-error">{error}</div>
           ) : filtered.length === 0 ? (
             <div className="weq-collection-state">
@@ -1158,7 +1322,14 @@ export function CollectionDialog({
           ) : (
             <div className="weq-collection-grid">
               {pageItems.map((it) => (
-                <CollectionCard key={it.cid} it={it} onOpen={setSelected} />
+                <CollectionCard
+                  key={it.cid}
+                  it={it}
+                  onOpen={setSelected}
+                  selected={multiSelect.selectedIds.has(it.cid)}
+                  selecting={multiSelect.selectionMode}
+                  selectionProps={selection.itemProps(it.cid)}
+                />
               ))}
             </div>
           )}

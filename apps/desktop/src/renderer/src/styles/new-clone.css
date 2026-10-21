@@ -1,0 +1,40 @@
+.weq-clone-modal-head > strong {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-clone-modal-head > button {
+  flex: none;
+}
+.weq-clone-group-list {
+  max-height: 320px;
+  padding: 0;
+}
+
+/* 多选好友：复用导出页的选择行，选中态用勾选角标提示。 */
+.weq-clone-modal .weq-exp-row.is-selectable {
+  position: relative;
+}
+.weq-clone-modal .weq-exp-row.is-selectable.is-on {
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+}
+.weq-clone-pick-check {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  color: var(--primary-foreground);
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+.weq-exp-row.is-on .weq-clone-pick-check {
+  border-color: var(--weq-accent-effective);
+  background: var(--weq-accent-effective);
+}
+.weq-exp-row.is-selectable + .weq-exp-row.is-selectable {
+  margin-top: 2px;
+}

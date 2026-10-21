@@ -140,9 +140,10 @@ function overlay(): HTMLElement {
   return el as HTMLElement;
 }
 
-function press(target: Element, type: 'mousedown'): void {
+function press(target: Element): void {
   act(() => {
-    target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+    target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+    target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
   });
 }
 
@@ -178,9 +179,9 @@ describe('浮层外壳 OverlayLayer', () => {
     mountOverlay(() => {
       closed += 1;
     });
-    press(overlay().querySelector('.probe-card')!, 'mousedown');
+    press(overlay().querySelector('.probe-card')!);
     expect(closed).toBe(0);
-    press(overlay(), 'mousedown');
+    press(overlay());
     expect(closed).toBe(1);
   });
 
@@ -233,7 +234,7 @@ describe('浮层外壳 OverlayLayer', () => {
     const inner = document.querySelector('body > .weq-overlay-layer.inner-scrim') as HTMLElement;
     expect(inner).toBeTruthy();
 
-    press(inner, 'mousedown');
+    press(inner);
     expect(innerClosed).toBe(1);
     expect(outerClosed).toBe(0);
   });

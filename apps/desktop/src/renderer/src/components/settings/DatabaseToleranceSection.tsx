@@ -50,6 +50,7 @@ import {
   salvageLevelsAscending,
 } from '@weq/service/db-tolerance-copy';
 import { trpc } from '../../trpc/client';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useToast } from '../Toast';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 
@@ -125,12 +126,17 @@ function shortTime(iso: string): string {
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export function DatabaseToleranceSection(): ReactElement {
+export function DatabaseToleranceSection({
+  page = 'policy',
+}: {
+  page?: 'policy' | 'status';
+}): ReactElement {
   const pushToast = useToast((s) => s.push);
+  const autoRefresh = useQQAutoRefresh(true);
   const utils = trpc.useUtils();
-  const tolerance = trpc.account.getDbTolerance.useQuery(undefined, { staleTime: 5000 });
+  const tolerance = trpc.account.getDbTolerance.useQuery(undefined, autoRefresh);
   const setLevel = trpc.account.setDbToleranceLevel.useMutation();
-  const quarantine = trpc.account.listSalvageQuarantine.useQuery(undefined, { staleTime: 5000 });
+  const quarantine = trpc.account.listSalvageQuarantine.useQuery(undefined, autoRefresh);
   const clearQuarantine = trpc.account.clearSalvageQuarantine.useMutation();
 
   /** 正在等用户确认的**那个**级别；确认条就渲染在这一行里面。 */
@@ -227,7 +233,7 @@ export function DatabaseToleranceSection(): ReactElement {
   return (
     <div className="weq-set">
       <SectionHeader
-        title="数据库宽容"
+        title={page === 'policy' ? '损坏处理与容错' : '容错记录'}
         icon={<DatabaseZap size={16} strokeWidth={1.9} />}
         desc={
           <>
@@ -240,232 +246,243 @@ export function DatabaseToleranceSection(): ReactElement {
         }
       />
 
-      {/* 口径说明统一收进可展开块：默认不占版面，要看时点开。 */}
-      <details className="weq-set-details">
-        <summary>
-          <ChevronDown size={13} aria-hidden />
-          宽容是什么、覆盖哪些功能
-        </summary>
-        <div className="weq-set-details-body">
-          <p>
-            严格（级别 0）之外还有三级宽容：级别 1 只换访问路径（<strong>不丢数据</strong>）， 级别
-            2 会跳过读不出来的区间（<strong>可能缺失部分消息</strong>），级别 3
-            再允许放弃读不动的整张表。
-          </p>
-          <p>{SALVAGE_EXPERIMENTAL_NOTE}</p>
-          <p className="weq-set-warnbox">
-            <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
-            <span>{SALVAGE_AGGREGATE_CAVEAT}</span>
-          </p>
-        </div>
-      </details>
-
-      {/* 提醒是弹窗那条路的总开关：关掉之后，损坏只会进日志与检查报告，不会找人。
-          放在这里是因为它和宽容级别回答的是同一个问题（"库坏了之后会怎样"）。 */}
-      <Card title="损坏提醒">
-        <Row
-          label="数据库异常时弹窗提醒"
-          desc="健康检查确认损坏后才会弹窗（主按钮为「尝试修复」，也可以从妙妙工具 → 数据库修复手动进入）。关掉后仍会写日志并生成检查报告 —— 需要时随时可以在这里再打开。"
-          control={
-            <Toggle
-              checked={remindOnDamage}
-              disabled={!settings.data || setReminder.isPending}
-              onChange={(next) => void changeReminder(next)}
-              label="数据库异常时弹窗提醒"
-            />
-          }
-        />
-      </Card>
-
-      <Card
-        title="宽容级别"
-        action={
-          <span className="weq-set-badge weq-set-badge-ok" title={current.scope}>
-            当前 · {current.title}
-          </span>
-        }
-      >
-        <div className="weq-set-levels" role="radiogroup" aria-label="数据库宽容级别">
-          {salvageLevelsAscending().map((copy) => {
-            const active = copy.level === level;
-            const confirming = pendingLossy === copy.level;
-            return (
-              <div
-                key={copy.level}
-                className={`weq-set-level${active ? ' is-active' : ''}${confirming ? ' is-confirming' : ''}`}
-              >
-                <div className="weq-set-level-head">
-                  <span className="weq-set-level-main">
-                    <span className="weq-set-level-title">
-                      {copy.title}
-                      {active ? <span className="weq-set-level-tag">当前</span> : null}
-                    </span>
-                    <span className="weq-set-level-desc">{copy.summary}</span>
-                    {copy.losesData ? (
-                      <span className="weq-set-level-loss">
-                        <AlertTriangle size={11} strokeWidth={1.9} aria-hidden />
-                        会少数据
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="weq-set-level-action">
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={active}
-                      className={`weq-set-btn weq-set-btn-sm${active ? '' : ' weq-set-btn-soft'}`}
-                      disabled={busy || active}
-                      onClick={() => {
-                        if (active) return;
-                        if (copy.losesData) {
-                          setPendingLossy(copy.level);
-                          return;
-                        }
-                        void changeLevel(copy.level);
-                      }}
-                    >
-                      {active ? '已启用' : copy.level === 0 ? '恢复严格' : `启用级别 ${copy.level}`}
-                    </button>
-                  </span>
-                </div>
-                {/* 生效范围很长，收进可展开块 —— 级别列表先做到一行一个。 */}
-                <details className="weq-set-details weq-set-level-details">
-                  <summary>
-                    <ChevronDown size={12} aria-hidden />
-                    生效范围与代价
-                  </summary>
-                  <div className="weq-set-details-body">
-                    <p>{copy.scope}</p>
-                  </div>
-                </details>
-                {confirming ? (
-                  <div className="weq-set-confirm" role="group" aria-live="polite">
-                    <span className="weq-set-confirm-text">
-                      <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
-                      <span>
-                        {copy.confirm} {SALVAGE_EXPERIMENTAL_NOTE}
-                      </span>
-                    </span>
-                    <span className="weq-set-confirm-actions">
-                      <button
-                        type="button"
-                        className="weq-set-btn weq-set-btn-sm"
-                        disabled={busy}
-                        onClick={() => void changeLevel(copy.level)}
-                      >
-                        确认启用级别 {copy.level}
-                      </button>
-                      <button
-                        type="button"
-                        className="weq-set-btn weq-set-btn-sm weq-set-btn-soft"
-                        disabled={busy}
-                        onClick={() => setPendingLossy(null)}
-                      >
-                        取消
-                      </button>
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-        {level >= 1 && grantedAt ? (
-          <p className="weq-set-note">
-            <ShieldCheck size={12} strokeWidth={1.9} aria-hidden />
-            <span>
-              已于 {new Date(grantedAt).toLocaleString()} 授权，在本机对该账号持续生效；
-              随时可以在这里回到级别 0。
-            </span>
-          </p>
-        ) : (
-          <p className="weq-set-note">
-            <Info size={12} strokeWidth={1.9} aria-hidden />
-            <span>
-              默认严格模式：损坏时照常报错，不会静默降级。开启后的每一次降级都会记在下面的账本里。
-            </span>
-          </p>
-        )}
-      </Card>
-
-      <Card
-        title="降级账本"
-        action={
-          <button
-            type="button"
-            className={`weq-set-iconbtn${tolerance.isFetching ? ' is-spinning' : ''}`}
-            onClick={() => void utils.account.getDbTolerance.invalidate()}
-            disabled={tolerance.isFetching}
-            title="刷新账本"
-            aria-label="刷新账本"
-          >
-            <RefreshCw size={14} strokeWidth={1.9} aria-hidden />
-          </button>
-        }
-      >
-        {hasLedger && summary ? (
-          <p className="weq-set-desc">
-            共 {summary.total} 次：换了访问路径（未丢数据） {summary.indexRetreat} 次 · 跳过区间{' '}
-            {summary.skipped} 次 · 读不出来 {summary.unrecoverable} 次 · 放弃整表{' '}
-            {summary.quarantined} 次{summary.lastAt ? ` · 最近 ${shortTime(summary.lastAt)}` : ''}
-          </p>
-        ) : (
-          <p className="weq-set-desc">
-            还没有任何降级记录。只有在你开启了宽容模式、且真的遇到损坏时才会产生记录。
-          </p>
-        )}
-        {hasLedger &&
-        summary &&
-        summary.skipped + summary.unrecoverable + summary.quarantined > 0 ? (
+      {page === 'policy' && (
+        <>
+          {/* 口径说明统一收进可展开块：默认不占版面，要看时点开。 */}
           <details className="weq-set-details">
             <summary>
-              <ChevronDown size={12} aria-hidden />
-              「少数据」是什么意思
+              <ChevronDown size={13} aria-hidden />
+              宽容是什么、覆盖哪些功能
             </summary>
             <div className="weq-set-details-body">
-              <p>{SALVAGE_SKIPPED_SPAN_CAVEAT}</p>
+              <p>
+                严格（级别 0）之外还有三级宽容：级别 1 只换访问路径（<strong>不丢数据</strong>），
+                级别 2 会跳过读不出来的区间（<strong>可能缺失部分消息</strong>），级别 3
+                再允许放弃读不动的整张表。
+              </p>
+              <p>{SALVAGE_EXPERIMENTAL_NOTE}</p>
+              <p className="weq-set-warnbox">
+                <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
+                <span>{SALVAGE_AGGREGATE_CAVEAT}</span>
+              </p>
             </div>
           </details>
-        ) : null}
-        {entries.length > 0 ? (
-          <ul className="weq-set-ledger">
-            {entries.map((entry, index) => {
-              const kind = LEDGER_KINDS[entry.kind] ?? LEDGER_KINDS.unrecoverable;
-              return (
-                // biome-ignore lint/suspicious/noArrayIndexKey: 账本按时间倒序渲染，同一毫秒可能重复
-                <li key={`${entry.at}:${index}`}>
-                  <span className="weq-set-ledger-meta">
-                    <span className="weq-set-mono">{shortTime(entry.at)}</span>
-                    <span>{baseName(entry.dbPath)}</span>
-                    <span
-                      className={`weq-set-badge${kind.losesData ? ' weq-set-badge-warn' : ''}`}
-                      title={kind.hint}
-                    >
-                      {kind.label}
-                    </span>
-                    {entry.errorCode != null ? (
-                      <span className="weq-set-mono">SQLite {entry.errorCode}</span>
-                    ) : null}
-                  </span>
-                  {entry.kind === 'skipped-ranges' && entry.message ? (
-                    <span className="weq-set-note">
-                      <span>{entry.message}</span>
-                      {entry.skippedRangeCount != null ? (
-                        <span className="weq-set-mono">
-                          {entry.skippedRangeCount} 处 · 键跨度 {entry.skippedSpanUpperBound ?? 0}
+
+          {/* 提醒是弹窗那条路的总开关：关掉之后，损坏只会进日志与检查报告，不会找人。
+          放在这里是因为它和宽容级别回答的是同一个问题（"库坏了之后会怎样"）。 */}
+          <Card title="损坏提醒">
+            <Row
+              label="数据库异常时弹窗提醒"
+              desc="健康检查确认损坏后才会弹窗（主按钮为「尝试修复」，也可以从妙妙工具 → 数据库修复手动进入）。关掉后仍会写日志并生成检查报告 —— 需要时随时可以在这里再打开。"
+              control={
+                <Toggle
+                  checked={remindOnDamage}
+                  disabled={!settings.data || setReminder.isPending}
+                  onChange={(next) => void changeReminder(next)}
+                  label="数据库异常时弹窗提醒"
+                />
+              }
+            />
+          </Card>
+
+          <Card
+            title="宽容级别"
+            action={
+              <span className="weq-set-badge weq-set-badge-ok" title={current.scope}>
+                当前 · {current.title}
+              </span>
+            }
+          >
+            <div className="weq-set-levels" role="radiogroup" aria-label="数据库宽容级别">
+              {salvageLevelsAscending().map((copy) => {
+                const active = copy.level === level;
+                const confirming = pendingLossy === copy.level;
+                return (
+                  <div
+                    key={copy.level}
+                    className={`weq-set-level${active ? ' is-active' : ''}${confirming ? ' is-confirming' : ''}`}
+                  >
+                    <div className="weq-set-level-head">
+                      <span className="weq-set-level-main">
+                        <span className="weq-set-level-title">
+                          {copy.title}
+                          {active ? <span className="weq-set-level-tag">当前</span> : null}
                         </span>
+                        <span className="weq-set-level-desc">{copy.summary}</span>
+                        {copy.losesData ? (
+                          <span className="weq-set-level-loss">
+                            <AlertTriangle size={11} strokeWidth={1.9} aria-hidden />
+                            会少数据
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="weq-set-level-action">
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          className={`weq-set-btn weq-set-btn-sm${active ? '' : ' weq-set-btn-soft'}`}
+                          disabled={busy || active}
+                          onClick={() => {
+                            if (active) return;
+                            if (copy.losesData) {
+                              setPendingLossy(copy.level);
+                              return;
+                            }
+                            void changeLevel(copy.level);
+                          }}
+                        >
+                          {active
+                            ? '已启用'
+                            : copy.level === 0
+                              ? '恢复严格'
+                              : `启用级别 ${copy.level}`}
+                        </button>
+                      </span>
+                    </div>
+                    {/* 生效范围很长，收进可展开块 —— 级别列表先做到一行一个。 */}
+                    <details className="weq-set-details weq-set-level-details">
+                      <summary>
+                        <ChevronDown size={12} aria-hidden />
+                        生效范围与代价
+                      </summary>
+                      <div className="weq-set-details-body">
+                        <p>{copy.scope}</p>
+                      </div>
+                    </details>
+                    {confirming ? (
+                      <div className="weq-set-confirm" role="group" aria-live="polite">
+                        <span className="weq-set-confirm-text">
+                          <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
+                          <span>
+                            {copy.confirm} {SALVAGE_EXPERIMENTAL_NOTE}
+                          </span>
+                        </span>
+                        <span className="weq-set-confirm-actions">
+                          <button
+                            type="button"
+                            className="weq-set-btn weq-set-btn-sm"
+                            disabled={busy}
+                            onClick={() => void changeLevel(copy.level)}
+                          >
+                            确认启用级别 {copy.level}
+                          </button>
+                          <button
+                            type="button"
+                            className="weq-set-btn weq-set-btn-sm weq-set-btn-soft"
+                            disabled={busy}
+                            onClick={() => setPendingLossy(null)}
+                          >
+                            取消
+                          </button>
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+            {level >= 1 && grantedAt ? (
+              <p className="weq-set-note">
+                <ShieldCheck size={12} strokeWidth={1.9} aria-hidden />
+                <span>
+                  已于 {new Date(grantedAt).toLocaleString()} 授权，在本机对该账号持续生效；
+                  随时可以在这里回到级别 0。
+                </span>
+              </p>
+            ) : (
+              <p className="weq-set-note">
+                <Info size={12} strokeWidth={1.9} aria-hidden />
+                <span>
+                  默认严格模式：损坏时照常报错，不会静默降级。开启后的每一次降级都可在「容错记录」中查看。
+                </span>
+              </p>
+            )}
+          </Card>
+        </>
+      )}
+      {page === 'status' && (
+        <Card
+          title="降级账本"
+          action={
+            tolerance.error ? (
+              <button
+                type="button"
+                className={`weq-set-iconbtn${tolerance.isFetching ? ' is-spinning' : ''}`}
+                onClick={() => void utils.account.getDbTolerance.invalidate()}
+                disabled={tolerance.isFetching}
+                title="重试读取账本"
+                aria-label="重试读取账本"
+              >
+                <RefreshCw size={14} strokeWidth={1.9} aria-hidden />
+              </button>
+            ) : undefined
+          }
+        >
+          {hasLedger && summary ? (
+            <p className="weq-set-desc">
+              共 {summary.total} 次：换了访问路径（未丢数据） {summary.indexRetreat} 次 · 跳过区间{' '}
+              {summary.skipped} 次 · 读不出来 {summary.unrecoverable} 次 · 放弃整表{' '}
+              {summary.quarantined} 次{summary.lastAt ? ` · 最近 ${shortTime(summary.lastAt)}` : ''}
+            </p>
+          ) : (
+            <p className="weq-set-desc">
+              还没有任何降级记录。只有在你开启了宽容模式、且真的遇到损坏时才会产生记录。
+            </p>
+          )}
+          {hasLedger &&
+          summary &&
+          summary.skipped + summary.unrecoverable + summary.quarantined > 0 ? (
+            <details className="weq-set-details">
+              <summary>
+                <ChevronDown size={12} aria-hidden />
+                「少数据」是什么意思
+              </summary>
+              <div className="weq-set-details-body">
+                <p>{SALVAGE_SKIPPED_SPAN_CAVEAT}</p>
+              </div>
+            </details>
+          ) : null}
+          {entries.length > 0 ? (
+            <ul className="weq-set-ledger">
+              {entries.map((entry, index) => {
+                const kind = LEDGER_KINDS[entry.kind] ?? LEDGER_KINDS.unrecoverable;
+                return (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 账本按时间倒序渲染，同一毫秒可能重复
+                  <li key={`${entry.at}:${index}`}>
+                    <span className="weq-set-ledger-meta">
+                      <span className="weq-set-mono">{shortTime(entry.at)}</span>
+                      <span>{baseName(entry.dbPath)}</span>
+                      <span
+                        className={`weq-set-badge${kind.losesData ? ' weq-set-badge-warn' : ''}`}
+                        title={kind.hint}
+                      >
+                        {kind.label}
+                      </span>
+                      {entry.errorCode != null ? (
+                        <span className="weq-set-mono">SQLite {entry.errorCode}</span>
                       ) : null}
                     </span>
-                  ) : null}
-                  <span className="weq-set-mono">{entry.sqlFingerprint}</span>
-                </li>
-              );
-            })}
-          </ul>
-        ) : null}
-      </Card>
+                    {entry.kind === 'skipped-ranges' && entry.message ? (
+                      <span className="weq-set-note">
+                        <span>{entry.message}</span>
+                        {entry.skippedRangeCount != null ? (
+                          <span className="weq-set-mono">
+                            {entry.skippedRangeCount} 处 · 键跨度 {entry.skippedSpanUpperBound ?? 0}
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : null}
+                    <span className="weq-set-mono">{entry.sqlFingerprint}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </Card>
+      )}
 
-      {quarantined.length > 0 ? (
+      {page === 'status' && quarantined.length > 0 ? (
         <Card
           title="已放弃的表（隔离中）"
           action={

@@ -14,6 +14,8 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
 import { createRequire } from 'node:module';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
+import { installRendererDiagnosticSampling } from './renderer_diagnostics';
+import type { EditMenuState } from '../shared/edit_menu';
 
 // Same CJS workaround as src/main/index.ts — electron-trpc 0.7's ESM
 // build statically imports `ipcMain` from 'electron', which is not
@@ -25,7 +27,37 @@ const { exposeElectronTRPC } = requireFromHere(
 
 exposeElectronTRPC();
 
+installRendererDiagnosticSampling();
+
+let undoHandler: (() => boolean) | undefined;
+ipcRenderer.on('edit:undo', () => {
+  let handled = false;
+  try {
+    handled = undoHandler?.() === true;
+  } catch {
+    // 业务撤销不可用时保留 Electron 的原生文字撤销。
+  }
+  if (!handled) ipcRenderer.send('edit:undo-text');
+});
+ipcRenderer.send('edit:undo-ready');
+
 const weqBridge = {
+  editUndo: {
+    onRefresh(handler: () => void): () => void {
+      const listener = () => handler();
+      ipcRenderer.on('edit:refresh', listener);
+      return () => ipcRenderer.removeListener('edit:refresh', listener);
+    },
+    update(state: EditMenuState): void {
+      ipcRenderer.send('edit:menu-state', state);
+    },
+    onUndo(handler: () => boolean): () => void {
+      undoHandler = handler;
+      return () => {
+        if (undoHandler === handler) undoHandler = undefined;
+      };
+    },
+  },
   openLogDir: (): Promise<boolean> => ipcRenderer.invoke('logs:open-dir') as Promise<boolean>,
   /**
    * 用户选 / 拖 / 粘贴进来的文件的**本机绝对路径**（Electron 32+ 的 `webUtils`）。

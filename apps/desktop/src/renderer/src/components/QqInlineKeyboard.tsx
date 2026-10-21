@@ -4,15 +4,17 @@
  * 机器人卡片底部的按钮组，与同一条消息里的 markdown 正文成对出现。按钮按行分组，
  * 一行内的按钮等宽平分。
  *
- * 按钮只是**展示**：真正的点击要回调机器人后端，本地库没有那条链路。带 http(s)
- * 链接的按钮（actionType=2）可以打开，其余按钮渲染成不可点的样子 —— 与其假装能
- * 点然后什么都不发生，不如一眼看出来。
+ * 链接按钮沿用外部链接处理；回调按钮只有在原消息定位及机器人身份齐全时才启用。
+ * 转发预览或缺失元数据的按钮保持只读，不用外层消息的位置伪造回调。
  */
 
 import { ExternalLink } from 'lucide-react';
 import { openLink } from '../lib/linkify';
+import { client } from '../trpc/client';
+import { ActionFeedback, useQQAction } from './qq-actions/shared';
 
 export interface KeyboardButton {
+  buttonId?: string;
   label: string;
   action: string;
   actionType: number;
@@ -22,7 +24,17 @@ const BTN_BASE =
   'flex-1 min-w-0 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg ' +
   'border text-sm truncate transition-colors';
 
-export function QqInlineKeyboard({ rows }: { rows: KeyboardButton[][] }) {
+export function QqInlineKeyboard({
+  rows,
+  groupId,
+  sequence,
+  botAppid,
+}: {
+  rows: KeyboardButton[][];
+  groupId?: string;
+  sequence?: string;
+  botAppid?: string;
+}) {
   if (rows.length === 0) return null;
 
   return (
@@ -45,6 +57,21 @@ export function QqInlineKeyboard({ rows }: { rows: KeyboardButton[][] }) {
                 <ExternalLink size={13} className="shrink-0" />
                 <span className="truncate">{button.label}</span>
               </button>
+            ) : button.actionType === 1 &&
+              button.buttonId &&
+              groupId &&
+              sequence &&
+              botAppid &&
+              /^[1-9]\d*$/.test(groupId) &&
+              /^[1-9]\d*$/.test(sequence) &&
+              /^[1-9]\d*$/.test(botAppid) ? (
+              <CallbackButton
+                key={button.buttonId}
+                button={button}
+                groupId={groupId}
+                sequence={sequence}
+                botAppid={botAppid}
+              />
             ) : (
               <span
                 // biome-ignore lint/suspicious/noArrayIndexKey: 同上
@@ -58,6 +85,48 @@ export function QqInlineKeyboard({ rows }: { rows: KeyboardButton[][] }) {
           })}
         </div>
       ))}
+    </div>
+  );
+}
+
+function CallbackButton({
+  button,
+  groupId,
+  sequence,
+  botAppid,
+}: {
+  button: KeyboardButton;
+  groupId: string;
+  sequence: string;
+  botAppid: string;
+}) {
+  const a = useQQAction(`keyboard:${groupId}:${sequence}:${button.buttonId}`);
+  return (
+    <div className="weq-qq-keyboard-action">
+      <button
+        type="button"
+        className={`${BTN_BASE} border-border text-foreground`}
+        disabled={a.disabled}
+        title={button.label}
+        onClick={() =>
+          void a.perform(
+            (b) =>
+              client.account.qqActions.inlineButton.mutate({
+                ...b,
+                groupId: Number(groupId),
+                sequence,
+                botAppid,
+                buttonId: button.buttonId!,
+                callbackData: button.action,
+              }),
+            undefined,
+            `向机器人提交「${button.label}」？`,
+          )
+        }
+      >
+        {button.label}
+      </button>
+      <ActionFeedback action={a} />
     </div>
   );
 }

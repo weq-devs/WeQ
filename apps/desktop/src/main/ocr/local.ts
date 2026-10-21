@@ -49,7 +49,7 @@ export function resolveLocalOcrModel(): LocalOcrModel | null {
   if (localOcrBlocker()) return null;
   const boot = getAppContext().bootstrap;
   if (!boot) return null;
-  const modelId = boot.userConfig.getSettings().ocr.modelId;
+  const modelId = boot.userConfig.getLocalModelId('ocr');
   if (!modelId) return null;
   const model = getOcrModel(modelId);
   // 筛图模型不出文字，不能拿来当识别模型用。
@@ -87,7 +87,7 @@ export function resolveLocalOcrFilterModel(): LocalOcrFilterModel | null {
   if (localOcrBlocker()) return null;
   const boot = getAppContext().bootstrap;
   if (!boot) return null;
-  const modelId = boot.userConfig.getSettings().ocr.filterModelId;
+  const modelId = boot.userConfig.getLocalModelId('filter');
   if (!modelId) return null;
   const model = getOcrModel(modelId);
   // 识别模型不能拿来筛图（它要 rec / dict，这里只给 det）。
@@ -192,7 +192,7 @@ export async function runLocalOcrFile(imagePath: string): Promise<OcrImageOutcom
   const blocker = localOcrBlocker();
   if (blocker) return { ok: false, error: blocker };
   const model = resolveLocalOcrModel();
-  if (!model) return { ok: false, error: '没有可用的本地识别模型（设置 → 图片识别）' };
+  if (!model) return { ok: false, error: '没有可用的本地识别模型（设置 → 模型与识别 → 图片识别）' };
   try {
     const r = await runLocalOcr(imagePath, model);
     return {

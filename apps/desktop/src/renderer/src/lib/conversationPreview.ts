@@ -13,6 +13,7 @@
  */
 
 import { DOMParser, type Node } from '@xmldom/xmldom';
+import { TipGroupElementType } from '@weq/codec';
 import { flashPreviewLabel } from './flashShare';
 import { SELF_LABEL } from './selfIdentity';
 
@@ -164,10 +165,10 @@ function grayTipNodes(
 }
 
 /**
- * 群提示（入群 / 退群 / 禁言 / 解散）。文案与聊天区 `elementText` 保持一致，
+ * 群提示（入群 / 群名修改 / 禁言 / 解散）。文案与聊天区 `elementText` 保持一致，
  * 字段来自 40051 自带的 groupTipType / user1Nick / user2Nick / muteInfo。
  */
-function groupTipText(el: Rec): string | null {
+export function groupTipText(el: Rec): string | null {
   const user1 = str(el.user1GroupNick) || str(el.user1Nick);
   const user2 = str(el.user2GroupNick) || str(el.user2Nick);
   const mute = el.muteInfo as Rec | undefined;
@@ -181,16 +182,18 @@ function groupTipText(el: Rec): string | null {
   }
 
   switch (num(el.groupTipType)) {
-    case 1:
+    case TipGroupElementType.KMEMBERADD:
       // 群成员加入：直接显示入群者昵称（与聊天区 elementText 一致），
       // 不区分邀请/主动加入，也无需 user2。
       return user1 ? `${user1} 加入了群聊` : null;
-    case 2:
+    case TipGroupElementType.KDISBANDED:
       return '该群已被群主解散';
-    case 3:
+    case TipGroupElementType.KQUITTE:
       return user1 ? `${user1} 将你移出了群聊` : null;
-    case 5:
-      return user1 ? `${user1} 退出了群聊` : null;
+    case TipGroupElementType.KGROUPNAMEMODIFIED: {
+      const name = str(el.groupTipGroupName).trim();
+      return `${user1 ? `${user1} ` : ''}${name ? `修改群名为 ${name}` : '修改了群名'}`;
+    }
     default:
       return user1 ? `${user1} 更新了群信息` : null;
   }

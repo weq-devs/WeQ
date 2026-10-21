@@ -28,15 +28,23 @@ import {
   RefreshCw,
   Repeat2,
   Send,
+  Settings,
   ThumbsUp,
   VideoOff,
   X,
 } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from '../components/QqAvatar';
-import { QzoneExportLightbox } from './export/QzoneExportLightbox';
+import {
+  useContentMultiSelect,
+  useCurrentContentSelection,
+  useRequestContentExport,
+} from '../state/contentSelection';
+import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { QzoneMediaPreview, type QzonePreviewMedia } from '../components/QzoneMediaPreview';
+import { QzoneWriteActions, type QzoneLikeChange } from '../components/qq-actions/MediaActions';
+import { withQQAccountScope } from '../components/qq-actions/shared';
 import { albumMediaUrl, avatarFetchUrl } from '../lib/resourceUrl';
 import {
   projectQzoneFeed,
@@ -46,6 +54,7 @@ import {
   qzoneAlbumTarget,
 } from '../lib/qzone';
 import { Modal } from '../components/Dialog';
+import { QzoneSettingsSection } from '../components/settings/QzoneSettingsSection';
 import type { QzoneEmotion, QzoneFeed, QzoneInteraction, QzoneLikesResult } from './qzone_types';
 import '../styles/qzone.css';
 import {
@@ -56,6 +65,7 @@ import {
 } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
+import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { completeQzonePostText, qzoneImageCompletionScope } from '../lib/qzoneCompletion';
 import { qzoneReplyPresentation } from '../lib/qzoneReplyPresentation';
 import {
@@ -90,21 +100,24 @@ function QzonePage({
   children: ReactElement;
 }) {
   const scroll = useRef<HTMLDivElement>(null);
+  const activity = useQQReadActivity(active);
   const position = useRef(0);
-  const entered = useRef(false);
   const previousActive = useRef(false);
-  const [entryRefresh, setEntryRefresh] = useState(0);
+  const [entry, setEntry] = useState({ active, refresh: 0 });
+  let entryRefresh = entry.refresh;
+  if (entry.active !== active) {
+    if (active && position.current <= 48) entryRefresh++;
+    setEntry({ active, refresh: entryRefresh });
+  }
   useLayoutEffect(() => {
     if (active && !previousActive.current) {
       if (scroll.current) scroll.current.scrollTop = position.current;
-      if (entered.current && position.current <= 48) setEntryRefresh((value) => value + 1);
-      entered.current = true;
     }
     previousActive.current = active;
   }, [active]);
   const context = useMemo(
-    () => ({ active, refresh: refreshKey + entryRefresh }),
-    [active, refreshKey, entryRefresh],
+    () => ({ active: activity.enabled, refresh: refreshKey + entryRefresh + activity.revision }),
+    [activity.enabled, activity.revision, refreshKey, entryRefresh],
   );
   return (
     <div
@@ -126,11 +139,13 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
   selfUin,
   nickname,
   spaceRequest,
+  onSpaceChange,
 }: {
   active: boolean;
   selfUin: string;
   nickname: string;
   spaceRequest?: QzoneSpaceRequest | null;
+  onSpaceChange?: (uin: string) => void;
 }) {
   const [visited, setVisited] = useState(active);
   useEffect(() => {
@@ -143,6 +158,7 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
         selfUin={selfUin}
         nickname={nickname}
         spaceRequest={spaceRequest}
+        onSpaceChange={onSpaceChange}
       />
     </div>
   ) : null;
@@ -180,18 +196,21 @@ const QzonePeopleContext = createContext<QzonePeople>({
   names: {},
   request: () => {},
 });
-function useQzonePeople(selfUin: string): QzonePeople {
+function useQzonePeople(selfUin: string, enabled: boolean): QzonePeople {
   const [names, setNames] = useState<Record<string, string>>({});
   const known = useRef(names);
   known.current = names;
   const pending = useRef(new Set<string>());
   const attempts = useRef(new Map<string, number>());
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const active = useRef(true);
-  const { run } = useQzoneRequests();
+  const active = useRef(enabled);
+  active.current = enabled;
+  const { run, cancel } = useQzoneRequests();
   const request = useCallback(
     (uin: string) => {
       if (
+        !enabled ||
+        !active.current ||
         !/^[1-9]\d{4,19}$/.test(uin) ||
         known.current[uin] ||
         Date.now() - (attempts.current.get(uin) ?? 0) < 60000
@@ -221,15 +240,18 @@ function useQzonePeople(selfUin: string): QzonePeople {
       };
       timer.current = setTimeout(flush, 80);
     },
-    [selfUin, run],
+    [selfUin, run, enabled],
   );
   useEffect(() => {
-    active.current = true;
+    active.current = enabled;
     return () => {
       active.current = false;
       if (timer.current !== undefined) clearTimeout(timer.current);
+      timer.current = undefined;
+      for (const id of attempts.current.keys()) if (!known.current[id]) attempts.current.delete(id);
+      cancel();
     };
-  }, []);
+  }, [enabled, cancel]);
   return useMemo(() => ({ names, request }), [names, request]);
 }
 
@@ -336,13 +358,17 @@ export function QzoneView({
   nickname,
   active = true,
   spaceRequest,
+  onSpaceChange,
 }: {
   selfUin: string;
   nickname: string;
   active?: boolean;
   spaceRequest?: QzoneSpaceRequest | null;
+  /** 当前正在看谁的空间（自己或好友的 QQ 号），供浮动工具按当前位置导出。 */
+  onSpaceChange?: (uin: string) => void;
 }): ReactElement {
-  const people = useQzonePeople(selfUin);
+  const activity = useQQReadActivity(active);
+  const people = useQzonePeople(selfUin, activity.enabled);
   const initialSpace = spaceRequest?.accountUin === selfUin ? spaceRequest : null;
   const [tab, setTab] = useState<Tab>(
     initialSpace ? (initialSpace.uin === selfUin ? 'posts' : 'space') : 'feeds',
@@ -350,6 +376,10 @@ export function QzoneView({
   const handledRequest = useRef<string | null>(null);
   const tabBar = useRef<HTMLElement>(null);
   const [hostUin, setHostUin] = useState(initialSpace?.uin ?? selfUin);
+  // 把自己的空间状态同步给外层（浮动工具按当前位置导出当前空间）。
+  useEffect(() => {
+    onSpaceChange?.(hostUin);
+  }, [hostUin, onSpaceChange]);
   const [spaces, setSpaces] = useState<string[]>(
     initialSpace && initialSpace.uin !== selfUin ? [initialSpace.uin] : [],
   );
@@ -363,6 +393,9 @@ export function QzoneView({
     setOwnerNames((current) => (current[uin] === value ? current : { ...current, [uin]: value }));
   }, []);
   const [albumRequests, setAlbumRequests] = useState<Record<string, QzoneAlbumRequest>>({});
+  const [postRequests, setPostRequests] = useState<
+    Record<string, { tid: string; revision: string }>
+  >({});
   const rememberSpaceName = useCallback((uin: string, name: string) => {
     const value = name.trim();
     if (!value) return;
@@ -372,7 +405,8 @@ export function QzoneView({
   }, []);
   const [inputUin, setInputUin] = useState('');
   const [targetError, setTargetError] = useState('');
-  const [exportTarget, setExportTarget] = useState<{ uin: string; name: string } | null>(null);
+  const requestExport = useRequestContentExport();
+  const contentSelection = useCurrentContentSelection();
   const [refreshes, setRefreshes] = useState<Record<string, number>>({});
   const [visited, setVisited] = useState<Tab[]>([tab]);
   useEffect(() => {
@@ -388,10 +422,10 @@ export function QzoneView({
     if (target.left < bounds.left) bar.scrollLeft += target.left - bounds.left;
     else if (target.right > bounds.right) bar.scrollLeft += target.right - bounds.right;
   }, [tab, hostUin]);
-  const selectedPage = tab === 'space' ? `space:${hostUin}` : tab;
   const refreshPage = (key: string) =>
     setRefreshes((current) => ({ ...current, [key]: (current[key] ?? 0) + 1 }));
   const [compose, setCompose] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const openSpace = useCallback(
     (uin: string, name?: string): void => {
       const value = uin.trim();
@@ -421,6 +455,23 @@ export function QzoneView({
       return;
     handledRequest.current = spaceRequest.revision;
     openSpace(spaceRequest.uin, spaceRequest.nickname);
+    if (spaceRequest.target?.kind === 'album')
+      setAlbumRequests((current) => ({
+        ...current,
+        [spaceRequest.uin]: {
+          hostUin: spaceRequest.uin,
+          topicId: spaceRequest.target!.kind === 'album' ? spaceRequest.target!.topicId : '',
+          name: '',
+          revision: spaceRequest.revision,
+        },
+      }));
+    if (spaceRequest.target?.kind === 'post') {
+      const tid = spaceRequest.target.tid;
+      setPostRequests((current) => ({
+        ...current,
+        [spaceRequest.uin]: { tid, revision: spaceRequest.revision },
+      }));
+    }
   }, [active, selfUin, spaceRequest, openSpace]);
   const workspace = (
     <QzonePeopleContext.Provider value={people}>
@@ -436,28 +487,28 @@ export function QzoneView({
           <div className="weq-qzn-tools">
             <button
               type="button"
-              title="导出说说"
-              aria-label="导出说说"
-              onClick={() => {
-                const uin = tab === 'space' ? hostUin : selfUin;
-                setExportTarget({
-                  uin,
-                  name:
-                    uin === selfUin
-                      ? nickname
-                      : ownerNames[uin] || spaceNames[uin] || people.names[uin] || uin,
-                });
-              }}
+              title="空间设置"
+              aria-label="空间设置"
+              onClick={() => setSettingsOpen(true)}
             >
-              <Download size={17} />
+              <Settings size={17} />
             </button>
             <button
               type="button"
-              title="刷新空间"
-              aria-label="刷新空间"
-              onClick={() => refreshPage(selectedPage)}
+              title="导出说说"
+              aria-label="导出说说"
+              disabled={!requestExport}
+              onClick={() => {
+                const uin = tab === 'space' ? hostUin : selfUin;
+                requestExport?.(
+                  contentSelection?.owner.kind === 'qzone-posts' &&
+                    contentSelection.owner.container === uin
+                    ? contentSelection
+                    : { owner: { kind: 'qzone-posts', container: uin }, scope: { type: 'all' } },
+                );
+              }}
             >
-              <RefreshCw size={17} />
+              <Download size={17} />
             </button>
             <button type="button" className="weq-qzn-primary" onClick={() => setCompose(true)}>
               <Send size={15} />
@@ -576,6 +627,7 @@ export function QzoneView({
             hostUin={selfUin}
             nickname={nickname}
             albumRequest={albumRequests[selfUin]}
+            postRequest={postRequests[selfUin]}
             onSpace={openSpace}
             onOwnerNickname={rememberOwnerName}
           />
@@ -590,13 +642,11 @@ export function QzoneView({
             nickname={spaceNames[uin] || uin}
             ownerNickname={ownerNames[uin]}
             albumRequest={albumRequests[uin]}
+            postRequest={postRequests[uin]}
             onSpace={openSpace}
             onOwnerNickname={rememberOwnerName}
           />
         ))}
-        {exportTarget && active ? (
-          <QzoneExportLightbox target={exportTarget} onClose={() => setExportTarget(null)} />
-        ) : null}
         {compose && active ? (
           <Composer
             selfUin={selfUin}
@@ -623,6 +673,29 @@ export function QzoneView({
       }}
     >
       {workspace}
+      {settingsOpen && active ? (
+        <Modal
+          presentation="panel"
+          onClose={() => setSettingsOpen(false)}
+          width={480}
+          labelledBy="weq-qzone-settings-title"
+        >
+          <header className="weq-tools-header">
+            <h2 id="weq-qzone-settings-title">空间设置</h2>
+            <button
+              type="button"
+              aria-label="关闭空间设置"
+              title="关闭空间设置"
+              onClick={() => setSettingsOpen(false)}
+            >
+              <X size={18} />
+            </button>
+          </header>
+          <div className="weq-local-settings-body">
+            <QzoneSettingsSection />
+          </div>
+        </Modal>
+      ) : null}
     </QzoneAlbumNavigationContext.Provider>
   );
 }
@@ -636,6 +709,7 @@ function SpaceContent({
   nickname,
   ownerNickname,
   albumRequest,
+  postRequest,
   onSpace,
   onOwnerNickname,
 }: {
@@ -646,6 +720,7 @@ function SpaceContent({
   nickname: string;
   ownerNickname?: string;
   albumRequest?: QzoneAlbumRequest;
+  postRequest?: { tid: string; revision: string };
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
@@ -655,6 +730,9 @@ function SpaceContent({
   const [pane, setPane] = useState<'posts' | 'albums'>('posts');
   const [visitedAlbums, setVisitedAlbums] = useState(false);
   const [refreshes, setRefreshes] = useState({ posts: 0, albums: 0 });
+  useEffect(() => {
+    if (postRequest) setPane('posts');
+  }, [postRequest]);
   useEffect(() => {
     if (
       !albumRequest ||
@@ -707,13 +785,25 @@ function SpaceContent({
         ) : null}
       </nav>
       <QzonePage active={active && pane === 'posts'} refreshKey={refreshes.posts}>
-        <Posts
-          selfUin={selfUin}
-          hostUin={hostUin}
-          nickname={ownerNickname || nickname}
-          onSpace={onSpace}
-          onOwnerNickname={onOwnerNickname}
-        />
+        <div className="weq-qzn-timeline">
+          {postRequest ? (
+            <LinkedPost
+              key={postRequest.revision}
+              selfUin={selfUin}
+              hostUin={hostUin}
+              tid={postRequest.tid}
+              nickname={ownerNickname || nickname}
+              onSpace={onSpace}
+            />
+          ) : null}
+          <Posts
+            selfUin={selfUin}
+            hostUin={hostUin}
+            nickname={ownerNickname || nickname}
+            onSpace={onSpace}
+            onOwnerNickname={onOwnerNickname}
+          />
+        </div>
       </QzonePage>
       {visitedAlbums ? (
         <QzonePage active={active && pane === 'albums'} refreshKey={refreshes.albums}>
@@ -725,6 +815,74 @@ function SpaceContent({
           />
         </QzonePage>
       ) : null}
+    </div>
+  );
+}
+
+function LinkedPost({
+  selfUin,
+  hostUin,
+  tid,
+  nickname,
+  onSpace,
+}: {
+  selfUin: string;
+  hostUin: string;
+  tid: string;
+  nickname: string;
+  onSpace: (uin: string, nickname?: string) => void;
+}) {
+  const { run, cancel } = useQzoneRequests();
+  const { active } = useContext(QzonePageContext);
+  const [post, setPost] = useState<QzoneEmotion | null>(null);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
+  const ref = useRef<HTMLDivElement>(null);
+  const shownTid = useRef('');
+  useEffect(() => {
+    if (!active) return;
+    let live = true;
+    setError('');
+    setPost((current) => (current?.tid === tid ? current : null));
+    if (shownTid.current !== tid) ref.current?.scrollIntoView({ block: 'start' });
+    shownTid.current = tid;
+    void run(
+      (requestId) => client.account.qzone.detail.query({ selfUin, hostUin, tid, requestId }),
+      true,
+    )
+      .then((result) => {
+        if (!live) return;
+        if (!result.post) throw new Error('动态详情不存在或无权访问');
+        setPost(result.post);
+      })
+      .catch((cause) => {
+        if (live) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => {
+      live = false;
+      cancel();
+    };
+  }, [active, selfUin, hostUin, tid, retry, run, cancel]);
+  return (
+    <div ref={ref} className="weq-qzn-linked-post">
+      {post ? (
+        <Post
+          selfUin={selfUin}
+          hostUin={hostUin}
+          nickname={nickname}
+          post={post}
+          onSpace={onSpace}
+        />
+      ) : error ? (
+        <p role="alert">
+          {error}
+          <button type="button" onClick={() => setRetry((value) => value + 1)}>
+            重试
+          </button>
+        </p>
+      ) : (
+        <p role="status">正在读取动态…</p>
+      )}
     </div>
   );
 }
@@ -878,9 +1036,18 @@ function Posts({
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
-  const { refresh } = useContext(QzonePageContext);
+  const { active, refresh } = useContext(QzonePageContext);
   const lastRefresh = useRef(refresh);
   const [posts, setPosts] = useState<QzoneEmotion[]>([]);
+  const selection = useContentMultiSelect({ kind: 'qzone-posts', container: hostUin });
+  const multi = useMultiSelection({
+    ids: posts.map((post) => post.tid),
+    selected: selection.selectedIds,
+    onChange: selection.setSelectedIds,
+    enabled: selection.selectionMode,
+    onStart: () => selection.setSelectionMode(true),
+    onExit: () => selection.setSelectionMode(false),
+  });
   const [offset, setOffset] = useState(0);
   const lastOffset = useRef(offset);
   const headRequest = useRef(false);
@@ -906,6 +1073,10 @@ function Posts({
   const [retry, setRetry] = useState(0);
   const { run, cancel } = useQzoneRequests();
   useEffect(() => {
+    if (!active) {
+      setLoading(false);
+      return;
+    }
     let live = true;
     setLoading(true);
     setError('');
@@ -969,13 +1140,13 @@ function Posts({
       live = false;
       cancel();
     };
-  }, [selfUin, hostUin, offset, pageRequest, retry, refresh, run, cancel, onOwnerNickname]);
+  }, [active, selfUin, hostUin, offset, pageRequest, retry, refresh, run, cancel, onOwnerNickname]);
   useEffect(() => {
     if (nearEnd && posts.length > 0 && !loading && !done && !error) loadOffset(nextOffset.current);
   }, [nearEnd, posts.length, loading, done, error, loadOffset]);
   const pageCountLabel = `（已获取 ${fetchedPages.current.size} 页）`;
   return (
-    <div className="weq-qzn-timeline">
+    <div {...multi.rootProps}>
       <SpaceStats key={hostUin} selfUin={selfUin} hostUin={hostUin} />
       {loading && posts.length > 0 && headRequest.current ? (
         <LoadingStatus text={`正在刷新…${pageCountLabel}`} />
@@ -987,6 +1158,8 @@ function Posts({
           hostUin={hostUin}
           nickname={nickname}
           post={post}
+          selectionProps={multi.itemProps(post.tid)}
+          selected={selection.selectedIds.has(post.tid)}
           ownerSpace
           onSpace={onSpace}
         />
@@ -1075,6 +1248,8 @@ function Post({
   links = [],
   focusComment,
   readComments,
+  selectionProps,
+  selected = false,
 }: {
   selfUin: string;
   hostUin: string;
@@ -1087,6 +1262,8 @@ function Post({
   links?: ReturnType<typeof projectQzoneFeed>['links'];
   focusComment?: RelatedComment | null;
   readComments?: () => Promise<QzoneInteraction>;
+  selectionProps?: MultiSelectionItemProps;
+  selected?: boolean;
 }) {
   const localRef = useRef<HTMLElement>(null);
   const ref = articleRef ?? localRef;
@@ -1240,7 +1417,12 @@ function Post({
       )
     : post.videos;
   return (
-    <article ref={ref} className="weq-qzn-post">
+    <article
+      ref={ref}
+      {...selectionProps}
+      data-qzone-tid={post.tid}
+      className={`weq-qzn-post${selected ? ' is-selected' : ''}`}
+    >
       <div className="weq-qzn-post-head">
         <button
           type="button"
@@ -1422,7 +1604,8 @@ function Repost({
 type InteractionPost = Pick<QzoneEmotion, 'tid' | 'time'> & {
   commentNum: number | null;
 };
-function PostActions({
+const PostActions = withQQAccountScope(PostActionsBody);
+function PostActionsBody({
   selfUin,
   hostUin,
   post,
@@ -1452,6 +1635,15 @@ function PostActions({
   const [loading, setLoading] = useState(false);
   const { refresh } = useContext(QzonePageContext);
   const summaryRefresh = useRef<number | null>(null);
+  const summaryGeneration = useRef(0);
+  const [writeRevision, setWriteRevision] = useState(0);
+  const [likeRevision, setLikeRevision] = useState(0);
+  const [likeChange, setLikeChange] = useState<{
+    write: QzoneLikeChange;
+    count: number | null;
+  } | null>(null);
+  const previousLikeChange = useRef(likeChange);
+  const likePending = likeChange?.write.pending === true;
   const readsPaused = useContext(QzoneReadPauseContext);
   const [commentCount, setCommentCount] = useState(post.commentNum);
   useEffect(() => {
@@ -1461,8 +1653,11 @@ function PostActions({
   const visible = useNearViewport(ref, true);
   const { run, cancel } = useQzoneRequests();
   useEffect(() => {
-    if (readsPaused || !visible || summaryRefresh.current === refresh) return undefined;
+    if (readsPaused || !visible || likePending || summaryRefresh.current === refresh)
+      return undefined;
     let live = true;
+    const generation = ++summaryGeneration.current;
+    const current = () => live && generation === summaryGeneration.current;
     setLoading(true);
     void run(
       (requestId) =>
@@ -1471,30 +1666,52 @@ function PostActions({
           hostUin,
           tid: post.tid,
           requestId,
-          needCommentCount: post.commentNum === null,
+          needCommentCount: post.commentNum === null || writeRevision > 0,
         }),
       true,
     )
       .then((result) => {
-        if (live) {
+        if (current()) {
           summaryRefresh.current = refresh;
-          if (result.likes) setLikes(result.likes);
+          if (result.likes) {
+            setLikes(result.likes);
+            setLikeChange(null);
+            previousLikeChange.current = null;
+            setLikeRevision((value) => value + 1);
+          }
           if (result.commentCount !== null) setCommentCount(result.commentCount);
-          setLikeError('');
+          setLikeError(
+            result.likes && (result.commentCount !== null || writeRevision === 0)
+              ? ''
+              : '互动数据不完整，请重试。',
+          );
         }
       })
       .catch((error: unknown) => {
-        if (live) setLikeError(errorText(error));
+        if (current()) setLikeError(errorText(error));
       })
       .finally(() => {
-        if (live) setLoading(false);
+        if (current()) setLoading(false);
       });
     return () => {
       live = false;
       cancel();
     };
-  }, [readsPaused, visible, selfUin, hostUin, post.tid, post.commentNum, refresh, run, cancel]);
-  const likeCount = likes?.reportedTotal ?? initialLikeCount;
+  }, [
+    readsPaused,
+    visible,
+    selfUin,
+    hostUin,
+    post.tid,
+    post.commentNum,
+    refresh,
+    run,
+    cancel,
+    writeRevision,
+    likePending,
+  ]);
+  const remoteLikeCount = likes?.reportedTotal ?? initialLikeCount;
+  const likeCount = likeChange ? likeChange.count : remoteLikeCount;
   return (
     <div ref={ref}>
       <div className="weq-qzn-actions">
@@ -1520,7 +1737,62 @@ function PostActions({
           浏览 {likes?.reportedViewCount ?? '?'}
         </span>
         {loading ? <Loader2 size={13} className="weq-spin" aria-label="正在加载互动数据" /> : null}
+        {likeError && (
+          <button
+            type="button"
+            title="重试互动数据校准"
+            aria-label="重试互动数据校准"
+            onClick={() => {
+              summaryRefresh.current = null;
+              setWriteRevision((value) => value + 1);
+            }}
+          >
+            <RefreshCw size={14} />
+          </button>
+        )}
       </div>
+      {likeError && (
+        <p className="weq-qzn-status" role="status">
+          互动数据暂未校准：{likeError}
+        </p>
+      )}
+      <QzoneWriteActions
+        key={`${hostUin}:${post.tid}`}
+        hostUin={hostUin}
+        tid={post.tid}
+        time={post.time}
+        initialLiked={
+          likes?.likes.some((person) => person.uin === selfUin)
+            ? true
+            : likes?.coverage === 'complete'
+              ? false
+              : null
+        }
+        likeRevision={likeRevision}
+        onLikeChange={(change) => {
+          summaryGeneration.current++;
+          summaryRefresh.current = null;
+          if (change?.pending) {
+            previousLikeChange.current = likeChange;
+            const delta =
+              change.previous === null ? 0 : Number(change.next) - Number(change.previous);
+            setLikeChange({
+              write: change,
+              count: likeCount === null ? null : Math.max(0, likeCount + delta),
+            });
+          } else if (change) {
+            setLikeChange((current) => (current ? { ...current, write: change } : null));
+          } else {
+            setLikeChange(previousLikeChange.current);
+          }
+        }}
+        onCommentAccepted={() => setCommentCount((count) => (count === null ? null : count + 1))}
+        onChanged={() => {
+          summaryGeneration.current++;
+          summaryRefresh.current = null;
+          setWriteRevision((value) => value + 1);
+        }}
+      />
       {expanded ? (
         <Interaction
           key={expanded}
@@ -1532,7 +1804,9 @@ function PostActions({
           initialLikes={likes}
           onCommentCount={setCommentCount}
           focusComment={focusComment}
-          readComments={readComments}
+          readComments={writeRevision > 0 ? undefined : readComments}
+          writeRevision={writeRevision}
+          writePending={likePending}
         />
       ) : null}
     </div>
@@ -1777,6 +2051,8 @@ function Interaction({
   onCommentCount,
   focusComment,
   readComments,
+  writeRevision = 0,
+  writePending = false,
 }: {
   mode: 'comments' | 'likes';
   selfUin: string;
@@ -1787,6 +2063,8 @@ function Interaction({
   onCommentCount: (count: number) => void;
   focusComment?: RelatedComment | null;
   readComments?: () => Promise<QzoneInteraction>;
+  writeRevision?: number;
+  writePending?: boolean;
 }) {
   const focusRef = useRef<HTMLDivElement>(null);
   const readsPaused = useContext(QzoneReadPauseContext);
@@ -1803,7 +2081,7 @@ function Interaction({
       focusRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [active, result, focusComment?.id]);
   useEffect(() => {
-    if (!active || readsPaused) return undefined;
+    if (!active || readsPaused || writePending) return undefined;
     let live = true;
     setError('');
     setLoading(false);
@@ -1902,6 +2180,8 @@ function Interaction({
     readyLikes,
     onCommentCount,
     readComments,
+    writeRevision,
+    writePending,
   ]);
   if (!result && !likes && readsPaused)
     return <p className="weq-qzn-status">接口暂不可用，读取已暂停</p>;
@@ -3049,7 +3329,7 @@ function Composer({
         setUncertain(submitted);
         setError(
           submitted
-            ? `${errorText(error)} 请先刷新我的动态确认结果，再决定是否重新发表。`
+            ? `${errorText(error)} 请先查看我的动态确认结果，再决定是否重新发表。`
             : errorText(error),
         );
       }
@@ -3066,6 +3346,7 @@ function Composer({
       width={600}
       onClose={busy ? undefined : onClose}
       labelledBy="weq-qzn-compose-title"
+      dismissOnOutside={false}
       className="weq-qzn-compose-modal"
     >
       <section className="weq-qzn-composer">

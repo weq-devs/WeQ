@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { ozonePlatformArgs } from './src/main/linux_window_backend';
 
 /**
  * Workspace packages export TS source directly (no build step). They must
@@ -19,6 +20,18 @@ const EXCLUDE_FROM_EXTERNAL = [
   '@weq/service',
   '@weq/types',
 ];
+
+// Wayland 会话默认让 Electron 走 XWayland（平铺合成器会把 `type: 'toolbar'` 平铺掉）。
+// 这个开关**必须出现在 Electron 启动参数里**，`app.commandLine.appendSwitch` 在 ready
+// 前调用也来不及 —— 详见 src/main/linux_window_backend.ts。electron-vite 会在本配置
+// 加载完之后才读取 `ELECTRON_CLI_ARGS` 并拼到 entry 后面，所以在这里注入最稳妥。
+//
+// 放在**用户参数前面**：`pnpm dev -- --foo` 会再带一个 `--`，Chromium 只认它前面的
+// 开关；排在后面的话 ozone 会被当成应用参数吞掉。
+process.env.ELECTRON_CLI_ARGS = JSON.stringify([
+  ...ozonePlatformArgs(),
+  ...(process.env.ELECTRON_CLI_ARGS ? JSON.parse(process.env.ELECTRON_CLI_ARGS) : []),
+]);
 
 export default defineConfig({
   main: {
@@ -46,6 +59,9 @@ export default defineConfig({
           captureWorker: resolve(__dirname, 'src/main/capture_worker.ts'),
           // 密钥扫描同理：读别的进程内存要 root，单独打成 root 子进程入口。
           keyScanWorker: resolve(__dirname, 'src/main/key_scan_worker.ts'),
+          // 意图感知本地引擎：Laya ONNX 推理跑在 fork 的子进程（同 transcribeWorker
+          // 的打包/寻址约定，主进程经 intent_sense/bridge.ts 持有）。
+          intentSenseWorker: resolve(__dirname, 'src/main/intent_sense/worker.ts'),
         },
         output: {
           entryFileNames: (chunk) =>
@@ -53,7 +69,8 @@ export default defineConfig({
             chunk.name === 'ocrWorker' ||
             chunk.name === 'attachWorker' ||
             chunk.name === 'captureWorker' ||
-            chunk.name === 'keyScanWorker'
+            chunk.name === 'keyScanWorker' ||
+            chunk.name === 'intentSenseWorker'
               ? `${chunk.name}.mjs`
               : '[name].js',
         },

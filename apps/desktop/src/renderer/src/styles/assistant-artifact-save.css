@@ -1,0 +1,100 @@
+.weq-artifact-save-card {
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  border-radius: 8px;
+  border-color: var(--weq-border-subtle);
+  background: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
+}
+.weq-artifact-save-card:hover {
+  border-color: var(--weq-accent-effective);
+}
+.weq-artifact-save-card .weq-asst-artifact-icon {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+}
+.weq-artifact-save-card .weq-asst-artifact-name {
+  color: var(--weq-fg-primary);
+}
+.weq-artifact-save-card .weq-asst-artifact-meta {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.weq-artifact-save-card .weq-asst-artifact-actions {
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 4px;
+}
+.weq-artifact-save-card .weq-set-btn,
+html[data-theme='dark'] .weq-artifact-save-card .weq-set-btn {
+  white-space: nowrap;
+  border-radius: 6px;
+  border-color: var(--weq-border-strong);
+  background: transparent;
+  color: var(--weq-fg-primary);
+}
+.weq-artifact-save-card .weq-set-btn-soft,
+html[data-theme='dark'] .weq-artifact-save-card .weq-set-btn-soft {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+.weq-artifact-save-card .weq-set-btn:hover:not(:disabled),
+html[data-theme='dark'] .weq-artifact-save-card .weq-set-btn:hover:not(:disabled) {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+.weq-artifact-save-error,
+.weq-artifact-save-path {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.weq-artifact-save-error {
+  color: var(--destructive);
+}
+.weq-artifact-save-path {
+  color: var(--weq-fg-secondary);
+}
+.weq-artifact-saved-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  cursor: pointer;
+}
+.weq-artifact-saved-icon:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+html[data-theme='dark'] .weq-artifact-saved-icon:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+}
+.weq-artifact-saved-icon:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.weq-artifact-saved-icon:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+html[data-theme='dark'] .weq-artifact-save-card {
+  border-color: var(--weq-border-strong);
+}
+@media (max-width: 480px) {
+  .weq-artifact-save-card .weq-asst-artifact-actions {
+    flex-basis: 100%;
+    justify-content: flex-end;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .weq-artifact-save-card,
+  .weq-artifact-save-card * {
+    transition: none;
+    animation: none;
+  }
+}

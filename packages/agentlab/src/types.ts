@@ -52,11 +52,17 @@ export interface AgentLabModels {
 
 /** 一次 LLM 调用的 token 用量（OpenAI 兼容响应的 usage 字段）。 */
 export interface AgentLabUsage {
+  requestId?: string;
+  startedAt?: number;
+  status?: 'pending' | 'success' | 'failed' | 'cancelled' | 'interrupted';
+  feature?: string;
+  stream?: boolean;
+  source?: 'api' | 'local';
   model: string;
-  kind: 'chat' | 'embedding' | 'vision';
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
+  kind: 'chat' | 'embedding' | 'vision' | 'speech';
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
 }
 
 /** 解析后可直接调用的端点 = provider 的 baseUrl/apiKey + 选定 model。 */
@@ -65,7 +71,9 @@ export interface AgentLabEndpoint {
   apiKey: string;
   model: string;
   /** 这个端点解析时对应的任务类型（用于 token 记账分类）。 */
-  kind?: 'chat' | 'embedding' | 'vision';
+  kind?: AgentLabUsage['kind'];
+  feature?: string;
+  source?: 'api' | 'local';
   /** 每次调用后回调 token 用量（service 注入，写入用量统计）。 */
   onUsage?: (usage: AgentLabUsage) => void;
 }
@@ -270,6 +278,7 @@ export interface AgentLabPersona {
   sourceTitle: string;
   /** 每个任务选用的 provider+model */
   models: AgentLabModels;
+  generation?: import('./generation').AgentLabGenerationConfig;
   /** 用户自定义提示，拼进 system prompt */
   customPrompt?: string;
   /** 发言意愿配置（意愿闸调节；缺省=群聊按默认闸、私聊必回）。 */

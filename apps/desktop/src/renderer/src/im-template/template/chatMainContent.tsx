@@ -7,6 +7,7 @@ import {
 } from './profilePanes';
 import { ChatPane } from './chatPane';
 import type { LocalMediaRef } from './composerSend';
+import type { RepeatElement } from '../../lib/messageRepeat';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import type { FlashSendPayload } from './flashComposer';
 import type { RedPacketDraft } from './redPacketPanel';
@@ -27,6 +28,7 @@ import type {
   MainView,
   Message,
   MessageAction,
+  GroupMember,
   UnreadDock,
   User,
 } from './types';
@@ -51,6 +53,9 @@ export function ChatMainContent({
   selectedToolId,
   loadingMessages,
   atLatest,
+  latestMessageSeq,
+  onPreviewLatest,
+  onJumpToLatest,
   onReadCurrentConversation,
   conversationPrefs,
   drafts,
@@ -75,6 +80,9 @@ export function ChatMainContent({
   sendAvailable,
   onOpenNotificationSettings: _onOpenNotificationSettings,
   onSend,
+  onRepeatMessage,
+  onResolveMentions,
+  onSearchMentionMembers,
   onSendWindowShake,
   onSendArk,
   arkLocation,
@@ -91,24 +99,26 @@ export function ChatMainContent({
   onOpenGroupAlbums,
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
+  groupTodos,
+  onOpenGroupSign,
   onOpenGroupEssence,
   onOpenGroupInfoDetail,
   onRenameGroupMember,
+  onChangeGroupMemberTitle,
   onKickGroupMember,
   onOpenConversationSettings,
-  onOpenGroupAnalytics,
   onOpenGroupBug,
   onOpenGroupLeftMembers,
   groupBugOnline,
-  onOpenBuddyAnalytics,
   onOpenGroupMember,
   onAddMessage,
   onMergeForward,
+  onAddToComposition,
+  onForwardMessages,
   onViewDeleted,
   onViewRecalled,
   onOpenGapMessages,
   onSearchChatRecords,
-  onExportConversation,
   onOpenRoamingBackfill,
   deletedIds,
   onRestoreMessage,
@@ -135,6 +145,9 @@ export function ChatMainContent({
   loadingMessages: boolean;
   /** Whether `messages` is the live latest-anchored window (see ChatPane). */
   atLatest?: boolean;
+  latestMessageSeq?: string;
+  onPreviewLatest?: (conversation: Conversation) => void;
+  onJumpToLatest?: () => Promise<boolean>;
   onReadCurrentConversation?: (conversation: Conversation) => void;
   conversationPrefs: Record<string, ConversationPreference>;
   drafts: ConversationDrafts;
@@ -168,6 +181,12 @@ export function ChatMainContent({
   sendAvailable?: boolean;
   onOpenNotificationSettings: () => void;
   onSend: (body: string, locals?: LocalMediaRef[]) => Promise<void>;
+  onRepeatMessage?: (message: Message, conversation: Conversation) => Promise<void>;
+  onResolveMentions?: (
+    elements: RepeatElement[],
+    conversation: Conversation,
+  ) => Promise<RepeatElement[]>;
+  onSearchMentionMembers?: (query: string, conversation: Conversation) => Promise<GroupMember[]>;
   /** 私聊「窗口抖动」；群聊不传（按钮整个不渲染）。 */
   onSendWindowShake?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
   /** Ark 卡片面板「发送」；不传则工具栏那个按钮点开也发不出去。 */
@@ -191,6 +210,8 @@ export function ChatMainContent({
   onOpenGroupAlbums?: (conversation: GroupConversation) => void;
   onOpenGroupFiles?: (conversation: GroupConversation) => void;
   onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
+  groupTodos?: React.ReactNode;
+  onOpenGroupSign?: (conversation: GroupConversation) => void;
   onOpenGroupEssence?: (conversation: GroupConversation) => void;
   /** 群资料面板「群资料」入口：卡片本体在应用层（components/GroupInfoDetailDialog）。 */
   onOpenGroupInfoDetail?: (
@@ -199,17 +220,23 @@ export function ChatMainContent({
   ) => void;
   /** 群管理「修改群昵称」：应用层弹窗（与群公告 / 群精华同层）。 */
   onRenameGroupMember?: (conversation: GroupConversation, sender: User, targetUid: string) => void;
+  onChangeGroupMemberTitle?: (
+    conversation: GroupConversation,
+    sender: User,
+    targetUid: string,
+  ) => void;
   /** 群管理「踢出群聊」：应用层二次确认。 */
   onKickGroupMember?: (conversation: GroupConversation, sender: User, targetUid: string) => void;
   /** 顶栏设置按钮：群聊 / 私聊各自的会话设置（防撤回 + 群提醒词）。 */
-  onOpenConversationSettings?: (conversation: GroupConversation | DirectConversation) => void;
-  onOpenGroupAnalytics?: (conversation: GroupConversation) => void;
+  onOpenConversationSettings?: (
+    conversation: GroupConversation | DirectConversation,
+    anchor?: HTMLElement,
+  ) => void;
   onOpenGroupBug?: (conversation: GroupConversation) => void;
   /** 群资料面板「已退群」入口：应用层负责数据与灯箱（与群公告 / 群精华同层）。 */
   onOpenGroupLeftMembers?: (conversation: GroupConversation) => void;
   /** QQ 在线状态 —— 决定「反馈 bug」图标亮/灰。 */
   groupBugOnline?: boolean;
-  onOpenBuddyAnalytics?: (conversation: DirectConversation) => void;
   onOpenGroupMember?: (member: User, anchor: { x: number; y: number }) => void;
   onAddMessage?: (conversation: Conversation) => void;
   onViewDeleted?: (conversation: Conversation) => void;
@@ -222,8 +249,6 @@ export function ChatMainContent({
   }) => void;
   /** 顶栏「搜索聊天记录」按钮：在当前会话内搜索并跳转。 */
   onSearchChatRecords?: (conversation: Conversation) => void;
-  /** 顶栏「导出聊天记录」按钮：以当前会话为目标打开快捷导出灯箱。 */
-  onExportConversation?: (conversation: Conversation) => void;
   onOpenRoamingBackfill?: (conversation: Conversation) => void;
   /** msgIds WeQ deleted in the active conversation (in-place overlay). */
   deletedIds?: Set<string>;
@@ -231,6 +256,8 @@ export function ChatMainContent({
   onRestoreMessage?: (msgId: string) => Promise<void>;
   /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
   onMergeForward?: (messages: Message[], conversation: Conversation) => void;
+  onAddToComposition?: (messages: Message[]) => void;
+  onForwardMessages?: (messages: Message[], conversation: Conversation) => void;
   /** 未读跳转坞快照（打开会话时读进内存；见 ChatPane 的 unreadDock）。 */
   unreadDock?: UnreadDock | null;
   /** 最近一次跳转落空的目标 seq（见 ChatPane 的 missingJumpSeq）。 */
@@ -270,6 +297,9 @@ export function ChatMainContent({
       messageRenderers={messageRenderers}
       loading={loadingMessages}
       atLatest={atLatest}
+      latestMessageSeq={latestMessageSeq}
+      onPreviewLatest={onPreviewLatest}
+      onJumpToLatest={onJumpToLatest}
       onReadCurrentConversation={onReadCurrentConversation}
       preference={activeConversation ? conversationPrefs[activeConversation.id] : undefined}
       draft={activeConversation ? (drafts[activeConversation.id] ?? '') : ''}
@@ -282,6 +312,9 @@ export function ChatMainContent({
       profileLoading={profileLoading}
       sendAvailable={sendAvailable}
       onSend={onSend}
+      onRepeatMessage={onRepeatMessage}
+      onResolveMentions={onResolveMentions}
+      onSearchMentionMembers={onSearchMentionMembers}
       onSendWindowShake={onSendWindowShake}
       onSendArk={onSendArk}
       arkLocation={arkLocation}
@@ -298,24 +331,26 @@ export function ChatMainContent({
       onOpenGroupAlbums={onOpenGroupAlbums}
       onOpenGroupFiles={onOpenGroupFiles}
       onOpenGroupAnnouncements={onOpenGroupAnnouncements}
+      groupTodos={groupTodos}
+      onOpenGroupSign={onOpenGroupSign}
       onOpenGroupEssence={onOpenGroupEssence}
       onOpenGroupInfoDetail={onOpenGroupInfoDetail}
       onRenameGroupMember={onRenameGroupMember}
+      onChangeGroupMemberTitle={onChangeGroupMemberTitle}
       onKickGroupMember={onKickGroupMember}
       onOpenConversationSettings={onOpenConversationSettings}
-      onOpenGroupAnalytics={onOpenGroupAnalytics}
       onOpenGroupBug={onOpenGroupBug}
       onOpenGroupLeftMembers={onOpenGroupLeftMembers}
       groupBugOnline={groupBugOnline}
-      onOpenBuddyAnalytics={onOpenBuddyAnalytics}
       onOpenGroupMember={onOpenGroupMember}
       onAddMessage={onAddMessage}
       onMergeForward={onMergeForward}
+      onAddToComposition={onAddToComposition}
+      onForwardMessages={onForwardMessages}
       onViewDeleted={onViewDeleted}
       onViewRecalled={onViewRecalled}
       onOpenGapMessages={onOpenGapMessages}
       onSearchChatRecords={onSearchChatRecords}
-      onExportConversation={onExportConversation}
       onOpenRoamingBackfill={onOpenRoamingBackfill}
       deletedIds={deletedIds}
       onRestoreMessage={onRestoreMessage}

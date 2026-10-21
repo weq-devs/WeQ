@@ -37,3 +37,13 @@
     padding: 18px 16px;
   }
 }
+
+.weq-settings-body .weq-ar-dialog.is-embedded {
+  width: 100%;
+  height: auto;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}

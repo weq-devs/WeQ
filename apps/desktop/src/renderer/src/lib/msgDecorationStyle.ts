@@ -10,6 +10,7 @@
  */
 
 import type { BubbleSkin, FontDerived, ResolvedWidget } from '@weq/service';
+import { decorationImageCache } from './decodedImageCache';
 import {
   dressBubbleUrl,
   dressBubbleFrameUrl,
@@ -27,7 +28,8 @@ import {
 
 const STYLE_ID = 'weq-msg-decoration';
 const BUBBLE_SCALE = 0.5;
-const PAD_RATIO_Y = 0.6;
+/** 内边距 ÷ 切片，纵横共用（与 lib/dressSkin.ts 的 PAD_RATIO 同源，理由见那里）。 */
+const PAD_RATIO = 0.6;
 
 const injectedBubbles = new Set<number>();
 /**
@@ -40,12 +42,6 @@ const injectedFonts = new Set<string>();
 const injectedWidgets = new Set<number>();
 
 /**
- * 持久强引用：已解码的帧图片必须有人持有，否则浏览器在内存压力下可能丢弃解码缓存，
- * 导致 CSS @keyframes 动画第一圈各帧重新解码，出现高频闪烁。
- */
-const liveImages = new Map<string, HTMLImageElement>();
-
-/**
  * 预加载并完全解码一批图片 URL，全部就绪后 resolve（单张失败不阻塞）。
  *
  * 用 `img.decode()` 而非 `img.onload`：
@@ -56,20 +52,7 @@ const liveImages = new Map<string, HTMLImageElement>();
  * 避免动画第一圈仍因纹理上传延迟而闪烁。
  */
 function preloadImages(urls: string[]): Promise<void> {
-  return Promise.all(
-    urls.map(async (url) => {
-      if (liveImages.has(url)) return;
-      const img = new Image();
-      img.src = url;
-      try {
-        await img.decode();
-      } catch {
-        // 404 / 格式错误时 decode() 会 reject，当成成功处理，不阻塞整体。
-      }
-      // 保持强引用，防止 GC 后解码缓存被丢弃。
-      liveImages.set(url, img);
-    }),
-  ).then(
+  return Promise.all(urls.map((url) => decorationImageCache.preload(url))).then(
     () =>
       new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
@@ -288,8 +271,8 @@ export function injectBubbleCss(skin: BubbleSkin): void {
   const avgSlice = (top + bottom) / 2;
   const topDiff = avgSlice - top;
   const bottomDiff = avgSlice - bottom;
-  const topPad = wTop * PAD_RATIO_Y + topDiff * BUBBLE_SCALE * 0.6;
-  const bottomPad = wBottom * PAD_RATIO_Y + bottomDiff * BUBBLE_SCALE * 0.6;
+  const topPad = wTop * PAD_RATIO + topDiff * BUBBLE_SCALE * 0.6;
+  const bottomPad = wBottom * PAD_RATIO + bottomDiff * BUBBLE_SCALE * 0.6;
 
   // 动效叠加层:帧图中间镂空,只能叠在静态底图之上(见 layerRule 的说明)。
   const frameAnim =
@@ -320,7 +303,7 @@ export function injectBubbleCss(skin: BubbleSkin): void {
     `  border-image-width: ${width};`,
     `  border-image-repeat: stretch;`,
     `  border-radius: 0;`,
-    `  padding: ${px(topPad)} ${px(Math.max(wLeft, wRight))} ${px(bottomPad)};`,
+    `  padding: ${px(topPad)} ${px(Math.max(wLeft, wRight) * PAD_RATIO)} ${px(bottomPad)};`,
     `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
     `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
     `}`,

@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { OverlayLayer } from './OverlayLayer';
 import { trpc } from '../trpc/client';
 import { dressFontUrl } from '../lib/resourceUrl';
+import { DecorationSaveControls, useDecorationSave } from './DecorationSaveControls';
 
 interface MessageDecorationCardProps {
   decoration: {
@@ -42,6 +43,7 @@ function getLocalUrl(type: 'font' | 'bubble' | 'widget', id: number): string {
 
 type ImageState = 'cdn' | 'local' | 'font' | 'fallback';
 type FontPreviewState = 'loading' | 'ready' | 'unavailable';
+type DecorationKind = 'font' | 'bubble' | 'widget';
 
 interface DecorationItemProps {
   type: 'font' | 'bubble' | 'widget';
@@ -49,6 +51,8 @@ interface DecorationItemProps {
   label: string;
   icon: React.ReactNode;
 }
+
+type DecorationItemRow = DecorationItemProps & { type: DecorationKind };
 
 function DecorationItem({ type, id, label, icon }: DecorationItemProps) {
   const [imageState, setImageState] = useState<ImageState>('cdn');
@@ -170,10 +174,11 @@ function DecorationItem({ type, id, label, icon }: DecorationItemProps) {
 
 export function MessageDecorationCard({ decoration, onClose }: MessageDecorationCardProps) {
   const cardRef = useRef<HTMLElement>(null);
+  const save = useDecorationSave();
 
   const hasDecoration =
     decoration && (decoration.fontId || decoration.bubbleId || decoration.widgetId);
-  const items = [];
+  const items: DecorationItemRow[] = [];
 
   if (decoration?.fontId) {
     items.push({
@@ -201,7 +206,7 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
   }
 
   return (
-    <OverlayLayer className="weq-profile-layer" onClose={onClose}>
+    <OverlayLayer presentation="popover" className="weq-profile-layer" onClose={onClose}>
       <section
         ref={cardRef}
         className="weq-profile-dialog weq-decoration-card weq-anim-pop"
@@ -210,7 +215,6 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
           width: '90%',
         }}
         role="dialog"
-        aria-modal="true"
         aria-label="消息装扮"
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -224,9 +228,23 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
           <X size={15} />
         </button>
 
-        <div className="weq-decoration-card-title">
-          <Palette size={20} strokeWidth={2} />
-          <span>消息装扮</span>
+        <div className="weq-decoration-card-titlebar">
+          <div className="weq-decoration-card-title">
+            <Palette size={20} strokeWidth={2} />
+            <span>消息装扮</span>
+          </div>
+          {hasDecoration ? (
+            <DecorationSaveControls
+              className="weq-decoration-card-save-all"
+              title="把这条消息用到的装扮资源打包另存"
+              label="另存全部"
+              busy={save.savingKey === 'all'}
+              disabled={save.disabled}
+              onSave={(intent, browser) => {
+                if (decoration) void save.run(decoration, 'all', intent, browser);
+              }}
+            />
+          ) : null}
         </div>
 
         {!hasDecoration ? (
@@ -237,17 +255,24 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
         ) : (
           <div className="weq-decoration-card-grid">
             {items.map((item) => (
-              <DecorationItem
-                key={item.type}
-                type={item.type}
-                id={item.id}
-                label={item.label}
-                icon={item.icon}
-              />
+              <div className="weq-decoration-card-slot" key={item.type}>
+                <DecorationItem type={item.type} id={item.id} label={item.label} icon={item.icon} />
+                <DecorationSaveControls
+                  className="weq-decoration-card-save"
+                  title={`把${item.label}资源另存为文件`}
+                  busy={save.savingKey === item.type}
+                  disabled={save.disabled}
+                  onSave={(intent, browser) => {
+                    if (decoration)
+                      void save.run({ ...decoration, kind: item.type }, item.type, intent, browser);
+                  }}
+                />
+              </div>
             ))}
           </div>
         )}
       </section>
+      {save.prompt}
     </OverlayLayer>
   );
 }

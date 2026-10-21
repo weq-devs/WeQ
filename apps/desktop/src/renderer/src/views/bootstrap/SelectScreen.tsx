@@ -18,6 +18,7 @@ import type { GlobalInstallInfo } from '@weq/service';
 import { LoginPanel } from './LoginPanel';
 import { StatsPanel } from './StatsPanel';
 import type { UiAccount } from './types';
+import '../../styles/bootstrap-select.css';
 
 export function SelectScreen({ install }: { install: GlobalInstallInfo }): ReactElement {
   const mode = useViewState((s) => s.selectMode);
@@ -134,7 +135,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
       await Promise.all([userDataDirs.refetch(), savedConfigs.refetch(), historical.refetch()]);
       return;
     }
-    // Rejected because the folder wasn't `Tencent Files` (cancel returns no error).
+    // Cancel returns no error; a rejection carries a human-readable reason.
     if (res.error) {
       showError('目录不正确', res.error);
     }
@@ -150,7 +151,9 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
           <span className="weq-select-head-tag">
             {mode === 'existing' ? '现有账号配置' : '新的开始'}
           </span>
-          <h2 className="weq-display weq-select-head-h">选择账号 · 验证密钥</h2>
+          <h2 className="weq-display weq-select-head-h">
+            {mode === 'new' ? '账号登录' : '选择账号 · 验证密钥'}
+          </h2>
         </div>
         {/* Drag handle is a dedicated spacer so the title + back button remain
             normal hit targets; the popover's outside-click handler then fires

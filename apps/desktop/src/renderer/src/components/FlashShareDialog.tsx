@@ -66,7 +66,7 @@ export function FlashShareDialog({
   }, []);
 
   return (
-    <Modal onClose={onClose} width={430}>
+    <Modal presentation="popover" onClose={onClose} width={430}>
       <div className="weq-flash-share">
         <div className="weq-flash-share-head">
           <span className="weq-flash-share-title" title={title}>

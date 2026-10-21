@@ -6,6 +6,7 @@
 import { deflateRawSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import {
+  buildZip as makeZip,
   extractAllFromZip,
   extractFirstTtf,
   extractFromZip,
@@ -223,4 +224,43 @@ describe('isRenderableSfnt', () => {
   ])('%s → false', (_label, buf) => {
     expect(isRenderableSfnt(buf)).toBe(false);
   });
+});
+
+describe('buildZip', () => {
+  it('写入的条目能被 readZipEntries 原样读回（deflate + store 混合）', () => {
+    const repeated = Buffer.from('WeQ装扮包'.repeat(200));
+    const zip = makeZip([
+      { name: 'bubble/123.png', data: repeated },
+      { name: 'font/456.ttf', data: Buffer.from('TTF') },
+      { name: '说明/readme.txt', data: Buffer.from('hello') },
+    ]);
+
+    const entries = readZipEntries(zip);
+    expect(entries.map((e) => e.name)).toEqual([
+      'bubble/123.png',
+      'font/456.ttf',
+      '说明/readme.txt',
+    ]);
+    expect(entries[0]?.data.equals(repeated)).toBe(true);
+    expect(entries[1]?.data.toString()).toBe('TTF');
+    expect(entries[2]?.data.toString()).toBe('hello');
+  });
+
+  it('compress:false 全部按 store 写，仍可读回', () => {
+    const zip = makeZip([{ name: 'a.bin', data: Buffer.alloc(256, 7) }], { compress: false });
+    expect(readZipEntries(zip)[0]?.data.equals(Buffer.alloc(256, 7))).toBe(true);
+  });
+
+  it('中文文件名置 UTF-8 标志位', () => {
+    const zip = makeZip([{ name: '中文.png', data: Buffer.from('x') }]);
+    // 本地文件头的通用标志位在偏移 6；UTF-8 是 bit 11。
+    expect(zip.readUInt16LE(6) & 0x0800).toBe(0x0800);
+  });
+
+  it.each(['../evil.png', '/etc/passwd', 'C:/Windows/evil.png', 'a/./b.png', 'a//b.png', ''])(
+    '拒绝非法路径 %j',
+    (name) => {
+      expect(() => makeZip([{ name, data: Buffer.from('x') }])).toThrow(/非法的 zip 条目路径/);
+    },
+  );
 });

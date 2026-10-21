@@ -15,7 +15,7 @@
  *   weq-media://mface?pack=&hash=&enc=tea&key=<opt> → 商城表情包 CDN 加密流 QQTEA 解密后 GIF（解密失败回退明文 raw GIF/PNG）
  *   weq-media://agentvoice?persona=&id=<hash.ext>             → clone TTS audio bytes
  *   weq-media://avatar?scope=user&hash=<hash>&v=big|small     → local avatar-cache bytes
- *   weq-media://avatar?scope=user&uin=<qq>&fb=<cdnUrl>        → local by uid-hash, CDN fallback
+ *   weq-media://avatar?scope=user&uin=<qq>&fb=<cdnUrl>        → 本地 b_/s_ 取新者，过期则回源 CDN
  *   weq-media://avatar?scope=group&uid=<code>&fb=<cdnUrl>     → group avatar (uin==uid)
  *   weq-media://localfile?path=<absPath>                      → trusted local file bytes (media preview)
  *   weq-media://localfilevoice?path=<absPath>                 → trusted local voice (SILK 解码成 WAV)
@@ -47,6 +47,7 @@ import {
   GROUP_PTT_RKEY_TYPE,
   downloadUrlToFile,
   resolveChatpicFile,
+  type AvatarLocalFile,
   type MediaElement,
 } from '@weq/service';
 import { getAppContext } from './context/app_context';
@@ -59,6 +60,7 @@ import { decodeSilkToWav, isSilkFile } from './voice';
  *  to OIDB when the local Ptt file is missing. */
 const VIDEO_RKEY_TYPES = [PRIVATE_VIDEO_RKEY_TYPE, GROUP_VIDEO_RKEY_TYPE];
 const PTT_RKEY_TYPES = [PRIVATE_PTT_RKEY_TYPE, GROUP_PTT_RKEY_TYPE];
+const mediaBinding = new AsyncLocalStorage<() => void>();
 
 /** Stable cache path for an OIDB-downloaded original by its fileToken. */
 function oidbCachePath(cacheDir: string, token: string, ext: string): string {
@@ -78,13 +80,14 @@ function oidbCachePath(cacheDir: string, token: string, ext: string): string {
  * a forwarded medium's original scene is unknowable, so the caller must try
  * both. See MediaUrlService.resolveVideoUrlUnknownScene.
  */
-async function findMediaElement(
+export async function findMediaElement(
   msgId: string,
   kind: 'video' | 'file' | 'ptt',
   token: string,
   fwdMsgId = '',
   fwdKind: 'group' | 'c2c' = 'c2c',
 ): Promise<{ element: MediaElement; conv: 'group' | 'c2c' | null } | null> {
+  mediaBinding.getStore()?.();
   const services = getAppContext().services;
   if (!services || !msgId) return null;
   if (fwdMsgId) {
@@ -142,11 +145,34 @@ export const MEDIA_PRIVILEGED_SCHEME = {
     secure: true,
     supportFetchAPI: true,
     stream: true,
+    // dev 模式下渲染页是 `http://localhost:5173`，`weq-media://` 属于**跨源**：
+    // `<img>/<video>` 这类 no-cors 请求照样能过，但字体（CORS-mode 的 fetch）
+    // 会被 Chromium 直接拦成 "blocked by CORS policy"。生产走 `file://` 时不触发
+    // 跨源检查，所以这个坑只在 dev 里出现 —— 两处都要：这里的特权声明 + 下面的
+    // 响应头（缺 ACAO 时即使放行也拿不到字体）。
+    corsEnabled: true,
   },
 } as const;
 
 function notFound(reason: string): Response {
   return new Response(reason, { status: 404 });
+}
+
+/**
+ * 给每个响应补 `Access-Control-Allow-Origin`。
+ *
+ * 只有 dev 下的渲染页（`http://localhost:5173`）会真的走到这里：`weq-media://`
+ * 与它不同源，字体走的是 CORS-mode 的 fetch（`new FontFace(url)`），缺这个头
+ * 就算特权声明里开了 `corsEnabled` 也会被拒。图片/视频是 no-cors 请求，加不加
+ * 都无所谓；统一加上省得以后又冒出「某类资源突然要 CORS」。
+ *
+ * `*` 而不是回显 Origin：这些响应都不带凭据，且协议本身只服务本机文件。
+ * 304 也要带（Chromium 对缓存的字体照样做 CORS 校验），所以这里复制原响应头。
+ */
+function withCors(res: Response): Response {
+  const headers = new Headers(res.headers);
+  headers.set('Access-Control-Allow-Origin', '*');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
 
 /**
@@ -191,28 +217,51 @@ async function onlineRedbagCover(skinId: string): Promise<string | null> {
 }
 
 /**
- * CDN fallback for an avatar the local cache didn't have. Routes through the
- * shared {@link AvatarCacheService} disk cache (so the fetched bytes warm the
- * same cache the rest of the app reads), returning 404 on any failure so the
- * renderer shows its glyph.
+ * CDN fallback for an avatar the local cache didn't have — or one whose local
+ * copy is out of date. Routes through the shared {@link AvatarCacheService}
+ * disk cache (so the fetched bytes warm the same cache the rest of the app
+ * reads), returning 404 on any failure so the renderer shows its glyph.
+ *
+ * `refresh` forces an upstream re-fetch (`ttl = 0`). `notOlderThanMs` refreshes
+ * only when the cached copy is older than that timestamp — the "local file is
+ * newer than the cached CDN copy" case: the avatar changed and our disk cache
+ * is holding a previous picture. Either way a failed refresh keeps serving the
+ * existing entry rather than dropping the avatar.
  *
  * Short `max-age`: the disk cache is the real cache (and applies its own TTL),
  * so a long browser cache would only delay a changed avatar from showing.
  */
-async function avatarFallbackResponse(src: string): Promise<Response> {
+async function avatarFallbackResponse(
+  src: string,
+  refresh: boolean | { notOlderThanMs: number } = false,
+): Promise<Response> {
   if (!/^https?:\/\//i.test(src)) return notFound('avatar fallback needs http url');
   const cache = getAppContext().bootstrap?.avatarCache;
   if (!cache) return notFound('avatar cache unavailable');
-  try {
-    const blob = await cache.get(src);
+  let force = refresh === true;
+  if (!force && typeof refresh === 'object') {
+    const cachedAt = await cache.cachedAt(src, 'avatar').catch(() => null);
+    force = cachedAt !== null && cachedAt < refresh.notOlderThanMs;
+  }
+  const respond = (blob: { data: Buffer; contentType: string }): Response | null =>
     // Defensive: a broken (empty) cache entry must never become a 200 empty body.
-    if (blob.data.length === 0) {
-      return notFound('avatar fallback empty');
-    }
-    return new Response(new Uint8Array(blob.data), {
-      status: 200,
-      headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=300' },
-    });
+    blob.data.length === 0
+      ? null
+      : new Response(new Uint8Array(blob.data), {
+          status: 200,
+          headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=300' },
+        });
+  try {
+    const res = respond(await cache.get(src, 'avatar', force ? 0 : undefined));
+    if (res) return res;
+    if (!force) return notFound('avatar fallback empty');
+  } catch {
+    if (!force) return notFound('avatar fallback failed');
+    // 强制回源失败（离线）→ 退回磁盘上的上一版，别把头像清空。
+  }
+  try {
+    const res = respond(await cache.get(src, 'avatar', undefined));
+    return res ?? notFound('avatar fallback empty');
   } catch {
     return notFound('avatar fallback failed');
   }
@@ -348,8 +397,21 @@ async function qqshowRemoteResponse(src: string): Promise<Response> {
  * Serve one `weq-media://` request. Pure `Request`→`Response`, so the web app
  * can mount it on a plain HTTP route (see `apps/web`) without Electron.
  */
-export function handleMediaRequest(request: Request): Promise<Response> {
-  return currentRequest.run(request, async () => {
+export async function handleMediaRequest(request: Request, check?: () => void): Promise<Response> {
+  try {
+    const serve = () =>
+      currentRequest.run(request, async () => withCors(await routeMediaRequest(request)));
+    return await (check ? mediaBinding.run(check, serve) : serve());
+  } catch (e) {
+    // 路由内部已经有 try/catch；这里兜住「连 AppContext 都还没初始化」这类
+    // 早期错误 —— 否则响应连跨源头都没有，dev 里会被误报成 CORS 失败。
+    console.error('[media] request failed:', e);
+    return withCors(new Response('media error', { status: 500 }));
+  }
+}
+
+async function routeMediaRequest(request: Request): Promise<Response> {
+  {
     const url = new URL(request.url);
     const kind = url.hostname;
     const q = url.searchParams;
@@ -425,7 +487,18 @@ export function handleMediaRequest(request: Request): Promise<Response> {
       return notFound('redbag skin fetch failed');
     }
 
-    const services = getAppContext().services;
+    // 走到这里的 kind 都需要账号会话（不需要的那四个已在上面提前返回）。
+    // 未知 kind 也走这条断言，随后由下面的 switch default 报「unknown media kind」。
+    // 没有账号会话（含 AppContext 尚未初始化）→ 统一 404。别让 getAppContext
+    // 的 assert 冒出去：协议层抛异常时 Chromium 只会看到一个没有 CORS 头的失败，
+    // 排查时会被误读成跨源问题。
+    let services: ReturnType<typeof getAppContext>['services'];
+    try {
+      mediaBinding.getStore()?.();
+      services = getAppContext().services;
+    } catch {
+      return notFound('no account session');
+    }
     if (!services) return notFound('no account session');
 
     // 装扮字体:清单里记的 ttf 绝对路径。放在这里(而不是 weq-asset)是因为
@@ -495,6 +568,7 @@ export function handleMediaRequest(request: Request): Promise<Response> {
           // with no "original"; the displayable image comes back as `thumb`.
           const picType = q.get('recv') === '1' ? 'emoji' : 'pic';
           const { source, thumb } = await services.fileSearch.findFile(tMs, name, picType);
+          mediaBinding.getStore()?.();
           const path = wantThumb ? (thumb ?? source) : (source ?? thumb);
           if (path) return fileResponse(path);
           // 本地 miss → 外部安卓 chatpic 备份兜底（按 md5 寻址），再不行才走 CDN。
@@ -504,6 +578,7 @@ export function handleMediaRequest(request: Request): Promise<Response> {
           const dl = await services.mediaDownload.download(token, {
             originalUrl: q.get('orig') ?? '',
           });
+          mediaBinding.getStore()?.();
           return dl ? fileResponse(dl) : notFound('pic not found');
         }
         case 'video': {
@@ -512,14 +587,17 @@ export function handleMediaRequest(request: Request): Promise<Response> {
           // originals, so it's intentionally not attempted).
           if (wantThumb) {
             const { thumb } = await services.fileSearch.findFile(tMs, name, 'video');
+            mediaBinding.getStore()?.();
             if (thumb) return fileResponse(thumb);
             const dl = await services.mediaDownload.download(token, {
               ext: '.jpg',
               rkeyTypes: VIDEO_RKEY_TYPES,
             });
+            mediaBinding.getStore()?.();
             return dl ? fileResponse(dl) : notFound('video cover not found');
           }
           const { source } = await services.fileSearch.findFile(tMs, name, 'video');
+          mediaBinding.getStore()?.();
           if (source) return fileResponse(source);
 
           // Missing on disk → OIDB completion (needs an online QQ). Cache the
@@ -548,6 +626,7 @@ export function handleMediaRequest(request: Request): Promise<Response> {
             return notFound('video OIDB resolve failed');
           }
           if (!url) return notFound('video OIDB returned empty url');
+          mediaBinding.getStore()?.();
           const outcome = await downloadUrlToFile(url, cachePath);
           return outcome.ok
             ? fileResponse(cachePath)
@@ -555,6 +634,7 @@ export function handleMediaRequest(request: Request): Promise<Response> {
         }
         case 'ptt': {
           const { source } = await services.fileSearch.findFile(tMs, name, 'ptt');
+          mediaBinding.getStore()?.();
           let silk = source;
           if (!silk) {
             // Missing on disk → try rkey first, then OIDB completion. The OIDB
@@ -564,6 +644,7 @@ export function handleMediaRequest(request: Request): Promise<Response> {
               ext: '.silk',
               rkeyTypes: PTT_RKEY_TYPES,
             });
+            mediaBinding.getStore()?.();
           }
           if (!silk) {
             const boot = getAppContext().bootstrap;
@@ -590,6 +671,7 @@ export function handleMediaRequest(request: Request): Promise<Response> {
                     console.error('[media] ptt OIDB resolve failed:', e);
                   }
                   if (url) {
+                    mediaBinding.getStore()?.();
                     const outcome = await downloadUrlToFile(url, cachePath);
                     if (outcome.ok) silk = cachePath;
                   }
@@ -650,13 +732,48 @@ export function handleMediaRequest(request: Request): Promise<Response> {
           if (scope !== 'user' && scope !== 'group' && scope !== 'cover') {
             return notFound('avatar needs scope=user|group|cover');
           }
-          let path: string | null = null;
-          if (hash) path = await services.avatarResource.resolveFile(scope, hash, variant);
-          else if (uid) path = await services.avatarResource.resolveByUid(scope, uid, variant);
-          else if (uin) path = await services.avatarResource.resolveByUin(scope, uin, variant);
-          if (path) return revalidatingFileResponse(path);
-          // Local miss → CDN fallback (disk-cached by AvatarCacheService).
-          if (fb) return avatarFallbackResponse(fb);
+          // 三个来源（QQ 的 b_/s_、WeQ 的 CDN 磁盘缓存、CDN 本身）里取最新的一版：
+          // 换头像后 QQ 往往只刷新缩略图，`b_` 会停在几个月前 —— 照旧无条件优先大图
+          // 会永远显示旧头像（见 AvatarResourceService.resolveByUidFile 的实测）。
+          //
+          // 显式刷新（用户刚换过头像）跳过本地判定，强制回源；失败了再往下走本地兜底。
+          const refresh = q.get('_weq_avatar_remote') === '1';
+          if (fb && refresh) {
+            const fresh = await avatarFallbackResponse(fb, true);
+            if (fresh.ok) return fresh;
+          }
+          let local: AvatarLocalFile | null = null;
+          if (hash) {
+            // 本地资源浏览器按 hash 直取，没有「哪个更新」的语义。
+            const path = await services.avatarResource.resolveFile(scope, hash, variant);
+            local = path ? { path, variant, stale: false, mtimeMs: 0 } : null;
+          } else if (uid) {
+            local = await services.avatarResource.resolveByUidFile(scope, uid, variant);
+          } else if (uin) {
+            local = await services.avatarResource.resolveByUinFile(scope, uin, variant);
+          }
+          // WeQ 磁盘缓存比本地文件新 ⇒ 上次回源时 CDN 上已经是更新的头像了。
+          // 本地没有文件时不必 stat 缓存 —— 直接回源即可。
+          const cachedAt =
+            local && fb
+              ? await getAppContext()
+                  .bootstrap?.avatarCache.cachedAt(fb, 'avatar')
+                  .catch(() => null)
+              : null;
+          if (local && !local.stale && (cachedAt == null || cachedAt <= local.mtimeMs))
+            return revalidatingFileResponse(local.path);
+
+          // 本地大图过期（只有缩略图是新的）或本地干脆没有 → 回源 CDN：它既比旧大图
+          // 新，又比缩略图清晰。缓存比本地文件旧时强制重拉，否则直接用缓存字节。
+          if (fb) {
+            const fresh = await avatarFallbackResponse(
+              fb,
+              local ? { notOlderThanMs: local.mtimeMs } : false,
+            );
+            if (fresh.ok) return fresh;
+          }
+          // CDN 拿不到（离线 / 无网）→ 至少显示当前头像的缩略图，别退回旧大图。
+          if (local) return revalidatingFileResponse(local.path);
           return notFound('avatar not found');
         }
         case 'cemoji': {
@@ -739,5 +856,5 @@ export function handleMediaRequest(request: Request): Promise<Response> {
       console.error(`[media] ${kind} failed:`, e);
       return new Response('media error', { status: 500 });
     }
-  });
+  }
 }

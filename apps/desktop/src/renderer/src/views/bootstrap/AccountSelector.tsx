@@ -20,6 +20,8 @@ import {
 } from 'react';
 import { ChevronDown, Database, Smartphone, Trash2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { useOverlayLayer } from '../../lib/overlayStack';
+import { useSurfaceOutside } from '../../lib/surfaceOutside';
 import { QqAvatar } from '../../components/QqAvatar';
 import type { UiAccount } from './types';
 
@@ -47,14 +49,15 @@ export function AccountSelector({
 
   // Right-click context menu
   const [ctxMenu, setCtxMenu] = useState<{ acc: UiAccount; x: number; y: number } | null>(null);
+  const menuLayer = useOverlayLayer(!!ctxMenu);
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useSurfaceOutside(menuRef, closeCtxMenu, !!ctxMenu);
 
   useEffect(() => {
     if (!ctxMenu) return;
-    document.addEventListener('mousedown', closeCtxMenu);
     document.addEventListener('keydown', closeCtxMenu);
     return () => {
-      document.removeEventListener('mousedown', closeCtxMenu);
       document.removeEventListener('keydown', closeCtxMenu);
     };
   }, [ctxMenu, closeCtxMenu]);
@@ -218,7 +221,9 @@ export function AccountSelector({
         createPortal(
           <div
             className="weq-acct-ctx-menu"
-            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+            ref={menuRef}
+            role="menu"
+            style={{ left: ctxMenu.x, top: ctxMenu.y, zIndex: menuLayer }}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <button

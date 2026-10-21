@@ -1,8 +1,10 @@
 /** Registration and cleanup share one queue for every native binding/PID. */
+
 export interface SsoWorkState {
   queue: Promise<void>;
   owner?: object;
 }
+
 const work = new WeakMap<object, Map<number, SsoWorkState>>();
 
 export function ssoWorkState(binding: object, pid: number): SsoWorkState {

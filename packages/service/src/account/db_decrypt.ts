@@ -68,6 +68,8 @@ export interface DbDecryptOptions {
   outputDir: string;
   mode: DbDecryptMode;
   concurrency?: number;
+  signal?: AbortSignal;
+  onProgress?: (current: number, total: number) => void;
 }
 
 const DEFAULT_CONCURRENCY = 3;
@@ -107,6 +109,7 @@ export class DbDecryptService {
   }
 
   async decryptDatabases(opts: DbDecryptOptions): Promise<DbDecryptResult[]> {
+    opts.signal?.throwIfAborted();
     if (opts.items.length === 0) return [];
     mkdirSync(opts.outputDir, { recursive: true });
     const concurrency = Math.min(
@@ -115,6 +118,7 @@ export class DbDecryptService {
     );
 
     const allowed = new Map((await this.listDatabases()).map((db) => [db.path, db]));
+    opts.signal?.throwIfAborted();
     const items = opts.items.map((item) => {
       const db = allowed.get(item.dbPath);
       if (!db) throw new Error(`数据库不在当前账号目录下：${item.dbPath}`);
@@ -122,37 +126,53 @@ export class DbDecryptService {
     });
 
     const ntHelperPath = resolveNtHelperPath();
-    return mapLimit(items, concurrency, async (item) => {
-      const outPath = outputPath(opts.outputDir, item.name, item.dbPath);
-      try {
-        if (isPlainSqliteDb(item.dbPath)) {
-          await copyFile(item.dbPath, outPath);
+    let completed = 0;
+    return mapLimit(
+      items,
+      concurrency,
+      async (item) => {
+        opts.signal?.throwIfAborted();
+        const outPath = outputPath(opts.outputDir, item.name, item.dbPath);
+        try {
+          if (isPlainSqliteDb(item.dbPath)) {
+            await copyFile(item.dbPath, outPath);
+            opts.signal?.throwIfAborted();
+            return { name: item.name, dbPath: item.dbPath, outPath, ok: true };
+          }
+          const guild = isGuildDb(item.dbPath);
+          const login = isLoginDb(item.dbPath);
+          const key = guild
+            ? this.platform.native.ntHelper.getGuildDbKey(item.dbPath, this.session.context.uin)
+            : login
+              ? LOGIN_DB_KEY
+              : this.session.context.dbKey;
+          const algo =
+            guild || login
+              ? await resolveAlgo(this.platform.native.ntHelper, item.dbPath, key)
+              : algoFor(this.session.context, item.dbPath);
+          if (login && !algo) throw new Error('login.db 密钥不正确，无法解密');
+          opts.signal?.throwIfAborted();
+          await decryptOneInWorker(ntHelperPath, item.dbPath, outPath, key, algo, opts.mode);
+          opts.signal?.throwIfAborted();
+          // Both decrypt modes produce a stock-layout database, so no layout
+          // marker is needed: later executeSql* calls detect it from the header.
           return { name: item.name, dbPath: item.dbPath, outPath, ok: true };
+        } catch (e) {
+          opts.signal?.throwIfAborted();
+          return {
+            name: item.name,
+            dbPath: item.dbPath,
+            outPath,
+            ok: false,
+            error: e instanceof Error ? e.message : String(e),
+          };
+        } finally {
+          completed += 1;
+          opts.onProgress?.(completed, items.length);
         }
-        const guild = isGuildDb(item.dbPath);
-        const login = isLoginDb(item.dbPath);
-        const key = guild
-          ? this.platform.native.ntHelper.getGuildDbKey(item.dbPath, this.session.context.uin)
-          : login
-            ? LOGIN_DB_KEY
-            : this.session.context.dbKey;
-        const algo =
-          guild || login
-            ? await resolveAlgo(this.platform.native.ntHelper, item.dbPath, key)
-            : algoFor(this.session.context, item.dbPath);
-        if (login && !algo) throw new Error('login.db 密钥不正确，无法解密');
-        await decryptOneInWorker(ntHelperPath, item.dbPath, outPath, key, algo, opts.mode);
-        return { name: item.name, dbPath: item.dbPath, outPath, ok: true };
-      } catch (e) {
-        return {
-          name: item.name,
-          dbPath: item.dbPath,
-          outPath,
-          ok: false,
-          error: e instanceof Error ? e.message : String(e),
-        };
-      }
-    });
+      },
+      opts.signal,
+    );
   }
 
   private resolveNtDbDir(): string | null {
@@ -185,6 +205,8 @@ async function listDbFiles(dir: string): Promise<AccountDbFile[]> {
   return files;
 }
 
+/** Decrypt one database in a worker thread.  Both modes write a stock-layout
+ * plaintext database, which any SQLite tooling can open directly. */
 function decryptOneInWorker(
   ntHelperPath: string,
   dbPath: string,
@@ -267,16 +289,20 @@ async function mapLimit<T, R>(
   items: T[],
   limit: number,
   fn: (item: T) => Promise<R>,
+  signal?: AbortSignal,
 ): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let next = 0;
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
     for (;;) {
+      signal?.throwIfAborted();
       const index = next++;
       if (index >= items.length) break;
       results[index] = await fn(items[index]!);
     }
   });
-  await Promise.all(workers);
+  const outcomes = await Promise.allSettled(workers);
+  const failure = outcomes.find((outcome) => outcome.status === 'rejected');
+  if (failure?.status === 'rejected') throw failure.reason;
   return results;
 }

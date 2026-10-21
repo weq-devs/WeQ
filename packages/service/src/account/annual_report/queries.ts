@@ -114,7 +114,7 @@ export function createReportQueries(
   }
 
   /**
-   * 两张消息表各自按 40058（日期 0 点列，走覆盖索引）枚举「有消息的年份」
+   * 两张消息表各自按真实发送时间的北京日桶枚举「有消息的年份」
    * 并集，升序去重。刻意不判断是否本端原发——这是年份刻度的资格口径，真正的
    * 「当年有没有可展示页面」由每页 availability 再探一次。
    */
@@ -292,6 +292,9 @@ export function createReportQueries(
       /**
        * 冠军群的全体正文（解码后）。同群同窗口只扫一次，返回共享只读数组。
        */
+      async weeklyCounts(groupCodes: string[], startTime: number, endTime: number) {
+        return session.groupMsgs.countWeeklyByGroups(groupCodes, { startTime, endTime });
+      },
       async speechRows(groupCode: string, startTime: number, endTime: number) {
         const key = `${groupCode}:${startTime}:${endTime}`;
         let running = groupSpeechCache.get(key);
@@ -585,8 +588,7 @@ export function createReportQueries(
       oldestMessageTime,
       /**
        * The years whose tables hold any message row — the selectable report
-       * years. Two DISTINCT scans over the covering `(40027,40058)` index,
-       * cached here for the session. No sender judgement, so no table scan.
+       * years. Two scans of sendTime, cached here for the session. No sender judgement.
        */
       yearsWithMessages,
       /** 账号自身身份（uid 优先、uin 兜底）——给跨群重合页筛掉“自己”。 */

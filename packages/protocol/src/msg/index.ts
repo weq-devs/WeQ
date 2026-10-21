@@ -185,3 +185,17 @@ export {
   FONT_INFO,
   BUBBLE_ELEM,
 } from './schemas';
+
+export {
+  ReadedReport,
+  READ_REPORT_CMD,
+  READ_REPORT_BATCH_SIZE,
+} from './read-report';
+export type {
+  GroupReadTarget,
+  C2cReadTarget,
+  ReadReportParams,
+  ReadReportResult,
+  GroupReadResult,
+  C2cReadResult,
+} from './read-report';

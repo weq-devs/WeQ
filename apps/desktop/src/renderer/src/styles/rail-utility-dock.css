@@ -1,0 +1,145 @@
+.weq-rail-utilities {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 46px;
+}
+
+.weq-rail-utility-actions {
+  display: grid;
+  grid-template-rows: 0fr;
+  width: 100%;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-rows 160ms ease,
+    opacity 140ms ease,
+    visibility 160ms;
+}
+
+.weq-rail-utility-actions > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.weq-rail-utilities.is-expanded .weq-rail-utility-actions {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  padding-bottom: 8px;
+}
+
+.app-shell .rail-footer .weq-rail-control,
+.weq-floating-tools.is-docked .weq-tools-trigger {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  width: 46px;
+  height: 34px;
+  flex: none;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  color: var(--weq-fg-secondary);
+  background: transparent;
+  box-shadow: none;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease;
+}
+
+.app-shell .rail-footer .weq-rail-utility-actions button {
+  border-color: var(--weq-border-subtle);
+  border-radius: 6px;
+  color: var(--weq-fg-secondary);
+}
+.app-shell .rail-footer .weq-rail-utility-actions button:hover:not(:disabled),
+.app-shell .rail-footer .weq-rail-utility-actions button.is-on,
+.app-shell .rail-footer .weq-rail-control[aria-pressed='true'],
+.app-shell .rail-footer .weq-rail-control[aria-current='page'],
+.app-shell .rail-footer .weq-rail-control:hover,
+.weq-floating-tools.is-docked .weq-tools-trigger:hover,
+.weq-floating-tools.is-docked.is-expanded .weq-tools-trigger {
+  color: var(--weq-accent-effective);
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.app-shell .rail-footer .weq-rail-control:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.app-shell .rail-footer .weq-rail-settings {
+  position: relative;
+}
+
+.weq-rail-tools-slot {
+  pointer-events: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 46px;
+  height: 34px;
+  border-radius: 6px;
+}
+
+.weq-rail-tools-slot.is-drag-hint {
+  outline: 2px dashed var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  animation: weq-dock-breathe 1000ms ease-in-out infinite;
+}
+
+.weq-rail-tools-slot.is-drop-target {
+  outline-style: solid;
+}
+@keyframes weq-dock-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.weq-floating-tools.is-docked:not(.is-dragging) {
+  position: fixed;
+  width: 46px;
+  height: 34px;
+}
+
+/* 扇形按 44px 圆形入口计算，停靠后将圆心对齐到 46×34 的按钮中心。 */
+.weq-floating-tools.is-docked .weq-floating-tools-fan {
+  transform: translate(1px, -5px);
+}
+
+html[data-theme='dark']
+  .app-shell
+  .rail-footer
+  .weq-rail-control:not([aria-pressed='true']):not([aria-current='page']):not(:hover),
+html[data-theme='dark']
+  .weq-floating-tools.is-docked:not(.is-expanded)
+  .weq-tools-trigger:not(:hover),
+html[data-theme='dark'] .app-shell .rail-footer .weq-rail-utility-actions button {
+  border-color: var(--weq-border-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-rail-utility-actions {
+    transition: none;
+  }
+  .app-shell .rail-footer .weq-rail-control,
+  .weq-floating-tools.is-docked .weq-tools-trigger {
+    transition: none;
+  }
+  .weq-rail-tools-slot.is-drag-hint {
+    animation: none;
+    opacity: 1;
+  }
+}

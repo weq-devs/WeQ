@@ -1,0 +1,15 @@
+.weq-dialog-layer.weq-server-save-layer {
+  background: color-mix(in srgb, var(--background) 65%, transparent);
+}
+.weq-server-save-dialog {
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  border-color: var(--weq-border-strong);
+}
+html[data-theme='dark'] .weq-dialog-layer.weq-server-save-layer {
+  background: color-mix(in srgb, var(--background) 75%, transparent);
+}
+html[data-theme='dark'] .weq-server-save-dialog {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}

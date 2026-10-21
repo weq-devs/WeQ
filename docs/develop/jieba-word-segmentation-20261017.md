@@ -17,7 +17,8 @@
 | 浏览器 | 浏览 + 器 | 只剩「浏览」 |
 
 而 QQ NT 自带一份结巴（jieba）词典，上面这些词**全都收录**，`区块链` 这种新词还躺在用户词典里。
-所以本轮把这份词典接进来，作为分词的**首选**，ICU 退居兜底。
+所以本轮把这份词典接进来，作为分词的**首选**；同一份词典还随仓库 `resources/jieba/` 分发，
+QQ 那边读不到时用它兜底，不再依赖 `Intl.Segmenter`。
 
 ## QQ 词典在哪、怎么定位
 
@@ -37,8 +38,29 @@ win32:          <Tencent Files>/nt_qq/global/nt_data/search/resource_jieba/
 
 解析入口是 `Platform.jiebaDictDir()`（三端各一份实现，都在 `global` 下拼 `nt_data/search/resource_jieba`）。
 **刻意只认主位置、不再回退 `nt_qq/global`**（`login.db` 保留那个遗产回退）：这是边缘功能，老布局
-交给内置兜底即可。`resource_roots.ts` 的 `withResourceRoots` 不拦它 —— 词典账号无关、不含隐私，
+直接走随包词典即可。`resource_roots.ts` 的 `withResourceRoots` 不拦它 —— 词典账号无关、不含隐私，
 静态账号继续用本机那份只会更好。
+
+## 随包词典
+
+QQ 的那份词典未必存在（新装 QQ 没搜过、用户选的数据目录不含 `global/`、静态账号等）。因此
+仓库里随包一份同格式的词典：
+
+```
+resources/jieba/
+  jieba_dict.utf8
+  user_dict.utf8
+  hmm_model.utf8
+```
+
+它是 QQ 词典的拷贝，`electron-builder.yml` 的 `extraResources` 会整棵 `resources/` 带进安装包；
+web 的 `build-server.mjs` 也整棵复制。运行时按下面的顺序加载，第一份可用的胜出：
+
+1. `Platform.jiebaDictDir()`（QQ 自带，可能随版本更新）；
+2. `resolveResource('jieba')`（随包兜底）。
+
+两份都读不到时 `segmentWords()` 返回空数组，调用方照常渲染空词云 —— **不再回落到 ICU / 正则**，
+以免不同机器上分词口径漂移。
 
 ## 分词器实现
 
@@ -51,9 +73,20 @@ win32:          <Tencent Files>/nt_qq/global/nt_data/search/resource_jieba/
    生词（`跑路`、`好累`）会退化成单字被过滤掉。
 3. **英文 / 数字**整块保留（英文小写化），与结巴一致，**只切分、不过滤**：虚词该不该丢是调用方的事。
 
-`@weq/service` 的 `text_segment.ts` 保留原有的停用词 / 单字 / 纯数字 / 虚词字过滤，只把「切词」
-这一步换成词典版本；词典加载由 `warmJiebaDict(dir)` 惰性完成（进程级单例，账号无关只加载一次），
-加载失败或目录缺失时静默跳过，`segmentWords()` 自动回落到 `Intl.Segmenter`。
+`@weq/service` 的 `text_segment.ts` 继续过滤单字 / 纯数字 / 残留虚词，并把「切词」这一步换成
+词典版本；词典加载由 `warmJiebaDict(dirs)` 惰性完成（进程级单例，账号无关只加载一次），
+按顺序尝试目录，全部失败时静默跳过。
+
+### 词性白名单
+
+词云 / 常用语 / 口头禅不再靠「个人语料黑名单」压高频词，而是用 QQ 词典里的词性做**白名单**：
+只保留 `n` / `v` / `vn` / `ns` / `nr` / `nz` / `nrt` / `nrfg` / `nt` / `i` / `j` / `z` / `o` /
+`e` / `unknown`（`unknown` 是词典外生词，保住网络新词）。代词、副词、连词、介词、时间词、
+量词、语气词等语法词不进词云。白名单定义在 `@weq/agentlab` 的 `CHAT_POS_WHITELIST`，
+`cutForChat()` 按它过滤；`segmentWords` 与 `tokenizeText` 都走同一条切词路径。
+
+停用词与 token 归一化仍集中在 `stopwords.ts` 的 `normalizeChatToken()`，负责兜底过滤单字、
+纯数字、纯符号、英文功能词和残留虚词，避免「词云干净了、常用语还在数 的/了/我」。
 
 `warmJiebaDict` 还会把同一份词典通过 `setDefaultSegmenter` 装给 `@weq/agentlab`，让
 `persona.ts` 的「常用语」(`topTerms`) 和 `http.ts` 的关键词提取共享同一套切法 —— 它们原先按
@@ -62,8 +95,9 @@ win32:          <Tencent Files>/nt_qq/global/nt_data/search/resource_jieba/
 ## 接线
 
 `apps/desktop/src/main/context/app_context.ts` 在 `UserConfigService` 构造后 fire-and-forget 调
-`void warmJiebaDict(platform.jiebaDictDir())`。桌面端主进程的年度报告 / 群聊分析 / 私聊统计 / WeQ
-助手周报 / MCP `get_group_activity` 全走同一份 `segmentWords`，一处加载处处受益。
+`void warmJiebaDict([platform.jiebaDictDir(), resolveResource('jieba')])`。桌面端主进程的年度报告 /
+群聊分析 / 私聊统计 / WeQ 助手周报 / MCP `get_group_activity` 全走同一份 `segmentWords`，一处加载
+处处受益。
 
 ## 实测收益（真实群消息 800 条）
 
@@ -80,8 +114,8 @@ win32:          <Tencent Files>/nt_qq/global/nt_data/search/resource_jieba/
 
 - `packages/agentlab/test/segment.test.ts`：手写小词典 + 小 HMM 夹具，覆盖 DP 切分、用户词典强制
   成词、HMM 兜底、缺 HMM / 缺词典的降级、`tokenizeText`。
-- `packages/service/test/text_segment.test.ts`：临时目录里的词典夹具，覆盖 `warmJiebaDict` 装词典 /
-  目录缺失 / null 的静默跳过，以及装与不装两路的过滤口径不变。
+- `packages/service/test/text_segment.test.ts`：QQ 词典用临时目录里的手写夹具，覆盖「QQ 优先」/
+  「QQ 缺失时读随包 `resources/jieba`」/ 两份都缺失时返回空数组，以及词性白名单口径。
 - `packages/platform/test/{linux,win32}_paths.test.ts`：`jiebaDictDir` 路径解析、缺失返回 null、
   不回退遗产路径、账号无关。
 

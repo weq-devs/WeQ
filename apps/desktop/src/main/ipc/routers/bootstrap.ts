@@ -15,6 +15,18 @@
 
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
+import {
+  copyExportSavePolicy,
+  resolveExportSaveDirectory,
+  describeExportOutput,
+} from '@weq/service';
+import {
+  bindExportSaveRequest,
+  exportOutputPlanInput,
+  prepareExportDestination,
+  exportAccountBindingInput,
+  exportSavePolicyInput,
+} from './export_save';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -39,6 +51,7 @@ import {
   requireBootstrap,
   requirePlatform,
   emitDressChanged,
+  getActiveIntentSenseLocalEngine,
   rememberAccountUid,
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
@@ -66,13 +79,14 @@ import {
   localOcrBlocker,
 } from '@weq/service';
 import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
-import { isTencentFilesRoot } from '@weq/platform';
+import { normalizeQqDataRoot } from '@weq/platform';
+import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
 
-/** Result of the Tencent Files folder picker (with the hard `Tencent Files` rule). */
+/** Result of the QQ data-directory picker. */
 export interface PickRootResult {
-  /** True only when a valid `Tencent Files` folder was picked and persisted. */
+  /** True when a directory was picked and persisted. */
   ok: boolean;
-  /** The path the user picked (kept on rejection so the UI can show it), or null on cancel. */
+  /** The persisted data root (normalized), or null on cancel. */
   path: string | null;
   /** Human-readable reason when `ok` is false and the user didn't just cancel. */
   error?: string;
@@ -168,6 +182,44 @@ export async function ensureUidForUin(
 }
 
 export const bootstrapRouter = router({
+  ...intentSenseModelProcedures,
+
+  /** 共享资源目录：只引用现有下载器，不另建模型副本。 */
+  localModelResources: procedure.query(() => {
+    const boot = requireBootstrap();
+    return {
+      selected: boot.userConfig.getSettings().modelResources,
+      voice: boot.voiceTranscribe.listModels(),
+      ocr: boot.ocrModels.listModels(),
+      engineBlocker: localOcrBlocker(),
+    };
+  }),
+
+  setLocalModelResource: procedure
+    .input(z.object({ kind: z.enum(['voice', 'ocr', 'filter', 'intent']), modelId: z.string() }))
+    .mutation(async ({ input }) => {
+      const boot = requireBootstrap();
+      if (input.kind === 'intent') {
+        if (!['auto', 'laya-multilingual', 'QWeQ-NineBird-v1'].includes(input.modelId)) {
+          throw new Error('未知意图模型');
+        }
+        if (boot.userConfig.getLocalModelId('intent') === input.modelId) return true;
+        if (isIntentModelDownloading()) throw new Error('模型下载期间不能切换资源');
+        // 切换资源前释放旧 worker，不能让新引用继续使用旧模型。
+        await getActiveIntentSenseLocalEngine()?.stop();
+      } else if (input.modelId) {
+        const model =
+          input.kind === 'voice'
+            ? boot.voiceTranscribe.listModels().find((m) => m.id === input.modelId)
+            : boot.ocrModels
+                .listModels()
+                .find((m) => m.id === input.modelId && m.kind === input.kind);
+        if (!model?.downloaded) throw new Error('请先下载对应用途的模型');
+      }
+      boot.userConfig.setSettings({ modelResources: { [input.kind]: input.modelId } });
+      if (input.kind === 'intent') getAppContext().services?.intentSense.clearCache();
+      return true;
+    }),
   // ---- native health ----
 
   /** Classified native-init error, or null when the bundle loaded fine. */
@@ -410,6 +462,63 @@ export const bootstrapRouter = router({
     return requireBootstrap().userConfig.getSettings();
   }),
 
+  setExportSaveMode: procedure
+    .input(z.object({ mode: z.enum(['preset', 'before', 'after']) }))
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({ exportSaveMode: input.mode })
+        .exportSaveMode;
+    }),
+
+  setExportSaveDefaults: procedure.input(exportSavePolicyInput).mutation(({ input }) => {
+    if (input.filePath || input.uniqueFileName) throw new Error('全局默认保存位置只能是文件夹。');
+    const config = requireBootstrap().userConfig;
+    if (input.mode !== 'preset') return config.setSettings({ exportSaveMode: input.mode });
+    const host = getHost();
+    const selected = input.directory ?? config.getSettings().defaultExportDir ?? host.exportRoot;
+    const policy = copyExportSavePolicy({
+      mode: 'preset',
+      directory: host.exportRoot ? resolveExportSaveDirectory(host.exportRoot, selected) : selected,
+    });
+    return config.setSettings({ exportSaveMode: policy.mode, defaultExportDir: policy.directory });
+  }),
+
+  pickExportSaveDirectory: procedure.mutation(() =>
+    getHost().pickDirectory({ title: '选择导出保存位置' }),
+  ),
+
+  prepareExportSave: procedure
+    .input(
+      exportSavePolicyInput.extend({
+        ...exportAccountBindingInput.shape,
+        output: exportOutputPlanInput.optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const current = bindExportSaveRequest(input, () => {
+        const context = getAppContext();
+        return {
+          uin: context.account?.context.uin.toString(),
+          configId: context.services?.accountConfig.getRecord()?.configId,
+          services: context.services,
+        };
+      });
+      if (input.mode === 'after') return { mode: 'after' as const };
+      const host = getHost();
+      const settings = requireBootstrap().userConfig.getSettings();
+      const manager = getAppContext().services?.exportManager;
+      const output = input.output
+        ? manager
+          ? manager.getOutputShape(input.output)
+          : describeExportOutput(input.output, {
+              avatar: false,
+              transcribe: false,
+              ocr: false,
+              dress: false,
+            })
+        : undefined;
+      return prepareExportDestination(input, settings.defaultExportDir, host, output, current);
+    }),
+
   /**
    * 设置导出中心的默认保存目录（null = 清除，恢复逐任务弹窗）。
    */
@@ -471,10 +580,29 @@ export const bootstrapRouter = router({
    * 三端都允许开启：macOS 也能读内存（需 root 且关闭 SIP），门槛交给用户自己
    * 决定 —— 真正读取失败时由 attach 链给出提权 / SIP 提示，不在这里预先拒绝。
    */
-  setAutoAttachQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
-    requireBootstrap().userConfig.setSettings({ autoAttachQq: input.enabled });
-    return true;
-  }),
+  setAutoAttachQq: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ input }) => {
+      requireBootstrap().userConfig.setSettings({ autoAttachQq: input.enabled });
+      if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
+      return true;
+    }),
+
+  setReportReadEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ reportReadEnabled: input.enabled });
+      if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
+      return true;
+    }),
+
+  setManualReadReportEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ manualReadReportEnabled: input.enabled });
+      if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
+      return true;
+    }),
 
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁。渲染层的 AppLockOverlay
@@ -600,6 +728,13 @@ export const bootstrapRouter = router({
     requireBootstrap().userConfig.setSettings({ showMessageTime: input.enabled });
     return true;
   }),
+
+  setShowMessageUnreadBadge: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showMessageUnreadBadge: input.enabled });
+      return true;
+    }),
 
   /** 是否渲染每条消息里的装扮（气泡/字体/挂件）。纯持久化。 */
   setShowMsgDecoration: procedure
@@ -1105,7 +1240,7 @@ export const bootstrapRouter = router({
    */
   acknowledgeWelcome: procedure
     .input(z.object({ allowMemoryScan: z.boolean() }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       requireBootstrap().userConfig.acknowledgeWelcome({
         allowMemoryScan: input.allowMemoryScan,
       });
@@ -1163,7 +1298,12 @@ export const bootstrapRouter = router({
 
   /** Delete a downloaded model's files. No-op while a download is in flight. */
   deleteVoiceModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
-    return requireBootstrap().voiceTranscribe.deleteModel(input.id);
+    const boot = requireBootstrap();
+    const removed = boot.voiceTranscribe.deleteModel(input.id);
+    if (removed && boot.userConfig.getLocalModelId('voice') === input.id) {
+      boot.userConfig.setSettings({ modelResources: { voice: '' } });
+    }
+    return removed;
   }),
 
   /** Set (or clear with '') the selected transcription model id. */
@@ -1172,7 +1312,7 @@ export const bootstrapRouter = router({
     return true;
   }),
 
-  // ---- local OCR models (设置 → 图片识别) ----
+  // ---- local OCR models (设置 → 模型与识别 → 图片识别) ----
   //
   // 和上面语音那一组同构：同一套「注册表 + 下载 + 进度事件」。引擎（onnxruntime +
   // PP-OCR 后处理）在 app 侧（`main/ocr/`），这里只管模型的下载与落盘。
@@ -1217,7 +1357,18 @@ export const bootstrapRouter = router({
 
   /** Delete a downloaded OCR model's files. No-op while a download is in flight. */
   deleteOcrModel: procedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
-    return requireBootstrap().ocrModels.deleteModel(input.id);
+    const boot = requireBootstrap();
+    const removed = boot.ocrModels.deleteModel(input.id);
+    if (removed) {
+      const refs = boot.userConfig.getSettings().modelResources;
+      boot.userConfig.setSettings({
+        modelResources: {
+          ocr: refs.ocr === input.id ? '' : refs.ocr,
+          filter: refs.filter === input.id ? '' : refs.filter,
+        },
+      });
+    }
+    return removed;
   }),
 
   /**
@@ -1475,30 +1626,20 @@ export const bootstrapRouter = router({
 
   pickTencentFilesRoot: procedure.mutation(async (): Promise<PickRootResult> => {
     const picked = await getHost().pickDirectory({
-      title: '选择 Tencent Files 目录（必须选到 Tencent Files 文件夹本身）',
+      title: '选择 QQ 数据目录（存放 QQ 号子目录 / nt_qq 的那一层）',
     });
     if (!picked) return { ok: false, path: null };
-    // Hard rule: the override must point at the `Tencent Files` folder itself,
-    // not a parent or the per-account `…\Tencent Files\<uin>` subdir. Reject
-    // anything else so the user gets a clear message instead of a silent miss.
-    if (!isTencentFilesRoot(picked)) {
-      logger.warn('rejected non-Tencent-Files data dir pick', {
-        event: 'pick-root-rejected',
-        picked,
-      });
-      return {
-        ok: false,
-        path: picked,
-        error:
-          '请选择名为「Tencent Files」的文件夹本身（不要选里面的 QQ 号子目录，也不要选它的上级目录）。',
-      };
-    }
-    requireBootstrap().globalConfig.setTencentFilesRootOverride(picked);
-    logger.info('set Tencent Files data dir override', {
+    // No folder-name rule: migrated installs may keep any name (`D:\QQData`,
+    // `E:\备份\QQ`, …). Only fix the common off-by-one pick — the per-account
+    // directory itself — by walking up to its parent.
+    const root = normalizeQqDataRoot(picked);
+    requireBootstrap().globalConfig.setTencentFilesRootOverride(root);
+    logger.info('set QQ data dir override', {
       event: 'pick-root-accepted',
       picked,
+      root,
     });
-    return { ok: true, path: picked };
+    return { ok: true, path: root };
   }),
 
   pickMsgDb: procedure.mutation(async () => {

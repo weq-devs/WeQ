@@ -60,6 +60,9 @@ resources/ninebird-runtime/
 
 # dev
 /tmp
+# `pnpm dev` 的 Electron userData 目录（apps/desktop/package.json 的 --user-data-dir），
+# 里面是缓存 / SingletonLock 之类的运行时文件，不入库。
+**/.dev-profile/**
 /docs/develop/redbag.md
 
 # nt_helper 原生产物：5 个平台的 nt_helper.node 与加密后的装扮资源（*.dat）都不入库。
@@ -97,3 +100,8 @@ resources/ninebird-runtime/
 /docs/develop/native-history-without-napcat-research-20261016.md
 /docs/develop/protocol-history-500-20261016.md
 /docs/develop/native-history-500-20261016.md
+
+# Local ML models and scratch reverse artifacts
+models/
+tmp_reverse/
+.zcode/

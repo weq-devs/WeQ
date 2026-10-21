@@ -1,0 +1,50 @@
+.weq-group-sign-page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+}
+.weq-group-sign-page > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-group-sign-page > header > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.weq-group-sign-page > header strong {
+  font-size: 16px;
+}
+.weq-group-sign-page > header span {
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+.weq-group-sign-body {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 18px;
+}
+.weq-group-sign-body > .weq-qq-actions {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.weq-group-sign-body .weq-set-btn {
+  border: 1px solid var(--weq-border-strong);
+  background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
+  color: var(--weq-fg-primary);
+}
+html[data-theme='dark'] .weq-group-sign-page {
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+}

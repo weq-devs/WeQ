@@ -86,7 +86,9 @@
   text-align: left;
   cursor: pointer;
   min-width: 0;
-  transition: background-color 140ms ease, color 140ms ease;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
 }
 
 .weq-picker-option:hover {

@@ -13,6 +13,7 @@ export function MessageProvenance({
     createdAt?: string;
     source?: 'roaming';
     sourceFormat?: 'native' | 'protocol';
+    localSent?: boolean;
   };
   system?: boolean;
 }) {
@@ -27,10 +28,11 @@ export function MessageProvenance({
     showTime && date && Number.isFinite(date.getTime())
       ? date.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
       : null;
-  if (message.source !== 'roaming' && !seq && !time) return null;
+  const roaming = message.source === 'roaming' && !message.localSent;
+  if (!roaming && !seq && !time) return null;
   return (
     <span className="weq-message-provenance">
-      {message.source === 'roaming' ? (
+      {roaming ? (
         <span
           title={
             message.sourceFormat === 'native'

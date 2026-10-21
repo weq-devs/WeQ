@@ -1,0 +1,13 @@
+.weq-generated-message.is-selected {
+  background: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  outline-offset: -1px;
+}
+.weq-generated-message:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+html[data-theme='dark'] .weq-generated-message.is-selected {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+  outline-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+}

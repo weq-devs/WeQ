@@ -26,10 +26,7 @@
     520px,
     max(
       236px,
-      calc(
-        100dvh - var(--chat-header-height, 40px) - var(--composer-height, 190px) -
-          56px
-      )
+      calc(100dvh - var(--chat-header-height, 40px) - var(--composer-height, 190px) - 56px)
     )
   );
   grid-template-rows: auto minmax(0, 1fr) auto auto;
@@ -63,7 +60,9 @@
   background: var(--popover, #ffffff);
   color: var(--weq-fg-muted, #858585);
   cursor: pointer;
-  transition: background 130ms ease, color 130ms ease;
+  transition:
+    background 130ms ease,
+    color 130ms ease;
 }
 
 .ark-close:hover {
@@ -100,7 +99,9 @@
   font-family: inherit;
   font-size: 12px;
   cursor: pointer;
-  transition: background 130ms ease, color 130ms ease;
+  transition:
+    background 130ms ease,
+    color 130ms ease;
 }
 
 .ark-tab:hover {
@@ -184,7 +185,9 @@
   color: var(--weq-fg-muted, #858585);
   font-family: inherit;
   cursor: pointer;
-  transition: background 130ms ease, color 130ms ease;
+  transition:
+    background 130ms ease,
+    color 130ms ease;
 }
 
 .ark-seg-btn:hover {
@@ -336,7 +339,9 @@
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
   border-radius: 9px;
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
-  transition: border-color 130ms ease, background 130ms ease;
+  transition:
+    border-color 130ms ease,
+    background 130ms ease;
 }
 
 .ark-search:focus-within {
@@ -473,7 +478,9 @@
   background: transparent;
   color: color-mix(in srgb, var(--weq-fg-muted, #858585) 90%, transparent);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
 }
 
 .ark-contact-clear:hover {
@@ -654,11 +661,11 @@
 }
 
 /* 深色：高德没有暗色栅格瓦片，用滤镜把亮色底图翻成暗色（这是通用做法）。 */
-html[data-theme="dark"] .ark-map-tile {
+html[data-theme='dark'] .ark-map-tile {
   filter: invert(1) hue-rotate(180deg) brightness(0.86) contrast(0.92) saturate(0.72);
 }
 
-html[data-theme="dark"] .ark-map {
+html[data-theme='dark'] .ark-map {
   background: #1b1e22;
 }
 
@@ -819,19 +826,19 @@ html[data-theme="dark"] .ark-map {
 
 /* ── 深色下压一档 ────────────────────────────────────────────────────────── */
 
-html[data-theme="dark"] .ark-panel {
+html[data-theme='dark'] .ark-panel {
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
 }
 
-html[data-theme="dark"] .ark-json,
-html[data-theme="dark"] .ark-search {
+html[data-theme='dark'] .ark-json,
+html[data-theme='dark'] .ark-search {
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
 }
 
-html[data-theme="dark"] .ark-suggest {
+html[data-theme='dark'] .ark-suggest {
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.6);
 }
 
-html[data-theme="dark"] .ark-contact-list {
+html[data-theme='dark'] .ark-contact-list {
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.6);
 }

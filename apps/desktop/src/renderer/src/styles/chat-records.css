@@ -1,0 +1,48 @@
+.weq-record-calendar-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 18px 12px;
+}
+
+.weq-record-calendar-actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 4px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.weq-record-calendar-actions > button > svg {
+  flex: none;
+}
+
+.weq-record-calendar-actions > button:hover:not(:disabled) {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-surface));
+}
+
+.weq-record-calendar-actions > button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-record-calendar-actions > button:disabled {
+  color: var(--weq-fg-muted);
+  cursor: default;
+}
+
+html[data-theme='dark'] .weq-record-calendar-actions > button {
+  border-color: var(--weq-border-strong);
+}

@@ -28,14 +28,18 @@ import {
   useState,
   type ReactElement,
   type ReactNode,
+  type DragEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useRenderDocument } from '../../lib/renderDocument';
+import { useSurfaceOutside } from '../../lib/surfaceOutside';
 import {
   Check,
   Code2,
   FileText,
   Film,
   Forward,
+  GripVertical,
   Image as ImageIcon,
   Layers,
   Mic,
@@ -67,6 +71,8 @@ import { trpc } from '../../trpc/client';
 import { cn } from '../../im-template/template/classNames';
 import { dedupePersons, SenderPicker, type MfPerson } from './SenderPicker';
 import { MsgDressEditor } from './MsgDressEditor';
+import { moveCompositionNode } from './workspaceModel';
+import '../../styles/composition-sort.css';
 import {
   blankNestedRecordSeg,
   blankSeg,
@@ -129,6 +135,8 @@ const SEG_ORDER: MfSegKind[] = [
   'node',
 ];
 
+const NODE_DRAG_TYPE = 'application/x-weq-composition-node';
+
 /**
  * 一条消息里能**叠加**的段：真实 QQ 消息能共存的就这几类。
  *
@@ -172,6 +180,8 @@ export function MergeForwardComposer({
   self,
   members,
   senderMode,
+  onProgress,
+  dropAt,
 }: {
   draft: MfDraft;
   onChange: (draft: MfDraft) => void;
@@ -180,7 +190,12 @@ export function MergeForwardComposer({
   /** 会话模式下的候选人（会话成员）。 */
   members?: MfPerson[];
   senderMode: 'conversation' | 'global';
+  onProgress?: (draft: MfDraft | null) => void;
+  dropAt?: number | null;
 }): ReactElement {
+  const ownerDocument = useRenderDocument();
+  const NodeClass = ownerDocument.defaultView?.Node ?? Node;
+  const ElementClass = ownerDocument.defaultView?.Element ?? Element;
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [pickerFor, setPickerFor] = useState<
     { kind: 'editor' } | { kind: 'node'; id: string } | null
@@ -189,11 +204,64 @@ export function MergeForwardComposer({
   const [error, setError] = useState<string | null>(null);
   /** 正在编辑装扮的节点 id（null = 没开卡片）。 */
   const [dressFor, setDressFor] = useState<string | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [sortAt, setSortAt] = useState<number | null>(null);
 
   const nodes = draft.nodes;
+  const progressIdentity = useRef<{ id: string; time: number } | null>(null);
+  useEffect(() => {
+    if (!onProgress) return;
+    if (!editor) {
+      progressIdentity.current = null;
+      onProgress(null);
+      return;
+    }
+    if (
+      (!editor.nodeId && editor.segs.length === 0) ||
+      (editor.nodeId &&
+        nodes.some(
+          (node) =>
+            node.id === editor.nodeId &&
+            JSON.stringify(node.sender) === JSON.stringify(editor.sender) &&
+            JSON.stringify(node.segs) === JSON.stringify(editor.segs),
+        ))
+    ) {
+      onProgress(null);
+      return;
+    }
+    progressIdentity.current ??= {
+      id: createNode(editor.sender).id,
+      time: Math.floor(Date.now() / 1000),
+    };
+    const next = [...nodes];
+    if (editor.nodeId) {
+      const index = next.findIndex((node) => node.id === editor.nodeId);
+      const original = next[index];
+      if (original) next[index] = { ...original, sender: editor.sender, segs: editor.segs };
+    } else {
+      next.splice(editor.at, 0, {
+        id: progressIdentity.current.id,
+        time: progressIdentity.current.time,
+        sender: editor.sender,
+        segs: editor.segs,
+      });
+    }
+    onProgress({ ...draft, nodes: next, updatedAt: Math.floor(Date.now() / 1000) });
+  }, [draft, editor, nodes, onProgress]);
 
   function commit(nextNodes: MfNode[]): void {
     onChange({ ...draft, nodes: nextNodes, updatedAt: Math.floor(Date.now() / 1000) });
+  }
+
+  function sortSlot(event: DragEvent<HTMLDivElement>): number {
+    const slot = (event.target instanceof ElementClass ? event.target : null)?.closest<HTMLElement>(
+      '[data-composition-index]',
+    );
+    if (!slot || !event.currentTarget.contains(slot)) return nodes.length;
+    const rect = slot.getBoundingClientRect();
+    return (
+      Number(slot.dataset.compositionIndex) + (event.clientY > rect.top + rect.height / 2 ? 1 : 0)
+    );
   }
 
   function startInsert(at: number): void {
@@ -279,7 +347,33 @@ export function MergeForwardComposer({
 
   return (
     <div className="weq-mf-composer">
-      <div className="weq-mf-preview">
+      <div
+        className="weq-mf-preview"
+        onDragOver={(event) => {
+          if (!dragging || editor || !event.dataTransfer?.types.includes(NODE_DRAG_TYPE)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = 'move';
+          setSortAt(sortSlot(event));
+        }}
+        onDragLeave={(event) => {
+          if (
+            !(event.relatedTarget instanceof NodeClass) ||
+            !event.currentTarget.contains(event.relatedTarget)
+          )
+            setSortAt(null);
+        }}
+        onDrop={(event) => {
+          if (!dragging || editor || event.dataTransfer?.getData(NODE_DRAG_TYPE) !== dragging)
+            return;
+          event.preventDefault();
+          event.stopPropagation();
+          const next = moveCompositionNode(nodes, dragging, sortSlot(event));
+          if (next !== nodes) commit(next);
+          setDragging(null);
+          setSortAt(null);
+        }}
+      >
         {nodes.length === 0 && !editor ? (
           <div className="weq-mf-preview-empty">
             <ImageIcon size={26} strokeWidth={1.5} />
@@ -288,7 +382,12 @@ export function MergeForwardComposer({
         ) : null}
 
         {nodes.map((node, index) => (
-          <div key={node.id} className="weq-mf-slot">
+          <div
+            key={node.id}
+            className={cn('weq-mf-slot', dragging === node.id && 'is-sorting')}
+            data-composition-index={index}
+          >
+            {(sortAt ?? dropAt) === index ? <div className="weq-composition-drop-line" /> : null}
             {!editor && index === 0 ? <InsertButton onClick={() => startInsert(0)} /> : null}
 
             {/* 新消息插在这一行前面：只有「插到末尾」时才会走列表外的那个编辑器，
@@ -332,6 +431,39 @@ export function MergeForwardComposer({
             ) : (
               <PreviewRow
                 node={node}
+                dragHandle={
+                  <button
+                    type="button"
+                    className="weq-mf-sort-handle"
+                    title="拖拽排序；方向键上移或下移"
+                    aria-label="拖拽消息排序"
+                    disabled={Boolean(editor)}
+                    draggable={!editor}
+                    onDragStart={(event) => {
+                      event.stopPropagation();
+                      event.dataTransfer.setData(NODE_DRAG_TYPE, node.id);
+                      event.dataTransfer.effectAllowed = 'move';
+                      setDragging(node.id);
+                      setMenu(null);
+                    }}
+                    onDragEnd={() => {
+                      setDragging(null);
+                      setSortAt(null);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+                      event.preventDefault();
+                      const next = moveCompositionNode(
+                        nodes,
+                        node.id,
+                        event.key === 'ArrowUp' ? index - 1 : index + 2,
+                      );
+                      if (next !== nodes) commit(next);
+                    }}
+                  >
+                    <GripVertical size={14} />
+                  </button>
+                }
                 onOpen={() => startEdit(node, index)}
                 onEditDress={() => setDressFor(node.id)}
                 onAvatar={() => setPickerFor({ kind: 'node', id: node.id })}
@@ -344,6 +476,7 @@ export function MergeForwardComposer({
             ) : null}
           </div>
         ))}
+        {(sortAt ?? dropAt) === nodes.length ? <div className="weq-composition-drop-line" /> : null}
 
         {editor && editor.nodeId === null && editor.at >= nodes.length ? (
           <NodeEditor
@@ -422,12 +555,14 @@ function PreviewRow({
   onEditDress,
   onAvatar,
   onContextMenu,
+  dragHandle,
 }: {
   node: MfNode;
   onOpen: () => void;
   onEditDress: () => void;
   onAvatar: () => void;
   onContextMenu: (x: number, y: number) => void;
+  dragHandle?: ReactNode;
 }): ReactElement {
   const rowRef = useRef<HTMLDivElement | null>(null);
   const msgDec = useMsgDecoration(node.decoration);
@@ -462,6 +597,7 @@ function PreviewRow({
       </button>
       <div className="weq-forward-row-main weq-mf-row-main">
         <div className="weq-forward-row-meta weq-mf-row-meta">
+          {dragHandle}
           <span className="weq-forward-row-name weq-mf-row-name">{name}</span>
           <span className="weq-forward-row-time weq-mf-row-time">{formatNodeTime(node.time)}</span>
           <button type="button" className="weq-mf-row-edit" onClick={onOpen}>
@@ -869,6 +1005,8 @@ function AddSegMenu({
   onPick: (kind: MfSegKind) => void;
   onClose: () => void;
 }): ReactElement {
+  const document = useRenderDocument();
+  const viewport = document.defaultView ?? window;
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   // 对话框自己占的是 useOverlayLayer 发的层（≥1200），CSS 里的 61 会被它压住。
@@ -892,7 +1030,7 @@ function AddSegMenu({
       document.removeEventListener('pointerdown', onDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [anchor, onClose]);
+  }, [anchor, onClose, document]);
 
   useLayoutEffect(() => {
     const el = menuRef.current;
@@ -904,15 +1042,15 @@ function AddSegMenu({
     const height = el.offsetHeight;
     let top = rect ? rect.top - height - gap : margin;
     if (top < margin) top = rect ? rect.bottom + gap : margin;
-    if (top + height > window.innerHeight - margin) {
-      top = Math.max(margin, window.innerHeight - height - margin);
+    if (top + height > viewport.innerHeight - margin) {
+      top = Math.max(margin, viewport.innerHeight - height - margin);
     }
     let left = rect ? rect.left : margin;
-    if (left + width > window.innerWidth - margin) {
-      left = Math.max(margin, window.innerWidth - width - margin);
+    if (left + width > viewport.innerWidth - margin) {
+      left = Math.max(margin, viewport.innerWidth - width - margin);
     }
     setPos({ left, top });
-  }, [anchor]);
+  }, [anchor, viewport]);
 
   return createPortal(
     <div
@@ -1834,6 +1972,8 @@ function PortaledPopover({
   className: string;
   children: ReactNode;
 }): ReactElement {
+  const document = useRenderDocument();
+  const viewport = document.defaultView ?? window;
   const ref = useRef<HTMLDivElement | null>(null);
   const layer = useOverlayLayer(true);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
@@ -1865,7 +2005,7 @@ function PortaledPopover({
       document.removeEventListener('pointerdown', onDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [anchor, onClose]);
+  }, [anchor, onClose, document]);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -1876,16 +2016,16 @@ function PortaledPopover({
     const width = el.offsetWidth;
     const height = el.offsetHeight;
     let top = rect ? rect.bottom + gap : margin;
-    if (rect && top + height > window.innerHeight - margin) {
+    if (rect && top + height > viewport.innerHeight - margin) {
       const above = rect.top - height - gap;
-      top = above >= margin ? above : Math.max(margin, window.innerHeight - height - margin);
+      top = above >= margin ? above : Math.max(margin, viewport.innerHeight - height - margin);
     }
     let left = rect ? rect.left : margin;
-    if (left + width > window.innerWidth - margin) {
-      left = Math.max(margin, window.innerWidth - width - margin);
+    if (left + width > viewport.innerWidth - margin) {
+      left = Math.max(margin, viewport.innerWidth - width - margin);
     }
     setPos({ left, top });
-  }, [anchor, sizeTick]);
+  }, [anchor, sizeTick, viewport]);
 
   return createPortal(
     <div
@@ -1965,27 +2105,24 @@ function NodeMenu({
   onChangeSender: () => void;
   onDelete: () => void;
 }): ReactElement {
+  const document = useRenderDocument();
+  const viewport = document.defaultView ?? window;
   const menuRef = useRef<HTMLDivElement | null>(null);
   // 同上：菜单 portal 到 body，z-index 必须走 useOverlayLayer 才不被对话框压住。
   const layer = useOverlayLayer(true);
-  const left = Math.min(x, window.innerWidth - 170);
-  const top = Math.min(y, window.innerHeight - 190);
+  const left = Math.min(x, viewport.innerWidth - 170);
+  const top = Math.min(y, viewport.innerHeight - 190);
+  useSurfaceOutside(menuRef, onClose, true);
 
   useEffect(() => {
-    function onDown(event: PointerEvent): void {
-      if (menuRef.current?.contains(event.target as Node)) return;
-      onClose();
-    }
     function onKey(event: KeyboardEvent): void {
       if (event.key === 'Escape') onClose();
     }
-    document.addEventListener('pointerdown', onDown);
     document.addEventListener('keydown', onKey);
     return () => {
-      document.removeEventListener('pointerdown', onDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [onClose]);
+  }, [onClose, document]);
   return createPortal(
     <div ref={menuRef} className="weq-mf-menu" style={{ left, top, zIndex: layer }} role="menu">
       <button type="button" role="menuitem" onClick={onEdit}>

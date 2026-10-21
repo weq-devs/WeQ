@@ -149,7 +149,12 @@ export function TotpBindDialog({
   const doneStep2 = success;
 
   return (
-    <Modal onClose={handleClose} width={420} labelledBy="weq-applock-bind-title">
+    <Modal
+      onClose={handleClose}
+      dismissOnOutside={false}
+      width={420}
+      labelledBy="weq-applock-bind-title"
+    >
       <div className="weq-applock-bind">
         <header className="weq-applock-bind-head">
           <div className="weq-applock-bind-title">

@@ -8,7 +8,7 @@
  *   21502  isAccepted      (INTEGER) - 0: yes, 1: pending
  *   21508  verifyMsg       (TEXT)
  *   21509  source          (TEXT)
- *   21505  status          (INTEGER) - 1: waiting, 2: accepted, 13: expired
+ *   21505  status          (INTEGER) - 来源类型码，不是审核状态（保留旧字段名兼容调用方）
  *   60001  sourceGroupCode (INTEGER)
  *   21501  initiator       (INTEGER) - 0: self, 1: others
  */
@@ -20,9 +20,11 @@ export interface BuddyRequest {
   timestamp: number;
   peerUid: string;
   nick: string;
+  /** 21502：0 已同意，1 尚未同意；未知值不用于审批。 */
   isAccepted: number;
   verifyMsg: string;
   source: string;
+  /** 21505：来源类型码，不是审核状态。 */
   status: number;
   sourceGroupCode: bigint;
   initiator: number;

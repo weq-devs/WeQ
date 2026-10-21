@@ -8,6 +8,7 @@
  */
 
 import { useState, useMemo, type ReactElement, type ReactNode } from 'react';
+import { DraftCloseContext, useDraftClose, useDraftProtection } from '../../lib/draftClose';
 import {
   BarChart3,
   Download,
@@ -138,6 +139,8 @@ function WillingTab({
     Math.round((persona.typo?.intensity ?? DEFAULT_TYPO_INTENSITY) * 100),
   );
   const [saving, setSaving] = useState(false);
+  const willingDraft = { level, mustReply, gatePrivate, typoOn, typoPct };
+  const guard = useDraftProtection(willingDraft, saving);
 
   async function save(): Promise<void> {
     setSaving(true);
@@ -147,6 +150,7 @@ function WillingTab({
         willing: { level, mustReplyOnMention: mustReply, gatePrivate },
         typo: { enabled: typoOn, intensity: typoPct / 100 },
       });
+      guard.reset(willingDraft);
       dialog.success('已保存', '发言意愿已更新');
       onSaved();
     } catch (e) {
@@ -268,6 +272,8 @@ function VoiceTab({
   const [mode, setMode] = useState<'clone' | 'preset'>(persona.voice?.mode ?? 'clone');
   const [voice, setVoice] = useState(persona.voice?.voice ?? '');
   const [saving, setSaving] = useState(false);
+  const voiceDraft = { enabled, providerId, mode, voice };
+  const guard = useDraftProtection(voiceDraft, saving);
 
   const currentProvider = providerList.find((p) => p.id === providerId) ?? providerList[0];
   const caps = catalog.data?.find((c) => c.vendor === currentProvider?.vendor)?.capabilities;
@@ -290,6 +296,7 @@ function VoiceTab({
         voiceCloneEnabled: nextEnabled,
         voice: binding,
       });
+      guard.reset({ ...voiceDraft, enabled: nextEnabled });
       onSaved();
     } catch (e) {
       dialog.error('保存失败', e instanceof Error ? e.message : String(e));
@@ -521,6 +528,18 @@ function ExportTab({
     [providers.data],
   );
   const [visionKey, setVisionKey] = useState('');
+  const exportDraft = {
+    adapterType,
+    wsUrl,
+    token,
+    selfId,
+    voice,
+    groupChat,
+    groupReplyMode,
+    webuiPort,
+    visionKey,
+  };
+  const guard = useDraftProtection(exportDraft, exportMut.isLoading);
 
   async function doExport(): Promise<void> {
     if (!wsUrl.trim()) {
@@ -551,6 +570,7 @@ function ExportTab({
         visionModel: vision ? { providerId: vision.providerId, model: vision.model } : undefined,
       });
       if (r.canceled) return;
+      guard.reset(exportDraft);
       await utils.account.getAgentLabExportInfo.invalidate({ personaId: persona.id });
       dialog.success(
         '导出成功',
@@ -707,6 +727,7 @@ function ExportTab({
 export function PersonaSettingsModal({
   persona,
   paramsContent,
+  paramsTitle,
   onClose,
   onSaved,
 }: {
@@ -721,6 +742,7 @@ export function PersonaSettingsModal({
     typo?: TypoCfg;
   };
   paramsContent: ReactNode;
+  paramsTitle?: string;
   onClose: () => void;
   onSaved: () => void;
 }): ReactElement {
@@ -728,10 +750,13 @@ export function PersonaSettingsModal({
   const update = trpc.account.updateAgentLabPersona.useMutation();
   const [tab, setTab] = useState<Tab>('params');
   const [prompt, setPrompt] = useState(persona.customPrompt ?? '');
+  const [visited, setVisited] = useState<Tab[]>(['params']);
+  const guard = useDraftClose(onClose, { prompt }, update.isLoading);
 
   async function savePrompt(): Promise<void> {
     try {
       await update.mutateAsync({ personaId: persona.id, customPrompt: prompt });
+      guard.reset({ prompt });
       dialog.success('已保存', '额外提示已更新');
       onSaved();
     } catch (e) {
@@ -740,61 +765,72 @@ export function PersonaSettingsModal({
   }
 
   return (
-    <Modal onClose={onClose} width={640}>
-      <div className="weq-persona-modal">
-        <header className="weq-persona-modal-head">
-          <Settings size={16} />
-          <strong>{persona.name} · 设置</strong>
-        </header>
-        <div className="weq-persona-modal-body">
-          <nav className="weq-persona-tabs">
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                className={`weq-persona-tab${tab === t.id ? ' is-active' : ''}`}
-                onClick={() => setTab(t.id)}
-              >
-                {t.icon}
-                {t.label}
-              </button>
-            ))}
-          </nav>
-          <div className="weq-persona-tabpane">
-            {tab === 'params' ? (
-              paramsContent
-            ) : tab === 'prompt' ? (
-              <div className="weq-persona-form">
-                <label className="weq-agentlab-field">
-                  <span>额外提示（拼进 system prompt，优先遵守）</span>
-                  <textarea
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    rows={6}
-                    placeholder="例如：这个克隆体说话更毒舌一点；少用句号"
-                  />
-                </label>
-                <div className="weq-clone-actions">
-                  <button
-                    className="weq-set-btn"
-                    disabled={update.isLoading}
-                    onClick={() => void savePrompt()}
-                  >
-                    保存
-                  </button>
+    <Modal onClose={guard.requestClose} width={640}>
+      <DraftCloseContext.Provider value={guard.drafts}>
+        <div className="weq-persona-modal">
+          <header className="weq-persona-modal-head">
+            <Settings size={16} />
+            <strong>{persona.name} · 设置</strong>
+          </header>
+          <div className="weq-persona-modal-body">
+            <nav className="weq-persona-tabs">
+              {TABS.map((t) => (
+                <button
+                  key={t.id}
+                  className={`weq-persona-tab${tab === t.id ? ' is-active' : ''}`}
+                  onClick={() => {
+                    setVisited((current) =>
+                      current.includes(t.id) ? current : [...current, t.id],
+                    );
+                    setTab(t.id);
+                  }}
+                >
+                  {t.icon}
+                  {t.id === 'params' && paramsTitle ? paramsTitle : t.label}
+                </button>
+              ))}
+            </nav>
+            <div className="weq-persona-tabpane">
+              {visited.map((page) => (
+                <div key={page} hidden={tab !== page}>
+                  {page === 'params' ? (
+                    paramsContent
+                  ) : page === 'prompt' ? (
+                    <div className="weq-persona-form">
+                      <label className="weq-agentlab-field">
+                        <span>额外提示（拼进 system prompt，优先遵守）</span>
+                        <textarea
+                          value={prompt}
+                          onChange={(e) => setPrompt(e.target.value)}
+                          rows={6}
+                          placeholder="例如：这个克隆体说话更毒舌一点；少用句号"
+                        />
+                      </label>
+                      <div className="weq-clone-actions">
+                        <button
+                          className="weq-set-btn"
+                          disabled={update.isLoading}
+                          onClick={() => void savePrompt()}
+                        >
+                          保存
+                        </button>
+                      </div>
+                    </div>
+                  ) : page === 'willing' ? (
+                    <WillingTab persona={persona} onSaved={onSaved} />
+                  ) : page === 'voice' ? (
+                    <VoiceTab persona={persona} onSaved={onSaved} />
+                  ) : page === 'memory' ? (
+                    <MemoryTab personaId={persona.id} />
+                  ) : (
+                    <ExportTab persona={persona} />
+                  )}
                 </div>
-              </div>
-            ) : tab === 'willing' ? (
-              <WillingTab persona={persona} onSaved={onSaved} />
-            ) : tab === 'voice' ? (
-              <VoiceTab persona={persona} onSaved={onSaved} />
-            ) : tab === 'memory' ? (
-              <MemoryTab personaId={persona.id} />
-            ) : (
-              <ExportTab persona={persona} />
-            )}
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      </DraftCloseContext.Provider>
     </Modal>
   );
 }

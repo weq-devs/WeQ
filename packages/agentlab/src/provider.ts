@@ -7,7 +7,10 @@ import type {
 } from './types';
 
 function trimSlash(value: string): string {
-  return value.replace(/\/+$/g, '');
+  return value
+    .replace(/\/+$/g, '')
+    .replace(/\/chat\/completions$/i, '')
+    .replace(/\/+$/g, '');
 }
 
 function normalizeModel(input: AgentLabProviderModel): AgentLabProviderModel {

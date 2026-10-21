@@ -9,19 +9,18 @@
  * resolve their Promise with the user's choice so call sites can `await`.
  */
 
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from 'react';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useRenderDocument } from '../lib/renderDocument';
 import { useTabActive } from './RetainedTabs';
 import { create } from 'zustand';
 import { AlertTriangle, Info, Lock, ShieldAlert, X } from 'lucide-react';
-import { useOverlayLayer } from '../lib/overlayStack';
+import { OverlayLayerContext, useOverlayLayer } from '../lib/overlayStack';
+import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor';
+import { useSurfaceEscape } from '../lib/surfaceEscape';
+import { WorkspacePage } from './WorkspacePages';
+import { WindowSurface } from './WindowSurface';
+import { useSurfaceOutside } from '../lib/surfaceOutside';
 
 export type DialogTone = 'error' | 'warning' | 'info';
 
@@ -135,6 +134,13 @@ export function Modal({
   width,
   className,
   layerClassName,
+  open = true,
+  presentation = 'modal',
+  title,
+  anchor,
+  centered = false,
+  dismissOnOutside = true,
+  portalTarget,
 }: {
   onClose?: () => void;
   children: ReactNode;
@@ -144,40 +150,107 @@ export function Modal({
   className?: string;
   /** Extra class for the full-screen overlay layer. */
   layerClassName?: string;
+  /** 关闭时保留子树，后台任务和工具内会话不因遮罩收起而销毁。 */
+  open?: boolean;
+  presentation?: 'modal' | 'panel' | 'popover' | 'page' | 'sidecar' | 'floating' | 'anchored';
+  title?: string;
+  anchor?: HTMLElement | null;
+  /** 强制居中遮罩，不沿用最近的触发点。 */
+  centered?: boolean;
+  /** 安全验证、编辑正文等流程可显式禁用点外关闭。 */
+  dismissOnOutside?: boolean;
+  portalTarget?: Element | null;
 }): ReactElement | null {
+  const document = useRenderDocument();
   const tabActive = useTabActive();
-  const layer = useOverlayLayer(tabActive);
-
-  useLayoutEffect(() => {
-    if (!tabActive || typeof document === 'undefined' || !onClose) return;
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key === 'Escape') onClose?.();
-    }
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [tabActive, onClose]);
+  const active = tabActive && open;
+  const windowed = presentation === 'floating' || presentation === 'anchored';
+  const layer = useOverlayLayer(active && !windowed);
+  const ref = useRef<HTMLDivElement>(null);
+  const placement = useOverlayAnchor(
+    ref,
+    active && !windowed,
+    presentation === 'popover' && !centered,
+    anchor,
+  );
+  useSurfaceEscape(
+    ref,
+    onClose,
+    active && !windowed && presentation !== 'page' && presentation !== 'sidecar',
+    presentation === 'modal',
+  );
+  useSurfaceOutside(
+    ref,
+    onClose,
+    active &&
+      !windowed &&
+      dismissOnOutside &&
+      presentation !== 'page' &&
+      presentation !== 'sidecar',
+    { scrim: true, anchor: placement.anchor?.element },
+  );
 
   if (typeof document === 'undefined') return null;
+  if (windowed)
+    return (
+      <WindowSurface
+        mode={presentation}
+        open={open}
+        anchor={anchor}
+        width={width}
+        labelledBy={labelledBy}
+        title={title}
+        className={className}
+        onClose={onClose}
+        dismissOnOutside={dismissOnOutside}
+      >
+        {children}
+      </WindowSurface>
+    );
+  if (presentation === 'page' || presentation === 'sidecar')
+    return active ? (
+      <WorkspacePage
+        title={title ?? '详情'}
+        onClose={onClose}
+        placement={presentation === 'sidecar' ? 'sidecar' : 'main'}
+      >
+        <div
+          className={`weq-modal${className ? ` ${className}` : ''}`}
+          aria-labelledby={labelledBy}
+        >
+          {children}
+        </div>
+      </WorkspacePage>
+    ) : null;
 
   return createPortal(
     <div
-      className={`weq-dialog-layer weq-anim-fade${layerClassName ? ` ${layerClassName}` : ''}`}
-      hidden={!tabActive}
-      style={{ zIndex: layer, display: tabActive ? undefined : 'none' }}
-      onMouseDown={onClose}
+      ref={ref}
+      tabIndex={-1}
+      className={`weq-dialog-layer weq-anim-fade${layerClassName ? ` ${layerClassName}` : ''}${presentation !== 'modal' ? ' weq-nonmodal-layer' : ''}${presentation === 'panel' ? ' weq-centered-panel' : ''}${presentation === 'popover' ? ' is-popover' : ''}${placement.position ? ' is-anchored-popover' : ''}`}
+      hidden={!active}
+      inert={!active}
+      style={{ ...placement.position, zIndex: layer, display: active ? undefined : 'none' }}
+      onPointerDownCapture={placement.capture}
+      onClickCapture={placement.capture}
+      onMouseDown={(event) => event.stopPropagation()}
     >
       <div
         className={`weq-modal weq-anim-pop${className ? ` ${className}` : ''}`}
         role="dialog"
-        aria-modal="true"
+        aria-modal={presentation === 'modal' ? true : undefined}
         {...(labelledBy ? { 'aria-labelledby': labelledBy } : {})}
         style={width ? { width } : undefined}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        {children}
+        <OverlayLayerContext.Provider value={layer}>
+          <OverlayAnchorContext.Provider value={placement.trigger}>
+            {children}
+          </OverlayAnchorContext.Provider>
+        </OverlayLayerContext.Provider>
       </div>
     </div>,
-    document.body,
+    portalTarget ?? document.body,
   );
 }
 
@@ -200,7 +273,14 @@ export function DialogHost(): ReactElement | null {
 
   return (
     <Modal
+      presentation={
+        current.confirm || current.password || !current.dismissible ? 'modal' : 'popover'
+      }
+      // 确认 / 密码框属于全局交互，不能被“最后一次点击的按钮”锚定到任务窗、浮窗里，
+      // 否则会贴着触发点落在浮窗下缘（观感上像被浮窗压住）。
+      centered={Boolean(current.confirm || current.password || !current.dismissible)}
       onClose={handleClose}
+      dismissOnOutside={!current.confirm && !current.password}
       labelledBy="weq-dialog-title"
       width={368}
       className={isPasswordPrompt ? 'weq-password-modal' : undefined}

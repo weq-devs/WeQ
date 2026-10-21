@@ -1,0 +1,91 @@
+.weq-resource-export-scrim {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  padding: 16px;
+}
+
+.weq-resource-export-dialog {
+  width: min(620px, 100%);
+  border-radius: 8px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+}
+
+.weq-resource-export-dialog .weq-exp-file-tools,
+.weq-resource-export-dialog .weq-exp-dialog-foot {
+  flex-wrap: wrap;
+}
+
+.weq-resource-export-dialog .weq-exp-tool,
+.weq-resource-export-dialog .weq-exp-btn,
+html[data-theme='dark'] .weq-resource-export-dialog .weq-exp-tool,
+html[data-theme='dark'] .weq-resource-export-dialog .weq-exp-btn {
+  white-space: nowrap;
+  border-radius: 6px;
+  border-color: var(--weq-border-strong);
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-secondary);
+}
+
+.weq-resource-export-dialog .weq-exp-btn.is-primary,
+html[data-theme='dark'] .weq-resource-export-dialog .weq-exp-btn.is-primary {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, var(--weq-bg-surface));
+  color: var(--weq-fg-primary);
+  box-shadow: none;
+}
+
+.weq-resource-export-dialog .weq-exp-btn.is-primary:hover:not(:disabled),
+html[data-theme='dark'] .weq-resource-export-dialog .weq-exp-btn.is-primary:hover:not(:disabled) {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 24%, var(--weq-bg-surface));
+  color: var(--weq-fg-primary);
+}
+
+.weq-resource-export-dialog .weq-exp-file-row.is-on,
+.weq-resource-export-dialog .weq-exp-album-row.is-on,
+html[data-theme='dark'] .weq-resource-export-dialog .weq-exp-file-row.is-on,
+html[data-theme='dark'] .weq-resource-export-dialog .weq-exp-album-row.is-on {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, var(--weq-border-strong));
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-resource-export-dialog .weq-exp-file-check.is-full,
+.weq-resource-export-dialog .weq-exp-album-row.is-on .weq-exp-row-check,
+html[data-theme='dark'] .weq-resource-export-dialog .weq-exp-file-check.is-full,
+html[data-theme='dark'] .weq-resource-export-dialog .weq-exp-album-row.is-on .weq-exp-row-check {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, var(--weq-bg-surface));
+  color: var(--weq-fg-primary);
+}
+
+.weq-resource-export-dialog .weq-exp-tools-count,
+html[data-theme='dark'] .weq-resource-export-dialog .weq-exp-tools-count {
+  color: var(--weq-fg-secondary);
+}
+
+html[data-theme='dark'] .weq-resource-export-dialog {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}
+
+@media (max-width: 480px) {
+  .weq-resource-export-dialog .weq-exp-tools-spacer {
+    display: none;
+  }
+  .weq-resource-export-dialog .weq-exp-tools-count,
+  .weq-resource-export-dialog .weq-exp-dialog-foot-note {
+    flex-basis: 100%;
+  }
+  .weq-resource-export-dialog .weq-exp-file-tools .weq-exp-tool {
+    padding-inline: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-resource-export-dialog,
+  .weq-resource-export-dialog * {
+    animation: none;
+    transition: none;
+  }
+}

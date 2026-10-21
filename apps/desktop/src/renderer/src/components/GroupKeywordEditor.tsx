@@ -20,6 +20,7 @@
 import { Crown, Search, ShieldCheck, Trash2, UserRound, Users, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { client } from '../trpc/client';
+import { useMultiSelection } from '../hooks/useMultiSelection';
 import { Avatar } from '../im-template/template/primitives';
 import { cn } from '../im-template/template/classNames';
 
@@ -187,15 +188,6 @@ export function GroupKeywordEditor({
     );
   }
 
-  function toggleMember(index: number, uid: string) {
-    const entry = entriesRef.current[index];
-    if (!entry) return;
-    const next = entry.memberUids.includes(uid)
-      ? entry.memberUids.filter((u) => u !== uid)
-      : [...entry.memberUids, uid];
-    setEntryMembers(index, next);
-  }
-
   function selectRole(index: number, role: 'owner' | 'admin') {
     const uids =
       role === 'owner'
@@ -216,6 +208,16 @@ export function GroupKeywordEditor({
       .filter((m) => `${m.displayName} ${m.uin ?? ''}`.toLowerCase().includes(q))
       .slice(0, 20);
   }, [memberQuery, members, entries, editingIndex]);
+  const memberIds = editingIndex === null ? [] : (entries[editingIndex]?.memberUids ?? []);
+  const memberMulti = useMultiSelection({
+    ids: [...new Set([...memberIds, ...searchResults.map((member) => member.uid)])],
+    selected: new Set(memberIds),
+    disabled: editingIndex === null,
+    onChange: (next) => {
+      if (editingIndex !== null) setEntryMembers(editingIndex, [...next]);
+    },
+    onExit: () => setEditingIndex(null),
+  });
 
   function memberLabel(uid: string): KeywordMember {
     return (
@@ -303,7 +305,7 @@ export function GroupKeywordEditor({
                 ) : null}
 
                 {editing ? (
-                  <div className="group-keyword-editor-panel">
+                  <div className="group-keyword-editor-panel" {...memberMulti.rootProps}>
                     <div className="group-keyword-quick">
                       <button
                         type="button"
@@ -339,11 +341,7 @@ export function GroupKeywordEditor({
                           <span key={m.uid} className="group-keyword-member">
                             <Avatar name={m.displayName} avatarUrl={m.avatarUrl} seed={m.uid} />
                             <span className="group-keyword-member-name">{m.displayName}</span>
-                            <button
-                              type="button"
-                              title="移除"
-                              onClick={() => toggleMember(index, m.uid)}
-                            >
+                            <button type="button" title="移除" {...memberMulti.itemProps(m.uid)}>
                               <X size={12} />
                             </button>
                           </span>
@@ -369,10 +367,7 @@ export function GroupKeywordEditor({
                               key={m.uid}
                               type="button"
                               className="group-keyword-result"
-                              onClick={() => {
-                                toggleMember(index, m.uid);
-                                setMemberQuery('');
-                              }}
+                              {...memberMulti.itemProps(m.uid)}
                             >
                               <Avatar name={m.displayName} avatarUrl={m.avatarUrl} seed={m.uid} />
                               <span className="group-keyword-member-name">{m.displayName}</span>

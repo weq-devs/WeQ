@@ -59,15 +59,6 @@ export function MergeForwardDialog({
   const title = useMemo(() => draft.title || draftTitle(draft.nodes), [draft]);
   const canNext = draft.nodes.length > 0;
 
-  function toggleTarget(id: string): void {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
   async function copyJson(): Promise<void> {
     const ok = await copyTextToClipboard(draftToJson(draft));
     pushToast(
@@ -117,7 +108,13 @@ export function MergeForwardDialog({
   }
 
   return (
-    <Modal onClose={onClose} width={880} labelledBy="weq-mf-title" className="weq-mf-modal">
+    <Modal
+      onClose={onClose}
+      dismissOnOutside={false}
+      width={880}
+      labelledBy="weq-mf-title"
+      className="weq-mf-modal"
+    >
       <div className="weq-mf">
         <header className="weq-mf-head">
           {step === 'targets' ? (
@@ -172,7 +169,7 @@ export function MergeForwardDialog({
               senderMode={senderMode}
             />
           ) : (
-            <MergeForwardTargets targets={targets} selected={selected} onToggle={toggleTarget} />
+            <MergeForwardTargets targets={targets} selected={selected} onChange={setSelected} />
           )}
         </div>
 

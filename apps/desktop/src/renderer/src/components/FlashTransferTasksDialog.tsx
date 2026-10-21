@@ -102,7 +102,13 @@ function fileExtIcon(fileName: string): string {
 const isActive = (status: TaskStatus): boolean =>
   status === 'pending' || status === 'resolving' || status === 'downloading';
 
-export function FlashTransferTasksDialog({ onClose }: { onClose: () => void }): ReactElement {
+export function FlashTransferTasksDialog({
+  onClose,
+  anchor,
+}: {
+  onClose: () => void;
+  anchor?: HTMLElement | null;
+}): ReactElement {
   const pushToast = useToast((s) => s.push);
   const [tasks, setTasks] = useState<FlashTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -178,7 +184,13 @@ export function FlashTransferTasksDialog({ onClose }: { onClose: () => void }): 
   const hasFinished = tasks.some((t) => !isActive(t.status));
 
   return (
-    <Modal onClose={onClose} width={560}>
+    <Modal
+      presentation="anchored"
+      anchor={anchor}
+      onClose={onClose}
+      width={480}
+      title="闪传下载任务"
+    >
       <div className="weq-ft weq-ft-tasks">
         <header className="weq-ft-head">
           <span className="weq-ft-title">闪传下载任务</span>

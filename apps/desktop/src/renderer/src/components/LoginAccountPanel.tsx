@@ -18,7 +18,7 @@
  * `html[data-theme="dark"]` 上，不用 Tailwind 的 `dark:`），样式表在同名 `.css` 里。
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -32,6 +32,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import { client } from '../trpc/client';
+import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
+import { readWithRetry } from '../lib/autoRead';
 import { QqAvatar } from './QqAvatar';
 import { useToast } from './Toast';
 import '../styles/login-account.css';
@@ -86,6 +88,11 @@ function shortGuid(guid: string): string {
 
 export function LoginAccountPanel(): ReactElement {
   const toast = useToast();
+  const activity = useQQReadActivity(true, { onlineOnly: false });
+  const readEnabled = useRef(activity.enabled);
+  readEnabled.current = activity.enabled;
+  const readController = useRef<AbortController | null>(null);
+  const writing = useRef(false);
   const [overview, setOverview] = useState<OverviewView | null>(null);
   const [busy, setBusy] = useState<BusyAction | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -94,20 +101,32 @@ export function LoginAccountPanel(): ReactElement {
   const [confirmDeleteUin, setConfirmDeleteUin] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
+    if (!readEnabled.current) return;
+    readController.current?.abort();
+    const controller = new AbortController();
+    readController.current = controller;
     setBusy('refresh');
     setError(null);
     try {
-      setOverview(await client.wonderfulTools.loginAccountsOverview.query());
+      setOverview(
+        await readWithRetry(
+          () => client.wonderfulTools.loginAccountsOverview.query(),
+          controller.signal,
+        ),
+      );
     } catch (e) {
+      if (controller.signal.aborted) return;
       setError(errMsg(e));
     } finally {
-      setBusy(null);
+      if (!controller.signal.aborted) setBusy(null);
     }
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (activity.enabled && !writing.current) void load();
+    if (!activity.enabled) setBusy((current) => (current === 'refresh' ? null : current));
+    return () => readController.current?.abort();
+  }, [load, activity.enabled, activity.revision]);
 
   const accounts = overview?.accounts ?? [];
   const quickLoginCount = useMemo(() => accounts.filter((a) => a.hasA1).length, [accounts]);
@@ -120,6 +139,7 @@ export function LoginAccountPanel(): ReactElement {
       action: () => Promise<unknown>,
       success: { title: string; detail?: string },
     ): Promise<void> => {
+      writing.current = true;
       setBusy(kind);
       setError(null);
       try {
@@ -131,6 +151,7 @@ export function LoginAccountPanel(): ReactElement {
         setError(message);
         toast.push({ tone: 'error', title: '操作失败', detail: message });
       } finally {
+        writing.current = false;
         setBusy(null);
       }
     },
@@ -225,19 +246,21 @@ export function LoginAccountPanel(): ReactElement {
           共 {accounts.length} 个账号
           {quickLoginCount > 0 ? ` · ${quickLoginCount} 个可快速登录` : ''}
         </span>
-        <button
-          type="button"
-          className="weq-wtools-refresh"
-          onClick={() => void load()}
-          disabled={busy !== null}
-        >
-          {busy === 'refresh' ? (
-            <Loader2 size={13} className="weq-spin" />
-          ) : (
-            <RefreshCw size={13} />
-          )}
-          刷新
-        </button>
+        {error && (
+          <button
+            type="button"
+            className="weq-wtools-refresh"
+            onClick={() => void load()}
+            disabled={busy !== null}
+          >
+            {busy === 'refresh' ? (
+              <Loader2 size={13} className="weq-spin" />
+            ) : (
+              <RefreshCw size={13} />
+            )}
+            重试读取
+          </button>
+        )}
       </div>
 
       {/* ── 列表 ── */}

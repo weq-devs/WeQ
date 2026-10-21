@@ -1,17 +1,7 @@
 /**
- * UnifiedSearchService — the all-in-one sidebar search.
- *
- * One keyword, five result categories:
- *   - conversations  (recent_contact_v3_table.40094 name match)
- *   - friends        (buddy_list ⋈ profile_info_v6, uin / nick match)
- *   - group members  (group_member3, uin / nick match, across all groups)
- *   - chat records   (buddy/group FTS 41701 count per 40027 → top conversations)
- *   - files          (buddy/group FTS 41702 filename match)
- *
- * The first three are fast (indexed / small tables) and drive the quick
- * dropdown; the last two scan the big FTS content tables and come in later
- * (the UI shows skeletons meanwhile). Everything bigint is stringified here so
- * the IPC layer needs no extra serde.
+ * 当前账号的统一搜索：会话、好友、群友为快速来源；聊天正文、文件、收藏及
+ * 生成对话独立并行读取。仅返回本地已取得内容，不隐式联网扩充覆盖范围。
+ * bigint 在边界转成字符串，供桌面与 Web 共享 IPC 契约。
  */
 
 import { join } from 'node:path';
@@ -26,8 +16,34 @@ import { MsgSearchIndexDb, type BuddyMsgFtsHit, type C2cMsg, type GroupMsg } fro
 import { toRenderElements, type RenderElement } from './msg_view';
 import { elementsToText } from './export/element_text';
 import type { NtHelperBinding } from '@weq/native';
+import type { CollectionSearchHit } from './collection_search';
+import { DEFAULT_SEARCH_CATEGORIES, searchNameRank } from './search_policy';
+import {
+  CONTENT_SEARCH_CATEGORIES,
+  type ContentSearchCategory,
+  type ContentSearchCoverage,
+  type ContentSearchHit,
+  type ContentSearchPage,
+} from './content_search';
+import {
+  searchGeneratedMessages,
+  type GeneratedSearchHit,
+  type GeneratedSearchSources,
+} from './generated_search';
 
 export interface UnifiedSearchServiceOptions {
+  searchContent?: (
+    category: ContentSearchCategory,
+    keyword: string,
+    limit: number,
+    offset: number,
+  ) => Promise<ContentSearchPage> | ContentSearchPage;
+  searchCollections?: (
+    keyword: string,
+    limit: number,
+    offset: number,
+  ) => Promise<{ items: CollectionSearchHit[]; total: number }>;
+  generatedSources?: () => GeneratedSearchSources | undefined;
   /**
    * Directory for the local trigram search index (one subdir per source db).
    * Omit to disable the index and fall back to plain LIKE scans.
@@ -37,7 +53,18 @@ export interface UnifiedSearchServiceOptions {
   nt?: NtHelperBinding;
 }
 
-export type SearchCategory = 'conversation' | 'friend' | 'groupMember' | 'chatRecord' | 'file';
+export const SEARCH_CATEGORIES = [
+  'conversation',
+  'friend',
+  'groupMember',
+  'chatRecord',
+  'file',
+  'collection',
+  'cloneMessage',
+  'assistantMessage',
+  ...CONTENT_SEARCH_CATEGORIES,
+] as const;
+export type SearchCategory = (typeof SEARCH_CATEGORIES)[number];
 export type FtsSource = 'buddy' | 'group';
 
 export interface ConversationSearchHit {
@@ -89,6 +116,7 @@ export interface FileSearchHit {
   targetUid: string;
   targetUin: string;
   fileName: string;
+  msgId: string;
   /** In-conversation seq — jump anchor when present. */
   msgSeq: string;
   sendTime: string;
@@ -165,13 +193,20 @@ export interface SearchHistoryHit {
 }
 
 export interface SlowSearchResult {
+  contentHits?: ContentSearchHit[];
+  contentCoverage?: Partial<Record<ContentSearchCategory, ContentSearchCoverage>>;
+  collections: CollectionSearchHit[];
+  failedCategories?: SearchCategory[];
   chatRecords: ChatRecordSearchHit[];
   files: FileSearchHit[];
+  cloneMessages: GeneratedSearchHit[];
+  assistantMessages: GeneratedSearchHit[];
   /** Local trigram index status — 'disabled' | 'building' | 'ready'. */
   indexStatus: 'disabled' | 'building' | 'ready';
 }
 
 export interface MoreSearchResult {
+  coverage?: ContentSearchCoverage;
   category: SearchCategory;
   items: Array<
     | ConversationSearchHit
@@ -179,19 +214,25 @@ export interface MoreSearchResult {
     | GroupMemberSearchHit
     | ChatRecordSearchHit
     | FileSearchHit
+    | GeneratedSearchHit
+    | CollectionSearchHit
+    | ContentSearchHit
   >;
   total: number;
   hasMore: boolean;
+  /** 命中超过本轮候选池上限；total 仅表示当前候选数，不是完整总数。 */
+  limited?: boolean;
 }
 
 export class UnifiedSearchService {
-  /** Small keyword cache for the expensive FTS scans (chat records / files). */
-  private readonly slowCache = new Map<string, { at: number; value: SlowSearchResult }>();
   private readonly chatRecordCache = new Map<
     string,
-    { at: number; value: ChatRecordSearchHit[] }
+    { at: number; value: ChatRecordSearchHit[]; limited: boolean }
   >();
-  private readonly fileCache = new Map<string, { at: number; value: FileSearchHit[] }>();
+  private readonly fileCache = new Map<
+    string,
+    { at: number; value: FileSearchHit[]; limited: boolean }
+  >();
   private readonly buddyIndex?: MsgSearchIndexDb;
   private readonly groupIndex?: MsgSearchIndexDb;
   private indexSyncPromise: Promise<void> | null = null;
@@ -200,7 +241,7 @@ export class UnifiedSearchService {
 
   constructor(
     private readonly session: AccountSession,
-    options: UnifiedSearchServiceOptions = {},
+    private readonly options: UnifiedSearchServiceOptions = {},
   ) {
     if (!options.dataDir || !options.nt) return;
     const dataDir = options.dataDir;
@@ -318,13 +359,23 @@ export class UnifiedSearchService {
   // ---------------------------------------------------------------- public
 
   /** Fast categories, in display order: conversations, friends, group members. */
-  async quickSearch(keyword: string, limit = 3): Promise<QuickSearchResult> {
+  async quickSearch(
+    keyword: string,
+    limit = 3,
+    categories?: readonly SearchCategory[],
+  ): Promise<QuickSearchResult> {
     const needle = keyword.trim();
     if (!needle) return { conversations: [], friends: [], groupMembers: [] };
     const [convPage, friendPage, memberPage] = await Promise.all([
-      this.session.recentContacts.searchByName(needle, limit, 0),
-      this.session.profileInfo.searchFriends(needle, limit, 0),
-      this.session.groupMembers.searchMembers(needle, limit, 0),
+      categories === undefined || categories.includes('conversation')
+        ? this.session.recentContacts.searchByName(needle, limit, 0)
+        : { items: [] },
+      categories === undefined || categories.includes('friend')
+        ? this.session.profileInfo.searchFriends(needle, limit, 0)
+        : { items: [] },
+      categories === undefined || categories.includes('groupMember')
+        ? this.session.groupMembers.searchMembers(needle, limit, 0)
+        : { items: [] },
     ]);
 
     const memberHits = await this.decorateMembers(memberPage.items, needle);
@@ -379,24 +430,66 @@ export class UnifiedSearchService {
     }));
   }
 
-  /** Slow categories: chat records + files. Cached per keyword (30s TTL). */
-  async slowSearch(keyword: string, _limit = 3): Promise<SlowSearchResult> {
+  /** 慢来源并行读取，各类别失败独立呈现，不清空其它来源的有效结果。 */
+  async slowSearch(
+    keyword: string,
+    limit = 3,
+    categories?: readonly SearchCategory[],
+  ): Promise<SlowSearchResult> {
     const needle = keyword.trim();
-    if (!needle) return { chatRecords: [], files: [], indexStatus: this.indexStatus };
-    const cached = this.slowCache.get(needle);
-    if (cached && Date.now() - cached.at < 30_000) return cached.value;
-
-    // Ensure the local trigram index is (or becomes) available. Fire-and-forget:
-    // the first query still runs the LIKE fallback; later ones use the index.
-    void this.ensureIndexes();
-
-    const [chatRecords, files] = await Promise.all([
-      this.topChatRecordConversations(needle, 3),
-      this.topFiles(needle, 3),
+    const enabled = (category: SearchCategory) =>
+      Boolean(needle && (categories ?? DEFAULT_SEARCH_CATEGORIES).includes(category));
+    const failures = new Set<SearchCategory>();
+    const read = async <T>(
+      category: SearchCategory,
+      query: () => T[] | Promise<T[]>,
+    ): Promise<T[]> => {
+      if (!enabled(category)) return [];
+      try {
+        return await query();
+      } catch (error) {
+        failures.add(category);
+        console.error(`[unified-search] ${category} failed:`, error);
+        return [];
+      }
+    };
+    if (enabled('chatRecord') || enabled('file')) void this.ensureIndexes();
+    const generated = (category: 'cloneMessage' | 'assistantMessage') => {
+      const sources = this.options.generatedSources?.();
+      return sources ? searchGeneratedMessages(sources, category, needle).slice(0, limit) : [];
+    };
+    const contentCoverage: Partial<Record<ContentSearchCategory, ContentSearchCoverage>> = {};
+    const content = Promise.all(
+      CONTENT_SEARCH_CATEGORIES.map((category) =>
+        read<ContentSearchHit>(category, async () => {
+          const page = await this.options.searchContent?.(category, needle, limit, 0);
+          if (page) contentCoverage[category] = page.coverage;
+          return page?.items ?? [];
+        }),
+      ),
+    );
+    const [chatRecords, files, collections, cloneMessages, assistantMessages] = await Promise.all([
+      read('chatRecord', () => this.topChatRecordConversations(needle, limit)),
+      read('file', () => this.topFiles(needle, limit)),
+      read<CollectionSearchHit>(
+        'collection',
+        async () => (await this.options.searchCollections?.(needle, limit, 0))?.items ?? [],
+      ),
+      read('cloneMessage', () => generated('cloneMessage')),
+      read('assistantMessage', () => generated('assistantMessage')),
     ]);
-    const value = { chatRecords, files, indexStatus: this.indexStatus };
-    this.slowCache.set(needle, { at: Date.now(), value });
-    return value;
+    return {
+      ...(this.options.searchContent
+        ? { contentHits: (await content).flat(), contentCoverage }
+        : {}),
+      chatRecords,
+      files,
+      collections,
+      cloneMessages,
+      assistantMessages,
+      failedCategories: SEARCH_CATEGORIES.filter((category) => failures.has(category)),
+      indexStatus: this.indexStatus,
+    };
   }
 
   /** Paginated full results for the "more" modal. */
@@ -413,6 +506,43 @@ export class UnifiedSearchService {
     const page = Math.max(1, limit);
 
     switch (category) {
+      case 'qzonePost':
+      case 'qzoneAlbum':
+      case 'otherQzonePost':
+      case 'otherQzoneAlbum':
+      case 'groupAlbum':
+      case 'groupFile':
+      case 'mailMessage':
+      case 'marketEmoji':
+      case 'guildMessage': {
+        const result = await this.options.searchContent?.(category, needle, page, offset);
+        return {
+          category,
+          items: result?.items ?? [],
+          total: result?.total ?? 0,
+          hasMore: result ? offset + result.items.length < result.total : false,
+          coverage: result?.coverage,
+        };
+      }
+      case 'collection': {
+        const result = (await this.options.searchCollections?.(needle, page, offset)) ?? {
+          items: [],
+          total: 0,
+        };
+        return { category, ...result, hasMore: offset + result.items.length < result.total };
+      }
+      case 'cloneMessage':
+      case 'assistantMessage': {
+        const sources = this.options.generatedSources?.();
+        const ranked = sources ? searchGeneratedMessages(sources, category, needle) : [];
+        const items = ranked.slice(offset, offset + page);
+        return {
+          category,
+          items,
+          total: ranked.length,
+          hasMore: offset + items.length < ranked.length,
+        };
+      }
       case 'conversation': {
         const r = await this.session.recentContacts.searchByName(needle, page, offset);
         return {
@@ -463,6 +593,7 @@ export class UnifiedSearchService {
           items,
           total: ranked.length,
           hasMore: offset + items.length < ranked.length,
+          limited: this.chatRecordCache.get(needle)?.limited ?? false,
         };
       }
       case 'file': {
@@ -473,6 +604,7 @@ export class UnifiedSearchService {
           items,
           total: ranked.length,
           hasMore: offset + items.length < ranked.length,
+          limited: this.fileCache.get(needle)?.limited ?? false,
         };
       }
     }
@@ -687,12 +819,22 @@ export class UnifiedSearchService {
       count: t.count,
     }));
 
-    const value = [...buddyHits, ...groupHits].sort((a, b) => b.count - a.count);
-    this.chatRecordCache.set(keyword, { at: Date.now(), value });
+    const value = [...buddyHits, ...groupHits].sort(
+      (a, b) =>
+        searchNameRank(keyword, b.name) - searchNameRank(keyword, a.name) ||
+        b.count - a.count ||
+        a.source.localeCompare(b.source) ||
+        a.partition.localeCompare(b.partition),
+    );
+    this.chatRecordCache.set(keyword, {
+      at: Date.now(),
+      value,
+      limited: buddyTop.length >= 200 || groupTop.length >= 200,
+    });
     return value;
   }
 
-  /** Top matching file names across buddy + group FTS (deduped by name). */
+  /** 文件命中保留消息身份，不把不同会话里的同名附件合并。 */
   private async topFiles(keyword: string, limit: number): Promise<FileSearchHit[]> {
     const ranked = await this.cachedFileRanking(keyword);
     return ranked.slice(0, limit);
@@ -702,7 +844,7 @@ export class UnifiedSearchService {
     const hit = this.fileCache.get(keyword);
     if (hit && Date.now() - hit.at < 30_000) return hit.value;
 
-    // Pull a generous pool per source, newest first, then dedupe by file name.
+    // 候选池有界；只去掉同一来源、会话、消息的重复索引行。
     const indexed = trigramReady(keyword);
     const [buddyPool, groupPool] = await Promise.all([
       indexed && this.buddyIndex?.ready
@@ -714,19 +856,34 @@ export class UnifiedSearchService {
     ]);
     const seen = new Set<string>();
     const out: FileSearchHit[] = [];
-    for (const h of [...buddyPool.items, ...groupPool.items]) {
+    const candidates = [
+      ...buddyPool.items.map((hit) => ({ hit, source: 'buddy' as const })),
+      ...groupPool.items.map((hit) => ({ hit, source: 'group' as const })),
+    ].sort((a, b) => Number(b.hit.sendTime) - Number(a.hit.sendTime));
+    for (const { hit: h, source } of candidates) {
       const name = h.fileName || '';
-      if (!name || seen.has(name)) continue;
-      seen.add(name);
-      out.push(await this.fileHit(h));
+      const key = JSON.stringify([source, h.targetUid, h.msgId.toString()]);
+      if (!name || seen.has(key)) continue;
+      seen.add(key);
+      out.push(await this.fileHit(h, source));
     }
-    const value = out.sort((a, b) => Number(b.sendTime) - Number(a.sendTime));
-    this.fileCache.set(keyword, { at: Date.now(), value });
+    const value = out.sort(
+      (a, b) =>
+        searchNameRank(keyword, b.fileName) - searchNameRank(keyword, a.fileName) ||
+        Number(b.sendTime) - Number(a.sendTime) ||
+        a.source.localeCompare(b.source) ||
+        a.msgId.localeCompare(b.msgId),
+    );
+    this.fileCache.set(keyword, {
+      at: Date.now(),
+      value,
+      limited: buddyPool.total > buddyPool.items.length || groupPool.total > groupPool.items.length,
+    });
     return value;
   }
 
-  private async fileHit(h: BuddyMsgFtsHit): Promise<FileSearchHit> {
-    const isGroup = Number(h.chatType) === 2;
+  private async fileHit(h: BuddyMsgFtsHit, source: FtsSource): Promise<FileSearchHit> {
+    const isGroup = source === 'group';
     if (isGroup) {
       return {
         category: 'file',
@@ -735,6 +892,7 @@ export class UnifiedSearchService {
         targetUid: h.targetUid,
         targetUin: '0',
         fileName: h.fileName || '',
+        msgId: h.msgId.toString(),
         msgSeq: h.msgSeq.toString(),
         sendTime: h.sendTime.toString(),
         convName: await this.groupConvName(BigInt(h.targetUid)),
@@ -750,6 +908,7 @@ export class UnifiedSearchService {
       targetUid: identity.uid || h.targetUid,
       targetUin: identity.uin,
       fileName: h.fileName || '',
+      msgId: h.msgId.toString(),
       msgSeq: h.msgSeq.toString(),
       sendTime: h.sendTime.toString(),
       convName: identity.name,

@@ -7,6 +7,8 @@
 import { useMemo, useState, type ReactElement } from 'react';
 import { BarChart3, Clock, Coins, Users, Activity } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
+import '../../styles/api-usage.css';
 
 /** WeQ 助手在统计里的占位键（与后端 ASSISTANT_KEY 对齐）。 */
 const ASSISTANT_KEY = '__assistant__';
@@ -15,6 +17,19 @@ const SCOPE_LABEL: Record<string, string> = {
   build: '构建克隆',
   chat: '与克隆体聊天',
   assistant: 'WeQ 助手',
+  'intent-analysis': '意图感知',
+  'intent-profile': '互动画像',
+  'reply-suggestion': '推荐回复',
+  'connection-test': '全局模型测试',
+  'assistant-title': '助手会话标题',
+  'assistant-summary': '助手摘要',
+  'profile-extract': '克隆画像提炼',
+  'voice-scenario': '语音场景总结',
+  'sticker-description': '表情解读',
+  'tts-synthesis': '全局语音合成',
+  'tts-test': '全局语音测试',
+  tts: '全局语音服务',
+  other: '其他 API',
 };
 
 /** 图表配色（与主题强调色协调的固定色板，明暗两套主题都可读）。 */
@@ -335,18 +350,34 @@ export function UsagePanel({
   hasPersona: (personaId: string) => boolean;
   personaCount: number;
 }): ReactElement {
-  const stats = trpc.account.getAgentLabTokenStats.useQuery();
+  const autoRefresh = useQQAutoRefresh(true);
+  const stats = trpc.account.getAgentLabTokenStats.useQuery(undefined, {
+    ...autoRefresh,
+    refetchInterval: autoRefresh.enabled ? 5000 : false,
+    refetchIntervalInBackground: false,
+  });
   const d = stats.data;
 
   const personaRows = useMemo(
     () =>
       (d?.byPersona ?? [])
-        .filter((p) => p.personaId === ASSISTANT_KEY || hasPersona(p.personaId))
+        .filter((p) => p.calls > (p.unknownCalls ?? 0))
+        .filter(
+          (p) =>
+            p.personaId === ASSISTANT_KEY ||
+            p.personaId === '__unassigned__' ||
+            hasPersona(p.personaId),
+        )
         .sort((a, b) => b.tokens - a.tokens)
         .slice(0, 5)
         .map((p) => ({
           key: p.personaId,
-          label: p.personaId === ASSISTANT_KEY ? 'WeQ 助手' : resolveName(p.personaId),
+          label:
+            p.personaId === ASSISTANT_KEY
+              ? 'WeQ 助手'
+              : p.personaId === '__unassigned__'
+                ? '其他功能'
+                : resolveName(p.personaId),
           value: p.tokens,
         })),
     [d?.byPersona, hasPersona, resolveName],
@@ -355,18 +386,22 @@ export function UsagePanel({
   const scopeSlices = useMemo(
     () =>
       withColors(
-        (d?.byScope ?? []).map((s) => ({
-          key: s.scope,
-          label: SCOPE_LABEL[s.scope] ?? s.scope,
-          value: s.tokens,
-        })),
+        (d?.byScope ?? [])
+          .filter((s) => s.tokens > 0)
+          .map((s) => ({
+            key: s.scope,
+            label: SCOPE_LABEL[s.scope] ?? s.scope,
+            value: s.tokens,
+          })),
       ),
     [d?.byScope],
   );
   const modelSlices = useMemo(
     () =>
       withColors(
-        (d?.byModel ?? []).map((m) => ({ key: m.model, label: m.model, value: m.tokens })),
+        (d?.byModel ?? [])
+          .filter((m) => m.tokens > 0)
+          .map((m) => ({ key: m.model, label: m.model, value: m.tokens })),
       ),
     [d?.byModel],
   );
@@ -402,45 +437,96 @@ export function UsagePanel({
     );
   }
 
-  const avgPerCall = d.totalCalls > 0 ? Math.round(d.totalTokens / d.totalCalls) : 0;
+  const knownCalls = d.knownCalls ?? d.totalCalls;
+  const avgPerCall = knownCalls > 0 ? Math.round(d.totalTokens / knownCalls) : null;
   const inOut = Math.max(1, d.promptTokens + d.completionTokens);
+  const hasPrompt = d.totalCalls > (d.promptUnknownCalls ?? d.unknownCalls ?? 0);
+  const hasCompletion = d.totalCalls > (d.completionUnknownCalls ?? d.unknownCalls ?? 0);
 
   return (
     <div className="weq-usage">
       <div className="weq-usage-head">
-        <Kpi icon={<Coins size={16} />} value={fmt(d.totalTokens)} label="累计 token" />
+        <Kpi
+          icon={<Coins size={16} />}
+          value={knownCalls > 0 ? fmt(d.totalTokens) : '未知'}
+          label="已知 token"
+        />
         <Kpi icon={<Activity size={16} />} value={String(d.totalCalls)} label="调用次数" />
         <Kpi icon={<Users size={16} />} value={String(personaCount)} label="克隆体" />
-        <Kpi icon={<BarChart3 size={16} />} value={fmt(avgPerCall)} label="平均每次 token" />
+        <Kpi
+          icon={<BarChart3 size={16} />}
+          value={avgPerCall === null ? '未知' : fmt(avgPerCall)}
+          label="已知请求平均 token"
+        />
       </div>
-
+      <p role="status" className="weq-usage-accounting-status">
+        用量未知 {d.unknownCalls ?? 0} 次 · 失败 {d.failedCalls ?? 0} 次 · 取消{' '}
+        {d.cancelledCalls ?? 0} 次 · 进行中 {d.pendingCalls ?? 0} 次 · 中断{' '}
+        {d.interruptedCalls ?? 0} 次{' · 含全局请求 '}
+        {d.globalCalls ?? 0} 次
+      </p>
       <section className="weq-usage-section">
-        <h4>
-          <Clock size={13} /> 近 24 小时开销
-        </h4>
-        <HourLine data={d.byHour} />
+        <h4>功能用量</h4>
+        <div className="weq-usage-accounting-table">
+          <table>
+            <thead>
+              <tr>
+                <th>功能</th>
+                <th>请求</th>
+                <th>已知 token</th>
+                <th>用量未知</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(d.byFeature ?? []).map((row) => (
+                <tr key={row.feature}>
+                  <th scope="row">{SCOPE_LABEL[row.feature] ?? row.feature}</th>
+                  <td>{row.calls}</td>
+                  <td>{row.calls > row.unknownCalls ? fmt(row.tokens) : '未知'}</td>
+                  <td>{row.unknownCalls}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="weq-usage-section">
-        <h4>输入 / 输出 token</h4>
-        <div className="weq-usage-split">
-          <span
-            className="weq-usage-split-in"
-            style={{ flexGrow: Math.max(0.001, d.promptTokens) }}
-          />
-          <span
-            className="weq-usage-split-out"
-            style={{ flexGrow: Math.max(0.001, d.completionTokens) }}
-          />
-        </div>
+        <h4>
+          <Clock size={13} /> 近 24 小时已知用量
+        </h4>
+        {knownCalls > 0 ? (
+          <HourLine data={d.byHour} />
+        ) : (
+          <p className="weq-usage-empty">用量未知</p>
+        )}
+      </section>
+
+      <section className="weq-usage-section">
+        <h4>已知输入 / 输出 token</h4>
+        {hasPrompt && hasCompletion && d.promptTokens + d.completionTokens > 0 && (
+          <div className="weq-usage-split">
+            <span
+              className="weq-usage-split-in"
+              style={{ flexGrow: Math.max(0.001, d.promptTokens) }}
+            />
+            <span
+              className="weq-usage-split-out"
+              style={{ flexGrow: Math.max(0.001, d.completionTokens) }}
+            />
+          </div>
+        )}
         <div className="weq-usage-split-legend">
           <span>
-            <i className="weq-usage-dot is-in" /> 输入 {fmt(d.promptTokens)}（
-            {Math.round((d.promptTokens / inOut) * 100)}%）
+            <i className="weq-usage-dot is-in" /> 输入 {hasPrompt ? fmt(d.promptTokens) : '未知'}
+            {hasPrompt && hasCompletion ? `（${Math.round((d.promptTokens / inOut) * 100)}%）` : ''}
           </span>
           <span>
-            <i className="weq-usage-dot is-out" /> 输出 {fmt(d.completionTokens)}（
-            {Math.round((d.completionTokens / inOut) * 100)}%）
+            <i className="weq-usage-dot is-out" /> 输出{' '}
+            {hasCompletion ? fmt(d.completionTokens) : '未知'}
+            {hasPrompt && hasCompletion
+              ? `（${Math.round((d.completionTokens / inOut) * 100)}%）`
+              : ''}
           </span>
         </div>
       </section>
@@ -448,17 +534,25 @@ export function UsagePanel({
       <div className="weq-usage-cols">
         <section className="weq-usage-section">
           <h4>场景占比</h4>
-          <div className="weq-usage-chart">
-            <PieChart rows={scopeSlices} donut />
-            <Legend rows={scopeSlices} />
-          </div>
+          {scopeSlices.length > 0 ? (
+            <div className="weq-usage-chart">
+              <PieChart rows={scopeSlices} donut />
+              <Legend rows={scopeSlices} />
+            </div>
+          ) : (
+            <p className="weq-usage-empty">暂无已知用量</p>
+          )}
         </section>
         <section className="weq-usage-section">
           <h4>各模型占比</h4>
-          <div className="weq-usage-chart">
-            <PieChart rows={modelSlices} />
-            <Legend rows={modelSlices} />
-          </div>
+          {modelSlices.length > 0 ? (
+            <div className="weq-usage-chart">
+              <PieChart rows={modelSlices} />
+              <Legend rows={modelSlices} />
+            </div>
+          ) : (
+            <p className="weq-usage-empty">暂无已知用量</p>
+          )}
         </section>
       </div>
 
@@ -466,7 +560,11 @@ export function UsagePanel({
         <section className="weq-usage-section">
           <h4>活跃时段</h4>
           <div className="weq-usage-chart">
-            <RadarChart axes={radarAxes} />
+            {knownCalls > 0 ? (
+              <RadarChart axes={radarAxes} />
+            ) : (
+              <p className="weq-usage-empty">用量未知</p>
+            )}
             <div className="weq-usage-radar-hint">
               按一天 24 小时分 6 档（每 4 小时），看你在哪些时段最常用。
             </div>

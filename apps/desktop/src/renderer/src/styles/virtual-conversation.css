@@ -1,0 +1,57 @@
+/* 虚拟会话（克隆体 / 克隆群）头像与角标。 */
+.weq-virtual-avatar {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  overflow: visible;
+  border-radius: 50%;
+}
+.weq-virtual-avatar > img,
+.weq-virtual-avatar .weq-virtual-avatar-fallback {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  overflow: hidden;
+}
+/* 克隆群的合成头像自带尺寸、grid 布局与圆形裁切（见 group-mosaic-avatar.css），
+   这里不能再写 display / width / height 覆盖，否则拼好的格子会塌成一张。 */
+.weq-virtual-avatar-fallback {
+  display: grid;
+  place-items: center;
+  color: var(--weq-fg-secondary);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+/* 克隆体角标：跟主题色走，与官方机器人的蓝色 Bot 图标在形状上也不同。 */
+.weq-virtual-avatar-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--weq-bg-surface);
+  background: var(--weq-accent-effective);
+  color: var(--primary-foreground);
+  box-shadow: var(--weq-shadow-soft);
+}
+.weq-virtual-avatar.is-group .weq-virtual-avatar-badge {
+  border-radius: 5px;
+}
+html[data-theme='dark'] .weq-virtual-avatar-badge {
+  border-color: var(--weq-bg-surface);
+}
+
+/* 列表里的虚拟会话标签：与「机器人」徽标区分（克隆群用方圆角块 + 群聊图标）。 */
+.weq-conversation-virtual.is-group {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-fg-secondary);
+}
+.weq-conversation-virtual.is-persona {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  color: var(--weq-accent-effective);
+}

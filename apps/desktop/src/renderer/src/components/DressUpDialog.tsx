@@ -1,8 +1,8 @@
 /**
- * 个性装扮 —— 灯箱(与收藏 / 商城表情同一层级,不占左栏视图位)。
+ * 个性装扮整页，保留分类与商城浏览现场。
  *
  * 布局是「一栏到底」:头部一行放类别切换 + 搜索框 + 作用范围开关,下面直接是卡片
- * 网格。搜索**不单独分页** —— 输入即过滤当前列表来源:有关键词时打商城搜索接口,清空
+ * 网格。搜索**不单独分页** —— 回车后过滤当前列表来源:有关键词时打商城搜索接口,清空
  * 关键词就回到排行榜。这样用户不必在「排行/搜索/我的」之间跳来跳去。
  *
  * 前三栏(气泡 / 字体 / 头像挂件)走商城,第四栏(聊天背景 + 浮屏挂件)完全是本地的,
@@ -13,7 +13,8 @@
  *  - **浏览排行 / 安装(气泡 / 字体 / 挂件)**:离线可用 —— 资源先走本地离线 bundle(QQ 自带
  *    那批装扮资源),商城条目还自带 material,都不需要凭证;本地没有的款点击后由后端
  *    在需要时再尝试换链,失败才报错。所以**不再按 qqOnline 禁用任何安装按钮**。
- *  - **搜索**:必须有在线 QQ 实例(商城搜索接口要用在线实例取凭证)。
+ *  - **装扮搜索**:必须有在线 QQ 实例(商城搜索接口要用在线实例取凭证)。
+ *  - **商城表情搜索**:同一顶部输入框搜索离线目录，不需要在线 QQ。
  *
  * 聊天背景与浮屏挂件一律离线可用(QQ 同款的直链 bootstrap 时已存进 config,浮屏挂件是 bundle 的)。
  */
@@ -40,6 +41,7 @@ import {
   Upload,
   Trophy,
   X,
+  Store,
 } from 'lucide-react';
 import type { BubbleSkin, DressBackgroundSource, DressMallItem, DressScope } from '@weq/service';
 import { trpc } from '../trpc/client';
@@ -47,20 +49,23 @@ import { useAppDialog } from '../lib/dialogUtils';
 import { dressBackgroundUrl, dressFontUrl, dressUrl, isVideoBackground } from '../lib/resourceUrl';
 import { bubblePreviewCss } from '../lib/dressSkin';
 import { syncDressSkin, syncDressSkinPreloaded } from '../hooks/useDressSkin';
+import { DecorationSaveControls, useDecorationSave } from './DecorationSaveControls';
 import { BACKDROP_VEIL_VAR, backdropVeil, ScreenWidget } from './ChatBackdrop';
-import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
+import { WorkspacePage } from './WorkspacePages';
+import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLightbox';
 import '../styles/dressup.css';
 
-type DressKind = 'bubble' | 'font' | 'widget' | 'background';
+type DressKind = 'bubble' | 'font' | 'widget' | 'background' | 'emoji';
 
 const KINDS: Array<{ id: DressKind; label: string; icon: ReactElement }> = [
   { id: 'bubble', label: '聊天气泡', icon: <Palette size={14} /> },
   { id: 'font', label: '聊天字体', icon: <Type size={14} /> },
   { id: 'widget', label: '头像挂件', icon: <Gem size={14} /> },
   { id: 'background', label: '聊天背景', icon: <ImageIcon size={14} /> },
+  { id: 'emoji', label: '商城表情', icon: <Store size={14} /> },
 ];
 
-/** 商城那三类共用一套列表 UI;背景是另一套形状,单列出来判。 */
+/** 商城那三类共用一套列表 UI;背景和表情包是各自独立的形状。 */
 type MallKind = 'bubble' | 'font' | 'widget';
 
 const SCOPES: Array<{ id: DressScope; label: string; hint: string }> = [
@@ -173,22 +178,37 @@ function DressListSkeleton(): ReactElement {
             <span className="weq-dress-skel-block weq-dress-skel-line" />
             <span className="weq-dress-skel-block weq-dress-skel-line is-short" />
           </div>
-          <span className="weq-dress-skel-block weq-dress-skel-btn" />
+          <div className="weq-dress-card-actions">
+            <span className="weq-dress-skel-block weq-dress-skel-btn" />
+          </div>
         </div>
       ))}
     </div>
   );
 }
 
-export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElement {
+export function DressUpDialog({
+  onClose,
+  initialKind = 'bubble',
+  initialEmojiPackId,
+  initialEmojiPackName,
+}: {
+  onClose: () => void;
+  /** 从全局搜索等入口直达某个页签（表情页签会带上要定位的表情包）。 */
+  initialKind?: DressKind;
+  initialEmojiPackId?: string;
+  initialEmojiPackName?: string;
+}): ReactElement {
   const dialog = useAppDialog();
+  const decorationSave = useDecorationSave();
   const utils = trpc.useUtils();
-  useEscapeToClose(onClose);
 
-  const [kind, setKind] = useState<DressKind>('bubble');
-  /** 输入框里的草稿。提交(回车 / 失焦)后才变成 keyword,避免每敲一个字打一次接口。 */
+  const [kind, setKind] = useState<DressKind>(initialKind);
+  /** 输入框里的草稿。回车提交后才变成 keyword,避免每敲一个字打一次接口。 */
   const [draft, setDraft] = useState('');
   const [keyword, setKeyword] = useState('');
+  const [emojiDraft, setEmojiDraft] = useState('');
+  const [emojiKeyword, setEmojiKeyword] = useState('');
   /** 只看已装的那些 —— 与「搜索」并列的一个筛子,不是独立分页。 */
   const [mineOnly, setMineOnly] = useState(false);
   /** 正在装的 itemId —— 按钮显示转圈,避免重复点击。 */
@@ -204,9 +224,9 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
   const manifest = state.data?.manifest;
   const scope = manifest?.scope ?? 'mine';
 
-  // 背景那栏不走商城,列表 query 一律停掉;下面两处的 kind 因此可以安全窄化。
+  // 背景和表情包都不走装扮商城,装扮列表 query 一律停掉;下面两处的 kind 因此可以安全窄化。
+  const isMall = kind === 'bubble' || kind === 'font' || kind === 'widget';
   const mallKind: MallKind = kind === 'font' ? 'font' : kind === 'widget' ? 'widget' : 'bubble';
-  const isMall = kind !== 'background';
 
   // 关键词为空 → 排行榜;有关键词 → 搜索。两条 query 互斥启用。
   const searching = keyword.length > 0;
@@ -533,21 +553,42 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
           <strong title={item.name}>{item.name}</strong>
           <small>{item.labels.slice(0, 2).join(' · ') || item.mallName || `#${item.itemId}`}</small>
         </div>
-        <button
-          type="button"
-          className="weq-dress-use"
-          disabled={busy || isActive || applying}
-          onClick={() => void use(item, nameForManifest ?? item.name)}
-        >
-          {busy ? (
-            <Loader2 size={14} className="weq-dress-spin" />
-          ) : isActive ? (
-            <Check size={14} />
-          ) : (
-            <Download size={14} />
-          )}
-          <span>{isActive ? '使用中' : busy ? '装扮中' : '使用'}</span>
-        </button>
+        <div className="weq-dress-card-actions">
+          <button
+            type="button"
+            className="weq-dress-use"
+            disabled={busy || isActive || applying}
+            onClick={() => void use(item, nameForManifest ?? item.name)}
+          >
+            {busy ? (
+              <Loader2 size={14} className="weq-dress-spin" />
+            ) : isActive ? (
+              <Check size={14} />
+            ) : (
+              <Download size={14} />
+            )}
+            <span>{isActive ? '使用中' : busy ? '装扮中' : '使用'}</span>
+          </button>
+          <DecorationSaveControls
+            className="weq-dress-save"
+            title={`另存为 ${item.name || item.itemId}`}
+            busy={decorationSave.savingKey === `${mallKind}:${item.itemId}`}
+            disabled={applying || decorationSave.disabled}
+            onSave={(intent, browser) =>
+              void decorationSave.run(
+                {
+                  bubbleId: mallKind === 'bubble' ? item.itemId : 0,
+                  fontId: mallKind === 'font' ? item.itemId : 0,
+                  widgetId: mallKind === 'widget' ? item.itemId : 0,
+                  kind: mallKind,
+                },
+                `${mallKind}:${item.itemId}`,
+                intent,
+                browser,
+              )
+            }
+          />
+        </div>
       </div>
     );
   }
@@ -693,6 +734,15 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
 
   function renderList(): ReactElement {
     if (kind === 'background') return renderBackground();
+    if (kind === 'emoji')
+      return (
+        <MarketEmojiBrowserLightbox
+          embedded
+          searchQuery={emojiKeyword}
+          initialPackId={initialEmojiPackId}
+          initialPackName={initialEmojiPackName}
+        />
+      );
 
     if (mineOnly) {
       if (mine.length === 0) {
@@ -793,13 +843,9 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
   }
 
   return (
-    <div className="weq-dress-layer" role="presentation" onMouseDown={closeFromScrim(onClose)}>
-      <div
-        className="weq-dress-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="weq-dress-title"
-      >
+    <WorkspacePage title="个性装扮" onClose={onClose} standalone>
+      {decorationSave.prompt}
+      <div className="weq-dress-dialog" role="region" aria-labelledby="weq-dress-title">
         <button className="weq-dress-close" onClick={onClose} title="关闭" type="button">
           <X size={18} strokeWidth={2} />
         </button>
@@ -827,12 +873,16 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
           </div>
 
           {/* 背景不走商城,搜索框对它没有意义 —— 留一个禁用的输入框只会让人以为坏了。 */}
-          {isMall ? (
+          {isMall || kind === 'emoji' ? (
             <form
               className="weq-dress-search"
               onSubmit={(e) => {
                 e.preventDefault();
-                const next = draft.trim();
+                const next = (kind === 'emoji' ? emojiDraft : draft).trim();
+                if (kind === 'emoji') {
+                  setEmojiKeyword(next);
+                  return;
+                }
                 if (next && !online) {
                   dialog.error('需要在线 QQ', '装扮商城搜索需要登录该账号的 QQ 客户端以获取凭证。');
                   return;
@@ -843,20 +893,33 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
             >
               <Search size={15} strokeWidth={1.8} />
               <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder={online ? '搜索装扮名,回车确认' : '搜索需要登录 QQ 客户端'}
-                disabled={!online}
+                value={kind === 'emoji' ? emojiDraft : draft}
+                onChange={(e) => (kind === 'emoji' ? setEmojiDraft : setDraft)(e.target.value)}
+                aria-label={kind === 'emoji' ? '搜索表情包' : '搜索装扮'}
+                placeholder={
+                  kind === 'emoji'
+                    ? '搜索表情包,回车确认'
+                    : online
+                      ? '搜索装扮名,回车确认'
+                      : '搜索需要登录 QQ 客户端'
+                }
+                disabled={kind !== 'emoji' && !online}
                 spellCheck={false}
               />
-              {draft ? (
+              {(kind === 'emoji' ? emojiDraft : draft) ? (
                 <button
                   type="button"
                   className="weq-dress-search-clear"
                   title="清空"
+                  aria-label="清空搜索"
                   onClick={() => {
-                    setDraft('');
-                    setKeyword('');
+                    if (kind === 'emoji') {
+                      setEmojiDraft('');
+                      setEmojiKeyword('');
+                    } else {
+                      setDraft('');
+                      setKeyword('');
+                    }
                   }}
                 >
                   <X size={13} strokeWidth={2} />
@@ -936,7 +999,9 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
           </div>
         ) : null}
 
-        <div className="weq-dress-body">{renderList()}</div>
+        <div className={`weq-dress-body${kind === 'emoji' ? ' is-embedded-market' : ''}`}>
+          {renderList()}
+        </div>
 
         {/* 换装期间盖住整个对话框:样式注入会重排下面的消息列表,期间点别的只会
             叠加更多重排。用 aria-live 让读屏也能知道正在应用。 */}
@@ -949,6 +1014,6 @@ export function DressUpDialog({ onClose }: { onClose: () => void }): ReactElemen
           </div>
         ) : null}
       </div>
-    </div>
+    </WorkspacePage>
   );
 }

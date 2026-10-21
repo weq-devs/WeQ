@@ -1,0 +1,502 @@
+import { act, createElement as h } from 'react';
+import { createRoot } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  QQWriteTextRow,
+  QQWriteSelectRow,
+  QQWriteToggleRow,
+} from '../src/renderer/src/components/QQWriteControls';
+import {
+  useQQWriteSession,
+  qqWriteOutcomeText,
+  type QQWriteBinding,
+  type QQWriteOutcome,
+} from '../src/renderer/src/hooks/useQQWriteSession';
+import { useViewState } from '../src/renderer/src/state/view';
+import { subscribeQQPeerUpdates, type QQPeerUpdate } from '../src/renderer/src/lib/qqPeerUpdates';
+
+const mocked = vi.hoisted(() => ({
+  config: { uin: '10001', configId: 'source-a' },
+  online: true,
+  invalidate: vi.fn(async () => undefined),
+  invalidateStatus: vi.fn(async () => undefined),
+  invalidateMembers: vi.fn(async () => undefined),
+}));
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: {
+    account: {
+      getAccountConfig: { useQuery: () => ({ data: mocked.config }) },
+      getGroupAlbumAccessState: {
+        useQuery: () => ({
+          data: {
+            qqOnline: mocked.online,
+            attachEnabled: true,
+            hasA2: true,
+            hasD2: true,
+            hasD2Key: true,
+            hasGuid: true,
+          },
+        }),
+      },
+    },
+    useUtils: () => ({
+      account: Object.fromEntries(
+        [
+          'listRecentContacts',
+          'listTopContacts',
+          'listBuddies',
+          'getSelfProfile',
+          'getOnlineStatus',
+          'getProfile',
+          'getProfilesByUids',
+          'listAllGroups',
+          'getGroupDetail',
+          'listGroupMembers',
+          'listGroupMembersByLevel',
+          'getGroupMembersByUids',
+          'getGroupMembersByUins',
+          'searchGroupMembers',
+        ].map((name) => [
+          name,
+          {
+            invalidate:
+              name === 'getOnlineStatus'
+                ? mocked.invalidateStatus
+                : name.includes('Members')
+                  ? mocked.invalidateMembers
+                  : mocked.invalidate,
+          },
+        ]),
+      ),
+    }),
+  },
+}));
+
+const cleanups: Array<() => void> = [];
+function fixture() {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  cleanups.push(() => {
+    act(() => root.unmount());
+    host.remove();
+  });
+  return { host, root };
+}
+function type(input: HTMLInputElement, value: string) {
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  mocked.config = { uin: '10001', configId: 'source-a' };
+  mocked.online = true;
+  mocked.invalidate.mockReset().mockResolvedValue(undefined);
+  mocked.invalidateStatus.mockReset().mockResolvedValue(undefined);
+  mocked.invalidateMembers.mockReset().mockResolvedValue(undefined);
+  useViewState.setState({ openedUin: '10001' });
+});
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup();
+  useViewState.setState({ openedUin: null });
+  vi.unstubAllGlobals();
+});
+
+describe('QQ 写控件', () => {
+  it('编辑中的备注不被迟到缓存覆盖，受理后不重复提交相同值', async () => {
+    const f = fixture();
+    const save = vi.fn(async () => true);
+    const render = (initial: string) =>
+      act(() =>
+        f.root.render(
+          h(QQWriteTextRow, { label: '好友备注', initial, disabled: false, onSave: save }),
+        ),
+      );
+    render('旧备注');
+    const input = f.host.querySelector('input')!;
+    type(input, '新备注');
+    render('缓存旧值');
+    expect(input.value).toBe('新备注');
+    await act(async () => f.host.querySelector<HTMLButtonElement>('button')!.click());
+    expect(save).toHaveBeenCalledWith('新备注');
+    expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+    render('新备注');
+    expect(input.value).toBe('新备注');
+  });
+
+  it('清空字符串仍可提交，未编辑的字段不提交', async () => {
+    const f = fixture();
+    const save = vi.fn(async () => true);
+    act(() =>
+      f.root.render(
+        h(QQWriteTextRow, { label: '个性签名', initial: '原签名', disabled: false, onSave: save }),
+      ),
+    );
+    expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+    type(f.host.querySelector('input')!, '');
+    await act(async () => f.host.querySelector<HTMLButtonElement>('button')!.click());
+    expect(save).toHaveBeenCalledWith('');
+  });
+
+  it('未读取的值使用明确的清空动作，不要求先联网读旧值', async () => {
+    const f = fixture();
+    const save = vi.fn(async () => true);
+    act(() =>
+      f.root.render(
+        h(QQWriteTextRow, { label: '好友备注', initial: null, disabled: false, onSave: save }),
+      ),
+    );
+    const button = f.host.querySelector<HTMLButtonElement>('[aria-label="清空好友备注"]')!;
+    expect(button.disabled).toBe(false);
+    await act(async () => button.click());
+    expect(save).toHaveBeenCalledWith('');
+  });
+
+  it('群助手与屏蔽保留各自枚举，未知值不默认选正常提醒', async () => {
+    const f = fixture();
+    const save = vi.fn(async () => true);
+    act(() =>
+      f.root.render(
+        h(QQWriteSelectRow, {
+          label: '消息接收',
+          initial: 8,
+          disabled: false,
+          options: [
+            { value: 1, label: '正常提醒' },
+            { value: 4, label: '免打扰' },
+            { value: 2, label: '群助手' },
+            { value: 3, label: '屏蔽' },
+          ],
+          onSave: save,
+        }),
+      ),
+    );
+    const select = f.host.querySelector('select')!;
+    expect(select.value).toBe('8');
+    act(() => {
+      select.value = '3';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => f.host.querySelector<HTMLButtonElement>('button')!.click());
+    expect(save).toHaveBeenCalledWith(3);
+  });
+
+  it.each(['置顶', '消息免打扰'])(
+    '%s 切换即提交、在途防重，读回未同步不伪造也不锁死',
+    async (label) => {
+      const f = fixture();
+      let finish!: (ok: boolean) => void;
+      const save = vi.fn(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const render = (initial: boolean) =>
+        act(() =>
+          f.root.render(h(QQWriteToggleRow, { label, initial, disabled: false, onSave: save })),
+        );
+      render(false);
+      act(() => f.host.querySelector<HTMLButtonElement>('button')!.click());
+      expect(f.host.querySelector('button')!.getAttribute('aria-checked')).toBe('false');
+      expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+      act(() => f.host.querySelector<HTMLButtonElement>('button')!.click());
+      expect(save).toHaveBeenCalledOnce();
+      await act(async () => finish(false));
+      expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(false);
+      expect(f.host.querySelector('button')!.getAttribute('aria-checked')).toBe('false');
+      render(true);
+      expect(f.host.querySelector('button')!.getAttribute('aria-checked')).toBe('true');
+      expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(false);
+    },
+  );
+
+  it('免打扰状态未知时不伪装为关闭，但允许用户明确设置', async () => {
+    const f = fixture();
+    const save = vi.fn(async () => true);
+    act(() =>
+      f.root.render(
+        h(QQWriteToggleRow, { label: '消息免打扰', initial: null, disabled: false, onSave: save }),
+      ),
+    );
+    expect(f.host.querySelector('select')).toBeNull();
+    const toggle = f.host.querySelector<HTMLButtonElement>('[role="checkbox"]')!;
+    expect(toggle.getAttribute('aria-checked')).toBe('mixed');
+    expect(f.host.textContent).toContain('尚未读取');
+    expect(f.host.querySelector('.weq-set-row-ctrl [role="status"]')).toBeNull();
+    expect(f.host.querySelector('.weq-set-row-main [role="status"]')).not.toBeNull();
+    expect(f.host.querySelector('[aria-label="保存消息免打扰"]')).toBeNull();
+    await act(async () => toggle.click());
+    expect(save).toHaveBeenCalledWith(true);
+    expect(toggle.getAttribute('aria-checked')).toBe('mixed');
+    expect(f.host.textContent).toContain('已请求开启，状态待确认');
+  });
+
+  it('未知开关切换即提交，失败后仍可请求关闭但不伪造状态', async () => {
+    const f = fixture();
+    const save = vi.fn(async () => false);
+    act(() =>
+      f.root.render(
+        h(QQWriteToggleRow, { label: '消息免打扰', initial: null, disabled: false, onSave: save }),
+      ),
+    );
+    const toggle = f.host.querySelector<HTMLButtonElement>('[role="checkbox"]')!;
+    await act(async () => toggle.click());
+    await act(async () => toggle.click());
+    expect(toggle.getAttribute('aria-checked')).toBe('mixed');
+    expect(save).toHaveBeenCalledWith(false);
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(toggle.disabled).toBe(false);
+    expect(f.host.textContent).toContain('已请求关闭，状态待确认');
+  });
+});
+
+describe('QQ 写操作账号与生命周期', () => {
+  function harness() {
+    const f = fixture();
+    let session: ReturnType<typeof useQQWriteSession>;
+    function View({ scope }: { scope: string }) {
+      session = useQQWriteSession(scope);
+      return h('output', null, session.result?.text);
+    }
+    const render = (scope = 'c2c:u_a') => act(() => f.root.render(h(View, { scope })));
+    render();
+    return { ...f, render, session: () => session! };
+  }
+  it('输入状态等瞬时请求可以跳过与其无关的资料缓存刷新', async () => {
+    const f = harness();
+    await act(async () => {
+      await f
+        .session()
+        .run(async () => ({ state: 'accepted' }), undefined, { refreshCaches: false });
+    });
+    expect(mocked.invalidate).not.toHaveBeenCalled();
+    expect(mocked.invalidateStatus).not.toHaveBeenCalled();
+  });
+  it('群名片受理后刷新同群成员列表、排序、解析与搜索缓存', async () => {
+    const f = harness();
+    await act(async () => {
+      await f.session().run(async () => ({ state: 'accepted' }), undefined, {
+        groupCode: '123',
+      });
+    });
+    expect(mocked.invalidateMembers).toHaveBeenCalledTimes(5);
+    expect(mocked.invalidateMembers.mock.calls).toEqual(
+      Array.from({ length: 5 }, () => [{ groupCode: '123' }]),
+    );
+  });
+  it('资料和群名片回读后按绑定来源通知内存缓存消费者', async () => {
+    const f = harness();
+    const observer = vi.fn(async (_update: QQPeerUpdate) => {});
+    cleanups.push(subscribeQQPeerUpdates(observer));
+    await act(async () => {
+      await f
+        .session()
+        .run(async () => ({ state: 'accepted' }), undefined, { profileUid: 'u_peer' });
+      await f.session().run(async () => ({ state: 'accepted' }), undefined, {
+        groupCode: '123',
+        memberUid: 'u_peer',
+      });
+    });
+    const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
+    expect(observer).toHaveBeenNthCalledWith(1, {
+      binding,
+      target: { kind: 'profile', uid: 'u_peer' },
+    });
+    expect(observer).toHaveBeenNthCalledWith(2, {
+      binding,
+      target: { kind: 'member', groupCode: '123', uid: 'u_peer' },
+    });
+  });
+  it.each([true, false])('延后读回有上限，不重复写入；最终同步：%s', async (synced) => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      const action = vi.fn(async (): Promise<QQWriteOutcome> => ({ state: 'accepted' }));
+      const readback = vi.fn(async () => false).mockResolvedValueOnce(false);
+      if (synced) readback.mockResolvedValueOnce(true);
+      let pending!: Promise<boolean>;
+      await act(async () => {
+        pending = f.session().run(action, undefined, { readback });
+      });
+      await act(async () => {
+        await vi.runAllTimersAsync();
+        expect(await pending).toBe(true);
+      });
+      expect(action).toHaveBeenCalledOnce();
+      expect(readback).toHaveBeenCalledTimes(synced ? 2 : 4);
+      expect(f.host.textContent?.includes('本机尚未同步')).toBe(!synced);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it.each([true, false])(
+    '免打扰必须核对实际值才进入已提交态，服务端未确认仍不冒称确认：%s',
+    async (synced) => {
+      vi.useFakeTimers();
+      try {
+        const f = harness();
+        const action = vi.fn(async (): Promise<QQWriteOutcome> => ({ state: 'unconfirmed' }));
+        const readback = vi.fn(async () => synced);
+        let pending!: Promise<boolean>;
+        await act(async () => {
+          pending = f.session().run(action, undefined, {
+            readback,
+            requireReadback: true,
+            readbackSuccessText: '本机 QQ 状态已核对；服务端子回执仍未确认',
+          });
+        });
+        await act(async () => {
+          await vi.runAllTimersAsync();
+          expect(await pending).toBe(synced);
+        });
+        expect(action).toHaveBeenCalledOnce();
+        expect(readback).toHaveBeenCalledTimes(synced ? 1 : 4);
+        expect(f.host.textContent).toContain(synced ? '本机 QQ 状态已核对' : '本机尚未同步');
+        expect(f.host.textContent).not.toContain('服务端已确认');
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+  it('延后读回期间切换数据源，停止旧读回和缓存刷新', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      const readback = vi.fn(async () => false);
+      let pending!: Promise<boolean>;
+      await act(async () => {
+        pending = f.session().run(async () => ({ state: 'accepted' }), undefined, { readback });
+      });
+      mocked.config = { uin: '10001', configId: 'source-b' };
+      f.render();
+      await act(async () => {
+        await vi.runAllTimersAsync();
+        expect(await pending).toBe(false);
+      });
+      expect(readback).toHaveBeenCalledOnce();
+      expect(mocked.invalidate).not.toHaveBeenCalled();
+      expect(f.host.textContent).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('快速重复点击只发一次，绑定的是提交时账号与数据源', async () => {
+    const f = harness();
+    const action = vi.fn(
+      async (_binding: QQWriteBinding): Promise<QQWriteOutcome> => ({ state: 'accepted' }),
+    );
+    await act(async () => {
+      await Promise.all([f.session().run(action), f.session().run(action)]);
+    });
+    expect(action).toHaveBeenCalledOnce();
+    expect(action).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+    });
+    expect(f.host.textContent).toContain('等待 QQ 同步');
+    expect(mocked.invalidateStatus).toHaveBeenCalledOnce();
+  });
+
+  it.each(['account', 'source', 'conversation'])(
+    '请求期间切换 %s，迟到结果不覆盖新现场',
+    async (kind) => {
+      const f = harness();
+      const observer = vi.fn(async (_update: QQPeerUpdate) => {});
+      cleanups.push(subscribeQQPeerUpdates(observer));
+      let resolve: (outcome: QQWriteOutcome) => void = () => {};
+      const action = vi.fn(
+        () =>
+          new Promise<QQWriteOutcome>((done) => {
+            resolve = done;
+          }),
+      );
+      let pending: Promise<boolean>;
+      act(() => {
+        pending = f.session().run(action, undefined, { profileUid: 'u_peer' });
+      });
+      act(() => {
+        if (kind === 'account') {
+          mocked.config = { uin: '10002', configId: 'source-b' };
+          useViewState.setState({ openedUin: '10002' });
+        }
+        if (kind === 'source') mocked.config = { uin: '10001', configId: 'source-b' };
+        f.render(kind === 'conversation' ? 'group:123' : undefined);
+      });
+      await act(async () => {
+        resolve({ state: 'confirmed' });
+        expect(await pending!).toBe(false);
+      });
+      expect(mocked.invalidate).not.toHaveBeenCalled();
+      expect(mocked.invalidateStatus).not.toHaveBeenCalled();
+      expect(observer).not.toHaveBeenCalled();
+      expect(f.host.textContent).toBe('');
+    },
+  );
+
+  it('文件选择等异步步骤保留的旧回调不能作用于新会话', async () => {
+    const f = harness();
+    const oldRun = f.session().run;
+    f.render('group:123');
+    const action = vi.fn(async (): Promise<QQWriteOutcome> => ({ state: 'accepted' }));
+    expect(await oldRun(action)).toBe(false);
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it('刷新失败不冒充远端操作失败，也不重发写请求', async () => {
+    const f = harness();
+    mocked.invalidate.mockRejectedValue(new Error('cache error'));
+    const action = vi.fn(async (): Promise<QQWriteOutcome> => ({ state: 'accepted' }));
+    await act(async () => {
+      await f.session().run(action);
+    });
+    expect(action).toHaveBeenCalledOnce();
+    expect(f.session().result?.error).toBe(false);
+    expect(f.host.textContent).toContain('本机刷新失败');
+  });
+
+  it('资料后台刷新未结束时释放保存锁，允许继续提交其他字段', async () => {
+    const f = harness();
+    let finishRefresh!: () => void;
+    const refresh = vi.fn(() => new Promise<void>((resolve) => (finishRefresh = resolve)));
+    const action = vi.fn(async (): Promise<QQWriteOutcome> => ({ state: 'accepted' }));
+    await act(async () => {
+      expect(await f.session().run(action, refresh, { backgroundRefresh: true })).toBe(true);
+    });
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(f.session().busy).toBe(false);
+    await act(async () => {
+      expect(await f.session().run(action, undefined, { refreshCaches: false })).toBe(true);
+      finishRefresh();
+    });
+    expect(action).toHaveBeenCalledTimes(2);
+  });
+
+  it('旧后台刷新失败不覆盖下一次操作回执', async () => {
+    const f = harness();
+    let failRefresh!: (cause: Error) => void;
+    await act(async () => {
+      await f.session().run(
+        async () => ({ state: 'accepted' }),
+        () => new Promise<void>((_resolve, reject) => (failRefresh = reject)),
+        { backgroundRefresh: true },
+      );
+      await f.session().run(async () => ({ state: 'confirmed' }), undefined, {
+        refreshCaches: false,
+      });
+      failRefresh(new Error('late cache error'));
+    });
+    expect(f.host.textContent).toBe(qqWriteOutcomeText({ state: 'confirmed' }));
+  });
+
+  it('离线不发请求；未确认的回包不会显示已生效', async () => {
+    mocked.online = false;
+    const f = harness();
+    const action = vi.fn(async (): Promise<QQWriteOutcome> => ({ state: 'accepted' }));
+    expect(await f.session().run(action)).toBe(false);
+    expect(action).not.toHaveBeenCalled();
+    expect(qqWriteOutcomeText({ state: 'unconfirmed' })).toContain('未确认');
+  });
+});

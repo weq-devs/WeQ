@@ -7,7 +7,7 @@
   background: var(--weq-bg-surface);
 }
 
-html[data-theme="dark"] .weq-group-bug {
+html[data-theme='dark'] .weq-group-bug {
   background: #171d25;
 }
 
@@ -94,7 +94,10 @@ html[data-theme="dark"] .weq-group-bug {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .weq-group-bug-tabs button.is-on {
@@ -167,7 +170,9 @@ html[data-theme="dark"] .weq-group-bug {
   color: var(--weq-fg-muted);
   font-size: 12px;
   cursor: pointer;
-  transition: background-color 140ms ease, color 140ms ease;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
 }
 
 .weq-group-bug-editor-tabs button.is-on {
@@ -217,7 +222,11 @@ html[data-theme="dark"] .weq-group-bug {
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, opacity 140ms ease;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease,
+    opacity 140ms ease;
 }
 
 .weq-group-bug-btn:disabled {
@@ -342,7 +351,9 @@ html[data-theme="dark"] .weq-group-bug {
   color: var(--weq-fg-muted);
   font-size: 12px;
   cursor: pointer;
-  transition: background-color 140ms ease, color 140ms ease;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
 }
 
 .weq-group-bug-kind.is-on {

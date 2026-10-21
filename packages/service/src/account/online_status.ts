@@ -3,6 +3,19 @@
  */
 
 import type { AccountSession } from '@weq/account';
+import type { NtHelperBinding } from '@weq/native';
+import {
+  GetUserOnlineStatus,
+  SetDiyOnlineStatus,
+  SetOnlineStatus,
+  type UserOnlineStatus,
+} from '@weq/protocol';
+
+/** 在线写操作 / 实时查询需要的最小原生面。 */
+export interface OnlineStatusOnlineDeps {
+  nt: Pick<NtHelperBinding, 'sendOidbPacket' | 'sendPacket'>;
+  resolvePid: () => number;
+}
 
 export enum OnlineType {
   ONLINE = 10,
@@ -69,16 +82,32 @@ export interface FormattedOnlineStatus {
   subType: number;
   subTypeName: string;
   displayStatus: string; // The combination for UI
-  weather?: {
-    weather: string;
-    city: string;
-    area: string;
-    weatherDesc: string;
-  };
+  customStatus?: { faceId: number; text: string; faceType: number };
 }
 
 export class OnlineStatusService {
-  constructor(private readonly session: AccountSession) {}
+  constructor(
+    private readonly session: { misc: Pick<AccountSession['misc'], 'getUserOnlineStatus'> },
+    private readonly online?: OnlineStatusOnlineDeps,
+  ) {}
+
+  private requireOnline(): OnlineStatusOnlineDeps {
+    if (!this.online) throw new Error('该账号当前不在线，无法执行在线状态操作。');
+    return this.online;
+  }
+
+  editableStatuses(): Array<{ value: number; label: string }> {
+    return Object.entries(ONLINE_TYPE_NAMES)
+      .filter(([value]) => Number(value) !== OnlineType.OFFLINE)
+      .map(([value, label]) => ({ value: Number(value), label }));
+  }
+
+  editableExtendedStatuses(): Array<{ value: number; label: string }> {
+    return Object.entries(SUB_TYPE_NAMES).map(([value, label]) => ({
+      value: Number(value),
+      label,
+    }));
+  }
 
   /**
    * Get formatted online status for a user.
@@ -99,6 +128,9 @@ export class OnlineStatusService {
     if (subTypeName) {
       displayStatus = `${typeName} - ${subTypeName}`;
     }
+    if (raw.type === OnlineType.ONLINE && raw.subType === 2000 && raw.customStatus?.text) {
+      displayStatus = raw.customStatus.text;
+    }
 
     return {
       uid: raw.uid,
@@ -108,7 +140,36 @@ export class OnlineStatusService {
       subType: raw.subType,
       subTypeName,
       displayStatus,
-      weather: raw.weather,
+      customStatus: raw.customStatus,
     };
+  }
+
+  // ───────────────────────── 在线写操作 / 实时查询 ─────────────────────────
+
+  /**
+   * 设置本账号在线状态（trpc StatusService.SetStatus）。
+   *
+   * `status` 见 {@link OnlineType}；`extStatus` 是扩展状态（听歌中 1028 等）。
+   */
+  async setOnlineStatus(status: number, extStatus = 0, batteryStatus = 100): Promise<void> {
+    const { nt, resolvePid } = this.requireOnline();
+    await SetOnlineStatus.invoke(nt, resolvePid(), { status, extStatus, batteryStatus });
+  }
+
+  /** 设置自定义在线状态文案（同一条 SetStatus，extStatus 固定 2000）。 */
+  async setDiyOnlineStatus(faceId: number, text: string, faceType: number): Promise<void> {
+    const { nt, resolvePid } = this.requireOnline();
+    await SetDiyOnlineStatus.invoke(nt, resolvePid(), { faceId, text, faceType });
+  }
+
+  /**
+   * 实时查询某个 QQ 号的在线 / 扩展状态（OIDB 0xFE1_2 key 27372）。
+   *
+   * 与 DB 里的 `getUserOnlineStatus(uid)` 不同：这条走线上，能拿到不曾在本地
+   * 库留下状态的用户。对方未暴露状态时返回 null。
+   */
+  async fetchOnlineStatus(uin: number): Promise<UserOnlineStatus | null> {
+    const { nt, resolvePid } = this.requireOnline();
+    return GetUserOnlineStatus.invoke(nt, resolvePid(), { uin });
   }
 }

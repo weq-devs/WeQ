@@ -104,8 +104,14 @@ function combineCache(
     ),
     ...native,
   ];
-  const exact = new Set(enriched.filter((row) => row.msgRandom && row.msgRandom !== '0').map(key));
-  return [...legacy.filter((row) => !exact.has(key(row))), ...enriched];
+  const remoteKeys = new Set([...legacy, ...enriched].filter((row) => !row.localSent).map(key));
+  const exact = new Set(
+    enriched.filter((row) => !row.localSent && row.msgRandom && row.msgRandom !== '0').map(key),
+  );
+  return [
+    ...legacy.filter((row) => !exact.has(key(row))),
+    ...enriched.filter((row) => !row.localSent || !remoteKeys.has(key(row))),
+  ];
 }
 
 export class RoamMsgCacheDb {
@@ -126,6 +132,22 @@ export class RoamMsgCacheDb {
   ) {
     this.nt = nt;
     this.dbPath = dbPath;
+  }
+
+  /** 每个会话最近一次已确认发送，用于 QQ 尚未同步时的会话摘要。 */
+  async latestSent(): Promise<GapFetchedMessage[]> {
+    await this.ensureSchema();
+    const eligible =
+      "json_extract(payload,'$.localSent')=1 AND (kind='group' OR nt_seq_verified=1)";
+    const rows = await this.nt.executeSql(
+      this.dbPath,
+      `SELECT payload FROM ${PROTOCOL_TABLE} WHERE ${eligible}
+       AND (kind,conv,msg_seq) IN (
+         SELECT kind,conv,MAX(msg_seq) FROM ${PROTOCOL_TABLE} WHERE ${eligible} GROUP BY kind,conv
+       )`,
+      null,
+    );
+    return rows.map((row) => parseJson<GapFetchedMessage>(String(row[0])));
   }
 
   /** 读一段缓存，输出始终按 seq 升序；descending 决定限额前选最新还是最旧的行。 */
@@ -255,6 +277,24 @@ export class RoamMsgCacheDb {
       [msgId],
     );
     return rows.length > 0 ? rowToMessage(rows[0]!) : null;
+  }
+
+  async resolveReplySeq(
+    conv: string,
+    clientSeq: string,
+    senderUin?: string,
+    sendTime?: string,
+  ): Promise<string | null> {
+    await this.ensureSchema();
+    const rows = await this.nt.executeSql(
+      this.dbPath,
+      `SELECT DISTINCT msg_seq FROM ${PROTOCOL_TABLE} WHERE kind='c2c' AND conv=?
+       AND json_extract(payload,'$.clientSeq')=?
+       AND (? IS NULL OR json_extract(payload,'$.senderUin')=?)
+       AND (? IS NULL OR json_extract(payload,'$.sendTime')=?) LIMIT 2`,
+      [conv, clientSeq, senderUin ?? null, senderUin ?? null, sendTime ?? null, sendTime ?? null],
+    );
+    return rows.length === 1 ? String(rows[0]?.[0]) : null;
   }
 
   /** 把拉取到的消息全部写入缓存（幂等：同一 seq 覆盖为最新）。 */
@@ -483,6 +523,12 @@ export class RoamMsgCacheDb {
       `CREATE TABLE IF NOT EXISTS ${OBSERVATION_TABLE}(kind TEXT NOT NULL,conv TEXT NOT NULL,
        msg_seq INTEGER NOT NULL,raw_hash TEXT NOT NULL,reason TEXT NOT NULL,protocol_raw TEXT NOT NULL,
        PRIMARY KEY(kind,conv,msg_seq,raw_hash))`,
+      null,
+    );
+    await this.nt.executeSqlWrite(
+      this.dbPath,
+      `CREATE INDEX IF NOT EXISTS protocol_sent_preview ON ${PROTOCOL_TABLE}(kind,conv,msg_seq)
+       WHERE json_extract(payload,'$.localSent')=1 AND (kind='group' OR nt_seq_verified=1)`,
       null,
     );
     const columns = await this.nt.executeSql(

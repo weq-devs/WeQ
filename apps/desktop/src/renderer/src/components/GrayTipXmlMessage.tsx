@@ -1,8 +1,10 @@
 import { useMemo } from 'react';
-import type { Conversation, GroupMember } from '../im-template/template/types';
+import type { Conversation, GroupMember, Message, User } from '../im-template/template/types';
 import { DOMParser, type Node } from '@xmldom/xmldom';
 import { displayUserName } from '../im-template/template/user';
 import { FaceEmoji } from './FaceEmoji';
+import { GrayTipPerson } from './GrayTipPerson';
+import { createGrayTipPersonKey } from '../lib/grayTipProfile';
 
 interface GrayTipXmlMessageProps {
   element: {
@@ -11,7 +13,9 @@ interface GrayTipXmlMessageProps {
       grayTipXmlContent?: string;
     };
   };
-  conversation: Conversation;
+  conversation?: Conversation;
+  message?: Message;
+  user?: User;
 }
 
 function getNodeValue(node: Node, attribute: string): string {
@@ -30,7 +34,12 @@ function getNodeText(node: Node): string {
   return (typeof node.textContent === 'string' ? node.textContent : '').trim();
 }
 
-export function GrayTipXmlMessage({ element, conversation }: GrayTipXmlMessageProps) {
+export function GrayTipXmlMessage({
+  element,
+  conversation,
+  message,
+  user,
+}: GrayTipXmlMessageProps) {
   const { grayTipXmlContent } = element.data || {};
 
   const content = useMemo(() => {
@@ -42,7 +51,7 @@ export function GrayTipXmlMessage({ element, conversation }: GrayTipXmlMessagePr
     if (!gtip) return null;
 
     const memberMap = new Map<string, GroupMember>();
-    if (conversation.type === 'group') {
+    if (conversation?.type === 'group') {
       conversation.members.forEach((m) => {
         memberMap.set(m.id, m);
         if (m.identityValue) {
@@ -51,16 +60,25 @@ export function GrayTipXmlMessage({ element, conversation }: GrayTipXmlMessagePr
       });
     }
 
+    const personKey = createGrayTipPersonKey();
     const nodes = Array.from(gtip.childNodes).map((node, index) => {
       if (node.nodeName === 'qq') {
         const uin = getNodeValue(node, 'uin');
-        const member = memberMap.get(uin);
-        const name = member ? displayUserName(member) : getNodeValue(node, 'nm') || uin;
+        const uid = getNodeValue(node, 'uid');
+        const jp = getNodeValue(node, 'jp');
+        const member = memberMap.get(uin) || memberMap.get(uid) || memberMap.get(jp);
+        const name = member
+          ? displayUserName(member)
+          : getNodeValue(node, 'nm') || uin || uid || jp;
         return (
-          // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-          <span key={index} className="text-blue-500">
-            {name}
-          </span>
+          <GrayTipPerson
+            key={personKey([uin, uid, jp], name)}
+            identities={[uin, uid, jp]}
+            name={name}
+            conversation={conversation}
+            message={message}
+            user={user}
+          />
         );
       }
       if (node.nodeName === 'nor') {
@@ -91,7 +109,7 @@ export function GrayTipXmlMessage({ element, conversation }: GrayTipXmlMessagePr
     });
 
     return <div className="weq-graytip text-center text-gray-500 text-xs py-2">{nodes}</div>;
-  }, [grayTipXmlContent, conversation]);
+  }, [grayTipXmlContent, conversation, message, user]);
 
   return content;
 }

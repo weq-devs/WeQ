@@ -8,6 +8,8 @@ import type { AccountSession } from '@weq/account';
 import { GapHistoryService, type GapFetchedMessage } from '../src/account/gap_history';
 import { RoamMsgCacheDb } from '../src/account/roam_msg_cache';
 import { UserConfigService } from '../src/bootstrap/user_config';
+import { MessageSendService } from '../src/account/message_send';
+import { encode, SEND_MESSAGE_RESPONSE } from '@weq/protocol';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -21,6 +23,8 @@ function setup() {
   const path = join(root, 'synthetic-cache.db');
   return {
     root,
+    nt,
+    path,
     cache: new RoamMsgCacheDb(nt, path),
     history: new GapHistoryService(
       nt,
@@ -51,6 +55,55 @@ function message(
 }
 
 describe('offline roaming timeline cache pages', () => {
+  it.each(['c2c', 'group'] as const)(
+    '保存 %s 已发送消息，重开缓存仍可读，漫游返回真实 ID 后只保留一条',
+    async (kind) => {
+      const { cache, path, nt } = setup();
+      const session = {
+        context: { uin: '10001' },
+        selfUid: 'u_me',
+        uidMap: {
+          uidByUin: () => 'u_friend',
+          uinByUid: () => 20002n,
+        },
+      } as unknown as AccountSession;
+      const service = new MessageSendService(
+        {
+          sendPacket: async () =>
+            Buffer.from(
+              encode(SEND_MESSAGE_RESPONSE, {
+                result: 0,
+                groupSequence: 19749,
+                privateSequence: 19749,
+                timestamp1: 1700000000,
+              }),
+            ),
+        } as never,
+        session,
+        () => 1,
+        undefined,
+        (row) => cache.store([row]),
+      );
+      const conv = kind === 'c2c' ? 'u_friend' : '12345';
+      const outcome = await service.sendText({
+        peerType: kind,
+        targetId: conv,
+        text: '保存后重启',
+      });
+      const reopened = new RoamMsgCacheDb(nt, path);
+      const before = await reopened.query(kind, conv, 1, 20000, kind === 'c2c');
+      expect(before).toHaveLength(1);
+      expect(before[0]).toMatchObject({ localSent: true, msgRandom: String(outcome.random) });
+      if (kind === 'c2c')
+        expect(
+          await reopened.resolveReplySeq(conv, before[0]!.clientSeq!, '10001', '1700000000'),
+        ).toBe('19749');
+      await reopened.store([{ ...before[0]!, localSent: undefined, msgId: '90000000001' }]);
+      const after = await reopened.query(kind, conv, 1, 20000, kind === 'c2c');
+      expect(after).toHaveLength(1);
+      expect(after[0]!.msgId).toBe('90000000001');
+    },
+  );
   it('reads group cache pages in either direction, including cache-only history', async () => {
     const { cache, history } = setup();
     await cache.store(Array.from({ length: 120 }, (_, i) => message(i + 1)));

@@ -1,6 +1,8 @@
 ﻿import {
   Copy,
   Download,
+  FolderOpen,
+  Clock,
   RotateCcw,
   Trash2,
   Edit3,
@@ -8,17 +10,28 @@
   Palette,
   Quote,
   SmilePlus,
+  Forward,
+  ListPlus,
+  Repeat2,
 } from 'lucide-react';
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import type { Message } from './types';
 import { cn } from './classNames';
 import { FaceEmoji } from '../../components/FaceEmoji';
+import { canRepeatMessage } from '../../lib/messageRepeat';
+import { useSurfaceOutside } from '../../lib/surfaceOutside';
+import { useTabActive } from '../../components/RetainedTabs';
+import { IS_WEB } from '../../lib/target';
+import type { ExportSavePolicy } from '@weq/service';
 
 export type MessageContextMenuState = {
   message: Message;
   x: number;
   y: number;
   downloadUrl?: string;
+  imageUrl?: string;
+  /** 打开右键菜单前保存的选区或引用内容，不依赖菜单夺焦点后的原生选区。 */
+  clipboard?: { text: string; html: string };
   variant?: 'desktop' | 'mobile';
   /**
    * Click point offset within the anchored message row at open time. Used to
@@ -30,9 +43,19 @@ export type MessageContextMenuState = {
 
 export function MessageContextMenu({
   state,
+  onClose,
   onCopy,
+  onExport,
+  exportLabel = '导出',
+  exportBlockedReason,
+  onForward,
+  onRepeat,
+  repeatBlockedReason,
+  onAddToComposition,
   onDownloadImage,
+  downloadDisabled = false,
   onDelete,
+  deleteLabel = '删除',
   onEditRaw,
   onViewDecoration,
   onReply,
@@ -44,12 +67,28 @@ export function MessageContextMenu({
   recallBlockedReason,
   onRemoveReaction,
   removeReactionBlockedReason,
+  extraActions,
 }: {
   state: MessageContextMenuState;
+  onClose?: () => void;
   onCopy: (message: Message) => void | Promise<void>;
-  onDownloadImage?: (url: string, message: Message) => void;
-  /** QQ-style delete: message stays in the chat under a "deleted" overlay, restorable. */
+  onExport?: (message: Message) => void;
+  exportLabel?: string;
+  exportBlockedReason?: string;
+  onForward?: (message: Message) => void;
+  onRepeat?: (message: Message) => void;
+  repeatBlockedReason?: string | null;
+  onAddToComposition?: (message: Message) => void;
+  onDownloadImage?: (
+    url: string,
+    message: Message,
+    intent?: ExportSavePolicy,
+    browser?: boolean,
+  ) => void;
+  downloadDisabled?: boolean;
+  /** 原库消息保留可恢复遮罩；失败占位仅从本机移除，由宿主区分两条路径。 */
   onDelete?: (message: Message) => void;
+  deleteLabel?: string;
   onEditRaw?: (message: Message) => void;
   onViewDecoration?: (message: Message) => void;
   /** 引用：把这条消息挂到输入框上方（引用条）。 */
@@ -71,8 +110,11 @@ export function MessageContextMenu({
   recallBlockedReason?: string | null;
   onRemoveReaction?: (message: Message, code: string) => void;
   removeReactionBlockedReason?: string | null;
+  extraActions?: ReactNode;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const active = useTabActive();
+  useSurfaceOutside(menuRef, onClose, active);
   const decoration = (
     state.message as { decoration?: { fontId?: number; bubbleId?: number; widgetId?: number } }
   ).decoration;
@@ -109,6 +151,7 @@ export function MessageContextMenu({
   return (
     <div
       ref={menuRef}
+      role="menu"
       className={cn(
         'message-context-menu',
         state.variant === 'mobile' && 'message-context-menu-mobile',
@@ -126,10 +169,49 @@ export function MessageContextMenu({
       onPointerDown={(event) => event.stopPropagation()}
       onTouchStart={(event) => event.stopPropagation()}
     >
+      {extraActions}
       {onMultiSelect ? (
         <button type="button" title="多选" onClick={() => onMultiSelect(state.message)}>
           <ListChecks size={17} />
           <span>多选</span>
+        </button>
+      ) : null}
+      {onExport ? (
+        <button
+          type="button"
+          title={exportBlockedReason ?? exportLabel}
+          disabled={Boolean(exportBlockedReason)}
+          onClick={() => onExport(state.message)}
+        >
+          <Download size={17} />
+          <span>{exportLabel}</span>
+        </button>
+      ) : null}
+      {onAddToComposition ? (
+        <button
+          type="button"
+          title="添加到素材库"
+          onClick={() => onAddToComposition(state.message)}
+        >
+          <ListPlus size={17} />
+          <span>添加到素材库</span>
+        </button>
+      ) : null}
+      {onForward ? (
+        <button type="button" title="转发" onClick={() => onForward(state.message)}>
+          <Forward size={17} />
+          <span>转发</span>
+        </button>
+      ) : null}
+      {onRepeat && canRepeatMessage(state.message) ? (
+        <button
+          type="button"
+          title={repeatBlockedReason || '发送一条相同的消息'}
+          disabled={Boolean(repeatBlockedReason)}
+          onClick={() => onRepeat(state.message)}
+        >
+          <Repeat2 size={17} />
+          <span>+1</span>
         </button>
       ) : null}
       {onReply ? (
@@ -189,7 +271,7 @@ export function MessageContextMenu({
       {onEditRaw ? (
         <button type="button" onClick={() => onEditRaw(state.message)}>
           <Edit3 size={17} />
-          <span>修改</span>
+          <span>修改本地记录</span>
         </button>
       ) : null}
       {hasDecoration && onViewDecoration ? (
@@ -199,18 +281,53 @@ export function MessageContextMenu({
         </button>
       ) : null}
       {state.downloadUrl && onDownloadImage ? (
-        <button
-          type="button"
-          onClick={() => onDownloadImage(state.downloadUrl ?? '', state.message)}
-        >
-          <Download size={17} />
-          <span>下载</span>
-        </button>
+        <>
+          <button
+            type="button"
+            disabled={downloadDisabled}
+            onClick={() => onDownloadImage(state.downloadUrl ?? '', state.message)}
+          >
+            <Download size={17} />
+            <span>{IS_WEB ? '保存到服务器' : '下载'}</span>
+          </button>
+          <button
+            type="button"
+            disabled={downloadDisabled}
+            onClick={() =>
+              onDownloadImage(state.downloadUrl ?? '', state.message, { mode: 'before' })
+            }
+          >
+            <FolderOpen size={17} />
+            <span>{IS_WEB ? '另存到服务器…' : '另存到…'}</span>
+          </button>
+          <button
+            type="button"
+            disabled={downloadDisabled}
+            onClick={() =>
+              onDownloadImage(state.downloadUrl ?? '', state.message, { mode: 'after' })
+            }
+          >
+            <Clock size={17} />
+            <span>先生成，稍后保存</span>
+          </button>
+          {IS_WEB && (
+            <button
+              type="button"
+              disabled={downloadDisabled}
+              onClick={() =>
+                onDownloadImage(state.downloadUrl ?? '', state.message, undefined, true)
+              }
+            >
+              <Download size={17} />
+              <span>下载到浏览器</span>
+            </button>
+          )}
+        </>
       ) : null}
       {onDelete ? (
-        <button type="button" onClick={() => onDelete(state.message)}>
+        <button type="button" aria-label={deleteLabel} onClick={() => onDelete(state.message)}>
           <Trash2 size={17} />
-          <span>删除</span>
+          <span>{deleteLabel}</span>
         </button>
       ) : null}
     </div>

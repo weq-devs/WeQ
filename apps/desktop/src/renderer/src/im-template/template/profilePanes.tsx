@@ -2,19 +2,13 @@
 import {
   Activity,
   Award,
-  Beer,
-  BookOpen,
   Bookmark,
   Cake,
   CalendarDays,
   Check,
   Copy,
-  Dumbbell,
   Fingerprint,
-  Flame,
-  Flower2,
   FolderClosed,
-  Gamepad2,
   GraduationCap,
   Heart,
   HelpCircle,
@@ -28,12 +22,11 @@ import {
   Tags,
   User,
   Users,
-  Utensils,
   Wand2,
   X,
 } from 'lucide-react';
-import { useContext, useEffect, useLayoutEffect, useState } from 'react';
-import { useTabActive } from '../../components/RetainedTabs';
+import { useContext, useEffect, useState } from 'react';
+import { OverlayLayer } from '../../components/OverlayLayer';
 import { ChatNavigationContext } from '../../lib/chatNavigation';
 import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
 import { openLightbox } from '../../components/ImageLightbox';
@@ -46,27 +39,10 @@ import { formatProfileDate } from './format';
 import { Avatar, EmptyState } from './primitives';
 import type { Contact, Conversation, ProfileExtInfo } from './types';
 import { displayUserName } from './user';
+import { relationMeta } from '../../lib/profileRelations';
+import '../../styles/group-profile.css';
 
-/**
- * 扩展（密友）关系映射。`intimate` 为真的是密友关系（情侣/死党/闺蜜/基友），
- * 在资料卡里用主题渐变填充的关系 pill 重点渲染；其余是「搭子」关系，用柔和描边 pill。
- * 未知 id 一律按游戏搭子处理。图标全部取自 lucide 图标库。
- */
-const RELATION_META: Record<number, { label: string; Icon: typeof Heart; intimate: boolean }> = {
-  1: { label: '情侣', Icon: Heart, intimate: true },
-  26: { label: '死党', Icon: Flame, intimate: true },
-  2: { label: '闺蜜', Icon: Flower2, intimate: true },
-  3: { label: '基友', Icon: Beer, intimate: true },
-  82: { label: '运动搭子', Icon: Dumbbell, intimate: false },
-  81: { label: '学习搭子', Icon: BookOpen, intimate: false },
-  101: { label: '饭搭子', Icon: Utensils, intimate: false },
-};
-
-const DEFAULT_RELATION = { label: '游戏搭子', Icon: Gamepad2, intimate: false };
-
-export function relationMeta(id: number) {
-  return RELATION_META[id] ?? DEFAULT_RELATION;
-}
+export { relationMeta } from '../../lib/profileRelations';
 
 /** 由出生月日推算星座名（标准日期分界）。缺月或日时返回 null。 */
 export function constellationOf(month?: number, day?: number) {
@@ -234,7 +210,6 @@ export function ContactProfileDialog({
   contact: Contact | undefined;
   onClose: () => void;
 }) {
-  const tabActive = useTabActive();
   const openSpace = useContext(QzoneNavigationContext);
   const openChat = useContext(ChatNavigationContext);
   const [copied, setCopied] = useState(false);
@@ -246,19 +221,6 @@ export function ContactProfileDialog({
     setHomeOpen(false);
     setMarkOpen(false);
   }, [contact?.id]);
-
-  useLayoutEffect(() => {
-    if (!tabActive || !contact) {
-      return undefined;
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [tabActive, contact, onClose]);
 
   if (!contact) {
     return null;
@@ -278,7 +240,10 @@ export function ContactProfileDialog({
   const zodiac = constellationOf(profile.birthMonth, profile.birthDay);
   const gender = genderLabel(profile.gender);
   const genderAge = [gender, profile.age ? `${profile.age} 岁` : null].filter(Boolean).join(' · ');
-  const statusText = profile.customStatus || profile.onlineStatus;
+  // 自定义状态优先，没有时退回在线状态文案。
+  // 注：天气子结构在 misc.db 侧没有被建模（48902 只解出 customStatus），
+  // 所以这里不再尝试拼接「城市 · 天气」。
+  const statusText = [profile.customStatus || profile.onlineStatus].filter(Boolean).join(' · ');
   const birthday = birthdayText(profile.birthYear, profile.birthMonth, profile.birthDay);
   const createdAt = realCreatedAt(profile.createdAt);
   const intimacy = profile.intimacy ? Number(profile.intimacy).toLocaleString('en-US') : null;
@@ -305,7 +270,7 @@ export function ContactProfileDialog({
   }
 
   return (
-    <div className="weq-profile-layer" role="presentation" onMouseDown={onClose}>
+    <OverlayLayer className="weq-profile-layer" onClose={onClose}>
       <section
         className="weq-profile-dialog weq-anim-pop"
         role="dialog"
@@ -504,7 +469,7 @@ export function ContactProfileDialog({
             ) : null}
             <button className="weq-profile-perhome" type="button" onClick={() => setHomeOpen(true)}>
               <Wand2 size={13} />
-              查看个性主页
+              个性主页
             </button>
             <button className="weq-profile-perhome" type="button" onClick={() => setMarkOpen(true)}>
               <Award size={13} />
@@ -539,7 +504,7 @@ export function ContactProfileDialog({
           onClose={() => setMarkOpen(false)}
         />
       ) : null}
-    </div>
+    </OverlayLayer>
   );
 }
 
@@ -550,30 +515,18 @@ export function ContactProfileDialog({
 export function GroupProfileDialog({
   conversation,
   onClose,
+  detailsKnown = true,
 }: {
   conversation: Extract<Conversation, { type: 'group' }> | undefined;
   onClose: () => void;
+  detailsKnown?: boolean;
 }) {
-  const tabActive = useTabActive();
   const openChat = useContext(ChatNavigationContext);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setCopied(false);
   }, [conversation?.id]);
-
-  useLayoutEffect(() => {
-    if (!tabActive || !conversation) {
-      return undefined;
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [tabActive, conversation, onClose]);
 
   if (!conversation) {
     return null;
@@ -590,11 +543,14 @@ export function GroupProfileDialog({
   }
 
   return (
-    <div className="weq-profile-layer" role="presentation" onMouseDown={onClose}>
+    <OverlayLayer
+      presentation="popover"
+      className="weq-profile-layer weq-group-profile-layer"
+      onClose={onClose}
+    >
       <section
         className="weq-profile-dialog weq-anim-pop"
         role="dialog"
-        aria-modal="true"
         aria-label="群资料"
         onMouseDown={(event) => event.stopPropagation()}
       >
@@ -635,81 +591,85 @@ export function GroupProfileDialog({
             </button>
           </div>
         ) : null}
-        <div className="weq-profile-members">
-          <div className="weq-profile-members-head">
-            <Users size={13} />
-            <span>群成员</span>
-            <strong className="weq-number">{group.memberCount}</strong>
-            <span>人</span>
-          </div>
-          {members.length ? (
-            <div className="weq-profile-members-row">
-              {members.map((member) => (
-                <span
-                  key={member.id}
-                  className="weq-profile-member"
-                  title={displayUserName(member)}
-                >
-                  <Avatar
-                    name={displayUserName(member)}
-                    avatarUrl={member.avatarUrl}
-                    seed={member.identityValue}
-                  />
-                </span>
-              ))}
+        {detailsKnown ? (
+          <div className="weq-profile-members">
+            <div className="weq-profile-members-head">
+              <Users size={13} />
+              <span>群成员</span>
+              <strong className="weq-number">{group.memberCount}</strong>
+              <span>人</span>
             </div>
-          ) : null}
-        </div>
+            {members.length ? (
+              <div className="weq-profile-members-row">
+                {members.map((member) => (
+                  <span
+                    key={member.id}
+                    className="weq-profile-member"
+                    title={displayUserName(member)}
+                  >
+                    <Avatar
+                      name={displayUserName(member)}
+                      avatarUrl={member.avatarUrl}
+                      seed={member.identityValue}
+                    />
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
-        <div className="weq-profile-list">
-          <ProfileRow
-            icon={<Megaphone size={13} />}
-            label="群公告"
-            value={group.announcement?.trim() || '未设置'}
-            multiline
-          />
-          {group.description ? (
+        {detailsKnown ? (
+          <div className="weq-profile-list">
             <ProfileRow
-              icon={<Info size={13} />}
-              label="群简介"
-              value={group.description}
+              icon={<Megaphone size={13} />}
+              label="群公告"
+              value={group.announcement?.trim() || '未设置'}
               multiline
             />
-          ) : null}
-          {group.remark ? (
-            <ProfileRow
-              icon={<Bookmark size={13} />}
-              label="群备注"
-              value={group.remark}
-              multiline
-            />
-          ) : null}
-          {group.createTime ? (
-            <ProfileRow
-              icon={<CalendarDays size={13} />}
-              label="创建时间"
-              value={formatProfileDate(group.createTime)}
-            />
-          ) : null}
-          {group.maxMemberCount ? (
-            <ProfileRow
-              icon={<Users size={13} />}
-              label="群容量"
-              value={`${group.memberCount}/${group.maxMemberCount}`}
-              mono
-            />
-          ) : null}
-          {group.entranceQ ? (
-            <ProfileRow
-              icon={<HelpCircle size={13} />}
-              label="入群问题"
-              value={group.entranceQ}
-              multiline
-            />
-          ) : null}
-        </div>
+            {group.description ? (
+              <ProfileRow
+                icon={<Info size={13} />}
+                label="群简介"
+                value={group.description}
+                multiline
+              />
+            ) : null}
+            {group.remark ? (
+              <ProfileRow
+                icon={<Bookmark size={13} />}
+                label="群备注"
+                value={group.remark}
+                multiline
+              />
+            ) : null}
+            {group.createTime ? (
+              <ProfileRow
+                icon={<CalendarDays size={13} />}
+                label="创建时间"
+                value={formatProfileDate(group.createTime)}
+              />
+            ) : null}
+            {group.maxMemberCount ? (
+              <ProfileRow
+                icon={<Users size={13} />}
+                label="群容量"
+                value={`${group.memberCount}/${group.maxMemberCount}`}
+                mono
+              />
+            ) : null}
+            {group.entranceQ ? (
+              <ProfileRow
+                icon={<HelpCircle size={13} />}
+                label="入群问题"
+                value={group.entranceQ}
+                multiline
+              />
+            ) : null}
+          </div>
+        ) : null}
       </section>
-    </div>
+    </OverlayLayer>
   );
 }
 

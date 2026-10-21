@@ -20,8 +20,10 @@ import { groupFeedbackRouter } from './routers/group_feedback';
 import { wonderfulToolsRouter } from './routers/wonderful_tools';
 import { dbRepairRouter } from './routers/db_repair';
 import { mergeForwardRouter } from './routers/merge_forward';
+import { mailRouter } from './routers/mail';
 
 export const appRouter = router({
+  mail: mailRouter,
   bootstrap: bootstrapRouter,
   account: accountRouter,
   update: updateRouter,

@@ -22,6 +22,7 @@ import {
   BadgeCheck,
   BarChart3,
   Bot,
+  BrainCircuit,
   Cake,
   CalendarDays,
   Check,
@@ -42,14 +43,18 @@ import {
   Wand2,
   X,
 } from 'lucide-react';
-import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { User } from '../im-template/template/types';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { PersonalityHomeDialog } from './PersonalityHomeDialog';
 import { MemberAnalyticsDialog } from './MemberAnalyticsDialog';
+import { IntentProfileDialog } from './intentSense/IntentProfileDialog';
+import { useIntentSenseStatus } from './intentSense/context';
+import type { AnalysisTarget } from '../views/analysis/model';
 import { OverlayLayer } from './OverlayLayer';
 import { MutualMarkDialog } from './MutualMarkDialog';
+import { QQGroupMemberControls } from './QQGroupMemberControls';
 import { Avatar } from '../im-template/template/primitives';
 import { cn } from '../im-template/template/classNames';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
@@ -86,6 +91,9 @@ export function MemberProfileCard({
   groupCode,
   groupName,
   onOpenChat,
+  onPreviewChat,
+  previewContent,
+  onAnalyze,
 }: {
   member: User;
   anchor: { x: number; y: number };
@@ -93,6 +101,9 @@ export function MemberProfileCard({
   groupCode?: string;
   groupName?: string;
   onOpenChat?: () => void;
+  onPreviewChat?: () => void;
+  previewContent?: ReactNode;
+  onAnalyze?: (target: AnalysisTarget) => void;
 }) {
   const openSpace = useContext(QzoneNavigationContext);
   const [profile, setProfile] = useState(null);
@@ -103,6 +114,17 @@ export function MemberProfileCard({
   const [markOpen, setMarkOpen] = useState(false);
   // 「聊天分析」灯箱。只有从群成员列表进来时才有 groupCode —— 私聊里的资料卡不显示这个入口。
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  // 「互动画像」灯箱（意图感知）：与个性主页 / 互动标识并列，仅私聊对方可看。
+  const [portraitOpen, setPortraitOpen] = useState(false);
+  const intentStatus = useIntentSenseStatus();
+  const intentData = intentStatus.data;
+  const intentOverride = intentData?.conversationOverrides?.[`c2c:${member.id}`];
+  const intentEngineOk =
+    intentData?.engine === 'local' ? !!intentData.localReady : !!intentData?.apiConfigured;
+  const canPortrait =
+    !!(intentData?.profileEnabled ?? intentData?.enabled) &&
+    intentOverride !== false &&
+    (intentData?.profileAvailable ?? intentEngineOk);
   // 打开个性主页 / 互动标识后，卡片本体要自动收起，只留新的弹层。
   const [dismissed, setDismissed] = useState(false);
   // 机器人档案（profile_info_adelie）。QQ 只在客户端打开过该机器人资料卡后才
@@ -161,19 +183,33 @@ export function MemberProfileCard({
   useLayoutEffect(() => {
     const el = cardRef.current;
     if (!el) return;
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const M = 10;
-    let left = anchor.x + 14;
-    let top = anchor.y + 8;
-    if (left + w > vw - M) left = anchor.x - w - 14;
-    if (left < M) left = M;
-    if (top + h > vh - M) top = vh - h - M;
-    if (top < M) top = M;
-    setPos({ left, top, ready: true });
-  }, [anchor.x, anchor.y, loading, profile, botProfile]);
+    const place = () => {
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const M = 10;
+      let left = anchor.x + 14;
+      let top = anchor.y + 8;
+      if (left + w > vw - M) left = anchor.x - w - 14;
+      left = Math.max(M, Math.min(left, vw - w - M));
+      if (top + h > vh - M) top = vh - h - M;
+      if (top < M) top = M;
+      setPos((current) =>
+        current.ready && current.left === left && current.top === top
+          ? current
+          : { left, top, ready: true },
+      );
+    };
+    place();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
+    observer?.observe(el);
+    window.addEventListener('resize', place);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', place);
+    };
+  }, [anchor.x, anchor.y, loading, profile, botProfile, previewContent]);
 
   const name =
     'card' in member
@@ -234,13 +270,14 @@ export function MemberProfileCard({
 
   return (
     <OverlayLayer
+      presentation="popover"
       className="weq-member-pop-scrim"
       style={{ display: dismissed ? 'none' : undefined }}
       onClose={onClose}
     >
       <section
         ref={cardRef}
-        className="weq-member-pop weq-anim-pop"
+        className={cn('weq-member-pop weq-anim-pop', previewContent && 'is-previewing-chat')}
         style={{
           position: 'fixed',
           left: pos.left,
@@ -248,7 +285,6 @@ export function MemberProfileCard({
           opacity: pos.ready ? 1 : 0,
         }}
         role="dialog"
-        aria-modal="true"
         aria-label="用户资料"
         onMouseDown={(event) => event.stopPropagation()}
       >
@@ -262,200 +298,262 @@ export function MemberProfileCard({
           <X size={15} />
         </button>
 
-        <div className="weq-profile-hero">
-          <span className="weq-profile-avatar">
-            <Avatar name={name} avatarUrl={member.avatarUrl} seed={uid} />
-          </span>
-          <strong className="weq-profile-name">{name}</strong>
-          {nickDiffers ? <span className="weq-profile-nick">昵称 {profile.nick}</span> : null}
-
-          {uin ? (
-            <button className="weq-profile-id" type="button" onClick={copyUin} title="点击复制">
-              <span>QQ</span>
-              <span className="weq-number">{uin}</span>
-              {copied ? <Check size={12} /> : <Copy size={12} />}
-            </button>
-          ) : null}
-
-          {member.kind === 'bot' || role || genderAge || zodiac ? (
-            <div className="weq-profile-chips">
-              {member.kind === 'bot' ? (
-                <span className="weq-profile-rel is-bot">
-                  <Bot size={13} strokeWidth={2.2} />
-                  机器人
-                </span>
-              ) : null}
-              {role ? (
-                <span className={cn('weq-profile-rel', role.cls)}>
-                  <role.Icon size={13} strokeWidth={2.2} />
-                  {role.label}
-                </span>
-              ) : null}
-              {genderAge ? <span className="weq-profile-chip">{genderAge}</span> : null}
-              {zodiac ? (
-                <span className="weq-profile-chip">
-                  <Sparkles size={12} />
-                  {zodiac}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-
-          {member.customTitle ? (
-            <div className="weq-profile-chips">
-              <span className="weq-member-title">
-                <BadgeCheck size={12} />
-                {member.customTitle}
+        {previewContent ? (
+          previewContent
+        ) : (
+          <>
+            <div className="weq-profile-hero">
+              <span className="weq-profile-avatar">
+                <Avatar name={name} avatarUrl={member.avatarUrl} seed={uid} />
               </span>
+              <strong className="weq-profile-name">{name}</strong>
+              {nickDiffers ? <span className="weq-profile-nick">昵称 {profile.nick}</span> : null}
+
+              {uin ? (
+                <button className="weq-profile-id" type="button" onClick={copyUin} title="点击复制">
+                  <span>QQ</span>
+                  <span className="weq-number">{uin}</span>
+                  {copied ? <Check size={12} /> : <Copy size={12} />}
+                </button>
+              ) : null}
+
+              {member.kind === 'bot' || role || genderAge || zodiac ? (
+                <div className="weq-profile-chips">
+                  {member.kind === 'bot' ? (
+                    <span className="weq-profile-rel is-bot">
+                      <Bot size={13} strokeWidth={2.2} />
+                      机器人
+                    </span>
+                  ) : null}
+                  {role ? (
+                    <span className={cn('weq-profile-rel', role.cls)}>
+                      <role.Icon size={13} strokeWidth={2.2} />
+                      {role.label}
+                    </span>
+                  ) : null}
+                  {genderAge ? <span className="weq-profile-chip">{genderAge}</span> : null}
+                  {zodiac ? (
+                    <span className="weq-profile-chip">
+                      <Sparkles size={12} />
+                      {zodiac}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {member.customTitle ? (
+                <div className="weq-profile-chips">
+                  <span className="weq-member-title">
+                    <BadgeCheck size={12} />
+                    {member.customTitle}
+                  </span>
+                </div>
+              ) : null}
+
+              {botProfile?.description || profile?.signature ? (
+                <p className="weq-profile-sign">{botProfile?.description || profile.signature}</p>
+              ) : null}
             </div>
-          ) : null}
 
-          {botProfile?.description || profile?.signature ? (
-            <p className="weq-profile-sign">{botProfile?.description || profile.signature}</p>
-          ) : null}
-        </div>
-
-        <div className="weq-profile-list">
-          {levelText ? (
-            <ProfileRow icon={<Award size={13} />} label="群等级" value={levelText} />
-          ) : null}
-          {birthday ? <ProfileRow icon={<Cake size={13} />} label="生日" value={birthday} /> : null}
-          {intimacy ? (
-            <ProfileRow icon={<Heart size={13} />} label="亲密度" value={intimacy} mono accent />
-          ) : null}
-          {joinedAt ? (
-            <ProfileRow icon={<CalendarDays size={13} />} label="入群时间" value={joinedAt} />
-          ) : null}
-          {lastSpeak ? (
-            <ProfileRow icon={<Clock size={13} />} label="最后发言" value={lastSpeak} />
-          ) : null}
-          {profile?.remark ? (
-            <ProfileRow icon={<UserIcon size={13} />} label="备注" value={profile.remark} />
-          ) : null}
-          {profile?.qid ? (
-            <ProfileRow icon={<Fingerprint size={13} />} label="QID" value={profile.qid} mono />
-          ) : null}
-          <ProfileRow
-            icon={<Hash size={13} />}
-            label="UID"
-            value={uid}
-            mono
-            action={
-              <button
-                className="weq-profile-row-copy"
-                type="button"
-                title="复制 UID"
-                aria-label="复制 UID"
-                onClick={copyUid}
-              >
-                {uidCopied ? <Check size={12} /> : <Copy size={12} />}
-              </button>
-            }
-          />
-          {botProfile?.wakeCommand ? (
-            <ProfileRow
-              icon={<Terminal size={13} />}
-              label="唤醒指令"
-              value={botProfile.wakeCommand}
-              mono
-            />
-          ) : null}
-        </div>
-
-        {botProfile?.welcome ? (
-          <div className="weq-bot-block">
-            <div className="weq-bot-block-head">
-              <Megaphone size={13} />
-              欢迎语
+            <div className="weq-profile-list">
+              {levelText ? (
+                <ProfileRow icon={<Award size={13} />} label="群等级" value={levelText} />
+              ) : null}
+              {birthday ? (
+                <ProfileRow icon={<Cake size={13} />} label="生日" value={birthday} />
+              ) : null}
+              {intimacy ? (
+                <ProfileRow
+                  icon={<Heart size={13} />}
+                  label="亲密度"
+                  value={intimacy}
+                  mono
+                  accent
+                />
+              ) : null}
+              {joinedAt ? (
+                <ProfileRow icon={<CalendarDays size={13} />} label="入群时间" value={joinedAt} />
+              ) : null}
+              {lastSpeak ? (
+                <ProfileRow icon={<Clock size={13} />} label="最后发言" value={lastSpeak} />
+              ) : null}
+              {profile?.remark ? (
+                <ProfileRow icon={<UserIcon size={13} />} label="备注" value={profile.remark} />
+              ) : null}
+              {profile?.qid ? (
+                <ProfileRow icon={<Fingerprint size={13} />} label="QID" value={profile.qid} mono />
+              ) : null}
+              <ProfileRow
+                icon={<Hash size={13} />}
+                label="UID"
+                value={uid}
+                mono
+                action={
+                  <button
+                    className="weq-profile-row-copy"
+                    type="button"
+                    title="复制 UID"
+                    aria-label="复制 UID"
+                    onClick={copyUid}
+                  >
+                    {uidCopied ? <Check size={12} /> : <Copy size={12} />}
+                  </button>
+                }
+              />
+              {botProfile?.wakeCommand ? (
+                <ProfileRow
+                  icon={<Terminal size={13} />}
+                  label="唤醒指令"
+                  value={botProfile.wakeCommand}
+                  mono
+                />
+              ) : null}
             </div>
-            <p className="weq-bot-welcome">{botProfile.welcome}</p>
-          </div>
-        ) : null}
 
-        {botProfile?.commands?.length ? (
-          <div className="weq-bot-block">
-            <div className="weq-bot-block-head">
-              <MessageSquareCode size={13} />
-              支持的指令
-              <span className="weq-bot-cmd-count">{botProfile.commands.length}</span>
-            </div>
-            <ul className="weq-bot-cmds">
-              {botProfile.commands.map((c) => (
-                <li key={c.id} className="weq-bot-cmd">
-                  <code>{c.command}</code>
-                  {c.description ? <span>{c.description}</span> : null}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
+            {botProfile?.welcome ? (
+              <div className="weq-bot-block">
+                <div className="weq-bot-block-head">
+                  <Megaphone size={13} />
+                  欢迎语
+                </div>
+                <p className="weq-bot-welcome">{botProfile.welcome}</p>
+              </div>
+            ) : null}
 
-        {/* 个性主页 / 互动标识都要拿 QQ 号去查——profile 还没到或没 uin 时不给入口。
+            {botProfile?.commands?.length ? (
+              <div className="weq-bot-block">
+                <div className="weq-bot-block-head">
+                  <MessageSquareCode size={13} />
+                  支持的指令
+                  <span className="weq-bot-cmd-count">{botProfile.commands.length}</span>
+                </div>
+                <ul className="weq-bot-cmds">
+                  {botProfile.commands.map((c) => (
+                    <li key={c.id} className="weq-bot-cmd">
+                      <code>{c.command}</code>
+                      {c.description ? <span>{c.description}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {groupCode && uid ? (
+              <QQGroupMemberControls key={`${groupCode}:${uid}`} groupCode={groupCode} uid={uid} />
+            ) : null}
+
+            {/* 个性主页 / 互动标识都要拿 QQ 号去查——profile 还没到或没 uin 时不给入口。
             聊天分析看的是「这个人在这个群里」的发言，只认 uid + groupCode。 */}
-        {uin || canAnalyze ? (
-          <div className="weq-profile-actions">
-            {uin ? (
-              <>
-                {openSpace ? (
+            {uin || canAnalyze ? (
+              <div className="weq-profile-actions">
+                {onOpenChat ? (
                   <button
                     className="weq-profile-perhome"
                     type="button"
                     onClick={() => {
                       onClose();
-                      if (onOpenChat) onOpenChat();
-                      else openSpace(uin, profile?.nick || name);
+                      onOpenChat();
                     }}
                   >
-                    <Star size={13} />
-                    {onOpenChat ? '查看私聊' : '查看空间'}
+                    查看私聊
                   </button>
                 ) : null}
-                <button
-                  className="weq-profile-perhome"
-                  type="button"
-                  onClick={() => {
-                    setDismissed(true);
-                    setHomeOpen(true);
-                  }}
-                >
-                  <Wand2 size={13} />
-                  查看个性主页
-                </button>
-                <button
-                  className="weq-profile-perhome"
-                  type="button"
-                  onClick={() => {
-                    setDismissed(true);
-                    setMarkOpen(true);
-                  }}
-                >
-                  <Award size={13} />
-                  查看互动标识
-                </button>
-              </>
+                {onPreviewChat ? (
+                  <button
+                    className="weq-profile-perhome"
+                    type="button"
+                    onClick={() => {
+                      onPreviewChat();
+                    }}
+                  >
+                    预览私聊
+                  </button>
+                ) : null}
+                {uin ? (
+                  <>
+                    {openSpace ? (
+                      <button
+                        className="weq-profile-perhome"
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          openSpace(uin, profile?.nick || name);
+                        }}
+                      >
+                        <Star size={13} />
+                        查看空间
+                      </button>
+                    ) : null}
+                    <button
+                      className="weq-profile-perhome"
+                      type="button"
+                      onClick={() => {
+                        setDismissed(true);
+                        setHomeOpen(true);
+                      }}
+                    >
+                      <Wand2 size={13} />
+                      个性主页
+                    </button>
+                    <button
+                      className="weq-profile-perhome"
+                      type="button"
+                      onClick={() => {
+                        setDismissed(true);
+                        setMarkOpen(true);
+                      }}
+                    >
+                      <Award size={13} />
+                      查看互动标识
+                    </button>
+                  </>
+                ) : null}
+                {canPortrait ? (
+                  <button
+                    className="weq-profile-perhome"
+                    type="button"
+                    onClick={() => {
+                      setDismissed(true);
+                      setPortraitOpen(true);
+                    }}
+                  >
+                    <BrainCircuit size={13} />
+                    互动画像
+                  </button>
+                ) : null}
+                {canAnalyze ? (
+                  <button
+                    className="weq-profile-perhome is-analytics"
+                    type="button"
+                    onClick={() => {
+                      if (onAnalyze && groupCode) {
+                        onAnalyze({
+                          kind: 'member',
+                          groupCode,
+                          memberUid: uid,
+                          memberUin: uin || undefined,
+                        });
+                        return;
+                      }
+                      setDismissed(true);
+                      setAnalyticsOpen(true);
+                    }}
+                  >
+                    <BarChart3 size={13} />
+                    查看聊天分析
+                  </button>
+                ) : null}
+              </div>
             ) : null}
-            {canAnalyze ? (
-              <button
-                className="weq-profile-perhome is-analytics"
-                type="button"
-                onClick={() => {
-                  setDismissed(true);
-                  setAnalyticsOpen(true);
-                }}
-              >
-                <BarChart3 size={13} />
-                查看聊天分析
-              </button>
-            ) : null}
-          </div>
-        ) : null}
 
-        {loading ? (
-          <div className="weq-member-loading">
-            <Loader2 size={14} />
-            <span>加载资料…</span>
-          </div>
-        ) : null}
+            {loading ? (
+              <div className="weq-member-loading">
+                <Loader2 size={14} />
+                <span>加载资料…</span>
+              </div>
+            ) : null}
+          </>
+        )}
       </section>
 
       {homeOpen ? (
@@ -485,6 +583,16 @@ export function MemberProfileCard({
           name={name}
           onClose={() => {
             setMarkOpen(false);
+            onClose();
+          }}
+        />
+      ) : null}
+      {portraitOpen && canPortrait ? (
+        <IntentProfileDialog
+          peerUid={member.id}
+          peerName={name}
+          onClose={() => {
+            setPortraitOpen(false);
             onClose();
           }}
         />

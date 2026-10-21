@@ -7,9 +7,11 @@
  *
  * 布局：竖屏弹窗（同原 webview 尺寸比例），文件用横排小卡片按宽度自适应列数。
  */
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { ArrowLeft, Check, Download, FolderOpen, Loader2, Share2, X } from 'lucide-react';
 import { Modal } from './Dialog';
+import { useMultiSelection } from '../hooks/useMultiSelection';
+import { pruneNestedSelection } from '../lib/fileSelection';
 import { FlashShareDialog } from './FlashShareDialog';
 import { FlashTransferTasksDialog } from './FlashTransferTasksDialog';
 import { client } from '../trpc/client';
@@ -139,6 +141,7 @@ export function FlashTransferViewer({
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
+  const taskAnchor = useRef<HTMLButtonElement>(null);
   const [starting, setStarting] = useState(false);
 
   const current = crumbs[crumbs.length - 1] ?? crumbs[0]!;
@@ -228,24 +231,29 @@ export function FlashTransferViewer({
 
   const toggleSelect = (file: FlashEntry): void => {
     if (!isReady(file) || isAncestorSelected(file.path)) return;
-    setSelected((prev) => {
-      const next = new Map(prev);
-      const key = selectKey(file);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.set(key, file);
-        if (file.isDir) {
-          for (const [id, item] of next.entries()) {
-            if (id !== key && item.path.startsWith(`${file.path}/`)) next.delete(id);
-          }
-        }
-      }
-      return next;
-    });
+    multi.toggle(selectKey(file));
   };
+  const multi = useMultiSelection({
+    ids: entries.filter((file) => isReady(file) && !isAncestorSelected(file.path)).map(selectKey),
+    selected: new Set(selected.keys()),
+    disabled: starting,
+    normalClick: 'passthrough',
+    onChange: (keys) => {
+      const available = new Map([
+        ...selected,
+        ...entries.map((file) => [selectKey(file), file] as const),
+      ]);
+      const next = new Map<string, FlashEntry>();
+      for (const key of keys) {
+        const file = available.get(key);
+        if (file) next.set(key, file);
+      }
+      setSelected(pruneNestedSelection(next));
+    },
+  });
 
   const toggleAll = (checked: boolean): void => {
+    if (starting) return;
     setSelected((prev) => {
       const next = new Map(prev);
       for (const file of entries) {
@@ -254,7 +262,7 @@ export function FlashTransferViewer({
         if (checked) next.set(key, file);
         else next.delete(key);
       }
-      return next;
+      return pruneNestedSelection(next);
     });
   };
 
@@ -344,9 +352,9 @@ export function FlashTransferViewer({
 
   return (
     <>
-      <Modal onClose={onClose} width={520}>
-        <div className="weq-ft">
-          <header className="weq-ft-head">
+      <Modal presentation="floating" onClose={onClose} width={520} title="闪传文件">
+        <div className="weq-ft" {...multi.rootProps}>
+          <header className="weq-ft-head" data-window-drag-handle>
             <span className="weq-ft-title" title={crumbs[0]?.name}>
               {crumbs[0]?.name || 'QQ闪传'}
             </span>
@@ -356,6 +364,7 @@ export function FlashTransferViewer({
                 className="weq-ft-btn"
                 onClick={() => setTasksOpen(true)}
                 title="下载任务"
+                ref={taskAnchor}
               >
                 <Download size={15} strokeWidth={1.9} aria-hidden />
                 <span>下载任务</span>
@@ -409,7 +418,7 @@ export function FlashTransferViewer({
               <input
                 type="checkbox"
                 checked={allChecked}
-                disabled={allReadyCount === 0}
+                disabled={starting || allReadyCount === 0}
                 onChange={(e) => toggleAll(e.target.checked)}
               />
               <span>全选</span>
@@ -448,11 +457,11 @@ export function FlashTransferViewer({
                     <div
                       key={key}
                       role="button"
-                      tabIndex={0}
+                      {...multi.itemProps(key, !ready && !file.isDir)}
                       className={`weq-ft-card${!ready && !file.isDir ? ' weq-ft-card-muted' : ''}${checked ? ' weq-ft-card-checked' : ''}`}
                       onClick={() => handleRowClick(file)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
+                        if (e.key === 'Enter' && e.target === e.currentTarget) {
                           e.preventDefault();
                           handleRowClick(file);
                         }
@@ -475,14 +484,17 @@ export function FlashTransferViewer({
                       </div>
                       <label
                         className={`weq-ft-check${!ready ? ' weq-ft-check-disabled' : ''}`}
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
+                          toggleSelect(file);
+                        }}
                       >
                         <input
                           type="checkbox"
                           checked={checked}
                           disabled={!ready || isAncestorSelected(file.path)}
-                          onChange={() => toggleSelect(file)}
+                          readOnly
                         />
                         <Check
                           className="weq-ft-check-mark"
@@ -528,7 +540,9 @@ export function FlashTransferViewer({
           onClose={() => setShareUrl(null)}
         />
       ) : null}
-      {tasksOpen ? <FlashTransferTasksDialog onClose={() => setTasksOpen(false)} /> : null}
+      {tasksOpen ? (
+        <FlashTransferTasksDialog anchor={taskAnchor.current} onClose={() => setTasksOpen(false)} />
+      ) : null}
     </>
   );
 }

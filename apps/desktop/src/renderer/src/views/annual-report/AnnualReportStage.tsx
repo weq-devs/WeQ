@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { useTabActive } from '../../components/RetainedTabs';
+import { hasActiveModal } from '../../lib/overlayStack';
+import '../../styles/annual-report-reading.css';
 
 const DESIGN_WIDTH = 960;
 const DESIGN_HEIGHT = 640;
@@ -22,12 +25,13 @@ const WHEEL_THRESHOLD = 90;
 const WHEEL_IDLE_MS = 220;
 
 /**
- * 报告舞台：把 960×640 的设计画幅等比缩放到可用空间，页面在画幅内**同位层叠**
+ * 宽屏演示把 960×640 画幅缩放到可用空间；窄/短内容区采用原字号滚动阅读。
+ * 页面在画幅内**同位层叠**
  * （不是横向/纵向滑动轨），翻页由各页自己的 transform/opacity/blur 完成景深过渡。
  * 负责滚轮、触摸、键盘三种翻页输入。
  *
- * `guard` 让当前页在翻页发生前截住一次手势（目前没有页面注册，机制为后续需要
- * 「先展开内层、再翻页」的交互页保留）。三种输入都经过 `move`，所以只需问一次。
+ * `guard` 让当前页在翻页发生前截住一次手势（「我的主场」用它转轮盘：转到边界
+ * 才放行翻页）。三种输入都经过 `move`，所以只需问一次。
  */
 export function AnnualReportStage({
   index,
@@ -43,6 +47,7 @@ export function AnnualReportStage({
   guard?: (direction: 1 | -1) => boolean;
   children: ReactNode;
 }): ReactElement {
+  const tabActive = useTabActive();
   const hostRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<{
     y: number;
@@ -53,6 +58,7 @@ export function AnnualReportStage({
   /** 滚轮手势状态：累积量、上次事件时刻，以及「这一甩已经翻过一页了」。 */
   const wheelRef = useRef({ acc: 0, lastAt: 0, fired: false });
   const [scale, setScale] = useState(1);
+  const [reading, setReading] = useState(false);
   /** 守卫存在 ref 里：`move` 是 useCallback，不能让它随每次 guard 重建而失效。 */
   const guardRef = useRef(guard);
   guardRef.current = guard;
@@ -72,10 +78,13 @@ export function AnnualReportStage({
   );
 
   useEffect(() => {
+    if (!tabActive) return;
     const host = hostRef.current;
     if (!host) return undefined;
     const resize = (): void => {
       const rect = host.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      setReading(rect.width < 720 || rect.height < 400);
       setScale(
         Math.min(
           (rect.width * STAGE_INSET) / DESIGN_WIDTH,
@@ -87,10 +96,58 @@ export function AnnualReportStage({
     const observer = new ResizeObserver(resize);
     observer.observe(host);
     return () => observer.disconnect();
-  }, []);
+  }, [tabActive]);
+
+  /**
+   * 原生 `wheel` 监听设为 `passive: false` 才能合法 `preventDefault`。React 的
+   * `onWheel` 委托到 passive listener，调用 preventDefault 只会让控制台刷警告，
+   * 也拦不住页面滚动。滚轮翻页本来就是我们自己判定的手势，所以直接接管宿主。
+   */
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !tabActive || reading) return undefined;
+    function onWheel(event: WheelEvent): void {
+      if (event.defaultPrevented || hasActiveModal()) return;
+      event.preventDefault();
+      const now = performance.now();
+      const wheel = wheelRef.current;
+
+      // 停够久 → 上一甩（连同它的惯性尾巴）结束了，解锁下一次翻页。
+      if (now - wheel.lastAt > WHEEL_IDLE_MS) {
+        wheel.acc = 0;
+        wheel.fired = false;
+      }
+      wheel.lastAt = now;
+
+      // 这一甩已经翻过了：惯性尾巴照单全吃，不再翻第二页。
+      if (wheel.fired) return;
+
+      // 换方向也重新开始 —— 一甩往下、紧接着往上，应当各算一次。
+      if (wheel.acc !== 0 && Math.sign(event.deltaY) !== Math.sign(wheel.acc)) wheel.acc = 0;
+      wheel.acc += event.deltaY;
+
+      if (Math.abs(wheel.acc) < WHEEL_THRESHOLD) return;
+
+      // 先定方向再清零：`fired` 让这一甩的尾巴只能带出这一页。
+      const direction = wheel.acc > 0 ? 1 : -1;
+      wheel.acc = 0;
+      wheel.fired = true;
+      move(direction);
+    }
+    host.addEventListener('wheel', onWheel, { passive: false });
+    return () => host.removeEventListener('wheel', onWheel);
+  }, [move, tabActive, reading]);
 
   useEffect(() => {
+    if (!tabActive || reading) return;
     function onKeyDown(event: KeyboardEvent): void {
+      if (
+        event.defaultPrevented ||
+        hasActiveModal() ||
+        (event.target instanceof Element &&
+          event.target.closest('input, textarea, select, button, a, [contenteditable="true"]'))
+      )
+        return;
       if (event.key === 'ArrowDown' || event.key === 'PageDown' || event.key === ' ') {
         event.preventDefault();
         move(1);
@@ -107,37 +164,10 @@ export function AnnualReportStage({
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [count, move, onIndexChange]);
-
-  function onWheel(event: React.WheelEvent<HTMLDivElement>): void {
-    event.preventDefault();
-    const now = performance.now();
-    const wheel = wheelRef.current;
-
-    // 停够久 → 上一甩（连同它的惯性尾巴）结束了，解锁下一次翻页。
-    if (now - wheel.lastAt > WHEEL_IDLE_MS) {
-      wheel.acc = 0;
-      wheel.fired = false;
-    }
-    wheel.lastAt = now;
-
-    // 这一甩已经翻过了：惯性尾巴照单全吃，不再翻第二页。
-    if (wheel.fired) return;
-
-    // 换方向也重新开始 —— 一甩往下、紧接着往上，应当各算一次。
-    if (wheel.acc !== 0 && Math.sign(event.deltaY) !== Math.sign(wheel.acc)) wheel.acc = 0;
-    wheel.acc += event.deltaY;
-
-    if (Math.abs(wheel.acc) < WHEEL_THRESHOLD) return;
-
-    // 先定方向再清零：`fired` 让这一甩的尾巴只能带出这一页。
-    const direction = wheel.acc > 0 ? 1 : -1;
-    wheel.acc = 0;
-    wheel.fired = true;
-    move(direction);
-  }
+  }, [count, move, onIndexChange, tabActive, reading]);
 
   function onPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
+    if (reading) return;
     // 刻意不在 pointerdown 就 setPointerCapture：捕获会把后续 pointerup 重定向到
     // 舞台宿主，叠在它上面的 click 事件就到不了页面里的按钮 —— 年份刻度、CTA、
     // 重试全都「点了没反应、控制台无报错」。捕获推迟到手势真正成立的那一刻。
@@ -150,6 +180,10 @@ export function AnnualReportStage({
   }
 
   function onPointerMove(event: React.PointerEvent<HTMLDivElement>): void {
+    if (reading) {
+      gestureRef.current = null;
+      return;
+    }
     const gesture = gestureRef.current;
     if (!gesture || Math.abs(event.clientY - gesture.y) < 24) return;
     if (!gesture.captured) {
@@ -170,7 +204,7 @@ export function AnnualReportStage({
   function onPointerUp(event: React.PointerEvent<HTMLDivElement>): void {
     const gesture = gestureRef.current;
     gestureRef.current = null;
-    if (!gesture?.moved) return;
+    if (reading || !gesture?.moved) return;
     move(event.clientY < gesture.y ? 1 : -1);
   }
 
@@ -178,21 +212,28 @@ export function AnnualReportStage({
     <div
       ref={hostRef}
       className="weq-report-stage-host"
+      data-layout={reading ? 'reading' : 'presentation'}
       tabIndex={0}
-      onWheel={onWheel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerCancel={() => {
+        gestureRef.current = null;
+      }}
       role="region"
       aria-label="年度报告页面"
     >
       <div
         className="weq-report-stage"
-        style={{
-          width: DESIGN_WIDTH,
-          height: DESIGN_HEIGHT,
-          transform: `translate(-50%, -50%) scale(${scale})`,
-        }}
+        style={
+          reading
+            ? undefined
+            : {
+                width: DESIGN_WIDTH,
+                height: DESIGN_HEIGHT,
+                transform: `translate(-50%, -50%) scale(${scale})`,
+              }
+        }
       >
         {children}
       </div>

@@ -119,6 +119,24 @@ describe('concludeCheckup', () => {
     expect(result.summary).toContain('没有可用密钥');
   });
 
+  it('结构检查抛出 malformed → corrupted，而不是“没跑成”', () => {
+    const result = concludeCheckup(
+      { ran: false, error: 'database disk image is malformed', corrupt: true },
+      okPages,
+    );
+    expect(result.verdict).toBe('corrupted');
+    expect(result.summary).toContain('数据库损坏');
+    expect(result.summary).toContain('malformed');
+  });
+
+  it('结构检查抛出 malformed 且页级也没跑成 → 仍是 corrupted', () => {
+    const result = concludeCheckup(
+      { ran: false, error: 'database disk image is malformed', corrupt: true },
+      { ran: false, error: 'scanBadPages 不可用' },
+    );
+    expect(result.verdict).toBe('corrupted');
+  });
+
   it('两格都没跑成 → error，且摘要里带原因（而不是空白）', () => {
     const result = concludeCheckup(
       { ran: false, error: '账号配置里没有密钥' },

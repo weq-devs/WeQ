@@ -13,7 +13,12 @@
 import type { AccountSession } from '@weq/account';
 import { WebCredentialProvider, withRetry, type WebNative } from './credential';
 import { getFriendDress, type FriendDress } from './friend_dress';
-import { getGroupAlbumList, type GroupAlbum } from './group_album';
+import {
+  getGroupAlbumList,
+  uploadGroupAlbumImage,
+  type GroupAlbum,
+  type UploadGroupAlbumImageParams,
+} from './group_album';
 import {
   getQzoneAlbumList,
   getQzoneAlbumPage,
@@ -23,8 +28,20 @@ import {
   type QzoneAlbum,
   type QzoneAlbumMediaResult,
 } from './qzone_album';
-import { getGroupNotice, type GroupNotice } from './group_notice';
-import { getGroupEssence, type GroupEssenceMessage } from './group_essence';
+import {
+  getGroupNotice,
+  setGroupNotice,
+  deleteGroupNotice,
+  uploadGroupNoticeImage,
+  type GroupNotice,
+  type SetGroupNoticeOptions,
+} from './group_notice';
+import { fetchDaySignedList, dayYmd, type SignedListMember } from './group_signin';
+import {
+  getGroupEssencePage,
+  type GroupEssenceMessage,
+  type GroupEssencePage,
+} from './group_essence';
 import { getHonorList, type HonorType, type HonorMember } from './group_honor';
 import {
   getQzoneMsgList,
@@ -39,6 +56,7 @@ import {
   type QzoneUploadImageResult,
   type QzoneUgcRight,
 } from './qzone_publish';
+import { setQzoneLike, commentQzoneMsg, type QzoneCommentResult } from './qzone';
 import {
   collectQzoneInteractions,
   fetchQzoneLikes,
@@ -102,8 +120,16 @@ export class WebQueryService {
     pageStart = 0,
     pageLimit = 50,
   ): Promise<GroupEssenceMessage[]> {
+    return (await this.getGroupEssencePage(groupCode, pageStart, pageLimit)).messages;
+  }
+
+  async getGroupEssencePage(
+    groupCode: string,
+    pageStart = 0,
+    pageLimit = 50,
+  ): Promise<GroupEssencePage> {
     return withRetry(this.creds, QUN_DOMAIN, (c) =>
-      getGroupEssence(c, groupCode, pageStart, pageLimit),
+      getGroupEssencePage(c, groupCode, pageStart, pageLimit),
     );
   }
 
@@ -386,8 +412,11 @@ export class WebQueryService {
    * 上传一张图（base64）到 Qzone 图床，返回 richval 等元数据。
    * 多图发表：每张调一次，把 richval 收进数组再传给 {@link publishQzone}。
    */
-  async uploadQzoneImage(imageBase64: string): Promise<QzoneUploadImageResult> {
-    return withRetry(this.creds, QZONE_DOMAIN, (c) => uploadQzoneImage(c, imageBase64));
+  async uploadQzoneImage(
+    imageBase64: string,
+    beforeSend?: () => void,
+  ): Promise<QzoneUploadImageResult> {
+    return withRetry(this.creds, QZONE_DOMAIN, (c) => uploadQzoneImage(c, imageBase64), beforeSend);
   }
 
   /**
@@ -429,6 +458,96 @@ export class WebQueryService {
       getQzoneAlbumVideoUrl(c, targetUin, topicId, picKey),
     );
   }
+
+  // ───────────────────────── 群公告 / 打卡 / 相册（写） ─────────────────────────
+
+  /** 发送群公告（普通 / 新成员）。 */
+  async setGroupNotice(
+    groupCode: string,
+    content: string,
+    options: SetGroupNoticeOptions = {},
+    beforeSend?: () => void,
+  ): Promise<{ noticeId?: string }> {
+    return withRetry(
+      this.creds,
+      QUN_DOMAIN,
+      (c) => setGroupNotice(c, groupCode, content, options),
+      beforeSend,
+    );
+  }
+
+  /** 删除一条群公告（`fid` = 列表里的 `noticeId`）。 */
+  async deleteGroupNotice(groupCode: string, fid: string, beforeSend?: () => void): Promise<void> {
+    return withRetry(
+      this.creds,
+      QUN_DOMAIN,
+      (c) => deleteGroupNotice(c, groupCode, fid),
+      beforeSend,
+    );
+  }
+
+  /** 上传公告图片，返回可直接填进 `setGroupNotice({ picId })` 的元数据。 */
+  async uploadGroupNoticeImage(image: Uint8Array, beforeSend?: () => void) {
+    return withRetry(this.creds, QUN_DOMAIN, (c) => uploadGroupNoticeImage(c, image), beforeSend);
+  }
+
+  /** 某群某天的打卡列表（`dayYmd` 缺省今天，本地时区）。 */
+  async getDaySignedList(
+    groupId: string,
+    options: { dayYmd?: string; offset?: number; limit?: number } = {},
+  ): Promise<SignedListMember[]> {
+    return withRetry(this.creds, QUN_DOMAIN, (c) =>
+      fetchDaySignedList(c, {
+        groupId,
+        dayYmd: options.dayYmd ?? dayYmd(),
+        ...(options.offset !== undefined ? { offset: options.offset } : {}),
+        ...(options.limit !== undefined ? { limit: options.limit } : {}),
+      }),
+    );
+  }
+
+  /** 上传一张图片到群相册（写操作，不自动重试）。 */
+  async uploadGroupAlbumImage(params: UploadGroupAlbumImageParams): Promise<{ session: string }> {
+    return withRetry(
+      this.creds,
+      QZONE_DOMAIN,
+      (c) => uploadGroupAlbumImage(c, params),
+      params.beforeSend,
+    );
+  }
+
+  /** 点赞 / 取消一条说说。 */
+  async setQzoneLike(
+    targetUin: string,
+    tid: string,
+    like: boolean,
+    abstime = 0,
+    beforeSend?: () => void,
+  ): Promise<void> {
+    return withRetry(
+      this.creds,
+      QZONE_DOMAIN,
+      (c) => setQzoneLike(c, targetUin, tid, like, abstime),
+      beforeSend,
+    );
+  }
+
+  /** 评论一条说说（`richType` / `richval` 用于带图评论，必须成对）。 */
+  async commentQzone(
+    hostUin: string,
+    tid: string,
+    content: string,
+    richType?: number,
+    richval?: string,
+    beforeSend?: () => void,
+  ): Promise<QzoneCommentResult> {
+    return withRetry(
+      this.creds,
+      QZONE_DOMAIN,
+      (c) => commentQzoneMsg(c, hostUin, tid, content, richType, richval),
+      beforeSend,
+    );
+  }
 }
 
 export type {
@@ -438,9 +557,6 @@ export type {
 } from './qzone_publish';
 
 export {
-  PT_LOGIN_DOMAINS,
-  fetchSkeyViaPtLogin,
-  fetchPskeyViaPtLogin,
   fetchWebTokens,
   computeBkn,
   cookieHeader,
@@ -462,12 +578,28 @@ export type {
 } from './friend_mutualmark';
 export type { SelfDress, SelfDressItem } from './self_dress';
 export { dressKind } from './dress_kind';
-export { getGroupNotice } from './group_notice';
-export type { GroupNotice, GroupNoticeImage } from './group_notice';
+export {
+  getGroupNotice,
+  setGroupNotice,
+  deleteGroupNotice,
+  uploadGroupNoticeImage,
+  resolveGroupNoticeOptions,
+  parseGroupNoticeImageUploadResponse,
+  GROUP_NOTICE_TYPE_NORMAL,
+  GROUP_NOTICE_TYPE_NEW_MEMBERS,
+} from './group_notice';
+export type {
+  GroupNotice,
+  GroupNoticeImage,
+  SetGroupNoticeOptions,
+  ResolvedGroupNoticeOptions,
+} from './group_notice';
+export { fetchDaySignedList, mapDaySignedList, dayYmd } from './group_signin';
+export type { SignedListMember, FetchDaySignedListParams } from './group_signin';
 export { getGroupEssence } from './group_essence';
 export type { GroupEssenceMessage, GroupEssenceContent } from './group_essence';
-export { getGroupAlbumList } from './group_album';
-export type { GroupAlbum } from './group_album';
+export { getGroupAlbumList, uploadGroupAlbumImage } from './group_album';
+export type { GroupAlbum, UploadGroupAlbumImageParams } from './group_album';
 export { getHonorList, HonorType } from './group_honor';
 export type { HonorMember } from './group_honor';
 export {
@@ -500,3 +632,6 @@ export type {
   QzoneInteraction,
   QzoneInteractionTarget,
 } from './qzone_interaction';
+
+export { setQzoneLike, commentQzoneMsg } from './qzone';
+export type { QzoneCommentResult } from './qzone';

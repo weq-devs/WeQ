@@ -12,7 +12,8 @@ import type {
   AgentLabExpression,
   AgentLabFewShotPair,
 } from './types';
-import { reportUsage, pickMessageText } from './http';
+import { pickMessageText } from './http';
+import { requestApiJson } from './api_usage';
 
 function coerceString(value: unknown): string {
   if (typeof value === 'string') return value.trim();
@@ -44,8 +45,11 @@ async function chatCompletion(
   system: string,
   prompt: string,
   temperature: number,
+  feature: string,
 ): Promise<string> {
-  const res = await fetch(`${endpoint.baseUrl}/chat/completions`, {
+  const data = await requestApiJson<{
+    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+  }>({ ...endpoint, feature }, '/chat/completions', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -60,13 +64,6 @@ async function chatCompletion(
       ],
     }),
   });
-  if (!res.ok) {
-    throw new Error(`AgentLab 提炼接口调用失败: HTTP ${res.status}`);
-  }
-  const data = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-  };
-  reportUsage(endpoint, data);
   return pickMessageText(data.choices?.[0]?.message);
 }
 
@@ -81,7 +78,9 @@ async function visionCompletion(
   imageDataUrl: string,
   temperature: number,
 ): Promise<string> {
-  const res = await fetch(`${endpoint.baseUrl}/chat/completions`, {
+  const data = await requestApiJson<{
+    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
+  }>({ ...endpoint, feature: 'sticker-description' }, '/chat/completions', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -102,13 +101,6 @@ async function visionCompletion(
       ],
     }),
   });
-  if (!res.ok) {
-    throw new Error(`AgentLab 视觉接口调用失败: HTTP ${res.status}`);
-  }
-  const data = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-  };
-  reportUsage(endpoint, data);
   return pickMessageText(data.choices?.[0]?.message);
 }
 
@@ -126,7 +118,7 @@ async function generateJson(
       attempt === 0
         ? prompt
         : `${prompt}\n\n注意：上一次输出无法解析为 JSON，请严格只输出一个合法 JSON 对象，不要任何解释、前后缀或代码围栏。`;
-    lastRaw = await chatCompletion(endpoint, system, userPrompt, temperature);
+    lastRaw = await chatCompletion(endpoint, system, userPrompt, temperature, label);
     try {
       const parsed = extractJson(lastRaw);
       if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
@@ -634,6 +626,7 @@ export async function summarizeVoiceScenario(
       '用一句话总结 TA 倾向在什么场景／情绪下发语音（如：内容长、激动、撒娇、懒得打字等）。只输出这句话，不要解释。',
     windows.map((w, i) => `片段${i + 1}：\n${w}`).join('\n\n'),
     0.3,
+    'voice-scenario',
   );
   return text.trim().slice(0, 120);
 }

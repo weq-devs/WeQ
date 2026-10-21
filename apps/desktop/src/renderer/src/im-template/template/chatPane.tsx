@@ -1,5 +1,30 @@
 ﻿// @ts-nocheck
 import {
+  useContentMultiSelect,
+  useRequestContentExport,
+  useRequestContentAnalysis,
+} from '../../state/contentSelection';
+import {
+  conversationExportSelection,
+  conversationAnalysisTarget,
+} from '../../lib/conversationActions';
+import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
+import { useMediaSave } from '../../components/MediaSaveControls';
+import { useMessageMarquee } from '../../hooks/useMessageMarquee';
+import '../../styles/message-selection-toolbar.css';
+import '../../styles/conversation-title.css';
+import { GroupProfileDialog } from './profilePanes';
+import { ConversationMessageActions } from '../../components/ConversationMessageActions';
+import { QQMessageEssenceAction } from '../../components/QQMessageEssenceAction';
+import { MessageTodoAction, TypingStatus } from '../../components/qq-actions/ChatActions';
+import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
+import { hasActiveModal } from '../../lib/overlayStack';
+import { useWorkspaceSidecarOpen } from '../../components/WorkspacePages';
+import { useAtAllMention } from '../../hooks/useAtAllMention';
+import { nextMentionIndex, type AtAllMentionState } from '../../lib/atAllMention';
+import '../../styles/at-all-mention.css';
+import {
   AudioLines,
   BarChart3,
   Bot,
@@ -9,15 +34,14 @@ import {
   ChevronUp,
   ChevronsUp,
   CirclePlus,
-  CloudDownload,
   Download,
+  Eye,
   Search,
   Trash2,
-  ListX,
-  ListRestart,
+  ListPlus,
   FileText,
-  Images,
   FolderOpen,
+  UsersRound,
   Bug,
   Hand,
   Image as ImageIcon,
@@ -30,6 +54,9 @@ import {
   Settings2,
   Zap,
   Share2,
+  Forward,
+  Copy,
+  Loader2,
   Smile,
   Sparkles,
   Vibrate,
@@ -38,6 +65,8 @@ import {
 import { AiOutlineRedEnvelope } from 'react-icons/ai';
 import { resourceUrl } from '../../lib/resourceUrl';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
+import { groupMemberEditing } from '../../lib/groupMemberEditing';
+import { canDiscardFailedMessage, isUnpositionedFailure } from '../../lib/localOutgoing';
 import { useThemeStore } from '../../state/theme';
 import {
   Fragment,
@@ -110,7 +139,6 @@ import { copyTextToClipboard } from './clipboard';
 import {
   isLocalOutgoingMessage,
   outgoingActionBlockReason,
-  selectMessageIds,
   selectedMessagesText,
 } from '../../lib/messageSelection';
 import { cn } from './classNames';
@@ -118,7 +146,7 @@ import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
 import { chatHeaderTitle, isBotConversation, resolveMessageSender } from './conversationDisplay';
 import { createEmojiToken, parseMessageParts } from './emojiPacks';
 import type { EmojiItem } from './emojiPacks';
-import { elementToToken } from './draftElements';
+import { elementToToken, elementsToComposerText } from './draftElements';
 import { planNeedsLocalMedia, type LocalMediaRef } from './composerSend';
 import {
   ComposerResizeHandle,
@@ -141,13 +169,31 @@ import { GroupInfoPanel, type GroupInfoDetail } from './conversationDetails';
 import { EmojiPanel } from './emojiPanel';
 import { useTabActive } from '../../components/RetainedTabs';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
-import { MessageRow, grayTipOf } from './messageRow';
+import { MessageRow, grayTipOf, messageElements } from './messageRow';
+import { IntentSenseProvider } from '../../components/intentSense/context';
+import { intentTimelineTargets } from '../../lib/intentTimeline';
+import { AffinityPill } from '../../components/intentSense/AffinityPill';
+import { IntentSuggestionBar } from '../../components/intentSense/IntentSuggestionBar';
+import { useDialog } from '../../components/Dialog';
 import { MessageContextMenu } from './messageContextMenu';
 import { AvatarContextMenu, type AvatarContextMenuState } from './avatarContextMenu';
 import { ReactionPicker } from './reactionPicker';
 import type { MessageContextMenuState } from './messageContextMenu';
 import type { MessageRenderer } from './messageRenderers';
 import { filterMentionMembers, mentionText } from './mentions';
+import { canRepeatMessage, repeatTarget } from '../../lib/messageRepeat';
+import { mediaUrl } from '../../lib/resourceUrl';
+import { exportMedia } from '../../lib/mediaExport';
+import {
+  messageContentClipboard,
+  messageNodeClipboard,
+  messageRichClipboard,
+  selectedMessageClipboard,
+} from '../../lib/messageClipboard';
+import type { RepeatElement } from '../../lib/messageRepeat';
+import { readMentionClipboard, writeMentionClipboard } from '../../lib/mentionClipboard';
+import '../../styles/message-repeat.css';
+import '../../styles/new-message-preview.css';
 import { MessageTimeDivider, shouldShowMessageTime } from './messageTime';
 import { MessageGapDivider, isSeqBetween, messageGapCount } from './messageGap';
 import { defaultConversationPreference } from './preferences';
@@ -237,6 +283,18 @@ function _hasGroupAnnouncements(conversation: Conversation) {
 }
 
 function getMessageDownloadUrl(message: Message) {
+  const picture = message.qqElements?.find((element) => element.type === 'pic');
+  if (picture) {
+    const data = picture.data ?? {};
+    return mediaUrl('pic', {
+      t: Date.parse(message.createdAt),
+      name: String(data.fileName ?? ''),
+      token: String(data.fileToken ?? ''),
+      orig: String(data.originalUrl ?? ''),
+      md5: String(data.md5 ?? ''),
+      recv: data.subType === 1 ? 1 : 0,
+    });
+  }
   const markdownImage = message.body.match(/!\[[^\]\n]*\]\((https?:\/\/[^\s)]+)\)/i)?.[1];
   if (markdownImage) {
     return markdownImage;
@@ -259,6 +317,15 @@ function imageFilenameFromUrl(url: string) {
   } catch {
     return 'chat-image';
   }
+}
+
+function pureImageUrl(message: Message) {
+  const elements = (message.qqElements ?? []).filter(
+    (element) => !(element.type === 'text' && !String(element.data?.textContent ?? '').trim()),
+  );
+  return elements.length === 1 && elements[0].type === 'pic'
+    ? getMessageDownloadUrl(message)
+    : undefined;
 }
 
 function formatUnreadJumpCount(value: number) {
@@ -305,6 +372,9 @@ export function ChatPane({
   messageRenderers,
   loading,
   atLatest = true,
+  latestMessageSeq,
+  onPreviewLatest,
+  onJumpToLatest,
   onReadCurrentConversation,
   preference,
   onLoadMoreGroupMembers,
@@ -316,6 +386,9 @@ export function ChatPane({
   profileLoading,
   sendAvailable = true,
   onSend,
+  onRepeatMessage,
+  onResolveMentions,
+  onSearchMentionMembers,
   onSendWindowShake,
   onSendArk,
   onSendFlash,
@@ -333,27 +406,29 @@ export function ChatPane({
   onOpenGroupAlbums,
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
+  groupTodos,
+  onOpenGroupSign,
   onOpenGroupEssence,
   onOpenGroupInfoDetail,
   onRenameGroupMember,
+  onChangeGroupMemberTitle,
   onKickGroupMember,
   onOpenConversationSettings,
-  onOpenGroupAnalytics,
   onOpenGroupBug,
   onOpenGroupLeftMembers,
   groupBugOnline,
-  onOpenBuddyAnalytics,
   onOpenGroupMember,
   onAddMessage,
   onViewDeleted,
   onViewRecalled,
   onOpenGapMessages,
   onSearchChatRecords,
-  onExportConversation,
   onOpenRoamingBackfill,
   deletedIds,
   onRestoreMessage,
   onMergeForward,
+  onAddToComposition,
+  onForwardMessages,
   unreadDock,
   missingJumpSeq,
 }: {
@@ -363,13 +438,11 @@ export function ChatPane({
   composerActions?: Partial<ComposerActionRegistry>;
   messageRenderers?: MessageRenderer[];
   loading: boolean;
-  /**
-   * Whether `messages` is the live latest-anchored window. False while the host
-   * shows a detached history window (reply-jump context / downward history
-   * paging); in that mode tail changes are programmatic, not live arrivals, so
-   * the "new message" pill and auto-scroll-to-bottom are suppressed.
-   */
+  /** 是否为最新窗口；历史分页不触发新消息提示，分离窗口改由实时会话水位驱动。 */
   atLatest?: boolean;
+  latestMessageSeq?: string;
+  onPreviewLatest?: (conversation: Conversation) => void;
+  onJumpToLatest?: () => Promise<boolean>;
   onReadCurrentConversation?: (conversation: Conversation) => void;
   preference: ConversationPreference | undefined;
   onLoadMoreGroupMembers?: () => void;
@@ -391,6 +464,12 @@ export function ChatPane({
    * 媒体本体再走 IPC。
    */
   onSend: (body: string, locals?: LocalMediaRef[]) => Promise<void>;
+  onRepeatMessage?: (message: Message, conversation: Conversation) => Promise<void>;
+  onResolveMentions?: (
+    elements: RepeatElement[],
+    conversation: Conversation,
+  ) => Promise<RepeatElement[]>;
+  onSearchMentionMembers?: (query: string, conversation: Conversation) => Promise<GroupMember[]>;
   /**
    * 私聊「窗口抖动」（只做私聊）—— 点一下发一条独立消息，不动输入框里的正文 / 草稿。
    * 群聊没有这个能力，所以按钮只在 `conversation.type === 'direct'` 时渲染。
@@ -429,6 +508,8 @@ export function ChatPane({
   onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupFiles?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
+  groupTodos?: React.ReactNode;
+  onOpenGroupSign?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupEssence?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   /** 群资料面板「群资料」入口：卡片本体搬到了应用层（components/GroupInfoDetailDialog）。 */
   onOpenGroupInfoDetail?: (
@@ -437,6 +518,12 @@ export function ChatPane({
   ) => void;
   /** 群管理「修改群昵称」：应用层开弹窗（与群公告 / 群精华同层）。 */
   onRenameGroupMember?: (
+    conversation: Extract<Conversation, { type: 'group' }>,
+    sender: User,
+    targetUid: string,
+  ) => void;
+  /** 群主编辑成员头衔，应用层复用现有编辑器。 */
+  onChangeGroupMemberTitle?: (
     conversation: Extract<Conversation, { type: 'group' }>,
     sender: User,
     targetUid: string,
@@ -450,8 +537,8 @@ export function ChatPane({
   /** 顶栏设置按钮：群聊 / 私聊各自的会话设置（防撤回 + 群提醒词）。 */
   onOpenConversationSettings?: (
     conversation: Extract<Conversation, { type: 'group' | 'direct' }>,
+    anchor?: HTMLElement,
   ) => void;
-  onOpenGroupAnalytics?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupBug?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   /**
    * 群资料面板「已退群」入口：把信号交给应用层，由它拉本地 group_member3 并弹出灯箱
@@ -460,15 +547,12 @@ export function ChatPane({
   onOpenGroupLeftMembers?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   /** QQ 在线状态 —— 决定「反馈 bug」图标亮/灰。 */
   groupBugOnline?: boolean;
-  onOpenBuddyAnalytics?: (conversation: Extract<Conversation, { type: 'direct' }>) => void;
   onOpenGroupMember?: (member: User, anchor: { x: number; y: number }) => void;
   onAddMessage?: (conversation: Conversation) => void;
   onViewDeleted?: (conversation: Conversation) => void;
   onViewRecalled?: (conversation: Conversation) => void;
   /** 顶栏「搜索聊天记录」按钮：在当前会话内搜索并跳转。 */
   onSearchChatRecords?: (conversation: Conversation) => void;
-  /** 顶栏「导出聊天记录」按钮：以当前会话为目标打开快捷导出灯箱。 */
-  onExportConversation?: (conversation: Conversation) => void;
   onOpenRoamingBackfill?: (conversation: Conversation) => void;
   /** 缺失消息占位条点击：携带占位条两侧消息的 seq（开区间即缺失窗口）。 */
   onOpenGapMessages?: (gap: {
@@ -483,6 +567,8 @@ export function ChatPane({
   onRestoreMessage?: (msgId: string) => Promise<void>;
   /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
   onMergeForward?: (messages: Message[], conversation: Conversation) => void;
+  onAddToComposition?: (messages: Message[]) => void;
+  onForwardMessages?: (messages: Message[], conversation: Conversation) => void;
   /**
    * 打开会话时从 msg_unread_info_table 读进内存的未读/高亮快照。上层在「读一次
    * 未读 → 标记已读」之后交下来，本组件据此在右上角逐个引导跳转。
@@ -497,12 +583,29 @@ export function ChatPane({
 }) {
   // 空态占位图按深浅色切换(im_1.png / im_2.jpg),订阅主题以即时跟随。
   const theme = useThemeStore((s) => s.resolved);
+  const mediaSave = useMediaSave();
   // 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
   const jumpToSeq = useContext(ReplyJumpContext);
   const backdrop = useChatBackdrop();
   const tabActive = useTabActive();
+  const directory = useContext(ConversationDirectoryContext);
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
+  const composerSendRef = useRef<{ conversationId: string } | null>(null);
+  const composerTabActive = useRef(tabActive);
+  composerTabActive.current = tabActive;
+  const [repeating, setRepeating] = useState(false);
+  const repeatBusy = useRef(false);
+  const mentionConversation = useRef(conversation?.id);
+  mentionConversation.current = conversation?.id;
+  const mentionRequest = useRef(0);
+  useEffect(() => {
+    setMentionMenu((current) =>
+      current && !current.query
+        ? { ...current, members: filterMentionMembers(conversation, '', user.id) }
+        : current,
+    );
+  }, [conversation, user.id]);
   const [composerHeight, setComposerHeight] = useState(() =>
     loadLayoutNumber(
       composerHeightStorageKey,
@@ -512,6 +615,17 @@ export function ChatPane({
     ),
   );
   const [groupInfoCollapsed, setGroupInfoCollapsed] = useState(loadGroupInfoCollapsed);
+  const [mobileGroupInfoOpen, setMobileGroupInfoOpen] = useState(false);
+  useEffect(() => setMobileGroupInfoOpen(false), [conversation?.id, tabActive]);
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 760px)');
+    const update = () => {
+      if (!query.matches) setMobileGroupInfoOpen(false);
+    };
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+  const sidecarOpen = useWorkspaceSidecarOpen();
   // 桌面端可把整条输入区收起来（只留底边一个把手），和群资料栏同一套交互。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -571,6 +685,22 @@ export function ChatPane({
   const sendPoke = trpc.account.sendPoke.useMutation();
   const setMessageReaction = trpc.account.setMessageReaction.useMutation();
   const reactionRequestPending = useRef(false);
+  const [pendingActions, setPendingActions] = useState<Record<string, string>>({});
+  const actionContext = useRef(conversation?.id);
+  actionContext.current = conversation?.id;
+  useEffect(() => setPendingActions({}), [conversation?.id]);
+  function beginInlineAction(id: string, label: string) {
+    const context = conversation?.id;
+    setPendingActions((current) => ({ ...current, [id]: label }));
+    return () => {
+      if (actionContext.current === context)
+        setPendingActions((current) => {
+          const next = { ...current };
+          delete next[id];
+          return next;
+        });
+    };
+  }
   // 会话治理：撤回 + 群管理（改群名片 / 踢人 / 禁言 / 设撤管理员）。同戳一戳一样需要
   // 在线且已注入的 QQ；一律不做乐观渲染，成功与否只看 toast。
   const recallMessage = trpc.account.recallMessage.useMutation();
@@ -626,8 +756,33 @@ export function ChatPane({
     y: number;
   } | null>(null);
   // 多选：右键进入，输入框让位给批量操作；选择数不设上限。
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const { selectionMode, setSelectionMode, selectedIds, setSelectedIds } = useContentMultiSelect({
+    kind: 'messages',
+    container: `${conversation?.type ?? 'none'}:${conversation?.id ?? ''}`,
+  });
+  const requestExport = useRequestContentExport();
+  const requestAnalysis = useRequestContentAnalysis();
+  const [selectionMenu, setSelectionMenu] = useState<{
+    kind: 'copy' | 'forward';
+    x: number;
+    y: number;
+  } | null>(null);
+  const selectionMenuTrigger = useRef<HTMLElement | null>(null);
+  const closeSelectionMenu = useCallback(() => {
+    setSelectionMenu(null);
+    selectionMenuTrigger.current?.focus({ preventScroll: true });
+  }, []);
+  const openSelectionMenu = (kind: 'copy' | 'forward', anchor: HTMLElement) => {
+    selectionMenuTrigger.current = anchor;
+    const rect = anchor.getBoundingClientRect();
+    setSelectionMenu({ kind, x: rect.left, y: rect.top });
+  };
+  const exportMessageIds = (ids: string[]) => {
+    const scope = conversationExportSelection(conversation);
+    if (requestExport && scope && ids.length)
+      requestExport({ ...scope, scope: { type: 'items', ids: [...ids] } });
+    setContextMenu(null);
+  };
   const selectionAnchor = useRef<string | null>(null);
   const [decorationCard, setDecorationCard] = useState<{
     decoration: { fontId: number; bubbleId: number; widgetId: number } | null;
@@ -638,13 +793,23 @@ export function ChatPane({
   // only backs the clear-conversation action.
   const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(new Set());
   const [mentionMenu, setMentionMenu] = useState<MentionMenuState | null>(null);
+  const atAllMention = useAtAllMention(
+    Boolean(mentionMenu && tabActive && conversation?.type === 'group'),
+    Number(conversation?.group?.identityValue),
+  );
   const [unreadJump, setUnreadJump] = useState<UnreadJumpState | null>(null);
   // 未读跳转坞：当前跳到第几个跳转点（越界即整串收起）。换了会话就归零。
   const [dockIndex, setDockIndex] = useState(0);
   // Count of newly-arrived (live) messages while the user is reading history.
   // Surfaces the floating "jump to bottom" pill; cleared once at the bottom.
   const [newMessagePill, setNewMessagePill] = useState(0);
+  const latestSeqRef = useRef<{ conversationId: string | undefined; seq: string | undefined }>({
+    conversationId: undefined,
+    seq: undefined,
+  });
+  const [jumpingToLatest, setJumpingToLatest] = useState(false);
   const [clearMessagesConfirmOpen, setClearMessagesConfirmOpen] = useState(false);
+  const [titleProfileGroupId, setTitleProfileGroupId] = useState<string | null>(null);
   const [mobileComposerEditorHeight, setMobileComposerEditorHeight] = useState(42);
   const [mobileComposerLong, setMobileComposerLong] = useState(false);
   const [mobileComposerExpanded, setMobileComposerExpanded] = useState(false);
@@ -658,26 +823,26 @@ export function ChatPane({
     }
   }
 
-  // 切会话时退出多选（选中集属于上一个会话）。
+  // 切会话仅重置范围操作锚点；选择归属由账号级工作区保留。
   useEffect(() => {
-    setSelectionMode(false);
-    setSelectedIds(new Set());
     selectionAnchor.current = null;
+    setSelectionMenu(null);
+    setTitleProfileGroupId(null);
   }, [conversation?.id]);
 
   // 多选模式下按 Esc 退出。
   useLayoutEffect(() => {
     if (!tabActive || !selectionMode) return undefined;
     function onKeyDown(event: KeyboardEvent) {
+      if (hasActiveModal() || selectionMenu || event.defaultPrevented) return;
       if (event.key === 'Escape') {
         setSelectionMode(false);
-        setSelectedIds(new Set());
         selectionAnchor.current = null;
       }
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [tabActive, selectionMode]);
+  }, [tabActive, selectionMode, setSelectionMode, selectionMenu]);
 
   const toolsPanelRef = useRef<HTMLDivElement | null>(null);
   const toolsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -741,6 +906,24 @@ export function ChatPane({
     () => messages.filter((message) => !hiddenMessageIds.has(message.id)),
     [messages, hiddenMessageIds],
   );
+  // 分析和回复使用不同目标，自己的消息不触发推荐；跳过灰条、撤回和删除。
+  const intentSupported = Boolean(
+    conversation &&
+      conversation.chatType !== 8 &&
+      !conversation.id.startsWith('dataline:') &&
+      conversation.id !== 'weq-assistant',
+  );
+  const intentKind = conversation?.type === 'group' ? 'group' : 'c2c';
+  const intentConv = intentSupported ? (conversation?.id ?? '') : '';
+  const { latestMessageId, latestPeerMsgId, latestSuggestionId } = useMemo(
+    () =>
+      intentSupported
+        ? intentTimelineTargets(visibleMessages, new Set(selfIdentityValues(user)), (message) =>
+            Boolean(grayTipOf(message)),
+          )
+        : { latestMessageId: null, latestPeerMsgId: null, latestSuggestionId: null },
+    [intentSupported, visibleMessages, user],
+  );
   // 选中的消息（按时间线顺序）—— 合并转发 / 删除 / 复制 JSON 都用它。
   const selectedMessages = useMemo(
     () => visibleMessages.filter((message) => selectedIds.has(message.id)),
@@ -750,6 +933,27 @@ export function ChatPane({
     () => visibleMessages.map((message) => message.id),
     [visibleMessages],
   );
+  const multi = useMultiSelection({
+    ids: selectionOrder,
+    selected: selectedIds,
+    onChange: setSelectedIds,
+    enabled: selectionMode,
+    disabled: !tabActive || Boolean(selectionMenu),
+    onStart: () => setSelectionMode(true),
+    onExit: exitSelection,
+    anchorRef: selectionAnchor,
+  });
+  const marquee = useMessageMarquee({
+    conversationKey: conversation?.id,
+    enabled: tabActive && Boolean(conversation) && !selectionMenu,
+    selectionMode,
+    selected: selectedIds,
+    orderedIds: selectionOrder,
+    anchorRef: selectionAnchor,
+    onChange: setSelectedIds,
+    onStart: () => setSelectionMode(true),
+    onSelect: (id, modifiers) => multi.toggle(id, modifiers),
+  });
   const copySelectedMessagesText = useCallback(async () => {
     if (!conversation) return;
     try {
@@ -765,9 +969,22 @@ export function ChatPane({
       });
     }
   }, [conversation, selectedMessages, user, pushToast]);
+  const copySelectedMessagesRich = useCallback(async () => {
+    const value = messageRichClipboard(
+      selectedMessages.map((message) => ({
+        sender: displayUserName(resolveMessageSender(message, conversation, user)),
+        time: message.createdAt,
+        body: message.body,
+        elements: message.qqElements,
+      })),
+    );
+    if (!(await writeMentionClipboard(value)))
+      pushToast({ tone: 'error', message: '复制富文本失败' });
+  }, [conversation, selectedMessages, user, pushToast]);
   useLayoutEffect(() => {
     if (!tabActive || !selectionMode) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (hasActiveModal()) return;
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
       const target = event.target;
       if (
@@ -775,19 +992,21 @@ export function ChatPane({
         target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')
       )
         return;
-      if (event.key.toLowerCase() === 'a') {
+      if (event.key.toLowerCase() === 'c' && selectedMessages.length) {
         event.preventDefault();
-        setContextMenu(null);
-        setSelectedIds(new Set(selectionOrder));
-        selectionAnchor.current ??= selectionOrder[0] ?? null;
-      } else if (event.key.toLowerCase() === 'c' && selectedMessages.length) {
-        event.preventDefault();
-        void copySelectedMessagesText();
+        if (event.shiftKey) void copySelectedMessagesRich();
+        else void copySelectedMessagesText();
       }
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [tabActive, selectionMode, selectionOrder, selectedMessages.length, copySelectedMessagesText]);
+  }, [
+    tabActive,
+    selectionMode,
+    selectedMessages.length,
+    copySelectedMessagesText,
+    copySelectedMessagesRich,
+  ]);
 
   // 下面几个 effect 只该在会话/消息变化时跑，但正文里要调用这些每次渲染都重建的
   // 函数。用 ref 转发拿最新实现，避免把它们塞进依赖导致 effect 每次渲染重跑。
@@ -895,6 +1114,24 @@ export function ChatPane({
     return;
   }, [tabActive, visibleMessages, conversation?.id, loading, atLatest]);
 
+  // 分离的历史窗口不会追加实时消息，用会话水位识别新到记录，而非历史分页。
+  useEffect(() => {
+    const previous = latestSeqRef.current;
+    latestSeqRef.current = { conversationId: conversation?.id, seq: latestMessageSeq };
+    if (
+      atLatest ||
+      previous.conversationId !== conversation?.id ||
+      !previous.seq ||
+      !latestMessageSeq ||
+      !/^\d+$/.test(previous.seq) ||
+      !/^\d+$/.test(latestMessageSeq)
+    )
+      return;
+    const delta = BigInt(latestMessageSeq) - BigInt(previous.seq);
+    if (delta < 0n) latestSeqRef.current = previous;
+    if (delta > 0n) setNewMessagePill((count) => count + Number(delta > 100n ? 100n : delta));
+  }, [conversation?.id, latestMessageSeq, atLatest]);
+
   // updateUnreadJumpRemaining 会写回 unreadJump.remaining，所以这里只认「换会话 /
   // 换未读总数」这两个稳定信号，不能整体依赖 unreadJump，否则每次滚动都要多跑一轮。
   const unreadJumpKey = unreadJump ? `${unreadJump.conversationId}:${unreadJump.total}` : null;
@@ -976,11 +1213,9 @@ export function ChatPane({
       }
     }
 
-    document.addEventListener('mousedown', closeMenu);
     document.addEventListener('keydown', closeOnEscape);
     window.addEventListener('resize', closeMenu);
     return () => {
-      document.removeEventListener('mousedown', closeMenu);
       document.removeEventListener('keydown', closeOnEscape);
       window.removeEventListener('resize', closeMenu);
     };
@@ -1000,11 +1235,9 @@ export function ChatPane({
         closeAvatarMenu();
       }
     }
-    document.addEventListener('mousedown', closeAvatarMenu);
     document.addEventListener('keydown', closeAvatarOnEscape);
     window.addEventListener('resize', closeAvatarMenu);
     return () => {
-      document.removeEventListener('mousedown', closeAvatarMenu);
       document.removeEventListener('keydown', closeAvatarOnEscape);
       window.removeEventListener('resize', closeAvatarMenu);
     };
@@ -1383,6 +1616,8 @@ export function ChatPane({
   const mediaAttachmentRef = useRef<ComposerAttachment | null>(null);
   mediaAttachmentRef.current = mediaAttachment;
   const inlineImagesRef = useRef<ComposerAttachment[]>([]);
+  const failedSendImagesRef = useRef<ComposerAttachment[]>([]);
+  const reeditLocalsRef = useRef<LocalMediaRef[]>([]);
   /** 释放所有内联图片的预览地址（发送成功 / 切会话 / 卸载时）。 */
   const releaseInlineImages = useCallback(() => {
     for (const item of inlineImagesRef.current) releaseAttachment(item);
@@ -1395,6 +1630,7 @@ export function ChatPane({
       return;
     }
     attachmentConversationRef.current = conversationId;
+    reeditLocalsRef.current = [];
     releaseInlineImages();
     setMediaAttachment((current) => {
       if (current) releaseAttachment(current);
@@ -1414,6 +1650,8 @@ export function ChatPane({
   useLayoutEffect(
     () => () => {
       releaseInlineImages();
+      for (const image of failedSendImagesRef.current) releaseAttachment(image);
+      failedSendImagesRef.current = [];
       if (mediaAttachmentRef.current) releaseAttachment(mediaAttachmentRef.current);
     },
     [releaseInlineImages],
@@ -1489,7 +1727,7 @@ export function ChatPane({
   }
 
   function insertMention(member: GroupMember) {
-    if (currentPreference.blocked || sending) {
+    if (currentPreference.blocked || sending || (member.id === 'all' && !atAllMention.selectable)) {
       return;
     }
 
@@ -1506,6 +1744,7 @@ export function ChatPane({
     token.className = cn('composer-mention-token');
     token.contentEditable = 'false';
     token.dataset.chatMention = label;
+    token.dataset.weqAtUid = member.id;
     // 真正的 @ 语义（uid/uin）靠元素 token 带走：序列化时原样取回，发送时还原成
     // `at` 元素。只留 label 的话发出去会退化成一串纯文本 `@昵称`，不会真的提醒对方。
     const mentionUin = /^\d+$/.test(member.identityValue)
@@ -1515,6 +1754,7 @@ export function ChatPane({
       kind: 'at',
       textContent: label,
       atTargetUid: member.id,
+      ...(member.id === 'all' ? { all: true } : {}),
       ...(mentionUin ? { atTargetUin: mentionUin } : {}),
     });
     token.textContent = label;
@@ -1571,10 +1811,9 @@ export function ChatPane({
             targetId,
             ...(pokingSelf ? { targetUin: user.identityValue } : {}),
           };
+    const finish = atLatest ? beginInlineAction('timeline:poke', '正在戳一戳') : () => {};
     sendPoke.mutate(params, {
-      onSuccess: () => {
-        pushToast({ tone: 'success', message: '戳一戳已发出' });
-      },
+      onSettled: finish,
       onError: (error) => {
         pushToast({
           tone: 'error',
@@ -1645,6 +1884,7 @@ export function ChatPane({
     if (!isSet && !current.setEmojiList?.some((item) => item.emojiId === code && item.isSelfSet))
       return;
     reactionRequestPending.current = true;
+    const finish = beginInlineAction(message.id, isSet ? '正在贴表情' : '正在撤回表情回应');
     setMessageReaction.mutate(
       {
         groupId: conversation.group.identityValue,
@@ -1653,9 +1893,6 @@ export function ChatPane({
         isSet,
       },
       {
-        onSuccess: () => {
-          pushToast({ tone: 'success', message: isSet ? '表情回应已发出' : '自己的贴表情已撤回' });
-        },
         onError: (error) => {
           pushToast({
             tone: 'error',
@@ -1664,6 +1901,7 @@ export function ChatPane({
           });
         },
         onSettled: () => {
+          finish();
           reactionRequestPending.current = false;
         },
       },
@@ -1684,7 +1922,12 @@ export function ChatPane({
    */
   function groupTargetUid(sender: User): string | null {
     if (!isSelfAvatar(sender)) {
-      return sender.uid ?? sender.id ?? null;
+      const identities = [
+        ...new Set(
+          [sender.id, sender.uid].filter((identity) => /^u_[A-Za-z0-9_-]+$/.test(identity ?? '')),
+        ),
+      ];
+      return identities.length === 1 ? identities[0] : null;
     }
     if (user.uid) {
       return user.uid;
@@ -1699,11 +1942,11 @@ export function ChatPane({
   }
 
   /**
-   * 头像菜单里群管理操作的可见性：我必须是群主 / 管理员，且目标职权低于我；
-   * 「设置管理员」仅群主。自己永远可以改自己的群昵称。非群聊返回 null。
+   * 名片／头衔与资料卡共用展示规则；踢人、禁言等仍要求目标职权更低。
    */
   function avatarModerationFlags(sender: User): {
     showChangeCard: boolean;
+    showChangeTitle: boolean;
     showKick: boolean;
     showMute: boolean;
     showSetAdmin: boolean;
@@ -1712,30 +1955,36 @@ export function ChatPane({
     if (conversation?.type !== 'group') {
       return null;
     }
-    const myRole = conversation.group.role;
+    const myRole = conversation.group.roleKnown === false ? null : conversation.group.role;
+    const targetUid = groupTargetUid(sender);
+    const targetMember = conversation.members.find((member) =>
+      selfIdentityValues(member).some((identity) => selfIdentityValues(sender).includes(identity)),
+    );
+    const targetRole = isSelfAvatar(sender) ? myRole : (targetMember?.role ?? sender.role);
+    const editing = groupMemberEditing(myRole, targetRole);
+    const validUid = Boolean(targetUid && /^u_[A-Za-z0-9_-]+$/.test(targetUid));
     if (isSelfAvatar(sender)) {
       return {
-        showChangeCard: true,
+        showChangeCard: editing.card && validUid,
+        showChangeTitle: editing.title && validUid,
         showKick: false,
         showMute: false,
         showSetAdmin: false,
         showUnsetAdmin: false,
       };
     }
-    if (myRole === 'member') {
+    if (myRole !== 'owner' && myRole !== 'admin') {
       return null;
     }
     const rank: Record<GroupMemberRole, number> = { owner: 2, admin: 1, member: 0 };
-    const targetRole = (sender.role ?? 'member') as GroupMemberRole;
-    if (rank[myRole] <= rank[targetRole]) {
-      return null;
-    }
+    const canModerate = targetRole !== undefined && rank[myRole] > rank[targetRole];
     return {
-      showChangeCard: true,
-      showKick: true,
-      showMute: true,
-      showSetAdmin: myRole === 'owner' && targetRole === 'member',
-      showUnsetAdmin: myRole === 'owner' && targetRole === 'admin',
+      showChangeCard: editing.card && validUid,
+      showChangeTitle: editing.title && validUid,
+      showKick: canModerate,
+      showMute: canModerate,
+      showSetAdmin: canModerate && myRole === 'owner' && targetRole === 'member',
+      showUnsetAdmin: canModerate && myRole === 'owner' && targetRole === 'admin',
     };
   }
 
@@ -1749,10 +1998,16 @@ export function ChatPane({
     if (!conversation || grayTipOf(message)) {
       return { show: false, reason: null };
     }
-    const mine = message.senderId === user.id;
+    const mine = isSelfIdentity(new Set(selfIdentityValues(user)), message.senderId);
     const elevated = conversation.type === 'group' && conversation.group.role !== 'member';
     if (!mine && !elevated) {
       return { show: false, reason: null };
+    }
+    if (
+      message.source === 'roaming' &&
+      !(conversation.type === 'direct' && message.ntSeqVerified === true)
+    ) {
+      return { show: true, reason: '漫游消息缺少已确认的撤回定位，等待 QQ 同步后重试' };
     }
     if (moderationBlockedReason) {
       return { show: true, reason: moderationBlockedReason };
@@ -1762,6 +2017,20 @@ export function ChatPane({
     const seq = Number((message as { msgSeq?: unknown }).msgSeq);
     if (!Number.isFinite(seq) || seq <= 0) {
       return { show: true, reason: '这条消息缺少会话内序号，无法撤回' };
+    }
+    if (conversation.type === 'direct') {
+      const clientSeq = Number(message.clientSeq);
+      const random = Number(message.msgRandom);
+      if (
+        !Number.isSafeInteger(clientSeq) ||
+        clientSeq <= 0 ||
+        !Number.isSafeInteger(random) ||
+        random < 0 ||
+        random > 0xffff_ffff ||
+        !Number.isFinite(Date.parse(message.createdAt))
+      ) {
+        return { show: true, reason: '这条私聊消息缺少完整定位信息，等待 QQ 同步后重试' };
+      }
     }
     if (elevated) {
       return { show: true, reason: null };
@@ -1777,7 +2046,7 @@ export function ChatPane({
   function recallMessageFor(message: Message) {
     setContextMenu(null);
     const current = visibleMessages.find((row) => row.id === message.id);
-    if (!current || grayTipOf(current) || current.source === 'roaming') return;
+    if (!current || grayTipOf(current)) return;
     message = current;
     const availability = recallAvailability(message);
     if (!availability.show || availability.reason) return;
@@ -1803,13 +2072,13 @@ export function ChatPane({
             kind: 'c2c' as const,
             conv: conversation.otherUser.id,
             sequence: seq,
+            clientSequence: Number(message.clientSeq),
             ...(random > 0 ? { random } : {}),
             ...(timestamp > 0 ? { timestamp } : {}),
           };
+    const finish = beginInlineAction(message.id, '正在撤回消息');
     recallMessage.mutate(params, {
-      onSuccess: () => {
-        pushToast({ tone: 'success', message: '撤回请求已发送' });
-      },
+      onSettled: finish,
       onError: (error) => {
         pushToast({
           tone: 'error',
@@ -1826,7 +2095,7 @@ export function ChatPane({
    */
   function startCardEdit(sender: User) {
     setAvatarMenu(null);
-    if (conversation?.type !== 'group') {
+    if (conversation?.type !== 'group' || !avatarModerationFlags(sender)?.showChangeCard) {
       return;
     }
     const targetUid = groupTargetUid(sender);
@@ -1835,6 +2104,17 @@ export function ChatPane({
       return;
     }
     onRenameGroupMember?.(conversation, sender, targetUid);
+  }
+
+  function startTitleEdit(sender: User) {
+    setAvatarMenu(null);
+    if (conversation?.type !== 'group' || conversation.group.role !== 'owner') return;
+    const targetUid = groupTargetUid(sender);
+    if (!targetUid || !/^u_[A-Za-z0-9_-]+$/.test(targetUid)) {
+      pushToast({ tone: 'warning', message: '拿不到该成员的 uid，无法编辑头衔' });
+      return;
+    }
+    onChangeGroupMemberTitle?.(conversation, sender, targetUid);
   }
 
   function startKick(sender: User) {
@@ -2113,7 +2393,8 @@ export function ChatPane({
     } = {},
   ) {
     const editor = currentComposerEditor();
-    const nextBody = options.text ?? (editor ? serializeComposer(editor) : body);
+    const draftBody = editor ? serializeComposer(editor) : body;
+    const nextBody = options.text ?? draftBody;
     const trimmed = nextBody.trim();
     const singleToken = mediaAttachment
       ? attachmentToken(mediaAttachment)
@@ -2129,85 +2410,100 @@ export function ChatPane({
       ...(options.extraTokens ?? []),
     ];
     const text = singleToken ? '' : trimmed;
-    if ((!text && tokens.length === 0) || !sendAvailable || currentPreference.blocked || sending) {
+    if (
+      !conversation ||
+      (!text && tokens.length === 0) ||
+      !sendAvailable ||
+      currentPreference.blocked ||
+      sending ||
+      composerSendRef.current
+    ) {
       return;
     }
 
     const payloadBody = `${text}${tokens.join('')}`;
+    const request = { conversationId: conversation.id };
+    composerSendRef.current = request;
+    const clearsBody = !singleToken && !options.keepBody;
+    const sentImages = clearsBody ? [...inlineImagesRef.current] : [];
+    let failed = false;
+    const initialFocus = document.activeElement;
+    const isCurrentComposer = () =>
+      mentionConversation.current === request.conversationId &&
+      composerEditorRef.current?.isConnected;
+    const restoreSendFocus = () => {
+      if (!isCurrentComposer() || !composerTabActive.current) return;
+      const focused = document.activeElement;
+      if (focused === composerEditorRef.current) return;
+      if (
+        focused !== initialFocus &&
+        focused !== editor &&
+        focused !== composerEditorRef.current &&
+        focused !== expandedComposerEditorRef.current &&
+        focused !== document.body
+      )
+        return;
+      focusComposerEnd(composerEditorRef.current);
+    };
     const readAfterSend = atLatest && isScrolledToBottom(2);
     if (readAfterSend) requestReadAtBottom();
     readGestureUntil.current = 0;
     setSending(true);
     try {
-      const locals = planNeedsLocalMedia(payloadBody)
-        ? await collectLocalMedia(options.locals ?? [])
+      // 先捕获媒体句柄；清空后它们归本次发送所有，不能释放仍在读取的预览。
+      const localMedia = planNeedsLocalMedia(payloadBody)
+        ? collectLocalMedia([...(options.locals ?? []), ...reeditLocalsRef.current])
         : undefined;
+      if (clearsBody) {
+        inlineImagesRef.current = [];
+        reeditLocalsRef.current = [];
+        setComposerBody('');
+        onDraftClear(request.conversationId);
+        setPendingQuote(null);
+        for (const target of [composerEditorRef.current, expandedComposerEditorRef.current]) {
+          if (target) target.innerHTML = '';
+        }
+        composerSelectionRef.current = null;
+        setMentionMenu(null);
+        resetMobileComposerHeight();
+        setMobileComposerExpanded(false);
+        setEmojiOpen(false);
+        setToolsOpen(false);
+      }
+      restoreSendFocus();
+      window.requestAnimationFrame(restoreSendFocus);
+      const locals = localMedia ? await localMedia : undefined;
       await onSend(payloadBody, locals);
+      if (!isCurrentComposer()) return;
       if (readAfterSend) requestReadAtBottom();
+
+      // 独立卡片不带走正文；普通发送的正文已交接，回执不能清掉下一条草稿。
+      if (singleToken) {
+        setMediaAttachment((current) => {
+          if (current !== mediaAttachment) return current;
+          if (current) releaseAttachment(current);
+          return null;
+        });
+        setPendingSuperEmoji((current) => (current === pendingSuperEmoji ? null : current));
+      }
+      setVoiceOpen(false);
+      setAiVoiceOpen(false);
+      setBounceOpen(false);
+      setPokeOpen(false);
+      if (singleToken || options.keepBody) window.requestAnimationFrame(restoreSendFocus);
     } catch (error) {
-      // 发送失败（离线 / 风控 / 协议错误）时保留原文 —— 输入框已经可见，
-      // 不能因为一次失败就把用户打好的字吞掉。
-      setSending(false);
-      window.requestAnimationFrame(() => focusComposerEnd(currentComposerEditor()));
+      failed = true;
+      // 失败只保留消息上的重新编辑入口，不回填或覆盖下一条草稿。
+      if (composerEditorRef.current) failedSendImagesRef.current.push(...sentImages);
+      else for (const image of sentImages) releaseAttachment(image);
       console.error('[composer] send failed:', error);
-      return;
+    } finally {
+      if (!failed) for (const image of sentImages) releaseAttachment(image);
+      if (composerSendRef.current === request) {
+        composerSendRef.current = null;
+        setSending(false);
+      }
     }
-
-    // 视频 / 文件 / 超级表情单独发：只把这张卡片收掉，正文与草稿保持原样。
-    if (singleToken) {
-      setMediaAttachment((current) => {
-        if (current) releaseAttachment(current);
-        return null;
-      });
-      setPendingSuperEmoji(null);
-      setVoiceOpen(false);
-      setAiVoiceOpen(false);
-      setBounceOpen(false);
-      setPokeOpen(false);
-      setSending(false);
-      window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
-      return;
-    }
-
-    // 链接卡片同样独立于正文（它自己就是一条完整的卡片消息）：发完不清输入框，
-    // 用户正在打的字原样留着。
-    if (options.keepBody) {
-      setVoiceOpen(false);
-      setAiVoiceOpen(false);
-      setBounceOpen(false);
-      setPokeOpen(false);
-      setSending(false);
-      window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
-      return;
-    }
-
-    // 清空放在发送成功之后：失败时输入区保持原样，草稿、附件、引用也还在。
-    setComposerBody('');
-    releaseInlineImages();
-    setPendingQuote(null);
-    setVoiceOpen(false);
-    setAiVoiceOpen(false);
-    setBounceOpen(false);
-    setPokeOpen(false);
-    if (conversation) {
-      onDraftClear(conversation.id);
-    }
-    if (editor) {
-      editor.innerHTML = '';
-      composerSelectionRef.current = null;
-    }
-    if (expandedComposerEditorRef.current && expandedComposerEditorRef.current !== editor) {
-      expandedComposerEditorRef.current.innerHTML = '';
-    }
-    if (composerEditorRef.current && composerEditorRef.current !== editor) {
-      composerEditorRef.current.innerHTML = '';
-    }
-    resetMobileComposerHeight();
-    setMobileComposerExpanded(false);
-    setEmojiOpen(false);
-    setToolsOpen(false);
-    setSending(false);
-    window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
   /** 语音面板「发送」：语音本身编成 ptt 元素 token；本地 blob 作为字节一并交出。 */
@@ -2429,8 +2725,12 @@ export function ChatPane({
           const offset = event.key === 'ArrowDown' ? 1 : -1;
           return {
             ...current,
-            activeIndex:
-              (current.activeIndex + offset + current.members.length) % current.members.length,
+            activeIndex: nextMentionIndex(
+              current.members,
+              current.activeIndex,
+              offset,
+              atAllMention.selectable,
+            ),
           };
         });
         return;
@@ -2438,7 +2738,13 @@ export function ChatPane({
 
       if (event.key === 'Enter' || event.key === 'Tab') {
         event.preventDefault();
-        const member = mentionMenu.members[mentionMenu.activeIndex] ?? mentionMenu.members[0];
+        const selected = mentionMenu.members[mentionMenu.activeIndex];
+        const member =
+          selected?.id === 'all' && !atAllMention.selectable
+            ? mentionMenu.members[
+                nextMentionIndex(mentionMenu.members, mentionMenu.activeIndex, 1, false)
+              ]
+            : selected;
         if (member) {
           insertMention(member);
         }
@@ -2474,6 +2780,45 @@ export function ChatPane({
       return;
     }
     event.preventDefault();
+    const structured = readMentionClipboard(event.clipboardData.getData('text/html'));
+    if (structured && onResolveMentions && conversation) {
+      const editor = event.currentTarget;
+      const savedRange = composerSelectionRef.current?.cloneRange() ?? null;
+      const currentConversation = conversation;
+      void onResolveMentions(structured, currentConversation)
+        .then((resolved) => {
+          if (
+            !editor.isConnected ||
+            currentComposerEditor() !== editor ||
+            mentionConversation.current !== currentConversation.id
+          )
+            return;
+          const holder = document.createElement('div');
+          restoreComposer(
+            holder,
+            elementsToComposerText(
+              resolved.map((element) => ({ ...element.data, kind: element.type })),
+            ),
+          );
+          const fragment = document.createDocumentFragment();
+          fragment.append(...holder.childNodes);
+          if (savedRange && editor.contains(savedRange.startContainer)) {
+            const selection = window.getSelection();
+            selection?.removeAllRanges();
+            selection?.addRange(savedRange);
+          }
+          insertComposerNode(editor, fragment, savedRange);
+          syncComposerBody(editor);
+        })
+        .catch((error) =>
+          pushToast({
+            tone: 'error',
+            message: '粘贴提及失败',
+            detail: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      return;
+    }
     insertComposerText(event.clipboardData.getData('text/plain'));
   }
 
@@ -2656,6 +3001,7 @@ export function ChatPane({
   }
 
   function updateMentionMenu(editor = currentComposerEditor()) {
+    const request = ++mentionRequest.current;
     if (!editor || conversation?.type !== 'group') {
       setMentionMenu(null);
       return;
@@ -2668,28 +3014,43 @@ export function ChatPane({
     }
 
     const members = filterMentionMembers(conversation, trigger.query, user.id);
-    if (members.length === 0) {
-      setMentionMenu(null);
-      return;
-    }
-
     setMentionMenu((current) => ({
       query: trigger.query,
       members,
       activeIndex:
         current?.query === trigger.query ? Math.min(current.activeIndex, members.length - 1) : 0,
     }));
+    if (trigger.query && onSearchMentionMembers) {
+      const context = conversation;
+      void onSearchMentionMembers(trigger.query, context)
+        .then((found) => {
+          if (request !== mentionRequest.current || mentionConversation.current !== context.id)
+            return;
+          const merged = [
+            ...new Map([...members, ...found].map((member) => [member.id, member])).values(),
+          ];
+          setMentionMenu((current) =>
+            current?.query === trigger.query
+              ? { ...current, members: merged, activeIndex: 0 }
+              : current,
+          );
+        })
+        .catch(() => {
+          /* 本地已加载成员仍可选，远端失败不替换为猜测结果。 */
+        });
+    }
   }
 
   function openMessageMenu(event: ReactMouseEvent, message: Message) {
-    // 多选模式下右键 = 切换选中，不再弹菜单。
-    if (selectionMode) {
-      event.preventDefault();
-      toggleSelectMessage(message, event);
-      return;
-    }
+    event.preventDefault();
+    const selection = window.getSelection();
+    const quote = event.target instanceof Element ? event.target.closest('.qq-reply-quote') : null;
+    const selected =
+      selection?.rangeCount && selection.getRangeAt(0).intersectsNode(event.currentTarget)
+        ? selectedMessageClipboard(event.currentTarget.closest('.chat-pane'))
+        : null;
+    const clipboard = selected ?? (quote ? messageNodeClipboard(quote) : undefined);
     if (window.matchMedia('(max-width: 760px)').matches) {
-      event.preventDefault();
       const rect = event.currentTarget.getBoundingClientRect();
       openMobileMessageMenu(
         {
@@ -2697,10 +3058,10 @@ export function ChatPane({
           y: rect.bottom,
         },
         message,
+        clipboard,
       );
       return;
     }
-    event.preventDefault();
     window.getSelection()?.removeAllRanges();
     // Record where the click landed inside the message row so the menu can
     // track that row as the list scrolls (see the reposition effect below).
@@ -2708,9 +3069,18 @@ export function ChatPane({
       '[data-message-id]',
     ) as HTMLElement | null;
     const anchorRect = anchorEl?.getBoundingClientRect();
+    const imageUrl =
+      event.target instanceof HTMLImageElement
+        ? event.target.currentSrc || event.target.src
+        : pureImageUrl(message);
     setContextMenu({
       message,
-      downloadUrl: getMessageDownloadUrl(message),
+      imageUrl,
+      clipboard,
+      downloadUrl:
+        (event.target instanceof HTMLImageElement
+          ? event.target.currentSrc || event.target.src
+          : undefined) || getMessageDownloadUrl(message),
       x: Math.min(event.clientX, window.innerWidth - 126),
       y: Math.min(event.clientY, window.innerHeight - 84),
       variant: 'desktop',
@@ -2719,11 +3089,17 @@ export function ChatPane({
     });
   }
 
-  function openMobileMessageMenu(point: { x: number; y: number }, message: Message) {
+  function openMobileMessageMenu(
+    point: { x: number; y: number },
+    message: Message,
+    clipboard?: { text: string; html: string },
+  ) {
     const menuHalfWidth = 112;
     const maxTop = Math.max(92, window.innerHeight - 166);
     setContextMenu({
       message,
+      imageUrl: pureImageUrl(message),
+      clipboard,
       downloadUrl: getMessageDownloadUrl(message),
       x: Math.min(Math.max(point.x, menuHalfWidth), window.innerWidth - menuHalfWidth),
       y: Math.min(Math.max(point.y + 10, 92), maxTop),
@@ -2742,18 +3118,12 @@ export function ChatPane({
   }
 
   function toggleSelectMessage(message: Message, event?: ReactMouseEvent) {
-    const anchor = selectionAnchor.current;
     window.getSelection()?.removeAllRanges();
-    setSelectedIds((current) =>
-      selectMessageIds(current, selectionOrder, message.id, anchor, event),
-    );
-    if (!event?.shiftKey || !anchor || !selectionOrder.includes(anchor))
-      selectionAnchor.current = message.id;
+    multi.toggle(message.id, event);
   }
 
   function exitSelection() {
     setSelectionMode(false);
-    setSelectedIds(new Set());
     selectionAnchor.current = null;
   }
 
@@ -2773,7 +3143,11 @@ export function ChatPane({
     const picked = selectedMessages;
     exitSelection();
     for (const message of picked) {
-      if (message.source === 'roaming' || isLocalOutgoingMessage(message)) continue;
+      if (
+        message.source === 'roaming' ||
+        (isLocalOutgoingMessage(message) && !canDiscardFailedMessage(message))
+      )
+        continue;
       void onDeleteMessage?.(message, conversation);
     }
   }
@@ -2803,10 +3177,72 @@ export function ChatPane({
   }
 
   function setComposerBody(value: string) {
+    bodyRef.current = value;
     setBody(value);
     if (conversation) {
       onDraftChange(conversation.id, value);
     }
+  }
+
+  async function reeditMessage(message: Message): Promise<boolean> {
+    if (!conversation || message.senderId !== user.id || sending) return false;
+    const sourceConversation = conversation.id;
+    const editor = currentComposerEditor();
+    const previous = editor ? serializeComposer(editor) : bodyRef.current;
+    const attachment = mediaAttachmentRef.current;
+    if (previous.trim() || attachment || pendingSuperEmoji || pendingQuote) {
+      const replace = await useDialog
+        .getState()
+        .confirm('替换当前草稿？', '输入框已有内容，重新编辑将替换当前草稿。', {
+          okLabel: '替换并编辑',
+          cancelLabel: '保留草稿',
+        });
+      if (!replace) return false;
+    }
+    const currentEditor = currentComposerEditor();
+    if (
+      mentionConversation.current !== sourceConversation ||
+      !composerTabActive.current ||
+      !currentEditor?.isConnected ||
+      serializeComposer(currentEditor) !== previous ||
+      mediaAttachmentRef.current !== attachment
+    )
+      return false;
+    const elements = messageElements(message);
+    const text =
+      message.composerDraft?.body ??
+      (elements.length
+        ? elementsToComposerText(
+            elements.map((element) => ({ ...element.data, kind: element.type })),
+          )
+        : message.body);
+    if (!text) return false;
+    releaseInlineImages();
+    setMediaAttachment((current) => {
+      if (current) releaseAttachment(current);
+      return null;
+    });
+    setPendingSuperEmoji(null);
+    setPendingQuote(null);
+    reeditLocalsRef.current = message.composerDraft?.locals ?? [];
+    setComposerBody(text);
+    for (const target of [composerEditorRef.current, expandedComposerEditorRef.current]) {
+      if (target) restoreComposer(target, text);
+    }
+    composerSelectionRef.current = null;
+    setMobileComposerExpanded(false);
+    setEmojiOpen(false);
+    setToolsOpen(false);
+    setVoiceOpen(false);
+    setAiVoiceOpen(false);
+    setBounceOpen(false);
+    setPokeOpen(false);
+    scheduleMobileComposerMeasure();
+    window.requestAnimationFrame(() => {
+      if (mentionConversation.current === sourceConversation && composerTabActive.current)
+        focusComposerEnd(composerEditorRef.current);
+    });
+    return true;
   }
 
   function scheduleMobileComposerMeasure(editor = composerEditorRef.current) {
@@ -3016,6 +3452,35 @@ export function ChatPane({
   }
   scrollMessagesToBottomRef.current = scrollMessagesToBottom;
 
+  async function jumpToBottomAndRead() {
+    if (jumpingToLatest) return;
+    if (!atLatest) {
+      if (!onJumpToLatest) return;
+      setJumpingToLatest(true);
+      try {
+        if (!(await onJumpToLatest())) return;
+        // 等最新窗口提交后再定位；失败时保留提示，供用户重试。
+        window.requestAnimationFrame(() => {
+          const current = readContextRef.current;
+          if (
+            current.conversation?.id !== conversation?.id ||
+            !current.atLatest ||
+            !current.tabActive
+          )
+            return;
+          scrollMessagesToBottomRef.current();
+          requestReadAtBottom();
+        });
+      } finally {
+        setJumpingToLatest(false);
+      }
+      return;
+    }
+    scrollMessagesToBottom();
+    // 显式跳转后再按最新窗口/账号/可见性守卫发已读，不依赖后续滚动事件。
+    requestReadAtBottom();
+  }
+
   function isScrolledToBottom(tolerance = 48) {
     const scroll = messageScrollRef.current;
     if (!scroll) {
@@ -3056,7 +3521,7 @@ export function ChatPane({
     const bottom = isScrolledToBottom();
     atBottomRef.current = bottom;
     if (bottom && readGestureUntil.current > performance.now()) requestReadAtBottom();
-    if (bottom && newMessagePill > 0) {
+    if (bottom && atLatest && newMessagePill > 0) {
       setNewMessagePill(0);
     }
 
@@ -3187,23 +3652,39 @@ export function ChatPane({
   }
 
   async function copyMessage(message: Message) {
-    const selectedText = window.getSelection()?.toString().trim();
-    // Non-copyable messages (images/files/cards) render an empty body — fall
-    // back to a `msgid=xxx` reference so there's always something on the clipboard.
+    const selected = contextMenu?.clipboard;
+    const image = contextMenu?.imageUrl;
+    if (image && !selected) {
+      setContextMenu(null);
+      const result = await exportMedia({ url: image }, 'clipboard');
+      if (!result.ok) pushToast({ tone: 'error', title: '复制图片失败', detail: result.error });
+      return;
+    }
     const body = message.body?.trim() ? message.body : `msgid=${message.msgId ?? message.id}`;
-    await copyTextToClipboard(selectedText || body);
+    const rich = selected ?? messageContentClipboard(message.qqElements, body);
+    if (!(await writeMentionClipboard(rich))) await copyTextToClipboard(rich.text);
     setContextMenu(null);
   }
 
-  // QQ-style delete: the DB row's type columns become (1,1) and the message
-  // STAYS in the chat, rendered under a translucent overlay (no local hiding).
+  // 失败占位只清理本机状态；原库消息仍沿用 QQ 式删除遮罩。
   function deleteMessage(message: Message) {
-    if (message.source === 'roaming' || isLocalOutgoingMessage(message)) return;
+    if (
+      message.source === 'roaming' ||
+      (isLocalOutgoingMessage(message) && !canDiscardFailedMessage(message))
+    )
+      return;
     if (!conversation) {
       return;
     }
     setContextMenu(null);
     setDecorationCard(null);
+    if (canDiscardFailedMessage(message) && selectedIds.has(message.id)) {
+      const next = new Set(selectedIds);
+      next.delete(message.id);
+      setSelectedIds(next);
+      if (!next.size) setSelectionMode(false);
+      if (selectionAnchor.current === message.id) selectionAnchor.current = null;
+    }
     void onDeleteMessage?.(message, conversation);
   }
 
@@ -3239,14 +3720,9 @@ export function ChatPane({
     setClearMessagesConfirmOpen(false);
   }
 
-  function downloadMessageImage(url: string) {
+  function downloadMessageImage(url: string, _message, intent, browser = false) {
     setContextMenu(null);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = imageFilenameFromUrl(url);
-    link.rel = 'noreferrer';
-    link.target = '_blank';
-    link.click();
+    void mediaSave.run({ kind: 'url', url, name: imageFilenameFromUrl(url) }, intent, browser);
   }
 
   if (!conversation) {
@@ -3325,6 +3801,40 @@ export function ChatPane({
   // 红包面板：群聊 / 私聊都能发，浮层形态（不占正文那一行）。
   const redPacketPanelActive = redPacketOpen && !mobileComposerExpanded;
   const mediaSendDisabled = Boolean(sendGateReason);
+  const repeatMessage = repeatTarget(messages, atLatest);
+  function messageCanRepeat(message: Message) {
+    return (
+      (conversation.type === 'group' || conversation.type === 'direct') &&
+      !grayTipOf(message) &&
+      !deletedIds?.has(message.id) &&
+      canRepeatMessage(message)
+    );
+  }
+  async function repeatMessageFor(message: Message) {
+    if (
+      !messageCanRepeat(message) ||
+      !onRepeatMessage ||
+      repeatBusy.current ||
+      sendGateReason ||
+      sending
+    )
+      return;
+    setContextMenu(null);
+    repeatBusy.current = true;
+    setRepeating(true);
+    try {
+      await onRepeatMessage(message, conversation);
+    } catch (error) {
+      pushToast({
+        tone: 'error',
+        message: '重发失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      repeatBusy.current = false;
+      setRepeating(false);
+    }
+  }
   const composerActionContext: ComposerActionContext = {
     conversation,
     blocked: currentPreference.blocked,
@@ -3366,21 +3876,35 @@ export function ChatPane({
 
   return (
     <section
+      {...multi.rootProps}
       className={cn(
         'chat-pane',
         conversation.type === 'group' ? 'with-group-info' : '',
-        conversation.type === 'group' && groupInfoCollapsed ? 'group-info-collapsed' : '',
+        conversation.type === 'group' && (groupInfoCollapsed || sidecarOpen)
+          ? 'group-info-collapsed'
+          : '',
+        mobileGroupInfoOpen && 'is-mobile-group-info-open',
         composerCollapsed && !selectionMode ? 'composer-collapsed' : '',
         selectionMode ? 'selection-mode' : '',
         mobileComposerLong ? 'mobile-composer-long' : '',
         mobileComposerExpanded ? 'mobile-composer-expanded-open' : '',
       )}
       style={paneStyle}
-      onPointerDownCapture={handleReadGesture}
+      onPointerDownCapture={(event) => {
+        multi.rootProps.onPointerDownCapture();
+        handleReadGesture(event);
+      }}
       onClickCapture={handleReadGesture}
       onWheelCapture={handleReadGesture}
       onTouchMoveCapture={handleReadGesture}
       onKeyUpCapture={handleReadGesture}
+      onCopyCapture={(event) => {
+        const rich = selectedMessageClipboard(event.currentTarget);
+        if (!rich) return;
+        event.clipboardData.setData('text/plain', rich.text);
+        event.clipboardData.setData('text/html', rich.html);
+        event.preventDefault();
+      }}
     >
       <ChatBackdrop
         imageUrl={backdrop.imageUrl}
@@ -3394,7 +3918,29 @@ export function ChatPane({
         </button>
         <div className={cn('chat-title')}>
           <strong>
-            <span className={cn('chat-title-text')}>{chatHeaderTitle(conversation)}</span>
+            {conversation.type === 'group' ||
+            (conversation.type === 'direct' && onOpenGroupMember) ? (
+              <button
+                className={cn('chat-title-text', 'weq-conversation-title-profile')}
+                type="button"
+                title={conversation.type === 'group' ? '查看群名片' : '查看好友名片'}
+                onClick={(event) => {
+                  if (conversation.type === 'group') {
+                    setTitleProfileGroupId(conversation.id);
+                  } else if (conversation.type === 'direct') {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    onOpenGroupMember?.(conversation.otherUser, {
+                      x: rect.left,
+                      y: rect.bottom,
+                    });
+                  }
+                }}
+              >
+                {chatHeaderTitle(conversation)}
+              </button>
+            ) : (
+              <span className={cn('chat-title-text')}>{chatHeaderTitle(conversation)}</span>
+            )}
             {isBotConversation(conversation) ? (
               <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
                 <Bot size={12} strokeWidth={2.4} />
@@ -3413,6 +3959,15 @@ export function ChatPane({
           {conversation.type === 'direct' ? <OnlineStatus uid={conversation.otherUser.id} /> : null}
         </div>
         <div className={cn('chat-actions')} role="toolbar" aria-label="会话工具栏">
+          {intentSupported &&
+          conversation.type === 'direct' &&
+          conversation.otherUser &&
+          !isBotConversation(conversation) ? (
+            <AffinityPill
+              peerUid={conversation.otherUser.id}
+              peerName={displayUserName(conversation.otherUser)}
+            />
+          ) : null}
           {onSearchChatRecords &&
           (conversation.type === 'group' || conversation.type === 'direct') ? (
             <button
@@ -3424,114 +3979,29 @@ export function ChatPane({
               <Search size={18} />
             </button>
           ) : null}
-          {onExportConversation &&
-          (conversation.type === 'group' || conversation.type === 'direct') ? (
-            <button
-              className={cn('icon-button', 'group-header-info-action')}
-              type="button"
-              title="导出聊天记录"
-              onClick={() => onExportConversation(conversation)}
-            >
-              <Download size={18} />
-            </button>
-          ) : null}
-          {onOpenRoamingBackfill &&
-          (conversation.type === 'group' ||
-            (conversation.type === 'direct' && conversation.otherUser.id.startsWith('u_'))) ? (
-            <button
-              className={cn(
-                'icon-button',
-                'group-header-info-action',
-                'chat-header-roaming-action',
-              )}
-              type="button"
-              title="批量补全缺失消息"
-              aria-label="批量补全缺失消息"
-              onClick={() => onOpenRoamingBackfill(conversation)}
-            >
-              <CloudDownload size={18} />
-            </button>
-          ) : null}
-          {onAddMessage && (conversation.type === 'group' || conversation.type === 'direct') ? (
-            <button
-              className={cn('icon-button', 'group-header-info-action')}
-              type="button"
-              title="添加消息"
-              onClick={() => onAddMessage(conversation)}
-            >
-              <CirclePlus size={18} />
-            </button>
-          ) : null}
-          {onViewDeleted && (conversation.type === 'group' || conversation.type === 'direct') ? (
-            <button
-              className={cn('icon-button', 'group-header-info-action')}
-              type="button"
-              title="删除列表"
-              onClick={() => onViewDeleted(conversation)}
-            >
-              <ListX size={18} />
-            </button>
-          ) : null}
-          {onViewRecalled && (conversation.type === 'group' || conversation.type === 'direct') ? (
-            <button
-              className={cn('icon-button', 'group-header-info-action')}
-              type="button"
-              title="撤回列表"
-              onClick={() => onViewRecalled(conversation)}
-            >
-              <ListRestart size={18} />
-            </button>
+          {conversation.type === 'group' || conversation.type === 'direct' ? (
+            <ConversationMessageActions
+              conversation={conversation}
+              onRoaming={onOpenRoamingBackfill}
+              onAdd={onAddMessage}
+              onDeleted={onViewDeleted}
+              onRecalled={onViewRecalled}
+            />
           ) : null}
           {conversation.type === 'group' ? (
             <>
-              <button
-                className={cn('icon-button', 'group-header-info-action')}
-                type="button"
-                title="Group announcements"
-                onClick={() => {
-                  if (conversation?.type === 'group') {
-                    onOpenGroupAnnouncements?.(conversation);
-                  }
-                }}
-              >
-                <FileText size={18} />
-              </button>
-              <button
-                className={cn('icon-button', 'group-header-info-action')}
-                type="button"
-                title="Group highlights"
-                onClick={() => {
-                  if (conversation?.type === 'group') {
-                    onOpenGroupEssence?.(conversation);
-                  }
-                }}
-              >
-                <Sparkles size={18} />
-              </button>
-              <button
-                className={cn('icon-button', 'group-header-info-action')}
-                type="button"
-                title="Group albums"
-                onClick={() => onOpenGroupAlbums?.(conversation)}
-              >
-                <Images size={18} />
-              </button>
-              <button
-                className={cn('icon-button', 'group-header-info-action')}
-                type="button"
-                title="Group files"
-                onClick={() => onOpenGroupFiles?.(conversation)}
-              >
-                <FolderOpen size={18} />
-              </button>
-              <button
-                className={cn('icon-button', 'group-header-info-action')}
-                type="button"
-                title="Group analytics"
-                onClick={() => onOpenGroupAnalytics?.(conversation)}
-              >
-                <BarChart3 size={18} />
-              </button>
+              {!sidecarOpen ? (
+                <button
+                  className="icon-button group-header-info-action weq-mobile-group-info-trigger"
+                  type="button"
+                  title="群资料"
+                  aria-label="群资料"
+                  aria-expanded={mobileGroupInfoOpen}
+                  onClick={() => setMobileGroupInfoOpen((previous) => !previous)}
+                >
+                  <UsersRound size={18} />
+                </button>
+              ) : null}
               {onOpenGroupBug && PROJECT_GROUP_IDS.includes(conversation.id) ? (
                 <button
                   className={cn(
@@ -3548,15 +4018,6 @@ export function ChatPane({
                 </button>
               ) : null}
             </>
-          ) : conversation.type === 'direct' ? (
-            <button
-              className={cn('icon-button', 'group-header-info-action')}
-              type="button"
-              title="私聊分析"
-              onClick={() => onOpenBuddyAnalytics?.(conversation)}
-            >
-              <BarChart3 size={18} />
-            </button>
           ) : null}
           {onOpenConversationSettings &&
           (conversation.type === 'group' || conversation.type === 'direct') ? (
@@ -3564,128 +4025,213 @@ export function ChatPane({
               className={cn('icon-button', 'group-header-info-action')}
               type="button"
               title="会话设置"
-              onClick={() => onOpenConversationSettings?.(conversation)}
+              onClick={(event) => onOpenConversationSettings?.(conversation, event.currentTarget)}
             >
               <Settings2 size={18} />
             </button>
           ) : null}
         </div>
       </header>
+      {conversation.type === 'group' && titleProfileGroupId === conversation.id ? (
+        <GroupProfileDialog
+          conversation={conversation}
+          onClose={() => setTitleProfileGroupId(null)}
+        />
+      ) : null}
 
-      <div className={cn('message-scroll')} ref={messageScrollRef} onScroll={handleMessageScroll}>
-        {loading ? (
-          <ChatMessagesSkeleton />
-        ) : visibleMessages.length === 0 ? (
-          <EmptyState title="还没有消息" body="发出第一条消息。" icon={<MessageSquareText />} />
-        ) : (
-          (() => {
-            // 灰条分流 + 气泡组装统一走 messageRow 的 MessageRow —— 转发窗口与合成转发
-            // 预览用的是同一份实现，所以三处的画法不会再各写一套。
-            const out = [];
-            visibleMessages.forEach((message, index) => {
-              // A hole in the seq run means QQ has messages here that were
-              // never synced locally. Checked for every row (gray tips
-              // included — they occupy a seq too) and emitted before the row
-              // that follows the hole.
-              const previous = visibleMessages[index - 1];
-              const gap = messageGapCount(previous, message);
-              // 跳转落空的目标落在 previous 与 message 之间、且恰好只缺这 1 条时，
-              // 默认的缺口条（只在跳空 >1 时出现）不会渲染。补一条，保证「跳到空消息」
-              // 永远有可点击的拉取入口。跳空 >1 时交给上面的自然缺口条，不重复。
-              if (
-                gap === 0 &&
-                missingJumpSeq &&
-                previous &&
-                conversation &&
-                onOpenGapMessages &&
-                isSeqBetween(missingJumpSeq, previous.msgSeq, message.msgSeq)
-              ) {
+      <IntentSenseProvider
+        kind={intentKind}
+        conv={intentConv}
+        latestPeerMsgId={latestPeerMsgId}
+        latestMessageId={latestMessageId}
+      >
+        <div
+          className={cn('message-scroll', marquee.dragging && 'is-marquee-selecting')}
+          ref={messageScrollRef}
+          onScroll={handleMessageScroll}
+          {...marquee.handlers}
+        >
+          {marquee.box ? (
+            <div className="weq-message-marquee" aria-hidden style={marquee.box} />
+          ) : null}
+          {loading ? (
+            <ChatMessagesSkeleton />
+          ) : visibleMessages.length === 0 ? (
+            <EmptyState title="还没有消息" body="发出第一条消息。" icon={<MessageSquareText />} />
+          ) : (
+            (() => {
+              // 灰条分流 + 气泡组装统一走 messageRow 的 MessageRow —— 转发窗口与合成转发
+              // 预览用的是同一份实现，所以三处的画法不会再各写一套。
+              const out = [];
+              let previousForGap: Message | undefined;
+              visibleMessages.forEach((message, index) => {
+                // A hole in the seq run means QQ has messages here that were
+                // never synced locally. Checked for every row (gray tips
+                // included — they occupy a seq too) and emitted before the row
+                // that follows the hole.
+                const previous = visibleMessages[index - 1];
+                const gapPrevious = previousForGap;
+                const gap = messageGapCount(gapPrevious, message);
+                if (!isUnpositionedFailure(message)) previousForGap = message;
+                // 跳转落空的目标落在 previous 与 message 之间、且恰好只缺这 1 条时，
+                // 默认的缺口条（只在跳空 >1 时出现）不会渲染。补一条，保证「跳到空消息」
+                // 永远有可点击的拉取入口。跳空 >1 时交给上面的自然缺口条，不重复。
+                if (
+                  gap === 0 &&
+                  missingJumpSeq &&
+                  gapPrevious &&
+                  conversation &&
+                  onOpenGapMessages &&
+                  isSeqBetween(missingJumpSeq, gapPrevious.msgSeq, message.msgSeq)
+                ) {
+                  out.push(
+                    <MessageGapDivider
+                      key={`missing-jump-${message.id}`}
+                      count={1}
+                      onOpen={() =>
+                        onOpenGapMessages({
+                          conversation,
+                          previousSeq: String(gapPrevious.msgSeq ?? ''),
+                          currentSeq: String(message.msgSeq ?? ''),
+                          count: 1,
+                        })
+                      }
+                    />,
+                  );
+                }
+                if (gap > 0) {
+                  out.push(
+                    <MessageGapDivider
+                      key={`gap-${message.id}`}
+                      count={gap}
+                      onOpen={
+                        conversation && onOpenGapMessages && gapPrevious
+                          ? () =>
+                              onOpenGapMessages({
+                                conversation,
+                                previousSeq: String(gapPrevious.msgSeq ?? ''),
+                                currentSeq: String(message.msgSeq ?? ''),
+                                count: gap,
+                              })
+                          : undefined
+                      }
+                    />,
+                  );
+                }
+                const sender = resolveMessageSender(message, conversation, user);
                 out.push(
-                  <MessageGapDivider
-                    key={`missing-jump-${message.id}`}
-                    count={1}
-                    onOpen={() =>
-                      onOpenGapMessages({
-                        conversation,
-                        previousSeq: String(previous.msgSeq ?? ''),
-                        currentSeq: String(message.msgSeq ?? ''),
-                        count: 1,
-                      })
-                    }
-                  />,
+                  <Fragment key={message.id}>
+                    {shouldShowMessageTime(previous, message) ? (
+                      <MessageTimeDivider value={message.createdAt} />
+                    ) : null}
+                    <MessageRow
+                      message={message}
+                      conversation={conversation}
+                      user={user}
+                      sender={sender}
+                      renderers={messageRenderers}
+                      showSenderName={showSenderNames}
+                      active={contextMenu?.message.id === message.id}
+                      deleted={deletedIds?.has(message.id) ?? false}
+                      deletedKind={message.deletedKind}
+                      recallRevokerName={message.recallRevokerName}
+                      onRestore={onRestoreMessage}
+                      onContextMenu={openMessageMenu}
+                      onLongPress={openMobileMessageMenu}
+                      onAction={onMessageAction}
+                      onReedit={reeditMessage}
+                      repeatAction={
+                        !selectionMode &&
+                        onRepeatMessage &&
+                        repeatMessage?.id === message.id &&
+                        messageCanRepeat(message) ? (
+                          <button
+                            type="button"
+                            className="weq-message-repeat"
+                            title={sendGateReason || '发送一条相同的消息'}
+                            aria-label="+1，发送相同消息"
+                            disabled={Boolean(sendGateReason) || sending || repeating}
+                            aria-busy={repeating}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void repeatMessageFor(message);
+                            }}
+                          >
+                            {repeating ? <Loader2 size={15} className="spin" /> : '+1'}
+                          </button>
+                        ) : undefined
+                      }
+                      selectionMode={selectionMode}
+                      selected={selectionMode && selectedIds.has(message.id)}
+                      onToggleSelect={toggleSelectMessage}
+                      reactionRemoval={{
+                        onRemove: (code) => changeMessageReaction(message, code, false),
+                        blockedReason: messageReactionBlockedReason(message),
+                        busy: setMessageReaction.isLoading,
+                      }}
+                      pendingAction={
+                        pendingActions[message.id] ? (
+                          <span
+                            className="weq-message-sending"
+                            role="status"
+                            aria-label={pendingActions[message.id]}
+                            title={pendingActions[message.id]}
+                          >
+                            <Loader2 size={15} />
+                          </span>
+                        ) : undefined
+                      }
+                      onAvatarClick={
+                        !selectionMode &&
+                        (conversation.type === 'group' || conversation.type === 'direct') &&
+                        onOpenGroupMember
+                          ? onOpenGroupMember
+                          : undefined
+                      }
+                      onAvatarContextMenu={!selectionMode ? openAvatarMenu : undefined}
+                    />
+                  </Fragment>,
                 );
-              }
-              if (gap > 0) {
-                out.push(
-                  <MessageGapDivider
-                    key={`gap-${message.id}`}
-                    count={gap}
-                    onOpen={
-                      conversation && onOpenGapMessages && previous
-                        ? () =>
-                            onOpenGapMessages({
-                              conversation,
-                              previousSeq: String(previous.msgSeq ?? ''),
-                              currentSeq: String(message.msgSeq ?? ''),
-                              count: gap,
-                            })
-                        : undefined
-                    }
-                  />,
-                );
-              }
-              const sender = resolveMessageSender(message, conversation, user);
-              out.push(
-                <Fragment key={message.id}>
-                  {shouldShowMessageTime(previous, message) ? (
-                    <MessageTimeDivider value={message.createdAt} />
-                  ) : null}
-                  <MessageRow
-                    message={message}
-                    conversation={conversation}
-                    user={user}
-                    sender={sender}
-                    renderers={messageRenderers}
-                    showSenderName={showSenderNames}
-                    active={contextMenu?.message.id === message.id}
-                    deleted={deletedIds?.has(message.id) ?? false}
-                    deletedKind={message.deletedKind}
-                    recallRevokerName={message.recallRevokerName}
-                    onRestore={onRestoreMessage}
-                    onContextMenu={openMessageMenu}
-                    onLongPress={openMobileMessageMenu}
-                    onAction={onMessageAction}
-                    selectionMode={selectionMode}
-                    selected={selectionMode && selectedIds.has(message.id)}
-                    onToggleSelect={toggleSelectMessage}
-                    reactionRemoval={{
-                      onRemove: (code) => changeMessageReaction(message, code, false),
-                      blockedReason: messageReactionBlockedReason(message),
-                      busy: setMessageReaction.isLoading,
-                    }}
-                    onAvatarClick={
-                      !selectionMode &&
-                      (conversation.type === 'group' || conversation.type === 'direct') &&
-                      onOpenGroupMember
-                        ? onOpenGroupMember
-                        : undefined
-                    }
-                    onAvatarContextMenu={!selectionMode ? openAvatarMenu : undefined}
-                  />
-                </Fragment>,
-              );
-            });
-            return out;
-          })()
-        )}
-        <div ref={endRef} />
-      </div>
+              });
+              return out;
+            })()
+          )}
+          {pendingActions['timeline:poke'] ? (
+            <div className="weq-inline-interaction-pending" role="status" aria-label="正在戳一戳">
+              <span className="weq-message-sending">
+                <Loader2 size={15} />
+              </span>
+            </div>
+          ) : null}
+          <div ref={endRef} />
+        </div>
+      </IntentSenseProvider>
 
       {newMessagePill > 0 ? (
-        <button className={cn('new-message-pill')} type="button" onClick={scrollMessagesToBottom}>
-          <ChevronDown size={14} strokeWidth={2.8} />
-          <span>{formatUnreadJumpCount(newMessagePill)}条新消息</span>
-        </button>
+        <div className="new-message-pill" role="group" aria-label="新消息">
+          {onPreviewLatest ? (
+            <button
+              className="new-message-preview"
+              type="button"
+              title="预览新消息"
+              aria-label="预览新消息"
+              onClick={() => onPreviewLatest(conversation)}
+            >
+              <Eye size={15} />
+            </button>
+          ) : null}
+          <button
+            className="new-message-bottom"
+            type="button"
+            title="定位到底部"
+            aria-label="定位到底部"
+            disabled={jumpingToLatest}
+            onClick={() => void jumpToBottomAndRead()}
+          >
+            {jumpingToLatest ? <Loader2 size={14} /> : <ChevronDown size={14} strokeWidth={2.8} />}
+            <span>{formatUnreadJumpCount(newMessagePill)}条新消息</span>
+          </button>
+        </div>
       ) : null}
 
       {/* biome-ignore lint/correctness/noConstantCondition: 暂时禁用的「跳转首条未读」按钮,保留待恢复 */}
@@ -3730,21 +4276,35 @@ export function ChatPane({
 
       {conversation.type === 'group' ? (
         <>
-          <button
-            className={cn('group-info-toggle')}
-            type="button"
-            title={groupInfoCollapsed ? '展开群资料' : '收起群资料'}
-            aria-label={groupInfoCollapsed ? '展开群资料' : '收起群资料'}
-            aria-expanded={!groupInfoCollapsed}
-            onClick={toggleGroupInfoCollapsed}
-          >
-            {groupInfoCollapsed ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
-          </button>
-          {!groupInfoCollapsed ? (
+          {!sidecarOpen ? (
+            <button
+              className={cn('group-info-toggle')}
+              type="button"
+              title={groupInfoCollapsed ? '展开群资料' : '收起群资料'}
+              aria-label={groupInfoCollapsed ? '展开群资料' : '收起群资料'}
+              aria-expanded={!groupInfoCollapsed}
+              onClick={toggleGroupInfoCollapsed}
+            >
+              {groupInfoCollapsed ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
+            </button>
+          ) : null}
+          {(!groupInfoCollapsed || mobileGroupInfoOpen) && !sidecarOpen ? (
             <GroupInfoPanel
               conversation={conversation}
               onOpenDetail={handleOpenGroupInfoDetail}
+              onOpenAnnouncements={
+                onOpenGroupAnnouncements ? () => onOpenGroupAnnouncements(conversation) : undefined
+              }
+              groupTodos={groupTodos}
+              onOpenSign={onOpenGroupSign ? () => onOpenGroupSign(conversation) : undefined}
+              onOpenEssence={
+                onOpenGroupEssence ? () => onOpenGroupEssence(conversation) : undefined
+              }
+              onOpenAlbums={onOpenGroupAlbums ? () => onOpenGroupAlbums(conversation) : undefined}
+              onOpenFiles={onOpenGroupFiles ? () => onOpenGroupFiles(conversation) : undefined}
+              onClose={mobileGroupInfoOpen ? () => setMobileGroupInfoOpen(false) : undefined}
               onOpenMember={onOpenGroupMember}
+              onMemberContextMenu={!selectionMode ? openAvatarMenu : undefined}
               onLoadMoreMembers={onLoadMoreGroupMembers}
               loadingMoreMembers={groupMembersLoading}
               loadingError={groupMembersError}
@@ -3774,6 +4334,24 @@ export function ChatPane({
         {composerCollapsed ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
       </button>
 
+      {/* 意图感知的回复建议：开启时出现在输入框上方，点击填入编辑器草稿。 */}
+      {intentSupported &&
+      !composerCollapsed &&
+      !selectionMode &&
+      conversation?.type !== undefined ? (
+        <IntentSuggestionBar
+          kind={intentKind}
+          conv={intentConv}
+          replyTargetId={latestPeerMsgId}
+          latestMessageId={latestSuggestionId}
+          onInsert={(text) => {
+            const prefix = body.trim().length > 0 ? ' ' : '';
+            insertComposerText(`${prefix}${text}`);
+            window.requestAnimationFrame(() => focusComposerEnd(currentComposerEditor()));
+          }}
+        />
+      ) : null}
+
       <div
         className={cn(
           'composer',
@@ -3799,16 +4377,77 @@ export function ChatPane({
               <span className={cn('selection-bar-label')}>条已选</span>
             </div>
             <div className={cn('selection-bar-actions')}>
+              {requestAnalysis && conversationAnalysisTarget(conversation) ? (
+                <button
+                  type="button"
+                  className="selection-action"
+                  aria-label="分析所选消息"
+                  title="分析所选消息"
+                  disabled={
+                    !selectedMessages.length ||
+                    selectedMessages.some(
+                      (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
+                    )
+                  }
+                  onClick={() =>
+                    requestAnalysis(conversationAnalysisTarget(conversation), [...selectedIds])
+                  }
+                >
+                  <BarChart3 size={17} />
+                </button>
+              ) : null}
+              {requestExport && conversationExportSelection(conversation) ? (
+                <button
+                  type="button"
+                  className="selection-action"
+                  aria-label="导出所选消息"
+                  title="导出所选消息"
+                  disabled={
+                    !selectedIds.size ||
+                    selectedMessages.some(
+                      (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
+                    )
+                  }
+                  onClick={() => exportMessageIds([...selectedIds])}
+                >
+                  <Download size={17} />
+                </button>
+              ) : null}
+              {onAddToComposition ? (
+                <button
+                  type="button"
+                  className="selection-action"
+                  aria-label="添加到素材库"
+                  title="添加到素材库"
+                  disabled={!selectedMessages.length}
+                  onClick={() => onAddToComposition([...selectedMessages])}
+                >
+                  <ListPlus size={17} />
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={cn('selection-action', 'selection-action-primary')}
-                aria-label="合并转发"
-                title={sendGateReason ? `${sendGateReason}，暂不可发送` : '合并转发'}
+                aria-label="转发"
+                title={sendGateReason ? `${sendGateReason}，暂不可发送` : '转发'}
+                aria-haspopup="menu"
+                aria-expanded={selectionMenu?.kind === 'forward'}
                 disabled={Boolean(sendGateReason) || selectedMessages.length === 0}
-                onClick={mergeForwardSelected}
+                onClick={(event) => openSelectionMenu('forward', event.currentTarget)}
               >
                 <Share2 size={17} />
-                <span>合并转发</span>
+              </button>
+              <button
+                type="button"
+                className="selection-action"
+                aria-label="复制"
+                title="复制"
+                aria-haspopup="menu"
+                aria-expanded={selectionMenu?.kind === 'copy'}
+                disabled={!selectedMessages.length}
+                onClick={(event) => openSelectionMenu('copy', event.currentTarget)}
+              >
+                <Copy size={17} />
               </button>
               <button
                 type="button"
@@ -3817,42 +4456,23 @@ export function ChatPane({
                 disabled={
                   selectedMessages.length === 0 ||
                   selectedMessages.some(
-                    (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
+                    (message) =>
+                      message.source === 'roaming' ||
+                      (isLocalOutgoingMessage(message) && !canDiscardFailedMessage(message)),
                   )
                 }
                 title={
                   selectedMessages.some(
-                    (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
+                    (message) =>
+                      message.source === 'roaming' ||
+                      (isLocalOutgoingMessage(message) && !canDiscardFailedMessage(message)),
                   )
-                    ? '所选消息尚未入库或来自漫游缓存，不能执行原库删除'
-                    : '删除所选本地消息'
+                    ? '所选消息包含发送中、待同步或漫游记录，不能删除'
+                    : '删除所选消息；失败占位仅从本机移除'
                 }
                 onClick={deleteSelectedMessages}
               >
                 <Trash2 size={17} />
-                <span>删除</span>
-              </button>
-              <button
-                type="button"
-                className={cn('selection-action')}
-                disabled={selectedMessages.length === 0}
-                onClick={() => void copySelectedMessagesText()}
-                title="复制为纯文本"
-                aria-label="复制纯文本"
-              >
-                <FileText size={17} />
-                <span>复制纯文本</span>
-              </button>
-              <button
-                type="button"
-                className={cn('selection-action')}
-                disabled={selectedMessages.length === 0}
-                onClick={copySelectedMessagesJson}
-                title="复制 JSON"
-                aria-label="复制 JSON"
-              >
-                <ClipboardCopy size={17} />
-                <span>复制 JSON</span>
               </button>
               <button
                 type="button"
@@ -3862,10 +4482,46 @@ export function ChatPane({
                 aria-label="退出多选"
               >
                 <X size={17} />
-                <span>退出</span>
               </button>
             </div>
           </div>
+        ) : null}
+        {selectionMode && selectionMenu ? (
+          <ConversationActionsMenu
+            label={selectionMenu.kind === 'copy' ? '复制格式' : '转发方式'}
+            x={selectionMenu.x}
+            y={selectionMenu.y}
+            onClose={closeSelectionMenu}
+            actions={
+              selectionMenu.kind === 'copy'
+                ? [
+                    {
+                      label: '纯文本',
+                      icon: <FileText size={16} />,
+                      action: () => void copySelectedMessagesText(),
+                    },
+                    {
+                      label: '富文本',
+                      icon: <Copy size={16} />,
+                      action: () => void copySelectedMessagesRich(),
+                    },
+                    {
+                      label: 'JSON',
+                      icon: <ClipboardCopy size={16} />,
+                      action: copySelectedMessagesJson,
+                    },
+                  ]
+                : [
+                    { label: '合并转发', icon: <Share2 size={16} />, action: mergeForwardSelected },
+                    {
+                      label: '逐条转发',
+                      icon: <Forward size={16} />,
+                      disabled: !onForwardMessages,
+                      action: () => onForwardMessages?.([...selectedMessages], conversation),
+                    },
+                  ]
+            }
+          />
         ) : null}
         <ComposerResizeHandle
           height={composerHeight}
@@ -4024,6 +4680,13 @@ export function ChatPane({
               <CirclePlus size={28} />
             </button>
           ) : null}
+          {conversation.type === 'direct' && (
+            <TypingStatus
+              key={conversation.id}
+              uid={conversation.otherUser.id}
+              editors={[composerEditorRef, expandedComposerEditorRef]}
+            />
+          )}
         </div>
         {mediaAttachment ? (
           <ComposerMediaStage attachment={mediaAttachment} onRemove={removeMediaAttachment} />
@@ -4143,8 +4806,10 @@ export function ChatPane({
         ) : null}
         {mentionMenu && !mobileComposerExpanded ? (
           <MentionMenu
+            atAll={atAllMention}
             menu={mentionMenu}
             menuRef={mentionMenuRef}
+            onLoadMore={!mentionMenu.query ? onLoadMoreGroupMembers : undefined}
             onActiveIndexChange={(activeIndex) =>
               setMentionMenu((current) => (current ? { ...current, activeIndex } : current))
             }
@@ -4159,8 +4824,8 @@ export function ChatPane({
           )}
           role="textbox"
           aria-multiline="true"
-          aria-disabled={currentPreference.blocked || sending}
-          contentEditable={!currentPreference.blocked && !sending}
+          aria-disabled={currentPreference.blocked}
+          contentEditable={!currentPreference.blocked}
           suppressContentEditableWarning
           onInput={() => syncComposerBody(composerEditorRef.current)}
           onKeyDown={handleComposerKeyDown}
@@ -4185,6 +4850,7 @@ export function ChatPane({
           title={sendTitle}
           aria-label={sendTitle}
           disabled={sendDisabled}
+          onMouseDown={(event) => event.preventDefault()}
           onClick={() => void submitMessage()}
         >
           <SendHorizontal size={17} />
@@ -4222,8 +4888,8 @@ export function ChatPane({
               className={cn('composer-editor mobile-composer-expanded-editor')}
               role="textbox"
               aria-multiline="true"
-              aria-disabled={currentPreference.blocked || sending}
-              contentEditable={!currentPreference.blocked && !sending}
+              aria-disabled={currentPreference.blocked}
+              contentEditable={!currentPreference.blocked}
               suppressContentEditableWarning
               onInput={() => syncComposerBody(expandedComposerEditorRef.current)}
               onKeyDown={handleComposerKeyDown}
@@ -4244,8 +4910,10 @@ export function ChatPane({
             />
             {mentionMenu ? (
               <MentionMenu
+                atAll={atAllMention}
                 menu={mentionMenu}
                 menuRef={mentionMenuRef}
+                onLoadMore={!mentionMenu.query ? onLoadMoreGroupMembers : undefined}
                 onActiveIndexChange={(activeIndex) =>
                   setMentionMenu((current) => (current ? { ...current, activeIndex } : current))
                 }
@@ -4316,6 +4984,7 @@ export function ChatPane({
                 title={sendTitle}
                 aria-label={sendTitle}
                 disabled={sendDisabled}
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => void submitMessage()}
               >
                 <SendHorizontal size={28} />
@@ -4371,16 +5040,88 @@ export function ChatPane({
           onConfirm={clearConversationMessagesLocally}
         />
       ) : null}
+      {mediaSave.prompt}
       {contextMenu ? (
         <MessageContextMenu
+          onClose={() => setContextMenu(null)}
+          extraActions={
+            conversation.type === 'group' && !grayTipOf(contextMenu.message) ? (
+              <>
+                <QQMessageEssenceAction
+                  key={contextMenu.message.id}
+                  conversation={conversation}
+                  message={contextMenu.message}
+                  onClose={() => setContextMenu(null)}
+                />
+                <MessageTodoAction
+                  conversation={conversation}
+                  message={contextMenu.message}
+                  onClose={() => setContextMenu(null)}
+                />
+              </>
+            ) : undefined
+          }
+          onAddToComposition={
+            onAddToComposition
+              ? (message) => {
+                  setContextMenu(null);
+                  onAddToComposition([message]);
+                }
+              : undefined
+          }
           state={contextMenu}
+          onExport={
+            requestExport &&
+            conversationExportSelection(conversation) &&
+            contextMenu.message.source !== 'roaming' &&
+            !isLocalOutgoingMessage(contextMenu.message)
+              ? (message) =>
+                  exportMessageIds(
+                    selectionMode && selectedIds.has(message.id) ? [...selectedIds] : [message.id],
+                  )
+              : undefined
+          }
+          exportLabel={
+            selectionMode && selectedIds.has(contextMenu.message.id) && selectedIds.size > 1
+              ? '导出所选消息'
+              : '导出'
+          }
+          exportBlockedReason={
+            selectionMode &&
+            selectedIds.has(contextMenu.message.id) &&
+            selectedMessages.some(
+              (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
+            )
+              ? '所选消息包含未入库记录，暂不能精确导出'
+              : undefined
+          }
           onCopy={copyMessage}
+          onRepeat={
+            onRepeatMessage && messageCanRepeat(contextMenu.message)
+              ? (message) => void repeatMessageFor(message)
+              : undefined
+          }
+          repeatBlockedReason={
+            sendGateReason || (sending || repeating ? '正在发送消息，请稍候' : null)
+          }
+          onForward={
+            onForwardMessages
+              ? (message) => {
+                  setContextMenu(null);
+                  onForwardMessages([message], conversation);
+                }
+              : undefined
+          }
           onDownloadImage={downloadMessageImage}
+          downloadDisabled={mediaSave.disabled}
           onDelete={
-            contextMenu.message.source === 'roaming' || isLocalOutgoingMessage(contextMenu.message)
+            contextMenu.message.source === 'roaming' ||
+            (isLocalOutgoingMessage(contextMenu.message) &&
+              !canDiscardFailedMessage(contextMenu.message))
               ? undefined
               : deleteMessage
           }
+          deleteLabel={canDiscardFailedMessage(contextMenu.message) ? '移除失败消息' : '删除'}
           onEditRaw={
             onEditRaw &&
             contextMenu.message.source !== 'roaming' &&
@@ -4408,25 +5149,34 @@ export function ChatPane({
           }
           removeReactionBlockedReason={messageReactionBlockedReason(contextMenu.message)}
           // 撤回：不是自己的消息且无群管理权限时整项不出现；否则受 2 分钟 / 越级规则。
-          onRecall={
-            contextRecallInfo?.show && contextMenu.message.source !== 'roaming'
-              ? recallMessageFor
-              : undefined
-          }
+          onRecall={contextRecallInfo?.show ? recallMessageFor : undefined}
           recallBlockedReason={contextRecallInfo?.show ? contextRecallInfo.reason : undefined}
         />
       ) : null}
       {avatarMenu ? (
         <AvatarContextMenu
+          onClose={() => setAvatarMenu(null)}
           state={avatarMenu}
+          onAnalyze={
+            conversation?.type === 'group' && directory?.onAnalyzeMember
+              ? (member) => {
+                  setAvatarMenu(null);
+                  directory.onAnalyzeMember(conversation, member);
+                }
+              : undefined
+          }
           onMention={mentionAvatar}
           onPoke={pokeAvatar}
           pokeBlockedReason={pokeBlockedReason}
           onChangeCard={startCardEdit}
+          onChangeTitle={startTitleEdit}
           onKick={startKick}
           onMute={muteAvatar}
           onToggleAdmin={toggleAvatarAdmin}
           showChangeCard={avatarMenuFlags?.showChangeCard ?? false}
+          showChangeTitle={
+            Boolean(avatarMenuFlags?.showChangeTitle) && Boolean(onChangeGroupMemberTitle)
+          }
           showKick={avatarMenuFlags?.showKick ?? false}
           showMute={avatarMenuFlags?.showMute ?? false}
           showSetAdmin={avatarMenuFlags?.showSetAdmin ?? false}
@@ -4529,37 +5279,65 @@ function ComposerPlusPanel({
   );
 }
 
-function MentionMenu({
+export function MentionMenu({
+  atAll,
   menu,
   menuRef,
   onActiveIndexChange,
   onSelect,
+  onLoadMore,
 }: {
+  atAll: AtAllMentionState;
   menu: MentionMenuState;
   menuRef: RefObject<HTMLDivElement | null>;
   onActiveIndexChange: (activeIndex: number) => void;
   onSelect: (member: GroupMember) => void;
+  onLoadMore?: () => void;
 }) {
   return (
-    <div className={cn('mention-menu')} ref={menuRef}>
+    <div
+      className={cn('mention-menu')}
+      ref={menuRef}
+      role="listbox"
+      aria-label="提及群成员"
+      onScroll={(event) => {
+        const node = event.currentTarget;
+        if (node.scrollHeight - node.scrollTop - node.clientHeight < 80) onLoadMore?.();
+      }}
+    >
       {menu.members.map((member, index) => (
         <button
           key={member.id}
+          role="option"
+          aria-selected={index === menu.activeIndex && (member.id !== 'all' || atAll.selectable)}
+          aria-disabled={member.id === 'all' && !atAll.selectable}
+          disabled={member.id === 'all' && !atAll.selectable}
+          title={member.id === 'all' ? atAll.detail : undefined}
           type="button"
           className={cn(index === menu.activeIndex && 'active')}
           onMouseEnter={() => onActiveIndexChange(index)}
           onMouseDown={(event) => {
             event.preventDefault();
-            onSelect(member);
           }}
+          onClick={() => onSelect(member)}
         >
-          <Avatar
-            name={displayUserName(member)}
-            avatarUrl={member.avatarUrl}
-            seed={member.identityValue}
-          />
+          {member.id === 'all' ? (
+            <span className="mention-all-icon" aria-hidden="true">
+              <UsersRound size={20} />
+            </span>
+          ) : (
+            <Avatar
+              name={displayUserName(member)}
+              avatarUrl={member.avatarUrl}
+              seed={member.identityValue}
+            />
+          )}
           <span className={cn('mention-member-name')}>{displayUserName(member)}</span>
-          {member.role !== 'member' || member.kind === 'bot' ? (
+          {member.id === 'all' ? (
+            <span className="mention-all-quota" aria-label={atAll.detail}>
+              {atAll.summary}
+            </span>
+          ) : member.role !== 'member' || member.kind === 'bot' ? (
             <span className={cn('mention-member-trailing')}>
               {member.role !== 'member' ? (
                 <small
@@ -4581,6 +5359,7 @@ function MentionMenu({
           ) : null}
         </button>
       ))}
+      {!menu.members.length ? <span className="mention-member-empty">暂无匹配成员</span> : null}
     </div>
   );
 }

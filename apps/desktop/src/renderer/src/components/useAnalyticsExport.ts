@@ -9,11 +9,12 @@
  */
 
 import { useCallback, useRef, useState } from 'react';
-import { exportAnalyticsCard } from './analyticsShot';
+import { canExportAnalyticsCard, exportAnalyticsCard } from './analyticsShot';
 import { useToast } from './Toast';
 import type { AnalyticsExportPayload } from '../../../shared/analytics_export';
 
 export interface AnalyticsExportHandle {
+  available: boolean;
   exporting: boolean;
   start: () => void;
 }
@@ -28,11 +29,12 @@ export function useAnalyticsExport(opts: {
   build: () => AnalyticsExportPayload | null;
 }): AnalyticsExportHandle {
   const { enabled, build } = opts;
+  const available = canExportAnalyticsCard();
   const inFlightRef = useRef(false);
   const [exporting, setExporting] = useState(false);
 
   const start = useCallback(() => {
-    if (!enabled || inFlightRef.current) return;
+    if (!enabled || !available || inFlightRef.current) return;
     const payload = build();
     if (!payload) return;
     inFlightRef.current = true;
@@ -49,7 +51,7 @@ export function useAnalyticsExport(opts: {
         toast.push({ tone: 'error', title: '保存图片失败', detail: result.error });
       }
     })();
-  }, [enabled, build]);
+  }, [enabled, available, build]);
 
-  return { exporting, start };
+  return { available, exporting, start };
 }

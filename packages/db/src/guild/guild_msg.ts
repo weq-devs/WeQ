@@ -41,12 +41,109 @@ export interface GuildDirectMsgDbOptions {
   algo?: DatabaseAlgorithms;
 }
 
+export interface GuildMessageCursor {
+  seq: bigint;
+  time: bigint;
+  id: bigint;
+}
+const STABLE_KEY = '(COALESCE("40003",0),COALESCE("40050",0),"40001")';
+function stableOrder(cursor?: GuildMessageCursor, descending = false): string {
+  const direction = descending ? 'DESC' : 'ASC';
+  const seq = cursor && cursor.seq > 0n && !descending ? '"40003"' : 'COALESCE("40003",0)';
+  return `ORDER BY ${seq} ${direction}, COALESCE("40050",0) ${direction}, "40001" ${direction}`;
+}
+function rowCursor(row: SqlRow): GuildMessageCursor {
+  return { seq: toBigint(row[1]), time: toBigint(row[6]), id: toBigint(row[0]) };
+}
+
 /** 频道私聊 message-table accessor (guild_msg.db). */
 export class GuildDirectMsgDb {
   private readonly qq: QqDb;
 
   constructor(nt: NtHelperBinding, opts: GuildDirectMsgDbOptions) {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
+  }
+
+  /** 搜索与导出使用完整游标，同 seq、零/NULL seq 和负 msgId 均不丢行。 */
+  async listStablePage(
+    nodeId: bigint,
+    cursor?: GuildMessageCursor,
+    limit = 1000,
+  ): Promise<{ items: GuildDirectMsg[]; cursor: GuildMessageCursor | null }> {
+    const where = ['"40027"=?'];
+    const params: SqlValue[] = [nodeId];
+    if (cursor) {
+      if (cursor.seq > 0n) {
+        where.push('"40003">=?');
+        params.push(cursor.seq);
+      }
+      where.push(`${STABLE_KEY}>(?,?,?)`);
+      params.push(cursor.seq, cursor.time, cursor.id);
+    }
+    params.push(BigInt(limit));
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM guild_msg_table WHERE ${where.join(' AND ')} ${stableOrder(cursor)} LIMIT ?`,
+      params,
+    );
+    return {
+      items: rows.map(rowToGuildDirectMsg),
+      cursor: rows.length ? rowCursor(rows.at(-1)!) : null,
+    };
+  }
+
+  async listStableLatest(nodeId: bigint, limit = 50): Promise<GuildDirectMsg[]> {
+    return (
+      await this.qq.query(
+        `SELECT ${SELECT_COLUMNS} FROM guild_msg_table WHERE "40027"=? ${stableOrder(undefined, true)} LIMIT ?`,
+        [nodeId, BigInt(limit)],
+      )
+    ).map(rowToGuildDirectMsg);
+  }
+
+  private async stableAnchor(nodeId: bigint, msgId: bigint): Promise<SqlRow | undefined> {
+    return (
+      await this.qq.query(
+        `SELECT ${SELECT_COLUMNS} FROM guild_msg_table WHERE "40027"=? AND "40001"=? LIMIT 1`,
+        [nodeId, msgId],
+      )
+    )[0];
+  }
+
+  private async stableBefore(
+    nodeId: bigint,
+    cursor: GuildMessageCursor,
+    limit: number,
+  ): Promise<GuildDirectMsg[]> {
+    return (
+      await this.qq.query(
+        `SELECT ${SELECT_COLUMNS} FROM guild_msg_table WHERE "40027"=? AND ${STABLE_KEY}<(?,?,?) ${stableOrder(undefined, true)} LIMIT ?`,
+        [nodeId, cursor.seq, cursor.time, cursor.id, BigInt(limit)],
+      )
+    ).map(rowToGuildDirectMsg);
+  }
+
+  async listBeforeMessage(nodeId: bigint, msgId: bigint, limit = 50): Promise<GuildDirectMsg[]> {
+    const row = await this.stableAnchor(nodeId, msgId);
+    if (!row) throw new Error('频道消息已删除或本地不可用。');
+    return this.stableBefore(nodeId, rowCursor(row), limit);
+  }
+
+  async aroundMessage(
+    nodeId: bigint,
+    msgId: bigint,
+  ): Promise<{ found: boolean; hasMore: boolean; items: GuildDirectMsg[] }> {
+    const row = await this.stableAnchor(nodeId, msgId);
+    if (!row) return { found: false, hasMore: false, items: [] };
+    const cursor = rowCursor(row);
+    const [before, after] = await Promise.all([
+      this.stableBefore(nodeId, cursor, 50),
+      this.listStablePage(nodeId, cursor, 25),
+    ]);
+    return {
+      found: true,
+      hasMore: before.length >= 50,
+      items: [...before.reverse(), rowToGuildDirectMsg(row), ...after.items],
+    };
   }
 
   /** Newest N messages of one DM conversation, newest-first (seq DESC). */

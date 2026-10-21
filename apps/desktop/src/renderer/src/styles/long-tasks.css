@@ -1,0 +1,242 @@
+.weq-current-tasks {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow-y: auto;
+  color: var(--weq-fg-primary);
+}
+
+.weq-current-tasks-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-current-tasks-head > button {
+  margin-left: auto;
+}
+
+.weq-current-tasks-empty,
+.weq-current-tasks-notice {
+  margin: 0;
+  padding: 12px;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-long-task {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 68px;
+  padding: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  border-radius: 0;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.weq-long-task:hover,
+.weq-long-task.is-selected {
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+}
+
+.weq-long-task:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+
+.weq-long-task-icon {
+  display: grid;
+  width: 24px;
+  flex: none;
+  place-items: center;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-long-task-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.weq-long-task-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.weq-long-task-meta {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+
+.weq-long-task-state {
+  display: flex;
+  width: 110px;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-long-task-state > span {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.weq-long-task-state svg {
+  flex: none;
+}
+
+.weq-long-task-state small {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-long-task.is-running .weq-long-task-state,
+.weq-long-task.is-completed .weq-long-task-state {
+  color: var(--weq-accent-effective);
+}
+
+.weq-long-task.is-failed .weq-long-task-state {
+  color: var(--destructive);
+}
+
+.weq-long-task progress {
+  display: block;
+  width: 100%;
+  height: 5px;
+  accent-color: var(--weq-accent-effective);
+}
+
+.weq-long-task-detail {
+  padding: 12px;
+  border-bottom: 1px solid var(--weq-border-strong);
+  background: color-mix(in srgb, var(--weq-bg-surface) 65%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.weq-long-task-detail > .weq-exp-detail,
+html[data-theme='dark'] .weq-long-task-detail > .weq-exp-detail {
+  overflow: visible;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.weq-long-task-detail .weq-exp-detail-title strong,
+.weq-export-tool.is-tasks .weq-exp-sched-card-name {
+  color: var(--weq-fg-primary);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.weq-long-task-detail .weq-exp-detail-meta {
+  color: var(--weq-fg-secondary);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.weq-long-task-detail .weq-exp-detail-actions {
+  flex-wrap: wrap;
+}
+
+.weq-long-task-detail .weq-exp-detail-actions button {
+  border-color: var(--weq-border-strong);
+  background: transparent;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-long-task-detail .weq-exp-detail-actions button:hover {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+}
+
+.weq-long-task-detail .weq-exp-detail-status.is-failed {
+  color: var(--destructive);
+}
+
+.weq-long-task-detail .weq-roaming-panel,
+.weq-long-task-detail .weq-roaming-body {
+  display: block;
+  height: auto;
+  overflow: visible;
+  padding: 0;
+}
+
+.weq-long-task-detail .weq-roaming-task {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.weq-long-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.weq-export-tool.is-tasks .weq-exp-sched-list {
+  gap: 0;
+  padding: 0;
+}
+
+.weq-export-tool.is-tasks .weq-exp-sched-card {
+  flex: none;
+  border: 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.weq-export-tool.is-tasks .weq-exp-sched-card-top,
+.weq-export-tool.is-tasks .weq-exp-sched-card-meta,
+.weq-export-tool.is-tasks .weq-exp-sched-card-history {
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+
+.weq-export-tool.is-tasks .weq-exp-sched-card-actions {
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+html[data-theme='dark'] .weq-long-task.is-selected,
+html[data-theme='dark'] .weq-long-task:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+}
+
+html[data-theme='dark'] .weq-long-task-detail {
+  background: color-mix(in srgb, var(--weq-bg-surface) 85%, transparent);
+}
+
+@media (max-width: 420px) {
+  .weq-long-task {
+    gap: 6px;
+    padding: 10px 8px;
+  }
+  .weq-long-task-state {
+    width: 88px;
+  }
+}

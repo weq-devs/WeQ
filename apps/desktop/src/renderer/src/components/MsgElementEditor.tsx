@@ -69,7 +69,7 @@ export function MsgElementEditor({
       <div className="weq-editor-dialog" role="dialog" onMouseDown={(e) => e.stopPropagation()}>
         <header className="weq-editor-header">
           <div className="weq-editor-title">
-            <h3>修改消息元件</h3>
+            <h3>修改本地消息元件（不同步服务器）</h3>
             <code>
               msgId: {msgId}
               {msgSeq !== undefined && ` • seq: ${msgSeq}`}

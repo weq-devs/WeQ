@@ -7,7 +7,7 @@
  */
 
 import { ProtoMsg } from '@weq/codec';
-import { GroupBulletinBody } from '@weq/codec/proto/group_info/64205';
+import { GROUP_BULLETIN_LABEL_TYPE, GroupBulletinBody } from '@weq/codec/proto/group_info/64205';
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { QqDb } from '../qq_db';
 
@@ -69,7 +69,10 @@ function rowToBulletin(row: SqlRow): GroupBulletin {
 
   // Navigation: detail (64202) -> contentContainer (64227) -> items (64242 repeated) -> textContent (64452)
   const items = detail?.contentContainer?.items ?? [];
-  const textContent = items.map((i) => i?.textContent ?? '').join('\n');
+  const textContent = items
+    .filter((item) => item.type !== GROUP_BULLETIN_LABEL_TYPE && item.textContent !== undefined)
+    .map((item) => item.textContent ?? '')
+    .join('\n');
 
   return {
     groupCode: toBigint(row[0]),

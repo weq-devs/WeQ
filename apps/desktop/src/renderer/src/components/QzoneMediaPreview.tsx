@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Loader2, RotateCcw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { useOverlayLayer } from '../lib/overlayStack';
+import { topSurface } from '../lib/surfaceEscape';
 import { useZoomPan } from './useZoomPan';
 import '../styles/qzone-preview.css';
 
@@ -18,10 +19,14 @@ export function QzoneMediaPreview({
   items,
   initialIndex,
   onClose,
+  label = '空间媒体预览',
+  renderActions,
 }: {
   items: QzonePreviewMedia[];
   initialIndex: number;
   onClose: () => void;
+  label?: string;
+  renderActions?: (item: QzonePreviewMedia) => ReactNode;
 }) {
   const [index, setIndex] = useState(initialIndex);
   const item = items[index];
@@ -96,17 +101,25 @@ export function QzoneMediaPreview({
       ref={root}
       role="dialog"
       aria-modal="true"
-      aria-label="空间媒体预览"
+      aria-label={label}
       tabIndex={-1}
-      className="weq-qz-preview"
+      className={`weq-qz-preview${renderActions ? ' has-actions' : ''}`}
       style={{ zIndex: layer }}
       onKeyDown={(event) => {
+        const top = topSurface(document);
+        if (top && top !== root.current) return;
         if (event.key === 'Escape') {
           event.stopPropagation();
           onClose();
         }
         if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-          if ((event.target as HTMLElement).tagName === 'VIDEO') return;
+          const target = event.target as HTMLElement;
+          if (
+            target.closest(
+              'input, textarea, select, video, [contenteditable="true"], [role="menu"]',
+            )
+          )
+            return;
           event.preventDefault();
           event.stopPropagation();
           move(event.key === 'ArrowLeft' ? -1 : 1);
@@ -114,7 +127,7 @@ export function QzoneMediaPreview({
         if (event.key === 'Tab') {
           const controls = [
             ...(root.current?.querySelectorAll<HTMLElement>(
-              'button:not(:disabled), video[controls]',
+              'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), video[controls]',
             ) ?? []),
           ];
           const first = controls[0],
@@ -249,6 +262,7 @@ export function QzoneMediaPreview({
           <ChevronRight size={26} />
         </button>
       </div>
+      {renderActions && <footer className="weq-qz-preview-actions">{renderActions(item)}</footer>}
     </div>,
     document.body,
   );

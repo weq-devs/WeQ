@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import { createPortal } from 'react-dom';
+import { WorkspacePage } from '../../components/WorkspacePages';
 import {
   X,
   Loader2,
@@ -138,24 +138,14 @@ export function ResourceAnalyticsDialog({
     if (!open) runRef.current += 1; // invalidate any in-flight scan
   }, [open, stats.length, done, scanningKey, error, runScan]);
 
-  // ESC to close.
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
   if (!open || typeof document === 'undefined') return null;
 
   const present = stats.filter((s) => s.present && s.files > 0);
   const totals = accumulate(stats);
   const progress = scanningKey ? stats.length : done ? TREES.length : stats.length;
 
-  return createPortal(
-    <div className="weq-ra-layer weq-anim-fade" onMouseDown={onClose}>
+  return (
+    <WorkspacePage title="存储占用" onClose={onClose}>
       <div className="weq-ra-dialog weq-anim-pop" onMouseDown={(e) => e.stopPropagation()}>
         <header className="weq-ra-head">
           <div className="weq-ra-head-title">
@@ -327,8 +317,7 @@ export function ResourceAnalyticsDialog({
           </ChartCard>
         </div>
       </div>
-    </div>,
-    document.body,
+    </WorkspacePage>
   );
 }
 

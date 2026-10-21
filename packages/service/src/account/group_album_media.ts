@@ -6,7 +6,14 @@
  */
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
-import { GetAlbumMediaList } from '@weq/protocol';
+import {
+  CommentGroupAlbumMedia,
+  DeleteGroupAlbumMedia,
+  GetAlbumMediaList,
+  GetGroupAlbumFeedDetail,
+  SetGroupAlbumLike,
+  type GroupAlbumLikeParams,
+} from '@weq/protocol';
 
 export interface AlbumMediaUrl {
   url: string;
@@ -125,6 +132,45 @@ export class GroupAlbumMediaService {
     _session: AccountSession,
     private readonly resolvePid: () => number,
   ) {}
+
+  async deleteMedia(
+    groupId: string,
+    albumId: string,
+    mediaId: string,
+    batchId: string,
+  ): Promise<void> {
+    await DeleteGroupAlbumMedia.invoke(this.nt, this.resolvePid(), {
+      groupId,
+      albumId,
+      mediaIds: [mediaId],
+      batchIds: [batchId],
+    });
+  }
+
+  async setLike(params: GroupAlbumLikeParams): Promise<void> {
+    await SetGroupAlbumLike.invoke(this.nt, this.resolvePid(), params);
+  }
+
+  async comment(
+    groupId: string,
+    albumId: string,
+    batchId: string,
+    lloc: string,
+    selfUin: string,
+    content: string,
+    beforeSend: () => void,
+  ): Promise<void> {
+    const pid = this.resolvePid();
+    const cells = await GetGroupAlbumFeedDetail.invoke(this.nt, pid, {
+      groupId,
+      albumId,
+      batchId,
+      lloc,
+    });
+    beforeSend();
+    if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新打开相册');
+    await CommentGroupAlbumMedia.invoke(this.nt, pid, { groupId, selfUin, cells, content });
+  }
 
   async getMediaList(groupId: string, albumId: string, attachInfo = ''): Promise<AlbumMediaPage> {
     const resp = await GetAlbumMediaList.invoke(this.nt, this.resolvePid(), {

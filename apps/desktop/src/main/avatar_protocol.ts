@@ -52,7 +52,11 @@ export async function handleAvatarRequest(request: Request): Promise<Response> {
   }
 
   try {
-    const blob = await ctx.bootstrap.avatarCache.get(src);
+    const blob = await ctx.bootstrap.avatarCache.get(
+      src,
+      'avatar',
+      url.searchParams.get('_weq_avatar_remote') === '1' ? 0 : undefined,
+    );
     if (blob.data.length === 0) {
       return new Response('avatar empty', { status: 502 });
     }

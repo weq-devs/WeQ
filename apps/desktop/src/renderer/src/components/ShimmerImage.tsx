@@ -16,6 +16,8 @@ import {
   type ImgHTMLAttributes,
   type ReactElement,
 } from 'react';
+import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
+import { useAvatarUrl } from '../hooks/useAvatarUrl';
 
 export function ShimmerImage({
   className,
@@ -26,7 +28,9 @@ export function ShimmerImage({
 }: ImgHTMLAttributes<HTMLImageElement>): ReactElement {
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
-  const src = rest.src;
+  const ownerDocument = useRenderDocument();
+  const avatarSrc = useAvatarUrl(rest.src, false);
+  const src = avatarSrc ? resourceForRenderDocument(avatarSrc, ownerDocument) : rest.src;
 
   // src 变化（首次挂载 / 失败回退换源）时重置；已缓存完成的直接显示，避免闪一下。
   useLayoutEffect(() => {
@@ -52,6 +56,7 @@ export function ShimmerImage({
           onError?.(event);
         }}
         {...rest}
+        src={src}
       />
     </>
   );

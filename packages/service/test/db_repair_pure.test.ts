@@ -8,7 +8,7 @@
 
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   pendingWalBytes,
@@ -102,8 +102,9 @@ describe('dbRepairRoot / dbRepairPaths', () => {
     );
     expect(paths.workDir).toBe(join('/cache/db_repair/12345', 'work'));
     // 临时产物必须与目标库同目录 —— 跨盘 rename 会 EXDEV。
+    // 期望值用 join 拼 —— 直接写字面量在 Windows 上会跟 win32 分隔符对不上。
     expect(productTempPath('/qq/nt_db', 'nt_msg.db', 'S')).toBe(
-      '/qq/nt_db/.nt_msg.db.weq-repair-S',
+      join('/qq/nt_db', '.nt_msg.db.weq-repair-S'),
     );
   });
 
@@ -118,14 +119,23 @@ describe('dbRepairRoot / dbRepairPaths', () => {
 
 describe('resolveAccountDbDir', () => {
   /** 只有这些路径"存在"。 */
+  /**
+   * 只有这些路径"存在"。
+   *
+   * `resolveAccountDbDir` 内部用 `join` 拼路径，所以「存在的文件」也得用平台
+   * 分隔符来比 —— 直接拿 POSIX 字面量比，在 Windows 上永远判定为不存在。
+   */
   const existsIn = (paths: string[]): ((path: string) => boolean) => {
-    const set = new Set(paths);
-    return (path) => set.has(path);
+    const normalize = (path: string): string => path.replaceAll('/', sep);
+    const set = new Set(paths.map(normalize));
+    return (path) => set.has(normalize(path));
   };
   const platform = (ntDbDir: string | null, ntMsgDbPath: string | null) => ({
     ntDbDir: () => ntDbDir,
     ntMsgDbPath: () => ntMsgDbPath,
   });
+  /** 断言用：`join` 拼出来的路径在 Windows 上带反斜杠。 */
+  const p = (path: string): string => path.replaceAll('/', sep);
 
   it('dataDir 直接就是库目录（静态导入的目录）', () => {
     expect(
@@ -146,7 +156,7 @@ describe('resolveAccountDbDir', () => {
         '/qq/u_x',
         existsIn(['/qq/u_x/nt_db/nt_msg.db']),
       ),
-    ).toBe('/qq/u_x/nt_db');
+    ).toBe(p('/qq/u_x/nt_db'));
   });
 
   it('dataDir 优先于 platform —— 否则会修到另一个账号的库上', () => {
@@ -555,5 +565,18 @@ describe('renderDbRepairReportMarkdown', () => {
     expect(
       renderDbRepairReportMarkdown(makeRecord({ verification: null, state: 'aborted' })),
     ).toContain('没有自检结果');
+  });
+
+  it('布局迁移记录写清任务类型与源 / 目标页布局', () => {
+    const md = renderDbRepairReportMarkdown(
+      makeRecord({
+        kind: 'layout-migration',
+        sourceLayout: 'standard',
+        targetLayout: 'qq',
+      }),
+    );
+    expect(md).toContain('任务类型：**页布局迁移**');
+    expect(md).toContain('源库逻辑页布局：standard SQLite（保留页 262145）');
+    expect(md).toContain('产物逻辑页布局：QQ（保留页 262144）');
   });
 });

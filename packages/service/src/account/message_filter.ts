@@ -11,9 +11,38 @@ export type MessageCategory =
   | 'system'
   | 'other';
 export interface MessageFilter {
+  /** 精确行身份集合，含漫游来源前缀；空集合不等于全部，不转浮点数。 */
+  messageIds?: string[];
   sender?: string;
   keyword?: string;
   category?: MessageCategory;
+}
+
+interface FilterableMessage {
+  msgId?: string | bigint;
+  msgSeq?: string | bigint;
+  source?: 'roaming';
+  sourceFormat?: 'native' | 'protocol';
+  senderUid: string;
+  senderUin: string | bigint;
+  elements: RenderElement[];
+}
+
+export function messageSelectionKey(
+  message: Pick<FilterableMessage, 'msgId' | 'msgSeq' | 'source' | 'sourceFormat'>,
+): string | null {
+  if (message.msgId == null) return null;
+  if (message.source !== 'roaming') return String(message.msgId);
+  if (message.msgSeq == null) return null;
+  return `roaming:${message.sourceFormat ? `${message.sourceFormat}:` : ''}${message.msgSeq}:${message.msgId}`;
+}
+
+export function compileMessageFilter(
+  filter?: MessageFilter,
+): (message: FilterableMessage) => boolean {
+  const snapshot = filter ? { ...filter } : undefined;
+  const ids = filter?.messageIds ? new Set(filter.messageIds) : undefined;
+  return (message) => matchesMessageFilter(message, snapshot, ids);
 }
 
 export function messageCategory(elements: readonly RenderElement[]): MessageCategory[] {
@@ -33,10 +62,15 @@ export function messageCategory(elements: readonly RenderElement[]): MessageCate
 }
 
 export function matchesMessageFilter(
-  message: { senderUid: string; senderUin: string | bigint; elements: RenderElement[] },
+  message: FilterableMessage,
   filter?: MessageFilter,
+  selectedIds?: ReadonlySet<string>,
 ): boolean {
   if (!filter) return true;
+  if (filter.messageIds !== undefined) {
+    const key = messageSelectionKey(message);
+    if (key === null || !(selectedIds ?? new Set(filter.messageIds)).has(key)) return false;
+  }
   if (
     filter.sender &&
     filter.sender !== message.senderUid &&

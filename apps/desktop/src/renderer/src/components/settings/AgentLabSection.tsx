@@ -14,7 +14,8 @@ import {
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Modal } from '../../components/Dialog';
-import { Card, CheckPill, Row, SectionHeader } from './controls';
+import { Card, CheckPillGroup, Row, SectionHeader } from './controls';
+import { useDraftClose } from '../../lib/draftClose';
 
 type Capability = 'chat' | 'embedding' | 'vision';
 const CAPABILITIES: { value: Capability; label: string }[] = [
@@ -79,6 +80,11 @@ export function AgentLabSection(): ReactElement {
   const [fetchedModels, setFetchedModels] = useState<ModelForm[] | null>(null);
   /** 拉取清单里已勾选要导入的模型 id。 */
   const [checkedModelIds, setCheckedModelIds] = useState<string[]>([]);
+  const guard = useDraftClose(
+    () => setOpen(false),
+    form,
+    saveProvider.isLoading || deleteProvider.isLoading || testing || fetchingModels,
+  );
 
   /** 上一次由模板带入的 base_url / 名称：表单值与之相同 = 用户没改过，可以跟着模板切换。 */
   const templateDefaultsRef = useRef<{ baseUrl: string; name: string }>({ baseUrl: '', name: '' });
@@ -105,7 +111,7 @@ export function AgentLabSection(): ReactElement {
         baseUrl: (entry?.baseUrl ?? '').trim(),
         name: templateDisplayName(entry?.label),
       };
-      setForm({
+      const next: ProviderForm = {
         id: item.id,
         name: item.name,
         vendor: item.vendor,
@@ -116,9 +122,11 @@ export function AgentLabSection(): ReactElement {
           label: m.label ?? '',
           capabilities: m.capabilities as Capability[],
         })),
-      });
+      };
+      setForm(next);
+      guard.reset(next);
     },
-    [catalog.data],
+    [catalog.data, guard.reset],
   );
 
   useEffect(() => {
@@ -144,7 +152,9 @@ export function AgentLabSection(): ReactElement {
     templateModelIdsRef.current = new Set();
     // 表单默认选中了 DEFAULT_VENDOR 模板，这里实际应用一次模板，
     // 带入 base_url / 名称 / 推荐模型，避免「显示选中了模板但字段是空的」造成误导。
-    setForm(withVendorTemplate(emptyForm(), DEFAULT_VENDOR));
+    const next = withVendorTemplate(emptyForm(), DEFAULT_VENDOR);
+    setForm(next);
+    guard.reset(next);
     setOpen(true);
   }
 
@@ -252,12 +262,6 @@ export function AgentLabSection(): ReactElement {
     }
   }
 
-  function toggleCheckedModel(id: string): void {
-    setCheckedModelIds((current) =>
-      current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
-    );
-  }
-
   /** 把勾选的拉取结果合并进模型列表（已有的同 id 跳过，不覆盖用户手配的能力）。 */
   function importFetchedModels(): void {
     if (!fetchedModels) return;
@@ -293,20 +297,6 @@ export function AgentLabSection(): ReactElement {
       models: c.models.map((m, i) => (i === index ? { ...m, ...patch } : m)),
     }));
   }
-  function toggleCap(index: number, cap: Capability): void {
-    setForm((c) => ({
-      ...c,
-      models: c.models.map((m, i) => {
-        if (i !== index) return m;
-        const has = m.capabilities.includes(cap);
-        return {
-          ...m,
-          capabilities: has ? m.capabilities.filter((x) => x !== cap) : [...m.capabilities, cap],
-        };
-      }),
-    }));
-  }
-
   async function onSave(): Promise<void> {
     // Provider ID 不再暴露给用户：编辑已有 provider 时保持原 id（克隆体里的引用指向它），
     // 新建时由系统从显示名称自动生成。
@@ -332,6 +322,7 @@ export function AgentLabSection(): ReactElement {
         apiKey: form.apiKey.trim(),
         models,
       });
+      guard.reset(form);
       setSelectedId(id);
       setOpen(true);
       await utils.bootstrap.listAgentLabProviders.invalidate();
@@ -401,11 +392,7 @@ export function AgentLabSection(): ReactElement {
 
   return (
     <div className="weq-set">
-      <SectionHeader
-        icon={<Boxes size={18} strokeWidth={1.8} />}
-        title="模型服务商（Provider）"
-        desc="只在这里配置厂商（base_url + api_key + 可用模型）。具体用哪个模型，在克隆体里按任务选择。推荐硅基流动：一个 key 覆盖聊天 / 向量 / 视觉。"
-      />
+      <SectionHeader icon={<Boxes size={18} strokeWidth={1.8} />} title="API 配置" />
 
       <Card
         title="已保存的 provider"
@@ -452,7 +439,7 @@ export function AgentLabSection(): ReactElement {
       </Card>
 
       {open ? (
-        <Modal onClose={() => setOpen(false)} width={620}>
+        <Modal presentation="panel" onClose={guard.requestClose} width={620}>
           <div className="weq-provider-modal">
             <header className="weq-provider-modal-head">
               <span className="weq-provider-modal-icon">
@@ -462,7 +449,7 @@ export function AgentLabSection(): ReactElement {
               <button
                 type="button"
                 className="weq-set-iconbtn weq-provider-modal-close"
-                onClick={() => setOpen(false)}
+                onClick={guard.requestClose}
                 aria-label="关闭"
               >
                 <X size={16} />
@@ -631,15 +618,11 @@ export function AgentLabSection(): ReactElement {
                       overflowY: 'auto',
                     }}
                   >
-                    {fetchedModels.map((m) => (
-                      <CheckPill
-                        key={m.id}
-                        checked={checkedModelIds.includes(m.id)}
-                        onChange={() => toggleCheckedModel(m.id)}
-                      >
-                        {m.id}
-                      </CheckPill>
-                    ))}
+                    <CheckPillGroup
+                      options={fetchedModels.map((model) => ({ value: model.id, label: model.id }))}
+                      selected={checkedModelIds}
+                      onChange={setCheckedModelIds}
+                    />
                   </div>
                 </div>
               ) : null}
@@ -672,15 +655,11 @@ export function AgentLabSection(): ReactElement {
                         placeholder="模型 id，如 deepseek-ai/DeepSeek-V3"
                       />
                       <div style={{ display: 'flex', gap: 4 }}>
-                        {CAPABILITIES.map((cap) => (
-                          <CheckPill
-                            key={cap.value}
-                            checked={model.capabilities.includes(cap.value)}
-                            onChange={() => toggleCap(index, cap.value)}
-                          >
-                            {cap.label}
-                          </CheckPill>
-                        ))}
+                        <CheckPillGroup
+                          options={CAPABILITIES}
+                          selected={model.capabilities}
+                          onChange={(capabilities) => updateModel(index, { capabilities })}
+                        />
                       </div>
                       <button
                         type="button"

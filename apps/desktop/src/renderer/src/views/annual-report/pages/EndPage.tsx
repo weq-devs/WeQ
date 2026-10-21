@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { FileCode2, FileImage, FileText, LoaderCircle, Share2 } from 'lucide-react';
-import type { EndPageData } from '@weq/service';
+import type { EndPageData, ExportSavePolicy } from '@weq/service';
 import { isAllTimeYear, reportPeriodLabel } from '@weq/service/report-time';
 import { client } from '../../../trpc/client';
 import { useToast } from '../../../components/Toast';
@@ -8,12 +8,19 @@ import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { useReportView } from '../reportContext';
 import { buildReportHtml, preloadReportAssets } from '../exportHtml';
 import { QzoneShareLightbox } from '../QzoneShareLightbox';
+import type { AnalysisScope } from '../../analysis/model';
+import { useExportSavePolicy } from '../../../hooks/useExportSavePolicy';
+import { ExportSaveActions } from '../../../components/ExportSaveActions';
+import { ServerSavePrompt } from '../../../components/ServerSavePrompt';
+import { IS_WEB } from '../../../lib/target';
+import { annualReportExportOutput } from '../../../../../shared/annual_report_export';
+import '../../../styles/annual-report-save.css';
 
 type ExportKind = 'long' | 'html' | 'pdf';
 
 /** 一条协议 URL → base64 → data URI。解析失败返回 null（该处退回排印）。 */
-async function resolveAssetDataUri(url: string): Promise<string | null> {
-  const base64 = await client.account.annualReport.resolveMediaBase64.mutate({ url });
+async function resolveAssetDataUri(url: string, scope?: AnalysisScope): Promise<string | null> {
+  const base64 = await client.account.annualReport.resolveMediaBase64.mutate({ url, ...scope });
   if (!base64) return null;
   // 按 base64 前缀挑 MIME：png / jpeg / gif / webp（协议层只回图片字节）。
   const mime = base64.startsWith('iVBOR')
@@ -44,7 +51,31 @@ const EXPORT_OPTIONS: Array<{
  * 与开篇同一套排印语言：出血描边字衬底、发丝线、逐层浮现。
  */
 export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): ReactElement {
-  const { year, slides } = useReportView();
+  const { year, slides, readScope, overlayHostRef } = useReportView();
+  const save = useExportSavePolicy();
+  const identity = useMemo(() => ({}), [year, slides, readScope]);
+  const latest = useRef(identity);
+  latest.current = identity;
+  const cancelLocation = useRef(save.chooseServerLocation);
+  cancelLocation.current = save.chooseServerLocation;
+  useEffect(() => {
+    cancelLocation.current(null);
+  }, [identity]);
+  const pending = useRef(false);
+  const source = useRef<{ identity: object; scope: AnalysisScope | null }>({
+    identity,
+    scope: readScope ?? save.binding,
+  });
+  if (source.current.identity !== identity)
+    source.current = { identity, scope: readScope ?? save.binding };
+  if (!source.current.scope && save.binding) source.current.scope = { ...save.binding };
+  const reportScope = source.current.scope;
+  const scopeMatches = Boolean(
+    reportScope &&
+      save.binding &&
+      reportScope.expectedAccountUin === save.binding.expectedAccountUin &&
+      reportScope.expectedAccountConfigId === save.binding.expectedAccountConfigId,
+  );
   const pushToast = useToast((s) => s.push);
   const [busy, setBusy] = useState<ExportKind | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
@@ -78,78 +109,79 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
    * 自包含 HTML：先把装扮气泡 / 头像经主进程拉成 base64 内联成 data URI，
    * 再同步拼文档。任一图解析失败只是那一处退回排印表达，不阻塞导出。
    */
-  const [html, setHtml] = useState('');
+  const [cachedHtml, setHtml] = useState<{ identity: object; html: string } | null>(null);
+  const html = cachedHtml?.identity === identity ? cachedHtml.html : '';
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      await preloadReportAssets(slides, resolveAssetDataUri);
-      if (!cancelled) setHtml(buildReportHtml(year, slides));
+      if (!reportScope) return;
+      await preloadReportAssets(slides, (url) => resolveAssetDataUri(url, reportScope));
+      if (!cancelled) setHtml({ identity, html: buildReportHtml(year, slides) });
     })();
     return () => {
       cancelled = true;
     };
-  }, [year, slides]);
+  }, [year, slides, reportScope, identity]);
 
   /** 预热 + 拼 HTML（runExport 的兜底路径，正常时 html state 已就绪）。 */
   async function buildHtmlWithAssets(): Promise<string> {
-    await preloadReportAssets(slides, resolveAssetDataUri);
+    await preloadReportAssets(slides, (url) => resolveAssetDataUri(url, reportScope ?? undefined));
     return buildReportHtml(year, slides);
   }
 
-  async function runExport(kind: ExportKind): Promise<void> {
-    if (busy) return;
+  async function runExport(kind: ExportKind, intent?: ExportSavePolicy): Promise<void> {
+    if (pending.current || !scopeMatches || !reportScope) return;
+    pending.current = true;
     setBusy(kind);
+    const current = () => latest.current === identity && save.isCurrent();
+    const selected = { year, ...reportScope };
     try {
-      if (kind === 'html') {
-        // 预热还没跑完时现等一次，保证导出的总是带图版本。
-        const payload = html || (await buildHtmlWithAssets());
-        const result = await client.account.annualReport.exportHtml.mutate({
-          year,
-          html: payload,
-        });
-        pushToast({
-          tone: result.saved ? 'success' : 'info',
-          title: result.saved ? 'HTML 已导出' : '已取消导出',
-          detail: result.path,
-        });
-      } else if (kind === 'pdf') {
-        const payload = html || (await buildHtmlWithAssets());
-        const result = await client.account.annualReport.exportPdf.mutate({
-          year,
-          html: payload,
-        });
-        pushToast({
-          tone: result.saved ? 'success' : 'info',
-          title: result.saved ? 'PDF 已导出' : '已取消导出',
-          detail: result.path,
-        });
-      } else {
-        // 长图与 HTML 是同一份自包含文档：主进程把它逐页截图后竖向拼成长图。
-        const payload = html || (await buildHtmlWithAssets());
-        const result = await client.account.annualReport.exportLongImage.mutate({
-          year,
-          html: payload,
-        });
-        pushToast({
-          tone: result.saved ? 'success' : 'info',
-          title: result.saved ? '长图已导出' : '已取消导出',
-          detail: result.path,
-        });
-      }
-    } catch (error) {
-      pushToast({
-        tone: 'error',
-        title: '导出失败',
-        detail: error instanceof Error ? error.message : String(error),
+      const output = annualReportExportOutput(year, kind === 'long' ? 'png' : kind);
+      const policy = await save.prepareSave(intent, {
+        kind: 'file',
+        name: output.name,
+        format: output.extension,
       });
+      if (!policy || !current()) return;
+      const payload = html || (await buildHtmlWithAssets());
+      if (!current()) return;
+      const input = { ...selected, html: payload, savePolicy: policy };
+      const taskId =
+        kind === 'html'
+          ? await client.account.annualReport.exportHtml.mutate(input)
+          : kind === 'pdf'
+            ? await client.account.annualReport.exportPdf.mutate(input)
+            : await client.account.annualReport.exportLongImage.mutate(input);
+      if (taskId && current()) pushToast({ tone: 'info', title: '报告保存任务已创建' });
+    } catch (error) {
+      if (current())
+        pushToast({
+          tone: 'error',
+          title: '导出失败',
+          detail: error instanceof Error ? error.message : String(error),
+        });
     } finally {
+      pending.current = false;
       setBusy(null);
     }
   }
 
   return (
     <PageFrame page={page} active={active} ghost="FIN" ghostPlacement="center">
-      <div className="weq-end">
+      <div
+        className="weq-end"
+        onWheelCapture={(event) => {
+          // 画布仍可滚动时，保留原生滚动，不交给报告舞台翻页。
+          const canvas = event.currentTarget.parentElement;
+          if (
+            canvas &&
+            ((event.deltaY > 0 &&
+              canvas.scrollTop + canvas.clientHeight < canvas.scrollHeight - 1) ||
+              (event.deltaY < 0 && canvas.scrollTop > 0))
+          )
+            event.stopPropagation();
+        }}
+      >
         <p className="weq-end-line weq-report-line" style={{ '--i': 1 } as React.CSSProperties}>
           {allTime ? '你说过的话，全都替你收好了。' : '这一年的话，都说到这里了。'}
         </p>
@@ -181,26 +213,42 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
               const Icon = option.icon;
               const isBusy = busy === option.kind;
               return (
-                <button
-                  key={option.kind}
-                  type="button"
-                  className="weq-end-take-btn"
-                  disabled={busy != null}
-                  onClick={() => void runExport(option.kind)}
-                >
-                  {isBusy ? (
-                    <LoaderCircle className="weq-report-spin" size={17} aria-hidden />
-                  ) : (
-                    <Icon size={17} aria-hidden />
-                  )}
-                  <span className="weq-end-take-name">{option.label}</span>
-                  <span className="weq-end-take-hint">{option.hint}</span>
-                </button>
+                <div key={option.kind} className="weq-save-action-group">
+                  <button
+                    type="button"
+                    className="weq-end-take-btn"
+                    disabled={busy != null || !scopeMatches || save.settings.isLoading}
+                    onClick={() => void runExport(option.kind)}
+                  >
+                    {isBusy ? (
+                      <LoaderCircle className="weq-report-spin" size={17} aria-hidden />
+                    ) : (
+                      <Icon size={17} aria-hidden />
+                    )}
+                    <span className="weq-end-take-name">{option.label}</span>
+                    <span className="weq-end-take-hint">
+                      {IS_WEB ? '保存到服务器' : option.hint}
+                    </span>
+                  </button>
+                  <ExportSaveActions
+                    disabled={busy != null || !scopeMatches || save.settings.isLoading}
+                    onSelect={(intent) => void runExport(option.kind, intent)}
+                    label={`${option.label} 本次保存选项`}
+                    portalTarget={overlayHostRef.current}
+                  />
+                </div>
               );
             })}
           </div>
         </div>
       </div>
+      {save.serverLocation && (
+        <ServerSavePrompt
+          name={save.serverLocation.name}
+          onChoose={save.chooseServerLocation}
+          portalTarget={overlayHostRef.current}
+        />
+      )}
       {shareOpen ? (
         <QzoneShareLightbox
           year={year}

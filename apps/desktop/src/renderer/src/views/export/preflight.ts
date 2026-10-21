@@ -11,7 +11,7 @@ import { client } from '../../trpc/client';
 type EstimateInput = Parameters<typeof client.account.exportPreflight.query>[0];
 export async function preflightExportEstimate(
   dialog: AppDialogApi,
-  targets: readonly { kind: 'group' | 'c2c'; id: string; name: string }[],
+  targets: readonly { kind: 'group' | 'c2c'; id: string; name: string; messageIds?: string[] }[],
   options: {
     range: { start: number | null; end: number | null };
     formats: readonly string[];
@@ -33,7 +33,9 @@ export async function preflightExportEstimate(
           range: options.range,
           formats: options.formats.filter((f) => f !== 'vcard') as EstimateInput['formats'],
           exportMedia: options.exportMedia,
-          filter: options.filter,
+          filter: target.messageIds
+            ? { ...options.filter, messageIds: target.messageIds }
+            : options.filter,
         })),
       });
     const first = results[0]!;
@@ -250,7 +252,7 @@ export async function preflightOcrImages(dialog: AppDialogApi): Promise<boolean>
       ready.localEngineBlocker
         ? `${ready.localEngineBlocker}这台机器上只能走在线识别：请先登录该账号的 QQ 客户端并关闭完全离线模式，再重试；或关闭该选项后继续导出。`
         : '「图片文字识别」需要在线 QQ（用服务端识别），或者先下载一个本地识别模型' +
-            '（设置 → 图片识别）。请处理后重试，或关闭该选项后继续导出。',
+            '（设置 → 模型与识别 → 图片识别）。请处理后重试，或关闭该选项后继续导出。',
     );
     return false;
   }

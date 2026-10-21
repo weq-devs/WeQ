@@ -22,12 +22,14 @@ export {
 export { selectStickerByEmotion, pickRandomSticker } from './sticker';
 export { humanizeText, DEFAULT_TYPO_INTENSITY } from './typo';
 export {
+  CHAT_POS_WHITELIST,
   createJiebaSegmenter,
   setDefaultSegmenter,
   tokenizeText,
   type Segmenter,
   type JiebaDictText,
 } from './segment';
+export { normalizeChatToken } from './stopwords';
 export { scoreReplyWillingness } from './willing';
 export {
   scoreReplyGate,
@@ -116,3 +118,13 @@ export type {
   TtsVendorCatalogEntry,
 } from './tts';
 export type * from './types';
+export {
+  beginApiUsage,
+  fetchApi,
+  requestApiJson,
+  parseApiUsage,
+  isApiCancellation,
+  apiErrorMessage,
+} from './api_usage';
+export { CLONE_GENERATION, CLONE_GENERATION_KEYS, normalizeCloneGeneration } from './generation';
+export type { AgentLabGenerationConfig, CloneGenerationKey } from './generation';

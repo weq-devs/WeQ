@@ -1,12 +1,30 @@
 // @ts-nocheck
-import { Bot, Search, UserMinus, X } from 'lucide-react';
-import { useCallback, useEffect, useRef } from 'react';
+import {
+  Bot,
+  CalendarCheck,
+  ChevronRight,
+  FolderOpen,
+  Images,
+  Search,
+  Sparkles,
+  UserMinus,
+  X,
+} from 'lucide-react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
 import { Avatar, GroupInfoSkeleton, GroupMembersSkeleton } from './primitives';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
 import type { GroupConversationView } from './conversationDetailsTypes';
 import { displayUserName } from './user';
 import { cn } from './classNames';
 import { formatShortDate } from './format';
+import '../../styles/conversation-actions.css';
+import '../../styles/group-sidebar-sections.css';
 
 export type GroupInfoDetail = 'profile' | 'albums';
 
@@ -21,7 +39,15 @@ export function GroupInfoPanel({
   profileLoading,
   onOpenDetail,
   onOpenMember,
+  onMemberContextMenu,
   onOpenLeftMembers,
+  onOpenAnnouncements,
+  groupTodos,
+  onOpenEssence,
+  onOpenAlbums,
+  onOpenFiles,
+  onOpenSign,
+  onClose,
 }: {
   conversation: GroupConversationView;
   onLoadMoreMembers?: () => void;
@@ -48,9 +74,22 @@ export function GroupInfoPanel({
    * 模板层只递一个「用户点了我」的信号。
    */
   onOpenLeftMembers?: () => void;
+  onMemberContextMenu?: (
+    event: ReactMouseEvent,
+    member: GroupConversationView['members'][number],
+  ) => void;
+  onOpenAnnouncements?: () => void;
+  groupTodos?: ReactNode;
+  onOpenEssence?: () => void;
+  onOpenAlbums?: () => void;
+  onOpenFiles?: () => void;
+  onOpenSign?: () => void;
+  onClose?: () => void;
 }) {
   const memberListRef = useRef<HTMLDivElement | null>(null);
   const group = conversation.group;
+  const announcement =
+    group.announcement?.trim() || group.bulletins?.find((item) => item.text?.trim())?.text || '';
   const metaRows = [
     group.description ? ['群简介', group.description] : null,
     group.remark ? ['群备注', group.remark] : null,
@@ -104,8 +143,17 @@ export function GroupInfoPanel({
   }, [rows.length, searching, requestMoreNearBottom]);
 
   return (
-    <aside className={cn('group-info-panel')} aria-label="群聊资料">
-      <section className={cn('group-info-section', 'group-info-overview')}>
+    <aside
+      className={cn('group-info-panel', groupTodos && 'weq-group-sections')}
+      aria-label="群聊资料"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && onClose) {
+          event.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <section className={cn('group-info-section', 'group-info-overview')} aria-label="群资料">
         <header className={cn('group-info-heading')}>
           <button
             className={cn('group-info-title-button')}
@@ -115,6 +163,17 @@ export function GroupInfoPanel({
           >
             <strong>群资料</strong>
           </button>
+          {onClose ? (
+            <button
+              type="button"
+              className="weq-group-info-close"
+              title="关闭群资料"
+              aria-label="关闭群资料"
+              onClick={onClose}
+            >
+              <X size={16} />
+            </button>
+          ) : null}
         </header>
         <div className={cn('group-info-meta-list')}>
           {metaRows.length > 0 ? (
@@ -136,6 +195,56 @@ export function GroupInfoPanel({
           )}
         </div>
       </section>
+
+      {onOpenAnnouncements ? (
+        <section className="weq-group-announcement" aria-label="群公告">
+          <button type="button" onClick={onOpenAnnouncements} title="查看群公告">
+            <span>
+              <strong>群公告</strong>
+              <ChevronRight size={14} />
+            </span>
+          </button>
+          <p tabIndex={0} aria-label="公告内容">
+            {announcement || '暂无群公告'}
+          </p>
+        </section>
+      ) : null}
+      {groupTodos ? (
+        <section className="weq-group-todos" aria-label="群待办">
+          <header className="group-info-heading">
+            <strong>群待办</strong>
+          </header>
+          <div className="weq-group-todos-body">{groupTodos}</div>
+        </section>
+      ) : null}
+      {onOpenEssence || onOpenAlbums || onOpenFiles || onOpenSign ? (
+        <nav className="weq-group-content-actions" aria-label="群内容">
+          {onOpenSign ? (
+            <button type="button" onClick={onOpenSign}>
+              <CalendarCheck size={17} />
+              <span>打卡</span>
+            </button>
+          ) : null}
+          {onOpenEssence ? (
+            <button type="button" onClick={onOpenEssence}>
+              <Sparkles size={17} />
+              <span>精华</span>
+            </button>
+          ) : null}
+          {onOpenAlbums ? (
+            <button type="button" onClick={onOpenAlbums}>
+              <Images size={17} />
+              <span>相册</span>
+            </button>
+          ) : null}
+          {onOpenFiles ? (
+            <button type="button" onClick={onOpenFiles}>
+              <FolderOpen size={17} />
+              <span>文件</span>
+            </button>
+          ) : null}
+        </nav>
+      ) : null}
 
       <section className={cn('group-info-section', 'member-list-section')}>
         <header className={cn('group-info-heading group-info-title-row')}>
@@ -198,6 +307,9 @@ export function GroupInfoPanel({
               role={onOpenMember ? 'button' : undefined}
               tabIndex={onOpenMember ? 0 : undefined}
               title={onOpenMember ? '查看资料' : undefined}
+              onContextMenu={
+                onMemberContextMenu ? (event) => onMemberContextMenu(event, member) : undefined
+              }
               onClick={
                 onOpenMember
                   ? (event) => onOpenMember(member, { x: event.clientX, y: event.clientY })

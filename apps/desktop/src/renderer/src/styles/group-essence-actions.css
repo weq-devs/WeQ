@@ -1,0 +1,53 @@
+.group-essence-item:has(.weq-essence-actions) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: start;
+  gap: 8px;
+}
+.weq-essence-jump {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  color: var(--weq-fg-primary);
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+.weq-essence-jump:disabled {
+  cursor: default;
+}
+.weq-essence-jump:focus-visible,
+.weq-essence-remove:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+.weq-essence-actions {
+  display: contents;
+}
+.weq-essence-actions > button {
+  grid-column: 2;
+  grid-row: 1;
+  width: 30px;
+  height: 30px;
+  color: var(--weq-fg-secondary);
+}
+.weq-essence-actions > .weq-qq-write-result {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 4px 0 0;
+}
+.weq-essence-receipt {
+  margin: 0 0 12px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+html[data-theme='dark'] .weq-essence-jump {
+  color: var(--weq-fg-primary);
+}
+@media (prefers-reduced-motion: reduce) {
+  .group-essence-item {
+    transition: none;
+  }
+}

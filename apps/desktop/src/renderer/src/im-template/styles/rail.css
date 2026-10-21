@@ -1,389 +1,427 @@
 .app-rail {
-	grid-column: 1;
-	grid-row: 1;
-	position: relative;
-	display: grid;
-	grid-template-rows: auto 1fr auto;
-	justify-items: center;
-	gap: 22px;
-	min-width: 0;
-	min-height: 0;
-	padding: 24px 0 18px;
-	background: var(--im-color-rail-bg, #e7e7e9);
-	border-right: 1px solid var(--im-color-line, #dedede);
+  grid-column: 1;
+  grid-row: 1;
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  justify-items: center;
+  gap: 22px;
+  min-width: 0;
+  min-height: 0;
+  padding: 24px 0 18px;
+  background: var(--im-color-rail-bg, #e7e7e9);
+  border-right: 1px solid var(--im-color-line, #dedede);
 }
 
 .rail-avatar {
-	position: relative;
-	display: grid;
-	place-items: center;
-	width: 54px;
-	height: 54px;
-	border: 0;
-	background: transparent;
-	cursor: pointer;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
 .rail-avatar .avatar {
-	width: 44px;
-	height: 44px;
-	font-size: 18px;
+  width: 44px;
+  height: 44px;
+  font-size: 18px;
 }
 
 .rail-avatar span {
-	position: absolute;
-	right: 7px;
-	bottom: 6px;
-	width: 13px;
-	height: 13px;
-	border: 2px solid var(--im-color-rail-bg, #e7e7e9);
-	border-radius: 50%;
-	background: #22d77a;
+  position: absolute;
+  right: 7px;
+  bottom: 6px;
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--im-color-rail-bg, #e7e7e9);
+  border-radius: 50%;
+  background: #22d77a;
 }
 
 .rail-groups {
-	display: grid;
-	width: 100%;
-	align-content: start;
-	gap: 76px;
+  display: grid;
+  width: 100%;
+  align-content: start;
+  gap: 76px;
 }
 
 .rail-nav,
 .rail-footer {
-	display: grid;
-	gap: 8px;
-	justify-items: center;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
 }
 
 .rail-footer {
-	position: relative;
-	align-self: end;
+  position: relative;
+  align-self: end;
 }
 
 .rail-nav button,
 .rail-footer button {
-	position: relative;
-	display: grid;
-	width: 54px;
-	height: 54px;
-	place-items: center;
-	border: 0;
-	border-radius: 8px;
-	background: transparent;
-	color: #111111;
-	cursor: pointer;
-	transition: color 0.3s ease, background 0.2s ease;
+  position: relative;
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #111111;
+  cursor: pointer;
+  transition:
+    color 0.3s ease,
+    background 0.2s ease;
 }
 
 .rail-nav button.rail-desktop-hidden {
-	display: none;
+  display: none;
 }
 
 /* 「更多功能」壳：只为把弹框锚在这个按钮右边（rail 本身是 grid，按钮位置不固定）。 */
 .rail-more-wrap {
-	position: relative;
-	display: grid;
-	justify-items: center;
+  position: relative;
+  display: grid;
+  justify-items: center;
 }
 
 .rail-more-popover {
-	position: absolute;
-	left: 62px;
-	top: -6px;
-	z-index: 40;
-	display: grid;
-	width: max-content;
-	grid-template-columns: repeat(3, 56px);
-	gap: 6px;
-	padding: 8px;
-	border: 1px solid var(--im-color-line, rgba(0, 0, 0, 0.08));
-	border-radius: 10px;
-	background: var(--popover, rgba(255, 255, 255, 0.98));
-	box-shadow: 0 18px 48px rgba(0, 0, 0, 0.16);
+  position: absolute;
+  left: 62px;
+  top: -6px;
+  z-index: 40;
+  display: grid;
+  width: max-content;
+  grid-template-columns: repeat(3, 56px);
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--im-color-line, rgba(0, 0, 0, 0.08));
+  border-radius: 10px;
+  background: var(--popover, rgba(255, 255, 255, 0.98));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.16);
 }
 
 .rail-more-popover .rail-more-tile {
-	position: relative;
-	display: grid;
-	width: 56px;
-	height: 56px;
-	place-items: center;
-	border: 0;
-	border-radius: 9px;
-	background: transparent;
-	color: var(--weq-fg-secondary, #6b7686);
-	cursor: pointer;
-	transition: background-color 0.15s ease, color 0.15s ease;
+  position: relative;
+  display: grid;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--weq-fg-secondary, #6b7686);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .rail-more-popover .rail-more-tile svg {
-	color: inherit;
+  color: inherit;
 }
 
 .rail-more-popover .rail-more-tile:hover {
-	background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
-	color: var(--weq-accent-effective, #0099f7);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-accent-effective, #0099f7);
 }
 
-html[data-theme="dark"] .rail-more-popover {
-	border-color: rgba(255, 255, 255, 0.1);
-	background: #1f2429;
-	box-shadow: 0 22px 60px rgba(0, 0, 0, 0.5);
+html[data-theme='dark'] .rail-more-popover {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #1f2429;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.5);
 }
 
 .rail-tab-icon {
-	position: relative;
-	display: grid;
-	width: 22px;
-	height: 22px;
-	place-items: center;
-	overflow: hidden;
-	border-radius: 8px;
-	line-height: 0;
+  position: relative;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 8px;
+  line-height: 0;
 }
 
 .rail-tab-messages.active .rail-tab-icon svg * {
-	fill: currentColor;
-	stroke: currentColor;
+  fill: currentColor;
+  stroke: currentColor;
 }
 
 .rail-tab-messages.active .rail-tab-icon::before,
 .rail-tab-messages.active .rail-tab-icon::after {
-	position: absolute;
-	top: 10px;
-	z-index: 1;
-	width: 3px;
-	height: 3px;
-	border-radius: 50%;
-	background: #ffffff;
-	content: "";
-	pointer-events: none;
+  position: absolute;
+  top: 10px;
+  z-index: 1;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #ffffff;
+  content: '';
+  pointer-events: none;
 }
 
 .rail-tab-messages.active .rail-tab-icon::before {
-	left: 7px;
+  left: 7px;
 }
 
 .rail-tab-messages.active .rail-tab-icon::after {
-	left: 13px;
+  left: 13px;
 }
 
 .rail-contact-icon {
-	width: 22px;
-	height: 22px;
-	overflow: visible;
+  width: 22px;
+  height: 22px;
+  overflow: visible;
 }
 
 .rail-contact-head,
 .rail-contact-body-line {
-	fill: none;
-	stroke: currentColor;
-	stroke-linecap: round;
-	stroke-linejoin: round;
-	stroke-width: 1.8px;
-	transition: fill 0.3s ease, opacity 0.3s ease;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8px;
+  transition:
+    fill 0.3s ease,
+    opacity 0.3s ease;
 }
 
 .rail-contact-body-fill {
-	fill: transparent;
-	stroke: none;
-	transition: fill 0.3s ease;
+  fill: transparent;
+  stroke: none;
+  transition: fill 0.3s ease;
 }
 
 .rail-contact-collar {
-	fill: var(--im-color-rail-bg, #e7e7e9);
-	opacity: 0;
-	transform-origin: 14px 18px;
+  fill: var(--im-color-rail-bg, #e7e7e9);
+  opacity: 0;
+  transform-origin: 14px 18px;
 }
 
 .rail-nav button.active .rail-contact-head,
 .rail-nav button.active .rail-contact-body-fill {
-	fill: currentColor;
+  fill: currentColor;
 }
 
 .rail-nav button.active .rail-contact-body-line {
-	opacity: 0;
+  opacity: 0;
 }
 
 .rail-nav button:hover,
 .rail-nav button.active {
-	background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
 
 .rail-nav button.active,
 .rail-footer button:hover {
-	color: var(--weq-accent-effective, #0099f7);
+  color: var(--weq-accent-effective, #0099f7);
 }
 
 .rail-label {
-	display: none;
+  display: none;
 }
 
 .rail-badge {
-	position: absolute;
-	top: 8px;
-	right: 8px;
-	display: grid;
-	min-width: 17px;
-	height: 17px;
-	place-items: center;
-	padding: 0 5px;
-	border-radius: 999px;
-	background: #ff4638;
-	color: #ffffff;
-	font-size: 11px;
-	font-weight: 600;
-	line-height: 1;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  min-width: 17px;
+  height: 17px;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ff4638;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/*
+ * 桌面端 rail 按钮被 app-shell 缩到 38×38（见 styles/index.css），17px 的通用气泡
+ * 会压住 22px 的图标。邮箱等未放大的 tab 用小号气泡并贴角；消息/联系人 tab 有
+ * 46×46 的专属气泡规则。
+ */
+.app-shell .rail-nav .rail-badge-mail {
+  top: 2px;
+  right: 2px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border: 1px solid var(--im-color-rail-bg, #e7e7e9);
+  font-size: 9.5px;
+}
+
+html[data-theme='dark'] .app-shell .rail-nav .rail-badge-mail {
+  border-color: #343638;
+}
+
+/* 移动端 rail 按钮铺满格子、带文字标签，沿用通用气泡的居上定位。 */
+@media (max-width: 760px) {
+  .app-shell .rail-nav .rail-badge-mail {
+    top: -2px;
+    right: calc(50% - 24px);
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-width: 2px;
+    font-size: 10px;
+  }
 }
 
 /* 更新提示：只点一个小红点，不显示「新」字。 */
 .rail-badge-dot {
-	top: 6px;
-	right: 12px;
-	min-width: 9px;
-	width: 9px;
-	height: 9px;
-	padding: 0;
+  top: 6px;
+  right: 12px;
+  min-width: 9px;
+  width: 9px;
+  height: 9px;
+  padding: 0;
 }
 
 .rail-menu-popover {
-	position: absolute;
-	left: 58px;
-	bottom: 0;
-	z-index: 30;
-	display: grid;
-	width: max-content;
-	padding: 6px;
-	border: 1px solid rgba(0, 0, 0, 0.08);
-	border-radius: 8px;
-	background: var(--popover, rgba(255, 255, 255, 0.96));
-	box-shadow: 0 18px 48px rgba(0, 0, 0, 0.14);
+  position: absolute;
+  left: 58px;
+  bottom: 0;
+  z-index: 30;
+  display: grid;
+  width: max-content;
+  padding: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: var(--popover, rgba(255, 255, 255, 0.96));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.14);
 }
 
 .rail-menu-popover button {
-	display: grid;
-	width: 100%;
-	height: 34px;
-	min-height: 34px;
-	grid-template-columns: 20px max-content;
-	align-items: center;
-	justify-items: start;
-	gap: 8px;
-	padding: 0 9px;
-	border: 0;
-	border-radius: 6px;
-	background: transparent;
-	color: var(--weq-fg-primary, #111111);
-	font-size: 15px;
-	font-weight: 400;
-	text-align: left;
-	cursor: pointer;
+  display: grid;
+  width: 100%;
+  height: 34px;
+  min-height: 34px;
+  grid-template-columns: 20px max-content;
+  align-items: center;
+  justify-items: start;
+  gap: 8px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 15px;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
 }
 
 .rail-menu-popover button span {
-	justify-self: start;
-	text-align: left;
+  justify-self: start;
+  text-align: left;
 }
 
 .rail-menu-popover button:hover {
-	background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
 }
 
 .profile-popover {
-	position: absolute;
-	left: 66px;
-	top: 28px;
-	z-index: 35;
-	display: grid;
-	width: 350px;
-	gap: 16px;
-	padding: 24px;
-	border: 1px solid color-mix(in srgb, var(--im-color-line, rgba(0, 0, 0, 0.08)) 72%, transparent);
-	border-radius: 8px;
-	background:
-		linear-gradient(
-			165deg,
-			color-mix(in srgb, var(--weq-accent-effective) 10%, white),
-			color-mix(in srgb, var(--weq-accent-effective) 3%, white) 42%
-		),
-		var(--card, #ffffff);
-	box-shadow: 0 18px 48px rgba(0, 0, 0, 0.14);
+  position: absolute;
+  left: 66px;
+  top: 28px;
+  z-index: 35;
+  display: grid;
+  width: 350px;
+  gap: 16px;
+  padding: 24px;
+  border: 1px solid color-mix(in srgb, var(--im-color-line, rgba(0, 0, 0, 0.08)) 72%, transparent);
+  border-radius: 8px;
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--weq-accent-effective) 10%, white),
+      color-mix(in srgb, var(--weq-accent-effective) 3%, white) 42%
+    ),
+    var(--card, #ffffff);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.14);
 }
 
 .profile-popover-head {
-	display: grid;
-	grid-template-columns: 68px minmax(0, 1fr);
-	gap: 14px;
-	align-items: center;
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
 }
 
 .profile-popover-head .avatar {
-	width: 68px;
-	height: 68px;
-	font-size: 26px;
+  width: 68px;
+  height: 68px;
+  font-size: 26px;
 }
 
 .profile-popover-head div {
-	display: grid;
-	gap: 5px;
+  display: grid;
+  gap: 5px;
 }
 
 .profile-popover-head strong {
-	overflow: hidden;
-	font-size: 22px;
-	font-weight: 600;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+  overflow: hidden;
+  font-size: 22px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .profile-popover-head span {
-	color: var(--weq-fg-secondary, #8a8a8a);
-	font-size: 16px;
-	font-style: normal;
-	font-weight: 400;
+  color: var(--weq-fg-secondary, #8a8a8a);
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 400;
 }
 
 .profile-popover-head em {
-	display: inline-flex;
-	align-items: center;
-	gap: 7px;
-	color: var(--weq-fg-primary, #111111);
-	font-size: 17px;
-	font-style: normal;
-	font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 17px;
+  font-style: normal;
+  font-weight: 500;
 }
 
 .profile-popover-head em span {
-	width: 18px;
-	height: 18px;
-	border-radius: 50%;
-	background: #22d77a;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #22d77a;
 }
 
 .profile-popover-row {
-	display: grid;
-	grid-template-columns: 72px minmax(0, 1fr);
-	align-items: center;
-	gap: 14px;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
 }
 
 .profile-popover-row span {
-	color: var(--weq-fg-secondary, #8a8a8a);
-	font-size: 16px;
-	font-weight: 400;
+  color: var(--weq-fg-secondary, #8a8a8a);
+  font-size: 16px;
+  font-weight: 400;
 }
 
 .profile-popover-row strong {
-	overflow: hidden;
-	color: var(--weq-fg-primary, #111111);
-	font-size: 16px;
-	font-weight: 500;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+  overflow: hidden;
+  color: var(--weq-fg-primary, #111111);
+  font-size: 16px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .profile-popover-actions {
-	display: grid;
-	grid-template-columns: 1fr 1fr;
-	gap: 14px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
 }

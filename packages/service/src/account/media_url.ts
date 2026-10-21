@@ -155,7 +155,7 @@ export function mediaNodeFromElement(el: MediaElement): MediaIndexNode {
     // ptt 的时长走 pttDuration（videoDuration 只在 video 元素上有）。
     time: el.videoDuration ?? el.pttDuration ?? 0,
     original: el.isOriginal ? 1 : 0,
-    storeId: el.storeId ?? (isVideo ? el.fileFlag45415 : 0),
+    storeId: el.storeId ?? (isVideo ? el.fileFlag45415 : 1),
     uploadTime: el.uploadTime ?? 0,
     ttl: el.fileTTL ?? 0,
     subType: el.subType ?? 0,

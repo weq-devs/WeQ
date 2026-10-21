@@ -18,10 +18,9 @@
 import { useEffect, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
-import { Download, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useOverlayLayer } from '../lib/overlayStack';
-import { exportMedia } from '../lib/mediaExport';
-import { useToast } from './Toast';
+import { MediaSourceSave } from './MediaSaveControls';
 import { useZoomPan } from './useZoomPan';
 
 interface VideoLightboxStore {
@@ -59,12 +58,6 @@ export function VideoLightbox(): ReactElement | null {
   const close = useVideoLightbox((s) => s.close);
   const zoom = useZoomPan(src, { clickZoom: false });
   const layer = useOverlayLayer(src !== null);
-
-  async function onSave(): Promise<void> {
-    const result = await exportMedia({ url: src ?? '', name: posterName }, 'save');
-    if (result.ok || result.canceled) return;
-    useToast.getState().push({ tone: 'error', title: '另存为失败', message: result.error });
-  }
 
   useEffect(() => {
     if (!src) return;
@@ -108,15 +101,12 @@ export function VideoLightbox(): ReactElement | null {
           />
         </div>
         <div className="weq-lightbox-actions" onMouseDown={(event) => event.stopPropagation()}>
-          <button
+          <MediaSourceSave
+            key={src}
+            source={{ kind: 'url', url: src, name: posterName }}
             className="weq-lightbox-action"
-            type="button"
-            title="另存为"
-            onClick={() => void onSave()}
-          >
-            <Download size={15} />
-            另存为
-          </button>
+            label="保存视频"
+          />
         </div>
       </div>
     </div>,

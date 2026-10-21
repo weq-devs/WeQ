@@ -1,6 +1,6 @@
 /** 复用 im-template 的 QQ 气泡样式（chat.css 的 message-line / message-bubble）渲染一行。 */
 import { Fragment, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { Bot, Pause, Play } from 'lucide-react';
+import { Bot, Pause, Play, Sparkles } from 'lucide-react';
 import { QqAvatar } from '../../components/QqAvatar';
 import { FaceEmoji } from '../../components/FaceEmoji';
 import { mediaUrl } from '../../lib/resourceUrl';
@@ -132,9 +132,16 @@ export function ChatBubble({
   // 合成语音：整条消息就是一个语音标记时，渲染成语音气泡。
   const voiceMatch = personaId ? text.match(VOICE_MARKER) : null;
   // 头像统一用 uin 拼 weq-avatar:// 协议，不依赖数据库里存的外链。
+  // 助手没有 QQ 号，用和助手面板一致的渐变星芒头像；给空 uin 只会回落成灰色小人。
   const avatar = (
     <span className="avatar">
-      <QqAvatar uin={uin} size={36} />
+      {bot ? (
+        <span className="weq-asst-avatar is-bubble" aria-hidden>
+          <Sparkles size={18} strokeWidth={1.9} />
+        </span>
+      ) : (
+        <QqAvatar uin={uin} size={36} />
+      )}
     </span>
   );
   return (

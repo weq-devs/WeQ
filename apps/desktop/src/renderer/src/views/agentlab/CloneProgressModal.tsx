@@ -33,7 +33,7 @@ export function CloneProgressModal({
     task.status === 'done' ? '克隆完成' : task.status === 'error' ? '克隆失败' : '正在克隆…';
 
   return (
-    <Modal onClose={onHide} width={460}>
+    <Modal presentation="popover" onClose={onHide} width={460}>
       <div className="weq-clone-modal">
         <header className="weq-clone-modal-head">
           <span className="weq-clone-modal-icon">
@@ -70,7 +70,7 @@ export function CloneProgressModal({
           <p className="weq-clone-progress-hint">
             {running
               ? task.mode === 'group'
-                ? '私聊为主，语料不足时会到 TA 所在群补采风格，可隐藏到左下角任务列表后台继续。'
+                ? '私聊为主，语料不足时会到 TA 所在群补采风格，可隐藏到任务列表后台继续。'
                 : '正在分析你和 TA 的私聊记录，可隐藏到任务列表继续等待…'
               : task.status === 'done'
                 ? 'TA 的克隆体已经准备好啦~'

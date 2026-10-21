@@ -7,22 +7,103 @@
  */
 
 import { z } from 'zod';
+import { exportAccountBindingInput, exportSavePolicyInput } from './export_save';
 import { join } from 'node:path';
 import { copyFile, mkdir } from 'node:fs/promises';
-import { getHost, sanitizeSegment, uniqueName } from '@weq/service';
+import {
+  exportOutputFileName,
+  getHost,
+  sanitizeSegment,
+  saveExportOutput,
+  uniqueName,
+} from '@weq/service';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { searchCatalog } from '../../market_catalog';
+import { MARKET_DOWNLOAD_MAX_PACKS } from '../../../shared/market_emoji';
 
-function requireServices(): AccountServices {
+function requireServices(
+  expectedAccountUin?: string,
+  expectedAccountConfigId?: string,
+): AccountServices {
   const ctx = getAppContext();
+  if (expectedAccountUin && String(ctx.account?.context.uin ?? '') !== expectedAccountUin)
+    throw new Error('账号已切换，已停止操作');
   if (!ctx.services) {
     throw new Error('No account session open — call bootstrap.openAccount first.');
   }
+  if (
+    expectedAccountConfigId &&
+    ctx.services.accountConfig.getRecord()?.configId !== expectedAccountConfigId
+  )
+    throw new Error('账号数据源已切换，已停止操作');
   return ctx.services;
 }
 
 export const marketEmojiRouter = router({
+  /** 单张大图沿用原有 GIF 缓存，不枚举或下载同包的其他表情。 */
+  startImageSave: procedure
+    .input(
+      exportAccountBindingInput.extend({
+        packId: z.string().regex(/^\d+$/),
+        hash: z.string().regex(/^[0-9a-f]{6,64}$/i),
+        name: z.string().min(1),
+        savePolicy: exportSavePolicyInput,
+      }),
+    )
+    .mutation(({ input }) => {
+      const services = requireServices(input.expectedAccountUin, input.expectedAccountConfigId);
+      const check = () => {
+        if (requireServices(input.expectedAccountUin, input.expectedAccountConfigId) !== services)
+          throw new Error('账号或数据源已切换，请重新选择表情。');
+      };
+      const output = { kind: 'file' as const, name: input.name, extension: 'gif' };
+      const fileName = exportOutputFileName(output);
+      return services.exportManager.startResourceExport({
+        kind: 'market-image',
+        name: input.name,
+        output,
+        savePolicy: input.savePolicy,
+        run: async ({ directory, signal }) => {
+          check();
+          signal.throwIfAborted();
+          const path = await services.emoji.getMarketPackImage(input.packId, input.hash);
+          check();
+          signal.throwIfAborted();
+          if (!path) throw new Error('这张表情不可用或解密失败');
+          await saveExportOutput(
+            { name: input.name, filePath: path },
+            { filePath: join(directory, fileName) },
+            signal,
+          );
+          return { total: 1, ok: 1, failed: [], fileName };
+        },
+      });
+    }),
+
+  downloadImage: procedure
+    .input(
+      exportAccountBindingInput.extend({
+        packId: z.string().regex(/^\d+$/),
+        hash: z.string().regex(/^[0-9a-f]{6,64}$/i),
+        name: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const host = getHost();
+      if (!host.registerDownload) throw new Error('当前环境不支持浏览器下载');
+      const services = requireServices(input.expectedAccountUin, input.expectedAccountConfigId);
+      const path = await services.emoji.getMarketPackImage(input.packId, input.hash);
+      if (requireServices(input.expectedAccountUin, input.expectedAccountConfigId) !== services)
+        throw new Error('账号或数据源已切换，请重新选择表情。');
+      if (!path) throw new Error('这张表情不可用或解密失败');
+      return host.registerDownload(
+        path,
+        exportOutputFileName({ kind: 'file', name: input.name, extension: 'gif' }),
+        'file',
+      );
+    }),
+
   /** One page of market-face stickers (itemId + hash + detected MIME type). */
   listEntries: procedure
     .input(
@@ -158,13 +239,18 @@ export const marketEmojiRouter = router({
   startDownload: procedure
     .input(
       z.object({
+        savePolicy: exportSavePolicyInput.optional(),
+        ...exportAccountBindingInput.shape,
         packs: z
           .array(z.object({ id: z.string().min(1), name: z.string() }))
           .min(1)
-          .max(200),
+          .max(MARKET_DOWNLOAD_MAX_PACKS),
       }),
     )
     .mutation(({ input }) => {
-      return requireServices().exportManager.startMarketPackDownload(input.packs);
+      return requireServices(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).exportManager.startMarketPackDownload(input.packs, input.savePolicy);
     }),
 });

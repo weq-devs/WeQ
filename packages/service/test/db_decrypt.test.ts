@@ -1,4 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  truncateSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,6 +73,38 @@ afterEach(() => {
 });
 
 describe('database export allocation guard', () => {
+  it('开始前取消不创建目录，单并发中取消不再分配下一份数据库', async () => {
+    const abort = new AbortController();
+    abort.abort(new Error('合成取消'));
+    const outputDir = join(dir, 'cancelled');
+    await expect(
+      service.decryptDatabases({
+        items: [{ dbPath }],
+        outputDir,
+        mode: 'safe',
+        signal: abort.signal,
+      }),
+    ).rejects.toThrow('合成取消');
+    expect(existsSync(outputDir)).toBe(false);
+    const second = join(dir, 'next.db');
+    writeFileSync(second, 'synthetic');
+    const pending = new AbortController();
+    const progress = vi.fn(() => pending.abort(new Error('停止后续库')));
+    await expect(
+      service.decryptDatabases({
+        items: [{ dbPath }, { dbPath: second }],
+        outputDir,
+        mode: 'safe',
+        concurrency: 1,
+        signal: pending.signal,
+        onProgress: progress,
+      }),
+    ).rejects.toThrow('停止后续库');
+    expect(progress).toHaveBeenCalledOnce();
+    expect(existsSync(join(outputDir, 'next.db'))).toBe(false);
+    expect(readFileSync(dbPath, 'utf8')).toBe('fixture');
+    expect(readFileSync(second, 'utf8')).toBe('synthetic');
+  });
   it.each([
     [MAX_FAST_DECRYPT_BYTES - 1, 'fast', 'fast'],
     [MAX_FAST_DECRYPT_BYTES, 'fast', 'safe'],

@@ -39,6 +39,8 @@ export interface GapFetchedMessage {
   msgId: string;
   msgSeq: string;
   msgRandom?: string;
+  clientSeq?: string;
+  localSent?: boolean;
   /** True only when this row was indexed using a server NT conversation sequence. */
   ntSeqVerified?: boolean;
   /** 会话 key：私聊为对方 uid，群聊为群号。 */
@@ -113,7 +115,11 @@ export function toGapMessage(
     msgId: String(head.msgId),
     msgSeq: String(head.sequence),
     ...(kind === 'c2c'
-      ? { msgRandom: String(head.msgId), ntSeqVerified: (head.ntMsgSeq ?? 0) > 0 }
+      ? {
+          msgRandom: String(head.msgId),
+          ntSeqVerified: (head.ntMsgSeq ?? 0) > 0,
+          ...(head.clientSequence ? { clientSeq: String(head.clientSequence) } : {}),
+        }
       : {}),
     conv,
     senderUid: sender.uid,
@@ -200,6 +206,10 @@ export class GapHistoryService {
     return this.cache.query(kind, conv, startSeq, endSeq, kind === 'c2c', limit, descending);
   }
 
+  latestSent(): Promise<GapFetchedMessage[]> {
+    return this.cache.latestSent();
+  }
+
   /** Batch coverage is committed only after this durable cache write succeeds. */
   async retainForBatch(messages: GapFetchedMessage[]): Promise<void> {
     for (let i = 0; i < messages.length; i += 80) await this.cache.store(messages.slice(i, i + 80));
@@ -207,6 +217,15 @@ export class GapHistoryService {
 
   async cachedForExport(kind: 'c2c' | 'group', conv: string): Promise<GapFetchedMessage[]> {
     return this.cache.allForExport(kind, conv);
+  }
+
+  resolveReplySeq(
+    conv: string,
+    clientSeq: string,
+    senderUin?: string,
+    sendTime?: string,
+  ): Promise<string | null> {
+    return this.cache.resolveReplySeq(conv, clientSeq, senderUin, sendTime);
   }
 
   /** 按 msgId 找一条已缓存的缺失消息（媒体补全 / 文件下载回查用）。 */

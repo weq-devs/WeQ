@@ -28,6 +28,8 @@ import {
 import type { DressMallItem } from '@weq/service';
 import { trpc } from '../../trpc/client';
 import { useOverlayLayer } from '../../lib/overlayStack';
+import { useRenderDocument } from '../../lib/renderDocument';
+import { useSurfaceEscape } from '../../lib/surfaceEscape';
 import { dressUrl } from '../../lib/resourceUrl';
 import { closeFromScrim } from '../../im-template/template/modalUtils';
 import { cn } from '../../im-template/template/classNames';
@@ -38,23 +40,6 @@ import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { segsToRenderElements, type MfDecoration, type MfSeg } from './model';
 
 type DressKind = 'bubble' | 'font' | 'widget';
-
-/**
- * Escape 只让**最上层**的浮层响应。背景的合并转发对话框也挂了文档级 Escape 监听，
- * 这里在 capture 阶段拦下并阻止冒泡，避免一次 Esc 把两层一起关掉。
- */
-function useTopEscape(enabled: boolean, onClose: () => void): void {
-  useEffect(() => {
-    if (!enabled) return;
-    function onKey(event: KeyboardEvent): void {
-      if (event.key !== 'Escape') return;
-      event.stopPropagation();
-      onClose();
-    }
-    document.addEventListener('keydown', onKey, true);
-    return () => document.removeEventListener('keydown', onKey, true);
-  }, [enabled, onClose]);
-}
 
 const KIND_META: Record<DressKind, { label: string; icon: ReactElement }> = {
   bubble: { label: '气泡', icon: <Palette size={14} /> },
@@ -136,7 +121,11 @@ export function MsgDressEditor({
   onChange: (decoration: MfDecoration | undefined) => void;
   onClose: () => void;
 }): ReactElement {
+  const document = useRenderDocument();
   const layer = useOverlayLayer(true);
+  const ref = useRef<HTMLDivElement>(null);
+  // 在提交和子层自动聚焦前记住触发点，关闭时回到原窗口的原控件。
+  const returnFocus = useRef(document.activeElement as HTMLElement | null);
 
   const [dec, setDec] = useState<MfDecoration>(
     decoration ?? { bubbleId: 0, fontId: 0, widgetId: 0 },
@@ -147,7 +136,14 @@ export function MsgDressEditor({
   const [names, setNames] = useState<Partial<Record<DressKind, string>>>({});
 
   // 商城灯箱打开时把 Escape 让给它。
-  useTopEscape(pickFor === null, onClose);
+  useSurfaceEscape(ref, onClose, pickFor === null, true);
+  useEffect(() => {
+    const previous = returnFocus.current;
+    ref.current?.querySelector<HTMLInputElement>('input')?.focus();
+    return () => {
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [document]);
 
   function commit(next: MfDecoration): void {
     setDec(next);
@@ -189,7 +185,13 @@ export function MsgDressEditor({
       role="presentation"
       onMouseDown={closeFromScrim(onClose)}
     >
-      <div className="weq-mf-dress-card" role="dialog" aria-modal="true" aria-label="编辑装扮">
+      <div
+        ref={ref}
+        className="weq-mf-dress-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label="编辑装扮"
+      >
         <header className="weq-mf-dress-head">
           <span className="weq-mf-dress-head-icon">
             <Sparkles size={15} />
@@ -295,8 +297,18 @@ function DressMallPicker({
   onPick: (item: DressMallItem) => void;
   onBack: () => void;
 }): ReactElement {
+  const document = useRenderDocument();
   const layer = useOverlayLayer(true);
-  useTopEscape(true, onBack);
+  const ref = useRef<HTMLDivElement>(null);
+  const returnFocus = useRef(document.activeElement as HTMLElement | null);
+  useSurfaceEscape(ref, onBack, true, true);
+  useEffect(() => {
+    const previous = returnFocus.current;
+    ref.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    return () => {
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [document]);
   const [draft, setDraft] = useState('');
   const [keyword, setKeyword] = useState('');
 
@@ -320,7 +332,13 @@ function DressMallPicker({
       role="presentation"
       onMouseDown={closeFromScrim(onBack)}
     >
-      <div className="weq-mf-mall-card" role="dialog" aria-modal="true" aria-label="选择装扮">
+      <div
+        ref={ref}
+        className="weq-mf-mall-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label="选择装扮"
+      >
         <header className="weq-mf-dress-head">
           <span className="weq-mf-dress-head-icon">{KIND_META[kind].icon}</span>
           <strong>选择{KIND_META[kind].label}</strong>

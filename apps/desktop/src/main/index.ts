@@ -1,7 +1,10 @@
+import { compositionPopupOptions, controlCompositionWindow } from './composition_window';
+import { floatingWindowTypeOption } from './linux_window_backend';
 import {
   app,
   BrowserWindow,
   clipboard,
+  ClipboardItem,
   dialog,
   ipcMain,
   Menu,
@@ -10,15 +13,24 @@ import {
   protocol,
   shell,
   Tray,
+  type IpcMainEvent,
 } from 'electron';
 import fs from 'node:fs';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { initAppContext, setGroupKeywordNotifier, setRecallNotifier } from './context/app_context';
+import {
+  initAppContext,
+  setGroupKeywordNotifier,
+  setIntentSenseLocalEngine,
+  setRecallNotifier,
+  setMailNotifier,
+} from './context/app_context';
+import { getIntentSenseLocalEngine } from './intent_sense/bridge';
 import { probeQqProtocolHandler } from './context/qq_protocol';
 import { appRouter } from './ipc/router';
+import { guardTrpcReply } from './ipc/reply_guard';
 import { resolveResource } from './resource';
 import { RESOURCE_PRIVILEGED_SCHEME } from './resource_protocol';
 import { AVATAR_PRIVILEGED_SCHEME } from './avatar_protocol';
@@ -31,6 +43,7 @@ import {
 import { getAppContext } from './context/app_context';
 import { handleGroupKeywordHit } from './group_keyword_notify';
 import { handleRecallNotification } from './recall_notify';
+import { handleMailNotification } from './mail_notify';
 import { checkForUpdate, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
@@ -44,21 +57,30 @@ import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
 import { createMainWindowLifecycle } from './main_window_lifecycle';
+import { createRendererRecovery } from './renderer_recovery';
+import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
 import { macApplicationMenu, nativeMenuLabels } from './application_menu';
+import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
 import { registerAttachHintIpc } from './attach_hint_ipc';
 import { registerElevationIpc } from './elevation_ipc';
 import {
   getLogDir,
   getLogger,
   setHost,
-  type MediaElement,
+  type ExportSavePolicy,
   type WindowCloseBehavior,
 } from '@weq/service';
 import { electronHost } from './host';
+import { mediaSaveRouter } from './ipc/routers/media_save';
 import { systemAuthService } from './system_auth';
 import { totpAuthService } from './totp_auth';
 import { screenshotPage } from './link_shot';
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const moduleDir = dirname(fileURLToPath(import.meta.url));
+
+// Wayland 会话默认走 XWayland（见 linux_window_backend.ts）：这里**不能**用
+// `appendSwitch`，ozone 后端必须在 Electron 启动参数里指定。开发时由
+// electron.vite.config.ts 注入 `ELECTRON_CLI_ARGS`，打包版由 electron-builder 的
+// `linux.executableArgs` 注入。
 
 // Privileged-scheme registration must happen before app `ready`, and Electron
 // honors only ONE `registerSchemesAsPrivileged` call — register every custom
@@ -84,15 +106,19 @@ const WINDOW_LAYOUTS = {
   chat: { width: 1180, height: 760 },
 } as const;
 
+type WindowLayout = keyof typeof WINDOW_LAYOUTS;
+
 const logger = getLogger().child({ scope: 'desktop-main' });
 
 /** Created once; reopening attaches a window without registering IPC again. */
 let mainIpcHandler: { attachWindow(win: BrowserWindow): void } | null = null;
+const compositionWindows = new Map<number, BrowserWindow>();
 /** System-tray icon; null until built (or if creation failed). */
 let tray: Tray | null = null;
 /** Set true right before a *real* quit so the `close` handler stops intercepting
  *  and lets the window actually close (托盘退出 / 确认框「完全退出」/ before-quit). */
 let isQuitting = false;
+let stopRendererDiagnostics: (() => void) | null = null;
 
 const mainWindowLifecycle = createMainWindowLifecycle({
   canOpen: () => mainIpcHandler !== null && !isQuitting,
@@ -166,14 +192,18 @@ function buildTray(): void {
 }
 
 function registerWindowLayoutIpc(): void {
-  ipcMain.handle('window:set-layout', (event, layout: keyof typeof WINDOW_LAYOUTS) => {
+  ipcMain.on('composition:control', (event, action: unknown) => {
+    const child = compositionWindows.get(event.sender.id);
+    if (child) controlCompositionWindow(child, action);
+  });
+  ipcMain.handle('window:set-layout', (event, layout: WindowLayout) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const size = WINDOW_LAYOUTS[layout] ?? WINDOW_LAYOUTS.home;
     // Don't fight a user who maximized/fullscreened the window.
     if (!win || win.isMaximized() || win.isFullScreen()) return;
-    const [w, h] = win.getSize();
+    const [w, h] = win.getContentSize();
     if (w === size.width && h === size.height) return;
-    win.setSize(size.width, size.height, true);
+    win.setContentSize(size.width, size.height, true);
   });
 
   ipcMain.on('window-minimize', (event) => {
@@ -256,13 +286,7 @@ function registerMediaIpc(): void {
     }
   });
 
-  // OIDB completion for a chat file that isn't on disk. Resolves the download
-  // URL (group vs c2c by the message's own kind), streams it into the media
-  // cache, then reveals it in the OS file manager. Needs an online QQ.
-  //
-  // `fwdMsgId` marks a merged-forward sub-message: `msgId` is then the CARRYING
-  // message and the element comes from its 40900 cache instead of the msg
-  // tables. Such a file's original scene is unknowable, so both are tried.
+  // 兼容旧入口；资源解析与保存只走公共单文件任务。
   ipcMain.handle(
     'file:download',
     async (
@@ -273,129 +297,48 @@ function registerMediaIpc(): void {
         token: string;
         conv: string;
         fwdMsgId?: string;
-        fwdKind?: 'group' | 'c2c';
+        fwdKind?: 'c2c' | 'group';
+        savePolicy?: ExportSavePolicy;
+        expectedAccountUin?: string;
+        expectedAccountConfigId?: string;
       },
-    ): Promise<{ success: boolean; error?: string; path?: string }> => {
-      const ctx = getAppContext();
-      const services = ctx.services;
-      const boot = ctx.bootstrap;
-      if (!services || !boot) return { success: false, error: '未打开账号' };
-      const { msgId, name, token, conv, fwdMsgId = '', fwdKind = 'c2c' } = input;
-      console.log('[file:download] request', { msgId, name, token, conv, fwdMsgId });
-      logger.info('requested file download', {
-        event: 'file-download-start',
-        msgId,
-        name,
-        token,
-        conv,
-        fwdMsgId,
-      });
-      if (!msgId) return { success: false, error: '缺少消息 ID' };
-
-      // Forwarded sub-message → element from the carrier's 40900 cache, and its
-      // original scene is unknown (null). Otherwise → our own msg tables.
-      let el: MediaElement | undefined;
-      let convKind: 'group' | 'c2c' | null = null;
-      if (fwdMsgId) {
-        try {
-          el =
-            ((await services.msgs.findForwardedMediaElement(
-              fwdKind,
-              BigInt(msgId),
-              BigInt(fwdMsgId),
-              'file',
-              token,
-            )) as unknown as MediaElement | null) ?? undefined;
-        } catch (e) {
-          console.error('[file:download] forward cache lookup failed:', e);
-          return { success: false, error: '转发消息查找失败' };
-        }
-      } else {
-        let raw: Awaited<ReturnType<typeof services.msgs.getRawElements>>;
-        try {
-          raw = await services.msgs.getRawElements(BigInt(msgId));
-        } catch (e) {
-          console.error('[file:download] getRawElements failed:', e);
-          return { success: false, error: '读取消息失败' };
-        }
-        if (!raw) {
-          // 缺失消息弹窗拉到的漫游消息不在本地 msg 表：按 msgId 回退漫游缓存。
-          const gap = await services.gapHistory.findMediaElement(msgId, 'file', token);
-          if (!gap) return { success: false, error: '未找到该消息' };
-          el = gap.element;
-          convKind = gap.conv;
-        } else {
-          const matches = raw.elements.filter((e) => e.kind === 'file');
-          console.log('[file:download] kind=%s, file elements=%d', raw.kind, matches.length);
-          el = ((token
-            ? matches.find((e) => (e as { fileToken?: string }).fileToken === token)
-            : undefined) ?? matches[0]) as unknown as MediaElement | undefined;
-          convKind = raw.kind;
-        }
-      }
-      if (!el) return { success: false, error: '消息中未找到文件元素' };
-      const elToken = el.fileToken ?? '';
-      console.log('[file:download] element fileToken=%s', elToken);
-
-      const fileName = name || el.fileName || elToken || 'download';
-      const dest = join(boot.userConfig.cacheDir('media'), 'file', fileName);
-      if (fs.existsSync(dest)) {
-        logger.info('file download cache hit', {
-          event: 'file-download-cache-hit',
-          msgId,
-          path: dest,
-        });
-        shell.showItemInFolder(dest);
-        return { success: true, path: dest };
-      }
-
-      const groupId = Number(conv) || 0;
-      let url: string;
+    ) => {
       try {
-        url =
-          convKind === null
-            ? await services.mediaUrl.resolveFileUrlUnknownScene(groupId, el, fileName)
-            : await services.mediaUrl.resolveFileUrl(convKind, groupId, el, fileName);
-      } catch (e) {
-        console.error('[file:download] OIDB resolve failed:', e);
-        return {
-          success: false,
-          error: `OIDB 解析失败：${e instanceof Error ? e.message : String(e)}`,
-        };
-      }
-      console.log('[file:download] resolved url:', url ? `${url.slice(0, 120)}?` : '(empty)');
-      if (!url) return { success: false, error: 'OIDB 返回空链接（QQ 是否在线？）' };
-
-      const { downloadUrlToFile } = await import('@weq/service');
-      const outcome = await downloadUrlToFile(url, dest);
-      if (!outcome.ok) {
-        console.error('[file:download] download failed:', outcome.reason);
-        logger.warn('file download failed', {
-          event: 'file-download-failed',
-          msgId,
-          name: fileName,
-          reason: outcome.reason,
+        const taskId = await mediaSaveRouter.createCaller({}).save({
+          source: {
+            kind: 'chat-file',
+            msgId: input.msgId,
+            name: input.name,
+            token: input.token,
+            conv: input.conv,
+            fwdMsgId: input.fwdMsgId || undefined,
+            fwdKind: input.fwdKind,
+          },
+          savePolicy: input.savePolicy,
+          expectedAccountUin: input.expectedAccountUin,
+          expectedAccountConfigId: input.expectedAccountConfigId,
         });
-        return { success: false, error: `下载失败：${outcome.reason}` };
+        return taskId ? { success: true, taskId } : { success: false, canceled: true };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : '文件保存失败' };
       }
-      console.log('[file:download] saved to', dest);
-      logger.info('file downloaded successfully', {
-        event: 'file-download-success',
-        msgId,
-        name: fileName,
-        path: dest,
-      });
-      shell.showItemInFolder(dest);
-      return { success: true, path: dest };
     },
   );
 }
 
-/** 文件名里剔掉路径分隔符等非法字符；空名字返回 ''。 */
-function sanitizeExportName(name: string | undefined): string {
-  const trimmed = (name ?? '').trim();
-  if (!trimmed) return '';
-  return trimmed.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120);
+/**
+ * 把 NativeImage 写进系统剪贴板。
+ *
+ * Electron 44 对齐 W3C Clipboard API，移除了 `clipboard.writeImage`，统一走
+ * 异步的 `clipboard.write([ClipboardItem])`；图片按 PNG 编码后以 `image/png`
+ * MIME 交给系统。
+ */
+async function writeImageToClipboard(image: Electron.NativeImage): Promise<void> {
+  await clipboard.write([
+    new ClipboardItem({
+      'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }),
+    }),
+  ]);
 }
 
 /**
@@ -410,41 +353,44 @@ function registerMediaExportIpc(): void {
   ipcMain.handle(
     'media:export',
     async (
-      event,
-      input: { url?: string; name?: string; mode?: 'save' | 'clipboard' },
-    ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }> => {
+      _event,
+      input: {
+        url?: string;
+        name?: string;
+        mode?: 'save' | 'clipboard';
+        savePolicy?: ExportSavePolicy;
+        expectedAccountUin?: string;
+        expectedAccountConfigId?: string;
+      },
+    ): Promise<{
+      ok: boolean;
+      canceled?: boolean;
+      taskId?: string;
+      path?: string;
+      error?: string;
+    }> => {
       const url = input?.url ?? '';
       if (!url) return { ok: false, error: '没有可导出的图片来源' };
-      if (!/^(https?:|weq-media:|weq-asset:)/i.test(url)) {
+      if (!/^(https?:|weq-media:|weq-asset:)/i.test(url))
         return { ok: false, error: '这张图还没有落盘，暂时导出不了' };
-      }
       try {
+        if (input.mode !== 'clipboard') {
+          const taskId = await mediaSaveRouter.createCaller({}).save({
+            source: { kind: 'url', url, name: input.name },
+            savePolicy: input.savePolicy,
+            expectedAccountUin: input.expectedAccountUin,
+            expectedAccountConfigId: input.expectedAccountConfigId,
+          });
+          return taskId ? { ok: true, taskId } : { ok: false, canceled: true };
+        }
         const response = await net.fetch(url);
         if (!response.ok) return { ok: false, error: `读取图片失败（HTTP ${response.status}）` };
         const bytes = Buffer.from(await response.arrayBuffer());
-        if (bytes.length === 0) return { ok: false, error: '读到的图片是空的' };
-
-        if (input?.mode === 'clipboard') {
-          const image = nativeImage.createFromBuffer(bytes);
-          if (image.isEmpty()) return { ok: false, error: '这张图的格式没法写进剪贴板' };
-          clipboard.writeImage(image);
-          return { ok: true };
-        }
-
-        let suggested = sanitizeExportName(input?.name);
-        if (suggested && !/\.[a-z0-9]{2,5}$/i.test(suggested)) suggested += '.jpg';
-        const win = BrowserWindow.fromWebContents(event.sender);
-        const result = win
-          ? await dialog.showSaveDialog(win, { defaultPath: suggested || undefined })
-          : await dialog.showSaveDialog({ defaultPath: suggested || undefined });
-        if (result.canceled || !result.filePath) return { ok: false, canceled: true };
-        await fs.promises.writeFile(result.filePath, bytes);
-        logger.info('exported media from lightbox', {
-          event: 'media-export',
-          path: result.filePath,
-          bytes: bytes.length,
-        });
-        return { ok: true, path: result.filePath };
+        if (!bytes.length) return { ok: false, error: '读到的图片是空的' };
+        const image = nativeImage.createFromBuffer(bytes);
+        if (image.isEmpty()) return { ok: false, error: '这张图的格式没法写进剪贴板' };
+        await writeImageToClipboard(image);
+        return { ok: true };
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : '导出失败' };
       }
@@ -520,7 +466,7 @@ function registerCaptureIpc(): void {
     try {
       const image = await win.webContents.capturePage();
       if (image.isEmpty()) return { ok: false, error: '截图为空' };
-      clipboard.writeImage(image);
+      await writeImageToClipboard(image);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -542,22 +488,20 @@ function createWindow(): BrowserWindow {
   // is the least invasive one that Hyprland/sway treat as floating (unlike
   // 'splash', it keeps the taskbar entry). Opt-out with WEQ_WINDOW_TYPE=normal
   // (or override to another value) so this can be disabled per-environment.
-  const windowType =
-    process.env.WEQ_WINDOW_TYPE ?? (process.platform === 'linux' ? 'toolbar' : undefined);
   const win = new BrowserWindow({
     width: 1120,
     height: 580,
     minWidth: 940,
     minHeight: 520,
-    show: false,
+    show: true,
     title: 'WeQ Desktop',
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
     titleBarStyle: 'hidden',
-    ...(windowType && windowType !== 'normal' ? { type: windowType } : {}),
+    ...floatingWindowTypeOption(),
     ...(icon ? { icon } : {}),
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
+      preload: join(moduleDir, '../preload/index.mjs'),
       sandbox: false,
       contextIsolation: true,
       // 允许在渲染层用 <webview> 内嵌 QQ 空间 / 频道（见 QzoneView / ChannelView）。
@@ -566,16 +510,57 @@ function createWindow(): BrowserWindow {
     },
   });
 
+  const recovery = createRendererRecovery({
+    unavailable: () => win.isDestroyed() || win.webContents.isDestroyed(),
+    quitting: () => isQuitting,
+    showDialog: async () => {
+      const result = await dialog.showMessageBox(win, {
+        type: 'error',
+        title: 'WeQ 界面已停止运行',
+        message: '界面进程意外退出，后台进程仍在运行。',
+        detail:
+          '可以重新加载界面或退出 WeQ。未保存的界面内容可能丢失；已提交操作的结果可能尚未显示，请先核对，不要直接重复提交。重新加载不会自动重发操作。',
+        buttons: ['重新加载界面', '退出 WeQ', '稍后处理'],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
+      });
+      return result.response;
+    },
+    reload: () => win.webContents.reload(),
+    quit: () => {
+      isQuitting = true;
+      app.quit();
+    },
+    record: (event, details) =>
+      logger.warn('main renderer recovery', {
+        event: `renderer-recovery-${event}`,
+        webContentsId: win.webContents.id,
+        ...details,
+      }),
+  });
+  win.webContents.on('render-process-gone', (_event, details) => recovery.gone(details));
+  win.webContents.on('did-finish-load', () => recovery.loaded());
+  win.once('closed', () => recovery.dispose());
+
   const reveal = () => {
-    if (win.isDestroyed() || win.isVisible()) return;
+    if (win.isDestroyed()) return;
     win.show();
+    win.restore();
     win.focus();
+    try {
+      win.setAlwaysOnTop(true);
+      win.setAlwaysOnTop(false);
+    } catch {
+      /* ignore */
+    }
   };
 
   win.on('ready-to-show', reveal);
   // Fallback: in some environments `ready-to-show` can be delayed or missed
   // (e.g. compositor/driver quirks). Guarantee visibility once content loads.
   win.webContents.on('did-finish-load', reveal);
+  setTimeout(reveal, 1000);
 
   // Apply the user-configured close action (设置 → 全局设置 → 关闭按钮):
   //   'quit' → quit the app on every platform;
@@ -583,6 +568,11 @@ function createWindow(): BrowserWindow {
   //   'ask'  → ask the renderer to show the 关闭确认框 (default, first time).
   win.on('close', (e) => {
     if (isQuitting || win !== getMainWindow()) return;
+    if (recovery.needsRecovery()) {
+      e.preventDefault();
+      recovery.request();
+      return;
+    }
     const behavior = resolveCloseBehavior();
     if (behavior === 'quit') {
       isQuitting = true;
@@ -595,18 +585,45 @@ function createWindow(): BrowserWindow {
       return;
     }
     // 'ask' — or 'tray' but the tray failed to build → fall back to asking.
-    win.webContents.send('window:confirm-close', { canMinimizeToTray: Boolean(tray) });
+    win.webContents.send('window:confirm-close', {
+      canMinimizeToTray: Boolean(tray),
+    });
   });
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  win.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    const options = compositionPopupOptions(url, frameName);
+    if (options) return { action: 'allow', overrideBrowserWindowOptions: options };
     shell.openExternal(url);
     return { action: 'deny' };
+  });
+  win.webContents.on('did-create-window', (child, details) => {
+    if (details.frameName !== 'weq-compose' || details.url !== 'about:blank') return;
+    const owner = win.webContents.id;
+    compositionWindows.set(owner, child);
+    const reportState = () => {
+      if (!win.isDestroyed() && !child.isDestroyed())
+        win.webContents.send('composition:state', { maximized: child.isMaximized() });
+    };
+    child.on('maximize', reportState);
+    child.on('unmaximize', reportState);
+    reportState();
+    child.on('closed', () => {
+      if (compositionWindows.get(owner) === child) compositionWindows.delete(owner);
+    });
+    child.webContents.setWindowOpenHandler(({ url }) => {
+      void shell.openExternal(url);
+      return { action: 'deny' };
+    });
+    child.webContents.on('will-navigate', (event, url) => {
+      event.preventDefault();
+      if (url !== 'about:blank') void shell.openExternal(url);
+    });
   });
 
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     void win.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'));
+    void win.loadFile(join(moduleDir, '../renderer/index.html'));
   }
   return win;
 }
@@ -637,6 +654,15 @@ void app.whenReady().then(async () => {
   setHost(electronHost);
   installUpdateActions();
   initAppContext();
+  const logDirectory = getLogDir();
+  if (logDirectory)
+    stopRendererDiagnostics = startRendererDiagnostics({
+      directory: logDirectory,
+      mainWebContentsId: () => {
+        const window = getMainWindow();
+        return window && !window.isDestroyed() ? window.webContents.id : undefined;
+      },
+    });
   // 链接卡片抓不到 og:image 时的兜底封面。截图要跑一个真浏览器，服务层不认识
   // Electron，所以实现在这里注入（app_context 保持 Electron-free，web 端共用它）。
   getAppContext().bootstrap?.linkPreview.setScreenshotHook(screenshotPage);
@@ -645,6 +671,10 @@ void app.whenReady().then(async () => {
   setGroupKeywordNotifier(handleGroupKeywordHit);
   // 防撤回：拦到新撤回时按会话开关弹系统通知（服务层注入，保持 Electron-free）。
   setRecallNotifier(handleRecallNotification);
+  setMailNotifier(handleMailNotification);
+  // 意图感知本地引擎（Laya ONNX worker）：bridge 认识 Electron（userData 路径、
+  // fork），同样从这里注入控制面；web 端不注入，localAvailable 恒为 false。
+  setIntentSenseLocalEngine(getIntentSenseLocalEngine());
   logger.info('electron app ready', { event: 'app-ready' });
 
   registerResourceProtocol();
@@ -666,19 +696,33 @@ void app.whenReady().then(async () => {
   registerWeqAssistantIpc();
   registerAttachHintIpc();
   registerElevationIpc();
+  registerEditUndoIpc();
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);
   });
 
-  mainIpcHandler = createIPCHandler({ router: appRouter, windows: [] });
+  mainIpcHandler = createIPCHandler({
+    router: appRouter,
+    windows: [],
+    createContext: async ({ event }) => {
+      // electron-trpc 实际使用 ipcMain.on，但类型误声明为 InvokeEvent。
+      guardTrpcReply(event as IpcMainEvent);
+      return {};
+    },
+  });
   openMainWindow();
   logger.info('main window created', { event: 'create-window' });
   buildTray();
   if (process.platform === 'darwin') {
     Menu.setApplicationMenu(
       Menu.buildFromTemplate(
-        macApplicationMenu(openMainWindow, app.getPreferredSystemLanguages()[0] ?? app.getLocale()),
+        macApplicationMenu(
+          openMainWindow,
+          app.getPreferredSystemLanguages()[0] ?? app.getLocale(),
+          undoFocusedContent,
+          redoFocusedContent,
+        ),
       ),
     );
   }
@@ -723,6 +767,8 @@ app.on('window-all-closed', () => {
 // flip the flag so the `close` handler stops intercepting, and drop the tray.
 app.on('before-quit', () => {
   isQuitting = true;
+  stopRendererDiagnostics?.();
+  stopRendererDiagnostics = null;
   try {
     getAppContext().services?.roamingBackfill.dispose();
   } catch (error) {

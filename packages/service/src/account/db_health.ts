@@ -140,6 +140,7 @@ function stampParts(d = new Date()): { date: string; time: string; ts: string } 
 
 export function renderDbHealthReportMarkdown(input: DbHealthReportInput): string {
   const { date, time } = stampParts();
+  const confirmedDamage = input.failures.some((failure) => !failure.error);
   const lines: string[] = [];
   lines.push('# WeQ 数据库健康检查报告');
   lines.push('');
@@ -154,6 +155,8 @@ export function renderDbHealthReportMarkdown(input: DbHealthReportInput): string
     lines.push(`- 状态：健康检查未能完成（${input.checkError}）`);
   } else if (input.failures.length === 0) {
     lines.push('- 状态：未检出损坏');
+  } else if (!confirmedDamage) {
+    lines.push('- 状态：健康检查未能完成，尚不能确认数据库损坏');
   } else {
     lines.push(`- 状态：检出数据库损坏（${input.failures.length} 项失败）`);
   }
@@ -172,6 +175,13 @@ export function renderDbHealthReportMarkdown(input: DbHealthReportInput): string
         lines.push(`- ${f.dbName}：${f.corruptedTables.map((t) => `${t} 表损坏`).join('、')}`);
       }
     }
+  }
+  if (!confirmedDamage && (input.checkError || input.failures.length > 0)) {
+    lines.push('');
+    lines.push(
+      '请先核对账号数据源、密钥和加密算法；解密失败不等于文件损坏。确认原因前不要替换原库或执行修复。',
+    );
+    return lines.join('\n');
   }
   lines.push('');
   lines.push('## 建议修复方案');

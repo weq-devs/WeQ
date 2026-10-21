@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { TrpcProvider } from './trpc/provider';
 import { ensureThemeInitialized } from './state/theme';
+import { OverlayAnchorProvider } from './lib/overlayAnchor';
 import './styles/index.css';
 
 const root = document.getElementById('root');
@@ -13,7 +14,9 @@ ensureThemeInitialized();
 createRoot(root).render(
   <StrictMode>
     <TrpcProvider>
-      <App />
+      <OverlayAnchorProvider>
+        <App />
+      </OverlayAnchorProvider>
     </TrpcProvider>
   </StrictMode>,
 );

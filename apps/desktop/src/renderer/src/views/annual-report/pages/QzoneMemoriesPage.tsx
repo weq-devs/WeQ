@@ -9,7 +9,7 @@ import {
 } from 'react';
 import { Heart, Lock, Play, Quote } from 'lucide-react';
 import type { QzoneMemoriesPageData, ReportQzonePost } from '@weq/service';
-import { isAllTimeYear, reportEraLabel } from '@weq/service/report-time';
+import { isAllTimeYear, reportCalendarParts, reportEraLabel } from '@weq/service/report-time';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { Odometer, usePrefersReducedMotion } from '../Odometer';
 import { albumMediaUrl } from '../../../lib/resourceUrl';
@@ -35,9 +35,9 @@ const MONTHS = [
 
 function fmtMonthDay(sec: number, withYear = false): string {
   if (!sec) return '';
-  const date = new Date(sec * 1000);
-  const label = `${MONTHS[date.getMonth()]}${date.getDate()}日`;
-  return withYear ? `${date.getFullYear()}年${label}` : label;
+  const { year, month, day } = reportCalendarParts(new Date(sec * 1000));
+  const label = `${MONTHS[month - 1]}${day}日`;
+  return withYear ? `${year}年${label}` : label;
 }
 
 /** 说说富文本里的提及/表情 token 只做安全文本展示；长文截成一句有回忆感的摘录。 */
@@ -88,7 +88,7 @@ export function QzoneMemoriesPage({
   const metricName = highlight?.metric === 'like' ? '赞' : '评论';
   const heroPost = highlight?.post;
   const firstYear = data.firstPostTime
-    ? `${new Date(data.firstPostTime * 1000).getFullYear()} 年`
+    ? `${reportCalendarParts(new Date(data.firstPostTime * 1000)).year} 年`
     : '';
 
   return (

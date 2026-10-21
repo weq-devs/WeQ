@@ -30,12 +30,12 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import {
-  SALVAGE_AGGREGATE_CAVEAT,
-  SALVAGE_EXPERIMENTAL_NOTE,
-  SALVAGE_EXPERIMENTAL_TAG,
-  SALVAGE_SKIPPED_SPAN_CAVEAT,
-} from '@weq/service/db-tolerance-copy';
+// import {
+//   SALVAGE_AGGREGATE_CAVEAT,
+//   SALVAGE_EXPERIMENTAL_NOTE,
+//   SALVAGE_EXPERIMENTAL_TAG,
+//   SALVAGE_SKIPPED_SPAN_CAVEAT,
+// } from '@weq/service/db-tolerance-copy';
 import { Modal } from './Dialog';
 import { useToast } from './Toast';
 import { client } from '../trpc/client';
@@ -162,7 +162,7 @@ export function DatabaseDamagedDialog({
   };
 
   return (
-    <Modal onClose={onClose} labelledBy="weq-db-damaged-title" width={520}>
+    <Modal onClose={onClose} dismissOnOutside={false} labelledBy="weq-db-damaged-title" width={520}>
       <div className="weq-dialog weq-dialog-error weq-db-damaged">
         <div className="weq-dialog-head">
           <span className="weq-dialog-icon">
@@ -180,7 +180,11 @@ export function DatabaseDamagedDialog({
           <section className="weq-db-damaged-section">
             <h4>发生了什么</h4>
             <p>{isCheckError ? '检测 QQ 数据库健康状态时发生错误。' : '检测到 QQ 数据库损坏。'}</p>
-            <p>问题通常出在 QQ 数据库本身，不是 WeQ 软件导致。</p>
+            <p>
+              {isCheckError
+                ? '解密失败、数据源不匹配或文件尚未就绪都可能导致读取失败，不能据此认定文件损坏。请先核对数据源和密钥，不要直接修复或替换原库。'
+                : '请保留原始文件并核对检查报告；仅凭此结果不能判断损坏由哪个程序或操作导致。'}
+            </p>
             {!isCheckError ? (
               <p>
                 真正恢复数据靠<strong>数据库修复</strong>：它会把能读出来的内容重建到一份新库
@@ -188,59 +192,47 @@ export function DatabaseDamagedDialog({
                 下面的主按钮可以直接过去。
               </p>
             ) : null}
-            <p>
-              另一种办法是到 <strong>设置 → 数据库宽容</strong> 自己选容错级别
-              <span className="weq-set-exp-badge">{SALVAGE_EXPERIMENTAL_TAG}</span>
-              —— 它只保证"少读一点也能用"（例如让导出能跑完），{' '}
-              <strong>不负责把坏掉的内容找回来</strong>，对年报这类整表聚合大概率没用。
-              能开到哪一级、会付出什么代价，需要你在设置页里看清楚再决定。
-              {SALVAGE_EXPERIMENTAL_NOTE}
-            </p>
-            {!isCheckError ? (
-              <p>
-                {SALVAGE_AGGREGATE_CAVEAT} 具体跳过/降级过什么，都会记在 设置 → 数据库宽容
-                的账本里；{SALVAGE_SKIPPED_SPAN_CAVEAT}
-              </p>
-            ) : null}
           </section>
 
-          <ExpandSection title="手工修复方案（备用，可展开）">
-            <p>
-              一般用不上：上面的「尝试修复」已经是同一条链（解密 → 重建 → 重新加密 → 补回
-              文件头）的自动化版本。只有当修复也修不出来（例如坏得太重、要连库结构一起抢救）
-              时，再走下面的手工路径。
-            </p>
-            <ol className="weq-db-fix-steps">
-              <li>
-                移除 1024 字节自定义头（从第 1025 字节开始截取）：
-                <pre className="weq-db-codeblock">
-                  tail -c +1025 nt_msg.db &gt; nt_msg_stripped.db
-                </pre>
-              </li>
-              <li>
-                用 Windows 版 sqlcipher 解密并导出为 SQL 文件（密钥见反馈包
-                <code> db_key_and_algos.json</code>）：
-                <pre className="weq-db-codeblock">
-                  {
-                    'sqlcipher nt_msg_stripped.db\nPRAGMA key="<dbKey>";\nPRAGMA cipher_migrate;\n.output nt_msg.sql\n.dump'
-                  }
-                </pre>
-              </li>
-              <li>
-                用 msys2 把 SQL 导入生成新的 db 文件（sed 会把出错中止的 ROLLBACK 改成
-                COMMIT，自动跳过损坏的行）：
-                <pre className="weq-db-codeblock">
-                  {
-                    "cat nt_msg.sql | sed -e 's|^ROLLBACK;\\( -- due to errors\\)*$|COMMIT;|g' | sqlite3 nt_msg.db"
-                  }
-                </pre>
-              </li>
-              <li>
-                修复完成后，用 WeQ 的「静态目录」方案（首页 → 新的开始 → 静态目录）打开
-                修复后的数据库目录继续使用。
-              </li>
-            </ol>
-          </ExpandSection>
+          {!isCheckError && (
+            <ExpandSection title="手工修复方案（备用，可展开）">
+              <p>
+                一般用不上：上面的「尝试修复」已经是同一条链（解密 → 重建 → 重新加密 → 补回
+                文件头）的自动化版本。只有当修复也修不出来（例如坏得太重、要连库结构一起抢救）
+                时，再走下面的手工路径。
+              </p>
+              <ol className="weq-db-fix-steps">
+                <li>
+                  移除 1024 字节自定义头（从第 1025 字节开始截取）：
+                  <pre className="weq-db-codeblock">
+                    tail -c +1025 nt_msg.db &gt; nt_msg_stripped.db
+                  </pre>
+                </li>
+                <li>
+                  用 Windows 版 sqlcipher 解密并导出为 SQL 文件（密钥见反馈包
+                  <code> db_key_and_algos.json</code>）：
+                  <pre className="weq-db-codeblock">
+                    {
+                      'sqlcipher nt_msg_stripped.db\nPRAGMA key="<dbKey>";\nPRAGMA cipher_migrate;\n.output nt_msg.sql\n.dump'
+                    }
+                  </pre>
+                </li>
+                <li>
+                  用 msys2 把 SQL 导入生成新的 db 文件（sed 会把出错中止的 ROLLBACK 改成
+                  COMMIT，自动跳过损坏的行）：
+                  <pre className="weq-db-codeblock">
+                    {
+                      "cat nt_msg.sql | sed -e 's|^ROLLBACK;\\( -- due to errors\\)*$|COMMIT;|g' | sqlite3 nt_msg.db"
+                    }
+                  </pre>
+                </li>
+                <li>
+                  修复完成后，用 WeQ 的「静态目录」方案（首页 → 新的开始 → 静态目录）打开
+                  修复后的数据库目录继续使用。
+                </li>
+              </ol>
+            </ExpandSection>
+          )}
 
           <ExpandSection title="检测详情（可展开）" className="weq-db-damaged-details">
             {event.details.length > 0 ? (
@@ -296,14 +288,16 @@ export function DatabaseDamagedDialog({
             <BellOff size={13} strokeWidth={2} aria-hidden />
             不再提醒
           </button>
-          <button
-            type="button"
-            className="weq-action-primary"
-            onClick={() => onOpenRepair(event.uin)}
-          >
-            <Wrench size={13} strokeWidth={2} aria-hidden />
-            尝试修复
-          </button>
+          {!isCheckError && (
+            <button
+              type="button"
+              className="weq-action-primary"
+              onClick={() => onOpenRepair(event.uin)}
+            >
+              <Wrench size={13} strokeWidth={2} aria-hidden />
+              尝试修复
+            </button>
+          )}
         </div>
       </div>
     </Modal>

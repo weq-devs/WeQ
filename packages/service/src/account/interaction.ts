@@ -14,12 +14,16 @@ import { createHash } from 'node:crypto';
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import {
+  ClickInlineKeyboardButton,
   detectImageFormat,
   GetEmojiLikes,
   SendGroupJoinRequest,
   SendGroupSignup,
+  SendGroupSign,
   SendPoke,
+  SetInputStatus,
   SetReaction,
+  type ClickInlineButtonResult,
   type SendGroupSignupImage,
 } from '@weq/protocol';
 
@@ -189,6 +193,19 @@ export class InteractionService {
     });
   }
 
+  async submitGroupJoinRequest(
+    params: SendGroupJoinRequestServiceParams,
+  ): Promise<'accepted' | 'unconfirmed'> {
+    const groupCode = Number(params.groupCode);
+    if (!Number.isSafeInteger(groupCode) || groupCode <= 0 || !params.authKey)
+      throw new Error('加群参数不完整');
+    return SendGroupJoinRequest.invokeWithOutcome(this.nt, this.resolvePid(), {
+      groupCode,
+      authKey: params.authKey,
+      answer: params.answer,
+    });
+  }
+
   /** 把纯数字目标解析成 uin；非纯数字按 uid 反查本地 uid 目录。 */
   private resolveUin(input: string, what: string): number {
     const text = input.trim();
@@ -304,5 +321,48 @@ export class InteractionService {
       code: params.code,
       isSet: params.isSet,
     });
+  }
+
+  /** 点击机器人消息里的内联按钮（OIDB 0x112E_1）。 */
+  async clickInlineButton(params: {
+    groupId: string | number;
+    botAppid: number | string;
+    buttonId: string;
+    msgSeq: number | string;
+    callbackData?: string;
+  }): Promise<ClickInlineButtonResult> {
+    return ClickInlineKeyboardButton.invoke(this.nt, this.resolvePid(), {
+      groupId: Number(params.groupId),
+      botAppid: params.botAppid,
+      buttonId: params.buttonId,
+      msgSeq: params.msgSeq,
+      ...(params.callbackData !== undefined ? { callbackData: params.callbackData } : {}),
+    });
+  }
+
+  /**
+   * 群打卡（OIDB 0xEB7_1）。
+   *
+   * `selfUin` 缺省取当前会话的 uin；协议要求字符串形态。
+   */
+  async sendGroupSign(groupId: string | number, selfUin?: string | number): Promise<void> {
+    await SendGroupSign.invoke(this.nt, this.resolvePid(), {
+      groupId: Number(groupId),
+      selfUin: String(selfUin ?? this.session.context.uin),
+    });
+  }
+
+  /**
+   * 设置私聊「正在输入」等输入状态（OIDB 0xCD4_1）。
+   *
+   * `targetId` 可以是 QQ 号或 uid；uid 会经本地 uid 目录反查 uin 再转回 uid。
+   */
+  async setInputStatus(targetId: string, eventType: number): Promise<void> {
+    this.resolveUin(targetId, '目标 QQ 号');
+    const uid = /^\d+$/.test(targetId.trim())
+      ? this.session.uidMap.uidByUin(BigInt(this.resolveUin(targetId, '目标 QQ 号')))
+      : targetId.trim();
+    if (!uid) throw new Error(`本地 uid 目录里没有 uid「${targetId}」。`);
+    await SetInputStatus.invoke(this.nt, this.resolvePid(), { targetUid: uid, eventType });
   }
 }

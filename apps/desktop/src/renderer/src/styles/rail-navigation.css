@@ -1,0 +1,88 @@
+/* 内容入口展开后，小窗口滚动导航，底部账号与快捷控制保持独立。 */
+.app-shell .rail-nav .rail-mobile-settings {
+  display: none;
+}
+
+.rail-message-entry {
+  position: relative;
+  display: grid;
+  place-items: center;
+  isolation: isolate;
+}
+
+.rail-message-entry > .rail-tab-messages {
+  z-index: 0;
+}
+
+.app-shell .rail-nav .rail-message-entry > .rail-message-badge {
+  position: absolute;
+  z-index: 1;
+  top: 5px;
+  right: 3px;
+  width: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  grid-template-rows: 1fr;
+  gap: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--destructive);
+  color: var(--destructive-foreground);
+  font-size: 11px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell .rail-nav .rail-message-entry > .rail-message-badge:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.app-shell .rail-groups {
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+@media (max-width: 760px) {
+  .app-shell .rail-nav .rail-mobile-settings {
+    display: grid;
+  }
+
+  .rail-message-entry {
+    width: 100%;
+    height: 100%;
+  }
+
+  .app-shell .rail-nav .rail-message-entry > .rail-message-badge {
+    top: 0;
+    right: calc(50% - 24px);
+  }
+
+  .app-shell .rail-groups {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .app-shell .rail-nav {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(64px, 1fr);
+    gap: 0;
+  }
+
+  .app-shell .rail-nav button,
+  .app-shell .rail-nav button.rail-tab-messages,
+  .app-shell .rail-nav button.rail-tab-contacts {
+    width: 100%;
+    height: 100%;
+  }
+
+  .app-shell .rail-label {
+    max-width: 100%;
+    white-space: nowrap;
+    font-size: 11px;
+  }
+}

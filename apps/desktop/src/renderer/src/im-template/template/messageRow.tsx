@@ -17,7 +17,7 @@
  * 决定「画成灰条还是画成气泡」。
  */
 
-import type { ReactElement, MouseEvent as ReactMouseEvent } from 'react';
+import type { ReactElement, ReactNode, MouseEvent as ReactMouseEvent } from 'react';
 import { Check } from 'lucide-react';
 import type { Conversation, Message, MessageAction, User } from './types';
 import { MessageBubble } from './messageBubble';
@@ -131,10 +131,18 @@ export function GrayTipLine({
           element={gt.el as never}
           conversation={conversation as never}
           message={message as never}
+          user={user}
         />
       );
     case 'grayTipXml':
-      return <GrayTipXmlMessage element={gt.el as never} conversation={conversation as never} />;
+      return (
+        <GrayTipXmlMessage
+          element={gt.el as never}
+          conversation={conversation}
+          message={message}
+          user={user}
+        />
+      );
     case 'grayTipFileRecv':
       return <GrayTipFileRecvMessage element={gt.el as never} />;
     case 'grayTipTempSession':
@@ -180,12 +188,15 @@ export function MessageRow({
   onContextMenu,
   onLongPress,
   onAction,
+  onReedit,
   onAvatarClick,
   onAvatarContextMenu,
   selectionMode = false,
   selected = false,
   onToggleSelect,
   reactionRemoval,
+  repeatAction,
+  pendingAction,
   /** 灰条外层的 class（聊天区靠它对齐，转发窗口用窄一点的边距）。 */
   grayTipClassName,
 }: {
@@ -205,12 +216,15 @@ export function MessageRow({
   onContextMenu?: (event: unknown, message: Message) => void;
   onLongPress?: (point: { x: number; y: number }, message: Message) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
+  onReedit?: (message: Message) => Promise<boolean>;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
   onAvatarContextMenu?: (event: unknown, sender: User) => void;
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;
   reactionRemoval?: ReactionRemoval;
+  repeatAction?: ReactNode;
+  pendingAction?: ReactNode;
   grayTipClassName?: string;
 }): ReactElement {
   const gt = grayTipOf(message);
@@ -228,6 +242,8 @@ export function MessageRow({
           .filter(Boolean)
           .join(' ')}
         data-message-id={message.id}
+        data-weq-select-id={selectionMode ? message.id : undefined}
+        tabIndex={selectionMode ? 0 : undefined}
         onContextMenu={onContextMenu ? (event) => onContextMenu(event, message) : undefined}
         onClickCapture={
           selectionMode && onToggleSelect
@@ -275,12 +291,15 @@ export function MessageRow({
       onContextMenu={noopContextMenu}
       onLongPress={noopLongPress}
       onAction={onAction}
+      onReedit={onReedit}
       onAvatarClick={onAvatarClick}
       onAvatarContextMenu={onAvatarContextMenu}
       selectionMode={selectionMode}
       selected={selected}
       onToggleSelect={onToggleSelect}
       reactionRemoval={reactionRemoval}
+      repeatAction={repeatAction}
+      pendingAction={pendingAction}
     />
   );
 }

@@ -17,6 +17,14 @@
 
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { beginApiUsage, isApiCancellation } from './api_usage';
+import type { AgentLabEndpoint } from './types';
+
+const ttsUsage = new AsyncLocalStorage<{
+  endpoint: AgentLabEndpoint;
+  call?: ReturnType<typeof beginApiUsage>;
+}>();
 
 /** 支持的 TTS 厂商（照 MaiBot 插件 + 一个通用 OpenAI 兼容）。 */
 export type TtsVendor =
@@ -63,6 +71,7 @@ export interface TtsRefClip {
 }
 
 export interface TtsSynthesizeOptions {
+  usageFeature?: string;
   /** 覆盖默认音色（preset 模式）。 */
   voice?: string;
   /** 情感关键词（部分厂商支持，映射成各自参数）。 */
@@ -280,12 +289,31 @@ async function fetchWithTimeout(
   timeoutMs: number,
 ): Promise<Response> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const timer = setTimeout(
+    () => ctrl.abort(new DOMException('语音请求超时', 'TimeoutError')),
+    timeoutMs,
+  );
+  const context = ttsUsage.getStore();
+  if (context && (!context.call || init.method?.toUpperCase() === 'POST')) {
+    context.call?.finish('failed');
+    context.call = beginApiUsage(context.endpoint);
+  }
   try {
-    return await fetch(url, { ...init, signal: ctrl.signal });
+    const response = await fetch(url, { ...init, signal: ctrl.signal });
+    if (!response.ok) context?.call?.finish('failed');
+    return response;
+  } catch (error) {
+    context?.call?.finish(isApiCancellation(error, ctrl.signal) ? 'cancelled' : 'failed');
+    throw error;
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function readTtsJson(response: Response): Promise<unknown> {
+  const data: unknown = await response.json();
+  if (data && typeof data === 'object' && 'usage' in data) ttsUsage.getStore()?.call?.report(data);
+  return data;
 }
 
 // ── 各厂商后端：text → 音频字节 ──────────────────────────────────────────────
@@ -348,6 +376,11 @@ const gsv2p: Backend = async (cfg, text, opts) => {
       );
       const ct = res.headers.get('content-type') ?? '';
       const buf = Buffer.from(await res.arrayBuffer());
+      if (ct.includes('application/json')) {
+        try {
+          ttsUsage.getStore()?.call?.report(JSON.parse(buf.toString('utf-8')));
+        } catch {}
+      }
       if (res.ok && !ct.includes('application/json'))
         return { audio: ensureAudio(buf, 'gsv2p'), format };
       lastErr = `HTTP ${res.status} — ${buf.toString('utf-8').slice(0, 150)}`;
@@ -393,7 +426,7 @@ const minimax: Backend = async (cfg, text, opts) => {
     throw new Error(
       `TTS(minimax) HTTP ${res.status} — ${(await res.text().catch(() => '')).slice(0, 200)}`,
     );
-  const data = (await res.json()) as {
+  const data = (await readTtsJson(res)) as {
     base_resp?: { status_code?: number; status_msg?: string };
     data?: { audio?: string };
   };
@@ -451,7 +484,7 @@ const mimo: Backend = async (cfg, text, opts) => {
     throw new Error(
       `TTS(mimo) HTTP ${res.status} — ${(await res.text().catch(() => '')).slice(0, 200)}`,
     );
-  const data = (await res.json()) as {
+  const data = (await readTtsJson(res)) as {
     choices?: Array<{ message?: { audio?: { data?: string } } }>;
   };
   const b64 = data.choices?.[0]?.message?.audio?.data;
@@ -552,7 +585,7 @@ const cosyvoice: Backend = async (cfg, text, opts) => {
   form.append('files', new Blob([wav], { type: 'audio/wav' }), basename(ref.path));
   const up = await fetchWithTimeout(`${root}/upload`, { method: 'POST', body: form }, timeout);
   if (!up.ok) throw new Error(`CosyVoice 上传参考音频失败 HTTP ${up.status}`);
-  const uploaded = (await up.json()) as string[];
+  const uploaded = (await readTtsJson(up)) as string[];
   const serverPath = uploaded?.[0];
   if (!serverPath) throw new Error('CosyVoice 上传参考音频未返回路径');
 
@@ -579,7 +612,7 @@ const cosyvoice: Backend = async (cfg, text, opts) => {
     timeout,
   );
   if (!call.ok) throw new Error(`CosyVoice 调用失败 HTTP ${call.status}`);
-  const callJson = (await call.json()) as { event_id?: string };
+  const callJson = (await readTtsJson(call)) as { event_id?: string };
   const eventId = callJson.event_id;
   if (!eventId) throw new Error('CosyVoice 未返回 event_id');
 
@@ -694,6 +727,7 @@ function cryptoRandomId(): string {
 // ── 服务门面 ────────────────────────────────────────────────────────────────
 
 export class TtsService {
+  constructor(private readonly onUsage?: AgentLabEndpoint['onUsage']) {}
   listCatalog(): TtsVendorCatalogEntry[] {
     return TTS_VENDOR_CATALOG;
   }
@@ -712,7 +746,27 @@ export class TtsService {
     if (!body) throw new Error('待合成文本为空');
     const backend = BACKENDS[cfg.vendor];
     if (!backend) throw new Error(`未知 TTS 厂商：${cfg.vendor}`);
-    return backend(cfg, body, opts);
+    const context: NonNullable<ReturnType<typeof ttsUsage.getStore>> = {
+      endpoint: {
+        baseUrl: cfg.baseUrl,
+        apiKey: '',
+        model: (opts.refClip ? cfg.cloneModel : cfg.model) || `tts:${cfg.vendor}`,
+        kind: 'speech',
+        feature: opts.usageFeature ?? 'tts-synthesis',
+        onUsage: this.onUsage,
+        source: cfg.vendor === 'gpt-sovits' || cfg.vendor === 'cosyvoice' ? 'local' : 'api',
+      },
+    };
+    return ttsUsage.run(context, async () => {
+      try {
+        const result = await backend(cfg, body, opts);
+        context.call?.finish('success');
+        return result;
+      } catch (error) {
+        context.call?.finish(isApiCancellation(error) ? 'cancelled' : 'failed');
+        throw error;
+      }
+    });
   }
 
   /** 设置页「测试」：合成一句样例，返回 base64 供前端试听。 */
@@ -726,7 +780,10 @@ export class TtsService {
       if (caps.clone && !caps.fixedVoice) {
         return { ok: true, error: '该厂商为语音克隆型，需在克隆体里绑定参考音频后才能试听。' };
       }
-      const { audio, format } = await this.synthesize(cfg, sample, { timeoutMs: 30_000 });
+      const { audio, format } = await this.synthesize(cfg, sample, {
+        timeoutMs: 30_000,
+        usageFeature: 'tts-test',
+      });
       return { ok: true, audioBase64: audio.toString('base64'), format };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };

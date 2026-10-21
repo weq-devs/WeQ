@@ -21,6 +21,7 @@ import { type AuthGate, peerKey } from './auth';
 import { LOGIN_PAGE } from './login_page';
 import { toProtocolRequest, writeResponse } from './protocol_adapter';
 import { lookupDownload } from './host';
+import { streamArchiveDownload } from './archive_download';
 import { serveStatic } from './static';
 import { handleMediaRequest } from '@weq/desktop/main/media_protocol';
 import { handleAvatarRequest } from '@weq/desktop/main/avatar_protocol';
@@ -134,8 +135,10 @@ async function handleRequest(
     const id = path.slice('/_download/'.length);
     const entry = lookupDownload(id);
     if (!entry) return send(res, 404, 'not found');
+    if (entry.kind === 'directory') return streamArchiveDownload(res, entry.path, entry.name);
     const out = await fileResponse(entry.path);
     const headers = new Headers(out.headers);
+    headers.set('Cache-Control', 'no-store');
     headers.set(
       'Content-Disposition',
       `attachment; filename*=UTF-8''${encodeURIComponent(entry.name)}`,

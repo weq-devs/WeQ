@@ -3,7 +3,7 @@
  */
 
 import { ProtoMsg } from '@weq/codec';
-import { OnlineStatusBody } from '@weq/codec/proto/profile/48902';
+import { OnlineStatusBody, OnlineStatusCustomWire } from '@weq/codec/proto/profile/48902';
 import { QqDb } from '../qq_db';
 
 export class MiscDb extends QqDb {
@@ -23,20 +23,20 @@ export class MiscDb extends QqDb {
     const detail = decoded.status?.detail;
     if (!detail) return null;
 
+    let customStatus: OnlineStatusData['customStatus'];
+    if (detail.subType === 2000 && detail.extendedPayload) {
+      const custom = new ProtoMsg(OnlineStatusCustomWire).decode(detail.extendedPayload);
+      if (custom.faceId !== undefined && custom.text !== undefined && custom.faceType !== undefined)
+        customStatus = { faceId: custom.faceId, text: custom.text, faceType: custom.faceType };
+    }
+
     return {
       uin: detail.uin?.toString() ?? '',
       uid: detail.uid ?? '',
       type: detail.type ?? 0,
       subType: detail.subType ?? 0,
       statusName: detail.statusName ?? '',
-      weather: detail.weather
-        ? {
-            weather: detail.weather.weather ?? '',
-            city: detail.weather.city ?? '',
-            area: detail.weather.area ?? '',
-            weatherDesc: detail.weather.weatherDesc ?? '',
-          }
-        : undefined,
+      customStatus,
     };
   }
 }
@@ -47,10 +47,5 @@ export interface OnlineStatusData {
   type: number;
   subType: number;
   statusName: string;
-  weather?: {
-    weather: string;
-    city: string;
-    area: string;
-    weatherDesc: string;
-  };
+  customStatus?: { faceId: number; text: string; faceType: number };
 }

@@ -63,7 +63,12 @@ export function CloseConfirmDialog(): ReactElement | null {
   if (!open) return null;
 
   return (
-    <Modal onClose={() => void respond('cancel')} labelledBy="weq-close-title" width={392}>
+    <Modal
+      onClose={() => void respond('cancel')}
+      dismissOnOutside={false}
+      labelledBy="weq-close-title"
+      width={392}
+    >
       <div className="weq-close">
         <header className="weq-close-head">
           <h3 id="weq-close-title" className="weq-close-title">

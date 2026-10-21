@@ -2,6 +2,7 @@ import type React from 'react';
 import { trpc } from '../trpc/client';
 import { Circle, Smile, Clock, Minus, Ban, MinusCircle } from 'lucide-react';
 import { resourceUrl } from '../lib/resourceUrl';
+import { FaceEmoji } from './FaceEmoji';
 
 const SUB_ICONS: Record<number, string> = {
   1028: 'music@2x.png',
@@ -47,29 +48,48 @@ const TYPE_ICONS: Record<number, () => React.ReactNode> = {
   40: () => <MinusCircle size={12} stroke="#8c8c8c" />,
 };
 
-export function OnlineStatus({ uid }: { uid: string }) {
-  const { data: status } = trpc.account.getOnlineStatus.useQuery({ uid });
-
-  if (!status || status.typeName === '未知') return null;
-
-  const filename = status.type === 10 && SUB_ICONS[status.subType];
-  const icon = filename ? (
+export function OnlineStatusIcon({ type, subType = 0 }: { type: number; subType?: number }) {
+  const filename = type === 10 && SUB_ICONS[subType];
+  return filename ? (
     <img src={resourceUrl('onlinestatus', filename)} alt="" style={{ width: 16, height: 16 }} />
   ) : (
-    TYPE_ICONS[status.type]?.()
+    TYPE_ICONS[type]?.()
   );
+}
+
+export function OnlineStatus({
+  uid,
+  className,
+  refetchInterval,
+}: {
+  uid: string;
+  className?: string;
+  refetchInterval?: number;
+}) {
+  const { data: status } = trpc.account.getOnlineStatus.useQuery(
+    { uid },
+    { refetchInterval, refetchOnMount: 'always' },
+  );
+
+  if (!status || status.typeName === '未知' || (status.uid && status.uid !== uid)) return null;
 
   return (
     <span
+      className={className}
+      title={status.displayStatus}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
         gap: 4,
         fontSize: 12,
-        color: '#8c8c8c',
+        color: 'var(--weq-fg-secondary)',
       }}
     >
-      {icon}
+      {status.type === 10 && status.subType === 2000 && status.customStatus?.faceType === 1 ? (
+        <FaceEmoji element={{ faceId: status.customStatus.faceId }} size={16} />
+      ) : (
+        <OnlineStatusIcon type={status.type} subType={status.subType} />
+      )}
       <span>{status.displayStatus}</span>
     </span>
   );

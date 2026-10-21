@@ -1,0 +1,106 @@
+.weq-window-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: transparent;
+}
+.weq-window-layer > .weq-window-surface {
+  position: absolute;
+  inset: auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow: hidden;
+  padding: 0;
+  align-items: stretch;
+  justify-content: flex-start;
+  pointer-events: auto;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  box-shadow: var(--weq-shadow-card);
+  animation: none;
+  backdrop-filter: none;
+  -webkit-app-region: no-drag;
+}
+.weq-window-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+.weq-window-content > :first-child {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+}
+.weq-window-content > .weq-chatrecords,
+.weq-window-content > .weq-search-more-modal,
+.weq-window-content > .weq-deleted,
+.weq-window-content > .weq-compose,
+.weq-window-content > .weq-ft,
+.weq-window-content > .weq-blob-dialog {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+}
+.weq-window-content > .weq-blob-dialog {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+}
+.weq-window-layer > .weq-window-surface.is-floating {
+  padding-bottom: 28px;
+}
+.weq-window-content .weq-deleted-scroll {
+  height: auto;
+  flex: 1;
+  min-height: 0;
+}
+.is-floating [data-window-drag-handle] {
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+}
+.is-floating [data-window-drag-handle] button,
+.is-floating [data-window-drag-handle] input {
+  cursor: auto;
+  touch-action: auto;
+}
+.weq-window-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px 0 0;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-muted);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.weq-window-resize:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+.weq-window-content .weq-tools-header {
+  flex: none;
+}
+html[data-theme='dark'] .weq-window-layer > .weq-window-surface {
+  border-color: var(--weq-border-strong);
+}

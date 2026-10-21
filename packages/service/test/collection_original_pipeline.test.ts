@@ -32,9 +32,7 @@ function setup(wrongMd5 = false, referencesOnly = false) {
   });
   const nt = {
     sendOidbPacket: forbidden,
-    probePtLoginPort: forbidden,
-    ptFetchSkey: forbidden,
-    ptFetchPskey: forbidden,
+    ptFetchCredentials: forbidden,
   };
   const session = {
     context: { uin: '10001' },

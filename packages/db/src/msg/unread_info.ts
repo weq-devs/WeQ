@@ -85,6 +85,24 @@ export interface UnreadInfoResult {
   highlights?: UnreadHighlight[];
 }
 
+export interface UnreadInfoTarget {
+  chatType: number;
+  uid: string;
+}
+
+export interface UnreadInfoSnapshot extends UnreadInfoResult {
+  latestSeq: string | null;
+  readError?: true;
+}
+
+export interface UnreadReadChange extends UnreadInfoTarget {
+  existed: boolean;
+  before: Uint8Array | null;
+  after: Uint8Array;
+  afterReadSeq: string;
+  beforeReadSeq?: string;
+}
+
 /**
  * One hit to write back into the `48902` notify-highlight extension
  * (`50005 → 50060`). Kept as a raw kind code (not the mapped enum) so callers
@@ -135,6 +153,44 @@ export class UnreadInfoDb {
     };
   }
 
+  /** 每批在同一条 SQL 内读取最新序号与已读水位，避免逐会话 IPC 和交错快照。 */
+  async getUnreadInfos(targets: UnreadInfoTarget[]): Promise<UnreadInfoSnapshot[]> {
+    const unique = [...new Map(targets.map((t) => [`${t.chatType}_${t.uid}`, t])).values()];
+    const result: UnreadInfoSnapshot[] = [];
+    for (let offset = 0; offset < unique.length; offset += 256) {
+      const batch = unique.slice(offset, offset + 256);
+      const rows = await this.qq.query(
+        `WITH targets(chatType, uid, peer) AS (VALUES ${batch.map(() => '(?, ?, ?)').join(',')})
+         SELECT t.chatType, t.uid, t.peer, u."48902", r."40003"
+         FROM targets t
+         LEFT JOIN msg_unread_info_table u ON u."48901" = t.peer
+         LEFT JOIN recent_contact_v3_table r ON r."40021" = t.uid AND r."40010" = t.chatType`,
+        batch.flatMap((t) => [t.chatType, t.uid, `${t.chatType}_${t.uid}`]),
+      );
+      for (const row of rows) {
+        const bytes = row[3];
+        const identity = {
+          chatType: Number(row[0]),
+          uid: String(row[1]),
+          peer: String(row[2]),
+          latestSeq: row[4] === null ? null : String(row[4]),
+        };
+        try {
+          const decoded = bytes instanceof Uint8Array ? this.proto.decode(bytes) : {};
+          const highlights = extractHighlights(decoded.info?.ext);
+          result.push({
+            ...identity,
+            msgSeq: decoded.info?.msgSeq,
+            highlights: highlights.length ? highlights : undefined,
+          });
+        } catch {
+          result.push({ ...identity, readError: true });
+        }
+      }
+    }
+    return result;
+  }
+
   /**
    * Mark one conversation as read: raise `41002` (last-read seq) to the
    * conversation's newest seq and drop the `50060` notify-highlight groups, so
@@ -156,6 +212,162 @@ export class UnreadInfoDb {
     uid: string,
     latestSeq?: number | bigint | string,
   ): Promise<boolean> {
+    const target = latestSeq === undefined ? await this.latestSeqOf(uid) : BigInt(latestSeq);
+    if (target === null || target <= 0n) return false;
+    // 重试不得跟随新消息抬高目标，否则会把尚未展示的消息也标成已读。
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const changed = await this.markReadAttempt(chatType, uid, target);
+      if (changed !== null) return changed;
+    }
+    throw new Error('已读状态更新冲突，请稍后重试。');
+  }
+
+  /** 显式手动操作允许降低水位；仅改阅读字段，未知字段逐字节保留。 */
+  async setReadState(
+    chatType: number,
+    uid: string,
+    readSeq: string,
+    throughSeq: string,
+    unread: boolean,
+  ): Promise<UnreadReadChange> {
+    if (!/^\d{1,20}$/.test(readSeq) || !/^\d{1,20}$/.test(throughSeq))
+      throw new Error('无效的阅读位置');
+    const peer = `${chatType}_${uid}`;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const rows = await this.qq.query(
+        `SELECT "48902" FROM msg_unread_info_table WHERE "48901" = ? LIMIT 1`,
+        [peer],
+      );
+      const existing = rows[0]?.[0];
+      if (existing != null && !(existing instanceof Uint8Array))
+        throw new Error('无法解析会话未读状态');
+      const before = existing instanceof Uint8Array ? existing : null;
+      let tree = before?.length
+        ? buildEditTree(before)
+        : [nestedNode(48902, [varintNode(40010, chatType), utf8Node(40021, uid)])];
+      const info = tree.find((node) => node.tag === 48902);
+      if (!info?.children) throw new Error('无法解析会话未读状态');
+      const readNode = info.children.find((node) => node.tag === 41002);
+      const stored = readNode ? readVarintText(readNode) : 0n;
+      const requested = BigInt(readSeq);
+      if (unread && stored > BigInt(throughSeq)) throw new Error('会话阅读位置已变化，请重试');
+      const target = unread || requested >= stored ? requested : stored;
+      tree = readNode
+        ? updateNode(tree, readNode.id, (node) => ({
+            ...node,
+            value: { kind: 'varint', text: String(target) },
+          }))
+        : appendNode(tree, info.id, varintNode(41002, target));
+      if (!unread) {
+        for (const node of readHighlightRemovals(info, BigInt(throughSeq)))
+          tree = removeNode(tree, node.id);
+      }
+      const after = encodeEditTree(tree, before ?? new Uint8Array(0));
+      const changed = rows.length
+        ? await this.qq.write(
+            `UPDATE msg_unread_info_table SET "48902" = ? WHERE "48901" = ? AND "48902" IS ?`,
+            [after, peer, existing ?? null],
+          )
+        : await this.qq.write(
+            `INSERT OR IGNORE INTO msg_unread_info_table ("48901", "48902") VALUES (?, ?)`,
+            [peer, after],
+          );
+      if (changed > 0)
+        return {
+          chatType,
+          uid,
+          existed: rows.length > 0,
+          before,
+          after,
+          afterReadSeq: String(target),
+          beforeReadSeq: readNode ? String(stored) : undefined,
+        };
+    }
+    throw new Error('未读状态更新冲突，请稍后重试');
+  }
+
+  /** 仅在阅读水位仍属于本次操作时撤销；合并后来到达的提醒和未知字段。 */
+  async undoReadState(change: UnreadReadChange): Promise<boolean> {
+    const peer = `${change.chatType}_${change.uid}`;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const rows = await this.qq.query(
+        `SELECT "48902" FROM msg_unread_info_table WHERE "48901" = ? LIMIT 1`,
+        [peer],
+      );
+      const current = rows[0]?.[0];
+      if (!(current instanceof Uint8Array) || !current.length) return false;
+      if (
+        current.length === change.after.length &&
+        current.every((byte, index) => byte === change.after[index])
+      ) {
+        const changed = change.existed
+          ? await this.qq.write(
+              `UPDATE msg_unread_info_table SET "48902" = ? WHERE "48901" = ? AND "48902" = ?`,
+              [change.before, peer, current],
+            )
+          : await this.qq.write(
+              `DELETE FROM msg_unread_info_table WHERE "48901" = ? AND "48902" = ?`,
+              [peer, current],
+            );
+        if (changed > 0) return true;
+        continue;
+      }
+      let tree = buildEditTree(current);
+      const info = tree.find((node) => node.tag === 48902);
+      const readNode = info?.children?.find((node) => node.tag === 41002);
+      if (!info?.children || !readNode || String(readVarintText(readNode)) !== change.afterReadSeq)
+        return false;
+      const original = change.before?.length
+        ? buildEditTree(change.before).find((node) => node.tag === 48902)
+        : undefined;
+      const originalRead = original?.children?.find((node) => node.tag === 41002);
+      tree = originalRead
+        ? updateNode(tree, readNode.id, (node) => ({
+            ...node,
+            value: { kind: 'varint', text: String(readVarintText(originalRead)) },
+          }))
+        : removeNode(tree, readNode.id);
+      for (const group of original ? findAll(original, 50060) : []) {
+        const kind = readVarintChild(group, 50000);
+        const currentInfo = tree.find((node) => node.tag === 48902)!;
+        const matching = findAll(currentInfo, 50060).find(
+          (candidate) => readVarintChild(candidate, 50000) === kind,
+        );
+        if (matching) {
+          const sequences = new Set(
+            findAll(matching, 50040).map((item) => readVarintChild(item, 50020)),
+          );
+          for (const item of findAll(group, 50040)) {
+            if (!sequences.has(readVarintChild(item, 50020)))
+              tree = appendNode(tree, matching.id, copyRawNode(item, change.before!));
+          }
+        } else {
+          const ext = currentInfo.children?.find((node) => node.tag === 50005);
+          const copy = copyRawNode(group, change.before!);
+          tree = ext
+            ? appendNode(tree, ext.id, copy)
+            : appendNode(
+                tree,
+                currentInfo.id,
+                nestedNode(50005, [...extHeader(change.uid, change.chatType), copy]),
+              );
+        }
+      }
+      const after = encodeEditTree(tree, current);
+      const changed = await this.qq.write(
+        `UPDATE msg_unread_info_table SET "48902" = ? WHERE "48901" = ? AND "48902" = ?`,
+        [after, peer, current],
+      );
+      if (changed > 0) return true;
+    }
+    throw new Error('撤销时未读状态发生冲突，请重试');
+  }
+
+  private async markReadAttempt(
+    chatType: number,
+    uid: string,
+    target: bigint,
+  ): Promise<boolean | null> {
     const peer = `${chatType}_${uid}`;
     const rows = await this.qq.query(
       `SELECT "48902" FROM msg_unread_info_table WHERE "48901" = ? LIMIT 1`,
@@ -163,17 +375,6 @@ export class UnreadInfoDb {
     );
     const row = rows[0];
     if (!row) return false;
-
-    let target: bigint;
-    if (latestSeq === undefined) {
-      const latest = await this.latestSeqOf(uid);
-      if (latest === null) return false;
-      target = latest;
-    } else {
-      target = BigInt(latestSeq);
-    }
-    // 0 不是合法水位（41002 缺失才会是 0）—— 拿它去写只会把已读位置倒退。
-    if (target <= 0n) return false;
 
     const bytes = row[0] as Uint8Array | null;
     if (!bytes || bytes.length === 0) return false;
@@ -183,15 +384,11 @@ export class UnreadInfoDb {
     if (!info?.children) return false;
 
     const readNode = info.children.find((node) => node.tag === 41002);
-    // 50060 lives nested inside 50005 (ext), not directly under the info node —
-    // walk the whole subtree so a multi-group blob drops every one of them.
-    const highlightNodes = findAll(info, 50060);
-    const highlightNode = highlightNodes[0];
-    // Never regress the watermark: QQ may have advanced 41002 between our read
-    // and this write, so take the higher of (stored, requested).
+    // 50060 在 50005 内，遍历整棵树处理所有提醒组。
+    const removable = readHighlightRemovals(info, target);
     const storedRead = readNode ? readVarintText(readNode) : 0n;
     if (storedRead > target) target = storedRead;
-    const alreadyRead = !highlightNode && readNode && storedRead >= target;
+    const alreadyRead = removable.length === 0 && readNode && storedRead >= target;
     if (alreadyRead) return false;
 
     let next = tree;
@@ -207,16 +404,16 @@ export class UnreadInfoDb {
       appended.value = { kind: 'varint', text: target.toString() };
       next = appendNode(next, info.id, appended);
     }
-    for (const node of highlightNodes) {
+    for (const node of removable) {
       next = removeNode(next, node.id);
     }
 
     const encoded = encodeEditTree(next, bytes);
     const changed = await this.qq.write(
-      `UPDATE msg_unread_info_table SET "48902" = ? WHERE "48901" = ?`,
-      [encoded, peer],
+      `UPDATE msg_unread_info_table SET "48902" = ? WHERE "48901" = ? AND "48902" = ?`,
+      [encoded, peer, bytes],
     );
-    return changed > 0;
+    return changed > 0 ? true : null;
   }
 
   /**
@@ -238,6 +435,18 @@ export class UnreadInfoDb {
     uid: string,
     highlight: UnreadHighlightInput,
   ): Promise<boolean> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const changed = await this.addHighlightAttempt(chatType, uid, highlight);
+      if (changed !== null) return changed;
+    }
+    throw new Error('提醒状态更新冲突，请稍后重试。');
+  }
+
+  private async addHighlightAttempt(
+    chatType: number,
+    uid: string,
+    highlight: UnreadHighlightInput,
+  ): Promise<boolean | null> {
     const peer = `${chatType}_${uid}`;
     const rows = await this.qq.query(
       `SELECT "48902" FROM msg_unread_info_table WHERE "48901" = ? LIMIT 1`,
@@ -259,6 +468,8 @@ export class UnreadInfoDb {
       tree = buildEditTree(bytes);
       const info = tree.find((node) => node.tag === 48902);
       if (!info?.children) return false;
+      const read = info.children.find((node) => node.tag === 41002);
+      if (read && readVarintText(read) >= BigInt(highlight.msgSeq)) return false;
 
       // Reuse the existing group of the same kind when there is one — QQ's
       // shape is one 50060 per category with many 50040 items under it.
@@ -293,18 +504,18 @@ export class UnreadInfoDb {
     }
 
     const encoded = encodeEditTree(tree, bytes ?? new Uint8Array(0));
-    if (bytes) {
+    if (rows.length > 0) {
       const changed = await this.qq.write(
-        `UPDATE msg_unread_info_table SET "48902" = ? WHERE "48901" = ?`,
-        [encoded, peer],
+        `UPDATE msg_unread_info_table SET "48902" = ? WHERE "48901" = ? AND "48902" IS ?`,
+        [encoded, peer, existing ?? null],
       );
-      return changed > 0;
+      return changed > 0 ? true : null;
     }
-    await this.qq.write(`INSERT INTO msg_unread_info_table ("48901", "48902") VALUES (?, ?)`, [
-      peer,
-      encoded,
-    ]);
-    return true;
+    const changed = await this.qq.write(
+      `INSERT OR IGNORE INTO msg_unread_info_table ("48901", "48902") VALUES (?, ?)`,
+      [peer, encoded],
+    );
+    return changed > 0 ? true : null;
   }
 
   /** Conversation watermark (`recent_contact_v3_table.40003`) or null when absent. */
@@ -321,6 +532,30 @@ export class UnreadInfoDb {
   close(): void {
     this.qq.close();
   }
+}
+
+function readHighlightRemovals(info: PbNode, target: bigint): PbNode[] {
+  const removable: PbNode[] = [];
+  for (const group of findAll(info, 50060)) {
+    const items = findAll(group, 50040);
+    const readItems = items.filter((item) => {
+      const seq = readVarintChild(item, 50020);
+      return seq !== null && BigInt(seq) <= target;
+    });
+    if (!items.length || readItems.length === items.length) removable.push(group);
+    else removable.push(...readItems);
+  }
+  return removable;
+}
+
+/** 跨 BLOB 合并节点时重新分配节点 id，不能沿用另一棵树的字节偏移。 */
+function copyRawNode(node: PbNode, source: Uint8Array): PbNode {
+  const encoded = encodeEditTree([node], source);
+  const fresh = buildEditTree(encoded)[0]!;
+  const copy = newNode(fresh.tag, fresh.wireType);
+  copy.value = fresh.value;
+  if (fresh.children) copy.children = fresh.children.map((child) => copyRawNode(child, encoded));
+  return copy;
 }
 
 /** Read a `varint`-kind node's decimal text back as a BigInt (0 when malformed). */

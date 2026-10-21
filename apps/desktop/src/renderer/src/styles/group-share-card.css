@@ -1,0 +1,37 @@
+.weq-ark-container.weq-ark-group-share {
+  border-radius: 8px;
+  border-color: var(--weq-border-subtle);
+  background: var(--weq-bg-surface);
+  box-shadow: var(--weq-shadow-soft);
+}
+
+.weq-ark-container.weq-ark-group-share:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, var(--weq-bg-surface));
+}
+
+.weq-ark-group-share:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-ark-group-share .weq-ark-contact-name {
+  color: var(--weq-fg-primary);
+}
+
+.weq-ark-group-share .weq-ark-contact-sub,
+.weq-ark-group-share .weq-ark-footer {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-ark-group-share .weq-ark-footer {
+  border-color: var(--weq-border-subtle);
+}
+
+html[data-theme='dark'] .weq-ark-container.weq-ark-group-share {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}
+
+html[data-theme='dark'] .weq-ark-container.weq-ark-group-share:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-surface));
+}

@@ -1,0 +1,710 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   意图感知（Intent Sense）样式
+   - 消息下的意图/情绪胶囊（常驻于最新对方消息 + 悬停任意消息）
+   - 聊天头部的好感度胶囊（5 档变色变图标）
+   - 画像 Dialog（MBTI / 雷达 / 话题）与回复建议 pills
+   设计语言与 chat.css 一致：999px 胶囊、color-mix 强调色、
+   cubic-bezier(0.22, 1, 0.36, 1) 缓动、weq- 前缀 keyframes。
+   ───────────────────────────────────────────────────────────────────────── */
+
+.weq-intent-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  justify-self: start;
+  margin-top: -1px;
+  user-select: none;
+  animation: weq-intent-pop 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.message-line.mine .weq-intent-chips {
+  justify-self: end;
+}
+
+@keyframes weq-intent-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.weq-intent-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.7;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  transition:
+    background 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.weq-intent-pill svg {
+  flex-shrink: 0;
+}
+
+/* 情绪 pill 用同色小圆点代替图标（图标留给意图侧，视觉各司其职）。 */
+.weq-intent-emotion-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* 情绪着色：胶囊用对应情绪的低饱和底 + 同色描边，深浅两套主题各自Readable。 */
+.weq-intent-pill[data-emotion='joy'] {
+  color: #b45309;
+  background: color-mix(in srgb, #f59e0b 14%, transparent);
+  border-color: color-mix(in srgb, #f59e0b 32%, transparent);
+}
+.weq-intent-pill[data-emotion='excitement'] {
+  color: #be123c;
+  background: color-mix(in srgb, #f43f5e 14%, transparent);
+  border-color: color-mix(in srgb, #f43f5e 32%, transparent);
+}
+.weq-intent-pill[data-emotion='admiration'] {
+  color: #7e22ce;
+  background: color-mix(in srgb, #a855f7 15%, transparent);
+  border-color: color-mix(in srgb, #a855f7 34%, transparent);
+}
+.weq-intent-pill[data-emotion='neutral'] {
+  color: #64748b;
+  background: color-mix(in srgb, #94a3b8 14%, transparent);
+  border-color: color-mix(in srgb, #94a3b8 32%, transparent);
+}
+.weq-intent-pill[data-emotion='sadness'] {
+  color: #1d4ed8;
+  background: color-mix(in srgb, #3b82f6 14%, transparent);
+  border-color: color-mix(in srgb, #3b82f6 32%, transparent);
+}
+.weq-intent-pill[data-emotion='anger'] {
+  color: #b91c1c;
+  background: color-mix(in srgb, #ef4444 14%, transparent);
+  border-color: color-mix(in srgb, #ef4444 32%, transparent);
+}
+.weq-intent-pill[data-emotion='anxiety'] {
+  color: #6d28d9;
+  background: color-mix(in srgb, #8b5cf6 14%, transparent);
+  border-color: color-mix(in srgb, #8b5cf6 32%, transparent);
+}
+.weq-intent-pill[data-emotion='affection'] {
+  color: #be185d;
+  background: color-mix(in srgb, #ec4899 14%, transparent);
+  border-color: color-mix(in srgb, #ec4899 32%, transparent);
+}
+.weq-intent-pill[data-emotion='fatigue'] {
+  color: #0f766e;
+  background: color-mix(in srgb, #14b8a6 14%, transparent);
+  border-color: color-mix(in srgb, #14b8a6 32%, transparent);
+}
+.weq-intent-pill[data-emotion='curiosity'] {
+  color: #0e7490;
+  background: color-mix(in srgb, #06b6d4 14%, transparent);
+  border-color: color-mix(in srgb, #06b6d4 32%, transparent);
+}
+.weq-intent-pill[data-emotion='shock'] {
+  color: #d97706;
+  background: color-mix(in srgb, #f59e0b 16%, transparent);
+  border-color: color-mix(in srgb, #f59e0b 36%, transparent);
+}
+.weq-intent-pill[data-emotion='aggrieved'] {
+  color: #4f46e5;
+  background: color-mix(in srgb, #6366f1 14%, transparent);
+  border-color: color-mix(in srgb, #6366f1 32%, transparent);
+}
+.weq-intent-pill[data-emotion='irony'] {
+  color: #059669;
+  background: color-mix(in srgb, #10b981 14%, transparent);
+  border-color: color-mix(in srgb, #10b981 32%, transparent);
+}
+.weq-intent-pill[data-emotion='anticipation'] {
+  color: #ea580c;
+  background: color-mix(in srgb, #f97316 14%, transparent);
+  border-color: color-mix(in srgb, #f97316 32%, transparent);
+}
+.weq-intent-pill[data-emotion='embarrassed'] {
+  color: #7c3aed;
+  background: color-mix(in srgb, #8b5cf6 14%, transparent);
+  border-color: color-mix(in srgb, #8b5cf6 32%, transparent);
+}
+
+html[data-theme='dark'] .weq-intent-pill[data-emotion='joy'],
+html[data-theme='dark'] .weq-intent-pill[data-emotion='excitement'],
+html[data-theme='dark'] .weq-intent-pill[data-emotion='admiration'],
+html[data-theme='dark'] .weq-intent-pill[data-emotion='neutral'],
+html[data-theme='dark'] .weq-intent-pill[data-emotion='sadness'],
+html[data-theme='dark'] .weq-intent-pill[data-emotion='anger'],
+html[data-theme='dark'] .weq-intent-pill[data-emotion='anxiety'],
+html[data-theme='dark'] .weq-intent-pill[data-emotion='affection'],
+html[data-theme='dark'] .weq-intent-pill[data-emotion='fatigue'],
+html[data-theme='dark'] .weq-intent-pill[data-emotion='curiosity'],
+html[data-theme='dark'] .weq-intent-pill[data-emotion='shock'],
+html[data-theme='dark'] .weq-intent-pill[data-emotion='aggrieved'],
+html[data-theme='dark'] .weq-intent-pill[data-emotion='irony'],
+html[data-theme='dark'] .weq-intent-pill[data-emotion='anticipation'],
+html[data-theme='dark'] .weq-intent-pill[data-emotion='embarrassed'] {
+  color: color-mix(in srgb, currentColor 55%, #fff);
+}
+
+/* 分析中的 shimmer 占位胶囊（同 .skel-block 的高光手法）。 */
+.weq-intent-pill.is-loading {
+  min-width: 58px;
+  color: transparent !important;
+  background: color-mix(in srgb, var(--weq-fg-muted) 14%, transparent);
+  border-color: color-mix(in srgb, var(--weq-fg-muted) 26%, transparent);
+  position: relative;
+  overflow: hidden;
+}
+
+.weq-intent-pill.is-loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, var(--weq-fg-primary) 12%, transparent) 50%,
+    transparent 70%
+  );
+  animation: weq-intent-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes weq-intent-shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* 悬停弹层：fixed 定位锚在气泡矩形下方（同 ReactionLikersPanel 的手法），
+   pointer-events:none 防止它把气泡的 leave 抵消掉造成闪烁。 */
+.weq-intent-popover {
+  box-sizing: border-box;
+  overflow: hidden;
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  gap: 6px;
+  width: max-content;
+  max-width: 260px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--weq-bg-surface);
+  border: 1px solid var(--weq-border-subtle);
+  box-shadow: var(--weq-shadow-card);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+  animation: weq-intent-pop 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html[data-theme='dark'] .weq-intent-popover {
+  border-color: var(--weq-border-strong);
+}
+
+.weq-intent-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--weq-fg-primary, #222);
+}
+
+.weq-intent-popover-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-muted) 26%, transparent);
+  overflow: hidden;
+}
+
+.weq-intent-popover-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--weq-accent-effective, #12a8ff);
+  transition: width 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.weq-intent-popover-bar.is-sentiment > span {
+  background: linear-gradient(90deg, #3b82f6, #94a3b8 50%, #f43f5e);
+}
+
+/* ── 好感度胶囊（chat header 右上角）────────────────────────────────── */
+
+.weq-affinity-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: #fff;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 120ms ease-out,
+    transform 120ms ease-out;
+}
+
+.weq-affinity-pill:hover {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  transform: translateY(-1px);
+}
+
+.weq-affinity-pill:active {
+  transform: translateY(0);
+}
+
+/* 五档：初识(灰蓝) → 熟络(青) → 亲近(绿) → 挚友(金) → 羁绊(玫红)。 */
+.weq-affinity-pill.tier-0 {
+  background: linear-gradient(135deg, #64748b, #475569);
+}
+.weq-affinity-pill.tier-1 {
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+}
+.weq-affinity-pill.tier-2 {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+}
+.weq-affinity-pill.tier-3 {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+}
+.weq-affinity-pill.tier-4 {
+  background: linear-gradient(135deg, #f43f5e, #e11d48);
+}
+
+/* 档位切换时的强调动画（key 变化触发 remount 即重放）。 */
+.weq-affinity-pill.is-bumped {
+  animation: weq-affinity-bump 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes weq-affinity-bump {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* ── 画像 Dialog ─────────────────────────────────────────────────────── */
+
+.weq-int-profile {
+  display: grid;
+  gap: 18px;
+}
+
+.weq-int-profile-letters {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.weq-int-profile-letters strong {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--weq-accent-effective, #12a8ff);
+}
+
+.weq-int-mbti-dims {
+  display: grid;
+  gap: 8px;
+}
+
+.weq-int-mbti-dim {
+  display: grid;
+  grid-template-columns: 72px 1fr 72px;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--weq-fg-primary, #222);
+}
+
+.weq-int-mbti-track {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-muted) 22%, transparent);
+}
+
+.weq-int-mbti-track > span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: var(--weq-accent-effective, #12a8ff);
+  transition: width 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.weq-int-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.weq-int-topic {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 10%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 70%, var(--weq-fg-primary, #222));
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 24%, transparent);
+}
+
+.weq-int-trend {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 56px;
+}
+
+.weq-int-trend-bar {
+  flex: 1;
+  min-width: 6px;
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(
+    180deg,
+    var(--weq-accent-effective, #12a8ff),
+    color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 35%, transparent)
+  );
+  transition: height 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.weq-int-note {
+  font-size: 11px;
+  color: var(--weq-fg-muted);
+}
+
+/* ── 回复建议（composer 上方紧凑单行滚动 pills）──────────────────────── */
+
+.chat-pane:has(> .weq-int-suggest) {
+  grid-template-rows:
+    var(--chat-header-height)
+    minmax(0, 1fr)
+    auto
+    var(--composer-height, 190px);
+}
+
+.chat-pane:has(> .weq-int-suggest) > .group-info-panel {
+  grid-row: 2 / 5;
+}
+
+.chat-pane:has(> .weq-int-suggest) > .composer-toggle {
+  bottom: calc(var(--composer-height, 190px) + 28px);
+}
+
+.chat-pane:has(> .weq-int-suggest) > .new-message-pill {
+  bottom: calc(var(--composer-height, 190px) + 40px);
+}
+
+.chat-pane:has(> .weq-chat-backdrop) > .weq-int-suggest {
+  background: color-mix(in srgb, var(--weq-bg-surface) 82%, transparent);
+}
+
+.chat-pane:has(> .weq-int-suggest) > .composer {
+  border-top: 0;
+  padding-top: 6px;
+}
+
+/* z-index 必须低于 `> .composer`（chat.css 里给了 1）：表情 / 语音 / 链接卡片这些面板
+ * 都是 `bottom: calc(100% - 1px)` 从输入框上沿弹出的浮层，会伸到建议条所在的那一行。
+ * 建议条抬到面板之上就会盖住面板底部工具行（「发送」键就在那儿）与选中的表情，
+ * 表现为「点不动发送」。它自己只是常驻在文档流里的一行，压在下面完全够用。 */
+.weq-int-suggest {
+  z-index: 0;
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  min-width: 0;
+  padding: 3px 14px 1px 18px;
+  border-top: 1px solid var(--weq-bar-border, #dedede);
+  background: color-mix(in srgb, var(--weq-bg-surface) 62%, transparent);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+}
+
+.weq-int-suggest-icon {
+  opacity: 0.55;
+  flex-shrink: 0;
+  color: var(--weq-accent-effective, #12a8ff);
+}
+
+.weq-int-suggest-track {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+  scrollbar-width: none;
+  scroll-behavior: auto;
+  overscroll-behavior-x: contain;
+}
+
+.weq-int-suggest-track::-webkit-scrollbar {
+  display: none;
+}
+
+.weq-int-suggest-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 21px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--weq-fg-primary, #222);
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 24%, transparent);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition:
+    background 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.weq-int-suggest-pill:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 16%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 38%, transparent);
+}
+
+.weq-int-suggest-pill span.weq-int-suggest-tone {
+  flex-shrink: 0;
+  padding: 1px 4px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 80%, var(--weq-fg-primary, #222));
+  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 14%, transparent);
+}
+
+.weq-int-suggest-text {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.weq-int-suggest-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  cursor: pointer;
+}
+
+.weq-int-suggest-refresh:hover {
+  background: color-mix(in srgb, var(--weq-fg-muted) 18%, transparent);
+  color: var(--weq-fg-primary, #222);
+}
+
+.weq-int-suggest-refresh.is-busy svg {
+  animation: weq-spin 900ms linear infinite;
+}
+
+/* ── 画像 Dialog 的内容排版（容器骨架由 group-keyword-dialog 提供）──── */
+
+.weq-int-profile h4 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.weq-int-affinity-num {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--weq-accent-effective, #12a8ff);
+}
+
+.weq-int-radar {
+  display: block;
+  width: 100%;
+  max-width: 340px;
+  aspect-ratio: 340 / 280;
+  margin: 0 auto;
+}
+
+.weq-int-pill-loading {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* ── 弹窗容器（画像 Dialog）──────────────────────────────────────────── */
+
+.weq-int-profile-layer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  padding: 16px;
+  background: rgba(20, 20, 20, 0.18);
+}
+
+.weq-int-dialog {
+  width: min(600px, 100%);
+  min-width: 0;
+}
+
+.weq-int-dialog .group-keyword-body,
+.weq-int-profile,
+.weq-int-profile > section {
+  min-width: 0;
+}
+
+.weq-int-profile h4 {
+  flex-wrap: wrap;
+}
+
+.weq-int-dialog header > span {
+  flex-shrink: 0;
+}
+
+.weq-int-select {
+  min-width: 220px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--weq-border-subtle);
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+}
+
+html[data-theme='dark'] .weq-int-select {
+  border-color: var(--weq-border-strong);
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+}
+
+.weq-int-download {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+
+.weq-int-download-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: none;
+  background: var(--weq-accent-effective, #12a8ff);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 120ms ease-out,
+    box-shadow 120ms ease-out;
+}
+
+.weq-int-download-btn:hover:not(:disabled) {
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 40%, transparent);
+  transform: translateY(-1px);
+}
+
+.weq-int-download-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.weq-int-mirror {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--weq-fg-secondary, #666);
+  cursor: pointer;
+}
+
+.weq-int-progress {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--weq-fg-secondary, #666);
+}
+
+.weq-int-progress-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-fg-muted) 22%, transparent);
+  overflow: hidden;
+  position: relative;
+}
+
+.weq-int-progress-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: inherit;
+  border-radius: 999px;
+  background: var(--weq-accent-effective, #12a8ff);
+  transition: width 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.weq-int-progress em {
+  font-style: normal;
+  opacity: 0.75;
+}
+
+/* 窄屏：头部工具按钮会被撑成 36px 圆形，文字胶囊会把标题挤没，
+   这里只留图标与分数，点击行为不变。 */
+@media (max-width: 720px) {
+  .weq-affinity-pill {
+    width: 36px;
+    height: 36px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .weq-affinity-pill > span {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-intent-chips,
+  .weq-intent-popover,
+  .weq-affinity-pill.is-bumped,
+  .weq-intent-pill.is-loading::after {
+    animation: none;
+  }
+}

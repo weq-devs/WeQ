@@ -1,13 +1,13 @@
 {
   "name": "weq",
-  "version": "2.0.6",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "description": "QQ NT 本地聊天记录解密、导出、查看与年度报告",
   "license": "GPL-3.0-or-later",
   "packageManager": "pnpm@12.8.1",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "dev": "pnpm --filter @weq/desktop dev",

@@ -13,6 +13,11 @@
 
 import { z } from 'zod';
 import {
+  exportAccountBindingInput,
+  exportSavePolicyInput,
+  type ExportAccountBinding,
+} from './export_save';
+import {
   collectOwnItems,
   collectReceivedItems,
   type EmojiExportItem,
@@ -22,11 +27,18 @@ import {
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 
-function requireServices(): AccountServices {
+function requireServices(expected: ExportAccountBinding = {}): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
     throw new Error('No account session open — call bootstrap.openAccount first.');
   }
+  if (
+    (expected.expectedAccountUin &&
+      String(ctx.account?.context.uin) !== expected.expectedAccountUin) ||
+    (expected.expectedAccountConfigId &&
+      ctx.services.accountConfig.getRecord()?.configId !== expected.expectedAccountConfigId)
+  )
+    throw new Error('账号或数据源已切换，已停止表情导出。');
   return ctx.services;
 }
 
@@ -80,8 +92,17 @@ export const emojiPackRouter = router({
    * 「我的表情 / 收到的表情」子目录，完成后在任务列表里「保存文件夹…」。
    */
   startExport: procedure
-    .input(z.object({ scopes: z.array(scopeEnum).min(1) }))
+    .input(
+      z.object({
+        ...exportAccountBindingInput.shape,
+        scopes: z.array(scopeEnum).min(1),
+        savePolicy: exportSavePolicyInput.optional(),
+      }),
+    )
     .mutation(({ input }) => {
-      return requireServices().exportManager.startEmojiPackExport(input.scopes);
+      return requireServices(input).exportManager.startEmojiPackExport(
+        input.scopes,
+        input.savePolicy,
+      );
     }),
 });

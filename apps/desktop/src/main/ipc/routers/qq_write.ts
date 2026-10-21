@@ -1,0 +1,328 @@
+import { z } from 'zod';
+import type { AccountServices } from '../../context/app_context';
+import { procedure, router } from '../trpc';
+import { groupMemberToWire, userProfileToWire } from '../serde';
+
+const binding = z.object({
+  expectedAccountUin: z.string().min(1),
+  expectedAccountConfigId: z.string().min(1),
+});
+const uid = z.string().regex(/^u_[A-Za-z0-9_-]+$/);
+const uint32 = z.number().int().min(0).max(0xffffffff);
+const groupId = uint32.positive();
+const remark = z.string().max(1024);
+const source = z.string().min(1);
+
+export type QQWriteBinding = z.infer<typeof binding>;
+
+export interface QQWriteServices {
+  accountWrite: Pick<
+    AccountServices['accountWrite'],
+    | 'friendRemark'
+    | 'groupRemark'
+    | 'pin'
+    | 'friendDisturb'
+    | 'groupMessagePolicy'
+    | 'friendCategory'
+    | 'selfProfile'
+    | 'onlineStatus'
+    | 'selfAvatar'
+    | 'groupAvatar'
+    | 'selfIdentity'
+  >;
+  groupModeration: Pick<
+    AccountServices['groupModeration'],
+    'setName' | 'setMemberCard' | 'setSpecialTitle' | 'setEssence'
+  >;
+  profile: Pick<
+    AccountServices['profile'],
+    'getProfile' | 'getBuddy' | 'getSelfProfile' | 'profilesByUids'
+  >;
+  groupInfo: Pick<
+    AccountServices['groupInfo'],
+    'getGroupDetail' | 'listGroupDirectory' | 'getMemberInfo' | 'getMessagePolicy'
+  >;
+  recentContacts: Pick<AccountServices['recentContacts'], 'getTopContacts' | 'getByTargetUids'>;
+  onlineStatus: Pick<AccountServices['onlineStatus'], 'getOnlineStatus' | 'editableStatuses'>;
+}
+
+function cachedGroupRole(
+  selfUid: string,
+  ownerUid: string | undefined,
+  role: 'owner' | 'admin' | 'member' | null,
+) {
+  if (!selfUid) return null;
+  if (ownerUid === selfUid) return 'owner' as const;
+  return ownerUid && role === 'owner' ? null : role;
+}
+
+async function getGroupRoleContext(services: QQWriteServices, groupId: number) {
+  const selfUid = services.accountWrite.selfIdentity().uid;
+  if (!selfUid) return { role: null, ownerUid: undefined };
+  const [detail, directory] = await Promise.all([
+    services.groupInfo.getGroupDetail(BigInt(groupId)),
+    services.groupInfo.listGroupDirectory(),
+  ]);
+  if (detail && detail.groupCode !== BigInt(groupId)) throw new Error('返回群与读取目标不一致');
+  const role = directory.find((entry) => entry.groupCode === String(groupId))?.role ?? null;
+  return { role: cachedGroupRole(selfUid, detail?.ownerUid, role), ownerUid: detail?.ownerUid };
+}
+
+async function getGroupRole(services: QQWriteServices, groupId: number) {
+  return (await getGroupRoleContext(services, groupId)).role;
+}
+
+/** 身份绑定和在线检查由账号路由共用入口提供，所有 mutation 都必须通过。 */
+export function createQQWriteRouter(
+  resolve: (input: QQWriteBinding) => QQWriteServices,
+  read: (input: QQWriteBinding) => QQWriteServices,
+) {
+  return router({
+    profileDetails: procedure
+      .input(binding.extend({ uids: z.array(uid).min(1).max(200) }))
+      .query(async ({ input }) => {
+        const services = read(input);
+        const profiles = await services.profile.profilesByUids(input.uids);
+        if (read(input) !== services) throw new Error('账号已切换，请重新读取资料');
+        const requested = new Set(input.uids);
+        if (profiles.some((profile) => !requested.has(profile.uid)))
+          throw new Error('返回资料与读取目标不一致');
+        return profiles.map(userProfileToWire);
+      }),
+    memberDetails: procedure.input(binding.extend({ groupId, uid })).query(async ({ input }) => {
+      const services = read(input);
+      const member = await services.groupInfo.getMemberInfo(BigInt(input.groupId), input.uid);
+      if (read(input) !== services) throw new Error('账号已切换，请重新读取成员资料');
+      if (member && member.uid !== input.uid) throw new Error('返回成员与读取目标不一致');
+      return member ? groupMemberToWire(member) : null;
+    }),
+    groupPolicyState: procedure.input(binding.extend({ groupId })).query(async ({ input }) => {
+      const services = resolve(input);
+      const result = await services.groupInfo.getMessagePolicy(input.groupId);
+      if (resolve(input) !== services) throw new Error('账号已切换，请重新读取消息策略');
+      return { ...result, source: 'qq-server' as const };
+    }),
+    memberState: procedure.input(binding.extend({ groupId, uid })).query(async ({ input }) => {
+      const services = read(input);
+      const [member, group] = await Promise.all([
+        services.groupInfo.getMemberInfo(BigInt(input.groupId), input.uid),
+        getGroupRoleContext(services, input.groupId),
+      ]);
+      if (read(input) !== services) throw new Error('账号已切换，请重新读取成员资料');
+      if (member && (member.uid !== input.uid || member.groupCode !== BigInt(input.groupId)))
+        throw new Error('返回成员与读取目标不一致');
+      const targetRole =
+        !group.ownerUid || !member
+          ? null
+          : member.uid === group.ownerUid
+            ? ('owner' as const)
+            : member.adminFlag > 0
+              ? ('admin' as const)
+              : ('member' as const);
+      return member
+        ? {
+            uid: member.uid,
+            card: member.card,
+            title: member.customTitle,
+            role: group.role,
+            targetRole,
+          }
+        : null;
+    }),
+    selfState: procedure.input(binding).query(async ({ input }) => {
+      const services = read(input);
+      const identity = services.accountWrite.selfIdentity();
+      const profile = await services.profile.getSelfProfile();
+      if (profile && profile.uin.toString() !== identity.uin)
+        throw new Error('资料缓存与当前账号不匹配');
+      let status: Awaited<ReturnType<QQWriteServices['onlineStatus']['getOnlineStatus']>> = null;
+      let statusError: string | null = null;
+      try {
+        if (identity.uid) status = await services.onlineStatus.getOnlineStatus(identity.uid);
+      } catch (error) {
+        statusError = error instanceof Error ? error.message : String(error);
+      }
+      if (read(input) !== services) throw new Error('账号已切换，请重新读取资料');
+      return {
+        profile: profile
+          ? {
+              uid: profile.uid,
+              uin: profile.uin.toString(),
+              nick: profile.nick,
+              signature: profile.signature,
+              gender: profile.gender,
+            }
+          : null,
+        status,
+        statusError,
+        statusOptions: services.onlineStatus.editableStatuses(),
+        source: 'qq-local-cache' as const,
+        identity,
+      };
+    }),
+    peerState: procedure
+      .input(
+        binding.extend({
+          target: z.discriminatedUnion('kind', [
+            z.object({ kind: z.literal('c2c'), uid }),
+            z.object({ kind: z.literal('group'), groupId }),
+          ]),
+        }),
+      )
+      .query(async ({ input }) => {
+        const services = read(input);
+        const target = input.target;
+        const conv = target.kind === 'c2c' ? target.uid : String(target.groupId);
+        const identity = services.accountWrite.selfIdentity();
+        const [tops, rows, profile, buddy, group, directory] = await Promise.all([
+          services.recentContacts.getTopContacts(),
+          services.recentContacts.getByTargetUids([conv]),
+          target.kind === 'c2c' ? services.profile.getProfile(target.uid) : null,
+          target.kind === 'c2c' ? services.profile.getBuddy(target.uid) : null,
+          target.kind === 'group'
+            ? services.groupInfo.getGroupDetail(BigInt(target.groupId))
+            : null,
+          target.kind === 'group' ? services.groupInfo.listGroupDirectory() : [],
+        ]);
+        const member =
+          target.kind === 'group' && identity.uid
+            ? await services.groupInfo.getMemberInfo(BigInt(target.groupId), identity.uid)
+            : null;
+        if (read(input) !== services) throw new Error('账号已切换，请重新读取会话设置');
+        if (
+          target.kind === 'c2c' &&
+          ((profile && profile.uid !== target.uid) || (buddy && buddy.uid !== target.uid))
+        )
+          throw new Error('返回好友与读取目标不一致');
+        if (target.kind === 'group' && group && group.groupCode !== BigInt(target.groupId))
+          throw new Error('返回群与读取目标不一致');
+        if (
+          target.kind === 'group' &&
+          member &&
+          (member.uid !== identity.uid || member.groupCode !== BigInt(target.groupId))
+        )
+          throw new Error('返回成员与读取目标不一致');
+        const entry = directory.find((item) => item.groupCode === conv);
+        const notifyLevel = entry?.notifyLevel ?? rows[0]?.notifyLevel ?? null;
+        return {
+          source: 'qq-local-cache' as const,
+          pinned: tops.some((item) => item.targetId === conv),
+          notifyLevel,
+          friend: Boolean(buddy),
+          friendDisturb: buddy ? (profile?.extInfo?.friendDisturb ?? null) : null,
+          categoryId: buddy?.categoryId ?? null,
+          remark: profile?.remark ?? group?.remark ?? null,
+          groupName: group?.groupName ?? null,
+          selfUid: identity.uid,
+          selfCard: member?.card ?? null,
+          selfTitle: member?.customTitle ?? null,
+          role: cachedGroupRole(identity.uid, group?.ownerUid, entry?.role ?? null),
+        };
+      }),
+    friendRemark: procedure
+      .input(binding.extend({ uid, remark }))
+      .mutation(({ input }) => resolve(input).accountWrite.friendRemark(input.uid, input.remark)),
+    groupRemark: procedure
+      .input(binding.extend({ groupId, remark }))
+      .mutation(({ input }) =>
+        resolve(input).accountWrite.groupRemark(input.groupId, input.remark),
+      ),
+    pin: procedure
+      .input(
+        binding.extend({
+          target: z.discriminatedUnion('kind', [
+            z.object({ kind: z.literal('c2c'), uid }),
+            z.object({ kind: z.literal('group'), groupId }),
+          ]),
+          enabled: z.boolean(),
+        }),
+      )
+      .mutation(({ input }) => resolve(input).accountWrite.pin(input.target, input.enabled)),
+    friendDisturb: procedure
+      .input(binding.extend({ uid, enabled: z.boolean() }))
+      .mutation(({ input }) => resolve(input).accountWrite.friendDisturb(input.uid, input.enabled)),
+    groupMessagePolicy: procedure
+      .input(
+        binding.extend({
+          groupId,
+          policy: z.union([z.literal(1), z.literal(4), z.literal(2), z.literal(3)]),
+        }),
+      )
+      .mutation(({ input }) =>
+        resolve(input).accountWrite.groupMessagePolicy(input.groupId, input.policy),
+      ),
+    friendCategory: procedure
+      .input(binding.extend({ uid, categoryId: uint32 }))
+      .mutation(({ input }) =>
+        resolve(input).accountWrite.friendCategory(input.uid, input.categoryId),
+      ),
+    selfProfile: procedure
+      .input(
+        binding.extend({
+          patch: z
+            .object({
+              nickname: z.string().min(1).max(256).optional(),
+              signature: z.string().max(4096).optional(),
+              gender: z.union([z.literal(0), z.literal(1), z.literal(2)]).optional(),
+            })
+            .strict(),
+        }),
+      )
+      .mutation(({ input }) => resolve(input).accountWrite.selfProfile(input.patch)),
+    onlineStatus: procedure
+      .input(
+        binding.extend({
+          status: uint32.positive(),
+          extStatus: uint32.optional(),
+          batteryStatus: uint32.optional(),
+          custom: z
+            .object({ faceId: uint32, faceType: uint32, wording: z.string().max(1024) })
+            .optional(),
+        }),
+      )
+      .mutation(({ input }) => resolve(input).accountWrite.onlineStatus(input)),
+    selfAvatar: procedure
+      .input(binding.extend({ source }))
+      .mutation(({ input }) => resolve(input).accountWrite.selfAvatar(input.source)),
+    groupAvatar: procedure
+      .input(binding.extend({ groupId, source }))
+      .mutation(({ input }) =>
+        resolve(input).accountWrite.groupAvatar(input.groupId, input.source),
+      ),
+    groupName: procedure
+      .input(binding.extend({ groupId, name: z.string().min(1).max(256) }))
+      .mutation(async ({ input }) => {
+        await resolve(input).groupModeration.setName(input);
+        return { state: 'accepted' as const };
+      }),
+    groupMemberCard: procedure
+      .input(binding.extend({ groupId, targetUid: uid, card: z.string().max(256) }))
+      .mutation(async ({ input }) => {
+        await resolve(input).groupModeration.setMemberCard(input);
+        return { state: 'accepted' as const };
+      }),
+    groupSpecialTitle: procedure
+      .input(binding.extend({ groupId, targetUid: uid, title: z.string().max(256) }))
+      .mutation(async ({ input }) => {
+        const services = resolve(input);
+        const role = await getGroupRole(services, input.groupId);
+        if (resolve(input) !== services) throw new Error('账号已切换，请重新读取群权限');
+        if (role !== 'owner') throw new Error('仅群主可以修改专属头衔');
+        await services.groupModeration.setSpecialTitle(input);
+        return { state: 'accepted' as const };
+      }),
+    groupEssence: procedure
+      .input(
+        binding.extend({
+          groupId,
+          sequence: uint32.positive(),
+          random: uint32,
+          enable: z.boolean(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        await resolve(input).groupModeration.setEssence(input);
+        return { state: 'accepted' as const };
+      }),
+  });
+}

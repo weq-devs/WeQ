@@ -11,6 +11,7 @@
 import type { ReportPageManifest } from '@weq/service';
 import {
   isAllTimeYear,
+  reportCalendarParts,
   reportEraLabel,
   reportPeriodLabel,
   reportSinceLabel,
@@ -1145,8 +1146,8 @@ function exportWall(
 ): string {
   const countByDay = new Map<string, number>();
   for (const day of days) countByDay.set(`${day.month}-${day.day}`, day.count);
-  const start = new Date(year, 0, 1);
-  const mondayOffset = (start.getDay() + 6) % 7;
+  const start = new Date(Date.UTC(year, 0, 1));
+  const mondayOffset = (start.getUTCDay() + 6) % 7;
   const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
   const totalDays = leap ? 366 : 365;
   const weekCount = Math.ceil((mondayOffset + totalDays) / 7);
@@ -1161,8 +1162,8 @@ function exportWall(
       if (dayOfYear < 0 || dayOfYear >= totalDays) {
         column += '<span class="sp-cell is-0"></span>';
       } else {
-        const date = new Date(year, 0, 1 + dayOfYear);
-        const count = countByDay.get(`${date.getMonth() + 1}-${date.getDate()}`) ?? 0;
+        const date = new Date(Date.UTC(year, 0, 1 + dayOfYear));
+        const count = countByDay.get(`${date.getUTCMonth() + 1}-${date.getUTCDate()}`) ?? 0;
         const level = count === 0 ? 0 : Math.min(4, 1 + Math.ceil((count / maxCount) * 3));
         column += `<span class="sp-cell is-${level}"></span>`;
       }
@@ -2370,9 +2371,9 @@ function qzoneQuote(value: unknown): string {
 /** `N月M日` / `YYYY年N月M日` —— 与屏幕版时光胶片同一份时间语言。 */
 function qzoneDay(sec: number, withYear: boolean): string {
   if (!sec) return '';
-  const date = new Date(sec * 1000);
-  const label = `${date.getMonth() + 1}月${date.getDate()}日`;
-  return withYear ? `${date.getFullYear()}年${label}` : label;
+  const { year, month, day } = reportCalendarParts(new Date(sec * 1000));
+  const label = `${month}月${day}日`;
+  return withYear ? `${year}年${label}` : label;
 }
 
 /** QQ 空间回忆页的导出版。 */
@@ -2396,7 +2397,7 @@ function qzoneSlide(data: Record<string, unknown>): string {
     count?: number;
   } | null;
   const firstYear = Number(data.firstPostTime ?? 0)
-    ? `${new Date(Number(data.firstPostTime) * 1000).getFullYear()} 年`
+    ? `${reportCalendarParts(new Date(Number(data.firstPostTime) * 1000)).year} 年`
     : '';
   const frames = gallery
     .slice(0, 8)

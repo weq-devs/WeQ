@@ -3,6 +3,7 @@
 interface Window {
   electron?: import('@electron-toolkit/preload').ElectronAPI;
   weq: {
+    editUndo?: import('../../shared/edit_menu').EditUndoBridge;
     openLogDir(): Promise<boolean>;
     revealPath(path: string): Promise<boolean>;
     /** 用户选 / 拖 / 粘贴文件的绝对路径（Electron webUtils）；拿不到返回 ''。 */

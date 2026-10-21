@@ -29,6 +29,9 @@ export { UnreadInfoDb } from './unread_info';
 export type {
   UnreadInfoDbOptions,
   UnreadInfoResult,
+  UnreadInfoTarget,
+  UnreadInfoSnapshot,
+  UnreadReadChange,
   UnreadHighlight,
   UnreadHighlightInput,
   HighlightKind,
@@ -64,3 +67,4 @@ export type {
 } from './types';
 
 export type { AppendMsgFields, AppendMsgResult } from './append';
+export type { BrowseCursor, BrowseFilter, BrowseDirection } from './browse';

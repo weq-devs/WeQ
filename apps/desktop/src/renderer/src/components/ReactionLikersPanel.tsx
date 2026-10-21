@@ -12,12 +12,15 @@
  * portal 里 —— 消息列表有自己的滚动容器 / 变换，`position: fixed` 留在里面会跟错坐标系。
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { RotateCw, Users } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { cn } from '../lib/utils';
 import { QqAvatar } from './QqAvatar';
+import { useOverlayLayer } from '../lib/overlayStack';
+import { useSurfaceOutside } from '../lib/surfaceOutside';
+import { useSurfaceEscape } from '../lib/surfaceEscape';
 
 /** 每页条数（IPC 侧上限 200）。 */
 const PAGE_SIZE = 30;
@@ -60,6 +63,9 @@ export function ReactionLikersPanel({
   onClose: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const layer = useOverlayLayer(true);
+  useSurfaceOutside(panelRef, onClose, true);
+  useSurfaceEscape(panelRef, onClose, true, false);
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const selfUin = selfProfile.data?.uin ? String(selfProfile.data.uin) : '';
 
@@ -108,14 +114,6 @@ export function ReactionLikersPanel({
     el.style.top = `${top}px`;
   }, [anchor.x, anchor.y, users.length, query.isLoading]);
 
-  useEffect(() => {
-    function onKeyDown(event: globalThis.KeyboardEvent) {
-      if (event.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
-
   /** 滚到底续传下一页（cookie 分页）。 */
   function onScroll(event: React.UIEvent<HTMLDivElement>) {
     if (!hasMore || query.isFetchingNextPage) return;
@@ -130,7 +128,9 @@ export function ReactionLikersPanel({
   return createPortal(
     <div
       ref={panelRef}
+      data-weq-surface
       className={cn('reaction-likers')}
+      style={{ zIndex: layer }}
       role="dialog"
       aria-label={`${emojiLabel} 的回应人`}
       onPointerEnter={onPointerEnter}
