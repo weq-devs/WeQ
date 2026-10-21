@@ -10,7 +10,7 @@ import { hasActiveModal } from '../src/renderer/src/lib/overlayStack';
 import type { ContentOwner } from '../src/shared/content_selection';
 
 describe('账号工作区选择', () => {
-  it('离开保留、返回恢复、另一处开始替换，换账号销毁旧选择', () => {
+  it('各处分别保留，退出只清当前选择，换账号销毁全部旧选择', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     document.body.append(host);
@@ -47,13 +47,23 @@ describe('账号工作区选择', () => {
       render(collection);
       act(() => state().setSelectedIds(new Set(['c'])));
       render(chat);
-      expect(state().selectionMode).toBe(false);
+      expect(state().selectionMode).toBe(true);
+      expect([...state().selectedIds]).toEqual(['1', '3']);
       render(collection);
+      expect(state().selectionMode).toBe(true);
       expect([...state().selectedIds]).toEqual(['c']);
       act(() => state().setSelectionMode(false));
       expect(state().selectionMode).toBe(false);
+      render(chat);
+      expect(state().selectionMode).toBe(true);
+      expect([...state().selectedIds]).toEqual(['1', '3']);
+      render(collection);
+      expect(state().selectionMode).toBe(false);
       act(() => state().setSelectedIds(new Set(['other'])));
       render(collection, 'account-b');
+      expect(state().selectionMode).toBe(false);
+      expect(state().selectedIds.size).toBe(0);
+      render(chat, 'account-b');
       expect(state().selectionMode).toBe(false);
       expect(state().selectedIds.size).toBe(0);
     } finally {
