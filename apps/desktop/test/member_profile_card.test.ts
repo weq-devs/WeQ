@@ -109,6 +109,7 @@ describe('群成员资料卡浮层', () => {
   });
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
@@ -118,6 +119,40 @@ describe('群成员资料卡浮层', () => {
     hosts.length = 0;
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it('自己的 QQ 号补全出 UID 后不再清空重查，退出加载并保留资料', async () => {
+    const byUid = vi.spyOn(client.account.getProfile, 'query');
+    const profile = {
+      uid: 'u_self',
+      uin: '10001',
+      nick: '自己的昵称',
+      signature: '自己的签名',
+    } as NonNullable<Awaited<ReturnType<typeof client.account.getProfileByUin.query>>>;
+    const byUin = vi.spyOn(client.account.getProfileByUin, 'query').mockResolvedValueOnce(profile);
+    await mountCard(() => {}, { x: 120, y: 120 }, { ...MEMBER, id: 'self:10001' });
+    expect(byUin).toHaveBeenCalledOnce();
+    expect(byUid).not.toHaveBeenCalled();
+    expect(layer().textContent).toContain('自己的签名');
+    expect(layer().textContent).not.toContain('加载资料');
+  });
+  it('自己的资料读取失败后退出加载，不不断重试', async () => {
+    const byUin = vi
+      .spyOn(client.account.getProfileByUin, 'query')
+      .mockRejectedValueOnce(new Error('合成读取失败'));
+    await mountCard(() => {}, { x: 120, y: 120 }, { ...MEMBER, id: 'self:10001' });
+    expect(byUin).toHaveBeenCalledOnce();
+    expect(layer().textContent).not.toContain('加载资料');
+  });
+  it('点击对象已有真实 UID 时只查一次 UID，不退回自己的本地 ID', async () => {
+    const byUid = vi.spyOn(client.account.getProfile, 'query').mockResolvedValueOnce(null);
+    const byUin = vi.spyOn(client.account.getProfileByUin, 'query');
+    const member = { ...MEMBER, id: 'self:10001', uid: 'u_self' };
+    await mountCard(() => {}, { x: 120, y: 120 }, member);
+    expect(byUid).toHaveBeenCalledOnce();
+    expect(byUid).toHaveBeenCalledWith({ uid: 'u_self' });
+    expect(byUin).not.toHaveBeenCalled();
+    expect(layer().textContent).not.toContain('加载资料');
   });
 
   it('portal 到 body，且层级高于所有写死的静态 z-index', async () => {
