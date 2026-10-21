@@ -79,6 +79,14 @@ it.each([false, true])('实际好友、成员、个性主页入口按机器人�
       ),
     );
     expect(host.querySelectorAll('[aria-label="赞资料卡"]')).toHaveLength(bot ? 0 : 3);
+    expect(host.querySelectorAll('.weq-profile-likes-row')).toHaveLength(bot ? 0 : 3);
+    for (const button of host.querySelectorAll('[aria-label="赞资料卡"]')) {
+      const row = button.closest('.weq-profile-row');
+      expect(row?.textContent).toContain('获赞');
+      expect(row?.querySelector('strong')?.textContent).toBe('100');
+      expect(row?.querySelector('.weq-profile-row-value strong')?.nextElementSibling).toBe(button);
+    }
+    expect(host.querySelector('.weq-perhome-stat-like')).toBeNull();
     expect(write).not.toHaveBeenCalled();
   } finally {
     act(() => root.unmount());

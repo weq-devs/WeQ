@@ -23,6 +23,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({}),
     account: {
+      dressup: { peerStats: { useQuery: () => ({ data: undefined, isLoading: false }) } },
       getAccountConfig: { useQuery: () => ({ data: undefined }) },
       getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
       qqActions: {

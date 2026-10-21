@@ -48,7 +48,7 @@ import type { User } from '../im-template/template/types';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { PersonalityHomeDialog } from './PersonalityHomeDialog';
-import { ProfileLikeAction } from './qq-actions/ProfileLikeAction';
+import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
 import { MemberAnalyticsDialog } from './MemberAnalyticsDialog';
 import { IntentProfileDialog } from './intentSense/IntentProfileDialog';
 import { useIntentSenseStatus } from './intentSense/context';
@@ -369,6 +369,9 @@ export function MemberProfileCard({
                   label="亲密度"
                   value={intimacy}
                   mono
+              {member.kind !== 'bot' && uin ? (
+                <ProfileLikesRow uid={uid} uin={uin} name={displayUserName(member)} />
+              ) : null}
                   accent
                 />
               ) : null}
@@ -447,9 +450,6 @@ export function MemberProfileCard({
             聊天分析看的是「这个人在这个群里」的发言，只认 uid + groupCode。 */}
             {uin || canAnalyze ? (
               <div className="weq-profile-actions">
-                {member.kind !== 'bot' && uin ? (
-                  <ProfileLikeAction uid={uid} uin={uin} name={displayUserName(member)} />
-                ) : null}
                 {onOpenChat ? (
                   <button
                     className="weq-profile-perhome"

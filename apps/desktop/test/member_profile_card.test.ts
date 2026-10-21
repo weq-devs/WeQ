@@ -28,6 +28,7 @@ vi.mock('@renderer/trpc/client', () => ({
   // 入口不渲染，也就不会把画像 Dialog 的依赖链拖进来。
   trpc: {
     account: {
+      dressup: { peerStats: { useQuery: () => ({ data: undefined, isLoading: false }) } },
       intentSense: {
         getProfile: {
           useQuery: () => ({ data: undefined, isLoading: false }),

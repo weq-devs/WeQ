@@ -31,7 +31,7 @@ import { ChatNavigationContext } from '../../lib/chatNavigation';
 import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
 import { openLightbox } from '../../components/ImageLightbox';
 import { PersonalityHomeDialog } from '../../components/PersonalityHomeDialog';
-import { ProfileLikeAction } from '../../components/qq-actions/ProfileLikeAction';
+import { ProfileLikesRow } from '../../components/qq-actions/ProfileLikesRow';
 import { MutualMarkDialog } from '../../components/MutualMarkDialog';
 import { albumMediaUrl, collectionImageUrl } from '../../lib/resourceUrl';
 import { cn } from './classNames';
@@ -432,6 +432,13 @@ export function ContactProfileDialog({
           {intimacy ? (
             <ProfileRow icon={<Heart size={13} />} label="亲密度" value={intimacy} mono accent />
           ) : null}
+          {profile.kind !== 'bot' && profile.identityLabel === 'QQ' ? (
+            <ProfileLikesRow
+              uid={profile.id}
+              uin={profile.identityValue}
+              name={displayUserName(profile)}
+            />
+          ) : null}
           {createdAt ? (
             <ProfileRow icon={<CalendarDays size={13} />} label="成为好友" value={createdAt} />
           ) : null}
@@ -455,13 +462,6 @@ export function ContactProfileDialog({
         {/* 个性主页 / 互动标识都要拿 QQ 号去查——只有 uin 的联系人才给入口。 */}
         {profile.identityLabel === 'QQ' ? (
           <div className="weq-profile-actions">
-            {profile.kind !== 'bot' ? (
-              <ProfileLikeAction
-                uid={profile.id}
-                uin={profile.identityValue}
-                name={displayUserName(profile)}
-              />
-            ) : null}
             {openSpace ? (
               <button
                 className="weq-profile-perhome"
