@@ -103,10 +103,54 @@
 .weq-forward-banner-progress {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
-  grid-template-areas: 'time stop' 'bar stop';
+  grid-template-areas: 'time stop' 'count stop' 'bar stop';
   gap: 6px 8px;
   align-items: center;
   min-width: 0;
+}
+.weq-forward-count {
+  grid-area: count;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+.weq-toast-host:has(.weq-forward-banner) {
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  pointer-events: auto;
+}
+.weq-toast-host:has(.weq-forward-banner) .weq-toast {
+  flex-shrink: 0;
+}
+.weq-sequential-forward header strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-sequential-forward header button {
+  flex: none;
+}
+.weq-forward-ignored {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  font-size: 13px;
+}
+.weq-forward-review {
+  height: min(640px, calc(100dvh - 48px));
+  padding: 0;
+}
+.weq-forward-review > footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-forward-ignored-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 12px;
 }
 .weq-forward-time {
   display: flex;

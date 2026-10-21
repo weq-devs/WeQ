@@ -2,6 +2,7 @@
 import type { PreviewNode } from '../../lib/conversationPreview';
 import type { SetEmojiItem } from '@weq/codec';
 import type { LocalMediaRef } from './composerSend';
+import type { RepeatElement } from '../../lib/messageRepeat';
 
 export type User = {
   id: string;
@@ -328,6 +329,8 @@ export type Message = {
   conversationId: string;
   senderId: string;
   body: string;
+  /** QQ 渲染视图元素，逐条重发与只读预览共用，不能用 body 标签替代。 */
+  qqElements?: RepeatElement[];
   /**
    * Per-conversation sequence (column 40003 for synced rows). Used by chatPane to
    * spot seq gaps and to place optimistic rows among real ones. Empty string for

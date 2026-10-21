@@ -7465,9 +7465,11 @@ export function MainView(): ReactElement {
    * 原稿与重新编辑入口，不自动回填或覆盖下一条草稿。
    */
   const repeatContext = useRef<string | null>(selectedConversation?.id ?? null);
-  const [forwardBatch, setForwardBatch] = useState<{ account: string; messages: Message[] } | null>(
-    null,
-  );
+  const [forwardBatch, setForwardBatch] = useState<{
+    account: string;
+    messages: Message[];
+    conversation?: Conversation;
+  } | null>(null);
   const openForwardTarget = (target: MfTarget) => {
     if (useViewState.getState().openedUin !== user.identityValue) {
       pushToast({ tone: 'warning', message: '请先切回转发时的账号再打开对话' });
@@ -9228,6 +9230,7 @@ export function MainView(): ReactElement {
                             setForwardBatch({
                               account: user.identityValue,
                               messages: structuredClone(messages),
+                              conversation: selectedConversation ?? undefined,
                             })
                           }
                           onViewDeleted={handleViewDeleted}
@@ -9739,6 +9742,9 @@ export function MainView(): ReactElement {
           {forwardBatch && forwardBatch.account === user.identityValue ? (
             <SequentialForwardDialog
               messages={forwardBatch.messages}
+              conversation={forwardBatch.conversation}
+              user={user}
+              renderers={messageRenderers}
               targets={mergeForwardTargets}
               onSend={forwardMessage}
               onOpenTarget={openForwardTarget}

@@ -5,9 +5,24 @@ import {
   forwardSequentially,
   forwardMessageContent,
   estimateForwardDuration,
+  validateForwardOptions,
+  formatForwardDuration,
 } from '../src/renderer/src/lib/sequentialForward';
 
 describe('逐条转发执行', () => {
+  it('默认不限单条最大间隔且忽略错误继续，-1 不截断等待', () => {
+    expect(DEFAULT_FORWARD_OPTIONS.maxIntervalMs).toBe(-1);
+    expect(DEFAULT_FORWARD_OPTIONS.failure).toBe('skip');
+    const options = { ...DEFAULT_FORWARD_OPTIONS, mode: 'original' as const };
+    const first = { text: '', nonText: false, timestampMs: 0 };
+    const last = { ...first, timestampMs: 7_200_000 };
+    expect(forwardDelay(first, options, () => 0.5, last)).toBe(7_200_000);
+    expect(() => validateForwardOptions(options)).not.toThrow();
+    for (const maxIntervalMs of [-2, -0.5, Number.NaN, Number.POSITIVE_INFINITY])
+      expect(() => validateForwardOptions({ ...options, maxIntervalMs })).toThrow('参数无效');
+    expect(formatForwardDuration(250)).toBe('0.25 秒');
+    expect(formatForwardDuration(3_600_000)).toBe('1 小时');
+  });
   it('两种非固定间隔连同抖动一并封顶，预估与实际等待一致', async () => {
     for (const mode of ['text', 'original'] as const) {
       const options = { ...DEFAULT_FORWARD_OPTIONS, mode, maxIntervalMs: 2000, jitterMs: 1000 };
@@ -72,7 +87,7 @@ describe('逐条转发执行', () => {
         options,
         2,
       ),
-    ).toEqual({ minMs: 7000, maxMs: 7000 });
+    ).toEqual({ minMs: 3500, maxMs: 3500 });
   });
   it('文本默认每字 1 秒，混合媒体和卡片整条计非文本时长，不累计文字', () => {
     expect(DEFAULT_FORWARD_OPTIONS.msPerCharacter).toBe(1000);
@@ -97,7 +112,7 @@ describe('逐条转发执行', () => {
     }
     expect(forwardDelay(mixed, { ...options, nonTextMs: 123 })).toBe(123);
   });
-  it('按文本长度逐条发送前等待，包含第一条和最后一条；预估累计所选目标和抖动范围', async () => {
+  it('按文本长度逐条发送前等待，包含首尾；并行目标预估不乘目标数', async () => {
     const events: string[] = [];
     const options = { ...DEFAULT_FORWARD_OPTIONS, mode: 'text' as const };
     await forwardSequentially(['甲乙', '丙'], options, {
@@ -118,10 +133,11 @@ describe('逐条转发执行', () => {
         { ...options, jitterMs: 100 },
         2,
       ),
-    ).toEqual({ minMs: 13600, maxMs: 14400 });
+    ).toEqual({ minMs: 6800, maxMs: 7200 });
     expect(
       estimateForwardDuration(['甲乙', '丙'], { ...DEFAULT_FORWARD_OPTIONS, intervalMs: 200 }, 2),
-    ).toEqual({ minMs: 400, maxMs: 400 });
+    ).toEqual({ minMs: 200, maxMs: 200 });
+    expect(estimateForwardDuration(['甲', '乙'], options, 0)).toEqual({ minMs: 0, maxMs: 0 });
   });
   it('默认等待真实成功才发下一条，不插入间隔', async () => {
     let finish: (() => void) | undefined;
@@ -164,12 +180,16 @@ describe('逐条转发执行', () => {
       throw new Error('服务端拒绝');
     });
     await expect(
-      forwardSequentially(['a', 'b'], DEFAULT_FORWARD_OPTIONS, {
-        send: rejected,
-        text: String,
-        signal: new AbortController().signal,
-        progress: vi.fn(),
-      }),
+      forwardSequentially(
+        ['a', 'b'],
+        { ...DEFAULT_FORWARD_OPTIONS, failure: 'abort' },
+        {
+          send: rejected,
+          text: String,
+          signal: new AbortController().signal,
+          progress: vi.fn(),
+        },
+      ),
     ).rejects.toThrow('服务端拒绝');
     expect(rejected).toHaveBeenCalledOnce();
     const controller = new AbortController();

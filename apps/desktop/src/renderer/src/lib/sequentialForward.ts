@@ -5,6 +5,7 @@ export interface ForwardOptions {
   intervalMs: number;
   msPerCharacter: number;
   nonTextMs: number;
+  /** -1 表示不限制；界面以秒编辑，内部仍以毫秒计时。 */
   maxIntervalMs: number;
   jitterMs: number;
   maxAttempts: number;
@@ -15,10 +16,10 @@ export const DEFAULT_FORWARD_OPTIONS: ForwardOptions = {
   intervalMs: 0,
   msPerCharacter: 1000,
   nonTextMs: 5000,
-  maxIntervalMs: 3_600_000,
+  maxIntervalMs: -1,
   jitterMs: 0,
   maxAttempts: 1,
-  failure: 'abort',
+  failure: 'skip',
 };
 export interface ForwardContent {
   text: string;
@@ -53,13 +54,11 @@ export function validateForwardOptions(options: ForwardOptions): void {
     options.maxAttempts < 1 ||
     options.maxAttempts > 20 ||
     !Number.isInteger(options.maxIntervalMs) ||
-    [
-      options.intervalMs,
-      options.msPerCharacter,
-      options.nonTextMs,
-      options.jitterMs,
-      options.maxIntervalMs,
-    ].some((value) => !Number.isFinite(value) || value < 0 || value > 3_600_000)
+    options.maxIntervalMs < -1 ||
+    options.maxIntervalMs > 3_600_000 ||
+    [options.intervalMs, options.msPerCharacter, options.nonTextMs, options.jitterMs].some(
+      (value) => !Number.isFinite(value) || value < 0 || value > 3_600_000,
+    )
   )
     throw new Error('转发参数无效');
 }
@@ -81,7 +80,9 @@ export function forwardDelay(
         ? originalMessageGap(content, nextContent)
         : options.intervalMs;
   const delay = Math.max(0, Math.round(base + (random() * 2 - 1) * options.jitterMs));
-  return options.mode === 'fixed' ? delay : Math.min(options.maxIntervalMs, delay);
+  return options.mode === 'fixed' || options.maxIntervalMs === -1
+    ? delay
+    : Math.min(options.maxIntervalMs, delay);
 }
 
 function originalMessageGap(
@@ -95,7 +96,7 @@ function originalMessageGap(
     : 0;
 }
 
-/** 仅估算可控等待；服务端回执、上传与重试耗时无法预知。 */
+/** 各目标并行，只估算一条目标队列的可控等待，不按目标数累乘。 */
 export function estimateForwardDuration(
   rows: readonly (string | ForwardContent)[],
   options: ForwardOptions,
@@ -103,26 +104,23 @@ export function estimateForwardDuration(
 ): { minMs: number; maxMs: number } {
   validateForwardOptions(options);
   if (!Number.isInteger(targetCount) || targetCount < 0) throw new Error('转发目标数量无效');
-  const waits = rows.length <= 1 ? [] : options.mode === 'text' ? rows : rows.slice(0, -1);
+  const waits =
+    targetCount === 0 || rows.length <= 1 ? [] : options.mode === 'text' ? rows : rows.slice(0, -1);
   return {
-    minMs:
-      waits.reduce((sum, row, i) => sum + forwardDelay(row, options, () => 0, rows[i + 1]), 0) *
-      targetCount,
-    maxMs:
-      waits.reduce((sum, row, i) => sum + forwardDelay(row, options, () => 1, rows[i + 1]), 0) *
-      targetCount,
+    minMs: waits.reduce((sum, row, i) => sum + forwardDelay(row, options, () => 0, rows[i + 1]), 0),
+    maxMs: waits.reduce((sum, row, i) => sum + forwardDelay(row, options, () => 1, rows[i + 1]), 0),
   };
 }
 
 export function formatForwardDuration(ms: number): string {
-  if (ms < 1000) return `${Math.ceil(ms)} 毫秒`;
-  const seconds = Math.ceil(ms / 1000);
+  const seconds = Math.max(0, Math.ceil(ms)) / 1000;
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = Number((seconds % 60).toFixed(3));
   return [
     hours ? `${hours} 小时` : '',
     minutes ? `${minutes} 分` : '',
-    seconds % 60 ? `${seconds % 60} 秒` : '',
+    remainder || !seconds ? `${remainder} 秒` : '',
   ]
     .filter(Boolean)
     .join(' ');
