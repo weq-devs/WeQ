@@ -1434,6 +1434,7 @@ export function initAppContext(): AppContext {
           return resolveOnlinePid();
         },
         join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
+        deletedMsgs,
       );
       const guildDirect = new GuildDirectService(session);
       const msgs = new MsgService(session, deletedMsgs, antiRecall);
@@ -2253,6 +2254,7 @@ export function initAppContext(): AppContext {
           return livePid();
         },
         join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
+        deletedMsgs,
       );
       const guildDirect = new GuildDirectService(session);
       const msgs = new MsgService(session, deletedMsgs, antiRecall);

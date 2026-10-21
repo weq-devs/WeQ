@@ -123,6 +123,7 @@ export function ChatMainContent({
   onSearchChatRecords,
   onOpenRoamingBackfill,
   deletedIds,
+  hiddenDeletedIds,
   onRestoreMessage,
   onOpenTool,
   onSelectTool,
@@ -208,7 +209,11 @@ export function ChatMainContent({
   onDraftClear: (conversationId: string) => void;
   onBackConversation: () => void;
   onEditRaw?: (message: Message) => void;
-  onDeleteMessage?: (message: Message, conversation: Conversation) => void | Promise<void>;
+  onDeleteMessage?: (
+    message: Message,
+    conversation: Conversation,
+    hidden?: boolean,
+  ) => void | Promise<void>;
   onOpenGroupAlbums?: (conversation: GroupConversation) => void;
   onOpenGroupFiles?: (conversation: GroupConversation) => void;
   onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
@@ -255,6 +260,7 @@ export function ChatMainContent({
   onOpenRoamingBackfill?: (conversation: Conversation) => void;
   /** msgIds WeQ deleted in the active conversation (in-place overlay). */
   deletedIds?: Set<string>;
+  hiddenDeletedIds?: Set<string>;
   /** Restore one WeQ-deleted message (overlay hover button). */
   onRestoreMessage?: (msgId: string) => Promise<void>;
   /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
@@ -357,6 +363,7 @@ export function ChatMainContent({
       onSearchChatRecords={onSearchChatRecords}
       onOpenRoamingBackfill={onOpenRoamingBackfill}
       deletedIds={deletedIds}
+      hiddenDeletedIds={hiddenDeletedIds}
       onRestoreMessage={onRestoreMessage}
       unreadDock={unreadDock}
       missingJumpSeq={missingJumpSeq}

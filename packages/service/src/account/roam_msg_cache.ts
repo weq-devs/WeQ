@@ -130,6 +130,7 @@ export class RoamMsgCacheDb {
   constructor(
     nt: Pick<NtHelperBinding, 'executeSql' | 'executeSqlWrite' | 'closeDb'>,
     dbPath: string,
+    private readonly hiddenIds: (kind: 'c2c' | 'group', conv: string) => string[] = () => [],
   ) {
     this.nt = nt;
     this.dbPath = dbPath;
@@ -160,29 +161,40 @@ export class RoamMsgCacheDb {
     verifiedOnly = false,
     limit = 2000,
     descending = true,
+    includeHidden = false,
   ): Promise<GapFetchedMessage[]> {
     if (startSeq > endSeq) return [];
     await this.ensureSchema();
+    const hidden = JSON.stringify(
+      includeHidden
+        ? []
+        : this.hiddenIds(kind, conv).map((id) =>
+            id.replace(/^roaming:(?:(?:native|protocol):)?/, ''),
+          ),
+    );
     const rows = await this.nt.executeSql(
       this.dbPath,
       `SELECT kind, conv, msg_id, msg_seq, sender_uid, sender_uin, send_time, elements, decoration, nt_seq_verified
          FROM ${TABLE}
         WHERE kind = ? AND conv = ? AND msg_seq BETWEEN ? AND ?
           ${verifiedOnly ? 'AND nt_seq_verified = 1' : ''}
+          AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))
         ORDER BY msg_seq ${descending ? 'DESC' : 'ASC'} LIMIT ?`,
-      [kind, conv, BigInt(startSeq), BigInt(endSeq), Math.max(1, Math.min(2000, limit))],
+      [kind, conv, BigInt(startSeq), BigInt(endSeq), hidden, Math.max(1, Math.min(2000, limit))],
     );
     const native = await this.nt.executeSql(
       this.dbPath,
       `SELECT payload FROM ${NATIVE_TABLE} WHERE kind = ? AND conv = ? AND accepted = 1 AND msg_seq BETWEEN ? AND ?
+       AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))
        ORDER BY msg_seq ${descending ? 'DESC' : 'ASC'}, msg_id LIMIT ?`,
-      [kind, conv, BigInt(startSeq), BigInt(endSeq), Math.max(1, Math.min(2000, limit))],
+      [kind, conv, BigInt(startSeq), BigInt(endSeq), hidden, Math.max(1, Math.min(2000, limit))],
     );
     const protocol = await this.nt.executeSql(
       this.dbPath,
       `SELECT payload FROM ${PROTOCOL_TABLE} WHERE kind=? AND conv=? AND msg_seq BETWEEN ? AND ?
+       AND (msg_seq || ':' || msg_id) NOT IN (SELECT value FROM json_each(?))
        ${verifiedOnly ? 'AND nt_seq_verified=1' : ''} ORDER BY msg_seq ${descending ? 'DESC' : 'ASC'},msg_id LIMIT ?`,
-      [kind, conv, BigInt(startSeq), BigInt(endSeq), Math.max(1, Math.min(2000, limit))],
+      [kind, conv, BigInt(startSeq), BigInt(endSeq), hidden, Math.max(1, Math.min(2000, limit))],
     );
     const messages = combineCache(
       rows.map(rowToMessage),

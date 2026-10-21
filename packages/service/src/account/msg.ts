@@ -42,7 +42,7 @@ import {
 } from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { toRenderElements, type RenderElement } from './msg_view';
-import type { DeletedMsgStore } from './deleted_msgs';
+import { DeletedMsgStore } from './deleted_msgs';
 import type { AntiRecallService } from './anti_recall';
 import type { ExportSkippedRanges } from './export/message_source';
 import { matchesMessageFilter, messageSelectionKey, type MessageFilter } from './message_filter';
@@ -548,7 +548,18 @@ export class MsgService {
    * Searches c2c → dataline → group and acts on whichever holds the row.
    * Returns true if a row was rewritten.
    */
-  async deleteMessage(msgId: bigint, kind: 'c2c' | 'group', conv: string): Promise<boolean> {
+  async deleteMessage(
+    msgId: bigint,
+    kind: 'c2c' | 'group',
+    conv: string,
+    hidden = false,
+  ): Promise<boolean> {
+    const previous = this.deleted?.get(msgId.toString());
+    if (
+      previous &&
+      (previous.source === 'sent-cache' || previous.kind !== kind || previous.conv !== conv)
+    )
+      return false;
     for (const db of [
       this.session.c2cMsgs,
       this.session.datalineMsgs,
@@ -557,11 +568,12 @@ export class MsgService {
       const orig = await db.readMsgType(msgId);
       if (!orig) continue;
       this.deleted?.add(msgId.toString(), {
-        origMsgType: orig.msgType.toString(),
-        origSubType: orig.subType.toString(),
+        origMsgType: previous?.origMsgType ?? orig.msgType.toString(),
+        origSubType: previous?.origSubType ?? orig.subType.toString(),
         kind,
         conv,
-        deletedAt: Math.floor(Date.now() / 1000),
+        deletedAt: previous?.deletedAt ?? Math.floor(Date.now() / 1000),
+        hidden,
       });
       return (await db.writeMsgType(msgId, DELETED_MSG_TYPE, DELETED_SUB_TYPE)) > 0;
     }
@@ -621,37 +633,43 @@ export class MsgService {
     return this.deleted?.listIds(kind, conv) ?? [];
   }
 
-  /** 已持久化的自发消息只标记本地缓存，不用客户端 random 改写 QQ 原库。 */
-  deleteCachedSentMessage(message: GapFetchedMessage): boolean {
+  getHiddenDeletedMsgIds(kind: 'c2c' | 'group', conv: string): string[] {
+    return this.deleted?.listHiddenIds(kind, conv) ?? [];
+  }
+
+  /** 漫游来源仅标记 WeQ 缓存，绝不将缓存身份送入 QQ 原库。 */
+  deleteCachedSentMessage(message: GapFetchedMessage, hidden = false): boolean {
     if (
       !this.deleted ||
-      !message.localSent ||
-      message.sourceFormat !== 'protocol' ||
       !/^[1-9]\d*$/.test(message.msgSeq) ||
-      !/^-?\d+$/.test(message.msgId) ||
+      BigInt(message.msgSeq) > 0xffffffffn ||
+      !/^-?\d{1,20}$/.test(message.msgId) ||
       (message.kind === 'c2c' && !message.ntSeqVerified)
     )
       return false;
     const messageId = messageSelectionKey({ ...message, source: 'roaming' })!;
-    this.deleted.add(this.cachedDeleteKey(message.kind, message.conv, messageId), {
+    this.deleted.add(DeletedMsgStore.cachedKey(message.kind, message.conv, messageId), {
       source: 'sent-cache',
       messageId,
       kind: message.kind,
       conv: message.conv,
       deletedAt: Math.floor(Date.now() / 1000),
+      hidden,
     });
     return true;
   }
 
   restoreCachedSentMessage(messageId: string, kind: 'c2c' | 'group', conv: string): boolean {
-    const key = this.cachedDeleteKey(kind, conv, messageId);
-    if (this.deleted?.get(key)?.source !== 'sent-cache') return false;
-    this.deleted.remove(key);
-    return true;
-  }
-
-  private cachedDeleteKey(kind: 'c2c' | 'group', conv: string, messageId: string): string {
-    return `sent-cache:${JSON.stringify([kind, conv, messageId])}`;
+    const match = /^roaming:(?:(?:native|protocol):)?([1-9]\d*):(-?\d+)$/.exec(messageId);
+    if (!match || !this.deleted) return false;
+    let restored = false;
+    for (const format of ['', 'native:', 'protocol:']) {
+      const key = DeletedMsgStore.cachedKey(kind, conv, `roaming:${format}${match[1]}:${match[2]}`);
+      if (this.deleted.get(key)?.source !== 'sent-cache') continue;
+      this.deleted.remove(key);
+      restored = true;
+    }
+    return restored;
   }
 
   /**

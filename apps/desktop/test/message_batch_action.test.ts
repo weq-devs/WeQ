@@ -14,7 +14,7 @@ it.each(['export', 'analysis', 'delete'] as const)(
     const roaming = { ...own, id: 'roaming:protocol:1:2', source: 'roaming' as const };
     expect(messageBatchBlockReason(own, action)).toBeNull();
     expect(partitionMessageBatch([own, pending, roaming], action)).toMatchObject(
-      action === 'export'
+      action === 'export' || action === 'delete'
         ? { supported: [own, roaming], unsupported: [{ message: pending }] }
         : { supported: [own], unsupported: [{ message: pending }, { message: roaming }] },
     );
@@ -39,5 +39,5 @@ it('已经持久化的自己的协议缓存支持导出和可恢复的本地删�
   expect(messageBatchBlockReason(cached, 'export')).toBeNull();
   expect(messageBatchBlockReason(cached, 'delete')).toBeNull();
   expect(messageBatchBlockReason(cached, 'analysis')).toBeTruthy();
-  expect(messageBatchBlockReason({ ...cached, localSent: false }, 'delete')).toBeTruthy();
+  expect(messageBatchBlockReason({ ...cached, localSent: false }, 'delete')).toBeNull();
 });

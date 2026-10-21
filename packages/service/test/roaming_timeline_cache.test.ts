@@ -7,6 +7,8 @@ import type { Platform } from '@weq/platform';
 import type { AccountSession } from '@weq/account';
 import { GapHistoryService, type GapFetchedMessage } from '../src/account/gap_history';
 import { RoamMsgCacheDb } from '../src/account/roam_msg_cache';
+import { DeletedMsgStore } from '../src/account/deleted_msgs';
+import { MsgService } from '../src/account/msg';
 import { UserConfigService } from '../src/bootstrap/user_config';
 import { MessageSendService } from '../src/account/message_send';
 import { encode, SEND_MESSAGE_RESPONSE } from '@weq/protocol';
@@ -55,6 +57,74 @@ function message(
 }
 
 describe('offline roaming timeline cache pages', () => {
+  it('同消息跨缓存格式不绕过隐藏标记，同序号不同消息仍保留', async () => {
+    const { root, nt, path, cache } = setup();
+    const store = new DeletedMsgStore(join(root, 'deleted.json'));
+    const msgs = new MsgService({} as never, store);
+    const history = new GapHistoryService(nt, {} as never, () => 42, path, store);
+    const protocol = { ...message(2), msgId: '77', sourceFormat: 'protocol' as const };
+    await cache.store([
+      protocol,
+      { ...protocol, sourceFormat: 'native', nativeRaw: { elements: [] } },
+      { ...protocol, msgId: '78' },
+    ]);
+    expect(msgs.deleteCachedSentMessage(protocol, true)).toBe(true);
+    expect((await history.cached('group', protocol.conv, 2, 2)).map((row) => row.msgId)).toEqual([
+      '78',
+    ]);
+    expect((await history.cachedForExport('group', protocol.conv)).map((row) => row.msgId)).toEqual(
+      ['78'],
+    );
+    expect(await history.cachedForExport('group', protocol.conv, true)).toHaveLength(2);
+    expect(msgs.restoreCachedSentMessage('roaming:native:2:77', 'group', protocol.conv)).toBe(true);
+    expect((await history.cached('group', protocol.conv, 2, 2)).map((row) => row.msgId)).toEqual([
+      '77',
+      '78',
+    ]);
+  });
+  it.each([undefined, 'native', 'protocol'] as const)(
+    '隐藏 %s 缓存在分页前排除，仍可从删除列表读取与恢复',
+    async (sourceFormat) => {
+      const { root, nt, path, cache } = setup();
+      const store = new DeletedMsgStore(join(root, 'deleted.json'));
+      const msgs = new MsgService({} as never, store);
+      const history = new GapHistoryService(
+        nt,
+        {} as AccountSession,
+        () => {
+          throw Error('offline');
+        },
+        path,
+        store,
+      );
+      const rows = [1, 2, 3].map((seq) => ({
+        ...message(seq),
+        msgId: String(seq),
+        sourceFormat,
+        ...(sourceFormat === 'native' ? { nativeRaw: { elements: [] } } : {}),
+      }));
+      await cache.store(rows);
+      const id = `roaming:${sourceFormat ? `${sourceFormat}:` : ''}2:2`;
+      expect(msgs.deleteCachedSentMessage(rows[1]!, true)).toBe(true);
+      expect(
+        (await history.cachedTimeline('group', rows[0]!.conv, 1, 3, 2, true)).map(
+          (row) => row.msgSeq,
+        ),
+      ).toEqual(['1', '3']);
+      expect((await history.cached('group', rows[0]!.conv, 1, 3)).map((row) => row.msgSeq)).toEqual(
+        ['1', '3'],
+      );
+      expect(await history.cachedForDeletion('group', rows[0]!.conv, 2)).toHaveLength(1);
+      expect(await history.cachedForExport('group', rows[0]!.conv)).toHaveLength(2);
+      expect(await history.cachedForExport('group', rows[0]!.conv, true)).toHaveLength(3);
+      expect(await history.fetch('group', rows[0]!.conv, 2, 2)).toMatchObject({
+        ok: false,
+        reason: 'offline',
+      });
+      expect(msgs.restoreCachedSentMessage(id, 'group', rows[0]!.conv)).toBe(true);
+      expect(await history.cached('group', rows[0]!.conv, 2, 2)).toHaveLength(1);
+    },
+  );
   it('64 位相邻序号的缓存正反分页不被消息 ID 字典序颠倒', async () => {
     const { cache } = setup();
     await cache.store([

@@ -40,6 +40,7 @@ import {
   Eye,
   Search,
   Trash2,
+  RotateCcw,
   ListPlus,
   FileText,
   FolderOpen,
@@ -75,6 +76,8 @@ import {
   type MessageBatchAction,
 } from '../../lib/messageBatchAction';
 import { MessageBatchActionDialog } from '../../components/MessageBatchActionDialog';
+import { confirmMessageDeletion } from '../../components/confirmMessageDeletion';
+import { deletionIdentity, hiddenDeletionSequences } from '../../lib/messageDeletion';
 import { useThemeStore } from '../../state/theme';
 import {
   Fragment,
@@ -456,6 +459,7 @@ export function ChatPane({
   onSearchChatRecords,
   onOpenRoamingBackfill,
   deletedIds,
+  hiddenDeletedIds,
   onRestoreMessage,
   onMergeForward,
   onAddToComposition,
@@ -535,7 +539,11 @@ export function ChatPane({
   onDraftClear: (conversationId: string) => void;
   onBack: () => void;
   onEditRaw?: (message: Message) => void;
-  onDeleteMessage?: (message: Message, conversation: Conversation) => void | Promise<void>;
+  onDeleteMessage?: (
+    message: Message,
+    conversation: Conversation,
+    hidden?: boolean,
+  ) => void | Promise<void>;
   onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupFiles?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
@@ -595,6 +603,7 @@ export function ChatPane({
   onLoadSelectionMessages?: import('../../lib/messageSelection').LoadSelectionMessages;
   /** msgIds WeQ deleted in this conversation — rendered in place under a translucent overlay. */
   deletedIds?: Set<string>;
+  hiddenDeletedIds?: Set<string>;
   /** Restore one WeQ-deleted message (the overlay's hover button). */
   onRestoreMessage?: (msgId: string) => Promise<void>;
   /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
@@ -944,9 +953,25 @@ export function ChatPane({
   useEffect(() => {
     setDockIndex(0);
   }, [conversation?.id, unreadDock]);
+  const deletedKeys = useMemo(
+    () => new Set([...(deletedIds ?? [])].map(deletionIdentity)),
+    [deletedIds],
+  );
+  const hiddenDeletedKeys = useMemo(
+    () => new Set([...(hiddenDeletedIds ?? [])].map(deletionIdentity)),
+    [hiddenDeletedIds],
+  );
   const visibleMessages = useMemo(
-    () => messages.filter((message) => !hiddenMessageIds.has(message.id)),
-    [messages, hiddenMessageIds],
+    () =>
+      messages.filter(
+        (message) =>
+          !hiddenMessageIds.has(message.id) && !hiddenDeletedKeys.has(deletionIdentity(message.id)),
+      ),
+    [messages, hiddenMessageIds, hiddenDeletedKeys],
+  );
+  const hiddenDeletionSeqs = useMemo(
+    () => hiddenDeletionSequences(messages, hiddenDeletedIds ?? new Set()),
+    [messages, hiddenDeletedIds],
   );
   // 分析和回复使用不同目标，自己的消息不触发推荐；跳过灰条、撤回和删除。
   const intentSupported = Boolean(
@@ -977,6 +1002,19 @@ export function ChatPane({
   });
   selectionCancelRef.current = selectionFlow.cancel;
   const selectionOrder = selectionFlow.order;
+  const actionScope = useMemo(() => ({}), [conversation?.id, user.id, tabActive]);
+  const actionScopeRef = useRef<object | null>(actionScope);
+  actionScopeRef.current = actionScope;
+  useEffect(() => {
+    actionScopeRef.current = actionScope;
+    return () => {
+      if (actionScopeRef.current === actionScope) actionScopeRef.current = null;
+    };
+  }, [actionScope]);
+  const [deletionBusy, setDeletionBusy] = useState(false);
+  const restorableSelection = selectionFlow.selectedMessages.filter(
+    (message) => deletedKeys.has(deletionIdentity(message.id)) || message.deletedKind === 'weq',
+  );
   const selectionBlockedReason = selectionFlow.busy ? '正在加载所选范围' : null;
   const [batchAction, setBatchAction] = useState<{
     action: MessageBatchAction;
@@ -985,7 +1023,7 @@ export function ChatPane({
   useEffect(() => {
     setBatchAction(null);
   }, [conversation?.id, user.id, tabActive, selectionMode]);
-  function performBatchAction(action: MessageBatchAction, messages: Message[]) {
+  async function performBatchAction(action: MessageBatchAction, messages: Message[]) {
     setBatchAction(null);
     setContextMenu(null);
     if (!conversation || !tabActive || selectionBlockedReason || !selectionMode) return;
@@ -996,16 +1034,46 @@ export function ChatPane({
         messages.map((message) => message.id),
       );
     else {
+      if (deletionBusy) return;
+      const hidden = await confirmMessageDeletion(messages.length);
+      if (hidden === null || actionScopeRef.current !== actionScope) return;
+      setDeletionBusy(true);
+      const processed = new Set<string>();
+      for (const message of messages) {
+        if (actionScopeRef.current !== actionScope) break;
+        try {
+          await onDeleteMessage?.(message, conversation, hidden);
+          processed.add(message.id);
+        } catch {
+          /* 失败记录保留选择，上层统一报告。 */
+        }
+      }
+      setDeletionBusy(false);
+      if (actionScopeRef.current !== actionScope) return;
       // 只移除已处理的选择；不支持的记录留在原选区供后续同步或复制。
-      const processed = new Set(messages.map((message) => message.id));
       if ([...selection.selectedIdsRef.current].every((id) => processed.has(id))) exitSelection();
       else {
         selection.removeSelectedIds([...processed]);
         if (selectionAnchor.current && processed.has(selectionAnchor.current))
           selectionAnchor.current = null;
       }
-      for (const message of messages) void onDeleteMessage?.(message, conversation);
     }
+  }
+  async function restoreSelectedMessages() {
+    if (!onRestoreMessage || deletionBusy || !restorableSelection.length) return;
+    setDeletionBusy(true);
+    const restored: string[] = [];
+    for (const message of restorableSelection) {
+      if (actionScopeRef.current !== actionScope) break;
+      try {
+        await onRestoreMessage(message.id);
+        restored.push(message.id);
+      } catch (error) {
+        pushToast({ tone: 'error', title: '恢复消息失败', detail: String(error) });
+      }
+    }
+    setDeletionBusy(false);
+    if (actionScopeRef.current === actionScope) selection.removeSelectedIds(restored);
   }
   async function requestBatchAction(action: MessageBatchAction) {
     if (selectionBlockedReason || !selectedIds.size) return;
@@ -3895,13 +3963,15 @@ export function ChatPane({
   }
 
   // 失败占位只清理本机状态；原库消息仍沿用 QQ 式删除遮罩。
-  function deleteMessage(message: Message) {
+  async function deleteMessage(message: Message) {
     if (messageBatchBlockReason(message, 'delete')) return;
     if (!conversation) {
       return;
     }
     setContextMenu(null);
     setDecorationCard(null);
+    const hidden = await confirmMessageDeletion(1);
+    if (hidden === null || actionScopeRef.current !== actionScope) return;
     if (canDiscardFailedMessage(message) && selectedIds.has(message.id)) {
       const next = new Set(selectedIds);
       next.delete(message.id);
@@ -3909,7 +3979,11 @@ export function ChatPane({
       if (!next.size) setSelectionMode(false);
       if (selectionAnchor.current === message.id) selectionAnchor.current = null;
     }
-    void onDeleteMessage?.(message, conversation);
+    try {
+      await onDeleteMessage?.(message, conversation, hidden);
+    } catch {
+      /* 上层统一报告失败。 */
+    }
   }
 
   function viewDecoration(message: Message) {
@@ -4030,7 +4104,7 @@ export function ChatPane({
     return (
       (conversation.type === 'group' || conversation.type === 'direct') &&
       !grayTipOf(message) &&
-      !deletedIds?.has(message.id) &&
+      !deletedKeys.has(deletionIdentity(message.id)) &&
       canRepeatMessage(message)
     );
   }
@@ -4295,7 +4369,16 @@ export function ChatPane({
                 // that follows the hole.
                 const previous = visibleMessages[index - 1];
                 const gapPrevious = previousForGap;
-                const gap = messageGapCount(gapPrevious, message, selectionMode);
+                const deletedGap =
+                  gapPrevious &&
+                  hiddenDeletionSeqs.some((seq) =>
+                    isSeqBetween(seq, gapPrevious.msgSeq, message.msgSeq),
+                  );
+                const gap = messageGapCount(
+                  gapPrevious,
+                  message,
+                  selectionMode || Boolean(deletedGap),
+                );
                 if (!isUnpositionedFailure(message)) previousForGap = message;
                 // 跳转落空的目标落在 previous 与 message 之间、且恰好只缺这 1 条时，
                 // 默认的缺口条（只在跳空 >1 时出现）不会渲染。补一条，保证「跳到空消息」
@@ -4400,7 +4483,7 @@ export function ChatPane({
                       renderers={messageRenderers}
                       showSenderName={showSenderNames}
                       active={contextMenu?.message.id === message.id}
-                      deleted={deletedIds?.has(message.id) ?? false}
+                      deleted={deletedKeys.has(deletionIdentity(message.id))}
                       deletedKind={message.deletedKind}
                       recallRevokerName={message.recallRevokerName}
                       onRestore={onRestoreMessage}
@@ -4716,12 +4799,24 @@ export function ChatPane({
                 type="button"
                 className={cn('selection-action')}
                 aria-label="删除"
-                disabled={Boolean(selectionBlockedReason) || !selectedIds.size}
+                disabled={deletionBusy || Boolean(selectionBlockedReason) || !selectedIds.size}
                 title={selectionBlockedReason || '删除所选消息；失败占位仅从本机移除'}
                 onClick={deleteSelectedMessages}
               >
                 <Trash2 size={17} />
               </button>
+              {onRestoreMessage && restorableSelection.length > 0 ? (
+                <button
+                  type="button"
+                  className="selection-action"
+                  aria-label="恢复所选已删除消息"
+                  title="恢复所选已删除消息"
+                  disabled={deletionBusy || Boolean(selectionBlockedReason)}
+                  onClick={() => void restoreSelectedMessages()}
+                >
+                  <RotateCcw size={17} />
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={cn('selection-action')}

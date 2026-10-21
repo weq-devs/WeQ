@@ -52,6 +52,7 @@ import { selfIdentityValues } from '../lib/selfIdentity';
 import { isMineMessage } from '../lib/messageDirection';
 import { isLocalOutgoingMessage } from '../lib/messageSelection';
 import { messageBatchBlockReason } from '../lib/messageBatchAction';
+import { deletionIdentity } from '../lib/messageDeletion';
 import type { LoadSelectionMessages } from '../lib/messageSelection';
 import {
   mergeOptimisticInto,
@@ -2874,10 +2875,10 @@ export function MainView(): ReactElement {
     conversation: Conversation;
     messages: MessageWire[];
   } | null>(null);
-  // msgIds WeQ deleted in the SELECTED conversation — drives the in-place
-  // translucent overlay in the chat. Loaded per conversation, updated
-  // optimistically on delete/restore.
+  // 当前会话的删除遮罩与隐藏标记；写入成功后更新，切换来源时清空。
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
+  const [hiddenDeletedIds, setHiddenDeletedIds] = useState<Set<string>>(new Set());
+  const deletionRevision = useRef(0);
 
   const handleEditRaw = useCallback(async (message: Message) => {
     if (message.source === 'roaming') return;
@@ -2917,25 +2918,39 @@ export function MainView(): ReactElement {
     return { kind: 'c2c', conv: c.id }; // merged — should never actually be called
   }, []);
 
-  // QQ-style delete: rewrites 40011/40012 to (1,1) in the DB — the message
-  // stays in the chat under a translucent overlay. Optimistically mark it
-  // deleted so the overlay appears instantly.
+  // QQ 原库保留 QQ 式删除；漫游消息只改 WeQ 的可恢复缓存标记。
   const handleDeleteMessage = useCallback(
-    async (message: Message, conversation: Conversation) => {
+    async (message: Message, conversation: Conversation, hidden = false) => {
       if (messageBatchBlockReason(message, 'delete')) return;
       if (isLocalOutgoingMessage(message)) {
         dismissFailedOutgoing(message, conversation.id);
         return;
       }
       const { kind, conv } = convFetchKey(conversation);
-      setDeletedIds((current) => new Set(current).add(message.id));
+      const scope = messageScopeRef.current;
+      const binding = messageBindingRef.current;
+      if (!scope || !binding) throw new Error('账号或数据源尚未就绪');
+      deletionRevision.current += 1;
       try {
         const removed = await client.account.deleteMessage.mutate({
           msgId: message.id,
           kind,
           conv,
+          hideAfterDelete: hidden,
+          ...binding,
         });
         if (!removed) throw new Error('未找到可删除的消息记录');
+        deletionRevision.current += 1;
+        if (messageScopeRef.current !== scope || selectionRef.current?.id !== conversation.id)
+          return;
+        setDeletedIds((current) => new Set(current).add(message.id));
+        setHiddenDeletedIds((current) => {
+          const next = new Set(
+            [...current].filter((id) => deletionIdentity(id) !== deletionIdentity(message.id)),
+          );
+          if (hidden) next.add(message.id);
+          return next;
+        });
       } catch (e) {
         console.error('[MainView] Failed to delete message:', e);
         pushToast({
@@ -2943,12 +2958,7 @@ export function MainView(): ReactElement {
           title: '删除消息失败',
           detail: e instanceof Error ? e.message : String(e),
         });
-        // Roll the optimistic overlay back on failure.
-        setDeletedIds((current) => {
-          const next = new Set(current);
-          next.delete(message.id);
-          return next;
-        });
+        throw e;
       }
     },
     [convFetchKey, dismissFailedOutgoing, pushToast],
@@ -3283,17 +3293,31 @@ export function MainView(): ReactElement {
 
   const handleRestoreMessage = useCallback(
     async (msgId: string, conversation?: Conversation | null): Promise<void> => {
+      const scope = messageScopeRef.current;
+      const binding = messageBindingRef.current;
+      if (!scope || !binding) throw new Error('账号或数据源尚未就绪');
+      deletionRevision.current += 1;
       const restored = await client.account.restoreMessage.mutate({
         msgId,
+        ...binding,
         ...(msgId.startsWith('roaming:') && conversation ? convFetchKey(conversation) : {}),
       });
       if (!restored) throw new Error('未找到可恢复的消息记录');
+      deletionRevision.current += 1;
+      if (messageScopeRef.current !== scope) return;
       // Clear the in-place overlay for the restored message.
-      setDeletedIds((current) => {
-        const next = new Set(current);
-        next.delete(msgId);
-        return next;
-      });
+      if (!conversation || selectionRef.current?.id === conversation.id) {
+        setDeletedIds((current) => {
+          return new Set(
+            [...current].filter((id) => deletionIdentity(id) !== deletionIdentity(msgId)),
+          );
+        });
+        setHiddenDeletedIds((current) => {
+          return new Set(
+            [...current].filter((id) => deletionIdentity(id) !== deletionIdentity(msgId)),
+          );
+        });
+      }
       if (deletedConv) {
         await loadDeletedMessages(deletedConv);
       }
@@ -4716,27 +4740,32 @@ export function MainView(): ReactElement {
     syncDraftsFromPending();
   }, [shell.activeConversationId, syncDraftsFromPending]);
 
-  // Load the WeQ-deleted msgIds whenever the selected conversation changes so
-  // the in-place "deleted" overlay is correct on entry. Stale responses from a
-  // quickly-switched-away conversation are ignored.
   useEffect(() => {
     setDeletedIds(new Set());
+    setHiddenDeletedIds(new Set());
+  }, [selectedUid, isDirect, isGroup, messageScope]);
+
+  // 补拉成功会解除对应隐藏记录；只同步标记，不再触发时间线重载。
+  useEffect(() => {
     if (!selectedUid || !(isDirect || isGroup)) return;
-    const kind = isGroup ? 'group' : 'c2c';
-    const conv = selectedUid;
     let alive = true;
-    client.account.deletedMsgIds
-      .query({ kind, conv })
-      .then((ids) => {
-        if (alive) setDeletedIds(new Set(ids));
+    const revision = deletionRevision.current;
+    const target = { kind: isGroup ? ('group' as const) : ('c2c' as const), conv: selectedUid };
+    void Promise.all([
+      client.account.deletedMsgIds.query(target),
+      client.account.hiddenDeletedMsgIds.query(target),
+    ])
+      .then(([ids, hidden]) => {
+        if (alive && revision === deletionRevision.current) {
+          setDeletedIds(new Set(ids));
+          setHiddenDeletedIds(new Set(hidden));
+        }
       })
-      .catch(() => {
-        /* overlay silently absent on failure; delete/restore still work */
-      });
+      .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [selectedUid, isDirect, isGroup]);
+  }, [loaded, selectedUid, isDirect, isGroup, messageScope]);
 
   // 群资料灯箱：拉取所选群在 group_member3 里的前若干名成员，用于头像横排展示。
   const groupDetailCode = shell.selectedGroupConversationId ?? '';
@@ -9286,6 +9315,7 @@ export function MainView(): ReactElement {
                             if (target) handleRoamingTargets([target]);
                           }}
                           deletedIds={deletedIds}
+                          hiddenDeletedIds={hiddenDeletedIds}
                           onRestoreMessage={(msgId) =>
                             handleRestoreMessage(msgId, selectedConversation)
                           }

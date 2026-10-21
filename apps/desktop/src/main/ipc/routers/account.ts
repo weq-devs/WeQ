@@ -3995,30 +3995,45 @@ export const accountRouter = router({
         msgId: z.string().min(1),
         kind: z.enum(['c2c', 'group']),
         conv: z.string().min(1),
+        hideAfterDelete: z.boolean().optional(),
+        ...exportAccountBindingInput.shape,
       }),
     )
     .mutation(async ({ input }) => {
-      const services = requireServices();
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
       if (input.msgId.startsWith('roaming:')) {
-        const match = /^roaming:protocol:([1-9]\d{0,9}):(-?\d{1,20})$/.exec(input.msgId);
+        const match = /^roaming:(?:(?:native|protocol):)?([1-9]\d{0,9}):(-?\d{1,20})$/.exec(
+          input.msgId,
+        );
         if (!match || Number(match[1]) > 0xffffffff) throw new Error('无效的缓存消息身份');
-        const rows = await services.gapHistory.cached(
+        const rows = await services.gapHistory.cachedForDeletion(
           input.kind,
           input.conv,
-          Number(match[1]),
           Number(match[1]),
         );
         const message = rows.find(
           (row) =>
             row.kind === input.kind &&
             row.conv === input.conv &&
-            row.localSent &&
             timelineRowKey({ ...row, source: 'roaming' }) === input.msgId,
         );
-        if (!message) throw new Error('这条已发送消息不在当前会话缓存中');
-        return services.msgs.deleteCachedSentMessage(message);
+        if (!message) throw new Error('这条消息不在当前会话缓存中');
+        if (
+          requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+          services
+        )
+          throw new Error('账号已切换，已停止操作');
+        return services.msgs.deleteCachedSentMessage(message, input.hideAfterDelete ?? false);
       }
-      return services.msgs.deleteMessage(BigInt(input.msgId), input.kind, input.conv);
+      return services.msgs.deleteMessage(
+        BigInt(input.msgId),
+        input.kind,
+        input.conv,
+        input.hideAfterDelete ?? false,
+      );
     }),
 
   /** Restore a WeQ-deleted message (write the original 40011/40012 back). */
@@ -4028,14 +4043,19 @@ export const accountRouter = router({
         msgId: z.string().min(1),
         kind: z.enum(['c2c', 'group']).optional(),
         conv: z.string().min(1).optional(),
+        ...exportAccountBindingInput.shape,
       }),
     )
     .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
       if (input.msgId.startsWith('roaming:')) {
         if (!input.kind || !input.conv) throw new Error('恢复缓存消息需要明确的会话目标');
-        return requireServices().msgs.restoreCachedSentMessage(input.msgId, input.kind, input.conv);
+        return services.msgs.restoreCachedSentMessage(input.msgId, input.kind, input.conv);
       }
-      return requireServices().msgs.restoreMessage(BigInt(input.msgId));
+      return services.msgs.restoreMessage(BigInt(input.msgId));
     }),
 
   /**
@@ -4047,6 +4067,12 @@ export const accountRouter = router({
     .query(({ input }): string[] => {
       return requireServices().msgs.getDeletedMsgIds(input.kind, input.conv);
     }),
+
+  hiddenDeletedMsgIds: procedure
+    .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
+    .query(({ input }): string[] =>
+      requireServices().msgs.getHiddenDeletedMsgIds(input.kind, input.conv),
+    ),
 
   /**
    * List the WeQ-deleted (restorable) messages of one conversation,
@@ -4064,18 +4090,25 @@ export const accountRouter = router({
           ? (rows as RenderGroupMsg[]).map(groupMsgToWire)
           : (rows as RenderC2cMsg[]).map(c2cMsgToWire);
       const cachedIds = new Set(
-        msgs.getDeletedMsgIds(input.kind, input.conv).filter((id) => id.startsWith('roaming:')),
+        msgs
+          .getDeletedMsgIds(input.kind, input.conv)
+          .filter((id) => id.startsWith('roaming:'))
+          .map((id) => id.replace(/^roaming:(?:native:|protocol:)/, 'roaming:')),
       );
       if (cachedIds.size) {
-        const cached = await services.gapHistory.cachedForExport(input.kind, input.conv);
+        const cached = await services.gapHistory.cachedForExport(input.kind, input.conv, true);
         wire.push(
           ...cached
             .filter(
               (row) =>
                 row.kind === input.kind &&
                 row.conv === input.conv &&
-                row.localSent &&
-                cachedIds.has(timelineRowKey({ ...row, source: 'roaming' })),
+                cachedIds.has(
+                  timelineRowKey({ ...row, source: 'roaming' }).replace(
+                    /^roaming:(?:native:|protocol:)/,
+                    'roaming:',
+                  ),
+                ),
             )
             .map((row) => ({ ...roamingMsgToWire(row), deletedKind: 'weq' as const })),
         );

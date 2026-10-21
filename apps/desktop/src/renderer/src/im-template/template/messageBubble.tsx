@@ -13,6 +13,8 @@ import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget';
 import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
 import { MessageProvenance } from '../../components/MessageProvenance';
+import '../../styles/message-deletion.css';
+import { useToast } from '../../components/Toast';
 import { GroupMessageBadge } from '../../components/GroupMessageBadge';
 import { messageHasIntentText } from '../../lib/intentTimeline';
 import '../../styles/chat-interactions.css';
@@ -337,6 +339,12 @@ export function MessageBubble({
     setRestoring(true);
     try {
       await onRestore(message.id);
+    } catch (error) {
+      useToast.getState().push({
+        tone: 'error',
+        title: '恢复消息失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setRestoring(false);
     }
@@ -509,7 +517,7 @@ export function MessageBubble({
             aria-label={isQqDeleted ? 'QQ删除的消息' : '已删除的消息'}
           >
             <span className={cn('weq-msg-deleted-badge')}>{isQqDeleted ? 'QQ删除' : '已删除'}</span>
-            {!isQqDeleted && onRestore ? (
+            {!isQqDeleted && !selectionMode && onRestore ? (
               <button
                 type="button"
                 className={cn('weq-msg-restore')}

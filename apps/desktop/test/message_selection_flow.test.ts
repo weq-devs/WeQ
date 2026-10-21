@@ -88,7 +88,14 @@ function fixture(kind: 'group' | 'direct' = 'group') {
       ),
     );
   }
-  const render = (messages = [message(1), message(5)], id = conversation.id) =>
+  const render = (
+    messages = [message(1), message(5)],
+    id = conversation.id,
+    deletion: {
+      deletedIds?: Set<string>;
+      onRestoreMessage?: (id: string) => Promise<void>;
+    } = {},
+  ) =>
     act(() =>
       root.render(
         h(
@@ -108,6 +115,7 @@ function fixture(kind: 'group' | 'direct' = 'group') {
             onForwardMessages: forward,
             onMergeForward: merge,
             onAddToComposition: composition,
+            ...deletion,
           }),
           h(ToastHost),
         ),
@@ -202,7 +210,7 @@ it.each(['分析所选消息', '删除', '添加到素材库', '合并转发', '
             .click(),
         );
       } else await f.click(`[aria-label="${action}"]`);
-      expect(confirm).toHaveBeenCalledOnce();
+      expect(confirm).toHaveBeenCalledTimes(action === '删除' ? 2 : 1);
       expect(f.load).toHaveBeenCalledOnce();
       if (action === '分析所选消息')
         expect(
@@ -270,6 +278,7 @@ it.each(['导出所选消息', '分析所选消息', '删除'] as const)(
   '混合自己的正式记录和待同步记录：%s 可确认、预览并仅处理支持项',
   async (label) => {
     const actionLabel = label === '删除' ? '删除' : label === '分析所选消息' ? '分析' : '导出';
+    if (label === '删除') vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(true);
     const f = fixture();
     const own = { ...f.message(1), senderId: 'self', body: '自己的正式消息' };
     const pending = {
@@ -300,7 +309,7 @@ it.each(['导出所选消息', '分析所选消息', '删除'] as const)(
       await clickText(`仅${actionLabel}支持的 1 条`);
       if (label === '删除') {
         expect(f.remove).toHaveBeenCalledOnce();
-        expect(f.remove).toHaveBeenCalledWith(own, expect.anything());
+        expect(f.remove).toHaveBeenCalledWith(own, expect.anything(), false);
         expect(f.state().ids).toEqual([pending.id]);
       } else if (label === '分析所选消息')
         expect(
@@ -342,6 +351,93 @@ it('全部不支持时仍可打开说明，取消保留选区，切会话销毁�
   }
 });
 
+it('取消删除确认不发请求且保留原选区', async () => {
+  const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(false);
+  const f = fixture();
+  try {
+    f.render([f.message(1), f.message(2)]);
+    await f.click('[data-enter]');
+    await f.click('[aria-label="删除"]');
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(f.remove).not.toHaveBeenCalled();
+    expect(f.state().ids).toEqual(['1']);
+    expect(f.state().mode).toBe(true);
+  } finally {
+    f.close();
+  }
+});
+
+it('批量恢复只处理选中的已删除消息，失败条目与普通消息保留选中', async () => {
+  const f = fixture();
+  const restore = vi.fn(async (id: string) => {
+    if (id === '3') throw Error('合成恢复失败');
+  });
+  try {
+    f.render(
+      [1, 2, 3].map((seq) => f.message(seq)),
+      f.id,
+      { deletedIds: new Set(['2', '3']), onRestoreMessage: restore },
+    );
+    await f.click('[data-enter]');
+    expect(f.host.querySelector('[aria-label="恢复所选已删除消息"]')).toBeNull();
+    await f.click('[data-weq-select-id="2"]');
+    await f.click('[data-weq-select-id="3"]');
+    await f.click('[aria-label="恢复所选已删除消息"]');
+    expect(restore.mock.calls.map(([id]) => id)).toEqual(['2', '3']);
+    expect(f.state().ids).toEqual(['1', '3']);
+    expect(useToast.getState().toasts.some((toast) => toast.title === '恢复消息失败')).toBe(true);
+  } finally {
+    f.close();
+  }
+});
+
+it('批量删除仅移除成功项的选择，失败项可再次操作', async () => {
+  vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(true);
+  const f = fixture();
+  f.remove.mockRejectedValueOnce(Error('合成删除失败')).mockResolvedValueOnce(undefined);
+  try {
+    f.render([f.message(1), f.message(2)]);
+    await f.click('[data-enter]');
+    await f.click('[data-weq-select-id="2"]');
+    await f.click('[aria-label="删除"]');
+    expect(f.remove).toHaveBeenCalledTimes(2);
+    expect(f.state().ids).toEqual(['1']);
+    expect(f.state().mode).toBe(true);
+  } finally {
+    f.close();
+  }
+});
+
+it.each(['切换会话', '卸载'] as const)(
+  '删除确认等待中%s，迟到确认不删除旧消息或新目标',
+  async (change) => {
+    let resolve!: (accepted: boolean) => void;
+    vi.spyOn(useDialog.getState(), 'confirm').mockImplementation(
+      () =>
+        new Promise<boolean>((done) => {
+          resolve = done;
+        }),
+    );
+    const f = fixture();
+    let closed = false;
+    try {
+      f.render([f.message(1), f.message(2)]);
+      await f.click('[data-enter]');
+      await f.click('[aria-label="删除"]');
+      expect(f.remove).not.toHaveBeenCalled();
+      if (change === '切换会话') f.render([f.message(1, 'other')], 'other');
+      else {
+        f.close();
+        closed = true;
+      }
+      await act(async () => resolve(true));
+      expect(f.remove).not.toHaveBeenCalled();
+    } finally {
+      if (!closed) f.close();
+    }
+  },
+);
+
 it('同序号但发送 random 不同的正式记录不能替换自己的已选占位', async () => {
   const f = fixture();
   try {
@@ -358,6 +454,7 @@ it('同序号但发送 random 不同的正式记录不能替换自己的已选�
 it.each(['导出所选消息', '删除'] as const)(
   '正式消息与自己已持久化的缓存一起选择时可直接%s',
   async (label) => {
+    if (label === '删除') vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(true);
     const f = fixture();
     const cached = {
       ...f.message(2),
@@ -375,7 +472,7 @@ it.each(['导出所选消息', '删除'] as const)(
       expect(document.querySelector('.weq-message-batch-dialog')).toBeNull();
       if (label === '删除') {
         expect(f.remove).toHaveBeenCalledTimes(2);
-        expect(f.remove).toHaveBeenCalledWith(cached, expect.anything());
+        expect(f.remove).toHaveBeenCalledWith(cached, expect.anything(), false);
         expect(f.state().mode).toBe(false);
       } else
         expect(JSON.parse(f.host.querySelector('[data-export]')!.textContent!).scope.ids).toEqual([

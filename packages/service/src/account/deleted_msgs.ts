@@ -14,9 +14,13 @@
  *
  * Modeled on the AgentLab JSON stores (load on construct, persist after each
  * mutation, silent on I/O error).
+ *
+ * sent-cache 来源与键保留历史命名，现在覆盖全部漫游缓存；hidden 仅控制隐藏，
+ * 不丢弃可恢复内容。同一消息跨缓存格式共用删除身份。
  */
 
 import { JsonStore } from '../common/json_store';
+import type { GapFetchedMessage } from './gap_history';
 
 export type DeletedMsgRecord = {
   /** Which table holds it — chooses the c2c/dataline vs group restore path. */
@@ -25,6 +29,7 @@ export type DeletedMsgRecord = {
   conv: string;
   /** Unix seconds when WeQ deleted it. */
   deletedAt: number;
+  hidden?: boolean;
 } & (
   | { source?: 'qq'; origMsgType: string; origSubType: string }
   | { source: 'sent-cache'; messageId: string }
@@ -47,6 +52,19 @@ export class DeletedMsgStore {
 
   /** Remember a delete (original type columns + conversation). Persists. */
   add(msgId: string, rec: DeletedMsgRecord): void {
+    if (rec.source === 'sent-cache') {
+      const match = /^roaming:(?:(?:native|protocol):)?([1-9]\d*):(-?\d+)$/.exec(rec.messageId);
+      if (match)
+        for (const format of ['', 'native:', 'protocol:']) {
+          delete this.store.data[
+            DeletedMsgStore.cachedKey(
+              rec.kind,
+              rec.conv,
+              `roaming:${format}${match[1]}:${match[2]}`,
+            )
+          ];
+        }
+    }
     this.store.data[msgId] = rec;
     this.store.save();
   }
@@ -66,5 +84,48 @@ export class DeletedMsgStore {
         ? [r.source === 'sent-cache' ? r.messageId : id]
         : [];
     });
+  }
+
+  listHiddenIds(kind: 'c2c' | 'group', conv: string): string[] {
+    return this.listIds(kind, conv).filter((id) =>
+      id.startsWith('roaming:')
+        ? this.get(DeletedMsgStore.cachedKey(kind, conv, id))?.hidden
+        : this.get(id)?.hidden,
+    );
+  }
+
+  static cachedKey(kind: 'c2c' | 'group', conv: string, messageId: string): string {
+    // 保留旧键，已有自发缓存删除记录无需迁移。
+    return `sent-cache:${JSON.stringify([kind, conv, messageId])}`;
+  }
+
+  /** 仅成功重新拉取的隐藏记录恢复；同一消息跨缓存格式仍是一次恢复。 */
+  restoreFetched(messages: readonly GapFetchedMessage[]): void {
+    const received = new Set(
+      messages.map((row) => JSON.stringify([row.kind, row.conv, row.msgSeq, row.msgId])),
+    );
+    let changed = false;
+    for (const [key, record] of Object.entries(this.store.data)) {
+      if (record.source !== 'sent-cache' || !record.hidden) continue;
+      const match = /^roaming:(?:(?:native|protocol):)?(\d+):(-?\d+)$/.exec(record.messageId);
+      if (match && received.has(JSON.stringify([record.kind, record.conv, match[1], match[2]]))) {
+        delete this.store.data[key];
+        changed = true;
+      }
+    }
+    if (changed) this.store.save();
+  }
+
+  isHiddenCached(message: GapFetchedMessage): boolean {
+    return ['', 'native:', 'protocol:'].some(
+      (format) =>
+        this.get(
+          DeletedMsgStore.cachedKey(
+            message.kind,
+            message.conv,
+            `roaming:${format}${message.msgSeq}:${message.msgId}`,
+          ),
+        )?.hidden,
+    );
   }
 }
