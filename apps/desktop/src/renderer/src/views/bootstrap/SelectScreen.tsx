@@ -135,7 +135,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
       await Promise.all([userDataDirs.refetch(), savedConfigs.refetch(), historical.refetch()]);
       return;
     }
-    // Rejected because the folder wasn't `Tencent Files` (cancel returns no error).
+    // Cancel returns no error; a rejection carries a human-readable reason.
     if (res.error) {
       showError('目录不正确', res.error);
     }

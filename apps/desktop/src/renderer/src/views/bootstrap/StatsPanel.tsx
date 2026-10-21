@@ -63,7 +63,7 @@ export function StatsPanel({
           <span className="weq-stats-version">{install.version ?? '未知'}</span>
           {install.hasUserData ? (
             // The path itself is the control: click it anytime to re-pick the
-            // Tencent Files directory (e.g. after moving QQ data to another disk).
+            // QQ data directory (e.g. after moving QQ data to another disk).
             <button
               type="button"
               className="weq-stats-path weq-stats-path-btn"

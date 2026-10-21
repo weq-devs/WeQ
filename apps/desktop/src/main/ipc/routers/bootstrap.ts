@@ -79,14 +79,14 @@ import {
   localOcrBlocker,
 } from '@weq/service';
 import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
-import { isTencentFilesRoot } from '@weq/platform';
+import { normalizeQqDataRoot } from '@weq/platform';
 import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
 
-/** Result of the Tencent Files folder picker (with the hard `Tencent Files` rule). */
+/** Result of the QQ data-directory picker. */
 export interface PickRootResult {
-  /** True only when a valid `Tencent Files` folder was picked and persisted. */
+  /** True when a directory was picked and persisted. */
   ok: boolean;
-  /** The path the user picked (kept on rejection so the UI can show it), or null on cancel. */
+  /** The persisted data root (normalized), or null on cancel. */
   path: string | null;
   /** Human-readable reason when `ok` is false and the user didn't just cancel. */
   error?: string;
@@ -1626,30 +1626,20 @@ export const bootstrapRouter = router({
 
   pickTencentFilesRoot: procedure.mutation(async (): Promise<PickRootResult> => {
     const picked = await getHost().pickDirectory({
-      title: '选择 Tencent Files 目录（必须选到 Tencent Files 文件夹本身）',
+      title: '选择 QQ 数据目录（存放 QQ 号子目录 / nt_qq 的那一层）',
     });
     if (!picked) return { ok: false, path: null };
-    // Hard rule: the override must point at the `Tencent Files` folder itself,
-    // not a parent or the per-account `…\Tencent Files\<uin>` subdir. Reject
-    // anything else so the user gets a clear message instead of a silent miss.
-    if (!isTencentFilesRoot(picked)) {
-      logger.warn('rejected non-Tencent-Files data dir pick', {
-        event: 'pick-root-rejected',
-        picked,
-      });
-      return {
-        ok: false,
-        path: picked,
-        error:
-          '请选择名为「Tencent Files」的文件夹本身（不要选里面的 QQ 号子目录，也不要选它的上级目录）。',
-      };
-    }
-    requireBootstrap().globalConfig.setTencentFilesRootOverride(picked);
-    logger.info('set Tencent Files data dir override', {
+    // No folder-name rule: migrated installs may keep any name (`D:\QQData`,
+    // `E:\备份\QQ`, …). Only fix the common off-by-one pick — the per-account
+    // directory itself — by walking up to its parent.
+    const root = normalizeQqDataRoot(picked);
+    requireBootstrap().globalConfig.setTencentFilesRootOverride(root);
+    logger.info('set QQ data dir override', {
       event: 'pick-root-accepted',
       picked,
+      root,
     });
-    return { ok: true, path: picked };
+    return { ok: true, path: root };
   }),
 
   pickMsgDb: procedure.mutation(async () => {
