@@ -134,6 +134,7 @@ export async function getGroupAlbumUploadPermission(
 ): Promise<GroupAlbumUploadPermission> {
   const query = new URLSearchParams({
     qunId: groupCode(groupId),
+    uin: cred.uin,
     inCharset: 'utf-8',
     outCharset: 'utf-8',
     format: 'json',

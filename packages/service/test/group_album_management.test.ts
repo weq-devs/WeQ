@@ -164,11 +164,13 @@ describe('群相册管理 Web 请求', () => {
   });
 
   it('上传权限严格依赖权威数字字段，不把缺失或字符串 0 当作允许', async () => {
-    respond({ code: 0, data: { uploadRight: 0 } });
+    const fetcher = respond({ code: 0, data: { uploadRight: 0 } });
     await expect(getGroupAlbumUploadPermission(credential, '123')).resolves.toMatchObject({
       allowed: true,
       status: 0,
     });
+    const [url] = fetcher.mock.calls[0]! as unknown as [string, RequestInit];
+    expect(new URL(url).searchParams.get('uin')).toBe(credential.uin);
     respond({ code: 0, data: { uploadRight: 1, msg: '仅管理员可上传' } });
     await expect(getGroupAlbumUploadPermission(credential, '123')).resolves.toMatchObject({
       allowed: false,
