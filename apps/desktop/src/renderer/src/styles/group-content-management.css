@@ -117,13 +117,20 @@
 .weq-todo-content .weq-content-toolbar {
   margin-bottom: 6px;
 }
-.weq-todo-content .weq-qq-action-list li {
-  align-items: flex-start;
+.weq-todo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
-.weq-todo-content .weq-qq-action-list li > span {
-  align-self: center;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.weq-todo-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex: none;
+}
+.weq-todo-content .group-bulletin-header {
+  margin-bottom: 0;
 }
 .weq-todo-content .weq-set-iconbtn {
   flex: none;

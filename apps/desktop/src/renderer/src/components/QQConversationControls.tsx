@@ -261,6 +261,7 @@ export function QQConversationControls({
               ) : (
                 <QQWriteSelectRow
                   label="消息接收"
+                  autoSave
                   initial={policySnapshot.data?.rawPolicy ?? null}
                   options={GROUP_MESSAGE_POLICY_OPTIONS}
                   disabled={disabled || policySnapshot.isFetching || !policySnapshot.data}

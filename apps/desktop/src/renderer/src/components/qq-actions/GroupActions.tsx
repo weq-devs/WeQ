@@ -163,61 +163,82 @@ function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedd
     if (r.error) throw r.error;
   };
   return (
-    <section className="weq-qq-actions weq-todo-content" aria-label="群待办列表">
-      <div className="weq-content-toolbar">
-        {embedded ? <span>{todos.data?.length ?? 0} 项已读取待办</span> : <h3>群待办</h3>}
-      </div>
-      {!a.available && <p>QQ 在线能力未就绪</p>}
-      {a.available && todos.isFetching && !todos.data && <p role="status">读取待办中…</p>}
-      {todos.error && <p role="alert">{todos.error.message}</p>}
-      {todos.data?.length === 0 && <p>暂无群待办</p>}
-      <ul className="weq-qq-action-list">
+    <section className="weq-notice-management weq-todo-content" aria-label="群待办列表">
+      {!embedded ? (
+        <div className="weq-content-toolbar">
+          <h3>群待办</h3>
+        </div>
+      ) : null}
+      {!a.available && (
+        <p className="weq-content-status" role="status">
+          QQ 在线能力未就绪
+        </p>
+      )}
+      {a.available && todos.isFetching && !todos.data && (
+        <p className="weq-content-status" role="status">
+          读取待办中…
+        </p>
+      )}
+      {todos.error && (
+        <p className="weq-content-error" role="alert">
+          {todos.error.message}
+        </p>
+      )}
+      {a.available && !todos.isFetching && !todos.error && todos.data?.length === 0 && (
+        <div className="group-announcements-empty">暂无群待办</div>
+      )}
+      <ul className="group-bulletins-list weq-todo-list">
         {todos.data?.map((t) => (
           <li
             key={t.sequence}
+            className="group-bulletin-item"
             onContextMenu={(event) => {
               if (!permissions.data?.canManage || a.disabled) return;
               event.preventDefault();
               setMenu({ x: event.clientX, y: event.clientY, sequence: String(t.sequence) });
             }}
           >
-            <span>
-              {t.text || `消息 ${t.sequence}`}
-              {t.completed ? ' · 已完成' : ''}
-            </span>
-            <ActionIcon
-              label="完成待办"
-              disabled={a.disabled || t.completed}
-              onClick={() =>
-                void a.perform(
-                  (b) =>
-                    client.account.qqActions.todo.mutate({
-                      ...b,
-                      groupId,
-                      sequence: String(t.sequence),
-                      action: 'complete',
-                    }),
-                  refresh,
-                )
-              }
-            >
-              <Check size={15} />
-            </ActionIcon>
-            {permissions.data?.canManage && (
-              <button
-                type="button"
-                className="weq-set-iconbtn"
-                title="待办操作"
-                aria-label={`待办操作 ${t.sequence}`}
-                disabled={a.disabled}
-                onClick={(event) => {
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  setMenu({ x: rect.left, y: rect.bottom, sequence: String(t.sequence) });
-                }}
-              >
-                <MoreHorizontal size={16} />
-              </button>
-            )}
+            <div className="group-bulletin-header">
+              <span className="group-bulletin-date">{t.completed ? '已完成' : '待完成'}</span>
+              <div className="weq-todo-row-actions">
+                <ActionIcon
+                  label="完成待办"
+                  disabled={a.disabled || t.completed}
+                  onClick={() =>
+                    void a.perform(
+                      (b) =>
+                        client.account.qqActions.todo.mutate({
+                          ...b,
+                          groupId,
+                          sequence: String(t.sequence),
+                          action: 'complete',
+                        }),
+                      refresh,
+                    )
+                  }
+                >
+                  <Check size={15} />
+                </ActionIcon>
+                {permissions.data?.canManage && (
+                  <button
+                    type="button"
+                    className="weq-set-iconbtn"
+                    title="待办操作"
+                    aria-label={`待办操作 ${t.sequence}`}
+                    disabled={a.disabled}
+                    onClick={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setMenu({ x: rect.left, y: rect.bottom, sequence: String(t.sequence) });
+                    }}
+                  >
+                    <MoreHorizontal size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="group-bulletin-content">
+              <p>{t.text || `消息 ${t.sequence}`}</p>
+            </div>
           </li>
         ))}
       </ul>

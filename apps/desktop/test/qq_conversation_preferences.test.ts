@@ -151,13 +151,11 @@ function fixture(kind: 'c2c' | 'group') {
 it('群消息策略保存后自动核对读回，保留群号、策略和账号绑定', async () => {
   const host = fixture('group');
   const select = host.querySelector<HTMLSelectElement>('[aria-label="消息接收"]')!;
-  act(() => {
+  await act(async () => {
     select.value = '4';
     select.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  await act(async () =>
-    host.querySelector<HTMLButtonElement>('[aria-label="保存消息接收"]')!.click(),
-  );
+  expect(host.querySelector('[aria-label="保存消息接收"]')).toBeNull();
   expect(mock.mutate).toHaveBeenCalledWith({
     expectedAccountUin: '10001',
     expectedAccountConfigId: 'source-a',
@@ -180,10 +178,10 @@ it('未知服务端策略保留原始编号，不回落为正常提醒', () => {
   expect(select.value).toBe('99');
   expect(select.selectedOptions[0].textContent).toBe('未识别 (99)');
 });
-it('同号切换数据源后不保留另一来源的策略草稿', () => {
+it('同号切换数据源后不保留另一来源的策略请求值', async () => {
   const host = fixture('group');
   const select = host.querySelector<HTMLSelectElement>('[aria-label="消息接收"]')!;
-  act(() => {
+  await act(async () => {
     select.value = '4';
     select.dispatchEvent(new Event('change', { bubbles: true }));
   });

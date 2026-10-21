@@ -56,7 +56,7 @@ it.each(['popover', 'floating', 'overlay'] as const)(
 );
 
 it.each(['popover', 'panel', 'modal', 'overlay'] as const)(
-  '%s 子窗沿用实际入口位置，入口收起后仍能避让视口边缘',
+  '%s 子窗按用途定位：popover 避让入口，模态框与 panel 保持居中',
   (kind) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('innerWidth', 375);
@@ -91,9 +91,15 @@ it.each(['popover', 'panel', 'modal', 'overlay'] as const)(
       const layer = document
         .querySelector('[data-positioned]')!
         .closest<HTMLElement>('.weq-dialog-layer, .weq-overlay-layer')!;
-      expect(layer.classList.contains('is-anchored-popover')).toBe(true);
-      expect(layer.style.getPropertyValue('--weq-popover-left')).toBe('127px');
-      expect(layer.style.getPropertyValue('--weq-popover-top')).toBe('552px');
+      if (kind === 'popover' || kind === 'overlay') {
+        expect(layer.classList.contains('is-anchored-popover')).toBe(true);
+        expect(layer.style.getPropertyValue('--weq-popover-left')).toBe('127px');
+        expect(layer.style.getPropertyValue('--weq-popover-top')).toBe('552px');
+      } else {
+        expect(layer.classList.contains('is-anchored-popover')).toBe(false);
+        expect(layer.style.getPropertyValue('--weq-popover-left')).toBe('');
+        expect(layer.style.getPropertyValue('--weq-popover-top')).toBe('');
+      }
     } finally {
       act(() => root.unmount());
       host.remove();

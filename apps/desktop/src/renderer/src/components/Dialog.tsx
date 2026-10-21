@@ -170,9 +170,7 @@ export function Modal({
   const placement = useOverlayAnchor(
     ref,
     active && !windowed,
-    presentation === 'popover' ||
-      presentation === 'panel' ||
-      (presentation === 'modal' && !!onClose && !centered),
+    presentation === 'popover' && !centered,
     anchor,
   );
   useSurfaceEscape(

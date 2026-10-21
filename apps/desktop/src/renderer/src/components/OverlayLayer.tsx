@@ -121,14 +121,7 @@ function OpenOverlayLayer({
   const document = useRenderDocument();
   const layer = useOverlayLayer(true);
   const ref = useRef<HTMLDivElement>(null);
-  const placement = useOverlayAnchor(
-    ref,
-    true,
-    presentation === 'popover' ||
-      presentation === 'panel' ||
-      (presentation === 'modal' && !!onClose),
-    anchor,
-  );
+  const placement = useOverlayAnchor(ref, true, presentation === 'popover', anchor);
   // onClose 多半是每次渲染新写的箭头函数；用 ref 稳住，避免每帧重挂 keydown。
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;

@@ -106,6 +106,7 @@ export function QQWriteSelectRow({
   onSave,
   preview,
   unlistedLabel,
+  autoSave = false,
 }: {
   label: string;
   initial: number | null;
@@ -114,10 +115,15 @@ export function QQWriteSelectRow({
   onSave: (value: number) => Promise<boolean>;
   preview?: (value: number | null) => ReactNode;
   unlistedLabel?: (value: number) => string;
+  autoSave?: boolean;
 }) {
   const [value, setValue] = useState(initial === null ? '' : String(initial));
   const [submitted, setSubmitted] = useState<string | null>(null);
   const previous = useRef(value);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const latestInitial = useRef(initial);
+  latestInitial.current = initial;
   useEffect(() => {
     const next = initial === null ? '' : String(initial);
     const before = previous.current;
@@ -134,10 +140,27 @@ export function QQWriteSelectRow({
               className="weq-qq-write-input"
               aria-label={label}
               value={value}
-              disabled={disabled}
+              disabled={disabled || saving}
               onChange={(event) => {
-                setValue(event.target.value);
+                if (savingRef.current) return;
+                const next = event.target.value;
+                setValue(next);
                 setSubmitted(null);
+                if (autoSave && next !== '') {
+                  savingRef.current = true;
+                  setSaving(true);
+                  const rollback = () =>
+                    setValue(latestInitial.current === null ? '' : String(latestInitial.current));
+                  void onSave(Number(next))
+                    .then((ok) => {
+                      if (ok) setSubmitted(next);
+                      else rollback();
+                    }, rollback)
+                    .finally(() => {
+                      savingRef.current = false;
+                      setSaving(false);
+                    });
+                }
               }}
             >
               {!options.some((option) => String(option.value) === value) && (
@@ -151,22 +174,24 @@ export function QQWriteSelectRow({
                 </option>
               ))}
             </select>
-            <button
-              type="button"
-              className="weq-set-iconbtn"
-              aria-label={`保存${label}`}
-              title={`保存${label}`}
-              disabled={
-                disabled || value === '' || Number(value) === initial || value === submitted
-              }
-              onClick={() => {
-                void onSave(Number(value)).then((ok) => {
-                  if (ok) setSubmitted(value);
-                });
-              }}
-            >
-              <Save size={16} />
-            </button>
+            {!autoSave ? (
+              <button
+                type="button"
+                className="weq-set-iconbtn"
+                aria-label={`保存${label}`}
+                title={`保存${label}`}
+                disabled={
+                  disabled || value === '' || Number(value) === initial || value === submitted
+                }
+                onClick={() => {
+                  void onSave(Number(value)).then((ok) => {
+                    if (ok) setSubmitted(value);
+                  });
+                }}
+              >
+                <Save size={16} />
+              </button>
+            ) : null}
           </div>
           {preview?.(value === '' ? null : Number(value))}
         </div>
@@ -189,6 +214,7 @@ export function QQWriteToggleRow({
   const [pending, setPending] = useState<boolean | null>(null);
   const [draft, setDraft] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   useEffect(() => {
     setPending(null);
     setDraft(null);
@@ -200,38 +226,36 @@ export function QQWriteToggleRow({
         control={
           <div className="weq-qq-write-field">
             <span role="status">
-              {draft === null ? '尚未读取' : draft ? '将设为开启' : '将设为关闭'}
+              {draft === null
+                ? '尚未读取'
+                : `${saving ? '正在请求' : '已请求'}${draft ? '开启' : '关闭'}，状态待确认`}
             </span>
             <button
               type="button"
-              className={`weq-set-toggle${draft === null ? ' is-unknown' : draft ? ' is-on' : ''}`}
+              className="weq-set-toggle is-unknown"
               role="checkbox"
-              aria-checked={draft === null ? 'mixed' : draft}
+              aria-checked="mixed"
               aria-label={label}
               disabled={disabled || saving}
-              onClick={() => setDraft((value) => !value)}
-            >
-              <span className="weq-set-toggle-track">
-                <span className="weq-set-toggle-knob" />
-              </span>
-            </button>
-            <button
-              type="button"
-              className="weq-set-iconbtn"
-              aria-label={`保存${label}`}
-              title={`保存${label}`}
-              disabled={disabled || saving || draft === null || draft === pending}
               onClick={async () => {
-                if (draft === null) return;
+                if (savingRef.current) return;
+                const next = !draft;
+                setDraft(next);
+                savingRef.current = true;
                 setSaving(true);
                 try {
-                  if (await onSave(draft)) setPending(draft);
+                  await onSave(next);
+                } catch {
+                  setDraft(null);
                 } finally {
+                  savingRef.current = false;
                   setSaving(false);
                 }
               }}
             >
-              <Save size={16} />
+              <span className="weq-set-toggle-track">
+                <span className="weq-set-toggle-knob" />
+              </span>
             </button>
           </div>
         }

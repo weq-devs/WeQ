@@ -20,6 +20,7 @@ import {
   ReplyAll,
   Search,
   Send,
+  Settings,
   Star,
   Trash2,
   X,
@@ -87,6 +88,7 @@ export function MailPage({
   onUnreadChange,
   onOpenRequested,
   searchTarget,
+  onOpenSettings,
 }: {
   api: MailApi;
   selfEmail: string;
@@ -94,6 +96,7 @@ export function MailPage({
   onUnreadChange?: (unread: number) => void;
   onOpenRequested?: () => void;
   searchTarget?: { id: string; folderId: number; revision: string } | null;
+  onOpenSettings?: () => void;
 }) {
   const save = useExportSavePolicy();
   const activity = useQQReadActivity(active);
@@ -480,6 +483,11 @@ export function MailPage({
           </div>
         </div>
         <div className="weq-mail-top-actions">
+          {onOpenSettings ? (
+            <button type="button" title="邮箱设置" aria-label="邮箱设置" onClick={onOpenSettings}>
+              <Settings size={17} />
+            </button>
+          ) : null}
           {(!ready || error) && (
             <button
               type="button"
