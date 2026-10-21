@@ -1,0 +1,41 @@
+.weq-db-repair-window-body {
+  margin: 0;
+  min-width: 0;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--background);
+  color: var(--weq-fg-primary);
+}
+
+.weq-db-repair-native {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.weq-db-repair-native[hidden] {
+  display: none;
+}
+
+.weq-db-repair-window-locked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100dvh;
+  color: var(--weq-fg-muted);
+}
+
+.weq-db-repair-window-error {
+  padding: 20px;
+  color: var(--weq-fg-primary);
+}
+
+html[data-theme='dark'] .weq-db-repair-window-body {
+  background: var(--background);
+  color: var(--weq-fg-primary);
+}

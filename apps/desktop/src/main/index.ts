@@ -1,4 +1,5 @@
-import { compositionPopupOptions, controlCompositionWindow } from './composition_window';
+import { controlCompositionWindow } from './composition_window';
+import { applicationToolPopupOptions } from './tool_window';
 import { floatingWindowTypeOption } from './linux_window_backend';
 import {
   app,
@@ -591,24 +592,27 @@ function createWindow(): BrowserWindow {
   });
 
   win.webContents.setWindowOpenHandler(({ url, frameName }) => {
-    const options = compositionPopupOptions(url, frameName);
+    const options = applicationToolPopupOptions(url, frameName);
     if (options) return { action: 'allow', overrideBrowserWindowOptions: options };
     shell.openExternal(url);
     return { action: 'deny' };
   });
   win.webContents.on('did-create-window', (child, details) => {
-    if (details.frameName !== 'weq-compose' || details.url !== 'about:blank') return;
+    if (!applicationToolPopupOptions(details.url, details.frameName)) return;
+    const composition = details.frameName === 'weq-compose';
     const owner = win.webContents.id;
-    compositionWindows.set(owner, child);
+    if (composition) compositionWindows.set(owner, child);
     const reportState = () => {
       if (!win.isDestroyed() && !child.isDestroyed())
         win.webContents.send('composition:state', { maximized: child.isMaximized() });
     };
-    child.on('maximize', reportState);
-    child.on('unmaximize', reportState);
-    reportState();
+    if (composition) {
+      child.on('maximize', reportState);
+      child.on('unmaximize', reportState);
+      reportState();
+    }
     child.on('closed', () => {
-      if (compositionWindows.get(owner) === child) compositionWindows.delete(owner);
+      if (composition && compositionWindows.get(owner) === child) compositionWindows.delete(owner);
     });
     child.webContents.setWindowOpenHandler(({ url }) => {
       void shell.openExternal(url);

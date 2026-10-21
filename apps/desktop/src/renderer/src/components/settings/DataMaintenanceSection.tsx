@@ -10,7 +10,8 @@ import {
   X,
 } from 'lucide-react';
 import { WorkspacePage } from '../WorkspacePages';
-import { DbRepairPanel, type DbRepairAccountOption } from '../DbRepairPanel';
+import type { DbRepairAccountOption } from '../DbRepairPanel';
+import { DbRepairWindowRequest } from '../DbRepairWindow';
 import { CacheView } from '../../views/cache/CacheView';
 import { DbExplorer } from '../../views/cache/DbExplorer';
 import { ResourceAnalyticsDialog } from '../../views/cache/ResourceAnalyticsDialog';
@@ -106,8 +107,8 @@ export function DataMaintenanceDialog({
   account: DbRepairAccountOption;
   onClose: () => void;
 }): ReactElement | null {
-  const utils = trpc.useUtils();
   if (!tool) return null;
+  if (tool === 'db-repair') return <DbRepairWindowRequest key={account.uin} account={account} />;
   if (
     tool === 'key-scan' ||
     tool === 'other-device-key' ||
@@ -143,15 +144,7 @@ export function DataMaintenanceDialog({
             <DbExplorer />
           ) : tool === 'db-decrypt' ? (
             <ExportTool initialMode="database" lockMode />
-          ) : (
-            <DbRepairPanel
-              currentUin={account.uin}
-              accounts={[account]}
-              onRefreshAccounts={() => {
-                void utils.account.getAccountConfig.invalidate();
-              }}
-            />
-          )}
+          ) : null}
         </div>
       </div>
     </WorkspacePage>

@@ -63,6 +63,7 @@ import {
 import { closeFromScrim } from '../im-template/template/modalUtils';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { useDbRepairReturn } from '../state/dbRepairReturn';
+import { useRenderDocument } from '../lib/renderDocument';
 import { client, trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { QqAvatar } from './QqAvatar';
@@ -603,6 +604,7 @@ function HistoryLightbox({
   onCancelConfirm: () => void;
   onReveal: (record: DbRepairRecordView, what: 'report' | 'backup') => void;
 }): ReactElement | null {
+  const document = useRenderDocument();
   const layer = useOverlayLayer(open);
 
   /*
@@ -618,7 +620,7 @@ function HistoryLightbox({
     }
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, [open, onClose]);
+  }, [open, onClose, document]);
 
   if (!open) return null;
 

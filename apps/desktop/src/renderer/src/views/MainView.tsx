@@ -115,6 +115,7 @@ import {
 import { GroupSignDialog } from '../components/GroupSignDialog';
 import { GroupTodos } from '../components/qq-actions/GroupActions';
 import {
+import { useDbRepairWindow } from '../state/dbRepairWindow';
   essenceSequences,
   essenceRefreshInterval,
   essenceSource,
@@ -2698,6 +2699,13 @@ export function MainView(): ReactElement {
   function openMaintenance(tool: MaintenanceTool) {
     setSettingsOpen(false);
     setMaintenanceTool(tool);
+    if (tool === 'db-repair') {
+      setMaintenanceTool(null);
+      useDbRepairWindow
+        .getState()
+        .open({ uin: openedUin ?? '', name: user.displayName, avatarUrl: user.avatarUrl ?? '' });
+      return;
+    }
   }
   const [qzoneAlbumOpen, setQzoneAlbumOpen] = useState(false);
   const [temporaryConversations, setTemporaryConversations] = useState<
