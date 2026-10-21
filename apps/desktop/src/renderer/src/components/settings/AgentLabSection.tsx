@@ -16,6 +16,7 @@ import { useAppDialog } from '../../lib/dialogUtils';
 import { Modal } from '../../components/Dialog';
 import { Card, CheckPillGroup, Row, SectionHeader } from './controls';
 import { useDraftClose } from '../../lib/draftClose';
+import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
 
 type Capability = 'chat' | 'embedding' | 'vision';
 const CAPABILITIES: { value: Capability; label: string }[] = [
@@ -38,20 +39,19 @@ type ProviderForm = {
 const DEFAULT_VENDOR = 'siliconflow';
 
 function emptyForm(): ProviderForm {
-  return { id: '', name: '', vendor: DEFAULT_VENDOR, baseUrl: '', apiKey: '', models: [] };
+  return {
+    id: crypto.randomUUID(),
+    name: '',
+    vendor: DEFAULT_VENDOR,
+    baseUrl: '',
+    apiKey: '',
+    models: [],
+  };
 }
 
 /** 模板标签去掉括号说明后的显示名：硅基流动 SiliconFlow（推荐）→ 硅基流动 SiliconFlow。 */
 function templateDisplayName(label: string | undefined): string {
   return label?.replace(/（.*?）/g, '').trim() ?? '';
-}
-
-function normalizeId(input: string): string {
-  return input
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-_]+/g, '-')
-    .replace(/^-+|-+$/g, '');
 }
 
 export function AgentLabSection(): ReactElement {
@@ -67,6 +67,7 @@ export function AgentLabSection(): ReactElement {
     refetchOnMount: 'always',
   });
   const saveProvider = trpc.bootstrap.saveAgentLabProvider.useMutation();
+  const providerLabels = providerDisplayLabels(providers.data ?? []);
   const deleteProvider = trpc.bootstrap.deleteAgentLabProvider.useMutation();
   const testProvider = trpc.bootstrap.testAgentLabProvider.useMutation();
   const fetchModels = trpc.bootstrap.fetchAgentLabModels.useMutation();
@@ -298,10 +299,8 @@ export function AgentLabSection(): ReactElement {
     }));
   }
   async function onSave(): Promise<void> {
-    // Provider ID 不再暴露给用户：编辑已有 provider 时保持原 id（克隆体里的引用指向它），
-    // 新建时由系统从显示名称自动生成。
-    const id =
-      form.id || normalizeId(form.name) || normalizeId(`${form.vendor}-${Date.now().toString(36)}`);
+    // 新建草稿有独立 ID；同名／同模板不覆盖，编辑和重复保存仍沿用原引用。
+    const id = form.id;
     const models = form.models
       .map((m) => ({
         id: m.id.trim(),
@@ -427,7 +426,7 @@ export function AgentLabSection(): ReactElement {
                     aria-hidden
                     style={{ marginRight: 6, verticalAlign: '-2px', opacity: 0.7 }}
                   />
-                  {item.name}
+                  {providerLabels.get(item.id)}
                 </span>
                 <small>
                   {item.models.length} 个模型 · {item.baseUrl}

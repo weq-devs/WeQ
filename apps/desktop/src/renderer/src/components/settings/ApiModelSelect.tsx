@@ -1,5 +1,6 @@
 import type { AgentLabModelRef } from '@weq/agentlab';
 import { trpc } from '../../trpc/client';
+import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
 
 export function ApiModelSelect({
   value,
@@ -28,6 +29,7 @@ export function ApiModelSelect({
     }))
     .filter((provider) => provider.models.length > 0);
   const key = (ref: AgentLabModelRef) => JSON.stringify([ref.providerId, ref.model]);
+  const groupLabels = providerDisplayLabels(providers.data ?? []);
   const options = groups.flatMap((provider) =>
     provider.models.map((model) => ({ providerId: provider.id, model: model.id })),
   );
@@ -51,10 +53,11 @@ export function ApiModelSelect({
         </option>
       ) : null}
       {groups.map((provider) => (
-        <optgroup key={provider.id} label={provider.name}>
+        <optgroup key={provider.id} label={groupLabels.get(provider.id)}>
           {provider.models.map((model) => (
             <option key={model.id} value={key({ providerId: provider.id, model: model.id })}>
               {model.label || model.id}
+              {groups.length > 1 ? ` · ${groupLabels.get(provider.id)}` : ''}
             </option>
           ))}
         </optgroup>

@@ -31,6 +31,7 @@ import { Modal, useDialog } from '../Dialog';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Card, Row, SectionHeader } from './controls';
 import { useDraftClose } from '../../lib/draftClose';
+import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -280,7 +281,7 @@ interface TtsForm {
 
 function emptyTtsForm(): TtsForm {
   return {
-    id: '',
+    id: crypto.randomUUID(),
     name: '',
     vendor: 'cosyvoice',
     baseUrl: '',
@@ -293,14 +294,6 @@ function emptyTtsForm(): TtsForm {
     format: '',
     speed: '',
   };
-}
-
-function normalizeId(input: string): string {
-  return input
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-_]+/g, '-')
-    .replace(/^-+|-+$/g, '');
 }
 
 export function TtsProvidersCard(): ReactElement {
@@ -316,6 +309,7 @@ export function TtsProvidersCard(): ReactElement {
     refetchOnMount: 'always',
   });
   const saveProvider = trpc.bootstrap.saveTtsProvider.useMutation();
+  const providerLabels = providerDisplayLabels(providers.data ?? []);
   const deleteProvider = trpc.bootstrap.deleteTtsProvider.useMutation();
   const testProvider = trpc.bootstrap.testTtsProvider.useMutation();
 
@@ -426,10 +420,9 @@ export function TtsProvidersCard(): ReactElement {
   }
 
   async function onSave(): Promise<void> {
-    // 服务商 ID 不再暴露给用户：编辑已有 provider 时保持原 id（克隆体里的引用指向它），
-    // 新建时由系统从显示名称自动生成。
-    const id = form.id || normalizeId(form.name);
-    if (!id) {
+    // 同名语音服务商也使用独立 ID，编辑与重存保持现有克隆体引用。
+    const id = form.id;
+    if (!form.name.trim()) {
       dialog.error('保存失败', '请先填写显示名称。');
       return;
     }
@@ -477,9 +470,7 @@ export function TtsProvidersCard(): ReactElement {
     }
     setTesting(true);
     try {
-      const res = await testProvider.mutateAsync(
-        toPayload(normalizeId(form.id || form.name) || 'test'),
-      );
+      const res = await testProvider.mutateAsync(toPayload(form.id));
       if (!res.ok) {
         dialog.error('测试失败', res.error ?? '未知错误');
         return;
@@ -538,7 +529,7 @@ export function TtsProvidersCard(): ReactElement {
                       aria-hidden
                       style={{ marginRight: 6, verticalAlign: '-2px', opacity: 0.7 }}
                     />
-                    {item.name}
+                    {providerLabels.get(item.id)}
                     {entry?.capabilities.clone ? (
                       <span className="weq-set-badge weq-set-badge-ok"> 可复刻</span>
                     ) : null}
