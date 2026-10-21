@@ -13,6 +13,7 @@ import {
   type SelectionGap,
   type SelectionModifiers,
   type LoadSelectionMessages,
+  isLocalOutgoingMessage,
 } from '../lib/messageSelection';
 
 const messageSequence = (message: Message | undefined, privateChat: boolean) =>
@@ -93,7 +94,7 @@ export function useMessageSelectionFlow({
     const oldIdentities = new Map<string, Message[]>();
     for (const previous of cache.values())
       if (
-        previous.source === 'roaming' &&
+        (previous.source === 'roaming' || isLocalOutgoingMessage(previous)) &&
         (selection.selectedIds.has(previous.id) || selection.anchorRef.current === previous.id)
       )
         for (const key of identity(previous))
@@ -101,7 +102,10 @@ export function useMessageSelectionFlow({
     const replacements = new Map<string, Message>();
     if (oldIdentities.size)
       for (const message of messages)
-        if (message.source !== 'roaming' || message.sourceFormat === 'native')
+        if (
+          !isLocalOutgoingMessage(message) &&
+          (message.source !== 'roaming' || message.sourceFormat === 'native' || message.localSent)
+        )
           for (const key of identity(message))
             for (const previous of oldIdentities.get(key) ?? [])
               if (previous.id !== message.id) replacements.set(previous.id, message);

@@ -7,6 +7,8 @@ import { createTemplateDemoData } from '../src/renderer/src/im-template/template
 import {
   ContentSelectionProvider,
   useContentMultiSelect,
+  useContentExportRequest,
+  useContentAnalysisRequest,
 } from '../src/renderer/src/state/contentSelection';
 import { useDialog } from '../src/renderer/src/components/Dialog';
 import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
@@ -47,7 +49,10 @@ function fixture(kind: 'group' | 'direct' = 'group') {
   document.body.append(host);
   const root = createRoot(host);
   const load = vi.fn<LoadSelectionMessages>(async () => {});
+  const remove = vi.fn();
   function Probe({ id }: { id: string }) {
+    const exportRequest = useContentExportRequest();
+    const analysisRequest = useContentAnalysisRequest();
     const selection = useContentMultiSelect({
       kind: 'messages',
       container: `${conversation.type}:${id}`,
@@ -55,6 +60,8 @@ function fixture(kind: 'group' | 'direct' = 'group') {
     return h(
       'aside',
       null,
+      h('pre', { 'data-export': true }, JSON.stringify(exportRequest?.selection ?? null)),
+      h('pre', { 'data-analysis': true }, JSON.stringify(analysisRequest)),
       h(
         'button',
         {
@@ -94,6 +101,7 @@ function fixture(kind: 'group' | 'direct' = 'group') {
             onDraftChange: vi.fn(),
             onBack: vi.fn(),
             onLoadSelectionMessages: load,
+            onDeleteMessage: remove,
           }),
           h(ToastHost),
         ),
@@ -109,6 +117,7 @@ function fixture(kind: 'group' | 'direct' = 'group') {
   return {
     host,
     load,
+    remove,
     message,
     render,
     click,
@@ -146,6 +155,151 @@ it('Shift 跨缺口先确认加载，本地加载完成按消息条数反馈并�
     await f.click('[data-weq-select-id="12"]', true);
     expect(f.state().ids).toHaveLength(12);
     expect(f.state().anchor).toBe('1');
+  } finally {
+    f.close();
+  }
+});
+
+it.each(['导出所选消息', '分析所选消息', '删除'] as const)(
+  '混合自己的正式记录和待同步记录：%s 可确认、预览并仅处理支持项',
+  async (label) => {
+    const actionLabel = label === '删除' ? '删除' : label === '分析所选消息' ? '分析' : '导出';
+    const f = fixture();
+    const own = { ...f.message(1), senderId: 'self', body: '自己的正式消息' };
+    const pending = {
+      ...f.message(2),
+      id: 'optimistic-pending',
+      body: '等待同步的消息',
+      optimistic: 'sent' as const,
+    };
+    try {
+      f.render([own, pending]);
+      await f.click('[data-enter]');
+      await f.click('[data-weq-select-id="optimistic-pending"]');
+      const button = f.host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
+      expect(button.disabled).toBe(false);
+      await act(async () => button.click());
+      expect(document.body.textContent).toContain(`1 条消息不支持${actionLabel}，1 条可以继续`);
+      const clickText = async (text: string) =>
+        act(async () =>
+          [...document.querySelectorAll<HTMLButtonElement>('button')]
+            .find((item) => item.textContent === text)!
+            .click(),
+        );
+      await clickText('预览不支持的消息');
+      expect(document.querySelector('.weq-private-preview-inline')).not.toBeNull();
+      expect(document.body.textContent).toContain('等待同步的消息');
+      expect(document.body.textContent).toContain('等待正式记录同步入库');
+      expect(f.remove).not.toHaveBeenCalled();
+      await clickText(`仅${actionLabel}支持的 1 条`);
+      if (label === '删除') {
+        expect(f.remove).toHaveBeenCalledOnce();
+        expect(f.remove).toHaveBeenCalledWith(own, expect.anything());
+        expect(f.state().ids).toEqual([pending.id]);
+      } else if (label === '分析所选消息')
+        expect(
+          JSON.parse(f.host.querySelector('[data-analysis]')!.textContent!).messageIds,
+        ).toEqual([own.id]);
+      else
+        expect(JSON.parse(f.host.querySelector('[data-export]')!.textContent!).scope.ids).toEqual([
+          own.id,
+        ]);
+      expect(document.querySelector('.weq-message-batch-dialog')).toBeNull();
+    } finally {
+      f.close();
+    }
+  },
+);
+
+it('全部不支持时仍可打开说明，取消保留选区，切会话销毁旧确认而不操作', async () => {
+  const f = fixture();
+  try {
+    f.render([{ ...f.message(1), optimistic: 'sending' }]);
+    await f.click('[data-enter]');
+    await f.click('[aria-label="删除"]');
+    const continueButton = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === '仅删除支持的 0 条',
+    )!;
+    expect(continueButton.disabled).toBe(true);
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent === '取消')!
+        .click(),
+    );
+    expect(f.state().ids).toEqual(['1']);
+    await f.click('[aria-label="删除"]');
+    f.render([f.message(1, 'other')], 'other');
+    expect(document.querySelector('.weq-message-batch-dialog')).toBeNull();
+    expect(f.remove).not.toHaveBeenCalled();
+  } finally {
+    f.close();
+  }
+});
+
+it('同序号但发送 random 不同的正式记录不能替换自己的已选占位', async () => {
+  const f = fixture();
+  try {
+    f.render([{ ...f.message(1), optimistic: 'sent', msgRandom: '777' }]);
+    await f.click('[data-enter]');
+    f.render([{ ...f.message(1), id: '9001', msgId: '9001', msgRandom: '888' }]);
+    expect(f.state().ids).toEqual(['1']);
+    expect(f.state().anchor).toBe('1');
+  } finally {
+    f.close();
+  }
+});
+
+it.each(['导出所选消息', '删除'] as const)(
+  '正式消息与自己已持久化的缓存一起选择时可直接%s',
+  async (label) => {
+    const f = fixture();
+    const cached = {
+      ...f.message(2),
+      id: 'roaming:protocol:2:77',
+      msgId: '77',
+      source: 'roaming' as const,
+      sourceFormat: 'protocol' as const,
+      localSent: true,
+    };
+    try {
+      f.render([f.message(1), cached]);
+      await f.click('[data-enter]');
+      await f.click('[data-weq-select-id="roaming:protocol:2:77"]');
+      await f.click(`[aria-label="${label}"]`);
+      expect(document.querySelector('.weq-message-batch-dialog')).toBeNull();
+      if (label === '删除') {
+        expect(f.remove).toHaveBeenCalledTimes(2);
+        expect(f.remove).toHaveBeenCalledWith(cached, expect.anything());
+        expect(f.state().mode).toBe(false);
+      } else
+        expect(JSON.parse(f.host.querySelector('[data-export]')!.textContent!).scope.ids).toEqual([
+          '1',
+          cached.id,
+        ]);
+    } finally {
+      f.close();
+    }
+  },
+);
+
+it('自己的占位持久化为协议缓存后立即迁移已选身份，不等待 QQ 原库同步', async () => {
+  const f = fixture();
+  try {
+    f.render([{ ...f.message(1), optimistic: 'sent', msgRandom: '77' }]);
+    await f.click('[data-enter]');
+    f.render([
+      {
+        ...f.message(1),
+        id: 'roaming:protocol:1:77',
+        msgId: '77',
+        msgRandom: '77',
+        source: 'roaming',
+        sourceFormat: 'protocol',
+        localSent: true,
+      },
+    ]);
+    expect(f.state().ids).toEqual(['roaming:protocol:1:77']);
+    expect(f.state().anchor).toBe('roaming:protocol:1:77');
   } finally {
     f.close();
   }
@@ -273,6 +427,22 @@ it('私聊未确认的协议序号不能进入所选范围，失败保留原选�
     await f.click('[data-message-id="gap:1:5"]');
     expect(f.state().ids).toEqual(['1', 'gap:1:5']);
     expect(f.host.textContent).toContain('NT 序号尚未确认');
+  } finally {
+    f.close();
+  }
+});
+
+it('已选自己的发送占位同步入库后迁移选择和锚点，不再阻断删除', async () => {
+  const f = fixture();
+  const own = { ...f.message(1), msgRandom: '777', optimistic: 'sent' as const };
+  try {
+    f.render([own]);
+    await f.click('[data-enter]');
+    f.render([{ ...f.message(1), id: '9001', msgId: '9001', msgRandom: '777' }]);
+    expect(f.state().ids).toContain('9001');
+    expect(f.state().ids).not.toContain(own.id);
+    expect(f.state().anchor).toBe('9001');
+    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="删除"]')!.disabled).toBe(false);
   } finally {
     f.close();
   }

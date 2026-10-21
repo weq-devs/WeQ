@@ -45,7 +45,8 @@ import { toRenderElements, type RenderElement } from './msg_view';
 import type { DeletedMsgStore } from './deleted_msgs';
 import type { AntiRecallService } from './anti_recall';
 import type { ExportSkippedRanges } from './export/message_source';
-import { matchesMessageFilter, type MessageFilter } from './message_filter';
+import { matchesMessageFilter, messageSelectionKey, type MessageFilter } from './message_filter';
+import type { GapFetchedMessage } from './gap_history';
 import { elementsToText } from './export/element_text';
 import { sourceStamp } from './export/resume';
 
@@ -574,7 +575,7 @@ export class MsgService {
    */
   async restoreMessage(msgId: bigint): Promise<boolean> {
     const rec = this.deleted?.get(msgId.toString());
-    if (!rec) return false;
+    if (!rec || rec.source === 'sent-cache') return false;
     for (const db of [
       this.session.c2cMsgs,
       this.session.datalineMsgs,
@@ -618,6 +619,39 @@ export class MsgService {
    */
   getDeletedMsgIds(kind: 'c2c' | 'group', conv: string): string[] {
     return this.deleted?.listIds(kind, conv) ?? [];
+  }
+
+  /** 已持久化的自发消息只标记本地缓存，不用客户端 random 改写 QQ 原库。 */
+  deleteCachedSentMessage(message: GapFetchedMessage): boolean {
+    if (
+      !this.deleted ||
+      !message.localSent ||
+      message.sourceFormat !== 'protocol' ||
+      !/^[1-9]\d*$/.test(message.msgSeq) ||
+      !/^-?\d+$/.test(message.msgId) ||
+      (message.kind === 'c2c' && !message.ntSeqVerified)
+    )
+      return false;
+    const messageId = messageSelectionKey({ ...message, source: 'roaming' })!;
+    this.deleted.add(this.cachedDeleteKey(message.kind, message.conv, messageId), {
+      source: 'sent-cache',
+      messageId,
+      kind: message.kind,
+      conv: message.conv,
+      deletedAt: Math.floor(Date.now() / 1000),
+    });
+    return true;
+  }
+
+  restoreCachedSentMessage(messageId: string, kind: 'c2c' | 'group', conv: string): boolean {
+    const key = this.cachedDeleteKey(kind, conv, messageId);
+    if (this.deleted?.get(key)?.source !== 'sent-cache') return false;
+    this.deleted.remove(key);
+    return true;
+  }
+
+  private cachedDeleteKey(kind: 'c2c' | 'group', conv: string, messageId: string): string {
+    return `sent-cache:${JSON.stringify([kind, conv, messageId])}`;
   }
 
   /**

@@ -18,18 +18,17 @@
 
 import { JsonStore } from '../common/json_store';
 
-export interface DeletedMsgRecord {
-  /** Original column 40011 (msgType) before delete, as a decimal string. */
-  origMsgType: string;
-  /** Original column 40012 (subType) before delete, as a decimal string. */
-  origSubType: string;
+export type DeletedMsgRecord = {
   /** Which table holds it — chooses the c2c/dataline vs group restore path. */
   kind: 'c2c' | 'group';
   /** Conversation key: peer uid (c2c) or group code (group). */
   conv: string;
   /** Unix seconds when WeQ deleted it. */
   deletedAt: number;
-}
+} & (
+  | { source?: 'qq'; origMsgType: string; origSubType: string }
+  | { source: 'sent-cache'; messageId: string }
+);
 
 export class DeletedMsgStore {
   private readonly store: JsonStore<Record<string, DeletedMsgRecord>>;
@@ -61,9 +60,11 @@ export class DeletedMsgStore {
 
   /** msgIds WeQ deleted in one conversation (matched by kind + conv). */
   listIds(kind: 'c2c' | 'group', conv: string): string[] {
-    return Object.keys(this.store.data).filter((id) => {
+    return Object.keys(this.store.data).flatMap((id) => {
       const r = this.store.data[id];
-      return r !== undefined && r.kind === kind && r.conv === conv;
+      return r !== undefined && r.kind === kind && r.conv === conv
+        ? [r.source === 'sent-cache' ? r.messageId : id]
+        : [];
     });
   }
 }

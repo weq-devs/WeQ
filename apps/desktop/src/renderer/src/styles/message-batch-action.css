@@ -1,0 +1,47 @@
+.weq-message-batch-dialog {
+  max-width: calc(100vw - 24px);
+  overflow: hidden;
+}
+.weq-message-batch-dialog .weq-dialog {
+  padding-bottom: 0;
+}
+.weq-message-batch-dialog .weq-dialog-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.weq-message-batch-dialog .weq-dialog-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-message-batch-dialog .weq-action-soft {
+  color: var(--weq-fg-primary);
+  border-color: var(--weq-border-strong);
+}
+.weq-message-batch-dialog .weq-dialog-body button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.weq-message-batch-dialog > .weq-dialog-foot {
+  padding: 12px 16px;
+  border-top: 1px solid var(--weq-border-subtle);
+  flex-wrap: wrap;
+}
+.weq-message-batch-dialog .weq-private-preview-inline {
+  height: min(580px, 65dvh);
+  min-height: 0;
+}
+.weq-message-batch-dialog .weq-preview-message-note {
+  overflow-wrap: anywhere;
+}
+.weq-message-batch-dialog .weq-action-primary {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-fg-primary);
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
+}
+.weq-message-batch-dialog .weq-action-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 28%, var(--weq-bg-surface));
+}
+html[data-theme='dark'] .weq-message-batch-dialog {
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+}

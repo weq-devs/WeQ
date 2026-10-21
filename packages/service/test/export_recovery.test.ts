@@ -9,7 +9,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { ExportTaskManager, type MediaDeps } from '../src/account/export/task_manager';
 import { sourceStamp, roamingDigest, fileSha256 } from '../src/account/export/resume';
 import type { MsgService, RenderGroupMsg } from '../src/account/msg';
@@ -75,6 +75,42 @@ function fixture(total = 3000, deps: MediaDeps = {}) {
   } as unknown as MsgService;
   return { root, source, msgs, manager: new ExportTaskManager(msgs, join(root, 'exports'), deps) };
 }
+
+it('精确导出自己的已发送缓存直接读本地来源，不要求开启联网补全', async () => {
+  const fetch = vi.fn(async () => {
+    throw Error('本次不应联网补全');
+  });
+  const cached = vi.fn(async () => [
+    {
+      kind: 'group' as const,
+      conv: '777',
+      msgId: '77',
+      msgSeq: '2',
+      senderUid: 'u_self',
+      senderUin: '10001',
+      sendTime: '1800000001',
+      elements: [{ type: 'text' as const, data: { textContent: '自己的已持久化消息' } }],
+      sourceFormat: 'protocol' as const,
+      localSent: true,
+    },
+  ]);
+  const f = fixture(1, { messageBackfill: { cached, fetch, cachedForExport: cached } });
+  const id = await f.manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '所选自发消息',
+    format: 'txt',
+    total: 1,
+    filter: { messageIds: ['roaming:protocol:2:77'] },
+  });
+  await wait(() => ['completed', 'failed'].includes(f.manager.getTask(id)?.status ?? ''));
+  const task = f.manager.getTask(id)!;
+  expect(task.status).toBe('completed');
+  expect(readFileSync(task.filePath!, 'utf8')).toContain('自己的已持久化消息');
+  expect(readFileSync(task.filePath!, 'utf8')).not.toContain('message 0');
+  expect(cached).toHaveBeenCalledOnce();
+  expect(fetch).not.toHaveBeenCalled();
+});
 
 it('后台按预设自动保存且不依赖渲染界面，保留原结果与持久保存回执', async () => {
   const f = fixture(3);

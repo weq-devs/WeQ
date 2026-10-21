@@ -51,6 +51,7 @@ import {
 import { selfIdentityValues } from '../lib/selfIdentity';
 import { isMineMessage } from '../lib/messageDirection';
 import { isLocalOutgoingMessage } from '../lib/messageSelection';
+import { messageBatchBlockReason } from '../lib/messageBatchAction';
 import type { LoadSelectionMessages } from '../lib/messageSelection';
 import {
   mergeOptimisticInto,
@@ -2917,7 +2918,7 @@ export function MainView(): ReactElement {
   // deleted so the overlay appears instantly.
   const handleDeleteMessage = useCallback(
     async (message: Message, conversation: Conversation) => {
-      if (message.source === 'roaming') return;
+      if (messageBatchBlockReason(message, 'delete')) return;
       if (isLocalOutgoingMessage(message)) {
         dismissFailedOutgoing(message, conversation.id);
         return;
@@ -2925,9 +2926,19 @@ export function MainView(): ReactElement {
       const { kind, conv } = convFetchKey(conversation);
       setDeletedIds((current) => new Set(current).add(message.id));
       try {
-        await client.account.deleteMessage.mutate({ msgId: message.id, kind, conv });
+        const removed = await client.account.deleteMessage.mutate({
+          msgId: message.id,
+          kind,
+          conv,
+        });
+        if (!removed) throw new Error('未找到可删除的消息记录');
       } catch (e) {
         console.error('[MainView] Failed to delete message:', e);
+        pushToast({
+          tone: 'error',
+          title: '删除消息失败',
+          detail: e instanceof Error ? e.message : String(e),
+        });
         // Roll the optimistic overlay back on failure.
         setDeletedIds((current) => {
           const next = new Set(current);
@@ -2936,7 +2947,7 @@ export function MainView(): ReactElement {
         });
       }
     },
-    [convFetchKey, dismissFailedOutgoing],
+    [convFetchKey, dismissFailedOutgoing, pushToast],
   );
 
   const handleOpenGroupAlbums = useCallback(
@@ -3265,8 +3276,12 @@ export function MainView(): ReactElement {
   );
 
   const handleRestoreMessage = useCallback(
-    async (msgId: string): Promise<void> => {
-      await client.account.restoreMessage.mutate({ msgId });
+    async (msgId: string, conversation?: Conversation | null): Promise<void> => {
+      const restored = await client.account.restoreMessage.mutate({
+        msgId,
+        ...(msgId.startsWith('roaming:') && conversation ? convFetchKey(conversation) : {}),
+      });
+      if (!restored) throw new Error('未找到可恢复的消息记录');
       // Clear the in-place overlay for the restored message.
       setDeletedIds((current) => {
         const next = new Set(current);
@@ -3278,7 +3293,7 @@ export function MainView(): ReactElement {
       }
       void refreshWindow();
     },
-    [deletedConv, loadDeletedMessages, refreshWindow],
+    [deletedConv, loadDeletedMessages, refreshWindow, convFetchKey],
   );
 
   const handleOpenGroupMember = useCallback((member: User, anchor: { x: number; y: number }) => {
@@ -9252,7 +9267,9 @@ export function MainView(): ReactElement {
                             if (target) handleRoamingTargets([target]);
                           }}
                           deletedIds={deletedIds}
-                          onRestoreMessage={handleRestoreMessage}
+                          onRestoreMessage={(msgId) =>
+                            handleRestoreMessage(msgId, selectedConversation)
+                          }
                           unreadDock={unreadDock}
                           missingJumpSeq={missingJumpSeq}
                         />
@@ -9699,7 +9716,7 @@ export function MainView(): ReactElement {
               messages={deletedTemplateMessages}
               renderers={messageRenderers}
               loading={deletedLoading}
-              onRestore={handleRestoreMessage}
+              onRestore={(msgId) => handleRestoreMessage(msgId, deletedConv)}
               onClose={() => {
                 setDeletedConv(null);
                 setDeletedWires([]);

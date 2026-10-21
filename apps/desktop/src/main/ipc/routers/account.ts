@@ -25,7 +25,7 @@ import {
   saveCompletedExportTask,
   prepareExportDestination,
 } from './export_save';
-import { mergeRoamingTimeline } from '../../../shared/roaming_timeline';
+import { mergeRoamingTimeline, timelineRowKey } from '../../../shared/roaming_timeline';
 import { QZONE_ALBUM_PAGE_SIZE } from '../../../shared/qzone_album_export';
 import {
   PROJECT_GROUP_CODE,
@@ -3998,13 +3998,43 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      return requireServices().msgs.deleteMessage(BigInt(input.msgId), input.kind, input.conv);
+      const services = requireServices();
+      if (input.msgId.startsWith('roaming:')) {
+        const match = /^roaming:protocol:([1-9]\d{0,9}):(-?\d{1,20})$/.exec(input.msgId);
+        if (!match || Number(match[1]) > 0xffffffff) throw new Error('无效的缓存消息身份');
+        const rows = await services.gapHistory.cached(
+          input.kind,
+          input.conv,
+          Number(match[1]),
+          Number(match[1]),
+        );
+        const message = rows.find(
+          (row) =>
+            row.kind === input.kind &&
+            row.conv === input.conv &&
+            row.localSent &&
+            timelineRowKey({ ...row, source: 'roaming' }) === input.msgId,
+        );
+        if (!message) throw new Error('这条已发送消息不在当前会话缓存中');
+        return services.msgs.deleteCachedSentMessage(message);
+      }
+      return services.msgs.deleteMessage(BigInt(input.msgId), input.kind, input.conv);
     }),
 
   /** Restore a WeQ-deleted message (write the original 40011/40012 back). */
   restoreMessage: procedure
-    .input(z.object({ msgId: z.string().min(1) }))
+    .input(
+      z.object({
+        msgId: z.string().min(1),
+        kind: z.enum(['c2c', 'group']).optional(),
+        conv: z.string().min(1).optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
+      if (input.msgId.startsWith('roaming:')) {
+        if (!input.kind || !input.conv) throw new Error('恢复缓存消息需要明确的会话目标');
+        return requireServices().msgs.restoreCachedSentMessage(input.msgId, input.kind, input.conv);
+      }
       return requireServices().msgs.restoreMessage(BigInt(input.msgId));
     }),
 
@@ -4026,11 +4056,31 @@ export const accountRouter = router({
   deletedMessages: procedure
     .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
     .query(async ({ input }): Promise<ChatMsgWire[]> => {
-      const msgs = requireServices().msgs;
+      const services = requireServices();
+      const msgs = services.msgs;
       const rows = await msgs.getDeletedMessages(input.kind, input.conv);
-      return input.kind === 'group'
-        ? (rows as RenderGroupMsg[]).map(groupMsgToWire)
-        : (rows as RenderC2cMsg[]).map(c2cMsgToWire);
+      const wire: ChatMsgWire[] =
+        input.kind === 'group'
+          ? (rows as RenderGroupMsg[]).map(groupMsgToWire)
+          : (rows as RenderC2cMsg[]).map(c2cMsgToWire);
+      const cachedIds = new Set(
+        msgs.getDeletedMsgIds(input.kind, input.conv).filter((id) => id.startsWith('roaming:')),
+      );
+      if (cachedIds.size) {
+        const cached = await services.gapHistory.cachedForExport(input.kind, input.conv);
+        wire.push(
+          ...cached
+            .filter(
+              (row) =>
+                row.kind === input.kind &&
+                row.conv === input.conv &&
+                row.localSent &&
+                cachedIds.has(timelineRowKey({ ...row, source: 'roaming' })),
+            )
+            .map((row) => ({ ...roamingMsgToWire(row), deletedKind: 'weq' as const })),
+        );
+      }
+      return wire.sort((a, b) => Number(b.sendTime) - Number(a.sendTime));
     }),
 
   /**

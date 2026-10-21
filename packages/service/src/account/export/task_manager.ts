@@ -1901,7 +1901,10 @@ export class ExportTaskManager extends EventEmitter {
       }
 
       // 漫游补全消息的来源：装扮扫描 / 媒体扫描 / 消息导出 / 计数共用（惰性只查一次）。
-      const roam = wantBackfill ? this.roamSource(task) : undefined;
+      const selectedCached = task.filter?.messageIds?.some((id) => id.startsWith('roaming:'));
+      if (selectedCached && !this.deps.messageBackfill)
+        throw new Error('当前数据源无法读取所选缓存消息');
+      const roam = wantBackfill || selectedCached ? this.roamSource(task) : undefined;
       if (roam && task.resumeBinding) {
         const cached = await roam();
         const digest = roamingDigest(cached);

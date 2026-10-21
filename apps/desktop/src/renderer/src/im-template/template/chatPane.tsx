@@ -69,6 +69,12 @@ import { resourceUrl } from '../../lib/resourceUrl';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 import { groupMemberEditing } from '../../lib/groupMemberEditing';
 import { canDiscardFailedMessage, isUnpositionedFailure } from '../../lib/localOutgoing';
+import {
+  messageBatchBlockReason,
+  partitionMessageBatch,
+  type MessageBatchAction,
+} from '../../lib/messageBatchAction';
+import { MessageBatchActionDialog } from '../../components/MessageBatchActionDialog';
 import { useThemeStore } from '../../state/theme';
 import {
   Fragment,
@@ -958,6 +964,41 @@ export function ChatPane({
     : selectionFlow.gaps.length
       ? '请先补全或取消所选消息缺口'
       : null;
+  const [batchAction, setBatchAction] = useState<{
+    action: MessageBatchAction;
+    batch: ReturnType<typeof partitionMessageBatch>;
+  } | null>(null);
+  useEffect(() => {
+    setBatchAction(null);
+  }, [conversation?.id, user.id, tabActive, selectionMode]);
+  function performBatchAction(action: MessageBatchAction, messages: Message[]) {
+    setBatchAction(null);
+    setContextMenu(null);
+    if (!conversation || !tabActive || selectionBlockedReason || !selectionMode) return;
+    if (action === 'export') exportMessageIds(messages.map((message) => message.id));
+    else if (action === 'analysis')
+      requestAnalysis?.(
+        conversationAnalysisTarget(conversation),
+        messages.map((message) => message.id),
+      );
+    else {
+      // 只移除已处理的选择；不支持的记录留在原选区供后续同步或复制。
+      const processed = new Set(messages.map((message) => message.id));
+      if ([...selectedIds].every((id) => processed.has(id))) exitSelection();
+      else {
+        selection.removeSelectedIds([...processed]);
+        if (selectionAnchor.current && processed.has(selectionAnchor.current))
+          selectionAnchor.current = null;
+      }
+      for (const message of messages) void onDeleteMessage?.(message, conversation);
+    }
+  }
+  function requestBatchAction(action: MessageBatchAction) {
+    if (selectionBlockedReason || !selectedMessages.length) return;
+    const batch = partitionMessageBatch(selectedMessages, action);
+    if (batch.unsupported.length) setBatchAction({ action, batch });
+    else performBatchAction(action, batch.supported);
+  }
   const multi = useMultiSelection({
     ids: selectionOrder,
     selected: selectedIds,
@@ -3253,19 +3294,7 @@ export function ChatPane({
   }
 
   function deleteSelectedMessages() {
-    if (!conversation || selectionBlockedReason) {
-      return;
-    }
-    const picked = selectedMessages;
-    exitSelection();
-    for (const message of picked) {
-      if (
-        message.source === 'roaming' ||
-        (isLocalOutgoingMessage(message) && !canDiscardFailedMessage(message))
-      )
-        continue;
-      void onDeleteMessage?.(message, conversation);
-    }
+    requestBatchAction('delete');
   }
 
   function copySelectedMessagesJson() {
@@ -3813,11 +3842,7 @@ export function ChatPane({
 
   // 失败占位只清理本机状态；原库消息仍沿用 QQ 式删除遮罩。
   function deleteMessage(message: Message) {
-    if (
-      message.source === 'roaming' ||
-      (isLocalOutgoingMessage(message) && !canDiscardFailedMessage(message))
-    )
-      return;
+    if (messageBatchBlockReason(message, 'delete')) return;
     if (!conversation) {
       return;
     }
@@ -4573,16 +4598,8 @@ export function ChatPane({
                   className="selection-action"
                   aria-label="分析所选消息"
                   title={selectionBlockedReason || '分析所选消息'}
-                  disabled={
-                    Boolean(selectionBlockedReason) ||
-                    !selectedMessages.length ||
-                    selectedMessages.some(
-                      (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
-                    )
-                  }
-                  onClick={() =>
-                    requestAnalysis(conversationAnalysisTarget(conversation), [...selectedIds])
-                  }
+                  disabled={Boolean(selectionBlockedReason) || !selectedMessages.length}
+                  onClick={() => requestBatchAction('analysis')}
                 >
                   <BarChart3 size={17} />
                 </button>
@@ -4593,14 +4610,8 @@ export function ChatPane({
                   className="selection-action"
                   aria-label="导出所选消息"
                   title={selectionBlockedReason || '导出所选消息'}
-                  disabled={
-                    Boolean(selectionBlockedReason) ||
-                    !selectedIds.size ||
-                    selectedMessages.some(
-                      (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
-                    )
-                  }
-                  onClick={() => exportMessageIds([...selectedIds])}
+                  disabled={Boolean(selectionBlockedReason) || !selectedMessages.length}
+                  onClick={() => requestBatchAction('export')}
                 >
                   <Download size={17} />
                 </button>
@@ -4652,25 +4663,8 @@ export function ChatPane({
                 type="button"
                 className={cn('selection-action')}
                 aria-label="删除"
-                disabled={
-                  Boolean(selectionBlockedReason) ||
-                  selectedMessages.length === 0 ||
-                  selectedMessages.some(
-                    (message) =>
-                      message.source === 'roaming' ||
-                      (isLocalOutgoingMessage(message) && !canDiscardFailedMessage(message)),
-                  )
-                }
-                title={
-                  selectionBlockedReason ||
-                  (selectedMessages.some(
-                    (message) =>
-                      message.source === 'roaming' ||
-                      (isLocalOutgoingMessage(message) && !canDiscardFailedMessage(message)),
-                  )
-                    ? '所选消息包含发送中、待同步或漫游记录，不能删除'
-                    : '删除所选消息；失败占位仅从本机移除')
-                }
+                disabled={Boolean(selectionBlockedReason) || selectedMessages.length === 0}
+                title={selectionBlockedReason || '删除所选消息；失败占位仅从本机移除'}
                 onClick={deleteSelectedMessages}
               >
                 <Trash2 size={17} />
@@ -4722,6 +4716,16 @@ export function ChatPane({
                     },
                   ]
             }
+          />
+        ) : null}
+        {batchAction ? (
+          <MessageBatchActionDialog
+            {...batchAction}
+            conversation={conversation}
+            user={user}
+            renderers={messageRenderers}
+            onClose={() => setBatchAction(null)}
+            onContinue={(messages) => performBatchAction(batchAction.action, messages)}
           />
         ) : null}
         <ComposerResizeHandle
@@ -5278,12 +5282,12 @@ export function ChatPane({
           onExport={
             requestExport &&
             conversationExportSelection(conversation) &&
-            contextMenu.message.source !== 'roaming' &&
-            !isLocalOutgoingMessage(contextMenu.message)
+            ((selectionMode && selectedIds.has(contextMenu.message.id)) ||
+              !messageBatchBlockReason(contextMenu.message, 'export'))
               ? (message) =>
-                  exportMessageIds(
-                    selectionMode && selectedIds.has(message.id) ? [...selectedIds] : [message.id],
-                  )
+                  selectionMode && selectedIds.has(message.id)
+                    ? requestBatchAction('export')
+                    : exportMessageIds([message.id])
               : undefined
           }
           exportLabel={
@@ -5292,14 +5296,7 @@ export function ChatPane({
               : '导出'
           }
           exportBlockedReason={
-            (selectionMode &&
-              selectedIds.has(contextMenu.message.id) &&
-              (selectionBlockedReason ||
-                (selectedMessages.some(
-                  (message) => message.source === 'roaming' || isLocalOutgoingMessage(message),
-                )
-                  ? '所选消息包含未入库记录，暂不能精确导出'
-                  : undefined))) ||
+            (selectionMode && selectedIds.has(contextMenu.message.id) && selectionBlockedReason) ||
             undefined
           }
           onCopy={copyMessage}
@@ -5322,11 +5319,7 @@ export function ChatPane({
           onDownloadImage={downloadMessageImage}
           downloadDisabled={mediaSave.disabled}
           onDelete={
-            contextMenu.message.source === 'roaming' ||
-            (isLocalOutgoingMessage(contextMenu.message) &&
-              !canDiscardFailedMessage(contextMenu.message))
-              ? undefined
-              : deleteMessage
+            messageBatchBlockReason(contextMenu.message, 'delete') ? undefined : deleteMessage
           }
           deleteLabel={canDiscardFailedMessage(contextMenu.message) ? '移除失败消息' : '删除'}
           onEditRaw={
