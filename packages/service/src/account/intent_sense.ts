@@ -465,7 +465,12 @@ export class IntentSenseService {
         const p = (raw ?? {}) as Partial<IntentSenseConfig>;
         const ref = p.providerRef as AgentLabModelRef | null | undefined;
         migrateSuggestionRef = p.suggestionProviderRef === undefined;
-        const suggestionRef = migrateSuggestionRef ? ref : p.suggestionProviderRef;
+        // 旧本地引擎从不调用推荐 API，不能把历史分析 API 引用变成新联网授权。
+        const suggestionRef = migrateSuggestionRef
+          ? p.engine === 'local'
+            ? null
+            : ref
+          : p.suggestionProviderRef;
         return {
           enabled: p.enabled === true,
           engine: p.engine === 'local' ? 'local' : 'api',
