@@ -24,8 +24,8 @@ const SCALE = 0.34;
  *  原本 0.62 是「独占整幅」的尺度；巨数接管视觉主角后收小，让位给下面那条线。 */
 export const HERO_SCALE = 0.44;
 
-/** 与 lib/dressSkin.ts 的 PAD_RATIO_Y 同源（npTc padding ÷ slice 实测值）。 */
-const PAD_RATIO_Y = 0.6;
+/** 与 lib/dressSkin.ts 的 PAD_RATIO 同源（npTc padding ÷ slice 实测值）。 */
+const PAD_RATIO = 0.6;
 
 function px(value: number): string {
   return `${Math.round(value * 100) / 100}px`;
@@ -47,8 +47,8 @@ function bubbleStyle(skin: BubbleSkin, scale: number): CSSProperties {
 
   // 纵向 padding：基础按 0.6 比例，上下切片不对称时用差值补偿（同 lib/dressSkin.ts）。
   const avg = (top + bottom) / 2;
-  const topPad = wTop * PAD_RATIO_Y + (avg - top) * scale * 0.5;
-  const bottomPad = wBottom * PAD_RATIO_Y + (avg - bottom) * scale * 0.5;
+  const topPad = wTop * PAD_RATIO + (avg - top) * scale * 0.5;
+  const bottomPad = wBottom * PAD_RATIO + (avg - bottom) * scale * 0.5;
 
   return {
     // 动效叠加层（下面的 bubbleOverlayStyle）是绝对定位的子元素，靠负 z-index 压在
@@ -62,8 +62,8 @@ function bubbleStyle(skin: BubbleSkin, scale: number): CSSProperties {
     borderImageSlice: `${top} ${right} ${bottom} ${left} fill`,
     borderImageWidth: `${px(wTop)} ${px(wRight)} ${px(wBottom)} ${px(wLeft)}`,
     borderImageRepeat: 'stretch',
-    // 横向内边距必须盖满整条左右切片，文字只能落在中间那 2px 的拉伸区上。
-    padding: `${px(topPad)} ${px(Math.max(wLeft, wRight))} ${px(bottomPad)}`,
+    // 横向与纵向同一个比例（理由见 lib/dressSkin.ts 的 PAD_RATIO）。
+    padding: `${px(topPad)} ${px(Math.max(wLeft, wRight) * PAD_RATIO)} ${px(bottomPad)}`,
     minWidth: px((left + right) * scale),
     minHeight: px((top + bottom) * scale),
   };
