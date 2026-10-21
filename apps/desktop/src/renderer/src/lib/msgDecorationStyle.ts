@@ -28,7 +28,8 @@ import {
 
 const STYLE_ID = 'weq-msg-decoration';
 const BUBBLE_SCALE = 0.5;
-const PAD_RATIO_Y = 0.6;
+/** 内边距 ÷ 切片，纵横共用（与 lib/dressSkin.ts 的 PAD_RATIO 同源，理由见那里）。 */
+const PAD_RATIO = 0.6;
 
 const injectedBubbles = new Set<number>();
 /**
@@ -270,8 +271,8 @@ export function injectBubbleCss(skin: BubbleSkin): void {
   const avgSlice = (top + bottom) / 2;
   const topDiff = avgSlice - top;
   const bottomDiff = avgSlice - bottom;
-  const topPad = wTop * PAD_RATIO_Y + topDiff * BUBBLE_SCALE * 0.6;
-  const bottomPad = wBottom * PAD_RATIO_Y + bottomDiff * BUBBLE_SCALE * 0.6;
+  const topPad = wTop * PAD_RATIO + topDiff * BUBBLE_SCALE * 0.6;
+  const bottomPad = wBottom * PAD_RATIO + bottomDiff * BUBBLE_SCALE * 0.6;
 
   // 动效叠加层:帧图中间镂空,只能叠在静态底图之上(见 layerRule 的说明)。
   const frameAnim =
@@ -302,7 +303,7 @@ export function injectBubbleCss(skin: BubbleSkin): void {
     `  border-image-width: ${width};`,
     `  border-image-repeat: stretch;`,
     `  border-radius: 0;`,
-    `  padding: ${px(topPad)} ${px(Math.max(wLeft, wRight))} ${px(bottomPad)};`,
+    `  padding: ${px(topPad)} ${px(Math.max(wLeft, wRight) * PAD_RATIO)} ${px(bottomPad)};`,
     `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
     `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
     `}`,

@@ -590,7 +590,8 @@ function renderMessage(
 
 /** 装扮 CSS 的换算常量 —— 与渲染侧 dressSkin.ts / msgDecorationStyle.ts 保持一致。 */
 const BUBBLE_SCALE = 0.5;
-const PAD_RATIO_Y = 0.6;
+/** 内边距 ÷ 切片，纵横共用（理由见渲染侧 dressSkin.ts 的 PAD_RATIO）。 */
+const PAD_RATIO = 0.6;
 
 function dressPx(v: number): string {
   return `${Math.round(v * 100) / 100}px`;
@@ -640,8 +641,8 @@ function bubbleRules(skin: DressBubbleManifest): string[] {
   const avgSlice = (top + bottom) / 2;
   const topDiff = avgSlice - top;
   const bottomDiff = avgSlice - bottom;
-  const topPad = wTop * PAD_RATIO_Y + topDiff * BUBBLE_SCALE * 0.5;
-  const bottomPad = wBottom * PAD_RATIO_Y + bottomDiff * BUBBLE_SCALE * 0.5;
+  const topPad = wTop * PAD_RATIO + topDiff * BUBBLE_SCALE * 0.5;
+  const bottomPad = wBottom * PAD_RATIO + bottomDiff * BUBBLE_SCALE * 0.5;
 
   const sel = `.msg[data-bubble="${skin.itemId}"] .bubble`;
   const theirsSel = `.msg:not(.me)[data-bubble="${skin.itemId}"] .bubble`;
@@ -653,7 +654,7 @@ function bubbleRules(skin: DressBubbleManifest): string[] {
     `  border-image-slice:${slice};`,
     `  border-image-width:${width};`,
     `  border-image-repeat:stretch;border-radius:0;`,
-    `  padding:${dressPx(topPad)} ${dressPx(Math.max(wLeft, wRight))} ${dressPx(bottomPad)};`,
+    `  padding:${dressPx(topPad)} ${dressPx(Math.max(wLeft, wRight) * PAD_RATIO)} ${dressPx(bottomPad)};`,
     `  min-width:${dressPx((left + right) * BUBBLE_SCALE)};`,
     `  min-height:${dressPx((top + bottom) * BUBBLE_SCALE)};`,
     `}`,

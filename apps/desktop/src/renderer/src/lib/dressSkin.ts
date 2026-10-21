@@ -138,14 +138,22 @@ export type DressScope = 'mine' | 'all';
 const BUBBLE_SCALE = 0.5;
 
 /**
- * 纵向内边距 ÷ 切片厚度。
+ * 内边距 ÷ 切片厚度 —— 纵横共用这一枚比例。
  *
  * 取自官方 `.9.png` 的 npTc chunk(唯一能拿到权威 padding 的来源,immersive 分发的 PNG
  * 把 npTc 剥掉了):实测 2078642 是 padding T32/B32 对 slice T55/B55,即 ≈0.58,取 0.6。
  *
- * **横向不用这个比例** —— 见 {@link bubbleRules} 里 padding 那行的说明。
+ * **横向过去用的是 1.0(`max(左切片, 右切片)`),那是错的**,已经改回这个比例。
+ * 对缓存里 201 款气泡逐款量过(见下):凡 npTc 带权威 padding 的款,`padding ÷ slice`
+ * 的中位数横竖都在 **0.58~0.64**,1.0 会让文字被推到边条装饰之外 —— 同一批素材里
+ * 切片深的款(如 149:slice 73/47、本体可见区只到 20..107)因此空出一大截。
+ *
+ * 为什么盯着"每款的权威 padding"比"统一 40/32"更稳:201 款里 192 款是 40/40/32/32,
+ * 但剩下 9 款的权威值全是 0(2014 那批老素材没填),按统一值算会给它们凭空造出 20px
+ * 内边距;而 0.6×slice 对那 9 款的中位数恰好也落在 20px 附近,是唯一能同时覆盖
+ * 「有权威值」「没权威值」「切片极深/极浅」三种情况的公式。
  */
-const PAD_RATIO_Y = 0.6;
+const PAD_RATIO = 0.6;
 
 const STYLE_ID = 'weq-dress-skin';
 
@@ -517,16 +525,17 @@ function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
   const avgSlice = (top + bottom) / 2;
   const topDiff = avgSlice - top; // top 小时为正,需要补偿
   const bottomDiff = avgSlice - bottom;
-  const topPad = px(wTop * PAD_RATIO_Y + topDiff * BUBBLE_SCALE * 0.5);
-  const bottomPad = px(wBottom * PAD_RATIO_Y + bottomDiff * BUBBLE_SCALE * 0.5);
+  const topPad = px(wTop * PAD_RATIO + topDiff * BUBBLE_SCALE * 0.5);
+  const bottomPad = px(wBottom * PAD_RATIO + bottomDiff * BUBBLE_SCALE * 0.5);
 
   return {
     frameAnim,
     imageUrl: bubbleImageUrl(skin),
     slice,
     width,
-    // 横向内边距必须盖满整条左右切片,文字只能落在中间那 2px 的拉伸区上。
-    rightPad: px(Math.max(wLeft, wRight)),
+    // 横向与纵向同一个比例（理由见 {@link PAD_RATIO}）：以前用 max(wLeft, wRight)
+    // 把文字推到边条之外，切片深的款会空出一大截。
+    rightPad: px(Math.max(wLeft, wRight) * PAD_RATIO),
     topPad,
     bottomPad,
     minWidth: px((left + right) * BUBBLE_SCALE),
