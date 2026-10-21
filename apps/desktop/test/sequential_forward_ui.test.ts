@@ -49,6 +49,32 @@ const messages = [
   },
 ];
 
+it('单条转发隐藏间隔与抖动，保留失败策略和重试设置', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        createElement(SequentialForwardDialog, {
+          messages: messages.slice(0, 1),
+          targets: [target],
+          onSend: vi.fn(),
+          onClose: vi.fn(),
+          onOpenTarget: vi.fn(),
+        }),
+      ),
+    );
+    expect(document.querySelector('.weq-forward-options')?.textContent).not.toMatch(/间隔|抖动/);
+    expect(document.querySelector('.weq-forward-options')?.textContent).toContain('最大尝试次数');
+    expect(document.querySelector('.weq-forward-options')?.textContent).toContain('失败后');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
 it('先展示预估，发送后卸载弹窗仍继续转发，横幅常驻并可打开已发送的目标', async () => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

@@ -11,6 +11,7 @@ import { useUpdateStore } from '../src/renderer/src/state/update';
 import {
   ContentSelectionProvider,
   useCurrentContentSelection,
+  useContentExportRequest,
 } from '../src/renderer/src/state/contentSelection';
 
 const rpc = vi.hoisted(() => ({
@@ -90,6 +91,68 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
 }
 
 describe('QQ 频道内的私聊工作区', () => {
+  it('频道所选消息可复制和请求公共导出，换会话再返回不保留旧选区', async () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    rpc.sessions.mockResolvedValueOnce(
+      ['a', 'b'].map((nodeId) => ({
+        nodeId,
+        peerTinyId: '42',
+        peerNick: nodeId,
+        lastTime: '1700000000',
+        lastSeq: '1',
+        guildName: '频道',
+        preview: null,
+      })),
+    );
+    function ExportProbe() {
+      return createElement(
+        'output',
+        { 'data-export-request': true },
+        JSON.stringify(useContentExportRequest()),
+      );
+    }
+    const f = mount(
+      createElement(
+        ContentSelectionProvider,
+        null,
+        createElement(ChannelView, {
+          selfUser: createTemplateDemoData().user,
+          initialDirectOpen: true,
+        }),
+        createElement(ExportProbe),
+      ),
+    );
+    try {
+      await act(async () => {});
+      await act(async () =>
+        f.host.querySelector<HTMLButtonElement>('.weq-guild-direct-item')!.click(),
+      );
+      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="多选消息"]')!.click());
+      act(() => f.host.querySelector<HTMLElement>('.weq-guild-direct-msg')!.click());
+      expect(f.host.querySelector('[aria-label="导出所选消息"]')).not.toBeNull();
+      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="导出所选消息"]')!.click());
+      expect(
+        JSON.parse(f.host.querySelector('[data-export-request]')!.textContent!).selection,
+      ).toEqual({
+        owner: { kind: 'guild-direct', container: 'a' },
+        scope: { type: 'items', ids: ['synthetic-message'] },
+      });
+      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="复制所选消息"]')!.click());
+      await act(async () =>
+        document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click(),
+      );
+      expect(writeText).toHaveBeenCalledOnce();
+      expect(f.host.querySelector('[aria-label="撤回所选消息"]')).toBeNull();
+      const sessions = f.host.querySelectorAll<HTMLButtonElement>('.weq-guild-direct-item');
+      await act(async () => sessions[1]!.click());
+      await act(async () => sessions[0]!.click());
+      expect(f.host.querySelector('.is-selected')).toBeNull();
+      expect(f.host.querySelector('[aria-label="多选消息"]')).not.toBeNull();
+    } finally {
+      f.close();
+    }
+  });
   it('频道无有效时间的记录不伪造 1970 年分隔日期', async () => {
     rpc.latest.mockResolvedValueOnce([
       { msgId: '1', msgSeq: '0', senderTinyId: '42', sendType: '0', sendTime: '0', elements: [] },

@@ -4,32 +4,38 @@ import { accountRouter } from '../src/main/ipc/routers/account';
 const fixture = vi.hoisted(() => ({
   uin: '10001',
   staticAccount: false,
+  configId: 'source-a',
   getUnreadInfos: vi.fn(),
   markRead: vi.fn(),
   markLocalRead: vi.fn(),
   setReadState: vi.fn(),
   undoReadState: vi.fn(),
 }));
-vi.mock('../src/main/context/app_context', () => ({
-  getAppContext: () => ({
-    account: { context: { uin: fixture.uin } },
-    accountIsStatic: fixture.staticAccount,
-    services: {
-      unreadInfo: {
-        getUnreadInfos: fixture.getUnreadInfos,
-        markReadAndReport: fixture.markRead,
-        markLocalRead: fixture.markLocalRead,
-        setReadState: fixture.setReadState,
-        undoReadState: fixture.undoReadState,
-      },
+vi.mock('../src/main/context/app_context', () => {
+  const services = {
+    accountConfig: { getRecord: () => ({ configId: fixture.configId }) },
+    unreadInfo: {
+      getUnreadInfos: fixture.getUnreadInfos,
+      markReadAndReport: fixture.markRead,
+      markLocalRead: fixture.markLocalRead,
+      setReadState: fixture.setReadState,
+      undoReadState: fixture.undoReadState,
     },
-  }),
-}));
+  };
+  return {
+    getAppContext: () => ({
+      account: { context: { uin: fixture.uin } },
+      accountIsStatic: fixture.staticAccount,
+      services,
+    }),
+  };
+});
 const targets = [{ chatType: 2 as const, uid: '777' }];
 beforeEach(() => {
   vi.resetAllMocks();
   fixture.uin = '10001';
   fixture.staticAccount = false;
+  fixture.configId = 'source-a';
   fixture.getUnreadInfos.mockResolvedValue([
     {
       ...targets[0],
@@ -47,6 +53,31 @@ beforeEach(() => {
 });
 
 describe('未读 IPC', () => {
+  it('设备保留真实类型，同号切来源后拒绝旧查询和标已读', async () => {
+    const api = accountRouter.createCaller({});
+    const input = {
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      targets: [{ chatType: 8 as const, uid: 'device-fixture' }],
+    };
+    await api.getUnreadInfos(input);
+    expect(fixture.getUnreadInfos).toHaveBeenCalledWith(input.targets);
+    fixture.getUnreadInfos.mockImplementationOnce(async () => {
+      fixture.configId = 'source-b';
+      return [];
+    });
+    await expect(api.getUnreadInfos(input)).rejects.toThrow('数据源已切换');
+    await expect(
+      api.markConversationRead({
+        expectedAccountUin: '10001',
+        expectedAccountConfigId: 'source-a',
+        chatType: 8,
+        uid: 'device-fixture',
+        latestSeq: '1',
+      }),
+    ).rejects.toThrow('数据源已切换');
+    expect(fixture.markRead).not.toHaveBeenCalled();
+  });
   it('手动批量标记及撤销强制账号隔离，结果沿用未读序列化', async () => {
     const api = accountRouter.createCaller({});
     const token = '00000000-0000-4000-8000-000000000001';

@@ -4,7 +4,12 @@ import { TRPCError } from '@trpc/server';
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
 import { describeExportOutput, exportOutputFileName, getHost } from '@weq/service';
-import { MailFailure, type MailEvent, type QQMailService } from '@weq/service/mail';
+import {
+  MailFailure,
+  exportMailMessages,
+  type MailEvent,
+  type QQMailService,
+} from '@weq/service/mail';
 import { getAppContext } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { rememberMail } from '../../search_content';
@@ -59,6 +64,33 @@ async function perform<T>(
 }
 
 export const mailRouter = router({
+  exportMessages: procedure
+    .input(
+      account.extend({
+        ids: z.array(mailId).min(1).max(100),
+        expectedAccountConfigId: z.string().min(1),
+        savePolicy: exportSavePolicyInput,
+      }),
+    )
+    .mutation(({ input }) => {
+      const mail = service(input.selfUin);
+      const services = getAppContext().services!;
+      const check = () => {
+        if (
+          service(input.selfUin) !== mail ||
+          getAppContext().services !== services ||
+          services.accountConfig.getRecord()?.configId !== input.expectedAccountConfigId
+        )
+          throw new MailFailure('auth', '账号或数据源已切换，请重新选择邮件。');
+      };
+      check();
+      return services.exportManager.startResourceExport({
+        kind: 'mail-messages',
+        name: `邮件导出-${input.ids.length}封`,
+        savePolicy: input.savePolicy,
+        run: (context) => exportMailMessages(mail, input.ids, context, check),
+      });
+    }),
   saveAttachment: procedure
     .input(
       account.extend({

@@ -1,6 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { buildUnreadDock } from '../src/renderer/src/im-template/template/unreadDock';
+import { ChatType, unreadChatType } from '@weq/codec';
+
+it('设备未读目标不归一成好友，兼容普通与临时私聊', () => {
+  expect(unreadChatType(ChatType.KCHATTYPEDATALINE)).toBe(ChatType.KCHATTYPEDATALINE);
+  expect(unreadChatType('KCHATTYPEDATALINEMQQ')).toBe(ChatType.KCHATTYPEDATALINEMQQ);
+  expect(unreadChatType(ChatType.KCHATTYPETEMPC2CFROMGROUP)).toBe(ChatType.KCHATTYPEC2C);
+});
 
 it('列表与跳转使用同一服务端结果，不再把缺失水位替换为零', () => {
   const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');

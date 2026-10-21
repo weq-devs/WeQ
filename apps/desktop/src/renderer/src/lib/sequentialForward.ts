@@ -1,7 +1,7 @@
 import type { RepeatElement } from './messageRepeat';
 
 export interface ForwardOptions {
-  mode: 'fixed' | 'text';
+  mode: 'fixed' | 'text' | 'original';
   intervalMs: number;
   msPerCharacter: number;
   nonTextMs: number;
@@ -21,15 +21,18 @@ export const DEFAULT_FORWARD_OPTIONS: ForwardOptions = {
 export interface ForwardContent {
   text: string;
   nonText: boolean;
+  timestampMs?: number;
 }
 
 export function forwardMessageContent(message: {
   body: string;
   qqElements?: readonly RepeatElement[];
+  createdAt?: string;
 }): ForwardContent {
   // 引用指针不会随逐条转发发出，不把引用摘要当作额外内容或文字。
   const elements = message.qqElements?.filter((element) => element.type !== 'reply') ?? [];
   return {
+    timestampMs: message.createdAt ? Date.parse(message.createdAt) : undefined,
     text: elements.length
       ? elements
           .filter((element) => element.type === 'text')
@@ -42,7 +45,7 @@ export function forwardMessageContent(message: {
 
 export function validateForwardOptions(options: ForwardOptions): void {
   if (
-    !['fixed', 'text'].includes(options.mode) ||
+    !['fixed', 'text', 'original'].includes(options.mode) ||
     !['skip', 'abort'].includes(options.failure) ||
     !Number.isInteger(options.maxAttempts) ||
     options.maxAttempts < 1 ||
@@ -58,6 +61,7 @@ export function forwardDelay(
   content: string | ForwardContent,
   options: ForwardOptions,
   random = Math.random,
+  nextContent?: string | ForwardContent,
 ): number {
   const { text, nonText } =
     typeof content === 'string' ? { text: content, nonText: false } : content;
@@ -66,8 +70,21 @@ export function forwardDelay(
       ? nonText
         ? options.nonTextMs
         : Array.from(text).length * options.msPerCharacter
-      : options.intervalMs;
+      : options.mode === 'original'
+        ? originalMessageGap(content, nextContent)
+        : options.intervalMs;
   return Math.max(0, Math.round(base + (random() * 2 - 1) * options.jitterMs));
+}
+
+function originalMessageGap(
+  content: string | ForwardContent,
+  next?: string | ForwardContent,
+): number {
+  const currentTime = typeof content === 'string' ? undefined : content.timestampMs;
+  const nextTime = typeof next === 'string' ? undefined : next?.timestampMs;
+  return Number.isFinite(currentTime) && Number.isFinite(nextTime)
+    ? Math.max(0, nextTime! - currentTime!)
+    : 0;
 }
 
 /** 仅估算可控等待；服务端回执、上传与重试耗时无法预知。 */
@@ -78,10 +95,14 @@ export function estimateForwardDuration(
 ): { minMs: number; maxMs: number } {
   validateForwardOptions(options);
   if (!Number.isInteger(targetCount) || targetCount < 0) throw new Error('转发目标数量无效');
-  const waits = options.mode === 'text' ? rows : rows.slice(0, -1);
+  const waits = rows.length <= 1 ? [] : options.mode === 'text' ? rows : rows.slice(0, -1);
   return {
-    minMs: waits.reduce((sum, row) => sum + forwardDelay(row, options, () => 0), 0) * targetCount,
-    maxMs: waits.reduce((sum, row) => sum + forwardDelay(row, options, () => 1), 0) * targetCount,
+    minMs:
+      waits.reduce((sum, row, i) => sum + forwardDelay(row, options, () => 0, rows[i + 1]), 0) *
+      targetCount,
+    maxMs:
+      waits.reduce((sum, row, i) => sum + forwardDelay(row, options, () => 1, rows[i + 1]), 0) *
+      targetCount,
   };
 }
 
@@ -105,6 +126,7 @@ export async function forwardSequentially<T>(
     send: (row: T, index: number, attempt: number) => Promise<void>;
     text: (row: T) => string;
     nonText?: (row: T) => boolean;
+    time?: (row: T) => number | undefined;
     signal: AbortSignal;
     progress: (index: number, attempt: number, state: 'sending' | 'sent' | 'failed') => void;
     sleep?: (ms: number) => Promise<void>;
@@ -141,7 +163,7 @@ export async function forwardSequentially<T>(
       }));
   for (const [index, row] of rows.entries()) {
     deps.signal.throwIfAborted();
-    if (options.mode === 'text') {
+    if (options.mode === 'text' && rows.length > 1) {
       const delay = forwardDelay(
         { text: deps.text(row), nonText: deps.nonText?.(row) ?? false },
         options,
@@ -170,8 +192,13 @@ export async function forwardSequentially<T>(
       deps.progress(index, options.maxAttempts, 'failed');
       if (options.failure === 'abort') throw error;
     }
-    if (options.mode === 'fixed' && index < rows.length - 1) {
-      const delay = forwardDelay(deps.text(row), options);
+    if (options.mode !== 'text' && index < rows.length - 1) {
+      const delay = forwardDelay(
+        { text: deps.text(row), nonText: false, timestampMs: deps.time?.(row) },
+        options,
+        Math.random,
+        { text: '', nonText: false, timestampMs: deps.time?.(rows[index + 1]!) },
+      );
       if (delay) await sleep(delay);
     }
   }

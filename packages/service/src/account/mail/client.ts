@@ -255,7 +255,7 @@ export class QQMailService {
     };
   }
 
-  async read(id: string, signal?: AbortSignal): Promise<MailDetail> {
+  async read(id: string, signal?: AbortSignal, markRead = true): Promise<MailDetail> {
     const group = id.startsWith('@');
     if (id.startsWith('C') && !id.startsWith('CAD')) {
       const match = /^C(\d+)T(.+)$/.exec(id);
@@ -295,8 +295,10 @@ export class QQMailService {
       replyTo: entry.replyto ? mailAddress(entry.replyto) : null,
       attachments: this.attachments.fromMessage(entry, id),
     };
-    await this.action([id], 'read', signal);
-    detail.unread = false;
+    if (markRead) {
+      await this.action([id], 'read', signal);
+      detail.unread = false;
+    }
     return detail;
   }
 

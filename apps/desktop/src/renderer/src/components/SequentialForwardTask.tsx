@@ -61,6 +61,7 @@ export function startSequentialForward({
           signal: controller.signal,
           text: (message) => forwardMessageContent(message).text,
           nonText: (message) => forwardMessageContent(message).nonText,
+          time: (message) => forwardMessageContent(message).timestampMs,
           send: (message) => onSend(message, target, controller.signal),
           progress: (index, attempt, state) => {
             if (state === 'sent') {

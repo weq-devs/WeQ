@@ -46,6 +46,16 @@ export function classifyChatType(chatType: string | number): ChatKind | null {
   return null;
 }
 
+/** 普通私聊沿用兼容水位 1；设备必须保留真实 chatType，不能查到好友水位。 */
+export function unreadChatType(chatType: string | number): 1 | 2 | 8 | 134 | null {
+  const kind = classifyChatType(chatType);
+  if (kind === 'group') return 2;
+  if (kind === 'direct') return 1;
+  if (kind === 'dataline')
+    return toChatTypeNumber(chatType) === ChatType.KCHATTYPEDATALINE ? 8 : 134;
+  return null;
+}
+
 /**
  * 是否是「群里发起的临时会话」—— 即 SQL 列 60001 `tempSourceGroupCode` 唯一的
  * 合法语义。**必须**同时是 chatType 100（`KCHATTYPETEMPC2CFROMGROUP`），不能只看

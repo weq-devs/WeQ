@@ -374,6 +374,7 @@ const ANNUAL_INDEX_WARMUP_DELAY_MS = 3000;
 function mountDbWatch(session: AccountSession): void {
   if (dbWatchHandle) return;
   const emitChanged = trailingDebounce((file: DbChange) => {
+    if (getAppContext().account !== session) return;
     dbEventBus.emit('changed', file);
   }, 200);
   dbWatchHandle = dbWatch.mount(
@@ -381,6 +382,7 @@ function mountDbWatch(session: AccountSession): void {
       onDbChanged: emitChanged,
       onNewMessages: (change: NewMessages) => {
         const ctx = getAppContext();
+        if (ctx.account !== session) return;
         if (ctx.account === session) {
           try {
             ctx.services?.unreadInfo.observeNewMessages(change);

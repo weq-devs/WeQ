@@ -327,6 +327,7 @@ export interface ExportTask {
       | 'assistant-artifact'
       | 'market-image'
       | 'mail-attachment'
+      | 'mail-messages'
       | 'decoration'
       | 'qzone-albums'
       | 'annual-report'

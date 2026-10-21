@@ -21,6 +21,7 @@ function fixture() {
     const add = sql.prepare(
       `INSERT INTO ${table} ("40001","40003","40020","40021","40027","40033","40050") VALUES(?,?,?,?,?,?,?)`,
     );
+    sql.exec(`ALTER TABLE ${table} ADD COLUMN "40013" INTEGER DEFAULT 0`);
     // 私聊专用：带 40002（random）/ 40005（client sequence）的行，用来钉住列映射
     // 不错位 —— SELECT_COLUMNS 是按位置索引的，新列只能追加在末尾。
     const addIds = sql.prepare(
@@ -142,6 +143,7 @@ it('私聊行把 40005 映射成 clientSeq，且不挤动 40002/40801 的位置'
   expect(withIds?.clientSeq).toBe(6851n);
   expect(withIds?.msgRandom).toBe(424242n);
   expect(withIds?.decoration).toBeUndefined();
+  expect(withIds?.sendType).toBe(0n);
   // 没有该列的老行不受影响：clientSeq 缺席（0n）而不是填到别人的值。
   expect(rows.find((row) => row.msgId === 9n)?.clientSeq).toBe(0n);
 });

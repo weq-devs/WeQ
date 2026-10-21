@@ -53,6 +53,39 @@ it('附件令牌固定身份，按原扩展名保存且不覆盖同名文件', a
   expect(readFileSync(task.save!.path!, 'utf8')).toBe('fixture');
   expect(readFileSync(target, 'utf8')).toBe('personal');
 });
+it('整封邮件复用公共目录任务，旧来源不入队，完成后保留正文与元数据', async () => {
+  const read = vi.fn(async () => ({
+    id: 'mail-fixture',
+    subject: '合成邮件',
+    html: '<p>正文</p>',
+    attachments: [],
+    unread: true,
+  }));
+  Object.assign((state.services as { mail: object }).mail, { read });
+  const api = mailRouter.createCaller({});
+  await expect(
+    api.exportMessages({
+      selfUin: '10001',
+      expectedAccountConfigId: 'wrong',
+      ids: ['mail-fixture'],
+      savePolicy: { mode: 'after' },
+    }),
+  ).rejects.toThrow('数据源已切换');
+  const id = await api.exportMessages({
+    selfUin: '10001',
+    expectedAccountConfigId: 'source-a',
+    ids: ['mail-fixture'],
+    savePolicy: { mode: 'after' },
+  });
+  await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
+  const task = manager.getTask(id)!;
+  expect(task.resource?.kind).toBe('mail-messages');
+  const entries = JSON.parse(readFileSync(join(task.bundleDir!, 'files', 'index.json'), 'utf8'));
+  expect(
+    readFileSync(join(task.bundleDir!, 'files', entries[0].directory, 'body.html'), 'utf8'),
+  ).toContain('正文');
+  expect(read).toHaveBeenCalledWith('mail-fixture', expect.any(AbortSignal), false);
+});
 it('无扩展名附件保持真实单文件，不补 bin 或 json 后缀', async () => {
   attachment.name = 'README';
   const id = await mailRouter

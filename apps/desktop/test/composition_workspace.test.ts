@@ -34,6 +34,11 @@ import {
   mirrorCompositionStyles,
 } from '../src/renderer/src/hooks/useCompositionWindow';
 import { compositionPopupOptions } from '../src/main/composition_window';
+import {
+  NodeTimeInput,
+  nodeTimeValue,
+  parseNodeTime,
+} from '../src/renderer/src/components/mergeForward/NodeTimeInput';
 
 const fixture = vi.hoisted(() => ({
   material: [] as unknown[],
@@ -180,6 +185,47 @@ function button(host: ParentNode, name: string) {
 }
 
 describe('合成工作窗口', () => {
+  it('北京时间修改保留秒数，拒绝无效日期且不依赖宿主时区', () => {
+    const time = Date.parse('2026-10-21T12:34:56+08:00') / 1000;
+    expect(nodeTimeValue(time)).toBe('2026-10-21T12:34:56');
+    expect(parseNodeTime('2026-10-21T12:34:56')).toBe(time);
+    expect(parseNodeTime('2026-02-30T12:34')).toBeNull();
+    expect(parseNodeTime('')).toBeNull();
+    expect(parseNodeTime('1970-01-01T08:00:00')).toBeNull();
+    expect(parseNodeTime('1969-12-31T12:00')).toBeNull();
+    expect(parseNodeTime('9999-12-31T12:00')).toBeNull();
+    const source = structuredClone(initial);
+    const changed = vi.fn();
+    function Editor() {
+      const [draft, setDraft] = useState(source);
+      return createElement(NodeTimeInput, {
+        time: draft.nodes[0]!.time,
+        onChange: (next) => {
+          const updated = { ...draft, nodes: [{ ...draft.nodes[0]!, time: next }] };
+          setDraft(updated);
+          changed(next);
+          expect(draftToSendNodes(updated)[0]!.time).toBe(time);
+        },
+      });
+    }
+    const f = mount(createElement(Editor));
+    try {
+      const input = f.host.querySelector('input')!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+          input,
+          '2026-10-21T12:34:56',
+        );
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(input.value).toBe('2026-10-21T12:34:56');
+      expect(changed).toHaveBeenCalledWith(time);
+      expect(source).toEqual(initial);
+    } finally {
+      f.close();
+    }
+  });
   it('正常分段和媒体引用保留，循环及超深嵌套在进入预览前拒绝', () => {
     const kinds = [
       'text',

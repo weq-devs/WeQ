@@ -66,6 +66,7 @@ pnpm dev
 - [页面自动更新](./qq-actions-auto-refresh-20261021.md) — 前台恢复、隐藏停轮询、读取重试与草稿保护。
 - [群成员编辑入口](./qq-member-edit-permissions-20261021.md) — 角色与目标身份、直接编辑及窗口边界。
 - [失败发送占位移除](./failed-outgoing-20261021.md) — 本机清理、确认状态保护、迟到回调与序号定位。
+- [消息正确性与邮件导出修补](./qq-message-correctness-20261021.md)：合成时间、逐条间隔、图文重编辑、设备未读、连续消息与图片资源生命周期。
 - [贡献指南](../../CONTRIBUTING.md)
 
 ---

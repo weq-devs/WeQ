@@ -25,7 +25,7 @@ function message(seq: number): GroupMsg {
   } as unknown as GroupMsg;
 }
 
-function fixture(kind: 'group' | 'c2c', total: number) {
+function fixture(kind: 'group' | 'c2c' | 'dataline', total: number) {
   const rows = Array.from({ length: total }, (_, index) => message(index + 1));
   let watermark = 0n;
   let failAfterFirstPage = false;
@@ -45,7 +45,7 @@ function fixture(kind: 'group' | 'c2c', total: number) {
       listSeqWatermarks: async () => [
         {
           targetUid: kind === 'group' ? '123456' : 'u_peer',
-          chatType: kind === 'group' ? 2 : 1,
+          chatType: kind === 'group' ? 2 : kind === 'dataline' ? 8 : 1,
           msgSeq: watermark,
           sendTime: BigInt(total),
         },
@@ -53,6 +53,7 @@ function fixture(kind: 'group' | 'c2c', total: number) {
     },
     groupMsgs: { listAfter, listBySeqsInPartition },
     c2cMsgs: { listAfter, listBySeqsInPartition },
+    datalineMsgs: { listAfter, listBySeqsInPartition },
     uidMap: { sortNoByUid: () => 17n },
   } as unknown as AccountSession;
   const onNewMessages = vi.fn();
@@ -76,7 +77,36 @@ function fixture(kind: 'group' | 'c2c', total: number) {
 }
 
 describe('nt_msg watcher batch catch-up', () => {
-  it.each(['group', 'c2c'] as const)(
+  it('挂载后的第一条变化按启动时基线处理，不把首条入站吞成历史', async () => {
+    const f = fixture('c2c', 1);
+    f.setWatermark(1n);
+    await f.hook.onDbFileChangeHook(DB_CHANGE);
+    expect(f.onNewMessages.mock.calls[0]?.[0].c2c).toHaveLength(1);
+  });
+  it('最近会话先涨而正文迟到时保留旧水位，下次同水位仍补发', async () => {
+    const f = fixture('c2c', 2);
+    await f.hook.onDbFileChangeHook(DB_CHANGE);
+    f.setWatermark(2n);
+    f.listAfter.mockResolvedValueOnce([]);
+    await f.hook.onDbFileChangeHook(DB_CHANGE);
+    expect(f.onNewMessages).not.toHaveBeenCalled();
+    await f.hook.onDbFileChangeHook(DB_CHANGE);
+    expect(f.onNewMessages.mock.calls[0]?.[0].c2c).toHaveLength(2);
+  });
+  it('同秒机器人连续消息按会话序号，不按随机消息 ID 反转', async () => {
+    const f = fixture('c2c', 2);
+    f.rows[0]!.sendTime = f.rows[1]!.sendTime;
+    f.rows[0]!.msgId = 100n;
+    f.rows[1]!.msgId = 1n;
+    await f.hook.onDbFileChangeHook(DB_CHANGE);
+    f.setWatermark(2n);
+    await f.hook.onDbFileChangeHook(DB_CHANGE);
+    expect(f.onNewMessages.mock.calls[0]?.[0].c2c.map((row: C2cMsg) => row.msgSeq)).toEqual([
+      1n,
+      2n,
+    ]);
+  });
+  it.each(['group', 'c2c', 'dataline'] as const)(
     'drains >500 %s messages without losing a page',
     async (kind) => {
       const f = fixture(kind, 1201);
@@ -87,7 +117,9 @@ describe('nt_msg watcher batch catch-up', () => {
       expect(f.listAfter.mock.calls.map((args) => args[1])).toEqual([0n, 500n, 1000n]);
       expect(f.onNewMessages).toHaveBeenCalledTimes(1);
       const event = f.onNewMessages.mock.calls[0]![0];
-      const emitted = kind === 'group' ? event.group : event.c2c;
+      const emitted =
+        kind === 'group' ? event.group : kind === 'dataline' ? event.dataline : event.c2c;
+      if (kind === 'dataline') expect(event.c2c).toEqual([]);
       expect(emitted.map((m: C2cMsg | GroupMsg) => m.msgSeq)).toEqual(f.rows.map((m) => m.msgSeq));
 
       await f.hook.onDbFileChangeHook(DB_CHANGE);

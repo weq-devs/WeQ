@@ -77,72 +77,84 @@ export function SequentialForwardDialog({
           <fieldset disabled={started}>
             <MergeForwardTargets targets={targets} selected={selected} onChange={setSelected} />
             <div className="weq-forward-options">
-              <label>
-                间隔方式
-                <select
-                  value={options.mode}
-                  onChange={(event) =>
-                    setOptions({
-                      ...options,
-                      mode: event.target.value === 'text' ? 'text' : 'fixed',
-                    })
-                  }
-                >
-                  <option value="fixed">固定间隔</option>
-                  <option value="text">按文本长度</option>
-                </select>
-              </label>
-              {options.mode === 'text' ? (
-                <label>
-                  非文本消息耗时（毫秒）
-                  <input
-                    type="number"
-                    min={0}
-                    max={3600000}
-                    step={1}
-                    value={Number.isFinite(options.nonTextMs) ? options.nonTextMs : ''}
-                    onChange={(event) =>
-                      setOptions({ ...options, nonTextMs: event.target.valueAsNumber })
-                    }
-                  />
-                </label>
+              {messages.length > 1 ? (
+                <>
+                  <label>
+                    间隔方式
+                    <select
+                      value={options.mode}
+                      onChange={(event) =>
+                        setOptions({
+                          ...options,
+                          mode:
+                            event.target.value === 'text'
+                              ? 'text'
+                              : event.target.value === 'original'
+                                ? 'original'
+                                : 'fixed',
+                        })
+                      }
+                    >
+                      <option value="fixed">固定间隔</option>
+                      <option value="text">按文本长度</option>
+                      <option value="original">参考原消息间隔</option>
+                    </select>
+                  </label>
+                  {options.mode === 'text' ? (
+                    <label>
+                      非文本消息耗时（毫秒）
+                      <input
+                        type="number"
+                        min={0}
+                        max={3600000}
+                        step={1}
+                        value={Number.isFinite(options.nonTextMs) ? options.nonTextMs : ''}
+                        onChange={(event) =>
+                          setOptions({ ...options, nonTextMs: event.target.valueAsNumber })
+                        }
+                      />
+                    </label>
+                  ) : null}
+                  {options.mode !== 'original' ? (
+                    <label>
+                      {options.mode === 'fixed' ? '间隔（毫秒）' : '每字间隔（毫秒）'}
+                      <input
+                        type="number"
+                        min={0}
+                        max={3600000}
+                        value={
+                          Number.isFinite(
+                            options.mode === 'fixed' ? options.intervalMs : options.msPerCharacter,
+                          )
+                            ? options.mode === 'fixed'
+                              ? options.intervalMs
+                              : options.msPerCharacter
+                            : ''
+                        }
+                        onChange={(event) =>
+                          setOptions({
+                            ...options,
+                            [options.mode === 'fixed' ? 'intervalMs' : 'msPerCharacter']:
+                              event.target.valueAsNumber,
+                          })
+                        }
+                      />
+                    </label>
+                  ) : null}
+                  <label>
+                    随机抖动 ± 毫秒
+                    <input
+                      type="number"
+                      min={0}
+                      max={3600000}
+                      value={Number.isFinite(options.jitterMs) ? options.jitterMs : ''}
+                      onChange={(event) =>
+                        setOptions({ ...options, jitterMs: event.target.valueAsNumber })
+                      }
+                    />
+                  </label>
+                </>
               ) : null}
-              <label>
-                {options.mode === 'fixed' ? '间隔（毫秒）' : '每字间隔（毫秒）'}
-                <input
-                  type="number"
-                  min={0}
-                  max={3600000}
-                  value={
-                    Number.isFinite(
-                      options.mode === 'fixed' ? options.intervalMs : options.msPerCharacter,
-                    )
-                      ? options.mode === 'fixed'
-                        ? options.intervalMs
-                        : options.msPerCharacter
-                      : ''
-                  }
-                  onChange={(event) =>
-                    setOptions({
-                      ...options,
-                      [options.mode === 'fixed' ? 'intervalMs' : 'msPerCharacter']:
-                        event.target.valueAsNumber,
-                    })
-                  }
-                />
-              </label>
-              <label>
-                随机抖动 ± 毫秒
-                <input
-                  type="number"
-                  min={0}
-                  max={3600000}
-                  value={Number.isFinite(options.jitterMs) ? options.jitterMs : ''}
-                  onChange={(event) =>
-                    setOptions({ ...options, jitterMs: event.target.valueAsNumber })
-                  }
-                />
-              </label>
               <label>
                 单条最大尝试次数
                 <input

@@ -148,6 +148,7 @@ import { createEmojiToken, parseMessageParts } from './emojiPacks';
 import type { EmojiItem } from './emojiPacks';
 import { elementToToken, elementsToComposerText } from './draftElements';
 import { planNeedsLocalMedia, type LocalMediaRef } from './composerSend';
+import { prepareReeditDraft } from './composerReedit';
 import {
   ComposerResizeHandle,
   focusComposerEnd,
@@ -1616,13 +1617,31 @@ export function ChatPane({
   const mediaAttachmentRef = useRef<ComposerAttachment | null>(null);
   mediaAttachmentRef.current = mediaAttachment;
   const inlineImagesRef = useRef<ComposerAttachment[]>([]);
-  const failedSendImagesRef = useRef<ComposerAttachment[]>([]);
+  const retainedSendUrlsRef = useRef(new Set<string>());
+  const reeditObjectUrlsRef = useRef<string[]>([]);
   const reeditLocalsRef = useRef<LocalMediaRef[]>([]);
+  const reeditAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => reeditAbortRef.current?.abort(), [conversation?.id, user.id]);
   /** 释放所有内联图片的预览地址（发送成功 / 切会话 / 卸载时）。 */
   const releaseInlineImages = useCallback(() => {
     for (const item of inlineImagesRef.current) releaseAttachment(item);
     inlineImagesRef.current = [];
+    for (const url of reeditObjectUrlsRef.current) URL.revokeObjectURL(url);
+    reeditObjectUrlsRef.current = [];
   }, []);
+  useEffect(() => {
+    if (sending) return;
+    const referenced = new Set(
+      messages.flatMap((message) =>
+        (message.composerDraft?.locals ?? []).flatMap((local) => [local.key, local.previewUrl]),
+      ),
+    );
+    for (const url of retainedSendUrlsRef.current) {
+      if (referenced.has(url)) continue;
+      URL.revokeObjectURL(url);
+      retainedSendUrlsRef.current.delete(url);
+    }
+  }, [messages, sending]);
   const attachmentConversationRef = useRef<string | null>(null);
   useEffect(() => {
     const conversationId = conversation?.id ?? null;
@@ -1650,8 +1669,8 @@ export function ChatPane({
   useLayoutEffect(
     () => () => {
       releaseInlineImages();
-      for (const image of failedSendImagesRef.current) releaseAttachment(image);
-      failedSendImagesRef.current = [];
+      for (const url of retainedSendUrlsRef.current) URL.revokeObjectURL(url);
+      retainedSendUrlsRef.current.clear();
       if (mediaAttachmentRef.current) releaseAttachment(mediaAttachmentRef.current);
     },
     [releaseInlineImages],
@@ -2426,6 +2445,7 @@ export function ChatPane({
     composerSendRef.current = request;
     const clearsBody = !singleToken && !options.keepBody;
     const sentImages = clearsBody ? [...inlineImagesRef.current] : [];
+    const sentReeditUrls = clearsBody ? [...reeditObjectUrlsRef.current] : [];
     let failed = false;
     const initialFocus = document.activeElement;
     const isCurrentComposer = () =>
@@ -2457,6 +2477,7 @@ export function ChatPane({
       if (clearsBody) {
         inlineImagesRef.current = [];
         reeditLocalsRef.current = [];
+        reeditObjectUrlsRef.current = [];
         setComposerBody('');
         onDraftClear(request.conversationId);
         setPendingQuote(null);
@@ -2494,11 +2515,15 @@ export function ChatPane({
     } catch (error) {
       failed = true;
       // 失败只保留消息上的重新编辑入口，不回填或覆盖下一条草稿。
-      if (composerEditorRef.current) failedSendImagesRef.current.push(...sentImages);
-      else for (const image of sentImages) releaseAttachment(image);
+      for (const url of [...sentImages.map((image) => image.url), ...sentReeditUrls]) {
+        if (!url) continue;
+        if (composerEditorRef.current) retainedSendUrlsRef.current.add(url);
+        else URL.revokeObjectURL(url);
+      }
       console.error('[composer] send failed:', error);
     } finally {
       if (!failed) for (const image of sentImages) releaseAttachment(image);
+      if (!failed) for (const url of sentReeditUrls) URL.revokeObjectURL(url);
       if (composerSendRef.current === request) {
         composerSendRef.current = null;
         setSending(false);
@@ -3185,7 +3210,13 @@ export function ChatPane({
   }
 
   async function reeditMessage(message: Message): Promise<boolean> {
-    if (!conversation || message.senderId !== user.id || sending) return false;
+    if (
+      !conversation ||
+      message.conversationId !== conversation.id ||
+      message.senderId !== user.id ||
+      sending
+    )
+      return false;
     const sourceConversation = conversation.id;
     const editor = currentComposerEditor();
     const previous = editor ? serializeComposer(editor) : bodyRef.current;
@@ -3199,24 +3230,42 @@ export function ChatPane({
         });
       if (!replace) return false;
     }
-    const currentEditor = currentComposerEditor();
-    if (
-      mentionConversation.current !== sourceConversation ||
-      !composerTabActive.current ||
-      !currentEditor?.isConnected ||
-      serializeComposer(currentEditor) !== previous ||
-      mediaAttachmentRef.current !== attachment
-    )
+    const unchanged = () => {
+      const currentEditor = currentComposerEditor();
+      return !(
+        mentionConversation.current !== sourceConversation ||
+        !composerTabActive.current ||
+        !currentEditor?.isConnected ||
+        serializeComposer(currentEditor) !== previous ||
+        mediaAttachmentRef.current !== attachment ||
+        composerSendRef.current !== null
+      );
+    };
+    if (!unchanged()) return false;
+    reeditAbortRef.current?.abort();
+    const controller = new AbortController();
+    reeditAbortRef.current = controller;
+    let prepared: Awaited<ReturnType<typeof prepareReeditDraft>>;
+    try {
+      prepared = await prepareReeditDraft(message, messageElements(message), controller.signal);
+    } catch (error) {
+      if (!controller.signal.aborted && unchanged())
+        pushToast({
+          tone: 'error',
+          message: '重新编辑失败，当前草稿已保留',
+          detail: error instanceof Error ? error.message : String(error),
+        });
       return false;
-    const elements = messageElements(message);
-    const text =
-      message.composerDraft?.body ??
-      (elements.length
-        ? elementsToComposerText(
-            elements.map((element) => ({ ...element.data, kind: element.type })),
-          )
-        : message.body);
-    if (!text) return false;
+    }
+    if (controller.signal.aborted || !unchanged()) {
+      for (const url of prepared.objectUrls) URL.revokeObjectURL(url);
+      return false;
+    }
+    const text = prepared.body;
+    if (!text) {
+      for (const url of prepared.objectUrls) URL.revokeObjectURL(url);
+      return false;
+    }
     releaseInlineImages();
     setMediaAttachment((current) => {
       if (current) releaseAttachment(current);
@@ -3224,7 +3273,8 @@ export function ChatPane({
     });
     setPendingSuperEmoji(null);
     setPendingQuote(null);
-    reeditLocalsRef.current = message.composerDraft?.locals ?? [];
+    reeditLocalsRef.current = prepared.locals;
+    reeditObjectUrlsRef.current = prepared.objectUrls;
     setComposerBody(text);
     for (const target of [composerEditorRef.current, expandedComposerEditorRef.current]) {
       if (target) restoreComposer(target, text);

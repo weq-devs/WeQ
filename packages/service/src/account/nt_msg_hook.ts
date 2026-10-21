@@ -34,7 +34,7 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import { classifyChatType } from '@weq/codec';
+import { classifyChatType, compareMessageOrder } from '@weq/codec';
 import type { C2cMsg, GroupMsg } from '@weq/db';
 import type { DbChange, DbWatchTask } from './db_watch';
 
@@ -53,6 +53,8 @@ export interface NewMessages {
   c2c: C2cMsg[];
   /** New group messages, oldest-first. */
   group: GroupMsg[];
+  /** 设备表独立标注来源类型，不冒充好友入站。 */
+  dataline?: Array<C2cMsg & { chatType: number }>;
 }
 
 /** The two sinks the watcher fans changes into. */
@@ -65,6 +67,7 @@ export interface NtMsgHooks {
 
 /** Per-conversation seq watermark, keyed by targetUid (40021). */
 interface ConvWatermark {
+  uid: string;
   chatType: number;
   /** Latest 40003 already surfaced. */
   msgSeq: bigint;
@@ -73,7 +76,10 @@ interface ConvWatermark {
 }
 
 /** Fetched rows tagged by table so the caller can fan them into c2c/group. */
-type Fetched = { kind: 'c2c'; msgs: C2cMsg[] } | { kind: 'group'; msgs: GroupMsg[] };
+type Fetched =
+  | { kind: 'c2c'; msgs: C2cMsg[] }
+  | { kind: 'group'; msgs: GroupMsg[] }
+  | { kind: 'dataline'; chatType: number; msgs: C2cMsg[] };
 
 /**
  * Build a {@link DbWatchTask} for this account's `nt_msg.db`. Mount the
@@ -83,19 +89,40 @@ type Fetched = { kind: 'c2c'; msgs: C2cMsg[] } | { kind: 'group'; msgs: GroupMsg
 export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): DbWatchTask {
   /** targetUid -> watermark. `null` until the first-run alignment. */
   let prev: Map<string, ConvWatermark> | null = null;
+  // 挂载即取基线，不能等第一条新消息触发文件变化后才把它当历史吞掉。
+  const initial = session.recentContacts
+    .listSeqWatermarks()
+    .then((rows) => {
+      prev = new Map(
+        rows
+          .filter((row) => row.targetUid)
+          .map((row) => [
+            `${row.chatType}:${row.targetUid}`,
+            {
+              uid: row.targetUid,
+              chatType: row.chatType,
+              msgSeq: row.msgSeq,
+              sendTime: row.sendTime,
+            },
+          ]),
+      );
+    })
+    .catch(() => {});
 
   return {
     dbPath: session.msgDbPath,
     onDbFileChangeHook: async (file: DbChange): Promise<void> => {
       // 1. Always: tell the open conversation to re-read its window.
       hooks.onDbChanged(file);
+      await initial;
 
       // 2. Diff the recent-contact seq watermarks.
       const rows = await session.recentContacts.listSeqWatermarks();
       const current = new Map<string, ConvWatermark>();
       for (const r of rows) {
         if (!r.targetUid) continue;
-        current.set(r.targetUid, {
+        current.set(`${r.chatType}:${r.targetUid}`, {
+          uid: r.targetUid,
           chatType: r.chatType,
           msgSeq: r.msgSeq,
           sendTime: r.sendTime,
@@ -110,23 +137,39 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
 
       const c2c: C2cMsg[] = [];
       const group: GroupMsg[] = [];
+      const dataline: NonNullable<NewMessages['dataline']> = [];
       // Everything we saw this poll is the next baseline; failed fetches are
       // reverted below so their rows are not lost.
       const next = new Map(current);
 
-      for (const [uid, cur] of current) {
-        const old = prev.get(uid);
+      for (const [key, cur] of current) {
+        const uid = cur.uid;
+        const old = prev.get(key);
 
         // Conversation first seen after mount: only a fresh row is a live
         // message; cap the push so a revived old conversation can't dump history.
         if (!old) {
           const isFresh = Date.now() / 1000 - Number(cur.sendTime) <= NEW_CONV_FRESH_SEC;
           if (isFresh) {
-            const fetched = await fetchLatest(session, uid, cur.chatType);
+            let fetched: Fetched | null;
+            try {
+              fetched = await fetchLatest(session, uid, cur.chatType);
+            } catch {
+              next.delete(key);
+              continue;
+            }
             if (fetched) {
+              const observed = fetched.msgs.reduce(
+                (max, msg) => (msg.msgSeq > max ? msg.msgSeq : max),
+                0n,
+              );
+              if (observed === 0n) next.delete(key);
+              else if (observed < cur.msgSeq) next.set(key, { ...cur, msgSeq: observed });
               for (const m of fetched.msgs) {
                 if (Number(m.sendTime) < Number(cur.sendTime) - 1) continue;
-                push(fetched.kind, m, c2c, group);
+                if (fetched.kind === 'dataline')
+                  dataline.push({ ...(m as C2cMsg), chatType: fetched.chatType });
+                else push(fetched.kind, m, c2c, group);
               }
             }
           }
@@ -138,10 +181,22 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
 
         try {
           const fetched = await fetchAfter(session, uid, cur.chatType, old.msgSeq);
-          if (fetched) for (const m of fetched.msgs) push(fetched.kind, m, c2c, group);
+          if (fetched) {
+            const observed = fetched.msgs.reduce(
+              (max, msg) => (msg.msgSeq > max ? msg.msgSeq : max),
+              old.msgSeq,
+            );
+            if (observed < cur.msgSeq) next.set(key, { ...cur, msgSeq: observed });
+          }
+          if (fetched)
+            for (const m of fetched.msgs) {
+              if (fetched.kind === 'dataline')
+                dataline.push({ ...(m as C2cMsg), chatType: fetched.chatType });
+              else push(fetched.kind, m, c2c, group);
+            }
         } catch {
           // Keep the old watermark so the rows are retried next change.
-          next.set(uid, old);
+          next.set(key, old);
         }
       }
 
@@ -149,11 +204,12 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
 
       // guild: no table wired yet — skipped via classifyChatType returning null.
 
-      if (c2c.length > 0 || group.length > 0) {
+      if (c2c.length > 0 || group.length > 0 || dataline.length > 0) {
         hooks.onNewMessages({
           file,
-          c2c: c2c.sort(compareNewest),
-          group: group.sort(compareNewest),
+          c2c: c2c.sort(compareMessageOrder),
+          group: group.sort(compareMessageOrder),
+          ...(dataline.length ? { dataline: dataline.sort(compareMessageOrder) } : {}),
         });
       }
     },
@@ -222,7 +278,18 @@ async function fetchAfter(
       ),
     };
   }
-  // dataline / service / official / unknown — not wired.
+  if (kind === 'dataline') {
+    const part = c2cPartition(session, uid);
+    return {
+      kind: 'dataline',
+      chatType,
+      msgs: await drainAfter(
+        afterSeq,
+        (cursor) => session.datalineMsgs.listAfter(part, cursor, MAX_DELTA),
+        (seq) => session.datalineMsgs.listBySeqsInPartition(part, [seq]),
+      ),
+    };
+  }
   return null;
 }
 
@@ -240,6 +307,12 @@ async function fetchLatest(
     const part = c2cPartition(session, uid);
     return { kind: 'c2c', msgs: await session.c2cMsgs.listLatest(part, NEW_CONV_CAP) };
   }
+  if (kind === 'dataline')
+    return {
+      kind: 'dataline',
+      chatType,
+      msgs: await session.datalineMsgs.listLatest(c2cPartition(session, uid), NEW_CONV_CAP),
+    };
   return null;
 }
 
@@ -252,13 +325,4 @@ function c2cPartition(session: AccountSession, uid: string): { sortNo: bigint } 
 function push(kind: 'c2c' | 'group', m: C2cMsg | GroupMsg, c2c: C2cMsg[], group: GroupMsg[]): void {
   if (kind === 'c2c') c2c.push(m as C2cMsg);
   else group.push(m as GroupMsg);
-}
-
-function compareNewest(
-  a: { sendTime: bigint; msgId: bigint },
-  b: { sendTime: bigint; msgId: bigint },
-): number {
-  if (a.sendTime !== b.sendTime) return a.sendTime < b.sendTime ? -1 : 1;
-  if (a.msgId !== b.msgId) return a.msgId < b.msgId ? -1 : 1;
-  return 0;
 }

@@ -2649,17 +2649,27 @@ export const accountRouter = router({
     .input(
       z.object({
         expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1).optional(),
         targets: z
           .array(
-            z.object({ chatType: z.union([z.literal(1), z.literal(2)]), uid: z.string().min(1) }),
+            z.object({
+              chatType: z.union([z.literal(1), z.literal(2), z.literal(8), z.literal(134)]),
+              uid: z.string().min(1),
+            }),
           )
           .max(256),
       }),
     )
     .query(async ({ input }) => {
-      const rows = await requireExpectedAccount(input.expectedAccountUin).unreadInfo.getUnreadInfos(
-        input.targets,
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
       );
+      const rows = await services.unreadInfo.getUnreadInfos(input.targets);
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
       return rows.map(unreadInfoToWire);
     }),
 
@@ -2667,10 +2677,11 @@ export const accountRouter = router({
     .input(
       z.object({
         expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1).optional(),
         targets: z
           .array(
             z.object({
-              chatType: z.union([z.literal(1), z.literal(2)]),
+              chatType: z.union([z.literal(1), z.literal(2), z.literal(8), z.literal(134)]),
               uid: z.string().min(1),
             }),
           )
@@ -2680,10 +2691,10 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const result = await requireExpectedAccount(input.expectedAccountUin).unreadInfo.setReadState(
-        input.targets,
-        input.unread,
-      );
+      const result = await requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).unreadInfo.setReadState(input.targets, input.unread);
       return { undoToken: result.undoToken, rows: result.rows.map(unreadInfoToWire) };
     }),
 
@@ -2729,6 +2740,7 @@ export const accountRouter = router({
         uid: z.string().min(1),
         latestSeq: z.string().optional(),
         expectedAccountUin: z.string().min(1).optional(),
+        expectedAccountConfigId: z.string().min(1).optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -2738,14 +2750,14 @@ export const accountRouter = router({
       if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup) {
         const changed = await requireExpectedAccount(
           input.expectedAccountUin,
+          input.expectedAccountConfigId,
         ).unreadInfo.markLocalRead(input.chatType, input.uid, input.latestSeq);
         return { changed, report: { state: 'unavailable' as const } };
       }
-      return requireExpectedAccount(input.expectedAccountUin).unreadInfo.markReadAndReport(
-        input.chatType,
-        input.uid,
-        input.latestSeq,
-      );
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).unreadInfo.markReadAndReport(input.chatType, input.uid, input.latestSeq);
     }),
 
   getReadReportStatus: procedure.query(() => requireServices().unreadInfo.getReadReportStatus()),

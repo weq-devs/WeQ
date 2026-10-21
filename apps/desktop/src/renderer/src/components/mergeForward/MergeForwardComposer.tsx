@@ -72,6 +72,7 @@ import { cn } from '../../im-template/template/classNames';
 import { dedupePersons, SenderPicker, type MfPerson } from './SenderPicker';
 import { MsgDressEditor } from './MsgDressEditor';
 import { moveCompositionNode } from './workspaceModel';
+import { NodeTimeInput } from './NodeTimeInput';
 import '../../styles/composition-sort.css';
 import {
   blankNestedRecordSeg,
@@ -431,6 +432,9 @@ export function MergeForwardComposer({
             ) : (
               <PreviewRow
                 node={node}
+                onChangeTime={(time) =>
+                  commit(nodes.map((item) => (item.id === node.id ? { ...item, time } : item)))
+                }
                 dragHandle={
                   <button
                     type="button"
@@ -551,6 +555,7 @@ function InsertButton({ onClick }: { onClick: () => void }): ReactElement {
 /** 一行预览消息：头像 + 昵称 + 时间 + 气泡（带装扮）。 */
 function PreviewRow({
   node,
+  onChangeTime,
   onOpen,
   onEditDress,
   onAvatar,
@@ -558,6 +563,7 @@ function PreviewRow({
   dragHandle,
 }: {
   node: MfNode;
+  onChangeTime: (time: number) => void;
   onOpen: () => void;
   onEditDress: () => void;
   onAvatar: () => void;
@@ -599,7 +605,7 @@ function PreviewRow({
         <div className="weq-forward-row-meta weq-mf-row-meta">
           {dragHandle}
           <span className="weq-forward-row-name weq-mf-row-name">{name}</span>
-          <span className="weq-forward-row-time weq-mf-row-time">{formatNodeTime(node.time)}</span>
+          <NodeTimeInput time={node.time} onChange={onChangeTime} />
           <button type="button" className="weq-mf-row-edit" onClick={onOpen}>
             <Pencil size={12} /> 编辑
           </button>
@@ -710,14 +716,6 @@ function NestedCard({ segs, action }: { segs: MfSeg[]; action?: ReactElement }):
       </div>
     </div>
   );
-}
-
-function formatNodeTime(seconds: number): string {
-  const secs = Number(seconds);
-  if (!Number.isFinite(secs) || secs <= 0) return '';
-  const d = new Date(secs * 1000);
-  const pad = (x: number) => String(x).padStart(2, '0');
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 // ───────────────────────────── 分段编辑器 ─────────────────────────────
@@ -1331,9 +1329,10 @@ function RecordMessages({
                   <span className="weq-forward-row-name weq-mf-row-name">
                     {msg.nickname || msg.userUin || 'QQ用户'}
                   </span>
-                  <span className="weq-forward-row-time weq-mf-row-time">
-                    {formatNodeTime(msg.time)}
-                  </span>
+                  <NodeTimeInput
+                    time={msg.time}
+                    onChange={(time) => patch(msg.id, { ...msg, time })}
+                  />
                   <button
                     type="button"
                     className="weq-mf-row-edit"

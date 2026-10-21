@@ -84,6 +84,7 @@ function fixture() {
     upload: vi.fn(async () => null),
     download: vi.fn(async () => false),
     save: vi.fn(async () => 'attachment-task'),
+    exportMessages: vi.fn(async () => 'mail-export-task'),
     image: vi.fn(async () => ({ mime: 'image/png', base64: '' })),
     subscribe: vi.fn(() => () => {}),
     openLink: vi.fn(async () => {}),
@@ -142,6 +143,30 @@ async function mount(
 }
 
 describe('邮箱文件夹重复选择', () => {
+  it('所选邮件导出沿用公共保存策略与来源绑定，取消选择不创建任务', async () => {
+    const { api } = fixture();
+    const f = await mount(api);
+    try {
+      await act(async () =>
+        f.host.querySelector<HTMLInputElement>('[aria-label="选择当前页全部邮件"]')!.click(),
+      );
+      await act(async () =>
+        f.host.querySelector<HTMLButtonElement>('[aria-label="导出所选邮件"]')!.click(),
+      );
+      expect(api.exportMessages).toHaveBeenCalledWith(
+        ['fixture-mail'],
+        { mode: 'after' },
+        'source-a',
+      );
+      saveState.prepare.mockResolvedValueOnce(null);
+      await act(async () =>
+        f.host.querySelector<HTMLButtonElement>('[aria-label="导出所选邮件"]')!.click(),
+      );
+      expect(api.exportMessages).toHaveBeenCalledTimes(1);
+    } finally {
+      f.close();
+    }
+  });
   it('进入与恢复前台自动读取，隐藏和离线取消读取，保留写信草稿且不重发操作', async () => {
     const { api, list } = fixture();
     const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');

@@ -68,6 +68,7 @@ import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
 import {
   classifyChatType,
+  unreadChatType,
   isGroupTempChatType,
   toChatTypeNumber,
   TipGroupElementType,
@@ -2441,12 +2442,14 @@ export function MainView(): ReactElement {
     minSeq: null,
     anchored: true,
   });
+  const liveRefreshRequest = useRef(0);
 
   // Live refresh of the open conversation: re-read seq >= minSeq and replace the
   // window. Only when anchored to latest — a history/search window (not yet
   // wired) must NOT be dragged up to the latest. Stable identity → the
   // subscription below mounts once.
   const refreshWindow = useCallback(async (): Promise<void> => {
+    const request = ++liveRefreshRequest.current;
     const scope = messageScopeRef.current,
       binding = messageBindingRef.current;
     const revision = dbRevisionRef.current;
@@ -2470,6 +2473,8 @@ export function MainView(): ReactElement {
       // Reject results after a conversation switch or a history-window change,
       // including switching away and back to the same conversation.
       if (
+        request !== liveRefreshRequest.current ||
+        revision < loadedRevisionRef.current ||
         messageScopeRef.current !== scope ||
         selectionRef.current !== sel ||
         windowRef.current !== win ||
@@ -4703,7 +4708,13 @@ export function MainView(): ReactElement {
   const requestUnreadRefreshRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     let disposed = false;
-    const isCurrent = () => !disposed && useViewState.getState().openedUin === openedUin;
+    const binding = messageBindingRef.current;
+    const source = messageScope;
+    const isCurrent = () =>
+      !disposed &&
+      Boolean(binding) &&
+      messageScopeRef.current === source &&
+      useViewState.getState().openedUin === openedUin;
     const guard = createUnreadUpdateGuard();
     unreadUpdateGuardRef.current = guard;
     setReadUndo(null);
@@ -4719,10 +4730,8 @@ export function MainView(): ReactElement {
       const succeeded = new Set<string>();
       let failed = false;
       const targets = list.flatMap((contact) => {
-        const kind = chatTypeKind(contact.chatType);
-        return kind === null
-          ? []
-          : [{ chatType: kind === 'group' ? (2 as const) : (1 as const), uid: contact.targetUid }];
+        const type = unreadChatType(contact.chatType);
+        return type === null ? [] : [{ chatType: type, uid: contact.targetUid }];
       });
       const batchSize = 256;
       for (let index = 0; index < targets.length && isCurrent(); index += batchSize) {
@@ -4734,6 +4743,7 @@ export function MainView(): ReactElement {
         try {
           const rows = await client.account.getUnreadInfos.query({
             expectedAccountUin: openedUin,
+            expectedAccountConfigId: binding?.expectedAccountConfigId,
             targets: targets.slice(index, index + batchSize),
           });
           if (!isCurrent()) return true;
@@ -4819,7 +4829,7 @@ export function MainView(): ReactElement {
       document.removeEventListener('visibilitychange', onVisible);
       requestUnreadRefreshRef.current = null;
     };
-  }, [openedUin]);
+  }, [openedUin, messageScope]);
   useEffect(() => {
     requestUnreadRefreshRef.current?.();
   }, [recentContactsData, unreadRevision]);
@@ -5825,6 +5835,11 @@ export function MainView(): ReactElement {
   const readRequestsRef = useRef(
     new Map<string, { again: boolean; promise: Promise<void>; latestSeq: string | undefined }>(),
   );
+  useEffect(() => {
+    unreadDockConvRef.current = null;
+    unreadSnapshotPendingRef.current = null;
+    setUnreadDock(null);
+  }, [messageScope]);
   const applyUnreadRows = useCallback(
     (rows: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>) => {
       setUnreadByConv((current) => {
@@ -5846,14 +5861,18 @@ export function MainView(): ReactElement {
   );
   const markVisibleConversationRead = useCallback(
     async (conv: Conversation, capturedLatestSeq?: string) => {
+      const source = messageScopeRef.current;
+      const binding = messageBindingRef.current;
       const isCurrent = () =>
+        Boolean(binding) &&
+        messageScopeRef.current === source &&
         messagesTabActiveRef.current &&
         document.visibilityState !== 'hidden' &&
         selectedUidRef.current === conv.id &&
         !manualReadPendingRef.current.has(conv.id) &&
         useViewState.getState().openedUin === openedUin;
       if (!isCurrent() || (conv.type !== 'direct' && conv.type !== 'group')) return;
-      const key = `${openedUin}:${conv.type}:${conv.id}`;
+      const key = `${source}:${conv.type}:${conv.id}`;
       const latestSeq =
         capturedLatestSeq ??
         unreadContactsRef.current.find((contact) => contact.targetUid === conv.id)?.msgSeq;
@@ -5873,10 +5892,12 @@ export function MainView(): ReactElement {
           try {
             // 固定这次打开时的本地水位，重试不会顺带确认后来到达的新消息。
             const request = {
-              chatType: conv.type === 'group' ? 2 : 1,
+              chatType:
+                conv.type === 'group' ? (2 as const) : (unreadChatType(conv.chatType ?? 1) ?? 1),
               uid: conv.id,
               latestSeq: entry.latestSeq,
               expectedAccountUin: openedUin ?? undefined,
+              expectedAccountConfigId: binding?.expectedAccountConfigId,
             };
             // 仅清除已捕获水位内的红点，后来到达的新水位留待精确查询。
             const newest = unreadContactsRef.current.find(
@@ -5905,7 +5926,8 @@ export function MainView(): ReactElement {
             if (changed !== null && isCurrent()) {
               const rows = await client.account.getUnreadInfos.query({
                 expectedAccountUin: openedUin!,
-                targets: [{ chatType: request.chatType as 1 | 2, uid: conv.id }],
+                expectedAccountConfigId: binding?.expectedAccountConfigId,
+                targets: [{ chatType: request.chatType, uid: conv.id }],
               });
               if (isCurrent()) applyUnreadRows(rows);
               if (changed.changed) void utils.account.listRecentContacts.invalidate();
@@ -5929,9 +5951,20 @@ export function MainView(): ReactElement {
 
   async function changeConversationReadState(rows: Conversation[], unread: boolean) {
     if (!openedUin || readStateBusyRef.current || !rows.length) return;
+    const source = messageScopeRef.current;
+    const binding = messageBindingRef.current;
+    if (!binding) return;
+    const isCurrent = () =>
+      messageScopeRef.current === source && useViewState.getState().openedUin === openedUin;
     const targets = rows.flatMap((row) =>
       row.type === 'direct' || row.type === 'group'
-        ? [{ chatType: row.type === 'group' ? (2 as const) : (1 as const), uid: row.id }]
+        ? [
+            {
+              chatType:
+                row.type === 'group' ? (2 as const) : (unreadChatType(row.chatType ?? 1) ?? 1),
+              uid: row.id,
+            },
+          ]
         : [],
     );
     if (targets.length !== rows.length || targets.length > 4096) {
@@ -5950,24 +5983,25 @@ export function MainView(): ReactElement {
           `将 ${targets.length} 个会话标为未读，是否继续？`,
           { okLabel: '标为未读', cancelLabel: '取消', tone: 'warning' },
         );
-        if (!confirmed || useViewState.getState().openedUin !== openedUin) return;
+        if (!confirmed || !isCurrent()) return;
       }
       // 已经发出的自动阅读先结束，不能晚于手动未读落地。
       await Promise.all(
         targets.map(
           (target) =>
             readRequestsRef.current.get(
-              `${openedUin}:${target.chatType === 2 ? 'group' : 'direct'}:${target.uid}`,
+              `${source}:${target.chatType === 2 ? 'group' : 'direct'}:${target.uid}`,
             )?.promise,
         ),
       );
-      if (useViewState.getState().openedUin !== openedUin) return;
+      if (!isCurrent()) return;
       const result = await client.account.setConversationReadState.mutate({
         expectedAccountUin: openedUin,
+        expectedAccountConfigId: binding.expectedAccountConfigId,
         targets,
         unread,
       });
-      if (useViewState.getState().openedUin !== openedUin) return;
+      if (!isCurrent()) return;
       applyUnreadRows(result.rows);
       const undo = {
         accountUin: openedUin,
@@ -6081,7 +6115,10 @@ export function MainView(): ReactElement {
 
     const convId = conv.id;
     unreadDockConvRef.current = convId;
-    const chatType = conv.type === 'group' ? 2 : 1;
+    const chatType =
+      conv.type === 'group' ? (2 as const) : (unreadChatType(conv.chatType ?? 1) ?? 1);
+    const source = messageScopeRef.current;
+    const binding = messageBindingRef.current;
     // 只在「还是同一个会话」时落地结果 —— 用 ref 而非 effect cleanup，
     // 因为 loaded / recentContactsData 的后续变化会重跑本 effect（此时早退），
     // 若用 cleanup 的 cancelled 会把刚拿到、还该用的结果一并丢掉。
@@ -6090,7 +6127,11 @@ export function MainView(): ReactElement {
         if (unreadDockConvRef.current === convId) unreadDockConvRef.current = null;
         return false;
       }
-      return unreadDockConvRef.current === convId;
+      return (
+        Boolean(binding) &&
+        messageScopeRef.current === source &&
+        unreadDockConvRef.current === convId
+      );
     };
 
     unreadSnapshotPendingRef.current = convId;
@@ -6100,6 +6141,7 @@ export function MainView(): ReactElement {
         if (!openedUin) return;
         [info] = await client.account.getUnreadInfos.query({
           expectedAccountUin: openedUin,
+          expectedAccountConfigId: binding?.expectedAccountConfigId,
           targets: [{ chatType, uid: convId }],
         });
       } catch (err) {
@@ -6174,7 +6216,9 @@ export function MainView(): ReactElement {
 
   // Keep the loaded-window descriptor in sync for the once-mounted subscription.
   useEffect(() => {
-    windowRef.current = { minSeq: loaded[0]?.msgSeq ?? null, anchored: anchoredToLatest };
+    const minSeq = loaded[0]?.msgSeq ?? null;
+    if (windowRef.current.minSeq !== minSeq || windowRef.current.anchored !== anchoredToLatest)
+      windowRef.current = { minSeq, anchored: anchoredToLatest };
     loadedRef.current = loaded;
   }, [loaded, anchoredToLatest]);
 
@@ -8825,6 +8869,7 @@ export function MainView(): ReactElement {
                   ) : shell.view === 'qzone' || shell.view === 'mail' ? null : shell.view ===
                       'channel' || shell.view === 'guild-direct' ? (
                     <ChannelView
+                      key={messageScope}
                       selfUser={user}
                       sidebarWidth={shell.sidebarWidth}
                       renderers={messageRenderers}
@@ -8854,6 +8899,7 @@ export function MainView(): ReactElement {
                     <div className="weq-template-main-wrap">
                       <div className="weq-readonly-chat">
                         <ChatMainContent
+                          key={messageScope}
                           user={user}
                           view={shell.view}
                           contactTab={shell.contactTab}

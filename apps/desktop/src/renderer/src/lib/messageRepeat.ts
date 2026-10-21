@@ -9,6 +9,7 @@ export async function repeatImageSources(
   elements: RepeatElement[],
   time: number,
   signal?: AbortSignal,
+  resolvedUrls?: Map<RepeatElement, string>,
 ): Promise<Map<RepeatElement, Uint8Array>> {
   const result = new Map<RepeatElement, Uint8Array>();
   for (const element of elements) {
@@ -38,6 +39,7 @@ export async function repeatImageSources(
       if (bytes.length > 50 * 1024 * 1024) throw new Error('图片超过 50 MiB，未发送。');
       if (!bytes.length) continue;
       result.set(element, bytes);
+      resolvedUrls?.set(element, candidate);
       break;
     }
     if (!result.has(element)) throw new Error('图片原文件不可用，未发送。');

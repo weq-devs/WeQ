@@ -13,6 +13,8 @@ import type {
 } from '@weq/db';
 import { randomUUID } from 'node:crypto';
 import type { ManualReadChange } from './local_unread';
+import { datalineDevice, isDatalineUid, classifyChatType } from '@weq/codec';
+import { SendType } from '@weq/codec/proto/msg/40900';
 
 export type ReadReportState =
   | 'disabled'
@@ -86,6 +88,18 @@ export class UnreadInfoService {
         String(msg.senderUin) !== this.session.context.uin
       )
         this.local.recordLive(2, msg.targetGroupCode, String(msg.msgSeq));
+    }
+    for (const msg of change.dataline ?? []) {
+      const device = datalineDevice(msg.senderUid);
+      if (
+        live(msg.sendTime) &&
+        isDatalineUid(msg.targetUid) &&
+        classifyChatType(msg.chatType) === 'dataline' &&
+        (device === 'phone' || device === 'pad') &&
+        (msg.sendType === BigInt(SendType.RECEIVED) ||
+          msg.sendType === BigInt(SendType.OTHER_CLIENT))
+      )
+        this.local.recordLive(msg.chatType, msg.targetUid, String(msg.msgSeq));
     }
     this.local.flush();
   }

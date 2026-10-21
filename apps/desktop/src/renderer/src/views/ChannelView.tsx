@@ -71,6 +71,7 @@ export function ChannelView({
         <div className="weq-channel-direct-panel" hidden={!directOpen}>
           <GuildDirectDialog
             open
+            active={directOpen}
             embedded
             selfUser={selfUser}
             renderers={renderers}

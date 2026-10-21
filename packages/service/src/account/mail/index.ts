@@ -1,5 +1,6 @@
 export { QQMailService } from './client';
 export { MailFailure } from './types';
+export { exportMailMessages } from './export';
 export type {
   MailAddress,
   MailFolder,

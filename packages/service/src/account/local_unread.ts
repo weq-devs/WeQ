@@ -1,6 +1,7 @@
 import type { UnreadInfoSnapshot } from '@weq/db';
 import { readJsonFile } from '../common/json_store';
 import { writeFileAtomicSync } from '../common/atomic_write';
+import { classifyChatType } from '@weq/codec';
 
 interface ReadPosition {
   latestSeq: string;
@@ -211,6 +212,7 @@ export class LocalUnreadStore {
       null,
     );
     const known = snapshot.msgSeq !== undefined;
+    const countSequenceGap = known && classifyChatType(snapshot.chatType) !== 'dataline';
     // 安静对齐不是已读，不能清掉实时消息或明确提醒；仅作为序号差的下限。
     const baseline = BigInt(row.baselineSeq ?? '0');
     const floor = read > baseline ? read : baseline;
@@ -218,7 +220,7 @@ export class LocalUnreadStore {
     const resolved = {
       ...snapshot,
       highlights: highlights?.length ? highlights : undefined,
-      unreadCount: known
+      unreadCount: countSequenceGap
         ? Math.max(Number(BigInt(latest) > floor ? BigInt(latest) - floor : 0n), pending.size)
         : pending.size,
       readSeq: known
@@ -240,7 +242,7 @@ export class LocalUnreadStore {
       unreadCount:
         manual.unreadCount +
         Math.max(
-          known && BigInt(latest) > newFloor ? Number(BigInt(latest) - newFloor) : 0,
+          countSequenceGap && BigInt(latest) > newFloor ? Number(BigInt(latest) - newFloor) : 0,
           newer.size,
         ),
       readSeq: manual.readSeq,

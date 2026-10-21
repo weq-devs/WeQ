@@ -55,6 +55,25 @@ function message(
 }
 
 describe('offline roaming timeline cache pages', () => {
+  it('64 位相邻序号的缓存正反分页不被消息 ID 字典序颠倒', async () => {
+    const { cache } = setup();
+    await cache.store([
+      { ...message(1), msgSeq: '9007199254740992', msgId: '99' },
+      { ...message(2), msgSeq: '9007199254740993', msgId: '10' },
+    ]);
+    const query = (descending: boolean) =>
+      cache.query(
+        'group',
+        'synthetic-conversation',
+        9007199254740992,
+        9007199254740994,
+        false,
+        2,
+        descending,
+      );
+    expect((await query(false)).map((row) => row.msgId)).toEqual(['99', '10']);
+    expect((await query(true)).map((row) => row.msgId)).toEqual(['99', '10']);
+  });
   it.each(['c2c', 'group'] as const)(
     '保存 %s 已发送消息，重开缓存仍可读，漫游返回真实 ID 后只保留一条',
     async (kind) => {

@@ -211,6 +211,7 @@ function mapWireElement(
           kind: 'image',
           source,
           ...(typeof element.fileName === 'string' ? { fileName: element.fileName } : {}),
+          ...(element.subType !== undefined ? { subType: Number(element.subType) } : {}),
           ...(element.width !== undefined ? { width: Number(element.width) } : {}),
           ...(element.height !== undefined ? { height: Number(element.height) } : {}),
         };

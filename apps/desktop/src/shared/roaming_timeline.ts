@@ -1,3 +1,5 @@
+import { compareMessageOrder } from '@weq/codec';
+
 export interface TimelineRow {
   sourceFormat?: 'native' | 'protocol';
   sendTime?: string;
@@ -94,9 +96,7 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
     result.push({ ...row, source: 'roaming' });
   }
   result.sort((a, b) => {
-    const left = timelineSeq(a.msgSeq) ?? 0n;
-    const right = timelineSeq(b.msgSeq) ?? 0n;
-    const order = left < right ? -1 : left > right ? 1 : 0;
+    const order = compareMessageOrder(a, b);
     return options.descending ? -order : order;
   });
   return options.limit === undefined ? result : result.slice(0, options.limit);
