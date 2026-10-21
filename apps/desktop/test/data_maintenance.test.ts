@@ -145,7 +145,7 @@ describe('设置的数据与维护', () => {
       f.dispose();
     }
   });
-  it('模型使用统计在设置内展示，不要求进入克隆对话', () => {
+  it('API 用量在设置内展示，不要求进入克隆对话', () => {
     const f = mount(
       createElement(SettingsDialog, {
         open: true,
@@ -157,7 +157,7 @@ describe('设置的数据与维护', () => {
     );
     try {
       expect(f.host.querySelector('.weq-settings-model-usage')).not.toBeNull();
-      expect(f.host.textContent).toContain('模型使用统计');
+      expect(f.host.textContent).toContain('API 用量');
     } finally {
       f.dispose();
     }
