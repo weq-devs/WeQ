@@ -148,6 +148,11 @@ linux:
   # 显式退回原生 Wayland；纯 X11 桌面上多传这个参数无害。
   executableArgs:
     - --ozone-platform=x11
+    # 一旦设置 executableArgs，electron-builder 给 AppImage 的默认
+    # `--no-sandbox` 就被整个替换掉了（AppImageTarget.js 的 `|| "--no-sandbox"`）。
+    # AppImage 挂在 nosuid 的 FUSE 上，chrome-sandbox 的 setuid 位无用，禁用了
+    # unprivileged userns 的发行版（如 Ubuntu 24.04）会直接起不来，所以补回来。
+    - --no-sandbox
   # 打包字体（见顶部 extraResources 的说明）：Linux 发行版未必装 Noto CJK。
   extraResources:
     - from: ../../resources/assistant/fonts
