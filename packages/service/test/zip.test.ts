@@ -264,3 +264,50 @@ describe('buildZip', () => {
     },
   );
 });
+
+describe('导入用的有界 ZIP 校验', () => {
+  const limits = { maxEntries: 4, maxEntryBytes: 32, maxTotalBytes: 64 };
+  const central = (zip: Buffer) => zip.readUInt32LE(zip.length - 6);
+
+  it('允许合法的 store 与 deflate 包，旧调用仍保持宽容模式', () => {
+    const zip = makeZip([
+      { name: 'a.txt', data: Buffer.from('normal') },
+      { name: 'b.txt', data: Buffer.alloc(20, 65) },
+    ]);
+    expect(readZipEntries(zip, limits).map((entry) => entry.name)).toEqual(['a.txt', 'b.txt']);
+    expect(readZipEntries(Buffer.from('not zip'))).toEqual([]);
+    expect(() => readZipEntries(Buffer.from('not zip'), limits)).toThrow();
+  });
+  it('条目、单文件及总解压体积在分配前受限', () => {
+    const zip = makeZip([
+      { name: 'a', data: Buffer.alloc(20) },
+      { name: 'b', data: Buffer.alloc(20) },
+    ]);
+    expect(() => readZipEntries(zip, { ...limits, maxEntries: 1 })).toThrow('条目');
+    expect(() => readZipEntries(zip, { ...limits, maxEntryBytes: 16 })).toThrow('体积');
+    expect(() => readZipEntries(zip, { ...limits, maxTotalBytes: 30 })).toThrow('体积');
+    const understated = makeZip([{ name: 'a', data: Buffer.alloc(256, 65) }]);
+    understated.writeUInt32LE(16, central(understated) + 24);
+    understated.writeUInt32LE(16, 22);
+    expect(() => readZipEntries(understated, limits)).toThrow();
+  });
+  it('拒绝损坏 CRC、截断、重复路径、目录越界和加密／链接条目', () => {
+    const broken = makeZip([{ name: 'a', data: Buffer.from('a') }], { compress: false });
+    broken[31] = 98;
+    expect(() => readZipEntries(broken, limits)).toThrow('校验');
+    expect(() => readZipEntries(broken.subarray(0, -1), limits)).toThrow();
+    const duplicate = makeZip([
+      { name: 'a', data: Buffer.from('a') },
+      { name: 'a', data: Buffer.from('a') },
+    ]);
+    expect(() => readZipEntries(duplicate, limits)).toThrow('重复');
+    const traversal = buildZip([{ name: '../a', data: Buffer.from('a'), method: 0 }]);
+    expect(() => readZipEntries(traversal, limits)).toThrow('路径');
+    const encrypted = makeZip([{ name: 'a', data: Buffer.from('a') }]);
+    encrypted.writeUInt16LE(1, central(encrypted) + 8);
+    expect(() => readZipEntries(encrypted, limits)).toThrow('加密');
+    const link = makeZip([{ name: 'a', data: Buffer.from('a') }]);
+    link.writeUInt32LE(0xa0000000, central(link) + 38);
+    expect(() => readZipEntries(link, limits)).toThrow('链接');
+  });
+});

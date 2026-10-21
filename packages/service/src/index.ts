@@ -230,6 +230,35 @@ export {
   type PanelRelatedGif,
 } from './account/emoji';
 export type { EmojiOnlineDeps } from './account/emoji';
+export {
+  createFavoriteEmojiBundle,
+  readFavoriteEmojiBundle,
+  planFavoriteEmojiImport,
+  FAVORITE_EMOJI_BUNDLE_FORMAT,
+  FAVORITE_EMOJI_BUNDLE_VERSION,
+  FAVORITE_EMOJI_MAX_ITEMS,
+  FAVORITE_EMOJI_MAX_IMAGE_BYTES,
+  FAVORITE_EMOJI_MAX_DATA_BYTES,
+  FAVORITE_EMOJI_MAX_MANIFEST_BYTES,
+  FAVORITE_EMOJI_MAX_ARCHIVE_BYTES,
+  FAVORITE_EMOJI_MANIFEST,
+} from './account/favorite_emoji_bundle';
+export type {
+  FavoriteEmojiExportSource,
+  FavoriteEmojiImage,
+  FavoriteEmojiBundleItem,
+  FavoriteEmojiImportDisposition,
+  FavoriteEmojiImportPlanItem,
+} from './account/favorite_emoji_bundle';
+export { runFavoriteEmojiImport } from './account/favorite_emoji_import';
+export { exportOnlineFavoriteEmojiBundle } from './account/favorite_emoji_export';
+export type { FavoriteEmojiExportPort } from './account/favorite_emoji_export';
+export type {
+  FavoriteEmojiImportPort,
+  FavoriteEmojiImportState,
+  FavoriteEmojiImportResultItem,
+  FavoriteEmojiImportResult,
+} from './account/favorite_emoji_import';
 export type { MarketEmoticonPackage } from '@weq/db';
 export { FileAssistantService } from './account/file_assistant';
 export { CollectionService, type CollectionPage } from './account/collection';

@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { open } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { open, writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { z } from 'zod';
 import { parseCustomFaceId, PROFILE_LIKE_MAX_PER_REQUEST, type GroupRequest } from '@weq/protocol';
 import { isIncomingPendingBuddyRequest } from '@weq/service/buddy-request';
+import { exportOnlineFavoriteEmojiBundle } from '@weq/service';
 import {
   parseGroupShareLocation,
   resolveGroupShareAuthKey,
@@ -12,6 +13,7 @@ import {
 import type { AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import type { QQWriteBinding } from './qq_write';
+import { exportSavePolicyInput } from './export_save';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),
@@ -49,6 +51,7 @@ export type QQActionServices = Pick<
   | 'onlineStatus'
   | 'messageSend'
   | 'peerStats'
+  | 'exportManager'
 >;
 
 /** 不读任意渲染进程路径，只接受账号媒体或用户通过本应用选中的文件。 */
@@ -464,6 +467,52 @@ export function createQQActionsRouter(
         }));
       }),
     ),
+    favoriteExport: procedure
+      .input(binding.extend({ savePolicy: exportSavePolicyInput }))
+      .mutation(({ input: i }) =>
+        read(i, async (s) => {
+          const pid = s.accountConfig.getRecord()?.qqPid;
+          const current = () => {
+            if (resolve(i) !== s || s.accountConfig.getRecord()?.qqPid !== pid)
+              throw new Error('账号或 QQ 运行时已改变，请重新导出');
+          };
+          if (i.savePolicy.mode !== 'after' && !i.savePolicy.directory && !i.savePolicy.filePath)
+            throw new Error('请先选择收藏包保存位置');
+          return s.exportManager.startResourceExport({
+            kind: 'favorite-emoji',
+            name: '收藏表情',
+            output: { kind: 'file', name: '收藏表情', extension: 'zip' },
+            savePolicy: i.savePolicy,
+            run: async ({ directory, signal, progress }) => {
+              const result = await exportOnlineFavoriteEmojiBundle(s.emoji, {
+                current,
+                signal,
+                progress,
+                readLocal: (path) => image(s, path, current),
+              });
+              current();
+              signal.throwIfAborted();
+              const fileName = 'favorite-emoji.zip';
+              await writeFile(join(directory, fileName), result.archive, { flag: 'wx', signal });
+              current();
+              return {
+                fileName,
+                total: 1,
+                ok: 1,
+                failed: [],
+                contents: {
+                  total: result.total,
+                  ok: result.written,
+                  failed: result.failed.map((item) => ({
+                    fileName: `${item.position}. ${item.description || '未命名表情'}`,
+                    error: item.error,
+                  })),
+                },
+              };
+            },
+          });
+        }),
+      ),
     favorite: procedure
       .input(
         binding.extend({

@@ -330,6 +330,7 @@ export interface ExportTask {
       | 'mail-messages'
       | 'decoration'
       | 'qzone-albums'
+      | 'favorite-emoji'
       | 'annual-report'
       | 'media';
     failed?: number;
@@ -419,6 +420,12 @@ export interface ResourceExportSummary {
   total: number;
   ok: number;
   failed: Array<{ fileName: string; error: string }>;
+  /** 文件生成成功与包内条目完整性分别计数；不放宽单文件发布校验。 */
+  contents?: {
+    total: number;
+    ok: number;
+    failed: Array<{ fileName: string; error: string }>;
+  };
 }
 
 export interface ResourceExportRunContext {
@@ -1275,9 +1282,11 @@ export class ExportTaskManager extends EventEmitter {
           label:
             opts.kind === 'database'
               ? '解密数据库'
-              : opts.kind === 'assistant-artifact' || opts.kind === 'annual-report'
-                ? '保存报告'
-                : '下载资源',
+              : opts.kind === 'favorite-emoji'
+                ? '导出收藏表情'
+                : opts.kind === 'assistant-artifact' || opts.kind === 'annual-report'
+                  ? '保存报告'
+                  : '下载资源',
           status: 'pending',
           current: 0,
           total: 0,
@@ -1329,15 +1338,17 @@ export class ExportTaskManager extends EventEmitter {
         },
       });
       abort.signal.throwIfAborted();
-      if (
-        !Number.isSafeInteger(summary.total) ||
-        !Number.isSafeInteger(summary.ok) ||
-        summary.ok < 0 ||
-        summary.total < summary.ok ||
-        summary.total !== summary.ok + summary.failed.length
-      )
-        throw new Error('资源下载计数不完整，未发布结果。');
+      for (const counts of [summary, ...(summary.contents ? [summary.contents] : [])])
+        if (
+          !Number.isSafeInteger(counts.total) ||
+          !Number.isSafeInteger(counts.ok) ||
+          counts.ok < 0 ||
+          counts.total < counts.ok ||
+          counts.total !== counts.ok + counts.failed.length
+        )
+          throw new Error('资源下载计数不完整，未发布结果。');
       const output = task.resource?.output;
+      if (summary.contents && !output) throw new Error('包内条目统计只适用于单文件产物。');
       if (output) {
         if (
           summary.total !== 1 ||
@@ -1377,17 +1388,18 @@ export class ExportTaskManager extends EventEmitter {
       task.resource!.cacheDirectory = bundle.finalDir;
       if (output) task.filePath = join(bundle.finalDir, 'files', summary.fileName!);
       else task.bundleDir = bundle.finalDir;
-      task.current = stage.current = summary.ok;
-      task.total = stage.total = summary.total;
-      task.resource!.failed = stage.failed = summary.failed.length;
-      stage.failures = summary.failed
+      const counts = summary.contents ?? summary;
+      task.current = stage.current = counts.ok;
+      task.total = stage.total = counts.total;
+      task.resource!.failed = stage.failed = counts.failed.length;
+      stage.failures = counts.failed
         .slice(0, 100)
         .map((item) => ({ stage: 'file', fileName: item.fileName, error: item.error }));
       stage.status = 'completed';
-      stage.note = `成功 ${summary.ok} 个，失败 ${summary.failed.length} 个`;
+      stage.note = `成功 ${counts.ok} 个，失败 ${counts.failed.length} 个`;
       task.progress = 100;
       task.status = 'completed';
-      this.log(task.id, 'file', stage.note, summary.failed.length ? 'warn' : 'info');
+      this.log(task.id, 'file', stage.note, counts.failed.length ? 'warn' : 'info');
     } catch (error) {
       if (abort.signal.aborted) {
         if (task.status === 'running') task.status = 'paused';

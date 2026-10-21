@@ -15,6 +15,7 @@ import { mediaUrl } from '../../lib/resourceUrl';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 import { useDialog } from '../Dialog';
 import { useTabActive } from '../RetainedTabs';
+import { FavoriteBundleExport } from './FavoriteBundleExport';
 import '../../styles/group-content-management.css';
 import '../../styles/qq-management.css';
 import {
@@ -43,6 +44,10 @@ function FavoriteActionsBody() {
         <h3>收藏表情</h3>
         <div>
           <span>{list.data?.length ?? 0} 项</span>
+          <FavoriteBundleExport
+            binding={a.binding}
+            disabled={a.disabled || list.isLoading || Boolean(list.error)}
+          />
           <ActionIcon
             label="新建收藏表情"
             disabled={a.disabled || adding}

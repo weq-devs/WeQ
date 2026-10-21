@@ -162,6 +162,7 @@ export function taskTypeLabel(t: UiTask): string {
   if (t.resource?.kind === 'mail-messages') return '邮件导出';
   if (t.resource?.kind === 'decoration') return '装扮资源保存';
   if (t.resource?.kind === 'qzone-albums') return '空间相册导出';
+  if (t.resource?.kind === 'favorite-emoji') return '收藏表情导出';
   if (t.resource?.kind === 'annual-report') return '年度报告导出';
   if (t.resource?.kind === 'media') return '媒体文件保存';
   if (t.resource) return t.resource.kind === 'group-albums' ? '群相册导出' : '群文件导出';

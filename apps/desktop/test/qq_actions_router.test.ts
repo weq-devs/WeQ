@@ -1,9 +1,17 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import type { GroupFileListing } from '@weq/service';
-import { PROFILE_LIKE_MAX_PER_REQUEST, type GroupJoinInfo } from '@weq/protocol';
+import {
+  readFavoriteEmojiBundle,
+  type ExportTaskManager,
+  type GroupFileListing,
+} from '@weq/service';
+import {
+  PROFILE_LIKE_MAX_PER_REQUEST,
+  type GroupJoinInfo,
+  type CustomFaceDetail,
+} from '@weq/protocol';
 import { createQQActionsRouter, type QQActionServices } from '../src/main/ipc/routers/qq_actions';
 
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
@@ -73,7 +81,8 @@ function fixture() {
         '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0',
       ]),
       listFavoriteEmojis: vi.fn(async () => []),
-      fetchOnlineFavoriteDetails: vi.fn(async () => []),
+      fetchOnlineFavoriteDetails: vi.fn(async (): Promise<CustomFaceDetail[]> => []),
+      listFavEmojiRows: vi.fn(async () => []),
       addFavorite: empty(),
       deleteFavorite: empty(),
       modifyFavoriteDesc: empty(),
@@ -138,6 +147,12 @@ function fixture() {
         async (_uid: string, _count: number): Promise<'accepted' | 'unconfirmed'> => 'accepted',
       ),
     },
+    exportManager: {
+      startResourceExport: vi.fn(
+        async (_options: Parameters<ExportTaskManager['startResourceExport']>[0]) =>
+          'resource-favorite',
+      ),
+    },
   };
   const resolve = (b: typeof binding) => {
     if (
@@ -166,6 +181,63 @@ function fixture() {
     },
   };
 }
+
+describe('收藏包导出任务', () => {
+  it('保存位置未准备时不入队，稍后保存沿用单文件 ZIP 任务', async () => {
+    const f = fixture();
+    await expect(
+      f.caller.favoriteExport({ ...binding, savePolicy: { mode: 'before' } }),
+    ).rejects.toThrow('位置');
+    expect(f.s.exportManager.startResourceExport).not.toHaveBeenCalled();
+    expect(await f.caller.favoriteExport({ ...binding, savePolicy: { mode: 'after' } })).toBe(
+      'resource-favorite',
+    );
+    expect(f.s.exportManager.startResourceExport.mock.calls[0]?.[0]).toMatchObject({
+      kind: 'favorite-emoji',
+      output: { kind: 'file', extension: 'zip' },
+      savePolicy: { mode: 'after' },
+    });
+  });
+  it('缺原图仍写出可核对的包，失败数量供公共任务列表展示', async () => {
+    const f = fixture();
+    const emojiId = (await f.s.emoji.fetchOnlineFavoriteIds())[0]!;
+    f.s.emoji.fetchOnlineFavoriteDetails.mockResolvedValue([{ emojiId, desc: '合成备注' }]);
+    await f.caller.favoriteExport({ ...binding, savePolicy: { mode: 'after' } });
+    const run = f.s.exportManager.startResourceExport.mock.calls[0]![0].run;
+    const directory = await mkdtemp(join(tmpdir(), 'weq-favorite-export-'));
+    try {
+      const result = await run({
+        directory,
+        signal: new AbortController().signal,
+        progress: vi.fn(),
+      });
+      expect(result).toMatchObject({
+        total: 1,
+        ok: 1,
+        failed: [],
+        fileName: 'favorite-emoji.zip',
+        contents: { total: 1, ok: 0, failed: [{ fileName: '1. 合成备注', error: '无法读取原图' }] },
+      });
+      expect(
+        readFavoriteEmojiBundle(await readFile(join(directory, result.fileName!)))[0],
+      ).toMatchObject({ description: '合成备注', image: null });
+      expect(f.s.emoji.addFavorite).not.toHaveBeenCalled();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  it('排队后 QQ PID 改变时不再导出旧账号资源', async () => {
+    const f = fixture();
+    await f.caller.favoriteExport({ ...binding, savePolicy: { mode: 'after' } });
+    f.record.qqPid++;
+    const run = f.s.exportManager.startResourceExport.mock.calls[0]![0].run;
+    await expect(
+      run({ directory: '/unused', signal: new AbortController().signal, progress: vi.fn() }),
+    ).rejects.toThrow('运行时');
+    expect(f.s.emoji.fetchOnlineFavoriteIds).not.toHaveBeenCalled();
+    expect(f.s.emoji.addFavorite).not.toHaveBeenCalled();
+  });
+});
 
 describe('加群方式读回', () => {
   it('复用现有在线资料查询，读取方式与问题但不伪造答案', async () => {

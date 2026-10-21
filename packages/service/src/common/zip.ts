@@ -27,6 +27,13 @@ export interface ZipWriteEntry {
   data: Buffer;
 }
 
+/** 用户导入包必须显式限制解压分配；不传时保留原有 CDN 包的宽容读取。 */
+export interface ZipReadLimits {
+  maxEntries: number;
+  maxEntryBytes: number;
+  maxTotalBytes: number;
+}
+
 const SIG_EOCD = 0x06054b50;
 const SIG_CENTRAL = 0x02014b50;
 const SIG_LOCAL = 0x04034b50;
@@ -167,35 +174,99 @@ export function buildZip(
  * 解出 zip 里的全部文件条目。目录条目会被跳过；遇到不支持的压缩方法或越界偏移
  * 时跳过该条目而不是整包失败。zip 本身不可解析（无 EOCD）时返回空数组。
  */
-export function readZipEntries(zip: Buffer): ZipEntry[] {
+export function readZipEntries(zip: Buffer, limits?: ZipReadLimits): ZipEntry[] {
+  if (
+    limits &&
+    [limits.maxEntries, limits.maxEntryBytes, limits.maxTotalBytes].some(
+      (value) => !Number.isSafeInteger(value) || value < 1,
+    )
+  )
+    throw new Error('ZIP 读取限制无效');
   const eocd = findEocd(zip);
-  if (eocd < 0) return [];
+  if (eocd < 0) {
+    if (limits) throw new Error('ZIP 目录缺失或已截断');
+    return [];
+  }
 
   const count = zip.readUInt16LE(eocd + 10);
   let offset = zip.readUInt32LE(eocd + 16);
+  const centralStart = offset;
+  const centralEnd = centralStart + zip.readUInt32LE(eocd + 12);
+  if (limits) {
+    if (count > limits.maxEntries) throw new Error('ZIP 条目数超限');
+    if (
+      zip.readUInt16LE(eocd + 4) !== 0 ||
+      zip.readUInt16LE(eocd + 6) !== 0 ||
+      zip.readUInt16LE(eocd + 8) !== count ||
+      eocd + EOCD_MIN_SIZE + zip.readUInt16LE(eocd + 20) !== zip.length ||
+      centralEnd !== eocd
+    )
+      throw new Error('ZIP 目录结构不受支持或已损坏');
+  }
   const entries: ZipEntry[] = [];
+  const names = new Set<string>();
+  let total = 0;
 
   for (let i = 0; i < count; i += 1) {
-    if (offset + 46 > zip.length || zip.readUInt32LE(offset) !== SIG_CENTRAL) break;
+    if (offset + 46 > zip.length || zip.readUInt32LE(offset) !== SIG_CENTRAL) {
+      if (limits) throw new Error('ZIP 中央目录已损坏');
+      break;
+    }
 
+    const flags = zip.readUInt16LE(offset + 8);
     const method = zip.readUInt16LE(offset + 10);
+    const crc = zip.readUInt32LE(offset + 16);
     const compressedSize = zip.readUInt32LE(offset + 20);
     const uncompressedSize = zip.readUInt32LE(offset + 24);
     const nameLen = zip.readUInt16LE(offset + 28);
     const extraLen = zip.readUInt16LE(offset + 30);
     const commentLen = zip.readUInt16LE(offset + 32);
     const localOffset = zip.readUInt32LE(offset + 42);
+    if (limits) {
+      if (offset + 46 + nameLen + extraLen + commentLen > centralEnd)
+        throw new Error('ZIP 中央目录已截断');
+      if (flags & 0x41) throw new Error('不支持加密 ZIP');
+      if (
+        zip.readUInt16LE(offset + 34) !== 0 ||
+        (method === METHOD_STORE && compressedSize !== uncompressedSize)
+      )
+        throw new Error('ZIP 条目结构不受支持或已损坏');
+      if (((zip.readUInt32LE(offset + 38) >>> 16) & 0xf000) === 0xa000)
+        throw new Error('不支持 ZIP 链接条目');
+      if (
+        uncompressedSize > limits.maxEntryBytes ||
+        total + uncompressedSize > limits.maxTotalBytes
+      )
+        throw new Error('ZIP 解压体积超限');
+    }
     const name = zip.toString('utf-8', offset + 46, offset + 46 + nameLen);
     offset += 46 + nameLen + extraLen + commentLen;
 
+    if (limits) {
+      const checked = zipEntryName(name.endsWith('/') ? name.slice(0, -1) : name);
+      if (names.has(checked)) throw new Error('ZIP 条目路径重复');
+      names.add(checked);
+    }
     if (name.endsWith('/')) continue;
-    if (localOffset + 30 > zip.length) continue;
+    if (localOffset + 30 > zip.length) {
+      if (limits) throw new Error('ZIP 本地头已截断');
+      continue;
+    }
 
     // 本地头的 name/extra 长度可能与中央目录不同（extra 常见差异），必须重读。
     const localNameLen = zip.readUInt16LE(localOffset + 26);
     const localExtraLen = zip.readUInt16LE(localOffset + 28);
     const dataStart = localOffset + 30 + localNameLen + localExtraLen;
     const dataEnd = dataStart + compressedSize;
+    if (
+      limits &&
+      (zip.readUInt32LE(localOffset) !== SIG_LOCAL ||
+        zip.readUInt16LE(localOffset + 8) !== method ||
+        zip.readUInt16LE(localOffset + 6) !== flags ||
+        dataEnd > centralStart ||
+        zip.toString('utf-8', localOffset + 30, localOffset + 30 + localNameLen) !== name)
+    )
+      throw new Error('ZIP 本地头与中央目录不一致');
     if (dataEnd > zip.length) continue;
 
     const raw = zip.subarray(dataStart, dataEnd);
@@ -204,17 +275,36 @@ export function readZipEntries(zip: Buffer): ZipEntry[] {
       data = Buffer.from(raw);
     } else if (method === METHOD_DEFLATE) {
       try {
-        data = inflateRawSync(raw);
+        data = inflateRawSync(
+          raw,
+          limits
+            ? {
+                maxOutputLength: Math.max(
+                  1,
+                  Math.min(limits.maxEntryBytes, limits.maxTotalBytes - total),
+                ),
+              }
+            : undefined,
+        );
       } catch {
+        if (limits) throw new Error('ZIP 条目无法在体积限制内解压');
         continue;
       }
     } else {
+      if (limits) throw new Error('ZIP 压缩方法不受支持');
       continue;
     }
-    if (data.length !== uncompressedSize) continue;
+    if (data.length !== uncompressedSize) {
+      if (limits) throw new Error('ZIP 条目体积不匹配');
+      continue;
+    }
+    if (limits && crc32(data) !== crc) throw new Error('ZIP 条目校验失败');
+    total += data.length;
 
     entries.push({ name: name.replace(/\\/g, '/'), data });
   }
+
+  if (limits && offset !== centralEnd) throw new Error('ZIP 中央目录条目数不匹配');
 
   return entries;
 }
