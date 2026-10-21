@@ -27,6 +27,7 @@ import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { GroupJoinAction } from '../src/renderer/src/components/qq-actions/GroupJoinAction';
 import { GroupActions, GroupTodos } from '../src/renderer/src/components/qq-actions/GroupActions';
 import { ProfileLikeAction } from '../src/renderer/src/components/qq-actions/ProfileLikeAction';
+import { PROFILE_LIKE_MAX_PER_REQUEST } from '@weq/protocol';
 import { GroupAnnouncementsDialog } from '../src/renderer/src/components/GroupAnnouncementsDialog';
 import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupInfoPanel';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
@@ -331,43 +332,58 @@ describe('QQ 主动操作的实际界面', () => {
     expect(f.host.textContent).toContain('待完成');
   });
 
-  it('资料卡点赞打开或关闭不写，+20 单次提交后只刷新目标统计', async () => {
+  it('资料卡点赞先选次数再提交，取消不写，提交后只刷新目标统计', async () => {
     const f = fixture(() =>
       h(ProfileLikeAction, { uid: 'u_friend', uin: '10002', name: '合成好友' }),
     );
     await act(async () => f.button('赞资料卡').click());
-    expect(f.button('点赞 +10')).not.toBeNull();
-    expect(f.button('点赞 +20')).not.toBeNull();
-    expect(f.host.querySelector('input')).toBeNull();
+    const count = f.host.querySelector<HTMLInputElement>('[aria-label="资料卡点赞次数"]')!;
+    expect(count.value).toBe('1');
+    expect(count.max).toBe(String(PROFILE_LIKE_MAX_PER_REQUEST));
     expect(state.mutate).not.toHaveBeenCalled();
+    value(f.host, '资料卡点赞次数', '3');
     captureManagement(f.host.querySelector<HTMLElement>('[role="dialog"]')!, 'profile-like');
     await act(async () => f.button('关闭资料卡点赞').click());
     expect(state.mutate).not.toHaveBeenCalled();
     await act(async () => f.button('赞资料卡').click());
-    await act(async () => f.button('点赞 +20').click());
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="资料卡点赞次数"]')!.value).toBe(
+      '1',
+    );
+    value(f.host, '资料卡点赞次数', '3');
+    await act(async () =>
+      f.host
+        .querySelector('form')!
+        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+    );
     expect(state.mutate).toHaveBeenCalledWith('profileLike', {
       expectedAccountUin: '10001',
       expectedAccountConfigId: 'source-a',
       uid: 'u_friend',
-      count: 20,
+      count: 3,
     });
     expect(state.refreshPeerStats).toHaveBeenCalledWith({ uin: '10002', uid: 'u_friend' });
   });
-  it('资料卡点赞离线时两个快捷按钮均不可写，换目标不沿用弹窗', async () => {
+  it('资料卡点赞拒绝非法次数，离线不可写，同号换来源或换目标不沿用草稿', async () => {
     let target = { uid: 'u_friend', uin: '10002', name: '合成好友' };
     const f = fixture(() => h(ProfileLikeAction, target));
     await act(async () => f.button('赞资料卡').click());
+    for (const count of ['', '0', '1.5', String(PROFILE_LIKE_MAX_PER_REQUEST + 1)]) {
+      value(f.host, '资料卡点赞次数', count);
+      expect(f.button('提交资料卡点赞').disabled).toBe(true);
+    }
+    value(f.host, '资料卡点赞次数', '4');
     state.available = false;
     f.update();
-    expect(f.button('点赞 +10').disabled).toBe(true);
-    expect(f.button('点赞 +20').disabled).toBe(true);
+    expect(f.button('提交资料卡点赞').disabled).toBe(true);
     state.available = true;
     state.configId = 'source-b';
     f.update();
-    expect(f.host.querySelector('[aria-label="资料卡点赞次数"]')).toBeNull();
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="资料卡点赞次数"]')!.value).toBe(
+      '1',
+    );
     target = { uid: 'u_other', uin: '10003', name: '其他人' };
     f.update();
-    expect(f.host.querySelector('.weq-profile-like-dialog')).toBeNull();
+    expect(f.host.querySelector('form')).toBeNull();
     expect(state.mutate).not.toHaveBeenCalled();
   });
   it('本人和没有真实 UID 的资料卡不显示点赞入口', () => {
