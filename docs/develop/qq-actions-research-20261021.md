@@ -88,3 +88,29 @@
 - `SetStatus.customExt` 已有 `faceId/text/faceType` 写字段，本机经典表情选择走既有 QSid；本地缓存的 `customStatus` 不能冒充远端读回。
 - 当前 `GetUserOnlineStatus` 只读取 `0xFE1_2` 属性 27372 的打包状态字，只能给出基础／扩展状态，不能从扩展状态 2000 还原图标、文字或表情类型。
 - 未取得完整远端自定义状态结构和跨端标识对照样本，保留现有经典表情入口，不将 Unicode、表情索引和 QSid 混用。整项仍未完成。
+
+## macOS 安装与启动
+
+### 已定位与修复
+
+- 对本机既有 `/Applications/weQ.app` 做只读检查，`codesign --verify --deep --strict` 报 `code has no resources but signature indicates they must be present`；原签名为 `Identifier=Electron` 的 linker ad-hoc，`Info.plist` 未绑定、资源未封装。本轮未改写该安装原件。
+- 仓库锁定 electron-builder 25.1.8，无证书且关闭自动发现时不会自动补最终应用签名。新增 `mac.sign` 构建钩子，复用已在构建依赖树中的 `@electron/osx-sign@1.3.1`，仅将其显式列为构建依赖；没有新增外部运行模块。
+- 无证书时选择完整 ad-hoc 签名，不请求证书、描述文件或时间戳服务；保留构建工具逐文件的 hardened runtime / entitlements 设置。已有真实证书身份不降级。签名后严格校验，失败中止打包，不删除隔离属性、不修改系统安全策略。
+- 实际签名发现 `Contents/LICENSE` 也破坏封装。macOS 的 native 与许可证一起迁入 `Contents/Resources`，既有加载器已支持该路径，native 向上查找 LICENSE 的关系保留。Windows/Linux 仍在原安装根目录放 LICENSE 与 native。
+- [安装与首次打开说明](../guide/macos-install.md)及 Release 文案使用“隐私与安全性 → 仍要打开”的单应用图形化流程，区分普通未验证提醒与损坏／恶意软件警告，不要求终端命令，不改变 QQ 登录或 SIP。
+
+### 实际验证
+
+- 签名选项的 3 项离线回归与定向 Biome 通过，YAML 解析核对了 macOS 的新资源位置及 Windows/Linux 的原位置。
+- 已执行 `pnpm --filter @weq/desktop build:unpack`：主进程／渲染编译通过，直接打包因开发清单含 workspace 依赖而报 `must be under appDir`。这是现有本地命令与 CI 清单流程的差异，不能把这次命令写成通过。
+- 随后按 CI 现有 release manifest 流程执行 arm64 unpack 打包，成功调用签名钩子并完成严格校验；临时清单在成功和失败后均恢复原样。未推送或发布。
+- 新产物为 `Identifier=app.weq.desktop`、`Signature=adhoc`，`Info.plist` 已绑定、`Sealed Resources` 存在；启动前后严格签名校验均通过。native 位于 `Resources/native/darwin/arm64`，正常初始化返回 0。
+- Mach-O 重新签名会改变 native 整文件哈希；不将签名后的字节冒称与下载原件相同。许可证内容与源码一致，native 原件未改写，签名后的模块按完整签名与正常初始化分别验证。
+- 使用隔离 HOME、用户配置与临时 socket 启动真实打包应用，禁止本次自启注册；进入 Bootstrap 首页，无页面异常。本次 GUI 和独立 daemon 均正常关闭，未操作用户的已安装应用与正常 daemon。
+- 本地打包仍报告缺少 `adm-zip`、`global-agent`、`@huggingface/tokenizers` 的 extraResources 来源；本轮没有将本地推理等未覆盖的功能冒称验证通过。
+
+### 尚缺验收与边界
+
+- ad-hoc 不是 Developer ID，不是 Apple 公证，也不消除首次系统提醒。免费方案仍需要用户对可信来源手动放行，不能承诺无需确认的首次双击体验。
+- 尚未对浏览器下载后的隔离标记、实际 DMG 拖入安装、“仍要打开”流程和 Intel Mac 完成端到端验收；自动更新也未验证。因此整项仍不勾选。
+- 依据：[Apple 单应用放行](https://support.apple.com/zh-cn/guide/mac-help/mh40617/mac)、[警告分类](https://support.apple.com/zh-cn/102445)、[Electron 签名与公证说明](https://www.electronjs.org/docs/latest/tutorial/code-signing)。构建实现按本仓库实际安装的 v25 代码核对，不把新版 `mac.identity: "-"` 配方直接套入旧工具链。

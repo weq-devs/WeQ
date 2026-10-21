@@ -23,9 +23,6 @@ files:
   # 所以整包从 asar 里剔掉。
   - "!node_modules/onnxruntime-node/**"
 extraResources:
-  - from: ../../LICENSE
-    to: ../LICENSE
-
   # Shared static assets (brand/logo, …). Copied whole so the main process can
   # read them at runtime via process.resourcesPath/resources. QQ emoji are NOT
   # bundled — they stream from the account's QQ NT dir at runtime.
@@ -100,6 +97,8 @@ win:
   # `${os}` macro expands to electron-builder's key ("win"/"linux"), not to
   # node's process.platform ("win32"/"linux").
   extraFiles:
+    - from: ../../LICENSE
+      to: LICENSE
     - from: ../../native/win32/x64
       to: native/win32/x64
   # 本地 OCR 的推理引擎：只带本次构建的架构那一份（见顶部 extraResources 的说明）。
@@ -163,6 +162,8 @@ linux:
         - lib/**
         - bin/napi-v6/linux/${arch}/**
   extraFiles:
+    - from: ../../LICENSE
+      to: LICENSE
     - from: ../../native/linux/${arch}
       to: native/linux/${arch}
   target:
@@ -175,17 +176,21 @@ linux:
 # electron-updater 的 MacUpdater 只认 zip，仅 dmg 会报 "ZIP file not
 # provided"）。架构同样交给命令行（macos-x64 → --x64，macos-arm64 → --arm64；
 # 理由与 linux 一节相同：target.arch 会覆盖 CLI，另一架构的包会带上构建机的
-# native 模块）。native/ 二进制与 win/linux 一样在打包时
-# 拷到安装根目录的 native/<platform>/<arch>，与加载器按 process.arch 解析的
-# 约定一致（darwin/x64 与 darwin/arm64，见 packages/native/src/loader.ts）。
+# native 模块）。macOS 的 native/ 与 LICENSE 放在 Contents/Resources 下，
+# 不把数据文件留在 Contents 根部破坏签名封装；加载器已有 resources/native 回退。
 # macOS 没有注入型 dll/so（SIP），darwin/ 下只有 nt_helper.node——快登 /
 # 扫码走纯协议，不再需要任何注入或沙箱容器文件。
-# 未配置 CSC_LINK / CSC_KEY_PASSWORD secrets 时产物不签名（Gatekeeper 会拦，
-# 首次需右键 → 打开）；配置后 electron-builder 会自动签名，可再开 notarize。
+# 未配置证书时补完整的 ad-hoc 签名并验证资源封装；它不是 Developer ID 或公证，
+# 首次仍需按「隐私与安全性 → 仍要打开」放行。配置证书时保留真实签名身份。
 mac:
   icon: ../../resources/brand/logo.png
+  sign: ../../scripts/sign-macos.mjs
   # 打包字体（见顶部 extraResources 的说明）：macOS 的候选全是 .ttc，satori 读不了。
   extraResources:
+    - from: ../../LICENSE
+      to: LICENSE
+    - from: ../../native/darwin/${arch}
+      to: native/darwin/${arch}
     - from: ../../resources/assistant/fonts
       to: resources/assistant/fonts
     # 本地 OCR 的推理引擎：只带 darwin/${arch} 那份（见顶部 extraResources 的说明）。
@@ -200,9 +205,6 @@ mac:
         - dist/**
         - lib/**
         - bin/napi-v6/darwin/${arch}/**
-  extraFiles:
-    - from: ../../native/darwin/${arch}
-      to: native/darwin/${arch}
   target:
     - target: dmg
     - target: zip
