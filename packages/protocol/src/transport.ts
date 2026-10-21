@@ -19,7 +19,7 @@
 
 import type { NtHelperBinding } from '@weq/native';
 import { signRedBagRequest as signRedBagRequestTs } from './redbag/sign';
-import os from "node:os";
+import os from 'node:os';
 
 /** The native methods this layer uses. */
 export type PacketNative = Pick<NtHelperBinding, 'sendOidbPacket' | 'sendPacket'>;
