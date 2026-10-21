@@ -5015,6 +5015,24 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   box-shadow: none !important;
 }
 
+/* 群成员列表的滑块同样由 MainView 的 OverlayScrollbar 画（见 .weq-group-members-scrollbar），
+ * 这里必须把原生滚动条藏掉。之前的漏配会导致滚动时并排出现两条滑块（原生那条在 Linux /
+ * Electron 的 overlay 模式下停手就淡出，看起来像「停下的就消失」）。 */
+.weq-readonly-chat .group-info-member-list {
+  scrollbar-color: transparent transparent !important;
+  scrollbar-width: none !important;
+}
+
+.weq-readonly-chat .group-info-member-list::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.weq-readonly-chat .group-info-member-list::-webkit-scrollbar-thumb {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
 /* Rail footer: settings button */
 .weq-rail-settings {
   display: grid;

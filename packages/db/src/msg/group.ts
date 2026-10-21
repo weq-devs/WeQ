@@ -85,6 +85,23 @@ const GROUP_ROWID_SEEK_SQL = `SELECT MIN(rowid) FROM group_msg_table
 const ORDER_NEWEST_FIRST = `ORDER BY "40003" DESC, "40050" DESC, "40001" DESC`;
 const ORDER_OLDEST_FIRST = `ORDER BY "40003" ASC, "40050" ASC, "40001" ASC`;
 
+/**
+ * 「这一行的 40020 是不是一个真实发送者」。
+ *
+ * QQ 删除 / 撤回留下的占位行会把 40020 写成**群号本身**（40033 = 0、40800 为空；
+ * 实测 2719 行、47 个群全中），群号又恰好是纯数字，跟 QQ 号长得一样，单看
+ * `!= ''` 分不出来。真实 uid 一律是 `u_` 前缀、非数字，所以按「非空且不是数字」
+ * 判定即可把占位行和「只有 QQ 号的老行」都排除在发送者统计之外。
+ *
+ * 需要 SQL 片段时用 {@link SENDER_UID_SQL}，JS 侧用 {@link isSenderUid}。
+ */
+const SENDER_UID_SQL = `("40020" != '' AND "40020" NOT GLOB '[0-9]*')`;
+
+/** 与 {@link SENDER_UID_SQL} 同口径的 JS 侧判定。 */
+export function isSenderUid(uid: string | null | undefined): boolean {
+  return typeof uid === 'string' && uid !== '' && !/^\d/.test(uid);
+}
+
 export interface GroupMsgDbOptions {
   /** Absolute path to nt_msg.db. */
   dbPath: string;
@@ -573,11 +590,16 @@ export class GroupMsgDb {
     return times;
   }
 
-  /** 包括退群与无名册发言人；UID 缺失时仍保留原始 QQ 号。 */
+  /**
+   * 包括退群与无名册发言人；UID 缺失时仍保留原始 QQ 号。
+   *
+   * 只认「像 uid」的 40020：QQ 删除/撤回留下的占位行把 40020 写成群号
+   * （纯数字），不能当成发言人混进名单。
+   */
   async listSenderIdentities(groupCode: string): Promise<Array<{ uid: string; uin: string }>> {
     const rows = await this.qq.query(
       `SELECT COALESCE("40020",''),COALESCE("40033",0) FROM group_msg_table
-       WHERE "40027" = ? AND (COALESCE("40020",'') != '' OR "40033" > 0)
+       WHERE "40027" = ? AND (${SENDER_UID_SQL} OR "40033" > 0)
        GROUP BY COALESCE("40020",''),COALESCE("40033",0)`,
       [groupCode],
     );
@@ -1090,7 +1112,8 @@ export class GroupMsgDb {
    *
    * 与小团体分析配套：入群时间只说明「谁跟谁一起进来」，要判断这个团体是不是
    * 「活人团」还得看发言量；走 SQL 聚合比 {@link GroupMsgDb.listBatch} 逐条读
-   * 40800 再在 JS 里数便宜一个量级。空 uid（本地系统消息 / 灰条等）不计入。
+   * 40800 再在 JS 里数便宜一个量级。空 uid（本地系统消息 / 灰条等）与占位行
+   * （40020 写成群号）不计入。
    */
   async countBySenders(
     targetGroupCode: string,
@@ -1099,7 +1122,7 @@ export class GroupMsgDb {
     const query = browseConditions('"40027"=?', targetGroupCode, filter);
     const rows = await this.qq.query(
       `SELECT "40020", COUNT(*) FROM group_msg_table
-       WHERE ${query.clause} AND "40020" != ''
+       WHERE ${query.clause} AND ${SENDER_UID_SQL}
        GROUP BY "40020"`,
       query.params,
     );
@@ -1118,7 +1141,8 @@ export class GroupMsgDb {
    *
    * 会话切分 + 拉力计算（小团体分析）只需要这两个字段，走这条比
    * {@link listBatch} 便宜一个量级；命中 `(40027,40003)` 复合索引，和小团体分析
-   * 那些逐条读正文的接口不是一个开销级别。发送者为空的行（系统消息 / 灰条）跳过。
+   * 那些逐条读正文的接口不是一个开销级别。发送者为空的行（系统消息 / 灰条）与
+   * 占位行（40020 写成群号）跳过。
    */
   async listSenderTimeline(
     targetGroupCode: string,
@@ -1127,7 +1151,7 @@ export class GroupMsgDb {
   ): Promise<Array<{ uid: string; sendTime: number; seq: bigint }>> {
     const rows = await this.qq.query(
       `SELECT "40020","40050","40003" FROM group_msg_table
-        WHERE "40027" = ? AND "40003" > ? AND "40020" != ''
+        WHERE "40027" = ? AND "40003" > ? AND ${SENDER_UID_SQL}
         ${ORDER_OLDEST_FIRST}
         LIMIT ?`,
       [targetGroupCode, afterSeq, BigInt(limit)],
@@ -1147,7 +1171,7 @@ export class GroupMsgDb {
   ) {
     const query = browseConditions('"40027"=?', conv, filter, cursor, 'newer');
     const rows = await this.qq.query(
-      `SELECT rowid,"40020",COALESCE("40050",0) FROM group_msg_table WHERE ${query.clause} AND "40020" != '' ORDER BY COALESCE("40050",0) ASC,rowid ASC LIMIT ?`,
+      `SELECT rowid,"40020",COALESCE("40050",0) FROM group_msg_table WHERE ${query.clause} AND ${SENDER_UID_SQL} ORDER BY COALESCE("40050",0) ASC,rowid ASC LIMIT ?`,
       [...query.params, BigInt(limit)],
     );
     return rows.map((row) => ({
