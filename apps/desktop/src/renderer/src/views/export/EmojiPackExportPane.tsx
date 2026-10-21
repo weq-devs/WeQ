@@ -11,13 +11,21 @@
 
 import { useMemo, useState, type ReactElement } from 'react';
 import { Check, Download, Heart, Inbox, Loader2, Sparkles } from 'lucide-react';
-import type { EmojiExportScope, EmojiPreviewAddress, EmojiScopeSummary } from '@weq/service';
+import type {
+  EmojiExportScope,
+  EmojiPackFormat,
+  EmojiPreviewAddress,
+  EmojiScopeSummary,
+} from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
 import { ExportSaveActions } from '../../components/ExportSaveActions';
+import '../../styles/emoji-pack-formats.css';
+
+type EmojiPackExportFormat = EmojiPackFormat | 'favorite-zip';
 
 /** cemoji 预览地址。 */
 function cemojiUrl(addr: EmojiPreviewAddress): string {
@@ -70,6 +78,8 @@ export function EmojiPackExportPane({
   const summary = trpc.account.emojiPack.summary.useQuery(undefined, { staleTime: 20_000 });
   const [selected, setSelected] = useState<Set<EmojiExportScope>>(new Set(['own', 'received']));
   const [submitting, setSubmitting] = useState(false);
+  const [format, setFormat] = useState<EmojiPackExportFormat>('directory');
+  const favoriteBackup = format === 'favorite-zip';
 
   const data = summary.data as { own: EmojiScopeSummary; received: EmojiScopeSummary } | undefined;
 
@@ -88,16 +98,30 @@ export function EmojiPackExportPane({
   }, [data, selected]);
 
   async function start(intent?: import('@weq/service').ExportSavePolicy): Promise<void> {
-    if (selected.size === 0 || disabled || submitting) return;
-    const request = { ...binding, scopes: [...selected] };
+    if ((!favoriteBackup && selected.size === 0) || disabled || submitting) return;
+    const request = {
+      ...binding,
+      scopes: [...selected],
+      format: format === 'favorite-zip' ? ('zip' as const) : format,
+    };
     setSubmitting(true);
     try {
-      const savePolicy = await prepareSave?.(intent, { kind: 'bundle', name: '自定义表情包' });
-      if (savePolicy === null || !isCurrent()) return;
-      await client.account.emojiPack.startExport.mutate({
-        ...request,
-        savePolicy,
+      const savePolicy = await prepareSave?.(intent, {
+        kind: format !== 'directory' ? 'file' : 'bundle',
+        name: favoriteBackup ? '收藏表情' : '自定义表情包',
+        ...(format !== 'directory' ? { format: 'zip' } : {}),
       });
+      if (savePolicy === null || !isCurrent()) return;
+      if (favoriteBackup) {
+        if (!binding) throw new Error('请先打开要导出的 QQ 账号');
+        await client.account.qqActions.favoriteExport.mutate({
+          expectedAccountUin: request.expectedAccountUin!,
+          expectedAccountConfigId: request.expectedAccountConfigId!,
+          savePolicy: savePolicy ?? { mode: 'after' },
+        });
+      } else {
+        await client.account.emojiPack.startExport.mutate({ ...request, savePolicy });
+      }
       if (!isCurrent()) return;
       onStarted();
       dialog.success('已开始导出', '已加入任务队列。');
@@ -110,39 +134,68 @@ export function EmojiPackExportPane({
 
   return (
     <div className="weq-epk" {...selection.rootProps}>
-      <div className="weq-epk-head">
-        <Sparkles size={15} />
-        <span>
-          选择要导出的表情来源；自己的表情会优先用原图，缺失时自动下载补全，再退缩略图兜底。
-        </span>
-      </div>
+      {!favoriteBackup && (
+        <div className="weq-epk-head">
+          <Sparkles size={15} />
+          <span>
+            选择要导出的表情来源；自己的表情会优先用原图，缺失时自动下载补全，再退缩略图兜底。
+          </span>
+        </div>
+      )}
 
       <div className="weq-epk-scroll">
-        <div className="weq-epk-grid">
-          {SCOPES.map((scope) => (
-            <ScopeCard
-              key={scope}
-              scope={scope}
-              summary={data?.[scope]}
-              loading={summary.isLoading}
-              checked={selected.has(scope)}
-              selectionProps={selection.itemProps(scope)}
-            />
-          ))}
-        </div>
+        {favoriteBackup ? (
+          <div className="weq-epk-favorite-source" role="group" aria-label="收藏备份来源">
+            <Heart size={20} />
+            <strong>当前账号的在线收藏</strong>
+          </div>
+        ) : (
+          <div className="weq-epk-grid">
+            {SCOPES.map((scope) => (
+              <ScopeCard
+                key={scope}
+                scope={scope}
+                summary={data?.[scope]}
+                loading={summary.isLoading}
+                checked={selected.has(scope)}
+                selectionProps={selection.itemProps(scope)}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="weq-epk-actions">
+        <label className="weq-epk-format">
+          <span>格式</span>
+          <select
+            aria-label="表情包导出格式"
+            value={format}
+            disabled={disabled || submitting}
+            onChange={(event) => setFormat(event.target.value as EmojiPackExportFormat)}
+          >
+            <option value="directory">图片目录</option>
+            <option value="zip">ZIP 图片包</option>
+            <option value="favorite-zip">ZIP 收藏备份（含元数据）</option>
+          </select>
+        </label>
         <span className="weq-epk-actions-count">
-          {selected.size === 0
-            ? '请至少选择一种来源'
-            : `已选 ${selected.size} 种来源 · 约 ${selectedTotal.toLocaleString('en-US')} 张`}
+          {favoriteBackup
+            ? '收藏原图 · 备注 · 顺序'
+            : selected.size === 0
+              ? '请至少选择一种来源'
+              : `已选 ${selected.size} 种来源 · 约 ${selectedTotal.toLocaleString('en-US')} 张`}
         </span>
         <div className="weq-save-action-group">
           <button
             type="button"
             className="weq-epk-start"
-            disabled={disabled || selected.size === 0 || submitting || summary.isLoading}
+            disabled={
+              disabled ||
+              (!favoriteBackup && (selected.size === 0 || summary.isLoading)) ||
+              (favoriteBackup && !binding) ||
+              submitting
+            }
             onClick={() => void start()}
           >
             {submitting ? <Loader2 size={15} className="is-spin" /> : <Download size={15} />}
@@ -150,7 +203,12 @@ export function EmojiPackExportPane({
           </button>
           {prepareSave && (
             <ExportSaveActions
-              disabled={disabled || selected.size === 0 || submitting || summary.isLoading}
+              disabled={
+                disabled ||
+                (!favoriteBackup && (selected.size === 0 || summary.isLoading)) ||
+                (favoriteBackup && !binding) ||
+                submitting
+              }
               onSelect={(intent) => void start(intent)}
             />
           )}

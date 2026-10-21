@@ -66,6 +66,22 @@ function requests() {
   ];
 }
 describe('导出创建请求的数据源绑定', () => {
+  it('表情导出格式透传给任务，旧请求默认目录，未知格式在创建前拒绝', async () => {
+    const api = emojiPackRouter.createCaller({});
+    await api.startExport({ ...binding, scopes: ['own'] });
+    expect(state.emoji).toHaveBeenLastCalledWith(['own'], undefined, 'directory');
+    await api.startExport({
+      ...binding,
+      scopes: ['received'],
+      format: 'zip',
+      savePolicy: { mode: 'after' },
+    });
+    expect(state.emoji).toHaveBeenLastCalledWith(['received'], { mode: 'after' }, 'zip');
+    await expect(
+      api.startExport({ ...binding, scopes: ['own'], format: 'tar' as 'zip' }),
+    ).rejects.toThrow();
+    expect(state.emoji).toHaveBeenCalledTimes(2);
+  });
   it('相同来源可创建各类任务，同号换配置在读取或建任务前拒绝', async () => {
     state.configId = 'source-b';
     for (const request of requests()) await expect(request()).rejects.toThrow(/数据源/);

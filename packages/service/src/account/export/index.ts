@@ -189,6 +189,7 @@ export {
   type MarketPackDownloadItem,
   type EmojiPackDeps,
   type EmojiPackScope,
+  type EmojiPackFormat,
 } from './task_manager';
 export {
   backfillConversationMessages,

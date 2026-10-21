@@ -96,6 +96,7 @@ export const emojiPackRouter = router({
       z.object({
         ...exportAccountBindingInput.shape,
         scopes: z.array(scopeEnum).min(1),
+        format: z.enum(['directory', 'zip']).default('directory'),
         savePolicy: exportSavePolicyInput.optional(),
       }),
     )
@@ -103,6 +104,7 @@ export const emojiPackRouter = router({
       return requireServices(input).exportManager.startEmojiPackExport(
         input.scopes,
         input.savePolicy,
+        input.format,
       );
     }),
 });

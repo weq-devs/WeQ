@@ -7,12 +7,21 @@
  *   - 产物落在 bundle 下的「我的表情 / 收到的表情」两个子目录。
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ExportTaskManager } from '../src/account/export/task_manager';
 import type { EmojiExportItem } from '../src/account/export/emoji_export';
+import { readZipEntries } from '../src/common/zip';
 
 const GIF = Buffer.from('4749463839610100010000003b', 'hex');
 const PNG = Buffer.from(
@@ -55,6 +64,62 @@ function waitDone(mgr: ExportTaskManager, taskId: string): Promise<void> {
 }
 
 describe('ExportTaskManager · 导出表情包', () => {
+  it('ZIP 格式按单文件保存，保留两个来源目录与失败计数，不遗留图片目录副本', async () => {
+    const root = tmp();
+    const manager = new ExportTaskManager({} as never, join(root, 'cache'), {
+      emojipack: {
+        listOwnItems: async () => [
+          { key: 'aaaa11', oriPath: put(root, 'own/a.png', PNG), thumbPath: null, remoteUrl: null },
+          { key: 'cccc33', oriPath: null, thumbPath: null, remoteUrl: null },
+        ],
+        listReceivedItems: async () => [
+          {
+            key: 'bbbb22',
+            oriPath: put(root, 'recv/b.gif', GIF),
+            thumbPath: null,
+            remoteUrl: null,
+          },
+        ],
+        downloadImage: async () => false,
+      },
+    });
+    const id = await manager.startEmojiPackExport(['own', 'received'], { mode: 'after' }, 'zip');
+    await waitDone(manager, id);
+    const task = manager.getTask(id)!;
+    expect(task.status).toBe('completed');
+    expect(task.filePath).toMatch(/\.zip$/);
+    expect(task.bundleDir).toBeUndefined();
+    expect(task.emojipack?.format).toBe('zip');
+    const files = readZipEntries(readFileSync(task.filePath!));
+    expect(files.map((file) => file.name)).toEqual(['我的表情/a.png', '收到的表情/b.gif']);
+    expect(files[0]!.data).toEqual(PNG);
+    expect(files[1]!.data).toEqual(GIF);
+    expect(task.stages.find((stage) => stage.key === 'emojiwrite')?.failed).toBe(1);
+    expect(task.stages.find((stage) => stage.key === 'emojizip')?.status).toBe('completed');
+    expect(existsSync(join(root, 'cache', `bundle-${id}`))).toBe(false);
+  });
+
+  it('ZIP 可预先选择文件保存位置，不再被当作必须保存目录', async () => {
+    const root = tmp();
+    const manager = new ExportTaskManager({} as never, join(root, 'cache'), {
+      emojipack: {
+        listOwnItems: async () => [
+          { key: 'aaaa11', oriPath: put(root, 'a.png', PNG), thumbPath: null, remoteUrl: null },
+        ],
+        listReceivedItems: async () => [],
+        downloadImage: async () => false,
+      },
+    });
+    const target = join(root, 'saved.zip');
+    const id = await manager.startEmojiPackExport(
+      ['own'],
+      { mode: 'before', filePath: target },
+      'zip',
+    );
+    await waitDone(manager, id);
+    await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
+    expect(readZipEntries(readFileSync(target))).toHaveLength(1);
+  });
   it.each(['market', 'emoji'] as const)(
     '同一毫秒创建 %s 任务仍各有身份，不相互覆盖',
     async (kind) => {

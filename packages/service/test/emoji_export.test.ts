@@ -7,7 +7,7 @@
  * 以及 hash 归并（`_<size>` 后缀）、下载后按真实文件头定名、无重复文件名。
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -105,6 +105,30 @@ describe('collectReceivedItems', () => {
 });
 
 describe('resolveOwnOriginals + writeEmojiBundle', () => {
+  it('QQ 缓存名为 jpg 的 GIF 和 PNG 按真实内容导出，保留全部原始字节', async () => {
+    const root = tmp();
+    const result = await writeEmojiBundle(
+      'own',
+      [
+        {
+          key: 'aaa111',
+          oriPath: put(root, 'ori/aaa111.jpg', GIF),
+          thumbPath: null,
+          remoteUrl: null,
+        },
+        {
+          key: 'bbb222',
+          oriPath: put(root, 'ori/bbb222.jpg', PNG),
+          thumbPath: null,
+          remoteUrl: null,
+        },
+      ],
+      join(root, 'out'),
+    );
+    expect(readFileSync(join(result.dir, 'aaa111.gif'))).toEqual(GIF);
+    expect(readFileSync(join(result.dir, 'bbb222.png'))).toEqual(PNG);
+    expect(existsSync(join(result.dir, 'aaa111.jpg'))).toBe(false);
+  });
   it('downloads missing originals, sniffs the real ext, and falls back to thumb', async () => {
     const root = tmp();
     const dl = join(root, 'dl');

@@ -18,7 +18,7 @@
  * 进度条 + 滚动日志；单张失败不打断整批。
  */
 
-import { copyFile, mkdir, readFile, readdir, rename, stat } from 'node:fs/promises';
+import { copyFile, mkdir, open, readFile, readdir, rename, stat } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import type { MediaFailure, StageLog } from './media_export';
@@ -141,12 +141,23 @@ export function sniffImageExt(bytes: Buffer): string | null {
 }
 
 /** 输出文件名：优先展示名，退到 hash；保留真实扩展名。 */
-function fileNameFor(item: EmojiExportItem): string {
+async function fileNameFor(item: EmojiExportItem): Promise<string> {
   const src = item.oriPath ?? item.thumbPath ?? '';
   const base = src ? basename(src) : '';
   const stem = base ? base.replace(extname(base), '') : item.key.slice(0, 32);
   const clean = sanitizeSegment(stem, item.key.slice(0, 32), { maxLen: 60 });
-  return `${clean}${imageExt(src)}`;
+  let extension = imageExt(src);
+  if (src) {
+    const input = await open(src, 'r');
+    try {
+      const head = Buffer.alloc(16);
+      const { bytesRead } = await input.read(head, 0, head.length, 0);
+      extension = sniffImageExt(head.subarray(0, bytesRead)) ?? extension;
+    } finally {
+      await input.close();
+    }
+  }
+  return `${clean}${extension}`;
 }
 
 /** 文件是否真的存在（且是普通文件）。 */
@@ -387,8 +398,8 @@ export async function writeEmojiBundle(
       const idx = next++;
       const item = items[idx];
       if (!item) return;
-      const target = join(dir, uniqueName(fileNameFor(item), used));
       try {
+        const target = join(dir, uniqueName(await fileNameFor(item), used));
         if (item.oriPath) {
           await copyFile(item.oriPath, target);
           result.copiedOri += 1;
@@ -406,8 +417,8 @@ export async function writeEmojiBundle(
       } catch (e) {
         result.skipped += 1;
         const msg = e instanceof Error ? e.message : String(e);
-        fail(basename(target), msg);
-        hooks.onLog?.(`写盘失败 ${basename(target)}：${msg}`, 'error');
+        fail(item.key, msg);
+        hooks.onLog?.(`写盘失败 ${item.key}：${msg}`, 'error');
       } finally {
         done += 1;
         hooks.onWrite?.(done, items.length);

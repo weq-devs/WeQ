@@ -906,6 +906,7 @@ export type {
   MarketPackDownloadItem,
   EmojiPackDeps,
   EmojiPackScope,
+  EmojiPackFormat,
   MediaDeps,
   MediaExportOptions,
   DecodeSilk,

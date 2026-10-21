@@ -71,6 +71,7 @@ import {
   type ExportOutputShape,
 } from './output_shape';
 import { writeFileAtomicSync } from '../../common/atomic_write';
+import { writeZipFile } from '../../common/zip';
 import {
   collectFriends,
   collectGroupMembers,
@@ -122,6 +123,7 @@ import { rewriteOcrTexts } from './ocr_rewrite';
 import { exportSysFaces, exportMarketFaces } from './sysface_export';
 import {
   resolveOwnOriginals,
+  scopeDirName,
   scopeLabel,
   writeEmojiBundle,
   type EmojiExportItem,
@@ -199,7 +201,8 @@ export type StageKey =
   /** 导出表情包：下载补全缺失的原图。 */
   | 'emojidownload'
   /** 导出表情包：写盘 / 缩略图补全。 */
-  | 'emojiwrite';
+  | 'emojiwrite'
+  | 'emojizip';
 
 /** 任务日志级别。 */
 export type TaskLogLevel = 'info' | 'warn' | 'error';
@@ -240,6 +243,7 @@ export interface MarketPackDownloadItem {
 
 /** 导出的表情包来源（与 service 层 EmojiExportScope 对齐）。 */
 export type EmojiPackScope = 'own' | 'received';
+export type EmojiPackFormat = 'directory' | 'zip';
 
 /** 「导出表情包」的导出能力（由 app 注入，桥接 EmojiService / 平台目录）。 */
 export interface EmojiPackDeps {
@@ -383,7 +387,7 @@ export interface ExportTask {
   marketpack?: { packs: MarketPackDownloadItem[] };
   /** 导出表情包（`conv` 占位为 'emojipack'；走独立的表情导出流水线）。
    *  产物 = bundle 下的「我的表情 / 收到的表情」子目录。 */
-  emojipack?: { scopes: EmojiPackScope[] };
+  emojipack?: { scopes: EmojiPackScope[]; format?: EmojiPackFormat };
   /** Media export options, when 导出媒体 is on. */
   media?: MediaExportOptions;
   /** Inclusive send-time window for this export, if narrowed from 全部时间. */
@@ -660,16 +664,18 @@ export class ExportTaskManager extends EventEmitter {
         : 'messages';
     const output =
       task.resource?.output ??
-      this.getOutputShape({
-        kind,
-        name: task.name,
-        format: task.format,
-        formats: task.formats,
-        contactScope: task.contacts?.scope,
-        exportAvatar: task.exportAvatar,
-        media: task.media,
-        dress: task.dress,
-      });
+      (task.emojipack?.format === 'zip'
+        ? { kind: 'file' as const, name: task.name, extension: 'zip' }
+        : this.getOutputShape({
+            kind,
+            name: task.name,
+            format: task.format,
+            formats: task.formats,
+            contactScope: task.contacts?.scope,
+            exportAvatar: task.exportAvatar,
+            media: task.media,
+            dress: task.dress,
+          }));
     if (resolved.filePath) {
       if (output.kind === 'directory') throw new Error('本次结果包含多个文件，请选择保存文件夹。');
     }
@@ -1435,7 +1441,9 @@ export class ExportTaskManager extends EventEmitter {
   async startEmojiPackExport(
     scopes: EmojiPackScope[],
     savePolicy?: ExportSavePolicy,
+    format: EmojiPackFormat = 'directory',
   ): Promise<string> {
+    if (!['directory', 'zip'].includes(format)) throw new Error('不支持的表情包导出格式');
     const wanted = scopes.length > 0 ? scopes : (['own', 'received'] as EmojiPackScope[]);
     const id = `emojipack-${Date.now()}-${randomUUID()}`;
     const name = wanted.map((s) => scopeLabel(s)).join(' + ');
@@ -1452,6 +1460,8 @@ export class ExportTaskManager extends EventEmitter {
       });
     }
     stages.push({ key: 'emojiwrite', label: '导出图片', status: 'pending', current: 0, total: 0 });
+    if (format === 'zip')
+      stages.push({ key: 'emojizip', label: '打包 ZIP', status: 'pending', current: 0, total: 0 });
     const task: ExportTask = {
       id,
       kind: 'c2c',
@@ -1462,7 +1472,7 @@ export class ExportTaskManager extends EventEmitter {
       progress: 0,
       current: 0,
       total: 0,
-      emojipack: { scopes: wanted },
+      emojipack: { scopes: wanted, format },
       stages,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -3923,7 +3933,7 @@ export class ExportTaskManager extends EventEmitter {
         { status: 'completed', current: total, total, note: `共 ${total} 张` },
         { persist: true },
       );
-      if (total === 0) {
+      if (total === 0 && task.emojipack?.format !== 'zip') {
         this.log(id, 'task', '没有找到任何表情，任务结束', 'warn');
         task.status = 'completed';
         task.progress = 100;
@@ -4067,7 +4077,52 @@ export class ExportTaskManager extends EventEmitter {
       task.status = 'completed';
       task.progress = 100;
     } catch (e) {
-      task.status = 'failed';
+      if (task.emojipack?.format === 'zip') {
+        const entries = scopes.flatMap((scope) => {
+          const folder = scopeDirName(scope);
+          const directory = join(outDir, folder);
+          if (!existsSync(directory)) return [];
+          return readdirSync(directory, { withFileTypes: true })
+            .filter((entry) => entry.isFile())
+            .sort((a, b) => a.name.localeCompare(b.name, 'en'))
+            .map((entry) => ({
+              name: `${folder}/${entry.name}`,
+              path: join(directory, entry.name),
+            }));
+        });
+        this.touchStage(
+          task,
+          'emojizip',
+          {
+            status: 'running',
+            current: 0,
+            total: entries.length,
+            note: '正在打包图片…',
+          },
+          { persist: true },
+        );
+        const archive = join(this.cacheDir, `${id}.zip`);
+        await writeZipFile(archive, entries, {
+          signal: abort.signal,
+          progress: (done, count) =>
+            this.touchStage(task, 'emojizip', {
+              current: done,
+              total: count,
+              note: `打包 ${done}/${count}`,
+            }),
+        });
+        task.filePath = archive;
+        task.bundleDir = undefined;
+        this.touchStage(task, 'emojizip', {
+          status: 'completed',
+          current: entries.length,
+          total: entries.length,
+          note: 'ZIP 已生成',
+        });
+        const { rm } = await import('node:fs/promises');
+        await rm(outDir, { recursive: true, force: true });
+      }
+      task.status = aborted() ? 'cancelled' : 'failed';
       task.error = String((e as Error)?.message ?? e);
       const running = task.stages.find((s) => s.status === 'running');
       if (running) {

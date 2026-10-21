@@ -12,6 +12,8 @@
  */
 
 import { deflateRawSync, inflateRawSync } from 'node:zlib';
+import { link, open, unlink } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 
 /** zip 里的一个文件条目（已解压）。 */
 export interface ZipEntry {
@@ -49,7 +51,7 @@ const FLAG_UTF8 = 0x0800;
 let crcTable: Uint32Array | null = null;
 
 /** RFC 1952 CRC-32。首次调用时建表，后续复用。 */
-function crc32(data: Buffer): number {
+function crc32(data: Buffer, previous = 0): number {
   if (!crcTable) {
     crcTable = new Uint32Array(256);
     for (let n = 0; n < 256; n += 1) {
@@ -58,7 +60,7 @@ function crc32(data: Buffer): number {
       crcTable[n] = c >>> 0;
     }
   }
-  let crc = 0xffffffff;
+  let crc = previous ^ 0xffffffff;
   for (const byte of data) {
     crc = crcTable[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
   }
@@ -168,6 +170,120 @@ export function buildZip(
     u16(0), // comment length
   ]);
   return Buffer.concat([...locals, central, eocd]);
+}
+
+/** 复用 ZIP 中央目录与 CRC 规则，逐块写入已生成的文件，不把整包图片堆进内存。 */
+export async function writeZipFile(
+  path: string,
+  entries: readonly { name: string; path: string }[],
+  options: { signal?: AbortSignal; progress?: (done: number, total: number) => void } = {},
+): Promise<void> {
+  options.signal?.throwIfAborted();
+  if (entries.length > 0xffff) throw new Error('zip 条目数超过 65535');
+  const names = entries.map((entry) => Buffer.from(zipEntryName(entry.name), 'utf8'));
+  if (new Set(names.map((name) => name.toString('utf8'))).size !== names.length)
+    throw new Error('ZIP 条目路径重复');
+  if (names.some((name) => name.length > 0xffff)) throw new Error('ZIP 条目路径过长');
+  const temporary = `${path}.${randomUUID()}.part`;
+  const output = await open(temporary, 'wx', 0o600);
+  let offset = 0;
+  const central: Buffer[] = [];
+  const append = async (bytes: Buffer) => {
+    options.signal?.throwIfAborted();
+    if (offset + bytes.length > 0xffffffff) throw new Error('ZIP 超过 4 GiB，请分批导出');
+    await output.writeFile(bytes);
+    offset += bytes.length;
+  };
+  try {
+    for (let index = 0; index < entries.length; index++) {
+      const entry = entries[index]!;
+      const name = names[index]!;
+      const start = offset;
+      const flags = FLAG_UTF8 | 0x0008;
+      const input = await open(entry.path, 'r');
+      let size = 0;
+      let crc = 0;
+      try {
+        const info = await input.stat();
+        if (!info.isFile()) throw new Error('ZIP 来源不是普通文件');
+        if (info.size > 0xffffffff) throw new Error('ZIP 单文件超过 4 GiB');
+        await append(
+          Buffer.concat([
+            u32(SIG_LOCAL),
+            u16(20),
+            u16(flags),
+            u16(METHOD_STORE),
+            u16(0),
+            u16(0),
+            u32(0),
+            u32(0),
+            u32(0),
+            u16(name.length),
+            u16(0),
+            name,
+          ]),
+        );
+        for await (const chunk of input.createReadStream({
+          autoClose: false,
+          highWaterMark: 64 * 1024,
+          ...(options.signal ? { signal: options.signal } : {}),
+        })) {
+          const bytes = Buffer.from(chunk);
+          crc = crc32(bytes, crc);
+          size += bytes.length;
+          await append(bytes);
+        }
+        if (size !== info.size) throw new Error('ZIP 来源在读取期间发生变化');
+      } finally {
+        await input.close();
+      }
+      await append(Buffer.concat([u32(0x08074b50), u32(crc), u32(size), u32(size)]));
+      central.push(
+        Buffer.concat([
+          u32(SIG_CENTRAL),
+          u16(20),
+          u16(20),
+          u16(flags),
+          u16(METHOD_STORE),
+          u16(0),
+          u16(0),
+          u32(crc),
+          u32(size),
+          u32(size),
+          u16(name.length),
+          u16(0),
+          u16(0),
+          u16(0),
+          u16(0),
+          u32(0),
+          u32(start),
+          name,
+        ]),
+      );
+      options.progress?.(index + 1, entries.length);
+    }
+    const start = offset;
+    for (const bytes of central) await append(bytes);
+    const centralSize = offset - start;
+    await append(
+      Buffer.concat([
+        u32(SIG_EOCD),
+        u16(0),
+        u16(0),
+        u16(entries.length),
+        u16(entries.length),
+        u32(centralSize),
+        u32(start),
+        u16(0),
+      ]),
+    );
+    await output.close();
+    options.signal?.throwIfAborted();
+    await link(temporary, path);
+  } finally {
+    await output.close().catch(() => {});
+    await unlink(temporary).catch(() => {});
+  }
 }
 
 /**
