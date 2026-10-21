@@ -15,7 +15,7 @@
  *   weq-media://mface?pack=&hash=&enc=tea&key=<opt> → 商城表情包 CDN 加密流 QQTEA 解密后 GIF（解密失败回退明文 raw GIF/PNG）
  *   weq-media://agentvoice?persona=&id=<hash.ext>             → clone TTS audio bytes
  *   weq-media://avatar?scope=user&hash=<hash>&v=big|small     → local avatar-cache bytes
- *   weq-media://avatar?scope=user&uin=<qq>&fb=<cdnUrl>        → local by uid-hash, CDN fallback
+ *   weq-media://avatar?scope=user&uin=<qq>&fb=<cdnUrl>        → 本地 b_/s_ 取新者，过期则回源 CDN
  *   weq-media://avatar?scope=group&uid=<code>&fb=<cdnUrl>     → group avatar (uin==uid)
  *   weq-media://localfile?path=<absPath>                      → trusted local file bytes (media preview)
  *   weq-media://localfilevoice?path=<absPath>                 → trusted local voice (SILK 解码成 WAV)
@@ -47,6 +47,7 @@ import {
   GROUP_PTT_RKEY_TYPE,
   downloadUrlToFile,
   resolveChatpicFile,
+  type AvatarLocalFile,
   type MediaElement,
 } from '@weq/service';
 import { getAppContext } from './context/app_context';
@@ -216,28 +217,51 @@ async function onlineRedbagCover(skinId: string): Promise<string | null> {
 }
 
 /**
- * CDN fallback for an avatar the local cache didn't have. Routes through the
- * shared {@link AvatarCacheService} disk cache (so the fetched bytes warm the
- * same cache the rest of the app reads), returning 404 on any failure so the
- * renderer shows its glyph.
+ * CDN fallback for an avatar the local cache didn't have — or one whose local
+ * copy is out of date. Routes through the shared {@link AvatarCacheService}
+ * disk cache (so the fetched bytes warm the same cache the rest of the app
+ * reads), returning 404 on any failure so the renderer shows its glyph.
+ *
+ * `refresh` forces an upstream re-fetch (`ttl = 0`). `notOlderThanMs` refreshes
+ * only when the cached copy is older than that timestamp — the "local file is
+ * newer than the cached CDN copy" case: the avatar changed and our disk cache
+ * is holding a previous picture. Either way a failed refresh keeps serving the
+ * existing entry rather than dropping the avatar.
  *
  * Short `max-age`: the disk cache is the real cache (and applies its own TTL),
  * so a long browser cache would only delay a changed avatar from showing.
  */
-async function avatarFallbackResponse(src: string, refresh = false): Promise<Response> {
+async function avatarFallbackResponse(
+  src: string,
+  refresh: boolean | { notOlderThanMs: number } = false,
+): Promise<Response> {
   if (!/^https?:\/\//i.test(src)) return notFound('avatar fallback needs http url');
   const cache = getAppContext().bootstrap?.avatarCache;
   if (!cache) return notFound('avatar cache unavailable');
-  try {
-    const blob = await cache.get(src, 'avatar', refresh ? 0 : undefined);
+  let force = refresh === true;
+  if (!force && typeof refresh === 'object') {
+    const cachedAt = await cache.cachedAt(src, 'avatar').catch(() => null);
+    force = cachedAt !== null && cachedAt < refresh.notOlderThanMs;
+  }
+  const respond = (blob: { data: Buffer; contentType: string }): Response | null =>
     // Defensive: a broken (empty) cache entry must never become a 200 empty body.
-    if (blob.data.length === 0) {
-      return notFound('avatar fallback empty');
-    }
-    return new Response(new Uint8Array(blob.data), {
-      status: 200,
-      headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=300' },
-    });
+    blob.data.length === 0
+      ? null
+      : new Response(new Uint8Array(blob.data), {
+          status: 200,
+          headers: { 'Content-Type': blob.contentType, 'Cache-Control': 'public, max-age=300' },
+        });
+  try {
+    const res = respond(await cache.get(src, 'avatar', force ? 0 : undefined));
+    if (res) return res;
+    if (!force) return notFound('avatar fallback empty');
+  } catch {
+    if (!force) return notFound('avatar fallback failed');
+    // 强制回源失败（离线）→ 退回磁盘上的上一版，别把头像清空。
+  }
+  try {
+    const res = respond(await cache.get(src, 'avatar', undefined));
+    return res ?? notFound('avatar fallback empty');
   } catch {
     return notFound('avatar fallback failed');
   }
@@ -708,17 +732,48 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           if (scope !== 'user' && scope !== 'group' && scope !== 'cover') {
             return notFound('avatar needs scope=user|group|cover');
           }
-          if (fb && q.get('_weq_avatar_remote') === '1') {
+          // 三个来源（QQ 的 b_/s_、WeQ 的 CDN 磁盘缓存、CDN 本身）里取最新的一版：
+          // 换头像后 QQ 往往只刷新缩略图，`b_` 会停在几个月前 —— 照旧无条件优先大图
+          // 会永远显示旧头像（见 AvatarResourceService.resolveByUidFile 的实测）。
+          //
+          // 显式刷新（用户刚换过头像）跳过本地判定，强制回源；失败了再往下走本地兜底。
+          const refresh = q.get('_weq_avatar_remote') === '1';
+          if (fb && refresh) {
             const fresh = await avatarFallbackResponse(fb, true);
             if (fresh.ok) return fresh;
           }
-          let path: string | null = null;
-          if (hash) path = await services.avatarResource.resolveFile(scope, hash, variant);
-          else if (uid) path = await services.avatarResource.resolveByUid(scope, uid, variant);
-          else if (uin) path = await services.avatarResource.resolveByUin(scope, uin, variant);
-          if (path) return revalidatingFileResponse(path);
-          // Local miss → CDN fallback (disk-cached by AvatarCacheService).
-          if (fb) return avatarFallbackResponse(fb);
+          let local: AvatarLocalFile | null = null;
+          if (hash) {
+            // 本地资源浏览器按 hash 直取，没有「哪个更新」的语义。
+            const path = await services.avatarResource.resolveFile(scope, hash, variant);
+            local = path ? { path, variant, stale: false, mtimeMs: 0 } : null;
+          } else if (uid) {
+            local = await services.avatarResource.resolveByUidFile(scope, uid, variant);
+          } else if (uin) {
+            local = await services.avatarResource.resolveByUinFile(scope, uin, variant);
+          }
+          // WeQ 磁盘缓存比本地文件新 ⇒ 上次回源时 CDN 上已经是更新的头像了。
+          // 本地没有文件时不必 stat 缓存 —— 直接回源即可。
+          const cachedAt =
+            local && fb
+              ? await getAppContext()
+                  .bootstrap?.avatarCache.cachedAt(fb, 'avatar')
+                  .catch(() => null)
+              : null;
+          if (local && !local.stale && (cachedAt == null || cachedAt <= local.mtimeMs))
+            return revalidatingFileResponse(local.path);
+
+          // 本地大图过期（只有缩略图是新的）或本地干脆没有 → 回源 CDN：它既比旧大图
+          // 新，又比缩略图清晰。缓存比本地文件旧时强制重拉，否则直接用缓存字节。
+          if (fb) {
+            const fresh = await avatarFallbackResponse(
+              fb,
+              local ? { notOlderThanMs: local.mtimeMs } : false,
+            );
+            if (fresh.ok) return fresh;
+          }
+          // CDN 拿不到（离线 / 无网）→ 至少显示当前头像的缩略图，别退回旧大图。
+          if (local) return revalidatingFileResponse(local.path);
           return notFound('avatar not found');
         }
         case 'cemoji': {

@@ -143,6 +143,26 @@ export class MediaCacheService {
     return promise;
   }
 
+  /**
+   * 缓存条目的落盘时间（ms），没有条目时返回 null。
+   *
+   * 头像 URL 不带版本号，光看「命中/未命中」分不出新旧；调用方拿到本地文件的
+   * mtime 后可以用它判断「本地这张比缓存里的新」，从而决定是否强制回源。
+   * 不看 TTL —— 这里只回答「磁盘上这份是什么时候写的」。
+   */
+  async cachedAt(url: string, subdir: CacheSubdir = 'avatar'): Promise<number | null> {
+    const base = this.basePath(url, subdir);
+    for (const ext of ['png', 'jpg', 'gif', 'webp']) {
+      try {
+        const st = await stat(`${base}.${ext}`);
+        return st.mtimeMs;
+      } catch {
+        // 试下一个扩展名
+      }
+    }
+    return null;
+  }
+
   /** `<cacheDir(subdir)>/<sha1(url)>` (no extension — we glob on read). */
   private basePath(url: string, subdir: CacheSubdir): string {
     const hash = createHash('sha1').update(url).digest('hex');
