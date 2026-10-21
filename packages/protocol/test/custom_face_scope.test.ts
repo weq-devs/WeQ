@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { AddCustomFace, ModifyCustomFace } from '../src/oidb/custom-face';
+import { AddCustomFace, FetchCustomFaceDetail, ModifyCustomFace } from '../src/oidb/custom-face';
 import { decode, encode } from '../src/protobuf';
 
 const state = vi.hoisted(() => ({
@@ -22,6 +22,39 @@ beforeEach(() => {
   );
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it('收藏详情使用 UIN 信封，保持原顺序并且不发送前置移动指令', async () => {
+  const emojis = [
+    {
+      emojiId: '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0',
+      md5: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    },
+  ];
+  const sendOidbPacket = vi.fn(async (..._args: unknown[]) =>
+    Buffer.from(
+      encode(FetchCustomFaceDetail.respSchema, {
+        retCode: 0,
+        entries: [{ emoji: emojis[0], desc: '合成备注' }],
+      }),
+    ),
+  );
+  await expect(FetchCustomFaceDetail.invoke({ sendOidbPacket }, 101, { emojis })).resolves.toEqual([
+    { emojiId: emojis[0]!.emojiId, desc: '合成备注' },
+  ]);
+  expect(sendOidbPacket).toHaveBeenCalledOnce();
+  const call = sendOidbPacket.mock.calls[0]!;
+  expect(call.slice(0, 3)).toEqual([
+    101,
+    FetchCustomFaceDetail.command,
+    FetchCustomFaceDetail.subCommand,
+  ]);
+  expect(call[4]).toBe(true);
+  expect(call[5]).toBe(true);
+  expect(decode(FetchCustomFaceDetail.reqSchema, call[3] as Uint8Array)).toMatchObject({
+    opType: 2,
+    emojis,
+  });
+});
 
 it('清空收藏备注也显式发送 desc，不把空串变成未修改', () => {
   const bytes = encode(

@@ -27,6 +27,8 @@ export interface EmojiOnlineDeps {
   nt: Pick<NtHelperBinding, 'sendOidbPacket' | 'sendPacket'>;
   resolvePid: () => number;
 }
+/** 实测可用的小批次请求预算，不代表 QQ 服务端的最大条数。 */
+export const FAVORITE_EMOJI_DETAIL_BATCH_SIZE = 48;
 import {
   BaseSysEmojiDb,
   EmojiComUsedDb,
@@ -215,6 +217,7 @@ export class EmojiService {
   private marketPackages: MarketEmoticonPackage[] | null = null;
   /** 收藏（我喜欢的自定义表情）缓存。 */
   private favorites: PanelFavItem[] | null = null;
+  private favoriteDetailTurn: Promise<void> = Promise.resolve();
   /** 关联 GIF 分组缓存。 */
   private relatedTags: PanelRelatedTag[] | null = null;
   /** packId → 在线详情（android.json），会话内缓存（含 in-flight 去重）。 */
@@ -223,7 +226,7 @@ export class EmojiService {
   private packKeyCache = new Map<string, Promise<MarketPackKey | null>>();
 
   constructor(
-    private readonly session: AccountSession,
+    private readonly session: Pick<AccountSession, 'context'>,
     private readonly platform: Platform,
     private readonly online?: EmojiOnlineDeps,
   ) {}
@@ -231,6 +234,31 @@ export class EmojiService {
   private requireOnline(): EmojiOnlineDeps {
     if (!this.online) throw new Error('该账号当前不在线，无法执行收藏表情写操作。');
     return this.online;
+  }
+
+  /** 详情与排序上传共用 opType=2，不能让查询夹进两步排序的上下文。 */
+  private async withFavoriteDetails<T>(
+    operation: (nt: EmojiOnlineDeps['nt'], pid: number, current: () => void) => Promise<T>,
+  ): Promise<T> {
+    const { nt, resolvePid } = this.requireOnline();
+    const pid = resolvePid();
+    const current = () => {
+      if (resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新读取收藏');
+    };
+    const previous = this.favoriteDetailTurn;
+    let release!: () => void;
+    this.favoriteDetailTurn = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      current();
+      const result = await operation(nt, pid, current);
+      current();
+      return result;
+    } finally {
+      release();
+    }
   }
 
   /**
@@ -904,10 +932,30 @@ export class EmojiService {
 
   /** 拉取收藏表情的备注（Faceroam 列表 + 0x902E 详情两步合并）。 */
   async fetchOnlineFavoriteDetails(emojis?: CustomFaceRef[]): Promise<CustomFaceDetail[]> {
-    const { nt, resolvePid } = this.requireOnline();
-    const refs = emojis ?? (await this.fetchOnlineFavoriteIds()).map(parseCustomFaceId);
-    if (refs.length === 0) return [];
-    return FetchCustomFaceDetail.invoke(nt, resolvePid(), { emojis: refs });
+    const requested = emojis?.map((ref) => ({ ...ref }));
+    return this.withFavoriteDetails(async (nt, pid, current) => {
+      const refs = requested ?? (await this.fetchOnlineFavoriteIds()).map(parseCustomFaceId);
+      current();
+      if (refs.length === 0) return [];
+      if (new Set(refs.map((ref) => ref.emojiId)).size !== refs.length)
+        throw new Error('收藏详情请求出现重复表情，请刷新后重试');
+      const result: CustomFaceDetail[] = [];
+      const seen = new Set<string>();
+      for (let offset = 0; offset < refs.length; offset += FAVORITE_EMOJI_DETAIL_BATCH_SIZE) {
+        current();
+        const batch = refs.slice(offset, offset + FAVORITE_EMOJI_DETAIL_BATCH_SIZE);
+        const allowed = new Set(batch.map((ref) => ref.emojiId));
+        const details = await FetchCustomFaceDetail.invoke(nt, pid, { emojis: batch });
+        current();
+        for (const detail of details) {
+          if (!allowed.has(detail.emojiId) || seen.has(detail.emojiId))
+            throw new Error('收藏详情回包包含重复或非当前批次的表情，请刷新');
+          seen.add(detail.emojiId);
+          result.push(detail);
+        }
+      }
+      return result;
+    });
   }
 
   /** 删除一张收藏表情（Faceroam.OpReq opType=2）。 */
@@ -936,18 +984,21 @@ export class EmojiService {
    * 服务端不生效。
    */
   async moveFavorite(emojiId: string, position = 1, beforeSend?: () => void): Promise<void> {
-    const { nt, resolvePid } = this.requireOnline();
-    const ids = await this.fetchOnlineFavoriteIds();
-    beforeSend?.();
-    if (!ids.includes(emojiId)) throw new Error('收藏表情已变化，请刷新');
-    const target = parseCustomFaceId(emojiId);
-    const rest = ids.filter((id) => id !== target.emojiId).map(parseCustomFaceId);
-    const ordered = [...rest];
-    ordered.splice(Math.max(0, Math.min(position - 1, ordered.length)), 0, target);
-    await OrderCustomFace.invoke(nt, resolvePid(), { emojiId: target.emojiId, position });
-    beforeSend?.();
-    await MoveCustomFace.invoke(nt, resolvePid(), { emojis: ordered });
-    this.favorites = null;
+    return this.withFavoriteDetails(async (nt, pid, current) => {
+      const ids = await this.fetchOnlineFavoriteIds();
+      current();
+      beforeSend?.();
+      if (!ids.includes(emojiId)) throw new Error('收藏表情已变化，请刷新');
+      const target = parseCustomFaceId(emojiId);
+      const rest = ids.filter((id) => id !== target.emojiId).map(parseCustomFaceId);
+      const ordered = [...rest];
+      ordered.splice(Math.max(0, Math.min(position - 1, ordered.length)), 0, target);
+      await OrderCustomFace.invoke(nt, pid, { emojiId: target.emojiId, position });
+      current();
+      beforeSend?.();
+      await MoveCustomFace.invoke(nt, pid, { emojis: ordered });
+      this.favorites = null;
+    });
   }
 
   /**

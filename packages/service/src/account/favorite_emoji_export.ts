@@ -5,6 +5,7 @@ import { webRequestBytes } from './web/http';
 import {
   createFavoriteEmojiBundle,
   FAVORITE_EMOJI_MAX_IMAGE_BYTES,
+  FAVORITE_EMOJI_MAX_ITEMS,
   type FavoriteEmojiExportSource,
 } from './favorite_emoji_bundle';
 
@@ -51,6 +52,7 @@ export async function exportOnlineFavoriteEmojiBundle(
   current();
   const ids = await port.fetchOnlineFavoriteIds();
   current();
+  if (ids.length > FAVORITE_EMOJI_MAX_ITEMS) throw new Error('收藏条目数超过单包上限，本次未导出');
   if (new Set(ids).size !== ids.length) throw new Error('远端收藏列表含重复标识，请刷新');
   const refs = ids.map(parseCustomFaceId);
   const details = await port.fetchOnlineFavoriteDetails(refs);

@@ -5,7 +5,10 @@ import {
   exportOnlineFavoriteEmojiBundle,
   favoriteEmojiOriginalUrl,
 } from '../src/account/favorite_emoji_export';
-import { readFavoriteEmojiBundle } from '../src/account/favorite_emoji_bundle';
+import {
+  readFavoriteEmojiBundle,
+  FAVORITE_EMOJI_MAX_ITEMS,
+} from '../src/account/favorite_emoji_bundle';
 
 const bytes = Buffer.from(makeSolidPng(2, 3, [10, 20, 30]));
 const hash = createHash('md5').update(bytes).digest('hex');
@@ -34,6 +37,19 @@ function fixture() {
 }
 
 describe('在线收藏包导出', () => {
+  it('超过单包条目预算时先拒绝，不启动分批详情或原图读取', async () => {
+    const { port, options } = fixture();
+    port.fetchOnlineFavoriteIds.mockResolvedValue(
+      Array.from(
+        { length: FAVORITE_EMOJI_MAX_ITEMS + 1 },
+        (_, index) => `10001_0_0_0_${index.toString(16).padStart(32, '0')}_0_0`,
+      ),
+    );
+    await expect(exportOnlineFavoriteEmojiBundle(port, options)).rejects.toThrow('单包上限');
+    expect(port.fetchOnlineFavoriteDetails).not.toHaveBeenCalled();
+    expect(port.listFavEmojiRows).not.toHaveBeenCalled();
+    expect(options.readLocal).not.toHaveBeenCalled();
+  });
   it('在线列表决定内容与顺序，元数据来自对应详情，缓存散图不混入', async () => {
     const { port, options } = fixture();
     const result = await exportOnlineFavoriteEmojiBundle(port, options);

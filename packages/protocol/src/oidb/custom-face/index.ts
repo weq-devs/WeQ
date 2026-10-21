@@ -224,6 +224,7 @@ function assertOidbRetCode(what: string, body: Record<string, unknown>): void {
 export namespace FetchCustomFaceDetail {
   export const command = 0x902e;
   export const subCommand = 1;
+  export const uinForm = true;
   export const reqSchema = DETAIL_REQ;
   export const respSchema = CUSTOM_FACE_RESP;
 
