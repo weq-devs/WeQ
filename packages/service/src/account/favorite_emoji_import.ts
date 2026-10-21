@@ -170,24 +170,30 @@ export async function runFavoriteEmojiImport(
       row.description = 'failed';
       row.state = 'metadata-failed';
     }
-    try {
-      // 每张新增图片明确移到末尾，不依赖服务器默认插入位置；保持既有收藏相对顺序。
-      const online = await list();
-      if (!online.some((ref) => ref.emojiId === row.emojiId))
-        throw new Error('新增图片已不在收藏列表中');
-      current();
-      await port.moveFavorite(row.emojiId!, online.length, current);
-      row.order = 'accepted';
-      current();
-    } catch (error) {
-      row.issue = [row.issue, `图片已添加，排序未完成：${message(error)}`]
-        .filter(Boolean)
-        .join('；');
-      if (result.stopped) break;
-      row.order = 'failed';
-      row.state = 'metadata-failed';
-    }
     notify();
+  }
+
+  // 只操作新项，逆序置前重建来源相对顺序，不用未知位置参数或重排原有收藏。
+  if (!result.stopped) {
+    for (const row of [...added].reverse()) {
+      try {
+        const online = await list();
+        if (!online.some((ref) => ref.emojiId === row.emojiId))
+          throw new Error('新增图片已不在收藏列表中');
+        current();
+        await port.moveFavorite(row.emojiId!, 1, current);
+        row.order = 'accepted';
+        current();
+      } catch (error) {
+        row.issue = [row.issue, `图片已添加，排序未完成：${message(error)}`]
+          .filter(Boolean)
+          .join('；');
+        if (result.stopped) break;
+        row.order = 'failed';
+        row.state = 'metadata-failed';
+      }
+      notify();
+    }
   }
 
   if (added.length && !result.stopped) {
@@ -196,8 +202,10 @@ export async function runFavoriteEmojiImport(
       const details = await port.fetchOnlineFavoriteDetails(online);
       current();
       const addedIds = added.map((row) => row.emojiId);
-      const suffix = online.slice(-added.length).map((ref) => ref.emojiId);
-      const orderMatches = suffix.every((value, index) => value === addedIds[index]);
+      const prefix = online.slice(0, added.length).map((ref) => ref.emojiId);
+      const orderMatches =
+        prefix.length === addedIds.length &&
+        prefix.every((value, index) => value === addedIds[index]);
       for (const row of added) {
         const source = selected.find((item) => item.key === row.key)!;
         const present = online.some((ref) => ref.emojiId === row.emojiId);

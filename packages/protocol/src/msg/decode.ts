@@ -123,6 +123,10 @@ function liftPicElem(pb: Record<string, unknown>): Record<string, unknown> {
   const info = body?.info as Record<string, unknown> | undefined;
   const typeWrap = info?.imgType as Record<string, unknown> | undefined;
   const url = file?.url as Record<string, unknown> | undefined;
+  const ext = pb.extBizInfo as Record<string, unknown> | undefined;
+  const pic = ext?.pic as Record<string, unknown> | undefined;
+  const troop = pic?.bytesPbReserveTroop as Record<string, unknown> | undefined;
+  const c2c = pic?.bytesPbReserveC2c as Record<string, unknown> | undefined;
   const out: Record<string, unknown> = { kind: 'pic' };
   if (info?.fileName !== undefined) out.fileName = info.fileName;
   if (body?.fileToken !== undefined) out.fileToken = body.fileToken;
@@ -138,7 +142,10 @@ function liftPicElem(pb: Record<string, unknown>): Record<string, unknown> {
   if (body?.storeId !== undefined) out.storeId = body.storeId;
   if (body?.uploadTime !== undefined) out.uploadTime = body.uploadTime;
   if (body?.ttl !== undefined) out.fileTTL = body.ttl;
-  if (body?.subType !== undefined) out.subType = body.subType;
+  // 媒体索引的 subType 常为 0；图片／表情的业务类型在独立扩展里。
+  const subType = pic?.bizType ?? troop?.subType ?? c2c?.subType ?? body?.subType;
+  if (subType !== undefined) out.subType = subType;
+  if (typeof pic?.textSummary === 'string' && pic.textSummary) out.summary = [pic.textSummary];
   return out;
 }
 

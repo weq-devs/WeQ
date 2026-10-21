@@ -167,7 +167,8 @@ export namespace GetGroupTodoList {
     const banners = (body.banners as Record<string, unknown>[] | undefined) ?? [];
     const items: GroupTodoListItem[] = [];
     for (const banner of banners) {
-      if (banner.isDisappear === true) continue;
+      const legacy = (banner.todoBanner ?? {}) as Record<string, unknown>;
+      if (banner.isDisappear === true && legacy.isComplete !== true) continue;
       const sourceId = decodeUtf8(banner.msgId, 'msgId');
       const match = SOURCE_ID_PATTERN.exec(sourceId);
       if (!match) throw new Error(`群待办消息标识格式非法：${sourceId}`);
@@ -175,7 +176,6 @@ export namespace GetGroupTodoList {
         throw new Error('群待办消息序号超出 uint64 范围');
       const common = (banner.commonBanner ?? {}) as Record<string, unknown>;
       const ui = (common.ui ?? {}) as Record<string, unknown>;
-      const legacy = (banner.todoBanner ?? {}) as Record<string, unknown>;
       items.push({
         sourceId,
         sequence: match[1]!,

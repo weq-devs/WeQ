@@ -1,14 +1,5 @@
 import { useEffect, useState } from 'react';
-import {
-  ArrowDown,
-  ArrowUp,
-  MoreHorizontal,
-  Pencil,
-  Plus,
-  RotateCw,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { ArrowUpToLine, MoreHorizontal, Pencil, Plus, RotateCw, Trash2, X } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { mediaUrl } from '../../lib/resourceUrl';
@@ -154,7 +145,6 @@ function FavoriteActionsBody() {
                 emojiId={f.emojiId}
                 desc={f.desc}
                 position={f.position}
-                count={list.data.length}
                 importing={importing}
                 onChanged={refresh}
               />
@@ -171,14 +161,12 @@ function FavoriteRow({
   emojiId,
   desc,
   position,
-  count,
   importing,
   onChanged,
 }: {
   emojiId: string;
   desc: string;
   position: number;
-  count: number;
   importing: boolean;
   onChanged: () => Promise<void>;
 }) {
@@ -286,8 +274,8 @@ function FavoriteRow({
               action: () => setDraft((current) => current ?? desc),
             },
             {
-              label: '上移表情',
-              icon: <ArrowUp size={15} />,
+              label: '移到最前',
+              icon: <ArrowUpToLine size={15} />,
               disabled: disabled || position <= 1,
               action: () =>
                 void a.perform(
@@ -296,23 +284,7 @@ function FavoriteRow({
                       ...b,
                       action: 'move',
                       emojiId,
-                      position: position - 1,
-                    }),
-                  onChanged,
-                ),
-            },
-            {
-              label: '下移表情',
-              icon: <ArrowDown size={15} />,
-              disabled: disabled || position >= count,
-              action: () =>
-                void a.perform(
-                  (b) =>
-                    client.account.qqActions.favorite.mutate({
-                      ...b,
-                      action: 'move',
-                      emojiId,
-                      position: position + 1,
+                      position: 1,
                     }),
                   onChanged,
                 ),

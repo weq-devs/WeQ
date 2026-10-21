@@ -53,8 +53,8 @@ src/oidb/misc/          OCR / 解密密钥 / clientKey / rkey / pskey / Ark / AI
 | --- | --- | --- |
 | 标记已读 | `trpc.msg.msg_svc.MsgService.SsoReadedReport` | true |
 | 收藏表情列表 / 删除 | `Faceroam.OpReq` | false |
-| 收藏表情详情 / 改备注 / 排序上传 | `0x902E_1` | true |
-| 收藏表情移动指令 | `0x902F_1` | false |
+| 收藏表情详情 / 改备注 | `0x902E_1` | true |
+| 收藏表情移到最前（position=1） | `0x902F_1` | false |
 | 添加收藏表情 | `ImgStore.BDHExpressionRoam` + highway cmdId 9 | false |
 | 点击内联按钮 | `0x112E_1` | true |
 | 群打卡 | `0xEB7_1` | false |

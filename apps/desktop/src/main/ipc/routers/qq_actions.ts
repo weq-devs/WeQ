@@ -577,7 +577,7 @@ export function createQQActionsRouter(
           emojiId: id.optional(),
           path: id.optional(),
           desc: z.string().max(256).optional(),
-          position: z.number().int().min(1).max(10000).optional(),
+          position: z.literal(1).optional(),
         }),
       )
       .mutation(({ input: i }) =>

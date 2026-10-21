@@ -12,8 +12,28 @@ import {
 import { useDialog } from '../src/renderer/src/components/Dialog';
 import {
   buildComposerSendPlan,
+  buildOptimisticRender,
   type LocalMediaRef,
 } from '../src/renderer/src/im-template/template/composerSend';
+import { elementsToComposerText } from '../src/renderer/src/im-template/template/draftElements';
+
+it('重发与重新编辑的表情图保留子类型和表情摘要，不变成普通大图', () => {
+  for (const subType of [0, 1]) {
+    const body = elementsToComposerText([
+      {
+        kind: 'pic',
+        subType,
+        summary: [subType ? '[表情]' : '[图片]'],
+        width: 600,
+        height: 600,
+        localPreviewUrl: 'blob:fixture',
+      },
+    ]);
+    const rendered = buildOptimisticRender({ body, locals: [], superStickers: new Map() });
+    expect(rendered.elements[0]).toMatchObject({ type: 'pic', data: { subType } });
+    expect(rendered.body).toBe(subType ? '[表情]' : '[图片]');
+  }
+});
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>

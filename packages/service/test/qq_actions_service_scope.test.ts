@@ -4,9 +4,9 @@ import type { Platform } from '@weq/platform';
 import {
   CommentGroupAlbumMedia,
   GetGroupAlbumFeedDetail,
-  MoveCustomFace,
   OrderCustomFace,
   FetchCustomFaceDetail,
+  FetchCustomFaceList,
   parseCustomFaceId,
   decode,
   encode,
@@ -56,6 +56,50 @@ function detailsResponse(body: Uint8Array) {
   );
 }
 
+it('Faceroam 线序反转为 QQ 面板顺序，不让备份与界面颠倒', async () => {
+  const wire = [favoriteB, favoriteA];
+  const svc = new EmojiService(session, {} as Platform, {
+    nt: {
+      sendOidbPacket: vi.fn(async () => Buffer.alloc(0)),
+      sendPacket: vi.fn(async () =>
+        Buffer.from(
+          encode(FetchCustomFaceList.respSchema, { retCode: 0, item: { faceIds: wire } }),
+        ),
+      ),
+    },
+    resolvePid: () => 101,
+  });
+  await expect(svc.fetchOnlineFavoriteIds()).resolves.toEqual([favoriteA, favoriteB]);
+  expect(wire).toEqual([favoriteB, favoriteA]);
+});
+
+it('列表回包前 QQ 运行态变化，不返回旧进程的收藏顺序', async () => {
+  let pid = 101;
+  const svc = new EmojiService(session, {} as Platform, {
+    nt: {
+      sendOidbPacket: vi.fn(async () => Buffer.alloc(0)),
+      sendPacket: vi.fn(async () => {
+        pid++;
+        return Buffer.from(
+          encode(FetchCustomFaceList.respSchema, {
+            retCode: 0,
+            item: { faceIds: [favoriteB, favoriteA] },
+          }),
+        );
+      }),
+    },
+    resolvePid: () => pid,
+  });
+  await expect(svc.fetchOnlineFavoriteIds()).rejects.toThrow('运行时');
+});
+
+it('不支持的移动位置在发包前拒绝，已有最前项不重复写入', async () => {
+  const f = emojiFixture();
+  await expect(f.svc.moveFavorite(favoriteB, 2)).rejects.toThrow('移到最前');
+  await f.svc.moveFavorite(favoriteA, 1);
+  expect(f.sendOidbPacket).not.toHaveBeenCalled();
+});
+
 it('空详情和重复请求不发包，也不会占住后续排序的串行槽', async () => {
   const f = emojiFixture();
   await expect(f.svc.fetchOnlineFavoriteDetails([])).resolves.toEqual([]);
@@ -63,10 +107,7 @@ it('空详情和重复请求不发包，也不会占住后续排序的串行槽'
   await expect(f.svc.fetchOnlineFavoriteDetails([ref, ref])).rejects.toThrow('重复');
   expect(f.sendOidbPacket).not.toHaveBeenCalled();
   await f.svc.moveFavorite(favoriteB, 1);
-  expect(f.sendOidbPacket.mock.calls.map((call) => call[1])).toEqual([
-    OrderCustomFace.command,
-    MoveCustomFace.command,
-  ]);
+  expect(f.sendOidbPacket.mock.calls.map((call) => call[1])).toEqual([OrderCustomFace.command]);
 });
 
 it('收藏详情按已验证预算分批读取全部条目，不截断或丢弃末批', async () => {
@@ -114,7 +155,7 @@ it('跨批等待中运行态失效，不再查询后续批次', async () => {
   expect(f.sendOidbPacket).toHaveBeenCalledOnce();
 });
 
-it('详情读取不能夹进移动指令与完整顺序上传之间', async () => {
+it('详情读取等待置前完成，不额外提交整表元数据', async () => {
   const f = emojiFixture();
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -135,12 +176,11 @@ it('详情读取不能夹进移动指令与完整顺序上传之间', async () =
   expect(countBeforeRelease).toBe(1);
   expect(f.sendOidbPacket.mock.calls.map((call) => call[1])).toEqual([
     OrderCustomFace.command,
-    MoveCustomFace.command,
     FetchCustomFaceDetail.command,
   ]);
   const body = decode(
     FetchCustomFaceDetail.reqSchema,
-    f.sendOidbPacket.mock.calls[2]![3] as Uint8Array,
+    f.sendOidbPacket.mock.calls[1]![3] as Uint8Array,
   );
   expect((body.emojis as Array<{ emojiId: string }>).map((item) => item.emojiId)).toEqual([
     favoriteA,
@@ -171,7 +211,6 @@ it('详情读取失败也释放串行槽，后续显式排序仍可完成', asyn
   expect(f.sendOidbPacket.mock.calls.map((call) => call[1])).toEqual([
     FetchCustomFaceDetail.command,
     OrderCustomFace.command,
-    MoveCustomFace.command,
   ]);
 });
 
@@ -207,23 +246,17 @@ it('详情回包返回时 PID 已改变，不把旧运行态的结果交给界�
   ).rejects.toThrow('运行时');
   expect(f.sendOidbPacket).toHaveBeenCalledOnce();
 });
-it('收藏排序先移动再上传完整顺序，不丢掉其他收藏', async () => {
+it('收藏置前只发送目标指令，不将整表详情误当排序提交', async () => {
   const { svc, sendOidbPacket } = emojiFixture();
   await svc.moveFavorite(favoriteB, 1);
-  expect(sendOidbPacket.mock.calls.map((c) => c[1])).toEqual([
-    OrderCustomFace.command,
-    MoveCustomFace.command,
-  ]);
-  const payload = decode(MoveCustomFace.reqSchema, sendOidbPacket.mock.calls[1]![3] as Uint8Array);
-  expect((payload.emojis as Array<{ emojiId: string }>).map((e) => e.emojiId)).toEqual([
-    favoriteB,
-    favoriteA,
-  ]);
+  expect(sendOidbPacket.mock.calls.map((c) => c[1])).toEqual([OrderCustomFace.command]);
+  const payload = decode(OrderCustomFace.reqSchema, sendOidbPacket.mock.calls[0]![3] as Uint8Array);
+  expect(payload).toMatchObject({ emojiId: favoriteB, position: 1 });
 });
-it('收藏排序的列表读取后或两次写入之间失效，不继续下一阶段', async () => {
+it('收藏置前的读取后或回包时失效，不继续旧来源操作', async () => {
   const first = emojiFixture();
   await expect(
-    first.svc.moveFavorite(favoriteA, 2, () => {
+    first.svc.moveFavorite(favoriteB, 1, () => {
       throw new Error('账号改变');
     }),
   ).rejects.toThrow('账号改变');
@@ -231,7 +264,7 @@ it('收藏排序的列表读取后或两次写入之间失效，不继续下一�
   const second = emojiFixture();
   let stage = 0;
   await expect(
-    second.svc.moveFavorite(favoriteA, 2, () => {
+    second.svc.moveFavorite(favoriteB, 1, () => {
       if (++stage === 2) throw new Error('运行时改变');
     }),
   ).rejects.toThrow('运行时改变');

@@ -60,7 +60,14 @@ interface LightboxStore {
   alt: string;
   ocr: LightboxOcrContext | null;
   ownerDocument: Document | null;
-  open(src: string, alt?: string, ocr?: LightboxOcrContext | null, ownerDocument?: Document): void;
+  onClosed?: () => void;
+  open(
+    src: string,
+    alt?: string,
+    ocr?: LightboxOcrContext | null,
+    ownerDocument?: Document,
+    onClosed?: () => void,
+  ): void;
   close(): void;
 }
 
@@ -69,12 +76,14 @@ const useLightbox = create<LightboxStore>((set, get) => ({
   alt: '',
   ocr: null,
   ownerDocument: null,
-  open(src, alt = '', ocr = null, ownerDocument = document) {
+  open(src, alt = '', ocr = null, ownerDocument = document, onClosed) {
     if (!src || (get().src === src && get().ownerDocument === ownerDocument)) return;
-    set({ src, alt, ocr, ownerDocument });
+    set({ src, alt, ocr, ownerDocument, onClosed });
   },
   close() {
-    set({ src: null, alt: '', ocr: null, ownerDocument: null });
+    const onClosed = get().onClosed;
+    set({ src: null, alt: '', ocr: null, ownerDocument: null, onClosed: undefined });
+    onClosed?.();
   },
 }));
 
@@ -84,9 +93,10 @@ export function openLightbox(
   alt?: string,
   ocr?: LightboxOcrContext | null,
   ownerDocument?: Document,
+  onClosed?: () => void,
 ): void {
   const target = ownerDocument ?? document;
-  useLightbox.getState().open(resourceForRenderDocument(src, target), alt, ocr, target);
+  useLightbox.getState().open(resourceForRenderDocument(src, target), alt, ocr, target, onClosed);
 }
 
 /** Mount once. Renders the active large-image overlay, if any. */
@@ -119,6 +129,10 @@ export function ImageLightbox(): ReactElement | null {
   /** 纯文本面板是否展开（识别成功后自动展开）。 */
   const [panelOpen, setPanelOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (src) layerRef.current?.focus({ preventScroll: true });
+  }, [src, document]);
 
   // OCR 能力门禁：和「发送键」共用同一份在线 / 物料状态。
   const access = trpc.account.getGroupAlbumAccessState.useQuery(undefined, {
@@ -306,6 +320,10 @@ export function ImageLightbox(): ReactElement | null {
     <div
       ref={layerRef}
       className="weq-lightbox-layer weq-anim-fade"
+      role="dialog"
+      aria-modal="true"
+      aria-label={alt ? `图片预览：${alt}` : '图片预览'}
+      tabIndex={-1}
       style={{ zIndex: layer }}
       onMouseDown={close}
     >

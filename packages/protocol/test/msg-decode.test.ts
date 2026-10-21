@@ -16,6 +16,7 @@ import {
   REPLY_PB_RESERVE,
   TEXT_PB_RESERVE,
   VIDEO_COMMON_PB,
+  UPLOAD_MSG_INFO,
 } from '../src/index';
 
 /** Hex 字符串 → bytes（测试辅助）。 */
@@ -25,6 +26,41 @@ function hexBytes(hex: string): Uint8Array {
   return out;
 }
 describe('decodeMessage 简化消息解码', () => {
+  it.each(['bytesPbReserveTroop', 'bytesPbReserveC2c'])(
+    '发送后的表情从图片业务扩展恢复类型，不误用媒体节点的 subType：%s',
+    (reserve) => {
+      for (const bizType of [1, undefined]) {
+        const pbElem = encode(UPLOAD_MSG_INFO, {
+          msgInfoBody: [
+            {
+              index: {
+                info: {
+                  fileName: 'fixture.gif',
+                  width: 600,
+                  height: 600,
+                  type: { type: 1, picFormat: 2000 },
+                },
+                subType: 0,
+              },
+            },
+          ],
+          extBizInfo: { pic: { bizType, textSummary: '[表情]', [reserve]: { subType: 1 } } },
+        });
+        const message = decodeMessage(
+          encode(PUSH_MSG_BODY, {
+            contentHead: { msgId: 1, sequence: 1, timestamp: 1 },
+            body: {
+              richText: { elems: [{ commonElem: { serviceType: 48, businessType: 20, pbElem } }] },
+            },
+          }),
+        );
+        expect(message.elements).toMatchObject([
+          { kind: 'pic', subType: 1, summary: ['[表情]'], imgWidth: 600, imgHeight: 600 },
+        ]);
+      }
+    },
+  );
+
   it('把 PushMsgBody 映射成 head/sender/session/elements/dress', () => {
     const bytes = encode(PUSH_MSG_BODY, {
       responseHead: { fromUin: 12345, fromUid: 'u_abc', grp: { groupUin: 67890 } },
