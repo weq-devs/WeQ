@@ -217,10 +217,12 @@ export function MergeForwardDialog({
                   sending
                     ? '正在转发，请稍后'
                     : !sendAvailable
-                      ? 'QQ 未在线或处于完全离线模式'
+                      ? 'QQ 在线发送能力尚未就绪或处于完全离线模式'
                       : '请选择至少一个目标会话'
                 }
-                title={sendAvailable ? '' : 'QQ 未在线或处于完全离线模式，只能保存草稿'}
+                title={
+                  sendAvailable ? '' : 'QQ 在线发送能力尚未就绪或处于完全离线模式，只能保存草稿'
+                }
                 onClick={() => void forward()}
               >
                 <Share2 size={15} /> {sending ? '转发中…' : '转发'}
