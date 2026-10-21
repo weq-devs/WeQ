@@ -13,6 +13,7 @@ import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget';
 import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
 import { MessageProvenance } from '../../components/MessageProvenance';
+import { GroupMessageBadge } from '../../components/GroupMessageBadge';
 import { messageHasIntentText } from '../../lib/intentTimeline';
 import '../../styles/chat-interactions.css';
 import '../../styles/composer-reedit.css';
@@ -428,31 +429,9 @@ export function MessageBubble({
         <div className="weq-message-heading">
           {showSenderName ? (
             <span className={cn('message-name')}>
-              {(() => {
-                const role = (sender as any).role;
-                const isRoleBadge = role === 'owner' || role === 'admin';
-                // 群头衔优先级：群主/管理员 > 自定义头衔/群等级
-                const badgeText = isRoleBadge
-                  ? role === 'owner'
-                    ? '群主'
-                    : '管理员'
-                  : (sender as any).customTitle || (sender as any).levelName;
-                if (!badgeText) return null;
-                const levelBracket = (sender as any).levelBracket;
-                const memberLevel = (sender as any).memberLevel;
-                return (
-                  <small
-                    className={cn(
-                      'member-badge',
-                      isRoleBadge ? role : '',
-                      !isRoleBadge && levelBracket > 0 ? `level-${levelBracket}` : '',
-                    )}
-                  >
-                    {!isRoleBadge && memberLevel != null ? `Lv${memberLevel} · ` : ''}
-                    {badgeText}
-                  </small>
-                );
-              })()}
+              {conversation.type === 'group' ? (
+                <GroupMessageBadge groupId={conversation.group.identityValue} member={sender} />
+              ) : null}
               {senderName}
               {senderKind === 'bot' ? (
                 <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
