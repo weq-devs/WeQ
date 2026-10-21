@@ -19,7 +19,6 @@
  */
 import {
   Award,
-  BadgeCheck,
   BarChart3,
   Bot,
   BrainCircuit,
@@ -341,21 +340,20 @@ export function MemberProfileCard({
                 </div>
               ) : null}
 
-              {member.customTitle ? (
-                <div className="weq-profile-chips">
-                  <span className="weq-member-title">
-                    <BadgeCheck size={12} />
-                    {member.customTitle}
-                  </span>
-                </div>
-              ) : null}
-
               {botProfile?.description || profile?.signature ? (
                 <p className="weq-profile-sign">{botProfile?.description || profile.signature}</p>
               ) : null}
             </div>
 
             <div className="weq-profile-list">
+              {groupCode && uid ? (
+                <QQGroupMemberControls
+                  key={`${groupCode}:${uid}`}
+                  groupCode={groupCode}
+                  uid={uid}
+                  profile={{ card: member.card, title: member.customTitle }}
+                />
+              ) : null}
               {levelText ? (
                 <ProfileRow icon={<Award size={13} />} label="群等级" value={levelText} />
               ) : null}
@@ -439,10 +437,6 @@ export function MemberProfileCard({
                   ))}
                 </ul>
               </div>
-            ) : null}
-
-            {groupCode && uid ? (
-              <QQGroupMemberControls key={`${groupCode}:${uid}`} groupCode={groupCode} uid={uid} />
             ) : null}
 
             {/* 个性主页 / 互动标识都要拿 QQ 号去查——profile 还没到或没 uin 时不给入口。
