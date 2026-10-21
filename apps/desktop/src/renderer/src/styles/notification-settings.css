@@ -1,0 +1,10 @@
+.weq-toast-duration-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-toast-duration-control .weq-set-input {
+  width: 7rem;
+  min-width: 0;
+}

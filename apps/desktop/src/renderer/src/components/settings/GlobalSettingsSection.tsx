@@ -35,6 +35,7 @@ import { useToast } from '../Toast';
 import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
+import { ToastSettingsCard } from './ToastSettingsCard';
 import { DesktopOnly, IS_WEB } from '../../lib/target';
 import '../../styles/save-preferences.css';
 
@@ -364,6 +365,7 @@ export function GlobalSettingsSection({
       {/* Window close behavior */}
       {section === 'general' && (
         <>
+          <ToastSettingsCard />
           <DesktopOnly>
             <Card title="窗口">
               <Row

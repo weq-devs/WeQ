@@ -11,7 +11,7 @@ import { BootstrapView } from './views/BootstrapView';
 import { MainView } from './views/MainView';
 import { DialogHost } from './components/Dialog';
 import { HoverTooltip } from './components/HoverTooltip';
-import { ToastHost } from './components/Toast';
+import { ToastHost, useToast } from './components/Toast';
 import { DbRepairReturnOverlay } from './components/DbRepairReturnOverlay';
 import { DbRepairWindowHost } from './components/DbRepairWindow';
 import { WelcomeDialog } from './components/WelcomeDialog';
@@ -58,6 +58,10 @@ function TextMarkdownProvider({ children }: { children: ReactNode }): ReactEleme
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
+  useEffect(() => {
+    if (settings.data?.toastDurations)
+      useToast.getState().setDurations(settings.data.toastDurations);
+  }, [settings.data?.toastDurations]);
   return (
     <TextMarkdownContext.Provider value={settings.data?.renderTextMarkdown ?? true}>
       <LinkPreviewContext.Provider value={settings.data?.linkPreview?.enabled ?? true}>

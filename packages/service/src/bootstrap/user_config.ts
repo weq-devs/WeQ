@@ -41,6 +41,11 @@ import {
   type QzonePaginationSettings,
 } from '../common/qzone_pagination';
 import { normalizeGroupKeywordRules } from '../account/group_keyword';
+import {
+  DEFAULT_TOAST_DURATIONS,
+  normalizeToastDurations,
+  type ToastDurations,
+} from '../common/toast_settings';
 
 export interface AutoEnterTarget {
   configId: string;
@@ -427,6 +432,8 @@ export interface LinkPreviewConfig {
 }
 
 export interface AppSettings {
+  /** 横幅完成态停留秒数，-1 表示不自动关闭。 */
+  toastDurations: ToastDurations;
   exportSaveMode: import('../account/export/save_output').ExportSaveMode;
   realtimeEnabled: boolean;
   /**
@@ -691,6 +698,7 @@ export type { GroupKeywordRules } from '../account/group_keyword';
 export { normalizeGroupKeywordRules } from '../account/group_keyword';
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
+  toastDurations: { ...DEFAULT_TOAST_DURATIONS },
   exportSaveMode: 'before',
   realtimeEnabled: true,
   // 默认关闭：是否扫描 QQ 内存由首次运行欢迎框征得同意后再打开，见
@@ -1193,6 +1201,7 @@ export class UserConfigService {
       s?.suppressAttachHint ?? legacySuppressAttachHint ?? d.suppressAttachHint;
     return {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
+      toastDurations: normalizeToastDurations(s?.toastDurations),
       exportSaveMode:
         s?.exportSaveMode === 'before' ||
         s?.exportSaveMode === 'preset' ||
@@ -1295,6 +1304,7 @@ export class UserConfigService {
     // 不再按平台归一化 —— macOS 也能读内存（需 root + 关 SIP），由用户自己选。
     const autoAttachQq = patch.autoAttachQq ?? current.autoAttachQq;
     const next: AppSettings = {
+      toastDurations: normalizeToastDurations(patch.toastDurations, current.toastDurations),
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,

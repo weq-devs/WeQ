@@ -265,6 +265,8 @@ it('只停止一个目标，不跳转也不停止其他群；所有队列结束�
     expect(document.querySelector('[data-forward-target="second"]')?.textContent).toContain(
       '转发完成',
     );
+    await act(async () => vi.advanceTimersByTimeAsync(3500));
+    expect(document.querySelector('[data-forward-target="second"]')).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
   } finally {
     task?.controller.abort();
@@ -406,13 +408,12 @@ it('先展示预估，卸载配置窗仍转发，等待与完成时均可点击�
     expect(document.querySelector('.weq-forward-time')?.textContent).toContain('已进行 7 秒');
     expect(document.querySelector('.weq-forward-count')?.textContent).toContain('2 / 2 条');
     expect(document.querySelector('.weq-toast button[aria-label="关闭"]')).not.toBeNull();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(60000);
-    });
     expect(document.querySelector('.weq-toast')).not.toBeNull();
-    expect(document.querySelector('.weq-toast-footer')).toBeNull();
+    expect(document.querySelector('.weq-toast-footer')).not.toBeNull();
     act(() => document.querySelector<HTMLButtonElement>('.weq-toast-open')!.click());
     expect(open).toHaveBeenCalledWith(target);
+    await act(async () => vi.advanceTimersByTimeAsync(3500));
+    expect(document.querySelector('.weq-toast')).toBeNull();
   } finally {
     act(() => root.unmount());
     host.remove();
