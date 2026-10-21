@@ -125,6 +125,8 @@ export {
   parseApiUsage,
   isApiCancellation,
   apiErrorMessage,
+  ApiHttpError,
 } from './api_usage';
+export { isUnsupportedTemperature } from './temperature_fallback';
 export { CLONE_GENERATION, CLONE_GENERATION_KEYS, normalizeCloneGeneration } from './generation';
 export type { AgentLabGenerationConfig, CloneGenerationKey } from './generation';

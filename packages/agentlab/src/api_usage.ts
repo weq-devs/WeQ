@@ -1,5 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentLabEndpoint, AgentLabUsage } from './types';
+import {
+  isUnsupportedTemperature,
+  readParameterRejection,
+  withoutTemperature,
+} from './temperature_fallback';
+
+export class ApiHttpError extends Error {
+  constructor(
+    path: string,
+    readonly status: number,
+    readonly detail: string,
+  ) {
+    super(`接口 ${path} 返回 HTTP ${status}${detail ? `：${detail}` : ''}`);
+  }
+}
 
 function count(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
@@ -85,12 +100,29 @@ export async function fetchApi(
   path: string,
   init: RequestInit,
   stream = false,
-) {
+): Promise<{
+  response: Response;
+  usage: ReturnType<typeof beginApiUsage>;
+  temperatureOmitted: boolean;
+}> {
   init.signal?.throwIfAborted();
   const usage = beginApiUsage(endpoint, stream);
   try {
     const response = await fetch(`${endpoint.baseUrl}${path}`, init);
-    return { response, usage };
+    const mayRejectParameter = [400, 422].includes(response.status);
+    const fallback = mayRejectParameter ? withoutTemperature(path, init) : null;
+    if (fallback) {
+      const rejection = await readParameterRejection(response);
+      init.signal?.throwIfAborted();
+      if (isUnsupportedTemperature(rejection, response.status)) {
+        usage.report(rejection);
+        usage.finish('failed');
+        await response.body?.cancel().catch(() => {});
+        const retry = await fetchApi(endpoint, path, fallback, stream);
+        return { ...retry, temperatureOmitted: true };
+      }
+    }
+    return { response, usage, temperatureOmitted: false };
   } catch (error) {
     usage.finish(isApiCancellation(error, init.signal) ? 'cancelled' : 'failed');
     throw error;
@@ -102,7 +134,7 @@ export async function requestApiJson<T>(
   path: string,
   init: RequestInit,
 ): Promise<T> {
-  const { response, usage } = await fetchApi(endpoint, path, init);
+  const { response, usage, temperatureOmitted } = await fetchApi(endpoint, path, init);
   try {
     if (!response.ok) {
       const text = await response.text().catch(() => '');
@@ -110,12 +142,21 @@ export async function requestApiJson<T>(
       try {
         usage.report(JSON.parse(text));
       } catch {}
-      throw new Error(`接口 ${path} 返回 HTTP ${response.status}${detail ? `：${detail}` : ''}`);
+      throw new ApiHttpError(path, response.status, detail);
     }
     const data: unknown = await response.json();
     usage.report(data);
-    const error = apiErrorMessage(data);
-    if (error) throw new Error(`模型服务错误：${error}`);
+    const temperatureRejected = isUnsupportedTemperature(data, response.status);
+    const error =
+      apiErrorMessage(data) ?? (temperatureRejected ? apiErrorMessage({ error: data }) : null);
+    if (error || temperatureRejected) {
+      const fallback = temperatureOmitted ? null : withoutTemperature(path, init);
+      if (fallback && temperatureRejected) {
+        usage.finish('failed');
+        return await requestApiJson<T>(endpoint, path, fallback);
+      }
+      throw new Error(`模型服务错误：${error ?? '模型不支持温度参数'}`);
+    }
     usage.finish('success');
     return data as T;
   } catch (error) {
