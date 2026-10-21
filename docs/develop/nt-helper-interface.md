@@ -110,15 +110,30 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 
 ### 3.2 ptlogin2 凭据与邮箱会话
 
-ptlogin2 的 **HTTP 流程只有 native 这一份实现**：`xlogin` → `pt_get_uins` →
-`pt_get_st` → `jump` → `check_sig`，以及邮箱的 `jump` → `check_sig` →
-`/login/login` → `sid`。TS 侧只负责选域、缓存和业务编排，不要再自己发
-xlogin / jump 请求或解析 JSONP。
+凭据获取的 **HTTP 流程只有 native 这一份实现**，TS 侧只负责选域、缓存和业务编排，
+不要自己发 xlogin / jump 请求或解析 JSONP。
+
+**取票顺序：OIDB 优先、本地 pt_login 兜底。** 本地快速登录端口
+（`xlogin` → `pt_get_uins` → `pt_get_st` → `jump` → `check_sig`）在账号安全等级
+不足 / 需要手机确认时会直接返回 `403`，且各平台监听情况不一；clientKey 走的
+OIDB `0x102a_1` 复用的是同机 QQ 已在维持的会话，更稳定、更普适。
+
+`ptFetchCredentials` 的三级链路：
+
+1. `clientKey`（OIDB `0x102a_1` 为主、本地端口兜底）→ ptlogin2 `jump`，沿途收下
+   整条 302 链的 cookie jar。这一级同时给出域无关的 `skey`、目标域的 `p_skey` 和
+   含风控 cookie 的完整 `cookie`。
+2. 本地 pt_login 端口跑完整登录流程（固定四域 / 邮箱）。
+3. OIDB `0x102a_0` 只取 `p_skey`（拿不到 `skey`，也没有风控 cookie）。
+
+任一级拿到 `p_skey` 即返回；全部失败时 `msg` 会**逐级累积**各自的失败原因，不再
+只报最后一步。未注入 / 未登记 `setSsoSession` 时第 1、3 级会立即报错（不是超时），
+此时只能靠第 2 级的本地端口。
 
 | JS 函数 | 参数 | 返回 | 说明 |
 | ---- | ---- | ---- | ---- |
-| `ptFetchCredentials(pid, uin, domain)` | `pid` / `uin` / 目标域 | `Promise<PtCredentialsResult>` | 固定四域（`qun.qq.com` / `qzone.qq.com` / `pd.qq.com` / `vip.qq.com`）与邮箱走本机 ptlogin2；其他域先 clientKey jump，失败回退 OIDB `0x102a_0`。 |
-| `ptFetchClientKey(pid, uin)` | `pid` / `uin` | `Promise<PtClientKeyResult>` | 本机快速登录优先，失败回退 OIDB `0x102a_1`。 |
+| `ptFetchCredentials(pid, uin, domain)` | `pid` / `uin` / 目标域 | `Promise<PtCredentialsResult>` | 三级链路（clientKey jump → 本地 ptlogin2 → OIDB `0x102a_0`），固定四域与任意域一致；邮箱域走第 2 / 3 级取面板 `p_skey`。 |
+| `ptFetchClientKey(pid, uin)` | `pid` / `uin` | `Promise<PtClientKeyResult>` | OIDB `0x102a_1` 优先，失败回退本机快速登录端口。 |
 | `ptFetchJumpUrl(pid, uin, landingUrl)` | `pid` / `uin` / https 落地页 | `Promise<PtJumpUrlResult>` | 生成一次性免登录跳转地址；`clientKey` 只应在本次点击使用。 |
 | `ptFetchMailSession(pid, uin)` | `pid` / `uin` | `Promise<PtMailSessionResult>` | 邮箱登录：优先使用客户端 delegateCode → `auth_type=7` → `sid`，兼容 ptlogin，并返回独立提醒票据 `panelPskey` 和可灌入 CookieJar 的 `cookie`。 |
 

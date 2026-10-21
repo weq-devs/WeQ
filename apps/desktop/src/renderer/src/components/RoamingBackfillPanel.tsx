@@ -615,9 +615,7 @@ export function RoamingBackfillPanel({
                         checked={beforeOldest}
                         onChange={(e) => setBeforeOldest(e.target.checked)}
                       />
-                      <span>
-                        包含最早本地锚点之前的区间
-                      </span>
+                      <span>包含最早本地锚点之前的区间</span>
                     </label>
                   </div>
                 </div>
