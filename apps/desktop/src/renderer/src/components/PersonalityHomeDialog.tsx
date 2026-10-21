@@ -31,6 +31,7 @@ import {
 } from '../lib/resourceUrl';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { trpc } from '../trpc/client';
+import { ProfileLikeAction } from './qq-actions/ProfileLikeAction';
 import botCardUrl from '@resources/img/bot.png';
 
 /**
@@ -256,6 +257,12 @@ export function PersonalityHomeDialog({
                 <strong>{formatLikeCount(stats.data.likeCount)}</strong>
                 <span>获赞</span>
               </span>
+            </div>
+          ) : null}
+
+          {!isBot && uid ? (
+            <div className="weq-profile-actions">
+              <ProfileLikeAction uid={uid} uin={uin} name={profile.name} />
             </div>
           ) : null}
 

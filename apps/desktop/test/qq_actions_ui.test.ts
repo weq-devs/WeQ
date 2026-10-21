@@ -25,6 +25,8 @@ import { FavoriteActions } from '../src/renderer/src/components/qq-actions/Favor
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { GroupJoinAction } from '../src/renderer/src/components/qq-actions/GroupJoinAction';
 import { GroupActions, GroupTodos } from '../src/renderer/src/components/qq-actions/GroupActions';
+import { ProfileLikeAction } from '../src/renderer/src/components/qq-actions/ProfileLikeAction';
+import { PROFILE_LIKE_MAX_PER_REQUEST } from '@weq/protocol';
 import { GroupAnnouncementsDialog } from '../src/renderer/src/components/GroupAnnouncementsDialog';
 import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupInfoPanel';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
@@ -57,6 +59,7 @@ const state = vi.hoisted(() => ({
   refreshSigns: vi.fn(async () => {}),
   refreshTodos: vi.fn(async (_input?: unknown) => {}),
   refreshJoin: vi.fn(async () => {}),
+  refreshPeerStats: vi.fn(async () => {}),
   data: {} as Record<string, unknown>,
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
@@ -108,6 +111,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     'join',
     'inputStatus',
     'inlineButton',
+    'profileLike',
   ];
   const reads = [
     'fileSummary',
@@ -150,6 +154,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     trpc: {
       useUtils: () => ({
         account: {
+          dressup: { peerStats: { invalidate: state.refreshPeerStats } },
           listBuddyRequests: { invalidate: async () => {} },
           listGroupNotifies: { invalidate: async () => {} },
           qqActions: {
@@ -198,6 +203,7 @@ function captureManagement(host: HTMLElement, name: string) {
     'page-chrome',
     'qq-actions',
     'qq-management',
+    'profile-like',
     'group-content-management',
     'conversation-actions',
     'profile-avatar',
@@ -258,6 +264,7 @@ beforeEach(() => {
   state.refreshSigns.mockClear();
   state.refreshTodos.mockClear();
   state.refreshJoin.mockClear();
+  state.refreshPeerStats.mockClear();
   state.data = {
     groupPermissions: { canManage: true, role: 'admin', selfUin: '10001' },
     fileSummary: { fileCount: 1, maxCount: 100, usedSpace: 10, totalSpace: 1000 },
@@ -278,6 +285,68 @@ afterEach(() => {
 });
 
 describe('QQ 主动操作的实际界面', () => {
+  it('资料卡点赞先选次数再提交，取消不写，提交后只刷新目标统计', async () => {
+    const f = fixture(() =>
+      h(ProfileLikeAction, { uid: 'u_friend', uin: '10002', name: '合成好友' }),
+    );
+    await act(async () => f.button('赞资料卡').click());
+    const count = f.host.querySelector<HTMLInputElement>('[aria-label="资料卡点赞次数"]')!;
+    expect(count.value).toBe('1');
+    expect(count.max).toBe(String(PROFILE_LIKE_MAX_PER_REQUEST));
+    expect(state.mutate).not.toHaveBeenCalled();
+    value(f.host, '资料卡点赞次数', '3');
+    captureManagement(f.host.querySelector<HTMLElement>('[role="dialog"]')!, 'profile-like');
+    await act(async () => f.button('关闭资料卡点赞').click());
+    expect(state.mutate).not.toHaveBeenCalled();
+    await act(async () => f.button('赞资料卡').click());
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="资料卡点赞次数"]')!.value).toBe(
+      '1',
+    );
+    value(f.host, '资料卡点赞次数', '3');
+    await act(async () =>
+      f.host
+        .querySelector('form')!
+        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+    );
+    expect(state.mutate).toHaveBeenCalledWith('profileLike', {
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      uid: 'u_friend',
+      count: 3,
+    });
+    expect(state.refreshPeerStats).toHaveBeenCalledWith({ uin: '10002', uid: 'u_friend' });
+  });
+  it('资料卡点赞拒绝非法次数，离线不可写，同号换来源或换目标不沿用草稿', async () => {
+    let target = { uid: 'u_friend', uin: '10002', name: '合成好友' };
+    const f = fixture(() => h(ProfileLikeAction, target));
+    await act(async () => f.button('赞资料卡').click());
+    for (const count of ['', '0', '1.5', String(PROFILE_LIKE_MAX_PER_REQUEST + 1)]) {
+      value(f.host, '资料卡点赞次数', count);
+      expect(f.button('提交资料卡点赞').disabled).toBe(true);
+    }
+    value(f.host, '资料卡点赞次数', '4');
+    state.available = false;
+    f.update();
+    expect(f.button('提交资料卡点赞').disabled).toBe(true);
+    state.available = true;
+    state.configId = 'source-b';
+    f.update();
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="资料卡点赞次数"]')!.value).toBe(
+      '1',
+    );
+    target = { uid: 'u_other', uin: '10003', name: '其他人' };
+    f.update();
+    expect(f.host.querySelector('form')).toBeNull();
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('本人和没有真实 UID 的资料卡不显示点赞入口', () => {
+    const f = fixture(() => h(ProfileLikeAction, { uid: 'u_self', uin: '10001', name: '自己' }));
+    expect(f.button('赞资料卡')).toBeNull();
+    const missing = fixture(() =>
+      h(ProfileLikeAction, { uid: '10002', uin: '10002', name: '缺 UID' }),
+    );
+    expect(missing.button('赞资料卡')).toBeNull();
+  });
   it('创建群待办后刷新同账号同群列表，再关闭菜单', async () => {
     const demo = createTemplateDemoData();
     const group = demo.conversations.find((row) => row.type === 'group')!;

@@ -1,0 +1,55 @@
+.weq-profile-like-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  color: var(--weq-fg-primary);
+}
+
+.weq-profile-like-dialog header,
+.weq-profile-like-controls,
+.weq-profile-like-controls label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.weq-profile-like-dialog header h3 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.weq-profile-like-controls label {
+  flex: 1;
+  font-size: 13px;
+}
+
+.weq-profile-like-controls input {
+  width: 88px;
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  font: inherit;
+  accent-color: var(--weq-accent-effective);
+}
+
+.weq-profile-like-controls input:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-profile-like-dialog p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}

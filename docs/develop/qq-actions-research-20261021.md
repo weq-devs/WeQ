@@ -34,3 +34,33 @@
 
 - 现有 `qqDynamic` 元素已支持 JSON `jump_schema` → `mqqapi://qzoneschema` → `mqzone://arouse/detail` 的 `appid=311` 说说目标，并已有组件点击回归。
 - 这不覆盖所有系统消息载荷。下一步需要定位用户所指失败卡片的具体元素类型和脱敏载荷，不能从「动态」文案或发布者 QQ 号猜测跳转目标。
+
+## 群相册 Ark 与评论卡片
+
+- 当前 `QqArk` 的通用外壳仅将已识别的个人空间永久链接交给 `QzoneCardNavigationContext`，并没有群相册的已确认载荷解析与导航契约；`GroupAlbumDialog` 的浏览和互动入口不能证明聊天卡片也已接通。
+- 已核对仓库内 Ark 样本与生成绑定表，未找到足以确定本项群号、相册 ID、媒体 ID、动态／评论定位关系的样本。不能将个人空间的 `appid=4` 相册目标套用到群相册，也不能使用外层会话群号覆盖卡片自己的目标。
+- 保留未完成。需要正常权限下的实际卡片脱敏载荷，分别核对相册卡与评论卡，补相应失败用例后再接内部浏览和互动。
+
+## 资料卡点赞
+
+### 协议与代码
+
+- 两份一手实现一致：`0x7E5_104`，内层 tag 11 是目标 UID 字符串，tag 12 是来源标记 `71`，tag 13 是单次次数。不是 QQ 号／UIN 形态；沿用现有签名白名单判定，不增加 native 能力。
+- `SendProfileLike` 在发包前校验 UID 和 1–20 的整数次数。1–20 取自参考实现的单次批量范围，不将其当成已验收的每日额度；不拆成多次循环请求，不自动重发。
+- 既有 native 传输负责核验 OIDB 外层错误码。已核验外层且内层为空时返回 `accepted`；非空、尚未建模的内层保持 `unconfirmed`。原生业务拒绝原样上抛，不猜测未知错误码含义。
+- `PeerStatsService.sendLike` 复用现有账号发包；桌面路由使用原有账号／PID 绑定与在途互斥，并拒绝给本人点赞。
+- 好友资料、成员资料和个性主页共用入口；打开编辑器不发送，默认 1 次，确认提交才发包，换目标销毁编辑器，同号换来源清空次数草稿。本人、机器人或没有真实 UID 时不展示入口。
+- 提交后刷新对应目标的既有累计获赞查询，不乐观加数。累计获赞查询核对响应 UID，不能把他人的统计显示在本卡片；统计刷新不提升写入的确认等级。
+
+### 证据与未验收部分
+
+- [SnowLuma SendLike（固定版本）](https://github.com/SnowLuma/SnowLuma/blob/db142db9e6398c779283eab9afc3552da1e2c361/packages/protocol/src/oidb-services/interaction/send-like.ts) 与 [字段定义](https://github.com/SnowLuma/SnowLuma/blob/db142db9e6398c779283eab9afc3552da1e2c361/packages/proto-defs/src/oidb-actions/base.ts)。仅借用协议事实，不引入其运行时。
+- [acidify SendProfileLike](https://github.com/LagrangeDev/acidify/blob/7eac98dec2f52176180f56b2146e5e89ddc02c7e/acidify-core/src/commonMain/kotlin/org/ntqqrev/acidify/internal/service/friend/SendProfileLike.kt)：交叉确认来源标记与请求结构。
+- 每日额度、会员差异、陌生人限制、实际成功响应及多端效果尚未真机验收，因此整项保持未勾选。现有 `0x7ED_12` 的累计获赞不是本发送者对该目标的剩余额度，也不是本次写入次数的权威回执。
+- 真机核验应先固定正常登录账号、目标 UID 与测试对象，手动提交 1 次并检查业务回执和接收端；次数限制读取与跨端显示另记，不用自动刷赞或穷尽额度作为测试方式。
+
+### 离线验证
+
+- 新增协议 3 项、服务 3 项通过；桌面 QQ 操作界面／路由、三个真实挂载入口、既有资料浮层与写会话结果共 116 项通过。
+- 协议、服务与桌面主进程／渲染层类型检查通过；修改文件 Biome 检查通过。未运行全量 CI。
+- 弹窗以 1280px 浅色、390px 深色、320px 浅色检查，换三种强调色并启用减少动态效果；长昵称换行、次数和图标按钮均在界内，无横向溢出。截图为离线组件检查，不证明真实写入。

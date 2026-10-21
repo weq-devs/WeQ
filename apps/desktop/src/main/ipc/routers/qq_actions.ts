@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { z } from 'zod';
-import { parseCustomFaceId, type GroupRequest } from '@weq/protocol';
+import { parseCustomFaceId, PROFILE_LIKE_MAX_PER_REQUEST, type GroupRequest } from '@weq/protocol';
 import { isIncomingPendingBuddyRequest } from '@weq/service/buddy-request';
 import {
   parseGroupShareLocation,
@@ -48,6 +48,7 @@ export type QQActionServices = Pick<
   | 'fileResource'
   | 'onlineStatus'
   | 'messageSend'
+  | 'peerStats'
 >;
 
 /** 不读任意渲染进程路径，只接受账号媒体或用户通过本应用选中的文件。 */
@@ -137,6 +138,18 @@ export function createQQActionsRouter(
     if (!permissions.canManage) throw new Error('此操作需要群主或管理员权限');
   }
   return router({
+    profileLike: procedure
+      .input(
+        binding.extend({ uid, count: z.number().int().min(1).max(PROFILE_LIKE_MAX_PER_REQUEST) }),
+      )
+      .mutation(async ({ input: i }) => {
+        let state: 'accepted' | 'unconfirmed' = 'unconfirmed';
+        await write(i, async (s) => {
+          if (s.accountWrite.selfIdentity().uid === i.uid) throw new Error('不能给自己点赞');
+          state = await s.peerStats.sendLike(i.uid, i.count);
+        });
+        return { state };
+      }),
     atAllMention: procedure.input(group).query(({ input: i }) =>
       read(i, async (s) => {
         const permissions = await groupPermissions(s, i.groupId);

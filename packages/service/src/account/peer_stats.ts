@@ -12,7 +12,7 @@
  */
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
-import { GetProfileLike, GetQqShowUrl, GetUserQqLevel } from '@weq/protocol';
+import { GetProfileLike, GetQqShowUrl, GetUserQqLevel, SendProfileLike } from '@weq/protocol';
 import type { QqShowInfo } from '@weq/protocol';
 
 export interface PeerStats {
@@ -42,7 +42,13 @@ export class PeerStatsService {
     const info = await GetProfileLike.invoke(this.nt, this.resolvePid(), {
       targetUid: uid,
     });
+    if (info.uid !== uid) throw new Error('资料卡获赞响应的目标 UID 不一致');
     return info.voteInfo.totalCount;
+  }
+
+  /** 不自动重试；累计获赞变化不是本次写入次数的独立证明。 */
+  async sendLike(uid: string, count: number): Promise<'accepted' | 'unconfirmed'> {
+    return SendProfileLike.invoke(this.nt, this.resolvePid(), { targetUid: uid, count });
   }
 
   /** 查目标 QQ 号的 QQ 秀形象（0xFE1_3，按 uin 查，返回透明全身像 URL）。 */

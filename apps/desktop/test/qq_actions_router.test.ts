@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { GroupFileListing } from '@weq/service';
-import type { GroupJoinInfo } from '@weq/protocol';
+import { PROFILE_LIKE_MAX_PER_REQUEST, type GroupJoinInfo } from '@weq/protocol';
 import { createQQActionsRouter, type QQActionServices } from '../src/main/ipc/routers/qq_actions';
 
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
@@ -133,6 +133,11 @@ function fixture() {
       editableExtendedStatuses: () => [{ value: 1018, label: '学习中' }],
     },
     messageSend: { sendFile: vi.fn(async (..._args: unknown[]) => ({ ok: false })) },
+    peerStats: {
+      sendLike: vi.fn(
+        async (_uid: string, _count: number): Promise<'accepted' | 'unconfirmed'> => 'accepted',
+      ),
+    },
   };
   const resolve = (b: typeof binding) => {
     if (
@@ -204,6 +209,41 @@ describe('加群方式读回', () => {
 });
 
 describe('主动操作的账号与参数边界', () => {
+  it('资料卡点赞校验 UID、次数和本人，未知回执不升级为成功', async () => {
+    const f = fixture();
+    const input = { ...binding, uid: 'u_friend', count: 1 };
+    await expect(f.caller.profileLike(input)).resolves.toEqual({ state: 'accepted' });
+    expect(f.s.peerStats.sendLike).toHaveBeenCalledWith('u_friend', 1);
+    f.s.peerStats.sendLike.mockResolvedValueOnce('unconfirmed');
+    await expect(f.caller.profileLike(input)).resolves.toEqual({ state: 'unconfirmed' });
+    for (const count of [0, -1, 1.5, PROFILE_LIKE_MAX_PER_REQUEST + 1])
+      await expect(f.caller.profileLike({ ...input, count })).rejects.toThrow();
+    await expect(f.caller.profileLike({ ...input, uid: '10002' })).rejects.toThrow();
+    await expect(f.caller.profileLike({ ...input, uid: 'u_self' })).rejects.toThrow('自己');
+    expect(f.s.peerStats.sendLike).toHaveBeenCalledTimes(2);
+    f.s.peerStats.sendLike.mockRejectedValueOnce(new Error('今日次数限制'));
+    await expect(f.caller.profileLike(input)).rejects.toThrow('今日次数限制');
+    f.switchAccount();
+    await expect(f.caller.profileLike(input)).rejects.toThrow('账号已切换');
+    expect(f.s.peerStats.sendLike).toHaveBeenCalledTimes(3);
+  });
+  it('资料卡点赞在途拒绝重复提交，不自动重试', async () => {
+    const f = fixture();
+    let finish!: (state: 'accepted') => void;
+    f.s.peerStats.sendLike.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const input = { ...binding, uid: 'u_friend', count: 1 };
+    const pending = f.caller.profileLike(input);
+    await vi.waitFor(() => expect(f.s.peerStats.sendLike).toHaveBeenCalledOnce());
+    await expect(f.caller.profileLike(input)).rejects.toThrow('等待');
+    finish('accepted');
+    await expect(pending).resolves.toEqual({ state: 'accepted' });
+    expect(f.s.peerStats.sendLike).toHaveBeenCalledOnce();
+  });
   it('普通成员可打卡，路由只用当前绑定目标，原生失败不上报受理', async () => {
     const f = fixture();
     f.s.groupInfo.listGroupDirectory.mockResolvedValue([{ groupCode: '123', role: 'member' }]);
