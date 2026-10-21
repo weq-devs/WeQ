@@ -65,7 +65,11 @@ export function QQWriteTextRow({
     return (
       <Row
         label={<QQWriteRowLabel icon={icon} label={label} />}
-        control={<span>{initial === null ? '尚未读取' : initial || '未设置'}</span>}
+        control={
+          <span className={`weq-qq-write-static${initial ? '' : ' is-empty'}`}>
+            {initial === null ? '尚未读取' : initial || '未设置'}
+          </span>
+        }
       />
     );
   const input = {
