@@ -2,6 +2,15 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import { EmojiPanel } from '../src/renderer/src/im-template/template/emojiPanel';
+vi.mock('../src/renderer/src/components/qq-actions/FavoriteBundleControls', () => ({
+  FavoriteBundleControls: () =>
+    h(
+      'div',
+      { role: 'toolbar', 'aria-label': '收藏表情导入导出' },
+      h('button', { type: 'button', 'aria-label': '导入收藏表情包' }),
+      h('button', { type: 'button', 'aria-label': '导出收藏表情包' }),
+    ),
+}));
 
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
@@ -45,6 +54,8 @@ describe('收藏表情面板', () => {
         root.render(h(EmojiPanel, { panelRef: { current: null }, onSelect, onSelectSuper })),
       );
       act(() => host.querySelector<HTMLButtonElement>('[aria-label="收藏"]')!.click());
+      expect(host.querySelector('[aria-label="导入收藏表情包"]')).not.toBeNull();
+      expect(host.querySelector('[aria-label="导出收藏表情包"]')).not.toBeNull();
       expect(host.querySelector('.emoji-cell img')?.getAttribute('src')).toContain('v=thumb');
       act(() => host.querySelector<HTMLButtonElement>('.emoji-cell')!.click());
       expect(onSelect).toHaveBeenCalledWith(

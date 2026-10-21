@@ -5,6 +5,7 @@ import { buildZip, readZipEntries } from '../src/common/zip';
 import {
   createFavoriteEmojiBundle,
   readFavoriteEmojiBundle,
+  readEmojiImportArchive,
   planFavoriteEmojiImport,
   FAVORITE_EMOJI_MANIFEST,
   FAVORITE_EMOJI_MAX_ITEMS,
@@ -38,6 +39,38 @@ function changeManifest(archive: Buffer, update: (value: ManifestFixture) => voi
 }
 
 describe('收藏表情往返包', () => {
+  it('普通图片 ZIP 可预览导入，按包内顺序去重，不把文件名伪装为已有备注', () => {
+    const archive = buildZip([
+      { name: '我的表情/a.png', data: png },
+      { name: '收到的表情/b.gif', data: gif },
+      { name: '收到的表情/c.png', data: png },
+      { name: 'readme.txt', data: Buffer.from('不作为表情导入') },
+      { name: '坏图.png', data: Buffer.from('invalid') },
+    ]);
+    const items = readEmojiImportArchive(archive);
+    expect(items.map((item) => item.position)).toEqual([1, 2, 3, 4]);
+    expect(items.every((item) => item.description === '')).toBe(true);
+    expect(items[0]!.image?.bytes).toEqual(png);
+    expect(items[1]!.image?.bytes).toEqual(gif);
+    expect(items[3]!.issue).toBeTruthy();
+    expect(planFavoriteEmojiImport(items, []).map((item) => item.disposition)).toEqual([
+      'ready',
+      'ready',
+      'duplicate',
+      'invalid',
+    ]);
+  });
+
+  it('有收藏清单时仍严格校验，清单损坏不退回普通图片 ZIP', () => {
+    const archive = buildZip([
+      { name: FAVORITE_EMOJI_MANIFEST, data: Buffer.from('{broken') },
+      { name: 'a.png', data: png },
+    ]);
+    expect(() => readEmojiImportArchive(archive)).toThrow();
+    expect(() => readEmojiImportArchive(buildZip([{ name: 'readme.txt', data: png }]))).toThrow(
+      '图片',
+    );
+  });
   it('按原始字节保留 PNG／GIF、备注与顺序，同图只存一次', async () => {
     const progress = vi.fn();
     const sources = [source(png, 3), source(gif, 1), source(png, 2)];

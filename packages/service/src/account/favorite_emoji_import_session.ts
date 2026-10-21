@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseCustomFaceId } from '@weq/protocol';
 import {
-  readFavoriteEmojiBundle,
+  readEmojiImportArchive,
   planFavoriteEmojiImport,
   type FavoriteEmojiBundleItem,
   type FavoriteEmojiImportDisposition,
@@ -76,7 +76,7 @@ export class FavoriteEmojiImportSession {
       const bytes = typeof archive === 'function' ? await archive() : archive;
       this.check();
       current();
-      const items = readFavoriteEmojiBundle(bytes);
+      const items = readEmojiImportArchive(bytes);
       const ids = await this.emoji.fetchOnlineFavoriteIds();
       this.check();
       current();

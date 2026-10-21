@@ -270,6 +270,37 @@ export function readFavoriteEmojiBundle(archive: Buffer): FavoriteEmojiBundleIte
   });
 }
 
+/** 普通图片 ZIP 复用相同预览与去重；存在收藏清单时不允许降级绕过清单校验。 */
+export function readEmojiImportArchive(archive: Buffer): FavoriteEmojiBundleItem[] {
+  if (archive.length > FAVORITE_EMOJI_MAX_ARCHIVE_BYTES) throw new Error('表情包体积超限');
+  const entries = readZipEntries(archive, {
+    maxEntries: FAVORITE_EMOJI_MAX_ITEMS * 2 + 1,
+    maxEntryBytes: FAVORITE_EMOJI_MAX_IMAGE_BYTES,
+    maxTotalBytes: FAVORITE_EMOJI_MAX_DATA_BYTES + FAVORITE_EMOJI_MAX_MANIFEST_BYTES,
+  });
+  if (entries.some((entry) => entry.name === FAVORITE_EMOJI_MANIFEST))
+    return readFavoriteEmojiBundle(archive);
+  const images = entries.filter((entry) => /\.(png|jpe?g|gif|webp|bmp|apng)$/i.test(entry.name));
+  if (!images.length) throw new Error('ZIP 中没有可导入的图片');
+  if (images.length > FAVORITE_EMOJI_MAX_ITEMS) throw new Error('图片条目数超限，请分批导入');
+  return images.map((entry, index) => {
+    const item: FavoriteEmojiBundleItem = {
+      key: `item-${index + 1}`,
+      emojiId: `archive:${index + 1}`,
+      description: '',
+      position: index + 1,
+      issue: null,
+      image: null,
+    };
+    try {
+      item.image = { ...imageInfo(entry.data), bytes: entry.data };
+    } catch (error) {
+      item.issue = error instanceof Error ? error.message : '图片无效';
+    }
+    return item;
+  });
+}
+
 /** 服务端以 MD5 标识收藏；包内额外以 SHA-256 核对内容，重复项不覆盖现有备注。 */
 export function planFavoriteEmojiImport(
   items: readonly FavoriteEmojiBundleItem[],
