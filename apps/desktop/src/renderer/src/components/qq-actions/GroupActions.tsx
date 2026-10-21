@@ -162,6 +162,8 @@ function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedd
     const r = await todos.refetch();
     if (r.error) throw r.error;
   };
+  const isEmpty = a.available && !todos.isFetching && !todos.error && todos.data?.length === 0;
+  if (embedded && isEmpty) return null;
   return (
     <section className="weq-notice-management weq-todo-content" aria-label="群待办列表">
       {!embedded ? (
@@ -184,8 +186,8 @@ function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedd
           {todos.error.message}
         </p>
       )}
-      {a.available && !todos.isFetching && !todos.error && todos.data?.length === 0 && (
-        <div className="group-announcements-empty">暂无群待办</div>
+      {a.available && isEmpty && (
+        <div className="group-announcements-empty weq-todo-empty">暂无群待办</div>
       )}
       <ul className="group-bulletins-list weq-todo-list">
         {todos.data?.map((t) => (
