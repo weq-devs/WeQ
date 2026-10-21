@@ -18,6 +18,8 @@ export type SectionId =
   | 'agentlab'
   | 'intent-sense'
   | 'intent-models'
+  | 'local-models'
+  | 'reply-suggestions'
   | 'voice'
   | 'tts'
   | 'ocr'
@@ -45,12 +47,10 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Secti
     sections: ['storage', 'media', 'database', 'database-status', 'maintenance'],
   },
   {
-    id: 'api-models',
-    label: 'API 与用量',
-    sections: ['agentlab', 'tts', 'model-usage'],
+    id: 'models',
+    label: '模型与识别',
+    sections: ['agentlab', 'model-usage', 'intent-sense', 'reply-suggestions', 'local-models'],
   },
-  { id: 'local-models', label: '本地模型', sections: ['voice', 'ocr', 'intent-models'] },
-  { id: 'intelligence', label: '智能功能', sections: ['intent-sense'] },
   { id: 'services', label: '服务与集成', sections: ['mcp', 'sse', 'rkey', 'daemon'] },
   { id: 'advanced', label: '高级与诊断', sections: ['credentials', 'diagnostics'] },
   { id: 'help', label: '帮助与关于', sections: ['help', 'logs', 'version', 'updates'] },
@@ -62,7 +62,7 @@ export interface SettingsScope {
 }
 
 export function settingsScopeFor(section: SectionId): SettingsScope | null {
-  if (['anti-recall', 'intent-sense', 'model-usage', 'mail'].includes(section))
+  if (['anti-recall', 'intent-sense', 'reply-suggestions', 'model-usage', 'mail'].includes(section))
     return { label: '当前账号' };
   if (section === 'database')
     return {
@@ -73,6 +73,16 @@ export function settingsScopeFor(section: SectionId): SettingsScope | null {
 }
 
 /** 旧分区 ID 继续有效，故障弹窗、维护返回与外部入口无需猜测新位置。 */
+export function settingsSectionFor(section: SectionId): SectionId {
+  if (section === 'voice' || section === 'ocr') return 'local-models';
+  if (section === 'intent-models') return 'intent-sense';
+  if (section === 'tts') return 'agentlab';
+  return section;
+}
+
 export function settingsGroupFor(section: SectionId) {
-  return SETTINGS_GROUPS.find((group) => group.sections.includes(section)) ?? SETTINGS_GROUPS[0]!;
+  return (
+    SETTINGS_GROUPS.find((group) => group.sections.includes(settingsSectionFor(section))) ??
+    SETTINGS_GROUPS[0]!
+  );
 }

@@ -52,6 +52,7 @@ import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
 import { IntentModelsSection } from './settings/IntentModelsSection';
+import { LocalModelsSection } from './settings/LocalModelsSection';
 import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTranscribeSection';
 import { OcrModelsSection } from './settings/OcrModelsSection';
 import { McpServerSection } from './settings/McpServerSection';
@@ -71,6 +72,7 @@ import {
   SETTINGS_GROUPS,
   settingsGroupFor,
   settingsScopeFor,
+  settingsSectionFor,
   type SectionId,
 } from './settings/navigation';
 export type { SectionId } from './settings/navigation';
@@ -199,7 +201,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'model-usage',
-    label: '用量统计',
+    label: 'API 用量',
     icon: <Activity size={16} />,
     render: () => <ModelUsageSection />,
   },
@@ -213,7 +215,26 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'agentlab',
     label: 'API 配置',
     icon: <Bot size={16} strokeWidth={1.8} />,
-    render: () => <AgentLabSection />,
+    render: () => (
+      <>
+        <AgentLabSection />
+        <div className="weq-set">
+          <TtsProvidersCard />
+        </div>
+      </>
+    ),
+  },
+  {
+    id: 'local-models',
+    label: '语音与图片识别',
+    icon: <HardDrive size={16} strokeWidth={1.8} />,
+    render: () => <LocalModelsSection />,
+  },
+  {
+    id: 'reply-suggestions',
+    label: '推荐回复',
+    icon: <BrainCircuit size={16} strokeWidth={1.8} />,
+    render: () => <IntentSenseSection page="suggestions" />,
   },
   {
     id: 'intent-models',
@@ -345,7 +366,9 @@ export function SettingsDialog({
   onOpenMaintenance: (tool: MaintenanceTool) => void;
   onOpenRecalls: (kind: 'c2c' | 'group', conv: string) => void;
 }): ReactElement | null {
-  const [activeId, setActiveId] = useState<SectionId>(() => initialSection ?? 'global');
+  const [activeId, setActiveId] = useState<SectionId>(() =>
+    settingsSectionFor(initialSection ?? 'global'),
+  );
   const navRef = useRef<HTMLElement | null>(null);
   const subnavRef = useRef<HTMLElement | null>(null);
   const sections = SETTINGS_SECTIONS;
@@ -353,7 +376,7 @@ export function SettingsDialog({
   const groupSections = group.sections.map((id) => sections.find((section) => section.id === id)!);
 
   useEffect(() => {
-    if (open && initialSection) setActiveId(initialSection);
+    if (open && initialSection) setActiveId(settingsSectionFor(initialSection));
   }, [open, initialSection]);
 
   useEffect(() => {
@@ -435,6 +458,11 @@ export function SettingsDialog({
                     onOpenRecalls(kind, conv);
                   }}
                 />
+              ) : active.id === 'local-models' ? (
+                <LocalModelsSection
+                  key={initialSection}
+                  initialKind={initialSection === 'ocr' ? 'ocr' : 'voice'}
+                />
               ) : (
                 active.render(onOpenMaintenance)
               )}
@@ -451,7 +479,7 @@ function ModelUsageSection(): ReactElement {
   const names = new Map((personas.data ?? []).map((persona) => [persona.id, persona.name]));
   return (
     <div className="weq-settings-model-usage">
-      <SectionHeader title="模型使用统计" />
+      <SectionHeader title="API 用量" />
       <UsagePanel
         personaCount={names.size}
         resolveName={(id) => names.get(id) ?? '已删除的克隆'}

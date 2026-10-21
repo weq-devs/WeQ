@@ -5,7 +5,7 @@ import { useDialog } from '../Dialog';
 import { Card, Row, SectionHeader } from './controls';
 
 /** 全局资源管理与按账号的意图功能开关分开，未打开账号也可以下载。 */
-export function IntentModelsSection(): ReactElement {
+export function IntentModelsSection({ embedded = false }: { embedded?: boolean }): ReactElement {
   const utils = trpc.useUtils();
   const showError = useDialog((s) => s.showError);
   const resources = trpc.bootstrap.localModelResources.useQuery();
@@ -63,9 +63,9 @@ export function IntentModelsSection(): ReactElement {
   }
 
   return (
-    <div className="weq-set">
-      <SectionHeader icon={<BrainCircuit size={18} />} title="意图模型" />
-      <Card title="共享模型资源">
+    <div className={embedded ? undefined : 'weq-set'}>
+      {!embedded ? <SectionHeader icon={<BrainCircuit size={18} />} title="意图模型" /> : null}
+      <Card title="意图模型资源（全局）">
         <Row
           label="当前模型"
           control={

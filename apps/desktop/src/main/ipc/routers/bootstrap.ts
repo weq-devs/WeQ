@@ -1312,7 +1312,7 @@ export const bootstrapRouter = router({
     return true;
   }),
 
-  // ---- local OCR models (设置 → 本地模型 → 图片识别模型) ----
+  // ---- local OCR models (设置 → 模型与识别 → 语音与图片识别) ----
   //
   // 和上面语音那一组同构：同一套「注册表 + 下载 + 进度事件」。引擎（onnxruntime +
   // PP-OCR 后处理）在 app 侧（`main/ocr/`），这里只管模型的下载与落盘。
