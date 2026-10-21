@@ -147,6 +147,42 @@ html[data-theme='dark'] .weq-qq-write-face-trigger {
 .weq-qq-write-panel .weq-set-row:has(.weq-qq-write-custom) {
   align-items: flex-start;
 }
+/* 工具条：状态灯一样的小圆点 + 服务器回读入口，与卡片里的行对齐。 */
+.weq-qq-write-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.weq-qq-write-status > svg {
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
+/* 「查询服务端状态」不再是卡片里的独立分区：压成一行，和上面的状态行同一节奏。 */
+.weq-qq-write-panel .weq-qq-live-status {
+  margin: 0;
+  padding: 0;
+  border-top: 0;
+}
+.weq-qq-write-panel .weq-qq-live-status .weq-qq-action-bar {
+  justify-content: flex-start;
+}
+.weq-qq-live-status-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-qq-live-status-label > svg {
+  color: var(--weq-fg-muted);
+}
+.weq-qq-live-status-value {
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+}
+
 .weq-qq-write-result {
   margin: 8px 0 12px;
   font-size: 12px;

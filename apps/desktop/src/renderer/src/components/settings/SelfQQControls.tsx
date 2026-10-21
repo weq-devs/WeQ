@@ -1,5 +1,23 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { ChevronDown, ImageUp, Loader2, RefreshCw, Save, Smile, X } from 'lucide-react';
+import {
+  Activity,
+  AtSign,
+  ChevronDown,
+  CircleDot,
+  ContactRound,
+  IdCard,
+  ImageUp,
+  Loader2,
+  PersonStanding,
+  RefreshCw,
+  Save,
+  Signature,
+  Smile,
+  UserPen,
+  Wifi,
+  WifiOff,
+  X,
+} from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
@@ -150,7 +168,14 @@ export function SelfQQControls() {
   return (
     <section className="weq-qq-write-panel" aria-label="QQ 资料与状态">
       <div className="weq-qq-write-toolbar">
-        <span>{session.available ? 'QQ 在线' : 'QQ 在线能力未就绪'}</span>
+        <span className="weq-qq-write-status">
+          {session.available ? (
+            <Wifi size={13} strokeWidth={2} aria-hidden />
+          ) : (
+            <WifiOff size={13} strokeWidth={2} aria-hidden />
+          )}
+          {session.available ? 'QQ 在线' : 'QQ 在线能力未就绪'}
+        </span>
         {profile.error && (
           <button
             type="button"
@@ -173,8 +198,8 @@ export function SelfQQControls() {
       </div>
       {error && <p role="alert">{error}</p>}
       <div key={`${session.binding?.expectedAccountConfigId}:${revision}`}>
-        <Card title="QQ 资料">
-          <div className="weq-self-profile-header" role="group" aria-label="个人资料概览">
+        <Card title="QQ 资料" icon={<ContactRound size={15} strokeWidth={1.9} />}>
+          <div className="weq-self-profile-overview" role="group" aria-label="个人资料概览">
             <button
               type="button"
               className="weq-self-profile-avatar"
@@ -195,7 +220,10 @@ export function SelfQQControls() {
             </button>
             <div className="weq-self-profile-identity">
               <strong>{ownProfile?.nick || 'QQ 资料'}</strong>
-              <span>QQ {session.binding?.expectedAccountUin ?? '尚未读取'}</span>
+              <span className="weq-self-profile-uin">
+                <IdCard size={12} strokeWidth={1.9} aria-hidden />
+                QQ {session.binding?.expectedAccountUin ?? '尚未读取'}
+              </span>
             </div>
           </div>
           {!ownProfile && (
@@ -206,6 +234,7 @@ export function SelfQQControls() {
           <div className="weq-self-profile-basics" role="group" aria-label="基本资料编辑">
             <QQWriteTextRow
               label="QQ 昵称"
+              icon={<UserPen size={14} strokeWidth={1.8} />}
               allowEmpty={false}
               initial={ownProfile?.nick ?? null}
               maxLength={256}
@@ -216,6 +245,7 @@ export function SelfQQControls() {
             />
             <QQWriteSelectRow
               label="性别"
+              icon={<PersonStanding size={14} strokeWidth={1.8} />}
               initial={ownProfile?.gender ?? null}
               disabled={disabled}
               options={[
@@ -233,6 +263,7 @@ export function SelfQQControls() {
           <div className="weq-self-profile-signature" role="group" aria-label="签名编辑">
             <QQWriteTextRow
               label="个性签名"
+              icon={<Signature size={14} strokeWidth={1.8} />}
               initial={ownProfile?.signature ?? null}
               multiline
               maxLength={4096}
@@ -250,7 +281,7 @@ export function SelfQQControls() {
             {profileFeedback && <QQWriteResult result={result} />}
           </div>
         </Card>
-        <Card title="QQ 状态">
+        <Card title="QQ 状态" icon={<Activity size={15} strokeWidth={1.9} />}>
           {profile.data?.statusError && (
             <p role="alert">状态读取失败：{profile.data.statusError}</p>
           )}
@@ -258,6 +289,7 @@ export function SelfQQControls() {
           {!profileFeedback && <QQWriteResult result={result} />}
           <QQWriteSelectRow
             label="在线状态"
+            icon={<CircleDot size={14} strokeWidth={1.8} />}
             initial={profile.data?.status?.type ?? null}
             options={profile.data?.statusOptions ?? []}
             disabled={disabled}
@@ -273,7 +305,12 @@ export function SelfQQControls() {
             }}
           />
           <Row
-            label="自定义状态"
+            label={
+              <span className="weq-set-row-icon">
+                <AtSign size={14} strokeWidth={1.8} aria-hidden />
+                自定义状态
+              </span>
+            }
             control={
               <div className="weq-qq-write-custom">
                 <div className="weq-qq-write-custom-line">

@@ -1,4 +1,6 @@
-.weq-self-profile-header {
+/* 资料概览行（头像 + 昵称 / QQ 号）。**不要**复用 `.weq-self-profile-header`：
+   那个类名是弹窗标题栏的，两份 CSS 的 padding / 字体互相串味。 */
+.weq-self-profile-overview {
   display: flex;
   align-items: center;
   gap: 16px;
@@ -57,6 +59,15 @@
 .weq-self-profile-identity > span {
   font-size: 12px;
   color: var(--weq-fg-muted);
+}
+.weq-self-profile-identity .weq-self-profile-uin {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.weq-self-profile-identity .weq-self-profile-uin > svg {
+  flex: none;
+  color: var(--weq-fg-tertiary);
 }
 .weq-self-profile-basics {
   display: grid;

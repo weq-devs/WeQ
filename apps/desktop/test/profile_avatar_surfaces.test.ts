@@ -246,6 +246,14 @@ describe('跨页面头像名片', () => {
     const exported = fixture(h(PersonWeekCard, { name: target.name, weekly: [5], count: 5 }));
     expect(exported.host.querySelector('button')).toBeNull();
   });
+  it('拿不到头像时用默认头像，而不是昵称首字', () => {
+    const f = fixture(h(PersonWeekCard, { name: '合成人物', weekly: [5], count: 5 }));
+    const avatar = f.host.querySelector('.ca-person-avatar .avatar')!;
+    expect(avatar.classList.contains('has-default')).toBe(true);
+    // 默认头像是 SVG 占位，不再把昵称第一个字直接铺在圆底上。
+    expect(avatar.querySelector('svg')).not.toBeNull();
+    expect(avatar.textContent).toBe('');
+  });
   it('入群批次成员与最活跃成员均可查看，导出不含按钮', () => {
     const f = fixture(h(GroupJoinBatches, { report: batches, group }));
     const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-profile-avatar-button')];

@@ -1,3 +1,4 @@
+import { Sparkles } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { QQWriteSelectRow } from '../QQWriteControls';
 import { OnlineStatusIcon } from '../OnlineStatus';
@@ -17,6 +18,7 @@ export function ExtendedStatusAction({ onSaved }: { onSaved?: () => void } = {})
     <>
       <QQWriteSelectRow
         label="扩展在线状态"
+        icon={<Sparkles size={14} strokeWidth={1.8} />}
         initial={
           status.data?.status?.type === 10 && status.data.status.subType
             ? status.data.status.subType

@@ -78,7 +78,12 @@ function fixture() {
     groupMsgs: new GroupMsgDb(createSqliteStub(), { dbPath: path }),
     groupMembers: {
       getMembersByUids: async (_group: bigint, uids: string[]) =>
-        uids.map((uid) => ({ uid, uin: 0n, card: uid, nick: '' })),
+        uids.map((uid) => ({
+          uid,
+          uin: uid === 'u_peer' ? 10002n : 10001n,
+          card: uid,
+          nick: '',
+        })),
       listMemberJoinBriefs: async () =>
         ['u_self', 'u_peer', 'u_third', 'u_old1', 'u_old2', 'u_old3'].map((uid, i) => ({
           uid,
@@ -171,6 +176,8 @@ it('群画像、成员、入群批次与会话力图沿用同一精确时间窗�
   expect(report.ranking[0]?.weekly.reduce((sum, count) => sum + count, 0)).toBe(rows / 2);
   expect(report.timeDistribution[0]).toBe(rows);
   expect(report.ranking.map((row) => row.messageCount)).toEqual([rows / 2, rows / 2]);
+  // 消息行里的 senderUin 缺失时，名册（group_member3）的 QQ 号要补上 —— 排行卡靠它拼头像。
+  expect(report.ranking.map((row) => row.uin).sort()).toEqual(['10001', '10002']);
   const member = await group.getGroupMemberAnalytics(777n, 'u_peer', start, start);
   expect(member.statistics.totalMessages).toBe(rows / 2);
   expect(member.timeDistribution[0]).toBe(rows / 2);

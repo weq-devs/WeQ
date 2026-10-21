@@ -75,25 +75,61 @@
 
 .weq-self-profile-body {
   min-height: 0;
-  padding: 16px 18px;
+  padding: 16px 18px 18px;
   overflow: auto;
   overscroll-behavior: contain;
 }
 
+/* 只有资料编辑器（`.weq-qq-write-panel`）里的正文才排成卡片栅格；
+   加群申请等复用同一个 `.weq-self-profile-body` 的表单保持原来的紧凑流式布局。 */
+.weq-self-profile-body:has(> .weq-qq-write-panel) {
+  display: grid;
+  gap: 14px;
+}
+
+/* 卡片给回真实的分组外观：标题行 + 细描边 + 半透明底。
+   （这里以前把 `.weq-set-card` 的边框和底色全抹掉，资料 / 状态两段挤成一片，
+   和「设置」其它面板完全不像；现在只在弹窗里换一层更轻的底色。） */
 .weq-self-profile-body .weq-set-card {
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+  gap: 2px;
+  padding: 12px 14px 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--weq-bg-elevated) 60%, var(--weq-bg-surface));
   box-shadow: none;
+}
+
+.weq-self-profile-body .weq-set-card-head {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-self-profile-body .weq-set-card-title {
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
 }
 
 .weq-self-profile-body .weq-set-row {
   flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+/* 卡片里**平铺**的行之间用细线分隔，扫读时能分清两条设置各自的范围。
+   只看直接子行：昵称 / 性别是并排的两栏、签名是整块文本域，给它们拉横线反而更乱。 */
+.weq-self-profile-body .weq-set-card > .weq-set-row + .weq-set-row {
+  border-top: 1px solid color-mix(in srgb, var(--weq-border-subtle) 70%, transparent);
 }
 
 .weq-self-profile-body .weq-set-row-ctrl {
   min-width: 0;
   max-width: 100%;
+}
+
+/* 资料概览不是普通设置行：不画分隔线，留出呼吸感。 */
+.weq-self-profile-body .weq-self-profile-overview {
+  padding-bottom: 4px;
 }
 
 html[data-theme='dark'] .weq-title-profile-avatar:hover {
@@ -105,7 +141,7 @@ html[data-theme='dark'] .weq-self-profile-dialog {
 }
 
 html[data-theme='dark'] .weq-self-profile-body .weq-set-card {
-  border: 0;
-  background: transparent;
+  border-color: var(--weq-border-strong);
+  background: color-mix(in srgb, var(--weq-bg-elevated) 82%, black);
   box-shadow: none;
 }

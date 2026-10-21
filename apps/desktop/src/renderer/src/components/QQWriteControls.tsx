@@ -11,8 +11,21 @@ export function QQWriteResult({ result }: { result: { text: string; error: boole
   ) : null;
 }
 
+/** 行标签：图标 + 文字，与设置页其它面板的 `.weq-set-row-icon` 同一套。 */
+export function QQWriteRowLabel({ icon, label }: { icon?: ReactNode; label: string }) {
+  return icon ? (
+    <span className="weq-set-row-icon">
+      {icon}
+      {label}
+    </span>
+  ) : (
+    label
+  );
+}
+
 export function QQWriteTextRow({
   label,
+  icon,
   initial,
   disabled,
   readOnly = false,
@@ -24,6 +37,7 @@ export function QQWriteTextRow({
   onSave,
 }: {
   label: string;
+  icon?: ReactNode;
   initial: string | null;
   disabled: boolean;
   readOnly?: boolean;
@@ -50,7 +64,7 @@ export function QQWriteTextRow({
   if (readOnly)
     return (
       <Row
-        label={label}
+        label={<QQWriteRowLabel icon={icon} label={label} />}
         control={<span>{initial === null ? '尚未读取' : initial || '未设置'}</span>}
       />
     );
@@ -69,7 +83,7 @@ export function QQWriteTextRow({
   };
   return (
     <Row
-      label={label}
+      label={<QQWriteRowLabel icon={icon} label={label} />}
       control={
         <div className="weq-qq-write-field">
           {multiline ? <textarea {...input} rows={3} /> : <input {...input} />}
@@ -100,6 +114,7 @@ export function QQWriteTextRow({
 
 export function QQWriteSelectRow({
   label,
+  icon,
   initial,
   options,
   disabled,
@@ -109,6 +124,7 @@ export function QQWriteSelectRow({
   autoSave = false,
 }: {
   label: string;
+  icon?: ReactNode;
   initial: number | null;
   options: readonly { value: number; label: string }[];
   disabled: boolean;
@@ -132,7 +148,7 @@ export function QQWriteSelectRow({
   }, [initial]);
   return (
     <Row
-      label={label}
+      label={<QQWriteRowLabel icon={icon} label={label} />}
       control={
         <div className={preview ? 'weq-qq-write-select-preview' : undefined}>
           <div className="weq-qq-write-field">
@@ -202,11 +218,13 @@ export function QQWriteSelectRow({
 
 export function QQWriteToggleRow({
   label,
+  icon,
   initial,
   disabled,
   onSave,
 }: {
   label: string;
+  icon?: ReactNode;
   initial: boolean | null;
   disabled: boolean;
   onSave: (value: boolean) => Promise<boolean>;
@@ -219,7 +237,7 @@ export function QQWriteToggleRow({
   }, [initial]);
   return (
     <Row
-      label={label}
+      label={<QQWriteRowLabel icon={icon} label={label} />}
       desc={
         initial === null ? (
           <span role="status">

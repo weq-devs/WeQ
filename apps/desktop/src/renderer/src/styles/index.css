@@ -5838,9 +5838,25 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 }
 
 .weq-set-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   font-size: 13px;
   font-weight: 600;
   color: #374151;
+}
+
+.weq-set-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: var(--weq-accent-effective);
+}
+
+.weq-set-card-icon svg {
+  width: 15px;
+  height: 15px;
 }
 
 .weq-set-card-action {
@@ -28315,11 +28331,28 @@ html[data-theme='dark'] .weq-mf-mall-card {
 .weq-cvs-body-head {
   display: flex;
   min-width: 0;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  gap: 9px;
   /* 右侧留出关闭按钮的位置。 */
-  padding: 18px 48px 12px 22px;
+  padding: 16px 48px 12px 22px;
   border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+/* 页头图标：与设置页 SectionHeader 的 `.weq-set-head-icon` 同一套形状
+   （圆角方底 + accent 色），只是小一号。 */
+/* 用后代选择器而不是单个类名：下面 `.weq-cvs-body-head span` 会统一把页头里的
+   span 压成 12px 的灰色说明文字，特异性更高，量在同一个类名上会被它盖掉。 */
+.weq-cvs-body-head .weq-cvs-body-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  overflow: visible;
+  border-radius: 8px;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
 }
 
 .weq-cvs-body-head strong {

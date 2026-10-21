@@ -1571,7 +1571,12 @@ export class GroupInfoService {
     if (rankUids.length > 0) {
       try {
         const members = await this.session.groupMembers.getMembersByUids(groupCode, rankUids);
-        for (const m of members) nameByUid.set(m.uid, m.card || m.nick || m.uid);
+        for (const m of members) {
+          nameByUid.set(m.uid, m.card || m.nick || m.uid);
+          // 消息里的 senderUin 可能缺失（老记录 / 匿名发言），名册通常还留着真实 QQ 号；
+          // 排行卡要靠它拼头像，缺了就只剩默认头像。
+          if (!uins.has(m.uid) && m.uin > 0n) uins.set(m.uid, String(m.uin));
+        }
       } catch {
         /* fall through, use uin/uid as name */
       }
