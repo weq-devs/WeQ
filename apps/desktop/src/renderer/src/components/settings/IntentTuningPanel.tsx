@@ -71,6 +71,8 @@ export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
   return (
     <Card title={TITLES[group]}>
       <form
+        // 小数步长只用于增减；输入精度与其它规则统一交给共享校验器。
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
