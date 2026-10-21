@@ -30,6 +30,7 @@ import {
   Download,
   FileText,
   ClipboardCopy,
+  Check,
 } from 'lucide-react';
 import { Modal } from './Dialog';
 import { client } from '../trpc/client';
@@ -44,6 +45,7 @@ import { ConvContext, ForwardKindContext, ReplyJumpContext } from './QqMessageCo
 import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
 import { useContentMultiSelect, useRequestContentExport } from '../state/contentSelection';
 import { useMultiSelection } from '../hooks/useMultiSelection';
+import { allSelectionIdsSelected, toggleAllSelectionIds } from '../lib/multiSelection';
 import { useMessageMarquee } from '../hooks/useMessageMarquee';
 import { selectedMessagesText } from '../lib/messageSelection';
 import { messageRichClipboard } from '../lib/messageClipboard';
@@ -243,6 +245,21 @@ export function GuildDirectDialog({
     },
     active,
   );
+  const sessionSelection = useContentMultiSelect(
+    { kind: 'guild-conversations', container: 'guild-list' },
+    active,
+  );
+  const sessionIds = useMemo(() => sessions?.map((session) => session.nodeId) ?? [], [sessions]);
+  const sessionMulti = useMultiSelection({
+    ids: sessionIds,
+    selected: sessionSelection.selectedIds,
+    onChange: sessionSelection.setSelectedIds,
+    enabled: sessionSelection.selectionMode,
+    disabled: !active,
+    anchorRef: sessionSelection.anchorRef,
+    onStart: () => sessionSelection.setSelectionMode(true),
+    onExit: () => sessionSelection.setSelectionMode(false),
+  });
   const requestExport = useRequestContentExport();
   const [copyMenu, setCopyMenu] = useState<{ x: number; y: number } | null>(null);
   const selectionAnchor = selection.anchorRef;
@@ -533,8 +550,56 @@ export function GuildDirectDialog({
       {searchNotice ? <p role="status">{searchNotice}</p> : null}
       <div className="weq-guild-direct-body">
         <aside className="weq-guild-direct-side">
-          <div className="weq-guild-direct-side-title">会话列表</div>
-          <div className="weq-guild-direct-list">
+          <div className="weq-guild-direct-side-title">
+            <span>
+              会话列表
+              {sessionSelection.selectionMode ? ` · 已选 ${sessionSelection.selectedIds.size}` : ''}
+            </span>
+            <button
+              type="button"
+              className="weq-compose-x"
+              aria-label={sessionSelection.selectionMode ? '退出会话多选' : '多选频道私聊'}
+              title={sessionSelection.selectionMode ? '退出会话多选' : '多选频道私聊'}
+              onClick={() => sessionSelection.setSelectionMode(!sessionSelection.selectionMode)}
+            >
+              {sessionSelection.selectionMode ? <X size={16} /> : <CheckSquare size={16} />}
+            </button>
+          </div>
+          {sessionSelection.selectionMode ? (
+            <div className="weq-guild-session-actions">
+              <label>
+                <input
+                  type="checkbox"
+                  aria-label="全选频道私聊"
+                  checked={allSelectionIdsSelected(sessionIds, sessionSelection.selectedIds)}
+                  onChange={() =>
+                    sessionSelection.setSelectedIds(
+                      toggleAllSelectionIds(sessionIds, sessionSelection.selectedIds),
+                    )
+                  }
+                />
+                全选
+              </label>
+              {requestExport ? (
+                <button
+                  type="button"
+                  className="selection-action"
+                  aria-label="导出所选频道私聊"
+                  title="导出所选频道私聊"
+                  disabled={!sessionSelection.selectedIds.size}
+                  onClick={() =>
+                    requestExport({
+                      owner: { kind: 'guild-conversations', container: 'guild-list' },
+                      scope: { type: 'items', ids: [...sessionSelection.selectedIds] },
+                    })
+                  }
+                >
+                  <Download size={17} />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="weq-guild-direct-list" {...sessionMulti.rootProps}>
             {listLoading ? (
               <div className="weq-guild-direct-empty">加载中…</div>
             ) : listError ? (
@@ -557,9 +622,27 @@ export function GuildDirectDialog({
                   <button
                     type="button"
                     key={session.nodeId}
-                    className={cn('weq-guild-direct-item', active && 'active')}
+                    {...sessionMulti.itemProps(session.nodeId)}
+                    className={cn(
+                      'weq-guild-direct-item',
+                      active && 'active',
+                      sessionSelection.selectionMode && 'selection-mode',
+                      sessionSelection.selectedIds.has(session.nodeId) && 'is-multiselected',
+                    )}
+                    aria-pressed={
+                      sessionSelection.selectionMode
+                        ? sessionSelection.selectedIds.has(session.nodeId)
+                        : undefined
+                    }
                     onClick={() => openSession(session)}
                   >
+                    {sessionSelection.selectionMode ? (
+                      <span className="weq-guild-session-check" aria-hidden>
+                        {sessionSelection.selectedIds.has(session.nodeId) ? (
+                          <Check size={13} />
+                        ) : null}
+                      </span>
+                    ) : null}
                     <Avatar
                       name={session.peerNick || session.peerTinyId}
                       avatarUrl={session.peerAvatarUrl}
@@ -721,7 +804,6 @@ export function GuildDirectDialog({
                             {...multi.itemProps(row.message.id)}
                             className={cn(
                               'weq-guild-direct-msg',
-                              selection.selectedIds.has(row.message.id) && 'is-selected',
                               row.message.id === searchMessageId && 'is-search-hit',
                             )}
                             aria-selected={
@@ -745,7 +827,9 @@ export function GuildDirectDialog({
                               showSenderName={false}
                               active={false}
                               selectionMode={selection.selectionMode}
-                              selected={selection.selectedIds.has(row.message.id)}
+                              selected={
+                                selection.selectionMode && selection.selectedIds.has(row.message.id)
+                              }
                               renderers={renderers}
                               onContextMenu={noop}
                               onLongPress={noop}

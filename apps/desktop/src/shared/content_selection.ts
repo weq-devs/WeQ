@@ -2,6 +2,7 @@ export type ContentKind =
   | 'conversations'
   | 'messages'
   | 'guild-direct'
+  | 'guild-conversations'
   | 'contacts'
   | 'collections'
   | 'qzone-posts'
