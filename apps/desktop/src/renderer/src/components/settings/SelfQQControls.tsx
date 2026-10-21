@@ -29,12 +29,7 @@ import { QqAvatar } from '../QqAvatar';
 import '../../styles/self-profile-editor.css';
 import { LiveStatusReadout } from '../qq-actions/ChatActions';
 import { ExtendedStatusAction } from '../qq-actions/ExtendedStatusAction';
-import {
-  QQWriteActionRow,
-  QQWriteResult,
-  QQWriteSelectRow,
-  QQWriteTextRow,
-} from '../QQWriteControls';
+import { QQWriteActionRow, QQWriteSelectRow, QQWriteTextRow } from '../QQWriteControls';
 
 export function SelfQQControls() {
   const session = useQQWriteSession('self-profile');
@@ -122,9 +117,23 @@ export function SelfQQControls() {
     const updated = await profile.refetch();
     if (updated.error) throw updated.error;
   }
-  const act = async (action: Parameters<typeof session.run>[0], field = 'QQ 状态') => {
+  const act = async (
+    action: Parameters<typeof session.run>[0],
+    field = 'QQ 状态',
+    matches?: (data: NonNullable<typeof profile.data>) => boolean,
+  ) => {
     setFeedbackField(field);
-    const ok = await session.run(action, refresh, { backgroundRefresh: true });
+    const ok = await session.run(action, refresh, {
+      backgroundRefresh: true,
+      readbackSuccessText: field === 'QQ 状态' ? 'QQ 状态已更新' : `${field}已保存`,
+      readback: matches
+        ? async () => {
+            const result = await profile.refetch();
+            if (result.error) throw result.error;
+            return Boolean(result.data && matches(result.data));
+          }
+        : undefined,
+    });
     if (ok && currentIdentity.current === identityKey) {
       setSyncIdentity(identityKey);
       setSyncRevision((value) => value + 1);
@@ -161,10 +170,6 @@ export function SelfQQControls() {
     wording.trim().length > 0 &&
     faceId !== '' &&
     statusFaces.some((face) => String(face.id) === faceId);
-  const result = session.result
-    ? { ...session.result, text: `${feedbackField}：${session.result.text}` }
-    : null;
-  const profileFeedback = feedbackField !== 'QQ 状态';
   return (
     <section className="weq-qq-write-panel" aria-label="QQ 资料与状态">
       <div className="weq-qq-write-toolbar">
@@ -240,7 +245,11 @@ export function SelfQQControls() {
               maxLength={256}
               disabled={disabled}
               onSave={(nickname) =>
-                act((binding) => patch.mutateAsync({ ...binding, patch: { nickname } }), 'QQ 昵称')
+                act(
+                  (binding) => patch.mutateAsync({ ...binding, patch: { nickname } }),
+                  'QQ 昵称',
+                  (data) => data.profile?.nick === nickname,
+                )
               }
             />
             <QQWriteSelectRow
@@ -255,7 +264,11 @@ export function SelfQQControls() {
               ]}
               onSave={(gender) =>
                 gender === 0 || gender === 1 || gender === 2
-                  ? act((binding) => patch.mutateAsync({ ...binding, patch: { gender } }), '性别')
+                  ? act(
+                      (binding) => patch.mutateAsync({ ...binding, patch: { gender } }),
+                      '性别',
+                      (data) => data.profile?.gender === gender,
+                    )
                   : Promise.resolve(false)
               }
             />
@@ -272,13 +285,10 @@ export function SelfQQControls() {
                 act(
                   (binding) => patch.mutateAsync({ ...binding, patch: { signature } }),
                   '个性签名',
+                  (data) => data.profile?.signature === signature,
                 )
               }
             />
-          </div>
-          <div className="weq-self-profile-feedback" aria-live="polite">
-            {profileFeedback && session.busy && <p role="status">正在保存{feedbackField}…</p>}
-            {profileFeedback && <QQWriteResult result={result} />}
           </div>
         </Card>
         <Card title="QQ 状态" icon={<Activity size={15} strokeWidth={1.9} />}>
@@ -286,7 +296,6 @@ export function SelfQQControls() {
             <p role="alert">状态读取失败：{profile.data.statusError}</p>
           )}
           <LiveStatusReadout />
-          {!profileFeedback && <QQWriteResult result={result} />}
           <QQWriteSelectRow
             label="在线状态"
             icon={<CircleDot size={14} strokeWidth={1.8} />}
@@ -294,7 +303,11 @@ export function SelfQQControls() {
             options={profile.data?.statusOptions ?? []}
             disabled={disabled}
             onSave={(value) =>
-              act((binding) => online.mutateAsync({ ...binding, status: value, extStatus: 0 }))
+              act(
+                (binding) => online.mutateAsync({ ...binding, status: value, extStatus: 0 }),
+                'QQ 状态',
+                (data) => !data.statusError && data.status?.type === value && !data.status.subType,
+              )
             }
           />
           <ExtendedStatusAction
@@ -354,13 +367,21 @@ export function SelfQQControls() {
                     title="保存自定义状态"
                     disabled={disabled || !customValid}
                     onClick={() => {
-                      void act((binding) =>
-                        online.mutateAsync({
-                          ...binding,
-                          status: 10,
-                          extStatus: 2000,
-                          custom: { faceId: Number(faceId), faceType: 1, wording },
-                        }),
+                      void act(
+                        (binding) =>
+                          online.mutateAsync({
+                            ...binding,
+                            status: 10,
+                            extStatus: 2000,
+                            custom: { faceId: Number(faceId), faceType: 1, wording },
+                          }),
+                        'QQ 状态',
+                        (data) =>
+                          !data.statusError &&
+                          data.status?.type === 10 &&
+                          data.status.subType === 2000 &&
+                          data.status.customStatus?.text === wording &&
+                          data.status.customStatus?.faceId === Number(faceId),
                       );
                     }}
                   >
@@ -401,7 +422,11 @@ export function SelfQQControls() {
             disabled={disabled}
             icon={<X size={15} />}
             onClick={() => {
-              void act((binding) => online.mutateAsync({ ...binding, status: 10, extStatus: 0 }));
+              void act(
+                (binding) => online.mutateAsync({ ...binding, status: 10, extStatus: 0 }),
+                'QQ 状态',
+                (data) => !data.statusError && data.status?.type === 10 && !data.status.subType,
+              );
             }}
           />
         </Card>

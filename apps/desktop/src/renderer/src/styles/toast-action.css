@@ -20,3 +20,9 @@
   position: relative;
   z-index: 2;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-toast-icon .weq-spin {
+    animation: none;
+  }
+}

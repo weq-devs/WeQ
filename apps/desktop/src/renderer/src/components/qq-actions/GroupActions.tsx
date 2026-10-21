@@ -103,6 +103,14 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                       const result = await tags.refetch();
                       if (result.error) throw result.error;
                     },
+                    undefined,
+                    {
+                      readback: async () => {
+                        const result = await tags.refetch();
+                        if (result.error) throw result.error;
+                        return result.data?.some((item) => item.name === tag) ?? false;
+                      },
+                    },
                   )
                 }
               >
@@ -133,6 +141,15 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                             if (result.error) throw result.error;
                           },
                           `删除分类标签「${t.name}」？`,
+                          {
+                            readback: async () => {
+                              const result = await tags.refetch();
+                              if (result.error) throw result.error;
+                              return Boolean(
+                                result.data && !result.data.some((item) => item.name === t.name),
+                              );
+                            },
+                          },
                         )
                       }
                     >
@@ -167,6 +184,12 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                     }),
                   undefined,
                   `退出 QQ 群 ${groupId}？重新加入需要再次申请，不能自动恢复。`,
+                  {
+                    readback: async () => {
+                      const rows = await client.account.listAllGroups.query();
+                      return !rows.some((row) => String(row.groupCode) === String(groupId));
+                    },
+                  },
                 ),
             },
           ]}
@@ -228,24 +251,40 @@ function GroupTodosBody({
   };
   const isEmpty = a.available && !todos.isFetching && !todos.error && entries.length === 0;
   async function complete(todo: GroupTodoRecord) {
-    await a.perform(async (binding) => {
-      const result = await client.account.qqActions.todo.mutate({
-        ...binding,
-        groupId,
-        sequence: todo.sequence,
-        action: 'complete',
-      });
-      if (result.state === 'accepted' || result.state === 'confirmed') {
-        const finished = { ...todo, completed: true, updatedAt: Math.floor(Date.now() / 1000) };
-        setHistory((previous) => ({
-          key,
-          rows: mergeGroupTodoHistory([finished], previous.key === key ? previous.rows : []).filter(
-            (row) => row.completed,
-          ),
-        }));
-      }
-      return result;
-    }, refresh);
+    await a.perform(
+      async (binding) => {
+        const result = await client.account.qqActions.todo.mutate({
+          ...binding,
+          groupId,
+          sequence: todo.sequence,
+          action: 'complete',
+        });
+        if (result.state === 'accepted' || result.state === 'confirmed') {
+          const finished = { ...todo, completed: true, updatedAt: Math.floor(Date.now() / 1000) };
+          setHistory((previous) => ({
+            key,
+            rows: mergeGroupTodoHistory(
+              [finished],
+              previous.key === key ? previous.rows : [],
+            ).filter((row) => row.completed),
+          }));
+        }
+        return result;
+      },
+      refresh,
+      undefined,
+      {
+        readback: async () => {
+          const result = await todos.refetch();
+          if (result.error) throw result.error;
+          return (
+            result.data?.some(
+              (row) => String(row.sequence) === String(todo.sequence) && row.completed,
+            ) ?? false
+          );
+        },
+      },
+    );
   }
   const content = (
     <section className="weq-notice-management weq-todo-content" aria-label="群待办列表">
@@ -354,6 +393,16 @@ function GroupTodosBody({
                   },
                   refresh,
                   '取消这项群待办？',
+                  {
+                    readback: async () => {
+                      const result = await todos.refetch();
+                      if (result.error) throw result.error;
+                      return Boolean(
+                        result.data &&
+                          !result.data.some((row) => String(row.sequence) === menu.sequence),
+                      );
+                    },
+                  },
                 ),
             },
           ]}

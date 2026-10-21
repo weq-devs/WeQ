@@ -120,6 +120,14 @@ function GroupJoinActionBody({ onClose }: { onClose: () => void }) {
                       target.questionState === 'unavailable'
                         ? `尚未获取群 ${target.groupId} 的验证问题，仍提交所填回答？`
                         : `向 QQ 群 ${target.groupId} 提交入群申请？`,
+                      {
+                        readback: async () => {
+                          const rows = await client.account.listAllGroups.query();
+                          return rows.some(
+                            (row) => String(row.groupCode) === String(target.groupId),
+                          );
+                        },
+                      },
                     )
                   }
                 >

@@ -74,6 +74,15 @@ export function RequestActions({ operation }: { operation: NoticeOperation }) {
                   await utils.account.qqActions.requests.invalidate();
                 },
                 `${approve ? '同意' : '拒绝'} ${operation.name}${operation.groupId ? ` 加入 ${operation.groupName}` : ' 的好友申请'}？`,
+                {
+                  readback: async () => {
+                    const rows = await client.account.qqActions.requests.query({
+                      ...a.binding!,
+                      kind: operation.kind,
+                    });
+                    return !rows.some((row) => row.token === operation.token);
+                  },
+                },
               )
             }
           >

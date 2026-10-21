@@ -129,6 +129,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   return {
     client: {
       account: {
+        dressup: { peerStats: { query: async () => ({ likeCount: 100 }) } },
+        listAllGroups: { query: async () => [] },
+        listGroupAlbumMedia: { query: async () => [] },
         pickSendFile: { mutate: state.picker },
         sendFile: {
           mutate: async (input: unknown) => {
@@ -137,6 +140,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           },
         },
         qqActions: {
+          ...Object.fromEntries(
+            reads.map((name) => [name, { query: async () => state.data[name] ?? [] }]),
+          ),
           folders: {
             query: async (input: { directory: string }) => ({
               targetDirectory: input.directory,
@@ -279,6 +285,10 @@ beforeEach(() => {
     requests: [{ token: 'request-a', name: '申请人', groupName: '群 A', message: '留言' }],
     tags: [],
     todoList: [],
+    groupReadTools: {
+      signed: [],
+      atAll: { canAtAll: true, remainCountForUin: 1, remainCountForGroup: 1 },
+    },
     groupJoinSettings: { groupId: 123, option: 2, question: null, questionState: 'not-required' },
   };
   useViewState.setState({ openedUin: '10001' });
@@ -884,7 +894,7 @@ describe('QQ 主动操作的实际界面', () => {
     expect(f.host.textContent).toContain('拖入资源损坏');
     expect(state.mutate).not.toHaveBeenCalled();
   });
-  it('批量删除保留每项结果，未知回执后停止且不自动重发', async () => {
+  it('批量删除不强求确认回执，操作结果不附加在列表中，也不自动重发', async () => {
     const files = [file, { ...file, fileId: 'file-b', fileName: '文件 B' }];
     state.data['listing:folder-a'] = { files, folders: [] };
     const f = fixture(() =>
@@ -899,17 +909,10 @@ describe('QQ 主动操作的实际界面', () => {
     act(() => f.host.querySelector<HTMLInputElement>('[aria-label="选择当前可见项目"]')!.click());
     state.mutate.mockResolvedValueOnce({ state: 'unconfirmed' });
     await act(async () => f.button('删除所选项目').click());
-    expect(state.mutate).toHaveBeenCalledTimes(1);
-    expect(f.host.textContent).toContain('结果待核对');
-    expect(f.host.textContent).toContain('未执行');
-    expect(f.button('删除所选项目').disabled).toBe(false);
-    state.confirm.mockResolvedValueOnce(false);
-    await act(async () => f.button('删除所选项目').click());
-    expect(state.confirm).toHaveBeenLastCalledWith(
-      '确认 QQ 操作',
-      expect.stringContaining('结果未确认'),
-    );
-    expect(state.mutate).toHaveBeenCalledTimes(1);
+    expect(state.mutate).toHaveBeenCalledTimes(2);
+    expect(f.host.querySelector('.weq-file-receipts')).toBeNull();
+    expect(f.button('删除所选项目').disabled).toBe(true);
+    expect(f.host.textContent).not.toContain('结果待核对');
   });
   it('普通点击建立锚点，Shift 点击按当前排序选择连续区间', () => {
     const files = [
@@ -1141,10 +1144,12 @@ describe('QQ 主动操作的实际界面', () => {
       state.mutate.mockResolvedValueOnce({ state: 'unconfirmed' });
       await act(async () => f.button('上传待处理文件').click());
       expect(state.mutate).toHaveBeenCalledTimes(1);
-      expect(f.host.querySelectorAll('.weq-file-upload-row')[0]!.textContent).toContain(
+      expect(f.host.querySelectorAll('.weq-file-upload-row')[0]!.textContent).not.toContain(
         '结果待核对',
       );
-      expect(f.host.querySelectorAll('.weq-file-upload-row')[1]!.textContent).toContain('待上传');
+      expect(f.host.querySelectorAll('.weq-file-upload-row')[1]!.textContent).not.toContain(
+        '待上传',
+      );
       await act(async () => f.button('上传待处理文件').click());
       expect(state.mutate.mock.calls.map((call) => (call[1] as { path: string }).path)).toEqual([
         '/local/a.txt',

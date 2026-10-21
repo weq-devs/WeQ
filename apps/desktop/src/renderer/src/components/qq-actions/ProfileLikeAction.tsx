@@ -36,9 +36,17 @@ function ProfileLikeDialogBody({
   const self = a.binding?.expectedAccountUin === uin;
   function send(count: number) {
     if (a.disabled || self || !Number.isInteger(count) || count < 1 || count > 20) return;
+    const before = utils.account.dressup.peerStats.getData?.({ uin, uid })?.likeCount;
     void a.perform(
       (binding) => client.account.qqActions.profileLike.mutate({ ...binding, uid, count }),
       () => utils.account.dressup.peerStats.invalidate({ uin, uid }),
+      undefined,
+      {
+        readback: async () => {
+          const result = await client.account.dressup.peerStats.query({ uin, uid });
+          return before !== undefined && result.likeCount >= before + count;
+        },
+      },
     );
   }
   return (

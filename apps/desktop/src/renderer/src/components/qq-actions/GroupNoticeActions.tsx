@@ -103,6 +103,7 @@ function GroupNoticeActionsBody({
     if (sending || a.disabled || !canManage || !draft.content.trim()) return;
     const capturedRevision = revision.current;
     const selected = { ...draft };
+    const before = new Set(notices.data?.map((notice) => notice.noticeId));
     let accepted = false;
     setSending(true);
     try {
@@ -132,6 +133,17 @@ function GroupNoticeActionsBody({
           await refresh();
         },
         `向 QQ 群 ${groupId} 发布公告？`,
+        {
+          readback: async () => {
+            const result = await notices.refetch();
+            if (result.error) throw result.error;
+            return (
+              result.data?.some(
+                (notice) => !before.has(notice.noticeId) && notice.text.includes(selected.content),
+              ) ?? false
+            );
+          },
+        },
       );
     } finally {
       if (mounted.current) setSending(false);
@@ -308,6 +320,16 @@ function GroupNoticeActionsBody({
                     }),
                   refresh,
                   `删除公告「${selected.text.slice(0, 40)}」？不能撤销。`,
+                  {
+                    readback: async () => {
+                      const result = await notices.refetch();
+                      if (result.error) throw result.error;
+                      return Boolean(
+                        result.data &&
+                          !result.data.some((notice) => notice.noticeId === selected.noticeId),
+                      );
+                    },
+                  },
                 );
               },
             },

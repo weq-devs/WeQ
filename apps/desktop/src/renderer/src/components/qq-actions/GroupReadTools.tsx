@@ -51,6 +51,20 @@ export function GroupReadTools({
                   setOffset(0);
                   await utils.account.qqActions.groupReadTools.invalidate();
                 },
+                undefined,
+                {
+                  readback: async () => {
+                    const result = await client.account.qqActions.groupReadTools.query({
+                      ...a.binding!,
+                      groupId,
+                      day: today.replaceAll('-', ''),
+                      offset: 0,
+                    });
+                    return result.signed.some(
+                      (entry) => String(entry.userId) === a.binding?.expectedAccountUin,
+                    );
+                  },
+                },
               )
             }
           >

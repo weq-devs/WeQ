@@ -76,6 +76,7 @@ function FavoriteActionsBody() {
                 if (picture) {
                   const submitted = picture;
                   let accepted = false;
+                  const before = new Set(list.data?.map((item) => item.emojiId));
                   void a.perform(
                     async (b) => {
                       const result = await client.account.qqActions.favorite.mutate({
@@ -92,6 +93,14 @@ function FavoriteActionsBody() {
                         setAdding(false);
                       }
                       await refresh();
+                    },
+                    undefined,
+                    {
+                      readback: async () => {
+                        const result = await list.refetch();
+                        if (result.error) throw result.error;
+                        return result.data?.some((item) => !before.has(item.emojiId)) ?? false;
+                      },
                     },
                   );
                 }
@@ -238,6 +247,15 @@ function FavoriteRow({
                     if (accepted) setDraft((current) => (current === value ? null : current));
                     await onChanged();
                   },
+                  undefined,
+                  {
+                    readback: async () => {
+                      const rows = await client.account.qqActions.favorites.query({
+                        ...a.binding!,
+                      });
+                      return rows.some((row) => row.emojiId === emojiId && row.desc === value);
+                    },
+                  },
                 );
               }}
             />
@@ -287,6 +305,15 @@ function FavoriteRow({
                       position: 1,
                     }),
                   onChanged,
+                  undefined,
+                  {
+                    readback: async () => {
+                      const rows = await client.account.qqActions.favorites.query({
+                        ...a.binding!,
+                      });
+                      return rows.some((row) => row.emojiId === emojiId && row.position === 1);
+                    },
+                  },
                 ),
             },
             {
@@ -300,6 +327,14 @@ function FavoriteRow({
                     client.account.qqActions.favorite.mutate({ ...b, action: 'delete', emojiId }),
                   onChanged,
                   `从 QQ 收藏中删除这张表情${desc ? `「${desc}」` : ''}？`,
+                  {
+                    readback: async () => {
+                      const rows = await client.account.qqActions.favorites.query({
+                        ...a.binding!,
+                      });
+                      return !rows.some((row) => row.emojiId === emojiId);
+                    },
+                  },
                 ),
             },
           ]}

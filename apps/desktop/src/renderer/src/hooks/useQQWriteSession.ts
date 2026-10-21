@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { publishQQPeerUpdate } from '../lib/qqPeerUpdates';
+import { useToast } from '../components/Toast';
 
 export interface QQWriteBinding {
   expectedAccountUin: string;
@@ -12,9 +13,8 @@ export type QQWriteOutcome = { state: 'confirmed' | 'accepted' | 'unconfirmed' |
 export function qqWriteOutcomeText(result: QQWriteOutcome): string {
   switch (result.state) {
     case 'confirmed':
-      return '服务端已确认，等待本机同步';
     case 'accepted':
-      return '已受理，等待 QQ 同步';
+      return '正在确认操作完成情况';
     case 'unconfirmed':
       return '结果未确认，请核对 QQ 后刷新';
     case 'unchanged':
@@ -47,7 +47,6 @@ export function useQQWriteSession(scope: string) {
   const running = useRef(false);
   const operation = useRef(0);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ key: string; text: string; error: boolean } | null>(null);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -93,40 +92,75 @@ export function useQQWriteSession(scope: string) {
     const capturedOperation = ++operation.current;
     running.current = true;
     setBusy(true);
-    setResult(null);
     const current = () =>
       mounted.current &&
       latest.current === captured &&
       useViewState.getState().openedUin === binding.expectedAccountUin;
+    const toast = useToast.getState();
+    let toastId: number | undefined;
+    const finish = (title: string, tone: 'success' | 'warning' | 'error' | 'info') => {
+      if (toastId === undefined) toastId = toast.push({ title, tone });
+      else toast.update(toastId, { title, tone, loading: false, ttl: 10000 });
+    };
+    if (options?.refreshCaches !== false)
+      toastId = toast.push({ title: '正在确认操作完成情况', loading: true, ttl: 0 });
     try {
       const outcome = await action(binding);
-      if (!current()) return false;
-      setResult({ key: captured, text: qqWriteOutcomeText(outcome), error: false });
+      if (!current()) {
+        if (toastId !== undefined) finish('已停止确认：操作对象已切换，请稍后重新读取', 'warning');
+        return false;
+      }
+      if (outcome.state === 'unchanged') {
+        finish(qqWriteOutcomeText(outcome), 'info');
+        return true;
+      }
+      // 输入状态等瞬时操作不产生持久化状态，也不弹出确认横幅。
       if (options?.refreshCaches === false) return current() && !options.requireReadback;
       let readbackMatched = false;
       // 刷新失败与远端操作失败分开，不能诱导用户重发已经成功的写请求。
       const refreshAfterWrite = async () => {
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        let expired = false;
+        const valid = () => !expired && current() && operation.current === capturedOperation;
         try {
-          if (options?.readback) {
-            let synced = false;
-            // 只读回状态，不重复写请求；切号、卸载或新操作后停止。
+          const confirm = async () => {
+            if (!options?.readback) {
+              const read = await refresh?.();
+              if (typeof read === 'boolean') return read;
+              await new Promise((resolve) => setTimeout(resolve, 3850));
+              return false;
+            }
+            // 普通读取核对目标值，不要求写接口返回确认回执，也不重发写请求。
             for (const delay of [0, 350, 1000, 2500]) {
               if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
-              if (!current() || operation.current !== capturedOperation) return;
-              synced = await options.readback();
-              if (synced) break;
+              if (!valid()) return false;
+              try {
+                if (await options.readback()) return valid();
+              } catch {
+                // 单次读取失败仍继续核对，最终统一反馈超时。
+              }
             }
-            if (!current() || operation.current !== capturedOperation) return;
-            readbackMatched = synced;
-            if (synced && options.readbackSuccessText)
-              setResult({ key: captured, text: options.readbackSuccessText, error: false });
-            if (!synced)
-              setResult({
-                key: captured,
-                text: `${qqWriteOutcomeText(outcome)}；本机尚未同步，请稍后重新读取`,
-                error: false,
-              });
+            return false;
+          };
+          readbackMatched = await Promise.race([
+            confirm(),
+            new Promise<false>((resolve) => {
+              timeout = setTimeout(() => {
+                expired = true;
+                resolve(false);
+              }, 15000);
+            }),
+          ]);
+          if (!current() || operation.current !== capturedOperation) {
+            finish('已停止确认：操作对象已切换，请稍后重新读取', 'warning');
+            return;
           }
+          finish(
+            readbackMatched
+              ? (options?.readbackSuccessText ?? '操作已完成')
+              : '确认超时，请稍后重新读取操作结果',
+            readbackMatched ? 'success' : 'warning',
+          );
           if (options?.profileUid)
             await publishQQPeerUpdate({
               binding,
@@ -138,7 +172,7 @@ export function useQQWriteSession(scope: string) {
               target: { kind: 'member', groupCode: options.groupCode, uid: options.memberUid },
             });
           await Promise.all([
-            refresh?.(),
+            options?.readback ? refresh?.() : undefined,
             utils.account.listRecentContacts.invalidate(),
             utils.account.listTopContacts.invalidate(),
             utils.account.listBuddies.invalidate(),
@@ -161,29 +195,25 @@ export function useQQWriteSession(scope: string) {
               : []),
           ]);
         } catch {
-          if (current() && operation.current === capturedOperation)
-            setResult({
-              key: captured,
-              text: `${qqWriteOutcomeText(outcome)}；本机刷新失败`,
-              error: false,
-            });
+          if (current() && operation.current === capturedOperation && !readbackMatched)
+            finish('确认超时，请稍后重新读取操作结果', 'warning');
+        } finally {
+          expired = true;
+          if (timeout) clearTimeout(timeout);
         }
       };
       if (options?.backgroundRefresh && !options.requireReadback) void refreshAfterWrite();
       else await refreshAfterWrite();
       return current() && (!options?.requireReadback || readbackMatched);
     } catch (error) {
-      if (current())
-        setResult({
-          key: captured,
-          text: error instanceof Error ? error.message : String(error),
-          error: true,
-        });
+      if (current()) finish(error instanceof Error ? error.message : String(error), 'error');
+      else if (toastId !== undefined)
+        finish('已停止确认：操作对象已切换，请稍后重新读取', 'warning');
       return false;
     } finally {
       running.current = false;
       if (mounted.current) setBusy(false);
     }
   }
-  return { binding, available, busy, run, result: result?.key === key ? result : null };
+  return { binding, available, busy, run, result: null as { text: string; error: boolean } | null };
 }

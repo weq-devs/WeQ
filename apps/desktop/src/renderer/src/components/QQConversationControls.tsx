@@ -113,7 +113,14 @@ export function QQConversationControls({
       {
         profileUid: field === 'friendDisturb' ? conv : undefined,
         requireReadback: true,
-        readbackSuccessText: `${field === 'pinned' ? '置顶' : '免打扰'}状态已与本机 QQ 核对一致`,
+        readbackSuccessText:
+          field === 'pinned'
+            ? enabled
+              ? '已置顶'
+              : '已取消置顶'
+            : enabled
+              ? '已开启免打扰'
+              : '已关闭免打扰',
         readback: async () => {
           const updated = await snapshot.refetch();
           if (updated.error) throw updated.error;
@@ -136,6 +143,14 @@ export function QQConversationControls({
       (binding) => policy.mutateAsync({ ...binding, groupId: Number(conv), policy: value }),
       undefined,
       {
+        readbackSuccessText:
+          value === 1
+            ? '已开启群消息提醒'
+            : value === 4
+              ? '已关闭群消息提醒'
+              : value === 2
+                ? '已收进群助手'
+                : '已屏蔽群消息',
         readback: async () => {
           const [remote, local] = await Promise.all([policySnapshot.refetch(), snapshot.refetch()]);
           if (remote.error) throw remote.error;
@@ -236,6 +251,7 @@ export function QQConversationControls({
                     undefined,
                     {
                       profileUid: kind === 'c2c' ? conv : undefined,
+                      readbackSuccessText: value ? '备注已保存' : '备注已清空',
                       readback: async () => {
                         const updated = await snapshot.refetch();
                         if (updated.error) throw updated.error;
@@ -282,6 +298,7 @@ export function QQConversationControls({
                         },
                         {
                           profileUid: conv,
+                          readbackSuccessText: '已移入所选好友分组',
                           readback: async () => {
                             const updated = await snapshot.refetch();
                             if (updated.error) throw updated.error;
@@ -326,6 +343,7 @@ export function QQConversationControls({
                     {
                       groupCode: conv,
                       memberUid: state.selfUid,
+                      readbackSuccessText: value ? '群昵称已保存' : '群昵称已清空',
                       readback: async () => {
                         const updated = await snapshot.refetch();
                         if (updated.error) throw updated.error;
@@ -354,6 +372,7 @@ export function QQConversationControls({
                     {
                       groupCode: conv,
                       memberUid: state.selfUid,
+                      readbackSuccessText: value ? '专属头衔已保存' : '专属头衔已清空',
                       readback: async () => {
                         const updated = await snapshot.refetch();
                         if (updated.error) throw updated.error;
@@ -374,8 +393,18 @@ export function QQConversationControls({
                 initial={state.groupName}
                 disabled={disabled}
                 onSave={(value) =>
-                  act((binding) =>
-                    groupName.mutateAsync({ ...binding, groupId: Number(conv), name: value }),
+                  session.run(
+                    (binding) =>
+                      groupName.mutateAsync({ ...binding, groupId: Number(conv), name: value }),
+                    undefined,
+                    {
+                      readbackSuccessText: '群名称已修改',
+                      readback: async () => {
+                        const result = await snapshot.refetch();
+                        if (result.error) throw result.error;
+                        return result.data?.groupName === value;
+                      },
+                    },
                   )
                 }
               />

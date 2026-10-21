@@ -76,6 +76,7 @@ function QQRemarkDialogBody({ target, onClose }: { target: RoamingTarget; onClos
                 undefined,
                 {
                   profileUid: target.kind === 'c2c' ? target.conv : undefined,
+                  readbackSuccessText: remark ? '备注已保存' : '备注已清空',
                   readback: async () => {
                     const updated = await state.refetch();
                     if (updated.error) throw updated.error;

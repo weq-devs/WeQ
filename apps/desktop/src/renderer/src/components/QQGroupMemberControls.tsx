@@ -82,6 +82,7 @@ export function QQGroupMemberEditor({
               {
                 groupCode,
                 memberUid: uid,
+                readbackSuccessText: value ? '群昵称已保存' : '群昵称已清空',
                 readback: async () => {
                   const updated = await state.refetch();
                   if (updated.error) throw updated.error;
@@ -104,6 +105,7 @@ export function QQGroupMemberEditor({
               {
                 groupCode,
                 memberUid: uid,
+                readbackSuccessText: value ? '专属头衔已保存' : '专属头衔已清空',
                 readback: async () => {
                   const updated = await state.refetch();
                   if (updated.error) throw updated.error;
@@ -186,6 +188,7 @@ export function QQGroupMemberEditor({
                 {
                   groupCode,
                   memberUid: uid,
+                  readbackSuccessText: value ? '群昵称已保存' : '群昵称已清空',
                   readback: async () => {
                     const updated = await state.refetch();
                     if (updated.error) throw updated.error;
@@ -210,6 +213,7 @@ export function QQGroupMemberEditor({
                 {
                   groupCode,
                   memberUid: uid,
+                  readbackSuccessText: value ? '专属头衔已保存' : '专属头衔已清空',
                   readback: async () => {
                     const updated = await state.refetch();
                     if (updated.error) throw updated.error;

@@ -42,6 +42,19 @@ export function ExtendedStatusAction({ onSaved }: { onSaved?: () => void } = {})
             async () => {
               await status.refetch();
             },
+            undefined,
+            {
+              readbackSuccessText: '扩展在线状态已更新',
+              readback: async () => {
+                const result = await status.refetch();
+                if (result.error) throw result.error;
+                return (
+                  !result.data?.statusError &&
+                  result.data?.status?.type === 10 &&
+                  result.data.status.subType === extStatus
+                );
+              },
+            },
           );
           if (saved) onSaved?.();
           return saved;

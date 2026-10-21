@@ -28,6 +28,7 @@ import {
   CircleCheck,
   CircleX,
   Copy,
+  Loader2,
   X,
 } from 'lucide-react';
 
@@ -36,6 +37,7 @@ export type ToastTone = 'info' | 'warning' | 'error' | 'success';
 interface Toast {
   id: number;
   tone: ToastTone;
+  loading?: boolean;
   /** 标题（第一行主内容） */
   title: ReactNode;
   /** 可选的详情，传入后显示展开按钮与复制按钮 */
@@ -50,7 +52,7 @@ interface Toast {
 
 /** 就地改一条已在屏上的 toast —— 长任务用它把「进行中」推进成「成功/失败」。 */
 export type ToastPatch = Partial<
-  Pick<Toast, 'tone' | 'title' | 'detail' | 'ttl' | 'dismissible' | 'action'>
+  Pick<Toast, 'tone' | 'loading' | 'title' | 'detail' | 'ttl' | 'dismissible' | 'action'>
 >;
 
 interface ToastStore {
@@ -61,6 +63,7 @@ interface ToastStore {
   /** 推一条 toast，返回它的 id（之后可用 `update` 就地推进状态）。 */
   push(input: {
     tone?: ToastTone;
+    loading?: boolean;
     /** 标题；兼容旧调用点的 message */
     title?: ReactNode;
     /** 旧写法的主内容，未传 title 时当作标题 */
@@ -89,7 +92,7 @@ export const useToast = create<ToastStore>((set, get) => ({
   toasts: [],
   leaving: [],
   seq: 0,
-  push({ tone = 'info', title, message, detail, ttl = 10000, dismissible, action }) {
+  push({ tone = 'info', loading, title, message, detail, ttl = 10000, dismissible, action }) {
     const id = get().seq + 1;
     // 兼容旧调用点：只传一个内容时它就是标题；传了 title 时旧 message 变成详情
     const actualTitle = title ?? message ?? '';
@@ -98,7 +101,7 @@ export const useToast = create<ToastStore>((set, get) => ({
       seq: id,
       toasts: [
         ...get().toasts,
-        { id, tone, title: actualTitle, detail: actualDetail, ttl, dismissible, action },
+        { id, tone, loading, title: actualTitle, detail: actualDetail, ttl, dismissible, action },
       ],
     });
     return id;
@@ -246,7 +249,13 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
         />
       ) : null}
       <div className="weq-toast-header">
-        <div className="weq-toast-icon">{config.icon}</div>
+        <div className="weq-toast-icon">
+          {toast.loading ? (
+            <Loader2 size={20} className="weq-spin" aria-label="加载中" />
+          ) : (
+            config.icon
+          )}
+        </div>
         <h3 className="weq-toast-title">{toast.title}</h3>
         <div className="weq-toast-actions">
           {hasDetail ? (

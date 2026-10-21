@@ -7287,6 +7287,7 @@ export function MainView(): ReactElement {
         undefined,
         {
           backgroundRefresh: true,
+          readbackSuccessText: value ? '已置顶' : '已取消置顶',
           readback: async () => {
             const result = await topContacts.refetch();
             if (result.error) throw result.error;

@@ -242,15 +242,7 @@ export function QQWriteToggleRow({
   return (
     <Row
       label={<QQWriteRowLabel icon={icon} label={label} />}
-      desc={
-        initial === null ? (
-          <span role="status">
-            {draft === null
-              ? '尚未读取'
-              : `${saving ? '正在请求' : '已请求'}${draft ? '开启' : '关闭'}，状态待确认`}
-          </span>
-        ) : undefined
-      }
+      desc={initial === null ? <span role="status">尚未读取</span> : undefined}
       control={
         <Toggle
           label={label}
