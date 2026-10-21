@@ -27,6 +27,7 @@ import type {
   GroupTodo,
   BrowseCursor,
 } from '@weq/db';
+import { isSenderUid } from '@weq/db';
 import type { Element } from '@weq/codec';
 import { toRenderElements, type RenderElement } from './msg_view';
 import { GroupNotifyService } from './group_notify';
@@ -956,7 +957,8 @@ export class GroupInfoService {
       if (batch.length === 0) break;
       for (const msg of batch) {
         const uid = msg.senderUid || '';
-        if (!uid) continue;
+        // 删除/撤回占位行会把 40020 写成群号，不能当发言人统计。
+        if (!isSenderUid(uid)) continue;
         counts.set(uid, (counts.get(uid) ?? 0) + 1);
         if (!uins.has(uid) && msg.senderUin > 0n) {
           uins.set(uid, String(msg.senderUin));
@@ -1478,7 +1480,8 @@ export class GroupInfoService {
         totals.totalMessages++;
 
         const uid = msg.senderUid || '';
-        if (uid) {
+        // 删除/撤回占位行会把 40020 写成群号，不能进「发言人」计数（speakerCount）。
+        if (isSenderUid(uid)) {
           counts.set(uid, (counts.get(uid) ?? 0) + 1);
           if (!uins.has(uid) && msg.senderUin > 0n) uins.set(uid, String(msg.senderUin));
         }
