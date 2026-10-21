@@ -392,11 +392,7 @@ export function AgentLabSection(): ReactElement {
 
   return (
     <div className="weq-set">
-      <SectionHeader
-        icon={<Boxes size={18} strokeWidth={1.8} />}
-        title="模型服务商（Provider）"
-        desc="只在这里配置厂商（base_url + api_key + 可用模型）。具体用哪个模型，在克隆体里按任务选择。推荐硅基流动：一个 key 覆盖聊天 / 向量 / 视觉。"
-      />
+      <SectionHeader icon={<Boxes size={18} strokeWidth={1.8} />} title="API 配置" />
 
       <Card
         title="已保存的 provider"

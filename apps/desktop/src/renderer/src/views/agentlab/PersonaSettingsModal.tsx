@@ -727,6 +727,7 @@ function ExportTab({
 export function PersonaSettingsModal({
   persona,
   paramsContent,
+  paramsTitle,
   onClose,
   onSaved,
 }: {
@@ -741,6 +742,7 @@ export function PersonaSettingsModal({
     typo?: TypoCfg;
   };
   paramsContent: ReactNode;
+  paramsTitle?: string;
   onClose: () => void;
   onSaved: () => void;
 }): ReactElement {
@@ -784,7 +786,7 @@ export function PersonaSettingsModal({
                   }}
                 >
                   {t.icon}
-                  {t.label}
+                  {t.id === 'params' && paramsTitle ? paramsTitle : t.label}
                 </button>
               ))}
             </nav>

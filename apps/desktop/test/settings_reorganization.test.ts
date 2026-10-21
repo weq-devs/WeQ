@@ -152,7 +152,7 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('API 用量保留模型与识别一级入口，五个二级页完整', () => {
+  it('API 用量保留模型与识别一级入口，识别、克隆与画像入口完整', () => {
     const f = mount('model-usage');
     try {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
@@ -162,7 +162,15 @@ describe('设置归位后的实际页面', () => {
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map(
           (button) => button.textContent,
         ),
-      ).toEqual(['API 配置', 'API 用量', '意图感知', '推荐回复', '语音与图片识别']);
+      ).toEqual([
+        'API 配置',
+        'API 用量',
+        '意图感知',
+        '推荐回复',
+        '好友克隆',
+        '互动画像',
+        '语音与图片识别',
+      ]);
       expect(f.host.querySelector('.weq-settings-scope')?.textContent).toBe('当前账号');
       expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')).not.toBeNull();
       expect(f.host.querySelector('.weq-settings-content > .weq-settings-scope')).toBeNull();

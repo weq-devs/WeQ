@@ -1,43 +1,20 @@
 /**
  * 设置 → 模型与识别 → 意图感知。
  *
- * 只管**全局**配置（按账号落盘在 `intent_sense/<configId>/config.json`）：
- *   • 总开关（乐观写：服务层落盘后立即返回期望状态，直接写查询缓存）。
- *   • 引擎选择：API（复用 agentlab provider，下拉选 provider + 模型）或
- *     本地模型（Laya / QWeQ-NineBird ONNX，~600MB 按需下载，支持 hf-mirror 镜像；
- *     下载完成可拉起 worker —— 状态实时反映在 localAvailable/engineReady）。
- *   • 回复建议开关（API 生成／本地意图候选）与两套独立上文条数。
- *   • 分析缓存清理。
- *
- * 单会话粒度的开关在会话头部的「会话设置」里（ConversationSettingsDialog）。
+ * 功能开关与 API 引用按账号保存，本地模型资源全局共享。
+ * 重要开关和模型选择直接呈现，业务参数集中在底部高级设置。
  */
 
-import { useEffect, useState, type ReactElement } from 'react';
-import { BrainCircuit, RotateCcw, Save } from 'lucide-react';
-import {
-  DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
-  DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
-  MAX_INTENT_CONTEXT_MESSAGES,
-  isIntentContextCount,
-} from '@weq/service/intent-context';
+import { useState, type ReactElement } from 'react';
+import { BrainCircuit, RotateCcw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { IntentModelsSection } from './IntentModelsSection';
+import { ApiModelSelect } from './ApiModelSelect';
+import { IntentTuningPanel } from './IntentTuningPanel';
 import '../../styles/intent-sense.css';
-
-interface ProviderModelWire {
-  id: string;
-  label?: string;
-  capabilities?: string[];
-}
-
-interface ProviderWire {
-  id: string;
-  name: string;
-  baseUrl: string;
-  models: ProviderModelWire[];
-}
+import '../../styles/model-settings.css';
 
 interface StatusWire {
   enabled: boolean;
@@ -80,11 +57,6 @@ export function IntentSenseSection({
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  // provider 目录走独立的 listAgentLabProviders：设置 → 模型配置保存后会 invalidate
-  // 它，而 getSettings 不会 —— 用后者会出现「刚加的 provider 在这里看不到」。
-  const providers = trpc.bootstrap.listAgentLabProviders.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-  });
   const localEngine = trpc.bootstrap.getLocalEngine.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 0,
@@ -97,39 +69,7 @@ export function IntentSenseSection({
   const clearCache = trpc.account.intentSense.clearCache.useMutation();
 
   const s = status.data as StatusWire | undefined;
-  const providerList = ((providers.data ?? []) as ProviderWire[]).filter(
-    (p) => p.models.length > 0,
-  );
-  const suggestionModels = providerList.flatMap((provider) =>
-    provider.models
-      .filter((model) => !model.capabilities || model.capabilities.includes('chat'))
-      .map((model) => ({
-        key: JSON.stringify([provider.id, model.id]),
-        label: `${provider.name} · ${model.label ?? model.id}`,
-        ref: { providerId: provider.id, model: model.id },
-      })),
-  );
   const local = localEngine.data as LocalEngineWire | undefined;
-  const savedAnalysis = s?.analysisContextMessages ?? DEFAULT_ANALYSIS_CONTEXT_MESSAGES;
-  const savedSuggestion = s?.suggestionContextMessages ?? DEFAULT_SUGGESTION_CONTEXT_MESSAGES;
-  const contextReady = isIntentContextCount(
-    suggestionsPage ? s?.suggestionContextMessages : s?.analysisContextMessages,
-  );
-  const [analysisCount, setAnalysisCount] = useState(String(savedAnalysis));
-  const [suggestionCount, setSuggestionCount] = useState(String(savedSuggestion));
-  useEffect(() => {
-    if (!contextReady) return;
-    setAnalysisCount(String(savedAnalysis));
-    setSuggestionCount(String(savedSuggestion));
-  }, [contextReady, savedAnalysis, savedSuggestion]);
-  const analysisNumber = Number(analysisCount);
-  const suggestionNumber = Number(suggestionCount);
-  const contextValid = suggestionsPage
-    ? suggestionCount.trim() !== '' && isIntentContextCount(suggestionNumber)
-    : analysisCount.trim() !== '' && isIntentContextCount(analysisNumber);
-  const contextDirty = suggestionsPage
-    ? suggestionNumber !== savedSuggestion
-    : analysisNumber !== savedAnalysis;
 
   type ConfigPatch = Parameters<typeof setConfig.mutateAsync>[0];
 
@@ -159,6 +99,48 @@ export function IntentSenseSection({
     }
   }
 
+  const modelControls = !suggestionsPage ? (
+    <>
+      <Card title="意图感知模型">
+        <Row
+          label="运行方式"
+          control={
+            <select
+              className="weq-set-input"
+              aria-label="意图感知运行方式"
+              value={s?.engine ?? 'api'}
+              disabled={status.isLoading || setConfig.isLoading}
+              onChange={(event) => {
+                const engine = event.target.value;
+                if (engine === 'api' || engine === 'local') void patch({ engine });
+              }}
+            >
+              <option value="api">API 模型</option>
+              <option value="local" disabled={!local?.available}>
+                本地离线模型
+              </option>
+            </select>
+          }
+        />
+        {s?.engine === 'api' ? (
+          <Row
+            label="服务商与模型"
+            desc={s.lastApiError ? `最近调用失败：${s.lastApiError}` : undefined}
+            control={
+              <ApiModelSelect
+                label="意图感知 API 模型"
+                value={s.providerRef}
+                disabled={setConfig.isLoading}
+                onChange={(providerRef) => void patch({ providerRef })}
+              />
+            }
+          />
+        ) : null}
+      </Card>
+      {s?.engine === 'local' ? <IntentModelsSection embedded /> : null}
+    </>
+  ) : null;
+
   return (
     <div className="weq-set">
       <SectionHeader
@@ -166,8 +148,8 @@ export function IntentSenseSection({
         title={suggestionsPage ? '推荐回复' : '意图感知'}
         desc={
           suggestionsPage
-            ? undefined
-            : '逐条分析消息的意图与情绪，并聚合成对方的互动画像（好感度 / MBTI / 互动风格）。推断结果仅供娱乐参考；API 引擎会把消息文本发送给你配置的服务商，本地引擎完全离线。单会话的开关在会话头部的「会话设置」里。'
+            ? '生成式推荐使用所选 API，候选不会自动发送。'
+            : 'API 模型会将消息文本发送至所选服务商；本地模型在本机运行。推断结果仅供参考。'
         }
       />
 
@@ -189,57 +171,14 @@ export function IntentSenseSection({
         {suggestionsPage ? (
           <Row
             label="回复建议"
-            desc={'所选 API 生成候选回复；不可用时只保留规则候选，不使用本地模型生成文字。'}
+            desc={`所选 API 最多生成 ${status.data?.suggestionCount ?? 3} 条候选；不可用时只保留规则候选，不使用本地模型生成文字。`}
             control={
               <Toggle
                 checked={!!s?.suggestionsEnabled}
-                disabled={status.isLoading || setConfig.isLoading || !s?.enabled}
+                disabled={status.isLoading || setConfig.isLoading}
                 onChange={(next) => void patch({ suggestionsEnabled: next })}
                 label="回复建议"
               />
-            }
-          />
-        ) : null}
-        {!suggestionsPage ? (
-          <Row
-            label="自己发送后分析"
-            control={
-              <Toggle
-                label="自己发送后分析"
-                checked={s?.analyzeAfterSelf !== false}
-                disabled={status.isLoading || setConfig.isLoading}
-                onChange={(next) => void patch({ analyzeAfterSelf: next })}
-              />
-            }
-          />
-        ) : null}
-        {suggestionsPage ? (
-          <Row
-            label="自己发送后推荐回复"
-            control={
-              <Toggle
-                label="自己发送后推荐回复"
-                checked={s?.suggestAfterSelf === true}
-                disabled={status.isLoading || setConfig.isLoading}
-                onChange={(next) => void patch({ suggestAfterSelf: next })}
-              />
-            }
-          />
-        ) : null}
-        {!suggestionsPage ? (
-          <Row
-            label="分析缓存"
-            desc={clearedHint ?? '切换引擎或更新模型后，可一键清空历史分析缓存并重新识别。'}
-            control={
-              <button
-                type="button"
-                className="weq-int-download-btn"
-                disabled={clearCache.isLoading}
-                onClick={() => void onClearCache()}
-              >
-                <RotateCcw size={13} />
-                <span>清空并重算</span>
-              </button>
             }
           />
         ) : null}
@@ -247,198 +186,73 @@ export function IntentSenseSection({
           <Row
             label="推荐回复 API 模型"
             desc={
-              s?.lastSuggestionApiError
-                ? `最近调用失败：${s.lastSuggestionApiError}`
-                : !s?.enabled
-                  ? '意图功能总开关尚未启用'
-                  : undefined
+              s?.lastSuggestionApiError ? `最近调用失败：${s.lastSuggestionApiError}` : undefined
             }
             control={
-              <select
-                className="weq-set-input"
-                aria-label="推荐回复 API 模型"
-                value={
-                  s?.suggestionProviderRef
-                    ? JSON.stringify([
-                        s.suggestionProviderRef.providerId,
-                        s.suggestionProviderRef.model,
-                      ])
-                    : ''
-                }
+              <ApiModelSelect
+                label="推荐回复 API 模型"
+                value={s?.suggestionProviderRef ?? null}
                 disabled={status.isLoading || setConfig.isLoading}
-                onChange={(event) =>
-                  void patch({
-                    suggestionProviderRef:
-                      suggestionModels.find((model) => model.key === event.target.value)?.ref ??
-                      null,
-                  })
-                }
-              >
-                <option value="">未选择（仅规则候选）</option>
-                {suggestionModels.map((model) => (
-                  <option key={model.key} value={model.key}>
-                    {model.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(suggestionProviderRef) => void patch({ suggestionProviderRef })}
+                emptyLabel="未选择（仅规则候选）"
+              />
             }
           />
         ) : null}
       </Card>
 
-      <Card title="上文范围">
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!contextReady || !contextValid || !contextDirty || setConfig.isLoading) return;
-            void patch(
-              suggestionsPage
-                ? { suggestionContextMessages: suggestionNumber }
-                : { analysisContextMessages: analysisNumber },
-            );
-          }}
-        >
-          {!suggestionsPage ? (
-            <Row
-              label="意图分析上文（条）"
-              desc={`0–${MAX_INTENT_CONTEXT_MESSAGES} 条，不含当前消息；仍受对话时效窗口限制。`}
-              control={
-                <input
-                  type="number"
-                  className="weq-set-input"
-                  aria-label="意图分析上文条数"
-                  min={0}
-                  max={MAX_INTENT_CONTEXT_MESSAGES}
-                  step={1}
-                  required
-                  value={analysisCount}
-                  disabled={!contextReady || setConfig.isLoading}
-                  onChange={(event) => setAnalysisCount(event.target.value)}
-                  style={{ width: 96 }}
-                />
-              }
-            />
-          ) : null}
+      {modelControls}
+      <details className="weq-model-advanced">
+        <summary>高级设置</summary>
+        <Card title="触发与缓存">
           {suggestionsPage ? (
             <Row
-              label="推荐回复上文（条）"
-              desc={`0–${MAX_INTENT_CONTEXT_MESSAGES} 条，不含最新消息；0 表示仅使用最新消息。`}
+              label="自己发送后推荐回复"
               control={
-                <input
-                  type="number"
-                  className="weq-set-input"
-                  aria-label="推荐回复上文条数"
-                  min={0}
-                  max={MAX_INTENT_CONTEXT_MESSAGES}
-                  step={1}
-                  required
-                  value={suggestionCount}
-                  disabled={!contextReady || setConfig.isLoading}
-                  onChange={(event) => setSuggestionCount(event.target.value)}
-                  style={{ width: 96 }}
+                <Toggle
+                  label="自己发送后推荐回复"
+                  checked={s?.suggestAfterSelf === true}
+                  disabled={status.isLoading || setConfig.isLoading}
+                  onChange={(suggestAfterSelf) => void patch({ suggestAfterSelf })}
                 />
               }
             />
-          ) : null}
-          <Row
-            label={
-              contextReady ? '上文设置' : status.isLoading ? '读取中…' : '当前主进程未加载上文设置'
-            }
-            control={
-              <button
-                type="submit"
-                className="weq-set-btn"
-                disabled={!contextReady || !contextValid || !contextDirty || setConfig.isLoading}
-              >
-                <Save size={14} />
-                保存
-              </button>
-            }
-          />
-        </form>
-      </Card>
-
-      {!suggestionsPage ? (
-        <Card title="引擎">
-          <Row
-            label="API（OpenAI 兼容）"
-            desc="引用「模型与识别 → API 配置」中的服务商与模型。"
-            control={
-              <Toggle
-                checked={s?.engine === 'api'}
-                disabled={status.isLoading}
-                onChange={() => void patch({ engine: 'api' })}
-                label="使用 API 引擎"
+          ) : (
+            <>
+              <Row
+                label="自己发送后分析"
+                control={
+                  <Toggle
+                    label="自己发送后分析"
+                    checked={s?.analyzeAfterSelf !== false}
+                    disabled={status.isLoading || setConfig.isLoading}
+                    onChange={(analyzeAfterSelf) => void patch({ analyzeAfterSelf })}
+                  />
+                }
               />
-            }
-          />
-          {s?.engine === 'api' ? (
-            <Row
-              label="Provider / 模型"
-              desc={
-                providerList.length === 0
-                  ? '尚未配置服务商，请到「模型与识别 → API 配置」添加。'
-                  : s.lastApiError
-                    ? `最近一次 API 调用失败：${s.lastApiError}（请检查接口地址或网络连通性）`
-                    : s.apiConfigured
-                      ? undefined
-                      : '当前选择不可用。'
-              }
-              control={
-                <select
-                  className="weq-int-select"
-                  value={s.providerRef ? `${s.providerRef.providerId}::${s.providerRef.model}` : ''}
-                  disabled={providerList.length === 0}
-                  onChange={(e) => {
-                    const [providerId, model] = e.target.value.split('::');
-                    if (!providerId || !model) {
-                      void patch({ providerRef: null });
-                    } else {
-                      void patch({ providerRef: { providerId, model } });
-                    }
-                  }}
-                >
-                  <option value="">未选择</option>
-                  {providerList.map((p) =>
-                    p.models.map((m) => (
-                      <option key={`${p.id}::${m.id}`} value={`${p.id}::${m.id}`}>
-                        {p.name} · {m.label ?? m.id}
-                      </option>
-                    )),
-                  )}
-                </select>
-              }
-            />
-          ) : null}
-          <Row
-            label={
-              local?.modelDir?.includes('QWeQ-NineBird')
-                ? '本地模型（QWeQ-NineBird 自研微调 ONNX）'
-                : '本地模型（Laya 多语言 ONNX）'
-            }
-            desc={
-              local?.available === false
-                ? '仅桌面版可用。'
-                : local?.engineReady
-                  ? '本地模型已就绪（按需后台运行）。'
-                  : local?.modelDownloaded
-                    ? '引用共享本地模型，分析时按需启动。'
-                    : '尚未就绪，请在下方选择或下载意图模型。'
-            }
-            control={
-              <Toggle
-                checked={s?.engine === 'local'}
-                disabled={status.isLoading || !local?.available || !local?.modelDownloaded}
-                onChange={() => void patch({ engine: 'local' })}
-                label="使用本地引擎"
+              <Row
+                label="分析缓存"
+                desc={clearedHint ?? undefined}
+                control={
+                  <button
+                    type="button"
+                    className="weq-int-download-btn"
+                    disabled={clearCache.isLoading}
+                    onClick={() => void onClearCache()}
+                  >
+                    <RotateCcw size={13} />
+                    <span>清空并重算</span>
+                  </button>
+                }
               />
-            }
-            indent
-          />
+            </>
+          )}
         </Card>
-      ) : null}
 
-      {!suggestionsPage ? <IntentModelsSection embedded /> : null}
+        <IntentTuningPanel group={suggestionsPage ? 'suggestions' : 'analysis'} />
+        {!suggestionsPage ? <IntentTuningPanel group="advanced" /> : null}
+        {!suggestionsPage && s?.engine === 'api' ? <IntentModelsSection embedded /> : null}
+      </details>
 
       <p className="weq-set-note">
         意图与画像均为模型推断，好感度 / MBTI 仅供娱乐参考；API

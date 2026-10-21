@@ -6,6 +6,7 @@ import {
   DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
   DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
   MAX_INTENT_CONTEXT_MESSAGES,
+  DEFAULT_INTENT_TUNING,
 } from '@weq/service/intent-context';
 
 const fixture = vi.hoisted(() => ({
@@ -59,7 +60,16 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       intentSense: {
         getStatus: {
-          useQuery: () => ({ data: fixture.status, isLoading: false, refetch: vi.fn() }),
+          useQuery: () => ({
+            data: {
+              ...DEFAULT_INTENT_TUNING,
+              ...fixture.status,
+              analysisContextMessages: fixture.status.analysisContextMessages,
+              suggestionContextMessages: fixture.status.suggestionContextMessages,
+            },
+            isLoading: false,
+            refetch: vi.fn(),
+          }),
         },
         getLocalEngine: {
           useQuery: () => ({
@@ -132,11 +142,11 @@ function renderFixture() {
 
 it('分别编辑两个条数，只提交对应配置并刷新相关缓存，支持零条上文', async () => {
   const f = renderFixture();
-  expect(f.input('意图分析上文条数').value).toBe(String(DEFAULT_ANALYSIS_CONTEXT_MESSAGES));
+  expect(f.input('意图感知上文条数').value).toBe(String(DEFAULT_ANALYSIS_CONTEXT_MESSAGES));
   expect(f.input('推荐回复上文条数')).toBeNull();
-  expect(f.input('意图分析上文条数').max).toBe(String(MAX_INTENT_CONTEXT_MESSAGES));
+  expect(f.input('意图感知上文条数').max).toBe(String(MAX_INTENT_CONTEXT_MESSAGES));
   expect(f.save().disabled).toBe(true);
-  f.edit('意图分析上文条数', '0');
+  f.edit('意图感知上文条数', '0');
   expect(f.save().disabled).toBe(false);
   await act(async () => f.save().click());
   expect(fixture.save).toHaveBeenCalledWith({
@@ -146,7 +156,7 @@ it('分别编辑两个条数，只提交对应配置并刷新相关缓存，支�
   f.render();
   expect(f.save().disabled).toBe(true);
   f.render('suggestions');
-  expect(f.input('意图分析上文条数')).toBeNull();
+  expect(f.input('意图感知上文条数')).toBeNull();
   expect(f.input('推荐回复上文条数').value).toBe(String(DEFAULT_SUGGESTION_CONTEXT_MESSAGES));
   f.edit('推荐回复上文条数', '2');
   await act(async () => f.save().click());
@@ -159,7 +169,7 @@ it('分别编辑两个条数，只提交对应配置并刷新相关缓存，支�
 it('无效、空值、在途及主进程尚未支持时不能保存或误提示成功', () => {
   const f = renderFixture();
   for (const value of ['-1', '1.5', '', String(MAX_INTENT_CONTEXT_MESSAGES + 1)]) {
-    f.edit('意图分析上文条数', value);
+    f.edit('意图感知上文条数', value);
     expect(f.save().disabled).toBe(true);
     act(() =>
       f.host
@@ -168,15 +178,15 @@ it('无效、空值、在途及主进程尚未支持时不能保存或误提示�
     );
   }
   expect(fixture.save).not.toHaveBeenCalled();
-  f.edit('意图分析上文条数', '2');
+  f.edit('意图感知上文条数', '2');
   fixture.pending = true;
   f.render();
-  expect(f.input('意图分析上文条数').disabled).toBe(true);
+  expect(f.input('意图感知上文条数').disabled).toBe(true);
   expect(f.save().disabled).toBe(true);
   fixture.pending = false;
   Reflect.deleteProperty(fixture.status, 'analysisContextMessages');
   f.render();
-  expect(f.input('意图分析上文条数').disabled).toBe(true);
-  expect(f.host.textContent).toContain('当前主进程未加载上文设置');
+  expect(f.input('意图感知上文条数').disabled).toBe(true);
+  expect(f.host.textContent).toContain('当前主进程尚未提供参数');
   expect(fixture.save).not.toHaveBeenCalled();
 });

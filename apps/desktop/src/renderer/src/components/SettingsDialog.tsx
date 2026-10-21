@@ -40,6 +40,7 @@ import {
   ShieldCheck,
   Sun,
   User,
+  Users,
   X,
 } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
@@ -53,6 +54,8 @@ import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
 import { IntentModelsSection } from './settings/IntentModelsSection';
 import { LocalModelsSection } from './settings/LocalModelsSection';
+import { CloneSettingsSection } from './settings/CloneSettingsSection';
+import { InteractionProfileSection } from './settings/InteractionProfileSection';
 import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTranscribeSection';
 import { OcrModelsSection } from './settings/OcrModelsSection';
 import { McpServerSection } from './settings/McpServerSection';
@@ -229,6 +232,18 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '语音与图片识别',
     icon: <HardDrive size={16} strokeWidth={1.8} />,
     render: () => <LocalModelsSection />,
+  },
+  {
+    id: 'clone-settings',
+    label: '好友克隆',
+    icon: <Users size={16} />,
+    render: () => <CloneSettingsSection />,
+  },
+  {
+    id: 'interaction-profile',
+    label: '互动画像',
+    icon: <BrainCircuit size={16} />,
+    render: () => <InteractionProfileSection />,
   },
   {
     id: 'reply-suggestions',

@@ -6,7 +6,7 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置的两级导航', () => {
-  it('模型保留单个一级分类，五个二级页分别归位', () => {
+  it('模型保留单个一级分类，识别、克隆与画像分别归位', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',
       '个性显示',
@@ -24,6 +24,8 @@ describe('设置的两级导航', () => {
       'model-usage',
       'intent-sense',
       'reply-suggestions',
+      'clone-settings',
+      'interaction-profile',
       'local-models',
     ]);
     expect(settingsSectionFor('voice')).toBe('local-models');

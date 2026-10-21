@@ -303,6 +303,8 @@ async function sampleHomeChatLines(
 }
 
 const agentLabModelRef = z.object({ providerId: z.string().min(1), model: z.string().min(1) });
+const cloneQuantity = (key: CloneGenerationKey) =>
+  z.number().int().min(CLONE_GENERATION[key].min).max(CLONE_GENERATION[key].max).optional();
 const agentLabModels = z.object({
   chat: agentLabModelRef,
   embedding: agentLabModelRef.optional(),
@@ -2129,6 +2131,17 @@ export const accountRouter = router({
     .input(
       z.object({
         personaId: z.string().min(1),
+        chatModel: agentLabModelRef.optional(),
+        generation: z
+          .object({
+            historyMessages: cloneQuantity('historyMessages'),
+            pairExamples: cloneQuantity('pairExamples'),
+            memoryItems: cloneQuantity('memoryItems'),
+            expressionItems: cloneQuantity('expressionItems'),
+            maxOutputTokens: cloneQuantity('maxOutputTokens'),
+            temperature: z.number().min(0).max(2).nullable().optional(),
+          })
+          .optional(),
         name: z.string().optional(),
         customPrompt: z.string().optional(),
         voiceCloneEnabled: z.boolean().optional(),
@@ -2159,6 +2172,8 @@ export const accountRouter = router({
     )
     .mutation(({ input }) => {
       return requireServices().agentLab.updatePersona(input.personaId, {
+        chatModel: input.chatModel,
+        generation: input.generation,
         name: input.name,
         customPrompt: input.customPrompt,
         voiceCloneEnabled: input.voiceCloneEnabled,
@@ -7118,3 +7133,4 @@ function latestGeneratedActivity(
     previewMine: mine,
   };
 }
+import { CLONE_GENERATION, type CloneGenerationKey } from '@weq/agentlab';

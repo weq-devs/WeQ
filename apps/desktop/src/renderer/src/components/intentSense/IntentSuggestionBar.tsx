@@ -1,7 +1,7 @@
 /**
  * 回复建议条 —— composer 上方的一行候选回复 pills。
  *
- * 总开关与回复建议开启时呈现；独立 API 不依赖分析引擎，本地只提供规则候选兜底。
+ * 回复建议独立开启；API 不依赖意图感知引擎，本地只提供规则候选兜底。
  * 点击一条把文本填进 composer 草稿（onInsert）。刷新按钮走 refetch()（绕过
  * staleTime；后端侧还有同消息 90s 的请求级缓存，由 getSuggestions 自己把关）。
  */
@@ -36,11 +36,7 @@ export function IntentSuggestionBar({
   const replyAllowed =
     replyTargetId !== null || (status.data?.suggestAfterSelf === true && !!latestMessageId);
   const overridden = status.data?.conversationOverrides?.[`${kind}:${conv}`];
-  const active =
-    replyAllowed &&
-    !!status.data?.enabled &&
-    overridden !== false &&
-    !!status.data?.suggestionsEnabled;
+  const active = replyAllowed && overridden !== false && !!status.data?.suggestionsEnabled;
   const suggestions = trpc.account.intentSense.getSuggestions.useQuery(
     {
       kind,
@@ -52,7 +48,7 @@ export function IntentSuggestionBar({
     {
       enabled: active,
       refetchOnWindowFocus: false,
-      staleTime: 90_000,
+      staleTime: (status.data?.suggestionCacheSeconds ?? 90) * 1000,
       cacheTime: 0,
       retry: false,
     },

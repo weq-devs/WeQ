@@ -1,0 +1,5 @@
+.weq-model-advanced { min-width: 0; margin-top: 16px; }
+.weq-model-advanced > summary { cursor: pointer; padding: 12px 0; border-top: 1px solid var(--weq-border-subtle); color: var(--weq-fg-primary); font-size: 13px; font-weight: 600; }
+.weq-model-advanced > summary:focus-visible { outline: 2px solid var(--weq-accent-effective); outline-offset: 2px; }
+.weq-model-advanced[open] > summary { margin-bottom: 8px; }
+html[data-theme="dark"] .weq-model-advanced > summary { border-color: var(--weq-border-strong); }

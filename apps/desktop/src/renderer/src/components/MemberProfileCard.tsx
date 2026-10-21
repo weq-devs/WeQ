@@ -121,7 +121,10 @@ export function MemberProfileCard({
   const intentOverride = intentData?.conversationOverrides?.[`c2c:${member.id}`];
   const intentEngineOk =
     intentData?.engine === 'local' ? !!intentData.localReady : !!intentData?.apiConfigured;
-  const canPortrait = !!intentData?.enabled && intentOverride !== false && intentEngineOk;
+  const canPortrait =
+    !!(intentData?.profileEnabled ?? intentData?.enabled) &&
+    intentOverride !== false &&
+    (intentData?.profileAvailable ?? intentEngineOk);
   // 打开个性主页 / 互动标识后，卡片本体要自动收起，只留新的弹层。
   const [dismissed, setDismissed] = useState(false);
   // 机器人档案（profile_info_adelie）。QQ 只在客户端打开过该机器人资料卡后才
