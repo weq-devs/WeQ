@@ -94,6 +94,7 @@ export async function runFavoriteEmojiImport(
     return ids.map(parseCustomFaceId);
   };
   if (!selected.length) return result;
+  notify();
   let existing: Awaited<ReturnType<typeof list>>;
   try {
     existing = await list();

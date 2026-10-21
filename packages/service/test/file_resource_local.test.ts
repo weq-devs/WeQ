@@ -63,6 +63,20 @@ describe('FileResourceService.resolveLocalFile', () => {
     await expect(svc.resolveLocalFile(file)).resolves.toBe(file);
   });
 
+  it('撤销临时预览只影响指定文件，不撤销其他选中文件或账号原有媒体', async () => {
+    const preview = makeFile('private-preview/temporary.png');
+    const other = makeFile('Pictures/another.png');
+    const media = makeFile('nt_data/Pic/2026-09/Ori/cached.png');
+    const svc = service();
+    svc.trustPath(preview);
+    svc.trustPath(other);
+    svc.untrustPath(preview);
+    svc.untrustPath(media);
+    await expect(svc.resolveLocalFile(preview)).resolves.toBeNull();
+    await expect(svc.resolveLocalFile(other)).resolves.toBe(other);
+    await expect(svc.resolveLocalFile(media)).resolves.toBe(media);
+  });
+
   it('目录 / 不存在的路径一律 null', async () => {
     const svc = service();
     await expect(svc.resolveLocalFile(join(ntData, 'Pic'))).resolves.toBeNull();

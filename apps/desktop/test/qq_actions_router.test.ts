@@ -1,9 +1,12 @@
-import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   readFavoriteEmojiBundle,
+  createFavoriteEmojiBundle,
+  FavoriteEmojiImportSession,
   type ExportTaskManager,
   type GroupFileListing,
 } from '@weq/service';
@@ -11,6 +14,7 @@ import {
   PROFILE_LIKE_MAX_PER_REQUEST,
   type GroupJoinInfo,
   type CustomFaceDetail,
+  makeSolidPng,
 } from '@weq/protocol';
 import { createQQActionsRouter, type QQActionServices } from '../src/main/ipc/routers/qq_actions';
 
@@ -153,6 +157,7 @@ function fixture() {
           'resource-favorite',
       ),
     },
+    favoriteEmojiImport: undefined as FavoriteEmojiImportSession | undefined,
   };
   const resolve = (b: typeof binding) => {
     if (
@@ -181,6 +186,105 @@ function fixture() {
     },
   };
 }
+
+describe('收藏包导入路由', () => {
+  it('私有预览携带令牌，离线仍可读取和清理，不触发 QQ 写入', async () => {
+    const f = fixture();
+    const bytes = Buffer.from(makeSolidPng(2, 3, [10, 20, 30]));
+    const md5 = createHash('md5').update(bytes).digest('hex');
+    const archive = await createFavoriteEmojiBundle(
+      [{ emojiId: `10001_0_0_0_${md5}_0_0`, md5, description: '备注', position: 1 }],
+      async () => bytes,
+    );
+    const manager = new FavoriteEmojiImportSession(
+      { ...f.s.emoji, addFavorite: async () => '' },
+      { trustPath: vi.fn(), untrustPath: vi.fn() },
+    );
+    f.s.favoriteEmojiImport = manager;
+    const directory = await mkdtemp(join(tmpdir(), 'weq-import-router-'));
+    const path = join(directory, 'synthetic.zip');
+    try {
+      await writeFile(path, archive.archive);
+      await expect(f.caller.favoriteImportPreview({ ...binding, path })).rejects.toThrow('未授权');
+      f.s.fileResource.resolveLocalFile.mockResolvedValue(path);
+      const view = await f.caller.favoriteImportPreview({ ...binding, path });
+      expect(view.items[0]).toMatchObject({ disposition: 'ready', description: '备注' });
+      expect(JSON.stringify(view)).not.toContain('bytes');
+      const offlineResolve = vi.fn(() => {
+        throw new Error('QQ 离线');
+      });
+      const offline = createQQActionsRouter(
+        offlineResolve,
+        undefined,
+        () => f.s as unknown as QQActionServices,
+      ).createCaller({});
+      expect((await offline.favoriteImportState(binding))?.token).toBe(view.token);
+      expect(await offline.favoriteImportDiscard({ ...binding, token: view.token })).toEqual({
+        discarded: true,
+      });
+      await expect(stat(view.items[0]!.previewPath!)).rejects.toThrow();
+      expect(offlineResolve).not.toHaveBeenCalled();
+      expect(f.s.emoji.addFavorite).not.toHaveBeenCalled();
+    } finally {
+      await manager.dispose();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('批量导入占用现有 QQ 写锁直到在途请求结束，取消不释放过早', async () => {
+    const f = fixture();
+    const bytes = Buffer.from(makeSolidPng(2, 3, [40, 50, 60]));
+    const md5 = createHash('md5').update(bytes).digest('hex');
+    const emojiId = `10001_0_0_0_${md5}_0_0`;
+    const archive = await createFavoriteEmojiBundle(
+      [{ emojiId, md5, description: '备注', position: 1 }],
+      async () => bytes,
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    f.s.emoji.fetchOnlineFavoriteIds.mockResolvedValue([]);
+    const add = vi.fn(
+      async (_bytes: Uint8Array, _log?: (message: string) => void, beforeSend?: () => void) => {
+        beforeSend?.();
+        await gate;
+        return emojiId;
+      },
+    );
+    const manager = new FavoriteEmojiImportSession(
+      { ...f.s.emoji, addFavorite: add },
+      { trustPath: vi.fn(), untrustPath: vi.fn() },
+    );
+    f.s.favoriteEmojiImport = manager;
+    try {
+      const view = await manager.prepare(archive.archive, () => {});
+      await f.caller.favoriteImportStart({
+        ...binding,
+        token: view.token,
+        keys: [view.items[0]!.key],
+      });
+      await vi.waitFor(() => expect(add).toHaveBeenCalledOnce());
+      await expect(f.caller.favorite({ ...binding, action: 'delete', emojiId })).rejects.toThrow(
+        '等待',
+      );
+      await f.caller.favoriteImportCancel({ ...binding, token: view.token });
+      await expect(f.caller.favorite({ ...binding, action: 'delete', emojiId })).rejects.toThrow(
+        '等待',
+      );
+      release();
+      await vi.waitFor(() => expect(manager.read()?.phase).toBe('finished'));
+      expect((await f.caller.favorite({ ...binding, action: 'delete', emojiId })).state).toBe(
+        'accepted',
+      );
+      expect(add).toHaveBeenCalledOnce();
+      expect(f.s.emoji.modifyFavoriteDesc).not.toHaveBeenCalled();
+    } finally {
+      release();
+      await manager.dispose();
+    }
+  });
+});
 
 describe('收藏包导出任务', () => {
   it('保存位置未准备时不入队，稍后保存沿用单文件 ZIP 任务', async () => {

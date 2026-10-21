@@ -16,6 +16,7 @@ import { ConversationActionsMenu } from '../ConversationActionsMenu';
 import { useDialog } from '../Dialog';
 import { useTabActive } from '../RetainedTabs';
 import { FavoriteBundleExport } from './FavoriteBundleExport';
+import { FavoriteBundleImport } from './FavoriteBundleImport';
 import '../../styles/group-content-management.css';
 import '../../styles/qq-management.css';
 import {
@@ -31,6 +32,8 @@ function FavoriteActionsBody() {
   const a = useQQAction('favorites');
   const confirm = useDialog((s) => s.confirm);
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const disabled = a.disabled || importing;
   const [picture, setPicture] = useState<{ path: string; fileName: string } | null>(null);
   const autoRefresh = useQQAutoRefresh(a.available);
   const list = trpc.account.qqActions.favorites.useQuery({ ...a.binding! }, autoRefresh);
@@ -44,13 +47,19 @@ function FavoriteActionsBody() {
         <h3>收藏表情</h3>
         <div>
           <span>{list.data?.length ?? 0} 项</span>
+          <FavoriteBundleImport
+            binding={a.binding}
+            available={a.available && !a.pending}
+            onBusyChange={setImporting}
+            onChanged={refresh}
+          />
           <FavoriteBundleExport
             binding={a.binding}
-            disabled={a.disabled || list.isLoading || Boolean(list.error)}
+            disabled={disabled || list.isLoading || Boolean(list.error)}
           />
           <ActionIcon
             label="新建收藏表情"
-            disabled={a.disabled || adding}
+            disabled={disabled || adding}
             onClick={() => setAdding(true)}
           >
             <Plus size={16} />
@@ -61,7 +70,7 @@ function FavoriteActionsBody() {
         {adding && (
           <div className="weq-qq-action-bar weq-favorite-add" aria-label="添加收藏表情编辑器">
             <ImageAction
-              disabled={a.disabled}
+              disabled={disabled}
               onClick={() =>
                 void a.pickImage().then((f) => {
                   if (f) setPicture(f);
@@ -71,7 +80,7 @@ function FavoriteActionsBody() {
             <span>{picture?.fileName}</span>
             <SaveAction
               label="添加收藏表情"
-              disabled={a.disabled || !picture}
+              disabled={disabled || !picture}
               onClick={() => {
                 if (picture) {
                   const submitted = picture;
@@ -146,6 +155,7 @@ function FavoriteActionsBody() {
                 desc={f.desc}
                 position={f.position}
                 count={list.data.length}
+                importing={importing}
                 onChanged={refresh}
               />
             </li>
@@ -162,15 +172,18 @@ function FavoriteRow({
   desc,
   position,
   count,
+  importing,
   onChanged,
 }: {
   emojiId: string;
   desc: string;
   position: number;
   count: number;
+  importing: boolean;
   onChanged: () => Promise<void>;
 }) {
   const a = useQQAction(`favorite:${emojiId}`);
+  const disabled = a.disabled || importing;
   const active = useTabActive();
   const confirm = useDialog((s) => s.confirm);
   const [draft, setDraft] = useState<string | null>(null);
@@ -184,7 +197,7 @@ function FavoriteRow({
       className="weq-qq-favorite-row"
       onContextMenu={(event) => {
         if (
-          a.disabled ||
+          disabled ||
           (event.target instanceof Element && event.target.closest('input, textarea'))
         )
           return;
@@ -199,7 +212,7 @@ function FavoriteRow({
           className="weq-set-iconbtn"
           aria-label="表情操作"
           title="表情操作"
-          disabled={a.disabled}
+          disabled={disabled}
           onClick={(event) => {
             const rect = event.currentTarget.getBoundingClientRect();
             setMenu({ x: rect.left, y: rect.bottom });
@@ -219,7 +232,7 @@ function FavoriteRow({
           <div className="weq-qq-action-bar">
             <SaveAction
               label="保存表情备注"
-              disabled={a.disabled || value === desc}
+              disabled={disabled || value === desc}
               onClick={() => {
                 let accepted = false;
                 void a.perform(
@@ -269,13 +282,13 @@ function FavoriteRow({
             {
               label: '修改表情备注',
               icon: <Pencil size={15} />,
-              disabled: a.disabled,
+              disabled,
               action: () => setDraft((current) => current ?? desc),
             },
             {
               label: '上移表情',
               icon: <ArrowUp size={15} />,
-              disabled: a.disabled || position <= 1,
+              disabled: disabled || position <= 1,
               action: () =>
                 void a.perform(
                   (b) =>
@@ -291,7 +304,7 @@ function FavoriteRow({
             {
               label: '下移表情',
               icon: <ArrowDown size={15} />,
-              disabled: a.disabled || position >= count,
+              disabled: disabled || position >= count,
               action: () =>
                 void a.perform(
                   (b) =>
@@ -307,7 +320,7 @@ function FavoriteRow({
             {
               label: '删除收藏表情',
               icon: <Trash2 size={15} />,
-              disabled: a.disabled,
+              disabled,
               separatorBefore: true,
               action: () =>
                 void a.perform(

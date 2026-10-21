@@ -4,7 +4,11 @@ import { basename, join } from 'node:path';
 import { z } from 'zod';
 import { parseCustomFaceId, PROFILE_LIKE_MAX_PER_REQUEST, type GroupRequest } from '@weq/protocol';
 import { isIncomingPendingBuddyRequest } from '@weq/service/buddy-request';
-import { exportOnlineFavoriteEmojiBundle } from '@weq/service';
+import {
+  exportOnlineFavoriteEmojiBundle,
+  FAVORITE_EMOJI_MAX_ARCHIVE_BYTES,
+  FAVORITE_EMOJI_MAX_ITEMS,
+} from '@weq/service';
 import {
   parseGroupShareLocation,
   resolveGroupShareAuthKey,
@@ -52,6 +56,7 @@ export type QQActionServices = Pick<
   | 'messageSend'
   | 'peerStats'
   | 'exportManager'
+  | 'favoriteEmojiImport'
 >;
 
 /** 不读任意渲染进程路径，只接受账号媒体或用户通过本应用选中的文件。 */
@@ -59,15 +64,20 @@ async function image(
   services: QQActionServices,
   path: string,
   current: () => void,
-): Promise<Uint8Array> {
+  maxBytes = 20 * 1024 * 1024,
+): Promise<Buffer> {
   const safe = await services.fileResource.resolveLocalFile(path);
   current();
   if (!safe) throw new Error('图片未授权，请重新选择文件');
   const handle = await open(safe, 'r');
   try {
     const info = await handle.stat();
-    if (!info.isFile() || info.size < 1 || info.size > 20 * 1024 * 1024)
-      throw new Error('请选择 20 MB 以内的图片');
+    if (!info.isFile() || info.size < 1 || info.size > maxBytes)
+      throw new Error(
+        maxBytes === FAVORITE_EMOJI_MAX_ARCHIVE_BYTES
+          ? '收藏包体积超限或为空'
+          : '请选择 20 MB 以内的图片',
+      );
     const buffer = Buffer.alloc(info.size + 1);
     let filled = 0;
     while (filled < buffer.length) {
@@ -87,6 +97,7 @@ async function image(
 export function createQQActionsRouter(
   resolve: (input: QQWriteBinding) => QQActionServices,
   resolveShare = resolveGroupShareAuthKey,
+  resolveStatus = resolve,
 ) {
   const busy = new WeakSet<QQActionServices>();
   const pending = new WeakMap<
@@ -467,6 +478,52 @@ export function createQQActionsRouter(
         }));
       }),
     ),
+    favoriteImportPreview: procedure
+      .input(binding.extend({ path: z.string().min(1).max(8192) }))
+      .mutation(({ input: i }) =>
+        read(i, async (s) => {
+          const pid = s.accountConfig.getRecord()?.qqPid;
+          const current = () => {
+            if (resolve(i) !== s || s.accountConfig.getRecord()?.qqPid !== pid)
+              throw new Error('账号或 QQ 运行时已改变，请重新选择收藏包');
+          };
+          return s.favoriteEmojiImport.prepare(
+            () => image(s, i.path, current, FAVORITE_EMOJI_MAX_ARCHIVE_BYTES),
+            current,
+          );
+        }),
+      ),
+    favoriteImportState: procedure
+      .input(binding)
+      .query(({ input: i }) => resolveStatus(i).favoriteEmojiImport.read()),
+    favoriteImportStart: procedure
+      .input(
+        binding.extend({
+          token: z.string().uuid(),
+          keys: z.array(z.string().min(1).max(64)).min(1).max(FAVORITE_EMOJI_MAX_ITEMS),
+        }),
+      )
+      .mutation(({ input: i }) => {
+        const s = resolve(i);
+        if (busy.has(s)) throw new Error('请等待当前 QQ 操作完成');
+        return s.favoriteEmojiImport.start(i.token, i.keys, async (run) => {
+          busy.add(s);
+          try {
+            return await run();
+          } finally {
+            busy.delete(s);
+          }
+        });
+      }),
+    favoriteImportCancel: procedure
+      .input(binding.extend({ token: z.string().uuid() }))
+      .mutation(({ input: i }) => resolveStatus(i).favoriteEmojiImport.cancel(i.token)),
+    favoriteImportDiscard: procedure
+      .input(binding.extend({ token: z.string().uuid() }))
+      .mutation(async ({ input: i }) => {
+        await resolveStatus(i).favoriteEmojiImport.discard(i.token);
+        return { discarded: true };
+      }),
     favoriteExport: procedure
       .input(binding.extend({ savePolicy: exportSavePolicyInput }))
       .mutation(({ input: i }) =>

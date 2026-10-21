@@ -1610,14 +1610,18 @@ function unreadInfoToWire(
 }
 
 export const accountRouter = router({
-  qqActions: createQQActionsRouter((input) => {
-    const services = requireExpectedAccount(
-      input.expectedAccountUin,
-      input.expectedAccountConfigId,
-    );
-    requireQqOnlineForAlbum(services);
-    return services;
-  }),
+  qqActions: createQQActionsRouter(
+    (input) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      return services;
+    },
+    undefined,
+    (input) => requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+  ),
   qqWrite: createQQWriteRouter(
     (input) => {
       const services = requireExpectedAccount(

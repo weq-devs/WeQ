@@ -251,6 +251,11 @@ export type {
   FavoriteEmojiImportPlanItem,
 } from './account/favorite_emoji_bundle';
 export { runFavoriteEmojiImport } from './account/favorite_emoji_import';
+export {
+  FavoriteEmojiImportSession,
+  FAVORITE_EMOJI_PREVIEW_TTL_MS,
+} from './account/favorite_emoji_import_session';
+export type { FavoriteEmojiImportPreview } from './account/favorite_emoji_import_session';
 export { exportOnlineFavoriteEmojiBundle } from './account/favorite_emoji_export';
 export type { FavoriteEmojiExportPort } from './account/favorite_emoji_export';
 export type {
