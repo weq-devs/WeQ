@@ -15,10 +15,40 @@ XGetWindowAttributes failed for window 1
 
 - 开发：`electron.vite.config.ts` 注入 `ELECTRON_CLI_ARGS`（electron-vite 会在配置加载后、
   启动 Electron 前读取它，这是唯一能同时兼容 `pnpm dev -- --user-data-dir=…` 的注入点）。
-- 打包：`electron-builder.yml` 的 `linux.executableArgs`。
+- 打包：`electron-builder.yml` 的 `linux.executableArgs`，**但只写进 AppImage 的
+  `.desktop`**，见下一节。
+- 兜底：主进程在 `requestSingleInstanceLock` 之前调 `ozoneRelaunchArgs()`，参数不在
+  argv 里就 `app.relaunch` 一次（`index.ts` 的 `relaunchForOzoneBackend`）。
 
 `WEQ_OZONE_PLATFORM=wayland` 仍然可以退回原生 Wayland（纯 Wayland 桌面没有 DISPLAY 时
 也会自动留在 Wayland）。
+
+## 为什么打包版还要在运行时兜底重启（2026-10-22）
+
+`linux.executableArgs` 在 electron-builder 25 里只有两个消费者：`AppImageTarget`
+与 `LinuxTargetHelper.computeDesktopEntry`，**都只生成 `.desktop` 文件**。于是：
+
+| 启动方式 | 参数在不在 |
+| --- | --- |
+| AppImage 从系统菜单 / 启动器打开 | 在（读 `.desktop` 的 `Exec`） |
+| 直接执行 `./weQ-*.AppImage`、文件管理器双击 | 不在（`AppRun` 不读同目录的 `.desktop`） |
+| tar.gz 解压后 `./weQ` | 不在（`ArchiveTarget` 只打包目录，不生成 desktop entry） |
+| `pnpm dev` | 在（`ELECTRON_CLI_ARGS`） |
+
+而且 `WEQ_OZONE_PLATFORM` 只在 `linux_window_backend.ts` 里被读取，那段代码在打包产物
+里是死代码——发布版此前根本没有「退回原生 Wayland」的开关。
+
+所以兜底放在主进程入口：argv 里没有 `--ozone-platform`、且判定结果需要一个后端时，
+带参数 `app.relaunch()` 一次。三点约束：
+
+1. **必须在 `app.requestSingleInstanceLock()` 之前**，否则新进程会撞上本进程持有的单实例锁。
+2. `WEQ_OZONE_RELAUNCHED=1` 防死循环（重启后仍拿不到参数时不再套娃）。
+3. AppImage 的 `process.execPath` 指向临时挂载点，父进程退出后会被卸载，重启要用
+   `APPIMAGE` 环境变量指回真实文件，并补 `--no-sandbox`（FUSE 上 chrome-sandbox 的
+   setuid 位无效）。
+
+注意 `executableArgs` 一旦设置，electron-builder 给 AppImage 默认的 `--no-sandbox`
+会被整个替换，所以 `electron-builder.yml` 里显式补了一行。
 
 ## 证据
 
@@ -53,7 +83,9 @@ XGetWindowAttributes failed for window 1
 
 `apps/desktop/test/linux_window_backend.test.ts` 覆盖 `ozonePlatformArgs()` 的四种情形：
 Wayland+X → `--ozone-platform=x11`；纯 X11 → 不加参数；显式 wayland → 不加参数；
-非 Linux → 不加参数。
+非 Linux → 不加参数。另有 `ozoneRelaunchArgs()` 的用例：argv 已带开关（含 `.desktop`
+的分开写法）不重启、AppImage 走 `execPath=APPIMAGE` 且补 `--no-sandbox`、
+`WEQ_OZONE_RELAUNCHED=1` 不再重启。
 
 ## 以后再加 Linux 原生开关时
 

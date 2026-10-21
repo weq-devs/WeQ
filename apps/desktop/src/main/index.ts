@@ -1,6 +1,6 @@
 import { controlCompositionWindow } from './composition_window';
 import { applicationToolPopupOptions } from './tool_window';
-import { floatingWindowTypeOption } from './linux_window_backend';
+import { floatingWindowTypeOption, ozoneRelaunchArgs } from './linux_window_backend';
 import {
   app,
   BrowserWindow,
@@ -80,8 +80,18 @@ const moduleDir = dirname(fileURLToPath(import.meta.url));
 
 // Wayland 会话默认走 XWayland（见 linux_window_backend.ts）：这里**不能**用
 // `appendSwitch`，ozone 后端必须在 Electron 启动参数里指定。开发时由
-// electron.vite.config.ts 注入 `ELECTRON_CLI_ARGS`，打包版由 electron-builder 的
-// `linux.executableArgs` 注入。
+// electron.vite.config.ts 注入 `ELECTRON_CLI_ARGS`；打包版只有从 `.desktop` 启动
+// （AppImage 走系统菜单）才带得上参数，直接执行 AppImage / tar.gz 解压跑都不经过
+// `.desktop`，所以下面兜底重启一次。必须在 requestSingleInstanceLock 之前——
+// 否则重启出来的新进程会撞上本进程持有的单实例锁而直接退出。
+function relaunchForOzoneBackend(): void {
+  const relaunch = ozoneRelaunchArgs();
+  if (!relaunch) return;
+  process.env.WEQ_OZONE_RELAUNCHED = '1';
+  app.relaunch({ execPath: relaunch.execPath, args: relaunch.args });
+  app.exit(0);
+}
+relaunchForOzoneBackend();
 
 // Privileged-scheme registration must happen before app `ready`, and Electron
 // honors only ONE `registerSchemesAsPrivileged` call — register every custom

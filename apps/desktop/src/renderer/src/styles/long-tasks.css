@@ -175,18 +175,21 @@ html[data-theme='dark'] .weq-long-task-detail > .weq-exp-detail {
   color: var(--destructive);
 }
 
-.weq-long-task-detail .weq-roaming-panel,
-.weq-long-task-detail .weq-roaming-body {
-  display: block;
+.weq-long-task-detail .weq-roaming-panel {
   height: auto;
+}
+
+.weq-long-task-detail .weq-roaming-body {
   overflow: visible;
   padding: 0;
 }
 
-.weq-long-task-detail .weq-roaming-task {
+/* 任务详情里只展示这一条任务，卡片外框交给外层的 .weq-long-task-detail。 */
+.weq-long-task-detail .weq-roaming-job {
   padding: 0;
   border: 0;
   background: transparent;
+  box-shadow: none;
 }
 
 .weq-long-task-actions {

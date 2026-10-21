@@ -63,15 +63,20 @@ export function cookieHeader(cred: WebCredential): string {
 /** Minimal native surface the web layer needs. */
 export type WebNative = Pick<NtHelperBinding, 'ptFetchCredentials'>;
 
-/** 窗口自动登录用的一次性 skey / p_skey。hook 优先，pt_login 兜底。 */
+/** 窗口自动登录用的一次性 skey / p_skey。OIDB / clientKey jump 为主，本地 pt_login 兜底。 */
 export interface WebTokens {
   skey: string;
   pskey: string;
+  /**
+   * native 侧三级链都失败时的原因（含 OIDB / 本地端口各自的失败说明）。
+   * 成功时为空。调用方要展示「为什么打不开」时用它，不要只看 skey/pskey 是否为空。
+   */
+  error?: string;
 }
 
 /**
  * 取某个在线 QQ 进程的 skey / p_skey（用于窗口自动登录等一次性场景）。
- * 实际换取逻辑在 native `ptFetchCredentials`；失败返回空串，不抛错。
+ * 实际换取逻辑在 native `ptFetchCredentials`；失败不抛错，返回空串 + `error`。
  * `seedPskey`（可选）：登录时收下的该域 p_skey，在 native 也拿不到时兜底。
  */
 export async function fetchWebTokens(
@@ -81,17 +86,19 @@ export async function fetchWebTokens(
   domain: string,
   opts: { needSkey?: boolean; seedPskey?: string } = {},
 ): Promise<WebTokens> {
+  let error: string | undefined;
   try {
     const res = await nt.ptFetchCredentials(pid, uin, domain);
     if (res.success && res.pskey) {
       return { skey: opts.needSkey ? res.skey : '', pskey: res.pskey };
     }
-  } catch {
-    /* native 拿不到（QQ 退出 / 未注入且探测端口失败）→ 退回登录收下的票据 */
+    error = res.msg || 'native 未返回 p_skey';
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
   }
   // 登录时顺带收的 p_skey：可能已经过期，但总比空 jar 强，交给服务端判。
   // 只有 p_skey、没有 skey —— qzone.qq.com 的 g_tk 用 p_skey 就能算，够用。
-  return { skey: '', pskey: opts.seedPskey ?? '' };
+  return { skey: '', pskey: opts.seedPskey ?? '', error };
 }
 
 /**

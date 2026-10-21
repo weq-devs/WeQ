@@ -80,15 +80,30 @@ async function injectAutoLoginCookies(partition: string): Promise<void> {
   const record = ctx.services?.accountConfig.getRecord();
   if (!uin || !nt || !record?.qqOnline || !record.qqPid) return;
 
-  // 已注入时走 hook；未注入 / 完全离线模式回退 ptlogin2 本地快速登录；两者都拿不到
-  // 时用登录时顺带收下的 qzone p_skey 兜底（可能已过期，交给服务端判）。
-  const { skey, pskey } = await fetchWebTokens(nt, String(uin), record.qqPid, QZONE_PSKEY_DOMAIN, {
-    needSkey: true,
-    seedPskey: record.loginPskey?.[QZONE_PSKEY_DOMAIN],
-  });
+  // native 侧按 OIDB / clientKey jump 为主、本地 pt_login 兜底换票；都拿不到时用
+  // 登录时顺带收下的 qzone p_skey 兜底（可能已过期，交给服务端判）。
+  const { skey, pskey, error } = await fetchWebTokens(
+    nt,
+    String(uin),
+    record.qqPid,
+    QZONE_PSKEY_DOMAIN,
+    {
+      needSkey: true,
+      seedPskey: record.loginPskey?.[QZONE_PSKEY_DOMAIN],
+    },
+  );
   // 只有 seed 兜底来的 p_skey（没有 skey）时也算部分成功：uin / p_uin / p_skey 仍能
   // 让多数空间页面进登录态，g_tk 用 p_skey 算。
-  if (!skey && !pskey) return;
+  if (!skey && !pskey) {
+    // 一条命中的日志比窗口里一句「未登录」有用得多：这里会带上 OIDB 与本地端口
+    // 各自的失败原因。
+    logger.warn('qq zone auto-login produced no tokens', {
+      event: 'qzone-autologin-empty',
+      uin: String(uin),
+      error,
+    });
+    return;
+  }
 
   const ses = session.fromPartition(partition);
   const pUin = `o${uin}`;
