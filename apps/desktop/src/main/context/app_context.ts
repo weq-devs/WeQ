@@ -305,6 +305,7 @@ export interface IntentSenseModelProgress {
  *（`intentSense.localAvailable === false`，UI 相应隐藏本地引擎入口）。
  */
 export interface IntentSenseLocalEngineControl extends IntentLocalEnginePort {
+  listModels?(): Array<{ id: string; name: string; downloaded: boolean; downloadable: boolean }>;
   modelDir(): string;
   isModelDownloaded(): boolean;
   download(options: {
@@ -1147,7 +1148,7 @@ export function initAppContext(): AppContext {
   // need the same "silk → text" pipeline (model resolved lazily so a model
   // change between 进入 and 使用 is honoured). Factored here to avoid duplication.
   const transcribeSilk = async (silkPath: string): Promise<TranscribeSilkResult> => {
-    const modelId = userConfig.getSettings().voiceTranscribe.modelId;
+    const modelId = userConfig.getLocalModelId('voice');
     if (!modelId) return { ok: false, error: '未选择转录模型' };
     const model = getVoiceModel(modelId);
     if (!model) return { ok: false, error: '转录模型不存在' };
@@ -1170,7 +1171,7 @@ export function initAppContext(): AppContext {
   };
   /** True only when a transcription model is configured AND downloaded. */
   const voiceReady = (): boolean => {
-    const modelId = userConfig.getSettings().voiceTranscribe.modelId;
+    const modelId = userConfig.getLocalModelId('voice');
     return !!modelId && Boolean(bootstrap.voiceTranscribe.getModelStatus(modelId)?.downloaded);
   };
   /** AgentLab media deps factory: media completion + voice for a given session. */

@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useState, type ReactElement } from 'react';
-import { BrainCircuit, Download, Play, RotateCcw, Save } from 'lucide-react';
+import { BrainCircuit, RotateCcw, Save } from 'lucide-react';
 import {
   DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
   DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
@@ -62,19 +62,6 @@ interface LocalEngineWire {
   downloading: boolean;
 }
 
-interface DownloadProgressWire {
-  filesDone: number;
-  filesTotal: number;
-  received: number;
-  total: number;
-  currentFile: string | null;
-  done: boolean;
-}
-
-function fmtMB(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
-}
-
 export function IntentSenseSection(): ReactElement {
   const showError = useDialog((s) => s.showError);
   const utils = trpc.useUtils();
@@ -89,29 +76,16 @@ export function IntentSenseSection(): ReactElement {
   const providers = trpc.bootstrap.listAgentLabProviders.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
-  const localEngine = trpc.account.intentSense.getLocalEngine.useQuery(undefined, {
+  const localEngine = trpc.bootstrap.getLocalEngine.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
     // 引擎状态会因下载/启动变化，订阅进度时顺手刷新。
   });
-  const [progress, setProgress] = useState<DownloadProgressWire | null>(null);
   const [clearedHint, setClearedHint] = useState<string | null>(null);
-
-  trpc.account.intentSense.onModelDownloadProgress.useSubscription(undefined, {
-    onData: (p) => {
-      setProgress(p as DownloadProgressWire);
-      if ((p as DownloadProgressWire).done) {
-        void utils.account.intentSense.getLocalEngine.invalidate();
-      }
-    },
-    onError: () => undefined,
-  });
 
   const setConfig = trpc.account.intentSense.setConfig.useMutation();
   const clearCache = trpc.account.intentSense.clearCache.useMutation();
-  const downloadModel = trpc.account.intentSense.downloadLocalModel.useMutation();
-  const startEngine = trpc.account.intentSense.startLocalEngine.useMutation();
 
   const s = status.data as StatusWire | undefined;
   const providerList = ((providers.data ?? []) as ProviderWire[]).filter(
@@ -166,26 +140,6 @@ export function IntentSenseSection(): ReactElement {
       showError('清空缓存失败', e instanceof Error ? e.message : String(e));
     }
   }
-
-  async function onDownload(): Promise<void> {
-    const res = await downloadModel.mutateAsync({ mirror: s?.hfMirror !== false });
-    if (!res.ok) {
-      showError('模型下载失败', res.error ?? '');
-    }
-    void utils.account.intentSense.getLocalEngine.invalidate();
-  }
-
-  async function onStart(): Promise<void> {
-    const res = await startEngine.mutateAsync();
-    if (!res.ok) {
-      showError('本地引擎启动失败', res.error ?? '');
-    }
-    // 引擎 ready 状态变了：getStatus/localEngine 一起失效，胶囊与好感度立即生效。
-    void utils.account.intentSense.getLocalEngine.invalidate();
-    void utils.account.intentSense.getStatus.invalidate();
-  }
-
-  const downloading = local?.downloading || (progress !== null && !progress.done);
 
   return (
     <div className="weq-set">
@@ -337,7 +291,7 @@ export function IntentSenseSection(): ReactElement {
       <Card title="引擎">
         <Row
           label="API（OpenAI 兼容）"
-          desc="复用「模型配置」里配置的 provider；一次调用分析一批消息。"
+          desc="引用「API 与用量 → API 配置」中的服务商与模型。"
           control={
             <Toggle
               checked={s?.engine === 'api'}
@@ -352,7 +306,7 @@ export function IntentSenseSection(): ReactElement {
             label="Provider / 模型"
             desc={
               providerList.length === 0
-                ? '尚未配置任何 provider —— 先到「模型与识别 → 模型配置」添加。'
+                ? '尚未配置服务商，请到「API 与用量 → API 配置」添加。'
                 : s.lastApiError
                   ? `最近一次 API 调用失败：${s.lastApiError}（请检查接口地址或网络连通性）`
                   : s.apiConfigured
@@ -397,8 +351,8 @@ export function IntentSenseSection(): ReactElement {
               : local?.engineReady
                 ? '本地模型已就绪（按需后台运行）。'
                 : local?.modelDownloaded
-                  ? '模型已就绪，点击启动引擎。'
-                  : '约 600MB，下载到用户数据目录，之后完全离线。'
+                  ? '引用共享本地模型，分析时按需启动。'
+                  : '尚未就绪，请到「本地模型 → 意图模型」管理资源。'
           }
           control={
             <Toggle
@@ -410,58 +364,6 @@ export function IntentSenseSection(): ReactElement {
           }
           indent
         />
-        {local?.available && !local.modelDownloaded ? (
-          <div className="weq-int-download">
-            <button
-              type="button"
-              className="weq-int-download-btn"
-              disabled={downloading}
-              onClick={() => void onDownload()}
-            >
-              {downloading ? <Download size={14} className="weq-spin" /> : <Download size={14} />}
-              <span>{downloading ? '下载中…' : '下载模型'}</span>
-            </button>
-            <label className="weq-int-mirror">
-              <input
-                type="checkbox"
-                checked={s?.hfMirror !== false}
-                onChange={(e) => void patch({ hfMirror: e.target.checked })}
-              />
-              使用 hf-mirror.com 镜像（国内网络建议开启）
-            </label>
-            {progress && !progress.done ? (
-              <div className="weq-int-progress" title={progress.currentFile ?? ''}>
-                <span
-                  className="weq-int-progress-bar"
-                  style={{
-                    width:
-                      progress.total > 0
-                        ? `${Math.min(100, (progress.received / progress.total) * 100)}%`
-                        : '0%',
-                  }}
-                />
-                <em>
-                  {fmtMB(progress.received)}
-                  {progress.total > 0 ? ` / ${fmtMB(progress.total)}` : ''} · {progress.filesDone}/
-                  {progress.filesTotal} 个文件
-                </em>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-        {local?.available && local.modelDownloaded && !local.engineReady ? (
-          <div className="weq-int-download">
-            <button
-              type="button"
-              className="weq-int-download-btn"
-              disabled={startEngine.isLoading}
-              onClick={() => void onStart()}
-            >
-              <Play size={14} />
-              <span>启动本地引擎</span>
-            </button>
-          </div>
-        ) : null}
       </Card>
 
       <p className="weq-set-note">

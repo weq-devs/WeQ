@@ -347,6 +347,27 @@ export interface OcrModelsConfig {
   filterModelId: string;
 }
 
+/** 各功能引用的共享本地资源；模型文件仍由原有 ModelStore / 意图引擎管理。 */
+export interface LocalModelResources {
+  voice: string;
+  ocr: string;
+  filter: string;
+  /** auto 保留旧版自研模型优先、Laya 兜底的行为。 */
+  intent: string;
+}
+
+function localModelResources(settings: DeepPartial<AppSettings> | undefined): LocalModelResources {
+  const refs = settings?.modelResources;
+  const stringOr = (value: unknown, fallback: string): string =>
+    typeof value === 'string' ? value : fallback;
+  return {
+    voice: stringOr(refs?.voice, stringOr(settings?.voiceTranscribe?.modelId, '')),
+    ocr: stringOr(refs?.ocr, stringOr(settings?.ocr?.modelId, '')),
+    filter: stringOr(refs?.filter, stringOr(settings?.ocr?.filterModelId, '')),
+    intent: stringOr(refs?.intent, 'auto'),
+  };
+}
+
 /**
  * Local MCP server config. The server is account-bound — it only listens while
  * an account is open and stops when the account switches / logs out. Bound to
@@ -430,6 +451,7 @@ export interface AppSettings {
    */
   autoLockMinutes: number;
   appLock: AppLockConfig;
+  modelResources: LocalModelResources;
   voiceTranscribe: VoiceTranscribeConfig;
   /** 本地图片文字识别（OCR）的模型选择。 */
   ocr: OcrModelsConfig;
@@ -678,6 +700,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   manualReadReportEnabled: false,
   autoLockMinutes: 0,
   appLock: { enabled: true, method: 'totp' },
+  modelResources: { voice: '', ocr: '', filter: '', intent: 'auto' },
   voiceTranscribe: { modelId: '', ttsProviders: [] },
   // 本地图片文字识别：两个用途各自独立选模型（都空 = 未启用）。
   ocr: { modelId: '', filterModelId: '' },
@@ -1148,6 +1171,11 @@ export class UserConfigService {
   getSettings(): AppSettings {
     const s = this.read().settings;
     const d = DEFAULT_APP_SETTINGS;
+    const resources = localModelResources(s);
+    // 只补资源引用，不重写原始 provider / 密钥和未知旧字段；不搬动任何模型文件。
+    if (s && !s.modelResources) {
+      this.write({ settings: { ...s, modelResources: resources } });
+    }
     // 三端现在都能读内存：macOS 需要 root **且**目标未开启强化运行时保护
     // （QQ 已开启，所以要先关 SIP），但门槛只是「能不能读」，不再是平台开关 ——
     // 由用户在设置里自己决定，这里不再按平台归一化。
@@ -1217,14 +1245,15 @@ export class UserConfigService {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
       },
+      modelResources: resources,
       voiceTranscribe: {
-        modelId: s?.voiceTranscribe?.modelId ?? d.voiceTranscribe.modelId,
+        modelId: resources.voice,
         ttsProviders:
           normalizeTtsProviders(s?.voiceTranscribe?.ttsProviders) ?? d.voiceTranscribe.ttsProviders,
       },
       ocr: {
-        modelId: s?.ocr?.modelId ?? d.ocr.modelId,
-        filterModelId: s?.ocr?.filterModelId ?? d.ocr.filterModelId,
+        modelId: resources.ocr,
+        filterModelId: resources.filter,
       },
       mcp: {
         enabled: s?.mcp?.enabled ?? d.mcp.enabled,
@@ -1253,6 +1282,16 @@ export class UserConfigService {
 
   setSettings(patch: DeepPartial<AppSettings>): AppSettings {
     const current = this.getSettings();
+    const resources: LocalModelResources = {
+      voice:
+        patch.modelResources?.voice ??
+        patch.voiceTranscribe?.modelId ??
+        current.modelResources.voice,
+      ocr: patch.modelResources?.ocr ?? patch.ocr?.modelId ?? current.modelResources.ocr,
+      filter:
+        patch.modelResources?.filter ?? patch.ocr?.filterModelId ?? current.modelResources.filter,
+      intent: patch.modelResources?.intent ?? current.modelResources.intent,
+    };
     // 不再按平台归一化 —— macOS 也能读内存（需 root + 关 SIP），由用户自己选。
     const autoAttachQq = patch.autoAttachQq ?? current.autoAttachQq;
     const next: AppSettings = {
@@ -1318,16 +1357,17 @@ export class UserConfigService {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,
       },
+      modelResources: resources,
       voiceTranscribe: {
-        modelId: patch.voiceTranscribe?.modelId ?? current.voiceTranscribe.modelId,
+        modelId: resources.voice,
         ttsProviders:
           patch.voiceTranscribe?.ttsProviders !== undefined
             ? normalizeTtsProviders(patch.voiceTranscribe.ttsProviders)
             : current.voiceTranscribe.ttsProviders,
       },
       ocr: {
-        modelId: patch.ocr?.modelId ?? current.ocr.modelId,
-        filterModelId: patch.ocr?.filterModelId ?? current.ocr.filterModelId,
+        modelId: resources.ocr,
+        filterModelId: resources.filter,
       },
       mcp: {
         enabled: patch.mcp?.enabled ?? current.mcp.enabled,
@@ -1366,6 +1406,10 @@ export class UserConfigService {
       externalRkeyEnabled: next.externalRkey.enabledServerId !== null,
     });
     return next;
+  }
+
+  getLocalModelId(kind: keyof LocalModelResources): string {
+    return this.getSettings().modelResources[kind];
   }
 
   /** 导出中心各模式的最近一次灯箱配置；无缓存时返回空对象。 */

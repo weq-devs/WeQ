@@ -4516,7 +4516,8 @@ export const accountRouter = router({
       if (!online && !local) {
         // 平台能力优先：没有引擎的机器（如 macOS Intel）只能走在线，别劝人家去下模型。
         throw new Error(
-          localOcrBlocker() ?? '识别文字需要在线 QQ，或先在「设置 → 图片识别」里下好本地识别模型。',
+          localOcrBlocker() ??
+            '识别文字需要在线 QQ，或先在「设置 → 本地模型 → 图片识别模型」里下好本地识别模型。',
         );
       }
 
@@ -6819,7 +6820,7 @@ export const accountRouter = router({
       if (!boot) return { success: false, error: '原生组件未就绪' };
       if (!services) return { success: false, error: '未打开账号' };
 
-      const modelId = boot.userConfig.getSettings().voiceTranscribe.modelId;
+      const modelId = boot.userConfig.getLocalModelId('voice');
       if (!modelId) return { success: false, error: '未选择转录模型' };
       const model = getVoiceModel(modelId);
       if (!model) return { success: false, error: '转录模型不存在' };

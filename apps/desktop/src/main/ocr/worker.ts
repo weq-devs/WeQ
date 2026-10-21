@@ -122,7 +122,9 @@ async function run(params: OcrWorkerParams): Promise<void> {
 
     const wantText = params.mode === 'ocr';
     if (wantText && (!params.rec || !params.dict)) {
-      throw new Error('识别模型文件不全（缺 rec / dict），请到「设置 → 图片识别」重新下载');
+      throw new Error(
+        '识别模型文件不全（缺 rec / dict），请到「设置 → 本地模型 → 图片识别模型」重新下载',
+      );
     }
 
     const image = {

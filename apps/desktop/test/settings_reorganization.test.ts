@@ -92,7 +92,7 @@ describe('设置归位后的实际页面', () => {
   it('常规不再混入账号、缓存、日志；二级页仅呈现对应配置', () => {
     const f = mount('global');
     try {
-      expect(f.host.querySelectorAll('.weq-settings-nav-item')).toHaveLength(10);
+      expect(f.host.querySelectorAll('.weq-settings-nav-item')).toHaveLength(12);
       for (const title of ['现有配置', '缓存目录', '日志保留时长', '导出保存目录'])
         expect(f.body().textContent).not.toContain(title);
       expect(f.host.querySelector('.weq-settings-scope')).toBeNull();
@@ -152,17 +152,17 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('模型使用统计的旧直达入口落在模型与识别，分类完整', () => {
+  it('模型使用统计的旧直达入口落在 API 与用量，分类完整', () => {
     const f = mount('model-usage');
     try {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-        '模型与识别',
+        'API 与用量',
       );
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map(
           (button) => button.textContent,
         ),
-      ).toEqual(['模型配置', '意图感知', '语音转写', '语音合成', '图片识别', '模型使用统计']);
+      ).toEqual(['API 配置', '语音合成', '用量统计']);
       expect(f.host.querySelector('.weq-settings-scope')?.textContent).toBe('当前账号');
       expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')).not.toBeNull();
       expect(f.host.querySelector('.weq-settings-content > .weq-settings-scope')).toBeNull();
@@ -171,11 +171,11 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('意图感知落在模型与识别，按账号作用域展示', () => {
+  it('意图感知落在智能功能，按账号作用域展示', () => {
     const f = mount('intent-sense');
     try {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-        '模型与识别',
+        '智能功能',
       );
       expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')?.textContent).toBe(
         '当前账号',

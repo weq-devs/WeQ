@@ -2675,7 +2675,7 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '查【图片文字识别】两条腿现在各能不能走，调 ocr_image_text 之前用它决定 engine 传什么。' +
       '\n① `online`：在线接口（QQ 图片文字识别 OIDB 0xe07_0），需要该账号 QQ 在线 + 未开完全离线模式 + 物料齐全（a2 / d2 / d2key / guid）；精度更好，但 QQ 的图片链接只保留约 9 天。' +
-      '\n② `local`：本地离线模型（PP-OCR，设置 → 图片识别里下载并选中），在本机推理、不把图发出去；精度略低一档，CPU 推理较慢。' +
+      '\n② `local`：本地离线模型（PP-OCR，设置 → 本地模型 → 图片识别模型里下载并选中），在本机推理、不把图发出去；精度略低一档，CPU 推理较慢。' +
       '\n只读，不发网络包，也不改设置。',
     input: z.object({}),
     run: async () => {
@@ -2695,7 +2695,7 @@ export const AI_TOOLS: AiTool[] = [
             : {
                 reason:
                   localEngine ??
-                  '还没选本地识别模型：去「设置 → 图片识别」下载并选中一个识别模型。',
+                  '还没选本地识别模型：去「设置 → 本地模型 → 图片识别模型」下载并选中一个识别模型。',
               }),
         },
         policy:
@@ -2709,7 +2709,7 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '识别【图片里的文字】，**返回值明确标出这次走的是在线接口还是本地离线模型**。' +
       '\n【两条腿】① 在线：把图片的 CDN 地址交给 QQ 的图片文字识别接口（OIDB 0xe07_0），精度更好，但需要该账号 QQ 在线、未开完全离线、物料齐全，且 QQ 的图片链接只保留约 9 天（过期图必然失败）。' +
-      '② 本地：用 WeQ 里已下载的 PP-OCR 离线模型在本机推理（设置 → 图片识别），不把图片发到任何服务，但精度略低一档、CPU 推理较慢。' +
+      '② 本地：用 WeQ 里已下载的 PP-OCR 离线模型在本机推理（设置 → 本地模型 → 图片识别模型），不把图片发到任何服务，但精度略低一档、CPU 推理较慢。' +
       '\n【怎么选】engine 默认 auto = 在线可用就先走在线，在线失败或不可用再回退本地；也可以指定 online / local 只走那一条（不可用时直接报错，不会偷偷换腿）。先调 get_ocr_status 看两条腿的可用性。' +
       '\n【结果怎么看】`source`（`online` / `local`）+ `engine`（中文说明用的哪条腿）+ `offline`（`true` 即本地离线模型）三者标出实际通道；`notes` 说明中途有没有回退、以及为什么没用在线；`text` 是识别出的整段文字，`lineCount` 是段数，`boxes`（可选）带每段的像素坐标框。' +
       '\n【怎么定图】给 kind + conv + msgId（msgId 来自 get_messages 的 includeIds 输出）定位聊天里的图片，同一条消息多张图时用 imageIndex 指定第几张（0 起）；也可以直接给 path —— 本机图片文件（绝对路径或 ~/ 开头）。注意 path 那种图**只能走本地模型**：在线那条腿要的是聊天图片的 fileToken，本机文件里没有。' +
@@ -2902,7 +2902,7 @@ export const AI_TOOLS: AiTool[] = [
           // 平台能力优先：没有引擎的机器（如 macOS Intel）别把用户指去下模型。
           throw new Error(
             localOcrBlocker() ??
-              '还没选本地识别模型：去「设置 → 图片识别」下载并选中一个识别模型。',
+              '还没选本地识别模型：去「设置 → 本地模型 → 图片识别模型」下载并选中一个识别模型。',
           );
         }
         legs.push('local');
@@ -3013,7 +3013,7 @@ export const AI_TOOLS: AiTool[] = [
         error:
           failure ?? notes[notes.length - 1] ?? '这次没识别成功：在线与本地两条腿都没能跑起来。',
         notes,
-        hint: '先用 get_ocr_status 看两条腿的可用性：在线要 QQ 在线 + 物料齐全；本地要「设置 → 图片识别」里下好识别模型，且本机缓存过这张图。',
+        hint: '先用 get_ocr_status 看两条腿的可用性：在线要 QQ 在线 + 物料齐全；本地要「设置 → 本地模型 → 图片识别模型」里下好识别模型，且本机缓存过这张图。',
       };
     },
   }),

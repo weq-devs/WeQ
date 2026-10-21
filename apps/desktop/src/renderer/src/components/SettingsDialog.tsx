@@ -51,6 +51,7 @@ import { AppLockSection } from './settings/AppLockSection';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
+import { IntentModelsSection } from './settings/IntentModelsSection';
 import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTranscribeSection';
 import { OcrModelsSection } from './settings/OcrModelsSection';
 import { McpServerSection } from './settings/McpServerSection';
@@ -213,6 +214,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: 'API 配置',
     icon: <Bot size={16} strokeWidth={1.8} />,
     render: () => <AgentLabSection />,
+  },
+  {
+    id: 'intent-models',
+    label: '意图模型',
+    icon: <BrainCircuit size={16} strokeWidth={1.8} />,
+    render: () => <IntentModelsSection />,
   },
   {
     id: 'intent-sense',

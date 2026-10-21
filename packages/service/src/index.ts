@@ -45,6 +45,7 @@ export type {
   WindowCloseBehavior,
   VoiceTranscribeConfig,
   OcrModelsConfig,
+  LocalModelResources,
   McpServerConfig,
   WeqAssistantConfig,
   AgentLabSettings,

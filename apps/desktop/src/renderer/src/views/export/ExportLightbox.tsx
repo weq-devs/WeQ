@@ -14,7 +14,7 @@
  *      本地未缓存的装扮资源。
  *   5. 图片识别 —— 图片文字识别（自动 OCR）、在线识别与并发、筛图模型下载。
  *      单独一栏（左列、补全选项下面）：它不依赖「导出什么」，只跟「跑不跑识别」有关，
- *      而且面板里**只放筛图模型** —— 出文字的识别模型统一在「设置 → 图片识别」里下。
+ *      而且面板里**只放筛图模型** —— 出文字的识别模型统一在「设置 → 本地模型 → 图片识别模型」里下。
  *   6. 扩展功能 —— 导出后自动保存、语音转写（需已配置转录模型）。
  */
 
@@ -408,7 +408,7 @@ export function ExportLightbox({
         setOcrModels(
           models.models
             // 面板里只放**筛图**模型：它是在线 / 离线共有的前置步骤，下不下都不影响
-            // 「有没有在识别」这件事。出文字那份识别模型只在「设置 → 图片识别」里下 ——
+            // 「有没有在识别」这件事。出文字那份识别模型只在「设置 → 本地模型 → 图片识别模型」里下 ——
             // 放在这里会让人以为「下了它就能纯离线跑」，从而把在线开关的逻辑搅乱。
             .filter((m) => m.kind === 'filter')
             .map((m) => ({
@@ -531,7 +531,7 @@ export function ExportLightbox({
    * 在面板里下载一个筛图模型（下完自动设为当前模型）。
    *
    * 只认 `filter`：出文字的识别模型**不给在导出面板下载**（那会让人以为"下了就能纯离线"，
-   * 而它其实是「在线拿不到时的兜底」，该在「设置 → 图片识别」里单独决定），所以这里
+   * 而它其实是「在线拿不到时的兜底」，该在「设置 → 本地模型 → 图片识别模型」里单独决定），所以这里
    * 兜一层 —— 万一哪天 UI 漏了一行，也不会从面板把那份模型拖下来。
    */
   async function downloadOcrModel(id: string): Promise<void> {
@@ -540,7 +540,8 @@ export function ExportLightbox({
       pushToast({
         tone: 'warning',
         title: '识别模型请在设置页下载',
-        detail: '导出面板只提供筛图模型；出文字的识别模型在「设置 → 图片识别」里下载。',
+        detail:
+          '导出面板只提供筛图模型；出文字的识别模型在「设置 → 本地模型 → 图片识别模型」里下载。',
         ttl: 6000,
       });
       return;
@@ -926,7 +927,7 @@ export function ExportLightbox({
                       desc={
                         ocrReady && !ocrReady.localReady && !ocrReady.onlineCapable
                           ? ocrReady.localEngineBlocker ||
-                            '需要在线 QQ，或先在「设置 → 图片识别」下好本地识别模型'
+                            '需要在线 QQ，或先在「设置 → 本地模型 → 图片识别模型」下好本地识别模型'
                           : '识别图片里的文字，写出 ocr.json（含像素坐标框）并把文字回写进导出文件'
                       }
                       control={
@@ -986,7 +987,7 @@ export function ExportLightbox({
                         {ocrReady && !ocrReady.localReady && !ocrEngineBlocker ? (
                           <p className="weq-exp-block-hint">
                             没下本地识别模型：在线那条腿拿不到的图不会回退，可能会少字。识别模型在
-                            「设置 → 图片识别」里下载。
+                            「设置 → 本地模型 → 图片识别模型」里下载。
                           </p>
                         ) : null}
                         <div className="weq-exp-ocr-models">

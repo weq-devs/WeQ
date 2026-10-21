@@ -3,11 +3,11 @@
  *
  * Account-independent: downloads & selects the offline transcription model used
  * by the chat 转文字 feature. The selected model id lives in the global config
- * (`bootstrap.getSettings().voiceTranscribe.modelId`); empty = feature off.
+ * (`bootstrap.getSettings().modelResources.voice`); empty = feature off.
  *
  * Download progress arrives over the `onVoiceModelProgress` subscription (one
  * shared stream for all models, keyed by model id). The model registry +
- * on-disk status come from `bootstrap.voiceModels`.
+ * on-disk status come from `bootstrap.localModelResources`.
  *
  * Freshness: like the other settings panels, queries use `staleTime: 0` +
  * `refetchOnMount: 'always'` so reopening the dialog always shows fresh state.
@@ -63,13 +63,9 @@ interface LiveProgress {
 
 export function VoiceTranscribeSection(): ReactElement {
   const showError = useDialog((s) => s.showError);
+  const utils = trpc.useUtils();
 
-  const models = trpc.bootstrap.voiceModels.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: 0,
-    refetchOnMount: 'always',
-  });
-  const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+  const models = trpc.bootstrap.localModelResources.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -77,7 +73,7 @@ export function VoiceTranscribeSection(): ReactElement {
 
   const download = trpc.bootstrap.downloadVoiceModel.useMutation();
   const remove = trpc.bootstrap.deleteVoiceModel.useMutation();
-  const setModel = trpc.bootstrap.setVoiceModel.useMutation();
+  const setModel = trpc.bootstrap.setLocalModelResource.useMutation();
 
   const [progress, setProgress] = useState<LiveProgress | null>(null);
 
@@ -116,7 +112,7 @@ export function VoiceTranscribeSection(): ReactElement {
     return () => sub.unsubscribe();
   }, []);
 
-  const selectedId = settings.data?.voiceTranscribe.modelId ?? '';
+  const selectedId = models.data?.selected.voice ?? '';
 
   async function onDownload(id: string): Promise<void> {
     try {
@@ -130,11 +126,10 @@ export function VoiceTranscribeSection(): ReactElement {
 
   async function onDelete(id: string): Promise<void> {
     try {
-      await remove.mutateAsync({ id });
-      // If the deleted model was selected, clear the selection too.
-      if (selectedId === id) await setModel.mutateAsync({ modelId: '' });
+      const removed = await remove.mutateAsync({ id });
+      if (!removed) throw new Error('模型正在下载，暂不能删除');
       await models.refetch();
-      await settings.refetch();
+      await utils.bootstrap.getSettings.invalidate();
     } catch (e) {
       showError('删除模型失败', errMsg(e));
     }
@@ -143,14 +138,15 @@ export function VoiceTranscribeSection(): ReactElement {
   async function onSelect(id: string): Promise<void> {
     try {
       // Toggle off if already selected.
-      await setModel.mutateAsync({ modelId: selectedId === id ? '' : id });
-      await settings.refetch();
+      await setModel.mutateAsync({ kind: 'voice', modelId: selectedId === id ? '' : id });
+      await models.refetch();
+      await utils.bootstrap.getSettings.invalidate();
     } catch (e) {
       showError('设置当前模型失败', errMsg(e));
     }
   }
 
-  const modelList = models.data ?? [];
+  const modelList = models.data?.voice ?? [];
 
   return (
     <div className="weq-set">

@@ -36,6 +36,10 @@ function requireServices(): AccountServices {
 const progressListeners = new Set<(p: IntentSenseModelProgress) => void>();
 let downloading = false;
 
+export function isIntentModelDownloading(): boolean {
+  return downloading;
+}
+
 const kindSchema = z.enum(['c2c', 'group']);
 
 const configPatch = z.object({
@@ -53,7 +57,7 @@ const configPatch = z.object({
   hfMirror: z.boolean().optional(),
 });
 
-export const intentSenseRouter = router({
+const intentSenseFeatureProcedures = {
   /** 当前配置 + 引擎可用性（apiConfigured / localAvailable）。 */
   getStatus: procedure.query(() => {
     const status = requireServices().intentSense.getStatus();
@@ -163,9 +167,10 @@ export const intentSenseRouter = router({
       return off;
     });
   }),
+};
 
-  // ---- 本地引擎（Laya ONNX，仅桌面版；web 端 control 恒为 null）-----------
-
+// 新入口不依赖账号；旧 account.intentSense 路径保留兼容，共享同一下载与进度。
+export const intentSenseModelProcedures = {
   /** 本地引擎与模型状态。 */
   getLocalEngine: procedure.query(() => {
     const engine = getActiveIntentSenseLocalEngine();
@@ -174,6 +179,7 @@ export const intentSenseRouter = router({
       modelDownloaded: engine?.isModelDownloaded() ?? false,
       engineReady: engine?.ready ?? false,
       modelDir: engine?.modelDir() ?? '',
+      models: engine?.listModels?.() ?? [],
       downloading,
     };
   }),
@@ -243,4 +249,9 @@ export const intentSenseRouter = router({
       };
     });
   }),
+};
+
+export const intentSenseRouter = router({
+  ...intentSenseFeatureProcedures,
+  ...intentSenseModelProcedures,
 });

@@ -24,11 +24,13 @@ import type {
 } from '@weq/service';
 import { getLogger } from '@weq/service';
 import { downloadLayaBundle, isLayaBundleReady, type BundleProgress } from './model_files';
+import { getAppContext } from '../context/app_context';
 
 const logger = getLogger().child({ scope: 'intent-sense' });
 
 /** 本地引擎对 app_context 暴露的控制面（electron 侧实现，web 恒为 null）。 */
 export interface IntentSenseLocalEngine extends IntentLocalEnginePort {
+  listModels(): Array<{ id: string; name: string; downloaded: boolean; downloadable: boolean }>;
   /** 模型 bundle 落盘目录（weq 用户数据目录下）。 */
   modelDir(): string;
   isModelDownloaded(): boolean;
@@ -74,11 +76,14 @@ export function qweqModelCandidates(): string[] {
 
 /** 探测优先可用的本地模型目录：优先使用自研微调模型 QWeQ-NineBird-v1，未就绪则回落到 Laya。 */
 export function findAvailableModelDir(): string {
+  const selected = getAppContext().bootstrap?.userConfig.getLocalModelId('intent') ?? 'auto';
+  if (selected === 'laya-multilingual') return layaModelDir();
   for (const dir of qweqModelCandidates()) {
     if (existsSync(join(dir, 'model.onnx')) && existsSync(join(dir, 'model_config.json'))) {
       return dir;
     }
   }
+  if (selected === 'QWeQ-NineBird-v1') return qweqModelCandidates()[0]!;
   return layaModelDir();
 }
 
@@ -403,13 +408,45 @@ export function getIntentSenseLocalEngine(): IntentSenseLocalEngine {
     analyze: (text: string, options?: IntentLocalAnalyzeOptions) => impl.analyze(text, options),
     inferMbti: (samples: string[]) => impl.inferMbti(samples),
     modelDir: () => findAvailableModelDir(),
+    listModels: () => [
+      {
+        id: 'auto',
+        name: '自动（自研模型优先）',
+        downloaded:
+          isLayaBundleReady(layaModelDir()) ||
+          qweqModelCandidates().some(
+            (dir) =>
+              existsSync(join(dir, 'model.onnx')) && existsSync(join(dir, 'model_config.json')),
+          ),
+        downloadable: true,
+      },
+      {
+        id: 'laya-multilingual',
+        name: 'Laya 多语言 ONNX',
+        downloaded: isLayaBundleReady(layaModelDir()),
+        downloadable: true,
+      },
+      {
+        id: 'QWeQ-NineBird-v1',
+        name: 'QWeQ-NineBird-v1',
+        downloaded: qweqModelCandidates().some(
+          (dir) =>
+            existsSync(join(dir, 'model.onnx')) && existsSync(join(dir, 'model_config.json')),
+        ),
+        downloadable: false,
+      },
+    ],
     isModelDownloaded: () => isAnyModelReady(findAvailableModelDir()),
-    download: (options) =>
-      downloadLayaBundle({
+    download: (options) => {
+      const selected = getAppContext().bootstrap?.userConfig.getLocalModelId('intent') ?? 'auto';
+      if (selected === 'QWeQ-NineBird-v1')
+        throw new Error('自研模型由安装包或已有模型目录提供，暂不支持在线下载');
+      return downloadLayaBundle({
         destDir: layaModelDir(),
         mirror: options.mirror,
         onProgress: options.onProgress,
-      }),
+      });
+    },
     start: async () => {
       const dir = findAvailableModelDir();
       if (!isAnyModelReady(dir)) {

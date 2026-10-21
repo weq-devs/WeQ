@@ -17,6 +17,7 @@ export type SectionId =
   | 'maintenance'
   | 'agentlab'
   | 'intent-sense'
+  | 'intent-models'
   | 'voice'
   | 'tts'
   | 'ocr'
@@ -48,7 +49,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Secti
     label: 'API 与用量',
     sections: ['agentlab', 'tts', 'model-usage'],
   },
-  { id: 'local-models', label: '本地模型', sections: ['voice', 'ocr'] },
+  { id: 'local-models', label: '本地模型', sections: ['voice', 'ocr', 'intent-models'] },
   { id: 'intelligence', label: '智能功能', sections: ['intent-sense'] },
   { id: 'services', label: '服务与集成', sections: ['mcp', 'sse', 'rkey', 'daemon'] },
   { id: 'advanced', label: '高级与诊断', sections: ['credentials', 'diagnostics'] },

@@ -5,7 +5,7 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置的两级导航', () => {
-  it('空间与邮箱独立为一级分类，模型统计留在模型与识别', () => {
+  it('空间与邮箱独立分类，API 用量与本地模型分开', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',
       '个性显示',
@@ -13,12 +13,18 @@ describe('设置的两级导航', () => {
       '账号与消息',
       '空间与邮箱',
       '数据与存储',
-      '模型与识别',
+      'API 与用量',
+      '本地模型',
+      '智能功能',
       '服务与集成',
       '高级与诊断',
       '帮助与关于',
     ]);
-    expect(settingsGroupFor('model-usage').id).toBe('models');
+    expect(settingsGroupFor('model-usage').id).toBe('api-models');
+    expect(settingsGroupFor('voice').id).toBe('local-models');
+    expect(settingsGroupFor('ocr').id).toBe('local-models');
+    expect(settingsGroupFor('intent-models').id).toBe('local-models');
+    expect(settingsGroupFor('intent-sense').id).toBe('intelligence');
     expect(settingsGroupFor('credentials').id).toBe('advanced');
     expect(settingsGroupFor('startup').id).toBe('general');
     expect(settingsGroupFor('database').id).toBe('data');
