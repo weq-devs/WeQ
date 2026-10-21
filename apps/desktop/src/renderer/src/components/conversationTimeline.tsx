@@ -21,6 +21,7 @@ import {
 import { formatNumber } from './analyticsCharts';
 import { beijingDay, daySeconds } from '../lib/messageCalendar';
 import { ProfileAvatar } from './ProfileAvatar';
+import { Avatar } from '../im-template/template/primitives';
 import type { ProfileTarget } from '../lib/profileNavigation';
 
 const DAY_SECONDS = 86400;
@@ -475,11 +476,11 @@ export function PersonWeekCard({
       <div className="ca-person-head">
         <span className="ca-person-avatar">
           <ProfileAvatar target={profile}>
-            {avatarUrl ? (
-              <img src={avatarUrl} alt="" loading="lazy" />
-            ) : (
-              <span aria-hidden>{name.slice(0, 1)}</span>
-            )}
+            <Avatar
+              name={name}
+              avatarUrl={avatarUrl}
+              seed={profile?.identity || profile?.uin || name}
+            />
           </ProfileAvatar>
         </span>
         <span className="ca-person-meta">

@@ -11,6 +11,13 @@
   font-weight: 600;
   padding: 4px 0;
 }
+/* 会话设置的窄面板里，这一块紧跟在「群资料」卡片后面：别再画一道顶部分隔线，
+   否则和卡片的描边叠成双层。 */
+.weq-qq-write-panel > div > .weq-qq-actions {
+  margin: 0;
+  padding: 0;
+  border-top: 0;
+}
 .weq-qq-action-form {
   display: grid;
   gap: 8px;

@@ -134,8 +134,12 @@ export function LiveStatusReadout() {
     70: '勿扰',
   };
   return (
-    <div className="weq-qq-actions">
+    <div className="weq-qq-actions weq-qq-live-status">
       <div className="weq-qq-action-bar">
+        <span className="weq-qq-live-status-label">
+          <Radio size={13} strokeWidth={2} aria-hidden />
+          服务端状态
+        </span>
         <ActionIcon
           label="查询服务端在线状态"
           disabled={a.disabled || status.isFetching}
@@ -147,7 +151,7 @@ export function LiveStatusReadout() {
           <Radio size={16} />
         </ActionIcon>
         {open && (
-          <span role="status">
+          <span role="status" className="weq-qq-live-status-value">
             {status.isFetching
               ? '查询中…'
               : status.data

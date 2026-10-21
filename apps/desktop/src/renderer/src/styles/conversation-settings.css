@@ -3,7 +3,7 @@
   height: 100%;
   max-width: none;
   max-height: none;
-  grid-template-columns: 144px minmax(0, 1fr);
+  grid-template-columns: 128px minmax(0, 1fr);
   border: 0;
   border-radius: 0;
   box-shadow: none;
@@ -12,6 +12,55 @@
 }
 .weq-conversation-settings-pane .weq-cvs-body-head {
   flex-wrap: wrap;
+}
+
+/* 会话偏好 / 群管理页的密度对齐「设置 → 防撤回」（`.weq-ar-dialog`）：
+   两边都是会话头部按钮开出来的兄弟面板，标签字号、开关尺寸、按钮高度必须一致，
+   否则来回切一下就能看出「这套 UI 是另一个风格」。这里只压留白和控件高度，
+   **不动字号** —— 字号统一沿用设置页的 14px 标签 / 12px 说明。 */
+.weq-conversation-settings-pane .weq-cvs-nav {
+  padding: 14px 8px;
+}
+.weq-conversation-settings-pane .weq-cvs-nav-head {
+  margin: 0 6px 10px;
+}
+.weq-conversation-settings-pane .weq-cvs-nav-item {
+  padding: 6px 8px;
+}
+.weq-conversation-settings-pane .weq-cvs-body-head {
+  padding: 12px 40px 10px 16px;
+}
+.weq-conversation-settings-pane .weq-cvs-body-scroll {
+  gap: 10px;
+  padding: 12px 16px 16px;
+}
+.weq-conversation-settings-pane .weq-set-card {
+  gap: 2px;
+  padding: 10px 12px;
+}
+.weq-conversation-settings-pane .weq-set-card-head {
+  padding-bottom: 2px;
+}
+.weq-conversation-settings-pane .weq-set-row {
+  gap: 10px;
+  min-height: 30px;
+  padding: 2px 0;
+}
+.weq-conversation-settings-pane .weq-set-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.weq-conversation-settings-pane .weq-qq-write-toolbar {
+  min-height: 24px;
+  margin-bottom: 8px;
+}
+.weq-conversation-settings-pane .weq-qq-write-input {
+  padding: 6px 8px;
+}
+/* 输入框、保存按钮都收到 30px —— 与 `.weq-ar-tab` 同高，行高不再忽大忽小。 */
+.weq-conversation-settings-pane .weq-qq-write-field > button {
+  width: 30px;
+  height: 30px;
 }
 html[data-theme='dark'] .weq-conversation-settings-pane .weq-cvs-dialog {
   background: var(--weq-bg-surface);

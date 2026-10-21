@@ -1,5 +1,20 @@
 import { useState } from 'react';
-import { ImageUp, RefreshCw } from 'lucide-react';
+import {
+  BellOff,
+  ImageUp,
+  MessagesSquare,
+  MessageSquareText,
+  Pin,
+  Sparkles,
+  RefreshCw,
+  Tag,
+  UserPen,
+  UserRound,
+  UserRoundCog,
+  UsersRound,
+  Wifi,
+  WifiOff,
+} from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
@@ -134,7 +149,14 @@ export function QQConversationControls({
       key={`${session.binding?.expectedAccountUin}:${session.binding?.expectedAccountConfigId}:${kind}:${conv}`}
     >
       <div className="weq-qq-write-toolbar">
-        <span>{session.available ? 'QQ 在线' : 'QQ 在线能力未就绪'}</span>
+        <span className="weq-qq-write-status">
+          {session.available ? (
+            <Wifi size={13} strokeWidth={2} aria-hidden />
+          ) : (
+            <WifiOff size={13} strokeWidth={2} aria-hidden />
+          )}
+          {session.available ? 'QQ 在线' : 'QQ 在线能力未就绪'}
+        </span>
         {(snapshot.error || (kind === 'group' && policySnapshot.error)) && (
           <button
             type="button"
@@ -173,9 +195,13 @@ export function QQConversationControls({
       {state && (
         <div key={`${kind}:${conv}:${revision}`}>
           {!management && (
-            <Card>
+            <Card
+              title={kind === 'group' ? '群会话' : '好友会话'}
+              icon={<MessageSquareText size={15} strokeWidth={1.9} />}
+            >
               <QQWriteTextRow
                 label={kind === 'group' ? '群备注' : '好友备注'}
+                icon={<UserPen size={14} strokeWidth={1.8} />}
                 initial={state.remark}
                 disabled={kind === 'c2c' ? friendDisabled : disabled}
                 onSave={(value) =>
@@ -202,6 +228,7 @@ export function QQConversationControls({
               />
               <QQWriteToggleRow
                 label="置顶会话"
+                icon={<Pin size={14} strokeWidth={1.8} />}
                 initial={state.pinned}
                 disabled={kind === 'c2c' ? friendDisabled : disabled}
                 onSave={(enabled) =>
@@ -223,6 +250,7 @@ export function QQConversationControls({
                   {/* recent_contact 提醒级别不能证明好友免打扰的实际状态。 */}
                   <QQWriteToggleRow
                     label="消息免打扰"
+                    icon={<BellOff size={14} strokeWidth={1.8} />}
                     initial={null}
                     disabled={friendDisabled}
                     onSave={(enabled) =>
@@ -231,6 +259,7 @@ export function QQConversationControls({
                   />
                   <QQWriteSelectRow
                     label="好友分组"
+                    icon={<Tag size={14} strokeWidth={1.8} />}
                     initial={state.categoryId}
                     disabled={friendDisabled || categories.isLoading}
                     options={[
@@ -261,6 +290,7 @@ export function QQConversationControls({
               ) : (
                 <QQWriteSelectRow
                   label="消息接收"
+                  icon={<BellOff size={14} strokeWidth={1.8} />}
                   autoSave
                   initial={policySnapshot.data?.rawPolicy ?? null}
                   options={GROUP_MESSAGE_POLICY_OPTIONS}
@@ -271,9 +301,10 @@ export function QQConversationControls({
             </Card>
           )}
           {kind === 'group' && !management && (
-            <Card>
+            <Card title="我的群身份" icon={<UserRoundCog size={15} strokeWidth={1.9} />}>
               <QQWriteTextRow
                 label="我在本群的昵称"
+                icon={<UserRound size={14} strokeWidth={1.8} />}
                 readOnly={!ownEditing.card}
                 initial={state.selfCard}
                 disabled={disabled || !state.selfUid}
@@ -301,6 +332,7 @@ export function QQConversationControls({
               />
               <QQWriteTextRow
                 label="我的专属头衔"
+                icon={<Sparkles size={14} strokeWidth={1.8} />}
                 initial={state.selfTitle}
                 readOnly={state.role !== 'owner'}
                 disabled={disabled || !state.selfUid}
@@ -329,9 +361,10 @@ export function QQConversationControls({
             </Card>
           )}
           {management && (
-            <Card>
+            <Card title="群资料" icon={<UsersRound size={15} strokeWidth={1.9} />}>
               <QQWriteTextRow
                 label="群名称"
+                icon={<MessagesSquare size={14} strokeWidth={1.8} />}
                 allowEmpty={false}
                 initial={state.groupName}
                 disabled={disabled}

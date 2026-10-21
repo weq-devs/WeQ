@@ -65,6 +65,25 @@ describe('提及输入与草稿往返', () => {
 });
 
 describe('引用框在装扮气泡中的可读性', () => {
+  it('引用条不继承消息气泡的装扮字体，固定回正文字体', () => {
+    const style = document.createElement('style');
+    style.textContent = readFileSync(
+      resolve(__dirname, '../src/renderer/src/im-template/styles/chat.css'),
+      'utf8',
+    );
+    document.head.append(style);
+    document.body.innerHTML =
+      '<div class="message-line mine"><div class="message-content qq-has-reply" style="font-family: weq-dress-123, sans-serif"><div class="qq-reply-quote">被引用内容</div></div></div>';
+    try {
+      // 气泡上挂着装扮字体（dressSkin / msgDecorationStyle 注入的 font-family），
+      // 引用条必须把它甩掉 —— 子集化字体在这里缺字、炫彩字也会和正文抢戏。
+      expect(
+        window.getComputedStyle(document.querySelector('.qq-reply-quote')!).fontFamily,
+      ).not.toContain('weq-dress-123');
+    } finally {
+      style.remove();
+    }
+  });
   it('我方浅色装扮气泡的引用沿用气泡文字颜色，不固定为白色', () => {
     const style = document.createElement('style');
     style.textContent = readFileSync(

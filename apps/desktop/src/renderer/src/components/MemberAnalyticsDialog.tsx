@@ -38,6 +38,7 @@ import { useAnalyticsExport } from './useAnalyticsExport';
 import { HourlyBarChart, formatDate, formatNumber } from './analyticsCharts';
 import type { AnalysisScope } from '../views/analysis/model';
 import { AnalyticsRetry } from './AnalyticsRetry';
+import { resolveAvatar } from '../lib/avatarResolver';
 
 /** 导出图片的默认文件名前缀。 */
 const EXPORT_LABEL = '成员分析';
@@ -171,7 +172,11 @@ export function MemberAnalyticsDialog({
   const renderSections = () => (
     <>
       <div className="ba-hero">
-        <Avatar name={member.name} avatarUrl={member.avatarUrl ?? null} />
+        <Avatar
+          name={member.name}
+          seed={member.uid}
+          avatarUrl={resolveAvatar({ uin: member.uin, profileAvatarUrl: member.avatarUrl })}
+        />
         <div className="ba-hero-info">
           <strong>{member.name}</strong>
           <span>

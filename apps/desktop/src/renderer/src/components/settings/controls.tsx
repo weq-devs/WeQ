@@ -56,10 +56,13 @@ export function SectionHeader({
 /** A bordered card grouping related rows, with an optional title + action. */
 export function Card({
   title,
+  icon,
   action,
   children,
 }: {
   title?: string;
+  /** 标题前的图标（lucide 组件或资源图），与设置页各分区的视觉语言保持一致。 */
+  icon?: ReactNode;
   action?: ReactNode;
   children: ReactNode;
 }): ReactElement {
@@ -67,7 +70,18 @@ export function Card({
     <section className="weq-set-card">
       {title || action ? (
         <div className="weq-set-card-head">
-          {title ? <div className="weq-set-card-title">{title}</div> : <span />}
+          {title ? (
+            <div className="weq-set-card-title">
+              {icon ? (
+                <span className="weq-set-card-icon" aria-hidden>
+                  {icon}
+                </span>
+              ) : null}
+              {title}
+            </div>
+          ) : (
+            <span />
+          )}
           {action ? <div className="weq-set-card-action">{action}</div> : null}
         </div>
       ) : null}

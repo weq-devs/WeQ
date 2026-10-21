@@ -47,6 +47,7 @@ import {
 import { GroupJoinBatches, type JoinBatchReport } from './GroupJoinBatches';
 import { GroupConversationGraph, type ConversationGraphReport } from './GroupConversationGraph';
 import { useAnalyticsExport } from './useAnalyticsExport';
+import { resolveAvatar } from '../lib/avatarResolver';
 import type { AnalysisScope } from '../views/analysis/model';
 import { AnalyticsRetry } from './AnalyticsRetry';
 import {
@@ -95,8 +96,12 @@ interface StatsReport {
   weeks: string[];
 }
 
-function avatarUrlOf(uin: string | undefined | null): string | null {
-  return uin && uin !== '0' ? `https://thirdqq.qlogo.cn/g?b=sdk&nk=${uin}&s=0` : null;
+/**
+ * 排行成员的缩略头像：优先用 QQ 号拼 CDN，拿不到再退回成员资料里的头像直链。
+ * 两条都为空时交给 {@link Avatar} 的默认头像，不要出现「首字母」占位。
+ */
+function avatarUrlOf(uin: string | undefined | null, profileAvatarUrl?: string | null) {
+  return resolveAvatar({ uin, profileAvatarUrl, size: 100 });
 }
 
 /** 24 时段里最忙的那一格（返回小时数，全为 0 时返回 null）。 */

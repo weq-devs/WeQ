@@ -242,7 +242,23 @@ export function ConversationSettingsDialog({
           {(section === 'qq' || section === 'group-management') && kind !== 'dataline' ? (
             <>
               <div className="weq-cvs-body-head">
+                {section === 'group-management' ? (
+                  <span className="weq-cvs-body-icon" aria-hidden>
+                    <UsersRound size={16} strokeWidth={1.8} />
+                  </span>
+                ) : (
+                  <span className="weq-cvs-body-icon" aria-hidden>
+                    <Settings2 size={16} strokeWidth={1.8} />
+                  </span>
+                )}
                 <strong>{section === 'group-management' ? '群管理' : '会话偏好'}</strong>
+                <span>
+                  {section === 'group-management'
+                    ? '群名称、群头像与成员管理'
+                    : kind === 'group'
+                      ? '备注、置顶、消息接收与本群身份'
+                      : '备注、置顶、免打扰与好友分组'}
+                </span>
               </div>
               <div className="weq-cvs-body-scroll">
                 <QQConversationControls
@@ -256,18 +272,26 @@ export function ConversationSettingsDialog({
           ) : section === 'intentsense' ? (
             <>
               <div className="weq-cvs-body-head">
+                <span className="weq-cvs-body-icon" aria-hidden>
+                  <BrainCircuit size={16} strokeWidth={1.8} />
+                </span>
                 <strong>意图感知</strong>
                 <span>在本会话显示消息意图/情绪胶囊与对方画像</span>
               </div>
               <div className="weq-cvs-body-scroll">
-                <Card title="本会话">
+                <Card title="本会话" icon={<BrainCircuit size={15} strokeWidth={1.9} />}>
                   {!intentStatus.data?.enabled ? (
                     <p className="weq-set-note">
                       意图感知总开关关着 —— 先去「设置 → 模型与识别 → 意图感知」打开它。
                     </p>
                   ) : null}
                   <Row
-                    label="在本会话启用"
+                    label={
+                      <span className="weq-set-row-icon">
+                        <BrainCircuit size={14} strokeWidth={1.8} aria-hidden />
+                        在本会话启用
+                      </span>
+                    }
                     desc={
                       intentOverride === false
                         ? '此会话已被单独关闭（不跟随全局）。'
@@ -290,6 +314,9 @@ export function ConversationSettingsDialog({
           ) : groupKeywords && section === 'keyword' ? (
             <>
               <div className="weq-cvs-body-head">
+                <span className="weq-cvs-body-icon" aria-hidden>
+                  <BellRing size={16} strokeWidth={1.8} />
+                </span>
                 <strong>群关键词</strong>
                 <span>命中即提醒；每个词可单独限定发言人</span>
                 <span className="weq-cvs-body-state">
@@ -303,18 +330,26 @@ export function ConversationSettingsDialog({
           ) : (
             <>
               <div className="weq-cvs-body-head">
+                <span className="weq-cvs-body-icon" aria-hidden>
+                  <ShieldCheck size={16} strokeWidth={1.8} />
+                </span>
                 <strong>防撤回</strong>
                 <span>对方撤回时，把消息原样留在你的本地记录里</span>
               </div>
               <div className="weq-cvs-body-scroll">
-                <Card title="保护此会话">
+                <Card title="保护此会话" icon={<ShieldCheck size={15} strokeWidth={1.9} />}>
                   {!enabled ? (
                     <p className="weq-set-note">
                       防撤回总开关关着 —— 先去「更多 → 防撤回」打开它，这里的开关才会生效。
                     </p>
                   ) : null}
                   <Row
-                    label="保护此会话"
+                    label={
+                      <span className="weq-set-row-icon">
+                        <ShieldCheck size={14} strokeWidth={1.8} aria-hidden />
+                        保护此会话
+                      </span>
+                    }
                     desc={
                       allProtected
                         ? '当前是「永久全选」——所有会话都已受保护。'
@@ -330,7 +365,12 @@ export function ConversationSettingsDialog({
                     }
                   />
                   <Row
-                    label="撤回时通知我"
+                    label={
+                      <span className="weq-set-row-icon">
+                        <BellRing size={14} strokeWidth={1.8} aria-hidden />
+                        撤回时通知我
+                      </span>
+                    }
                     desc={
                       notifyEnabled
                         ? '被拦下的撤回会弹系统通知。'

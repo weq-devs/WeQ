@@ -1194,6 +1194,9 @@ html[data-theme='dark'] .member-badge.level-6 {
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.08);
   color: inherit;
+  /* 引用条是附注信息，不跟随消息气泡的装扮字体（气泡上的 font-family 会继承下来，
+     子集化字体/炫彩字在这里既难读又和正文抢戏）。正文字体固定回全局正文。 */
+  font-family: var(--im-font-body, Inter, ui-sans-serif, system-ui, sans-serif);
   font-size: 12.5px;
   line-height: 1.35;
   border: 0;

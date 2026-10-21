@@ -109,6 +109,47 @@ function personAvatar(uin: string): string | null {
 }
 
 /**
+ * 头像缺位时的简笔人像：头 + 肩，画在节点圆内。
+ *
+ * 画布上没法复用 React 的默认头像（`DefaultAvatar` 是聊天消息用的卡通占位，缩到
+ * 十几像素后五官糊成一团），所以这里用两笔几何图形表达「这是个人」。
+ */
+function drawPersonGlyph(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  color: string,
+): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y - radius * 0.22, radius * 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x, y + radius * 0.62, radius * 0.62, Math.PI * 1.08, Math.PI * 1.92);
+  ctx.fill();
+  ctx.restore();
+}
+
+/**
+ * 社区色 → 同色系的淡底。
+ *
+ * canvas 的 `fillStyle` 不认 `color-mix()` / CSS 变量，只能自己把十六进制拆成 rgba。
+ * 社区色可能是 `var(--weq-accent-effective)`（主题色，运行时被浏览器解析成十六进制），
+ * 也可能是硬编码色；解析不出来时退回中性灰底。
+ */
+function colorMixForGlyph(color: string): string {
+  const hex = color.trim().match(/^#([\da-f]{6})$/i)?.[1];
+  if (!hex) return 'rgba(128, 138, 150, 0.2)';
+  const channel = (offset: number) => Number.parseInt(hex.slice(offset, offset + 2), 16);
+  return `rgba(${channel(0)}, ${channel(2)}, ${channel(4)}, 0.2)`;
+}
+
+/**
  * 加权标签传播找小圈子：反复采纳邻居里权重和最大的标签。几百个节点足够用，
  * 而且完全不需要引入额外的社区发现依赖。
  */
@@ -453,7 +494,9 @@ export function GroupConversationGraph({
 
       ctx.beginPath();
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = color;
+      // 默认头像也不能是一整块高饱和的社区色 —— 那会被误读成「某人的头像」。
+      // 底色压成低饱和的同色底，让人像剪影读得出来。
+      ctx.fillStyle = n.avatarUrl ? color : colorMixForGlyph(color);
       ctx.fill();
 
       const img = n.avatarUrl ? getImage(n.avatarUrl) : null;
@@ -465,9 +508,9 @@ export function GroupConversationGraph({
         ctx.drawImage(img, n.x - r, n.y - r, r * 2, r * 2);
         ctx.restore();
       } else {
-        ctx.fillStyle = styles.getPropertyValue('--primary-foreground').trim();
-        ctx.font = `600 ${Math.round(r)}px ${styles.fontFamily}`;
-        ctx.fillText((n.label || '?').slice(0, 1), n.x, n.y + 1);
+        // 拿不到头像时画一枚简笔人像（与列表里的默认头像同一语义），
+        // 不用昵称首字 —— 中文名取首字既认不出人，也和头像的圆形语义不符。
+        drawPersonGlyph(ctx, n.x, n.y, r, labelFill);
       }
 
       const isFocus = n.id === focus;
