@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Settings2, Save, Users } from 'lucide-react';
+import { Plus, Settings2, Save, Users } from 'lucide-react';
 import type { AgentLabPersona } from '@weq/agentlab';
 import {
   CLONE_GENERATION,
@@ -162,7 +162,7 @@ function CloneGenerationPanel({
   );
 }
 
-export function CloneSettingsSection() {
+export function CloneSettingsSection({ onCreate }: { onCreate?: () => void }) {
   const utils = trpc.useUtils();
   const personas = trpc.account.listAgentLabPersonas.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -180,7 +180,21 @@ export function CloneSettingsSection() {
   return (
     <div className="weq-set">
       <SectionHeader title="好友克隆" icon={<Users size={18} />} />
-      <Card title="克隆体配置">
+      <Card
+        title="克隆体配置"
+        action={
+          <button
+            type="button"
+            className="weq-set-btn"
+            aria-label="添加好友克隆"
+            disabled={!onCreate}
+            onClick={() => onCreate?.()}
+          >
+            <Plus size={14} />
+            添加
+          </button>
+        }
+      >
         {personas.error ? <p role="alert">{personas.error.message}</p> : null}
         {list.length === 0 ? (
           <div className="weq-set-empty">{personas.isLoading ? '加载中…' : '暂无好友克隆'}</div>

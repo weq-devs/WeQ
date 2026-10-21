@@ -90,7 +90,10 @@ interface SettingsSection {
   id: SectionId;
   label: string;
   icon: ReactElement;
-  render: (onOpenMaintenance: (tool: MaintenanceTool) => void) => ReactNode;
+  render: (
+    onOpenMaintenance: (tool: MaintenanceTool) => void,
+    onCreateClone?: () => void,
+  ) => ReactNode;
 }
 
 const SETTINGS_SECTIONS: SettingsSection[] = [
@@ -236,7 +239,9 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'clone-settings',
     label: '好友克隆',
     icon: <Users size={16} />,
-    render: () => <CloneSettingsSection />,
+    render: (_onOpenMaintenance, onCreateClone) => (
+      <CloneSettingsSection onCreate={onCreateClone} />
+    ),
   },
   {
     id: 'interaction-profile',
@@ -369,6 +374,7 @@ export function SettingsDialog({
   initialSection,
   onOpenMaintenance,
   onOpenRecalls,
+  onCreateClone,
 }: {
   open: boolean;
   onClose: () => void;
@@ -379,6 +385,7 @@ export function SettingsDialog({
   initialSection?: SectionId;
   onOpenMaintenance: (tool: MaintenanceTool) => void;
   onOpenRecalls: (kind: 'c2c' | 'group', conv: string) => void;
+  onCreateClone?: () => void;
 }): ReactElement | null {
   const [activeId, setActiveId] = useState<SectionId>(() =>
     settingsSectionFor(initialSection ?? 'global'),
@@ -473,7 +480,7 @@ export function SettingsDialog({
                   }}
                 />
               ) : (
-                active.render(onOpenMaintenance)
+                active.render(onOpenMaintenance, onCreateClone)
               )}
             </SettingsScopeContext.Provider>
           </div>

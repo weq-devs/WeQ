@@ -8248,6 +8248,15 @@ export function MainView(): ReactElement {
     revision: number;
     friendUids?: string[];
   } | null>(null);
+  function handleCreateClone(friendUids?: string[]): void {
+    flushAllDirtyDrafts();
+    setSettingsOpen(false);
+    setCloneCreateRequest((current) => ({
+      revision: (current?.revision ?? 0) + 1,
+      friendUids,
+    }));
+    shell.switchView('agentlab');
+  }
   const [cloneGroupRequest, setCloneGroupRequest] = useState(0);
   const [conversationLocate, setConversationLocate] = useState<{
     id: string;
@@ -9097,6 +9106,7 @@ export function MainView(): ReactElement {
             initialSection={settingsSection}
             onOpenMaintenance={openMaintenance}
             onOpenRecalls={handleOpenRecallsAt}
+            onCreateClone={handleCreateClone}
           />
           <DataMaintenanceDialog
             tool={maintenanceTool}
@@ -9644,14 +9654,7 @@ export function MainView(): ReactElement {
                     setVirtualOpen({ kind: item.kind, id: item.ownerId, revision: Date.now() });
                     shell.switchView('agentlab');
                   },
-                  onCreate: (friendUids) => {
-                    flushAllDirtyDrafts();
-                    setCloneCreateRequest((current) => ({
-                      revision: (current?.revision ?? 0) + 1,
-                      friendUids,
-                    }));
-                    shell.switchView('agentlab');
-                  },
+                  onCreate: handleCreateClone,
                   onCreateGroup: () => {
                     flushAllDirtyDrafts();
                     setCloneGroupRequest((current) => current + 1);

@@ -40,7 +40,7 @@ vi.mock('../src/renderer/src/components/settings/HelpSection', () => ({
 
 afterEach(() => vi.unstubAllGlobals());
 
-function mount(initialSection: SectionId) {
+function mount(initialSection: SectionId, onCreateClone?: () => void) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   const host = document.createElement('div');
@@ -55,6 +55,7 @@ function mount(initialSection: SectionId) {
           onClose: vi.fn(),
           onOpenMaintenance: vi.fn(),
           onOpenRecalls: vi.fn(),
+          onCreateClone,
         }),
       ),
     );
@@ -71,6 +72,22 @@ function mount(initialSection: SectionId) {
 }
 
 describe('设置归位后的实际页面', () => {
+  it('好友克隆为空时仍可从设置打开已有创建流程', () => {
+    const onCreateClone = vi.fn();
+    const f = mount('clone-settings', onCreateClone);
+    try {
+      expect(f.body().textContent).toContain('暂无好友克隆');
+      const add = f.body().querySelector<HTMLButtonElement>('[aria-label="添加好友克隆"]');
+      expect(add).not.toBeNull();
+      expect(add!.disabled).toBe(false);
+      act(() => add!.click());
+      expect(onCreateClone).toHaveBeenCalledTimes(1);
+      expect(onCreateClone).toHaveBeenCalledWith();
+    } finally {
+      f.close();
+    }
+  });
+
   it('空间与邮箱有独立一级入口，空间标题不再带设置后缀', () => {
     const f = mount('qzone');
     try {
@@ -166,9 +183,9 @@ describe('设置归位后的实际页面', () => {
         'API 配置',
         'API 用量',
         '意图感知',
+        '互动画像',
         '推荐回复',
         '好友克隆',
-        '互动画像',
         '语音识别',
         '图片识别',
       ]);
