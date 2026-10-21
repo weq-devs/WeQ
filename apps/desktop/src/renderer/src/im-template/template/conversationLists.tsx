@@ -29,6 +29,7 @@ import {
   Download,
 } from 'lucide-react';
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { pinOrderDelta } from '@weq/service/conversation-order';
 import {
   ConversationDirectoryContext,
   ContactDirectoryContext,
@@ -215,8 +216,12 @@ export function ConversationList({
       ? sidebarConversationsWithoutAssistant(rows, directory.groupAssistantIds)
       : rows;
     return visible.sort((first, second) => {
-      const pinnedDelta =
-        Number(isPinned(second, preferences)) - Number(isPinned(first, preferences));
+      const pinnedDelta = pinOrderDelta(
+        isPinned(first, preferences),
+        isPinned(second, preferences),
+        first.pinnedAt,
+        second.pinnedAt,
+      );
       if (pinnedDelta !== 0) return pinnedDelta;
       return conversationSortTime(second) - conversationSortTime(first);
     });

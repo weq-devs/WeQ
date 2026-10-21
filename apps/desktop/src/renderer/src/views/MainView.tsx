@@ -74,7 +74,8 @@ import {
 } from '@weq/codec';
 import { contactSenderName, contactTitle } from '../lib/contactTitle';
 import { replaceLoadedMembers, subscribeQQPeerUpdates } from '../lib/qqPeerUpdates';
-import { conversationSortTime } from '@weq/service/conversation-order';
+import { conversationSortTime, pinOrderDelta } from '@weq/service/conversation-order';
+import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
@@ -2199,6 +2200,15 @@ export function MainView(): ReactElement {
   const utils = trpc.useUtils();
   const pushToast = useToast((s) => s.push);
   const confirmReadState = useDialog((s) => s.confirm);
+  const pinSession = useQQWriteSession('conversation-pin');
+  const pinMutation = trpc.account.qqWrite.pin.useMutation();
+  useEffect(() => {
+    if (pinSession.result)
+      pushToast({
+        tone: pinSession.result.error ? 'error' : 'info',
+        title: pinSession.result.text,
+      });
+  }, [pinSession.result, pushToast]);
   // 群成员管理（改群昵称 / 踢人）：弹窗挂在本层（与群公告 / 群精华同层），发包也在这里。
   const renameGroupMember = trpc.account.setGroupMemberCard.useMutation();
   const kickGroupMember = trpc.account.kickGroupMember.useMutation();
@@ -2218,7 +2228,20 @@ export function MainView(): ReactElement {
     contacts.data?.pages.length,
     contacts.fetchNextPage,
   ]);
-  const topContacts = trpc.account.listTopContacts.useQuery();
+  const topContacts = trpc.account.listTopContacts.useQuery(
+    {
+      expectedAccountUin: pinSession.binding?.expectedAccountUin ?? '',
+      expectedAccountConfigId: pinSession.binding?.expectedAccountConfigId ?? '',
+    },
+    {
+      enabled: Boolean(pinSession.binding),
+      keepPreviousData: false,
+      staleTime: 0,
+      refetchOnMount: 'always',
+      refetchOnWindowFocus: 'always',
+      refetchOnReconnect: 'always',
+    },
+  );
   const contactsRefreshingRef = useRef(false);
   const contactsRefreshQueuedRef = useRef(false);
   contactsRefreshingRef.current = contacts.isFetching || Boolean(contacts.hasNextPage);
@@ -2526,6 +2549,20 @@ export function MainView(): ReactElement {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
+  useEffect(() => {
+    if (!topContacts.data) return;
+    const pinned = new Set(topContacts.data.map((row) => row.targetId));
+    setConversationPrefs((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const [id, preference] of Object.entries(current))
+        if (/^(?:u_[A-Za-z0-9_-]+|[1-9]\d*)$/.test(id) && preference.pinned !== pinned.has(id)) {
+          next[id] = { ...preference, pinned: pinned.has(id) };
+          changed = true;
+        }
+      return changed ? next : current;
+    });
+  }, [topContacts.data]);
   const [groupAssistantPins, setGroupAssistantPins] = useState(() =>
     loadGroupAssistantPins(openedUin ?? ''),
   );
@@ -3378,7 +3415,8 @@ export function MainView(): ReactElement {
   const topTimeByConv = useMemo(() => {
     const map: Record<string, number> = {};
     for (const top of (topContacts.data ?? []) as RecentContactTopWire[]) {
-      if (top.targetId) map[top.targetId] = Number(top.topTime);
+      if (top.targetId)
+        map[top.targetId] = Math.max(map[top.targetId] ?? 0, Number(top.topTime) || 0);
       if (top.chatType === 'KCHATTYPEGROUPHELPER' || Number(top.chatType) === 7) {
         map['merged:group-assistant'] = Number(top.topTime);
       }
@@ -3822,18 +3860,17 @@ export function MainView(): ReactElement {
               ? {}
               : {
                   preference: { ...fallbackPreference, ...conversation.preference, pinned: true },
+                  pinnedAt: topTime,
                 }),
             highlights,
           };
         })
-        // 保留置顶优先；两组都按最近消息时间倒序，草稿与置顶时间不参与组内排序。
+        // QQ 置顶时间不能被后续列表组件重新按最后消息时间覆盖。
         .sort((a, b) => {
           const aTop = topTimeByConv[a.id];
           const bTop = topTimeByConv[b.id];
-          if (aTop !== undefined || bTop !== undefined) {
-            if (aTop === undefined) return 1;
-            if (bTop === undefined) return -1;
-          }
+          const pinDelta = pinOrderDelta(aTop !== undefined, bTop !== undefined, aTop, bTop);
+          if (pinDelta) return pinDelta;
           return (
             Math.max(
               conversationSortTime(b.lastMessage?.createdAt ?? b.updatedAt, undefined),
@@ -6626,6 +6663,49 @@ export function MainView(): ReactElement {
     key: keyof ConversationPreference,
     value: boolean,
   ): void {
+    if (
+      key === 'pinned' &&
+      !conversationId.startsWith('virtual:') &&
+      !conversationId.startsWith('merged:')
+    ) {
+      const conversation =
+        conversations.find((row) => row.id === conversationId) ??
+        hiddenConversationsById.get(conversationId) ??
+        contactDirectoryConversations.find((row) => row.id === conversationId);
+      const target = conversationRoamingTarget(conversation);
+      if (!target) {
+        pushToast({ tone: 'error', title: '该会话没有可用的 QQ 置顶目标' });
+        return;
+      }
+      if (!pinSession.available || pinSession.busy) {
+        pushToast({
+          tone: 'info',
+          title: pinSession.busy ? '请等待当前置顶操作完成' : 'QQ 在线能力未就绪，未改变置顶状态',
+        });
+        return;
+      }
+      void pinSession.run(
+        (binding) =>
+          pinMutation.mutateAsync({
+            ...binding,
+            target:
+              target.kind === 'group'
+                ? { kind: 'group', groupId: Number(target.conv) }
+                : { kind: 'c2c', uid: target.conv },
+            enabled: value,
+          }),
+        undefined,
+        {
+          backgroundRefresh: true,
+          readback: async () => {
+            const result = await topContacts.refetch();
+            if (result.error) throw result.error;
+            return result.data?.some((row) => row.targetId === conversationId) === value;
+          },
+        },
+      );
+      return;
+    }
     setConversationPrefs((current) => ({
       ...current,
       [conversationId]: {

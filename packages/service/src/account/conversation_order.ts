@@ -45,3 +45,17 @@ export function conversationSortTime(updatedAt: string, draftTimeMs: number | un
   const msgMs = Date.parse(updatedAt);
   return Math.max(Number.isFinite(msgMs) ? msgMs : 0, draftTimeMs ?? 0);
 }
+
+/** 置顶优先，置顶内按 QQ 的置顶秒级时间倒序；未知或同秒时由调用方稳定回退。 */
+export function pinOrderDelta(
+  firstPinned: boolean,
+  secondPinned: boolean,
+  firstTime: number | undefined,
+  secondTime: number | undefined,
+): number {
+  const group = Number(secondPinned) - Number(firstPinned);
+  if (group || !firstPinned) return group;
+  const time = (value: number | undefined) =>
+    value !== undefined && Number.isFinite(value) && value > 0 ? value : 0;
+  return time(secondTime) - time(firstTime);
+}

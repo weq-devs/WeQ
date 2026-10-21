@@ -156,6 +156,8 @@ type ConversationBase = {
   id: string;
   updatedAt: string;
   preference?: ConversationPreference;
+  /** QQ 置顶时间（unix 秒）；仅用于置顶组内排序，不冒充最后消息时间。 */
+  pinnedAt?: number;
   unreadCount?: number;
   /**
    * 该会话来自 hidden_session_storage_table_v1（用户手动隐藏过的聊天），并入

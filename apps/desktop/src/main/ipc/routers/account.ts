@@ -2468,10 +2468,21 @@ export const accountRouter = router({
     }),
 
   /** 置顶会话（recent_contact_top_table），最近置顶的在前。 */
-  listTopContacts: procedure.query(async () => {
-    const tops = await requireServices().recentContacts.getTopContacts();
-    return tops.map(recentContactTopToWire);
-  }),
+  listTopContacts: procedure
+    .input(exportAccountBindingInput.optional())
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input?.expectedAccountUin,
+        input?.expectedAccountConfigId,
+      );
+      const tops = await services.recentContacts.getTopContacts();
+      if (
+        requireExpectedAccount(input?.expectedAccountUin, input?.expectedAccountConfigId) !==
+        services
+      )
+        throw new Error('账号数据源已切换，已丢弃旧置顶结果');
+      return tops.map(recentContactTopToWire);
+    }),
 
   /**
    * 隐藏会话（hidden_session_storage_table_v1）—— 已解析出的最后消息时间/预览，

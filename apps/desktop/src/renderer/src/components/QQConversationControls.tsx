@@ -205,7 +205,17 @@ export function QQConversationControls({
                 initial={state.pinned}
                 disabled={kind === 'c2c' ? friendDisabled : disabled}
                 onSave={(enabled) =>
-                  act((binding) => pin.mutateAsync({ ...binding, target, enabled }))
+                  session.run(
+                    (binding) => pin.mutateAsync({ ...binding, target, enabled }),
+                    refresh,
+                    {
+                      readback: async () => {
+                        const result = await snapshot.refetch();
+                        if (result.error) throw result.error;
+                        return result.data?.pinned === enabled;
+                      },
+                    },
+                  )
                 }
               />
               {kind === 'c2c' ? (
