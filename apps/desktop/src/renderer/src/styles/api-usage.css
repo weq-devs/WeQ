@@ -27,7 +27,7 @@
   text-align: left;
 }
 
-html[data-theme="dark"] .weq-usage-accounting-table th,
-html[data-theme="dark"] .weq-usage-accounting-table td {
+html[data-theme='dark'] .weq-usage-accounting-table th,
+html[data-theme='dark'] .weq-usage-accounting-table td {
   border-color: var(--weq-border-strong);
 }

@@ -26,7 +26,7 @@
   gap: 4px;
 }
 .weq-artifact-save-card .weq-set-btn,
-html[data-theme="dark"] .weq-artifact-save-card .weq-set-btn {
+html[data-theme='dark'] .weq-artifact-save-card .weq-set-btn {
   white-space: nowrap;
   border-radius: 6px;
   border-color: var(--weq-border-strong);
@@ -34,12 +34,12 @@ html[data-theme="dark"] .weq-artifact-save-card .weq-set-btn {
   color: var(--weq-fg-primary);
 }
 .weq-artifact-save-card .weq-set-btn-soft,
-html[data-theme="dark"] .weq-artifact-save-card .weq-set-btn-soft {
+html[data-theme='dark'] .weq-artifact-save-card .weq-set-btn-soft {
   border-color: var(--weq-accent-effective);
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
 .weq-artifact-save-card .weq-set-btn:hover:not(:disabled),
-html[data-theme="dark"] .weq-artifact-save-card .weq-set-btn:hover:not(:disabled) {
+html[data-theme='dark'] .weq-artifact-save-card .weq-set-btn:hover:not(:disabled) {
   border-color: var(--weq-accent-effective);
   background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
 }
@@ -48,8 +48,12 @@ html[data-theme="dark"] .weq-artifact-save-card .weq-set-btn:hover:not(:disabled
   font-size: 11px;
   overflow-wrap: anywhere;
 }
-.weq-artifact-save-error { color: var(--destructive); }
-.weq-artifact-save-path { color: var(--weq-fg-secondary); }
+.weq-artifact-save-error {
+  color: var(--destructive);
+}
+.weq-artifact-save-path {
+  color: var(--weq-fg-secondary);
+}
 .weq-artifact-saved-icon {
   display: inline-flex;
   align-items: center;
@@ -67,7 +71,7 @@ html[data-theme="dark"] .weq-artifact-save-card .weq-set-btn:hover:not(:disabled
 .weq-artifact-saved-icon:hover:not(:disabled) {
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
-html[data-theme="dark"] .weq-artifact-saved-icon:hover:not(:disabled) {
+html[data-theme='dark'] .weq-artifact-saved-icon:hover:not(:disabled) {
   background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
 }
 .weq-artifact-saved-icon:disabled {
@@ -78,7 +82,7 @@ html[data-theme="dark"] .weq-artifact-saved-icon:hover:not(:disabled) {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }
-html[data-theme="dark"] .weq-artifact-save-card {
+html[data-theme='dark'] .weq-artifact-save-card {
   border-color: var(--weq-border-strong);
 }
 @media (max-width: 480px) {

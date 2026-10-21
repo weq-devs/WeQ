@@ -43,7 +43,7 @@
   outline-offset: 2px;
 }
 
-html[data-theme="dark"] .weq-notice-back:hover {
+html[data-theme='dark'] .weq-notice-back:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
 }
 
@@ -232,37 +232,48 @@ html[data-theme="dark"] .weq-notice-back:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
 
-.notice-request-buttons button:disabled { opacity: 0.5; cursor: default; }
+.notice-request-buttons button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .notice-request-buttons button:focus-visible,
 .notice-request-actions input:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }
 
-html[data-theme="dark"] .notice-request-buttons button:hover:not(:disabled) {
+html[data-theme='dark'] .notice-request-buttons button:hover:not(:disabled) {
   background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
 }
 
-html[data-theme="dark"] .weq-notice-dialog[role="dialog"] {
+html[data-theme='dark'] .weq-notice-dialog[role='dialog'] {
   background: var(--weq-bg-surface);
   border-color: var(--weq-border-strong);
 }
 
-html[data-theme="dark"] .weq-notice-layer {
+html[data-theme='dark'] .weq-notice-layer {
   background: color-mix(in srgb, var(--background) 75%, transparent);
 }
 
-html[data-theme="dark"] .weq-notice-dialog .notice-state {
+html[data-theme='dark'] .weq-notice-dialog .notice-state {
   background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
 }
 
 @keyframes weq-notice-enter {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .weq-notice-dialog[role="dialog"] { animation: none; }
+  .weq-notice-dialog[role='dialog'] {
+    animation: none;
+  }
 }
 .weq-profile-layer.weq-notice-layer {
   box-sizing: border-box;
@@ -272,4 +283,3 @@ html[data-theme="dark"] .weq-notice-dialog .notice-state {
   padding: 12px;
   background: color-mix(in srgb, var(--background) 65%, transparent);
 }
-

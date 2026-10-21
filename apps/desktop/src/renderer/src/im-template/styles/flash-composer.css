@@ -58,7 +58,9 @@
   font-size: 13px;
   cursor: pointer;
   user-select: none;
-  transition: background 130ms ease, color 130ms ease;
+  transition:
+    background 130ms ease,
+    color 130ms ease;
 }
 
 /* 闪电就是工具栏那枚「闪传」的同款图标：不额外上色，跟着那行字一起变灰 / 变强调色。 */
@@ -268,7 +270,10 @@
   font-family: inherit;
   font-size: 12px;
   cursor: pointer;
-  transition: background 130ms ease, color 130ms ease, border-color 130ms ease;
+  transition:
+    background 130ms ease,
+    color 130ms ease,
+    border-color 130ms ease;
 }
 
 .flash-btn.primary {
@@ -469,10 +474,10 @@
 
 /* ── 深色下压一档 ────────────────────────────────────────────────────────── */
 
-html[data-theme="dark"] .flash-composer {
+html[data-theme='dark'] .flash-composer {
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
 }
 
-html[data-theme="dark"] .flash-lightbox-card {
+html[data-theme='dark'] .flash-lightbox-card {
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
 }

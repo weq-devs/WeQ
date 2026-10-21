@@ -43,6 +43,6 @@
   cursor: default;
 }
 
-html[data-theme="dark"] .weq-record-calendar-actions > button {
+html[data-theme='dark'] .weq-record-calendar-actions > button {
   border-color: var(--weq-border-strong);
 }

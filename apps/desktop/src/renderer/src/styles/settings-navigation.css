@@ -35,7 +35,7 @@
 }
 
 .weq-settings-dialog .weq-settings-nav-item.is-active,
-html[data-theme="dark"] .weq-settings-dialog .weq-settings-nav-item.is-active {
+html[data-theme='dark'] .weq-settings-dialog .weq-settings-nav-item.is-active {
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
   color: var(--weq-accent-effective);
 }
@@ -75,7 +75,7 @@ html[data-theme="dark"] .weq-settings-dialog .weq-settings-nav-item.is-active {
   overflow-wrap: anywhere;
 }
 
-html[data-theme="dark"] .weq-settings-scope {
+html[data-theme='dark'] .weq-settings-scope {
   border-color: var(--weq-border-strong);
   background: color-mix(in srgb, var(--weq-fg-muted) 10%, transparent);
   color: var(--weq-fg-secondary);
@@ -93,7 +93,7 @@ html[data-theme="dark"] .weq-settings-scope {
   padding: 20px;
 }
 
-html[data-theme="dark"] .weq-settings-subnav {
+html[data-theme='dark'] .weq-settings-subnav {
   border-color: var(--weq-border-strong);
 }
 

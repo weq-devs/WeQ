@@ -1,11 +1,58 @@
-.weq-media-save-controls { max-width: 100%; }
-.weq-lightbox-actions { flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 24px); }
-.weq-lightbox-stage-wrap { max-width: 100%; min-width: 0; }
-.weq-lightbox-actions .weq-media-save-controls { flex-wrap: wrap; justify-content: center; }
-.weq-lightbox-actions .weq-media-save-controls { color: var(--weq-lightbox-control-fg); }
-.weq-lightbox-actions .weq-save-options { color: inherit; border-color: color-mix(in srgb, currentColor 20%, transparent); background: transparent; }
-.qq-voice-row:has(> .weq-media-save-controls) { flex-wrap: wrap; }
-.qq-voice-row .weq-media-save-controls .qq-voice-transcribe-btn { opacity: 1; transform: none; color: var(--weq-fg-secondary); border-color: var(--weq-border-subtle); background: var(--weq-bg-surface); border-radius: 6px; }
-html[data-theme="dark"] .qq-voice-row .weq-media-save-controls .qq-voice-transcribe-btn { color: var(--weq-fg-secondary); border-color: var(--weq-border-strong); background: var(--weq-bg-surface); }
-.qq-media-file:has(> .weq-media-save-controls) { width: 340px; max-width: 100%; }
-.qq-media-file-open { display: flex; align-items: center; min-width: 0; flex: 1; gap: 12px; padding: 0; border: 0; color: inherit; background: transparent; text-align: left; font: inherit; cursor: pointer; }
+.weq-media-save-controls {
+  max-width: 100%;
+}
+.weq-lightbox-actions {
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: calc(100vw - 24px);
+}
+.weq-lightbox-stage-wrap {
+  max-width: 100%;
+  min-width: 0;
+}
+.weq-lightbox-actions .weq-media-save-controls {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.weq-lightbox-actions .weq-media-save-controls {
+  color: var(--weq-lightbox-control-fg);
+}
+.weq-lightbox-actions .weq-save-options {
+  color: inherit;
+  border-color: color-mix(in srgb, currentColor 20%, transparent);
+  background: transparent;
+}
+.qq-voice-row:has(> .weq-media-save-controls) {
+  flex-wrap: wrap;
+}
+.qq-voice-row .weq-media-save-controls .qq-voice-transcribe-btn {
+  opacity: 1;
+  transform: none;
+  color: var(--weq-fg-secondary);
+  border-color: var(--weq-border-subtle);
+  background: var(--weq-bg-surface);
+  border-radius: 6px;
+}
+html[data-theme='dark'] .qq-voice-row .weq-media-save-controls .qq-voice-transcribe-btn {
+  color: var(--weq-fg-secondary);
+  border-color: var(--weq-border-strong);
+  background: var(--weq-bg-surface);
+}
+.qq-media-file:has(> .weq-media-save-controls) {
+  width: 340px;
+  max-width: 100%;
+}
+.qq-media-file-open {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}

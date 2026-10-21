@@ -17,6 +17,6 @@
   font-size: 12px;
 }
 
-html[data-theme="dark"] .weq-generated-message.is-search-hit {
+html[data-theme='dark'] .weq-generated-message.is-search-hit {
   background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
 }

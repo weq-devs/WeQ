@@ -96,15 +96,15 @@
   max-width: 100%;
 }
 
-html[data-theme="dark"] .weq-title-profile-avatar:hover {
+html[data-theme='dark'] .weq-title-profile-avatar:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
 }
 
-html[data-theme="dark"] .weq-self-profile-dialog {
+html[data-theme='dark'] .weq-self-profile-dialog {
   border-color: var(--weq-border-strong);
 }
 
-html[data-theme="dark"] .weq-self-profile-body .weq-set-card {
+html[data-theme='dark'] .weq-self-profile-body .weq-set-card {
   border: 0;
   background: transparent;
   box-shadow: none;

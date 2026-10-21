@@ -1,5 +1,10 @@
-.message-scroll { position: relative; }
-.message-scroll.is-marquee-selecting { user-select: none; cursor: crosshair; }
+.message-scroll {
+  position: relative;
+}
+.message-scroll.is-marquee-selecting {
+  user-select: none;
+  cursor: crosshair;
+}
 .weq-message-marquee {
   position: absolute;
   z-index: 2;
@@ -8,6 +13,6 @@
   border: 1px solid var(--weq-accent-effective);
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
-html[data-theme="dark"] .weq-message-marquee {
+html[data-theme='dark'] .weq-message-marquee {
   background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
 }

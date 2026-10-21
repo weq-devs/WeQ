@@ -1,7 +1,19 @@
-.weq-save-preferences select { max-width: 100%; }
+.weq-save-preferences select {
+  max-width: 100%;
+}
 @media (max-width: 480px) {
-  .weq-save-preferences .weq-set-row { flex-direction: column; align-items: stretch; gap: 10px; }
-  .weq-save-preferences .weq-set-row-ctrl { width: 100%; }
-  .weq-save-preferences select { width: 100%; }
-  .weq-save-preferences .weq-set-btn-group { flex-wrap: wrap; }
+  .weq-save-preferences .weq-set-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .weq-save-preferences .weq-set-row-ctrl {
+    width: 100%;
+  }
+  .weq-save-preferences select {
+    width: 100%;
+  }
+  .weq-save-preferences .weq-set-btn-group {
+    flex-wrap: wrap;
+  }
 }

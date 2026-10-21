@@ -8,7 +8,9 @@
   min-height: 0;
 }
 
-.weq-channel-workspace [hidden] { display: none !important; }
+.weq-channel-workspace [hidden] {
+  display: none !important;
+}
 
 .weq-channel-direct-trigger {
   position: absolute;
@@ -49,7 +51,9 @@
   min-width: 0;
 }
 
-.weq-guild-direct-list-back { display: none; }
+.weq-guild-direct-list-back {
+  display: none;
+}
 
 .weq-guild-direct-msg.is-selected {
   background: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
@@ -68,20 +72,25 @@
   flex-wrap: wrap;
 }
 
-html[data-theme="dark"] .weq-guild-direct-msg.is-selected {
+html[data-theme='dark'] .weq-guild-direct-msg.is-selected {
   background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
   outline-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
 }
 
-html[data-theme="dark"] .weq-channel-direct-trigger {
+html[data-theme='dark'] .weq-channel-direct-trigger {
   border-color: var(--weq-border-strong);
   background: var(--weq-bg-surface);
 }
 
 @media (max-width: 720px) {
-  .weq-guild-direct .weq-guild-direct-side { flex: 1; border-right: 0; }
+  .weq-guild-direct .weq-guild-direct-side {
+    flex: 1;
+    border-right: 0;
+  }
   .weq-guild-direct:not(.has-selected-session) .weq-guild-direct-chat,
-  .weq-guild-direct.has-selected-session .weq-guild-direct-side { display: none; }
+  .weq-guild-direct.has-selected-session .weq-guild-direct-side {
+    display: none;
+  }
   .weq-guild-direct-list-back {
     display: grid;
     place-items: center;
@@ -95,4 +104,7 @@ html[data-theme="dark"] .weq-channel-direct-trigger {
     cursor: pointer;
   }
 }
-.weq-guild-direct-msg.is-search-hit { outline: 2px solid var(--weq-accent-effective); outline-offset: -2px; }
+.weq-guild-direct-msg.is-search-hit {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}

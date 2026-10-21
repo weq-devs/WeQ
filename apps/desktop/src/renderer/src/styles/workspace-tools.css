@@ -10,7 +10,10 @@
   margin-right: 4px;
   border: 1px solid transparent;
   border-radius: 4px;
-  transition: width 160ms ease, border-color 160ms ease, background-color 160ms ease;
+  transition:
+    width 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease;
   -webkit-app-region: no-drag;
 }
 
@@ -20,7 +23,9 @@
   background: var(--weq-bg-surface);
 }
 
-.weq-titlebar-search.has-return:not(.is-expanded) { width: 62px; }
+.weq-titlebar-search.has-return:not(.is-expanded) {
+  width: 62px;
+}
 
 .weq-titlebar-search > button {
   display: grid;
@@ -84,7 +89,9 @@
   -webkit-app-region: no-drag;
 }
 
-.weq-floating-tools[hidden] { display: none !important; }
+.weq-floating-tools[hidden] {
+  display: none !important;
+}
 
 .weq-tools-trigger {
   pointer-events: auto;
@@ -106,12 +113,38 @@
   cursor: grabbing;
 }
 
-.weq-tools-glyph { display: grid; place-items: center; }
-.weq-tools-glyph svg { transition: transform 160ms ease; }
-.weq-floating-tools.is-expanded .weq-tools-glyph svg { transform: rotate(-22deg); }
-.weq-tools-glyph.has-click { animation: weq-tools-click 180ms ease; }
-@keyframes weq-tools-click { 0%, 100% { scale: 1; } 45% { scale: 0.78; } }
-@keyframes weq-tools-open { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.weq-tools-glyph {
+  display: grid;
+  place-items: center;
+}
+.weq-tools-glyph svg {
+  transition: transform 160ms ease;
+}
+.weq-floating-tools.is-expanded .weq-tools-glyph svg {
+  transform: rotate(-22deg);
+}
+.weq-tools-glyph.has-click {
+  animation: weq-tools-click 180ms ease;
+}
+@keyframes weq-tools-click {
+  0%,
+  100% {
+    scale: 1;
+  }
+  45% {
+    scale: 0.78;
+  }
+}
+@keyframes weq-tools-open {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 
 .weq-floating-tools-bar {
   position: absolute;
@@ -135,21 +168,60 @@
   color: var(--weq-fg-primary);
   cursor: pointer;
 }
-.weq-tools-sector > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-.weq-tools-sector > svg > path { fill: var(--weq-bg-surface); stroke: var(--weq-border-strong); stroke-width: 1px; transition: fill 120ms ease, stroke 120ms ease; }
-.weq-tools-sector-glyph { position: absolute; display: grid; place-items: center; pointer-events: none; }
-.weq-tools-sector-glyph > svg { width: 100%; height: 100%; }
-.weq-tools-sector:hover > svg > path, .weq-tools-sector:focus-visible > svg > path { fill: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface)); stroke: var(--weq-accent-effective); }
-.weq-floating-tools-fan .weq-tools-sector:focus-visible { outline: none; }
-.weq-tools-sector:focus-visible > svg > path { stroke-width: 2px; }
-@keyframes weq-tools-fan-open { from { opacity: 0; transform: scale(0.86); } to { opacity: 1; transform: scale(1); } }
+.weq-tools-sector > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.weq-tools-sector > svg > path {
+  fill: var(--weq-bg-surface);
+  stroke: var(--weq-border-strong);
+  stroke-width: 1px;
+  transition:
+    fill 120ms ease,
+    stroke 120ms ease;
+}
+.weq-tools-sector-glyph {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.weq-tools-sector-glyph > svg {
+  width: 100%;
+  height: 100%;
+}
+.weq-tools-sector:hover > svg > path,
+.weq-tools-sector:focus-visible > svg > path {
+  fill: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
+  stroke: var(--weq-accent-effective);
+}
+.weq-floating-tools-fan .weq-tools-sector:focus-visible {
+  outline: none;
+}
+.weq-tools-sector:focus-visible > svg > path {
+  stroke-width: 2px;
+}
+@keyframes weq-tools-fan-open {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
 
 /* 扇形项的禁用态：当前界面没有可用的默认目标（如设置页）。子项仍可点。 */
 .weq-floating-tools-fan .weq-tools-sector.is-disabled > svg > path {
   stroke-dasharray: 4 3;
   opacity: 0.55;
 }
-.weq-floating-tools-fan .weq-tools-sector.is-disabled .weq-tools-sector-glyph { opacity: 0.5; }
+.weq-floating-tools-fan .weq-tools-sector.is-disabled .weq-tools-sector-glyph {
+  opacity: 0.5;
+}
 .weq-floating-tools-fan .weq-tools-sector.is-disabled {
   cursor: not-allowed;
 }
@@ -173,14 +245,28 @@
   box-shadow: var(--weq-shadow-card);
   animation: weq-tools-child-open 130ms ease-out;
 }
-.weq-tools-child-menu.is-left { animation-name: weq-tools-child-open-left; }
+.weq-tools-child-menu.is-left {
+  animation-name: weq-tools-child-open-left;
+}
 @keyframes weq-tools-child-open {
-  from { opacity: 0; transform: translateX(-4px); }
-  to { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 @keyframes weq-tools-child-open-left {
-  from { opacity: 0; transform: translateX(4px); }
-  to { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 .weq-tools-child-head {
   display: block;
@@ -213,13 +299,20 @@
   color: var(--weq-accent-effective);
   outline: none;
 }
-.weq-tools-child-icon { display: grid; place-items: center; flex: none; opacity: 0.85; }
-html[data-theme="dark"] .weq-tools-child-menu {
+.weq-tools-child-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  opacity: 0.85;
+}
+html[data-theme='dark'] .weq-tools-child-menu {
   background: var(--weq-bg-surface);
   border-color: var(--weq-border-strong);
 }
 @media (prefers-reduced-motion: reduce) {
-  .weq-tools-child-menu { animation: none; }
+  .weq-tools-child-menu {
+    animation: none;
+  }
 }
 
 .weq-tools-trigger:focus-visible,
@@ -273,8 +366,12 @@ html[data-theme="dark"] .weq-tools-child-menu {
   overflow: hidden;
 }
 /* 助手面板内部再嵌一层 assistant 设置时，两者都按剩余高度分摊。 */
-.weq-assistant-panel ~ .weq-assistant-service-settings { flex: 1 1 auto; }
-.weq-assistant-panel[hidden] { display: none; }
+.weq-assistant-panel ~ .weq-assistant-service-settings {
+  flex: 1 1 auto;
+}
+.weq-assistant-panel[hidden] {
+  display: none;
+}
 .weq-assistant-panel > .weq-agentlab-shell {
   flex: 1 1 auto;
   height: auto;
@@ -465,7 +562,10 @@ html[data-theme="dark"] .weq-tools-child-menu {
   color: var(--weq-accent-effective);
   background: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
 }
-.weq-exp-pane-icon > svg { width: 16px; height: 16px; }
+.weq-exp-pane-icon > svg {
+  width: 16px;
+  height: 16px;
+}
 .weq-exp-pane-heading {
   display: flex;
   flex-direction: column;
@@ -498,8 +598,14 @@ html[data-theme="dark"] .weq-tools-child-menu {
   color: var(--weq-fg-secondary);
   font-size: 12px;
 }
-.weq-exp-pane-kind > svg { color: var(--weq-accent-effective); }
-.weq-exp-pane-kind.is-select { padding: 0; border: 0; background: transparent; }
+.weq-exp-pane-kind > svg {
+  color: var(--weq-accent-effective);
+}
+.weq-exp-pane-kind.is-select {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
 .weq-exp-pane-kind.is-select select {
   padding: 5px 9px;
   border-radius: 8px;
@@ -519,7 +625,9 @@ html[data-theme="dark"] .weq-tools-child-menu {
   border-bottom: 1px solid var(--weq-border-subtle);
 }
 /* 种类条已经紧跟面板头，两者之间的分隔线只留一条。 */
-.weq-exp-pane-head + .weq-exp-kinds { border-top: 0; }
+.weq-exp-pane-head + .weq-exp-kinds {
+  border-top: 0;
+}
 .weq-exp-kind-native {
   position: absolute;
   width: 1px;
@@ -543,7 +651,10 @@ html[data-theme="dark"] .weq-tools-child-menu {
   font-size: 12px;
   line-height: 1.4;
   cursor: pointer;
-  transition: background-color 130ms ease, border-color 130ms ease, color 130ms ease;
+  transition:
+    background-color 130ms ease,
+    border-color 130ms ease,
+    color 130ms ease;
 }
 .weq-exp-kinds > button:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 38%, var(--weq-border-subtle));
@@ -554,13 +665,23 @@ html[data-theme="dark"] .weq-tools-child-menu {
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
   color: var(--weq-accent-effective);
 }
-.weq-exp-kinds > button:disabled { cursor: default; opacity: 0.55; }
+.weq-exp-kinds > button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
 .weq-exp-kinds > button:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 1px;
 }
-.weq-exp-kind-icon { display: grid; place-items: center; flex: none; }
-.weq-exp-kind-icon > svg { width: 13px; height: 13px; }
+.weq-exp-kind-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.weq-exp-kind-icon > svg {
+  width: 13px;
+  height: 13px;
+}
 
 /* 「已按当前内容进入」条：明确告诉用户这次导出的是哪份内容。 */
 .weq-exp-source {
@@ -590,7 +711,10 @@ html[data-theme="dark"] .weq-tools-child-menu {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.weq-exp-source-text > small { color: var(--weq-fg-secondary); font-size: 12px; }
+.weq-exp-source-text > small {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
 .weq-exp-source-done {
   flex: none;
   padding: 4px 10px;
@@ -655,7 +779,7 @@ html[data-theme="dark"] .weq-tools-child-menu {
   overflow-wrap: anywhere;
 }
 
-.weq-message-scope input[type="checkbox"] {
+.weq-message-scope input[type='checkbox'] {
   flex: none;
   accent-color: var(--weq-accent-effective);
 }
@@ -708,8 +832,8 @@ html[data-theme="dark"] .weq-tools-child-menu {
   background: transparent;
 }
 
-html[data-theme="dark"] .weq-tools-modal,
-html[data-theme="dark"] .weq-tools-trigger {
+html[data-theme='dark'] .weq-tools-modal,
+html[data-theme='dark'] .weq-tools-trigger {
   background: var(--weq-bg-surface);
   border-color: var(--weq-border-strong);
   color: var(--weq-fg-primary);
@@ -728,10 +852,19 @@ html[data-theme="dark"] .weq-tools-trigger {
 
 @media (prefers-reduced-motion: reduce) {
   .weq-titlebar-search,
-  .weq-titlebar-search input { transition: none; }
-  .weq-tools-glyph.has-click, .weq-floating-tools-bar { animation: none; }
-  .weq-tools-glyph svg { transition: none; }
-  .weq-tools-sector > svg > path { transition: none; }
+  .weq-titlebar-search input {
+    transition: none;
+  }
+  .weq-tools-glyph.has-click,
+  .weq-floating-tools-bar {
+    animation: none;
+  }
+  .weq-tools-glyph svg {
+    transition: none;
+  }
+  .weq-tools-sector > svg > path {
+    transition: none;
+  }
 }
 
 /* ── 导出工具内的列表行精修（只在工具面板里生效） ───────────────────── */
@@ -752,7 +885,9 @@ html[data-theme="dark"] .weq-tools-trigger {
   font-size: 13px;
   font-weight: 550;
 }
-.weq-export-tool .weq-exp-row-meta small { color: var(--weq-fg-muted); }
+.weq-export-tool .weq-exp-row-meta small {
+  color: var(--weq-fg-muted);
+}
 .weq-export-tool .weq-exp-row-check {
   border-color: var(--weq-border-strong);
   border-radius: 50%;
@@ -767,7 +902,9 @@ html[data-theme="dark"] .weq-tools-trigger {
   border-radius: 50%;
   background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 }
-.weq-export-tool .weq-exp-avatar-fb { color: var(--weq-fg-secondary); }
+.weq-export-tool .weq-exp-avatar-fb {
+  color: var(--weq-fg-secondary);
+}
 .weq-export-tool .weq-exp-search {
   margin: 10px 12px 8px;
   padding: 7px 10px;
@@ -778,8 +915,12 @@ html[data-theme="dark"] .weq-tools-trigger {
 .weq-export-tool .weq-exp-search:focus-within {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
 }
-.weq-export-tool .weq-exp-search input { font-size: 12.5px; }
-.weq-export-tool .weq-exp-tools { margin: 0 12px 8px; }
+.weq-export-tool .weq-exp-search input {
+  font-size: 12.5px;
+}
+.weq-export-tool .weq-exp-tools {
+  margin: 0 12px 8px;
+}
 .weq-export-tool .weq-exp-tool {
   border-radius: 8px;
   border-color: var(--weq-border-subtle);
@@ -790,19 +931,28 @@ html[data-theme="dark"] .weq-tools-trigger {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
   background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 }
-.weq-export-tool .weq-exp-tools-count { color: var(--weq-fg-secondary); font-size: 12px; }
-.weq-export-tool .weq-exp-list { padding: 2px 6px 6px; }
+.weq-export-tool .weq-exp-tools-count {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-export-tool .weq-exp-list {
+  padding: 2px 6px 6px;
+}
 .weq-export-tool .weq-exp-pane-foot {
   padding: 10px 14px;
   background: color-mix(in srgb, var(--weq-bg-surface) 55%, transparent);
 }
-.weq-export-tool .weq-exp-foot-hint { color: var(--weq-fg-secondary); }
+.weq-export-tool .weq-exp-foot-hint {
+  color: var(--weq-fg-secondary);
+}
 .weq-export-tool .weq-exp-primary {
   border-radius: 9px;
   padding: 7px 16px;
   font-weight: 550;
 }
-.weq-export-tool .weq-exp-seg.is-small button { font-size: 12px; }
+.weq-export-tool .weq-exp-seg.is-small button {
+  font-size: 12px;
+}
 
 /* 任务栏（导出 / 定时 / 漫游 / 克隆）在工具里也统一成圆角分段。 */
 .weq-tools-modal .weq-exp-seg {

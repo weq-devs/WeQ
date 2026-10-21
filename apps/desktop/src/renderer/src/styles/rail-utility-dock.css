@@ -12,7 +12,10 @@
   width: 100%;
   opacity: 0;
   visibility: hidden;
-  transition: grid-template-rows 160ms ease, opacity 140ms ease, visibility 160ms;
+  transition:
+    grid-template-rows 160ms ease,
+    opacity 140ms ease,
+    visibility 160ms;
 }
 
 .weq-rail-utility-actions > div {
@@ -44,7 +47,10 @@
   color: var(--weq-fg-secondary);
   background: transparent;
   box-shadow: none;
-  transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease;
 }
 
 .app-shell .rail-footer .weq-rail-utility-actions button {
@@ -54,8 +60,8 @@
 }
 .app-shell .rail-footer .weq-rail-utility-actions button:hover:not(:disabled),
 .app-shell .rail-footer .weq-rail-utility-actions button.is-on,
-.app-shell .rail-footer .weq-rail-control[aria-pressed="true"],
-.app-shell .rail-footer .weq-rail-control[aria-current="page"],
+.app-shell .rail-footer .weq-rail-control[aria-pressed='true'],
+.app-shell .rail-footer .weq-rail-control[aria-current='page'],
 .app-shell .rail-footer .weq-rail-control:hover,
 .weq-floating-tools.is-docked .weq-tools-trigger:hover,
 .weq-floating-tools.is-docked.is-expanded .weq-tools-trigger {
@@ -89,8 +95,18 @@
   animation: weq-dock-breathe 1000ms ease-in-out infinite;
 }
 
-.weq-rail-tools-slot.is-drop-target { outline-style: solid; }
-@keyframes weq-dock-breathe { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+.weq-rail-tools-slot.is-drop-target {
+  outline-style: solid;
+}
+@keyframes weq-dock-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
 
 .weq-floating-tools.is-docked:not(.is-dragging) {
   position: fixed;
@@ -103,15 +119,27 @@
   transform: translate(1px, -5px);
 }
 
-html[data-theme="dark"] .app-shell .rail-footer .weq-rail-control:not([aria-pressed="true"]):not([aria-current="page"]):not(:hover),
-html[data-theme="dark"] .weq-floating-tools.is-docked:not(.is-expanded) .weq-tools-trigger:not(:hover),
-html[data-theme="dark"] .app-shell .rail-footer .weq-rail-utility-actions button {
+html[data-theme='dark']
+  .app-shell
+  .rail-footer
+  .weq-rail-control:not([aria-pressed='true']):not([aria-current='page']):not(:hover),
+html[data-theme='dark']
+  .weq-floating-tools.is-docked:not(.is-expanded)
+  .weq-tools-trigger:not(:hover),
+html[data-theme='dark'] .app-shell .rail-footer .weq-rail-utility-actions button {
   border-color: var(--weq-border-strong);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .weq-rail-utility-actions { transition: none; }
+  .weq-rail-utility-actions {
+    transition: none;
+  }
   .app-shell .rail-footer .weq-rail-control,
-  .weq-floating-tools.is-docked .weq-tools-trigger { transition: none; }
-  .weq-rail-tools-slot.is-drag-hint { animation: none; opacity: 1; }
+  .weq-floating-tools.is-docked .weq-tools-trigger {
+    transition: none;
+  }
+  .weq-rail-tools-slot.is-drag-hint {
+    animation: none;
+    opacity: 1;
+  }
 }

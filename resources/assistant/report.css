@@ -19,7 +19,8 @@
 
   /* 下列是「皮肤」(body.rp-*) 可整套覆盖的派生变量 —— 换肤时背景/表格/引用/图表底槽等联动，
    * 暗色皮肤也不会破相。想微调单份报告，覆盖其中任意一个即可。 */
-  --rp-bg: radial-gradient(1200px 600px at 100% -10%, #eef2ff 0%, transparent 60%),
+  --rp-bg:
+    radial-gradient(1200px 600px at 100% -10%, #eef2ff 0%, transparent 60%),
     radial-gradient(1000px 520px at -10% 0%, #faf5ff 0%, transparent 55%), #f6f8fc;
   --rp-track: #eef2f7; /* 进度条 / 图表底槽 */
   --rp-quote-ink: #475569; /* 引用正文 */
@@ -36,8 +37,9 @@
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
-    Roboto, system-ui, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', Roboto,
+    system-ui, sans-serif;
   color: var(--rp-ink);
   line-height: 1.7;
   min-height: 100vh;
@@ -630,37 +632,43 @@ body {
 body.rp-aurora {
   --rp-accent: #6366f1;
   --rp-accent-2: #8b5cf6;
-  --rp-bg: radial-gradient(1200px 600px at 100% -10%, #eef2ff 0%, transparent 60%),
+  --rp-bg:
+    radial-gradient(1200px 600px at 100% -10%, #eef2ff 0%, transparent 60%),
     radial-gradient(1000px 520px at -10% 0%, #faf5ff 0%, transparent 55%), #f6f8fc;
 }
 body.rp-rose {
   --rp-accent: #f43f5e;
   --rp-accent-2: #fb923c;
-  --rp-bg: radial-gradient(1100px 560px at 110% -12%, #ffe4e6 0%, transparent 60%),
+  --rp-bg:
+    radial-gradient(1100px 560px at 110% -12%, #ffe4e6 0%, transparent 60%),
     radial-gradient(900px 480px at -8% 4%, #ffedd5 0%, transparent 55%), #fff7f6;
 }
 body.rp-emerald {
   --rp-accent: #10b981;
   --rp-accent-2: #14b8a6;
-  --rp-bg: radial-gradient(1100px 560px at 108% -10%, #d1fae5 0%, transparent 60%),
+  --rp-bg:
+    radial-gradient(1100px 560px at 108% -10%, #d1fae5 0%, transparent 60%),
     radial-gradient(900px 480px at -8% 2%, #ccfbf1 0%, transparent 55%), #f3fbf7;
 }
 body.rp-ocean {
   --rp-accent: #0ea5e9;
   --rp-accent-2: #6366f1;
-  --rp-bg: radial-gradient(1100px 560px at 110% -12%, #e0f2fe 0%, transparent 60%),
+  --rp-bg:
+    radial-gradient(1100px 560px at 110% -12%, #e0f2fe 0%, transparent 60%),
     radial-gradient(900px 480px at -8% 2%, #e0e7ff 0%, transparent 55%), #f2f8fd;
 }
 body.rp-sunset {
   --rp-accent: #f97316;
   --rp-accent-2: #ec4899;
-  --rp-bg: radial-gradient(1100px 560px at 110% -12%, #ffedd5 0%, transparent 58%),
+  --rp-bg:
+    radial-gradient(1100px 560px at 110% -12%, #ffedd5 0%, transparent 58%),
     radial-gradient(900px 520px at -6% 4%, #fce7f3 0%, transparent 55%), #fff8f4;
 }
 body.rp-grape {
   --rp-accent: #a855f7;
   --rp-accent-2: #d946ef;
-  --rp-bg: radial-gradient(1100px 560px at 110% -12%, #f3e8ff 0%, transparent 60%),
+  --rp-bg:
+    radial-gradient(1100px 560px at 110% -12%, #f3e8ff 0%, transparent 60%),
     radial-gradient(900px 480px at -8% 2%, #fae8ff 0%, transparent 55%), #fbf6ff;
 }
 body.rp-mono {
@@ -701,7 +709,8 @@ body.rp-midnight {
   --rp-stripe: #131a2e;
   --rp-callout-bg: linear-gradient(90deg, #1e2747, #161d33 80%);
   --rp-callout-ink: #c7d2fe;
-  --rp-bg: radial-gradient(1200px 620px at 100% -10%, #1e2a52 0%, transparent 58%),
+  --rp-bg:
+    radial-gradient(1200px 620px at 100% -10%, #1e2a52 0%, transparent 58%),
     radial-gradient(1000px 520px at -10% 0%, #2a1e46 0%, transparent 55%), #0b1020;
 }
 body.rp-ink {
@@ -738,7 +747,8 @@ body.rp-pat-dots::before {
   opacity: 0.08;
 }
 body.rp-pat-grid::before {
-  background-image: linear-gradient(var(--rp-border) 1px, transparent 1px),
+  background-image:
+    linear-gradient(var(--rp-border) 1px, transparent 1px),
     linear-gradient(90deg, var(--rp-border) 1px, transparent 1px);
   background-size: 28px 28px;
   opacity: 0.5;

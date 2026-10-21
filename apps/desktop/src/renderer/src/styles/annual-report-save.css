@@ -21,7 +21,7 @@
   color: var(--rp-ink-muted);
 }
 
-html[data-theme="dark"] .weq-end-take-row .weq-save-options {
+html[data-theme='dark'] .weq-end-take-row .weq-save-options {
   background: transparent;
   border-color: var(--rp-hair);
   color: var(--rp-ink-muted);
@@ -55,10 +55,28 @@ html[data-theme="dark"] .weq-end-take-row .weq-save-options {
 }
 
 @media (max-height: 640px) {
-  .weq-end-title { font-size: 48px; }
-  .weq-end-line { font-size: 14px; letter-spacing: 0; }
-  .weq-end-sub { margin-top: 16px; font-size: 14px; line-height: 1.7; }
-  .weq-end-take { margin-top: 16px; padding-top: 12px; gap: 10px; }
-  .weq-end-take-row { gap: 10px 16px; }
-  .weq-end-take-btn { padding: 6px 4px; gap: 4px; }
+  .weq-end-title {
+    font-size: 48px;
+  }
+  .weq-end-line {
+    font-size: 14px;
+    letter-spacing: 0;
+  }
+  .weq-end-sub {
+    margin-top: 16px;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .weq-end-take {
+    margin-top: 16px;
+    padding-top: 12px;
+    gap: 10px;
+  }
+  .weq-end-take-row {
+    gap: 10px 16px;
+  }
+  .weq-end-take-btn {
+    padding: 6px 4px;
+    gap: 4px;
+  }
 }
