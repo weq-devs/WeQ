@@ -319,12 +319,13 @@ describe('群管理 / 群文件 / 群待办', () => {
       GroupTodo.serialize({ groupId: 100, msgSeq: 18446744073709551616n, action: 'set' }),
     ).toThrow('uint64');
   });
-  it('群待办保留服务端的完成状态', async () => {
+  it('群待办完成后即使横幅已消失，仍保留服务端的完成状态', async () => {
     const response = encode(GetGroupTodoList.respSchema, {
       banners: [
         {
           msgId: new TextEncoder().encode('12_34'),
           todoBanner: { text: '事项', isComplete: true },
+          isDisappear: true,
         },
       ],
     });

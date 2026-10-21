@@ -1,0 +1,4 @@
+.composer-editor img.composer-inline-attachment,
+.composer-editor img.composer-sticker-token {
+  cursor: zoom-in;
+}
