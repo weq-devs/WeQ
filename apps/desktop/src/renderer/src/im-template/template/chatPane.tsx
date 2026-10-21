@@ -355,6 +355,25 @@ function isMobileComposerViewport() {
   return window.matchMedia('(max-width: 760px)').matches;
 }
 
+/**
+ * 键盘抬起后还需要重扫一次 @ 触发词的按键。
+ *
+ * 会改内容的按键（字母 / 数字 / 退格 / 回车……）已经由 `onInput` 里的
+ * `syncComposerBody` 扫过了，再扫一遍等于每个字符做两轮「光标前内容序列化 +
+ * 全群成员匹配 + 可能的远端搜索」。只有**不动内容、只挪光标**的按键需要在这里补：
+ * 否则光标从 `@abc` 后面移开时，mention 菜单会停在原位。
+ */
+const MENTION_RESCAN_KEYS = new Set([
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'ArrowDown',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+]);
+
 /** 禁言时长（秒）→ 中文档位名，用于 toast 回显。 */
 const MUTE_DURATION_LABELS: Record<number, string> = {
   [10 * 60]: '10 分钟',
@@ -2766,6 +2785,21 @@ export function ChatPane({
     }
   }
 
+  /**
+   * 光标移动后补扫 @ 触发词（清掉 / 挪动已经失效的菜单）。
+   *
+   * 内容变化的按键不用走这里 —— `onInput` 的 `syncComposerBody` 已经扫过一遍。
+   * 但「只挪光标」的按键不产生 input 事件，菜单会滞留在原处，所以单独补一次。
+   */
+  function rescanMentionOnKeyUp(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.nativeEvent.isComposing) return;
+    if (!MENTION_RESCAN_KEYS.has(event.key)) return;
+    // 用事件源而不是 currentComposerEditor()：桌面的窄输入框与移动端展开态是两个
+    // 编辑器，按「当前该用哪个」去猜会在切换瞬间扫错对象。
+    saveComposerSelection(event.currentTarget);
+    updateMentionMenu(event.currentTarget);
+  }
+
   function handleComposerKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.nativeEvent.isComposing || event.key === 'Process') {
       return;
@@ -3334,6 +3368,12 @@ export function ChatPane({
 
   function scheduleMobileComposerMeasure(editor = composerEditorRef.current) {
     if (!editor) {
+      return;
+    }
+    // 这套「最多 4 行自动增高」只有小屏在用（高度由 --mobile-composer-editor-height
+    // 驱动）。桌面端的输入框高度是固定的 --composer-height，量了也不会被消费 ——
+    // 之前每敲一个字都白跑一次 cloneNode + 强制 reflow，是输入卡顿的主要来源。
+    if (!isMobileComposerViewport()) {
       return;
     }
 
@@ -4972,10 +5012,7 @@ export function ChatPane({
           suppressContentEditableWarning
           onInput={() => syncComposerBody(composerEditorRef.current)}
           onKeyDown={handleComposerKeyDown}
-          onKeyUp={() => {
-            saveComposerSelection(composerEditorRef.current);
-            updateMentionMenu(composerEditorRef.current);
-          }}
+          onKeyUp={rescanMentionOnKeyUp}
           onMouseUp={() => {
             saveComposerSelection(composerEditorRef.current);
             updateMentionMenu(composerEditorRef.current);
@@ -5036,10 +5073,7 @@ export function ChatPane({
               suppressContentEditableWarning
               onInput={() => syncComposerBody(expandedComposerEditorRef.current)}
               onKeyDown={handleComposerKeyDown}
-              onKeyUp={() => {
-                saveComposerSelection(expandedComposerEditorRef.current);
-                updateMentionMenu(expandedComposerEditorRef.current);
-              }}
+              onKeyUp={rescanMentionOnKeyUp}
               onMouseUp={() => {
                 saveComposerSelection(expandedComposerEditorRef.current);
                 updateMentionMenu(expandedComposerEditorRef.current);
