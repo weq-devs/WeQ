@@ -19,6 +19,9 @@ import {
 } from '../src/renderer/src/components/mergeForward/workspaceModel';
 import {
   coerceDraft,
+  blankSeg,
+  MAX_COMPOSITION_DEPTH,
+  type MfSeg,
   draftToSendNodes,
   type MfDraft,
 } from '../src/renderer/src/components/mergeForward/model';
@@ -177,6 +180,170 @@ function button(host: ParentNode, name: string) {
 }
 
 describe('合成工作窗口', () => {
+  it('正常分段和媒体引用保留，循环及超深嵌套在进入预览前拒绝', () => {
+    const kinds = [
+      'text',
+      'at',
+      'reply',
+      'face',
+      'mface',
+      'image',
+      'record',
+      'video',
+      'file',
+      'ark',
+      'xml',
+      'markdown',
+      'emojiBounce',
+      'card',
+      'node',
+    ] as const;
+    const segs = kinds.map(blankSeg);
+    const image = segs.find((seg) => seg.t === 'image')! as Extract<MfSeg, { t: 'image' }>;
+    image.fingerprint = { md5Hex: 'a'.repeat(32), sha1Hex: 'b'.repeat(40), fileSize: 12 };
+    const decoded = coerceDraft({ ...initial, nodes: [{ ...initial.nodes[0]!, segs }] });
+    expect(decoded.nodes[0]!.segs.map((seg) => seg.t)).toEqual(kinds);
+    expect(decoded.nodes[0]!.segs.find((seg) => seg.t === 'image')).toMatchObject({
+      fingerprint: image.fingerprint,
+    });
+    const cyclic = blankSeg('node') as Extract<MfSeg, { t: 'node' }>;
+    cyclic.segs = [cyclic];
+    expect(() =>
+      coerceDraft({ ...initial, nodes: [{ ...initial.nodes[0]!, segs: [cyclic] }] }),
+    ).toThrow('循环');
+    let deep = blankSeg('text');
+    for (let i = 0; i < MAX_COMPOSITION_DEPTH; i++)
+      deep = { ...(blankSeg('node') as Extract<MfSeg, { t: 'node' }>), segs: [deep] };
+    expect(() =>
+      coerceDraft({ ...initial, nodes: [{ ...initial.nodes[0]!, segs: [deep] }] }),
+    ).toThrow('嵌套');
+  });
+  it('外来 URI 或空拖放不触发默认导航，跨窗口离开目标也不清空内容', () => {
+    const f = mount(
+      createElement(CompositionWorkspace, {
+        popup: null,
+        fallback: true,
+        onClose: vi.fn(),
+        onPopOut: vi.fn(),
+        self,
+        targets: [],
+        sendAvailable: false,
+        onForward: vi.fn(),
+        onSend: vi.fn(),
+        onOpenTarget: vi.fn(),
+        incoming: [{ id: 'existing', draft: initial }],
+      }),
+    );
+    try {
+      const editor = f.host.querySelector('.weq-composition-editor')!;
+      for (const transfer of [null, { getData: () => '', types: ['text/uri-list'] }]) {
+        const event = new Event('drop', { bubbles: true, cancelable: true });
+        Object.defineProperty(event, 'dataTransfer', { value: transfer });
+        act(() => editor.dispatchEvent(event));
+        expect(event.defaultPrevented).toBe(true);
+      }
+      act(() =>
+        editor.dispatchEvent(new MouseEvent('dragleave', { bubbles: true, relatedTarget: window })),
+      );
+      expect(f.host.querySelectorAll('.weq-mf-row')).toHaveLength(1);
+      expect(f.host.textContent).toContain('合成正文');
+    } finally {
+      f.close();
+    }
+  });
+  it('旧版 textContent 素材完整拖入和重复拖入不崩溃，保留原有内容与独立身份', async () => {
+    vi.useFakeTimers();
+    fixture.material = [
+      {
+        ...initial,
+        id: 'legacy-text',
+        nodes: [{ ...initial.nodes[0], segs: [{ t: 'text', textContent: '旧版素材文本' }] }],
+      },
+    ];
+    const original = JSON.stringify(fixture.material);
+    const f = mount(
+      createElement(CompositionWorkspace, {
+        popup: null,
+        fallback: true,
+        onClose: vi.fn(),
+        onPopOut: vi.fn(),
+        self,
+        targets: [],
+        sendAvailable: false,
+        onForward: vi.fn(),
+        onSend: vi.fn(),
+        onOpenTarget: vi.fn(),
+        incoming: [{ id: 'existing', draft: initial }],
+      }),
+    );
+    try {
+      act(() =>
+        [...f.host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+          .find((tab) => tab.textContent === '素材库')!
+          .click(),
+      );
+      for (let i = 0; i < 2; i++) {
+        const source = f.host.querySelector('.weq-composition-entry')!;
+        const target = f.host.querySelector('.weq-composition-editor')!;
+        const transfer = new DataTransfer();
+        for (const [node, type] of [
+          [source, 'dragstart'],
+          [target, 'dragover'],
+          [target, 'drop'],
+        ] as const) {
+          const event = new MouseEvent(type, { bubbles: true, cancelable: true });
+          Object.defineProperty(event, 'dataTransfer', { value: transfer });
+          act(() => node.dispatchEvent(event));
+        }
+      }
+      expect(f.host.querySelectorAll('.weq-mf-row')).toHaveLength(3);
+      expect(f.host.textContent).toContain('合成正文');
+      expect(f.host.querySelectorAll('.weq-mf-preview')[0]?.textContent).toContain('旧版素材文本');
+      await act(async () => vi.advanceTimersByTimeAsync(301));
+      expect(new Set(fixture.current[0]!.nodes.map((node) => node.id)).size).toBe(3);
+      expect(JSON.stringify(fixture.material)).toBe(original);
+    } finally {
+      f.close();
+    }
+  });
+  it('损坏的嵌套素材明确反馈且保留原记录，不清空当前合成', () => {
+    fixture.material = [
+      {
+        ...initial,
+        id: 'broken-material',
+        title: '损坏素材',
+        nodes: [{ ...initial.nodes[0], segs: [{ t: 'node', segs: 'broken' }] }],
+      },
+    ];
+    const f = mount(
+      createElement(CompositionWorkspace, {
+        popup: null,
+        fallback: true,
+        onClose: vi.fn(),
+        onPopOut: vi.fn(),
+        self,
+        targets: [],
+        sendAvailable: false,
+        onForward: vi.fn(),
+        onSend: vi.fn(),
+        onOpenTarget: vi.fn(),
+        incoming: [{ id: 'existing', draft: initial }],
+      }),
+    );
+    try {
+      act(() =>
+        [...f.host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+          .find((tab) => tab.textContent === '素材库')!
+          .click(),
+      );
+      expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('损坏');
+      expect(f.host.querySelectorAll('.weq-mf-row')).toHaveLength(1);
+      expect(f.host.textContent).toContain('合成正文');
+      expect(fixture.material).toHaveLength(1);
+    } finally {
+      f.close();
+    }
+  });
   it('消息按插入落点移动，保留身份和内容，不复制节点', () => {
     const nodes = ['a', 'b', 'c'].map((id) => ({ ...initial.nodes[0]!, id }));
     expect(moveCompositionNode(nodes, 'a', 3).map((node) => node.id)).toEqual(['b', 'c', 'a']);

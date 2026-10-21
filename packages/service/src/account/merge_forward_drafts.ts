@@ -86,9 +86,9 @@ function asNumber(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
-/** 宽松归一化一个分段 —— 只保证是对象，具体字段交给渲染层。 */
+/** 对象保持原结构；旧字符串使用文本分段的 text 字段，不能混成渲染元素的 textContent。 */
 function normalizeSeg(raw: unknown): unknown {
-  return isObject(raw) ? raw : { t: 'text', textContent: asString(raw) };
+  return isObject(raw) ? raw : { t: 'text', text: asString(raw) };
 }
 
 function asOptionalNumber(value: unknown): number | undefined {

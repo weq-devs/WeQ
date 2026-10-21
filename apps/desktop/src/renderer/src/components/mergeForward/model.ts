@@ -1852,9 +1852,101 @@ function validateSeg(seg: MfSeg): string | null {
 
 // ───────────────────────────── 草稿持久化 ─────────────────────────────
 
+export const MAX_COMPOSITION_DEPTH = 8;
+const MAX_COMPOSITION_ITEMS = 10000;
+const optionalSegmentStrings = [
+  'fileName',
+  'thumbPath',
+  'faceName',
+  'encryptKey',
+  'senderName',
+  'summary',
+  'uniseq',
+  'source',
+  'name',
+  'sendText',
+  'sourceCompositionId',
+] as const;
+
+/** 旧素材先迁移再校验；结构损坏时整项拒绝，不能让半结构进入预览或覆盖当前草稿。 */
+function coerceSegments(
+  raw: unknown,
+  depth: number,
+  path: Set<object>,
+  budget: { items: number },
+): MfSeg[] {
+  if (depth >= MAX_COMPOSITION_DEPTH)
+    throw new Error(`合成内容最多支持 ${MAX_COMPOSITION_DEPTH} 层嵌套`);
+  if (!Array.isArray(raw)) throw new Error('素材分段列表损坏');
+  return raw.flatMap<MfSeg>((value) => {
+    if (++budget.items > MAX_COMPOSITION_ITEMS) throw new Error('素材内容过多，请拆分后再插入');
+    if (typeof value === 'string') return [{ t: 'text' as const, id: mfId('seg'), text: value }];
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+      throw new Error('素材分段损坏');
+    if (path.has(value)) throw new Error('素材包含循环嵌套');
+    path.add(value);
+    try {
+      const source = value as Record<string, unknown>;
+      if (!('t' in source))
+        return coerceSegments(renderElementsToSegs([source as MfElement]), depth, path, budget);
+      if (source.t === 'opaque') {
+        if (source.sendText !== undefined && typeof source.sendText !== 'string')
+          throw new Error('素材分段字段 sendText 损坏');
+        const element = source.element as MfElement | undefined;
+        if (
+          !element ||
+          typeof element !== 'object' ||
+          typeof element.type !== 'string' ||
+          (element.data !== undefined &&
+            (!element.data || typeof element.data !== 'object' || Array.isArray(element.data)))
+        )
+          throw new Error('素材原始元素损坏');
+        return [
+          {
+            ...source,
+            t: 'opaque' as const,
+            id: typeof source.id === 'string' && source.id ? source.id : mfId('seg'),
+            element,
+          },
+        ];
+      }
+      const defaults = blankSeg(source.t as MfSegKind);
+      if (!defaults) throw new Error('素材分段类型不支持');
+      const next: Record<string, unknown> = { ...defaults, ...source };
+      if (
+        source.t === 'text' &&
+        source.text === undefined &&
+        typeof source.textContent === 'string'
+      )
+        next.text = source.textContent;
+      next.id = typeof source.id === 'string' && source.id ? source.id : defaults.id;
+      for (const [key, original] of Object.entries(defaults)) {
+        if (key === 'id' || key === 'segs') continue;
+        if (typeof original === 'string' && typeof next[key] !== 'string')
+          throw new Error(`素材分段字段 ${key} 损坏`);
+        if (
+          typeof original === 'number' &&
+          (typeof next[key] !== 'number' || !Number.isFinite(next[key]))
+        )
+          throw new Error(`素材分段字段 ${key} 损坏`);
+      }
+      for (const key of optionalSegmentStrings)
+        if (next[key] !== undefined && typeof next[key] !== 'string')
+          throw new Error(`素材分段字段 ${key} 损坏`);
+      if (source.t === 'node') {
+        next.time = source.time ?? 0;
+        next.segs = coerceSegments(next.segs, depth + 1, path, budget);
+      }
+      return [next as unknown as MfSeg];
+    } finally {
+      path.delete(value);
+    }
+  });
+}
+
 /**
- * 把服务端返回的草稿归一到前端类型。服务端已经做过归一化；这里额外把**旧版草稿**
- * （节点只有 `elements` 渲染元素、没有 `segs`）迁移成分段。
+ * 兼容旧 elements、字符串和 textContent 分段，再检查结构与递归边界。
+ * 损坏时抛错，由列表读取边界逐项反馈；不能把坏记录静默变成空记录。
  */
 export function coerceDraft(raw: {
   id: string;
@@ -1872,19 +1964,40 @@ export function coerceDraft(raw: {
     sourceCompositionId?: string;
   }>;
 }): MfDraft {
+  if (
+    !raw ||
+    !Array.isArray(raw.nodes) ||
+    typeof raw.id !== 'string' ||
+    !raw.id ||
+    typeof raw.title !== 'string' ||
+    !Number.isFinite(raw.createdAt) ||
+    !Number.isFinite(raw.updatedAt)
+  )
+    throw new Error('合成记录元信息损坏');
+  const budget = { items: 0 };
+  const path = new Set<object>();
   return {
     id: raw.id,
     title: raw.title,
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,
     nodes: raw.nodes.map((node) => {
-      const fromSegs = Array.isArray(node.segs)
-        ? node.segs.flatMap((segment) => {
-            if (segment && typeof segment === 'object' && 't' in segment) return [segment as MfSeg];
-            return renderElementsToSegs([segment as MfElement]);
-          })
-        : null;
-      const segs = fromSegs ?? renderElementsToSegs((node.elements ?? []) as MfElement[]);
+      if (++budget.items > MAX_COMPOSITION_ITEMS) throw new Error('素材内容过多，请拆分后再插入');
+      if (
+        !node?.sender ||
+        typeof node.sender.uid !== 'string' ||
+        typeof node.sender.uin !== 'string' ||
+        typeof node.sender.name !== 'string' ||
+        !Number.isFinite(node.time) ||
+        !Number.isFinite(new Date(node.time * 1000).getTime())
+      )
+        throw new Error('素材发送者或时间损坏');
+      const segs = coerceSegments(
+        node.segs ?? renderElementsToSegs((node.elements ?? []) as MfElement[]),
+        0,
+        path,
+        budget,
+      );
       return {
         id: node.id,
         sender: node.sender,

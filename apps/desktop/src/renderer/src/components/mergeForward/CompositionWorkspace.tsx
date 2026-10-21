@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Copy,
@@ -54,6 +54,7 @@ import {
   compositionRecords,
   insertCompositionEntry,
   compositionInsertionError,
+  readCompositionEntries,
   type CompositionBinding,
   type CompositionRequest,
 } from './workspaceModel';
@@ -103,6 +104,8 @@ export function CompositionWorkspace({
     if (locked && (popup || fallback)) onClose();
   }, [locked, popup, fallback, onClose]);
   const ownerDocument = popup?.document ?? document;
+  const NodeClass = ownerDocument.defaultView?.Node ?? Node;
+  const ElementClass = ownerDocument.defaultView?.Element ?? Element;
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
     enabled: visible,
     refetchOnMount: 'always',
@@ -225,12 +228,21 @@ export function CompositionWorkspace({
         setError(request.error);
         continue;
       }
-      setError('');
-      setStatus(`已添加 ${request.draft.nodes.length} 条消息`);
-      dirtyRef.current = true;
-      version.current += 1;
-      setDraft((current) => appendCompositionNodes(current, request.draft.nodes));
-      setDirty(true);
+      try {
+        const prepared = appendCompositionNodes(createEmptyDraft(), request.draft.nodes).nodes;
+        setError('');
+        setStatus(`已添加 ${prepared.length} 条消息`);
+        dirtyRef.current = true;
+        version.current += 1;
+        setDraft((current) => ({
+          ...current,
+          nodes: [...current.nodes, ...prepared],
+          updatedAt: Math.floor(Date.now() / 1000),
+        }));
+        setDirty(true);
+      } catch (cause) {
+        setError(`未添加损坏内容：${cause instanceof Error ? cause.message : String(cause)}`);
+      }
     }
     if (handled.length) onRequestsHandled?.(handled);
   }, [incoming, onRequestsHandled]);
@@ -391,14 +403,28 @@ export function CompositionWorkspace({
     setSend(null);
     setStatus('已发送');
   };
+  const decoded = useMemo(
+    () => ({
+      entries: readCompositionEntries(entries.data ?? []),
+      current: readCompositionEntries(saved.data?.current ?? []),
+      legacy: readCompositionEntries(saved.data?.legacy ?? []),
+      history: readCompositionEntries(history.data ?? []),
+    }),
+    [entries.data, saved.data, history.data],
+  );
   const records = compositionRecords(
     dirty || persisted ? [working] : [],
     recoveries,
-    (saved.data?.current ?? []).map(coerceDraft),
-    (saved.data?.legacy ?? []).map(coerceDraft),
-    (history.data ?? []).map(coerceDraft),
+    decoded.current.drafts,
+    decoded.legacy.drafts,
+    decoded.history.drafts,
   );
-  const library = kind === 'material' ? (entries.data ?? []).map(coerceDraft) : records;
+  const library = kind === 'material' ? decoded.entries.drafts : records;
+  const invalidRecords =
+    kind === 'material'
+      ? decoded.entries.rejected
+      : [...decoded.current.rejected, ...decoded.legacy.rejected, ...decoded.history.rejected];
+  const rejected = [...new Map(invalidRecords.map((record) => [record.id, record])).values()];
   const insert = (
     entry: MfDraft,
     sourceKind: ArchiveKind,
@@ -508,6 +534,11 @@ export function CompositionWorkspace({
                 role="tabpanel"
                 aria-label={kind === 'material' ? '素材库' : '合成记录'}
               >
+                {rejected.map((record) => (
+                  <p role="alert" key={record.id}>
+                    {record.title}：内容不可用，原记录已保留。{record.error}
+                  </p>
+                ))}
                 {entries.isError || (kind === 'history' && (saved.isError || history.isError)) ? (
                   <p role="alert">
                     {entries.error?.message || saved.error?.message || history.error?.message}
@@ -527,7 +558,13 @@ export function CompositionWorkspace({
                   <p role="status">加载中…</p>
                 ) : !library.length ? (
                   <p className="weq-composition-empty">
-                    {kind === 'material' ? '暂无素材' : '暂无合成记录'}
+                    {kind === 'material'
+                      ? rejected.length
+                        ? '暂无可用素材'
+                        : '暂无素材'
+                      : rejected.length
+                        ? '暂无可用合成记录'
+                        : '暂无合成记录'}
                   </p>
                 ) : (
                   library.map((entry) => {
@@ -691,6 +728,8 @@ export function CompositionWorkspace({
             <main
               className={`weq-composition-editor${dragged ? (canDrop ? ' is-drop-target' : ' is-drop-forbidden') : ''}`}
               onDragOver={(event) => {
+                event.preventDefault();
+                if (!event.dataTransfer) return;
                 if (event.dataTransfer.types.includes(COMPOSITION_DRAG_TYPE)) {
                   event.preventDefault();
                   event.dataTransfer.dropEffect = canDrop ? 'copy' : 'none';
@@ -698,9 +737,9 @@ export function CompositionWorkspace({
                     setDropAt(null);
                     return;
                   }
-                  const slot = (event.target as HTMLElement).closest<HTMLElement>(
-                    '[data-composition-index]',
-                  );
+                  const slot = (
+                    event.target instanceof ElementClass ? event.target : null
+                  )?.closest<HTMLElement>('[data-composition-index]');
                   const rect = slot?.getBoundingClientRect();
                   setDropAt(
                     slot && rect
@@ -711,14 +750,18 @@ export function CompositionWorkspace({
                 }
               }}
               onDragLeave={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+                if (
+                  !(event.relatedTarget instanceof NodeClass) ||
+                  !event.currentTarget.contains(event.relatedTarget)
+                )
                   setDropAt(null);
               }}
               onDrop={(event) => {
-                const text = event.dataTransfer.getData(COMPOSITION_DRAG_TYPE);
-                if (!text) return;
                 event.preventDefault();
+                event.stopPropagation();
                 try {
+                  const text = event.dataTransfer?.getData(COMPOSITION_DRAG_TYPE);
+                  if (!text) throw new Error('拖入内容不属于当前素材列表，未改变合成内容');
                   const data: unknown = JSON.parse(text);
                   if (
                     !data ||
@@ -730,7 +773,12 @@ export function CompositionWorkspace({
                     throw new Error('素材来源已变化');
                   if (busy) throw new Error('当前操作尚未完成');
                   const entry = library.find((item) => item.id === data.id);
-                  if (!entry) throw new Error('素材已不存在');
+                  if (!entry)
+                    throw new Error(
+                      rejected.some((record) => record.id === data.id)
+                        ? '素材内容损坏，未插入，原记录已保留'
+                        : '素材已不存在',
+                    );
                   insert(entry, kind, dropAt ?? working.nodes.length);
                 } catch (cause) {
                   setError(cause instanceof Error ? cause.message : String(cause));

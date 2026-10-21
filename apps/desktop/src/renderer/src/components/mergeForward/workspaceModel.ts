@@ -9,6 +9,8 @@ import {
   type MfNode,
   type MfSeg,
   createNode,
+  coerceDraft,
+  MAX_COMPOSITION_DEPTH,
 } from './model';
 
 export interface CompositionBinding {
@@ -22,6 +24,32 @@ export interface CompositionRequest {
   error?: string;
 }
 export const COMPOSITION_DRAG_TYPE = 'application/x-weq-composition-entry';
+
+/** 单份坏记录留在原存储并单独反馈，不让列表归一化异常卸载整个合成窗口。 */
+export function readCompositionEntries(raw: readonly unknown[]): {
+  drafts: MfDraft[];
+  rejected: { id: string; title: string; error: string }[];
+} {
+  if (!Array.isArray(raw))
+    return {
+      drafts: [],
+      rejected: [{ id: 'invalid-list', title: '记录列表', error: '素材列表损坏' }],
+    };
+  const drafts: MfDraft[] = [],
+    rejected: { id: string; title: string; error: string }[] = [];
+  for (const [index, value] of raw.entries())
+    try {
+      drafts.push(coerceDraft(value as Parameters<typeof coerceDraft>[0]));
+    } catch (cause) {
+      const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+      rejected.push({
+        id: typeof record.id === 'string' && record.id ? record.id : `invalid-${index}`,
+        title: typeof record.title === 'string' && record.title ? record.title : '损坏记录',
+        error: cause instanceof Error ? cause.message : String(cause),
+      });
+    }
+  return { drafts, rejected };
+}
 
 /** 落点是移动前的消息间隙；向后移动时扣除原节点占据的位置。 */
 export function moveCompositionNode(nodes: MfNode[], id: string, at: number): MfNode[] {
@@ -41,22 +69,30 @@ export function compositionInsertionError(
   kind: 'material' | 'history',
   flatten = false,
 ): string | null {
+  let source: MfDraft, target: MfDraft;
+  try {
+    source = coerceDraft(entry);
+    target = coerceDraft(draft);
+  } catch (cause) {
+    return cause instanceof Error ? cause.message : String(cause);
+  }
   const contains = (segments: MfSeg[]): boolean =>
     segments.some(
       (segment) =>
         segment.t === 'node' &&
-        (segment.sourceCompositionId === draft.id || contains(segment.segs)),
+        (segment.sourceCompositionId === target.id || contains(segment.segs)),
     );
   if (
-    entry.id === draft.id ||
-    entry.nodes.some((node) => node.sourceCompositionId === draft.id || contains(node.segs))
+    source.id === target.id ||
+    source.nodes.some((node) => node.sourceCompositionId === target.id || contains(node.segs))
   )
     return '不能插入自身或形成循环嵌套的记录';
-  if (!entry.nodes.length) return '记录中没有可插入的消息';
+  if (!source.nodes.length) return '记录中没有可插入的消息';
   const depth = (segments: MfSeg[]): number =>
     Math.max(0, ...segments.map((segment) => (segment.t === 'node' ? 1 + depth(segment.segs) : 0)));
   const added = kind === 'history' && !flatten ? 1 : 0;
-  if (entry.nodes.some((node) => depth(node.segs) + added >= 8)) return '合成内容最多支持 8 层嵌套';
+  if (source.nodes.some((node) => depth(node.segs) + added >= MAX_COMPOSITION_DEPTH))
+    return `合成内容最多支持 ${MAX_COMPOSITION_DEPTH} 层嵌套`;
   return null;
 }
 
@@ -110,7 +146,7 @@ export function compositionRecords(...sources: readonly (readonly MfDraft[])[]):
 }
 
 export function appendCompositionNodes(draft: MfDraft, nodes: readonly MfNode[]): MfDraft {
-  const copies = structuredClone(nodes);
+  const copies = structuredClone(coerceDraft({ ...draft, nodes: [...nodes] }).nodes);
   const identify = (segments: MfSeg[]) => {
     for (const segment of segments) {
       segment.id = mfId('seg');

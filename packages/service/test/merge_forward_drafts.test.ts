@@ -11,7 +11,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { MergeForwardDraftStore } from '../src/account/merge_forward_drafts';
+import {
+  MergeForwardDraftStore,
+  normalizeMergeForwardDraft,
+} from '../src/account/merge_forward_drafts';
 
 const tmpRoots: string[] = [];
 function tmpFile(): string {
@@ -27,6 +30,13 @@ afterEach(() => {
 const sender = { uid: 'u_self', uin: '10001', name: '我' };
 
 describe('MergeForwardDraftStore', () => {
+  it('旧字符串素材归一成真正的文本分段，不生成只有 textContent 的半结构', () => {
+    const draft = normalizeMergeForwardDraft(
+      { nodes: [{ sender, time: 1, segs: ['旧版素材'] }] },
+      'legacy',
+    );
+    expect(draft?.nodes[0]?.segs[0]).toMatchObject({ t: 'text', text: '旧版素材' });
+  });
   it('严格写入失败不回报成功，也不改变内存草稿', () => {
     const file = tmpFile();
     writeFileSync(file, 'not-a-directory');

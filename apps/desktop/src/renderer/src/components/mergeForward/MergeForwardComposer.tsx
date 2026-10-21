@@ -193,6 +193,9 @@ export function MergeForwardComposer({
   onProgress?: (draft: MfDraft | null) => void;
   dropAt?: number | null;
 }): ReactElement {
+  const ownerDocument = useRenderDocument();
+  const NodeClass = ownerDocument.defaultView?.Node ?? Node;
+  const ElementClass = ownerDocument.defaultView?.Element ?? Element;
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [pickerFor, setPickerFor] = useState<
     { kind: 'editor' } | { kind: 'node'; id: string } | null
@@ -251,7 +254,9 @@ export function MergeForwardComposer({
   }
 
   function sortSlot(event: DragEvent<HTMLDivElement>): number {
-    const slot = (event.target as HTMLElement).closest<HTMLElement>('[data-composition-index]');
+    const slot = (event.target instanceof ElementClass ? event.target : null)?.closest<HTMLElement>(
+      '[data-composition-index]',
+    );
     if (!slot || !event.currentTarget.contains(slot)) return nodes.length;
     const rect = slot.getBoundingClientRect();
     return (
@@ -345,17 +350,21 @@ export function MergeForwardComposer({
       <div
         className="weq-mf-preview"
         onDragOver={(event) => {
-          if (!dragging || editor || !event.dataTransfer.types.includes(NODE_DRAG_TYPE)) return;
+          if (!dragging || editor || !event.dataTransfer?.types.includes(NODE_DRAG_TYPE)) return;
           event.preventDefault();
           event.stopPropagation();
           event.dataTransfer.dropEffect = 'move';
           setSortAt(sortSlot(event));
         }}
         onDragLeave={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setSortAt(null);
+          if (
+            !(event.relatedTarget instanceof NodeClass) ||
+            !event.currentTarget.contains(event.relatedTarget)
+          )
+            setSortAt(null);
         }}
         onDrop={(event) => {
-          if (!dragging || editor || event.dataTransfer.getData(NODE_DRAG_TYPE) !== dragging)
+          if (!dragging || editor || event.dataTransfer?.getData(NODE_DRAG_TYPE) !== dragging)
             return;
           event.preventDefault();
           event.stopPropagation();
