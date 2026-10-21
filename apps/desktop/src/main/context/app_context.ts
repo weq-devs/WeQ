@@ -28,7 +28,7 @@ import {
   createWin32Platform,
   createLinuxPlatform,
   createDarwinPlatform,
-  isTencentFilesRoot,
+  normalizeQqDataRoot,
   withResourceRoots,
   type Platform,
 } from '@weq/platform';
@@ -1085,19 +1085,28 @@ export function initAppContext(): AppContext {
     return null;
   };
 
-  // Sanitize a legacy / malformed data-dir override on launch: a stored path
-  // that no longer exists or doesn't end in `Tencent Files` (e.g. an old build
-  // that saved `…\Tencent Files\<uin>`) is dropped so detection re-runs and the
-  // user isn't stuck with a path that silently resolves nothing.
+  // Sanitize the stored data-dir override on launch. Any folder name is fine
+  // (migrated installs often use one), so we only (a) drop a path that no
+  // longer exists so detection re-runs instead of resolving nothing, and
+  // (b) repair a legacy override saved one level too deep — an old build
+  // stored the per-account `…\<uin>` dir instead of the root.
   const storedOverride = userConfig.read().tencentFilesRootOverride ?? null;
-  if (storedOverride && (!existsSync(storedOverride) || !isTencentFilesRoot(storedOverride))) {
+  if (storedOverride && !existsSync(storedOverride)) {
     userConfig.write({ tencentFilesRootOverride: null });
-    logger.warn('cleared invalid Tencent Files override on launch', {
+    logger.warn('cleared missing QQ data dir override on launch', {
       event: 'sanitize-data-root-override',
       override: storedOverride,
-      exists: existsSync(storedOverride),
-      endsWithTencentFiles: isTencentFilesRoot(storedOverride),
     });
+  } else if (storedOverride) {
+    const normalized = normalizeQqDataRoot(storedOverride);
+    if (normalized !== storedOverride) {
+      userConfig.write({ tencentFilesRootOverride: normalized });
+      logger.warn('repaired QQ data dir override on launch', {
+        event: 'sanitize-data-root-override',
+        override: storedOverride,
+        normalized,
+      });
+    }
   }
 
   // 日志保留清理：启动时先按用户设置的保留天数清一轮旧日志，之后每 6 小时兜底一次

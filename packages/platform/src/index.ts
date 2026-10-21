@@ -23,7 +23,7 @@ export {
   findProfileInfoDb,
   findMiscDb,
   findEmojiResourceDir,
-  isTencentFilesRoot,
+  normalizeQqDataRoot,
 } from './win32';
 // Linux pure helpers — the two-location login.db list + the uid→dir hash are
 // needed by the service layer (account listing / login.db merge).

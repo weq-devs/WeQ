@@ -194,7 +194,7 @@ function isQqProcessName(name: string): boolean {
 // without depending on a Platform instance.
 export {
   candidateTencentFilesRoots,
-  isTencentFilesRoot,
+  normalizeQqDataRoot,
   pickTencentFilesRoot,
   findLoginDb,
   findNtDbDir,
