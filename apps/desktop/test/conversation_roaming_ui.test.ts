@@ -17,6 +17,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     useUtils: () => ({ account: { roamingBackfill: { list: { invalidate: vi.fn() } } } }),
     account: {
       listConversationsWithCount: { useQuery: fixture.contacts },
+      // 固定范围的真人头像要按 uid 补一次资料；日期密度用导出页日历。
+      getProfilesByUids: { useQuery: () => ({ data: [] }) },
+      exportCalendar: { useQuery: () => ({ data: [] }) },
       roamingBackfill: {
         list: { useQuery: () => ({ data: { historyVersion: 2, jobs: [], online: true } }) },
         plan: { useMutation: () => ({ mutate: fixture.plan }) },

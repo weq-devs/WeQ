@@ -1,0 +1,20 @@
+.weq-composition-time {
+  min-width: 0;
+  max-width: 100%;
+  width: 220px;
+  padding: 2px 4px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font: inherit;
+  font-size: 11px;
+}
+
+.weq-composition-time:focus-visible {
+  outline: 1px solid var(--weq-accent-effective);
+}
+
+html[data-theme='dark'] .weq-composition-time {
+  color-scheme: dark;
+}

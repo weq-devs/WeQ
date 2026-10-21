@@ -10,6 +10,30 @@ import {
   serializeComposer,
 } from '../src/renderer/src/im-template/template/composer';
 import { useDialog } from '../src/renderer/src/components/Dialog';
+import {
+  buildComposerSendPlan,
+  buildOptimisticRender,
+  type LocalMediaRef,
+} from '../src/renderer/src/im-template/template/composerSend';
+import { elementsToComposerText } from '../src/renderer/src/im-template/template/draftElements';
+
+it('重发与重新编辑的表情图保留子类型和表情摘要，不变成普通大图', () => {
+  for (const subType of [0, 1]) {
+    const body = elementsToComposerText([
+      {
+        kind: 'pic',
+        subType,
+        summary: [subType ? '[表情]' : '[图片]'],
+        width: 600,
+        height: 600,
+        localPreviewUrl: 'blob:fixture',
+      },
+    ]);
+    const rendered = buildOptimisticRender({ body, locals: [], superStickers: new Map() });
+    expect(rendered.elements[0]).toMatchObject({ type: 'pic', data: { subType } });
+    expect(rendered.body).toBe(subType ? '[表情]' : '[图片]');
+  }
+});
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
@@ -40,7 +64,7 @@ function mount() {
   let finish!: () => void;
   let fail!: (error: Error) => void;
   const onSend = vi.fn(
-    () =>
+    (_body: string, _locals?: LocalMediaRef[]) =>
       new Promise<void>((resolve, reject) => {
         finish = resolve;
         fail = reject;
@@ -88,6 +112,164 @@ function type(editor: HTMLElement, text: string) {
 }
 
 describe('输入区发送交接', () => {
+  it('连续图片发送失败后移除消息，释放遗留 Blob 资源而不是持续增长', async () => {
+    const live = new Map<string, number>();
+    let seq = 0;
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => {
+      const url = `blob:memory-${++seq}`;
+      live.set(url, (blob as Blob).size);
+      return url;
+    });
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation((url) => {
+      live.delete(url);
+    });
+    vi.stubGlobal(
+      'Image',
+      class {
+        naturalWidth = 1;
+        naturalHeight = 1;
+        onload: (() => void) | null = null;
+        set src(_value: string) {
+          queueMicrotask(() => this.onload?.());
+        }
+      },
+    );
+    const f = mount();
+    try {
+      type(f.editor(), '');
+      for (let i = 0; i < 8; i++) {
+        const file = new File([new Uint8Array(256 * 1024)], `memory-${i}.png`, {
+          type: 'image/png',
+        });
+        const input = f.host.querySelector<HTMLInputElement>(
+          'input[type="file"][accept="image/*"]',
+        )!;
+        await act(async () => {
+          Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        await act(async () => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+        await act(async () => f.fail());
+        f.render({ messages: [] });
+      }
+      expect([...live.values()].reduce((sum, bytes) => sum + bytes, 0)).toBe(0);
+    } finally {
+      f.close();
+    }
+  });
+  it('撤回的图文消息恢复图片资源和前后顺序，可再次生成图片发送计划', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))),
+    );
+    const f = mount();
+    try {
+      type(f.editor(), '');
+      f.render({
+        messages: [
+          {
+            id: 'recalled-picture',
+            conversationId: f.props.conversation.id,
+            senderId: f.props.user.id,
+            body: '显示摘要',
+            createdAt: '2026-10-21T01:00:00Z',
+            recall: { revokeUid: f.props.user.id, sameSender: true, recallTs: 1 },
+            qqElements: [
+              { type: 'text', data: { textContent: '前文' } },
+              {
+                type: 'pic',
+                data: {
+                  fileName: 'original.gif',
+                  localPath: '/fixture/nt_data/Pic/original.gif',
+                  subType: 1,
+                },
+              },
+              { type: 'text', data: { textContent: '后文' } },
+            ],
+          },
+        ],
+      });
+      const marker = f.host.querySelector<HTMLButtonElement>('button.weq-msg-reedit-trigger')!;
+      act(() => marker.click());
+      await act(async () => marker.click());
+      await act(async () => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+      const [body, locals] = f.onSend.mock.calls[0]! as unknown as [
+        string,
+        import('../src/renderer/src/im-template/template/composerSend').LocalMediaRef[],
+      ];
+      expect(buildComposerSendPlan({ body, locals, superStickers: new Map() })).toEqual({
+        kind: 'elements',
+        elements: [
+          { kind: 'text', textContent: '前文' },
+          {
+            kind: 'image',
+            source: new Uint8Array([1, 2, 3]),
+            fileName: 'original.gif',
+            subType: 1,
+          },
+          { kind: 'text', textContent: '后文' },
+        ],
+      });
+      await act(async () => f.finish());
+    } finally {
+      f.close();
+    }
+  });
+
+  it('图片准备中切换会话或输入新稿，不覆盖；资源不可用时保留原稿', async () => {
+    const f = mount();
+    let resolve!: (response: Response) => void;
+    const fetcher = vi.fn(
+      () =>
+        new Promise<Response>((done) => {
+          resolve = done;
+        }),
+    );
+    vi.stubGlobal('fetch', fetcher);
+    const message = {
+      id: 'pending-picture',
+      conversationId: f.props.conversation.id,
+      senderId: f.props.user.id,
+      body: '',
+      createdAt: '2026-10-21T01:00:00Z',
+      recall: { revokeUid: f.props.user.id, sameSender: true, recallTs: 1 },
+      qqElements: [{ type: 'pic', data: { fileName: 'fixture.png' } }],
+    };
+    try {
+      type(f.editor(), '');
+      f.render({ messages: [message] });
+      const marker = f.host.querySelector<HTMLButtonElement>('button.weq-msg-reedit-trigger')!;
+      act(() => marker.click());
+      act(() => marker.click());
+      type(f.editor(), '新写的草稿');
+      await act(async () => resolve(new Response(new Uint8Array([1]))));
+      expect(serializeComposer(f.editor())).toBe('新写的草稿');
+      type(f.editor(), '');
+      act(() => marker.click());
+      f.render({
+        conversation: { ...f.props.conversation, id: 'another-conversation' },
+        draft: '别的会话',
+        messages: [],
+      });
+      await act(async () => resolve(new Response(new Uint8Array([1]))));
+      expect(serializeComposer(f.editor())).toBe('别的会话');
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response(null, { status: 404 })),
+      );
+      f.render({ messages: [message], draft: '' });
+      type(f.editor(), '');
+      const failedMarker = f.host.querySelector<HTMLButtonElement>(
+        'button.weq-msg-reedit-trigger',
+      )!;
+      act(() => failedMarker.click());
+      await act(async () => failedMarker.click());
+      expect(serializeComposer(f.editor())).toBe('');
+      expect(f.onSend).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
   it('失败占位提供独立移除入口，不重发也不覆盖输入草稿', async () => {
     const f = mount();
     const remove = vi.fn();
@@ -190,7 +372,7 @@ describe('输入区发送交接', () => {
       }
     },
   );
-  it('多选可移除失败占位，混入发送成功条目时阻止整批误删', async () => {
+  it('混合多选删除先确认，仅移除支持的失败占位，保留发送成功条目', async () => {
     const f = mount();
     const remove = vi.fn();
     const base = {
@@ -228,17 +410,34 @@ describe('输入区发送交接', () => {
       act(() =>
         f.host.querySelector<HTMLElement>('[data-message-id="optimistic-confirmed"]')!.click(),
       );
-      expect(deletion().disabled).toBe(true);
+      expect(deletion().disabled).toBe(false);
       act(() => deletion().click());
       expect(remove).not.toHaveBeenCalled();
-      act(() =>
-        f.host.querySelector<HTMLElement>('[data-message-id="optimistic-confirmed"]')!.click(),
-      );
-      await act(async () => deletion().click());
+      const confirmation = () => document.querySelector<HTMLElement>('.weq-message-batch-dialog')!;
+      const confirmButton = (label: string) =>
+        [...confirmation().querySelectorAll('button')].find(
+          (button) => button.textContent === label,
+        )!;
+      expect(confirmation().textContent).toContain('1 条消息不支持删除，2 条可以继续');
+      act(() => confirmButton('取消').click());
+      expect(remove).not.toHaveBeenCalled();
+      expect(confirmation()).toBeNull();
+      act(() => deletion().click());
+      expect(remove).not.toHaveBeenCalled();
+      await act(async () => confirmButton('仅删除支持的 2 条').click());
       expect(remove.mock.calls.map(([message]) => message.id)).toEqual([
         'optimistic-one',
         'optimistic-two',
       ]);
+      expect(f.host.querySelectorAll('.message-line.is-selected')).toHaveLength(1);
+      expect(
+        f.host.querySelector('.message-line.is-selected')?.getAttribute('data-message-id'),
+      ).toBe('optimistic-confirmed');
+      act(() => deletion().click());
+      expect(confirmation().textContent).toContain('1 条消息不支持删除，0 条可以继续');
+      expect(confirmButton('仅删除支持的 0 条').disabled).toBe(true);
+      act(() => confirmButton('仅删除支持的 0 条').click());
+      expect(remove).toHaveBeenCalledTimes(2);
       expect(f.onSend).not.toHaveBeenCalled();
     } finally {
       f.close();
@@ -398,9 +597,25 @@ describe('输入区发送交接', () => {
       const marker = f.host.querySelector<HTMLButtonElement>('button.weq-msg-reedit-trigger')!;
       act(() => marker.click());
       await act(async () => marker.click());
-      expect(serializeComposer(f.editor())).toBe(draft);
+      const restored = serializeComposer(f.editor());
+      const { composerTextToElements } = await import(
+        '../src/renderer/src/im-template/template/draftElements'
+      );
+      const restoredElements = composerTextToElements(restored) as Array<Record<string, unknown>>;
+      expect(restoredElements[0]).toEqual({
+        kind: 'at',
+        atTargetUid: 'u_exact',
+        textContent: '@准确身份',
+      });
+      expect(restoredElements[1]?.localPreviewUrl).toMatch(/^blob:/);
+      expect(restoredElements[1]?.localPreviewUrl).not.toBe('blob:fixture-image');
       await act(async () => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
-      expect(f.onSend).toHaveBeenCalledWith(draft, locals);
+      const sentLocals = f.onSend.mock
+        .calls[0]?.[1] as unknown as import('../src/renderer/src/im-template/template/composerSend').LocalMediaRef[];
+      expect(f.onSend.mock.calls[0]?.[0]).toBe(restored);
+      expect(sentLocals[0]?.key).toBe(restoredElements[1]?.localPreviewUrl);
+      expect(sentLocals[0]?.bytes).toEqual(locals[0]!.bytes);
+      expect(locals[0]!.key).toBe('blob:fixture-image');
       await act(async () => f.finish());
     } finally {
       f.close();

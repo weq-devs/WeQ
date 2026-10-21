@@ -21,6 +21,7 @@ function fixture() {
     const add = sql.prepare(
       `INSERT INTO ${table} ("40001","40003","40020","40021","40027","40033","40050") VALUES(?,?,?,?,?,?,?)`,
     );
+    sql.exec(`ALTER TABLE ${table} ADD COLUMN "40013" INTEGER DEFAULT 0`);
     // 私聊专用：带 40002（random）/ 40005（client sequence）的行，用来钉住列映射
     // 不错位 —— SELECT_COLUMNS 是按位置索引的，新列只能追加在末尾。
     const addIds = sql.prepare(
@@ -39,10 +40,25 @@ function fixture() {
     add.run(7, 0, 'u_alice', 'u_peer', '777', 123, null);
   }
   return {
+    sql,
     group: new GroupMsgDb(createSqliteStub(), { dbPath: path }),
     c2c: new C2cMsgDb(createSqliteStub(), { dbPath: path }),
   };
 }
+it('占位发送者（40020 写成群号）不进任何发言人统计', async () => {
+  const { group, sql } = fixture();
+  // QQ 删除/撤回留下的是占位行：40020 直接写成群号，40033 = 0，40800 为空。
+  // 这类行不是人，任何「谁发过言」的聚合都不能把它算成发言人。
+  sql.exec(
+    `INSERT INTO group_msg_table ("40001","40003","40020","40027","40033","40050") VALUES (20,13,'777','777',0,NULL)`,
+  );
+  const identities = await group.listSenderIdentities('777');
+  expect(identities.some((row) => row.uid === '777')).toBe(false);
+  expect(identities).toHaveLength(2);
+  expect(await group.countBySenders('777')).toEqual({ u_alice: 5, u_bob: 1 });
+  const timeline = await group.browseSenderTimeline('777', {}, undefined, 100);
+  expect(timeline.some((row) => row.uid === '777')).toBe(false);
+});
 it('calendar groups by Beijing date and never leaks another conversation', async () => {
   const { group, c2c } = fixture();
   expect(await group.calendar('777')).toEqual([
@@ -142,6 +158,7 @@ it('私聊行把 40005 映射成 clientSeq，且不挤动 40002/40801 的位置'
   expect(withIds?.clientSeq).toBe(6851n);
   expect(withIds?.msgRandom).toBe(424242n);
   expect(withIds?.decoration).toBeUndefined();
+  expect(withIds?.sendType).toBe(0n);
   // 没有该列的老行不受影响：clientSeq 缺席（0n）而不是填到别人的值。
   expect(rows.find((row) => row.msgId === 9n)?.clientSeq).toBe(0n);
 });

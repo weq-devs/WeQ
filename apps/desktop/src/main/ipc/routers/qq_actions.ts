@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { open } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { open, writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { z } from 'zod';
-import { parseCustomFaceId, type GroupRequest } from '@weq/protocol';
+import { parseCustomFaceId, PROFILE_LIKE_MAX_PER_REQUEST, type GroupRequest } from '@weq/protocol';
 import { isIncomingPendingBuddyRequest } from '@weq/service/buddy-request';
+import {
+  exportOnlineFavoriteEmojiBundle,
+  FAVORITE_EMOJI_MAX_ARCHIVE_BYTES,
+  FAVORITE_EMOJI_MAX_ITEMS,
+} from '@weq/service';
 import {
   parseGroupShareLocation,
   resolveGroupShareAuthKey,
@@ -12,6 +17,7 @@ import {
 import type { AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import type { QQWriteBinding } from './qq_write';
+import { exportSavePolicyInput } from './export_save';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),
@@ -48,6 +54,9 @@ export type QQActionServices = Pick<
   | 'fileResource'
   | 'onlineStatus'
   | 'messageSend'
+  | 'peerStats'
+  | 'exportManager'
+  | 'favoriteEmojiImport'
 >;
 
 /** 不读任意渲染进程路径，只接受账号媒体或用户通过本应用选中的文件。 */
@@ -55,15 +64,20 @@ async function image(
   services: QQActionServices,
   path: string,
   current: () => void,
-): Promise<Uint8Array> {
+  maxBytes = 20 * 1024 * 1024,
+): Promise<Buffer> {
   const safe = await services.fileResource.resolveLocalFile(path);
   current();
   if (!safe) throw new Error('图片未授权，请重新选择文件');
   const handle = await open(safe, 'r');
   try {
     const info = await handle.stat();
-    if (!info.isFile() || info.size < 1 || info.size > 20 * 1024 * 1024)
-      throw new Error('请选择 20 MB 以内的图片');
+    if (!info.isFile() || info.size < 1 || info.size > maxBytes)
+      throw new Error(
+        maxBytes === FAVORITE_EMOJI_MAX_ARCHIVE_BYTES
+          ? '收藏包体积超限或为空'
+          : '请选择 20 MB 以内的图片',
+      );
     const buffer = Buffer.alloc(info.size + 1);
     let filled = 0;
     while (filled < buffer.length) {
@@ -83,6 +97,7 @@ async function image(
 export function createQQActionsRouter(
   resolve: (input: QQWriteBinding) => QQActionServices,
   resolveShare = resolveGroupShareAuthKey,
+  resolveStatus = resolve,
 ) {
   const busy = new WeakSet<QQActionServices>();
   const pending = new WeakMap<
@@ -137,6 +152,18 @@ export function createQQActionsRouter(
     if (!permissions.canManage) throw new Error('此操作需要群主或管理员权限');
   }
   return router({
+    profileLike: procedure
+      .input(
+        binding.extend({ uid, count: z.number().int().min(1).max(PROFILE_LIKE_MAX_PER_REQUEST) }),
+      )
+      .mutation(async ({ input: i }) => {
+        let state: 'accepted' | 'unconfirmed' = 'unconfirmed';
+        await write(i, async (s) => {
+          if (s.accountWrite.selfIdentity().uid === i.uid) throw new Error('不能给自己点赞');
+          state = await s.peerStats.sendLike(i.uid, i.count);
+        });
+        return { state };
+      }),
     atAllMention: procedure.input(group).query(({ input: i }) =>
       read(i, async (s) => {
         const permissions = await groupPermissions(s, i.groupId);
@@ -174,6 +201,8 @@ export function createQQActionsRouter(
           const info = await s.groupInfo.getJoinInfo(groupId).catch(() => ({
             groupId,
             name: '',
+            categoryId: null,
+            categoryName: null,
             option: null,
             question: null,
             questionState: 'unavailable' as const,
@@ -449,6 +478,98 @@ export function createQQActionsRouter(
         }));
       }),
     ),
+    favoriteImportPreview: procedure
+      .input(binding.extend({ path: z.string().min(1).max(8192) }))
+      .mutation(({ input: i }) =>
+        read(i, async (s) => {
+          const pid = s.accountConfig.getRecord()?.qqPid;
+          const current = () => {
+            if (resolve(i) !== s || s.accountConfig.getRecord()?.qqPid !== pid)
+              throw new Error('账号或 QQ 运行时已改变，请重新选择收藏包');
+          };
+          return s.favoriteEmojiImport.prepare(
+            () => image(s, i.path, current, FAVORITE_EMOJI_MAX_ARCHIVE_BYTES),
+            current,
+          );
+        }),
+      ),
+    favoriteImportState: procedure
+      .input(binding)
+      .query(({ input: i }) => resolveStatus(i).favoriteEmojiImport.read()),
+    favoriteImportStart: procedure
+      .input(
+        binding.extend({
+          token: z.string().uuid(),
+          keys: z.array(z.string().min(1).max(64)).min(1).max(FAVORITE_EMOJI_MAX_ITEMS),
+        }),
+      )
+      .mutation(({ input: i }) => {
+        const s = resolve(i);
+        if (busy.has(s)) throw new Error('请等待当前 QQ 操作完成');
+        return s.favoriteEmojiImport.start(i.token, i.keys, async (run) => {
+          busy.add(s);
+          try {
+            return await run();
+          } finally {
+            busy.delete(s);
+          }
+        });
+      }),
+    favoriteImportCancel: procedure
+      .input(binding.extend({ token: z.string().uuid() }))
+      .mutation(({ input: i }) => resolveStatus(i).favoriteEmojiImport.cancel(i.token)),
+    favoriteImportDiscard: procedure
+      .input(binding.extend({ token: z.string().uuid() }))
+      .mutation(async ({ input: i }) => {
+        await resolveStatus(i).favoriteEmojiImport.discard(i.token);
+        return { discarded: true };
+      }),
+    favoriteExport: procedure
+      .input(binding.extend({ savePolicy: exportSavePolicyInput }))
+      .mutation(({ input: i }) =>
+        read(i, async (s) => {
+          const pid = s.accountConfig.getRecord()?.qqPid;
+          const current = () => {
+            if (resolve(i) !== s || s.accountConfig.getRecord()?.qqPid !== pid)
+              throw new Error('账号或 QQ 运行时已改变，请重新导出');
+          };
+          if (i.savePolicy.mode !== 'after' && !i.savePolicy.directory && !i.savePolicy.filePath)
+            throw new Error('请先选择收藏包保存位置');
+          return s.exportManager.startResourceExport({
+            kind: 'favorite-emoji',
+            name: '收藏表情',
+            output: { kind: 'file', name: '收藏表情', extension: 'zip' },
+            savePolicy: i.savePolicy,
+            run: async ({ directory, signal, progress }) => {
+              const result = await exportOnlineFavoriteEmojiBundle(s.emoji, {
+                current,
+                signal,
+                progress,
+                readLocal: (path) => image(s, path, current),
+              });
+              current();
+              signal.throwIfAborted();
+              const fileName = 'favorite-emoji.zip';
+              await writeFile(join(directory, fileName), result.archive, { flag: 'wx', signal });
+              current();
+              return {
+                fileName,
+                total: 1,
+                ok: 1,
+                failed: [],
+                contents: {
+                  total: result.total,
+                  ok: result.written,
+                  failed: result.failed.map((item) => ({
+                    fileName: `${item.position}. ${item.description || '未命名表情'}`,
+                    error: item.error,
+                  })),
+                },
+              };
+            },
+          });
+        }),
+      ),
     favorite: procedure
       .input(
         binding.extend({
@@ -456,7 +577,7 @@ export function createQQActionsRouter(
           emojiId: id.optional(),
           path: id.optional(),
           desc: z.string().max(256).optional(),
-          position: z.number().int().min(1).max(10000).optional(),
+          position: z.literal(1).optional(),
         }),
       )
       .mutation(({ input: i }) =>
@@ -567,6 +688,19 @@ export function createQQActionsRouter(
           return s.groupNotify.handleOnlineRequest(entry.request, i.approve, i.reason);
         }),
       ),
+    todoLocalList: procedure.input(group).query(async ({ input: i }) => {
+      const services = resolveStatus(i);
+      const rows = await services.groupInfo.getGroupTodos(BigInt(i.groupId));
+      if (resolveStatus(i) !== services) throw new Error('账号已切换，请刷新');
+      return rows.map((todo) => ({
+        sequence: todo.msgSeq.toString(),
+        sourceId: `${todo.msgSeq}_${todo.msgRandom}`,
+        text: todo.text,
+        createdAt: todo.createTime,
+        updatedAt: todo.updateTime,
+        completed: false,
+      }));
+    }),
     todoList: procedure
       .input(group)
       .query(({ input: i }) => read(i, (s) => s.groupModeration.getTodoList(i.groupId))),
@@ -624,6 +758,10 @@ export function createQQActionsRouter(
             });
           }
           if (i.category === undefined || !i.tag) throw new Error('缺少分类和标签');
+          const info = await s.groupInfo.getJoinInfo(i.groupId);
+          current();
+          if (info.groupId !== i.groupId || info.categoryId !== i.category)
+            throw new Error('群分类未取得或已变化，请重新读取后再试');
           return i.action === 'addTag'
             ? s.groupModeration.addCategoryTag(i.category, i.tag)
             : s.groupModeration.deleteCategoryTag(i.category, i.tag);

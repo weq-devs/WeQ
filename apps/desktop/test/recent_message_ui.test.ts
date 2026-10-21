@@ -21,6 +21,7 @@ import { GapMessagesModal } from '../src/renderer/src/components/compose/GapMess
 import { MemberProfileCard } from '../src/renderer/src/components/MemberProfileCard';
 import { Modal } from '../src/renderer/src/components/Dialog';
 import { WorkspaceContent, WorkspacePages } from '../src/renderer/src/components/WorkspacePages';
+import type { Conversation } from '../src/renderer/src/im-template/template/types';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
@@ -63,6 +64,98 @@ function button(host: ParentNode, name: string) {
   return value;
 }
 describe('新增消息交互', () => {
+  it('QQ 置顶组内按消息与草稿活动排序，不按执行置顶的先后固定位置', () => {
+    const f = mount();
+    const base = createTemplateDemoData().conversations[0]!;
+    const pinned = (id: string, time: string, pinnedAt: number) => ({
+      ...base,
+      id,
+      updatedAt: time,
+      lastMessage: { id, senderId: null, body: id, createdAt: time },
+      preference: { pinned: true },
+      pinStateKnown: true,
+      pinnedAt,
+    });
+    const earlierPin = pinned('early-pin', '2026-10-21T03:00:00Z', 100);
+    const laterPin = pinned('late-pin', '2026-10-21T02:00:00Z', 200);
+    const unpinned = {
+      ...pinned('not-pinned', '2026-10-21T05:00:00Z', 300),
+      preference: { pinned: false },
+    };
+    const render = (rows: Conversation[]) =>
+      f.render(
+        h(ConversationList, {
+          conversations: rows,
+          activeConversationId: null,
+          // 已读回的 QQ 状态仍应胜过旧本地偏好。
+          preferences: { 'early-pin': { pinned: false }, 'not-pinned': { pinned: true } },
+          drafts: {},
+          onSelect: vi.fn(),
+        }),
+      );
+    const order = () =>
+      [...f.host.querySelectorAll('[data-conversation-id]')].map((row) =>
+        row.getAttribute('data-conversation-id'),
+      );
+    try {
+      render([laterPin, unpinned, earlierPin]);
+      expect(order()).toEqual(['early-pin', 'late-pin', 'not-pinned']);
+      const message = { ...laterPin, updatedAt: '2026-10-21T04:00:00Z' };
+      render([earlierPin, unpinned, message]);
+      expect(order()).toEqual(['late-pin', 'early-pin', 'not-pinned']);
+      render([
+        message,
+        { ...earlierPin, activityTime: Date.parse('2026-10-21T06:00:00Z') },
+        unpinned,
+      ]);
+      expect(order()).toEqual(['early-pin', 'late-pin', 'not-pinned']);
+      render([earlierPin, unpinned, message]);
+      expect(order()).toEqual(['late-pin', 'early-pin', 'not-pinned']);
+    } finally {
+      f.close();
+    }
+  });
+
+  it('会话活动变化即时调整行位置，草稿清除回落且置顶仍优先', () => {
+    const f = mount();
+    const base = createTemplateDemoData().conversations[0]!;
+    const a = {
+      ...base,
+      id: 'sort-a',
+      updatedAt: '2026-10-21T01:00:00Z',
+      lastMessage: { id: 'a', senderId: null, body: 'a', createdAt: '2026-10-21T01:00:00Z' },
+    };
+    const b = { ...a, id: 'sort-b', updatedAt: '2026-10-21T02:00:00Z' };
+    const render = (rows: (typeof a)[]) =>
+      f.render(
+        h(ConversationList, {
+          conversations: rows,
+          activeConversationId: null,
+          preferences: {},
+          drafts: {},
+          onSelect: vi.fn(),
+        }),
+      );
+    const order = () =>
+      [...f.host.querySelectorAll('[data-conversation-id]')].map((row) =>
+        row.getAttribute('data-conversation-id'),
+      );
+    try {
+      render([a, b]);
+      expect(order()).toEqual(['sort-b', 'sort-a']);
+      render([{ ...a, activityTime: Date.parse('2026-10-21T03:00:00Z') }, b]);
+      expect(order()).toEqual(['sort-a', 'sort-b']);
+      render([a, b]);
+      expect(order()).toEqual(['sort-b', 'sort-a']);
+      render([
+        { ...a, activityTime: Date.parse('2026-10-21T04:00:00Z') },
+        { ...b, pinnedAt: 1, preference: { pinned: true } },
+      ]);
+      expect(order()).toEqual(['sort-b', 'sort-a']);
+    } finally {
+      f.close();
+    }
+  });
   it('私聊标题复用好友名片入口，并以标题下缘定位', () => {
     const fixture = mount();
     const demo = createTemplateDemoData();
@@ -170,14 +263,16 @@ describe('新增消息交互', () => {
       fixture.render(h(View));
       const chat = fixture.host.querySelector('.chat-pane')!;
       expect(chat.classList.contains('group-info-collapsed')).toBe(true);
-      expect(chat.querySelector('.group-info-panel')).toBeNull();
+      const sidebar = chat.querySelector<HTMLElement>('.group-info-panel')!;
+      expect(sidebar.hidden).toBe(true);
       expect(localStorage.getItem('chat-template.layout.groupInfoCollapsed')).toBe('0');
       act(() =>
         fixture.host.querySelector<HTMLButtonElement>('[aria-label="关闭群文件"]')!.click(),
       );
       expect(fixture.host.querySelector('.chat-pane')).toBe(chat);
       expect(chat.classList.contains('group-info-collapsed')).toBe(false);
-      expect(chat.querySelector('.group-info-panel')).not.toBeNull();
+      expect(chat.querySelector('.group-info-panel')).toBe(sidebar);
+      expect(sidebar.hidden).toBe(false);
     } finally {
       fixture.close();
     }
@@ -339,10 +434,15 @@ describe('新增消息交互', () => {
     const fixture = mount();
     const demo = createTemplateDemoData();
     try {
-      const conversations = Array.from({ length: 150 }, (_, index) => ({
-        ...demo.conversations[0]!,
-        id: `fixture-${index}`,
-      }));
+      const conversations = Array.from({ length: 150 }, (_, index) => {
+        const createdAt = new Date(Date.UTC(2026, 9, 21, 12) - index * 1000).toISOString();
+        return {
+          ...demo.conversations[0]!,
+          id: `fixture-${index}`,
+          updatedAt: createdAt,
+          lastMessage: { id: `preview-${index}`, senderId: null, body: '定位夹具', createdAt },
+        };
+      });
       fixture.render(
         h(
           ConversationDirectoryContext.Provider,

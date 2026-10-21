@@ -59,6 +59,8 @@ export interface C2cMsg {
    * Optional: only the render read-paths select it (SELECT_COLUMNS).
    */
   clientSeq?: bigint;
+  /** 列 40013：本机发送／其他端同步／收到，用于设备入站判定。 */
+  sendType?: bigint;
   /** Per-message decoration (column 40801): bubble/font/widget itemIds. */
   decoration?: MsgDecoration;
 }

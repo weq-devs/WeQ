@@ -33,6 +33,7 @@ import {
   validateComposeMessage,
   COMPOSE_ELEMENT_SPECS,
   isDatalineUid,
+  compareMessageOrder,
   type ComposeKind,
   type FieldSpec,
   type MsgCacheRecord,
@@ -44,7 +45,8 @@ import { toRenderElements, type RenderElement } from './msg_view';
 import type { DeletedMsgStore } from './deleted_msgs';
 import type { AntiRecallService } from './anti_recall';
 import type { ExportSkippedRanges } from './export/message_source';
-import { matchesMessageFilter, type MessageFilter } from './message_filter';
+import { matchesMessageFilter, messageSelectionKey, type MessageFilter } from './message_filter';
+import type { GapFetchedMessage } from './gap_history';
 import { elementsToText } from './export/element_text';
 import { sourceStamp } from './export/resume';
 
@@ -573,7 +575,7 @@ export class MsgService {
    */
   async restoreMessage(msgId: bigint): Promise<boolean> {
     const rec = this.deleted?.get(msgId.toString());
-    if (!rec) return false;
+    if (!rec || rec.source === 'sent-cache') return false;
     for (const db of [
       this.session.c2cMsgs,
       this.session.datalineMsgs,
@@ -617,6 +619,39 @@ export class MsgService {
    */
   getDeletedMsgIds(kind: 'c2c' | 'group', conv: string): string[] {
     return this.deleted?.listIds(kind, conv) ?? [];
+  }
+
+  /** 已持久化的自发消息只标记本地缓存，不用客户端 random 改写 QQ 原库。 */
+  deleteCachedSentMessage(message: GapFetchedMessage): boolean {
+    if (
+      !this.deleted ||
+      !message.localSent ||
+      message.sourceFormat !== 'protocol' ||
+      !/^[1-9]\d*$/.test(message.msgSeq) ||
+      !/^-?\d+$/.test(message.msgId) ||
+      (message.kind === 'c2c' && !message.ntSeqVerified)
+    )
+      return false;
+    const messageId = messageSelectionKey({ ...message, source: 'roaming' })!;
+    this.deleted.add(this.cachedDeleteKey(message.kind, message.conv, messageId), {
+      source: 'sent-cache',
+      messageId,
+      kind: message.kind,
+      conv: message.conv,
+      deletedAt: Math.floor(Date.now() / 1000),
+    });
+    return true;
+  }
+
+  restoreCachedSentMessage(messageId: string, kind: 'c2c' | 'group', conv: string): boolean {
+    const key = this.cachedDeleteKey(kind, conv, messageId);
+    if (this.deleted?.get(key)?.source !== 'sent-cache') return false;
+    this.deleted.remove(key);
+    return true;
+  }
+
+  private cachedDeleteKey(kind: 'c2c' | 'group', conv: string, messageId: string): string {
+    return `sent-cache:${JSON.stringify([kind, conv, messageId])}`;
   }
 
   /**
@@ -693,6 +728,52 @@ export class MsgService {
     return kind === 'group'
       ? this.session.groupMsgs.boundary(conv, newest, bounds)
       : this.c2cDbFor(conv).boundary(this.c2cPartition(conv), newest, bounds);
+  }
+
+  /** 范围选择按序号分页，完整读取边界同序号记录，避免跨页漏选。 */
+  async getSelectionRangePage(
+    kind: 'c2c' | 'group',
+    conv: string,
+    start: bigint,
+    end: bigint,
+    after?: bigint,
+    limit = 200,
+  ) {
+    const cursor = after ?? start - 1n;
+    if (start <= 0n || end < start || cursor >= end)
+      return { items: [] as Array<RenderC2cMsg | RenderGroupMsg>, nextSeq: null };
+    const page: Array<C2cMsg | GroupMsg> =
+      kind === 'group'
+        ? await this.session.groupMsgs.listAfter(conv, cursor, limit)
+        : await this.c2cDbFor(conv).listAfter(this.c2cPartition(conv), cursor, limit);
+    const boundary = page.at(-1)?.msgSeq;
+    if (boundary !== undefined && boundary <= cursor) throw new Error('消息范围分页游标未前进');
+    const extra =
+      page.length >= limit && boundary !== undefined && boundary <= end
+        ? kind === 'group'
+          ? await this.session.groupMsgs.listBySeqsInPartition(conv, [boundary])
+          : await this.c2cDbFor(conv).listBySeqsInPartition(this.c2cPartition(conv), [boundary])
+        : [];
+    const rows = [
+      ...new Map(
+        [...page, ...extra]
+          .filter((row) => row.msgSeq >= start && row.msgSeq <= end)
+          .map((row) => [row.msgId, row]),
+      ).values(),
+    ].sort(compareMessageOrder);
+    await this.enrichReplyMedia(rows, kind);
+    const recalls = await this.recallMapFor(kind, conv);
+    return {
+      items: rows.map((row) =>
+        kind === 'group'
+          ? this.renderGroupWithState(row as GroupMsg, recalls)
+          : this.renderC2cWithState(row as C2cMsg, recalls),
+      ),
+      nextSeq:
+        page.length >= limit && boundary !== undefined && boundary < end
+          ? boundary.toString()
+          : null,
+    };
   }
 
   /** Private-chat page just older than `beforeSeq` (scroll-up). */

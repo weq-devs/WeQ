@@ -248,7 +248,7 @@ function resolveNativeRoot(): string {
   }
 
   // Production: Electron sets process.resourcesPath when packaged. The bundle
-  // is copied to the install root (sibling of resources/), not into resources/.
+  // is copied beside resources/ on Windows/Linux and inside Resources/ on macOS.
   const electronResources = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
   logVerbose('[resolveNativeRoot] Electron resourcesPath:', electronResources || '<not set>');
 

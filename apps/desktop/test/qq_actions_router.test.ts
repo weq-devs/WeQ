@@ -1,8 +1,22 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import type { GroupFileListing } from '@weq/service';
+import {
+  readFavoriteEmojiBundle,
+  createFavoriteEmojiBundle,
+  FavoriteEmojiImportSession,
+  type ExportTaskManager,
+  type GroupFileListing,
+} from '@weq/service';
+import {
+  PROFILE_LIKE_MAX_PER_REQUEST,
+  type GroupJoinInfo,
+  type CustomFaceDetail,
+  makeSolidPng,
+} from '@weq/protocol';
+import type { GroupTodoView } from '@weq/service';
 import { createQQActionsRouter, type QQActionServices } from '../src/main/ipc/routers/qq_actions';
 
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
@@ -28,14 +42,19 @@ function fixture() {
       ),
     },
     groupInfo: {
+      getGroupTodos: vi.fn(async (_groupCode: bigint): Promise<GroupTodoView[]> => []),
       listGroupDirectory: vi.fn(async () => [{ groupCode: '123', role: 'admin' }]),
-      getJoinInfo: vi.fn(async (_groupId: number) => ({
-        groupId: 888,
-        name: '目标群',
-        option: 5,
-        question: '为什么加入',
-        questionState: 'available' as const,
-      })),
+      getJoinInfo: vi.fn(
+        async (_groupId: number): Promise<GroupJoinInfo> => ({
+          groupId: 888,
+          name: '目标群',
+          categoryId: 2,
+          categoryName: '服务端分类',
+          option: 5,
+          question: '为什么加入',
+          questionState: 'available' as const,
+        }),
+      ),
     },
     groupModeration: {
       getAtAllRemain: vi.fn(async () => ({
@@ -68,7 +87,8 @@ function fixture() {
         '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0',
       ]),
       listFavoriteEmojis: vi.fn(async () => []),
-      fetchOnlineFavoriteDetails: vi.fn(async () => []),
+      fetchOnlineFavoriteDetails: vi.fn(async (): Promise<CustomFaceDetail[]> => []),
+      listFavEmojiRows: vi.fn(async () => []),
       addFavorite: empty(),
       deleteFavorite: empty(),
       modifyFavoriteDesc: empty(),
@@ -128,6 +148,18 @@ function fixture() {
       editableExtendedStatuses: () => [{ value: 1018, label: '学习中' }],
     },
     messageSend: { sendFile: vi.fn(async (..._args: unknown[]) => ({ ok: false })) },
+    peerStats: {
+      sendLike: vi.fn(
+        async (_uid: string, _count: number): Promise<'accepted' | 'unconfirmed'> => 'accepted',
+      ),
+    },
+    exportManager: {
+      startResourceExport: vi.fn(
+        async (_options: Parameters<ExportTaskManager['startResourceExport']>[0]) =>
+          'resource-favorite',
+      ),
+    },
+    favoriteEmojiImport: undefined as FavoriteEmojiImportSession | undefined,
   };
   const resolve = (b: typeof binding) => {
     if (
@@ -157,6 +189,209 @@ function fixture() {
   };
 }
 
+describe('收藏包导入路由', () => {
+  it('本地群待办不要求在线写入能力，转换大序号并拒绝切号后的迟到结果', async () => {
+    const f = fixture();
+    f.s.groupInfo.getGroupTodos.mockResolvedValue([
+      {
+        groupCode: '123',
+        msgSeq: 18446744073709551615n,
+        msgRandom: 42n,
+        text: '本地待办',
+        createTime: 1,
+        updateTime: 2,
+      } as GroupTodoView,
+    ]);
+    const online = vi.fn(() => {
+      throw new Error('离线');
+    });
+    const local = () => f.s as unknown as QQActionServices;
+    const caller = createQQActionsRouter(online, undefined, local).createCaller({});
+    await expect(caller.todoLocalList(group)).resolves.toEqual([
+      {
+        sequence: '18446744073709551615',
+        sourceId: '18446744073709551615_42',
+        text: '本地待办',
+        createdAt: 1,
+        updatedAt: 2,
+        completed: false,
+      },
+    ]);
+    expect(online).not.toHaveBeenCalled();
+    expect(f.s.groupInfo.getGroupTodos).toHaveBeenCalledWith(123n);
+    f.s.groupInfo.getGroupTodos.mockImplementation(async () => {
+      f.switchAccount();
+      return [];
+    });
+    await expect(f.caller.todoLocalList(group)).rejects.toThrow('切换');
+  });
+  it('收藏移动接口只接受置前，不把任意位置转成真实写入', async () => {
+    const f = fixture();
+    const emojiId = '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0';
+    await expect(
+      f.caller.favorite({ ...binding, action: 'move', emojiId, position: 2 }),
+    ).rejects.toThrow();
+    expect(f.s.emoji.moveFavorite).not.toHaveBeenCalled();
+    expect(
+      (await f.caller.favorite({ ...binding, action: 'move', emojiId, position: 1 })).state,
+    ).toBe('accepted');
+    expect(f.s.emoji.moveFavorite).toHaveBeenCalledWith(emojiId, 1, expect.any(Function));
+  });
+  it('私有预览携带令牌，离线仍可读取和清理，不触发 QQ 写入', async () => {
+    const f = fixture();
+    const bytes = Buffer.from(makeSolidPng(2, 3, [10, 20, 30]));
+    const md5 = createHash('md5').update(bytes).digest('hex');
+    const archive = await createFavoriteEmojiBundle(
+      [{ emojiId: `10001_0_0_0_${md5}_0_0`, md5, description: '备注', position: 1 }],
+      async () => bytes,
+    );
+    const manager = new FavoriteEmojiImportSession(
+      { ...f.s.emoji, addFavorite: async () => '' },
+      { trustPath: vi.fn(), untrustPath: vi.fn() },
+    );
+    f.s.favoriteEmojiImport = manager;
+    const directory = await mkdtemp(join(tmpdir(), 'weq-import-router-'));
+    const path = join(directory, 'synthetic.zip');
+    try {
+      await writeFile(path, archive.archive);
+      await expect(f.caller.favoriteImportPreview({ ...binding, path })).rejects.toThrow('未授权');
+      f.s.fileResource.resolveLocalFile.mockResolvedValue(path);
+      const view = await f.caller.favoriteImportPreview({ ...binding, path });
+      expect(view.items[0]).toMatchObject({ disposition: 'ready', description: '备注' });
+      expect(JSON.stringify(view)).not.toContain('bytes');
+      const offlineResolve = vi.fn(() => {
+        throw new Error('QQ 离线');
+      });
+      const offline = createQQActionsRouter(
+        offlineResolve,
+        undefined,
+        () => f.s as unknown as QQActionServices,
+      ).createCaller({});
+      expect((await offline.favoriteImportState(binding))?.token).toBe(view.token);
+      expect(await offline.favoriteImportDiscard({ ...binding, token: view.token })).toEqual({
+        discarded: true,
+      });
+      await expect(stat(view.items[0]!.previewPath!)).rejects.toThrow();
+      expect(offlineResolve).not.toHaveBeenCalled();
+      expect(f.s.emoji.addFavorite).not.toHaveBeenCalled();
+    } finally {
+      await manager.dispose();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('批量导入占用现有 QQ 写锁直到在途请求结束，取消不释放过早', async () => {
+    const f = fixture();
+    const bytes = Buffer.from(makeSolidPng(2, 3, [40, 50, 60]));
+    const md5 = createHash('md5').update(bytes).digest('hex');
+    const emojiId = `10001_0_0_0_${md5}_0_0`;
+    const archive = await createFavoriteEmojiBundle(
+      [{ emojiId, md5, description: '备注', position: 1 }],
+      async () => bytes,
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    f.s.emoji.fetchOnlineFavoriteIds.mockResolvedValue([]);
+    const add = vi.fn(
+      async (_bytes: Uint8Array, _log?: (message: string) => void, beforeSend?: () => void) => {
+        beforeSend?.();
+        await gate;
+        return emojiId;
+      },
+    );
+    const manager = new FavoriteEmojiImportSession(
+      { ...f.s.emoji, addFavorite: add },
+      { trustPath: vi.fn(), untrustPath: vi.fn() },
+    );
+    f.s.favoriteEmojiImport = manager;
+    try {
+      const view = await manager.prepare(archive.archive, () => {});
+      await f.caller.favoriteImportStart({
+        ...binding,
+        token: view.token,
+        keys: [view.items[0]!.key],
+      });
+      await vi.waitFor(() => expect(add).toHaveBeenCalledOnce());
+      await expect(f.caller.favorite({ ...binding, action: 'delete', emojiId })).rejects.toThrow(
+        '等待',
+      );
+      await f.caller.favoriteImportCancel({ ...binding, token: view.token });
+      await expect(f.caller.favorite({ ...binding, action: 'delete', emojiId })).rejects.toThrow(
+        '等待',
+      );
+      release();
+      await vi.waitFor(() => expect(manager.read()?.phase).toBe('finished'));
+      expect((await f.caller.favorite({ ...binding, action: 'delete', emojiId })).state).toBe(
+        'accepted',
+      );
+      expect(add).toHaveBeenCalledOnce();
+      expect(f.s.emoji.modifyFavoriteDesc).not.toHaveBeenCalled();
+    } finally {
+      release();
+      await manager.dispose();
+    }
+  });
+});
+
+describe('收藏包导出任务', () => {
+  it('保存位置未准备时不入队，稍后保存沿用单文件 ZIP 任务', async () => {
+    const f = fixture();
+    await expect(
+      f.caller.favoriteExport({ ...binding, savePolicy: { mode: 'before' } }),
+    ).rejects.toThrow('位置');
+    expect(f.s.exportManager.startResourceExport).not.toHaveBeenCalled();
+    expect(await f.caller.favoriteExport({ ...binding, savePolicy: { mode: 'after' } })).toBe(
+      'resource-favorite',
+    );
+    expect(f.s.exportManager.startResourceExport.mock.calls[0]?.[0]).toMatchObject({
+      kind: 'favorite-emoji',
+      output: { kind: 'file', extension: 'zip' },
+      savePolicy: { mode: 'after' },
+    });
+  });
+  it('缺原图仍写出可核对的包，失败数量供公共任务列表展示', async () => {
+    const f = fixture();
+    const emojiId = (await f.s.emoji.fetchOnlineFavoriteIds())[0]!;
+    f.s.emoji.fetchOnlineFavoriteDetails.mockResolvedValue([{ emojiId, desc: '合成备注' }]);
+    await f.caller.favoriteExport({ ...binding, savePolicy: { mode: 'after' } });
+    const run = f.s.exportManager.startResourceExport.mock.calls[0]![0].run;
+    const directory = await mkdtemp(join(tmpdir(), 'weq-favorite-export-'));
+    try {
+      const result = await run({
+        directory,
+        signal: new AbortController().signal,
+        progress: vi.fn(),
+      });
+      expect(result).toMatchObject({
+        total: 1,
+        ok: 1,
+        failed: [],
+        fileName: 'favorite-emoji.zip',
+        contents: { total: 1, ok: 0, failed: [{ fileName: '1. 合成备注', error: '无法读取原图' }] },
+      });
+      expect(
+        readFavoriteEmojiBundle(await readFile(join(directory, result.fileName!)))[0],
+      ).toMatchObject({ description: '合成备注', image: null });
+      expect(f.s.emoji.addFavorite).not.toHaveBeenCalled();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  it('排队后 QQ PID 改变时不再导出旧账号资源', async () => {
+    const f = fixture();
+    await f.caller.favoriteExport({ ...binding, savePolicy: { mode: 'after' } });
+    f.record.qqPid++;
+    const run = f.s.exportManager.startResourceExport.mock.calls[0]![0].run;
+    await expect(
+      run({ directory: '/unused', signal: new AbortController().signal, progress: vi.fn() }),
+    ).rejects.toThrow('运行时');
+    expect(f.s.emoji.fetchOnlineFavoriteIds).not.toHaveBeenCalled();
+    expect(f.s.emoji.addFavorite).not.toHaveBeenCalled();
+  });
+});
+
 describe('加群方式读回', () => {
   it('复用现有在线资料查询，读取方式与问题但不伪造答案', async () => {
     const f = fixture();
@@ -166,9 +401,74 @@ describe('加群方式读回', () => {
     expect(result).not.toHaveProperty('answer');
     expect(f.s.groupModeration.setAddOption).not.toHaveBeenCalled();
   });
+  it('分类标签写入前核对真实群分类，缺失、变化或读取后切源都不写入', async () => {
+    const f = fixture();
+    const input = { ...binding, groupId: 123, action: 'addTag' as const, category: 2, tag: '合成' };
+    const info = {
+      groupId: 123,
+      name: '目标群',
+      categoryId: 2,
+      categoryName: '服务端分类',
+      option: 2,
+      question: '',
+      questionState: 'not-required' as const,
+    };
+    f.s.groupInfo.getJoinInfo.mockResolvedValue(info);
+    await expect(f.caller.groupSettings(input)).resolves.toEqual({ state: 'accepted' });
+    expect(f.s.groupModeration.addCategoryTag).toHaveBeenCalledWith(2, '合成');
+    for (const snapshot of [
+      { ...info, categoryId: null },
+      { ...info, categoryId: 3 },
+      { ...info, groupId: 999 },
+    ]) {
+      f.s.groupInfo.getJoinInfo.mockResolvedValueOnce(snapshot);
+      await expect(f.caller.groupSettings(input)).rejects.toThrow('分类');
+    }
+    f.s.groupInfo.getJoinInfo.mockImplementationOnce(async () => {
+      f.switchAccount();
+      return info;
+    });
+    await expect(f.caller.groupSettings(input)).rejects.toThrow('账号已切换');
+    expect(f.s.groupModeration.addCategoryTag).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('主动操作的账号与参数边界', () => {
+  it('资料卡点赞校验 UID、次数和本人，未知回执不升级为成功', async () => {
+    const f = fixture();
+    const input = { ...binding, uid: 'u_friend', count: 1 };
+    await expect(f.caller.profileLike(input)).resolves.toEqual({ state: 'accepted' });
+    expect(f.s.peerStats.sendLike).toHaveBeenCalledWith('u_friend', 1);
+    f.s.peerStats.sendLike.mockResolvedValueOnce('unconfirmed');
+    await expect(f.caller.profileLike(input)).resolves.toEqual({ state: 'unconfirmed' });
+    for (const count of [0, -1, 1.5, PROFILE_LIKE_MAX_PER_REQUEST + 1])
+      await expect(f.caller.profileLike({ ...input, count })).rejects.toThrow();
+    await expect(f.caller.profileLike({ ...input, uid: '10002' })).rejects.toThrow();
+    await expect(f.caller.profileLike({ ...input, uid: 'u_self' })).rejects.toThrow('自己');
+    expect(f.s.peerStats.sendLike).toHaveBeenCalledTimes(2);
+    f.s.peerStats.sendLike.mockRejectedValueOnce(new Error('今日次数限制'));
+    await expect(f.caller.profileLike(input)).rejects.toThrow('今日次数限制');
+    f.switchAccount();
+    await expect(f.caller.profileLike(input)).rejects.toThrow('账号已切换');
+    expect(f.s.peerStats.sendLike).toHaveBeenCalledTimes(3);
+  });
+  it('资料卡点赞在途拒绝重复提交，不自动重试', async () => {
+    const f = fixture();
+    let finish!: (state: 'accepted') => void;
+    f.s.peerStats.sendLike.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const input = { ...binding, uid: 'u_friend', count: 1 };
+    const pending = f.caller.profileLike(input);
+    await vi.waitFor(() => expect(f.s.peerStats.sendLike).toHaveBeenCalledOnce());
+    await expect(f.caller.profileLike(input)).rejects.toThrow('等待');
+    finish('accepted');
+    await expect(pending).resolves.toEqual({ state: 'accepted' });
+    expect(f.s.peerStats.sendLike).toHaveBeenCalledOnce();
+  });
   it('普通成员可打卡，路由只用当前绑定目标，原生失败不上报受理', async () => {
     const f = fixture();
     f.s.groupInfo.listGroupDirectory.mockResolvedValue([{ groupCode: '123', role: 'member' }]);

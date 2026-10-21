@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import '../styles/hover-tooltip.css';
+import { useRenderDocument } from '../lib/renderDocument';
 
 // Half Chromium's 500 ms default; native title timing itself is not configurable.
 const HOVER_DELAY_MS = 250;
@@ -9,6 +10,8 @@ type Tooltip = { text: string; x: number; y: number };
 
 /** Delegate existing title hints, including portal dialogs, through one timed host. */
 export function HoverTooltip() {
+  const document = useRenderDocument();
+  const window = document.defaultView ?? globalThis.window;
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
   const bubble = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -18,16 +21,22 @@ export function HoverTooltip() {
     element.style.left = `${Math.max(8, Math.min(tooltip.x, window.innerWidth - bounds.width - 8))}px`;
     const below = tooltip.y + bounds.height <= window.innerHeight - 8;
     element.style.top = `${Math.max(8, below ? tooltip.y : tooltip.y - bounds.height - 28)}px`;
-  }, [tooltip]);
+  }, [tooltip, window]);
 
   useEffect(() => {
     let owner: Element | null = null;
     let text = '';
+    let originalTitle = '';
     let point = { x: 0, y: 0 };
     let timer: ReturnType<typeof setTimeout> | undefined;
     let visible = false;
     let suppliedLabel: string | null = null;
     let observer: MutationObserver;
+    const hint = (element: Element) => {
+      const title = element.getAttribute('title') ?? '';
+      const inherited = element.closest('fieldset:disabled')?.getAttribute('data-disabled-reason');
+      return inherited && title ? `${title}：${inherited}` : title;
+    };
 
     const removeDescription = (element: Element): void => {
       const ids = (element.getAttribute('aria-describedby') ?? '')
@@ -42,7 +51,7 @@ export function HoverTooltip() {
       observer.disconnect();
       if (owner) {
         // Only restore a title still suppressed by this host, not a later React update.
-        if (owner.getAttribute('title') === '') owner.setAttribute('title', text);
+        if (owner.getAttribute('title') === '') owner.setAttribute('title', originalTitle);
         removeDescription(owner);
         if (suppliedLabel !== null && owner.getAttribute('aria-label') === suppliedLabel)
           owner.removeAttribute('aria-label');
@@ -73,7 +82,7 @@ export function HoverTooltip() {
       // No tree scans: a removed hovered element only needs a connection check.
       observer.observe(document.body, { childList: true, subtree: true });
     };
-    observer = new MutationObserver((records) => {
+    observer = new window.MutationObserver((records) => {
       if (!owner) return;
       if (!owner.isConnected) {
         clear();
@@ -87,7 +96,8 @@ export function HoverTooltip() {
         clear();
         return;
       }
-      text = next;
+      originalTitle = next;
+      text = hint(owner);
       observer.disconnect();
       owner.setAttribute('title', '');
       supplyAccessibleName();
@@ -96,15 +106,20 @@ export function HoverTooltip() {
     });
     const findOwner = (target: EventTarget | null): Element | null => {
       const element =
-        target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+        target instanceof window.Element
+          ? target
+          : target instanceof window.Node
+            ? target.parentElement
+            : null;
       return element?.closest('[title]') ?? null;
     };
     const enter = (next: Element | null, x: number, y: number): void => {
       if (next && next === owner) return;
       clear();
-      const title = next?.getAttribute('title');
+      const title = next ? hint(next) : null;
       if (!next || !title?.trim()) return;
       owner = next;
+      originalTitle = next.getAttribute('title') ?? '';
       text = title;
       point = { x, y };
       supplyAccessibleName();
@@ -165,7 +180,7 @@ export function HoverTooltip() {
       window.removeEventListener('blur', clear);
       window.removeEventListener('resize', clear);
     };
-  }, []);
+  }, [document, window]);
 
   return tooltip
     ? createPortal(

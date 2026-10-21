@@ -1,5 +1,5 @@
 /**
- * Expandable toasts — bottom-right, auto-dismiss after 10s.
+ * 右下角可展开横幅，完成态停留时间由全局设置控制。
  *
  * Layout / animation / timer behavior mirror ./tmp/demo.html:
  *   - header row: tone icon + title + actions (expand when detail exists, close)
@@ -20,6 +20,12 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { create } from 'zustand';
 import {
+  DEFAULT_TOAST_DURATIONS,
+  normalizeToastDurations,
+  type ToastDurations,
+} from '@weq/service/toast-settings';
+import '../styles/toast-action.css';
+import {
   AlertTriangle,
   Check,
   ChevronDown,
@@ -27,6 +33,7 @@ import {
   CircleCheck,
   CircleX,
   Copy,
+  Loader2,
   X,
 } from 'lucide-react';
 
@@ -35,20 +42,28 @@ export type ToastTone = 'info' | 'warning' | 'error' | 'success';
 interface Toast {
   id: number;
   tone: ToastTone;
+  loading?: boolean;
   /** 标题（第一行主内容） */
   title: ReactNode;
   /** 可选的详情，传入后显示展开按钮与复制按钮 */
   detail?: ReactNode;
-  /** 自动关闭延时，0 表示常驻（默认 10 秒）。 */
+  /** 自动关闭毫秒数，0 表示常驻；成功、失败及警告遵循全局设置。 */
   ttl: number;
+  timerRevision: number;
   /** 进行中的发送任务仅提供停止按钮，避免误关进度后继续静默发送。 */
   dismissible?: boolean;
+  /** 整条横幅的主操作；关闭、展开和内部按钮仍独立操作。 */
+  action?: { label: string; run: () => void };
 }
 
 /** 就地改一条已在屏上的 toast —— 长任务用它把「进行中」推进成「成功/失败」。 */
-export type ToastPatch = Partial<Pick<Toast, 'tone' | 'title' | 'detail' | 'ttl' | 'dismissible'>>;
+export type ToastPatch = Partial<
+  Pick<Toast, 'tone' | 'loading' | 'title' | 'detail' | 'ttl' | 'dismissible' | 'action'>
+>;
 
 interface ToastStore {
+  durations: ToastDurations;
+  setDurations(durations: ToastDurations): void;
   toasts: Toast[];
   /** 正在播放退场动画的 toast id，动画结束后才真正移除 */
   leaving: number[];
@@ -56,6 +71,7 @@ interface ToastStore {
   /** 推一条 toast，返回它的 id（之后可用 `update` 就地推进状态）。 */
   push(input: {
     tone?: ToastTone;
+    loading?: boolean;
     /** 标题；兼容旧调用点的 message */
     title?: ReactNode;
     /** 旧写法的主内容，未传 title 时当作标题 */
@@ -64,13 +80,13 @@ interface ToastStore {
     detail?: ReactNode;
     ttl?: number;
     dismissible?: boolean;
+    action?: Toast['action'];
   }): number;
   /**
    * 原地更新一条 toast（不重播进场、不改变堆叠顺序）。
    *
-   * 传了新的 `ttl` 时倒计时会**重新从新 ttl 开始**（见 ToastRow 里的重置）——
-   * 于是「进行中」可以挂一个很长的 ttl 等任务跑完，落成结果时再收回正常的
-   * 十秒。id 已经不在栈里（被关掉/已过期）时静默忽略。
+   * 结束阶段按全局偏好重新计时；进行中与普通提示仍可显式指定 ttl。
+   * id 已经不在栈里（被关掉/已过期）时静默忽略。
    */
   update(id: number, patch: ToastPatch): void;
   /** 触发退场动画（自动过期 / 点击关闭） */
@@ -79,11 +95,44 @@ interface ToastStore {
   remove(id: number): void;
 }
 
+function toastTtl(
+  toast: Pick<Toast, 'tone' | 'loading' | 'dismissible'> & { ttl?: number },
+  durations: ToastDurations,
+): number {
+  if (toast.loading || toast.dismissible === false) return toast.ttl ?? 0;
+  const seconds =
+    toast.tone === 'success'
+      ? durations.successSeconds
+      : toast.tone === 'error' || toast.tone === 'warning'
+        ? durations.failureSeconds
+        : null;
+  return seconds === null ? (toast.ttl ?? 10000) : seconds === -1 ? 0 : seconds * 1000;
+}
+
 export const useToast = create<ToastStore>((set, get) => ({
+  durations: { ...DEFAULT_TOAST_DURATIONS },
+  setDurations(input) {
+    const durations = normalizeToastDurations(input);
+    const before = get().durations;
+    if (
+      before.successSeconds === durations.successSeconds &&
+      before.failureSeconds === durations.failureSeconds
+    )
+      return;
+    set({
+      durations,
+      toasts: get().toasts.map((toast) => {
+        const ttl = toastTtl(toast, durations);
+        return ttl === toast.ttl
+          ? toast
+          : { ...toast, ttl, timerRevision: toast.timerRevision + 1 };
+      }),
+    });
+  },
   toasts: [],
   leaving: [],
   seq: 0,
-  push({ tone = 'info', title, message, detail, ttl = 10000, dismissible }) {
+  push({ tone = 'info', loading, title, message, detail, ttl, dismissible, action }) {
     const id = get().seq + 1;
     // 兼容旧调用点：只传一个内容时它就是标题；传了 title 时旧 message 变成详情
     const actualTitle = title ?? message ?? '';
@@ -92,14 +141,39 @@ export const useToast = create<ToastStore>((set, get) => ({
       seq: id,
       toasts: [
         ...get().toasts,
-        { id, tone, title: actualTitle, detail: actualDetail, ttl, dismissible },
+        {
+          id,
+          tone,
+          loading,
+          title: actualTitle,
+          detail: actualDetail,
+          ttl: toastTtl({ tone, loading, dismissible, ttl }, get().durations),
+          timerRevision: 0,
+          dismissible,
+          action,
+        },
       ],
     });
     return id;
   },
   update(id, patch) {
     if (!get().toasts.some((t) => t.id === id)) return;
-    set({ toasts: get().toasts.map((t) => (t.id === id ? { ...t, ...patch } : t)) });
+    set({
+      toasts: get().toasts.map((t) => {
+        if (t.id !== id) return t;
+        const next = { ...t, ...patch };
+        const reset =
+          patch.tone !== undefined ||
+          patch.ttl !== undefined ||
+          patch.loading !== undefined ||
+          patch.dismissible !== undefined;
+        return {
+          ...next,
+          ttl: toastTtl(next, get().durations),
+          timerRevision: t.timerRevision + (reset ? 1 : 0),
+        };
+      }),
+    });
   },
   dismiss(id) {
     if (get().leaving.includes(id)) return;
@@ -182,12 +256,11 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
     return () => clearTimeout(timer);
   }, [leaving, toast.id, remove]);
 
-  // ttl 变了 = 这条 toast 换了阶段（进行中 → 已结束），倒计时从新的 ttl 重新走，
-  // 否则一条挂了十分钟 ttl 的进度提示落成结果后，会在屏上赖到十分钟才走。
+  // 阶段更新即重新计时，即使前后恰好使用相同的时长。
   useEffect(() => {
     timeLeftRef.current = toast.ttl;
     setTimeLeft(toast.ttl);
-  }, [toast.ttl]);
+  }, [toast.ttl, toast.timerRevision]);
 
   // 倒计时引擎：每 50ms 更新一次，暂停时跳过
   useEffect(() => {
@@ -230,8 +303,23 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
       }}
     >
       {/* 第一行：标题栏 */}
+      {toast.action ? (
+        <button
+          type="button"
+          className="weq-toast-open"
+          aria-label={toast.action.label}
+          title={toast.action.label}
+          onClick={toast.action.run}
+        />
+      ) : null}
       <div className="weq-toast-header">
-        <div className="weq-toast-icon">{config.icon}</div>
+        <div className="weq-toast-icon">
+          {toast.loading ? (
+            <Loader2 size={20} className="weq-spin" aria-label="加载中" />
+          ) : (
+            config.icon
+          )}
+        </div>
         <h3 className="weq-toast-title">{toast.title}</h3>
         <div className="weq-toast-actions">
           {hasDetail ? (

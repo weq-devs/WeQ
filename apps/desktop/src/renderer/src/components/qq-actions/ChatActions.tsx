@@ -49,6 +49,15 @@ export function MessageTodoAction({
               onClose();
             },
             '将这条群消息设为群待办？',
+            {
+              readback: async () => {
+                const rows = await client.account.qqActions.todoList.query({
+                  ...a.binding!,
+                  groupId: Number(conversation.id),
+                });
+                return rows.some((row) => String(row.sequence) === message.msgSeq);
+              },
+            },
           )
         }
       >

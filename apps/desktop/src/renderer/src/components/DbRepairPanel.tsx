@@ -1,5 +1,5 @@
 /**
- * 妙妙工具 → 数据库修复。
+ * 设置 → 数据与存储 → 维护工具 → 数据库修复。
  *
  * 把「库坏了怎么办」收成一条自己走得完的路：**体检 → 修复**，回滚与记录另开一张灯箱卡片。
  * 后端是 `client.dbRepair.*`，编排在 `@weq/service` 的 `account/db_repair/`。
@@ -14,11 +14,11 @@
  *      修一个完好的库会白花一次替换（还会关掉账号），不该是一眼就能点到的主按钮。
  *   3. **库名是渲染层唯一的目标标识**。目录、密钥、算法都在主进程解析 —— 一旦接受路径，
  *      这个接口就变成任意路径写入器。
- *   4. **进度不是装饰**：一次修复约 5 秒、八个阶段，没有它就等于「点了按钮之后卡死」。
+ *   4. **展示阶段进度**：耗时取决于库大小、损坏情况和设备性能。
  *      阶段名用主进程报的 `message`（本来就是中文），百分比直接用 `percent`，另外把 native
  *      报的 phase 画成一条阶段轨 —— 卡住时能看出卡在哪一步。
- *   5. **中途失败必须说清源库没被动过**。服务层是「备份 → 产物 → 校验 → 替换」，任何一步
- *      失败都发生在替换之前，所以源库一个字节都没动 —— 这决定了重试是零成本的。
+ *   5. **按失败阶段说明结果**。重建后会替换并自检；自检失败时尝试从备份还原。
+ *      修复前还可能合并 WAL，不能将「未替换」表述成「源文件从未改变」。
  *   6. **替换会先关掉正在打开的这个账号**。那一刻主进程里账号已经关了、渲染层却还停在主
  *      界面上（有会话列表、没头像、点不开消息），所以修完（或替换阶段失败）由全局的
  *      `<DbRepairReturnOverlay>` 倒数几秒回首页，面板的结果卡里同时把这句话写明。
@@ -63,6 +63,7 @@ import {
 import { closeFromScrim } from '../im-template/template/modalUtils';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { useDbRepairReturn } from '../state/dbRepairReturn';
+import { useRenderDocument } from '../lib/renderDocument';
 import { client, trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { QqAvatar } from './QqAvatar';
@@ -283,22 +284,22 @@ function shortTime(iso: string): string {
   return `${stamp} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** 记录状态 → 徽章。`aborted` / `apply-failed` 不等于「坏了」：源库没被动过。 */
+/** 记录状态 → 徽章。失败原因、替换和还原结果以具体报告为准。 */
 const STATE_BADGES: Record<
   DbRepairRecordView['state'],
   { label: string; tone: Tone; hint: string }
 > = {
-  applied: { label: '已修复', tone: 'ok', hint: '当前库就是修复产物。' },
+  applied: { label: '已修复', tone: 'ok', hint: '本次修复已完成替换与自检。' },
   'rolled-back': { label: '已回滚', tone: 'muted', hint: '已经换回修复前那一份。' },
   aborted: {
     label: '已中止',
     tone: 'warn',
-    hint: '替换之前就停下了（期间被写入 / 仍被占用），源库一个字节都没改，直接重试即可。',
+    hint: '操作已中止，请查看报告中的原因，确认占用和文件状态后再试。',
   },
   'apply-failed': {
     label: '修复失败',
     tone: 'warn',
-    hint: '重建或自检没过，发生在替换之前，源库一个字节都没改。',
+    hint: '修复未完成，请查看报告中的失败阶段、备份及还原结果。',
   },
 };
 
@@ -603,10 +604,11 @@ function HistoryLightbox({
   onCancelConfirm: () => void;
   onReveal: (record: DbRepairRecordView, what: 'report' | 'backup') => void;
 }): ReactElement | null {
+  const document = useRenderDocument();
   const layer = useOverlayLayer(open);
 
   /*
-   * Escape 只关这一层：在捕获阶段吃掉，否则妙妙工具弹窗那份 document 监听会把整个工具
+   * Escape 只关这一层：在捕获阶段吃掉，否则维护与诊断工具弹窗那份 document 监听会把整个工具
    * 弹窗一起关掉（两层同时响应同一个按键）。
    */
   useEffect(() => {
@@ -618,7 +620,7 @@ function HistoryLightbox({
     }
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, [open, onClose]);
+  }, [open, onClose, document]);
 
   if (!open) return null;
 
@@ -655,7 +657,7 @@ function HistoryLightbox({
             <div className="weq-rp-lb-empty">
               <History size={22} strokeWidth={1.6} aria-hidden />
               <span>还没有修复记录。</span>
-              <em>修过之后每一次的结果都会列在这里，可以随时回滚。</em>
+              <em>修复结果会列在这里；备份仍可用时，可以检查并回滚。</em>
             </div>
           ) : (
             <ol className="weq-rp-recs">
@@ -716,7 +718,7 @@ function HistoryLightbox({
                           {!preview?.backupExists ? (
                             <span>这条记录的备份已经被清理了，回滚不了。</span>
                           ) : preview.matchesAfter ? (
-                            <span>库现在还是修复后的那一份，可以安全回滚到修复前。</span>
+                            <span>当前库与修复产物一致，可以使用备份回滚到修复前。</span>
                           ) : (
                             <span className="is-warn">
                               警告：库在这之后又被写过（QQ 进了新消息）。回滚会把这些新内容一起 丢掉
@@ -1105,7 +1107,7 @@ export function DbRepairPanel({
         ? '布局迁移失败'
         : (FAILURE_TITLES[failure.code] ?? `${verb}失败`);
     const detail = PRE_SWAP_FAILURES.has(failure.code)
-      ? `${failure.error}（替换还没开始，源库一个字节都没动）`
+      ? `${failure.error}（本次尚未替换数据库）`
       : failure.error;
     pushToast({ tone: 'error', title, detail });
     setNotice(detail);
@@ -1581,7 +1583,7 @@ export function DbRepairPanel({
             <button type="button" className="weq-rp-link" onClick={() => goRepair(null)}>
               跳过体检，直接选数据库 →
             </button>
-            <span>不体检就是盲修 —— 修之前不知道哪个库坏了、坏在哪。</span>
+            <span>跳过后不会先检查数据库状态，请确认需要修复的目标。</span>
           </div>
 
           <Disclosure summary="修复会做什么">
@@ -1590,8 +1592,9 @@ export function DbRepairPanel({
               所以页数与体积会变，这是正常的。
             </p>
             <p>
-              流程是「备份 → 重建 → 校验 → 替换」，任何一步失败都发生在替换之前 ——
-              <strong>源库一个字节都不会动</strong>，直接重试即可。备份默认保留最近 3 份。
+              流程是「备份 → 重建 → 替换 → 自检」。修复前可能先合并尚未写回的 WAL 日志。
+              <strong>无法保证恢复全部数据</strong>；自检失败时会尝试从备份还原。
+              遇到失败请先查看报告，核对备份与还原结果后再决定是否重试。备份默认保留最近 3 份。
             </p>
             <p>
               替换那一步会先关掉 WeQ 里正开着的这个账号，修完把你送回启动页 ——
@@ -1919,7 +1922,7 @@ export function DbRepairPanel({
                     </li>
                   </ul>
                   {currentCheckup ? null : (
-                    <p className="weq-rp-hint">这个库还没体检过（不体检也能修，那就是盲修）。</p>
+                    <p className="weq-rp-hint">尚未检查该数据库，请先核对目标与修复选项。</p>
                   )}
                   <div className="weq-rp-actions">
                     <button

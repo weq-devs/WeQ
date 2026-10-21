@@ -2,7 +2,7 @@
 //
 // 三条通道，别混：
 //   - **Faceroam.OpReq**（trpc）：列表 / 删除
-//   - **OIDB**：0x902E_1（详情、改备注、排序上传）、0x902F_1（移动指令）
+//   - **OIDB**：0x902E_1（详情、改备注）、0x902F_1（已验证的移到最前）
 //   - **ImgStore.BDHExpressionRoam + highway**：新增
 //
 // 搬运自 SnowLuma `oidb-services/custom-face/*`。
@@ -224,6 +224,7 @@ function assertOidbRetCode(what: string, body: Record<string, unknown>): void {
 export namespace FetchCustomFaceDetail {
   export const command = 0x902e;
   export const subCommand = 1;
+  export const uinForm = true;
   export const reqSchema = DETAIL_REQ;
   export const respSchema = CUSTOM_FACE_RESP;
 
@@ -293,11 +294,11 @@ export namespace ModifyCustomFace {
 }
 
 export interface MoveCustomFaceParams {
-  /** 完整且有序的列表，整表上传。 */
+  /** 旧接口保留的列表参数；请求体与详情读取一致，不再用于提交排序。 */
   emojis: CustomFaceRef[];
 }
 
-/** move 第 2 步：上传新顺序。必须先发 {@link OrderCustomFace}。 */
+/** @deprecated 旧迁移命名；其 wire 与详情相同，不应作为必需的排序写入。 */
 export namespace MoveCustomFace {
   export const command = 0x902e;
   export const subCommand = 1;
@@ -326,11 +327,11 @@ export namespace MoveCustomFace {
 
 export interface OrderCustomFaceParams {
   emojiId: string;
-  /** 目标位置，从 1 开始；1 = 最前。 */
+  /** 已验证仅支持 1（移到最前），不是任意位置序号。 */
   position: number;
 }
 
-/** move 第 1 步：移动指令。单发不生效，必须再发 {@link MoveCustomFace}。 */
+/** 置前指令；真实结果由 Faceroam 顺序读回，不额外提交整表详情。 */
 export namespace OrderCustomFace {
   export const command = 0x902f;
   export const subCommand = 1;
@@ -342,9 +343,7 @@ export namespace OrderCustomFace {
 
   export const serialize = (p: Params): Record<string, unknown> => {
     if (!p.emojiId.trim()) throw new Error('emojiId 不能为空');
-    if (!Number.isSafeInteger(p.position) || p.position <= 0) {
-      throw new Error(`position 必须是正整数，收到 ${String(p.position)}`);
-    }
+    if (p.position !== 1) throw new Error('当前仅确认支持移到最前（position=1）');
     return {
       env: { field1: 1024, osVersion: FACEROAM_OS_VERSION, buildVersion: '9.9.26' },
       emojiId: p.emojiId,

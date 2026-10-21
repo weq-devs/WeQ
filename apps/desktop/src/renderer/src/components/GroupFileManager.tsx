@@ -132,7 +132,7 @@ function GroupFileManagerBody({
     }
   }, [active, editorKey]);
   const [uploads, setUploads] = useState<Upload[]>([]);
-  const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [, setReceipts] = useState<Receipt[]>([]);
   const [error, setError] = useState('');
   const [dropActive, setDropActive] = useState(false);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -332,7 +332,7 @@ function GroupFileManagerBody({
                 name: nextName || undefined,
                 destination: mode === 'move' ? target : undefined,
               });
-              if (!accepted(result)) throw new Error('服务端回执未确认，请核对群文件后再操作');
+              if (!accepted(result)) uncertain.current.add(pending[index]!.key);
               pending[index] = { ...pending[index]!, state: 'accepted' };
               if (current())
                 setSelected(
@@ -357,6 +357,27 @@ function GroupFileManagerBody({
         },
         refresh,
         warning,
+        {
+          readback: async () => {
+            if (!a.binding) return false;
+            const source = await listing(a.binding, directory);
+            const fresh = groupFileEntries(source.files, source.folders, '', 'name');
+            if (mode === 'createFolder')
+              return source.folders.some((folder) => folder.folderName === nextName);
+            if (mode === 'rename')
+              return fresh.some((row) => keys.includes(row.key) && row.name === nextName);
+            if (fresh.some((row) => keys.includes(row.key))) return false;
+            if (mode === 'move') {
+              const dest = await listing(a.binding, target);
+              return (
+                dest.files.filter((file) =>
+                  requested.some((row) => row?.kind === 'file' && row.file.fileId === file.fileId),
+                ).length === requested.length
+              );
+            }
+            return true;
+          },
+        },
       );
     } catch (reason) {
       if (current()) setError(reason instanceof Error ? reason.message : String(reason));
@@ -460,6 +481,17 @@ function GroupFileManagerBody({
       },
       refresh,
       `上传待处理的 ${uploads.filter((item) => item.state === 'ready').length} 个文件到 QQ 群 ${groupId} 列出的目标目录，并发布群文件消息？`,
+      {
+        readback: async () => {
+          if (!a.binding) return false;
+          const pending = uploads.filter((item) => item.state === 'ready');
+          for (const item of pending) {
+            const source = await listing(a.binding, item.directory);
+            if (!source.files.some((file) => file.fileName === item.name)) return false;
+          }
+          return pending.length > 0;
+        },
+      },
     );
   }
   async function saveRows(keys: string[]) {
@@ -797,14 +829,7 @@ function GroupFileManagerBody({
                   )
                 }
               />
-              <span>
-                {item.directoryName} ·{' '}
-                {item.state === 'accepted'
-                  ? '已受理'
-                  : item.state === 'unknown'
-                    ? '结果待核对'
-                    : '待上传'}
-              </span>
+              <span>{item.directoryName}</span>
               <ActionIcon
                 label={`移除上传项 ${item.name}`}
                 disabled={a.pending}
@@ -812,7 +837,6 @@ function GroupFileManagerBody({
               >
                 <X size={15} />
               </ActionIcon>
-              {item.error && <p role="alert">{item.error}</p>}
             </div>
           ))}
         </div>
@@ -1044,23 +1068,6 @@ function GroupFileManagerBody({
         <p role="status">{query ? '没有匹配的文件' : '这个目录还没有文件'}</p>
       )}
       <ActionFeedback action={a} />
-      {receipts.length > 0 && (
-        <ul className="weq-file-receipts" aria-label="文件操作结果">
-          {receipts.map((item) => (
-            <li key={item.key}>
-              <span>
-                {item.name} ·{' '}
-                {item.state === 'accepted'
-                  ? '已受理'
-                  : item.state === 'unknown'
-                    ? '结果待核对'
-                    : '未执行'}
-              </span>
-              {item.error && <span role="alert">{item.error}</span>}
-            </li>
-          ))}
-        </ul>
-      )}
       {menu && active && (
         <ConversationActionsMenu
           x={menu.x}

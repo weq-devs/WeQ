@@ -10,6 +10,7 @@ const mock = vi.hoisted(() => ({
   friendDisturb: null as boolean | null,
   readFriendDisturb: null as boolean | null,
   readPinned: false,
+  pinned: false,
   serverPolicy: 1 as number | null,
   mutate: vi.fn(async (_input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' })),
   refetch: vi.fn(async () => {}),
@@ -17,6 +18,7 @@ const mock = vi.hoisted(() => ({
   refetchCategories: vi.fn(async () => {}),
   readCategory: 0,
   readbacks: [] as boolean[],
+  successTexts: [] as string[],
 }));
 vi.mock('../src/renderer/src/components/qq-actions/GroupActions', () => ({
   GroupActions: () => null,
@@ -34,10 +36,11 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
     run: async (
       action: (binding: QQWriteBinding) => Promise<QQWriteOutcome>,
       refresh?: () => Promise<unknown>,
-      options?: { readback?: () => Promise<boolean> },
+      options?: { readback?: () => Promise<boolean>; readbackSuccessText?: string },
     ) => {
       await action({ expectedAccountUin: '10001', expectedAccountConfigId: mock.configId });
       if (options?.readback) mock.readbacks.push(await options.readback());
+      if (options?.readbackSuccessText) mock.successTexts.push(options.readbackSuccessText);
       await refresh?.();
       return true;
     },
@@ -78,7 +81,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
               friendDisturb: mock.friendDisturb,
               friend: true,
               remark: '',
-              pinned: false,
+              pinned: mock.pinned,
               categoryId: 0,
               selfCard: '',
               selfTitle: '',
@@ -133,6 +136,7 @@ beforeEach(() => {
   mock.friendDisturb = null;
   mock.readFriendDisturb = null;
   mock.readPinned = false;
+  mock.pinned = false;
   mock.serverPolicy = 1;
   mock.mutate.mockReset().mockResolvedValue({ state: 'accepted' });
   mock.refetch.mockReset().mockResolvedValue(undefined);
@@ -140,6 +144,7 @@ beforeEach(() => {
   mock.refetchCategories.mockReset().mockResolvedValue(undefined);
   mock.readCategory = 0;
   mock.readbacks = [];
+  mock.successTexts = [];
 });
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
@@ -256,6 +261,23 @@ it.each(['置顶会话', '消息免打扰'])('%s 共用提交、状态核对和�
   expect(mock.mutate).toHaveBeenCalledOnce();
   expect(mock.readbacks).toEqual([true]);
   expect(mock.refetch).toHaveBeenCalledTimes(2);
+});
+
+it.each([
+  { label: '置顶会话', initial: false, expected: '已置顶' },
+  { label: '置顶会话', initial: true, expected: '已取消置顶' },
+  { label: '消息免打扰', initial: false, expected: '已开启免打扰' },
+  { label: '消息免打扰', initial: true, expected: '已关闭免打扰' },
+])('$label 从 $initial 切换后用具体结果作为成功横幅文案', async ({ label, initial, expected }) => {
+  mock.pinned = initial;
+  mock.friendDisturb = initial;
+  mock.readPinned = !initial;
+  mock.readFriendDisturb = !initial;
+  const host = fixture('c2c');
+  await act(async () => host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!.click());
+  expect(mock.successTexts).toEqual([expected]);
+  expect(mock.readbacks).toEqual([true]);
+  expect(host.textContent).not.toContain(expected);
 });
 
 it.each([0, 5])('移入已有分组保存后核对实际读回 %s，不将受理当作同步', async (readCategory) => {

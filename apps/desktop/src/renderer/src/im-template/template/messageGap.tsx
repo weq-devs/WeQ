@@ -2,6 +2,9 @@
 import type { Message } from './types';
 import { cn } from './classNames';
 import { useState } from 'react';
+import type { HTMLAttributes } from 'react';
+import { Check } from 'lucide-react';
+import '../../styles/message-gap-selection.css';
 
 /**
  * A run of messages QQ never synced to this device. Rendered between the two
@@ -10,13 +13,35 @@ import { useState } from 'react';
 export function MessageGapDivider({
   count,
   onOpen,
+  id,
+  selectionMode = false,
+  selected = false,
+  selectionProps,
 }: {
   count: number;
   onOpen?: () => void | Promise<void>;
+  id?: string;
+  selectionMode?: boolean;
+  selected?: boolean;
+  selectionProps?: HTMLAttributes<HTMLDivElement>;
 }) {
   const [loading, setLoading] = useState(false);
   return (
-    <div className={cn('weq-graytip-band')}>
+    <div
+      {...selectionProps}
+      data-message-id={id}
+      className={cn(
+        'weq-graytip-band',
+        selectionMode && 'weq-selectable-gap',
+        selected && 'is-selected',
+      )}
+      aria-selected={selectionMode ? selected : undefined}
+    >
+      {selectionMode ? (
+        <span className="weq-gap-selection-check" aria-hidden="true">
+          {selected ? <Check size={12} /> : null}
+        </span>
+      ) : null}
       <button
         type="button"
         className={cn('weq-graytip-band-hint', 'weq-gap-band-button')}
@@ -29,15 +54,26 @@ export function MessageGapDivider({
             setLoading(false);
           }
         }}
-        disabled={!onOpen || loading}
+        disabled={(!onOpen && !selectionProps) || loading}
+        tabIndex={selectionMode ? -1 : 0}
         aria-busy={loading}
-        title={onOpen ? '点击拉取并查看这些缺失消息' : undefined}
+        title={
+          selectionMode
+            ? selected
+              ? '取消选择此消息缺口'
+              : '选择消息缺口后可确认拉取漫游'
+            : onOpen
+              ? '点击拉取并查看这些缺失消息'
+              : '缺口暂不可读取，可进入多选保留选择'
+        }
       >
         {loading
           ? '正在拉取缺失消息…'
-          : onOpen
-            ? `此处有 ${count} 条消息缺失 · 点击拉取`
-            : `此处有 ${count} 条消息需要打开 QQ 本体同步`}
+          : selectionMode
+            ? `此处有 ${count} 条消息缺失`
+            : onOpen
+              ? `此处有 ${count} 条消息缺失 · 点击拉取`
+              : `此处有 ${count} 条消息需要打开 QQ 本体同步`}
       </button>
     </div>
   );
@@ -61,7 +97,11 @@ export function MessageGapDivider({
  * Messages imported from a phone carry no seq (0); they are skipped rather than
  * treated as a hole reaching back to the start of the conversation.
  */
-export function messageGapCount(previous: Message | undefined, current: Message): number {
+export function messageGapCount(
+  previous: Message | undefined,
+  current: Message,
+  includeSingle = false,
+): number {
   if (!previous) {
     return 0;
   }
@@ -73,7 +113,7 @@ export function messageGapCount(previous: Message | undefined, current: Message)
   }
 
   const missing = currentSeq - previousSeq - 1n;
-  return missing > 1n ? Number(missing) : 0;
+  return missing > (includeSingle ? 0n : 1n) ? Number(missing) : 0;
 }
 
 /** Parse a seq to bigint; null for absent, unparsable, or the 0 placeholder. */

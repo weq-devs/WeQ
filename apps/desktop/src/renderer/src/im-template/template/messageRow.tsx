@@ -35,6 +35,7 @@ import {
 import { QqDynamic } from '../../components/QqDynamic';
 import { MessageProvenance } from '../../components/MessageProvenance';
 import type { ReactionRemoval } from '../../components/SetEmojiReactions';
+import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 
 /**
  * 画成**居中灰条**（不套气泡、不显示头像昵称）的元素 kind。
@@ -276,7 +277,7 @@ export function MessageRow({
       message={message}
       conversation={conversation}
       sender={sender ?? user}
-      mine={message.senderId === user.id}
+      mine={isSelfIdentity(new Set(selfIdentityValues(user)), message.senderId)}
       senderName={sender ? displayNameOf(sender) : displayNameOf(user)}
       senderAvatarUrl={(sender ?? user).avatarUrl}
       senderSeed={(sender ?? user).identityValue}

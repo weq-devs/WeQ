@@ -46,6 +46,7 @@ function fixture(
   const conversation = { ...original, members: [peer], group: { ...original.group, role } };
   const rename = vi.fn(),
     title = vi.fn();
+  const profile = vi.fn();
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -71,7 +72,7 @@ function fixture(
         onDraftChange: vi.fn(),
         onDraftClear: vi.fn(),
         onBack: vi.fn(),
-        onOpenGroupMember: vi.fn(),
+        onOpenGroupMember: profile,
         onRenameGroupMember: rename,
         onChangeGroupMemberTitle: title,
       }),
@@ -98,10 +99,20 @@ function fixture(
     [...host.querySelectorAll<HTMLButtonElement>('.avatar-context-menu button')].find(
       (item) => item.textContent === name,
     );
-  return { open, button, rename, title, peer, conversation };
+  return { open, button, rename, title, profile, host, peer, conversation };
 }
 
 describe('群成员头像菜单', () => {
+  it('自己的消息头像可点击打开资料卡，并保留群成员身份', () => {
+    const f = fixture('owner', true, true);
+    const avatar = f.host.querySelector<HTMLButtonElement>('button.message-avatar-button.is-self');
+    expect(avatar).not.toBeNull();
+    act(() => avatar!.click());
+    expect(f.profile).toHaveBeenCalledWith(
+      expect.objectContaining({ identityValue: '10001' }),
+      expect.anything(),
+    );
+  });
   for (const source of ['message', 'sidebar'] as const) {
     it.each(['owner', 'admin', 'member'] as const)(
       `${source}：%s 仅按当前角色提供群名片与头衔操作`,

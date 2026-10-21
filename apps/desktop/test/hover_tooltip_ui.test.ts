@@ -4,11 +4,85 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { HoverTooltip } from '../src/renderer/src/components/HoverTooltip';
+import { Window as HappyWindow } from 'happy-dom';
+import { RenderDocumentContext } from '../src/renderer/src/lib/renderDocument';
+import { CompositionButton } from '../src/renderer/src/components/mergeForward/CompositionButton';
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+it('独立合成文档中禁用按钮显示具体原因，提示不落在主窗口', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.useFakeTimers();
+  const child = new HappyWindow();
+  const owner = child.document as unknown as Document;
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        createElement(
+          RenderDocumentContext.Provider,
+          { value: owner },
+          createElement(HoverTooltip),
+        ),
+      ),
+    );
+    const button = owner.createElement('button');
+    button.disabled = true;
+    button.title = '合并转发：QQ 未在线';
+    owner.body.append(button);
+    await act(async () => {
+      button.dispatchEvent(
+        new child.PointerEvent('pointerover', {
+          bubbles: true,
+          clientX: 20,
+          clientY: 30,
+        }) as unknown as Event,
+      );
+      vi.advanceTimersByTime(300);
+    });
+    expect(owner.querySelector('[role="tooltip"]')?.textContent).toBe('合并转发：QQ 未在线');
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    act(() => root.unmount());
+    expect(button.title).toBe('合并转发：QQ 未在线');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+    await child.happyDOM.close();
+  }
+});
+
+it('合成按钮保留原生禁用和 ref，文字按钮自动具备动作提示', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const ref = { current: null as HTMLButtonElement | null };
+  try {
+    act(() =>
+      root.render(
+        createElement(
+          CompositionButton,
+          { ref, disabled: true, disabledReason: '已经是第一项' },
+          '上移',
+        ),
+      ),
+    );
+    expect(ref.current?.disabled).toBe(true);
+    expect(ref.current?.title).toBe('上移：已经是第一项');
+    expect(ref.current?.dataset.disabledReason).toBe('已经是第一项');
+    act(() => root.render(createElement(CompositionButton, { ref }, '保存')));
+    expect(ref.current?.title).toBe('保存');
+    expect(ref.current?.dataset.disabledReason).toBeUndefined();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
 });
 
 it('提示框按内容确定宽度，边框和内边距计入窗口宽度上限', () => {

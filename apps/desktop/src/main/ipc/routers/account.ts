@@ -25,7 +25,7 @@ import {
   saveCompletedExportTask,
   prepareExportDestination,
 } from './export_save';
-import { mergeRoamingTimeline } from '../../../shared/roaming_timeline';
+import { mergeRoamingTimeline, timelineRowKey } from '../../../shared/roaming_timeline';
 import { QZONE_ALBUM_PAGE_SIZE } from '../../../shared/qzone_album_export';
 import {
   PROJECT_GROUP_CODE,
@@ -1610,14 +1610,18 @@ function unreadInfoToWire(
 }
 
 export const accountRouter = router({
-  qqActions: createQQActionsRouter((input) => {
-    const services = requireExpectedAccount(
-      input.expectedAccountUin,
-      input.expectedAccountConfigId,
-    );
-    requireQqOnlineForAlbum(services);
-    return services;
-  }),
+  qqActions: createQQActionsRouter(
+    (input) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      return services;
+    },
+    undefined,
+    (input) => requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+  ),
   qqWrite: createQQWriteRouter(
     (input) => {
       const services = requireExpectedAccount(
@@ -2483,10 +2487,15 @@ export const accountRouter = router({
           limit: z.union([z.literal(-1), z.number().int().min(1).max(500)]).default(200),
           cursor: z.number().int().min(0).default(0),
         })
+        .merge(exportAccountBindingInput)
         .default({}),
     )
     .query(async ({ input }) => {
-      const svc = requireServices().recentContacts;
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const svc = services.recentContacts;
       // 103 = 公众号, 118 = 服务号 (see @weq/codec chat_kind).
       const excludeChatTypes = [103, 118];
       const [items, total] = await Promise.all([
@@ -2494,6 +2503,10 @@ export const accountRouter = router({
         svc.countRecentContact({ excludeChatTypes }),
       ]);
       const next = input.cursor + items.length < total ? input.cursor + items.length : undefined;
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
       return { items: items.map(recentContactToWire), total, nextCursor: next };
     }),
 
@@ -2547,13 +2560,24 @@ export const accountRouter = router({
    * 每次库变化时都刷新。这里只跑一条几行的 SELECT，不去重读 / 重解整张草稿表
    * （`listDrafts` 会解 `43002` 的 protobuf，代价大得多）。
    */
-  listConversationDraftTimes: procedure.query(async () => {
-    const map = await requireServices().recentContacts.listDraftTimes();
-    return [...map].map(([targetUid, draftTime]) => ({
-      targetUid,
-      draftTime: draftTime.toString(),
-    }));
-  }),
+  listConversationDraftTimes: procedure
+    .input(exportAccountBindingInput.optional())
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input?.expectedAccountUin,
+        input?.expectedAccountConfigId,
+      );
+      const map = await services.recentContacts.listDraftTimes();
+      if (
+        requireExpectedAccount(input?.expectedAccountUin, input?.expectedAccountConfigId) !==
+        services
+      )
+        throw new Error('账号或数据源已切换');
+      return [...map].map(([targetUid, draftTime]) => ({
+        targetUid,
+        draftTime: draftTime.toString(),
+      }));
+    }),
 
   /**
    * 写/清一份草稿。**只在离开会话、离开消息页、应用退出这类时刻调用** ——
@@ -2649,17 +2673,27 @@ export const accountRouter = router({
     .input(
       z.object({
         expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1).optional(),
         targets: z
           .array(
-            z.object({ chatType: z.union([z.literal(1), z.literal(2)]), uid: z.string().min(1) }),
+            z.object({
+              chatType: z.union([z.literal(1), z.literal(2), z.literal(8), z.literal(134)]),
+              uid: z.string().min(1),
+            }),
           )
           .max(256),
       }),
     )
     .query(async ({ input }) => {
-      const rows = await requireExpectedAccount(input.expectedAccountUin).unreadInfo.getUnreadInfos(
-        input.targets,
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
       );
+      const rows = await services.unreadInfo.getUnreadInfos(input.targets);
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
       return rows.map(unreadInfoToWire);
     }),
 
@@ -2667,10 +2701,11 @@ export const accountRouter = router({
     .input(
       z.object({
         expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1).optional(),
         targets: z
           .array(
             z.object({
-              chatType: z.union([z.literal(1), z.literal(2)]),
+              chatType: z.union([z.literal(1), z.literal(2), z.literal(8), z.literal(134)]),
               uid: z.string().min(1),
             }),
           )
@@ -2680,10 +2715,10 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const result = await requireExpectedAccount(input.expectedAccountUin).unreadInfo.setReadState(
-        input.targets,
-        input.unread,
-      );
+      const result = await requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).unreadInfo.setReadState(input.targets, input.unread);
       return { undoToken: result.undoToken, rows: result.rows.map(unreadInfoToWire) };
     }),
 
@@ -2729,6 +2764,7 @@ export const accountRouter = router({
         uid: z.string().min(1),
         latestSeq: z.string().optional(),
         expectedAccountUin: z.string().min(1).optional(),
+        expectedAccountConfigId: z.string().min(1).optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -2738,14 +2774,14 @@ export const accountRouter = router({
       if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup) {
         const changed = await requireExpectedAccount(
           input.expectedAccountUin,
+          input.expectedAccountConfigId,
         ).unreadInfo.markLocalRead(input.chatType, input.uid, input.latestSeq);
         return { changed, report: { state: 'unavailable' as const } };
       }
-      return requireExpectedAccount(input.expectedAccountUin).unreadInfo.markReadAndReport(
-        input.chatType,
-        input.uid,
-        input.latestSeq,
-      );
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).unreadInfo.markReadAndReport(input.chatType, input.uid, input.latestSeq);
     }),
 
   getReadReportStatus: procedure.query(() => requireServices().unreadInfo.getReadReportStatus()),
@@ -2827,6 +2863,45 @@ export const accountRouter = router({
           senderName: m.senderName,
           content: m.content,
         })),
+      };
+    }),
+
+  readSelectionRange: procedure
+    .input(
+      convInput.merge(exportAccountBindingInput).extend({
+        startSeq: z.string().regex(/^[1-9]\d{0,19}$/),
+        endSeq: z.string().regex(/^[1-9]\d{0,19}$/),
+        afterSeq: z
+          .string()
+          .regex(/^\d{1,20}$/)
+          .optional(),
+        limit: z.number().int().min(1).max(500).default(200),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const result = await services.msgs.getSelectionRangePage(
+        input.kind,
+        input.conv,
+        BigInt(input.startSeq),
+        BigInt(input.endSeq),
+        input.afterSeq === undefined ? undefined : BigInt(input.afterSeq),
+        input.limit,
+      );
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
+      return {
+        ...result,
+        items: result.items.map((message) =>
+          input.kind === 'group'
+            ? groupMsgToWire(message as RenderGroupMsg)
+            : c2cMsgToWire(message as RenderC2cMsg),
+        ),
       };
     }),
 
@@ -3923,13 +3998,43 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      return requireServices().msgs.deleteMessage(BigInt(input.msgId), input.kind, input.conv);
+      const services = requireServices();
+      if (input.msgId.startsWith('roaming:')) {
+        const match = /^roaming:protocol:([1-9]\d{0,9}):(-?\d{1,20})$/.exec(input.msgId);
+        if (!match || Number(match[1]) > 0xffffffff) throw new Error('无效的缓存消息身份');
+        const rows = await services.gapHistory.cached(
+          input.kind,
+          input.conv,
+          Number(match[1]),
+          Number(match[1]),
+        );
+        const message = rows.find(
+          (row) =>
+            row.kind === input.kind &&
+            row.conv === input.conv &&
+            row.localSent &&
+            timelineRowKey({ ...row, source: 'roaming' }) === input.msgId,
+        );
+        if (!message) throw new Error('这条已发送消息不在当前会话缓存中');
+        return services.msgs.deleteCachedSentMessage(message);
+      }
+      return services.msgs.deleteMessage(BigInt(input.msgId), input.kind, input.conv);
     }),
 
   /** Restore a WeQ-deleted message (write the original 40011/40012 back). */
   restoreMessage: procedure
-    .input(z.object({ msgId: z.string().min(1) }))
+    .input(
+      z.object({
+        msgId: z.string().min(1),
+        kind: z.enum(['c2c', 'group']).optional(),
+        conv: z.string().min(1).optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
+      if (input.msgId.startsWith('roaming:')) {
+        if (!input.kind || !input.conv) throw new Error('恢复缓存消息需要明确的会话目标');
+        return requireServices().msgs.restoreCachedSentMessage(input.msgId, input.kind, input.conv);
+      }
       return requireServices().msgs.restoreMessage(BigInt(input.msgId));
     }),
 
@@ -3951,11 +4056,31 @@ export const accountRouter = router({
   deletedMessages: procedure
     .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
     .query(async ({ input }): Promise<ChatMsgWire[]> => {
-      const msgs = requireServices().msgs;
+      const services = requireServices();
+      const msgs = services.msgs;
       const rows = await msgs.getDeletedMessages(input.kind, input.conv);
-      return input.kind === 'group'
-        ? (rows as RenderGroupMsg[]).map(groupMsgToWire)
-        : (rows as RenderC2cMsg[]).map(c2cMsgToWire);
+      const wire: ChatMsgWire[] =
+        input.kind === 'group'
+          ? (rows as RenderGroupMsg[]).map(groupMsgToWire)
+          : (rows as RenderC2cMsg[]).map(c2cMsgToWire);
+      const cachedIds = new Set(
+        msgs.getDeletedMsgIds(input.kind, input.conv).filter((id) => id.startsWith('roaming:')),
+      );
+      if (cachedIds.size) {
+        const cached = await services.gapHistory.cachedForExport(input.kind, input.conv);
+        wire.push(
+          ...cached
+            .filter(
+              (row) =>
+                row.kind === input.kind &&
+                row.conv === input.conv &&
+                row.localSent &&
+                cachedIds.has(timelineRowKey({ ...row, source: 'roaming' })),
+            )
+            .map((row) => ({ ...roamingMsgToWire(row), deletedKind: 'weq' as const })),
+        );
+      }
+      return wire.sort((a, b) => Number(b.sendTime) - Number(a.sendTime));
     }),
 
   /**
@@ -3982,20 +4107,30 @@ export const accountRouter = router({
    */
   cachedGapMessages: procedure
     .input(
-      z.object({
-        kind: z.enum(['c2c', 'group']),
-        conv: z.string().min(1),
-        startSeq: z.number().int().min(0),
-        endSeq: z.number().int().min(0),
-      }),
+      z
+        .object({
+          kind: z.enum(['c2c', 'group']),
+          conv: z.string().min(1),
+          startSeq: z.number().int().min(0),
+          endSeq: z.number().int().min(0),
+        })
+        .merge(exportAccountBindingInput),
     )
     .query(async ({ input }) => {
-      const rows = await requireServices().gapHistory.cached(
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const rows = await services.gapHistory.cached(
         input.kind,
         input.conv,
         input.startSeq,
         input.endSeq,
       );
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
       return rows.map(roamingMsgToWire);
     }),
 
@@ -4067,20 +4202,30 @@ export const accountRouter = router({
    */
   fetchGapMessages: procedure
     .input(
-      z.object({
-        kind: z.enum(['c2c', 'group']),
-        conv: z.string().min(1),
-        startSeq: z.number().int().min(0),
-        endSeq: z.number().int().min(0),
-      }),
+      z
+        .object({
+          kind: z.enum(['c2c', 'group']),
+          conv: z.string().min(1),
+          startSeq: z.number().int().min(0),
+          endSeq: z.number().int().min(0),
+        })
+        .merge(exportAccountBindingInput),
     )
     .query(async ({ input }) => {
-      const result = await requireServices().gapHistory.fetch(
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const result = await services.gapHistory.fetch(
         input.kind,
         input.conv,
         input.startSeq,
         input.endSeq,
       );
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
       return result.ok ? { ...result, messages: result.messages.map(roamingMsgToWire) } : result;
     }),
 
@@ -7006,7 +7151,7 @@ export const accountRouter = router({
       return { level: config.level, grantedAt: config.grantedAt ?? null, closedSalvage };
     }),
 
-  // 坏页扫描原本在这里（只能扫"当前打开的账号"）。它已经搬到 妙妙工具 → 数据库修复
+  // 坏页扫描原本在这里（只能扫"当前打开的账号"）。它已经搬到 设置 → 数据与存储 → 维护工具 → 数据库修复
   // 的 `client.dbRepair.scanBadPages`：那边对**任意账号**可用，而且与修复共用同一份
   // 实现（`@weq/service` 的 `bad_pages`），口径不会漂。设置页不再有扫描入口。
 

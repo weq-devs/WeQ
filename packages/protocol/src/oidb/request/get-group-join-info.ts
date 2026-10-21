@@ -7,12 +7,16 @@ import type { OidbNative } from '../../transport';
 /** 来源：Lagrange.Core 20c2ba0 的 D88DGroupInfo 与 FetchStrangerGroupInfoService。 */
 const INFO = message([
   { name: 'option', tag: 7, type: 'uint32', force: true },
+  { name: 'categoryId', tag: 8, type: 'uint32', force: true },
   { name: 'name', tag: 15, type: 'string', force: true },
+  { name: 'categoryName', tag: 18, type: 'string', force: true },
   { name: 'question', tag: 24, type: 'string', force: true },
 ]);
 export interface GroupJoinInfo {
   groupId: number;
   name: string;
+  categoryId: number | null;
+  categoryName: string | null;
   option: number | null;
   question: string | null;
   questionState: 'available' | 'not-required' | 'unavailable';
@@ -50,7 +54,9 @@ export namespace GetGroupJoinInfo {
     if (groupCode === 0) throw new Error('群号必须为正整数');
     return {
       appId: randomInt(1, 0x7fffffff),
-      groups: [{ groupCode, info: { option: 0, name: '', question: '' } }],
+      groups: [
+        { groupCode, info: { option: 0, categoryId: 0, name: '', categoryName: '', question: '' } },
+      ],
     };
   };
   export function deserialize(body: Record<string, unknown>): GroupJoinInfo[] {
@@ -69,6 +75,11 @@ export namespace GetGroupJoinInfo {
       return {
         groupId,
         name: typeof info.name === 'string' ? info.name : '',
+        categoryId: typeof info.categoryId === 'number' ? info.categoryId : null,
+        categoryName:
+          typeof info.categoryName === 'string' && info.categoryName.trim()
+            ? info.categoryName.trim()
+            : null,
         option,
         question,
         questionState: question

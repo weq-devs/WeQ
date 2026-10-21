@@ -16,3 +16,8 @@ export type {
 } from './inline-button';
 export { SendGroupSign } from './group-sign';
 export type { SendGroupSignParams } from './group-sign';
+export {
+  SendProfileLike,
+  PROFILE_LIKE_MAX_PER_REQUEST,
+  PROFILE_LIKE_SOURCE_ID,
+} from './profile-like';

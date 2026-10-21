@@ -136,6 +136,22 @@ describe('邮箱协议编码', () => {
 });
 
 describe('邮箱生命周期和提醒', () => {
+  it('导出读取不额外提交已读操作，保留返回的未读状态', async () => {
+    const auth = new MailAuth(native, '12345678', () => 42, new FakeMailTransport());
+    const cgi = vi.spyOn(auth, 'cgi').mockResolvedValueOnce({
+      item: { ret: 0, emailid: 'fixture-export', content: '正文', info: { unread: 1 } },
+    });
+    const service = new QQMailService(native, '12345678', () => 42, { authFactory: () => auth });
+    try {
+      await expect(service.read('fixture-export', undefined, false)).resolves.toMatchObject({
+        unread: true,
+        html: '正文',
+      });
+      expect(cgi).toHaveBeenCalledOnce();
+    } finally {
+      service.dispose();
+    }
+  });
   it.each(['read-fixture', '@group-fixture'])(
     '打开 %s 后显式提交已读，成功才返回已读正文',
     async (id) => {

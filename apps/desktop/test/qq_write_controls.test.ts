@@ -14,6 +14,7 @@ import {
 } from '../src/renderer/src/hooks/useQQWriteSession';
 import { useViewState } from '../src/renderer/src/state/view';
 import { subscribeQQPeerUpdates, type QQPeerUpdate } from '../src/renderer/src/lib/qqPeerUpdates';
+import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
 
 const mocked = vi.hoisted(() => ({
   config: { uin: '10001', configId: 'source-a' },
@@ -97,6 +98,7 @@ beforeEach(() => {
   mocked.invalidateStatus.mockReset().mockResolvedValue(undefined);
   mocked.invalidateMembers.mockReset().mockResolvedValue(undefined);
   useViewState.setState({ openedUin: '10001' });
+  useToast.setState({ toasts: [], leaving: [] });
 });
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
@@ -231,7 +233,7 @@ describe('QQ 写控件', () => {
     await act(async () => toggle.click());
     expect(save).toHaveBeenCalledWith(true);
     expect(toggle.getAttribute('aria-checked')).toBe('mixed');
-    expect(f.host.textContent).toContain('已请求开启，状态待确认');
+    expect(f.host.textContent).not.toContain('状态待确认');
   });
 
   it('未知开关切换即提交，失败后仍可请求关闭但不伪造状态', async () => {
@@ -249,7 +251,7 @@ describe('QQ 写控件', () => {
     expect(save).toHaveBeenCalledWith(false);
     expect(save).toHaveBeenCalledTimes(2);
     expect(toggle.disabled).toBe(false);
-    expect(f.host.textContent).toContain('已请求关闭，状态待确认');
+    expect(f.host.textContent).not.toContain('状态待确认');
   });
 });
 
@@ -265,6 +267,69 @@ describe('QQ 写操作账号与生命周期', () => {
     render();
     return { ...f, render, session: () => session! };
   }
+  it('提交后在同一条横幅显示加载，普通读回成功即可确认，不依赖写回执', async () => {
+    const f = harness();
+    let finish!: (value: boolean) => void;
+    let pending!: Promise<boolean>;
+    await act(async () => {
+      pending = f.session().run(async () => ({ state: 'unconfirmed' }), undefined, {
+        readback: () =>
+          new Promise<boolean>((resolve) => {
+            finish = resolve;
+          }),
+      });
+    });
+    const toast = useToast.getState().toasts[0]!;
+    expect(toast.title).toBe('正在确认操作完成情况');
+    expect(toast.loading).toBe(true);
+    expect(f.host.textContent).toBe('');
+    const banner = fixture();
+    act(() => banner.root.render(h(ToastHost)));
+    expect(banner.host.querySelector('.weq-toast-host [aria-label="加载中"]')).not.toBeNull();
+    await act(async () => {
+      finish(true);
+      await pending;
+    });
+    expect(useToast.getState().toasts).toHaveLength(1);
+    expect(useToast.getState().toasts[0]).toMatchObject({
+      id: toast.id,
+      tone: 'success',
+      loading: false,
+      title: '操作已完成',
+    });
+    expect(banner.host.querySelector('[aria-label="加载中"]')).toBeNull();
+  });
+  it('普通读取一直不返回时，十五秒内在原横幅提示超时，迟到成功不覆盖它', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      let resolve!: (matched: boolean) => void;
+      const action = vi.fn(async (): Promise<QQWriteOutcome> => ({ state: 'accepted' }));
+      let pending!: Promise<boolean>;
+      await act(async () => {
+        pending = f.session().run(action, undefined, {
+          requireReadback: true,
+          readback: () =>
+            new Promise<boolean>((done) => {
+              resolve = done;
+            }),
+        });
+      });
+      const id = useToast.getState().toasts[0]!.id;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15000);
+        expect(await pending).toBe(false);
+      });
+      expect(useToast.getState().toasts[0]).toMatchObject({ id, tone: 'warning', loading: false });
+      expect(String(useToast.getState().toasts[0]!.title)).toContain('确认超时');
+      await act(async () => resolve(true));
+      expect(useToast.getState().toasts[0]!.tone).toBe('warning');
+      expect(f.host.textContent).toBe('');
+      expect(action).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('输入状态等瞬时请求可以跳过与其无关的资料缓存刷新', async () => {
     const f = harness();
     await act(async () => {
@@ -275,11 +340,34 @@ describe('QQ 写操作账号与生命周期', () => {
     expect(mocked.invalidate).not.toHaveBeenCalled();
     expect(mocked.invalidateStatus).not.toHaveBeenCalled();
   });
+  it('没有可核对字段时仍刷新普通读取，但不凭确认回执显示成功', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      const refresh = vi.fn(async () => undefined);
+      let pending!: Promise<boolean>;
+      await act(async () => {
+        pending = f.session().run(async () => ({ state: 'confirmed' }), refresh);
+      });
+      expect(refresh).toHaveBeenCalledOnce();
+      expect(useToast.getState().toasts[0]?.loading).toBe(true);
+      await act(async () => {
+        await vi.runAllTimersAsync();
+        await pending;
+      });
+      expect(useToast.getState().toasts).toHaveLength(1);
+      expect(useToast.getState().toasts[0]).toMatchObject({ tone: 'warning', loading: false });
+      expect(f.host.textContent).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('群名片受理后刷新同群成员列表、排序、解析与搜索缓存', async () => {
     const f = harness();
     await act(async () => {
       await f.session().run(async () => ({ state: 'accepted' }), undefined, {
         groupCode: '123',
+        readback: async () => true,
       });
     });
     expect(mocked.invalidateMembers).toHaveBeenCalledTimes(5);
@@ -292,12 +380,14 @@ describe('QQ 写操作账号与生命周期', () => {
     const observer = vi.fn(async (_update: QQPeerUpdate) => {});
     cleanups.push(subscribeQQPeerUpdates(observer));
     await act(async () => {
-      await f
-        .session()
-        .run(async () => ({ state: 'accepted' }), undefined, { profileUid: 'u_peer' });
+      await f.session().run(async () => ({ state: 'accepted' }), undefined, {
+        profileUid: 'u_peer',
+        readback: async () => true,
+      });
       await f.session().run(async () => ({ state: 'accepted' }), undefined, {
         groupCode: '123',
         memberUid: 'u_peer',
+        readback: async () => true,
       });
     });
     const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
@@ -327,7 +417,8 @@ describe('QQ 写操作账号与生命周期', () => {
       });
       expect(action).toHaveBeenCalledOnce();
       expect(readback).toHaveBeenCalledTimes(synced ? 2 : 4);
-      expect(f.host.textContent?.includes('本机尚未同步')).toBe(!synced);
+      expect(f.host.textContent).toBe('');
+      expect(useToast.getState().toasts.at(-1)?.tone).toBe(synced ? 'success' : 'warning');
     } finally {
       vi.useRealTimers();
     }
@@ -345,7 +436,7 @@ describe('QQ 写操作账号与生命周期', () => {
           pending = f.session().run(action, undefined, {
             readback,
             requireReadback: true,
-            readbackSuccessText: '本机 QQ 状态已核对；服务端子回执仍未确认',
+            readbackSuccessText: '已开启免打扰',
           });
         });
         await act(async () => {
@@ -354,8 +445,10 @@ describe('QQ 写操作账号与生命周期', () => {
         });
         expect(action).toHaveBeenCalledOnce();
         expect(readback).toHaveBeenCalledTimes(synced ? 1 : 4);
-        expect(f.host.textContent).toContain(synced ? '本机 QQ 状态已核对' : '本机尚未同步');
-        expect(f.host.textContent).not.toContain('服务端已确认');
+        expect(String(useToast.getState().toasts.at(-1)?.title)).toContain(
+          synced ? '已开启免打扰' : '确认超时',
+        );
+        expect(f.host.textContent).not.toContain('QQ 已确认');
       } finally {
         vi.useRealTimers();
       }
@@ -389,14 +482,18 @@ describe('QQ 写操作账号与生命周期', () => {
       async (_binding: QQWriteBinding): Promise<QQWriteOutcome> => ({ state: 'accepted' }),
     );
     await act(async () => {
-      await Promise.all([f.session().run(action), f.session().run(action)]);
+      await Promise.all([
+        f.session().run(action, undefined, { readback: async () => true }),
+        f.session().run(action),
+      ]);
     });
     expect(action).toHaveBeenCalledOnce();
     expect(action).toHaveBeenCalledWith({
       expectedAccountUin: '10001',
       expectedAccountConfigId: 'source-a',
     });
-    expect(f.host.textContent).toContain('等待 QQ 同步');
+    expect(f.host.textContent).toBe('');
+    expect(useToast.getState().toasts.at(-1)?.title).toBe('操作已完成');
     expect(mocked.invalidateStatus).toHaveBeenCalledOnce();
   });
 
@@ -450,11 +547,11 @@ describe('QQ 写操作账号与生命周期', () => {
     mocked.invalidate.mockRejectedValue(new Error('cache error'));
     const action = vi.fn(async (): Promise<QQWriteOutcome> => ({ state: 'accepted' }));
     await act(async () => {
-      await f.session().run(action);
+      await f.session().run(action, undefined, { readback: async () => true });
     });
     expect(action).toHaveBeenCalledOnce();
-    expect(f.session().result?.error).toBe(false);
-    expect(f.host.textContent).toContain('本机刷新失败');
+    expect(f.session().result).toBeNull();
+    expect(useToast.getState().toasts.at(-1)?.tone).toBe('success');
   });
 
   it('资料后台刷新未结束时释放保存锁，允许继续提交其他字段', async () => {
@@ -488,7 +585,7 @@ describe('QQ 写操作账号与生命周期', () => {
       });
       failRefresh(new Error('late cache error'));
     });
-    expect(f.host.textContent).toBe(qqWriteOutcomeText({ state: 'confirmed' }));
+    expect(f.host.textContent).toBe('');
   });
 
   it('离线不发请求；未确认的回包不会显示已生效', async () => {

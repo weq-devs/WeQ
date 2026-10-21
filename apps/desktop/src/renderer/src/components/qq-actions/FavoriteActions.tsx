@@ -1,20 +1,13 @@
 import { useEffect, useState } from 'react';
-import {
-  ArrowDown,
-  ArrowUp,
-  MoreHorizontal,
-  Pencil,
-  Plus,
-  RotateCw,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { ArrowUpToLine, MoreHorizontal, Pencil, Plus, RotateCw, Trash2, X } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 import { useDialog } from '../Dialog';
 import { useTabActive } from '../RetainedTabs';
+import { FavoriteBundleExport } from './FavoriteBundleExport';
+import { FavoriteBundleImport } from './FavoriteBundleImport';
 import '../../styles/group-content-management.css';
 import '../../styles/qq-management.css';
 import {
@@ -30,6 +23,8 @@ function FavoriteActionsBody() {
   const a = useQQAction('favorites');
   const confirm = useDialog((s) => s.confirm);
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const disabled = a.disabled || importing;
   const [picture, setPicture] = useState<{ path: string; fileName: string } | null>(null);
   const autoRefresh = useQQAutoRefresh(a.available);
   const list = trpc.account.qqActions.favorites.useQuery({ ...a.binding! }, autoRefresh);
@@ -43,9 +38,19 @@ function FavoriteActionsBody() {
         <h3>收藏表情</h3>
         <div>
           <span>{list.data?.length ?? 0} 项</span>
+          <FavoriteBundleImport
+            binding={a.binding}
+            available={a.available && !a.pending}
+            onBusyChange={setImporting}
+            onChanged={refresh}
+          />
+          <FavoriteBundleExport
+            binding={a.binding}
+            disabled={disabled || list.isLoading || Boolean(list.error)}
+          />
           <ActionIcon
             label="新建收藏表情"
-            disabled={a.disabled || adding}
+            disabled={disabled || adding}
             onClick={() => setAdding(true)}
           >
             <Plus size={16} />
@@ -56,7 +61,7 @@ function FavoriteActionsBody() {
         {adding && (
           <div className="weq-qq-action-bar weq-favorite-add" aria-label="添加收藏表情编辑器">
             <ImageAction
-              disabled={a.disabled}
+              disabled={disabled}
               onClick={() =>
                 void a.pickImage().then((f) => {
                   if (f) setPicture(f);
@@ -66,11 +71,12 @@ function FavoriteActionsBody() {
             <span>{picture?.fileName}</span>
             <SaveAction
               label="添加收藏表情"
-              disabled={a.disabled || !picture}
+              disabled={disabled || !picture}
               onClick={() => {
                 if (picture) {
                   const submitted = picture;
                   let accepted = false;
+                  const before = new Set(list.data?.map((item) => item.emojiId));
                   void a.perform(
                     async (b) => {
                       const result = await client.account.qqActions.favorite.mutate({
@@ -87,6 +93,14 @@ function FavoriteActionsBody() {
                         setAdding(false);
                       }
                       await refresh();
+                    },
+                    undefined,
+                    {
+                      readback: async () => {
+                        const result = await list.refetch();
+                        if (result.error) throw result.error;
+                        return result.data?.some((item) => !before.has(item.emojiId)) ?? false;
+                      },
                     },
                   );
                 }
@@ -140,7 +154,7 @@ function FavoriteActionsBody() {
                 emojiId={f.emojiId}
                 desc={f.desc}
                 position={f.position}
-                count={list.data.length}
+                importing={importing}
                 onChanged={refresh}
               />
             </li>
@@ -156,16 +170,17 @@ function FavoriteRow({
   emojiId,
   desc,
   position,
-  count,
+  importing,
   onChanged,
 }: {
   emojiId: string;
   desc: string;
   position: number;
-  count: number;
+  importing: boolean;
   onChanged: () => Promise<void>;
 }) {
   const a = useQQAction(`favorite:${emojiId}`);
+  const disabled = a.disabled || importing;
   const active = useTabActive();
   const confirm = useDialog((s) => s.confirm);
   const [draft, setDraft] = useState<string | null>(null);
@@ -179,7 +194,7 @@ function FavoriteRow({
       className="weq-qq-favorite-row"
       onContextMenu={(event) => {
         if (
-          a.disabled ||
+          disabled ||
           (event.target instanceof Element && event.target.closest('input, textarea'))
         )
           return;
@@ -194,7 +209,7 @@ function FavoriteRow({
           className="weq-set-iconbtn"
           aria-label="表情操作"
           title="表情操作"
-          disabled={a.disabled}
+          disabled={disabled}
           onClick={(event) => {
             const rect = event.currentTarget.getBoundingClientRect();
             setMenu({ x: rect.left, y: rect.bottom });
@@ -214,7 +229,7 @@ function FavoriteRow({
           <div className="weq-qq-action-bar">
             <SaveAction
               label="保存表情备注"
-              disabled={a.disabled || value === desc}
+              disabled={disabled || value === desc}
               onClick={() => {
                 let accepted = false;
                 void a.perform(
@@ -231,6 +246,15 @@ function FavoriteRow({
                   async () => {
                     if (accepted) setDraft((current) => (current === value ? null : current));
                     await onChanged();
+                  },
+                  undefined,
+                  {
+                    readback: async () => {
+                      const rows = await client.account.qqActions.favorites.query({
+                        ...a.binding!,
+                      });
+                      return rows.some((row) => row.emojiId === emojiId && row.desc === value);
+                    },
                   },
                 );
               }}
@@ -264,13 +288,13 @@ function FavoriteRow({
             {
               label: '修改表情备注',
               icon: <Pencil size={15} />,
-              disabled: a.disabled,
+              disabled,
               action: () => setDraft((current) => current ?? desc),
             },
             {
-              label: '上移表情',
-              icon: <ArrowUp size={15} />,
-              disabled: a.disabled || position <= 1,
+              label: '移到最前',
+              icon: <ArrowUpToLine size={15} />,
+              disabled: disabled || position <= 1,
               action: () =>
                 void a.perform(
                   (b) =>
@@ -278,31 +302,24 @@ function FavoriteRow({
                       ...b,
                       action: 'move',
                       emojiId,
-                      position: position - 1,
+                      position: 1,
                     }),
                   onChanged,
-                ),
-            },
-            {
-              label: '下移表情',
-              icon: <ArrowDown size={15} />,
-              disabled: a.disabled || position >= count,
-              action: () =>
-                void a.perform(
-                  (b) =>
-                    client.account.qqActions.favorite.mutate({
-                      ...b,
-                      action: 'move',
-                      emojiId,
-                      position: position + 1,
-                    }),
-                  onChanged,
+                  undefined,
+                  {
+                    readback: async () => {
+                      const rows = await client.account.qqActions.favorites.query({
+                        ...a.binding!,
+                      });
+                      return rows.some((row) => row.emojiId === emojiId && row.position === 1);
+                    },
+                  },
                 ),
             },
             {
               label: '删除收藏表情',
               icon: <Trash2 size={15} />,
-              disabled: a.disabled,
+              disabled,
               separatorBefore: true,
               action: () =>
                 void a.perform(
@@ -310,6 +327,14 @@ function FavoriteRow({
                     client.account.qqActions.favorite.mutate({ ...b, action: 'delete', emojiId }),
                   onChanged,
                   `从 QQ 收藏中删除这张表情${desc ? `「${desc}」` : ''}？`,
+                  {
+                    readback: async () => {
+                      const rows = await client.account.qqActions.favorites.query({
+                        ...a.binding!,
+                      });
+                      return !rows.some((row) => row.emojiId === emojiId);
+                    },
+                  },
                 ),
             },
           ]}

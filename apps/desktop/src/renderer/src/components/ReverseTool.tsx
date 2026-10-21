@@ -1,5 +1,5 @@
 ﻿/**
- * 妙妙工具「Protobuf / JCE 逆向」面板。
+ * 维护与诊断工具「Protobuf / JCE 逆向」面板。
  *
  * 输入 hex / base64 → 按 protobuf 或 JCE（QQHook TarsParser 语义）解析为
  * {tag: value} 简洁 JSON。默认「简洁」视图就是 CyberChef 风格的纯 JSON

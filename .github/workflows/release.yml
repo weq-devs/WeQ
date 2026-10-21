@@ -6,7 +6,7 @@ name: Release
 #   - Linux  : AppImage / tar.gz，x64 与 arm64 两个架构
 #   - macOS  : dmg + zip（自动更新读取 latest-mac.yml），x64 与 arm64 两个架构
 # 最后的 notes job 会用「中文说明 + GitHub 自动生成的 commit 变更列表」
-# 覆写 Release 正文，并标注 aarch64 未经真机实测、macOS 产物未签名。
+# 覆写 Release 正文，并标注 aarch64 未经真机实测、macOS 产物未公证。
 on:
   push:
     tags:
@@ -364,9 +364,9 @@ jobs:
   # 在原生 Intel runner（macos-15-intel；macos-13 已于 2025-12 退役）上构建，
   # 让 sherpa-onnx / resvg 装到 x64 版本，native/darwin/x64 预编译二进制随
   # extraFiles 进包。
-  # ⚠️ 未配置 Apple Developer 证书（CSC_LINK / CSC_KEY_PASSWORD）时产物不签名，
-  # 首次打开需右键 → 打开；需要签名 / 公证时再补 secrets，这里显式关掉
-  # identity 自动发现，避免 electron-builder 在无证书机器上白等。
+  # 未配置 Developer ID 证书时由 mac.sign 补 ad-hoc 签名并严格校验资源封装，
+  # 不是 Apple 公证，首次仍需在「隐私与安全性」中对可信来源手动放行。
+  # 关闭 identity 自动发现不跳过自定义 sign；不需要付费证书或更改系统安全策略。
   macos-x64:
     needs: [windows]
     runs-on: macos-15-intel
@@ -702,7 +702,7 @@ jobs:
   # ======================= Release 说明（中文）=======================
   # 等所有产物都发完（Release 已存在），用「中文说明头 + GitHub 自动
   # 生成的 commit/PR 变更列表」覆写 Release 正文，并标注 aarch64 未实测、
-  # macOS 未签名。
+  # macOS 使用 ad-hoc 签名、未公证。
   notes:
     needs: [windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web]
     runs-on: ubuntu-latest
@@ -803,8 +803,8 @@ jobs:
           - **Windows**: \`weQ-${TAG#v}-setup.exe\`
           - **Linux x64**: \`weQ-${TAG#v}-linux-x86_64.AppImage\` / \`.tar.gz\`
           - **Linux arm64（未实测）**: \`weQ-${TAG#v}-linux-arm64.AppImage\` / \`.tar.gz\`
-          - **macOS Intel (x64)**: \`weQ-${TAG#v}-mac-x64.dmg\`（未签名）
-          - **macOS Apple Silicon (arm64)**: \`weQ-${TAG#v}-mac-arm64.dmg\`（未签名）
+          - **macOS Intel (x64)**: \`weQ-${TAG#v}-mac-x64.dmg\`（ad-hoc 签名，未公证）
+          - **macOS Apple Silicon (arm64)**: \`weQ-${TAG#v}-mac-arm64.dmg\`（ad-hoc 签名，未公证）
           - **浏览器版 Web**（需自备 Node ≥22，每平台一个压缩包，按运行机器选）：
             - Windows x64: \`weq-web-${TAG#v}-win32-x64.tar.gz\`
             - Linux x64: \`weq-web-${TAG#v}-linux-x64.tar.gz\`
@@ -813,6 +813,10 @@ jobs:
             - macOS Apple Silicon (arm64): \`weq-web-${TAG#v}-darwin-arm64.tar.gz\`
             每个包自带对应平台的 native 原生模块与 Rust 守护进程二进制，
             详见[使用说明](https://github.com/${REPO}/blob/main/apps/web/README.md)
+
+          ### macOS 首次打开
+          将 WeQ 拖入“应用程序”后打开。只有确认下载来源可信时，才在“系统设置 → 隐私与安全性”对 WeQ 点“仍要打开”。无需终端命令，不关闭 SIP；“已损坏”或恶意软件警告不能当作普通首次提醒处理。
+          详见[图形化安装说明](https://github.com/${REPO}/blob/${TAG}/docs/guide/macos-install.md)。
 
           ### 变更
           ${CHANGES}

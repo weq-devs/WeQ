@@ -7,6 +7,8 @@ import { UnreadInfoService } from '../src/account/unread_info';
 import type { AccountSession } from '@weq/account';
 import type { NewMessages } from '../src/account/nt_msg_hook';
 import type { UnreadInfoSnapshot } from '@weq/db';
+import { DATALINE_UID_TO_DEVICE, ChatType } from '@weq/codec';
+import { SendType } from '@weq/codec/proto/msg/40900';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -15,6 +17,47 @@ afterEach(() => {
 });
 
 describe('未读服务事件与阅读', () => {
+  it('设备入站计数，电脑发出和回声不增未读，真实阅读后旧事件不复活', async () => {
+    const f = setup();
+    const phone = Object.keys(DATALINE_UID_TO_DEVICE).find(
+      (uid) => DATALINE_UID_TO_DEVICE[uid] === 'phone',
+    )!;
+    const pc = Object.keys(DATALINE_UID_TO_DEVICE).find(
+      (uid) => DATALINE_UID_TO_DEVICE[uid] === 'pc',
+    )!;
+    const chatType = ChatType.KCHATTYPEDATALINE;
+    const row = {
+      chatType,
+      uid: phone,
+      peer: `${chatType}_${phone}`,
+      latestSeq: '9000',
+      msgSeq: 9000,
+    };
+    f.getUnreadInfos.mockResolvedValue([row]);
+    await f.query();
+    const incoming = {
+      ...f.base,
+      targetUid: phone,
+      senderUid: phone,
+      sendType: BigInt(SendType.OTHER_CLIENT),
+      chatType,
+    };
+    f.service.observeNewMessages({
+      ...f.change,
+      c2c: [],
+      dataline: [
+        incoming,
+        { ...incoming, msgSeq: 9002n, senderUid: pc, sendType: BigInt(SendType.LOCAL) },
+      ],
+    });
+    f.getUnreadInfos.mockResolvedValue([{ ...row, latestSeq: '9002' }]);
+    expect((await f.query())[0]?.unreadCount).toBe(1);
+    f.service.observeNewMessages({ ...f.change, c2c: [], dataline: [incoming] });
+    expect((await f.query())[0]?.unreadCount).toBe(1);
+    await f.service.markLocalRead(chatType, phone, '9002');
+    f.service.observeNewMessages({ ...f.change, c2c: [], dataline: [incoming] });
+    expect((await f.query())[0]?.unreadCount).toBe(0);
+  });
   function setup(readOnly = false) {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-10-19T02:00:00+08:00'));

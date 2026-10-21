@@ -14,6 +14,24 @@ const row = (seq: number, extra: Partial<TimelineRow> = {}): TimelineRow => ({
 });
 
 describe('roaming timeline projection', () => {
+  it('64 位相邻序号不转浮点，同序号用时间和真实 ID 稳定排序并保留多条', () => {
+    const first = { msgSeq: '9007199254740992', msgId: '100', sendTime: '10' };
+    const second = { msgSeq: '9007199254740993', msgId: '1', sendTime: '9' };
+    expect(mergeRoamingTimeline('group', [second, first], []).map((item) => item.msgId)).toEqual([
+      '100',
+      '1',
+    ]);
+    const rows = [
+      { msgSeq: '1', msgId: '10', sendTime: '2' },
+      { msgSeq: '1', msgId: '2', sendTime: '1' },
+      { msgSeq: '1', msgId: '9', sendTime: '2' },
+    ];
+    expect(mergeRoamingTimeline('group', rows, []).map((item) => item.msgId)).toEqual([
+      '2',
+      '9',
+      '10',
+    ]);
+  });
   it('deduplicates a protocol row against a local row by sequence, random and sender', () => {
     const local = row(19749, { msgId: '90000000001', msgRandom: '1234', senderUid: 'u_me' });
     const remote = row(19749, {

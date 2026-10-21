@@ -20,6 +20,7 @@
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTabActive } from '../../components/RetainedTabs';
+import { FavoriteBundleControls } from '../../components/qq-actions/FavoriteBundleControls';
 import {
   ArrowLeft,
   Clock,
@@ -121,7 +122,19 @@ export function EmojiPanel({
   const superGroups = systemGroups.filter((g) => g.label !== SMALL_FACE_LABEL);
 
   return (
-    <div className={cn('emoji-panel')} ref={panelRef} aria-label="表情面板">
+    <div
+      className={cn('emoji-panel')}
+      ref={panelRef}
+      aria-label="表情面板"
+      data-favorite-toolbar={tab === 'fav' || undefined}
+    >
+      {tab === 'fav' && (
+        <FavoriteBundleControls
+          onChanged={async () => {
+            await overview.refetch();
+          }}
+        />
+      )}
       <div className={cn('emoji-panel-body')}>
         {tab === 'recent' ? (
           <FaceGrid

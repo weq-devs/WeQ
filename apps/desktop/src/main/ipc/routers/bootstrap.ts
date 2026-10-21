@@ -15,6 +15,7 @@
 
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
+import { isToastDuration } from '@weq/service/toast-settings';
 import {
   copyExportSavePolicy,
   resolveExportSaveDirectory,
@@ -642,6 +643,23 @@ export const bootstrapRouter = router({
       requireBootstrap().userConfig.setSettings({ windowCloseBehavior: input.behavior });
       return true;
     }),
+
+  setToastDuration: procedure
+    .input(
+      z.object({
+        kind: z.enum(['success', 'failure']),
+        seconds: z.number().int().refine(isToastDuration, '请输入 -1 或 1 至 86400 的整数秒数'),
+      }),
+    )
+    .mutation(
+      ({ input }) =>
+        requireBootstrap().userConfig.setSettings({
+          toastDurations:
+            input.kind === 'success'
+              ? { successSeconds: input.seconds }
+              : { failureSeconds: input.seconds },
+        }).toastDurations,
+    ),
 
   /**
    * 是否把纯文本消息里的 Markdown 也渲染。渲染层通过 App.tsx 的 TextMarkdownContext

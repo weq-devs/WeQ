@@ -19,7 +19,6 @@
  */
 import {
   Award,
-  BadgeCheck,
   BarChart3,
   Bot,
   BrainCircuit,
@@ -48,6 +47,7 @@ import type { User } from '../im-template/template/types';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { PersonalityHomeDialog } from './PersonalityHomeDialog';
+import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
 import { MemberAnalyticsDialog } from './MemberAnalyticsDialog';
 import { IntentProfileDialog } from './intentSense/IntentProfileDialog';
 import { useIntentSenseStatus } from './intentSense/context';
@@ -133,9 +133,9 @@ export function MemberProfileCard({
   const cardRef = useRef(null);
   const [pos, setPos] = useState({ left: anchor.x + 14, top: anchor.y + 8, ready: false });
 
-  // 真正的 uid 在 member.id；member.identityValue 展示用的是 uin（QQ号）。
-  // getProfile 需要 uid，早先误传 identityValue(=uin) 会拉不到 profile_info_v6。
-  const uid = member.id;
+  // 自己的本地 id 可能是 self:<uin>；优先真实 uid，缺失时先按 QQ 号补资料。
+  const lookupUid = member.uid || (member.id.startsWith('self:') ? '' : member.id);
+  const uid = lookupUid || profile?.uid || '';
   const canAnalyze = Boolean(groupCode && uid);
 
   // 补全陌生人资料字段。
@@ -143,8 +143,9 @@ export function MemberProfileCard({
     let alive = true;
     setLoading(true);
     setProfile(null);
-    const pending = uid
-      ? client.account.getProfile.query({ uid })
+    // 查询身份只来自点击对象，补全得到的 UID 不应重新触发清空与读取。
+    const pending = lookupUid
+      ? client.account.getProfile.query({ uid: lookupUid })
       : client.account.getProfileByUin.query({ uin: member.identityValue });
     pending
       .then((p) => {
@@ -159,7 +160,7 @@ export function MemberProfileCard({
     return () => {
       alive = false;
     };
-  }, [uid, member.identityValue]);
+  }, [lookupUid, member.identityValue]);
 
   // 机器人才去查 adelie 表；member.kind 来自 MainView 里的 botUids 集合。
   useEffect(() => {
@@ -341,21 +342,20 @@ export function MemberProfileCard({
                 </div>
               ) : null}
 
-              {member.customTitle ? (
-                <div className="weq-profile-chips">
-                  <span className="weq-member-title">
-                    <BadgeCheck size={12} />
-                    {member.customTitle}
-                  </span>
-                </div>
-              ) : null}
-
               {botProfile?.description || profile?.signature ? (
                 <p className="weq-profile-sign">{botProfile?.description || profile.signature}</p>
               ) : null}
             </div>
 
             <div className="weq-profile-list">
+              {groupCode && uid ? (
+                <QQGroupMemberControls
+                  key={`${groupCode}:${uid}`}
+                  groupCode={groupCode}
+                  uid={uid}
+                  profile={{ card: member.card, title: member.customTitle }}
+                />
+              ) : null}
               {levelText ? (
                 <ProfileRow icon={<Award size={13} />} label="群等级" value={levelText} />
               ) : null}
@@ -370,6 +370,9 @@ export function MemberProfileCard({
                   mono
                   accent
                 />
+              ) : null}
+              {member.kind !== 'bot' && uin ? (
+                <ProfileLikesRow uid={uid} uin={uin} name={displayUserName(member)} />
               ) : null}
               {joinedAt ? (
                 <ProfileRow icon={<CalendarDays size={13} />} label="入群时间" value={joinedAt} />
@@ -436,10 +439,6 @@ export function MemberProfileCard({
                   ))}
                 </ul>
               </div>
-            ) : null}
-
-            {groupCode && uid ? (
-              <QQGroupMemberControls key={`${groupCode}:${uid}`} groupCode={groupCode} uid={uid} />
             ) : null}
 
             {/* 个性主页 / 互动标识都要拿 QQ 号去查——profile 还没到或没 uin 时不给入口。

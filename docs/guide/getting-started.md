@@ -13,6 +13,8 @@
 
 首次启动需要保证本机已经安装 **QQ NT**：WeQ 读取的是 QQ 的本地数据库，没有 QQ 就没有数据。
 
+macOS 的拖入安装与首次系统放行见 [macOS 安装与首次打开](./macos-install.md)，不需要终端命令或关闭 SIP。
+
 ## 2. 首页：Bootstrap 界面
 
 启动后先看到的是 Bootstrap 首页。左上角是品牌 Logo 与版本名，右上角固定两个小按钮：

@@ -1,0 +1,28 @@
+.weq-toast:has(> .weq-toast-open) {
+  position: relative;
+}
+.weq-toast-open {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.weq-toast-open:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -3px;
+  border-radius: inherit;
+}
+.weq-toast-open ~ .weq-toast-header button,
+.weq-toast-open ~ .weq-toast-body-wrapper {
+  position: relative;
+  z-index: 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-toast-icon .weq-spin {
+    animation: none;
+  }
+}

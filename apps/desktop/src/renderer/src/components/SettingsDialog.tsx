@@ -1127,8 +1127,8 @@ function ComponentStyleRow({
         <span className="weq-settings-preset-preview is-style-soon" aria-hidden="true">
           <Lock size={16} />
         </span>
-        <strong>敬请期待</strong>
-        <small>更多组件套规划中</small>
+        <strong>暂未提供</strong>
+        <small>暂无其他组件风格可选</small>
       </div>
     </div>
   );

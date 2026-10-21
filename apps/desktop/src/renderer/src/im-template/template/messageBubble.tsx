@@ -341,6 +341,7 @@ export function MessageBubble({
     }
   }
 
+  const SelfAvatar = onAvatarClick ? 'button' : 'span';
   return (
     <div
       className={cn(
@@ -575,8 +576,24 @@ export function MessageBubble({
         ) : null}
       </div>
       {mine ? (
-        <span
-          className={cn('message-avatar-wrap', 'is-self')}
+        <SelfAvatar
+          className={cn(onAvatarClick ? 'message-avatar-button' : 'message-avatar-wrap', 'is-self')}
+          {...(onAvatarClick
+            ? {
+                type: 'button',
+                title: '查看资料',
+                'aria-label': `查看 ${senderName} 的资料`,
+                onClick: (event: ReactMouseEvent<HTMLButtonElement>) => {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  onAvatarClick(
+                    sender,
+                    event.detail
+                      ? { x: event.clientX, y: event.clientY }
+                      : { x: rect.left, y: rect.bottom },
+                  );
+                },
+              }
+            : {})}
           onContextMenu={
             onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
           }
@@ -588,7 +605,7 @@ export function MessageBubble({
             widget={lineWidget}
             fallbackUrl={pendantUrl}
           />
-        </span>
+        </SelfAvatar>
       ) : null}
     </div>
   );

@@ -91,6 +91,7 @@ import {
   FileAssistantService,
   FileSearchService,
   EmojiService,
+  FavoriteEmojiImportSession,
   MsgSearchService,
   UnifiedSearchService,
   ContentSearchStore,
@@ -207,7 +208,7 @@ export interface AccountForcedClosedEvent {
   /**
    * 出问题的是哪个账号。
    *
-   * 弹窗靠它把用户送到**正确的那一个**账号上：点「尝试修复」直接落到妙妙工具的
+   * 弹窗靠它把用户送到**正确的那一个**账号上：点「尝试修复」直接落到维护与诊断工具的
    * 数据库修复页，并把账号预选好。多账号下不传这个就会修到别人的库上。
    */
   uin: string;
@@ -374,6 +375,7 @@ const ANNUAL_INDEX_WARMUP_DELAY_MS = 3000;
 function mountDbWatch(session: AccountSession): void {
   if (dbWatchHandle) return;
   const emitChanged = trailingDebounce((file: DbChange) => {
+    if (getAppContext().account !== session) return;
     dbEventBus.emit('changed', file);
   }, 200);
   dbWatchHandle = dbWatch.mount(
@@ -381,6 +383,7 @@ function mountDbWatch(session: AccountSession): void {
       onDbChanged: emitChanged,
       onNewMessages: (change: NewMessages) => {
         const ctx = getAppContext();
+        if (ctx.account !== session) return;
         if (ctx.account === session) {
           try {
             ctx.services?.unreadInfo.observeNewMessages(change);
@@ -767,6 +770,7 @@ export interface AccountServices {
   fileAssistant: FileAssistantService;
   /** Decrypt + cache market-face (store sticker) images. */
   emoji: EmojiService;
+  favoriteEmojiImport: FavoriteEmojiImportSession;
   /** Friend clone / AgentLab personas bound to the current account. */
   agentLab: AgentLabService;
   /** WeQ assistant (tool-calling agent) bound to the current account. */
@@ -1232,6 +1236,7 @@ export function initAppContext(): AppContext {
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       this.services?.roamingBackfill.dispose();
+      void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
       this.services?.unreadInfo.dispose();
       this.account?.dispose();
@@ -1409,6 +1414,7 @@ export function initAppContext(): AppContext {
         nt: platform.native.ntHelper,
         resolvePid: resolveOnlinePid,
       });
+      const favoriteImportFiles = new FileResourceService(session, platform);
       // 内置表情补全：QQ 的 EmojiSystermResource 目录缺失时按需下 CDN 资源包。
       // 表情全账号通用，所以缓存不按账号分目录；资源浏览器与 weq-asset 协议
       // 都把它当作 QQ 目录之后的第二个查找根。
@@ -1552,6 +1558,7 @@ export function initAppContext(): AppContext {
         mediaUrl,
         fileAssistant: new FileAssistantService(session),
         emoji: emojiService,
+        favoriteEmojiImport: new FavoriteEmojiImportSession(emojiService, favoriteImportFiles),
         agentLab: new AgentLabService(
           session,
           agentlabRoot,
@@ -1845,7 +1852,7 @@ export function initAppContext(): AppContext {
         marketEmoji: new MarketEmojiResourceService(session, platform),
         customEmoji: new CustomEmojiResourceService(session, platform),
         relatedEmoji: new RelatedEmojiResourceService(session, platform),
-        fileResource: new FileResourceService(session, platform),
+        fileResource: favoriteImportFiles,
         mediaResource: new MediaResourceService(session, platform),
         composeImage: new ComposeImageService(session, platform),
         resourceCleanup: new ResourceCleanupService(session, platform),
@@ -2064,6 +2071,7 @@ export function initAppContext(): AppContext {
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
       this.services?.roamingBackfill.dispose();
+      void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
       this.services?.unreadInfo.dispose();
       this.account?.dispose();
@@ -2225,6 +2233,7 @@ export function initAppContext(): AppContext {
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
       // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
       const emojiService = new EmojiService(session, staticPlatform);
+      const favoriteImportFiles = new FileResourceService(session, staticPlatform);
       // 内置表情补全：QQ 的 EmojiSystermResource 目录缺失时按需下 CDN 资源包。
       // 表情全账号通用，所以缓存不按账号分目录；资源浏览器与 weq-asset 协议
       // 都把它当作 QQ 目录之后的第二个查找根。
@@ -2340,6 +2349,7 @@ export function initAppContext(): AppContext {
         mediaUrl,
         fileAssistant: new FileAssistantService(session),
         emoji: emojiService,
+        favoriteEmojiImport: new FavoriteEmojiImportSession(emojiService, favoriteImportFiles),
         agentLab: new AgentLabService(
           session,
           agentlabRoot,
@@ -2542,7 +2552,7 @@ export function initAppContext(): AppContext {
         marketEmoji: new MarketEmojiResourceService(session, staticPlatform),
         customEmoji: new CustomEmojiResourceService(session, staticPlatform),
         relatedEmoji: new RelatedEmojiResourceService(session, staticPlatform),
-        fileResource: new FileResourceService(session, staticPlatform),
+        fileResource: favoriteImportFiles,
         mediaResource: new MediaResourceService(session, staticPlatform),
         composeImage: new ComposeImageService(session, staticPlatform),
         resourceCleanup: new ResourceCleanupService(session, staticPlatform),
@@ -2709,6 +2719,7 @@ export function initAppContext(): AppContext {
       unmountGroupKeyword();
       unmountAntiRecallMonitor();
       this.services?.roamingBackfill.dispose();
+      void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
       this.services?.unreadInfo.dispose();
       this.services?.contentSearch.close();

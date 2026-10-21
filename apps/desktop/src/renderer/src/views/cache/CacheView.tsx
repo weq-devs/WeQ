@@ -273,8 +273,8 @@ function CachePlaceholder({ label }: { label: string }): ReactElement {
         <Construction size={30} strokeWidth={1.4} />
       </span>
       <strong className="weq-cache-empty-title">{label}</strong>
-      <p className="weq-cache-empty-desc">该分类的查看与清理功能正在开发中，敬请期待。</p>
-      <span className="weq-cache-empty-tag">开发中</span>
+      <p className="weq-cache-empty-desc">当前版本暂不支持查看或清理该分类。</p>
+      <span className="weq-cache-empty-tag">暂不支持</span>
     </div>
   );
 }

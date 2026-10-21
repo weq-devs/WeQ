@@ -1,10 +1,20 @@
-import { useState } from 'react';
-import { Check, LogOut, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, ChevronRight, LogOut, MoreHorizontal, Plus, Trash2, X } from 'lucide-react';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
+import { OverlayLayer } from '../OverlayLayer';
+import {
+  groupTodoHistoryKey,
+  groupTodoKey,
+  mergeGroupTodoHistory,
+  mergeGroupTodoSources,
+  readGroupTodoHistory,
+  saveGroupTodoHistory,
+  type GroupTodoRecord,
+} from '../../lib/groupTodoHistory';
 import '../../styles/group-content-management.css';
 import '../../styles/qq-management.css';
 import { client, trpc } from '../../trpc/client';
-import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
+import { useQQAutoRefresh, useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { GroupReadTools } from './GroupReadTools';
 import { GroupJoinSettings } from './GroupJoinSettings';
 import {
@@ -18,11 +28,19 @@ import {
 function GroupActionsBody({ groupId }: { groupId: number }) {
   const a = useQQAction(`group:${groupId}`);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const [category, setCategory] = useState(''),
-    [tag, setTag] = useState('');
-  const tagsRefresh = useQQAutoRefresh(a.available && category !== '');
+  const [tag, setTag] = useState('');
+  const groupRefresh = useQQAutoRefresh(a.available);
+  const info = trpc.account.qqActions.groupJoinSettings.useQuery(
+    { ...a.binding!, groupId },
+    groupRefresh,
+  );
+  const category =
+    a.available && !info.error && info.data?.groupId === groupId
+      ? (info.data.categoryId ?? null)
+      : null;
+  const tagsRefresh = useQQAutoRefresh(a.available && category !== null);
   const tags = trpc.account.qqActions.tags.useQuery(
-    { ...a.binding!, category: Number(category) },
+    { ...a.binding!, category: category ?? 0 },
     tagsRefresh,
   );
   return (
@@ -46,17 +64,21 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
       <div className="weq-qq-action-form">
         <GroupJoinSettings key={groupId} groupId={groupId} />
         <section className="weq-group-tags" aria-label="群分类标签">
-          <h5>分类标签</h5>
+          <h5>分类标签目录</h5>
           <div className="weq-qq-action-form">
-            <input
-              aria-label="群分类编号"
-              type="number"
-              min={0}
-              max={0xffffffff}
-              placeholder="群分类编号"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-            />
+            <select
+              key={category ?? 'unknown'}
+              aria-label="群分类"
+              defaultValue={category ?? ''}
+              disabled={a.disabled || category === null}
+            >
+              {category === null ? (
+                <option value="">{info.isFetching ? '读取分类中…' : '未取得群分类'}</option>
+              ) : (
+                <option value={category}>{info.data?.categoryName || `分类 ${category}`}</option>
+              )}
+            </select>
+            {info.error && <p role="alert">{info.error.message}</p>}
             <input
               aria-label="分类标签名称"
               placeholder="标签名称"
@@ -67,7 +89,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
             <div className="weq-qq-action-bar">
               <ActionIcon
                 label="添加分类标签"
-                disabled={a.disabled || category === '' || !tag.trim()}
+                disabled={a.disabled || category === null || !tag.trim()}
                 onClick={() =>
                   void a.perform(
                     (b) =>
@@ -75,11 +97,20 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                         ...b,
                         groupId,
                         action: 'addTag',
-                        category: Number(category),
+                        category: category ?? undefined,
                         tag,
                       }),
                     async () => {
-                      await tags.refetch();
+                      const result = await tags.refetch();
+                      if (result.error) throw result.error;
+                    },
+                    undefined,
+                    {
+                      readback: async () => {
+                        const result = await tags.refetch();
+                        if (result.error) throw result.error;
+                        return result.data?.some((item) => item.name === tag) ?? false;
+                      },
                     },
                   )
                 }
@@ -89,33 +120,44 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
             </div>
             {tags.error && <p role="alert">{tags.error.message}</p>}
             <ul className="weq-qq-action-list">
-              {tags.data?.map((t) => (
-                <li key={t.name}>
-                  <span>{t.name}</span>
-                  <ActionIcon
-                    label="删除分类标签"
-                    disabled={a.disabled}
-                    onClick={() =>
-                      void a.perform(
-                        (b) =>
-                          client.account.qqActions.groupSettings.mutate({
-                            ...b,
-                            groupId,
-                            action: 'deleteTag',
-                            category: Number(category),
-                            tag: t.name,
-                          }),
-                        async () => {
-                          await tags.refetch();
-                        },
-                        `删除分类标签「${t.name}」？`,
-                      )
-                    }
-                  >
-                    <Trash2 size={15} />
-                  </ActionIcon>
-                </li>
-              ))}
+              {category !== null &&
+                tags.data?.map((t) => (
+                  <li key={t.name}>
+                    <span>{t.name}</span>
+                    <ActionIcon
+                      label="删除分类标签"
+                      disabled={a.disabled || category === null}
+                      onClick={() =>
+                        void a.perform(
+                          (b) =>
+                            client.account.qqActions.groupSettings.mutate({
+                              ...b,
+                              groupId,
+                              action: 'deleteTag',
+                              category: category ?? undefined,
+                              tag: t.name,
+                            }),
+                          async () => {
+                            const result = await tags.refetch();
+                            if (result.error) throw result.error;
+                          },
+                          `删除分类标签「${t.name}」？`,
+                          {
+                            readback: async () => {
+                              const result = await tags.refetch();
+                              if (result.error) throw result.error;
+                              return Boolean(
+                                result.data && !result.data.some((item) => item.name === t.name),
+                              );
+                            },
+                          },
+                        )
+                      }
+                    >
+                      <Trash2 size={15} />
+                    </ActionIcon>
+                  </li>
+                ))}
             </ul>
           </div>
         </section>
@@ -143,6 +185,12 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                     }),
                   undefined,
                   `退出 QQ 群 ${groupId}？重新加入需要再次申请，不能自动恢复。`,
+                  {
+                    readback: async () => {
+                      const rows = await client.account.listAllGroups.query();
+                      return !rows.some((row) => String(row.groupCode) === String(groupId));
+                    },
+                  },
                 ),
             },
           ]}
@@ -152,19 +200,110 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
   );
 }
 export const GroupActions = withQQAccountScope(GroupActionsBody);
-function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedded?: boolean }) {
+function GroupTodosBody({
+  groupId,
+  groupName,
+  embedded = false,
+}: {
+  groupId: number;
+  groupName?: string;
+  embedded?: boolean;
+}) {
   const a = useQQAction(`todos:${groupId}`);
+  const [opened, setOpened] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; sequence: string } | null>(null);
+  const key = a.binding
+    ? groupTodoHistoryKey(a.binding.expectedAccountUin, a.binding.expectedAccountConfigId, groupId)
+    : '';
+  const [history, setHistory] = useState(() => ({ key, rows: readGroupTodoHistory(key) }));
+  const [historyError, setHistoryError] = useState('');
+  useEffect(() => {
+    setHistory({ key, rows: readGroupTodoHistory(key) });
+    setHistoryError('');
+  }, [key]);
   const permissions = useQQGroupPermissions(groupId, a);
   const autoRefresh = useQQAutoRefresh(a.available);
   const todos = trpc.account.qqActions.todoList.useQuery({ ...a.binding!, groupId }, autoRefresh);
+  const localActivity = useQQReadActivity(Boolean(a.binding), { onlineOnly: false });
+  const localTodos = trpc.account.qqActions.todoLocalList.useQuery(
+    { ...a.binding!, groupId },
+    {
+      enabled: localActivity.enabled,
+      staleTime: 0,
+      refetchOnMount: 'always',
+      refetchOnWindowFocus: 'always',
+    },
+  );
+  useEffect(() => {
+    const live = todos.data;
+    if (!key || !live) return;
+    setHistory((previous) => {
+      const rows = mergeGroupTodoHistory(
+        live,
+        previous.key === key ? previous.rows : readGroupTodoHistory(key),
+      ).filter((row) => row.completed);
+      return previous.key === key && JSON.stringify(previous.rows) === JSON.stringify(rows)
+        ? previous
+        : { key, rows };
+    });
+  }, [key, todos.data]);
+  useEffect(() => {
+    if (!key || history.key !== key) return;
+    try {
+      saveGroupTodoHistory(key, history.rows);
+    } catch {
+      setHistoryError('已完成状态保留在当前窗口，但本地记录保存失败，重新打开后可能无法恢复。');
+    }
+  }, [key, history]);
+  const entries = mergeGroupTodoHistory(
+    mergeGroupTodoSources(localTodos.data ?? [], todos.data ?? []),
+    history.key === key ? history.rows : [],
+  );
   const refresh = async () => {
-    const r = await todos.refetch();
-    if (r.error) throw r.error;
+    const [remote, local] = await Promise.all([todos.refetch(), localTodos.refetch()]);
+    if (remote.error) throw remote.error;
+    if (local.error) throw local.error;
   };
-  const isEmpty = a.available && !todos.isFetching && !todos.error && todos.data?.length === 0;
-  if (embedded && isEmpty) return null;
-  return (
+  const readError = localTodos.error || (a.available && todos.error);
+  const reading = localTodos.isFetching || (a.available && todos.isFetching);
+  const isEmpty = localTodos.data !== undefined && !reading && !readError && entries.length === 0;
+  async function complete(todo: GroupTodoRecord) {
+    await a.perform(
+      async (binding) => {
+        const result = await client.account.qqActions.todo.mutate({
+          ...binding,
+          groupId,
+          sequence: todo.sequence,
+          action: 'complete',
+        });
+        if (result.state === 'accepted' || result.state === 'confirmed') {
+          const finished = { ...todo, completed: true, updatedAt: Math.floor(Date.now() / 1000) };
+          setHistory((previous) => ({
+            key,
+            rows: mergeGroupTodoHistory(
+              [finished],
+              previous.key === key ? previous.rows : [],
+            ).filter((row) => row.completed),
+          }));
+        }
+        return result;
+      },
+      refresh,
+      undefined,
+      {
+        readback: async () => {
+          const result = await todos.refetch();
+          if (result.error) throw result.error;
+          return (
+            result.data?.some(
+              (row) => String(row.sequence) === String(todo.sequence) && row.completed,
+            ) ?? false
+          );
+        },
+      },
+    );
+  }
+  const content = (
     <section className="weq-notice-management weq-todo-content" aria-label="群待办列表">
       {!embedded ? (
         <div className="weq-content-toolbar">
@@ -176,7 +315,7 @@ function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedd
           QQ 在线能力未就绪
         </p>
       )}
-      {a.available && todos.isFetching && !todos.data && (
+      {reading && !entries.length && (
         <p className="weq-content-status" role="status">
           读取待办中…
         </p>
@@ -186,13 +325,16 @@ function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedd
           {todos.error.message}
         </p>
       )}
-      {a.available && isEmpty && (
-        <div className="group-announcements-empty weq-todo-empty">暂无群待办</div>
+      {localTodos.error && (
+        <p className="weq-content-error" role="alert">
+          本地待办读取失败：{localTodos.error.message}
+        </p>
       )}
+      {isEmpty && <div className="group-announcements-empty weq-todo-empty">暂无群待办</div>}
       <ul className="group-bulletins-list weq-todo-list">
-        {todos.data?.map((t) => (
+        {entries.map((t) => (
           <li
-            key={t.sequence}
+            key={groupTodoKey(t)}
             className="group-bulletin-item"
             onContextMenu={(event) => {
               if (!permissions.data?.canManage || a.disabled) return;
@@ -205,19 +347,8 @@ function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedd
               <div className="weq-todo-row-actions">
                 <ActionIcon
                   label="完成待办"
-                  disabled={a.disabled || t.completed}
-                  onClick={() =>
-                    void a.perform(
-                      (b) =>
-                        client.account.qqActions.todo.mutate({
-                          ...b,
-                          groupId,
-                          sequence: String(t.sequence),
-                          action: 'complete',
-                        }),
-                      refresh,
-                    )
-                  }
+                  disabled={a.disabled || Boolean(t.completed) || !/^[1-9]\d*$/.test(t.sequence)}
+                  onClick={() => void complete(t)}
                 >
                   <Check size={15} />
                 </ActionIcon>
@@ -245,6 +376,11 @@ function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedd
         ))}
       </ul>
       <ActionFeedback action={a} />
+      {historyError && (
+        <p className="weq-content-error" role="alert">
+          {historyError}
+        </p>
+      )}
       {menu && permissions.data?.canManage && (
         <ConversationActionsMenu
           x={menu.x}
@@ -258,21 +394,112 @@ function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedd
               disabled: a.disabled,
               action: () =>
                 void a.perform(
-                  (binding) =>
-                    client.account.qqActions.todo.mutate({
+                  async (binding) => {
+                    const canceled = menu.sequence;
+                    const result = await client.account.qqActions.todo.mutate({
                       ...binding,
                       groupId,
                       sequence: menu.sequence,
                       action: 'cancel',
-                    }),
+                    });
+                    if (result.state === 'accepted' || result.state === 'confirmed')
+                      setHistory((previous) => ({
+                        key,
+                        rows: (previous.key === key ? previous.rows : []).filter(
+                          (row) => row.sequence !== canceled,
+                        ),
+                      }));
+                    return result;
+                  },
                   refresh,
                   '取消这项群待办？',
+                  {
+                    readback: async () => {
+                      const result = await todos.refetch();
+                      if (result.error) throw result.error;
+                      return Boolean(
+                        result.data &&
+                          !result.data.some((row) => String(row.sequence) === menu.sequence),
+                      );
+                    },
+                  },
                 ),
             },
           ]}
         />
       )}
     </section>
+  );
+  if (!embedded) return content;
+  const latest = entries.find((todo) => !todo.completed) ?? entries[0];
+  const close = () => {
+    setOpened(false);
+    setMenu(null);
+  };
+  return (
+    <>
+      <section className="weq-group-announcement weq-group-todos" aria-label="群待办">
+        <button
+          type="button"
+          onClick={() => setOpened(true)}
+          title="查看群待办"
+          aria-label="查看群待办"
+        >
+          <span>
+            <strong>群待办</strong>
+            <ChevronRight size={14} />
+          </span>
+        </button>
+        <button
+          type="button"
+          className="weq-todo-summary"
+          aria-label="待办内容"
+          onClick={() => setOpened(true)}
+        >
+          {latest
+            ? `${latest.completed ? '已完成 · ' : ''}${latest.text || `消息 ${latest.sequence}`}`
+            : reading
+              ? '读取待办中…'
+              : readError
+                ? '待办读取失败'
+                : localTodos.data === undefined
+                  ? '待办尚未读取'
+                  : '暂无群待办'}
+        </button>
+        {historyError && <p role="alert">{historyError}</p>}
+      </section>
+      {opened && (
+        <OverlayLayer
+          presentation="sidecar"
+          title="群待办"
+          className="modal-scrim group-announcements-scrim"
+          onClose={close}
+        >
+          <section
+            className="group-announcements-dialog"
+            role="region"
+            aria-label={`${groupName || groupId}的群待办`}
+          >
+            <header>
+              <div>
+                <strong>群待办</strong>
+                <span>{groupName || groupId}</span>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                title="关闭"
+                aria-label="关闭群待办"
+                onClick={close}
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <div className="group-announcements-body">{content}</div>
+          </section>
+        </OverlayLayer>
+      )}
+    </>
   );
 }
 const ScopedGroupTodos = withQQAccountScope(GroupTodosBody);

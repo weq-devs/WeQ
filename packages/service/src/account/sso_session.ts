@@ -5,7 +5,7 @@
  * 为什么单独成模块：`sendOidbPacket` / `sendPacket` 只是「组帧 → 直连」，
  * 它们**不带凭据** —— native 侧按 pid 在一张表里找已登记的会话物料，找不到
  * 就报「pid X 还没有登记 SSO 会话」。所以任何「先取物料、再发包」的流程
- * （登录时的 0xcde_2 取密钥、妙妙工具的其它设备密钥、账号 monitor 的
+ * （登录时的 0xcde_2 取密钥、维护与诊断工具的其它设备密钥、账号 monitor 的
  * rkey/clientkey 采集）都必须在发包前走这里登记一次，否则第一包必然失败。
  *
  * **只登记、不建连**：TCP 等到真要发包时才连；在线状态与心跳交给同机 QQ
@@ -351,7 +351,7 @@ export async function registerSsoSessionFromStored(
 
 /**
  * 一次把「读内存拿物料」和「登记 SSO 会话」做完 —— 所有「先 attach 再发包」
- * 的流程（登录取密钥、妙妙工具的其它设备密钥、账号 monitor 采集）都走这一步。
+ * 的流程（登录取密钥、维护与诊断工具的其它设备密钥、账号 monitor 采集）都走这一步。
  *
  * `identity` 允许 `null`（uid 还没解析出来 / guid 读不到）：那时读了物料也
  * 不登记，`registered` 会是 `false`，调用方据此给出「物料不齐」的提示，而不是

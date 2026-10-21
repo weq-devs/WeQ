@@ -29,7 +29,11 @@ import {
   Download,
 } from 'lucide-react';
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { pinOrderDelta } from '@weq/service/conversation-order';
+import {
+  pinOrderDelta,
+  conversationActivityTime,
+  conversationPinned,
+} from '@weq/service/conversation-order';
 import {
   ConversationDirectoryContext,
   ContactDirectoryContext,
@@ -180,10 +184,11 @@ export function ConversationList({
   const [selectingAll, setSelectingAll] = useState(false);
   const createMenuRef = useRef<HTMLDivElement>(null);
   const createTriggerRef = useRef<HTMLButtonElement>(null);
-  const { selectionMode, selectedIds, setSelectedIds, setSelectionMode } = useContentMultiSelect({
-    kind: 'conversations',
-    container: 'main-list',
-  });
+  const { selectionMode, selectedIds, setSelectedIds, setSelectionMode, anchorRef } =
+    useContentMultiSelect({
+      kind: 'conversations',
+      container: 'main-list',
+    });
   const viewportRef = useRef<HTMLDivElement>(null);
   const [listHeight, setListHeight] = useState(600);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -219,11 +224,12 @@ export function ConversationList({
       const pinnedDelta = pinOrderDelta(
         isPinned(first, preferences),
         isPinned(second, preferences),
-        first.pinnedAt,
-        second.pinnedAt,
       );
       if (pinnedDelta !== 0) return pinnedDelta;
-      return conversationSortTime(second) - conversationSortTime(first);
+      return (
+        conversationActivityTime(second) - conversationActivityTime(first) ||
+        first.id.localeCompare(second.id)
+      );
     });
   }, [
     conversations,
@@ -290,6 +296,7 @@ export function ConversationList({
     setSelectedIds,
   ]);
   const multi = useMultiSelection({
+    anchorRef,
     ids: filtered.map((item) => item.id),
     selected: rowSelectedIds,
     onChange: (ids) => {
@@ -1019,6 +1026,7 @@ export function GroupList({
     ids: searchable.filter((item) => item.type === 'group').map((item) => item.id),
     selected: groupSelection.selectedIds,
     onChange: groupSelection.setSelectedIds,
+    anchorRef: groupSelection.anchorRef,
     enabled: groupSelection.selectionMode,
     onStart: () => groupSelection.setSelectionMode(true),
     onExit: () => groupSelection.setSelectionMode(false),
@@ -1202,6 +1210,7 @@ export function ContactList({
     ids: [...new Set(categories.flatMap((category) => category.items.map((item) => item.id)))],
     selected: selection.selectedIds,
     onChange: selection.setSelectedIds,
+    anchorRef: selection.anchorRef,
     enabled: selection.selectionMode,
     onStart: () => selection.setSelectionMode(true),
     onExit: () => selection.setSelectionMode(false),
@@ -1523,12 +1532,7 @@ function formatBadgeCount(value: number) {
 }
 
 function isPinned(conversation: Conversation, preferences: ConversationPreferences): boolean {
-  return Boolean(
-    {
-      ...conversation.preference,
-      ...preferences[conversation.id],
-    }.pinned,
-  );
+  return conversationPinned(conversation, preferences);
 }
 
 /** 会话列表的显示范围：真实 / 虚拟（克隆）/ 频道私聊，或全都显示。 */
@@ -1553,11 +1557,4 @@ function listRowClass(active: boolean, semanticClass: 'conversation-row' | 'cont
 
 function unreadClass(muted: boolean) {
   return cn('row-unread', muted && 'muted');
-}
-
-/** 列表排序口径：最后一条消息优先，其次才是会话本身的时间戳。 */
-function conversationSortTime(row: Conversation): number {
-  const value = row.lastMessage?.createdAt ?? row.updatedAt;
-  const ms = value ? Date.parse(value) : 0;
-  return Number.isFinite(ms) ? ms : 0;
 }

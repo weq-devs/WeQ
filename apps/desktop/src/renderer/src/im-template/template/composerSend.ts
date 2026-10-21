@@ -211,6 +211,7 @@ function mapWireElement(
           kind: 'image',
           source,
           ...(typeof element.fileName === 'string' ? { fileName: element.fileName } : {}),
+          ...(element.subType !== undefined ? { subType: Number(element.subType) } : {}),
           ...(element.width !== undefined ? { width: Number(element.width) } : {}),
           ...(element.height !== undefined ? { height: Number(element.height) } : {}),
         };
@@ -613,10 +614,12 @@ function renderElementOf(
           fileSize: element.fileSize,
           imgWidth: element.width,
           imgHeight: element.height,
+          ...(element.subType !== undefined ? { subType: Number(element.subType) } : {}),
+          ...(element.summary !== undefined ? { summary: element.summary } : {}),
           ...(local?.path ? { localPath: local.path } : {}),
           ...(local?.previewUrl ? { localPreviewUrl: local.previewUrl } : {}),
         },
-        text: '[图片]',
+        text: Number(element.subType) === 1 ? '[表情]' : '[图片]',
       };
     }
     case 'video': {

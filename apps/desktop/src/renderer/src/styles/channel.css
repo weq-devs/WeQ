@@ -55,12 +55,6 @@
   display: none;
 }
 
-.weq-guild-direct-msg.is-selected {
-  background: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
-  outline: 1px solid color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
-  outline-offset: -1px;
-}
-
 .weq-guild-direct-msg:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: -2px;
@@ -70,11 +64,6 @@
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
-}
-
-html[data-theme='dark'] .weq-guild-direct-msg.is-selected {
-  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
-  outline-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
 }
 
 html[data-theme='dark'] .weq-channel-direct-trigger {
@@ -107,4 +96,62 @@ html[data-theme='dark'] .weq-channel-direct-trigger {
 .weq-guild-direct-msg.is-search-hit {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: -2px;
+}
+
+.weq-guild-direct-side-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.weq-guild-session-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 16px;
+}
+.weq-guild-session-actions label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.weq-guild-session-actions input {
+  accent-color: var(--weq-accent-effective);
+}
+.weq-guild-session-check {
+  display: grid;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  align-self: center;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+}
+.weq-guild-direct-item.is-multiselected {
+  background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
+}
+.weq-guild-direct-item.is-multiselected .weq-guild-session-check {
+  color: var(--weq-accent-effective);
+  border-color: var(--weq-accent-effective);
+}
+.weq-guild-direct-msg .message-line.selection-mode {
+  margin: 0;
+  padding: 4px 10px;
+  border: 1px dashed transparent;
+  border-radius: 6px;
+}
+.weq-guild-direct-msg .message-line.selection-mode.is-selected {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
+}
+.weq-guild-direct .selection-bar {
+  padding: 8px 12px;
+  flex-wrap: wrap;
+}
+html[data-theme='dark'] .weq-guild-direct-msg .message-line.selection-mode.is-selected,
+html[data-theme='dark'] .weq-guild-direct-item.is-multiselected {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
 }

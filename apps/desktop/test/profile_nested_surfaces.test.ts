@@ -7,6 +7,7 @@ import type { Contact } from '../src/renderer/src/im-template/template/types';
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     account: {
+      dressup: { peerStats: { useQuery: () => ({ data: undefined, isLoading: false }) } },
       mutualMark: {
         get: {
           useQuery: () => ({

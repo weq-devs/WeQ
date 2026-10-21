@@ -7,6 +7,7 @@ import {
   DataMaintenanceDialog,
   type MaintenanceTool,
 } from '../src/renderer/src/components/settings/DataMaintenanceSection';
+import { useDbRepairWindow } from '../src/renderer/src/state/dbRepairWindow';
 import { SettingsDialog } from '../src/renderer/src/components/SettingsDialog';
 
 const state = vi.hoisted(() => ({
@@ -243,7 +244,7 @@ describe('设置的数据与维护', () => {
     }
   });
   it.each(['cache', 'database', 'storage', 'cleanup', 'db-repair', 'db-decrypt'] as const)(
-    '%s 从设置进入工具后只有一个内容页且不遮罩，关闭返回原设置分区',
+    '%s 从设置进入相应工具呈现，不叠加模态遮罩',
     (tool) => {
       function Harness() {
         const [settings, setSettings] = useState(true);
@@ -283,6 +284,12 @@ describe('设置的数据与维护', () => {
         ].indexOf(tool);
         act(() => entries(f.host)[index]!.click());
         expect(f.host.querySelector('.weq-settings-dialog')).toBeNull();
+        if (tool === 'db-repair') {
+          expect(useDbRepairWindow.getState().request?.uin).toBe('10001');
+          expect(document.querySelectorAll('.weq-workspace-page')).toHaveLength(0);
+          useDbRepairWindow.getState().dismiss();
+          return;
+        }
         if (tool === 'storage' || tool === 'cleanup') {
           expect(document.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
         } else {
@@ -291,7 +298,6 @@ describe('设置的数据与维护', () => {
           ).toHaveLength(1);
           expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(0);
         }
-        if (tool === 'db-repair') expect(state.repairAccount).toBe('10001');
         expect(document.querySelectorAll('[aria-modal="true"]')).toHaveLength(0);
         // 所有维护子页统一右上角关闭按钮，不再有左上角返回箭头。
         expect(document.querySelector('.weq-maintenance-head')?.textContent ?? '').not.toContain(

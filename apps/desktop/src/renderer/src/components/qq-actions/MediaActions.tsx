@@ -28,6 +28,7 @@ function LikeAction({
   optimistic = false,
   onLikeChange,
   likeRevision = 0,
+  readback,
 }: {
   action: ReturnType<typeof useQQAction>;
   label: '媒体' | '说说';
@@ -38,6 +39,7 @@ function LikeAction({
   optimistic?: boolean;
   onLikeChange?: (change: QzoneLikeChange | null) => void;
   likeRevision?: number;
+  readback?: (enabled: boolean) => Promise<boolean>;
 }) {
   const [liked, setLiked] = useState(initialLiked);
   const [pending, setPending] = useState(false);
@@ -87,6 +89,8 @@ function LikeAction({
           if (optimistic) onLikeChange?.(accepted ? { previous, next, pending: false } : null);
           onChanged?.();
         },
+        undefined,
+        { readback: readback ? () => readback(next) : undefined },
       );
     } finally {
       running.current = false;
@@ -148,6 +152,8 @@ function GroupAlbumUploadBody({
           label="上传到群相册"
           disabled={a.disabled || !picture}
           onClick={() => {
+            const sentAt = Math.floor(Date.now() / 1000);
+            const submitted = picture;
             if (picture)
               void a.perform(
                 (b) =>
@@ -163,6 +169,20 @@ function GroupAlbumUploadBody({
                   onChanged();
                 },
                 `将图片上传到群相册「${albumName}」？`,
+                {
+                  readback: async () => {
+                    const rows = await client.account.listGroupAlbumMedia.query({
+                      groupCode: String(groupId),
+                      albumId,
+                    });
+                    return rows.some(
+                      (row) =>
+                        row.fileName === submitted?.fileName &&
+                        row.uploader === a.binding?.expectedAccountUin &&
+                        Number(row.uploadTime) >= sentAt,
+                    );
+                  },
+                },
               );
           }}
         />
@@ -204,6 +224,11 @@ function GroupAlbumMediaActionsBody({
           action={a}
           label="媒体"
           disabled={!likeReady}
+          readback={async () => {
+            // 当前媒体列表没有个人点赞字段，只读取刷新，不据空回执冒称成功。
+            await client.account.listGroupAlbumMedia.query({ groupCode: String(groupId), albumId });
+            return false;
+          }}
           submit={(b, enabled) =>
             client.account.qqActions.albumMedia.mutate({
               ...b,
@@ -228,6 +253,17 @@ function GroupAlbumMediaActionsBody({
                 }),
               async () => onChanged(),
               '从 QQ 群相册删除这项媒体？不能撤销。',
+              {
+                readback: async () => {
+                  const rows = await client.account.listGroupAlbumMedia.query({
+                    groupCode: String(groupId),
+                    albumId,
+                  });
+                  return !rows.some(
+                    (row) => row.image?.lloc === mediaId || row.video?.id === mediaId,
+                  );
+                },
+              },
             )
           }
         >
@@ -255,6 +291,16 @@ function GroupAlbumMediaActionsBody({
                   content: comment,
                 }),
               async () => setComment(''),
+              undefined,
+              {
+                readback: async () => {
+                  await client.account.listGroupAlbumMedia.query({
+                    groupCode: String(groupId),
+                    albumId,
+                  });
+                  return false;
+                },
+              },
             )
           }
         />
@@ -302,6 +348,7 @@ function QzoneWriteActionsBody({
     const submittedContent = content;
     const submittedPicture = picture;
     const submittedRevision = draftRevision.current;
+    const sentAt = Math.floor(Date.now() / 1000);
     let accepted = false;
     try {
       await a.perform(
@@ -328,6 +375,25 @@ function QzoneWriteActionsBody({
             onCommentAccepted?.();
           }
           onChanged();
+        },
+        undefined,
+        {
+          readback: async () => {
+            const result = await client.account.qzone.interactions.query({
+              selfUin: a.binding!.expectedAccountUin,
+              hostUin,
+              tid,
+              time,
+              structuredOnly: true,
+              requestId: crypto.randomUUID(),
+            });
+            return result.comments.some(
+              (entry) =>
+                entry.uin === a.binding!.expectedAccountUin &&
+                entry.content === submittedContent &&
+                entry.time >= sentAt - 5,
+            );
+          },
         },
       );
     } finally {
@@ -361,6 +427,16 @@ function QzoneWriteActionsBody({
           onLikeChange={onLikeChange}
           likeRevision={likeRevision}
           onChanged={onChanged}
+          readback={async (enabled) => {
+            const result = await client.account.qzone.likes.query({
+              selfUin: a.binding!.expectedAccountUin,
+              hostUin,
+              tid,
+              requestId: crypto.randomUUID(),
+            });
+            const found = result.likes.some((entry) => entry.uin === a.binding!.expectedAccountUin);
+            return enabled ? found : !found && result.coverage === 'complete';
+          }}
           submit={(b, enabled) =>
             client.account.qqActions.qzone.mutate({
               ...b,

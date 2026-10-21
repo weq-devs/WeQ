@@ -19,7 +19,7 @@
 
 import { useContext, useState } from 'react';
 import { OverlayLayer } from './OverlayLayer';
-import { Heart, Loader2, MapPin, Sparkles, Star, UserRound, WifiOff, X } from 'lucide-react';
+import { Loader2, MapPin, Sparkles, Star, UserRound, WifiOff, X } from 'lucide-react';
 import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from './dressPieces';
 import { openLightbox } from './ImageLightbox';
 import {
@@ -31,6 +31,7 @@ import {
 } from '../lib/resourceUrl';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { trpc } from '../trpc/client';
+import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
 import botCardUrl from '@resources/img/bot.png';
 
 /**
@@ -56,13 +57,6 @@ function qqLevelIconNames(level: number): string[] {
     if (name === 'penguin' && count === 3 && level >= 4 * value) icons.push('more');
   }
   return icons;
-}
-
-/** 获赞数超过一万按「万」缩略（12345 → 1.2万）。 */
-function formatLikeCount(count: number): string {
-  if (count < 10000) return String(count);
-  const wan = count / 10000;
-  return `${Math.round(wan * 10) / 10}万`;
 }
 
 /** 与资料灯箱同一份形状（profilePanes 的 ProfileExtInfo），只取渲染要用的字段。 */
@@ -248,14 +242,12 @@ export function PersonalityHomeDialog({
                 </span>
                 <strong>Lv.{stats.data.level}</strong>
               </span>
-              <span
-                className="weq-perhome-stat weq-perhome-stat-like"
-                title={`累计获赞 ${stats.data.likeCount}`}
-              >
-                <Heart size={13} fill="currentColor" />
-                <strong>{formatLikeCount(stats.data.likeCount)}</strong>
-                <span>获赞</span>
-              </span>
+            </div>
+          ) : null}
+
+          {!isBot && uid ? (
+            <div className="weq-profile-list">
+              <ProfileLikesRow uid={uid} uin={uin} name={profile.name} />
             </div>
           ) : null}
 

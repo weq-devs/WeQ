@@ -1,20 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTabActive } from '../components/RetainedTabs';
+import { useRenderDocument } from '../lib/renderDocument';
 
 /** 手写异步页与查询缓存共用可读状态，不用定时器维持前台刷新。 */
 export function useQQReadActivity(
   available: boolean,
   { onlineOnly = true }: { onlineOnly?: boolean } = {},
 ) {
+  const document = useRenderDocument();
+  const owner = document.defaultView ?? window;
   const tabActive = useTabActive();
   const [state, setState] = useState(() => ({
-    active: document.visibilityState !== 'hidden' && (!onlineOnly || navigator.onLine),
+    active: document.visibilityState !== 'hidden' && (!onlineOnly || owner.navigator.onLine),
     revision: 0,
   }));
   const lastResume = useRef(Date.now());
   useEffect(() => {
     const update = (event?: Event) => {
-      const active = document.visibilityState !== 'hidden' && (!onlineOnly || navigator.onLine);
+      const active =
+        document.visibilityState !== 'hidden' && (!onlineOnly || owner.navigator.onLine);
       const now = Date.now();
       const focusRefresh = active && event?.type === 'focus' && now - lastResume.current > 250;
       if (active) lastResume.current = now;
@@ -29,17 +33,17 @@ export function useQQReadActivity(
       });
     };
     document.addEventListener('visibilitychange', update);
-    window.addEventListener('online', update);
-    window.addEventListener('offline', update);
-    window.addEventListener('focus', update);
+    owner.addEventListener('online', update);
+    owner.addEventListener('offline', update);
+    owner.addEventListener('focus', update);
     update();
     return () => {
       document.removeEventListener('visibilitychange', update);
-      window.removeEventListener('online', update);
-      window.removeEventListener('offline', update);
-      window.removeEventListener('focus', update);
+      owner.removeEventListener('online', update);
+      owner.removeEventListener('offline', update);
+      owner.removeEventListener('focus', update);
     };
-  }, [onlineOnly]);
+  }, [onlineOnly, document, owner]);
   return { enabled: available && tabActive && state.active, revision: state.revision };
 }
 

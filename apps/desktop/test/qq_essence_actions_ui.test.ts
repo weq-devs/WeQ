@@ -11,6 +11,7 @@ import { useViewState } from '../src/renderer/src/state/view';
 import { useQQEssence } from '../src/renderer/src/state/qqEssence';
 import type { QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
 import { projectGroupEssence } from '../src/renderer/src/lib/groupEssenceProjection';
+import { useToast } from '../src/renderer/src/components/Toast';
 
 const state = vi.hoisted(() => ({
   configId: 'source-a',
@@ -18,11 +19,13 @@ const state = vi.hoisted(() => ({
   canManage: true,
   mutate: vi.fn(async (_input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' })),
   invalidate: vi.fn(async () => {}),
+  read: vi.fn(async (): Promise<string[]> => []),
 }));
 vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
   OverlayLayer: ({ children }: { children: ReactNode }) => children,
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: { account: { listGroupEssenceSeqs: { query: state.read } } },
   trpc: {
     useUtils: () => ({ account: new Proxy({}, { get: () => ({ invalidate: state.invalidate }) }) }),
     account: {
@@ -54,10 +57,16 @@ beforeEach(() => {
   state.canManage = true;
   state.mutate.mockReset().mockResolvedValue({ state: 'accepted' });
   state.invalidate.mockClear();
+  state.read.mockReset().mockImplementation(async () => {
+    const input = state.mutate.mock.calls.at(-1)?.[0] as { enable?: boolean } | undefined;
+    return input?.enable ? ['42'] : [];
+  });
+  useToast.setState({ toasts: [], leaving: [] });
   useViewState.setState({ openedUin: '10001' });
   useQQEssence.setState({ receipts: {} });
 });
 afterEach(() => {
+  vi.useRealTimers();
   for (const close of cleanups.splice(0)) close();
   useQQEssence.setState({ receipts: {} });
   useViewState.setState({ openedUin: null });
@@ -171,13 +180,14 @@ describe('消息菜单与精华列表的同步', () => {
       });
       expect(f.menu().textContent).toBe('设为精华');
       expect(f.host.querySelector('.group-essence-item')).toBeNull();
-      expect(f.host.textContent).toContain('精华操作已受理，等待 QQ 同步');
+      expect(f.host.textContent).not.toContain('结果待同步');
+      expect(useToast.getState().toasts.at(-1)?.tone).toBe('success');
       expect(f.jump).not.toHaveBeenCalled();
       f.render();
       expect(f.host.querySelector('.group-essence-item')).toBeNull();
     },
   );
-  it('新增精华受理后列表显示待同步记录，保留原始 random', async () => {
+  it('新增精华普通读回确认后更新列表，保留原始 random', async () => {
     const f = fixture(false);
     await act(async () => f.menu().click());
     expect(f.menu().textContent).toBe('取消精华');
@@ -206,15 +216,24 @@ describe('消息菜单与精华列表的同步', () => {
   it.each(['error', 'unconfirmed'] as const)(
     '%s 不翻转或丢掉原记录，也不自动重试',
     async (kind) => {
+      vi.useFakeTimers();
       const f = fixture();
       if (kind === 'error') state.mutate.mockRejectedValueOnce(new Error('合成拒绝'));
-      else state.mutate.mockResolvedValueOnce({ state: 'unconfirmed' });
+      else {
+        state.mutate.mockResolvedValueOnce({ state: 'unconfirmed' });
+        state.read.mockResolvedValue(['42']);
+      }
       await act(async () => f.remove().click());
+      await act(async () => vi.runAllTimersAsync());
       expect(f.menu().textContent).toBe('取消精华');
       expect(f.host.querySelector('.group-essence-item')).not.toBeNull();
-      expect(f.host.textContent).toContain(kind === 'error' ? '合成拒绝' : '结果未确认');
+      expect(String(useToast.getState().toasts.at(-1)?.title)).toContain(
+        kind === 'error' ? '合成拒绝' : '确认超时',
+      );
+      expect(f.host.textContent).not.toContain('确认超时');
       expect(state.mutate).toHaveBeenCalledOnce();
       expect(f.close).not.toHaveBeenCalled();
+      vi.useRealTimers();
     },
   );
   it('同号切换配置时迟到回执不修改新现场', async () => {

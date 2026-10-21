@@ -16,6 +16,55 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('独立资源沿用导出任务生命周期', () => {
+  it('单文件生成与包内部分失败分别记录，不冒称所有条目成功', async () => {
+    const f = fixture();
+    const failed = [{ fileName: '表情 2', error: '无法读取原图' }];
+    const id = await f.manager.startResourceExport({
+      name: '收藏表情',
+      kind: 'favorite-emoji',
+      output: { kind: 'file', name: '收藏表情', extension: 'zip' },
+      savePolicy: { mode: 'after' },
+      run: async ({ directory }) => {
+        writeFileSync(join(directory, 'favorite.zip'), 'synthetic-package');
+        return {
+          total: 1,
+          ok: 1,
+          failed: [],
+          fileName: 'favorite.zip',
+          contents: { total: 3, ok: 2, failed },
+        };
+      },
+    });
+    await vi.waitFor(() => expect(f.manager.getTask(id)?.status).toBe('completed'));
+    expect(f.manager.getTask(id)).toMatchObject({
+      total: 3,
+      current: 2,
+      resource: { failed: 1 },
+      stages: [{ note: '成功 2 个，失败 1 个', failures: [{ stage: 'file', ...failed[0] }] }],
+    });
+    expect(readFileSync(f.manager.getTask(id)!.filePath!, 'utf8')).toBe('synthetic-package');
+  });
+  it('包内计数不一致也不发布单文件', async () => {
+    const f = fixture();
+    const id = await f.manager.startResourceExport({
+      name: '不完整计数',
+      kind: 'favorite-emoji',
+      output: { kind: 'file', name: '收藏表情', extension: 'zip' },
+      savePolicy: { mode: 'after' },
+      run: async ({ directory }) => {
+        writeFileSync(join(directory, 'favorite.zip'), 'synthetic-package');
+        return {
+          total: 1,
+          ok: 1,
+          failed: [],
+          fileName: 'favorite.zip',
+          contents: { total: 3, ok: 2, failed: [] },
+        };
+      },
+    });
+    await vi.waitFor(() => expect(f.manager.getTask(id)?.status).toBe('failed'));
+    expect(f.manager.getTask(id)?.filePath).toBeUndefined();
+  });
   it('完成结果另存保留本次自动避让标记，不覆盖文件且不改任务原来的稍后保存策略', async () => {
     const f = fixture();
     const id = await f.manager.startResourceExport({

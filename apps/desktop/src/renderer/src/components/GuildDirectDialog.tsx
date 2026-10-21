@@ -18,7 +18,20 @@ import {
   useState,
   type ReactElement,
 } from 'react';
-import { ArrowLeft, CheckSquare, Hash, Inbox, MessageSquareText, RotateCw, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  CheckSquare,
+  Hash,
+  Inbox,
+  MessageSquareText,
+  RotateCw,
+  X,
+  Copy,
+  Download,
+  FileText,
+  ClipboardCopy,
+  Check,
+} from 'lucide-react';
 import { Modal } from './Dialog';
 import { client } from '../trpc/client';
 import { cn } from '../im-template/template/classNames';
@@ -30,8 +43,17 @@ import type { MessageRenderer } from '../im-template/template/messageRenderers';
 import type { Conversation, Message, User } from '../im-template/template/types';
 import { ConvContext, ForwardKindContext, ReplyJumpContext } from './QqMessageContent';
 import { previewNodes, previewNodesToText } from '../lib/conversationPreview';
-import { useContentMultiSelect } from '../state/contentSelection';
+import { useContentMultiSelect, useRequestContentExport } from '../state/contentSelection';
 import { useMultiSelection } from '../hooks/useMultiSelection';
+import { allSelectionIdsSelected, toggleAllSelectionIds } from '../lib/multiSelection';
+import { useMessageMarquee } from '../hooks/useMessageMarquee';
+import { selectedMessagesText } from '../lib/messageSelection';
+import { messageRichClipboard } from '../lib/messageClipboard';
+import { writeMentionClipboard } from '../lib/mentionClipboard';
+import { copyTextToClipboard } from '../im-template/template/clipboard';
+import { ConversationActionsMenu } from './ConversationActionsMenu';
+import { useToast } from './Toast';
+import type { RepeatElement } from '../lib/messageRepeat';
 import '../styles/channel.css';
 
 const PAGE = 50;
@@ -179,6 +201,7 @@ export function GuildDirectDialog({
   selfUser,
   renderers,
   embedded = false,
+  active = open,
   searchTarget,
   onActiveSessionChange,
 }: {
@@ -189,6 +212,7 @@ export function GuildDirectDialog({
   /** 与主聊天相同的渲染器（qqMessageRenderer 等）。 */
   renderers?: MessageRenderer[];
   embedded?: boolean;
+  active?: boolean;
   searchTarget?: GuildSearchTarget | null;
   /** 当前打开的会话 nodeId，交给外层浮动工具按当前位置导出。 */
   onActiveSessionChange?: (nodeId: string | null) => void;
@@ -212,19 +236,56 @@ export function GuildDirectDialog({
   const [searchRetry, setSearchRetry] = useState(0);
   // 把当前打开的频道私聊同步给外层（浮动工具「导出当前频道私聊」用它定位）。
   useEffect(() => {
-    onActiveSessionChange?.(selected?.nodeId ?? null);
-  }, [selected?.nodeId, onActiveSessionChange]);
-  const selection = useContentMultiSelect({
-    kind: 'guild-direct',
-    container: selected?.nodeId ?? '',
+    onActiveSessionChange?.(active ? (selected?.nodeId ?? null) : null);
+  }, [selected?.nodeId, onActiveSessionChange, active]);
+  const selection = useContentMultiSelect(
+    {
+      kind: 'guild-direct',
+      container: selected?.nodeId ?? '',
+    },
+    active,
+  );
+  const sessionSelection = useContentMultiSelect(
+    { kind: 'guild-conversations', container: 'guild-list' },
+    active,
+  );
+  const sessionIds = useMemo(() => sessions?.map((session) => session.nodeId) ?? [], [sessions]);
+  const sessionMulti = useMultiSelection({
+    ids: sessionIds,
+    selected: sessionSelection.selectedIds,
+    onChange: sessionSelection.setSelectedIds,
+    enabled: sessionSelection.selectionMode,
+    disabled: !active,
+    anchorRef: sessionSelection.anchorRef,
+    onStart: () => sessionSelection.setSelectionMode(true),
+    onExit: () => sessionSelection.setSelectionMode(false),
   });
+  const requestExport = useRequestContentExport();
+  const [copyMenu, setCopyMenu] = useState<{ x: number; y: number } | null>(null);
+  const selectionAnchor = selection.anchorRef;
+  useEffect(() => {
+    setCopyMenu(null);
+  }, [selected?.nodeId, active]);
   const multi = useMultiSelection({
     ids: messages.map((message) => message.msgId),
     selected: selection.selectedIds,
     onChange: selection.setSelectedIds,
     enabled: selection.selectionMode,
+    disabled: !active,
+    anchorRef: selectionAnchor,
     onStart: () => selection.setSelectionMode(true),
     onExit: () => selection.setSelectionMode(false),
+  });
+  const marquee = useMessageMarquee({
+    conversationKey: selected?.nodeId,
+    enabled: active && Boolean(selected) && !copyMenu,
+    selectionMode: selection.selectionMode,
+    selected: selection.selectedIds,
+    orderedIds: messages.map((message) => message.msgId),
+    anchorRef: selectionAnchor,
+    onChange: selection.setSelectedIds,
+    onStart: () => selection.setSelectionMode(true),
+    onSelect: multi.toggle,
   });
 
   // 打开时拉一遍会话列表（列表小，一次性加载）。
@@ -417,6 +478,44 @@ export function GuildDirectDialog({
     });
   }, [messages, selected, selfUser]);
   const peer = selected ? peerUser(selected) : null;
+  const picked = rows.filter(({ row }) => selection.selectedIds.has(row.message.id));
+  const copySelected = async (format: 'text' | 'rich' | 'json') => {
+    if (!conversation || !picked.length) return;
+    try {
+      const copied =
+        format === 'rich'
+          ? await writeMentionClipboard(
+              messageRichClipboard(
+                picked.map(({ row }) => ({
+                  sender: displayUserName(row.sender),
+                  time: row.message.createdAt,
+                  body: row.message.body,
+                  elements: row.message.qqElements as RepeatElement[],
+                })),
+              ),
+            )
+          : await copyTextToClipboard(
+              format === 'json'
+                ? JSON.stringify(
+                    picked.map(({ row }) => row.message),
+                    null,
+                    2,
+                  )
+                : selectedMessagesText(
+                    picked.map(({ row }) => row.message),
+                    conversation,
+                    selfUser,
+                  ),
+            );
+      if (!copied) throw new Error('无法写入剪贴板');
+    } catch (error) {
+      useToast.getState().push({
+        tone: 'error',
+        title: '复制失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
 
   if (!open) return null;
 
@@ -451,8 +550,56 @@ export function GuildDirectDialog({
       {searchNotice ? <p role="status">{searchNotice}</p> : null}
       <div className="weq-guild-direct-body">
         <aside className="weq-guild-direct-side">
-          <div className="weq-guild-direct-side-title">会话列表</div>
-          <div className="weq-guild-direct-list">
+          <div className="weq-guild-direct-side-title">
+            <span>
+              会话列表
+              {sessionSelection.selectionMode ? ` · 已选 ${sessionSelection.selectedIds.size}` : ''}
+            </span>
+            <button
+              type="button"
+              className="weq-compose-x"
+              aria-label={sessionSelection.selectionMode ? '退出会话多选' : '多选频道私聊'}
+              title={sessionSelection.selectionMode ? '退出会话多选' : '多选频道私聊'}
+              onClick={() => sessionSelection.setSelectionMode(!sessionSelection.selectionMode)}
+            >
+              {sessionSelection.selectionMode ? <X size={16} /> : <CheckSquare size={16} />}
+            </button>
+          </div>
+          {sessionSelection.selectionMode ? (
+            <div className="weq-guild-session-actions">
+              <label>
+                <input
+                  type="checkbox"
+                  aria-label="全选频道私聊"
+                  checked={allSelectionIdsSelected(sessionIds, sessionSelection.selectedIds)}
+                  onChange={() =>
+                    sessionSelection.setSelectedIds(
+                      toggleAllSelectionIds(sessionIds, sessionSelection.selectedIds),
+                    )
+                  }
+                />
+                全选
+              </label>
+              {requestExport ? (
+                <button
+                  type="button"
+                  className="selection-action"
+                  aria-label="导出所选频道私聊"
+                  title="导出所选频道私聊"
+                  disabled={!sessionSelection.selectedIds.size}
+                  onClick={() =>
+                    requestExport({
+                      owner: { kind: 'guild-conversations', container: 'guild-list' },
+                      scope: { type: 'items', ids: [...sessionSelection.selectedIds] },
+                    })
+                  }
+                >
+                  <Download size={17} />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="weq-guild-direct-list" {...sessionMulti.rootProps}>
             {listLoading ? (
               <div className="weq-guild-direct-empty">加载中…</div>
             ) : listError ? (
@@ -475,9 +622,27 @@ export function GuildDirectDialog({
                   <button
                     type="button"
                     key={session.nodeId}
-                    className={cn('weq-guild-direct-item', active && 'active')}
+                    {...sessionMulti.itemProps(session.nodeId)}
+                    className={cn(
+                      'weq-guild-direct-item',
+                      active && 'active',
+                      sessionSelection.selectionMode && 'selection-mode',
+                      sessionSelection.selectedIds.has(session.nodeId) && 'is-multiselected',
+                    )}
+                    aria-pressed={
+                      sessionSelection.selectionMode
+                        ? sessionSelection.selectedIds.has(session.nodeId)
+                        : undefined
+                    }
                     onClick={() => openSession(session)}
                   >
+                    {sessionSelection.selectionMode ? (
+                      <span className="weq-guild-session-check" aria-hidden>
+                        {sessionSelection.selectedIds.has(session.nodeId) ? (
+                          <Check size={13} />
+                        ) : null}
+                      </span>
+                    ) : null}
                     <Avatar
                       name={session.peerNick || session.peerTinyId}
                       avatarUrl={session.peerAvatarUrl}
@@ -604,11 +769,24 @@ export function GuildDirectDialog({
                     <div
                       className={cn('message-scroll', 'weq-guild-direct-msgs')}
                       {...multi.rootProps}
+                      {...marquee.handlers}
                       ref={(element) => {
                         scrollRef.current = element;
                         multi.rootProps.ref(element);
                       }}
                       onScroll={handleMsgScroll}
+                      onKeyDown={(event) => {
+                        multi.rootProps.onKeyDown(event);
+                        if (
+                          !event.defaultPrevented &&
+                          selection.selectionMode &&
+                          (event.ctrlKey || event.metaKey) &&
+                          event.key.toLowerCase() === 'c'
+                        ) {
+                          event.preventDefault();
+                          void copySelected(event.shiftKey ? 'rich' : 'text');
+                        }
+                      }}
                     >
                       {latestLoading ? (
                         <div className="weq-guild-direct-empty">加载消息…</div>
@@ -622,10 +800,10 @@ export function GuildDirectDialog({
                           <div
                             key={row.message.id}
                             data-guild-msg-id={row.message.id}
+                            data-message-id={row.message.id}
                             {...multi.itemProps(row.message.id)}
                             className={cn(
                               'weq-guild-direct-msg',
-                              selection.selectedIds.has(row.message.id) && 'is-selected',
                               row.message.id === searchMessageId && 'is-search-hit',
                             )}
                             aria-selected={
@@ -648,6 +826,10 @@ export function GuildDirectDialog({
                               senderKind={row.sender.kind}
                               showSenderName={false}
                               active={false}
+                              selectionMode={selection.selectionMode}
+                              selected={
+                                selection.selectionMode && selection.selectedIds.has(row.message.id)
+                              }
                               renderers={renderers}
                               onContextMenu={noop}
                               onLongPress={noop}
@@ -655,10 +837,85 @@ export function GuildDirectDialog({
                           </div>
                         ))
                       )}
+                      {marquee.box ? (
+                        <div className="weq-message-marquee" style={marquee.box} />
+                      ) : null}
                     </div>
                   </ReplyJumpContext.Provider>
                 </ConvContext.Provider>
               </ForwardKindContext.Provider>
+              {selection.selectionMode ? (
+                <div className="selection-bar">
+                  <div className="selection-bar-info" aria-live="polite">
+                    已选 {picked.length} 条消息
+                  </div>
+                  <div className="selection-bar-actions">
+                    {requestExport ? (
+                      <button
+                        type="button"
+                        className="selection-action"
+                        title="导出所选消息"
+                        aria-label="导出所选消息"
+                        disabled={!picked.length}
+                        onClick={() =>
+                          requestExport({
+                            owner: { kind: 'guild-direct', container: selected.nodeId },
+                            scope: { type: 'items', ids: picked.map(({ row }) => row.message.id) },
+                          })
+                        }
+                      >
+                        <Download size={17} />
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="selection-action"
+                      title="复制所选消息"
+                      aria-label="复制所选消息"
+                      disabled={!picked.length}
+                      onClick={(event) => {
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setCopyMenu({ x: rect.left, y: rect.top });
+                      }}
+                    >
+                      <Copy size={17} />
+                    </button>
+                    <button
+                      type="button"
+                      className="selection-action"
+                      title="退出多选"
+                      aria-label="退出多选"
+                      onClick={() => selection.setSelectionMode(false)}
+                    >
+                      <X size={17} />
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {selection.selectionMode && copyMenu ? (
+                <ConversationActionsMenu
+                  label="复制格式"
+                  {...copyMenu}
+                  onClose={() => setCopyMenu(null)}
+                  actions={[
+                    {
+                      label: '纯文本',
+                      icon: <FileText size={16} />,
+                      action: () => void copySelected('text'),
+                    },
+                    {
+                      label: '富文本',
+                      icon: <Copy size={16} />,
+                      action: () => void copySelected('rich'),
+                    },
+                    {
+                      label: 'JSON',
+                      icon: <ClipboardCopy size={16} />,
+                      action: () => void copySelected('json'),
+                    },
+                  ]}
+                />
+              ) : null}
             </>
           )}
         </section>

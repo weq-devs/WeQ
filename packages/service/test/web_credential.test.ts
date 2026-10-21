@@ -145,7 +145,7 @@ describe('fetchWebTokens 的登录票据兜底', () => {
       seedPskey: 'SEEDED',
     });
 
-    expect(tokens).toEqual({ skey: '', pskey: 'SEEDED' });
+    expect(tokens).toMatchObject({ skey: '', pskey: 'SEEDED' });
   });
 
   it('没有 seed 时维持空串，不抛错', async () => {
@@ -153,7 +153,7 @@ describe('fetchWebTokens 的登录票据兜底', () => {
       needSkey: true,
     });
 
-    expect(tokens).toEqual({ skey: '', pskey: '' });
+    expect(tokens).toMatchObject({ skey: '', pskey: '' });
   });
 
   it('native 失败时任意域都退回 seed 的 p_skey', async () => {
@@ -161,6 +161,43 @@ describe('fetchWebTokens 的登录票据兜底', () => {
       seedPskey: 'SEEDED',
     });
 
-    expect(tokens).toEqual({ skey: '', pskey: 'SEEDED' });
+    expect(tokens).toMatchObject({ skey: '', pskey: 'SEEDED' });
+  });
+
+  it('native 的失败原因随结果带回，且不影响 seed 兜底', async () => {
+    const tokens = await fetchWebTokens(deadNative(), '12345', 0, 'qzone.qq.com', {
+      needSkey: true,
+      seedPskey: 'SEEDED',
+    });
+
+    // 三级通道全部失败时 msg 会被透出，上层才解释得清「为什么打不开」。
+    expect(tokens.error).toBe('桩');
+  });
+
+  it('native 抛异常时也记下原因', async () => {
+    const nt: WebNative = {
+      ptFetchCredentials: () => Promise.reject(new Error('SSO 会话未登记')),
+    };
+    const tokens = await fetchWebTokens(nt, '12345', 0, 'qzone.qq.com');
+
+    expect(tokens.pskey).toBe('');
+    expect(tokens.error).toContain('SSO 会话未登记');
+  });
+
+  it('成功时不带 error', async () => {
+    const nt: WebNative = {
+      ptFetchCredentials: () =>
+        Promise.resolve({
+          success: true,
+          msg: 'ok',
+          skey: 'S',
+          pskey: 'P',
+          cookie: 'uin=o12345; p_skey=P',
+          errorKind: '',
+        }),
+    };
+    const tokens = await fetchWebTokens(nt, '12345', 0, 'qzone.qq.com', { needSkey: true });
+
+    expect(tokens).toEqual({ skey: 'S', pskey: 'P' });
   });
 });

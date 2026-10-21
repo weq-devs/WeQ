@@ -31,6 +31,7 @@ import { ChatNavigationContext } from '../../lib/chatNavigation';
 import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
 import { openLightbox } from '../../components/ImageLightbox';
 import { PersonalityHomeDialog } from '../../components/PersonalityHomeDialog';
+import { ProfileLikesRow } from '../../components/qq-actions/ProfileLikesRow';
 import { MutualMarkDialog } from '../../components/MutualMarkDialog';
 import { albumMediaUrl, collectionImageUrl } from '../../lib/resourceUrl';
 import { cn } from './classNames';
@@ -430,6 +431,13 @@ export function ContactProfileDialog({
           {birthday ? <ProfileRow icon={<Cake size={13} />} label="生日" value={birthday} /> : null}
           {intimacy ? (
             <ProfileRow icon={<Heart size={13} />} label="亲密度" value={intimacy} mono accent />
+          ) : null}
+          {profile.kind !== 'bot' && profile.identityLabel === 'QQ' ? (
+            <ProfileLikesRow
+              uid={profile.id}
+              uin={profile.identityValue}
+              name={displayUserName(profile)}
+            />
           ) : null}
           {createdAt ? (
             <ProfileRow icon={<CalendarDays size={13} />} label="成为好友" value={createdAt} />

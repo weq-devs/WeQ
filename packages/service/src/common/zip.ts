@@ -12,6 +12,8 @@
  */
 
 import { deflateRawSync, inflateRawSync } from 'node:zlib';
+import { link, open, unlink } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 
 /** zip 里的一个文件条目（已解压）。 */
 export interface ZipEntry {
@@ -25,6 +27,13 @@ export interface ZipWriteEntry {
   /** 条目路径，分隔符统一为 `/`。 */
   name: string;
   data: Buffer;
+}
+
+/** 用户导入包必须显式限制解压分配；不传时保留原有 CDN 包的宽容读取。 */
+export interface ZipReadLimits {
+  maxEntries: number;
+  maxEntryBytes: number;
+  maxTotalBytes: number;
 }
 
 const SIG_EOCD = 0x06054b50;
@@ -42,7 +51,7 @@ const FLAG_UTF8 = 0x0800;
 let crcTable: Uint32Array | null = null;
 
 /** RFC 1952 CRC-32。首次调用时建表，后续复用。 */
-function crc32(data: Buffer): number {
+function crc32(data: Buffer, previous = 0): number {
   if (!crcTable) {
     crcTable = new Uint32Array(256);
     for (let n = 0; n < 256; n += 1) {
@@ -51,7 +60,7 @@ function crc32(data: Buffer): number {
       crcTable[n] = c >>> 0;
     }
   }
-  let crc = 0xffffffff;
+  let crc = previous ^ 0xffffffff;
   for (const byte of data) {
     crc = crcTable[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
   }
@@ -163,39 +172,217 @@ export function buildZip(
   return Buffer.concat([...locals, central, eocd]);
 }
 
+/** 复用 ZIP 中央目录与 CRC 规则，逐块写入已生成的文件，不把整包图片堆进内存。 */
+export async function writeZipFile(
+  path: string,
+  entries: readonly { name: string; path: string }[],
+  options: { signal?: AbortSignal; progress?: (done: number, total: number) => void } = {},
+): Promise<void> {
+  options.signal?.throwIfAborted();
+  if (entries.length > 0xffff) throw new Error('zip 条目数超过 65535');
+  const names = entries.map((entry) => Buffer.from(zipEntryName(entry.name), 'utf8'));
+  if (new Set(names.map((name) => name.toString('utf8'))).size !== names.length)
+    throw new Error('ZIP 条目路径重复');
+  if (names.some((name) => name.length > 0xffff)) throw new Error('ZIP 条目路径过长');
+  const temporary = `${path}.${randomUUID()}.part`;
+  const output = await open(temporary, 'wx', 0o600);
+  let offset = 0;
+  const central: Buffer[] = [];
+  const append = async (bytes: Buffer) => {
+    options.signal?.throwIfAborted();
+    if (offset + bytes.length > 0xffffffff) throw new Error('ZIP 超过 4 GiB，请分批导出');
+    await output.writeFile(bytes);
+    offset += bytes.length;
+  };
+  try {
+    for (let index = 0; index < entries.length; index++) {
+      const entry = entries[index]!;
+      const name = names[index]!;
+      const start = offset;
+      const flags = FLAG_UTF8 | 0x0008;
+      const input = await open(entry.path, 'r');
+      let size = 0;
+      let crc = 0;
+      try {
+        const info = await input.stat();
+        if (!info.isFile()) throw new Error('ZIP 来源不是普通文件');
+        if (info.size > 0xffffffff) throw new Error('ZIP 单文件超过 4 GiB');
+        await append(
+          Buffer.concat([
+            u32(SIG_LOCAL),
+            u16(20),
+            u16(flags),
+            u16(METHOD_STORE),
+            u16(0),
+            u16(0),
+            u32(0),
+            u32(0),
+            u32(0),
+            u16(name.length),
+            u16(0),
+            name,
+          ]),
+        );
+        for await (const chunk of input.createReadStream({
+          autoClose: false,
+          highWaterMark: 64 * 1024,
+          ...(options.signal ? { signal: options.signal } : {}),
+        })) {
+          const bytes = Buffer.from(chunk);
+          crc = crc32(bytes, crc);
+          size += bytes.length;
+          await append(bytes);
+        }
+        if (size !== info.size) throw new Error('ZIP 来源在读取期间发生变化');
+      } finally {
+        await input.close();
+      }
+      await append(Buffer.concat([u32(0x08074b50), u32(crc), u32(size), u32(size)]));
+      central.push(
+        Buffer.concat([
+          u32(SIG_CENTRAL),
+          u16(20),
+          u16(20),
+          u16(flags),
+          u16(METHOD_STORE),
+          u16(0),
+          u16(0),
+          u32(crc),
+          u32(size),
+          u32(size),
+          u16(name.length),
+          u16(0),
+          u16(0),
+          u16(0),
+          u16(0),
+          u32(0),
+          u32(start),
+          name,
+        ]),
+      );
+      options.progress?.(index + 1, entries.length);
+    }
+    const start = offset;
+    for (const bytes of central) await append(bytes);
+    const centralSize = offset - start;
+    await append(
+      Buffer.concat([
+        u32(SIG_EOCD),
+        u16(0),
+        u16(0),
+        u16(entries.length),
+        u16(entries.length),
+        u32(centralSize),
+        u32(start),
+        u16(0),
+      ]),
+    );
+    await output.close();
+    options.signal?.throwIfAborted();
+    await link(temporary, path);
+  } finally {
+    await output.close().catch(() => {});
+    await unlink(temporary).catch(() => {});
+  }
+}
+
 /**
  * 解出 zip 里的全部文件条目。目录条目会被跳过；遇到不支持的压缩方法或越界偏移
  * 时跳过该条目而不是整包失败。zip 本身不可解析（无 EOCD）时返回空数组。
  */
-export function readZipEntries(zip: Buffer): ZipEntry[] {
+export function readZipEntries(zip: Buffer, limits?: ZipReadLimits): ZipEntry[] {
+  if (
+    limits &&
+    [limits.maxEntries, limits.maxEntryBytes, limits.maxTotalBytes].some(
+      (value) => !Number.isSafeInteger(value) || value < 1,
+    )
+  )
+    throw new Error('ZIP 读取限制无效');
   const eocd = findEocd(zip);
-  if (eocd < 0) return [];
+  if (eocd < 0) {
+    if (limits) throw new Error('ZIP 目录缺失或已截断');
+    return [];
+  }
 
   const count = zip.readUInt16LE(eocd + 10);
   let offset = zip.readUInt32LE(eocd + 16);
+  const centralStart = offset;
+  const centralEnd = centralStart + zip.readUInt32LE(eocd + 12);
+  if (limits) {
+    if (count > limits.maxEntries) throw new Error('ZIP 条目数超限');
+    if (
+      zip.readUInt16LE(eocd + 4) !== 0 ||
+      zip.readUInt16LE(eocd + 6) !== 0 ||
+      zip.readUInt16LE(eocd + 8) !== count ||
+      eocd + EOCD_MIN_SIZE + zip.readUInt16LE(eocd + 20) !== zip.length ||
+      centralEnd !== eocd
+    )
+      throw new Error('ZIP 目录结构不受支持或已损坏');
+  }
   const entries: ZipEntry[] = [];
+  const names = new Set<string>();
+  let total = 0;
 
   for (let i = 0; i < count; i += 1) {
-    if (offset + 46 > zip.length || zip.readUInt32LE(offset) !== SIG_CENTRAL) break;
+    if (offset + 46 > zip.length || zip.readUInt32LE(offset) !== SIG_CENTRAL) {
+      if (limits) throw new Error('ZIP 中央目录已损坏');
+      break;
+    }
 
+    const flags = zip.readUInt16LE(offset + 8);
     const method = zip.readUInt16LE(offset + 10);
+    const crc = zip.readUInt32LE(offset + 16);
     const compressedSize = zip.readUInt32LE(offset + 20);
     const uncompressedSize = zip.readUInt32LE(offset + 24);
     const nameLen = zip.readUInt16LE(offset + 28);
     const extraLen = zip.readUInt16LE(offset + 30);
     const commentLen = zip.readUInt16LE(offset + 32);
     const localOffset = zip.readUInt32LE(offset + 42);
+    if (limits) {
+      if (offset + 46 + nameLen + extraLen + commentLen > centralEnd)
+        throw new Error('ZIP 中央目录已截断');
+      if (flags & 0x41) throw new Error('不支持加密 ZIP');
+      if (
+        zip.readUInt16LE(offset + 34) !== 0 ||
+        (method === METHOD_STORE && compressedSize !== uncompressedSize)
+      )
+        throw new Error('ZIP 条目结构不受支持或已损坏');
+      if (((zip.readUInt32LE(offset + 38) >>> 16) & 0xf000) === 0xa000)
+        throw new Error('不支持 ZIP 链接条目');
+      if (
+        uncompressedSize > limits.maxEntryBytes ||
+        total + uncompressedSize > limits.maxTotalBytes
+      )
+        throw new Error('ZIP 解压体积超限');
+    }
     const name = zip.toString('utf-8', offset + 46, offset + 46 + nameLen);
     offset += 46 + nameLen + extraLen + commentLen;
 
+    if (limits) {
+      const checked = zipEntryName(name.endsWith('/') ? name.slice(0, -1) : name);
+      if (names.has(checked)) throw new Error('ZIP 条目路径重复');
+      names.add(checked);
+    }
     if (name.endsWith('/')) continue;
-    if (localOffset + 30 > zip.length) continue;
+    if (localOffset + 30 > zip.length) {
+      if (limits) throw new Error('ZIP 本地头已截断');
+      continue;
+    }
 
     // 本地头的 name/extra 长度可能与中央目录不同（extra 常见差异），必须重读。
     const localNameLen = zip.readUInt16LE(localOffset + 26);
     const localExtraLen = zip.readUInt16LE(localOffset + 28);
     const dataStart = localOffset + 30 + localNameLen + localExtraLen;
     const dataEnd = dataStart + compressedSize;
+    if (
+      limits &&
+      (zip.readUInt32LE(localOffset) !== SIG_LOCAL ||
+        zip.readUInt16LE(localOffset + 8) !== method ||
+        zip.readUInt16LE(localOffset + 6) !== flags ||
+        dataEnd > centralStart ||
+        zip.toString('utf-8', localOffset + 30, localOffset + 30 + localNameLen) !== name)
+    )
+      throw new Error('ZIP 本地头与中央目录不一致');
     if (dataEnd > zip.length) continue;
 
     const raw = zip.subarray(dataStart, dataEnd);
@@ -204,17 +391,36 @@ export function readZipEntries(zip: Buffer): ZipEntry[] {
       data = Buffer.from(raw);
     } else if (method === METHOD_DEFLATE) {
       try {
-        data = inflateRawSync(raw);
+        data = inflateRawSync(
+          raw,
+          limits
+            ? {
+                maxOutputLength: Math.max(
+                  1,
+                  Math.min(limits.maxEntryBytes, limits.maxTotalBytes - total),
+                ),
+              }
+            : undefined,
+        );
       } catch {
+        if (limits) throw new Error('ZIP 条目无法在体积限制内解压');
         continue;
       }
     } else {
+      if (limits) throw new Error('ZIP 压缩方法不受支持');
       continue;
     }
-    if (data.length !== uncompressedSize) continue;
+    if (data.length !== uncompressedSize) {
+      if (limits) throw new Error('ZIP 条目体积不匹配');
+      continue;
+    }
+    if (limits && crc32(data) !== crc) throw new Error('ZIP 条目校验失败');
+    total += data.length;
 
     entries.push({ name: name.replace(/\\/g, '/'), data });
   }
+
+  if (limits && offset !== centralEnd) throw new Error('ZIP 中央目录条目数不匹配');
 
   return entries;
 }

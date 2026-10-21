@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname } from 'node:path';
 import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
+import { compareMessageOrder } from '@weq/codec';
 import type { GapFetchedMessage } from './gap_history';
 import { nativeHistoryElements } from './native_history_projection';
 import type { ProtocolHistoryObservation } from './sso_history_window';
@@ -189,8 +190,8 @@ export class RoamMsgCacheDb {
       protocol.map((row) => parseJson<GapFetchedMessage>(String(row[0]))),
     )
       .sort((a, b) => {
-        const order = Number(a.msgSeq) - Number(b.msgSeq);
-        return (descending ? -order : order) || a.msgId.localeCompare(b.msgId);
+        const order = compareMessageOrder(a, b);
+        return descending ? -order : order;
       })
       .slice(0, Math.max(1, Math.min(2000, limit)));
     return descending ? messages.reverse() : messages;

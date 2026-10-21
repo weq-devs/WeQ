@@ -44,3 +44,51 @@
 html[data-theme='dark'] .weq-qq-member-edit-title {
   color: var(--weq-fg-secondary);
 }
+
+.weq-qq-member-profile {
+  display: contents;
+}
+.weq-member-inline-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 0;
+}
+.weq-member-inline-field label {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+.weq-member-inline-field label > span {
+  display: flex;
+  flex: 0 0 76px;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-member-inline-field input {
+  width: 0;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  font: inherit;
+}
+.weq-member-inline-field input:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 1px;
+}
+.weq-member-inline-field button {
+  flex-shrink: 0;
+}
+html[data-theme='dark'] .weq-member-inline-field input {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}

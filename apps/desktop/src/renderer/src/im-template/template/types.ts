@@ -2,6 +2,7 @@
 import type { PreviewNode } from '../../lib/conversationPreview';
 import type { SetEmojiItem } from '@weq/codec';
 import type { LocalMediaRef } from './composerSend';
+import type { RepeatElement } from '../../lib/messageRepeat';
 
 export type User = {
   id: string;
@@ -155,9 +156,13 @@ export type UnreadDock = {
 type ConversationBase = {
   id: string;
   updatedAt: string;
+  /** 仅用于会话列表排序：已落库草稿等活动的毫秒时间，不改写消息时间。 */
+  activityTime?: number;
   preference?: ConversationPreference;
-  /** QQ 置顶时间（unix 秒）；仅用于置顶组内排序，不冒充最后消息时间。 */
+  /** QQ 执行置顶的时间（unix 秒），不是置顶组内的活动排序键。 */
   pinnedAt?: number;
+  /** QQ 置顶表已经读回，不能被旧的本地 preference 覆盖。 */
+  pinStateKnown?: boolean;
   unreadCount?: number;
   /**
    * 该会话来自 hidden_session_storage_table_v1（用户手动隐藏过的聊天），并入
@@ -319,9 +324,13 @@ export type MessageAction = {
 
 export type Message = {
   id: string;
+  /** 原始消息 ID；展示 ID 可能带漫游来源前缀，用于可靠身份对账。 */
+  msgId?: string;
   conversationId: string;
   senderId: string;
   body: string;
+  /** QQ 渲染视图元素，逐条重发与只读预览共用，不能用 body 标签替代。 */
+  qqElements?: RepeatElement[];
   /**
    * Per-conversation sequence (column 40003 for synced rows). Used by chatPane to
    * spot seq gaps and to place optimistic rows among real ones. Empty string for

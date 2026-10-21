@@ -29,6 +29,11 @@ export interface MailApi {
   upload(signal?: AbortSignal): Promise<MailAttachment | null>;
   download(id: string, signal?: AbortSignal): Promise<boolean>;
   save(id: string, savePolicy: ExportSavePolicy, expectedAccountConfigId: string): Promise<string>;
+  exportMessages(
+    ids: string[],
+    savePolicy: ExportSavePolicy,
+    expectedAccountConfigId: string,
+  ): Promise<string>;
   image(id: string, signal?: AbortSignal): Promise<{ mime: string; base64: string }>;
   subscribe(listener: (event: MailEvent) => void): () => void;
   openLink(url: string): Promise<void>;
@@ -104,6 +109,8 @@ export function createMailApi(selfUin: string): MailApi {
       request((requestId) => client.mail.image.query({ selfUin, requestId, id }), signal),
     save: (id, savePolicy, expectedAccountConfigId) =>
       client.mail.saveAttachment.mutate({ selfUin, id, savePolicy, expectedAccountConfigId }),
+    exportMessages: (ids, savePolicy, expectedAccountConfigId) =>
+      client.mail.exportMessages.mutate({ selfUin, ids, savePolicy, expectedAccountConfigId }),
     subscribe: (listener) => {
       const subscription = client.mail.events.subscribe({ selfUin }, { onData: listener });
       return () => subscription.unsubscribe();

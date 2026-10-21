@@ -1,5 +1,5 @@
 /**
- * 「QQ 登陆账号管理」的写侧服务。
+ * 「QQ 登录账号管理」的写侧服务。
  *
  * 用 `@weq/testkit` 的 `createSqliteStub()` 对一个**明文 SQLite 夹具**跑真实的
  * `login_table` SQL：不碰真 QQ 库、不联网。夹具表结构照 `login.db` 抄（列名就是

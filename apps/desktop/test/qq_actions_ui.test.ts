@@ -1,5 +1,6 @@
 import { act, createElement as h, createRef, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -25,6 +26,8 @@ import { FavoriteActions } from '../src/renderer/src/components/qq-actions/Favor
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { GroupJoinAction } from '../src/renderer/src/components/qq-actions/GroupJoinAction';
 import { GroupActions, GroupTodos } from '../src/renderer/src/components/qq-actions/GroupActions';
+import { ProfileLikeAction } from '../src/renderer/src/components/qq-actions/ProfileLikeAction';
+import { PROFILE_LIKE_MAX_PER_REQUEST } from '@weq/protocol';
 import { GroupAnnouncementsDialog } from '../src/renderer/src/components/GroupAnnouncementsDialog';
 import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupInfoPanel';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
@@ -57,6 +60,7 @@ const state = vi.hoisted(() => ({
   refreshSigns: vi.fn(async () => {}),
   refreshTodos: vi.fn(async (_input?: unknown) => {}),
   refreshJoin: vi.fn(async () => {}),
+  refreshPeerStats: vi.fn(async () => {}),
   data: {} as Record<string, unknown>,
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
@@ -108,15 +112,18 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     'join',
     'inputStatus',
     'inlineButton',
+    'profileLike',
   ];
   const reads = [
     'fileSummary',
     'folders',
     'notices',
     'favorites',
+    'favoriteImportState',
     'requests',
     'tags',
     'todoList',
+    'todoLocalList',
     'groupReadTools',
     'groupPermissions',
     'groupJoinSettings',
@@ -124,6 +131,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   return {
     client: {
       account: {
+        dressup: { peerStats: { query: async () => ({ likeCount: 100 }) } },
+        listAllGroups: { query: async () => [] },
+        listGroupAlbumMedia: { query: async () => [] },
         pickSendFile: { mutate: state.picker },
         sendFile: {
           mutate: async (input: unknown) => {
@@ -132,6 +142,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           },
         },
         qqActions: {
+          ...Object.fromEntries(
+            reads.map((name) => [name, { query: async () => state.data[name] ?? [] }]),
+          ),
           folders: {
             query: async (input: { directory: string }) => ({
               targetDirectory: input.directory,
@@ -148,8 +161,12 @@ vi.mock('../src/renderer/src/trpc/client', () => {
       },
     },
     trpc: {
+      bootstrap: {
+        getSettings: { useQuery: () => ({ data: { exportSaveMode: 'before' }, isLoading: false }) },
+      },
       useUtils: () => ({
         account: {
+          dressup: { peerStats: { invalidate: state.refreshPeerStats } },
           listBuddyRequests: { invalidate: async () => {} },
           listGroupNotifies: { invalidate: async () => {} },
           qqActions: {
@@ -171,6 +188,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                 data: state.data[`${name}:${input?.kind}`] ?? state.data[name],
                 isLoading: false,
                 isFetching: false,
+                error: state.data[`error:${name}`],
                 refetch: async () => {
                   if (name === 'groupJoinSettings') await state.refreshJoin();
                   return { error: null, data: state.data[name] };
@@ -197,6 +215,8 @@ function captureManagement(host: HTMLElement, name: string) {
     'workspace-surfaces',
     'page-chrome',
     'qq-actions',
+    'qq-management',
+    'profile-like',
     'group-content-management',
     'conversation-actions',
     'profile-avatar',
@@ -248,6 +268,7 @@ const menuButton = (label: string) =>
   )!;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
   state.configId = 'source-a';
   state.available = true;
   state.mutate.mockClear();
@@ -257,6 +278,7 @@ beforeEach(() => {
   state.refreshSigns.mockClear();
   state.refreshTodos.mockClear();
   state.refreshJoin.mockClear();
+  state.refreshPeerStats.mockClear();
   state.data = {
     groupPermissions: { canManage: true, role: 'admin', selfUin: '10001' },
     fileSummary: { fileCount: 1, maxCount: 100, usedSpace: 10, totalSpace: 1000 },
@@ -266,6 +288,11 @@ beforeEach(() => {
     requests: [{ token: 'request-a', name: '申请人', groupName: '群 A', message: '留言' }],
     tags: [],
     todoList: [],
+    todoLocalList: [],
+    groupReadTools: {
+      signed: [],
+      atAll: { canAtAll: true, remainCountForUin: 1, remainCountForGroup: 1 },
+    },
     groupJoinSettings: { groupId: 123, option: 2, question: null, questionState: 'not-required' },
   };
   useViewState.setState({ openedUin: '10001' });
@@ -277,6 +304,139 @@ afterEach(() => {
 });
 
 describe('QQ 主动操作的实际界面', () => {
+  it('在线列表为空时保留本地待办，点击摘要正文也能打开详情', async () => {
+    state.data.todoLocalList = [
+      { sequence: '321', sourceId: '321_9', text: '本地已有待办', completed: false },
+    ];
+    const f = fixture(() => h(GroupTodos, { groupId: 123, groupName: '合成群', embedded: true }));
+    expect(f.host.querySelector('[aria-label="待办内容"]')?.textContent).toContain('本地已有待办');
+    await act(async () => f.host.querySelector<HTMLElement>('[aria-label="待办内容"]')!.click());
+    expect(f.host.querySelector('[aria-label="群待办列表"]')).not.toBeNull();
+    expect(f.button('完成待办')).not.toBeNull();
+  });
+  it('离线仍能查看本地待办，读取异常不冒充没有待办', async () => {
+    state.available = false;
+    state.data.todoLocalList = [{ sequence: '432', text: '离线缓存待办', completed: false }];
+    const f = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
+    expect(f.host.textContent).toContain('离线缓存待办');
+    await act(async () => f.button('查看群待办').click());
+    expect(f.button('完成待办').disabled).toBe(true);
+    state.data.todoLocalList = undefined;
+    state.data['error:todoLocalList'] = new Error('缓存读取失败');
+    f.update();
+    expect(f.host.textContent).not.toContain('暂无群待办');
+    expect(f.host.querySelector('[aria-label="待办内容"]')?.textContent).toContain('读取失败');
+  });
+  it('群待办先摘要后详情，完成项刷新、重新打开后仍保留且不串数据源', async () => {
+    state.data.todoList = [
+      { sequence: '123', sourceId: '123_1', text: '完成后要保留的待办', completed: false },
+    ];
+    let visible = true;
+    const f = fixture(() => (visible ? h(GroupTodos, { groupId: 123, embedded: true }) : null));
+    expect(f.button('完成待办')).toBeNull();
+    expect(f.host.textContent).toContain('完成后要保留的待办');
+    await act(async () => f.button('查看群待办').click());
+    expect(f.button('完成待办').disabled).toBe(false);
+    await act(async () => f.button('完成待办').click());
+    state.data.todoList = [];
+    f.update();
+    expect(f.host.textContent).toContain('完成后要保留的待办');
+    expect(f.button('完成待办').disabled).toBe(true);
+    visible = false;
+    f.update();
+    visible = true;
+    f.update();
+    expect(f.host.textContent).toContain('已完成');
+    expect(f.button('完成待办')).toBeNull();
+    await act(async () => f.button('查看群待办').click());
+    expect(f.button('完成待办').disabled).toBe(true);
+    state.configId = 'source-b';
+    f.update();
+    expect(f.host.textContent).not.toContain('完成后要保留的待办');
+    state.configId = 'source-a';
+    f.update();
+    expect(f.host.textContent).toContain('完成后要保留的待办');
+  });
+
+  it('完成待办的未知回执不伪造完成状态', async () => {
+    state.data.todoList = [{ sequence: '123', text: '尚未确认的待办', completed: false }];
+    const f = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
+    await act(async () => f.button('查看群待办').click());
+    state.mutate.mockResolvedValueOnce({ state: 'unconfirmed' });
+    await act(async () => f.button('完成待办').click());
+    expect(f.button('完成待办').disabled).toBe(false);
+    expect(f.host.textContent).toContain('待完成');
+  });
+
+  it('资料卡点赞先选次数再提交，取消不写，提交后只刷新目标统计', async () => {
+    const f = fixture(() =>
+      h(ProfileLikeAction, { uid: 'u_friend', uin: '10002', name: '合成好友' }),
+    );
+    await act(async () => f.button('赞资料卡').click());
+    expect(f.button('点赞 +10')).not.toBeNull();
+    expect(f.button('点赞 +20')).not.toBeNull();
+    expect(f.host.querySelector('.weq-profile-like-stage.is-active input')).toBeNull();
+    const count = f.host.querySelector<HTMLInputElement>('[aria-label="资料卡点赞次数"]')!;
+    expect(count.value).toBe('1');
+    expect(count.max).toBe(String(PROFILE_LIKE_MAX_PER_REQUEST));
+    expect(state.mutate).not.toHaveBeenCalled();
+    await act(async () => f.button('自定义点赞次数').click());
+    value(f.host, '资料卡点赞次数', '3');
+    captureManagement(f.host.querySelector<HTMLElement>('[role="dialog"]')!, 'profile-like');
+    await act(async () => f.button('关闭资料卡点赞').click());
+    expect(state.mutate).not.toHaveBeenCalled();
+    await act(async () => f.button('赞资料卡').click());
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="资料卡点赞次数"]')!.value).toBe(
+      '1',
+    );
+    await act(async () => f.button('自定义点赞次数').click());
+    value(f.host, '资料卡点赞次数', '3');
+    await act(async () =>
+      f.host
+        .querySelector('form')!
+        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+    );
+    expect(state.mutate).toHaveBeenCalledWith('profileLike', {
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      uid: 'u_friend',
+      count: 3,
+    });
+    expect(state.refreshPeerStats).toHaveBeenCalledWith({ uin: '10002', uid: 'u_friend' });
+  });
+  it('资料卡点赞拒绝非法次数，离线不可写，同号换来源或换目标不沿用草稿', async () => {
+    let target = { uid: 'u_friend', uin: '10002', name: '合成好友' };
+    const f = fixture(() => h(ProfileLikeAction, target));
+    await act(async () => f.button('赞资料卡').click());
+    await act(async () => f.button('自定义点赞次数').click());
+    for (const count of ['', '0', '1.5', String(PROFILE_LIKE_MAX_PER_REQUEST + 1)]) {
+      value(f.host, '资料卡点赞次数', count);
+      expect(f.button('确认点赞').disabled).toBe(true);
+    }
+    value(f.host, '资料卡点赞次数', '4');
+    state.available = false;
+    f.update();
+    expect(f.button('确认点赞').disabled).toBe(true);
+    state.available = true;
+    state.configId = 'source-b';
+    f.update();
+    expect(f.host.querySelector('.weq-profile-like-stage.is-active input')).toBeNull();
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="资料卡点赞次数"]')!.value).toBe(
+      '1',
+    );
+    target = { uid: 'u_other', uin: '10003', name: '其他人' };
+    f.update();
+    expect(f.host.querySelector('form')).toBeNull();
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('本人和没有真实 UID 的资料卡不显示点赞入口', () => {
+    const f = fixture(() => h(ProfileLikeAction, { uid: 'u_self', uin: '10001', name: '自己' }));
+    expect(f.button('赞资料卡')).toBeNull();
+    const missing = fixture(() =>
+      h(ProfileLikeAction, { uid: '10002', uin: '10002', name: '缺 UID' }),
+    );
+    expect(missing.button('赞资料卡')).toBeNull();
+  });
   it('创建群待办后刷新同账号同群列表，再关闭菜单', async () => {
     const demo = createTemplateDemoData();
     const group = demo.conversations.find((row) => row.type === 'group')!;
@@ -301,6 +461,8 @@ describe('QQ 主动操作的实际界面', () => {
     const f = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
     expect(f.button('刷新')).toBeNull();
     expect(f.host.textContent).toContain('已完成');
+    expect(f.button('完成待办')).toBeNull();
+    await act(async () => f.button('查看群待办').click());
     expect(f.button('完成待办').disabled).toBe(true);
     expect(f.button('取消群待办')).toBeNull();
     act(() => f.button('待办操作 123').click());
@@ -380,6 +542,8 @@ describe('QQ 主动操作的实际界面', () => {
     expect(panel.textContent).toContain('统一入口的待办');
     expect(panel.querySelector('summary')).toBeNull();
     expect(panel.textContent).not.toContain('公告正文');
+    expect(f.button('完成待办')).toBeNull();
+    await act(async () => f.button('查看群待办').click());
     await act(async () => f.button('完成待办').click());
     expect(state.mutate).toHaveBeenCalledWith(
       'todo',
@@ -779,7 +943,7 @@ describe('QQ 主动操作的实际界面', () => {
     expect(f.host.textContent).toContain('拖入资源损坏');
     expect(state.mutate).not.toHaveBeenCalled();
   });
-  it('批量删除保留每项结果，未知回执后停止且不自动重发', async () => {
+  it('批量删除不强求确认回执，操作结果不附加在列表中，也不自动重发', async () => {
     const files = [file, { ...file, fileId: 'file-b', fileName: '文件 B' }];
     state.data['listing:folder-a'] = { files, folders: [] };
     const f = fixture(() =>
@@ -794,17 +958,10 @@ describe('QQ 主动操作的实际界面', () => {
     act(() => f.host.querySelector<HTMLInputElement>('[aria-label="选择当前可见项目"]')!.click());
     state.mutate.mockResolvedValueOnce({ state: 'unconfirmed' });
     await act(async () => f.button('删除所选项目').click());
-    expect(state.mutate).toHaveBeenCalledTimes(1);
-    expect(f.host.textContent).toContain('结果待核对');
-    expect(f.host.textContent).toContain('未执行');
-    expect(f.button('删除所选项目').disabled).toBe(false);
-    state.confirm.mockResolvedValueOnce(false);
-    await act(async () => f.button('删除所选项目').click());
-    expect(state.confirm).toHaveBeenLastCalledWith(
-      '确认 QQ 操作',
-      expect.stringContaining('结果未确认'),
-    );
-    expect(state.mutate).toHaveBeenCalledTimes(1);
+    expect(state.mutate).toHaveBeenCalledTimes(2);
+    expect(f.host.querySelector('.weq-file-receipts')).toBeNull();
+    expect(f.button('删除所选项目').disabled).toBe(true);
+    expect(f.host.textContent).not.toContain('结果待核对');
   });
   it('普通点击建立锚点，Shift 点击按当前排序选择连续区间', () => {
     const files = [
@@ -1036,10 +1193,12 @@ describe('QQ 主动操作的实际界面', () => {
       state.mutate.mockResolvedValueOnce({ state: 'unconfirmed' });
       await act(async () => f.button('上传待处理文件').click());
       expect(state.mutate).toHaveBeenCalledTimes(1);
-      expect(f.host.querySelectorAll('.weq-file-upload-row')[0]!.textContent).toContain(
+      expect(f.host.querySelectorAll('.weq-file-upload-row')[0]!.textContent).not.toContain(
         '结果待核对',
       );
-      expect(f.host.querySelectorAll('.weq-file-upload-row')[1]!.textContent).toContain('待上传');
+      expect(f.host.querySelectorAll('.weq-file-upload-row')[1]!.textContent).not.toContain(
+        '待上传',
+      );
       await act(async () => f.button('上传待处理文件').click());
       expect(state.mutate.mock.calls.map((call) => (call[1] as { path: string }).path)).toEqual([
         '/local/a.txt',
@@ -1214,11 +1373,13 @@ describe('QQ 主动操作的实际界面', () => {
     expect(f.host.querySelector('textarea')).toBeNull();
     expect(state.mutate).not.toHaveBeenCalled();
   });
-  it('待办完成留在正文旁，取消在对应行菜单，普通成员不能取消', async () => {
+  it('待办摘要不暴露写操作，详情中完成与取消仍按对应权限', async () => {
     state.data.todoList = [{ sequence: 'todo-a', text: '合成待办' }];
     const f = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
     expect(f.host.querySelector('summary')).toBeNull();
     expect(f.button('取消群待办')).toBeNull();
+    expect(f.button('完成待办')).toBeNull();
+    await act(async () => f.button('查看群待办').click());
     expect(f.button('完成待办')).not.toBeNull();
     act(() => f.button('待办操作 todo-a').click());
     await act(async () => document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click());
@@ -1277,6 +1438,8 @@ describe('QQ 主动操作的实际界面', () => {
     ];
     const todos = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
     captureManagement(todos.host, 'todos');
+    await act(async () => todos.button('查看群待办').click());
+    captureManagement(todos.host, 'todos-open');
   });
   it('空间评论显示所选图片，并把路径交给主进程上传', async () => {
     const f = fixture(() =>
@@ -1462,8 +1625,9 @@ describe('QQ 主动操作的实际界面', () => {
   it('收藏备注可明确清空，排序边界不可点击', async () => {
     const f = fixture(() => h(FavoriteActions));
     await act(async () => f.button('表情操作').click());
-    expect(menuButton('上移表情').disabled).toBe(true);
-    expect(menuButton('下移表情').disabled).toBe(true);
+    expect(menuButton('移到最前').disabled).toBe(true);
+    expect(menuButton('上移表情')).toBeUndefined();
+    expect(menuButton('下移表情')).toBeUndefined();
     await act(async () => menuButton('修改表情备注').click());
     value(f.host, '表情备注', '');
     await act(async () => f.button('保存表情备注').click());
@@ -1489,6 +1653,31 @@ describe('QQ 主动操作的实际界面', () => {
     await act(async () => f.button('群管理菜单').click());
     expect(menuButton('退出 QQ 群')).toBeDefined();
     expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('群分类从真实群资料选择，未返回分类不默认为 0 或允许写入', async () => {
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    expect(f.host.querySelector('input[aria-label="群分类编号"]')).toBeNull();
+    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="群分类"]')!.disabled).toBe(true);
+    expect(f.button('添加分类标签').disabled).toBe(true);
+    state.data.groupJoinSettings = {
+      groupId: 123,
+      categoryId: 0,
+      categoryName: '服务端分类名称',
+    };
+    f.update();
+    const category = f.host.querySelector<HTMLSelectElement>('[aria-label="群分类"]')!;
+    expect(category.value).toBe('0');
+    expect(category.options[0]!.textContent).toBe('服务端分类名称');
+    captureManagement(f.host, 'group-category');
+    value(f.host, '分类标签名称', '合成标签');
+    await act(async () => f.button('添加分类标签').click());
+    expect(state.mutate).toHaveBeenCalledWith(
+      'groupSettings',
+      expect.objectContaining({ groupId: 123, category: 0, tag: '合成标签' }),
+    );
+    state.data.groupJoinSettings = { groupId: 999, categoryId: 2, categoryName: '其他群' };
+    f.update();
+    expect(f.button('添加分类标签').disabled).toBe(true);
   });
   it('收藏备注未知回执保留编辑草稿，取消也必须确认', async () => {
     const f = fixture(() => h(FavoriteActions));

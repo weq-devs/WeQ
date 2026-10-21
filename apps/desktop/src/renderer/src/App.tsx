@@ -11,8 +11,9 @@ import { BootstrapView } from './views/BootstrapView';
 import { MainView } from './views/MainView';
 import { DialogHost } from './components/Dialog';
 import { HoverTooltip } from './components/HoverTooltip';
-import { ToastHost } from './components/Toast';
+import { ToastHost, useToast } from './components/Toast';
 import { DbRepairReturnOverlay } from './components/DbRepairReturnOverlay';
+import { DbRepairWindowHost } from './components/DbRepairWindow';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { JoinGroupDialog } from './components/JoinGroupDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
@@ -57,6 +58,10 @@ function TextMarkdownProvider({ children }: { children: ReactNode }): ReactEleme
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
+  useEffect(() => {
+    if (settings.data?.toastDurations)
+      useToast.getState().setDurations(settings.data.toastDurations);
+  }, [settings.data?.toastDurations]);
   return (
     <TextMarkdownContext.Provider value={settings.data?.renderTextMarkdown ?? true}>
       <LinkPreviewContext.Provider value={settings.data?.linkPreview?.enabled ?? true}>
@@ -187,9 +192,10 @@ export default function App(): ReactElement {
             <DialogHost />
             <ToastHost />
             <HoverTooltip />
-            {/* 「修复完成 → 回首页」的倒计时。挂在这一层（而不是妙妙工具弹窗里），
+            {/* 「修复完成 → 回首页」的倒计时。挂在这一层（而不是维护与诊断工具弹窗里），
                 关掉弹窗或切视图都不会把它弄丢。 */}
             <DbRepairReturnOverlay />
+            <DbRepairWindowHost />
             <DesktopOnly>
               <CloseConfirmDialog />
             </DesktopOnly>

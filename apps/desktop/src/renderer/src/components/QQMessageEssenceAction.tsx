@@ -1,13 +1,8 @@
 import { Star, StarOff } from 'lucide-react';
-import { trpc } from '../trpc/client';
-import {
-  useQQWriteSession,
-  qqWriteOutcomeText,
-  type QQWriteOutcome,
-} from '../hooks/useQQWriteSession';
+import { client, trpc } from '../trpc/client';
+import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { qqEssenceTarget } from '../lib/qqEssenceTarget';
 import type { Conversation, Message } from '../im-template/template/types';
-import { useToast } from './Toast';
 import { QQWriteResult } from './QQWriteControls';
 import {
   essenceActive,
@@ -53,7 +48,6 @@ export function QQEssenceAction({
   const session = useQQWriteSession(`essence:${target?.groupId}:${target?.sequence}`);
   const mutation = trpc.account.qqWrite.groupEssence.useMutation();
   const utils = trpc.useUtils();
-  const push = useToast((state) => state.push);
   const receipts = useQQEssence((state) => state.receipts);
   const source = essenceSource(session.binding);
   const key = essenceKey(source, target?.groupId ?? 0, target?.sequence ?? 0);
@@ -72,15 +66,10 @@ export function QQEssenceAction({
     if (!target || reason) return;
     const operation = useQQEssence.getState().begin(source, target);
     if (operation === null) return;
-    let outcome: QQWriteOutcome = { state: 'unconfirmed' };
     try {
       const ok = await session.run(
-        async (binding) => {
-          outcome = await mutation.mutateAsync({ ...binding, ...target, enable: !active });
-          return outcome;
-        },
+        (binding) => mutation.mutateAsync({ ...binding, ...target, enable: !active }),
         async () => {
-          useQQEssence.getState().finish(key, operation, !active, outcome);
           await Promise.all([
             utils.account.listGroupEssenceSeqs.invalidate(),
             utils.account.listGroupEssenceMessages.invalidate(),
@@ -88,11 +77,20 @@ export function QQEssenceAction({
             utils.account.getGroupEssencePageWithContent.invalidate(),
           ]);
         },
-        { backgroundRefresh: true },
+        {
+          requireReadback: true,
+          readbackSuccessText: active ? '已取消精华' : '已设为精华',
+          readback: async () => {
+            const sequences = await client.account.listGroupEssenceSeqs.query({
+              groupCode: String(target.groupId),
+            });
+            return sequences.includes(String(target.sequence)) === !active;
+          },
+        },
       );
       if (ok) {
-        push({ tone: 'info', title: qqWriteOutcomeText(outcome) });
-        if (outcome.state === 'accepted' || outcome.state === 'confirmed') onClose?.();
+        useQQEssence.getState().finish(key, operation, !active, { state: 'confirmed' });
+        onClose?.();
       }
     } finally {
       useQQEssence.getState().finish(key, operation);

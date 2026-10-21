@@ -107,11 +107,6 @@ export function GroupEssenceDialog({
               联网精华读取失败，当前仅显示本地记录
             </p>
           )}
-          {recent.length > 0 && (
-            <p className="weq-essence-receipt" role="status">
-              精华操作已受理，等待 QQ 同步
-            </p>
-          )}
           {loading && visible.length === 0 ? (
             <div className="group-essence-empty is-loading">
               <RefreshCw size={22} className="weq-gap-spin" />
@@ -181,13 +176,7 @@ export function GroupEssenceDialog({
                         </div>
                       ) : (
                         <p className="group-essence-placeholder">
-                          {recent.some(
-                            (receipt) => receipt.sequence === item.msgSeq && receipt.enabled,
-                          )
-                            ? '已受理，等待 QQ 同步'
-                            : item.active
-                              ? '已设为精华'
-                              : '已取消精华'}
+                          {item.active ? '已设为精华' : '已取消精华'}
                         </p>
                       )}
                     </button>

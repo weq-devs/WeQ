@@ -325,6 +325,7 @@ export function MarketEmojiBrowserLightbox({
     ids: entries.map((entry) => entry.id),
     selected: selection.selectedIds,
     onChange: selection.setSelectedIds,
+    anchorRef: selection.anchorRef,
     enabled: selection.selectionMode,
     disabled: downloading,
     onStart: () => selection.setSelectionMode(true),

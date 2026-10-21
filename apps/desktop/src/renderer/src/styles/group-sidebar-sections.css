@@ -1,3 +1,7 @@
+.chat-pane > .group-info-panel[hidden] {
+  display: none;
+}
+
 .group-info-panel.weq-group-sections {
   display: flex;
   flex-direction: column;

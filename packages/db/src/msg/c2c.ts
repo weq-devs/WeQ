@@ -60,7 +60,7 @@ import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 //           history (see C2cMsg.msgRandom);
 //   40005 = the sender-local client sequence = the wire `contentHead.sequence`
 //           (tag 5) that a private-chat reply must quote (see C2cMsg.clientSeq).
-const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012","40801","40002","40005"`;
+const SELECT_COLUMNS = `"40001","40020","40021","40030","40033","40050","40800","40003","40011","40012","40801","40002","40005","40013"`;
 
 /**
  * 会话切分阈值：沉默超过这个时长，下一次说话就是一场新对话。私聊总结
@@ -945,6 +945,7 @@ function rowToC2cMsg(row: SqlRow): C2cMsg {
     decoration: decodeDress(row[10]),
     msgRandom: toBigint(row[11]),
     clientSeq: toBigint(row[12]),
+    sendType: toBigint(row[13]),
   };
 }
 
@@ -965,5 +966,6 @@ function rowToC2cMsgWithRowId(row: SqlRow): C2cMsg & { rowId: bigint } {
     decoration: decodeDress(row[11]),
     msgRandom: toBigint(row[12]),
     clientSeq: toBigint(row[13]),
+    sendType: toBigint(row[14]),
   };
 }

@@ -21,6 +21,8 @@ export function fixedScopeSummary(selection: ContentSelection): string {
     }
     case 'guild-direct':
       return count === null ? '频道私聊 · 会话全部消息' : `频道私聊 · 精确选中 ${count} 条消息`;
+    case 'guild-conversations':
+      return count === null ? '频道私聊 · 全部会话' : `频道私聊 · 已选 ${count} 个会话`;
     case 'contacts':
       return count === null ? '联系人 · 全部' : `联系人 · 精确选中 ${count} 项`;
     case 'collections':
@@ -50,6 +52,7 @@ export function initialExportMode(selection?: ContentSelection): ExportMode {
     case 'assistant-messages':
       return 'generated';
     case 'guild-direct':
+    case 'guild-conversations':
       return 'guild';
     case 'qzone-posts':
       return 'qzone';
@@ -74,6 +77,11 @@ export function initialGuildScope(selection?: ContentSelection): {
   nodeIds: string[];
   messageIds: Record<string, string[]>;
 } {
+  if (selection?.owner.kind === 'guild-conversations')
+    return {
+      nodeIds: selection.scope.type === 'items' ? [...new Set(selection.scope.ids)] : [],
+      messageIds: {},
+    };
   if (selection?.owner.kind !== 'guild-direct' || !selection.owner.container)
     return { nodeIds: [], messageIds: {} };
   const nodeId = selection.owner.container;

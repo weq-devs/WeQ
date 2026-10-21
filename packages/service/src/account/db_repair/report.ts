@@ -14,7 +14,7 @@ import type { DbRepairRecord } from './types';
 
 const STATE_LABEL: Record<DbRepairRecord['state'], string> = {
   applied: '已修复并替换',
-  aborted: '已中止（源库未被改动）',
+  aborted: '已中止',
   'apply-failed': '修复失败',
   'rolled-back': '已回滚到修复前',
 };
@@ -83,7 +83,7 @@ export function renderDbRepairReportMarkdown(
   if (record.error) lines.push(`- 原因：${record.error}`);
   lines.push(`- 耗时：${formatDuration(record.durationMs)}`);
   lines.push(
-    `- 页模式：${record.strictPages ? '严格（坏页清零，明确丢这些行）' : '宽容（坏页上的未校验内容也写进新库，恢复率最高）'}`,
+    `- 页模式：${record.strictPages ? '严格（坏页清零，丢弃坏页上的内容）' : '宽容（尽量保留可读内容，坏页内容未经完整性校验）'}`,
   );
   lines.push(`- 修复前 sha256：\`${record.beforeSha}\``);
   lines.push(`- 修复后 sha256：${record.afterSha ? `\`${record.afterSha}\`` : '—'}`);
@@ -137,7 +137,7 @@ export function renderDbRepairReportMarkdown(
   lines.push('## 产物自检');
   lines.push('');
   if (!record.verification) {
-    lines.push('（没有自检结果 —— 修复没有走到替换那一步）');
+    lines.push('（没有自检结果；请结合失败原因与阶段记录核对替换状态）');
   } else {
     lines.push(`- 完整性检查：${record.verification.healthy ? '通过' : '**未通过**'}`);
     lines.push(
@@ -153,7 +153,7 @@ export function renderDbRepairReportMarkdown(
   if (record.backupPath && record.purgedAt === undefined) {
     lines.push(`- 备份：\`${record.backupPath}\``);
     lines.push(`- 备份体积：${formatBytes(record.backupBytes)}`);
-    lines.push('- 回滚方式：妙妙工具 → 数据库修复 → 记录列表 → 「回滚」');
+    lines.push('- 回滚方式：设置 → 数据与存储 → 维护工具 → 数据库修复 → 修复记录与回滚 → 「回滚」');
   } else if (record.backupPath && record.purgedAt !== undefined) {
     lines.push(`- 备份已被保留策略清理（${formatLocalTime(record.purgedAt)}），不可回滚。`);
   } else {
@@ -169,10 +169,10 @@ export function renderDbRepairReportMarkdown(
     '1. **这是重建，不是打补丁**：产物是一份全新的库，页布局与原来不同（没有 freelist 空洞），所以页数 / 体积会变，这是正常的。',
   );
   lines.push(
-    '2. **坏页上的内容无法校验**：页 HMAC 失败说明那一页的解密结果可能已被损坏点附近的字节影响。宽容模式会把这些内容写进新库以换取最大恢复率；严格模式先清零坏页，内容一定经过校验，但那几行明确丢失。',
+    '2. **坏页上的内容无法校验**：页 HMAC 失败说明该页内容不可信。宽容模式会尝试保留其中可解析的内容，但不能保证其正确性；严格模式清零坏页，丢弃坏页上的内容。页完整性校验也不等于逐条确认消息内容正确。',
   );
   lines.push(
-    '3. **读不出来的 cell 会丢**：修复只保证"能解析的都留下"，不承诺零丢失。判断丢了多少只能靠对账（行数 / 会话数量 / 具体消息），而不是靠体积。',
+    '3. **读不出来的 cell 会丢**：修复会尝试保留可解析的内容，但不承诺零丢失。请通过行数、会话数量及具体消息核对恢复结果，不能仅凭文件体积判断。',
   );
   lines.push('');
   return lines.join('\n');

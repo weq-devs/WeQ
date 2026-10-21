@@ -122,6 +122,8 @@ export function MailPage({
   const [revision, setRevision] = useState(0),
     [error, setError] = useState('');
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const exportingRef = useRef(false);
   const download = useRef<AbortController | null>(null),
     mounted = useRef(true),
     visible = useRef(active),
@@ -459,6 +461,28 @@ export function MailPage({
       if (download.current === controller) download.current = null;
     }
   }
+  async function exportMessages(intent?: ExportSavePolicy): Promise<void> {
+    if (exportingRef.current || !selection.length || !save.binding) return;
+    exportingRef.current = true;
+    setExporting(true);
+    const ids = [...selection];
+    const binding = save.binding;
+    try {
+      const policy = await save.prepareSave(intent, {
+        kind: 'bundle',
+        name: `邮件导出-${ids.length}封`,
+      });
+      if (!policy || !mounted.current || !save.isCurrent()) return;
+      await api.exportMessages(ids, policy, binding.expectedAccountConfigId);
+      if (mounted.current && save.isCurrent())
+        useToast.getState().push({ tone: 'info', title: '邮件导出任务已创建' });
+    } catch (error) {
+      if (mounted.current && save.isCurrent()) setError(mailError(error));
+    } finally {
+      exportingRef.current = false;
+      if (mounted.current) setExporting(false);
+    }
+  }
   const allChecked = page.items.length > 0 && page.items.every((item) => checked.includes(item.id));
   const snippets = useMemo(
     () => new Map(page.items.map((item) => [item.id, plainMailText(item.snippet)])),
@@ -667,6 +691,24 @@ export function MailPage({
                 }
               />
               <span>{checked.length ? `已选 ${checked.length}` : ''}</span>
+              <button
+                type="button"
+                title="导出所选邮件"
+                aria-label="导出所选邮件"
+                disabled={
+                  !selection.length || exporting || !save.binding || save.settings.isLoading
+                }
+                onClick={() => void exportMessages()}
+              >
+                <Download size={16} />
+              </button>
+              <ExportSaveActions
+                disabled={
+                  !selection.length || exporting || !save.binding || save.settings.isLoading
+                }
+                onSelect={(intent) => void exportMessages(intent)}
+                label="邮件导出的本次保存选项"
+              />
               <button
                 type="button"
                 title="标为已读"

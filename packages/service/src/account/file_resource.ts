@@ -273,6 +273,11 @@ export class FileResourceService {
     if (absPath) this.trustedPaths.add(resolve(absPath));
   }
 
+  /** 仅撤销调用方自行创建并登记的临时预览文件。 */
+  untrustPath(absPath: string): void {
+    if (absPath) this.trustedPaths.delete(resolve(absPath));
+  }
+
   /** Absolute `nt_data` dir for the open account (the media containment boundary). */
   private ntDataRoot(): string | null {
     return this.platform.ntDataDir(this.session.context.uin);

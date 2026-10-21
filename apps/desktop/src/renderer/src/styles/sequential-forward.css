@@ -101,17 +101,81 @@
   overflow-wrap: anywhere;
 }
 .weq-forward-banner-progress {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  grid-template-areas: 'time stop' 'count stop' 'bar stop';
+  gap: 6px 8px;
   align-items: center;
   min-width: 0;
 }
-.weq-forward-banner-progress progress {
+.weq-forward-count {
+  grid-area: count;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+.weq-toast-host:has(.weq-forward-banner) {
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  pointer-events: auto;
+}
+.weq-toast-host:has(.weq-forward-banner) .weq-toast {
+  flex-shrink: 0;
+}
+.weq-sequential-forward header strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-sequential-forward header button {
+  flex: none;
+}
+.weq-forward-ignored {
+  display: flex;
   flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  font-size: 13px;
+}
+.weq-forward-review {
+  height: min(640px, calc(100dvh - 48px));
+  padding: 0;
+}
+.weq-forward-review > footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-forward-ignored-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 12px;
+}
+.weq-forward-time {
+  display: flex;
+  flex-wrap: wrap;
+  grid-area: time;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.weq-forward-time > span {
+  white-space: nowrap;
+}
+.weq-forward-banner-progress progress {
+  grid-area: bar;
   width: 100%;
   min-width: 0;
   height: 6px;
   accent-color: var(--weq-accent-effective);
+}
+.weq-forward-banner-progress > button {
+  grid-area: stop;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
 }
 .weq-forward-banner button {
   display: inline-flex;
