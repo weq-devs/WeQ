@@ -95,6 +95,18 @@ it('冲突身份不按相同 QQ 号猜测唯一 UID，也不扩大 UID 分析范
   expect(multiple.find((row) => row.id === 'uin:10007')).toMatchObject({ uid: '', uin: '10007' });
 });
 
+it('删除/撤回占位行（40020 写成群号）不会冒充群成员', async () => {
+  const { group, sql } = fixture();
+  sql.exec(
+    `INSERT INTO group_msg_table ("40001","40020","40033","40027","40050") VALUES (30,'777',0,'777',105)`,
+  );
+  const rows = await group.listAnalysisMembers(777n);
+  expect(rows.some((row) => row.uid === '777' || row.uin === '777' || row.name === '777')).toBe(
+    false,
+  );
+  expect(rows.every((row) => row.id !== 'uin:0')).toBe(true);
+});
+
 it('群和成员目录包含历史群、退群成员与名册外发言人，保留真实身份并隔离群', async () => {
   const { group } = fixture();
   // 群目录按最后一条消息时间倒序（与导出页同口径）：777 最新、888 次之、
