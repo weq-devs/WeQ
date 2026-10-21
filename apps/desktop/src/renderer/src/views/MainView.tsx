@@ -4247,7 +4247,7 @@ export function MainView(): ReactElement {
     [selfProfile.data?.uid, user],
   );
 
-  /** 可转发到的会话（好友在前、群聊在后）；合并会话入口不可转发。 */
+  /** 可转发到的会话沿用列表顺序，不按好友／群聊分组；合并会话入口不可转发。 */
   const mergeForwardTargets: MfTarget[] = useMemo(
     () =>
       conversations

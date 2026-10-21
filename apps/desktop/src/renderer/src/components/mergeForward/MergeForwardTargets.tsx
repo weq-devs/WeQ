@@ -1,7 +1,7 @@
 /**
  * 合并转发第二步：选择要转发到的会话（多选）。
  *
- * 会话来自主界面已经加载的列表（不在弹窗里另起一份数据源）——好友在前、群聊在后，
+ * 会话来自主界面已经加载的列表，保留会话顺序，不按好友／群聊拆分。
  * 支持按名字 / QQ 号过滤。
  */
 
@@ -24,20 +24,17 @@ export function MergeForwardTargets({
   const [keyword, setKeyword] = useState('');
   const needle = keyword.trim().toLowerCase();
 
-  const { friends, groups } = useMemo(() => {
-    const match = (t: MfTarget) =>
-      !needle || t.name.toLowerCase().includes(needle) || t.conv.includes(needle);
-    const friendList: MfTarget[] = [];
-    const groupList: MfTarget[] = [];
-    for (const t of targets) {
-      if (!match(t)) continue;
-      (t.kind === 'group' ? groupList : friendList).push(t);
-    }
-    return { friends: friendList, groups: groupList };
-  }, [targets, needle]);
+  const visible = useMemo(
+    () =>
+      targets.filter(
+        (target) =>
+          !needle || target.name.toLowerCase().includes(needle) || target.conv.includes(needle),
+      ),
+    [targets, needle],
+  );
 
   const selection = useMultiSelection({
-    ids: [...friends, ...groups].map((target) => target.id),
+    ids: visible.map((target) => target.id),
     selected,
     onChange,
   });
@@ -54,35 +51,15 @@ export function MergeForwardTargets({
         />
       </div>
       <div className="weq-mf-target-scroll">
-        {friends.length === 0 && groups.length === 0 ? (
-          <div className="weq-mf-empty">没有匹配的会话</div>
-        ) : null}
-        {friends.length > 0 ? (
-          <>
-            <div className="weq-mf-section">好友</div>
-            {friends.map((t) => (
-              <TargetRow
-                key={t.id}
-                target={t}
-                checked={selected.has(t.id)}
-                selectionProps={selection.itemProps(t.id)}
-              />
-            ))}
-          </>
-        ) : null}
-        {groups.length > 0 ? (
-          <>
-            <div className="weq-mf-section">群聊</div>
-            {groups.map((t) => (
-              <TargetRow
-                key={t.id}
-                target={t}
-                checked={selected.has(t.id)}
-                selectionProps={selection.itemProps(t.id)}
-              />
-            ))}
-          </>
-        ) : null}
+        {visible.length === 0 ? <div className="weq-mf-empty">没有匹配的会话</div> : null}
+        {visible.map((t) => (
+          <TargetRow
+            key={t.id}
+            target={t}
+            checked={selected.has(t.id)}
+            selectionProps={selection.itemProps(t.id)}
+          />
+        ))}
       </div>
     </div>
   );
