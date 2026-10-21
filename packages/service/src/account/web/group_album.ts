@@ -32,6 +32,8 @@ export interface GroupAlbum {
   createTime: string;
   /** Last-update time, same format as {@link createTime}. */
   updateTime: string;
+  /** 原始相册权限值；缺失不补默认，编辑时必须先取得真实值。 */
+  privacy?: number | null;
 }
 
 interface RawAlbum {
@@ -44,6 +46,7 @@ interface RawAlbum {
   createnickname?: string;
   createtime?: string;
   updatetime?: string;
+  privacy?: number;
 }
 
 interface RawAlbumListRet {
@@ -96,7 +99,10 @@ export async function getGroupAlbumList(
   // 票据过期时这支 cgi 回的是 **HTTP 200** 加一个错误码,不检查的话空相册和
   // 「cookie 失效」长得一模一样 —— 用户看到的是「这个群没有相册」,而不是让上层
   // 有机会换票重试。凭证类的错码单独抛 WebAuthError,由 withRetry 接住。
-  if (typeof ret.code === 'number' && ret.code !== 0) {
+  if (typeof ret.code !== 'number' || !Number.isSafeInteger(ret.code)) {
+    throw new Error('群相册列表缺少明确业务码，不能确认相册状态');
+  }
+  if (ret.code !== 0) {
     const msg = `群相册列表失败: code=${ret.code} ${ret.message ?? ''}`.trim();
     throw AUTH_CODES.has(ret.code) ? new WebAuthError(msg, ret.code) : new Error(msg);
   }
@@ -112,6 +118,13 @@ export async function getGroupAlbumList(
     createNickname: a.createnickname ?? '',
     createTime: a.createtime ?? '',
     updateTime: a.updatetime ?? '',
+    privacy:
+      typeof a.privacy === 'number' &&
+      Number.isSafeInteger(a.privacy) &&
+      a.privacy >= 0 &&
+      a.privacy <= 0xffffffff
+        ? a.privacy
+        : null,
   }));
 }
 
