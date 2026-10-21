@@ -9208,6 +9208,7 @@ export function MainView(): ReactElement {
                               <GroupTodos
                                 key={`${noticeAccountKey}:${selectedConversation.id}`}
                                 groupId={Number(selectedConversation.group.identityValue)}
+                                groupName={selectedConversation.group.name}
                                 embedded
                               />
                             ) : undefined

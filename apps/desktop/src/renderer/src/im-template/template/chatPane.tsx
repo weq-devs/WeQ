@@ -81,6 +81,8 @@ import {
   useState,
 } from 'react';
 import { ReplyJumpContext } from '../../components/QqMessageContent';
+import { openLightbox } from '../../components/ImageLightbox';
+import '../../styles/composer-image-preview.css';
 import { ChatBackdrop } from '../../components/ChatBackdrop';
 import { useChatBackdrop } from '../../hooks/useDressSkin';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
@@ -1338,6 +1340,7 @@ export function ChatPane({
     }
 
     function closeEmojiFromOutside(event: globalThis.MouseEvent) {
+      if (hasActiveModal()) return;
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
@@ -1354,6 +1357,7 @@ export function ChatPane({
     }
 
     function closeEmojiOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.defaultPrevented || hasActiveModal()) return;
       if (event.key === 'Escape') {
         setEmojiOpen(false);
       }
@@ -1750,6 +1754,56 @@ export function ChatPane({
     if (isNodeInside(editor, range.startContainer) && isNodeInside(editor, range.endContainer)) {
       composerSelectionRef.current = range.cloneRange();
     }
+  }
+
+  function composerPreviewImage(event: ReactMouseEvent<HTMLDivElement>) {
+    const editor = event.currentTarget;
+    const ElementClass = editor.ownerDocument.defaultView?.Element;
+    if (!ElementClass || !(event.target instanceof ElementClass)) return null;
+    const image = event.target.closest<HTMLImageElement>(
+      'img.composer-inline-attachment, img.composer-sticker-token',
+    );
+    return image && editor.contains(image) ? image : null;
+  }
+
+  function prepareComposerImagePreview(event: ReactMouseEvent<HTMLDivElement>) {
+    if (event.button !== 0 || !composerPreviewImage(event)) return;
+    saveComposerSelection(event.currentTarget);
+    event.preventDefault();
+  }
+
+  function previewComposerImage(event: ReactMouseEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    const image = composerPreviewImage(event);
+    if (!image) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const editor = event.currentTarget;
+    const owner = editor.ownerDocument;
+    const range = composerSelectionRef.current?.cloneRange();
+    const id = conversation?.id;
+    openLightbox(image.currentSrc || image.src, image.alt, null, owner, () => {
+      owner.defaultView?.requestAnimationFrame(() => {
+        if (
+          !editor.isConnected ||
+          owner.defaultView?.closed ||
+          readContextRef.current.conversation?.id !== id ||
+          !readContextRef.current.tabActive
+        )
+          return;
+        if (
+          range &&
+          isNodeInside(editor, range.startContainer) &&
+          isNodeInside(editor, range.endContainer)
+        ) {
+          editor.focus({ preventScroll: true });
+          const selection = owner.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+          composerSelectionRef.current = range.cloneRange();
+        } else focusComposerEnd(editor);
+      });
+    });
   }
 
   function syncComposerBody(editor = currentComposerEditor()) {
@@ -2767,6 +2821,10 @@ export function ChatPane({
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.currentTarget.ownerDocument.querySelector('.weq-lightbox-layer')) {
+      event.preventDefault();
+      return;
+    }
     if (event.nativeEvent.isComposing || event.key === 'Process') {
       return;
     }
@@ -4971,6 +5029,8 @@ export function ChatPane({
           contentEditable={!currentPreference.blocked}
           suppressContentEditableWarning
           onInput={() => syncComposerBody(composerEditorRef.current)}
+          onMouseDown={prepareComposerImagePreview}
+          onClick={previewComposerImage}
           onKeyDown={handleComposerKeyDown}
           onKeyUp={() => {
             saveComposerSelection(composerEditorRef.current);
@@ -5035,6 +5095,8 @@ export function ChatPane({
               contentEditable={!currentPreference.blocked}
               suppressContentEditableWarning
               onInput={() => syncComposerBody(expandedComposerEditorRef.current)}
+              onMouseDown={prepareComposerImagePreview}
+              onClick={previewComposerImage}
               onKeyDown={handleComposerKeyDown}
               onKeyUp={() => {
                 saveComposerSelection(expandedComposerEditorRef.current);

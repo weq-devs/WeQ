@@ -1,14 +1,15 @@
 /**
- * Web cgi facade — query-only access to qq.com web endpoints for one account
+ * Web cgi facade — access to qq.com web endpoints for one account
  * session (group notice / album list / honor).
  *
  * 这个实例是**跟着账号会话活一整场**的(见 app_context 的服务装配),而 p_skey /
- * cookie jar 在服务端是短命的 —— 所以每个方法都套 {@link withRetry}:cgi 说票据不对
+ * cookie jar 在服务端是短命的 —— 读取方法套 {@link withRetry}:cgi 说票据不对
  * (抛 WebAuthError)就清掉该域的缓存、换一套新的重跑一次。不按时间戳猜过期,由 cgi
  * 自己告诉我们,这样既不多打 hook 也没有过期窗口。
  *
  * 前提是各 cgi 包装函数会在票据失效时抛 WebAuthError 而不是静默返回空值 ——
  * 群相册踩过这个坑(过期回的是 200 + code:-3000,被当成「这个群没有相册」)。
+ * 新增的相册管理写入只尝试一次，认证拒绝也不自动换票重放。
  */
 import type { AccountSession } from '@weq/account';
 import { WebCredentialProvider, withRetry, type WebNative } from './credential';
@@ -19,6 +20,15 @@ import {
   type GroupAlbum,
   type UploadGroupAlbumImageParams,
 } from './group_album';
+import {
+  createGroupAlbum,
+  modifyGroupAlbum,
+  deleteGroupAlbum,
+  getGroupAlbumUploadPermission,
+  type CreateGroupAlbumParams,
+  type ModifyGroupAlbumParams,
+  type DeleteGroupAlbumParams,
+} from './group_album_management';
 import {
   getQzoneAlbumList,
   getQzoneAlbumPage,
@@ -135,6 +145,26 @@ export class WebQueryService {
 
   async getGroupAlbumList(groupId: string): Promise<GroupAlbum[]> {
     return withRetry(this.creds, QZONE_DOMAIN, (c) => getGroupAlbumList(c, groupId));
+  }
+
+  async getGroupAlbumUploadPermission(groupId: string) {
+    return withRetry(this.creds, QZONE_DOMAIN, (c) => getGroupAlbumUploadPermission(c, groupId));
+  }
+
+  /** 相册写入不走换票重放；beforeSend 在异步取票之后、HTTP 发出之前执行。 */
+  async createGroupAlbum(params: CreateGroupAlbumParams) {
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    return createGroupAlbum(cred, params);
+  }
+
+  async modifyGroupAlbum(params: ModifyGroupAlbumParams) {
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    return modifyGroupAlbum(cred, params);
+  }
+
+  async deleteGroupAlbum(params: DeleteGroupAlbumParams) {
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    return deleteGroupAlbum(cred, params);
   }
 
   /** 查某人正在用的好友装扮(挂件/名片/来电/输入状态等)。解析不出返回 null。 */
@@ -599,6 +629,18 @@ export type { SignedListMember, FetchDaySignedListParams } from './group_signin'
 export { getGroupEssence } from './group_essence';
 export type { GroupEssenceMessage, GroupEssenceContent } from './group_essence';
 export { getGroupAlbumList, uploadGroupAlbumImage } from './group_album';
+export {
+  createGroupAlbum,
+  modifyGroupAlbum,
+  deleteGroupAlbum,
+  getGroupAlbumUploadPermission,
+} from './group_album_management';
+export type {
+  CreateGroupAlbumParams,
+  ModifyGroupAlbumParams,
+  DeleteGroupAlbumParams,
+  GroupAlbumUploadPermission,
+} from './group_album_management';
 export type { GroupAlbum, UploadGroupAlbumImageParams } from './group_album';
 export { getHonorList, HonorType } from './group_honor';
 export type { HonorMember } from './group_honor';

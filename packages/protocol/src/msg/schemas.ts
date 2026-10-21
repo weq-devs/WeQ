@@ -8,6 +8,7 @@
  */
 
 import { message, type ProtoMessage } from '../protobuf';
+import { NTV2_EXT_BIZ_INFO } from '../highway/ntv2-schemas';
 
 const f = (
   name: string,
@@ -417,7 +418,10 @@ export const PIC_COMMON_FILE: ProtoMessage = message([
 ]);
 
 /** commonElem(serviceType=48).pbElem 顶层。 */
-export const PIC_COMMON_PB: ProtoMessage = message([f('file', 1, PIC_COMMON_FILE)]);
+export const PIC_COMMON_PB: ProtoMessage = message([
+  f('file', 1, PIC_COMMON_FILE),
+  f('extBizInfo', 2, NTV2_EXT_BIZ_INFO),
+]);
 
 // ---------- commonElem(serviceType=48, businessType=21) 视频 ----------
 

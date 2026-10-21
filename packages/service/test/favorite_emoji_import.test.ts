@@ -43,16 +43,17 @@ function server() {
       descriptions.set(emojiId, description);
     }),
     moveFavorite: vi.fn(async (emojiId: string, position = 1, beforeSend?: () => void) => {
+      if (position !== 1) throw new Error('只支持移到最前');
       beforeSend?.();
       ids = ids.filter((value) => value !== emojiId);
-      ids.splice(position - 1, 0, emojiId);
+      ids.unshift(emojiId);
     }),
   };
   return { port, ids: () => ids, descriptions };
 }
 
 describe('收藏包导入执行', () => {
-  it('使用目标账号新 ID，按来源顺序追加，读回确认图片、备注与排序', async () => {
+  it('使用目标账号新 ID，逆序置前恢复来源顺序，原有项相对顺序不变', async () => {
     const { items, images } = await fixture();
     const s = server();
     const original = s.ids()[0]!;
@@ -63,7 +64,7 @@ describe('收藏包导入执行', () => {
     });
     expect(result.stopped).toBeNull();
     expect(result.items.map((row) => row.state)).toEqual(['confirmed', 'confirmed']);
-    expect(s.ids()).toEqual([original, id(images[0]!), id(images[2]!)]);
+    expect(s.ids()).toEqual([id(images[0]!), id(images[2]!), original]);
     expect(s.descriptions.get(id(images[0]!))).toBe(items[0]!.description);
     expect(
       s.port.modifyFavoriteDesc.mock.calls.every(([emojiId]) => emojiId.startsWith('20002_')),

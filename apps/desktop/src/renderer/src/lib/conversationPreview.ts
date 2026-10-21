@@ -75,6 +75,7 @@ export function previewNodes(
       });
   }
   const kind = str(el.kind);
+  if (kind === 'pic' && num(el.subType) === 1) return [{ t: 'text', text: '[表情]' }];
 
   // 表情消息：QQ 把正文塞进 textContent、表情单独放 faceId，displayText 只有
   // 表情名。两部分都要，顺序与消息体一致（正文在前、表情在后）。

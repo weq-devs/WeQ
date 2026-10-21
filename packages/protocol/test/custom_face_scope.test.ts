@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { AddCustomFace, FetchCustomFaceDetail, ModifyCustomFace } from '../src/oidb/custom-face';
+import {
+  AddCustomFace,
+  FetchCustomFaceDetail,
+  ModifyCustomFace,
+  OrderCustomFace,
+} from '../src/oidb/custom-face';
 import { decode, encode } from '../src/protobuf';
 
 const state = vi.hoisted(() => ({
@@ -22,6 +27,17 @@ beforeEach(() => {
   );
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it('移动仅发送已验证的置前参数，不把任意序号当作协议能力', async () => {
+  const sendOidbPacket = vi.fn(async () => Buffer.alloc(0));
+  await expect(
+    OrderCustomFace.invoke({ sendOidbPacket }, 101, {
+      emojiId: '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0',
+      position: 2,
+    }),
+  ).rejects.toThrow('移到最前');
+  expect(sendOidbPacket).not.toHaveBeenCalled();
+});
 
 it('收藏详情使用 UIN 信封，保持原顺序并且不发送前置移动指令', async () => {
   const emojis = [

@@ -1,6 +1,15 @@
-import { useState } from 'react';
-import { Check, LogOut, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, ChevronRight, LogOut, MoreHorizontal, Plus, Trash2, X } from 'lucide-react';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
+import { OverlayLayer } from '../OverlayLayer';
+import {
+  groupTodoHistoryKey,
+  groupTodoKey,
+  mergeGroupTodoHistory,
+  readGroupTodoHistory,
+  saveGroupTodoHistory,
+  type GroupTodoRecord,
+} from '../../lib/groupTodoHistory';
 import '../../styles/group-content-management.css';
 import '../../styles/qq-management.css';
 import { client, trpc } from '../../trpc/client';
@@ -167,19 +176,78 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
   );
 }
 export const GroupActions = withQQAccountScope(GroupActionsBody);
-function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedded?: boolean }) {
+function GroupTodosBody({
+  groupId,
+  groupName,
+  embedded = false,
+}: {
+  groupId: number;
+  groupName?: string;
+  embedded?: boolean;
+}) {
   const a = useQQAction(`todos:${groupId}`);
+  const [opened, setOpened] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; sequence: string } | null>(null);
+  const key = a.binding
+    ? groupTodoHistoryKey(a.binding.expectedAccountUin, a.binding.expectedAccountConfigId, groupId)
+    : '';
+  const [history, setHistory] = useState(() => ({ key, rows: readGroupTodoHistory(key) }));
+  const [historyError, setHistoryError] = useState('');
+  useEffect(() => {
+    setHistory({ key, rows: readGroupTodoHistory(key) });
+    setHistoryError('');
+  }, [key]);
   const permissions = useQQGroupPermissions(groupId, a);
   const autoRefresh = useQQAutoRefresh(a.available);
   const todos = trpc.account.qqActions.todoList.useQuery({ ...a.binding!, groupId }, autoRefresh);
+  useEffect(() => {
+    const live = todos.data;
+    if (!key || !live) return;
+    setHistory((previous) => {
+      const rows = mergeGroupTodoHistory(
+        live,
+        previous.key === key ? previous.rows : readGroupTodoHistory(key),
+      ).filter((row) => row.completed);
+      return previous.key === key && JSON.stringify(previous.rows) === JSON.stringify(rows)
+        ? previous
+        : { key, rows };
+    });
+  }, [key, todos.data]);
+  useEffect(() => {
+    if (!key || history.key !== key) return;
+    try {
+      saveGroupTodoHistory(key, history.rows);
+    } catch {
+      setHistoryError('已完成状态保留在当前窗口，但本地记录保存失败，重新打开后可能无法恢复。');
+    }
+  }, [key, history]);
+  const entries = mergeGroupTodoHistory(todos.data ?? [], history.key === key ? history.rows : []);
   const refresh = async () => {
     const r = await todos.refetch();
     if (r.error) throw r.error;
   };
-  const isEmpty = a.available && !todos.isFetching && !todos.error && todos.data?.length === 0;
-  if (embedded && isEmpty) return null;
-  return (
+  const isEmpty = a.available && !todos.isFetching && !todos.error && entries.length === 0;
+  async function complete(todo: GroupTodoRecord) {
+    await a.perform(async (binding) => {
+      const result = await client.account.qqActions.todo.mutate({
+        ...binding,
+        groupId,
+        sequence: todo.sequence,
+        action: 'complete',
+      });
+      if (result.state === 'accepted' || result.state === 'confirmed') {
+        const finished = { ...todo, completed: true, updatedAt: Math.floor(Date.now() / 1000) };
+        setHistory((previous) => ({
+          key,
+          rows: mergeGroupTodoHistory([finished], previous.key === key ? previous.rows : []).filter(
+            (row) => row.completed,
+          ),
+        }));
+      }
+      return result;
+    }, refresh);
+  }
+  const content = (
     <section className="weq-notice-management weq-todo-content" aria-label="群待办列表">
       {!embedded ? (
         <div className="weq-content-toolbar">
@@ -205,9 +273,9 @@ function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedd
         <div className="group-announcements-empty weq-todo-empty">暂无群待办</div>
       )}
       <ul className="group-bulletins-list weq-todo-list">
-        {todos.data?.map((t) => (
+        {entries.map((t) => (
           <li
-            key={t.sequence}
+            key={groupTodoKey(t)}
             className="group-bulletin-item"
             onContextMenu={(event) => {
               if (!permissions.data?.canManage || a.disabled) return;
@@ -220,19 +288,8 @@ function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedd
               <div className="weq-todo-row-actions">
                 <ActionIcon
                   label="完成待办"
-                  disabled={a.disabled || t.completed}
-                  onClick={() =>
-                    void a.perform(
-                      (b) =>
-                        client.account.qqActions.todo.mutate({
-                          ...b,
-                          groupId,
-                          sequence: String(t.sequence),
-                          action: 'complete',
-                        }),
-                      refresh,
-                    )
-                  }
+                  disabled={a.disabled || Boolean(t.completed)}
+                  onClick={() => void complete(t)}
                 >
                   <Check size={15} />
                 </ActionIcon>
@@ -260,6 +317,11 @@ function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedd
         ))}
       </ul>
       <ActionFeedback action={a} />
+      {historyError && (
+        <p className="weq-content-error" role="alert">
+          {historyError}
+        </p>
+      )}
       {menu && permissions.data?.canManage && (
         <ConversationActionsMenu
           x={menu.x}
@@ -273,13 +335,23 @@ function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedd
               disabled: a.disabled,
               action: () =>
                 void a.perform(
-                  (binding) =>
-                    client.account.qqActions.todo.mutate({
+                  async (binding) => {
+                    const canceled = menu.sequence;
+                    const result = await client.account.qqActions.todo.mutate({
                       ...binding,
                       groupId,
                       sequence: menu.sequence,
                       action: 'cancel',
-                    }),
+                    });
+                    if (result.state === 'accepted' || result.state === 'confirmed')
+                      setHistory((previous) => ({
+                        key,
+                        rows: (previous.key === key ? previous.rows : []).filter(
+                          (row) => row.sequence !== canceled,
+                        ),
+                      }));
+                    return result;
+                  },
                   refresh,
                   '取消这项群待办？',
                 ),
@@ -288,6 +360,68 @@ function GroupTodosBody({ groupId, embedded = false }: { groupId: number; embedd
         />
       )}
     </section>
+  );
+  if (!embedded) return content;
+  const latest = entries.find((todo) => !todo.completed) ?? entries[0];
+  const close = () => {
+    setOpened(false);
+    setMenu(null);
+  };
+  return (
+    <>
+      <section className="weq-group-announcement weq-group-todos" aria-label="群待办">
+        <button
+          type="button"
+          onClick={() => setOpened(true)}
+          title="查看群待办"
+          aria-label="查看群待办"
+        >
+          <span>
+            <strong>群待办</strong>
+            <ChevronRight size={14} />
+          </span>
+        </button>
+        <p tabIndex={0} aria-label="待办内容">
+          {latest
+            ? `${latest.completed ? '已完成 · ' : ''}${latest.text || `消息 ${latest.sequence}`}`
+            : todos.isFetching
+              ? '读取待办中…'
+              : '暂无群待办'}
+        </p>
+        {historyError && <p role="alert">{historyError}</p>}
+      </section>
+      {opened && (
+        <OverlayLayer
+          presentation="sidecar"
+          title="群待办"
+          className="modal-scrim group-announcements-scrim"
+          onClose={close}
+        >
+          <section
+            className="group-announcements-dialog"
+            role="region"
+            aria-label={`${groupName || groupId}的群待办`}
+          >
+            <header>
+              <div>
+                <strong>群待办</strong>
+                <span>{groupName || groupId}</span>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                title="关闭"
+                aria-label="关闭群待办"
+                onClick={close}
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <div className="group-announcements-body">{content}</div>
+          </section>
+        </OverlayLayer>
+      )}
+    </>
   );
 }
 const ScopedGroupTodos = withQQAccountScope(GroupTodosBody);

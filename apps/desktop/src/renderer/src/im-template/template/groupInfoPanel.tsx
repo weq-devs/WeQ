@@ -209,14 +209,7 @@ export function GroupInfoPanel({
           </p>
         </section>
       ) : null}
-      {groupTodos ? (
-        <section className="weq-group-todos" aria-label="群待办">
-          <header className="group-info-heading">
-            <strong>群待办</strong>
-          </header>
-          <div className="weq-group-todos-body">{groupTodos}</div>
-        </section>
-      ) : null}
+      {groupTodos ?? null}
       {onOpenEssence || onOpenAlbums || onOpenFiles || onOpenSign ? (
         <nav className="weq-group-content-actions" aria-label="群内容">
           {onOpenSign ? (

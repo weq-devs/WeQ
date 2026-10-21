@@ -1,5 +1,6 @@
 import { act, createElement as h, createRef, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -26,7 +27,6 @@ import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { GroupJoinAction } from '../src/renderer/src/components/qq-actions/GroupJoinAction';
 import { GroupActions, GroupTodos } from '../src/renderer/src/components/qq-actions/GroupActions';
 import { ProfileLikeAction } from '../src/renderer/src/components/qq-actions/ProfileLikeAction';
-import { PROFILE_LIKE_MAX_PER_REQUEST } from '@weq/protocol';
 import { GroupAnnouncementsDialog } from '../src/renderer/src/components/GroupAnnouncementsDialog';
 import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupInfoPanel';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
@@ -259,6 +259,7 @@ const menuButton = (label: string) =>
   )!;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
   state.configId = 'source-a';
   state.available = true;
   state.mutate.mockClear();
@@ -289,58 +290,84 @@ afterEach(() => {
 });
 
 describe('QQ 主动操作的实际界面', () => {
-  it('资料卡点赞先选次数再提交，取消不写，提交后只刷新目标统计', async () => {
+  it('群待办先摘要后详情，完成项刷新、重新打开后仍保留且不串数据源', async () => {
+    state.data.todoList = [
+      { sequence: '123', sourceId: '123_1', text: '完成后要保留的待办', completed: false },
+    ];
+    let visible = true;
+    const f = fixture(() => (visible ? h(GroupTodos, { groupId: 123, embedded: true }) : null));
+    expect(f.button('完成待办')).toBeNull();
+    expect(f.host.textContent).toContain('完成后要保留的待办');
+    await act(async () => f.button('查看群待办').click());
+    expect(f.button('完成待办').disabled).toBe(false);
+    await act(async () => f.button('完成待办').click());
+    state.data.todoList = [];
+    f.update();
+    expect(f.host.textContent).toContain('完成后要保留的待办');
+    expect(f.button('完成待办').disabled).toBe(true);
+    visible = false;
+    f.update();
+    visible = true;
+    f.update();
+    expect(f.host.textContent).toContain('已完成');
+    expect(f.button('完成待办')).toBeNull();
+    await act(async () => f.button('查看群待办').click());
+    expect(f.button('完成待办').disabled).toBe(true);
+    state.configId = 'source-b';
+    f.update();
+    expect(f.host.textContent).not.toContain('完成后要保留的待办');
+    state.configId = 'source-a';
+    f.update();
+    expect(f.host.textContent).toContain('完成后要保留的待办');
+  });
+
+  it('完成待办的未知回执不伪造完成状态', async () => {
+    state.data.todoList = [{ sequence: '123', text: '尚未确认的待办', completed: false }];
+    const f = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
+    await act(async () => f.button('查看群待办').click());
+    state.mutate.mockResolvedValueOnce({ state: 'unconfirmed' });
+    await act(async () => f.button('完成待办').click());
+    expect(f.button('完成待办').disabled).toBe(false);
+    expect(f.host.textContent).toContain('待完成');
+  });
+
+  it('资料卡点赞打开或关闭不写，+20 单次提交后只刷新目标统计', async () => {
     const f = fixture(() =>
       h(ProfileLikeAction, { uid: 'u_friend', uin: '10002', name: '合成好友' }),
     );
     await act(async () => f.button('赞资料卡').click());
-    const count = f.host.querySelector<HTMLInputElement>('[aria-label="资料卡点赞次数"]')!;
-    expect(count.value).toBe('1');
-    expect(count.max).toBe(String(PROFILE_LIKE_MAX_PER_REQUEST));
+    expect(f.button('点赞 +10')).not.toBeNull();
+    expect(f.button('点赞 +20')).not.toBeNull();
+    expect(f.host.querySelector('input')).toBeNull();
     expect(state.mutate).not.toHaveBeenCalled();
-    value(f.host, '资料卡点赞次数', '3');
     captureManagement(f.host.querySelector<HTMLElement>('[role="dialog"]')!, 'profile-like');
     await act(async () => f.button('关闭资料卡点赞').click());
     expect(state.mutate).not.toHaveBeenCalled();
     await act(async () => f.button('赞资料卡').click());
-    expect(f.host.querySelector<HTMLInputElement>('[aria-label="资料卡点赞次数"]')!.value).toBe(
-      '1',
-    );
-    value(f.host, '资料卡点赞次数', '3');
-    await act(async () =>
-      f.host
-        .querySelector('form')!
-        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
-    );
+    await act(async () => f.button('点赞 +20').click());
     expect(state.mutate).toHaveBeenCalledWith('profileLike', {
       expectedAccountUin: '10001',
       expectedAccountConfigId: 'source-a',
       uid: 'u_friend',
-      count: 3,
+      count: 20,
     });
     expect(state.refreshPeerStats).toHaveBeenCalledWith({ uin: '10002', uid: 'u_friend' });
   });
-  it('资料卡点赞拒绝非法次数，离线不可写，同号换来源或换目标不沿用草稿', async () => {
+  it('资料卡点赞离线时两个快捷按钮均不可写，换目标不沿用弹窗', async () => {
     let target = { uid: 'u_friend', uin: '10002', name: '合成好友' };
     const f = fixture(() => h(ProfileLikeAction, target));
     await act(async () => f.button('赞资料卡').click());
-    for (const count of ['', '0', '1.5', String(PROFILE_LIKE_MAX_PER_REQUEST + 1)]) {
-      value(f.host, '资料卡点赞次数', count);
-      expect(f.button('提交资料卡点赞').disabled).toBe(true);
-    }
-    value(f.host, '资料卡点赞次数', '4');
     state.available = false;
     f.update();
-    expect(f.button('提交资料卡点赞').disabled).toBe(true);
+    expect(f.button('点赞 +10').disabled).toBe(true);
+    expect(f.button('点赞 +20').disabled).toBe(true);
     state.available = true;
     state.configId = 'source-b';
     f.update();
-    expect(f.host.querySelector<HTMLInputElement>('[aria-label="资料卡点赞次数"]')!.value).toBe(
-      '1',
-    );
+    expect(f.host.querySelector('[aria-label="资料卡点赞次数"]')).toBeNull();
     target = { uid: 'u_other', uin: '10003', name: '其他人' };
     f.update();
-    expect(f.host.querySelector('form')).toBeNull();
+    expect(f.host.querySelector('.weq-profile-like-dialog')).toBeNull();
     expect(state.mutate).not.toHaveBeenCalled();
   });
   it('本人和没有真实 UID 的资料卡不显示点赞入口', () => {
@@ -375,6 +402,8 @@ describe('QQ 主动操作的实际界面', () => {
     const f = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
     expect(f.button('刷新')).toBeNull();
     expect(f.host.textContent).toContain('已完成');
+    expect(f.button('完成待办')).toBeNull();
+    await act(async () => f.button('查看群待办').click());
     expect(f.button('完成待办').disabled).toBe(true);
     expect(f.button('取消群待办')).toBeNull();
     act(() => f.button('待办操作 123').click());
@@ -454,6 +483,8 @@ describe('QQ 主动操作的实际界面', () => {
     expect(panel.textContent).toContain('统一入口的待办');
     expect(panel.querySelector('summary')).toBeNull();
     expect(panel.textContent).not.toContain('公告正文');
+    expect(f.button('完成待办')).toBeNull();
+    await act(async () => f.button('查看群待办').click());
     await act(async () => f.button('完成待办').click());
     expect(state.mutate).toHaveBeenCalledWith(
       'todo',
@@ -1288,11 +1319,13 @@ describe('QQ 主动操作的实际界面', () => {
     expect(f.host.querySelector('textarea')).toBeNull();
     expect(state.mutate).not.toHaveBeenCalled();
   });
-  it('待办完成留在正文旁，取消在对应行菜单，普通成员不能取消', async () => {
+  it('待办摘要不暴露写操作，详情中完成与取消仍按对应权限', async () => {
     state.data.todoList = [{ sequence: 'todo-a', text: '合成待办' }];
     const f = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
     expect(f.host.querySelector('summary')).toBeNull();
     expect(f.button('取消群待办')).toBeNull();
+    expect(f.button('完成待办')).toBeNull();
+    await act(async () => f.button('查看群待办').click());
     expect(f.button('完成待办')).not.toBeNull();
     act(() => f.button('待办操作 todo-a').click());
     await act(async () => document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click());
@@ -1351,6 +1384,8 @@ describe('QQ 主动操作的实际界面', () => {
     ];
     const todos = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
     captureManagement(todos.host, 'todos');
+    await act(async () => todos.button('查看群待办').click());
+    captureManagement(todos.host, 'todos-open');
   });
   it('空间评论显示所选图片，并把路径交给主进程上传', async () => {
     const f = fixture(() =>
@@ -1536,8 +1571,9 @@ describe('QQ 主动操作的实际界面', () => {
   it('收藏备注可明确清空，排序边界不可点击', async () => {
     const f = fixture(() => h(FavoriteActions));
     await act(async () => f.button('表情操作').click());
-    expect(menuButton('上移表情').disabled).toBe(true);
-    expect(menuButton('下移表情').disabled).toBe(true);
+    expect(menuButton('移到最前').disabled).toBe(true);
+    expect(menuButton('上移表情')).toBeUndefined();
+    expect(menuButton('下移表情')).toBeUndefined();
     await act(async () => menuButton('修改表情备注').click());
     value(f.host, '表情备注', '');
     await act(async () => f.button('保存表情备注').click());

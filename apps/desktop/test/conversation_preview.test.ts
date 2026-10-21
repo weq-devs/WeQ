@@ -19,6 +19,18 @@ const preview = {
 const text = (p = preview, names = new Map<string, string>()) =>
   previewNodesToText(previewNodes(p, new Set(['u_self', '67890']), names));
 
+test('表情图按子类型显示表情摘要，普通 GIF 仍是图片', () => {
+  assert.equal(
+    previewNodesToText(previewNodes({ kind: 'pic', subType: 1, displayText: '[图片]' })),
+    '[表情]',
+  );
+  assert.equal(previewNodesToText(previewNodes({ kind: 'pic', subType: 1 })), '[表情]');
+  assert.equal(
+    previewNodesToText(previewNodes({ kind: 'pic', subType: 0, imgType: 2000 })),
+    '[图片]',
+  );
+});
+
 test('群名修改摘要使用协议事件与新群名，不误报成员退出', () => {
   for (const [fields, expected] of [
     [{ user1Nick: '管理员', groupTipGroupName: '新群名' }, '管理员 修改群名为 新群名'],
