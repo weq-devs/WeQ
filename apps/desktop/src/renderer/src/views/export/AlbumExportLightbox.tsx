@@ -128,7 +128,7 @@ export function AlbumExportLightbox({
             {loadingAlbums ? (
               <div className="weq-exp-list-state">
                 <Loader2 size={18} className="weq-exp-spin" />
-                <span>正在查询群相册列表喵~</span>
+                <span>正在加载群相册列表…</span>
               </div>
             ) : albumError ? (
               <div className="weq-exp-list-state is-error">{albumError}</div>

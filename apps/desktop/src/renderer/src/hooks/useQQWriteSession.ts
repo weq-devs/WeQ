@@ -16,9 +16,9 @@ export function qqWriteOutcomeText(result: QQWriteOutcome): string {
     case 'accepted':
       return '正在确认操作完成情况';
     case 'unconfirmed':
-      return '结果未确认，请核对 QQ 后刷新';
+      return '暂未确认结果，请在 QQ 中核对后刷新';
     case 'unchanged':
-      return '本机记录未变化，未发送请求';
+      return '本机记录没有变化，未提交请求';
   }
 }
 

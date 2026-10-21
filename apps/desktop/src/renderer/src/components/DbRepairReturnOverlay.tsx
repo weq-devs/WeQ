@@ -1,7 +1,7 @@
 /**
  * 「修复完成，N 秒后回到首页」的浮动提示。
  *
- * 挂载在 `App`，与 BootstrapView / MainView 同层级（**不是**妙妙工具弹窗里），所以关掉
+ * 挂载在 `App`，与 BootstrapView / MainView 同层级（**不是**维护与诊断工具弹窗里），所以关掉
  * 弹窗、切回首页都不会把它弄丢 —— 理由见 `state/dbRepairReturn.ts`。
  *
  * 为什么非要回首页：修复在替换库文件前会先 `clearAccount()`（Windows 上 `rename` 会被

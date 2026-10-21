@@ -138,7 +138,7 @@ export function WelcomeDialog(): ReactElement | null {
                 <span>允许扫描 QQ 内存</span>
                 <small>
                   凭证只在本机处理，不上传；Linux / macOS 首次可能需要一次管理员密码。随时可在
-                  「设置 → 账号基础」关闭。
+                  「设置 → 账号与消息 → 接入与监听」关闭。
                 </small>
               </div>
               <Toggle
@@ -156,8 +156,9 @@ export function WelcomeDialog(): ReactElement | null {
             <div className="weq-welcome-text">
               <p className="weq-welcome-disclaimer-title">免责声明</p>
               <p className="weq-welcome-sub">
-                仅限用于解密你自己的消息数据库，供研究与学习，不得用于其它违法或商业用途。
-                读取内存、数据库读取/修改均存在风险，开发者不对由此造成的任何后果负责。
+                请仅处理你有权访问的聊天数据，并遵守适用法律与项目许可。
+                读取内存或修改数据库可能遇到兼容性问题；涉及修复、替换或删除时，请先保留原始文件，
+                阅读操作提示并核对目标。遇到异常时，可保留日志和检查报告反馈问题。
               </p>
             </div>
           </section>

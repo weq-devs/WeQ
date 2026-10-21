@@ -206,7 +206,7 @@ function WillingTab({
       </p>
       <label className="weq-clone-check">
         <input type="checkbox" checked={typoOn} onChange={(e) => setTypoOn(e.target.checked)} />
-        <span>开启错别字（关掉后回复永远工工整整）</span>
+        <span>允许模拟聊天中的偶发错别字</span>
       </label>
       {typoOn ? (
         <label className="weq-agentlab-field">

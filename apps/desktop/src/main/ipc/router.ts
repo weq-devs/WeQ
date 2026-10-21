@@ -31,7 +31,7 @@ export const appRouter = router({
   groupFeedback: groupFeedbackRouter,
   wonderfulTools: wonderfulToolsRouter,
   /**
-   * 妙妙工具 → 数据库修复。挂在顶层而不是 `account` 下：修库要在 QQ 与当前账号都
+   * 设置 → 数据与存储 → 维护工具 → 数据库修复。挂在顶层而不是 `account` 下：修库要在 QQ 与当前账号都
    * 不持有库的时候做，所以它不该要求"有活动会话"（见 routers/db_repair.ts 的头注）。
    */
   dbRepair: dbRepairRouter,

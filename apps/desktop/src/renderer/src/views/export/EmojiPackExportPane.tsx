@@ -257,7 +257,7 @@ function ScopeCard({
       <div className="weq-epk-card-stats">
         <Stat label="原图" value={summary?.withOri ?? 0} />
         <Stat label="缩略图" value={summary?.thumbOnly ?? 0} />
-        <Stat label="可下载" value={summary?.downloadable ?? 0} />
+        <Stat label="需下载" value={summary?.downloadable ?? 0} />
         {summary && summary.missing > 0 ? <Stat label="缺失" value={summary.missing} warn /> : null}
       </div>
 

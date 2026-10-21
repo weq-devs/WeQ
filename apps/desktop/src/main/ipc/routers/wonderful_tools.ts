@@ -1,5 +1,5 @@
 /**
- * 妙妙工具 router — 主窗口「更多功能 → 妙妙工具」的后端。
+ * 维护与诊断工具 router — 设置页中各工具入口的后端。
  *
  *   - `overview`   遍历 login.db 的全部历史账号，逐个解析数据库目录
  *                  (`nt_msg.db`) 与在线状态（pid 反查），供密钥扫描面板
@@ -589,10 +589,10 @@ export const wonderfulToolsRouter = router({
       },
     ),
 
-  // ── QQ 登陆账号管理 ──────────────────────────────────────────────────
+  // ── QQ 登录账号管理 ──────────────────────────────────────────────────
 
   /**
-   * 「QQ 登陆账号管理」页的数据：login.db 里的全部历史账号（含「有 a1 = 快速登录」
+   * 「QQ 登录账号管理」页的数据：login.db 里的全部历史账号（含「有 a1 = 快速登录」
    * 标记）、本机设备 guid、以及**当前 QQ 实例数**。
    *
    * 实例数是整页的闸门：所有写操作（删账号 / 移除快登 / 换 guid）都要求它等于 0
@@ -666,7 +666,7 @@ function assertNoQqRunning(): void {
   }
 }
 
-/** 组装「QQ 登陆账号管理」用的服务（每次现取配置，避免持有过期路径）。 */
+/** 组装「QQ 登录账号管理」用的服务（每次现取配置，避免持有过期路径）。 */
 function makeLoginAccountTool(): LoginAccountToolService {
   const boot = requireBootstrap();
   const platform = requirePlatform();

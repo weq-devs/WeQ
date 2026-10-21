@@ -14,7 +14,7 @@
  *     宽容级别依然只能去 设置 → 数据库宽容 自己挑，那里有完整代价说明与账本；
  *     口径文案统一来自 `@weq/service` 的 `db_tolerance_copy.ts`。
  *
- *   - **主按钮是"尝试修复"**（妙妙工具 → 数据库修复）。容错只保证"少读一点也能
+ *   - **主按钮是"尝试修复"**（设置 → 数据与存储 → 维护工具 → 数据库修复）。容错只保证"少读一点也能
  *     用"，不负责把坏掉的内容找回来；真正恢复数据靠那份修复（备份 → 重建 → 可回滚）。
  *     所以这里给的是一个真入口，而不是一段"应该怎么修"的说明。
  */
@@ -98,7 +98,7 @@ export function DatabaseDamagedDialog({
   onClose: () => void;
   /** 打开设置并落到指定分区。宽容级别只能由用户在设置页里自己选。 */
   onOpenSettings: (section: DatabaseDamageSettingsSection) => void;
-  /** 打开妙妙工具 → 数据库修复，并预选出问题的那个账号。 */
+  /** 打开设置 → 数据与存储 → 维护工具 → 数据库修复，并预选出问题的那个账号。 */
   onOpenRepair: (uin: string) => void;
 }): ReactElement | null {
   const pushToast = useToast((s) => s.push);
@@ -187,9 +187,10 @@ export function DatabaseDamagedDialog({
             </p>
             {!isCheckError ? (
               <p>
-                真正恢复数据靠<strong>数据库修复</strong>：它会把能读出来的内容重建到一份新库
-                上（先备份、修完可回滚），在 <strong>妙妙工具 → 数据库修复</strong> 里，
-                下面的主按钮可以直接过去。
+                可以尝试<strong>数据库修复</strong>，将仍可读取的内容重建到新库中。修复前会备份，
+                但无法保证恢复全部数据。可从{' '}
+                <strong>设置 → 数据与存储 → 维护工具 → 数据库修复</strong>
+                进入，也可以点击下方的「尝试修复」。
               </p>
             ) : null}
           </section>

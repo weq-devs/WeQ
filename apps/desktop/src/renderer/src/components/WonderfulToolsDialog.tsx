@@ -1,5 +1,5 @@
 /**
- * 妙妙工具 —— 主窗口「更多功能 → 妙妙工具」弹窗。
+ * 维护与诊断工具 —— 从设置中的对应入口打开。
  *
  * 布局：左侧工具列表 + 右侧工具界面。工具列表：
  *
@@ -87,7 +87,7 @@ const TOOLS: { id: ToolId; label: string; desc: string }[] = [
   { id: 'other-device-key', label: '其它设备密钥', desc: '获取账号其它设备的密钥' },
   { id: 'capture', label: 'ntqq 抓包', desc: '网卡收发包 · 解密展开' },
   { id: 'reverse', label: 'Protobuf/JCE 逆向', desc: 'hex/base64 → 简洁 JSON' },
-  { id: 'login-accounts', label: 'QQ 登陆与guid管理', desc: '快登 · 删除 · 换 guid' },
+  { id: 'login-accounts', label: 'QQ 登录账号管理', desc: '快速登录 · 删除账号 · 更换设备标识' },
 ];
 
 const TOOL_ICONS: Record<ToolId, typeof KeyRound> = {
@@ -863,7 +863,7 @@ export function WonderfulToolsDialog({
                 <header className="weq-wtools-pane-head">
                   <div className="weq-wtools-pane-title">
                     <Fingerprint size={17} strokeWidth={1.9} />
-                    <h2 id="weq-wtools-title">QQ 登陆与guid管理</h2>
+                    <h2 id="weq-wtools-title">QQ 登录账号管理</h2>
                   </div>
                 </header>
                 <div className="weq-wtools-pane-body">

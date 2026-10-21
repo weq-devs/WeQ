@@ -292,7 +292,7 @@ describe('DbRepairService.repair 成功路径', () => {
     );
     expect(h.recoverArgs[0]?.strictPages).toBe(true);
     expect(record.strictPages).toBe(true);
-    expect(readFileSync(record.reportPath!, 'utf8')).toContain('坏页清零，明确丢这些行');
+    expect(readFileSync(record.reportPath!, 'utf8')).toContain('坏页清零，丢弃坏页上的内容');
   });
 
   it('layoutMigration 把 standard 源布局透传给 native，并记成布局迁移', async () => {
@@ -386,7 +386,8 @@ describe('DbRepairService.repair 中止 / 失败', () => {
     expect(readdirSync(h.dbDir)).toEqual(['nt_msg.db']);
     const record = h.service.listRecords(REF)[0]!;
     expect(record.state).toBe('aborted');
-    expect(record.error).toContain('修复期间该数据库被改动');
+    expect(record.error).toContain('修复期间数据库发生变化');
+    expect(record.error).toContain('未替换数据库');
     expect(record.afterSha).toBeNull();
   });
 

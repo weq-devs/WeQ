@@ -1,5 +1,5 @@
 /**
- * 妙妙工具 → QQ 登陆账号管理。
+ * 维护与诊断工具 → QQ 登录账号管理。
  *
  * 颜色一律走 design token（`--weq-fg-*` / `--weq-border-*` / `--weq-accent-effective`），
  * 不写死色值；深色是独立一套覆盖（钩 `html[data-theme="dark"]`，不用 Tailwind 的

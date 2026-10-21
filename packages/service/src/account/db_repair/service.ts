@@ -18,7 +18,7 @@
  *
  * # 不做的事
  *
- * * **不改源库**（除了最后那一次原子替换）：任何一步失败，源库都是原样。
+ * * 备份前可能合并 WAL；替换后的自检失败会尝试从备份还原，结果写入报告。
  * * **不自动降级宽容**：那是设置页里用户显式选的东西，与修复无关。
  * * **不承诺零丢失**：只给对账口径（见 `report.ts`）。
  */
@@ -465,7 +465,7 @@ export class DbRepairService {
       if (current.sha256 !== before.sha256) {
         throw new DbRepairError(
           'changed-during-repair',
-          '修复期间该数据库被改动（很可能来自 WeQ 自己的写入），已中止且未改动源库。请关闭该账号后重试。',
+          '检测到修复期间数据库发生变化，已中止且未替换数据库。请关闭可能写入该库的程序或账号，核对状态后再试。',
         );
       }
 
@@ -482,7 +482,7 @@ export class DbRepairService {
       if (lockAgain.readiness === 'blocked-by-other') {
         throw new DbRepairError(
           'blocked',
-          `替换前复核发现该数据库被其它进程占用（${describeHolders(lockAgain.otherHolders)}）—— 这些进程 WeQ 关不掉，请先关掉它们再试（已中止，源库未改动）`,
+          `替换前发现数据库被其它进程占用（${describeHolders(lockAgain.otherHolders)}），已中止且未替换数据库。请关闭相关程序后再试。`,
         );
       }
 

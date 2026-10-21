@@ -7151,7 +7151,7 @@ export const accountRouter = router({
       return { level: config.level, grantedAt: config.grantedAt ?? null, closedSalvage };
     }),
 
-  // 坏页扫描原本在这里（只能扫"当前打开的账号"）。它已经搬到 妙妙工具 → 数据库修复
+  // 坏页扫描原本在这里（只能扫"当前打开的账号"）。它已经搬到 设置 → 数据与存储 → 维护工具 → 数据库修复
   // 的 `client.dbRepair.scanBadPages`：那边对**任意账号**可用，而且与修复共用同一份
   // 实现（`@weq/service` 的 `bad_pages`），口径不会漂。设置页不再有扫描入口。
 

@@ -498,22 +498,33 @@ describe('renderDbRepairReportMarkdown', () => {
     expect(markdown).toContain('读不出来的 cell 会丢');
   });
 
-  it('严格模式写的是"明确丢这些行"，宽容模式写的是"恢复率最高"', () => {
+  it('严格模式说明坏页清零，宽容模式说明保留可读内容而不保证恢复率', () => {
     const strict = renderDbRepairReportMarkdown(makeRecord({ strictPages: true }));
-    expect(strict).toContain('坏页清零，明确丢这些行');
-    expect(markdown).toContain('恢复率最高');
+    expect(strict).toContain('坏页清零，丢弃坏页上的内容');
+    expect(markdown).toContain('尽量保留可读内容');
+    expect(markdown).not.toContain('恢复率最高');
   });
 
   it('中止 / 失败 / 已回滚各有自己的状态文案，并带上原因', () => {
     expect(
       renderDbRepairReportMarkdown(makeRecord({ state: 'aborted', error: '被改动' })),
-    ).toContain('已中止（源库未被改动）');
+    ).toContain('已中止');
     expect(
       renderDbRepairReportMarkdown(makeRecord({ state: 'apply-failed', error: 'native 报错' })),
     ).toContain('native 报错');
     expect(renderDbRepairReportMarkdown(makeRecord({ state: 'rolled-back' }))).toContain(
       '已回滚到修复前',
     );
+  });
+
+  it('WAL 已合并但后续中止时，不宣称源文件从未改变', () => {
+    const md = renderDbRepairReportMarkdown(
+      makeRecord({ state: 'aborted', pendingWalBytes: 16512, walMerged: true }),
+    );
+    expect(md).toContain('合并回主文件');
+    expect(md).not.toContain('源库未被改动');
+    expect(md).toContain('没有自检结果');
+    expect(md).not.toContain('修复没有走到替换那一步');
   });
 
   it('没有备份 / 备份被清理 / 已回滚时都能说清"还能不能后悔"', () => {

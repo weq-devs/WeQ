@@ -51,7 +51,7 @@ export function AppRail({
   onOpenInvite: () => void;
   onOpenWonderfulTools: () => void;
   onOpenAntiRecall: () => void;
-  /** 妙妙工具那一页的直达入口：打开同一个弹窗，但先落到「数据库修复」。 */
+  /** 维护与诊断工具那一页的直达入口：打开同一个弹窗，但先落到「数据库修复」。 */
   onOpenDbRepair: () => void;
   onOpenQzoneAlbum: () => void;
   messageBadgeCount?: number;

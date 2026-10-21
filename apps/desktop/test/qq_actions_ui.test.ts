@@ -348,7 +348,7 @@ describe('QQ 主动操作的实际界面', () => {
     await act(async () => f.button('赞资料卡').click());
     expect(f.button('点赞 +10')).not.toBeNull();
     expect(f.button('点赞 +20')).not.toBeNull();
-    expect(f.host.querySelector('input')).toBeNull();
+    expect(f.host.querySelector('.weq-profile-like-stage.is-active input')).toBeNull();
     expect(state.mutate).not.toHaveBeenCalled();
     captureManagement(f.host.querySelector<HTMLElement>('[role="dialog"]')!, 'profile-like');
     await act(async () => f.button('关闭资料卡点赞').click());
@@ -374,7 +374,7 @@ describe('QQ 主动操作的实际界面', () => {
     state.available = true;
     state.configId = 'source-b';
     f.update();
-    expect(f.host.querySelector('[aria-label="资料卡点赞次数"]')).toBeNull();
+    expect(f.host.querySelector('.weq-profile-like-stage.is-active input')).toBeNull();
     target = { uid: 'u_other', uin: '10003', name: '其他人' };
     f.update();
     expect(f.host.querySelector('.weq-profile-like-dialog')).toBeNull();

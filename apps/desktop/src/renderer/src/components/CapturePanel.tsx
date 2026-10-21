@@ -1,5 +1,5 @@
 /**
- * 妙妙工具「ntqq 抓包」面板。
+ * 维护与诊断工具「ntqq 抓包」面板。
  *
  * 非侵入式读网卡（nt_helper 的 capture 后端）：TCP 重组 → MSF 帧切分 → 用会话
  * d2key 做 TEA 解密。版式参考 reqable 的桌面端：

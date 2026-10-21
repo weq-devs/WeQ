@@ -1,5 +1,5 @@
 ﻿/**
- * Protobuf / JCE 通用逆向解析 —— 妙妙工具「Protobuf/JCE 逆向」使用。
+ * Protobuf / JCE 通用逆向解析 —— 维护与诊断工具「Protobuf/JCE 逆向」使用。
  *
  * 输出统一为 {tag: value} 形式的简洁 AST，类型不写进 JSON；可转换的值由
  * 前端渲染时附加转换按钮（hex ↔ 文本、bytes ↔ 嵌套 protobuf/JCE 等）。
