@@ -405,8 +405,14 @@ export type {
   TableRowsResult,
   QueryResult,
 } from './account/db_explorer';
-export { AvatarResourceService, AVATAR_SCOPES, avatarHashForUid } from './account/avatar_resource';
+export {
+  AvatarResourceService,
+  AVATAR_SCOPES,
+  AVATAR_VARIANT_STALE_MS,
+  avatarHashForUid,
+} from './account/avatar_resource';
 export type {
+  AvatarLocalFile,
   AvatarScope,
   AvatarVariant,
   AvatarScopeInfo,

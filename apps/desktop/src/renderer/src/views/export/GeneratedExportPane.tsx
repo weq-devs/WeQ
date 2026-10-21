@@ -310,14 +310,12 @@ export function GeneratedExportPane({
               }}
             />
           )}
-          {!sessions.isLoading && !sessions.isError && !visible.length ? (
-            <p>没有本地生成对话</p>
-          ) : null}
+          {/*{!sessions.isLoading && !sessions.isError && !visible.length ? (*/}
+          {/*  <p>没有本地生成对话</p>*/}
+          {/*) : null}*/}
         </div>
         <div className="weq-generated-export-messages" {...messageMulti.rootProps}>
-          {!target ? (
-            <p>请选择对话</p>
-          ) : content.isError ? (
+          {!target ? null : content.isError ? (
             <div role="alert">
               记录读取失败，原选择保留
               <button
