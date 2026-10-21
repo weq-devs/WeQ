@@ -134,9 +134,8 @@ export function MemberProfileCard({
   const cardRef = useRef(null);
   const [pos, setPos] = useState({ left: anchor.x + 14, top: anchor.y + 8, ready: false });
 
-  // 真正的 uid 在 member.id；member.identityValue 展示用的是 uin（QQ号）。
-  // getProfile 需要 uid，早先误传 identityValue(=uin) 会拉不到 profile_info_v6。
-  const uid = member.id;
+  // 自己的本地 id 可能是 self:<uin>；优先真实 uid，缺失时先按 QQ 号补资料。
+  const uid = member.uid || (member.id.startsWith('self:') ? profile?.uid || '' : member.id);
   const canAnalyze = Boolean(groupCode && uid);
 
   // 补全陌生人资料字段。

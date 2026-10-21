@@ -20,7 +20,7 @@ vi.mock('@renderer/trpc/client', () => ({
   client: {
     account: {
       getProfile: { query: async () => null },
-      getProfileByUin: { query: async () => null },
+      getProfileByUin: { query: vi.fn(async () => null) },
       getBotProfile: { query: async () => null },
     },
   },
@@ -52,6 +52,7 @@ vi.mock('@renderer/components/MemberAnalyticsDialog', () => ({
 }));
 
 import { MemberProfileCard } from '@renderer/components/MemberProfileCard';
+import { client } from '@renderer/trpc/client';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -73,14 +74,18 @@ const MEMBER = {
   avatarUrl: null,
 };
 
-async function mountCard(onClose: () => void, anchor = { x: 120, y: 120 }): Promise<void> {
+async function mountCard(
+  onClose: () => void,
+  anchor = { x: 120, y: 120 },
+  member = MEMBER,
+): Promise<void> {
   const host = document.createElement('div');
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => {
     root.render(
       createElement(MemberProfileCard, {
-        member: MEMBER,
+        member,
         anchor,
         onClose,
       }),
@@ -98,6 +103,10 @@ function layer(): HTMLElement {
 }
 
 describe('群成员资料卡浮层', () => {
+  it('自己的本地身份不是 QQ UID 时按 QQ 号补资料，不把 self 前缀发给 UID 查询', async () => {
+    await mountCard(() => {}, { x: 120, y: 120 }, { ...MEMBER, id: 'self:10001' });
+    expect(client.account.getProfileByUin.query).toHaveBeenCalledWith({ uin: '10001' });
+  });
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   });
