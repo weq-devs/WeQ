@@ -23,9 +23,9 @@ describe('设置的两级导航', () => {
       'agentlab',
       'model-usage',
       'intent-sense',
+      'interaction-profile',
       'reply-suggestions',
       'clone-settings',
-      'interaction-profile',
       'voice',
       'ocr',
     ]);
