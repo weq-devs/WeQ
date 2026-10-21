@@ -18,6 +18,17 @@ it('框选只按竖直交集命中，支持反向、边界、追加及缩小范�
   expect([...marqueeMessageIds(rows, 100, 40)]).toEqual(['a', 'b', 'c']);
   expect([...marqueeMessageIds(rows, 50, 70, new Set(['c']))]).toEqual(['c', 'b']);
   expect([...marqueeMessageIds(rows, 50, 55)]).toEqual([]);
+  expect([...marqueeMessageIds(rows, 10, 90, new Set(['a', 'c']), { ctrlKey: true })]).toEqual([
+    'c',
+    'b',
+  ]);
+  expect([
+    ...marqueeMessageIds(rows, 60, 90, new Set(['a']), {
+      shiftKey: true,
+      anchor: 'c',
+      ordered: ['a', 'b', 'c'],
+    }),
+  ]).toEqual(['a', 'b', 'c']);
 });
 
 it('空白框选松开后才提交多选，正文不触发，取消和切会话不提交', () => {
@@ -106,10 +117,19 @@ it('空白框选松开后才提交多选，正文不触发，取消和切会话�
     pointer(scroll, 'pointermove', 15, 190, true);
     pointer(scroll, 'pointerup', 15, 190, true);
     expect(host.querySelector('output')?.textContent).toBe('a,c');
+    // 不按修饰键也追加，横向离开气泡不会影响命中。
+    pointer(scroll, 'pointerdown', 450, 95);
+    pointer(scroll, 'pointermove', 460, 145);
+    pointer(scroll, 'pointerup', 460, 145);
+    expect(host.querySelector('output')?.textContent).toBe('a,c,b');
+    // 多选时点消息同一垂直范围的空白处，也切换该消息。
+    pointer(scroll, 'pointerdown', 450, 60);
+    pointer(scroll, 'pointerup', 450, 60);
+    expect(host.querySelector('output')?.textContent).toBe('c,b');
     pointer(scroll, 'pointerdown', 10, 95);
     pointer(scroll, 'pointermove', 15, 150);
     act(() => root.render(h(View, { conversationKey: 'two' })));
-    expect(host.querySelector('output')?.textContent).toBe('a,c');
+    expect(host.querySelector('output')?.textContent).toBe('c,b');
     expect(host.querySelector('[data-marquee]')).toBeNull();
     expect(frames.size).toBe(0);
   } finally {

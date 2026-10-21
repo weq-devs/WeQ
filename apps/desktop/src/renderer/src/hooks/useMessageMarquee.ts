@@ -7,19 +7,37 @@ import {
   type MouseEvent,
 } from 'react';
 import '../styles/message-marquee.css';
+import { selectMessageIds, type SelectionModifiers } from '../lib/messageSelection';
 
 export function marqueeMessageIds(
   rows: readonly { id: string; top: number; bottom: number }[],
   start: number,
   end: number,
   base: ReadonlySet<string> = new Set(),
+  modifiers: SelectionModifiers & { anchor?: string | null; ordered?: readonly string[] } = {},
 ) {
   const top = Math.min(start, end),
     bottom = Math.max(start, end);
-  return new Set([
-    ...base,
-    ...rows.filter((row) => row.bottom >= top && row.top <= bottom).map((row) => row.id),
-  ]);
+  const hits = rows
+    .filter((row) => row.bottom >= top && row.top <= bottom)
+    .sort((a, b) => a.top - b.top);
+  if (modifiers.shiftKey && modifiers.anchor && hits.length) {
+    const target = end >= start ? hits[hits.length - 1]! : hits[0]!;
+    return selectMessageIds(
+      base,
+      modifiers.ordered ?? rows.map((row) => row.id),
+      target.id,
+      modifiers.anchor,
+      { shiftKey: true, ctrlKey: true },
+    );
+  }
+  const next = new Set(base);
+  for (const row of hits) {
+    if ((modifiers.ctrlKey || modifiers.metaKey) && !modifiers.shiftKey && next.has(row.id))
+      next.delete(row.id);
+    else next.add(row.id);
+  }
+  return next;
 }
 
 /** 空白处开始框选；命中只看竖直交集，边缘滚动持续刷新同一选择范围。 */
@@ -30,6 +48,9 @@ export function useMessageMarquee({
   selected,
   onChange,
   onStart,
+  onSelect,
+  orderedIds,
+  anchorRef,
 }: {
   conversationKey?: string;
   enabled: boolean;
@@ -37,6 +58,9 @@ export function useMessageMarquee({
   selected: ReadonlySet<string>;
   onChange: (ids: Set<string>) => void;
   onStart: () => void;
+  onSelect?: (id: string, modifiers: SelectionModifiers) => void;
+  orderedIds?: readonly string[];
+  anchorRef?: { current: string | null };
 }) {
   const [box, setBox] = useState<{
     left: number;
@@ -44,19 +68,22 @@ export function useMessageMarquee({
     width: number;
     height: number;
   } | null>(null);
-  const current = useRef({ onChange, onStart });
-  current.current = { onChange, onStart };
+  const current = useRef({ onChange, onStart, onSelect });
+  current.current = { onChange, onStart, onSelect };
   const gesture = useRef<{
     element: HTMLDivElement;
     pointer: number;
     x: number;
     y: number;
+    endY: number;
     clientX: number;
     clientY: number;
     moved: boolean;
     base: Set<string>;
     pending: Set<string>;
     selectionMode: boolean;
+    modifiers: SelectionModifiers & { anchor?: string | null; ordered?: readonly string[] };
+    rows: Map<string, { id: string; top: number; bottom: number }>;
   } | null>(null);
   const frame = useRef<number | null>(null);
   const suppressClick = useRef(false);
@@ -86,15 +113,17 @@ export function useMessageMarquee({
     const y =
       Math.max(0, Math.min(drag.element.clientHeight, drag.clientY - bounds.top)) +
       drag.element.scrollTop;
-    const rows = [...drag.element.querySelectorAll<HTMLElement>('[data-message-id]')].map((row) => {
+    drag.endY = y;
+    for (const row of drag.element.querySelectorAll<HTMLElement>('[data-message-id]')) {
       const rect = row.getBoundingClientRect();
-      return {
+      if (rect.height <= 0) continue;
+      drag.rows.set(row.dataset.messageId!, {
         id: row.dataset.messageId!,
         top: rect.top - bounds.top + drag.element.scrollTop,
         bottom: rect.bottom - bounds.top + drag.element.scrollTop,
-      };
-    });
-    drag.pending = marqueeMessageIds(rows, drag.y, y, drag.base);
+      });
+    }
+    drag.pending = marqueeMessageIds([...drag.rows.values()], drag.y, y, drag.base, drag.modifiers);
     const nextBox = {
       left: Math.min(drag.x, x),
       top: Math.min(drag.y, y),
@@ -127,7 +156,7 @@ export function useMessageMarquee({
     dragging: Boolean(box),
     handlers: {
       onScrollCapture: update,
-      onPointerDown: (event: PointerEvent<HTMLDivElement>) => {
+      onPointerDownCapture: (event: PointerEvent<HTMLDivElement>) => {
         if (
           !enabled ||
           event.button !== 0 ||
@@ -135,9 +164,19 @@ export function useMessageMarquee({
           !(event.target instanceof Element)
         )
           return;
+        suppressClick.current = false;
+        const modified = event.ctrlKey || event.metaKey || event.shiftKey;
         if (
           event.target.closest(
-            'button, a, input, textarea, select, [contenteditable="true"], .message-bubble, .message-avatar-wrap, .weq-system-message-content, [data-windowed-scrollbar]',
+            'input, textarea, select, [contenteditable="true"], [data-windowed-scrollbar]',
+          )
+        )
+          return;
+        if (
+          !selectionMode &&
+          !modified &&
+          event.target.closest(
+            'button, a, .message-bubble, .message-avatar-wrap, .weq-system-message-content',
           )
         )
           return;
@@ -145,18 +184,27 @@ export function useMessageMarquee({
           rect = element.getBoundingClientRect();
         if (event.clientX >= rect.left + element.clientWidth) return;
         event.preventDefault();
-        suppressClick.current = false;
+        if (selectionMode || modified) event.stopPropagation();
         gesture.current = {
           element,
           pointer: event.pointerId,
           x: event.clientX - rect.left + element.scrollLeft,
           y: event.clientY - rect.top + element.scrollTop,
+          endY: event.clientY - rect.top + element.scrollTop,
           clientX: event.clientX,
           clientY: event.clientY,
           moved: false,
-          base: new Set(event.ctrlKey || event.metaKey || event.shiftKey ? selected : []),
+          base: new Set(selected),
           pending: new Set(),
           selectionMode,
+          modifiers: {
+            ctrlKey: event.ctrlKey,
+            metaKey: event.metaKey,
+            shiftKey: event.shiftKey,
+            anchor: anchorRef?.current,
+            ordered: orderedIds,
+          },
+          rows: new Map(),
         };
         element.setPointerCapture?.(event.pointerId);
       },
@@ -188,11 +236,59 @@ export function useMessageMarquee({
         if (drag.moved) {
           current.current.onStart();
           current.current.onChange(drag.pending);
+          if (anchorRef && !drag.modifiers.shiftKey) {
+            const hits = [...drag.rows.values()]
+              .filter(
+                (row) =>
+                  row.bottom >= Math.min(drag.y, drag.endY) &&
+                  row.top <= Math.max(drag.y, drag.endY),
+              )
+              .sort((a, b) => a.top - b.top);
+            const first = drag.endY >= drag.y ? hits[0] : hits[hits.length - 1];
+            if (first) anchorRef.current = first.id;
+          }
+        } else if (
+          drag.selectionMode ||
+          drag.modifiers.ctrlKey ||
+          drag.modifiers.metaKey ||
+          drag.modifiers.shiftKey
+        ) {
+          const row = [...drag.element.querySelectorAll<HTMLElement>('[data-message-id]')].find(
+            (row) => {
+              const rect = row.getBoundingClientRect();
+              return rect.height > 0 && event.clientY >= rect.top && event.clientY <= rect.bottom;
+            },
+          );
+          const id = row?.dataset.messageId;
+          if (id) {
+            suppressClick.current = true;
+            drag.element.ownerDocument.getSelection()?.removeAllRanges();
+            current.current.onStart();
+            if (current.current.onSelect) current.current.onSelect(id, drag.modifiers);
+            else
+              current.current.onChange(
+                selectMessageIds(
+                  drag.base,
+                  [...drag.element.querySelectorAll<HTMLElement>('[data-message-id]')].map(
+                    (row) => row.dataset.messageId!,
+                  ),
+                  id,
+                  drag.modifiers.anchor ?? null,
+                  drag.modifiers,
+                ),
+              );
+          }
         }
         finish();
       },
       onPointerCancel: finish,
       onLostPointerCapture: finish,
+      onContextMenuCapture: (event: MouseEvent<HTMLDivElement>) => {
+        if (enabled && event.ctrlKey) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      },
       onClickCapture: (event: MouseEvent<HTMLDivElement>) => {
         if (!suppressClick.current) return;
         suppressClick.current = false;

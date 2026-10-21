@@ -777,14 +777,6 @@ export function ChatPane({
     const rect = anchor.getBoundingClientRect();
     setSelectionMenu({ kind, x: rect.left, y: rect.top });
   };
-  const marquee = useMessageMarquee({
-    conversationKey: conversation?.id,
-    enabled: tabActive && Boolean(conversation),
-    selectionMode,
-    selected: selectedIds,
-    onChange: setSelectedIds,
-    onStart: () => setSelectionMode(true),
-  });
   const exportMessageIds = (ids: string[]) => {
     const scope = conversationExportSelection(conversation);
     if (requestExport && scope && ids.length)
@@ -950,6 +942,17 @@ export function ChatPane({
     onStart: () => setSelectionMode(true),
     onExit: exitSelection,
     anchorRef: selectionAnchor,
+  });
+  const marquee = useMessageMarquee({
+    conversationKey: conversation?.id,
+    enabled: tabActive && Boolean(conversation) && !selectionMenu,
+    selectionMode,
+    selected: selectedIds,
+    orderedIds: selectionOrder,
+    anchorRef: selectionAnchor,
+    onChange: setSelectedIds,
+    onStart: () => setSelectionMode(true),
+    onSelect: (id, modifiers) => multi.toggle(id, modifiers),
   });
   const copySelectedMessagesText = useCallback(async () => {
     if (!conversation) return;
