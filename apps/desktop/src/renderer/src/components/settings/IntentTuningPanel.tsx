@@ -35,14 +35,15 @@ export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
     if (!status.data) return;
     const before = baseline.current;
     const next = Object.fromEntries(keys.map((key) => [key, String(status.data![key])]));
-    setDraft((current) =>
-      Object.fromEntries(
+    setDraft((current) => {
+      const updated = Object.fromEntries(
         keys.map((key) => [
           key,
           current[key] === undefined || current[key] === before[key] ? next[key]! : current[key]!,
         ]),
-      ),
-    );
+      );
+      return keys.every((key) => current[key] === updated[key]) ? current : updated;
+    });
     baseline.current = next;
   }, [keys, status.data]);
   const ready = keys.every((key) => isIntentTuningValue(key, status.data?.[key]));
