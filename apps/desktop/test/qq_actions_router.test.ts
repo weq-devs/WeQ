@@ -188,6 +188,18 @@ function fixture() {
 }
 
 describe('收藏包导入路由', () => {
+  it('收藏移动接口只接受置前，不把任意位置转成真实写入', async () => {
+    const f = fixture();
+    const emojiId = '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0';
+    await expect(
+      f.caller.favorite({ ...binding, action: 'move', emojiId, position: 2 }),
+    ).rejects.toThrow();
+    expect(f.s.emoji.moveFavorite).not.toHaveBeenCalled();
+    expect(
+      (await f.caller.favorite({ ...binding, action: 'move', emojiId, position: 1 })).state,
+    ).toBe('accepted');
+    expect(f.s.emoji.moveFavorite).toHaveBeenCalledWith(emojiId, 1, expect.any(Function));
+  });
   it('私有预览携带令牌，离线仍可读取和清理，不触发 QQ 写入', async () => {
     const f = fixture();
     const bytes = Buffer.from(makeSolidPng(2, 3, [10, 20, 30]));

@@ -14,7 +14,6 @@ import {
   FetchCustomFaceDetail,
   FetchCustomFaceList,
   ModifyCustomFace,
-  MoveCustomFace,
   OrderCustomFace,
   parseCustomFaceId,
   type AddCustomFaceParams,
@@ -236,7 +235,7 @@ export class EmojiService {
     return this.online;
   }
 
-  /** 详情与排序上传共用 opType=2，不能让查询夹进两步排序的上下文。 */
+  /** 详情与置前操作串行，并固定等待前后的 QQ 运行态。 */
   private async withFavoriteDetails<T>(
     operation: (nt: EmojiOnlineDeps['nt'], pid: number, current: () => void) => Promise<T>,
   ): Promise<T> {
@@ -925,9 +924,13 @@ export class EmojiService {
    */
   async fetchOnlineFavoriteIds(): Promise<string[]> {
     const { nt, resolvePid } = this.requireOnline();
-    return FetchCustomFaceList.invoke(nt, resolvePid(), {
+    const pid = resolvePid();
+    const ids = await FetchCustomFaceList.invoke(nt, pid, {
       selfUin: this.session.context.uin,
     });
+    if (resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新读取收藏');
+    // 线序与 QQ 数据库升序／面板顺序相反；只在服务层转换，协议保留原始回包。
+    return [...ids].reverse();
   }
 
   /** 拉取收藏表情的备注（Faceroam 列表 + 0x902E 详情两步合并）。 */
@@ -978,25 +981,21 @@ export class EmojiService {
   }
 
   /**
-   * 把一张收藏表情移到指定位置（默认最前）。
-   *
-   * 两步流程：0x902F 移动指令 → 0x902E_1 opType=2 上传完整新顺序。只发其中一步
-   * 服务端不生效。
+   * 把一张收藏表情移到最前。position=1 是已验证的操作，不是任意位置序号。
+   * 不将与详情相同的 0x902E opType=2 请求误当成必需的整表排序提交。
    */
   async moveFavorite(emojiId: string, position = 1, beforeSend?: () => void): Promise<void> {
+    if (position !== 1) throw new Error('当前仅确认支持移到最前');
     return this.withFavoriteDetails(async (nt, pid, current) => {
       const ids = await this.fetchOnlineFavoriteIds();
       current();
       beforeSend?.();
       if (!ids.includes(emojiId)) throw new Error('收藏表情已变化，请刷新');
+      if (ids[0] === emojiId) return;
       const target = parseCustomFaceId(emojiId);
-      const rest = ids.filter((id) => id !== target.emojiId).map(parseCustomFaceId);
-      const ordered = [...rest];
-      ordered.splice(Math.max(0, Math.min(position - 1, ordered.length)), 0, target);
-      await OrderCustomFace.invoke(nt, pid, { emojiId: target.emojiId, position });
+      await OrderCustomFace.invoke(nt, pid, { emojiId: target.emojiId, position: 1 });
       current();
       beforeSend?.();
-      await MoveCustomFace.invoke(nt, pid, { emojis: ordered });
       this.favorites = null;
     });
   }

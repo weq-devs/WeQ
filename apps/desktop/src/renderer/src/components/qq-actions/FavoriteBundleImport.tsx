@@ -139,7 +139,7 @@ export function FavoriteBundleImport({
       if (
         !(await confirm(
           '导入收藏表情',
-          `向 QQ 账号 ${expected.expectedAccountUin} 添加选中的 ${keys.length} 张收藏表情？`,
+          `向 QQ 账号 ${expected.expectedAccountUin} 的收藏最前添加选中的 ${keys.length} 张表情？`,
         )) ||
         !mounted.current
       )
