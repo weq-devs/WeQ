@@ -4,6 +4,7 @@ import {
   repeatSendPlan,
   repeatTarget,
   canRepeatMessage,
+  forwardUnsupportedReason,
   type RepeatElement,
 } from '../src/renderer/src/lib/messageRepeat';
 import {
@@ -23,6 +24,35 @@ const mention = (uid: string, label: string): RepeatElement => ({
   data: { atTargetUid: uid, textContent: label },
 });
 const message = (id: string, elements: RepeatElement[]) => ({ id, qqElements: elements });
+
+describe('逐条转发预检', () => {
+  it.each(['grayTipPoke', 'grayTipRecall', 'wallet', 'call', 'unknown', 'future-element'])(
+    '%s 不等价重发，混排时整条忽略而不是只发文字',
+    (type) => {
+      expect(forwardUnsupportedReason([{ type }])).toContain(type);
+      expect(forwardUnsupportedReason([plain('不能只发这部分'), { type }])).toContain(type);
+    },
+  );
+  it('图片与超级表情的运行时准备不误判为不可发送，来源引用不会阻止正文', () => {
+    for (const elements of [
+      [plain('正文')],
+      [{ type: 'pic', data: {} }],
+      [{ type: 'face', data: { faceId: 358, subType: FaceSubType.SUPER_EMOJI } }],
+      [{ type: 'reply', data: { origElements: [{ type: 'grayTipPoke' }] } }, plain('正文')],
+      [{ type: 'file', data: { localPath: '/synthetic/file.txt' } }],
+    ])
+      expect(forwardUnsupportedReason(elements)).toBeNull();
+    expect(forwardUnsupportedReason([])).toContain('没有可重发');
+    expect(forwardUnsupportedReason([plain('')])).toContain('没有可重发');
+    expect(forwardUnsupportedReason([{ type: 'reply' }])).toContain('没有可重发');
+    expect(
+      forwardUnsupportedReason([
+        { type: 'file', data: { localPath: '/synthetic/file.txt' } },
+        plain('正文'),
+      ]),
+    ).toContain('混合');
+  });
+});
 
 describe('单条消息 +1 可用性', () => {
   it('不要求连续重复或位于最新窗口，支持文本、提及、表情与图片', () => {

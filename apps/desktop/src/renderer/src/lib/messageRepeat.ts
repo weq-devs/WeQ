@@ -156,6 +156,58 @@ export function repeatTarget<T extends RepeatMessage>(
     : null;
 }
 
+function repeatElementSegment(element: RepeatElement) {
+  const data = element.data ?? {};
+  return codecElementToSeg(
+    {
+      ...data,
+      ...(['ptt', 'video', 'file'].includes(element.type ?? '') && text(data.localPath)
+        ? { filePath: cleanNtPath(text(data.localPath)) }
+        : {}),
+      kind: element.type,
+      ...(element.type === 'mface' ? { marketEmoticonId: data.marketEmoticonIdHex } : {}),
+    },
+    element,
+  );
+}
+
+/** 逐条转发的静态预检；图片下载、表情目录与网络失败仍由真实发送结果处理。 */
+export function forwardUnsupportedReason(elements: readonly RepeatElement[]): string | null {
+  const content = elements.filter((element) => element.type !== 'reply');
+  if (!content.length) return '消息没有可重发的内容';
+  for (const element of content) {
+    if (element.type === 'pic') continue;
+    const data = element.data ?? {};
+    if (element.type === 'at') {
+      if (!data.atTargetUid && !data.atTargetUin) return '提及缺少目标身份';
+      continue;
+    }
+    if (element.type === 'face') {
+      if (
+        data.subType == null ||
+        [
+          FaceSubType.QQ_BUILTIN_OLD,
+          FaceSubType.QQ_BUILTIN_NEW,
+          FaceSubType.SUPER_EMOJI,
+          FaceSubType.INTERACTIVE,
+        ].includes(Number(data.subType))
+      )
+        continue;
+      return '此类表情尚不能等价重发';
+    }
+    const segment = repeatElementSegment(element);
+    if (!segment || segment.t === 'opaque' || segment.t === 'node')
+      return `此类内容尚不能等价重发：${element.type ?? '未知元素'}`;
+  }
+  if (content.some((element) => element.type === 'file') && content.length > 1)
+    return '文件不能与其他元素混合重发';
+  if (
+    content.every((element) => element.type === 'text' && !text(element.data?.textContent).trim())
+  )
+    return '消息没有可重发的内容';
+  return null;
+}
+
 function sendElement(
   element: RepeatElement,
   stickers: Map<string, SuperStickerEntry>,
@@ -223,15 +275,7 @@ function sendElement(
         : [],
     };
   }
-  const raw = {
-    ...data,
-    ...(['ptt', 'video', 'file'].includes(element.type ?? '') && text(data.localPath)
-      ? { filePath: cleanNtPath(text(data.localPath)) }
-      : {}),
-    kind: element.type,
-    ...(element.type === 'mface' ? { marketEmoticonId: data.marketEmoticonIdHex } : {}),
-  };
-  const segment = codecElementToSeg(raw, element);
+  const segment = repeatElementSegment(element);
   if (!segment || segment.t === 'opaque' || segment.t === 'node')
     throw new Error(`此类内容尚不能等价重发：${element.type ?? '未知元素'}`);
   if (segment.t === 'video' && text(data.thumbLocalPath))

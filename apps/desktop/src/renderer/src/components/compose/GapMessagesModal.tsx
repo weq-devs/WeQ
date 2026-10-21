@@ -21,7 +21,14 @@
  *     本组件只负责渲染。
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, type ReactElement } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type ReactElement,
+} from 'react';
 import '../../styles/private-preview.css';
 import { ArrowLeft, CloudOff, RefreshCw, X } from 'lucide-react';
 import { Modal } from '../Dialog';
@@ -52,6 +59,8 @@ export function GapMessagesModal({
   embedded = false,
   onRetry,
   title,
+  backLabel = '返回资料',
+  messageNotice,
 }: {
   conversation: Conversation;
   user: User;
@@ -77,6 +86,9 @@ export function GapMessagesModal({
   embedded?: boolean;
   onRetry?: () => void;
   title?: string;
+  backLabel?: string;
+  /** 只读预览中逐条展示的附注，例如跳过发送的原因。 */
+  messageNotice?: (message: Message) => string | undefined;
 }): ReactElement {
   const isGroup = conversation.type === 'group';
   const convKey = isGroup ? conversation.group.identityValue : '';
@@ -167,8 +179,8 @@ export function GapMessagesModal({
               type="button"
               className="weq-compose-x"
               onClick={onClose}
-              title="返回资料"
-              aria-label="返回资料"
+              title={backLabel}
+              aria-label={backLabel}
             >
               <ArrowLeft size={17} />
             </button>
@@ -263,16 +275,18 @@ export function GapMessagesModal({
                         renderers={renderers}
                       />
                     );
-                    if (grayTipOf(message))
-                      return (
-                        <div key={message.id} className="weq-preview-system-row">
-                          {row}
-                        </div>
-                      );
+                    const note = messageNotice?.(message);
                     return (
-                      <div key={message.id} className={cn('weq-deleted-row', mine && 'is-mine')}>
-                        <div className="weq-deleted-bubble">{row}</div>
-                      </div>
+                      <Fragment key={message.id}>
+                        {grayTipOf(message) ? (
+                          <div className="weq-preview-system-row">{row}</div>
+                        ) : (
+                          <div className={cn('weq-deleted-row', mine && 'is-mine')}>
+                            <div className="weq-deleted-bubble">{row}</div>
+                          </div>
+                        )}
+                        {note ? <p className="weq-preview-message-note">{note}</p> : null}
+                      </Fragment>
                     );
                   })}
                   {!preview ? (

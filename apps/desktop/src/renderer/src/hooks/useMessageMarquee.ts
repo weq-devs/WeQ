@@ -230,6 +230,15 @@ export function useMessageMarquee({
       onPointerUp: (event: PointerEvent<HTMLDivElement>) => {
         const drag = gesture.current;
         if (!drag || drag.pointer !== event.pointerId) return;
+        // 快速拖拽可能没有中间 move；释放坐标仍足以确认首次框选。
+        if (
+          !drag.moved &&
+          Math.hypot(event.clientX - drag.clientX, event.clientY - drag.clientY) >= 5
+        ) {
+          drag.moved = true;
+          suppressClick.current = true;
+          drag.element.ownerDocument.getSelection()?.removeAllRanges();
+        }
         drag.clientX = event.clientX;
         drag.clientY = event.clientY;
         update();

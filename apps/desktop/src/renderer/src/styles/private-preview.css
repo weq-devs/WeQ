@@ -1,6 +1,13 @@
 .weq-private-preview-scroll {
   overflow-anchor: none;
 }
+.weq-preview-message-note {
+  margin: 4px 16px 12px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
 .weq-preview-system-row {
   width: 100%;
   min-width: 0;

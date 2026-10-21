@@ -19,6 +19,7 @@
 
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { create } from 'zustand';
+import '../styles/toast-action.css';
 import {
   AlertTriangle,
   Check,
@@ -43,10 +44,14 @@ interface Toast {
   ttl: number;
   /** 进行中的发送任务仅提供停止按钮，避免误关进度后继续静默发送。 */
   dismissible?: boolean;
+  /** 整条横幅的主操作；关闭、展开和内部按钮仍独立操作。 */
+  action?: { label: string; run: () => void };
 }
 
 /** 就地改一条已在屏上的 toast —— 长任务用它把「进行中」推进成「成功/失败」。 */
-export type ToastPatch = Partial<Pick<Toast, 'tone' | 'title' | 'detail' | 'ttl' | 'dismissible'>>;
+export type ToastPatch = Partial<
+  Pick<Toast, 'tone' | 'title' | 'detail' | 'ttl' | 'dismissible' | 'action'>
+>;
 
 interface ToastStore {
   toasts: Toast[];
@@ -64,6 +69,7 @@ interface ToastStore {
     detail?: ReactNode;
     ttl?: number;
     dismissible?: boolean;
+    action?: Toast['action'];
   }): number;
   /**
    * 原地更新一条 toast（不重播进场、不改变堆叠顺序）。
@@ -83,7 +89,7 @@ export const useToast = create<ToastStore>((set, get) => ({
   toasts: [],
   leaving: [],
   seq: 0,
-  push({ tone = 'info', title, message, detail, ttl = 10000, dismissible }) {
+  push({ tone = 'info', title, message, detail, ttl = 10000, dismissible, action }) {
     const id = get().seq + 1;
     // 兼容旧调用点：只传一个内容时它就是标题；传了 title 时旧 message 变成详情
     const actualTitle = title ?? message ?? '';
@@ -92,7 +98,7 @@ export const useToast = create<ToastStore>((set, get) => ({
       seq: id,
       toasts: [
         ...get().toasts,
-        { id, tone, title: actualTitle, detail: actualDetail, ttl, dismissible },
+        { id, tone, title: actualTitle, detail: actualDetail, ttl, dismissible, action },
       ],
     });
     return id;
@@ -230,6 +236,15 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
       }}
     >
       {/* 第一行：标题栏 */}
+      {toast.action ? (
+        <button
+          type="button"
+          className="weq-toast-open"
+          aria-label={toast.action.label}
+          title={toast.action.label}
+          onClick={toast.action.run}
+        />
+      ) : null}
       <div className="weq-toast-header">
         <div className="weq-toast-icon">{config.icon}</div>
         <h3 className="weq-toast-title">{toast.title}</h3>

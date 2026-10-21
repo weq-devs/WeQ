@@ -44,6 +44,7 @@ import {
   validateDraft,
   segHasContent,
   isNestedContent,
+  senderAvatarUrl,
   type MfDraft,
   type MfTarget,
 } from './model';
@@ -933,6 +934,15 @@ export function CompositionWorkspace({
       {send?.mode === 'sequential' ? (
         <SequentialForwardDialog
           messages={compositionMessages(send.draft)}
+          user={{
+            id: self.uid || self.uin,
+            uid: self.uid,
+            identityLabel: 'QQ',
+            identityValue: self.uin,
+            username: self.uid || self.uin,
+            displayName: self.name,
+            avatarUrl: senderAvatarUrl(self.uin),
+          }}
           targets={targets}
           onOpenTarget={onOpenTarget}
           onSend={async (message, target, signal) => {

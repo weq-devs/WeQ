@@ -2,6 +2,10 @@ import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { marqueeMessageIds, useMessageMarquee } from '../src/renderer/src/hooks/useMessageMarquee';
+import {
+  ContentSelectionProvider,
+  useContentMultiSelect,
+} from '../src/renderer/src/state/contentSelection';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -29,6 +33,66 @@ it('框选只按竖直交集命中，支持反向、边界、追加及缩小范�
       ordered: ['a', 'b', 'c'],
     }),
   ]).toEqual(['a', 'b', 'c']);
+});
+
+it('普通状态首次快速框选，即使浏览器未投递中间 pointermove 也按释放位置提交', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  function View() {
+    const selection = useContentMultiSelect({ kind: 'messages', container: 'group:fast' });
+    const marquee = useMessageMarquee({
+      conversationKey: 'fast',
+      enabled: true,
+      selectionMode: selection.selectionMode,
+      selected: selection.selectedIds,
+      onChange: selection.setSelectedIds,
+      onStart: () => selection.setSelectionMode(true),
+      anchorRef: selection.anchorRef,
+    });
+    return h(
+      'div',
+      { ...marquee.handlers, 'data-scroll': true },
+      h('output', { 'data-mode': selection.selectionMode }, [...selection.selectedIds].join(',')),
+      ...['a', 'b', 'c'].map((id) => h('div', { key: id, 'data-message-id': id }, id)),
+    );
+  }
+  const pointer = (scroll: Element, type: string, x: number, y: number) =>
+    act(() =>
+      scroll.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          pointerId: 1,
+          clientX: x,
+          clientY: y,
+        }),
+      ),
+    );
+  try {
+    act(() => root.render(h(ContentSelectionProvider, null, h(View))));
+    const scroll = host.querySelector<HTMLElement>('[data-scroll]')!;
+    vi.spyOn(scroll, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 500, 300));
+    Object.defineProperty(scroll, 'clientWidth', { value: 500 });
+    Object.defineProperty(scroll, 'clientHeight', { value: 300 });
+    [...scroll.querySelectorAll<HTMLElement>('[data-message-id]')].forEach((row, index) => {
+      vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(
+        new DOMRect(200, 40 + index * 60, 100, 40),
+      );
+    });
+    pointer(scroll, 'pointerdown', 10, 30);
+    pointer(scroll, 'pointerup', 12, 32);
+    expect(host.querySelector('output')?.getAttribute('data-mode')).toBe('false');
+    pointer(scroll, 'pointerdown', 10, 35);
+    pointer(scroll, 'pointerup', 15, 125);
+    expect(host.querySelector('output')?.getAttribute('data-mode')).toBe('true');
+    expect(host.querySelector('output')?.textContent).toBe('a,b');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
 });
 
 it('空白框选松开后才提交多选，正文不触发，取消和切会话不提交', () => {
