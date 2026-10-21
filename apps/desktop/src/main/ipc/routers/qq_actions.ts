@@ -174,6 +174,8 @@ export function createQQActionsRouter(
           const info = await s.groupInfo.getJoinInfo(groupId).catch(() => ({
             groupId,
             name: '',
+            categoryId: null,
+            categoryName: null,
             option: null,
             question: null,
             questionState: 'unavailable' as const,
@@ -624,6 +626,10 @@ export function createQQActionsRouter(
             });
           }
           if (i.category === undefined || !i.tag) throw new Error('缺少分类和标签');
+          const info = await s.groupInfo.getJoinInfo(i.groupId);
+          current();
+          if (info.groupId !== i.groupId || info.categoryId !== i.category)
+            throw new Error('群分类未取得或已变化，请重新读取后再试');
           return i.action === 'addTag'
             ? s.groupModeration.addCategoryTag(i.category, i.tag)
             : s.groupModeration.deleteCategoryTag(i.category, i.tag);

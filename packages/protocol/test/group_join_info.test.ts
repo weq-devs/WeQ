@@ -8,16 +8,30 @@ const createOidbStub = (reply: Uint8Array) => ({
 });
 
 describe('入群资料和回执', () => {
-  it('请求明确选择问题字段，不查询标准答案', () => {
+  it('请求明确选择问题和分类字段，不查询标准答案', () => {
     const body = GetGroupJoinInfo.serialize({ groupId: 123 });
     const decoded = decode(GetGroupJoinInfo.reqSchema, encode(GetGroupJoinInfo.reqSchema, body));
     expect(decoded.groups).toEqual([
-      { groupCode: 123n, info: { option: 0, name: '', question: '' } },
+      {
+        groupCode: 123n,
+        info: { option: 0, categoryId: 0, name: '', categoryName: '', question: '' },
+      },
     ]);
     expect(Buffer.from(encode(GetGroupJoinInfo.reqSchema, body)).toString('hex')).toContain(
-      '120b087b120738007a00c20100',
+      '1210087b120c380040007a00920100c20100',
     );
     expect(JSON.stringify(body)).not.toContain('answer');
+  });
+  it('分类只使用响应中的编号和名称，显式 0 与未返回分开', () => {
+    const read = (info: Record<string, unknown>) =>
+      GetGroupJoinInfo.deserialize({
+        groups: [{ groupCode: 123n, info }],
+      })[0];
+    expect(read({ categoryId: 0, categoryName: '服务端分类' })).toMatchObject({
+      categoryId: 0,
+      categoryName: '服务端分类',
+    });
+    expect(read({})).toMatchObject({ categoryId: null, categoryName: null });
   });
   it('问题缺失不等于没有问题，只有明确非问题模式才标不需要', () => {
     expect(

@@ -197,6 +197,7 @@ function captureManagement(host: HTMLElement, name: string) {
     'workspace-surfaces',
     'page-chrome',
     'qq-actions',
+    'qq-management',
     'group-content-management',
     'conversation-actions',
     'profile-avatar',
@@ -1489,6 +1490,31 @@ describe('QQ 主动操作的实际界面', () => {
     await act(async () => f.button('群管理菜单').click());
     expect(menuButton('退出 QQ 群')).toBeDefined();
     expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('群分类从真实群资料选择，未返回分类不默认为 0 或允许写入', async () => {
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    expect(f.host.querySelector('input[aria-label="群分类编号"]')).toBeNull();
+    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="群分类"]')!.disabled).toBe(true);
+    expect(f.button('添加分类标签').disabled).toBe(true);
+    state.data.groupJoinSettings = {
+      groupId: 123,
+      categoryId: 0,
+      categoryName: '服务端分类名称',
+    };
+    f.update();
+    const category = f.host.querySelector<HTMLSelectElement>('[aria-label="群分类"]')!;
+    expect(category.value).toBe('0');
+    expect(category.options[0]!.textContent).toBe('服务端分类名称');
+    captureManagement(f.host, 'group-category');
+    value(f.host, '分类标签名称', '合成标签');
+    await act(async () => f.button('添加分类标签').click());
+    expect(state.mutate).toHaveBeenCalledWith(
+      'groupSettings',
+      expect.objectContaining({ groupId: 123, category: 0, tag: '合成标签' }),
+    );
+    state.data.groupJoinSettings = { groupId: 999, categoryId: 2, categoryName: '其他群' };
+    f.update();
+    expect(f.button('添加分类标签').disabled).toBe(true);
   });
   it('收藏备注未知回执保留编辑草稿，取消也必须确认', async () => {
     const f = fixture(() => h(FavoriteActions));

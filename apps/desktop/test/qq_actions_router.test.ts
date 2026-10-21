@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { GroupFileListing } from '@weq/service';
+import type { GroupJoinInfo } from '@weq/protocol';
 import { createQQActionsRouter, type QQActionServices } from '../src/main/ipc/routers/qq_actions';
 
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
@@ -29,13 +30,17 @@ function fixture() {
     },
     groupInfo: {
       listGroupDirectory: vi.fn(async () => [{ groupCode: '123', role: 'admin' }]),
-      getJoinInfo: vi.fn(async (_groupId: number) => ({
-        groupId: 888,
-        name: '目标群',
-        option: 5,
-        question: '为什么加入',
-        questionState: 'available' as const,
-      })),
+      getJoinInfo: vi.fn(
+        async (_groupId: number): Promise<GroupJoinInfo> => ({
+          groupId: 888,
+          name: '目标群',
+          categoryId: 2,
+          categoryName: '服务端分类',
+          option: 5,
+          question: '为什么加入',
+          questionState: 'available' as const,
+        }),
+      ),
     },
     groupModeration: {
       getAtAllRemain: vi.fn(async () => ({
@@ -165,6 +170,36 @@ describe('加群方式读回', () => {
     expect(result).toMatchObject({ option: 5, question: '为什么加入' });
     expect(result).not.toHaveProperty('answer');
     expect(f.s.groupModeration.setAddOption).not.toHaveBeenCalled();
+  });
+  it('分类标签写入前核对真实群分类，缺失、变化或读取后切源都不写入', async () => {
+    const f = fixture();
+    const input = { ...binding, groupId: 123, action: 'addTag' as const, category: 2, tag: '合成' };
+    const info = {
+      groupId: 123,
+      name: '目标群',
+      categoryId: 2,
+      categoryName: '服务端分类',
+      option: 2,
+      question: '',
+      questionState: 'not-required' as const,
+    };
+    f.s.groupInfo.getJoinInfo.mockResolvedValue(info);
+    await expect(f.caller.groupSettings(input)).resolves.toEqual({ state: 'accepted' });
+    expect(f.s.groupModeration.addCategoryTag).toHaveBeenCalledWith(2, '合成');
+    for (const snapshot of [
+      { ...info, categoryId: null },
+      { ...info, categoryId: 3 },
+      { ...info, groupId: 999 },
+    ]) {
+      f.s.groupInfo.getJoinInfo.mockResolvedValueOnce(snapshot);
+      await expect(f.caller.groupSettings(input)).rejects.toThrow('分类');
+    }
+    f.s.groupInfo.getJoinInfo.mockImplementationOnce(async () => {
+      f.switchAccount();
+      return info;
+    });
+    await expect(f.caller.groupSettings(input)).rejects.toThrow('账号已切换');
+    expect(f.s.groupModeration.addCategoryTag).toHaveBeenCalledTimes(1);
   });
 });
 

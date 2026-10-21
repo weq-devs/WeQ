@@ -18,11 +18,19 @@ import {
 function GroupActionsBody({ groupId }: { groupId: number }) {
   const a = useQQAction(`group:${groupId}`);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const [category, setCategory] = useState(''),
-    [tag, setTag] = useState('');
-  const tagsRefresh = useQQAutoRefresh(a.available && category !== '');
+  const [tag, setTag] = useState('');
+  const groupRefresh = useQQAutoRefresh(a.available);
+  const info = trpc.account.qqActions.groupJoinSettings.useQuery(
+    { ...a.binding!, groupId },
+    groupRefresh,
+  );
+  const category =
+    a.available && !info.error && info.data?.groupId === groupId
+      ? (info.data.categoryId ?? null)
+      : null;
+  const tagsRefresh = useQQAutoRefresh(a.available && category !== null);
   const tags = trpc.account.qqActions.tags.useQuery(
-    { ...a.binding!, category: Number(category) },
+    { ...a.binding!, category: category ?? 0 },
     tagsRefresh,
   );
   return (
@@ -46,17 +54,21 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
       <div className="weq-qq-action-form">
         <GroupJoinSettings key={groupId} groupId={groupId} />
         <section className="weq-group-tags" aria-label="群分类标签">
-          <h5>分类标签</h5>
+          <h5>分类标签目录</h5>
           <div className="weq-qq-action-form">
-            <input
-              aria-label="群分类编号"
-              type="number"
-              min={0}
-              max={0xffffffff}
-              placeholder="群分类编号"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-            />
+            <select
+              key={category ?? 'unknown'}
+              aria-label="群分类"
+              defaultValue={category ?? ''}
+              disabled={a.disabled || category === null}
+            >
+              {category === null ? (
+                <option value="">{info.isFetching ? '读取分类中…' : '未取得群分类'}</option>
+              ) : (
+                <option value={category}>{info.data?.categoryName || `分类 ${category}`}</option>
+              )}
+            </select>
+            {info.error && <p role="alert">{info.error.message}</p>}
             <input
               aria-label="分类标签名称"
               placeholder="标签名称"
@@ -67,7 +79,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
             <div className="weq-qq-action-bar">
               <ActionIcon
                 label="添加分类标签"
-                disabled={a.disabled || category === '' || !tag.trim()}
+                disabled={a.disabled || category === null || !tag.trim()}
                 onClick={() =>
                   void a.perform(
                     (b) =>
@@ -75,11 +87,12 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                         ...b,
                         groupId,
                         action: 'addTag',
-                        category: Number(category),
+                        category: category ?? undefined,
                         tag,
                       }),
                     async () => {
-                      await tags.refetch();
+                      const result = await tags.refetch();
+                      if (result.error) throw result.error;
                     },
                   )
                 }
@@ -89,33 +102,35 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
             </div>
             {tags.error && <p role="alert">{tags.error.message}</p>}
             <ul className="weq-qq-action-list">
-              {tags.data?.map((t) => (
-                <li key={t.name}>
-                  <span>{t.name}</span>
-                  <ActionIcon
-                    label="删除分类标签"
-                    disabled={a.disabled}
-                    onClick={() =>
-                      void a.perform(
-                        (b) =>
-                          client.account.qqActions.groupSettings.mutate({
-                            ...b,
-                            groupId,
-                            action: 'deleteTag',
-                            category: Number(category),
-                            tag: t.name,
-                          }),
-                        async () => {
-                          await tags.refetch();
-                        },
-                        `删除分类标签「${t.name}」？`,
-                      )
-                    }
-                  >
-                    <Trash2 size={15} />
-                  </ActionIcon>
-                </li>
-              ))}
+              {category !== null &&
+                tags.data?.map((t) => (
+                  <li key={t.name}>
+                    <span>{t.name}</span>
+                    <ActionIcon
+                      label="删除分类标签"
+                      disabled={a.disabled || category === null}
+                      onClick={() =>
+                        void a.perform(
+                          (b) =>
+                            client.account.qqActions.groupSettings.mutate({
+                              ...b,
+                              groupId,
+                              action: 'deleteTag',
+                              category: category ?? undefined,
+                              tag: t.name,
+                            }),
+                          async () => {
+                            const result = await tags.refetch();
+                            if (result.error) throw result.error;
+                          },
+                          `删除分类标签「${t.name}」？`,
+                        )
+                      }
+                    >
+                      <Trash2 size={15} />
+                    </ActionIcon>
+                  </li>
+                ))}
             </ul>
           </div>
         </section>
