@@ -3,11 +3,19 @@ import { describe, expect, it } from 'vitest';
 import {
   groupTodoHistoryKey,
   mergeGroupTodoHistory,
+  mergeGroupTodoSources,
   readGroupTodoHistory,
   saveGroupTodoHistory,
 } from '../src/renderer/src/lib/groupTodoHistory';
 
 describe('已完成群待办记录', () => {
+  it('在线只返回部分横幅时保留本地待办，同一序号采用在线状态且不重复', () => {
+    const local = { sequence: '123', sourceId: '123_1', text: '本地摘要', completed: false };
+    const online = { ...local, sourceId: '123_-1', text: '在线正文', completed: true };
+    const other = { sequence: '456', text: '仅本地待办' };
+    expect(mergeGroupTodoSources([local, other], [online])).toEqual([online, other]);
+    expect(mergeGroupTodoSources([local], [])).toEqual([local]);
+  });
   const done = {
     sourceId: '123_1',
     sequence: '123',

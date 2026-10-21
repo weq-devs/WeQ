@@ -16,6 +16,7 @@ import {
   type CustomFaceDetail,
   makeSolidPng,
 } from '@weq/protocol';
+import type { GroupTodoView } from '@weq/service';
 import { createQQActionsRouter, type QQActionServices } from '../src/main/ipc/routers/qq_actions';
 
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
@@ -41,6 +42,7 @@ function fixture() {
       ),
     },
     groupInfo: {
+      getGroupTodos: vi.fn(async (_groupCode: bigint): Promise<GroupTodoView[]> => []),
       listGroupDirectory: vi.fn(async () => [{ groupCode: '123', role: 'admin' }]),
       getJoinInfo: vi.fn(
         async (_groupId: number): Promise<GroupJoinInfo> => ({
@@ -188,6 +190,41 @@ function fixture() {
 }
 
 describe('收藏包导入路由', () => {
+  it('本地群待办不要求在线写入能力，转换大序号并拒绝切号后的迟到结果', async () => {
+    const f = fixture();
+    f.s.groupInfo.getGroupTodos.mockResolvedValue([
+      {
+        groupCode: '123',
+        msgSeq: 18446744073709551615n,
+        msgRandom: 42n,
+        text: '本地待办',
+        createTime: 1,
+        updateTime: 2,
+      } as GroupTodoView,
+    ]);
+    const online = vi.fn(() => {
+      throw new Error('离线');
+    });
+    const local = () => f.s as unknown as QQActionServices;
+    const caller = createQQActionsRouter(online, undefined, local).createCaller({});
+    await expect(caller.todoLocalList(group)).resolves.toEqual([
+      {
+        sequence: '18446744073709551615',
+        sourceId: '18446744073709551615_42',
+        text: '本地待办',
+        createdAt: 1,
+        updatedAt: 2,
+        completed: false,
+      },
+    ]);
+    expect(online).not.toHaveBeenCalled();
+    expect(f.s.groupInfo.getGroupTodos).toHaveBeenCalledWith(123n);
+    f.s.groupInfo.getGroupTodos.mockImplementation(async () => {
+      f.switchAccount();
+      return [];
+    });
+    await expect(f.caller.todoLocalList(group)).rejects.toThrow('切换');
+  });
   it('收藏移动接口只接受置前，不把任意位置转成真实写入', async () => {
     const f = fixture();
     const emojiId = '10001_0_0_0_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_0_0';

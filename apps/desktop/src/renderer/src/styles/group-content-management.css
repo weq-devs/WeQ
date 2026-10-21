@@ -133,6 +133,20 @@
   margin-left: auto;
   flex: none;
 }
+
+.weq-group-todos > button.weq-todo-summary {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+html[data-theme='dark'] .weq-group-todos > button.weq-todo-summary {
+  color: var(--weq-fg-secondary);
+}
 .weq-todo-content .group-bulletin-header {
   margin-bottom: 0;
 }

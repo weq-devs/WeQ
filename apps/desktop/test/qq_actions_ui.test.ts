@@ -122,6 +122,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     'requests',
     'tags',
     'todoList',
+    'todoLocalList',
     'groupReadTools',
     'groupPermissions',
     'groupJoinSettings',
@@ -186,6 +187,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                 data: state.data[`${name}:${input?.kind}`] ?? state.data[name],
                 isLoading: false,
                 isFetching: false,
+                error: state.data[`error:${name}`],
                 refetch: async () => {
                   if (name === 'groupJoinSettings') await state.refreshJoin();
                   return { error: null, data: state.data[name] };
@@ -285,6 +287,7 @@ beforeEach(() => {
     requests: [{ token: 'request-a', name: '申请人', groupName: '群 A', message: '留言' }],
     tags: [],
     todoList: [],
+    todoLocalList: [],
     groupReadTools: {
       signed: [],
       atAll: { canAtAll: true, remainCountForUin: 1, remainCountForGroup: 1 },
@@ -300,6 +303,29 @@ afterEach(() => {
 });
 
 describe('QQ 主动操作的实际界面', () => {
+  it('在线列表为空时保留本地待办，点击摘要正文也能打开详情', async () => {
+    state.data.todoLocalList = [
+      { sequence: '321', sourceId: '321_9', text: '本地已有待办', completed: false },
+    ];
+    const f = fixture(() => h(GroupTodos, { groupId: 123, groupName: '合成群', embedded: true }));
+    expect(f.host.querySelector('[aria-label="待办内容"]')?.textContent).toContain('本地已有待办');
+    await act(async () => f.host.querySelector<HTMLElement>('[aria-label="待办内容"]')!.click());
+    expect(f.host.querySelector('[aria-label="群待办列表"]')).not.toBeNull();
+    expect(f.button('完成待办')).not.toBeNull();
+  });
+  it('离线仍能查看本地待办，读取异常不冒充没有待办', async () => {
+    state.available = false;
+    state.data.todoLocalList = [{ sequence: '432', text: '离线缓存待办', completed: false }];
+    const f = fixture(() => h(GroupTodos, { groupId: 123, embedded: true }));
+    expect(f.host.textContent).toContain('离线缓存待办');
+    await act(async () => f.button('查看群待办').click());
+    expect(f.button('完成待办').disabled).toBe(true);
+    state.data.todoLocalList = undefined;
+    state.data['error:todoLocalList'] = new Error('缓存读取失败');
+    f.update();
+    expect(f.host.textContent).not.toContain('暂无群待办');
+    expect(f.host.querySelector('[aria-label="待办内容"]')?.textContent).toContain('读取失败');
+  });
   it('群待办先摘要后详情，完成项刷新、重新打开后仍保留且不串数据源', async () => {
     state.data.todoList = [
       { sequence: '123', sourceId: '123_1', text: '完成后要保留的待办', completed: false },

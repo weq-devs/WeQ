@@ -29,6 +29,7 @@ import '../../styles/group-sidebar-sections.css';
 export type GroupInfoDetail = 'profile' | 'albums';
 
 export function GroupInfoPanel({
+  hidden = false,
   conversation,
   onLoadMoreMembers,
   loadingMoreMembers,
@@ -49,6 +50,7 @@ export function GroupInfoPanel({
   onOpenSign,
   onClose,
 }: {
+  hidden?: boolean;
   conversation: GroupConversationView;
   onLoadMoreMembers?: () => void;
   loadingMoreMembers?: boolean;
@@ -122,6 +124,7 @@ export function GroupInfoPanel({
   const fetchingMore = searching ? Boolean(memberSearch?.loadingMore) : Boolean(loadingMoreMembers);
 
   const requestMoreNearBottom = useCallback(() => {
+    if (hidden) return;
     const list = memberListRef.current;
     if (!list) return;
     const distanceToBottom = list.scrollHeight - list.clientHeight - list.scrollTop;
@@ -131,19 +134,20 @@ export function GroupInfoPanel({
       return;
     }
     onLoadMoreMembers?.();
-  }, [searching, memberSearch?.hasMore, onLoadMoreSearch, onLoadMoreMembers]);
+  }, [hidden, searching, memberSearch?.hasMore, onLoadMoreSearch, onLoadMoreMembers]);
 
   // 列表比容器短时没有滚动事件，只能渲染后自己探一次底部；搜索把列表变短
   // （甚至空）时同样要重跑，否则「加载更多」永远不会被触发。
   useEffect(() => {
     const list = memberListRef.current;
-    if (!list) return undefined;
+    if (!list || hidden) return undefined;
     const frame = window.requestAnimationFrame(requestMoreNearBottom);
     return () => window.cancelAnimationFrame(frame);
-  }, [rows.length, searching, requestMoreNearBottom]);
+  }, [hidden, rows.length, searching, requestMoreNearBottom]);
 
   return (
     <aside
+      hidden={hidden}
       className={cn('group-info-panel', groupTodos && 'weq-group-sections')}
       aria-label="群聊资料"
       onKeyDown={(event) => {

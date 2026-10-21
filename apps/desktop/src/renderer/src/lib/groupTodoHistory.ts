@@ -11,6 +11,16 @@ export function groupTodoKey(todo: GroupTodoRecord): string {
   return todo.sourceId || todo.sequence;
 }
 
+/** 在线列表可能只有当前横幅；保留本地已有摘要，同一消息优先采用在线状态。 */
+export function mergeGroupTodoSources(
+  local: readonly GroupTodoRecord[],
+  online: readonly GroupTodoRecord[],
+): GroupTodoRecord[] {
+  const rows = new Map(local.map((row) => [row.sequence, row]));
+  for (const row of online) rows.set(row.sequence, { ...rows.get(row.sequence), ...row });
+  return [...rows.values()];
+}
+
 /** 服务器不再返回已完成横幅时仍保留记录；明确更新后的重新待办可以覆盖旧完成态。 */
 export function mergeGroupTodoHistory(
   live: readonly GroupTodoRecord[],

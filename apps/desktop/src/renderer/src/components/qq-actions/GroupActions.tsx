@@ -6,6 +6,7 @@ import {
   groupTodoHistoryKey,
   groupTodoKey,
   mergeGroupTodoHistory,
+  mergeGroupTodoSources,
   readGroupTodoHistory,
   saveGroupTodoHistory,
   type GroupTodoRecord,
@@ -13,7 +14,7 @@ import {
 import '../../styles/group-content-management.css';
 import '../../styles/qq-management.css';
 import { client, trpc } from '../../trpc/client';
-import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
+import { useQQAutoRefresh, useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { GroupReadTools } from './GroupReadTools';
 import { GroupJoinSettings } from './GroupJoinSettings';
 import {
@@ -223,6 +224,16 @@ function GroupTodosBody({
   const permissions = useQQGroupPermissions(groupId, a);
   const autoRefresh = useQQAutoRefresh(a.available);
   const todos = trpc.account.qqActions.todoList.useQuery({ ...a.binding!, groupId }, autoRefresh);
+  const localActivity = useQQReadActivity(Boolean(a.binding), { onlineOnly: false });
+  const localTodos = trpc.account.qqActions.todoLocalList.useQuery(
+    { ...a.binding!, groupId },
+    {
+      enabled: localActivity.enabled,
+      staleTime: 0,
+      refetchOnMount: 'always',
+      refetchOnWindowFocus: 'always',
+    },
+  );
   useEffect(() => {
     const live = todos.data;
     if (!key || !live) return;
@@ -244,12 +255,18 @@ function GroupTodosBody({
       setHistoryError('已完成状态保留在当前窗口，但本地记录保存失败，重新打开后可能无法恢复。');
     }
   }, [key, history]);
-  const entries = mergeGroupTodoHistory(todos.data ?? [], history.key === key ? history.rows : []);
+  const entries = mergeGroupTodoHistory(
+    mergeGroupTodoSources(localTodos.data ?? [], todos.data ?? []),
+    history.key === key ? history.rows : [],
+  );
   const refresh = async () => {
-    const r = await todos.refetch();
-    if (r.error) throw r.error;
+    const [remote, local] = await Promise.all([todos.refetch(), localTodos.refetch()]);
+    if (remote.error) throw remote.error;
+    if (local.error) throw local.error;
   };
-  const isEmpty = a.available && !todos.isFetching && !todos.error && entries.length === 0;
+  const readError = localTodos.error || (a.available && todos.error);
+  const reading = localTodos.isFetching || (a.available && todos.isFetching);
+  const isEmpty = localTodos.data !== undefined && !reading && !readError && entries.length === 0;
   async function complete(todo: GroupTodoRecord) {
     await a.perform(
       async (binding) => {
@@ -298,7 +315,7 @@ function GroupTodosBody({
           QQ 在线能力未就绪
         </p>
       )}
-      {a.available && todos.isFetching && !todos.data && (
+      {reading && !entries.length && (
         <p className="weq-content-status" role="status">
           读取待办中…
         </p>
@@ -308,9 +325,12 @@ function GroupTodosBody({
           {todos.error.message}
         </p>
       )}
-      {a.available && isEmpty && (
-        <div className="group-announcements-empty weq-todo-empty">暂无群待办</div>
+      {localTodos.error && (
+        <p className="weq-content-error" role="alert">
+          本地待办读取失败：{localTodos.error.message}
+        </p>
       )}
+      {isEmpty && <div className="group-announcements-empty weq-todo-empty">暂无群待办</div>}
       <ul className="group-bulletins-list weq-todo-list">
         {entries.map((t) => (
           <li
@@ -327,7 +347,7 @@ function GroupTodosBody({
               <div className="weq-todo-row-actions">
                 <ActionIcon
                   label="完成待办"
-                  disabled={a.disabled || Boolean(t.completed)}
+                  disabled={a.disabled || Boolean(t.completed) || !/^[1-9]\d*$/.test(t.sequence)}
                   onClick={() => void complete(t)}
                 >
                   <Check size={15} />
@@ -430,13 +450,22 @@ function GroupTodosBody({
             <ChevronRight size={14} />
           </span>
         </button>
-        <p tabIndex={0} aria-label="待办内容">
+        <button
+          type="button"
+          className="weq-todo-summary"
+          aria-label="待办内容"
+          onClick={() => setOpened(true)}
+        >
           {latest
             ? `${latest.completed ? '已完成 · ' : ''}${latest.text || `消息 ${latest.sequence}`}`
-            : todos.isFetching
+            : reading
               ? '读取待办中…'
-              : '暂无群待办'}
-        </p>
+              : readError
+                ? '待办读取失败'
+                : localTodos.data === undefined
+                  ? '待办尚未读取'
+                  : '暂无群待办'}
+        </button>
         {historyError && <p role="alert">{historyError}</p>}
       </section>
       {opened && (

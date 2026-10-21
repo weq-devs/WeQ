@@ -688,6 +688,19 @@ export function createQQActionsRouter(
           return s.groupNotify.handleOnlineRequest(entry.request, i.approve, i.reason);
         }),
       ),
+    todoLocalList: procedure.input(group).query(async ({ input: i }) => {
+      const services = resolveStatus(i);
+      const rows = await services.groupInfo.getGroupTodos(BigInt(i.groupId));
+      if (resolveStatus(i) !== services) throw new Error('账号已切换，请刷新');
+      return rows.map((todo) => ({
+        sequence: todo.msgSeq.toString(),
+        sourceId: `${todo.msgSeq}_${todo.msgRandom}`,
+        text: todo.text,
+        createdAt: todo.createTime,
+        updatedAt: todo.updateTime,
+        completed: false,
+      }));
+    }),
     todoList: procedure
       .input(group)
       .query(({ input: i }) => read(i, (s) => s.groupModeration.getTodoList(i.groupId))),

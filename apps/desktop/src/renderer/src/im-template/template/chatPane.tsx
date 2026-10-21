@@ -4502,8 +4502,9 @@ export function ChatPane({
               {groupInfoCollapsed ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
             </button>
           ) : null}
-          {(!groupInfoCollapsed || mobileGroupInfoOpen) && !sidecarOpen ? (
+          {!groupInfoCollapsed || mobileGroupInfoOpen ? (
             <GroupInfoPanel
+              hidden={sidecarOpen}
               conversation={conversation}
               onOpenDetail={handleOpenGroupInfoDetail}
               onOpenAnnouncements={
