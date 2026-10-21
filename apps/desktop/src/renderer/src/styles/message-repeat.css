@@ -25,6 +25,14 @@
   font: 600 12px / 1 var(--im-font-body, sans-serif);
   cursor: pointer;
 }
+.message-line.mine .message-bubble:has(> .weq-repeat-content) {
+  margin-left: 40px;
+  margin-right: 0;
+}
+.message-line.mine .weq-message-repeat {
+  left: -38px;
+  right: auto;
+}
 .weq-message-repeat:hover:not(:disabled) {
   color: var(--weq-accent-effective);
   border-color: var(--weq-accent-effective);
