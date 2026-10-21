@@ -170,7 +170,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'voice',
-    label: '语音转写',
+    label: '语音识别模型',
     icon: <AudioLines size={16} strokeWidth={1.8} />,
     render: () => <VoiceTranscribeSection />,
   },
@@ -198,19 +198,19 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'model-usage',
-    label: '模型使用统计',
+    label: '用量统计',
     icon: <Activity size={16} />,
     render: () => <ModelUsageSection />,
   },
   {
     id: 'ocr',
-    label: '图片识别',
+    label: '图片识别模型',
     icon: <ScanText size={16} strokeWidth={1.8} />,
     render: () => <OcrModelsSection />,
   },
   {
     id: 'agentlab',
-    label: '模型配置',
+    label: 'API 配置',
     icon: <Bot size={16} strokeWidth={1.8} />,
     render: () => <AgentLabSection />,
   },
