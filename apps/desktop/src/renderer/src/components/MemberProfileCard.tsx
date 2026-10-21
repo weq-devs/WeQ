@@ -369,11 +369,11 @@ export function MemberProfileCard({
                   label="亲密度"
                   value={intimacy}
                   mono
-              {member.kind !== 'bot' && uin ? (
-                <ProfileLikesRow uid={uid} uin={uin} name={displayUserName(member)} />
-              ) : null}
                   accent
                 />
+              ) : null}
+              {member.kind !== 'bot' && uin ? (
+                <ProfileLikesRow uid={uid} uin={uin} name={displayUserName(member)} />
               ) : null}
               {joinedAt ? (
                 <ProfileRow icon={<CalendarDays size={13} />} label="入群时间" value={joinedAt} />

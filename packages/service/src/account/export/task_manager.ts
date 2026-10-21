@@ -4074,9 +4074,6 @@ export class ExportTaskManager extends EventEmitter {
       );
 
       task.current = written;
-      task.status = 'completed';
-      task.progress = 100;
-    } catch (e) {
       if (task.emojipack?.format === 'zip') {
         const entries = scopes.flatMap((scope) => {
           const folder = scopeDirName(scope);
@@ -4122,6 +4119,9 @@ export class ExportTaskManager extends EventEmitter {
         const { rm } = await import('node:fs/promises');
         await rm(outDir, { recursive: true, force: true });
       }
+      task.status = 'completed';
+      task.progress = 100;
+    } catch (e) {
       task.status = aborted() ? 'cancelled' : 'failed';
       task.error = String((e as Error)?.message ?? e);
       const running = task.stages.find((s) => s.status === 'running');

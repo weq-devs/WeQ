@@ -114,8 +114,8 @@ import {
 } from '../components/GroupAnnouncementsDialog';
 import { GroupSignDialog } from '../components/GroupSignDialog';
 import { GroupTodos } from '../components/qq-actions/GroupActions';
-import {
 import { useDbRepairWindow } from '../state/dbRepairWindow';
+import {
   essenceSequences,
   essenceRefreshInterval,
   essenceSource,
@@ -2698,7 +2698,6 @@ export function MainView(): ReactElement {
   const [maintenanceTool, setMaintenanceTool] = useState<MaintenanceTool | null>(null);
   function openMaintenance(tool: MaintenanceTool) {
     setSettingsOpen(false);
-    setMaintenanceTool(tool);
     if (tool === 'db-repair') {
       setMaintenanceTool(null);
       useDbRepairWindow
@@ -2706,6 +2705,7 @@ export function MainView(): ReactElement {
         .open({ uin: openedUin ?? '', name: user.displayName, avatarUrl: user.avatarUrl ?? '' });
       return;
     }
+    setMaintenanceTool(tool);
   }
   const [qzoneAlbumOpen, setQzoneAlbumOpen] = useState(false);
   const [temporaryConversations, setTemporaryConversations] = useState<
