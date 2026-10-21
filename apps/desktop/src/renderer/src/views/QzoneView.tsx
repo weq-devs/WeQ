@@ -677,7 +677,7 @@ export function QzoneView({
         <Modal
           presentation="panel"
           onClose={() => setSettingsOpen(false)}
-          width={760}
+          width={480}
           labelledBy="weq-qzone-settings-title"
         >
           <header className="weq-tools-header">

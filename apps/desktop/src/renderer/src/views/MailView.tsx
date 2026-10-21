@@ -41,7 +41,7 @@ export const MailWorkspace = memo(function MailWorkspace({
       {settingsOpen && active ? (
         <Modal
           presentation="panel"
-          width={760}
+          width={480}
           labelledBy="weq-mail-settings-title"
           onClose={() => setSettingsOpen(false)}
         >
