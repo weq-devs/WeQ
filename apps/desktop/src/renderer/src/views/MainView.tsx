@@ -76,6 +76,8 @@ import { contactSenderName, contactTitle } from '../lib/contactTitle';
 import { replaceLoadedMembers, subscribeQQPeerUpdates } from '../lib/qqPeerUpdates';
 import { conversationSortTime, pinOrderDelta } from '@weq/service/conversation-order';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
+import { ConversationWindowCache, conversationWindowKey } from '../lib/conversationWindowCache';
+import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
@@ -2201,6 +2203,33 @@ export function MainView(): ReactElement {
   const pushToast = useToast((s) => s.push);
   const confirmReadState = useDialog((s) => s.confirm);
   const pinSession = useQQWriteSession('conversation-pin');
+  const messageScope = pinSession.binding
+    ? JSON.stringify([
+        pinSession.binding.expectedAccountUin,
+        pinSession.binding.expectedAccountConfigId,
+      ])
+    : '';
+  const messageActivity = useQQReadActivity(Boolean(messageScope), { onlineOnly: false });
+  const messageScopeRef = useRef(messageScope);
+  messageScopeRef.current = messageScope;
+  const messageBindingRef = useRef(pinSession.binding);
+  messageBindingRef.current = pinSession.binding;
+  const conversationWindows = useMemo(() => new ConversationWindowCache<MessageWire>(), []);
+  const dbRevisionRef = useRef(0),
+    loadedRevisionRef = useRef(0),
+    windowVerifiedAtRef = useRef(0);
+  const verifiedWindowRowsRef = useRef<MessageWire[] | null>(null);
+  const cachedScrollRef = useRef<{ id: string; top: number } | null>(null);
+  useEffect(() => {
+    const binding = messageBindingRef.current;
+    messageScopeRef.current = binding
+      ? JSON.stringify([binding.expectedAccountUin, binding.expectedAccountConfigId])
+      : '';
+    return () => {
+      messageScopeRef.current = '';
+      conversationWindows.clear();
+    };
+  }, [conversationWindows]);
   const pinMutation = trpc.account.qqWrite.pin.useMutation();
   useEffect(() => {
     if (pinSession.result)
@@ -2418,6 +2447,10 @@ export function MainView(): ReactElement {
   // wired) must NOT be dragged up to the latest. Stable identity → the
   // subscription below mounts once.
   const refreshWindow = useCallback(async (): Promise<void> => {
+    const scope = messageScopeRef.current,
+      binding = messageBindingRef.current;
+    const revision = dbRevisionRef.current;
+    if (!scope || !binding || document.visibilityState === 'hidden') return;
     const sel = selectionRef.current;
     const win = windowRef.current;
     if (!sel || !win.anchored) return;
@@ -2426,28 +2459,48 @@ export function MainView(): ReactElement {
     try {
       const page =
         win.minSeq === null
-          ? await client.account.listLatest.query({ kind, conv, limit: PAGE_SIZE })
+          ? await client.account.listLatest.query({ ...binding, kind, conv, limit: PAGE_SIZE })
           : await client.account.listFrom.query({
               kind,
               conv,
               sinceSeq: win.minSeq,
               limit: REFRESH_CAP,
+              ...binding,
             });
       // Reject results after a conversation switch or a history-window change,
       // including switching away and back to the same conversation.
-      if (selectionRef.current !== sel || windowRef.current !== win || !windowRef.current.anchored)
+      if (
+        messageScopeRef.current !== scope ||
+        selectionRef.current !== sel ||
+        windowRef.current !== win ||
+        !windowRef.current.anchored
+      )
         return;
-      setLoaded(page.map(toMessageWire).reverse());
+      loadedRevisionRef.current = revision;
+      windowVerifiedAtRef.current = Date.now();
+      const rows = page.map(toMessageWire).reverse();
+      verifiedWindowRowsRef.current = rows;
+      setLoaded(rows);
     } catch (err) {
       console.error('[live] refreshWindow failed', err);
     }
   }, []);
 
+  useEffect(() => {
+    if (messageActivity.enabled && messageActivity.revision > 0) void refreshWindow();
+  }, [messageActivity.enabled, messageActivity.revision, refreshWindow]);
+
   const [unreadRevision, setUnreadRevision] = useState(0);
 
   useEffect(() => {
-    const sub = client.account.onRoamingMessages.subscribe(undefined, {
+    const binding = messageBindingRef.current;
+    if (!messageScope || !binding) return;
+    const sub = client.account.onRoamingMessages.subscribe(binding, {
       onData(change) {
+        if (messageScopeRef.current !== messageScope) return;
+        conversationWindows.markDirty(
+          conversationWindowKey(messageScope, change.kind, change.conv),
+        );
         // WeQ 发送缓存不会改 QQ 库，也就不会触发 onDbChanged。
         if (contactsRefreshingRef.current) contactsRefreshQueuedRef.current = true;
         else void utils.account.listRecentContacts.invalidate();
@@ -2468,14 +2521,19 @@ export function MainView(): ReactElement {
       },
     });
     return () => sub.unsubscribe();
-  }, [utils]);
+  }, [utils, messageScope, conversationWindows]);
 
   // Subscribe once to the debounced "db changed" ping: refresh recent contacts
   // and re-read the open conversation's window. (onNewMessages stays a backend
   // signal reserved for future popups; the open view no longer needs it.)
   useEffect(() => {
-    const sub = client.account.onDbChanged.subscribe(undefined, {
+    const binding = messageBindingRef.current;
+    if (!messageScope || !binding) return;
+    const sub = client.account.onDbChanged.subscribe(binding, {
       onData() {
+        if (messageScopeRef.current !== messageScope) return;
+        dbRevisionRef.current += 1;
+        conversationWindows.markDirty();
         // Read watermarks can change while recent contacts remain identical.
         setUnreadRevision((revision) => revision + 1);
         if (contactsRefreshingRef.current) contactsRefreshQueuedRef.current = true;
@@ -2501,7 +2559,7 @@ export function MainView(): ReactElement {
       },
     });
     return () => sub.unsubscribe();
-  }, [utils, refreshWindow]);
+  }, [utils, refreshWindow, messageScope, conversationWindows]);
 
   useEffect(() => {
     const sub = client.bootstrap.onAccountForcedClosed.subscribe(undefined, {
@@ -2548,6 +2606,7 @@ export function MainView(): ReactElement {
   const [hasNewer, setHasNewer] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [trackedConversationId, setTrackedConversationId] = useState<string | null>(null);
+  const [trackedMessageScope, setTrackedMessageScope] = useState(messageScope);
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
   useEffect(() => {
     if (!topContacts.data) return;
@@ -4770,17 +4829,85 @@ export function MainView(): ReactElement {
   // before committing, so we never paint a frame where the previous chat's
   // messages are shown under the new conversation, nor flash an empty
   // "还没有消息" before the new query result is folded in.
-  if (trackedConversationId !== shell.activeConversationId) {
+  if (
+    trackedConversationId !== shell.activeConversationId ||
+    trackedMessageScope !== messageScope
+  ) {
+    const old = selectionRef.current;
+    if (
+      trackedMessageScope &&
+      trackedMessageScope === messageScope &&
+      old?.id === trackedConversationId
+    ) {
+      const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
+      conversationWindows.put(
+        conversationWindowKey(messageScope, old.kind === 'group' ? 'group' : 'c2c', old.id),
+        {
+          rows: loaded,
+          anchored: anchoredToLatest,
+          hasOlder,
+          hasNewer,
+          scrollTop: scroll?.scrollTop ?? 0,
+          revision: loadedRevisionRef.current,
+          dirty:
+            loadedRevisionRef.current !== dbRevisionRef.current ||
+            verifiedWindowRowsRef.current !== loaded,
+          storedAt: Date.now(),
+          verifiedAt: windowVerifiedAtRef.current,
+        },
+      );
+    }
+    if (trackedMessageScope !== messageScope) {
+      conversationWindows.clear();
+      dbRevisionRef.current = 0;
+      loadedRevisionRef.current = 0;
+      windowVerifiedAtRef.current = 0;
+      selectionRef.current = null;
+      windowRef.current = { minSeq: null, anchored: true };
+      if (trackedMessageScope) {
+        pendingSearchJumpRef.current = null;
+        setConversationPrefs({});
+        setOptimisticMessages([]);
+        setOptimisticForwards([]);
+        setOptimisticArks([]);
+      }
+    }
+    const cached =
+      messageScope &&
+      selectedUid &&
+      (isDirect || isGroup) &&
+      pendingSearchJumpRef.current?.conv !== selectedUid
+        ? conversationWindows.get(
+            conversationWindowKey(messageScope, isGroup ? 'group' : 'c2c', selectedUid),
+          )
+        : undefined;
+    setTrackedMessageScope(messageScope);
     setTrackedConversationId(shell.activeConversationId);
-    setLoaded([]);
-    setAnchoredToLatest(true);
-    setHasOlder(true);
-    setHasNewer(false);
-    setMessagesLoading(Boolean(shell.activeConversationId));
+    setLoaded(cached?.rows ?? []);
+    loadedRef.current = cached?.rows ?? [];
+    verifiedWindowRowsRef.current = cached?.rows ?? null;
+    setAnchoredToLatest(cached?.anchored ?? true);
+    setHasOlder(cached?.hasOlder ?? true);
+    setHasNewer(cached?.hasNewer ?? false);
+    setMessagesLoading(Boolean(shell.activeConversationId) && !cached);
+    loadedRevisionRef.current = cached?.revision ?? 0;
+    windowVerifiedAtRef.current = cached?.verifiedAt ?? 0;
+    cachedScrollRef.current =
+      cached && selectedUid ? { id: selectedUid, top: cached.scrollTop } : null;
     loadingOlderRef.current = false;
     loadingNewerRef.current = false;
     pendingScrollRestoreRef.current = null;
   }
+
+  useLayoutEffect(() => {
+    const restore = cachedScrollRef.current;
+    if (!restore || restore.id !== selectedUid || !messagesTabActive) return;
+    const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
+    if (scroll) {
+      scroll.scrollTop = restore.top;
+      cachedScrollRef.current = null;
+    }
+  }, [selectedUid, loaded, messagesTabActive]);
 
   const [groupExtrasId, setGroupExtrasId] = useState<string | null>(null);
   useEffect(() => {
@@ -5971,7 +6098,7 @@ export function MainView(): ReactElement {
         : null;
     // 换会话就清空群内成员搜索，否则新群的成员列表会顶着上一个群的关键字。
     setMemberSearchKeyword('');
-  }, [selectedUid, isDirect, isGroup]);
+  }, [selectedUid, isDirect, isGroup, messageScope]);
 
   // Keep the loaded-window descriptor in sync for the once-mounted subscription.
   useEffect(() => {
@@ -6006,20 +6133,33 @@ export function MainView(): ReactElement {
   // switch (before selectionRef settles).
   const centerWindowOnSeq = useCallback(
     async (conv: string, kind: 'group' | 'c2c', targetSeq: string): Promise<boolean> => {
+      const scope = messageScopeRef.current,
+        binding = messageBindingRef.current,
+        revision = dbRevisionRef.current;
+      const previousSelection = selectionRef.current?.id === conv ? selectionRef.current : null;
+      if (!scope || !binding) return false;
       let before: ChatMsgWire[];
       let after: ChatMsgWire[];
       try {
         [before, after] = await Promise.all([
           // `< target+1` is `<= target`, so the centre message is included.
           client.account.listBefore.query({
+            ...binding,
             kind,
             conv,
             beforeSeq: String(BigInt(targetSeq) + 1n),
             limit: PAGE_SIZE,
           }),
-          client.account.listAfter.query({ kind, conv, afterSeq: targetSeq, limit: PAGE_SIZE }),
+          client.account.listAfter.query({
+            ...binding,
+            kind,
+            conv,
+            afterSeq: targetSeq,
+            limit: PAGE_SIZE,
+          }),
         ]);
       } catch (err) {
+        if (scope !== messageScopeRef.current) return false;
         console.error('[centerWindowOnSeq] fetch failed', err);
         pushToast({
           tone: 'info',
@@ -6028,7 +6168,11 @@ export function MainView(): ReactElement {
         });
         return false;
       }
-      if (selectionRef.current?.id !== conv) {
+      if (
+        scope !== messageScopeRef.current ||
+        selectionRef.current?.id !== conv ||
+        (previousSelection !== null && selectionRef.current !== previousSelection)
+      ) {
         return false; // switched away mid-flight
       }
 
@@ -6050,6 +6194,10 @@ export function MainView(): ReactElement {
       // freshly-jumped window via refreshWindow's listFrom.
       windowRef.current = { minSeq: merged[0]?.msgSeq ?? null, anchored: atLatest };
       setLoaded(merged);
+      verifiedWindowRowsRef.current = merged;
+      loadedRevisionRef.current = revision;
+      windowVerifiedAtRef.current = Date.now();
+      setMessagesLoading(false);
       setHasOlder(before.length >= PAGE_SIZE);
       setHasNewer(!atLatest);
       // If the centre sits near the tail, re-anchor so live messages flow in;
@@ -6412,48 +6560,148 @@ export function MainView(): ReactElement {
     };
   }, [jumpToConvSeq]);
 
-  // Load the newest page whenever the open conversation changes. The render-time
-  // reset already cleared `loaded`, so this never paints the old chat. Always a
-  // fresh query — no react-query staleness — so switching back into a chat shows
-  // messages that arrived while it was closed.
+  // 命中缓存先恢复窗口，随后按水位增量读取；有变更或较久未校准时才重读已有范围。
   useEffect(() => {
-    if (!selectedUid || !(isDirect || isGroup)) {
+    const binding = messageBindingRef.current,
+      scope = messageScope;
+    if (!selectedUid || !(isDirect || isGroup) || !scope || !binding) {
       setMessagesLoading(false);
       return undefined;
     }
     const kind = isGroup ? 'group' : 'c2c';
     const conv = selectedUid;
     let cancelled = false;
+    const selection = selectionRef.current,
+      expectedWindow = windowRef.current,
+      revision = dbRevisionRef.current;
     const limit = isGroup ? GROUP_INITIAL_PAGE_SIZE : PAGE_SIZE;
-    setMessagesLoading(true);
-    client.account.listLatest
-      .query({ kind, conv, limit })
-      .then((page) => {
-        if (cancelled) return;
-        setLoaded(page.map(toMessageWire).reverse()); // newest-first → ASC
-        setHasOlder(page.length >= limit);
-        setAnchoredToLatest(true);
-        setMessagesLoading(false);
-
-        // A search hit was clicked for this conversation: don't leave the view
-        // pinned to the latest — rebuild the window centred on the hit's seq.
-        // This newest page is just a cheap placeholder it immediately replaces,
-        // so we never load everything between latest and the target.
-        const jump = pendingSearchJumpRef.current;
-        if (jump && jump.conv === conv) {
-          pendingSearchJumpRef.current = null;
-          void centerWindowOnSeq(jump.conv, jump.kind, jump.seq);
+    const valid = () =>
+      !cancelled &&
+      messageScopeRef.current === scope &&
+      selectionRef.current === selection &&
+      windowRef.current === expectedWindow;
+    const jump = pendingSearchJumpRef.current;
+    if (jump && jump.conv === conv) {
+      pendingSearchJumpRef.current = null;
+      void centerWindowOnSeq(jump.conv, jump.kind, jump.seq).finally(() => {
+        if (!cancelled && messageScopeRef.current === scope) setMessagesLoading(false);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+    const cached = conversationWindows.get(conversationWindowKey(scope, kind, conv));
+    const dirty = Boolean(
+      cached &&
+        (cached.dirty || cached.revision !== revision || Date.now() - cached.verifiedAt > 30_000),
+    );
+    if (cached && !dirty && Date.now() - cached.storedAt < 3000)
+      return () => {
+        cancelled = true;
+      };
+    if (!cached) setMessagesLoading(true);
+    void (async () => {
+      try {
+        let rows: MessageWire[],
+          older: boolean,
+          newer = false,
+          anchored = true;
+        const seqs =
+          cached?.rows
+            .filter(
+              (row) => kind === 'group' || row.source !== 'roaming' || row.ntSeqVerified === true,
+            )
+            .map((row) => row.msgSeq)
+            .filter((seq) => /^[1-9]\d*$/.test(seq)) ?? [];
+        const max = seqs.reduce<string | null>(
+          (value, seq) => (value === null || BigInt(seq) > BigInt(value) ? seq : value),
+          null,
+        );
+        if (cached && !cached.anchored) {
+          if (!dirty || max === null) return;
+          const page = await client.account.listBefore.query({
+            ...binding,
+            kind,
+            conv,
+            beforeSeq: String(BigInt(max) + 1n),
+            limit: Math.min(200, Math.max(1, cached.rows.length)),
+          });
+          rows = page.map(toMessageWire).reverse();
+          older = page.length >= Math.min(200, cached.rows.length);
+          newer = cached.hasNewer;
+          anchored = false;
+        } else if (cached && !dirty && max !== null) {
+          const page = await client.account.listAfter.query({
+            ...binding,
+            kind,
+            conv,
+            afterSeq: max,
+            limit: 200,
+          });
+          if (!valid()) return;
+          if (dbRevisionRef.current !== revision) {
+            void refreshWindow();
+            return;
+          }
+          rows = mergeRoamingTimeline(
+            kind,
+            [
+              ...new Map(
+                [...cached.rows, ...page.map(toMessageWire)].map((row) => [
+                  timelineRowKey(row),
+                  row,
+                ]),
+              ).values(),
+            ],
+            [],
+          );
+          older = cached.hasOlder;
+          newer = page.length >= 200;
+          anchored = !newer;
+        } else if (cached && /^[1-9]\d*$/.test(cached.rows[0]?.msgSeq ?? '')) {
+          const page = await client.account.listFrom.query({
+            ...binding,
+            kind,
+            conv,
+            sinceSeq: cached.rows[0]!.msgSeq,
+            limit: 1000,
+          });
+          rows = page.map(toMessageWire).reverse();
+          older = cached.hasOlder || page.length >= 1000;
+        } else {
+          const page = await client.account.listLatest.query({ ...binding, kind, conv, limit });
+          rows = page.map(toMessageWire).reverse();
+          older = page.length >= limit;
         }
-      })
-      .catch((err) => {
-        if (cancelled) return;
+        if (!valid()) return;
+        loadedRevisionRef.current = revision;
+        if (!cached || dirty) windowVerifiedAtRef.current = Date.now();
+        windowRef.current = { minSeq: rows[0]?.msgSeq ?? null, anchored };
+        loadedRef.current = rows;
+        setLoaded(rows);
+        setHasOlder(older);
+        setHasNewer(newer);
+        setAnchoredToLatest(anchored);
+        setMessagesLoading(false);
+        verifiedWindowRowsRef.current = rows;
+      } catch (err) {
+        if (cancelled || messageScopeRef.current !== scope) return;
         console.error('[msgs] listLatest failed', err);
         setMessagesLoading(false);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [selectedUid, isDirect, isGroup, centerWindowOnSeq]);
+  }, [
+    selectedUid,
+    isDirect,
+    isGroup,
+    centerWindowOnSeq,
+    messageScope,
+    conversationWindows,
+    refreshWindow,
+  ]);
 
   const requestOlderMessages = useCallback(
     (scroll: HTMLElement): void => {
@@ -6464,17 +6712,28 @@ export function MainView(): ReactElement {
 
       const kind = selectedConversation.type === 'group' ? 'group' : 'c2c';
       const conv = selectedConversation.id;
+      const scope = messageScopeRef.current,
+        binding = messageBindingRef.current,
+        selection = selectionRef.current;
+      if (!scope || !binding || selection?.id !== conv) return;
       loadingOlderRef.current = true;
-      pendingScrollRestoreRef.current = {
+      const restoration = {
         conversationId: conv,
         previousHeight: scroll.scrollHeight,
         previousTop: scroll.scrollTop,
       };
+      pendingScrollRestoreRef.current = restoration;
 
       client.account.listBefore
-        .query({ kind, conv, beforeSeq: minSeq, limit: PAGE_SIZE })
+        .query({ ...binding, kind, conv, beforeSeq: minSeq, limit: PAGE_SIZE })
         .then((older) => {
+          if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
           loadingOlderRef.current = false;
+          if (windowRef.current.minSeq !== minSeq) {
+            if (pendingScrollRestoreRef.current === restoration)
+              pendingScrollRestoreRef.current = null;
+            return;
+          }
           if (selectionRef.current?.id !== conv) {
             pendingScrollRestoreRef.current = null;
             return;
@@ -6497,6 +6756,7 @@ export function MainView(): ReactElement {
           if (older.length < PAGE_SIZE) setHasOlder(false);
         })
         .catch((err) => {
+          if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
           loadingOlderRef.current = false;
           pendingScrollRestoreRef.current = null;
           console.error('[msgs] listBefore failed', err);
@@ -6516,12 +6776,18 @@ export function MainView(): ReactElement {
 
     const kind = selectedConversation.type === 'group' ? 'group' : 'c2c';
     const conv = selectedConversation.id;
+    const scope = messageScopeRef.current,
+      binding = messageBindingRef.current,
+      selection = selectionRef.current;
+    if (!scope || !binding || selection?.id !== conv) return;
     loadingNewerRef.current = true;
 
     client.account.listAfter
-      .query({ kind, conv, afterSeq: maxSeq, limit: PAGE_SIZE })
+      .query({ ...binding, kind, conv, afterSeq: maxSeq, limit: PAGE_SIZE })
       .then((newer) => {
+        if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
         loadingNewerRef.current = false;
+        if (loadedRef.current.at(-1)?.msgSeq !== maxSeq) return;
         if (selectionRef.current?.id !== conv) return;
         const known = new Set(loaded.map(timelineRowKey));
         const fresh = newer.map(toMessageWire).filter((m) => !known.has(timelineRowKey(m))); // ASC, newer
@@ -6539,6 +6805,7 @@ export function MainView(): ReactElement {
         }
       })
       .catch((err) => {
+        if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
         loadingNewerRef.current = false;
         console.error('[msgs] listAfter failed', err);
       });

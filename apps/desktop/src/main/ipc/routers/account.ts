@@ -182,6 +182,21 @@ function requireExpectedAccount(expected?: string, expectedConfigId?: string): A
   return requireServices();
 }
 
+async function readMessageScope<T>(
+  input: { expectedAccountUin?: string; expectedAccountConfigId?: string },
+  read: () => Promise<T>,
+): Promise<T> {
+  const services = requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+  const configId = services.accountConfig?.getRecord()?.configId;
+  const result = await read();
+  if (
+    requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services ||
+    services.accountConfig?.getRecord()?.configId !== configId
+  )
+    throw new Error('账号数据源已切换，已丢弃旧消息窗口');
+  return result;
+}
+
 function requireScheduler(): import('@weq/service').ExportScheduler {
   const ctx = getAppContext();
   if (!ctx.scheduler) {
@@ -2801,8 +2816,14 @@ export const accountRouter = router({
     }),
 
   listLatest: procedure
-    .input(convInput.extend({ limit: z.number().int().min(1).max(200).default(50) }))
-    .query(({ input }) => fetchLatest(input.kind, input.conv, input.limit)),
+    .input(
+      convInput
+        .merge(exportAccountBindingInput)
+        .extend({ limit: z.number().int().min(1).max(200).default(50) }),
+    )
+    .query(({ input }) =>
+      readMessageScope(input, () => fetchLatest(input.kind, input.conv, input.limit)),
+    ),
 
   resolveReplySeq: procedure
     .input(
@@ -2841,34 +2862,44 @@ export const accountRouter = router({
   /** The page just older than `beforeSeq` (scroll up), newest-first. */
   listBefore: procedure
     .input(
-      convInput.extend({
+      convInput.merge(exportAccountBindingInput).extend({
         beforeSeq: z.string().min(1),
         limit: z.number().int().min(1).max(200).default(50),
       }),
     )
     .query(({ input }) =>
-      fetchBefore(input.kind, input.conv, BigInt(input.beforeSeq), input.limit),
+      readMessageScope(input, () =>
+        fetchBefore(input.kind, input.conv, BigInt(input.beforeSeq), input.limit),
+      ),
     ),
 
   /** The page just newer than `afterSeq` (scroll down / jump context), oldest-first. */
   listAfter: procedure
     .input(
-      convInput.extend({
+      convInput.merge(exportAccountBindingInput).extend({
         afterSeq: z.string().min(1),
         limit: z.number().int().min(1).max(200).default(50),
       }),
     )
-    .query(({ input }) => fetchAfter(input.kind, input.conv, BigInt(input.afterSeq), input.limit)),
+    .query(({ input }) =>
+      readMessageScope(input, () =>
+        fetchAfter(input.kind, input.conv, BigInt(input.afterSeq), input.limit),
+      ),
+    ),
 
   /** Re-read everything with seq >= `sinceSeq` (live refresh of the window). */
   listFrom: procedure
     .input(
-      convInput.extend({
+      convInput.merge(exportAccountBindingInput).extend({
         sinceSeq: z.string().min(1),
         limit: z.number().int().min(1).max(1000).default(500),
       }),
     )
-    .query(({ input }) => fetchFrom(input.kind, input.conv, BigInt(input.sinceSeq), input.limit)),
+    .query(({ input }) =>
+      readMessageScope(input, () =>
+        fetchFrom(input.kind, input.conv, BigInt(input.sinceSeq), input.limit),
+      ),
+    ),
 
   /**
    * QQ 频道私聊会话列表（direct_node_list_table）。只读会话表，绝不回扫
@@ -4352,29 +4383,45 @@ export const accountRouter = router({
     }),
 
   /** Committed cache rows, scoped to this exact account session; no unread writes. */
-  onRoamingMessages: procedure.subscription(() => {
-    requireServices();
-    const session = getAppContext().account;
-    return observable<{ kind: 'group' | 'c2c'; conv: string; messages: ChatMsgWire[] }>((emit) => {
-      const handler = (change: RoamingCacheChange) => {
-        if (change.session !== session || getAppContext().account !== session) return;
-        emit.next({
-          kind: change.kind,
-          conv: change.conv,
-          messages: change.messages.map(roamingMsgToWire),
-        });
-      };
-      dbEventBus.on('roaming', handler);
-      return () => {
-        dbEventBus.off('roaming', handler);
-      };
-    });
-  }),
+  onRoamingMessages: procedure
+    .input(exportAccountBindingInput.optional())
+    .subscription(({ input }) => {
+      const services = requireExpectedAccount(
+        input?.expectedAccountUin,
+        input?.expectedAccountConfigId,
+      );
+      const session = getAppContext().account;
+      return observable<{ kind: 'group' | 'c2c'; conv: string; messages: ChatMsgWire[] }>(
+        (emit) => {
+          const handler = (change: RoamingCacheChange) => {
+            if (
+              change.session !== session ||
+              getAppContext().account !== session ||
+              getAppContext().services !== services
+            )
+              return;
+            emit.next({
+              kind: change.kind,
+              conv: change.conv,
+              messages: change.messages.map(roamingMsgToWire),
+            });
+          };
+          dbEventBus.on('roaming', handler);
+          return () => {
+            dbEventBus.off('roaming', handler);
+          };
+        },
+      );
+    }),
 
   /** Live DB-change ping; the renderer re-reads its original message window. */
-  onDbChanged: procedure.subscription(() => {
+  onDbChanged: procedure.input(exportAccountBindingInput.optional()).subscription(({ input }) => {
+    const services = input
+      ? requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId)
+      : null;
     return observable<{ at: number }>((emit) => {
       const handler = (file: DbChange): void => {
+        if (services && getAppContext().services !== services) return;
         emit.next({ at: file.at });
       };
       dbEventBus.on('changed', handler);
