@@ -167,6 +167,22 @@ export const INTENT_TUNING = {
 
 export type IntentTuningKey = keyof typeof INTENT_TUNING;
 export type IntentTuning = Record<IntentTuningKey, number>;
+export const INTENT_TUNING_HELP: Partial<Record<IntentTuningKey, string>> = {
+  analysisContextMessages: '当前消息之前的语境，不是待分析消息数量；0 表示不附带上文。',
+  suggestionContextMessages: '不含当前消息；0 表示只依据当前消息。',
+  backfillMessages: '检查最近消息并补齐缺少的分析，已有有效缓存不会重复处理。',
+  apiBatchMessages: '单次请求实际分析的目标数，与补齐范围、每条上文数量独立。',
+  apiCooldownSeconds: '失败后的等待时长；0 表示不额外冷却，不代表自动重发。',
+  cacheEntries: '仅限制生成的分析缓存，不改动原始消息。',
+  suggestionCacheSeconds: '同一消息复用候选的时长；0 表示不复用。',
+  suggestionCount: '生成式候选的数量上限；规则兜底可能少于此数量。',
+  suggestionTargetChars: '作为生成提示，不强制截断模型回复。',
+  profileSamples: '不超过统计消息范围；只将选中的对方文本交给推断模型。',
+  profileMinSamples: '不超过采样上限；跟随模式按已分析消息计数，独立模型按可用文本计数。',
+  profileTopicLimit: '控制画像中显示的话题数。',
+  profileModelTopics: '控制向模型请求的话题数，不是统计话题总数。',
+  profileCacheSeconds: '画像读取结果的复用时长；0 表示不复用，不会增加后台轮询。',
+};
 export const INTENT_TUNING_KEYS = Object.keys(INTENT_TUNING) as IntentTuningKey[];
 export const DEFAULT_INTENT_TUNING = Object.fromEntries(
   INTENT_TUNING_KEYS.map((key) => [key, INTENT_TUNING[key].default]),

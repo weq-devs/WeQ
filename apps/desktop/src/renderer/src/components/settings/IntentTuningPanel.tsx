@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { RotateCcw, Save } from 'lucide-react';
 import {
   INTENT_TUNING,
+  INTENT_TUNING_HELP,
   INTENT_TUNING_KEYS,
   isIntentTuningValue,
   type IntentTuningKey,
@@ -80,6 +81,7 @@ export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
             <Row
               key={key}
               label={rule.label}
+              desc={`${INTENT_TUNING_HELP[key] ? `${INTENT_TUNING_HELP[key]} ` : ''}默认 ${rule.default}；范围 ${rule.min}–${rule.max}。`}
               control={
                 <input
                   className="weq-set-input"

@@ -26,10 +26,12 @@ describe('设置的两级导航', () => {
       'reply-suggestions',
       'clone-settings',
       'interaction-profile',
-      'local-models',
+      'voice',
+      'ocr',
     ]);
-    expect(settingsSectionFor('voice')).toBe('local-models');
-    expect(settingsSectionFor('ocr')).toBe('local-models');
+    expect(settingsSectionFor('voice')).toBe('voice');
+    expect(settingsSectionFor('ocr')).toBe('ocr');
+    expect(settingsSectionFor('local-models')).toBe('voice');
     expect(settingsSectionFor('intent-models')).toBe('intent-sense');
     expect(settingsSectionFor('tts')).toBe('agentlab');
     expect(settingsGroupFor('credentials').id).toBe('advanced');

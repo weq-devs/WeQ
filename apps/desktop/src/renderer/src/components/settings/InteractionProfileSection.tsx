@@ -61,6 +61,7 @@ export function InteractionProfileSection() {
         {status.data?.profileEngine === 'api' ? (
           <Row
             label="API 模型"
+            desc="将所选对方文本样本发送至该服务商用于画像推断。"
             control={
               <ApiModelSelect
                 label="互动画像 API 模型"
@@ -72,6 +73,7 @@ export function InteractionProfileSection() {
           />
         ) : null}
       </Card>
+      <p className="weq-set-note">好感度、MBTI 和互动风格均为推断，仅供参考。</p>
       <details className="weq-model-advanced">
         <summary>高级设置</summary>
         <IntentTuningPanel group="profile" />

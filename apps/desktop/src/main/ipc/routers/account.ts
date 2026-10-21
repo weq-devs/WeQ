@@ -4532,7 +4532,7 @@ export const accountRouter = router({
         // 平台能力优先：没有引擎的机器（如 macOS Intel）只能走在线，别劝人家去下模型。
         throw new Error(
           localOcrBlocker() ??
-            '识别文字需要在线 QQ，或先在「设置 → 模型与识别 → 语音与图片识别」里下好本地识别模型。',
+            '识别文字需要在线 QQ，或先在「设置 → 模型与识别 → 图片识别」里下好本地识别模型。',
         );
       }
 

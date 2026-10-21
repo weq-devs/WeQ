@@ -169,7 +169,8 @@ describe('设置归位后的实际页面', () => {
         '推荐回复',
         '好友克隆',
         '互动画像',
-        '语音与图片识别',
+        '语音识别',
+        '图片识别',
       ]);
       expect(f.host.querySelector('.weq-settings-scope')?.textContent).toBe('当前账号');
       expect(f.body().querySelector('.weq-set-head-title .weq-settings-scope')).not.toBeNull();

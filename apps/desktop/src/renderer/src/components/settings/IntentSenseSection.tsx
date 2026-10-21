@@ -125,7 +125,7 @@ export function IntentSenseSection({
         {s?.engine === 'api' ? (
           <Row
             label="服务商与模型"
-            desc={s.lastApiError ? `最近调用失败：${s.lastApiError}` : undefined}
+            desc={`分析时会将消息文本发送至所选服务商。${s.lastApiError ? ` 最近调用失败：${s.lastApiError}` : ''}`}
             control={
               <ApiModelSelect
                 label="意图感知 API 模型"
@@ -146,18 +146,13 @@ export function IntentSenseSection({
       <SectionHeader
         icon={<BrainCircuit size={18} strokeWidth={1.8} />}
         title={suggestionsPage ? '推荐回复' : '意图感知'}
-        desc={
-          suggestionsPage
-            ? '生成式推荐使用所选 API，候选不会自动发送。'
-            : 'API 模型会将消息文本发送至所选服务商；本地模型在本机运行。推断结果仅供参考。'
-        }
       />
 
       <Card title="基础">
         {!suggestionsPage ? (
           <Row
             label="启用意图感知"
-            desc="分析在本机完成（本地模型）或发送给你配置的 API（云端引擎）。"
+            desc="意图与情绪是模型推断，结果仅供参考。"
             control={
               <Toggle
                 checked={!!s?.enabled}
@@ -170,14 +165,14 @@ export function IntentSenseSection({
         ) : null}
         {suggestionsPage ? (
           <Row
-            label="回复建议"
-            desc={`所选 API 最多生成 ${status.data?.suggestionCount ?? 3} 条候选；不可用时只保留规则候选，不使用本地模型生成文字。`}
+            label="启用推荐回复"
+            desc="候选只会填入草稿，不会自动发送。"
             control={
               <Toggle
                 checked={!!s?.suggestionsEnabled}
                 disabled={status.isLoading || setConfig.isLoading}
                 onChange={(next) => void patch({ suggestionsEnabled: next })}
-                label="回复建议"
+                label="启用推荐回复"
               />
             }
           />
@@ -185,9 +180,7 @@ export function IntentSenseSection({
         {suggestionsPage ? (
           <Row
             label="推荐回复 API 模型"
-            desc={
-              s?.lastSuggestionApiError ? `最近调用失败：${s.lastSuggestionApiError}` : undefined
-            }
+            desc={`生成时会将消息和所选上文发送至该服务商；不可用时仅提供规则候选。${s?.lastSuggestionApiError ? ` 最近调用失败：${s.lastSuggestionApiError}` : ''}`}
             control={
               <ApiModelSelect
                 label="推荐回复 API 模型"
@@ -253,11 +246,6 @@ export function IntentSenseSection({
         {!suggestionsPage ? <IntentTuningPanel group="advanced" /> : null}
         {!suggestionsPage && s?.engine === 'api' ? <IntentModelsSection embedded /> : null}
       </details>
-
-      <p className="weq-set-note">
-        意图与画像均为模型推断，好感度 / MBTI 仅供娱乐参考；API
-        引擎会把消息文本发送给你配置的服务商。
-      </p>
     </div>
   );
 }

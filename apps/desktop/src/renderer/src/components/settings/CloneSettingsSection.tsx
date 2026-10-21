@@ -3,6 +3,7 @@ import { Settings2, Save, Users } from 'lucide-react';
 import type { AgentLabPersona } from '@weq/agentlab';
 import {
   CLONE_GENERATION,
+  CLONE_GENERATION_HELP,
   CLONE_GENERATION_KEYS,
   normalizeCloneGeneration,
   type AgentLabGenerationConfig,
@@ -68,6 +69,7 @@ function CloneGenerationPanel({
     <div className="weq-set">
       <Row
         label="聊天 API 模型"
+        desc="生成回复时会将本轮消息、所选历史与参考语料发送至该服务商。"
         control={
           <ApiModelSelect
             required
@@ -94,6 +96,7 @@ function CloneGenerationPanel({
           <Row
             key={key}
             label={CLONE_GENERATION[key].label}
+            desc={`${CLONE_GENERATION_HELP[key]} 默认 ${CLONE_GENERATION[key].default}；范围 ${CLONE_GENERATION[key].min}–${CLONE_GENERATION[key].max}。`}
             control={
               <input
                 className="weq-set-input"

@@ -559,8 +559,12 @@ export class IntentSenseService {
     for (const key of INTENT_TUNING_KEYS) {
       const value = patch[key];
       if (value === undefined) continue;
-      if (!isIntentTuningValue(key, value))
+      if (!isIntentTuningValue(key, value)) {
+        if (key === 'analysisContextMessages' || key === 'suggestionContextMessages') {
+          throw new Error(`上文条数必须是 0–${MAX_INTENT_CONTEXT_MESSAGES} 的整数`);
+        }
         throw new Error(`${INTENT_TUNING[key].label}超出可设置范围`);
+      }
       next[key] = value;
     }
     if (patch.profileEngine !== undefined) next.profileEngine = patch.profileEngine;
@@ -591,12 +595,6 @@ export class IntentSenseService {
     if (typeof patch.hfMirror === 'boolean') next.hfMirror = patch.hfMirror;
     if (typeof patch.analyzeAfterSelf === 'boolean') next.analyzeAfterSelf = patch.analyzeAfterSelf;
     if (typeof patch.suggestAfterSelf === 'boolean') next.suggestAfterSelf = patch.suggestAfterSelf;
-    for (const key of ['analysisContextMessages', 'suggestionContextMessages'] as const) {
-      if (patch[key] === undefined) continue;
-      if (!isIntentContextCount(patch[key]))
-        throw new Error(`上文条数必须是 0–${MAX_INTENT_CONTEXT_MESSAGES} 的整数`);
-      next[key] = patch[key];
-    }
     const analysisChanged =
       next.analysisTemperature !== this.config.analysisTemperature ||
       next.engine !== this.config.engine ||

@@ -1,5 +1,5 @@
 /**
- * 设置 → 模型与识别 → 语音与图片识别（本地模型）.
+ * 设置 → 模型与识别 → 图片识别（本地模型）.
  *
  * 这一屏只管**模型的下载与选择**：识别模型（PP-OCR，出逐行文字 + 像素坐标框）和
  * 筛图模型（只判断「图里有没有文字」，用于批量 OCR 前先筛掉风景 / 人像）。识别模型
@@ -18,7 +18,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { AlertTriangle, Check, Download, Loader2, ScanText, Trash2 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useDialog } from '../Dialog';
-import { Card, SectionHeader } from './controls';
+import { Card, Row, SectionHeader } from './controls';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -294,10 +294,11 @@ export function OcrModelsSection(): ReactElement {
 
   return (
     <div className="weq-set">
-      <SectionHeader
-        icon={<ScanText size={18} strokeWidth={1.8} />}
-        title="本地图片识别模型"
-        desc="本地图片文字识别（OCR）的模型下载与选择。识别模型出文字和每行文字的像素坐标框；筛图模型只判断「图里有没有文字」，用在批量识别之前把没有文字的图先筛掉。"
+      <SectionHeader icon={<ScanText size={18} strokeWidth={1.8} />} title="图片识别" />
+      <Row
+        label="QQ 在线 OCR"
+        desc="由 QQ 服务端提供，不是本地模型；需要 QQ 在线及对应凭据，无需下载下方资源。"
+        control={null}
       />
 
       <ModelKindCard
@@ -330,12 +331,7 @@ export function OcrModelsSection(): ReactElement {
         onSelect={(id) => void onSelect(id, 'filter', selectedFilter)}
       />
 
-      <p className="weq-set-note">
-        QQ 在线 OCR 由 QQ 服务端提供，不是本地模型，不占用此处模型资源。
-        模型保存在本地，删除「账号缓存」不会影响它。识别模型下好之后，聊天图片灯箱的
-        「OCR」按钮就会在在线那条路走不通时用它出文字；筛图模型留给导出侧的批量自动
-        识别，现在只负责下载与选择。
-      </p>
+      <p className="weq-set-note">本地模型用于离线识别，删除「账号缓存」不会影响这些资源。</p>
     </div>
   );
 }
