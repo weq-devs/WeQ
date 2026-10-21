@@ -423,8 +423,12 @@ html[data-theme='dark'] .weq-intent-popover {
   padding-top: 6px;
 }
 
+/* z-index 必须低于 `> .composer`（chat.css 里给了 1）：表情 / 语音 / 链接卡片这些面板
+ * 都是 `bottom: calc(100% - 1px)` 从输入框上沿弹出的浮层，会伸到建议条所在的那一行。
+ * 建议条抬到面板之上就会盖住面板底部工具行（「发送」键就在那儿）与选中的表情，
+ * 表现为「点不动发送」。它自己只是常驻在文档流里的一行，压在下面完全够用。 */
 .weq-int-suggest {
-  z-index: 2;
+  z-index: 0;
   grid-column: 1;
   display: flex;
   align-items: center;

@@ -15,6 +15,7 @@ import { useAppDialog } from '../../lib/dialogUtils';
 import { autoGrowTextarea } from '../../lib/textareaAutoGrow';
 import { Modal } from '../../components/Dialog';
 import { QqAvatar } from '../../components/QqAvatar';
+import { GroupMosaicAvatar } from '../../components/GroupMosaicAvatar';
 import { ChatBubble, type FaceContext } from './ChatBubble';
 import { ChatTimeDivider, shouldShowChatTime } from './messageTime';
 import { SessionSwitcher } from './SessionSwitcher';
@@ -302,6 +303,10 @@ export function GroupChatPanel({
   }
 
   const groupName = detail.data?.group.name ?? '群聊';
+  // 头部左侧的群头像：成员头像拼合成头像（与工作区左栏 / 会话列表同一套口径）。
+  const groupAvatarUins = personaMembers
+    .map((m) => metaFor(m.memberId, 'persona', m.displayName).uin)
+    .filter((uin): uin is string => Boolean(uin));
 
   return (
     <div className="weq-agentlab-chat">
@@ -316,6 +321,7 @@ export function GroupChatPanel({
           >
             <ArrowLeft size={16} />
           </button>
+          <GroupMosaicAvatar uins={groupAvatarUins} size={34} />
           <div>
             <strong>{groupName}</strong>
             <span>

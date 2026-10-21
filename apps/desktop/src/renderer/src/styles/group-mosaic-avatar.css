@@ -1,0 +1,43 @@
+/* 克隆群聊的合成头像（成员头像拼格）。尺寸与行列数由组件内联给出，
+   这里只管裁切、缝隙与兜底样式；颜色全部走 design token。 */
+.weq-group-mosaic {
+  display: grid;
+  flex: none;
+  gap: 1px;
+  overflow: hidden;
+  border-radius: 999px;
+  /* 缝隙颜色：深浅模式下都取表面色，避免小图上出现刺眼的白线。 */
+  background: var(--weq-bg-surface);
+}
+
+.weq-group-mosaic.is-square {
+  border-radius: 10px;
+}
+
+.weq-group-mosaic-cell {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.weq-group-mosaic-cell > img,
+.weq-group-mosaic-cell > .weq-group-mosaic-fallback {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 单张头像加载失败 / 拿不到 uin：留一块低对比底色，不把格子整片挖空。 */
+.weq-group-mosaic-fallback {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+/* 一个成员都没有（或 uin 全缺）：整体回落到「群」图标。 */
+.weq-group-mosaic.is-empty {
+  display: grid;
+  place-items: center;
+  color: var(--weq-fg-secondary);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}

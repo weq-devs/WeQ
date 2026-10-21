@@ -21,6 +21,7 @@ import { trpc } from '../trpc/client';
 import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useAppDialog } from '../lib/dialogUtils';
 import { QqAvatar } from '../components/QqAvatar';
+import { GroupMosaicAvatar } from '../components/GroupMosaicAvatar';
 import {
   NewCloneModal,
   type BuddyOption,
@@ -938,9 +939,15 @@ export function AgentLabView({
                     key={g.id}
                     head={
                       <>
-                        <span className="weq-agentlab-item-avatar is-bot">
-                          <MessagesSquare size={16} />
-                        </span>
+                        {/* 群头像用克隆体成员头像拼合成头像；成员 uin 还没解析出来时回落到群图标。
+                            用可选链兼容升级前写进缓存、没有 memberUins 的旧结果。 */}
+                        {g.memberUins?.length ? (
+                          <GroupMosaicAvatar uins={g.memberUins} size={34} shape="square" />
+                        ) : (
+                          <span className="weq-agentlab-item-avatar is-bot">
+                            <MessagesSquare size={16} />
+                          </span>
+                        )}
                         <span className="weq-agentlab-item-text">
                           <strong>{g.name}</strong>
                           <small>群聊</small>
