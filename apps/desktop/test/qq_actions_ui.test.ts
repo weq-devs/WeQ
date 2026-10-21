@@ -118,6 +118,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     'folders',
     'notices',
     'favorites',
+    'favoriteImportState',
     'requests',
     'tags',
     'todoList',
@@ -152,6 +153,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
       },
     },
     trpc: {
+      bootstrap: {
+        getSettings: { useQuery: () => ({ data: { exportSaveMode: 'before' }, isLoading: false }) },
+      },
       useUtils: () => ({
         account: {
           dressup: { peerStats: { invalidate: state.refreshPeerStats } },
