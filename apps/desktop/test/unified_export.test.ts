@@ -201,15 +201,7 @@ vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
   useAppDialog: () => ({ error: fixture.dialogError, info: fixture.dialogInfo, success: vi.fn() }),
 }));
 vi.mock('../src/renderer/src/views/export/TaskList', () => ({
-  TaskList: ({
-    tasks,
-    onDownload,
-    onSaveAll,
-  }: {
-    tasks: UiTask[];
-    onDownload: (task: UiTask) => void;
-    onSaveAll: () => void;
-  }) =>
+  TaskList: ({ tasks, onDownload }: { tasks: UiTask[]; onDownload: (task: UiTask) => void }) =>
     createElement(
       'div',
       null,
@@ -217,6 +209,23 @@ vi.mock('../src/renderer/src/views/export/TaskList', () => ({
       ...tasks.map((task) =>
         createElement('button', { key: task.id, onClick: () => onDownload(task) }, '保存合成任务'),
       ),
+    ),
+}));
+vi.mock('../src/renderer/src/components/tasks/CurrentTaskList', () => ({
+  CurrentTaskList: ({
+    exports,
+    renderExport,
+    onSaveAll,
+  }: {
+    exports: UiTask[];
+    renderExport: (task: UiTask) => import('react').ReactNode;
+    onSaveAll: () => void;
+  }) =>
+    createElement(
+      'div',
+      null,
+      '合成当前任务',
+      ...exports.map((task) => createElement('div', { key: task.id }, renderExport(task))),
       createElement('button', { onClick: onSaveAll }, '保存全部合成任务'),
     ),
 }));
@@ -1178,15 +1187,17 @@ describe('统一导出实际界面', () => {
       f.close();
     }
   });
-  it('任务工具独立显示执行任务与定时计划，不包含新建导出选择器', async () => {
+  it('任务工具仅保留当前任务与定时任务，不包含新建导出选择器', async () => {
     const f = mount({ surface: 'tasks' });
     try {
       await act(async () => {});
-      expect(f.host.textContent).toContain('合成执行任务');
+      expect(f.host.textContent).toContain('合成当前任务');
+      expect(f.host.textContent).not.toContain('漫游拉取');
+      expect(f.host.textContent).not.toContain('好友克隆');
       expect(f.host.querySelector('#weq-export-content-kind')).toBeNull();
-      click(f.host, '定时计划');
+      click(f.host, '定时任务');
       expect(f.host.textContent).toContain('合成计划');
-      expect(f.host.textContent).not.toContain('合成执行任务');
+      expect(f.host.textContent).not.toContain('合成当前任务');
     } finally {
       f.close();
     }

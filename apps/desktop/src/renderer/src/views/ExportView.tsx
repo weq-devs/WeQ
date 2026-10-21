@@ -44,8 +44,7 @@ import { ConversationPicker } from './export/ConversationPicker';
 import { SingleSelectPicker } from './export/SingleSelectPicker';
 import { EmojiPackExportPane } from './export/EmojiPackExportPane';
 import { TaskList, type UiFailure, type UiLogLine, type UiTask } from './export/TaskList';
-import { RoamingBackfillPanel } from '../components/RoamingBackfillPanel';
-import { CloneTasksPane } from './agentlab/CloneTasksPane';
+import { CurrentTaskList } from '../components/tasks/CurrentTaskList';
 import { preflightExportEstimate } from './export/preflight';
 import { ExportLightbox, type LightboxResult, type LightboxVariant } from './export/ExportLightbox';
 import { AlbumExportLightbox, type AlbumExportResult } from './export/AlbumExportLightbox';
@@ -391,7 +390,7 @@ export function ExportTool({
   const [execution, setExecution] = useState<'now' | 'scheduled'>(
     initialMode === 'scheduled' ? 'scheduled' : 'now',
   );
-  const [taskTab, setTaskTab] = useState<'tasks' | 'schedules' | 'roaming' | 'clones'>('tasks');
+  const [taskTab, setTaskTab] = useState<'tasks' | 'schedules'>('tasks');
   // 频道私聊会话列表（guild_msg.db；只在该模式下加载）。
   const guildSessions = trpc.account.guildDirectListSessions.useQuery(undefined, {
     enabled: active && surface === 'export' && mode === 'guild',
@@ -435,8 +434,6 @@ export function ExportTool({
   const [guildScopeId, setGuildScopeId] = useState<string | null>(
     () => guildInitial.nodeIds[0] ?? null,
   );
-  /** 任务面板展开/收起（默认收起）。 */
-  const [taskPanelExpanded, setTaskPanelExpanded] = useState(true);
   /** 新任务到达时，强制选中该任务。 */
   const [autoSelectTaskId, setAutoSelectTaskId] = useState<string | null>(null);
   /** 导出联系人：好友 or 群成员。 */
@@ -760,7 +757,7 @@ export function ExportTool({
     }));
   }, [tasks.data]);
 
-  // 新任务到达时自动展开任务栏并选中新任务。
+  // 新任务到达时选中新任务。
   const prevTaskIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const currentIds = new Set(uiTasks.map((t) => t.id));
@@ -771,7 +768,6 @@ export function ExportTool({
       if (!prevIds.has(id)) newIds.push(id);
     }
     if (newIds.length > 0 && prevIds.size > 0) {
-      setTaskPanelExpanded(true);
       setAutoSelectTaskId(newIds[newIds.length - 1]!);
     }
     prevTaskIdsRef.current = currentIds;
@@ -1526,7 +1522,7 @@ export function ExportTool({
       await client.account.runScheduleNow.mutate({ id: s.id });
       void utils.account.listExportTasks.invalidate();
       void utils.account.listSchedules.invalidate();
-      dialog.success('已触发', '本次导出任务已加入队列，状态在下方任务列表查看。');
+      dialog.success('已触发', '本次导出任务已加入队列，可在「当前任务」查看。');
     } catch (e) {
       dialog.error('立即运行失败', e instanceof Error ? e.message : String(e));
     }
@@ -2164,30 +2160,24 @@ export function ExportTool({
         </div>
       ) : null}
 
-      {/* 底部任务列表（可折叠覆盖层） */}
+      {/* 聚合任务与定时计划，共用原有任务操作。 */}
       {surface === 'tasks' && !saveLocationTask ? (
         <>
-          <Segmented<'tasks' | 'schedules' | 'roaming' | 'clones'>
+          <Segmented<'tasks' | 'schedules'>
             value={taskTab}
             onChange={setTaskTab}
             options={[
-              { value: 'tasks', label: '执行任务' },
-              { value: 'roaming', label: '漫游拉取' },
-              { value: 'clones', label: '好友克隆' },
-              { value: 'schedules', label: '定时计划' },
+              { value: 'tasks', label: '当前任务' },
+              { value: 'schedules', label: '定时任务' },
             ]}
           />
-          {taskTab === 'clones' ? (
-            <CloneTasksPane onOpenPersona={onOpenClone} />
-          ) : taskTab === 'roaming' ? (
-            <RoamingBackfillPanel surface="tasks" />
-          ) : taskTab === 'schedules' ? (
+          {taskTab === 'schedules' ? (
             <div className="weq-exp-sched-list">
               {schedules.isLoading ? (
                 <ScheduleListSkeleton />
               ) : schedules.isError ? (
                 <div role="status">
-                  定时计划加载失败
+                  定时任务加载失败
                   <button
                     type="button"
                     title="重试加载计划"
@@ -2199,7 +2189,7 @@ export function ExportTool({
                 </div>
               ) : (schedules.data ?? []).length === 0 ? (
                 <div className="weq-exp-sched-empty">
-                  <strong>暂无定时计划</strong>
+                  <strong>暂无定时任务</strong>
                 </div>
               ) : (
                 (schedules.data as ScheduledTask[]).map((s) => (
@@ -2214,59 +2204,66 @@ export function ExportTool({
               )}
             </div>
           ) : (
-            <TaskList
-              tasks={uiTasks}
-              onPause={onPause}
-              onResume={(t) => {
-                void client.account.resumeExportTask
-                  .mutate({ taskId: t.id })
-                  .then((ok) => {
-                    if (!ok)
-                      dialog.error(
-                        t.resumeMode === 'restart' ? '无法重新执行' : '无法继续',
-                        t.resumeMode === 'restart'
-                          ? '任务仍在收尾，请稍后重试。'
-                          : '任务仍在收尾，或没有可验证的断点。',
-                      );
-                    refetchTasks();
-                  })
-                  .catch((e) => dialog.error('续作失败', String(e)));
-              }}
-              onReport={(t) => {
-                void client.account.revealExportReport
-                  .mutate({ taskId: t.id })
-                  .catch((e) => dialog.error('打开报告失败', String(e)));
-              }}
-              onCancel={onCancel}
-              onDownload={(t) => void onDownload(t)}
-              onOpenSaved={
-                !IS_WEB
-                  ? (t, reveal) => {
-                      const account = exportAccount.data;
-                      if (!account?.uin || !account.configId) return;
-                      void client.account.openSavedExportOutput
-                        .mutate({
-                          taskId: t.id,
-                          reveal,
-                          expectedAccountUin: account.uin,
-                          expectedAccountConfigId: account.configId,
-                        })
-                        .catch((error) =>
-                          dialog.error(
-                            '打开保存结果失败',
-                            error instanceof Error ? error.message : String(error),
-                          ),
-                        );
-                    }
-                  : undefined
-              }
-              onBrowserDownload={IS_WEB ? (t) => void downloadInBrowser(t) : undefined}
-              onDelete={onDelete}
+            <CurrentTaskList
+              exports={uiTasks}
+              exportError={tasks.error?.message}
+              loadingExports={tasks.isLoading}
+              onOpenClone={onOpenClone}
               onSaveAll={() => void onSaveAll()}
-              onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}
               autoSelectId={autoSelectTaskId}
-              isExpanded={taskPanelExpanded}
-              onToggleExpanded={() => setTaskPanelExpanded((v) => !v)}
+              renderExport={(task) => (
+                <TaskList
+                  detailOnly
+                  tasks={[task]}
+                  onPause={onPause}
+                  onResume={(t) => {
+                    void client.account.resumeExportTask
+                      .mutate({ taskId: t.id })
+                      .then((ok) => {
+                        if (!ok)
+                          dialog.error(
+                            t.resumeMode === 'restart' ? '无法重新执行' : '无法继续',
+                            t.resumeMode === 'restart'
+                              ? '任务仍在收尾，请稍后重试。'
+                              : '任务仍在收尾，或没有可验证的断点。',
+                          );
+                        refetchTasks();
+                      })
+                      .catch((e) => dialog.error('续作失败', String(e)));
+                  }}
+                  onReport={(t) => {
+                    void client.account.revealExportReport
+                      .mutate({ taskId: t.id })
+                      .catch((e) => dialog.error('打开报告失败', String(e)));
+                  }}
+                  onCancel={onCancel}
+                  onDownload={(t) => void onDownload(t)}
+                  onOpenSaved={
+                    !IS_WEB
+                      ? (t, reveal) => {
+                          const account = exportAccount.data;
+                          if (!account?.uin || !account.configId) return;
+                          void client.account.openSavedExportOutput
+                            .mutate({
+                              taskId: t.id,
+                              reveal,
+                              expectedAccountUin: account.uin,
+                              expectedAccountConfigId: account.configId,
+                            })
+                            .catch((error) =>
+                              dialog.error(
+                                '打开保存结果失败',
+                                error instanceof Error ? error.message : String(error),
+                              ),
+                            );
+                        }
+                      : undefined
+                  }
+                  onBrowserDownload={IS_WEB ? (t) => void downloadInBrowser(t) : undefined}
+                  onDelete={onDelete}
+                  onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}
+                />
+              )}
             />
           )}
         </>
@@ -2749,7 +2746,7 @@ function ScheduleRow({
         <div className="weq-exp-sched-card-top">
           <span className="weq-exp-sched-card-name">{schedule.name}</span>
           <span className={`weq-exp-sched-card-tag${schedule.enabled ? '' : ' is-off'}`}>
-            {schedule.enabled ? '运行中' : '已暂停'}
+            {schedule.enabled ? '已启用' : '已暂停'}
           </span>
           {formats.map((f) => (
             <span key={f} className="weq-exp-sched-card-tag">

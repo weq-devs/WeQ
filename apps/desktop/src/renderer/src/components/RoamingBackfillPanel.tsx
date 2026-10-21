@@ -44,11 +44,14 @@ export function RoamingBackfillPanel({
   initialTargets = [],
   surface = 'all',
   targetMode = 'select',
+  taskId,
 }: {
   initialTarget?: RoamingTarget;
   initialTargets?: RoamingTarget[];
   surface?: 'all' | 'tasks';
   targetMode?: 'select' | 'fixed';
+  /** 统一任务列表仅展开选中任务，沿用原有续作、回执与覆盖口径。 */
+  taskId?: string;
 }) {
   const utils = trpc.useUtils();
   const confirm = useDialog((s) => s.confirm);
@@ -130,7 +133,7 @@ export function RoamingBackfillPanel({
         current.has(initialKey) ? current : new Set([...current, initialKey]),
       );
   }, [initialKey, fixed]);
-  const jobs = state.data?.jobs ?? [];
+  const jobs = (state.data?.jobs ?? []).filter((job) => !taskId || job.id === taskId);
   const visible = useMemo(
     () =>
       targets.filter((target) =>
@@ -168,21 +171,23 @@ export function RoamingBackfillPanel({
 
   return (
     <div className="weq-roaming-panel" {...multi.rootProps}>
-      <header className="weq-wtools-pane-head">
-        <div className="weq-wtools-pane-title">
-          <CloudDownload size={17} />
-          <h2 id="weq-wtools-title">{surface === 'tasks' ? '漫游拉取任务' : '拉取漫游消息'}</h2>
-        </div>
-        <span className="weq-roaming-access">
-          {state.data?.onlineAllowed === false
-            ? '完全离线模式'
-            : state.data
-              ? state.data.online
-                ? '当前账号 QQ 在线'
-                : '离线 · 可扫描本地锚点及复核缓存'
-              : '读取任务状态中'}
-        </span>
-      </header>
+      {!taskId ? (
+        <header className="weq-wtools-pane-head">
+          <div className="weq-wtools-pane-title">
+            <CloudDownload size={17} />
+            <h2 id="weq-wtools-title">{surface === 'tasks' ? '漫游拉取任务' : '拉取漫游消息'}</h2>
+          </div>
+          <span className="weq-roaming-access">
+            {state.data?.onlineAllowed === false
+              ? '完全离线模式'
+              : state.data
+                ? state.data.online
+                  ? '当前账号 QQ 在线'
+                  : '离线 · 可扫描本地锚点及复核缓存'
+                : '读取任务状态中'}
+          </span>
+        </header>
+      ) : null}
       <div className="weq-roaming-body">
         {staleBackend ? (
           <p role="alert" className="weq-roaming-error">
@@ -362,9 +367,11 @@ export function RoamingBackfillPanel({
           </section>
         ) : null}
         <section aria-label="补全任务">
-          <div className="weq-roaming-task-head">
-            <h3>补全任务</h3>
-          </div>
+          {!taskId ? (
+            <div className="weq-roaming-task-head">
+              <h3>补全任务</h3>
+            </div>
+          ) : null}
           {jobs.length ? (
             jobs.map((job) => (
               <article key={job.id} className="weq-roaming-task">

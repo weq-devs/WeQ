@@ -20,6 +20,7 @@ import { useViewState } from '../state/view';
 import { createToolDraft, type ToolDraft } from '../../../shared/content_selection';
 import { AnalysisTool } from '../views/analysis/AnalysisTool';
 import { initialExportMode } from '../views/export/exportScope';
+import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import type {
   AnalysisReportRequest,
   AnalysisTarget,
@@ -153,12 +154,25 @@ export function WorkspaceTools({
     }
   }, [assistantSearchTarget]);
   const selection = useCurrentContentSelection();
-  const tasks = trpc.account.listExportTasks.useQuery(undefined, { refetchInterval: 5000 });
+  const { enabled: readTasks } = useQQReadActivity(!hidden, { onlineOnly: false });
+  const taskQueryOptions = {
+    enabled: readTasks,
+    refetchInterval: readTasks ? 5000 : (false as const),
+  };
+  const tasks = trpc.account.listExportTasks.useQuery(undefined, taskQueryOptions);
+  const roamingTasks = trpc.account.roamingBackfill.list.useQuery(undefined, taskQueryOptions);
+  const flashTasks = trpc.account.flashListDownloadTasks.useQuery(undefined, taskQueryOptions);
   const cloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
   const running =
     (tasks.data?.filter((task) => task.status === 'running' || task.save?.status === 'saving')
       .length ?? 0) +
-    cloneTasks.filter((task) => task.accountId === accountKey && task.status === 'running').length;
+    cloneTasks.filter((task) => task.accountId === accountKey && task.status === 'running').length +
+    (roamingTasks.data?.jobs?.filter(
+      (task) => task.status === 'running' || task.status === 'pausing',
+    ).length ?? 0) +
+    (roamingTasks.data?.scanning ? 1 : 0) +
+    (flashTasks.data?.filter((task) => task.status === 'resolving' || task.status === 'downloading')
+      .length ?? 0);
   const close = () => setOpen(false);
   const ctx: WorkspaceContext = workspace ?? {
     view: 'messages',

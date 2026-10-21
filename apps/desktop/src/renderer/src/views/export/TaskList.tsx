@@ -147,14 +147,14 @@ function stagePct(s: UiStage): number {
 }
 
 /** 卡片波浪总进度（完成 100；排队 0）。 */
-function taskPct(t: UiTask): number {
+export function taskPct(t: UiTask): number {
   if (t.status === 'completed') return 100;
   if (t.status === 'pending') return 0;
   return Math.min(100, Math.max(0, Math.round(t.progress)));
 }
 
 /** 任务类型标签（卡片 title / 详情 meta）。 */
-function taskTypeLabel(t: UiTask): string {
+export function taskTypeLabel(t: UiTask): string {
   if (t.resource?.kind === 'database') return '数据库明文导出';
   if (t.resource?.kind === 'assistant-artifact') return '助手报告保存';
   if (t.resource?.kind === 'market-image') return '商城单张表情保存';
@@ -175,7 +175,7 @@ function taskTypeLabel(t: UiTask): string {
 }
 
 /** 任务类型图标（消息 / 联系人 / QQ 空间 / 收藏 / 商城表情）。 */
-function taskIcon(t: UiTask): ReactElement {
+export function taskIcon(t: UiTask): ReactElement {
   if (t.resource) return <FolderOpen size={15} />;
   if (t.isMarketPack) return <Sticker size={15} />;
   if (t.isEmojiPack) return <Sticker size={15} />;
@@ -636,6 +636,7 @@ export function TaskList({
   autoSelectId,
   isExpanded = false,
   onToggleExpanded,
+  detailOnly = false,
 }: {
   tasks: UiTask[];
   onPause: (t: UiTask) => void;
@@ -656,7 +657,8 @@ export function TaskList({
   isExpanded?: boolean;
   /** 切换展开/收起。 */
   onToggleExpanded?: () => void;
-}): ReactElement {
+  detailOnly?: boolean;
+}): ReactElement | null {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // 默认选中第一个任务；选中项被删除 / 不存在时回落到第一个。
@@ -689,6 +691,24 @@ export function TaskList({
     ? Math.min(100, Math.round(tasks.reduce((sum, t) => sum + taskPct(t), 0) / tasks.length))
     : 0;
   const runningCount = tasks.filter((t) => t.status === 'running').length;
+
+  if (detailOnly) {
+    return selected ? (
+      <TaskDetail
+        key={selected.id}
+        task={selected}
+        onPause={onPause}
+        onResume={onResume}
+        onReport={onReport}
+        onCancel={onCancel}
+        onDownload={onDownload}
+        onOpenSaved={onOpenSaved}
+        onBrowserDownload={onBrowserDownload}
+        onDelete={onDelete}
+        onShowFailures={onShowFailures}
+      />
+    ) : null;
+  }
 
   return (
     <section
