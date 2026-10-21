@@ -372,7 +372,7 @@ describe('输入区发送交接', () => {
       }
     },
   );
-  it('多选可移除失败占位，混入发送成功条目时阻止整批误删', async () => {
+  it('混合多选删除先确认，仅移除支持的失败占位，保留发送成功条目', async () => {
     const f = mount();
     const remove = vi.fn();
     const base = {
@@ -410,17 +410,34 @@ describe('输入区发送交接', () => {
       act(() =>
         f.host.querySelector<HTMLElement>('[data-message-id="optimistic-confirmed"]')!.click(),
       );
-      expect(deletion().disabled).toBe(true);
+      expect(deletion().disabled).toBe(false);
       act(() => deletion().click());
       expect(remove).not.toHaveBeenCalled();
-      act(() =>
-        f.host.querySelector<HTMLElement>('[data-message-id="optimistic-confirmed"]')!.click(),
-      );
-      await act(async () => deletion().click());
+      const confirmation = () => document.querySelector<HTMLElement>('.weq-message-batch-dialog')!;
+      const confirmButton = (label: string) =>
+        [...confirmation().querySelectorAll('button')].find(
+          (button) => button.textContent === label,
+        )!;
+      expect(confirmation().textContent).toContain('1 条消息不支持删除，2 条可以继续');
+      act(() => confirmButton('取消').click());
+      expect(remove).not.toHaveBeenCalled();
+      expect(confirmation()).toBeNull();
+      act(() => deletion().click());
+      expect(remove).not.toHaveBeenCalled();
+      await act(async () => confirmButton('仅删除支持的 2 条').click());
       expect(remove.mock.calls.map(([message]) => message.id)).toEqual([
         'optimistic-one',
         'optimistic-two',
       ]);
+      expect(f.host.querySelectorAll('.message-line.is-selected')).toHaveLength(1);
+      expect(
+        f.host.querySelector('.message-line.is-selected')?.getAttribute('data-message-id'),
+      ).toBe('optimistic-confirmed');
+      act(() => deletion().click());
+      expect(confirmation().textContent).toContain('1 条消息不支持删除，0 条可以继续');
+      expect(confirmButton('仅删除支持的 0 条').disabled).toBe(true);
+      act(() => confirmButton('仅删除支持的 0 条').click());
+      expect(remove).toHaveBeenCalledTimes(2);
       expect(f.onSend).not.toHaveBeenCalled();
     } finally {
       f.close();

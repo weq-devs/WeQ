@@ -148,7 +148,13 @@ describe('QQ 频道内的私聊工作区', () => {
       await act(async () => sessions[1]!.click());
       expect(f.host.querySelector('.is-selected')).toBeNull();
       await act(async () => sessions[0]!.click());
-      expect(f.host.querySelectorAll('.weq-guild-direct-msg.is-selected')).toHaveLength(1);
+      expect(f.host.querySelectorAll('.weq-guild-direct-msg[aria-selected="true"]')).toHaveLength(
+        1,
+      );
+      expect(
+        f.host.querySelectorAll('.weq-guild-direct-msg .message-line.is-selected'),
+      ).toHaveLength(1);
+      expect(f.host.querySelector('.weq-guild-direct-msg.is-selected')).toBeNull();
       expect(f.host.querySelector('[aria-label="退出消息多选"]')).not.toBeNull();
     } finally {
       f.close();
@@ -295,7 +301,13 @@ describe('QQ 频道内的私聊工作区', () => {
         owner: { kind: 'guild-direct', container: 'synthetic-node' },
         scope: { type: 'items', ids: ['1', '3'] },
       });
-      expect(f.host.querySelectorAll('.weq-guild-direct-msg.is-selected')).toHaveLength(2);
+      expect(f.host.querySelectorAll('.weq-guild-direct-msg[aria-selected="true"]')).toHaveLength(
+        2,
+      );
+      expect(
+        f.host.querySelectorAll('.weq-guild-direct-msg .message-line.is-selected'),
+      ).toHaveLength(2);
+      expect(f.host.querySelector('.weq-guild-direct-msg.is-selected')).toBeNull();
       act(() =>
         rows[0]!.dispatchEvent(
           new KeyboardEvent('keydown', { key: 'a', metaKey: true, bubbles: true }),
@@ -308,6 +320,8 @@ describe('QQ 频道内的私聊工作区', () => {
       ]);
       act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="退出消息多选"]')!.click());
       expect(f.host.querySelector('output')!.textContent).toBe('null');
+      expect(f.host.querySelector('.weq-guild-direct-msg[aria-selected="true"]')).toBeNull();
+      expect(f.host.querySelector('.weq-guild-direct-msg .message-line.is-selected')).toBeNull();
     } finally {
       f.close();
     }

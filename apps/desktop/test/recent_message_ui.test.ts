@@ -263,14 +263,16 @@ describe('新增消息交互', () => {
       fixture.render(h(View));
       const chat = fixture.host.querySelector('.chat-pane')!;
       expect(chat.classList.contains('group-info-collapsed')).toBe(true);
-      expect(chat.querySelector('.group-info-panel')).toBeNull();
+      const sidebar = chat.querySelector<HTMLElement>('.group-info-panel')!;
+      expect(sidebar.hidden).toBe(true);
       expect(localStorage.getItem('chat-template.layout.groupInfoCollapsed')).toBe('0');
       act(() =>
         fixture.host.querySelector<HTMLButtonElement>('[aria-label="关闭群文件"]')!.click(),
       );
       expect(fixture.host.querySelector('.chat-pane')).toBe(chat);
       expect(chat.classList.contains('group-info-collapsed')).toBe(false);
-      expect(chat.querySelector('.group-info-panel')).not.toBeNull();
+      expect(chat.querySelector('.group-info-panel')).toBe(sidebar);
+      expect(sidebar.hidden).toBe(false);
     } finally {
       fixture.close();
     }
