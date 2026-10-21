@@ -33,6 +33,7 @@ export function MessageGapDivider({
       className={cn(
         'weq-graytip-band',
         selectionMode && 'weq-selectable-gap',
+        selectionMode && 'selection-mode',
         selected && 'is-selected',
       )}
       aria-selected={selectionMode ? selected : undefined}
@@ -61,7 +62,7 @@ export function MessageGapDivider({
           selectionMode
             ? selected
               ? '取消选择此消息缺口'
-              : '选择消息缺口后可确认拉取漫游'
+              : '选择此消息缺口；操作前可合并拉取'
             : onOpen
               ? '点击拉取并查看这些缺失消息'
               : '缺口暂不可读取，可进入多选保留选择'

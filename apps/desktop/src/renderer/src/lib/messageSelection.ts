@@ -34,6 +34,28 @@ export function parseSelectionGap(id: string): SelectionGap | null {
     count: Number(BigInt(match[2]!) - BigInt(match[1]!) - 1n),
   };
 }
+
+/** 合并重叠或相接的缺口，计数与操作前拉取共用同一组区间。 */
+export function mergeSelectionGaps(gaps: readonly SelectionGap[]): SelectionGap[] {
+  const sorted = [...gaps].sort((a, b) =>
+    BigInt(a.previousSeq) < BigInt(b.previousSeq)
+      ? -1
+      : BigInt(a.previousSeq) > BigInt(b.previousSeq)
+        ? 1
+        : 0,
+  );
+  const merged: SelectionGap[] = [];
+  for (const gap of sorted) {
+    const previous = merged.at(-1);
+    if (previous && BigInt(gap.previousSeq) < BigInt(previous.currentSeq)) {
+      if (BigInt(gap.currentSeq) > BigInt(previous.currentSeq))
+        previous.currentSeq = gap.currentSeq;
+      previous.count = Number(BigInt(previous.currentSeq) - BigInt(previous.previousSeq) - 1n);
+    } else
+      merged.push({ ...gap, count: Number(BigInt(gap.currentSeq) - BigInt(gap.previousSeq) - 1n) });
+  }
+  return merged;
+}
 export type MessageSelectionItem =
   | { id: string; message: Message; gap?: never }
   | { id: string; gap: SelectionGap; message?: never };

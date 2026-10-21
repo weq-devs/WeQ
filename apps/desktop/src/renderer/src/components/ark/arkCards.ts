@@ -14,6 +14,32 @@ import generated from './ark-cards.generated.json';
 
 export type LayoutKind = 'contact' | 'news' | 'appBlock' | 'mediaBlock' | 'generic';
 
+export interface ArkData {
+  app?: string;
+  view?: string;
+  prompt?: string;
+  meta?: Record<string, Record<string, unknown>>;
+}
+
+export function parseArkData(raw: unknown): ArkData | null {
+  if (raw && typeof raw === 'object') return raw as ArkData;
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  try {
+    return JSON.parse(raw) as ArkData;
+  } catch {
+    return null;
+  }
+}
+
+export function decodeBase64Utf8(raw: string): string {
+  try {
+    const bytes = Uint8Array.from(atob(raw), (c) => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return raw;
+  }
+}
+
 interface GenVariant {
   jump: string | null;
   slots: Record<string, string>;
@@ -90,14 +116,15 @@ export function resolveArkCard(
   meta: Record<string, Record<string, unknown>>,
 ): ResolvedArk {
   const metaKeys = Object.keys(meta ?? {});
-  const entry = GENERATED[app];
+  const entry = Object.hasOwn(GENERATED, app) ? GENERATED[app] : undefined;
   if (!entry) return { layout: 'generic', values: null, metaKey: metaKeys[0] ?? null };
 
   // 选 metaKey：优先 payload 里实际出现、且我们有对应变体的那个；否则默认变体。
   const metaKey =
-    metaKeys.find((k) => entry.variants[k]) ??
-    (entry.variants[entry.defaultMetaKey] ? entry.defaultMetaKey : metaKeys[0]);
-  const variant = metaKey ? entry.variants[metaKey] : undefined;
+    metaKeys.find((k) => Object.hasOwn(entry.variants, k)) ??
+    (Object.hasOwn(entry.variants, entry.defaultMetaKey) ? entry.defaultMetaKey : metaKeys[0]);
+  const variant =
+    metaKey && Object.hasOwn(entry.variants, metaKey) ? entry.variants[metaKey] : undefined;
   const block = metaKey ? meta[metaKey] : undefined;
   if (!variant || !block) return { layout: 'generic', values: null, metaKey: metaKey ?? null };
 

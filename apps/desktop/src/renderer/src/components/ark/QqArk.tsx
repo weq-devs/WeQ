@@ -24,7 +24,7 @@ import { useContext, useMemo, useState, type ReactElement, type ReactNode } from
 import { QzoneCardNavigationContext, qzoneCardTarget } from '../../lib/qzoneNavigation';
 import { MapPin, Megaphone, ShieldAlert } from 'lucide-react';
 import { cachedAvatarUrl } from '../../lib/avatarCache';
-import { resolveArkCard, type ArkValues } from './arkCards';
+import { resolveArkCard, parseArkData, decodeBase64Utf8, type ArkValues } from './arkCards';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { GroupProfileDialog } from '../../im-template/template/profilePanes';
 import {
@@ -39,38 +39,12 @@ import '../../styles/group-share-card.css';
 
 type ArkPayload = Record<string, unknown>;
 
-interface ArkData {
-  app?: string;
-  prompt?: string;
-  meta?: Record<string, ArkPayload>;
-}
-
 // ---- parsing helpers -----------------------------------------------------
-
-function parseArkData(raw: unknown): ArkData | null {
-  if (raw && typeof raw === 'object') return raw as ArkData;
-  if (typeof raw !== 'string' || raw.trim() === '') return null;
-  try {
-    return JSON.parse(raw) as ArkData;
-  } catch {
-    return null;
-  }
-}
 
 /** Read a string field off a payload (anything non-string → ''). */
 function s(p: ArkPayload, key: string): string {
   const val = p[key];
   return typeof val === 'string' ? val : '';
-}
-
-/** Decode a base64 string as UTF-8 (atob yields Latin-1 bytes → TextDecoder). */
-function decodeBase64Utf8(raw: string): string {
-  try {
-    const bytes = Uint8Array.from(atob(raw), (c) => c.charCodeAt(0));
-    return new TextDecoder().decode(bytes);
-  } catch {
-    return raw;
-  }
 }
 
 /** 远程图片统一过 weq-avatar:// 磁盘缓存（满足 renderer CSP、避免重复回源）。 */

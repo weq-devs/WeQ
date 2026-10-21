@@ -5144,14 +5144,3 @@ html[data-theme='dark'] .chat-empty-logo {
   opacity: 0.45;
   cursor: not-allowed;
 }
-
-.selection-action-primary {
-  border-color: transparent;
-  color: #ffffff;
-  background: var(--weq-accent-effective, #0099f7);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--weq-accent-effective, #0099f7) 32%, transparent);
-}
-
-.selection-action-primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099f7) 88%, #000000);
-}

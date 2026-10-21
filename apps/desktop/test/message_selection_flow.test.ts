@@ -50,6 +50,9 @@ function fixture(kind: 'group' | 'direct' = 'group') {
   const root = createRoot(host);
   const load = vi.fn<LoadSelectionMessages>(async () => {});
   const remove = vi.fn();
+  const forward = vi.fn(),
+    merge = vi.fn(),
+    composition = vi.fn();
   function Probe({ id }: { id: string }) {
     const exportRequest = useContentExportRequest();
     const analysisRequest = useContentAnalysisRequest();
@@ -102,6 +105,9 @@ function fixture(kind: 'group' | 'direct' = 'group') {
             onBack: vi.fn(),
             onLoadSelectionMessages: load,
             onDeleteMessage: remove,
+            onForwardMessages: forward,
+            onMergeForward: merge,
+            onAddToComposition: composition,
           }),
           h(ToastHost),
         ),
@@ -118,6 +124,9 @@ function fixture(kind: 'group' | 'direct' = 'group') {
     host,
     load,
     remove,
+    forward,
+    merge,
+    composition,
     message,
     render,
     click,
@@ -130,17 +139,111 @@ function fixture(kind: 'group' | 'direct' = 'group') {
   };
 }
 
-it('Shift 跨缺口先确认加载，本地加载完成按消息条数反馈并保留锚点', async () => {
+it('缺口选择只计数且不提醒，导出前才确认，取消不拉取或执行操作', async () => {
+  const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(false);
+  const f = fixture();
+  try {
+    await f.click('[data-enter]');
+    expect(
+      f.host.querySelector('[aria-label="转发"]')?.classList.contains('selection-action-primary'),
+    ).toBe(false);
+    await f.click('[data-message-id="gap:1:5"]');
+    expect(confirm).not.toHaveBeenCalled();
+    expect(f.load).not.toHaveBeenCalled();
+    expect(useToast.getState().toasts).toHaveLength(0);
+    expect(f.host.querySelector('[aria-label="已选 4 条消息"]')).not.toBeNull();
+    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="导出所选消息"]')!.disabled).toBe(
+      false,
+    );
+    await f.click('[aria-label="导出所选消息"]');
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(f.load).not.toHaveBeenCalled();
+    expect(JSON.parse(f.host.querySelector('[data-export]')!.textContent!)).toBeNull();
+    expect(f.state().ids).toEqual(['1', 'gap:1:5']);
+    confirm.mockResolvedValue(true);
+    f.load.mockImplementation(async (request, onPage) => {
+      if (request.mode === 'local') return;
+      expect(request.mode).toBe('roaming');
+      onPage([2, 3, 4].map((seq) => f.message(seq)));
+    });
+    await f.click('[aria-label="导出所选消息"]');
+    expect(f.load).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(f.host.querySelector('[data-export]')!.textContent!).scope.ids).toEqual([
+      '1',
+      '2',
+      '3',
+      '4',
+    ]);
+  } finally {
+    f.close();
+  }
+});
+
+it.each(['分析所选消息', '删除', '添加到素材库', '合并转发', '逐条转发'] as const)(
+  '只选缺口也可在%s前确认拉取，不用先选一条已有消息',
+  async (action) => {
+    const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(true);
+    const f = fixture();
+    try {
+      await f.click('[data-enter]');
+      await f.click('[data-message-id="gap:1:5"]');
+      await f.click('[data-weq-select-id="1"]');
+      expect(f.state().ids).toEqual(['gap:1:5']);
+      expect(confirm).not.toHaveBeenCalled();
+      f.load.mockImplementation(async (_request, onPage) =>
+        onPage([2, 3, 4].map((seq) => f.message(seq))),
+      );
+      if (action === '合并转发' || action === '逐条转发') {
+        await f.click('[aria-label="转发"]');
+        expect(confirm).not.toHaveBeenCalled();
+        await act(async () =>
+          [...document.querySelectorAll<HTMLButtonElement>('button')]
+            .find((row) => row.textContent === action)!
+            .click(),
+        );
+      } else await f.click(`[aria-label="${action}"]`);
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(f.load).toHaveBeenCalledOnce();
+      if (action === '分析所选消息')
+        expect(
+          JSON.parse(f.host.querySelector('[data-analysis]')!.textContent!).messageIds,
+        ).toEqual(['2', '3', '4']);
+      else if (action === '删除') {
+        expect(f.remove).toHaveBeenCalledTimes(3);
+        expect(f.state().mode).toBe(false);
+      } else {
+        const callback =
+          action === '添加到素材库' ? f.composition : action === '合并转发' ? f.merge : f.forward;
+        expect(callback).toHaveBeenCalledOnce();
+        expect(callback.mock.calls[0]![0].map((message: Message) => message.id)).toEqual([
+          '2',
+          '3',
+          '4',
+        ]);
+      }
+    } finally {
+      f.close();
+    }
+  },
+);
+
+it('Shift 跨缺口与跨窗口范围只选择和计数，操作前加载且保留锚点', async () => {
   const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(true),
     f = fixture();
   try {
     f.load.mockImplementation(async (request, onPage) => {
-      expect(request.mode).toBe('local');
+      if (request.mode === 'local') return;
+      expect(request.mode).toBe('roaming');
       onPage([2, 3, 4].map((seq) => f.message(seq)));
       onPage([f.message(4)]);
     });
     await f.click('[data-enter]');
     await f.click('[data-weq-select-id="5"]', true);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(f.load).not.toHaveBeenCalled();
+    expect(f.state().ids).toEqual(['1', 'gap:1:5', '5']);
+    expect(f.host.querySelector('[aria-label="已选 5 条消息"]')).not.toBeNull();
+    await f.click('[aria-label="导出所选消息"]');
     expect(confirm).toHaveBeenCalledOnce();
     expect(f.state().ids.sort()).toEqual(['1', '2', '3', '4', '5']);
     expect(f.state().anchor).toBe('1');
@@ -148,11 +251,14 @@ it('Shift 跨缺口先确认加载，本地加载完成按消息条数反馈并�
     expect(f.host.querySelector('[aria-label="已选 5 条消息"]')).not.toBeNull();
     f.render([f.message(10), f.message(12)]);
     f.load.mockImplementation(async (request, onPage) => {
-      expect(request.startSeq).toBe('1');
-      expect(request.endSeq).toBe('12');
-      onPage(Array.from({ length: 12 }, (_, i) => f.message(i + 1)));
+      const first = Number(request.startSeq),
+        last = Number(request.endSeq);
+      onPage(Array.from({ length: last - first + 1 }, (_, i) => f.message(first + i)));
     });
     await f.click('[data-weq-select-id="12"]', true);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(f.host.querySelector('[aria-label="已选 12 条消息"]')).not.toBeNull();
+    await f.click('[aria-label="导出所选消息"]');
     expect(f.state().ids).toHaveLength(12);
     expect(f.state().anchor).toBe('1');
   } finally {
@@ -304,32 +410,37 @@ it('自己的占位持久化为协议缓存后立即迁移已选身份，不等�
     f.close();
   }
 });
-it('拒绝加载不改变已有选区；选中缺口单独确认漫游，补到消息后替换缺口', async () => {
-  const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(false),
+it('部分缺口尚未补全时不漏选执行操作，重试只拉剩余区间', async () => {
+  const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(true),
     f = fixture();
   try {
     await f.click('[data-enter]');
     await f.click('[data-weq-select-id="5"]', true);
     expect(f.load).not.toHaveBeenCalled();
-    expect(f.state().ids).toEqual(['1']);
+    expect(confirm).not.toHaveBeenCalled();
     expect(f.state().anchor).toBe('1');
-    confirm.mockResolvedValue(true);
+    f.load.mockImplementationOnce(async (_request, onPage) => onPage([f.message(2)]));
+    await f.click('[aria-label="导出所选消息"]');
+    expect(f.state().ids).toEqual(['1', '5', '2', 'gap:2:5']);
+    expect(JSON.parse(f.host.querySelector('[data-export]')!.textContent!)).toBeNull();
+    expect(f.host.textContent).toContain('所选缺口尚未补全，未执行导出');
     f.load.mockImplementation(async (request, onPage) => {
+      if (request.mode === 'local') return;
       expect(request.mode).toBe('roaming');
-      expect(request.startSeq).toBe('2');
+      expect(request.startSeq).toBe('3');
       expect(request.endSeq).toBe('4');
-      onPage(
-        [2, 3, 4].map((seq) => ({
-          ...f.message(seq),
-          source: 'roaming' as const,
-          sourceFormat: 'protocol' as const,
-        })),
-      );
+      onPage([3, 4].map((seq) => f.message(seq)));
     });
-    await f.click('[data-message-id="gap:1:5"]');
-    expect(f.load).toHaveBeenCalledOnce();
-    expect(f.state().ids.sort()).toEqual(['1', '2', '3', '4']);
-    expect(f.host.textContent).toContain('拉取漫游消息完成 · 已加载 3 条消息');
+    await f.click('[aria-label="导出所选消息"]');
+    expect(f.load).toHaveBeenCalledTimes(4);
+    expect(f.state().ids.sort()).toEqual(['1', '2', '3', '4', '5']);
+    expect(JSON.parse(f.host.querySelector('[data-export]')!.textContent!).scope.ids).toEqual([
+      '1',
+      '2',
+      '3',
+      '4',
+      '5',
+    ]);
   } finally {
     f.close();
   }
@@ -367,13 +478,15 @@ it('加载中换会话中止后续读取，不把迟到结果选到新会话', a
     });
     await f.click('[data-enter]');
     await f.click('[data-weq-select-id="5"]', true);
+    expect(signal).toBeUndefined();
+    await f.click('[aria-label="导出所选消息"]');
     expect(f.host.textContent).toContain('已加载 1 条消息');
     f.render([f.message(1, 'other')], 'other');
     expect(signal?.aborted).toBe(true);
     await act(async () => release());
     expect(f.state().mode).toBe(false);
     f.render([f.message(1), f.message(5)]);
-    expect(f.state()).toEqual({ mode: true, ids: ['1'], anchor: '1' });
+    expect(f.state()).toEqual({ mode: true, ids: ['1', 'gap:1:5', '5'], anchor: '1' });
   } finally {
     f.close();
   }
@@ -384,7 +497,7 @@ it('已选漫游消息同步为本地记录时迁移可靠身份，选择和锚�
   const f = fixture();
   const old = {
     ...f.message(2),
-    id: 'roaming:protocol:2:old',
+    id: 'roaming:protocol:2:77',
     msgId: 'old',
     msgRandom: '777',
     source: 'roaming' as const,
@@ -396,9 +509,10 @@ it('已选漫游消息同步为本地记录时迁移可靠身份，选择和锚�
     );
     await f.click('[data-enter]');
     await f.click('[data-message-id="gap:1:5"]');
+    await f.click('[aria-label="导出所选消息"]');
     f.render([f.message(1), old, f.message(3), f.message(4), f.message(5)]);
-    await f.click('[data-weq-select-id="roaming:protocol:2:old"]');
-    await f.click('[data-weq-select-id="roaming:protocol:2:old"]');
+    await f.click(`[data-weq-select-id="${old.id}"]`);
+    await f.click(`[data-weq-select-id="${old.id}"]`);
     f.render([
       f.message(1),
       { ...f.message(2), id: '20', msgId: '9002', msgRandom: '777' },
@@ -425,6 +539,7 @@ it('私聊未确认的协议序号不能进入所选范围，失败保留原选�
     );
     await f.click('[data-enter]');
     await f.click('[data-message-id="gap:1:5"]');
+    await f.click('[aria-label="导出所选消息"]');
     expect(f.state().ids).toEqual(['1', 'gap:1:5']);
     expect(f.host.textContent).toContain('NT 序号尚未确认');
   } finally {

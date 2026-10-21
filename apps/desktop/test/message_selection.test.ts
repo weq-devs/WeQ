@@ -4,10 +4,22 @@ import {
   selectedMessagesText,
   isLocalOutgoingMessage,
   outgoingActionBlockReason,
+  mergeSelectionGaps,
 } from '../src/renderer/src/lib/messageSelection';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
 
 describe('消息快速多选', () => {
+  it('缺口区间重叠时合并计数，不把两处缺口之间的真实消息也计入', () => {
+    const gaps = [
+      { previousSeq: '1', currentSeq: '5', count: 3 },
+      { previousSeq: '3', currentSeq: '8', count: 4 },
+    ];
+    expect(mergeSelectionGaps(gaps)).toEqual([{ previousSeq: '1', currentSeq: '8', count: 6 }]);
+    expect(gaps[0]?.currentSeq).toBe('5');
+    expect(
+      mergeSelectionGaps([gaps[0]!, { previousSeq: '5', currentSeq: '9', count: 3 }]),
+    ).toHaveLength(2);
+  });
   const ids = ['a', 'b', 'c', 'd', 'e'];
   it('Ctrl/⌘ 切换单条，不丢失已选项', () => {
     expect([...selectMessageIds(new Set(['a']), ids, 'c', 'a', { ctrlKey: true })]).toEqual([

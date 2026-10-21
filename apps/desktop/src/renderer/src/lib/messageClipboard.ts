@@ -1,5 +1,6 @@
 import type { RepeatElement } from './messageRepeat';
 import { UNICODE_FACE_MAP } from '../components/unicodeFaceMap';
+import { arkClipboardText, cardClipboardText } from './cardClipboard';
 
 export interface MessageClipboard {
   text: string;
@@ -22,6 +23,33 @@ const LABELS: Record<string, string> = {
 };
 function label(element: RepeatElement): string {
   const data = element.data ?? {};
+  if (element.type === 'ark') return arkClipboardText(data.arkData, data.summary);
+  if (element.type === 'shareLocation')
+    return cardClipboardText('位置卡片', [data.shareLocationText]);
+  if (element.type === 'qqDynamic') {
+    const desc = data.dynamicDesc;
+    const desc2 = data.dynamicDesc2;
+    return cardClipboardText('QQ 动态卡片', [
+      desc && typeof desc === 'object' && 'mainDesc' in desc ? desc.mainDesc : '',
+      desc && typeof desc === 'object' && 'subDesc' in desc ? desc.subDesc : '',
+      desc2 && typeof desc2 === 'object' && 'mainDesc' in desc2 ? desc2.mainDesc : '',
+      desc2 && typeof desc2 === 'object' && 'subDesc' in desc2 ? desc2.subDesc : '',
+    ]);
+  }
+  if (element.type === 'markdown') {
+    const flash = data.flashTransferInfo;
+    if (flash && typeof flash === 'object')
+      return cardClipboardText('QQ 闪传卡片', [
+        'thumbnailName' in flash ? flash.thumbnailName : '',
+        'fileBytes' in flash && typeof flash.fileBytes === 'number'
+          ? `文件大小：${flash.fileBytes} 字节`
+          : '',
+        data.markdownTextSummary,
+      ]);
+    return cardClipboardText('Markdown 卡片', [
+      data.markdownContent49099 || data.markdownContent || data.markdownTextSummary,
+    ]);
+  }
   if (element.type === 'face')
     return (
       UNICODE_FACE_MAP[Number(data.faceId)] || String(data.faceText || `[表情${data.faceId ?? ''}]`)
@@ -44,6 +72,15 @@ function originalText(element: RepeatElement, depth: number): string {
   );
 }
 
+function bodyElements(elements: readonly RepeatElement[]) {
+  const card = elements.find((element) =>
+    ['ark', 'qqDynamic', 'shareLocation'].includes(element.type ?? ''),
+  );
+  if (card) return [card];
+  const markdown = elements.filter((element) => element.type === 'markdown');
+  return markdown.length ? markdown : elements.filter((element) => element.type !== 'reply');
+}
+
 /** 纯文本与富文本共用内容来源，不用会话摘要替代真实引用或混排元素。 */
 export function messageContentText(
   elements: readonly RepeatElement[] = [],
@@ -59,11 +96,7 @@ export function messageContentText(
         .map((line) => `> ${line}`)
         .join('\n'),
     );
-  const body =
-    elements
-      .filter((el) => el.type !== 'reply')
-      .map(label)
-      .join('') || fallback;
+  const body = bodyElements(elements).map(label).join('') || fallback;
   return [...quotes, body].filter(Boolean).join('\n');
 }
 
@@ -80,8 +113,7 @@ export function messageContentClipboard(
     root.append(quote);
   }
   const body = document.createElement('span');
-  for (const element of elements) {
-    if (element.type === 'reply') continue;
+  for (const element of bodyElements(elements)) {
     const span = document.createElement('span');
     span.textContent = label(element);
     const data = element.data ?? {};

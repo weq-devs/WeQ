@@ -975,14 +975,9 @@ export function ChatPane({
     missingJumpSeq,
     active: tabActive,
   });
-  const selectedMessages = selectionFlow.selectedMessages;
   selectionCancelRef.current = selectionFlow.cancel;
   const selectionOrder = selectionFlow.order;
-  const selectionBlockedReason = selectionFlow.busy
-    ? '正在加载所选范围'
-    : selectionFlow.gaps.length
-      ? '请先补全或取消所选消息缺口'
-      : null;
+  const selectionBlockedReason = selectionFlow.busy ? '正在加载所选范围' : null;
   const [batchAction, setBatchAction] = useState<{
     action: MessageBatchAction;
     batch: ReturnType<typeof partitionMessageBatch>;
@@ -1003,7 +998,7 @@ export function ChatPane({
     else {
       // 只移除已处理的选择；不支持的记录留在原选区供后续同步或复制。
       const processed = new Set(messages.map((message) => message.id));
-      if ([...selectedIds].every((id) => processed.has(id))) exitSelection();
+      if ([...selection.selectedIdsRef.current].every((id) => processed.has(id))) exitSelection();
       else {
         selection.removeSelectedIds([...processed]);
         if (selectionAnchor.current && processed.has(selectionAnchor.current))
@@ -1012,9 +1007,13 @@ export function ChatPane({
       for (const message of messages) void onDeleteMessage?.(message, conversation);
     }
   }
-  function requestBatchAction(action: MessageBatchAction) {
-    if (selectionBlockedReason || !selectedMessages.length) return;
-    const batch = partitionMessageBatch(selectedMessages, action);
+  async function requestBatchAction(action: MessageBatchAction) {
+    if (selectionBlockedReason || !selectedIds.size) return;
+    const picked = await selectionFlow.prepare(
+      action === 'export' ? '导出' : action === 'analysis' ? '分析' : '删除',
+    );
+    if (!picked?.length) return;
+    const batch = partitionMessageBatch(picked, action);
     if (batch.unsupported.length) setBatchAction({ action, batch });
     else performBatchAction(action, batch.supported);
   }
@@ -1046,10 +1045,10 @@ export function ChatPane({
       pushToast({ tone: 'warning', title: selectionBlockedReason });
       return;
     }
+    const picked = await selectionFlow.prepare('复制');
+    if (!picked?.length) return;
     try {
-      const copied = await copyTextToClipboard(
-        selectedMessagesText(selectedMessages, conversation, user),
-      );
+      const copied = await copyTextToClipboard(selectedMessagesText(picked, conversation, user));
       if (!copied) throw new Error('未能写入剪贴板，请重新复制。');
     } catch (error) {
       pushToast({
@@ -1058,14 +1057,16 @@ export function ChatPane({
         detail: error instanceof Error ? error.message : String(error),
       });
     }
-  }, [conversation, selectedMessages, user, pushToast, selectionBlockedReason]);
+  }, [conversation, selectionFlow.prepare, user, pushToast, selectionBlockedReason]);
   const copySelectedMessagesRich = useCallback(async () => {
     if (selectionBlockedReason) {
       pushToast({ tone: 'warning', title: selectionBlockedReason });
       return;
     }
+    const picked = await selectionFlow.prepare('复制');
+    if (!picked?.length) return;
     const value = messageRichClipboard(
-      selectedMessages.map((message) => ({
+      picked.map((message) => ({
         sender: displayUserName(resolveMessageSender(message, conversation, user)),
         time: message.createdAt,
         body: message.body,
@@ -1074,7 +1075,7 @@ export function ChatPane({
     );
     if (!(await writeMentionClipboard(value)))
       pushToast({ tone: 'error', message: '复制富文本失败' });
-  }, [conversation, selectedMessages, user, pushToast, selectionBlockedReason]);
+  }, [conversation, selectionFlow.prepare, user, pushToast, selectionBlockedReason]);
   useLayoutEffect(() => {
     if (!tabActive || !selectionMode) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1086,7 +1087,7 @@ export function ChatPane({
         target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')
       )
         return;
-      if (event.key.toLowerCase() === 'c' && selectedMessages.length) {
+      if (event.key.toLowerCase() === 'c' && selectedIds.size) {
         event.preventDefault();
         if (event.shiftKey) void copySelectedMessagesRich();
         else void copySelectedMessagesText();
@@ -1097,7 +1098,7 @@ export function ChatPane({
   }, [
     tabActive,
     selectionMode,
-    selectedMessages.length,
+    selectedIds.size,
     copySelectedMessagesText,
     copySelectedMessagesRich,
   ]);
@@ -3318,25 +3319,38 @@ export function ChatPane({
     selectionAnchor.current = null;
   }
 
-  function mergeForwardSelected() {
-    if (!conversation || selectionBlockedReason || selectedMessages.length === 0) {
+  async function mergeForwardSelected() {
+    if (!conversation || selectionBlockedReason || !selectedIds.size) {
       return;
     }
-    const picked = selectedMessages;
+    const picked = await selectionFlow.prepare('合并转发');
+    if (!picked?.length) return;
     exitSelection();
     onMergeForward?.(picked, conversation);
+  }
+
+  async function forwardSelected() {
+    const picked = await selectionFlow.prepare('逐条转发');
+    if (picked?.length) onForwardMessages?.(picked, conversation);
+  }
+
+  async function addSelectedToComposition() {
+    const picked = await selectionFlow.prepare('添加到素材库');
+    if (picked?.length) onAddToComposition?.(picked);
   }
 
   function deleteSelectedMessages() {
     requestBatchAction('delete');
   }
 
-  function copySelectedMessagesJson() {
+  async function copySelectedMessagesJson() {
     if (selectionBlockedReason) {
       pushToast({ tone: 'warning', title: selectionBlockedReason });
       return;
     }
-    const payload = selectedMessages.map((message) => {
+    const picked = await selectionFlow.prepare('复制');
+    if (!picked?.length) return;
+    const payload = picked.map((message) => {
       const sender = resolveMessageSender(message, conversation as Conversation, user);
       const decoration = (message as { decoration?: unknown }).decoration ?? null;
       const qqElements = (message as { qqElements?: unknown }).qqElements ?? null;
@@ -4625,10 +4639,10 @@ export function ChatPane({
           <div className={cn('selection-bar')}>
             <div
               className={cn('selection-bar-info')}
-              aria-label={`已选 ${selectedMessages.length} 条消息`}
+              aria-label={`已选 ${selectionFlow.selectedCount} 条消息`}
               aria-live="polite"
             >
-              <span className={cn('selection-bar-count')}>{selectedMessages.length}</span>
+              <span className={cn('selection-bar-count')}>{selectionFlow.selectedCount}</span>
               <span className={cn('selection-bar-label')}>条已选</span>
               {selectionFlow.gaps.length ? <span>{selectionFlow.gaps.length} 处缺口</span> : null}
             </div>
@@ -4639,7 +4653,7 @@ export function ChatPane({
                   className="selection-action"
                   aria-label="分析所选消息"
                   title={selectionBlockedReason || '分析所选消息'}
-                  disabled={Boolean(selectionBlockedReason) || !selectedMessages.length}
+                  disabled={Boolean(selectionBlockedReason) || !selectedIds.size}
                   onClick={() => requestBatchAction('analysis')}
                 >
                   <BarChart3 size={17} />
@@ -4651,7 +4665,7 @@ export function ChatPane({
                   className="selection-action"
                   aria-label="导出所选消息"
                   title={selectionBlockedReason || '导出所选消息'}
-                  disabled={Boolean(selectionBlockedReason) || !selectedMessages.length}
+                  disabled={Boolean(selectionBlockedReason) || !selectedIds.size}
                   onClick={() => requestBatchAction('export')}
                 >
                   <Download size={17} />
@@ -4663,15 +4677,15 @@ export function ChatPane({
                   className="selection-action"
                   aria-label="添加到素材库"
                   title={selectionBlockedReason || '添加到素材库'}
-                  disabled={Boolean(selectionBlockedReason) || !selectedMessages.length}
-                  onClick={() => onAddToComposition([...selectedMessages])}
+                  disabled={Boolean(selectionBlockedReason) || !selectedIds.size}
+                  onClick={() => void addSelectedToComposition()}
                 >
                   <ListPlus size={17} />
                 </button>
               ) : null}
               <button
                 type="button"
-                className={cn('selection-action', 'selection-action-primary')}
+                className={cn('selection-action')}
                 aria-label="转发"
                 title={
                   selectionBlockedReason ||
@@ -4680,9 +4694,7 @@ export function ChatPane({
                 aria-haspopup="menu"
                 aria-expanded={selectionMenu?.kind === 'forward'}
                 disabled={
-                  Boolean(selectionBlockedReason) ||
-                  Boolean(sendGateReason) ||
-                  selectedMessages.length === 0
+                  Boolean(selectionBlockedReason) || Boolean(sendGateReason) || !selectedIds.size
                 }
                 onClick={(event) => openSelectionMenu('forward', event.currentTarget)}
               >
@@ -4695,7 +4707,7 @@ export function ChatPane({
                 title={selectionBlockedReason || '复制'}
                 aria-haspopup="menu"
                 aria-expanded={selectionMenu?.kind === 'copy'}
-                disabled={Boolean(selectionBlockedReason) || !selectedMessages.length}
+                disabled={Boolean(selectionBlockedReason) || !selectedIds.size}
                 onClick={(event) => openSelectionMenu('copy', event.currentTarget)}
               >
                 <Copy size={17} />
@@ -4704,7 +4716,7 @@ export function ChatPane({
                 type="button"
                 className={cn('selection-action')}
                 aria-label="删除"
-                disabled={Boolean(selectionBlockedReason) || selectedMessages.length === 0}
+                disabled={Boolean(selectionBlockedReason) || !selectedIds.size}
                 title={selectionBlockedReason || '删除所选消息；失败占位仅从本机移除'}
                 onClick={deleteSelectedMessages}
               >
@@ -4753,7 +4765,7 @@ export function ChatPane({
                       label: '逐条转发',
                       icon: <Forward size={16} />,
                       disabled: !onForwardMessages,
-                      action: () => onForwardMessages?.([...selectedMessages], conversation),
+                      action: () => void forwardSelected(),
                     },
                   ]
             }
