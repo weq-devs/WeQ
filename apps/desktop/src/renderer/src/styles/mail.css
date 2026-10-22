@@ -128,15 +128,7 @@ html[data-theme='dark'] .weq-mail-workspace {
   align-items: center;
   gap: 8px;
 }
-.weq-mail-notifications {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-right: 8px;
-  white-space: nowrap;
-  color: var(--weq-fg-secondary);
-  cursor: pointer;
-}
+
 .weq-mail-layout {
   display: grid;
   grid-template-columns: 176px minmax(260px, 320px) minmax(0, 1fr);
@@ -816,9 +808,6 @@ html[data-privacy] .weq-mail-text-editor {
   }
   .weq-mail-top-actions {
     gap: 4px;
-  }
-  .weq-mail-notifications {
-    margin-right: 0;
   }
 }
 @media (max-width: 840px) {

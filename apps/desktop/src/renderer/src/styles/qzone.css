@@ -86,12 +86,7 @@
   border-radius: 6px;
   font-size: 12px;
 }
-.weq-qzn-target {
-  justify-content: space-between;
-  padding: 5px 26px;
-  font-size: 12px;
-  color: var(--muted-foreground);
-}
+
 .weq-qzn-scroll {
   flex: 1;
   min-height: 0;
@@ -591,15 +586,6 @@
   gap: 4px;
   padding: 0;
   font-size: 11px;
-}
-.weq-qzn-comment-like-users {
-  margin-top: 8px;
-}
-
-.weq-qzn-forward-count {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .weq-qzn-feed-link {

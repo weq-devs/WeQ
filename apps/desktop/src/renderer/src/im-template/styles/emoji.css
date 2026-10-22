@@ -152,11 +152,6 @@
   font-size: 26px;
 }
 
-.emoji-sticker-grid {
-  grid-template-columns: repeat(auto-fill, 60px);
-  gap: 5px;
-}
-
 .emoji-sticker-grid .emoji-cell {
   width: 60px;
   height: 60px;
@@ -1535,12 +1530,6 @@ html[data-theme='dark'] .reaction-likers {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
   background: color-mix(in srgb, var(--weq-accent-effective) 10%, white);
   color: color-mix(in srgb, var(--weq-accent-effective) 70%, #1f2937);
-}
-
-/* Fallback chip when a media element can't be located/decoded. */
-.qq-media-fallback {
-  color: inherit;
-  opacity: 0.7;
 }
 
 /* Gray broken-media box shown when a file is missing on disk and via CDN. */

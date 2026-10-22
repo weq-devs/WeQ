@@ -87,7 +87,3 @@ html[data-theme='dark'] .weq-search-dropdown .weq-search-row:hover,
 html[data-theme='dark'] .weq-search-more-modal .weq-search-row:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
 }
-.weq-search-refresh {
-  margin-left: auto;
-  margin-right: 8px;
-}

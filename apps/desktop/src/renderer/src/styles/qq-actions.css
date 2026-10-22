@@ -109,9 +109,7 @@
 .weq-qq-media-actions input {
   max-width: 100%;
 }
-.weq-qq-album-item {
-  min-width: 0;
-}
+
 .weq-qq-favorite-preview {
   width: 48px;
   height: 48px;
@@ -157,11 +155,7 @@ html[data-theme='dark'] .composer-tools button.weq-qq-typing-toggle[aria-pressed
   color: var(--weq-fg-primary);
   background: var(--weq-bg-surface);
 }
-.weq-qq-action-summary {
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
+
 html[data-theme='dark'] .weq-qq-join-dialog {
   border-color: var(--weq-border-strong);
 }

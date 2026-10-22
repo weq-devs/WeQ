@@ -115,14 +115,7 @@
   line-height: 1.7;
   overflow-wrap: anywhere;
 }
-.weq-backup-notice {
-  margin-bottom: 16px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--weq-border-subtle);
-  font-size: 13px;
-  line-height: 1.7;
-  overflow-wrap: anywhere;
-}
+
 .weq-backup-gate {
   min-height: 100dvh;
   display: grid;
