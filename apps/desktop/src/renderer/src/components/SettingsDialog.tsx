@@ -340,7 +340,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'storage',
-    label: '缓存与网络',
+    label: '存储与网络',
     icon: <HardDrive size={16} />,
     render: () => <GlobalSettingsSection section="storage" />,
   },

@@ -6,6 +6,8 @@
 
 import { app, dialog, shell, nativeImage, net } from 'electron';
 import { spawn } from 'node:child_process';
+import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
 import type { HostBridge, SaveTarget } from '@weq/service';
 
 /**
@@ -49,7 +51,48 @@ function revealInFileManager(path: string): Promise<void> {
   });
 }
 
+function desktopStorageRoots(): Array<{ path: string; label: string }> {
+  const home = homedir();
+  const cache =
+    process.platform === 'darwin'
+      ? join(home, 'Library', 'Caches')
+      : process.platform === 'win32'
+        ? process.env.LOCALAPPDATA || join(home, 'AppData', 'Local')
+        : process.env.XDG_CACHE_HOME || join(home, '.cache');
+  const roots = [
+    { path: app.getPath('userData'), label: '桌面运行数据' },
+    { path: app.getPath('sessionData'), label: '浏览器会话数据' },
+    { path: app.getPath('logs'), label: '桌面日志' },
+    ...[
+      ...new Set([
+        'weq-updates',
+        '@weqdesktop-updater',
+        'weq-updater',
+        `${app.getName().replace(/[\\/]/g, '')}-updater`,
+      ]),
+    ].map((name) => ({ path: join(cache, name), label: '更新下载数据' })),
+  ];
+  if (process.platform === 'darwin') {
+    roots.push(
+      { path: join(cache, 'app.weq.desktop'), label: '桌面系统缓存' },
+      { path: join(cache, 'app.weq.desktop.ShipIt'), label: '更新安装数据' },
+    );
+  }
+  if (app.isPackaged) {
+    const appPath = app.getAppPath();
+    roots.push({
+      path:
+        process.platform === 'darwin'
+          ? join(dirname(appPath), '..', '..')
+          : process.env.APPIMAGE || dirname(app.getPath('exe')),
+      label: '应用安装资源',
+    });
+  }
+  return roots;
+}
+
 export const electronHost: HostBridge = {
+  storageRoots: desktopStorageRoots,
   restartApplication: async () => {
     app.relaunch();
     setTimeout(() => app.quit(), 200);

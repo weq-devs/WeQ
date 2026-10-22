@@ -1,0 +1,102 @@
+.weq-storage-settings .weq-set-row {
+  flex-wrap: wrap;
+}
+
+.weq-storage-settings .weq-set-row-main {
+  flex: 1 1 220px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.weq-storage-settings .weq-set-row-label,
+.weq-storage-settings .weq-set-row-ctrl {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-storage-settings .weq-set-path {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.weq-storage-settings .weq-set-actions,
+.weq-storage-settings .weq-set-btn-group {
+  flex-wrap: wrap;
+}
+
+.weq-storage-settings .weq-set-cache-total {
+  flex: 1 1 220px;
+}
+
+.weq-storage-settings .weq-set-btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+.weq-storage-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.weq-storage-group h4 {
+  margin: 12px 0 4px;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-storage-group .weq-set-cache-item {
+  color: var(--weq-fg-primary);
+  border-color: var(--weq-border-subtle);
+  background: transparent;
+}
+
+.weq-storage-group .weq-set-cache-item:not(.is-readonly):hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-storage-group .is-readonly {
+  cursor: default;
+}
+
+.weq-storage-detail {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow-wrap: anywhere;
+}
+
+.weq-storage-detail small,
+.weq-storage-group .weq-set-cache-size,
+.weq-storage-group .weq-set-cache-item svg {
+  color: var(--weq-fg-muted);
+}
+
+.weq-storage-path {
+  font-size: 11px;
+}
+
+.weq-storage-group .weq-set-cache-size {
+  flex: none;
+  white-space: nowrap;
+}
+
+html[data-theme='dark'] .weq-storage-group .weq-set-cache-item {
+  color: var(--weq-fg-primary);
+  border-color: var(--weq-border-subtle);
+  background: transparent;
+}
+
+html[data-theme='dark'] .weq-storage-group .weq-set-cache-item:not(.is-readonly):hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  border-color: var(--weq-accent-effective);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-storage-group .weq-set-cache-item {
+    transition: none;
+  }
+}

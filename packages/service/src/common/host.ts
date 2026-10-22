@@ -23,6 +23,8 @@ export interface SaveTarget {
 }
 
 export interface HostBridge {
+  /** 宿主额外拥有的运行目录，仅参与存储统计，不开放直接清理。 */
+  storageRoots?(): Array<{ path: string; label: string }>;
   /** 仅宿主支持时提供；调用方必须先明确确认重启。 */
   restartApplication?(): Promise<void>;
   /** Web 服务端导出根目录；桌面端由原生目录选择，不设此字段。 */

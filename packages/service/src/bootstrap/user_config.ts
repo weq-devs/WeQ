@@ -22,10 +22,9 @@ import {
   writeFileSync,
   readdirSync,
   unlinkSync,
-  rmSync,
   existsSync,
 } from 'node:fs';
-import { readdir, stat } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
 import type { AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
@@ -34,6 +33,12 @@ import { normalizeAccountConfig } from '../account/user_config';
 import type { ExportFormat } from '../account/export/types';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { getLogger, logErrorContext } from '../common/logger';
+import {
+  listStorageUsage,
+  measureStorage,
+  type StorageRoot,
+  type StorageUsageItem,
+} from './storage_usage';
 import {
   DEFAULT_QZONE_PAGINATION,
   normalizeQzonePagination,
@@ -1548,61 +1553,38 @@ export class UserConfigService {
     });
   }
 
-  /**
-   * WeQ 缓存清理.
-   *
-   * The `<cacheBase>/<category>/` layout is written by various callers
-   * (avatars, media previews, 商城表情, 语音转录). These four categories are
-   * pure caches — every file is re-downloadable / re-generatable on demand,
-   * so wiping them only costs a re-fetch. We deliberately DO NOT expose
-   * `agentlab`（克隆体运行数据）, `weq-assistant`（推文/周报快照）or
-   * `export`（导出产物）here: those hold user-generated content, not cache.
-   */
-  private static readonly CLEARABLE_CACHE_CATEGORIES: ReadonlyArray<{
-    id: string;
-    label: string;
-  }> = [
-    { id: 'avatar', label: '头像缓存' },
-    { id: 'media', label: '图片/视频缓存' },
-    { id: 'marketface', label: '商城表情缓存' },
-    { id: 'voice', label: '语音转录缓存' },
-  ];
-
-  /** Per-category on-disk size (bytes) for the clearable cache categories. */
-  async listClearableCache(): Promise<Array<{ id: string; label: string; bytes: number }>> {
-    const base = this.cacheBaseDir();
-    return Promise.all(
-      UserConfigService.CLEARABLE_CACHE_CATEGORIES.map(async ({ id, label }) => ({
-        id,
-        label,
-        bytes: await dirSizeBytes(join(base, id)),
-      })),
-    );
+  /** 统计应用数据、当前及默认缓存、宿主运行目录；不扫描 QQ 原始数据或用户导出目录。 */
+  async listStorageUsage(extraRoots: readonly StorageRoot[] = []): Promise<StorageUsageItem[]> {
+    return listStorageUsage(this.root, this.cacheBaseDir(), extraRoots);
   }
 
-  /**
-   * Delete the given clearable cache categories (or all of them when `ids` is
-   * omitted). Unknown / non-clearable ids are ignored — we never rm outside
-   * the whitelist, so this can't touch agentlab / export / config / logs.
-   * Returns the number of bytes freed.
-   */
-  async clearCache(ids?: string[]): Promise<{ freedBytes: number; cleared: string[] }> {
-    const base = this.cacheBaseDir();
-    const allowed = new Set(UserConfigService.CLEARABLE_CACHE_CATEGORIES.map((c) => c.id));
-    const targets = (ids && ids.length > 0 ? ids : [...allowed]).filter((id) => allowed.has(id));
+  /** 兼容旧客户端，仍只返回可清理项。 */
+  async listClearableCache(): Promise<StorageUsageItem[]> {
+    return (await this.listStorageUsage()).filter((item) => item.clearable);
+  }
+
+  /** 清理前重新生成白名单；空数组不清理，只有省略 ids 才表示全部可清理项。 */
+  async clearCache(
+    ids?: string[],
+    extraRoots: readonly StorageRoot[] = [],
+  ): Promise<{ freedBytes: number; cleared: string[]; failed: string[] }> {
+    const items = await this.listStorageUsage(extraRoots);
+    const selected = ids === undefined ? undefined : new Set(ids);
+    const targets = items.filter((item) => item.clearable && (!selected || selected.has(item.id)));
     let freedBytes = 0;
     const cleared: string[] = [];
-    for (const id of targets) {
-      const dir = join(base, id);
+    const failed: string[] = [];
+    for (const item of targets) {
+      const { id, path: dir } = item;
       if (!existsSync(dir)) continue;
-      freedBytes += await dirSizeBytes(dir);
       try {
-        // Remove the category folder wholesale, then recreate it empty so the
-        // next writer's mkdir -p is a no-op and nothing breaks mid-session.
-        rmSync(dir, { recursive: true, force: true });
-        mkdirSync(dir, { recursive: true });
+        await rm(dir, { recursive: true, force: true });
+        await mkdir(dir, { recursive: true });
+        const remaining = await measureStorage(dir);
+        freedBytes += Math.max(0, item.bytes - remaining.bytes);
         cleared.push(id);
       } catch (error) {
+        failed.push(id);
         this.logger.error('failed to clear cache category', {
           event: 'clear-cache-failed',
           category: id,
@@ -1616,43 +1598,6 @@ export class UserConfigService {
       cleared,
       freedBytes,
     });
-    return { freedBytes, cleared };
+    return { freedBytes, cleared, failed };
   }
-}
-
-/**
- * Recursive directory byte size with a hard node-visit cap so a pathological
- * tree (the avatar/media caches can hold tens of thousands of tiny files)
- * can't wedge the caller. Missing dirs return 0. Async so a huge tree never
- * blocks the main process / UI while the settings page computes cache usage.
- */
-async function dirSizeBytes(root: string, cap = 500_000): Promise<number> {
-  let total = 0;
-  let visited = 0;
-  const stack: string[] = [root];
-  while (stack.length > 0) {
-    const dir = stack.pop() as string;
-    let dirents: import('node:fs').Dirent[];
-    try {
-      dirents = await readdir(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    const sizes: Promise<number>[] = [];
-    for (const d of dirents) {
-      if (++visited > cap) return total;
-      const full = join(dir, d.name);
-      if (d.isDirectory()) {
-        stack.push(full);
-      } else if (d.isFile()) {
-        sizes.push(
-          stat(full)
-            .then((s) => s.size)
-            .catch(() => 0),
-        );
-      }
-    }
-    total += (await Promise.all(sizes)).reduce((sum, size) => sum + size, 0);
-  }
-  return total;
 }

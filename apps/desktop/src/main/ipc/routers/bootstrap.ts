@@ -183,6 +183,14 @@ export async function ensureUidForUin(
   return null;
 }
 
+function storageRoots(): Array<{ path: string; label: string }> {
+  const host = getHost();
+  return [
+    ...(host.storageRoots?.() ?? []),
+    ...(host.exportRoot ? [{ path: host.exportRoot, label: 'Web 导出文件' }] : []),
+  ];
+}
+
 export const bootstrapRouter = router({
   ...backupProcedures,
   ...intentSenseModelProcedures,
@@ -1626,11 +1634,12 @@ export const bootstrapRouter = router({
     return boot.userConfig.getCacheDirInfo();
   }),
 
-  /**
-   * Per-category size of the clearable WeQ caches (头像/媒体/商城表情/语音).
-   * Only these re-downloadable/re-generatable categories are listed —
-   * agentlab / weq-assistant / export are user content and stay untouched.
-   */
+  /** 应用数据与宿主运行目录的完整占用，含仅统计项目。 */
+  listStorageUsage: procedure.query(async () => {
+    return requireBootstrap().userConfig.listStorageUsage(storageRoots());
+  }),
+
+  /** 旧接口保留为可清理项的子集。 */
   listClearableCache: procedure.query(async () => {
     return requireBootstrap().userConfig.listClearableCache();
   }),
@@ -1639,7 +1648,7 @@ export const bootstrapRouter = router({
   clearWeqCache: procedure
     .input(z.object({ ids: z.array(z.string()).optional() }).optional())
     .mutation(async ({ input }) => {
-      return requireBootstrap().userConfig.clearCache(input?.ids);
+      return requireBootstrap().userConfig.clearCache(input?.ids, storageRoots());
     }),
 
   // ---- filesystem dialog (Tencent Files fallback / manual db pick) ----

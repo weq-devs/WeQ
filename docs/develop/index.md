@@ -50,6 +50,7 @@ pnpm dev
 - [nt_helper.node 接口文档](./nt-helper-interface.md) — 原生模块能力总览，**写代码前先看，别重复造轮子**
 - [原生二进制与装扮资源的分发](./native-artifacts.md) — `pnpm native:fetch`、发布链路、历史清洗记录
 - [测试约定](./testing.md) — `@weq/testkit`
+- [WeQ 存储管理](./storage-management.md)：统计范围、嵌套目录去重、只读数据与缓存清理白名单。
 - [macOS QQ 进程探测](./macos-startup-probe-20261015.md)：异步归属判断与子进程生命周期。
 - [Linux 窗口后端与 XWayland](./linux-ozone-xwayland-20261019.md)：为什么 `ozone-platform` 必须走 Electron 启动参数，不能 `appendSwitch`。
 - [图文 Ark 卡片发送](./ark-send.md) — OIDB 0xdc2_34 的下发结果解析，以及 PC/Linux 端的已知实现缺口

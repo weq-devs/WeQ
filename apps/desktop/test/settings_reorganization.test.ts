@@ -174,7 +174,7 @@ describe('设置归位后的实际页面', () => {
       expect(f.host.querySelector('.weq-settings-scope')).toBeNull();
       f.render('storage');
       expect(f.body().textContent).toContain('缓存目录');
-      expect(f.body().textContent).toContain('清理缓存');
+      expect(f.body().textContent).toContain('WeQ 存储管理');
       expect(f.body().textContent).not.toContain('现有配置');
       f.render('saving');
       expect(f.body().textContent).toContain('保存位置');
