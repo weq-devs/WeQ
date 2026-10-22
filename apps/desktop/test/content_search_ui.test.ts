@@ -182,7 +182,7 @@ it('已删除的相册和文件明确说明，不自动改选第一条', async (
   );
   try {
     await act(async () => {});
-    expect(document.body.textContent).toContain('搜索命中的相册不存在');
+    expect(document.body.textContent).toContain('指定相册不存在');
     expect(rpc.album).not.toHaveBeenCalled();
   } finally {
     a.close();

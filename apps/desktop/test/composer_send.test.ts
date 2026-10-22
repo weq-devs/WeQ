@@ -272,6 +272,7 @@ describe('输入区发送交接', () => {
   });
   it('失败占位提供独立移除入口，不重发也不覆盖输入草稿', async () => {
     const f = mount();
+    vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(true);
     const remove = vi.fn();
     const message = {
       id: 'optimistic-delete-me',
@@ -295,7 +296,7 @@ describe('输入区发送交接', () => {
       ].find((button) => button.textContent === '移除失败消息');
       expect(button).toBeDefined();
       await act(async () => button!.click());
-      expect(remove).toHaveBeenCalledWith(message, f.props.conversation);
+      expect(remove).toHaveBeenCalledWith(message, f.props.conversation, false);
       expect(serializeComposer(f.editor())).toBe('第一条');
       expect(f.onSend).not.toHaveBeenCalled();
     } finally {
@@ -374,6 +375,7 @@ describe('输入区发送交接', () => {
   );
   it('混合多选删除先确认，仅移除支持的失败占位，保留发送成功条目', async () => {
     const f = mount();
+    vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(true);
     const remove = vi.fn();
     const base = {
       conversationId: f.props.conversation.id,
@@ -411,7 +413,7 @@ describe('输入区发送交接', () => {
         f.host.querySelector<HTMLElement>('[data-message-id="optimistic-confirmed"]')!.click(),
       );
       expect(deletion().disabled).toBe(false);
-      act(() => deletion().click());
+      await act(async () => deletion().click());
       expect(remove).not.toHaveBeenCalled();
       const confirmation = () => document.querySelector<HTMLElement>('.weq-message-batch-dialog')!;
       const confirmButton = (label: string) =>
@@ -422,7 +424,7 @@ describe('输入区发送交接', () => {
       act(() => confirmButton('取消').click());
       expect(remove).not.toHaveBeenCalled();
       expect(confirmation()).toBeNull();
-      act(() => deletion().click());
+      await act(async () => deletion().click());
       expect(remove).not.toHaveBeenCalled();
       await act(async () => confirmButton('仅删除支持的 2 条').click());
       expect(remove.mock.calls.map(([message]) => message.id)).toEqual([
@@ -433,7 +435,7 @@ describe('输入区发送交接', () => {
       expect(
         f.host.querySelector('.message-line.is-selected')?.getAttribute('data-message-id'),
       ).toBe('optimistic-confirmed');
-      act(() => deletion().click());
+      await act(async () => deletion().click());
       expect(confirmation().textContent).toContain('1 条消息不支持删除，0 条可以继续');
       expect(confirmButton('仅删除支持的 0 条').disabled).toBe(true);
       act(() => confirmButton('仅删除支持的 0 条').click());
