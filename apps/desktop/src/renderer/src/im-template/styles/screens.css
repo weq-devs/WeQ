@@ -389,8 +389,8 @@ html[data-theme='dark'] .loading-spinner {
 
 html[data-theme='dark'] .conversation-row.active,
 html[data-theme='dark'] .contact-row.active {
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-list-selected-background);
+  color: var(--weq-fg-primary);
 }
 
 html[data-theme='dark'] .contact-tools > button + button {
@@ -874,16 +874,16 @@ html[data-theme='dark'] .contact-row:hover {
 
 html[data-theme='dark'] .contact-row.active,
 html[data-theme='dark'] .contact-row.active:hover {
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-list-selected-background);
+  color: var(--weq-fg-primary);
 }
 
 html[data-theme='dark'] .contact-row.active .row-main span {
-  color: var(--primary-foreground);
+  color: var(--weq-fg-secondary);
 }
 
 html[data-theme='dark'] .contact-row.active .row-meta {
-  color: var(--primary-foreground);
+  color: var(--weq-fg-secondary);
 }
 
 html[data-theme='dark'] .contact-profile-fields,

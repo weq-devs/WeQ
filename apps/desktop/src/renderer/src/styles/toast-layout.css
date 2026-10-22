@@ -1,0 +1,41 @@
+html .weq-toast-host {
+  box-sizing: border-box;
+  width: 344px;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100dvh - 40px);
+  align-items: flex-end;
+  padding: 2px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.weq-toast-host .weq-toast {
+  flex-shrink: 0;
+  max-width: 100%;
+}
+
+.weq-toast .weq-toast-header {
+  align-items: flex-start;
+}
+
+.weq-toast .weq-toast-title {
+  min-width: 0;
+  max-height: min(30dvh, 12rem);
+  overflow-y: auto;
+}
+
+.weq-toast .weq-toast-detail {
+  max-height: min(42dvh, 20rem);
+  overflow-y: auto;
+}
+
+@media (max-width: 760px) {
+  html .weq-toast-host {
+    right: 12px;
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 88px - env(safe-area-inset-bottom, 0px));
+  }
+}

@@ -1,0 +1,69 @@
+html .weq-rail-account-layer[tabindex] > .weq-rail-account-popover {
+  width: min(220px, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  background: color-mix(in srgb, var(--weq-bg-surface) 94%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-rail-account-layer .weq-rail-account-list {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.weq-rail-account-layer :is(.weq-rail-account-popover-head, .weq-rail-account-signout) {
+  flex-shrink: 0;
+}
+
+.weq-rail-account-layer :is(.weq-rail-account-popover-title, .weq-rail-account-item-uin) {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-rail-account-layer .weq-rail-account-item:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+}
+
+.weq-rail-account-error {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  flex-shrink: 0;
+  align-items: start;
+  gap: 6px;
+  max-height: min(40dvh, 180px);
+  padding: 8px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-rail-account-error small {
+  grid-column: 1 / -1;
+  font-size: inherit;
+}
+
+.weq-rail-account-error button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  cursor: pointer;
+}
+
+html .weq-rail-account-context-layer[tabindex] > .weq-rail-account-ctx-menu {
+  width: max-content;
+  min-width: 120px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  background: color-mix(in srgb, var(--weq-bg-surface) 96%, transparent);
+}
+
+html[data-theme='dark'] .weq-rail-account-layer[tabindex] > .weq-rail-account-popover,
+html[data-theme='dark'] .weq-rail-account-context-layer[tabindex] > .weq-rail-account-ctx-menu {
+  background: color-mix(in srgb, var(--weq-bg-surface) 97%, transparent);
+  border-color: var(--weq-border-strong);
+}

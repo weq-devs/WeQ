@@ -196,6 +196,7 @@ export function AppRail({
               )}
               onClick={() => selectView('messages')}
               title="消息"
+              aria-current={activeView === 'messages' ? 'page' : undefined}
             >
               <span className={cn('rail-tab-icon')}>
                 <MessageCircle size={22} strokeWidth={1.5} />
@@ -223,6 +224,7 @@ export function AppRail({
             className={cn(railButtonClass(activeView === 'contacts'), 'rail-tab rail-tab-contacts')}
             onClick={() => selectView('contacts')}
             title="联系人"
+            aria-current={activeView === 'contacts' ? 'page' : undefined}
           >
             <span className={cn('rail-tab-icon')}>
               <ContactRailIcon />
@@ -240,6 +242,7 @@ export function AppRail({
             className={cn(railButtonClass(activeView === 'qzone'), 'rail-tab rail-tab-qzone')}
             onClick={() => selectView('qzone')}
             title="QQ 空间"
+            aria-current={activeView === 'qzone' ? 'page' : undefined}
             type="button"
           >
             <span className={cn('rail-tab-icon')}>
@@ -251,6 +254,7 @@ export function AppRail({
             className={cn(railButtonClass(activeView === 'channel'), 'rail-tab rail-tab-channel')}
             onClick={() => selectView('channel')}
             title="QQ 频道"
+            aria-current={activeView === 'channel' ? 'page' : undefined}
             type="button"
           >
             <span className={cn('rail-tab-icon')}>
@@ -263,13 +267,21 @@ export function AppRail({
             className={cn(railButtonClass(activeView === 'mail'), 'rail-tab rail-tab-mail')}
             onClick={() => selectView('mail')}
             title="QQ 邮箱"
+            aria-current={activeView === 'mail' ? 'page' : undefined}
           >
             <span className={cn('rail-tab-icon')}>
               <Mail size={22} strokeWidth={1.5} />
             </span>
             <span className={cn('rail-label')}>QQ邮箱</span>
             {mailBadgeCount > 0 ? (
-              <span className="rail-badge rail-badge-mail">{formatBadgeCount(mailBadgeCount)}</span>
+              <span
+                className="rail-badge rail-badge-mail"
+                role="status"
+                aria-label={`${mailBadgeCount} 封未读邮件`}
+                title={`${mailBadgeCount} 封未读邮件`}
+              >
+                {formatBadgeCount(mailBadgeCount)}
+              </span>
             ) : null}
           </button>
           {contentItems.map((item) => (
@@ -309,6 +321,7 @@ export function AppRail({
             )}
             type="button"
             title="应用"
+            aria-current={activeView === 'tools' ? 'page' : undefined}
             onClick={() => selectView('tools')}
           >
             <span className={cn('rail-tab-icon')}>

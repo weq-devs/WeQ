@@ -40,7 +40,7 @@ export function contrastRatio(a: string, b: string): number {
   return (Math.max(left, right) + 0.05) / (Math.min(left, right) + 0.05);
 }
 
-/** 不改用户原色，只派生用于实心底和中性色表面的文字颜色。 */
+/** 保留用户原色，分别派生文字与实心操作的可读配色。 */
 export function accentColors(input: string, mode: 'light' | 'dark') {
   const accent = normalizeHex(input) ?? (mode === 'dark' ? DEFAULT_DARK_ACCENT : DEFAULT_ACCENT);
   const onAccent =
@@ -54,5 +54,15 @@ export function accentColors(input: string, mode: 'light' | 'dark') {
     if (backgrounds.every((background) => contrastRatio(ink, background) >= 4.5)) break;
   }
   const hover = mix(accent, onAccent === '#000000' ? '#ffffff' : '#000000', 0.08);
-  return { accent, onAccent, ink, hover };
+  let solid = accent;
+  let onSolid = onAccent;
+  if (contrastRatio(solid, onSolid) < 7) {
+    onSolid = '#ffffff';
+    for (let step = 1; step <= 100; step++) {
+      solid = mix(accent, '#000000', step / 100);
+      if (contrastRatio(solid, onSolid) >= 7) break;
+    }
+  }
+  const solidHover = mix(solid, onSolid === '#000000' ? '#ffffff' : '#000000', 0.08);
+  return { accent, onAccent, ink, hover, solid, onSolid, solidHover };
 }

@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, type RefObject } from 'react';
 
 function layerPath(element: HTMLElement): number[] {
   const path: number[] = [];
@@ -54,7 +54,8 @@ export function useSurfaceEscape(
   active: boolean,
   modal: boolean,
 ) {
-  useEffect(() => {
+  // 在节点移除前归还焦点；被动清理时 activeElement 已可能变成 body。
+  useLayoutEffect(() => {
     const element = ref.current;
     if (!active || !element) return;
     const document = element.ownerDocument;

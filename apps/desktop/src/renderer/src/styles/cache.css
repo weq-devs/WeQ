@@ -5163,8 +5163,12 @@ html[data-theme='dark'] .weq-filerow-name {
   filter: brightness(1.06);
 }
 .weq-clean-go.is-danger {
-  background: #e5484d;
+  background: var(--weq-danger-solid-background);
   color: var(--weq-danger-solid-foreground);
+}
+.weq-clean-go.is-danger:hover:not(:disabled) {
+  filter: none;
+  background: var(--weq-danger-solid-hover);
 }
 .weq-clean-go:disabled {
   opacity: 0.45;

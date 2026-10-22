@@ -492,14 +492,15 @@ html[data-theme='dark'] .contact-cat-count {
 
 .conversation-row.active,
 .contact-row.active {
-  background: var(--weq-accent-effective, #0099f7);
-  color: var(--primary-foreground);
+  background: var(--weq-list-selected-background);
+  color: var(--weq-fg-primary);
+  box-shadow: inset 2px 0 var(--weq-accent-ink, var(--weq-fg-primary));
 }
 
 .conversation-row.active .row-preview-line,
 .conversation-row.active .row-meta,
 .contact-row.active .row-main span {
-  color: var(--primary-foreground);
+  color: var(--weq-fg-secondary);
 }
 
 .row-unread {
@@ -547,7 +548,7 @@ html[data-theme='dark'] .conversation-row.active .row-unread.muted {
 }
 
 .conversation-row.active .row-muted {
-  color: var(--primary-foreground);
+  color: var(--weq-fg-secondary);
 }
 
 .row-main {
@@ -599,7 +600,7 @@ html[data-theme='dark'] .conversation-row.active .row-unread.muted {
   min-width: 0;
   align-items: center;
   gap: 8px;
-  color: var(--weq-fg-muted, #989898);
+  color: var(--weq-fg-secondary);
   font-size: 14px;
   font-weight: 400;
   line-height: 1.2;
@@ -625,31 +626,31 @@ html[data-theme='dark'] .conversation-row.active .row-unread.muted {
 }
 
 .row-mention-alert {
-  color: #ff4b3a;
+  color: var(--weq-list-alert-ink);
   font-weight: 500;
 }
 
 .row-specialcare-alert {
-  color: #ff4b3a;
+  color: var(--weq-list-alert-ink);
   font-weight: 500;
   margin-right: 2px;
 }
 
 .row-newfile-alert {
-  color: #2f80ed;
+  color: var(--weq-list-info-ink);
   font-weight: 500;
   margin-right: 2px;
 }
 
 .row-redpacket-alert {
-  color: #e8a33d;
+  color: var(--weq-list-attention-ink);
   font-weight: 500;
   margin-right: 2px;
 }
 
 .row-draft svg {
   flex: 0 0 auto;
-  color: #ff4b3a;
+  color: var(--weq-list-alert-ink);
 }
 
 .row-draft-text {
@@ -663,7 +664,7 @@ html[data-theme='dark'] .conversation-row.active .row-unread.muted {
   align-items: flex-end;
   justify-content: start;
   gap: 6px;
-  color: #9a9a9a;
+  color: var(--weq-fg-secondary);
   font-size: 12px;
   font-weight: 400;
 }
@@ -676,7 +677,7 @@ html[data-theme='dark'] .conversation-row.active .row-unread.muted {
 
 .row-pinned {
   flex: 0 0 auto;
-  color: var(--weq-accent-effective, #0099f7);
+  color: var(--weq-accent-ink, var(--weq-fg-secondary));
 }
 
 /* 置顶会话：整行浅色底，与普通会话拉开层级（QQ 同款）。 */
@@ -689,20 +690,20 @@ html[data-theme='dark'] .conversation-row.active .row-unread.muted {
 }
 
 .conversation-row.active .row-pinned {
-  color: var(--primary-foreground);
+  color: var(--weq-accent-ink, var(--weq-fg-secondary));
 }
 
 .conversation-row.active .row-draft svg {
-  color: var(--primary-foreground);
+  color: var(--weq-accent-ink, var(--weq-fg-secondary));
 }
 
 .row-hidden {
   flex: 0 0 auto;
-  color: var(--weq-text-muted, #8a8f98);
+  color: var(--weq-fg-secondary);
 }
 
 .conversation-row.active .row-hidden {
-  color: var(--primary-foreground);
+  color: var(--weq-fg-secondary);
 }
 
 .conversation-row .avatar,
@@ -743,17 +744,17 @@ html[data-theme='dark'] .conversation-row.active .row-unread.muted {
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: var(--weq-fg-muted, #8c8c8c);
+  color: var(--weq-fg-secondary);
   flex-shrink: 0;
 }
 
 .contact-row.active .contact-card-status {
-  color: var(--primary-foreground);
+  color: var(--weq-fg-secondary);
 }
 
 .contact-card-signature {
   font-size: 13px;
-  color: var(--weq-fg-muted, #989898);
+  color: var(--weq-fg-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -762,7 +763,7 @@ html[data-theme='dark'] .conversation-row.active .row-unread.muted {
 }
 
 .contact-row.active .contact-card-signature {
-  color: var(--primary-foreground);
+  color: var(--weq-fg-secondary);
 }
 
 .avatar {

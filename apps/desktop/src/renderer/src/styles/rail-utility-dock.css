@@ -48,8 +48,7 @@
   background: transparent;
   box-shadow: none;
   transition:
-    color 140ms ease,
-    background-color 140ms ease,
+    box-shadow 140ms ease,
     border-color 140ms ease;
 }
 
@@ -65,13 +64,13 @@
 .app-shell .rail-footer .weq-rail-control:hover,
 .weq-floating-tools.is-docked .weq-tools-trigger:hover,
 .weq-floating-tools.is-docked.is-expanded .weq-tools-trigger {
-  color: var(--weq-accent-effective);
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
   border-color: var(--weq-accent-effective);
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
 
 .app-shell .rail-footer .weq-rail-control:focus-visible {
-  outline: 2px solid var(--ring);
+  outline: 2px solid var(--weq-accent-ink, var(--weq-fg-primary));
   outline-offset: 2px;
 }
 

@@ -19,6 +19,14 @@ afterEach(() => {
 });
 
 describe('主题可读色', () => {
+  it('截图紫色与中间亮度灰色为实心操作派生更强对比，但不改写主色', () => {
+    for (const accent of ['#8b5cf6', '#767676', '#777777']) {
+      const colors = accentColors(accent, 'light');
+      expect(colors.accent).toBe(accent);
+      expect(contrastRatio(colors.solid, colors.onSolid)).toBeGreaterThanOrEqual(7);
+      expect(contrastRatio(colors.solidHover, colors.onSolid)).toBeGreaterThanOrEqual(7);
+    }
+  });
   it('助手封面与跳转页复用同一混色和可读强调字，不改用户原色', () => {
     expect(assistantMix).toBe(mix);
     for (const mode of ['light', 'dark'] as const) {
@@ -102,6 +110,13 @@ describe('主题可读色', () => {
       expect(document.documentElement.style.getPropertyValue('--weq-accent-ink')).toMatch(
         /^#[0-9a-f]{6}$/,
       );
+      for (const key of [
+        '--weq-accent-solid',
+        '--weq-accent-solid-foreground',
+        '--weq-accent-solid-hover',
+      ]) {
+        expect(document.documentElement.style.getPropertyValue(key)).toMatch(/^#[0-9a-f]{6}$/);
+      }
       expect(document.documentElement.style.getPropertyValue('--weq-accent-custom')).toBe(accent);
     },
   );
@@ -134,6 +149,8 @@ describe('主题可读色', () => {
             expect(colors.accent).toBe(input);
             expect(contrastRatio(input, colors.onAccent)).toBeGreaterThanOrEqual(4.5);
             expect(contrastRatio(colors.hover, colors.onAccent)).toBeGreaterThanOrEqual(4.5);
+            expect(contrastRatio(colors.solid, colors.onSolid)).toBeGreaterThanOrEqual(7);
+            expect(contrastRatio(colors.solidHover, colors.onSolid)).toBeGreaterThanOrEqual(7);
             const surface = mode === 'dark' ? '#363636' : '#f7f7f7';
             expect(contrastRatio(colors.ink, surface)).toBeGreaterThanOrEqual(4.5);
             expect(contrastRatio(colors.ink, mix(surface, input, 0.18))).toBeGreaterThanOrEqual(

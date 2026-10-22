@@ -119,6 +119,9 @@ function applyTheme({
   root.style.setProperty('--weq-accent-on', colors.onAccent);
   root.style.setProperty('--weq-accent-ink', colors.ink);
   root.style.setProperty('--weq-accent-hover', colors.hover);
+  root.style.setProperty('--weq-accent-solid', colors.solid);
+  root.style.setProperty('--weq-accent-solid-foreground', colors.onSolid);
+  root.style.setProperty('--weq-accent-solid-hover', colors.solidHover);
   // Keep the built-in QQ 频道 / QQ 空间 browsers' 深/浅 mode in lockstep with WeQ.
   // Safe when no such window is open; the bridge may be absent in non-electron
   // contexts (tests), hence the optional chaining.

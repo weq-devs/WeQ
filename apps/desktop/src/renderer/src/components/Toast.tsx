@@ -17,7 +17,14 @@
  *     the expandable detail
  */
 
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { create } from 'zustand';
 import {
   DEFAULT_TOAST_DURATIONS,
@@ -25,6 +32,7 @@ import {
   type ToastDurations,
 } from '@weq/service/toast-settings';
 import '../styles/toast-action.css';
+import '../styles/toast-layout.css';
 import {
   AlertTriangle,
   Check,
@@ -418,9 +426,29 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
 /** Mount once near the root. Stacks active toasts bottom-right. */
 export function ToastHost(): ReactElement | null {
   const toasts = useToast((s) => s.toasts);
+  const host = useRef<HTMLDivElement>(null);
+  const follow = useRef(true);
+  const latestId = toasts.at(-1)?.id;
+  const count = toasts.length;
+  useLayoutEffect(() => {
+    if (count === 0) follow.current = true;
+    else if (follow.current && host.current) host.current.scrollTop = host.current.scrollHeight;
+  }, [count, latestId]);
   if (toasts.length === 0) return null;
   return (
-    <div className="weq-toast-host" aria-live="polite">
+    <div
+      ref={host}
+      className="weq-toast-host"
+      aria-live="polite"
+      onScrollCapture={(event) => {
+        if (event.target !== event.currentTarget) {
+          follow.current = false;
+          return;
+        }
+        const element = event.currentTarget;
+        follow.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 8;
+      }}
+    >
       {toasts.map((t) => (
         <ToastRow key={t.id} toast={t} />
       ))}

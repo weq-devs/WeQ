@@ -49,14 +49,17 @@ body {
   background: var(--im-color-app-bg, #f1f1f1);
 }
 
-button,
-input,
-textarea {
-  font: inherit;
-}
+/* 基础重置不压过 Tailwind 组件变体指定的字号和文字色。 */
+@layer base {
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
 
-button {
-  color: inherit;
+  button {
+    color: inherit;
+  }
 }
 
 .app-rail,

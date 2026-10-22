@@ -102,12 +102,25 @@ html[data-theme='light'] {
     radial-gradient(78% 70% at 26% 88%, var(--weq-chat-glow-quaternary) 0, transparent 56%),
     linear-gradient(135deg, #fdfeff 0%, #f8fcff 38%, #fffef5 68%, #fbfffc 100%);
   --weq-chat-bubble-other: rgba(255, 255, 255, 0.96);
-  --weq-chat-bubble-mine: var(--weq-accent-effective);
+  --weq-chat-bubble-mine: var(--weq-accent-solid, var(--weq-accent-effective));
   --weq-chat-bubble-active: rgba(225, 232, 240, 0.96);
   --weq-fg-primary: var(--foreground);
   --weq-unread-foreground: #000000;
-  --weq-danger-solid-foreground: #000000;
+  --weq-danger-solid-background: #a91727;
+  --weq-danger-solid-foreground: #ffffff;
+  --weq-danger-solid-hover: color-mix(in srgb, var(--weq-danger-solid-background) 92%, #000000);
   --weq-unread-muted-background: #c9cbd0;
+  --weq-rail-badge-background: var(--weq-danger-solid-background);
+  --weq-rail-badge-foreground: #ffffff;
+  --weq-list-alert-ink: #a61d2b;
+  --weq-list-info-ink: #205bb5;
+  --weq-list-attention-ink: #805500;
+  --weq-rail-badge-border: var(--weq-bg-surface);
+  --weq-list-selected-background: color-mix(
+    in srgb,
+    var(--weq-accent-effective) 14%,
+    var(--weq-bg-surface)
+  );
   --weq-fg-secondary: oklch(0.45 0.02 248);
   --weq-fg-muted: oklch(0.58 0.015 248);
   --weq-border-subtle: color-mix(
@@ -133,6 +146,15 @@ html[data-theme='light'] {
 html[data-theme='dark'],
 .dark {
   --weq-unread-muted-background: #4a4a52;
+  --weq-rail-badge-border: color-mix(in srgb, var(--weq-fg-primary) 70%, var(--weq-bg-surface));
+  --weq-list-selected-background: color-mix(
+    in srgb,
+    var(--weq-accent-effective) 18%,
+    var(--weq-bg-surface)
+  );
+  --weq-list-alert-ink: #ffa39e;
+  --weq-list-info-ink: #94c5ff;
+  --weq-list-attention-ink: #f4d273;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -191,7 +213,7 @@ html[data-theme='dark'],
       color-mix(in srgb, var(--weq-accent-effective) 5%, #111317)
     );
   --weq-chat-bubble-other: #262729;
-  --weq-chat-bubble-mine: #66686b;
+  --weq-chat-bubble-mine: #505257;
   --weq-chat-bubble-active: #333436;
   --weq-fg-primary: var(--foreground);
   --weq-fg-secondary: oklch(0.82 0.01 250);
@@ -215,6 +237,9 @@ html[data-theme='dark'],
 
 html {
   --weq-accent-effective: var(--weq-accent-custom, var(--weq-accent));
+  --weq-accent-solid: var(--weq-accent-effective);
+  --weq-accent-solid-foreground: var(--primary-foreground);
+  --weq-accent-solid-hover: var(--weq-accent-solid);
 }
 
 /* ──────────────────────────────────────────────────────────────────────
@@ -6840,13 +6865,13 @@ html[data-theme='dark'] .weq-set-agent-tag {
   padding: 6px 12px;
   border: 1px solid var(--weq-accent-ink, var(--weq-accent-effective));
   border-radius: 7px;
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground);
   font-size: 13px;
   cursor: pointer;
   transition:
-    filter 140ms ease,
-    background-color 140ms ease;
+    box-shadow 140ms ease,
+    border-color 140ms ease;
 }
 
 .weq-set-btn:hover:not(:disabled) {
@@ -6866,19 +6891,23 @@ html[data-theme='dark'] .weq-set-agent-tag {
 }
 
 .weq-set-btn:disabled {
-  opacity: 0.45;
+  opacity: 1;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  border-color: var(--weq-border-subtle);
   cursor: not-allowed;
 }
 
 /* Destructive action (清理缓存). */
 .weq-set-btn-danger {
-  background: #ef4444;
-  border-color: #ef4444;
-  color: #ffffff;
+  background: var(--weq-danger-solid-background);
+  border-color: var(--weq-danger-solid-background);
+  color: var(--weq-danger-solid-foreground);
 }
 
 .weq-set-btn-danger:hover:not(:disabled) {
-  filter: brightness(1.06);
+  filter: none;
+  background: var(--weq-danger-solid-hover);
 }
 
 /* 账号列表里的「删除」——soft 底 + 红字，比实心 danger 轻，避免整行视觉过重。
@@ -11493,7 +11522,7 @@ html[data-theme='dark'] .weq-forward-bubble {
 .weq-asst-stop-btn {
   background: color-mix(in srgb, var(--weq-danger, #e5484d) 14%, transparent);
   border-color: color-mix(in srgb, var(--weq-danger, #e5484d) 40%, transparent);
-  color: var(--weq-danger, #e5484d);
+  color: var(--weq-fg-primary);
 }
 .weq-asst-stop-btn:hover {
   background: color-mix(in srgb, var(--weq-danger, #e5484d) 22%, transparent);

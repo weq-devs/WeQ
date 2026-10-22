@@ -1,6 +1,6 @@
 /* 背景保留用户原色，文字与必要的描边、焦点单独派生。 */
 html[data-theme] {
-  --weq-chat-mine-ink: var(--primary-foreground);
+  --weq-chat-mine-ink: var(--weq-accent-solid-foreground, var(--primary-foreground));
 }
 
 html[data-theme='dark'] {
@@ -76,8 +76,8 @@ html[data-theme] .weq-set-seg-item {
 }
 
 html[data-theme] .weq-set-seg-item.is-on {
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid, var(--weq-accent-effective));
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   box-shadow: inset 0 0 0 1px var(--weq-accent-ink, var(--weq-fg-primary));
 }
 
@@ -88,20 +88,83 @@ html[data-theme]
   .composer-send-expanded:not(:disabled),
 html[data-theme] .weq-dialog-foot .weq-action-primary,
 html[data-theme] :is(.group-avatar-actions, .group-edit-actions) .primary-button {
-  border-color: var(--weq-accent-ink, var(--weq-accent-effective));
-  background: var(--weq-accent-effective);
-  color: var(--primary-foreground);
+  border: 1px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  background: var(--weq-accent-solid, var(--weq-accent-effective));
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
+  transition-property: box-shadow, border-color;
 }
 
 html[data-theme] :is(.composer-send, .message-action-button.primary):hover:not(:disabled),
 html[data-theme] .weq-dialog-foot .weq-action-primary:hover:not(:disabled) {
-  background: var(--weq-accent-hover, var(--weq-accent-effective));
-  color: var(--primary-foreground);
+  background: var(--weq-accent-solid-hover, var(--weq-accent-effective));
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   transform: none;
 }
 
 html[data-theme] .weq-dialog-info .weq-dialog-icon {
   color: var(--weq-accent-ink, var(--weq-fg-primary));
+}
+
+html[data-theme] .composer-send:disabled,
+html[data-theme]
+  .mobile-composer-expanded
+  .mobile-composer-expanded-tools
+  .composer-send-expanded:disabled {
+  background: var(--muted);
+  color: var(--muted-foreground);
+  opacity: 1;
+  transition-property: box-shadow, border-color;
+}
+
+html[data-theme]
+  :is(
+    .voice-btn.primary,
+    .link-card-btn.primary,
+    .ai-voice-btn.primary,
+    .bounce-btn.primary,
+    .poke-btn.primary,
+    .redpacket-btn.primary,
+    .flash-btn.primary,
+    .weq-mf-primary,
+    .weq-ft-btn-primary
+  ):not(:disabled) {
+  background: var(--weq-accent-solid, var(--weq-accent-effective));
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
+  transition-property: box-shadow, border-color;
+}
+
+html[data-theme]
+  :is(
+    .voice-btn.primary,
+    .link-card-btn.primary,
+    .ai-voice-btn.primary,
+    .bounce-btn.primary,
+    .poke-btn.primary,
+    .redpacket-btn.primary,
+    .flash-btn.primary,
+    .weq-mf-primary,
+    .weq-ft-btn-primary
+  ):hover:not(:disabled) {
+  background: var(--weq-accent-solid-hover, var(--weq-accent-effective));
+  filter: none;
+}
+
+html[data-theme]
+  :is(
+    .voice-btn.primary,
+    .link-card-btn.primary,
+    .ai-voice-btn.primary,
+    .bounce-btn.primary,
+    .poke-btn.primary,
+    .redpacket-btn.primary,
+    .flash-btn.primary,
+    .weq-mf-primary,
+    .weq-ft-btn-primary
+  ):disabled {
+  background: var(--muted);
+  color: var(--muted-foreground);
+  opacity: 1;
+  transition-property: box-shadow, border-color;
 }
 
 @media (max-width: 520px) {
@@ -126,6 +189,9 @@ html[data-theme] .weq-dialog-info .weq-dialog-icon {
   html[data-theme] .contact-row.active .row-main span {
     color: var(--weq-fg-primary);
   }
+  html[data-theme] :is(.conversation-row, .contact-row).active {
+    box-shadow: none;
+  }
   html[data-theme]
     :is(.conversation-row, .contact-row).active
     :is(
@@ -144,6 +210,34 @@ html[data-theme] .weq-dialog-info .weq-dialog-icon {
 
 @media (min-width: 761px) {
   html[data-theme] :is(.conversation-row, .contact-row).active .row-main strong {
-    color: var(--primary-foreground);
+    color: var(--weq-fg-primary);
   }
+}
+
+html[data-theme] .contact-row.active .row-main .contact-card-nickname,
+html[data-theme] .contact-row.active .row-main .contact-card-nickname > span {
+  color: var(--weq-fg-primary);
+}
+
+html[data-theme]
+  :is(.conversation-row, .contact-row)
+  :is(
+    .row-preview-line,
+    .row-meta,
+    .row-muted,
+    .row-hidden,
+    .contact-card-status,
+    .contact-card-signature
+  ) {
+  color: var(--weq-fg-secondary);
+}
+
+html[data-theme] :is(.conversation-row, .contact-row) .row-main strong,
+html[data-theme] .contact-row .row-main .contact-card-nickname {
+  color: var(--weq-fg-primary);
+}
+
+/* 成对切换前景和底色，避免中间帧短暂出现白字浅底。 */
+html[data-theme] .app-shell :is(.conversation-row, .contact-row, .rail-tab) {
+  transition-property: box-shadow, border-color;
 }

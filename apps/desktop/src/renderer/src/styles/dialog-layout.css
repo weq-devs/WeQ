@@ -1,0 +1,55 @@
+.weq-modal.weq-message-modal {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 48px);
+}
+
+.weq-message-modal > .weq-dialog {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.weq-message-modal .weq-dialog-head,
+.weq-message-modal .weq-dialog-foot {
+  flex-shrink: 0;
+}
+
+.weq-message-modal .weq-dialog-head {
+  align-items: start;
+}
+
+.weq-message-modal .weq-dialog-title {
+  min-width: 0;
+  max-height: min(25dvh, 8em);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+.weq-message-modal .weq-dialog-body {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+.weq-message-modal .weq-password-input {
+  flex-shrink: 0;
+}
+
+.weq-message-modal .weq-dialog-foot {
+  flex-wrap: wrap;
+}
+
+.weq-message-modal .weq-dialog-foot button {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 30px;
+  height: auto;
+  padding: 6px 10px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
