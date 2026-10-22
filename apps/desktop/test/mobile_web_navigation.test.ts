@@ -2,6 +2,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MobileWebNavigation } from '../src/renderer/src/components/MobileWebNavigation';
+vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {}, client: {} }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let host: HTMLDivElement;
