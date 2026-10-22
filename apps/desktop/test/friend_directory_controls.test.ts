@@ -17,6 +17,10 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
     available: true,
   }),
 }));
+vi.mock('../src/renderer/src/components/Dialog', () => ({
+  Modal: ({ children }: { children: import('react').ReactNode }) =>
+    h('div', { role: 'dialog' }, children),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({
@@ -99,6 +103,74 @@ it('云端分组读取失败时保留原因和重试，不静默禁用管理入�
     expect(button.dataset.available).toBe('false');
     await act(async () => button.click());
     expect(state.refetch).toHaveBeenCalledOnce();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it.each([
+  { uids: ['u_a'], categoryId: 5 },
+  { uids: ['u_a', 'u_b'], categoryId: 5 },
+  { uids: ['u_a'], categoryId: 0 },
+])('移动分组编辑器提交原选区 $uids 到 $categoryId', async ({ uids, categoryId }) => {
+  function Controls() {
+    const directory = useFriendDirectory();
+    return h('button', { onClick: () => directory?.move(uids) }, '移动分组');
+  }
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() => root.render(h(FriendDirectoryControls, null, h(Controls))));
+    act(() => host.querySelector('button')!.click());
+    const select = host.querySelector('select')!;
+    expect(select).not.toBeNull();
+    expect(host.querySelector<HTMLButtonElement>('[type="submit"]')!.disabled).toBe(true);
+    expect([...select.options].map((option) => option.textContent)).toEqual([
+      '选择分组',
+      '默认',
+      '同学',
+      '朋友',
+    ]);
+    act(() => {
+      select.value = String(categoryId);
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () =>
+      host
+        .querySelector('form')!
+        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+    );
+    expect(state.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: { type: 'move', uids, categoryId },
+      }),
+    );
+    expect(host.querySelector('form')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it('取消移动分组不发送写请求', () => {
+  function Controls() {
+    const directory = useFriendDirectory();
+    return h('button', { onClick: () => directory?.move(['u_a']) }, '移动分组');
+  }
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() => root.render(h(FriendDirectoryControls, null, h(Controls))));
+    act(() => host.querySelector('button')!.click());
+    const cancel = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === '取消',
+    )!;
+    act(() => cancel.click());
+    expect(host.querySelector('form')).toBeNull();
+    expect(state.mutate).not.toHaveBeenCalled();
   } finally {
     act(() => root.unmount());
     host.remove();

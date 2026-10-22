@@ -27,6 +27,7 @@ import {
   BarChart3,
   CloudDownload,
   Download,
+  FolderInput,
 } from 'lucide-react';
 import {
   useCallback,
@@ -1608,6 +1609,17 @@ export function ContactList({
                       conversationDirectory.onEditRemark(
                         conversationRows.find((row) => row.id === actionMenu.contact.id),
                       ),
+                  },
+                ]
+              : []),
+            ...(actionMenu.ids.every((id) => contacts.some((contact) => contact.id === id))
+              ? [
+                  {
+                    label: '移动分组',
+                    icon: <FolderInput size={16} />,
+                    disabled: !friendDirectory?.available || friendDirectory.busy,
+                    reason: friendDirectory?.error,
+                    action: () => friendDirectory?.move(actionMenu.ids),
                   },
                 ]
               : []),

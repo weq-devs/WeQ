@@ -14,6 +14,11 @@ type Operation =
   | { type: 'delete'; id: number; mergeInto?: number }
   | { type: 'sort'; ids: number[] }
   | { type: 'move'; uids: string[]; categoryId: number };
+type Editor = { scope: string } & (
+  | { type: 'create' }
+  | { type: 'rename' | 'delete'; id: number }
+  | { type: 'move'; uids: string[] }
+);
 export const FriendDirectoryContext = createContext<{
   categories: Category[] | null;
   assignments: Map<string, number>;
@@ -23,7 +28,7 @@ export const FriendDirectoryContext = createContext<{
   retry?: () => void;
   create: () => void;
   edit: (type: 'rename' | 'delete', id: number) => void;
-  move: (uids: string[], categoryId: number) => void;
+  move: (uids: string[], categoryId?: number) => void;
   sort: (id: number, target: number | 'first' | 'last') => void;
 } | null>(null);
 
@@ -35,11 +40,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
   current.current = scope;
   const [busy, setBusy] = useState(false);
   const running = useRef(false);
-  const [editor, setEditor] = useState<{
-    scope: string;
-    type: 'create' | 'rename' | 'delete';
-    id?: number;
-  } | null>(null);
+  const [editor, setEditor] = useState<Editor | null>(null);
   const [name, setName] = useState('');
   const [mergeInto, setMergeInto] = useState('');
   const [error, setError] = useState('');
@@ -94,14 +95,17 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
     }
   }
   function edit(type: 'create' | 'rename' | 'delete', id?: number) {
+    if (type !== 'create' && id === undefined) return;
     setName(categories?.find((row) => row.id === id)?.name ?? '');
     setMergeInto('');
     setError('');
-    setEditor({ scope, type, id });
+    if (type === 'create') setEditor({ scope, type });
+    else if (id !== undefined) setEditor({ scope, type, id });
   }
   const activeEditor = editor?.scope === scope ? editor : null;
+  const activeCategoryId = activeEditor && 'id' in activeEditor ? activeEditor.id : undefined;
   const memberCount =
-    roster.data?.friends.filter((row) => row.categoryId === activeEditor?.id).length ?? 0;
+    roster.data?.friends.filter((row) => row.categoryId === activeCategoryId).length ?? 0;
   return (
     <FriendDirectoryContext.Provider
       value={{
@@ -116,7 +120,15 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
         create: () => edit('create'),
         edit,
         move: (uids, categoryId) => {
-          void run({ type: 'move', uids: [...new Set(uids)], categoryId });
+          const targets = [...new Set(uids)];
+          if (!targets.length) return;
+          if (categoryId !== undefined) {
+            void run({ type: 'move', uids: targets, categoryId });
+          } else if (session.available && categories && !roster.error && !running.current) {
+            setMergeInto('');
+            setError('');
+            setEditor({ scope, type: 'move', uids: targets });
+          }
         },
         sort: (id, target) => {
           if (!categories) return;
@@ -145,11 +157,13 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
         >
           <header>
             <h3>
-              {activeEditor.type === 'create'
-                ? '新建分组'
-                : activeEditor.type === 'rename'
-                  ? '重命名分组'
-                  : '删除分组'}
+              {activeEditor.type === 'move'
+                ? '移动分组'
+                : activeEditor.type === 'create'
+                  ? '新建分组'
+                  : activeEditor.type === 'rename'
+                    ? '重命名分组'
+                    : '删除分组'}
             </h3>
             <button
               type="button"
@@ -164,10 +178,18 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              if (activeEditor.type === 'create') void run({ type: 'create', name: name.trim() });
-              else if (activeEditor.id !== undefined && activeEditor.type === 'rename')
+              if (activeEditor.type === 'move') {
+                if (mergeInto !== '')
+                  void run({
+                    type: 'move',
+                    uids: activeEditor.uids,
+                    categoryId: Number(mergeInto),
+                  });
+              } else if (activeEditor.type === 'create')
+                void run({ type: 'create', name: name.trim() });
+              else if (activeEditor.type === 'rename')
                 void run({ type: 'rename', id: activeEditor.id, name: name.trim() });
-              else if (activeEditor.id !== undefined)
+              else
                 void run({
                   type: 'delete',
                   id: activeEditor.id,
@@ -175,7 +197,29 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                 });
             }}
           >
-            {activeEditor.type === 'delete' ? (
+            {activeEditor.type === 'move' ? (
+              <label>
+                将 {activeEditor.uids.length} 位好友移动到
+                <select
+                  autoFocus
+                  required
+                  value={mergeInto}
+                  disabled={busy}
+                  onChange={(event) => setMergeInto(event.target.value)}
+                >
+                  <option value="" disabled>
+                    选择分组
+                  </option>
+                  {[...(categories ?? [])]
+                    .sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity))
+                    .map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            ) : activeEditor.type === 'delete' ? (
               <>
                 <p>删除「{categories?.find((row) => row.id === activeEditor.id)?.name}」？</p>
                 {memberCount > 0 && (
@@ -223,12 +267,20 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                 type="submit"
                 disabled={
                   busy ||
-                  (activeEditor.type !== 'delete' && !name.trim()) ||
+                  ((activeEditor.type === 'create' || activeEditor.type === 'rename') &&
+                    !name.trim()) ||
+                  (activeEditor.type === 'move' && mergeInto === '') ||
                   (activeEditor.type === 'delete' && memberCount > 0 && mergeInto === '')
                 }
               >
                 <Save size={15} />
-                {busy ? '正在处理' : activeEditor.type === 'delete' ? '删除' : '保存'}
+                {busy
+                  ? '正在处理'
+                  : activeEditor.type === 'delete'
+                    ? '删除'
+                    : activeEditor.type === 'move'
+                      ? '移动'
+                      : '保存'}
               </button>
             </footer>
           </form>

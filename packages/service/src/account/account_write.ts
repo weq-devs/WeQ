@@ -254,6 +254,21 @@ export class AccountWriteService {
       }
       if (result.categories !== undefined) categoriesPresent = true;
       for (const row of result.categories ?? []) {
+        // 完整目录之后，QQ 的后续页可能只带默认名称占位，不能覆盖已取得的目录。
+        if (
+          page > 0 &&
+          result.categories?.length === 1 &&
+          row.id === null &&
+          row.name === '我的好友' &&
+          row.buddyCount === null &&
+          row.sortOrder === null &&
+          [...categories.values()].some(
+            (entry) =>
+              entry.id === 0 ||
+              (entry.id === null && entry.buddyCount !== null && entry.sortOrder !== null),
+          )
+        )
+          continue;
         const key = row.id === null ? `missing:${row.name}:${row.sortOrder}` : String(row.id);
         const previous = categories.get(key);
         if (previous && JSON.stringify(previous) !== JSON.stringify(row))

@@ -414,6 +414,18 @@ describe('可接入功能交互回归', () => {
     await act(async () => normal.click());
     expect(other.getAttribute('aria-expanded')).toBe('false');
     expect(normal.getAttribute('aria-expanded')).toBe('true');
+    await act(async () =>
+      f.host
+        .querySelector('.contact-cat-row')!
+        .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 30, clientY: 40 })),
+    );
+    const moveEntry = [...f.host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      (node) => node.textContent === '移动分组',
+    );
+    expect(moveEntry).toBeDefined();
+    await act(async () => moveEntry!.click());
+    expect(move).toHaveBeenCalledWith(['u_a', 'u_b']);
+    move.mockClear();
     expect(special.getAttribute('draggable')).not.toBe('true');
     const transfer = { effectAllowed: 'move', dropEffect: 'move', setData: vi.fn() };
     const drag = (node: HTMLElement, type: string) => {

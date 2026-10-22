@@ -76,6 +76,105 @@ function fixture() {
   };
 }
 describe('好友分组服务编排', () => {
+  // 真实后续页的 tag102 只有 name@2；使用合成好友，不保存真实名册。
+  const continuationDefault = Buffer.from('b2060e120ce68891e79a84e5a5bde58f8b', 'hex');
+  function pagedRoster(pages: Uint8Array[], localName = '自定义默认组') {
+    let page = 0;
+    const sendOidbPacket = vi.fn(async (_pid: number, command: number) => {
+      expect(command).toBe(GetFriendSnsPage.command);
+      return Buffer.from(pages[page++]!);
+    });
+    const service = new AccountWriteService(
+      { sendOidbPacket, sendPacket: async () => Buffer.alloc(0) },
+      {
+        uin: '10001',
+        selfUid: 'u_self',
+        getBuddy: async () => null,
+        listCategories: async () => [{ id: 0, name: localName, buddyCount: 2, sortOrder: 1 }],
+      },
+      () => 1,
+    );
+    return { service, sendOidbPacket };
+  }
+  function firstDirectoryPage(id?: number, buddyCount = 2) {
+    return encode(GetFriendSnsPage.respSchema, {
+      selfUin: 10001n,
+      cookie: Uint8Array.of(1),
+      isEnd: false,
+      friends: [{ uid: 'u_first', uin: 10002n }],
+      categories: [
+        { ...(id === undefined ? {} : { id }), name: '自定义默认组', buddyCount, sortOrder: 1 },
+        { id: 5, name: '朋友', buddyCount: 0, sortOrder: 2 },
+      ],
+    });
+  }
+  function lastRosterPage(directory: Uint8Array = continuationDefault) {
+    return Buffer.concat([
+      encode(GetFriendSnsPage.respSchema, {
+        selfUin: 10001n,
+        isEnd: true,
+        friends: [{ uid: 'u_last', uin: 10003n }],
+      }),
+      directory,
+    ]);
+  }
+  it.each([undefined, 0])('后续页的名称占位不覆盖前页默认组，ID=%s', async (id) => {
+    const middlePages = [2, 3, 4].map((cursor) =>
+      Buffer.concat([
+        encode(GetFriendSnsPage.respSchema, {
+          selfUin: 10001n,
+          cookie: Uint8Array.of(cursor),
+          isEnd: false,
+        }),
+        continuationDefault,
+      ]),
+    );
+    const f = pagedRoster([firstDirectoryPage(id), ...middlePages, lastRosterPage()]);
+    const roster = await f.service.friendRoster();
+    expect(roster.categories).toEqual([
+      { id: 0, idPresent: id !== undefined, name: '自定义默认组', buddyCount: 2, sortOrder: 1 },
+      { id: 5, idPresent: true, name: '朋友', buddyCount: 0, sortOrder: 2 },
+    ]);
+    expect(roster.friends).toHaveLength(2);
+    expect(roster.friends.every((row) => row.categoryId === 0)).toBe(true);
+    expect(f.sendOidbPacket).toHaveBeenCalledTimes(5);
+  });
+  it.each(
+    [
+      [{ name: '未知分组' }],
+      [{ name: '我的好友', buddyCount: 3 }],
+      [{ name: '我的好友', sortOrder: 0 }],
+      [{ name: '我的好友' }, { id: 6, name: '另一个组' }],
+    ].map((categories) => ({ categories })),
+  )('不是已验证的单条名称占位时仍拒绝缺失 ID %#', async ({ categories }) => {
+    const f = pagedRoster([
+      firstDirectoryPage(),
+      lastRosterPage(encode(GetFriendSnsPage.respSchema, { categories })),
+    ]);
+    await expect(f.service.friendRoster()).rejects.toThrow('可确认');
+  });
+  it('名称占位不能掩盖本地默认组不匹配或完整名册人数不符', async () => {
+    const wrongName = pagedRoster([firstDirectoryPage(), lastRosterPage()], '本地不同名');
+    await expect(wrongName.service.friendRoster()).rejects.toThrow('可确认');
+    const wrongCount = pagedRoster([firstDirectoryPage(undefined, 3), lastRosterPage()]);
+    await expect(wrongCount.service.friendRoster()).rejects.toThrow('可确认');
+  });
+  it('第一页的名称记录不能当作后续页占位丢弃', async () => {
+    const f = pagedRoster([lastRosterPage()]);
+    await expect(f.service.friendRoster()).rejects.toThrow('可确认');
+  });
+  it('前页没有默认组依据时不能忽略后续页名称记录', async () => {
+    const f = pagedRoster([
+      encode(GetFriendSnsPage.respSchema, {
+        selfUin: 10001n,
+        cookie: Uint8Array.of(1),
+        isEnd: false,
+        categories: [{ id: 5, name: '朋友' }],
+      }),
+      lastRosterPage(),
+    ]);
+    await expect(f.service.friendRoster()).rejects.toThrow('可确认');
+  });
   it('完整名册中的默认组缺省字段保留存在性，只在同账号目录能唯一关联时恢复操作身份', async () => {
     const sendOidbPacket = async () =>
       Buffer.from(
@@ -101,9 +200,7 @@ describe('好友分组服务编排', () => {
       categories: [{ id: 0, idPresent: false }],
       friends: [{ categoryId: 0, categoryIdPresent: false }],
     });
-    identity.listCategories = async () => [
-      { id: 0, name: '默认', buddyCount: 1, sortOrder: 7 },
-    ];
+    identity.listCategories = async () => [{ id: 0, name: '默认', buddyCount: 1, sortOrder: 7 }];
     expect(await service.friendRoster()).toMatchObject({
       categories: [{ id: 0, idPresent: false, sortOrder: 0 }],
     });
