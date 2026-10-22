@@ -10,6 +10,7 @@ export async function loadConversationEntry<T extends { msgSeq: string }>({
   cached,
   dirty,
   readSeq,
+  readFromFirstUnread = false,
   limit,
   before,
   after,
@@ -21,6 +22,7 @@ export async function loadConversationEntry<T extends { msgSeq: string }>({
   cached?: EntryWindow<T>;
   dirty: boolean;
   readSeq?: string;
+  readFromFirstUnread?: boolean;
   limit: number;
   before: (seq: string, limit: number) => Promise<T[]>;
   after: (seq: string, limit: number) => Promise<T[]>;
@@ -29,6 +31,10 @@ export async function loadConversationEntry<T extends { msgSeq: string }>({
   show: (window: EntryWindow<T>, first: boolean) => void;
   cursor?: (rows: T[]) => string | undefined;
 }): Promise<void> {
+  if (!readFromFirstUnread) {
+    cached = undefined;
+    readSeq = undefined;
+  }
   if (cached?.rows.length === 0) cached = undefined;
   let window = cached;
   if (!window) {

@@ -11,6 +11,7 @@ const cached = (rows: Row[]): EntryWindow<Row> => ({
 });
 function fixture() {
   return {
+    readFromFirstUnread: true,
     dirty: false,
     limit: 2,
     before: vi
@@ -24,6 +25,22 @@ function fixture() {
 }
 
 describe('会话分阶段打开', () => {
+  it.each([false, undefined])('关闭或缺省阅读偏好时忽略旧位置和历史缓存：%s', async (enabled) => {
+    const f = fixture();
+    await loadConversationEntry({
+      ...f,
+      readFromFirstUnread: enabled,
+      readSeq: '10',
+      cached: { ...cached([row('9'), row('10')]), anchored: false, hasNewer: true },
+    });
+    expect(f.latest).toHaveBeenCalledOnce();
+    expect(f.before).not.toHaveBeenCalled();
+    expect(f.after).not.toHaveBeenCalled();
+    expect(f.show).toHaveBeenCalledWith(
+      expect.objectContaining({ rows: [row('11'), row('12')], anchored: true }),
+      true,
+    );
+  });
   it('不等待后续查询，先显示最后已读位置之前的一页', async () => {
     const f = fixture();
     let resolve!: (rows: Row[]) => void;

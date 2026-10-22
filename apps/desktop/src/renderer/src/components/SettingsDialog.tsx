@@ -566,8 +566,13 @@ function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactEleme
   const setShowMessageSeq = trpc.bootstrap.setShowMessageSeq.useMutation();
   const setShowMessageTime = trpc.bootstrap.setShowMessageTime.useMutation();
   const setShowMessageUnreadBadge = trpc.bootstrap.setShowMessageUnreadBadge.useMutation();
+  const setReadFromFirstUnread = trpc.bootstrap.setReadFromFirstUnread.useMutation();
+  const setJumpToLatestAfterSend = trpc.bootstrap.setJumpToLatestAfterSend.useMutation();
+  const setShowGroupAssistantMessageCount =
+    trpc.bootstrap.setShowGroupAssistantMessageCount.useMutation();
   const utils = trpc.useUtils();
   const [badgeError, setBadgeError] = useState<string | null>(null);
+  const [readingError, setReadingError] = useState<string | null>(null);
   const [seqError, setSeqError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(true);
   const [pendant, setPendant] = useState(true);
@@ -704,6 +709,48 @@ function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactEleme
       )}
       {page === 'messages' && (
         <>
+          {[
+            {
+              key: 'readFromFirstUnread' as const,
+              label: '从第一条新消息开始阅读',
+              fallback: false,
+              mutation: setReadFromFirstUnread,
+            },
+            {
+              key: 'jumpToLatestAfterSend' as const,
+              label: '发送消息后定位到最新消息',
+              fallback: true,
+              mutation: setJumpToLatestAfterSend,
+            },
+            {
+              key: 'showGroupAssistantMessageCount' as const,
+              label: '群助手显示总消息数',
+              fallback: false,
+              mutation: setShowGroupAssistantMessageCount,
+            },
+          ].map(({ key, label, fallback, mutation }) => (
+            <div className="weq-settings-appearance-card" key={key}>
+              <div className="weq-settings-appearance-head">
+                <strong>{label}</strong>
+                <Toggle
+                  checked={settings.data?.[key] ?? fallback}
+                  disabled={!settings.data || mutation.isLoading}
+                  onChange={(enabled) => {
+                    setReadingError(null);
+                    mutation.mutate(
+                      { enabled },
+                      {
+                        onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
+                        onError: (error) => setReadingError(error.message),
+                      },
+                    );
+                  }}
+                  label={label}
+                />
+              </div>
+            </div>
+          ))}
+          {readingError ? <p role="alert">{readingError}</p> : null}
           <div className="weq-settings-appearance-card">
             <div className="weq-settings-appearance-head">
               <strong>显示消息汇总红点</strong>

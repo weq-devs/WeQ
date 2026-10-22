@@ -1218,6 +1218,7 @@ export function ChatPane({
   // 下面几个 effect 只该在会话/消息变化时跑，但正文里要调用这些每次渲染都重建的
   // 函数。用 ref 转发拿最新实现，避免把它们塞进依赖导致 effect 每次渲染重跑。
   const scrollMessagesToBottomRef = useRef<() => void>(() => {});
+  const jumpToBottomAndReadRef = useRef<() => Promise<void>>(async () => {});
   const updateUnreadJumpRemainingRef = useRef<() => void>(() => {});
   const scheduleMobileComposerMeasureRef = useRef<(editor?: HTMLElement | null) => void>(() => {});
   const draftRef = useRef(draft);
@@ -2784,7 +2785,9 @@ export function ChatPane({
       const locals = localMedia ? await localMedia : undefined;
       await onSend(payloadBody, locals);
       if (!isCurrentComposer()) return;
-      if (readAfterSend) requestReadAtBottom();
+      if (mediaSettings.data?.jumpToLatestAfterSend !== false)
+        await jumpAfterSuccessfulSend(conversation);
+      else if (readAfterSend) requestReadAtBottom();
 
       // 独立卡片不带走正文；普通发送的正文已交接，回执不能清掉下一条草稿。
       if (singleToken) {
@@ -2898,6 +2901,7 @@ export function ChatPane({
     }
     setPendingQuote(null);
     await onSendFlash(conversation, payload);
+    await jumpAfterSuccessfulSend(conversation);
   }
 
   async function sendArkCard(payload: ArkPayload) {
@@ -2907,6 +2911,7 @@ export function ChatPane({
     // 卡片只能单独发：它顶掉挂着的引用（跟视频 / 文件同一套互斥）。
     setPendingQuote(null);
     await onSendArk(conversation, payload);
+    await jumpAfterSuccessfulSend(conversation);
     setArkOpen(false);
   }
 
@@ -3014,6 +3019,7 @@ export function ChatPane({
     setSending(true);
     try {
       await onSendWindowShake(conversation);
+      await jumpAfterSuccessfulSend(conversation);
     } catch (error) {
       // 应用层已经弹过提示，这里只留一条控制台记录（与 submitMessage 的失败路径一致）。
       console.error('[composer] window shake failed:', error);
@@ -3902,6 +3908,16 @@ export function ChatPane({
   }
   scrollMessagesToBottomRef.current = scrollMessagesToBottom;
 
+  async function jumpAfterSuccessfulSend(sentConversation: Conversation) {
+    if (
+      mediaSettings.data?.jumpToLatestAfterSend === false ||
+      readContextRef.current.conversation?.id !== sentConversation.id ||
+      !readContextRef.current.tabActive
+    )
+      return;
+    await jumpToBottomAndReadRef.current();
+  }
+
   async function jumpToBottomAndRead() {
     if (jumpingToLatest) return;
     if (!atLatest) {
@@ -3930,6 +3946,7 @@ export function ChatPane({
     // 显式跳转后再按最新窗口/账号/可见性守卫发已读，不依赖后续滚动事件。
     requestReadAtBottom();
   }
+  jumpToBottomAndReadRef.current = jumpToBottomAndRead;
 
   function isScrolledToBottom(tolerance = 48) {
     const scroll = messageScrollRef.current;
@@ -4288,6 +4305,7 @@ export function ChatPane({
     setRepeating(true);
     try {
       await onRepeatMessage(message, conversation);
+      await jumpAfterSuccessfulSend(conversation);
     } catch (error) {
       pushToast({
         tone: 'error',

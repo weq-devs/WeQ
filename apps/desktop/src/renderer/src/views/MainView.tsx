@@ -5051,6 +5051,7 @@ export function MainView(): ReactElement {
     }
     const cached =
       messageScope &&
+      displaySettings.data?.readFromFirstUnread === true &&
       selectedUid &&
       (isDirect || isGroup) &&
       pendingSearchJumpRef.current?.conv !== selectedUid
@@ -6993,7 +6994,9 @@ export function MainView(): ReactElement {
         cancelled = true;
       };
     }
-    const cached = conversationWindows.get(conversationWindowKey(scope, kind, conv));
+    const cached = displaySettings.data?.readFromFirstUnread
+      ? conversationWindows.get(conversationWindowKey(scope, kind, conv))
+      : undefined;
     const dirty = Boolean(
       cached &&
         (cached.dirty || cached.revision !== revision || Date.now() - cached.verifiedAt > 30_000),
@@ -7013,9 +7016,11 @@ export function MainView(): ReactElement {
     }
     void (async () => {
       try {
-        const saved = conversationWindows.getPosition(conversationWindowKey(scope, kind, conv));
+        const saved = displaySettings.data?.readFromFirstUnread
+          ? conversationWindows.getPosition(conversationWindowKey(scope, kind, conv))
+          : undefined;
         let readSeq = saved?.anchorSeq;
-        if (!cached && !readSeq) {
+        if (displaySettings.data?.readFromFirstUnread && !cached && !readSeq) {
           try {
             const [info] = await client.account.getUnreadInfos.query({
               ...binding,
@@ -7038,6 +7043,7 @@ export function MainView(): ReactElement {
           cached,
           dirty,
           readSeq,
+          readFromFirstUnread: displaySettings.data?.readFromFirstUnread ?? false,
           limit,
           current: valid,
           cursor: (rows) =>
@@ -7133,6 +7139,7 @@ export function MainView(): ReactElement {
     isGroup,
     centerWindowOnSeq,
     entryChatType,
+    displaySettings.data?.readFromFirstUnread,
     messageScope,
     conversationWindows,
     refreshWindow,
@@ -10034,6 +10041,8 @@ export function MainView(): ReactElement {
                 value={{
                   real: conversations,
                   groupAssistantIds,
+                  showGroupAssistantMessageCount:
+                    displaySettings.data?.showGroupAssistantMessageCount ?? false,
                   loadingError: contacts.error?.message,
                   virtual: virtualRows,
                   locate: conversationLocate,

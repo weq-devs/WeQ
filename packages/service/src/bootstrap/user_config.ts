@@ -541,6 +541,12 @@ export interface AppSettings {
   showMessageTime: boolean;
   /** 左栏「消息」入口显示汇总未读角标，不改变阅读状态。 */
   showMessageUnreadBadge: boolean;
+  /** 进入会话时恢复阅读位置，从第一条新消息继续阅读。 */
+  readFromFirstUnread: boolean;
+  /** 发送成功后定位到当前会话的最新消息。 */
+  jumpToLatestAfterSend: boolean;
+  /** 群助手入口显示汇总未读消息数，而不是仅显示圆点。 */
+  showGroupAssistantMessageCount: boolean;
   /**
    * 外部安卓 chatpic 目录（聊天图片本地 miss 后、CDN 下载前的兜底）。
    * 见 account/chatpic.ts 的寻址与校验。
@@ -767,6 +773,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showMessageSeq: false,
   showMessageTime: false,
   showMessageUnreadBadge: true,
+  readFromFirstUnread: false,
+  jumpToLatestAfterSend: true,
+  showGroupAssistantMessageCount: false,
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
   ssePush: { servers: [], enabledServerId: null, debounceMs: 2000, massThreshold: 50 },
@@ -1267,6 +1276,10 @@ export class UserConfigService {
       showMessageSeq: s?.showMessageSeq ?? d.showMessageSeq,
       showMessageTime: s?.showMessageTime ?? d.showMessageTime,
       showMessageUnreadBadge: s?.showMessageUnreadBadge ?? d.showMessageUnreadBadge,
+      readFromFirstUnread: s?.readFromFirstUnread ?? d.readFromFirstUnread,
+      jumpToLatestAfterSend: s?.jumpToLatestAfterSend ?? d.jumpToLatestAfterSend,
+      showGroupAssistantMessageCount:
+        s?.showGroupAssistantMessageCount ?? d.showGroupAssistantMessageCount,
       externalChatpic: {
         dir: s?.externalChatpic?.dir ?? d.externalChatpic.dir,
         enabled: s?.externalChatpic?.enabled ?? d.externalChatpic.enabled,
@@ -1368,6 +1381,10 @@ export class UserConfigService {
       showMessageSeq: patch.showMessageSeq ?? current.showMessageSeq,
       showMessageTime: patch.showMessageTime ?? current.showMessageTime,
       showMessageUnreadBadge: patch.showMessageUnreadBadge ?? current.showMessageUnreadBadge,
+      readFromFirstUnread: patch.readFromFirstUnread ?? current.readFromFirstUnread,
+      jumpToLatestAfterSend: patch.jumpToLatestAfterSend ?? current.jumpToLatestAfterSend,
+      showGroupAssistantMessageCount:
+        patch.showGroupAssistantMessageCount ?? current.showGroupAssistantMessageCount,
       externalChatpic: {
         dir: patch.externalChatpic?.dir ?? current.externalChatpic.dir,
         enabled: patch.externalChatpic?.enabled ?? current.externalChatpic.enabled,
