@@ -6,6 +6,8 @@ import {
   SetPeerPin,
   SetFriendDisturb,
   GetFriendSnsPage,
+  GetGroupIdentity,
+  SetGroupIdentity,
   SetGroupMessagePolicy,
   SetFriendCategory,
   SetSelfProfile,
@@ -31,7 +33,7 @@ export interface AccountWriteOutcome {
   state: 'confirmed' | 'accepted' | 'unconfirmed' | 'unchanged';
 }
 
-/** 仅编排服务端写操作；不写 QQ 原库、不自动重试。 */
+/** 编排账号操作及配套读回；不写 QQ 原库、不自动重发写请求。 */
 export class AccountWriteService {
   constructor(
     private readonly nt: PacketNative,
@@ -109,6 +111,27 @@ export class AccountWriteService {
       cookies.add(key);
     }
     throw new Error('好友名册分页超过读取上限');
+  }
+
+  async getGroupIdentity(groupId: number) {
+    const pid = this.resolvePid();
+    const result = await GetGroupIdentity.invoke(this.nt, pid, {
+      groupId,
+      memberUin: this.identity.uin,
+    });
+    this.assertCurrentPid(pid);
+    return result;
+  }
+
+  async groupIdentity(groupId: number, titleId: number): Promise<AccountWriteOutcome> {
+    SetGroupIdentity.serialize({ groupId, titleId });
+    const pid = this.resolvePid();
+    const catalog = await this.getGroupIdentity(groupId);
+    this.assertCurrentPid(pid);
+    if (!catalog.titles.some((title) => title.settableId === titleId))
+      throw new Error('该头衔不在当前账号的可选目录中，请重新读取');
+    await SetGroupIdentity.invoke(this.nt, pid, { groupId, titleId });
+    return { state: 'accepted' };
   }
 
   async groupMessagePolicy(

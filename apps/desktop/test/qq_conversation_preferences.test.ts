@@ -27,6 +27,9 @@ const mock = vi.hoisted(() => ({
 vi.mock('../src/renderer/src/components/qq-actions/GroupActions', () => ({
   GroupActions: () => null,
 }));
+vi.mock('../src/renderer/src/components/GroupIdentityControls', () => ({
+  GroupIdentityControls: () => null,
+}));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: (selector: (state: { confirm: () => Promise<boolean> }) => unknown) =>
     selector({ confirm: async () => true }),

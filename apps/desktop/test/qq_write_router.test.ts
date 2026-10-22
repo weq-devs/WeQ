@@ -65,6 +65,15 @@ function fixture() {
       pin: vi.fn(accepted),
       friendDisturb: vi.fn(accepted),
       getFriendDisturb: vi.fn(async (uid: string) => ({ uid, enabled: true })),
+      getGroupIdentity: vi.fn(async (groupId: number) => ({
+        groupId,
+        memberUin: '10001',
+        level: null,
+        titles: [],
+        selectedTitleId: null,
+        selectionKnown: false,
+      })),
+      groupIdentity: vi.fn(accepted),
       groupMessagePolicy: vi.fn(accepted),
       friendCategory: vi.fn(accepted),
       selfProfile: vi.fn(accepted),
@@ -126,6 +135,46 @@ function fixture() {
 }
 
 describe('QQ 写 IPC 边界', () => {
+  it('群展示头衔查询与设置使用当前账号绑定，不允许传入其他成员身份', async () => {
+    const f = fixture();
+    expect(await f.caller.groupIdentityState({ ...binding, groupId: 123 })).toMatchObject({
+      groupId: 123,
+      memberUin: '10001',
+      source: 'qq-server',
+    });
+    await f.caller.groupIdentity({ ...binding, groupId: 123, titleId: 0 });
+    expect(f.services.accountWrite.groupIdentity).toHaveBeenCalledWith(123, 0);
+    await expect(
+      f.caller.groupIdentity({ ...binding, groupId: 123, titleId: 0x100000000 }),
+    ).rejects.toThrow();
+  });
+  it('群展示头衔响应拒绝错群、错成员和在途切号', async () => {
+    const f = fixture();
+    const result = {
+      groupId: 123,
+      memberUin: '10001',
+      level: null,
+      titles: [],
+      selectedTitleId: null,
+      selectionKnown: false,
+    };
+    f.services.accountWrite.getGroupIdentity = vi.fn(async () => ({ ...result, groupId: 456 }));
+    await expect(f.caller.groupIdentityState({ ...binding, groupId: 123 })).rejects.toThrow(
+      '不一致',
+    );
+    f.services.accountWrite.getGroupIdentity = vi.fn(async () => ({
+      ...result,
+      memberUin: '10002',
+    }));
+    await expect(f.caller.groupIdentityState({ ...binding, groupId: 123 })).rejects.toThrow(
+      '不一致',
+    );
+    f.services.accountWrite.getGroupIdentity = vi.fn(async () => {
+      f.switchAccount();
+      return result;
+    });
+    await expect(f.caller.groupIdentityState({ ...binding, groupId: 123 })).rejects.toThrow('切换');
+  });
   it('好友云端免打扰独立使用在线绑定，不回落到本机缓存', async () => {
     const f = fixture();
     expect(await f.caller.friendDisturbState({ ...binding, uid: 'u_peer' })).toEqual({

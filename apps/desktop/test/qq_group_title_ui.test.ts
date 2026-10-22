@@ -2,6 +2,9 @@ import { act, cloneElement, isValidElement, createElement as h, type ReactNode }
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QQConversationControls } from '../src/renderer/src/components/QQConversationControls';
+vi.mock('../src/renderer/src/components/GroupIdentityControls', () => ({
+  GroupIdentityControls: () => null,
+}));
 import { QQGroupMemberControls } from '../src/renderer/src/components/QQGroupMemberControls';
 import { QQGroupMemberEditor } from '../src/renderer/src/components/QQGroupMemberControls';
 import { readFileSync } from 'node:fs';

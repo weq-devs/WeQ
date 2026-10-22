@@ -161,6 +161,12 @@ export { SetFriendCategory } from './oidb/set-friend-category';
 export type { SetFriendCategoryParams } from './oidb/set-friend-category';
 export { GetFriendSnsPage, type FriendSnsPage } from './oidb/get-friend-sns';
 export {
+  GetGroupIdentity,
+  SetGroupIdentity,
+  type GroupIdentitySnapshot,
+  type GroupIdentityTitle,
+} from './oidb/group-identity';
+export {
   SetPeerPin,
   SetFriendDisturb,
   SetGroupMessagePolicy,
