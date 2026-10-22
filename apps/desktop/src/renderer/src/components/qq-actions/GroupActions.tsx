@@ -43,6 +43,9 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
     { ...a.binding!, category: category ?? 0 },
     tagsRefresh,
   );
+  const tagCounts = new Map<string, number>();
+  for (const item of tags.data ?? []) tagCounts.set(item.name, (tagCounts.get(item.name) ?? 0) + 1);
+  const tagRows = [...tagCounts].map(([name, count]) => ({ name, count }));
   return (
     <section className="weq-qq-actions" aria-label="更多 QQ 群操作">
       <div className="weq-group-management-heading">
@@ -121,9 +124,12 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
             {tags.error && <p role="alert">{tags.error.message}</p>}
             <ul className="weq-qq-action-list">
               {category !== null &&
-                tags.data?.map((t) => (
+                tagRows.map((t) => (
                   <li key={t.name}>
-                    <span>{t.name}</span>
+                    <span>
+                      {t.name}
+                      {t.count > 1 ? ` (${t.count} 条)` : ''}
+                    </span>
                     <ActionIcon
                       label="删除分类标签"
                       disabled={a.disabled || category === null}

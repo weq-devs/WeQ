@@ -12,7 +12,7 @@
 //   - 0xfe7_3 → **true**（名单有 `OidbSvcTrpcTcp.0xfe7_3`）
 // 除 0x89a_0 / 0xfe7_3 外都不显式标注，交给 `invokeOidb` 按白名单推导。
 
-import { message } from '../../protobuf';
+import { decode, message } from '../../protobuf';
 import { invokeOidb, type OidbSpec } from '../invoke';
 import { toInt } from '../shared';
 import type { OidbNative } from '../../transport';
@@ -200,9 +200,56 @@ const CHANGE_CATEGORY_TAG_REQ = message([
 const EMPTY_RESP = message([]);
 
 export interface GroupCategoryTag {
-  id: number;
+  id: number | null;
   name: string;
-  type: number;
+  type: number | null;
+}
+
+/** 只校验目录及目录项帧，不把标签名称等任意 bytes 当作嵌套消息。 */
+function validateCategoryDirectory(bytes: Uint8Array, root = true): void {
+  let offset = 0;
+  const seen = new Set<number>();
+  const varint = () => {
+    let value = 0n;
+    for (let i = 0; i < 10; i++) {
+      if (offset >= bytes.length) throw new Error('分类目录回应截断');
+      const byte = bytes[offset++]!;
+      if (i === 9 && byte > 1) throw new Error('分类目录整数越界');
+      value |= BigInt(byte & 0x7f) << BigInt(7 * i);
+      if (!(byte & 0x80)) return value;
+    }
+    throw new Error('分类目录整数越界');
+  };
+  while (offset < bytes.length) {
+    const key = varint();
+    const tag = Number(key >> 3n);
+    const wire = Number(key & 7n);
+    if (tag < 1 || tag > 0x1fffffff) throw new Error('分类目录字段无效');
+    const known = root ? tag === 1 : tag >= 1 && tag <= 3;
+    if (known) {
+      if (wire !== (root || tag === 2 ? 2 : 0)) throw new Error('分类目录字段类型无效');
+      if (!root && seen.has(tag)) throw new Error('分类目录项字段重复');
+      seen.add(tag);
+    }
+    if (wire === 0) {
+      const value = varint();
+      if (known && value > 0xffffffffn) throw new Error('分类目录标识超出 uint32');
+    } else if (wire === 2) {
+      const length = varint();
+      if (length > BigInt(bytes.length - offset)) throw new Error('分类目录回应截断');
+      const end = offset + Number(length);
+      if (root && tag === 1) validateCategoryDirectory(bytes.subarray(offset, end), false);
+      if (!root && tag === 2) {
+        const name = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(offset, end));
+        if (!name.trim()) throw new Error('分类目录项缺少名称');
+      }
+      offset = end;
+    } else if (wire === 1 || wire === 5) {
+      offset += wire === 1 ? 8 : 4;
+      if (offset > bytes.length) throw new Error('分类目录回应截断');
+    } else throw new Error('分类目录 wire 类型不支持');
+  }
+  if (!root && !seen.has(2)) throw new Error('分类目录项缺少名称');
 }
 
 export interface GroupCategoryParams {
@@ -215,6 +262,10 @@ export namespace GetGroupCategoryTags {
   export const subCommand = 0;
   export const reqSchema = GET_CATEGORY_TAGS_REQ;
   export const respSchema = GET_CATEGORY_TAGS_RESP;
+  export function decodeResponseBody(bytes: Uint8Array): Record<string, unknown> {
+    validateCategoryDirectory(bytes);
+    return decode(respSchema, bytes);
+  }
 
   export type Params = GroupCategoryParams;
 
@@ -227,9 +278,9 @@ export namespace GetGroupCategoryTags {
 
   export const deserialize = (body: Record<string, unknown>): GroupCategoryTag[] =>
     ((body.tags as Record<string, unknown>[] | undefined) ?? []).map((tag) => ({
-      id: toInt(tag.id),
+      id: typeof tag.id === 'number' ? tag.id : null,
       name: typeof tag.name === 'string' ? tag.name : '',
-      type: toInt(tag.type),
+      type: typeof tag.type === 'number' ? tag.type : null,
     }));
 
   export const invoke = (

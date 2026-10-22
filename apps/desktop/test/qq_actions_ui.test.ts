@@ -1654,6 +1654,30 @@ describe('QQ 主动操作的实际界面', () => {
     expect(menuButton('退出 QQ 群')).toBeDefined();
     expect(state.mutate).not.toHaveBeenCalled();
   });
+  it('目录同名且未返回数字身份时按操作名称合并显示数量，不产生重复React键', () => {
+    state.data.groupJoinSettings = { groupId: 123, categoryId: 37, categoryName: '合成分类' };
+    state.data.tags = [
+      { id: null, name: '同名目录项', type: null },
+      { id: null, name: '同名目录项', type: null },
+      { id: null, name: '另一目录项', type: null },
+    ];
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const f = fixture(() => h(GroupActions, { groupId: 123 }));
+      expect(f.host.querySelectorAll('.weq-group-tags li')).toHaveLength(2);
+      expect(f.host.textContent).toContain('同名目录项 (2 条)');
+      state.data.tags = [
+        { id: null, name: '同名目录项', type: null },
+        { id: null, name: '另一目录项', type: null },
+      ];
+      f.update();
+      expect(f.host.querySelectorAll('.weq-group-tags li')).toHaveLength(2);
+      expect(f.host.textContent).not.toContain('同名目录项 (2 条)');
+      expect(errors).not.toHaveBeenCalled();
+    } finally {
+      errors.mockRestore();
+    }
+  });
   it('群分类从真实群资料选择，未返回分类不默认为 0 或允许写入', async () => {
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(f.host.querySelector('input[aria-label="群分类编号"]')).toBeNull();
