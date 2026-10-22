@@ -28,7 +28,7 @@
  * this list is the ONLY place to maintain them.
  */
 
-export const REPO = { owner: 'H3CoF6', repo: 'WeQ' } as const;
+export const REPO = { owner: 'weq-devs', repo: 'WeQ' } as const;
 
 /** GitHub "latest release download" directory, proxied through each mirror. */
 const GH_RELEASE_LATEST = `https://github.com/${REPO.owner}/${REPO.repo}/releases/latest/download`;

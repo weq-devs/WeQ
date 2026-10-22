@@ -168,7 +168,7 @@ writeFileSync(
     `native/ 与 resources/daemon/ 只含该平台的原生模块和守护进程二进制。`,
     '其它平台请下载对应的 weq-web-<版本>-<平台>.tar.gz。',
     '',
-    '完整说明： https://github.com/H3CoF6/WeQ/blob/main/apps/web/README.md',
+    '完整说明： https://github.com/weq-devs/WeQ/blob/main/apps/web/README.md',
   ].join('\n'),
 );
 

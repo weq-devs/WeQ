@@ -55,7 +55,6 @@ import { AppLockSection } from './settings/AppLockSection';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
-import { IntentModelsSection } from './settings/IntentModelsSection';
 import { CloneSettingsSection } from './settings/CloneSettingsSection';
 import { InteractionProfileSection } from './settings/InteractionProfileSection';
 import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTranscribeSection';
@@ -243,12 +242,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     ),
   },
   {
-    id: 'local-models',
-    label: '语音识别',
-    icon: <HardDrive size={16} strokeWidth={1.8} />,
-    render: () => <VoiceTranscribeSection />,
-  },
-  {
     id: 'clone-settings',
     label: '好友克隆',
     icon: <Users size={16} />,
@@ -267,12 +260,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '推荐回复',
     icon: <BrainCircuit size={16} strokeWidth={1.8} />,
     render: () => <IntentSenseSection page="suggestions" />,
-  },
-  {
-    id: 'intent-models',
-    label: '意图模型',
-    icon: <BrainCircuit size={16} strokeWidth={1.8} />,
-    render: () => <IntentModelsSection />,
   },
   {
     id: 'intent-sense',
@@ -363,12 +350,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: '日志',
     icon: <ScrollText size={16} />,
     render: () => <HelpSection page="logs" />,
-  },
-  {
-    id: 'tts',
-    label: '语音合成',
-    icon: <AudioLines size={16} />,
-    render: () => <TtsProvidersCard />,
   },
 ];
 

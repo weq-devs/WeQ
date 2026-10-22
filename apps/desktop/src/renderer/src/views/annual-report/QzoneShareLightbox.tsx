@@ -50,8 +50,8 @@ let shareInFlight = false;
 /** 默认分享文案 —— 用户可改。指向项目仓库。 */
 function defaultShareText(year: number): string {
   return year === 0
-    ? '我的全部 QQ 聊天记录报告出炉了，由 WEQ 从本机记录里算出来的。\n也来生成你的：github.com/H3CoF6/WeQ'
-    : `我的 ${year} 年度聊天报告出炉了，由 WEQ 从本机记录里算出来的。\n也来生成你的：github.com/H3CoF6/WeQ`;
+    ? '我的全部 QQ 聊天记录报告出炉了，由 WEQ 从本机记录里算出来的。\n也来生成你的：github.com/weq-devs/WeQ'
+    : `我的 ${year} 年度聊天报告出炉了，由 WEQ 从本机记录里算出来的。\n也来生成你的：github.com/weq-devs/WeQ`;
 }
 
 type UgcRight = 1 | 4 | 64;

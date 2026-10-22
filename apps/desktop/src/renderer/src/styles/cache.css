@@ -89,14 +89,6 @@
   color: var(--weq-accent-effective);
 }
 
-/* 静态账号说明：只有数据库一项时，交代其余资源为何不在这里。 */
-.weq-cache-static-note {
-  margin: 10px 2px 0;
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--weq-fg-muted);
-}
-
 /* 隐藏资源列滚动条（保留滚动）。 */
 .weq-cache-cats-body {
   scrollbar-width: none;
@@ -3351,10 +3343,6 @@ html[data-theme='dark'] .weq-related-stage {
   white-space: nowrap;
 }
 
-.weq-mpack-principle-note {
-  color: var(--weq-fg-muted, #78828f);
-}
-
 /* 密钥计算器入口按钮（信息栏 / 详情头右侧） */
 .weq-mpack-keytool-btn {
   margin-left: auto;
@@ -3471,11 +3459,6 @@ html[data-theme='dark'] .weq-mpack-card:hover {
 html[data-theme='dark'] .weq-mpack-emoji {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
-}
-
-html[data-theme='dark'] .weq-mpack-manual-input {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.12);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -4370,13 +4353,6 @@ html[data-theme='dark'] .weq-filerow-name {
 .weq-ra-tile-label {
   font-size: 11.5px;
   color: var(--weq-fg-muted);
-}
-
-/* 图表卡片区 */
-.weq-ra-charts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 14px;
 }
 
 .weq-ra-card {

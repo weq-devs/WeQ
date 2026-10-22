@@ -1,0 +1,104 @@
+/*
+ * 工作区页面头部（components/PageShell.tsx）。
+ *
+ * 数值来源：styles/page-chrome.css 之前给 9 个页面头统一强制的
+ * `min-height:64px / padding:14px 20px / 底边线 / 页面栏底色`，以及标题 16px/600、
+ * 关闭按钮 32×32。现在由这里唯一定义，页面自己的 `weq-xxx-head` 不再参与。
+ */
+
+.weq-page-head {
+  --weq-page-head-bar: color-mix(in srgb, var(--weq-bg-surface) 82%, transparent);
+  box-sizing: border-box;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  min-height: 64px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  background: var(--weq-page-head-bar);
+  color: var(--weq-fg-primary);
+}
+
+html[data-theme='dark'] .weq-page-head {
+  --weq-page-head-bar: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
+}
+
+.weq-page-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: color-mix(in srgb, var(--weq-accent-effective) 45%, var(--weq-fg-primary));
+}
+
+.weq-page-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+}
+
+.weq-page-meta {
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-page-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.weq-page-back,
+.weq-page-close {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-page-back:hover,
+.weq-page-close:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-page-back:focus-visible,
+.weq-page-close:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+@media (max-width: 650px) {
+  .weq-page-head {
+    min-height: 56px;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-page-back,
+  .weq-page-close {
+    transition: none;
+  }
+}

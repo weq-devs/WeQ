@@ -593,21 +593,6 @@ html[data-theme='dark'] .weq-intent-popover {
   flex-shrink: 0;
 }
 
-.weq-int-select {
-  min-width: 220px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--weq-border-subtle);
-  background: var(--weq-bg-surface);
-  color: var(--weq-fg-primary);
-  font-size: 12px;
-}
-
-html[data-theme='dark'] .weq-int-select {
-  border-color: var(--weq-border-strong);
-  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
-}
-
 .weq-int-download {
   display: grid;
   gap: 8px;
@@ -644,45 +629,6 @@ html[data-theme='dark'] .weq-int-select {
 .weq-int-download-btn:disabled {
   opacity: 0.6;
   cursor: default;
-}
-
-.weq-int-mirror {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  color: var(--weq-fg-secondary, #666);
-  cursor: pointer;
-}
-
-.weq-int-progress {
-  display: grid;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--weq-fg-secondary, #666);
-}
-
-.weq-int-progress-bar {
-  height: 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-fg-muted) 22%, transparent);
-  overflow: hidden;
-  position: relative;
-}
-
-.weq-int-progress-bar::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  width: inherit;
-  border-radius: 999px;
-  background: var(--weq-accent-effective, #12a8ff);
-  transition: width 200ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.weq-int-progress em {
-  font-style: normal;
-  opacity: 0.75;
 }
 
 /* 窄屏：头部工具按钮会被撑成 36px 圆形，文字胶囊会把标题挤没，

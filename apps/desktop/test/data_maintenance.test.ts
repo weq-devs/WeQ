@@ -117,7 +117,9 @@ describe('设置的数据与维护', () => {
       );
       expect(help).toBeDefined();
       act(() => help!.click());
-      expect(f.host.querySelector('.weq-settings-body')?.textContent).toBe('帮助子页面');
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        '版本与更新',
+      );
       expect(f.host.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
       expect(f.host.querySelectorAll('[role="dialog"], [aria-modal="true"]')).toHaveLength(0);
     } finally {
@@ -300,7 +302,7 @@ describe('设置的数据与维护', () => {
         }
         expect(document.querySelectorAll('[aria-modal="true"]')).toHaveLength(0);
         // 所有维护子页统一右上角关闭按钮，不再有左上角返回箭头。
-        expect(document.querySelector('.weq-maintenance-head')?.textContent ?? '').not.toContain(
+        expect(document.querySelector('.weq-page-head')?.textContent ?? '').not.toContain(
           '返回数据与维护',
         );
         const back = [...document.querySelectorAll<HTMLButtonElement>('button')].find(

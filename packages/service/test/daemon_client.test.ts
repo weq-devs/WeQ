@@ -107,7 +107,7 @@ describe('daemon 客户端请求帧形状', () => {
     fake = await startFakeDaemon({
       res: 'release_watch_status',
       watching: true,
-      repo: 'H3CoF6/WeQ',
+      repo: 'weq-devs/WeQ',
       interval_secs: 3600,
       current_version: '1.0.0',
       latest_seen: null,
@@ -118,7 +118,7 @@ describe('daemon 客户端请求帧形状', () => {
     const result = await daemonReleaseWatchStart(
       {
         api_base: 'https://api.github.com',
-        repo: 'H3CoF6/WeQ',
+        repo: 'weq-devs/WeQ',
         interval_secs: 3600,
         current_version: '1.0.0',
       },
@@ -130,7 +130,7 @@ describe('daemon 客户端请求帧形状', () => {
       {
         cmd: 'release_watch_start',
         api_base: 'https://api.github.com',
-        repo: 'H3CoF6/WeQ',
+        repo: 'weq-devs/WeQ',
         interval_secs: 3600,
         current_version: '1.0.0',
       },
@@ -138,7 +138,7 @@ describe('daemon 客户端请求帧形状', () => {
     // 收敛成纯载荷：不带协议层的 res 字段，字段名原样。
     expect(result).toEqual({
       watching: true,
-      repo: 'H3CoF6/WeQ',
+      repo: 'weq-devs/WeQ',
       interval_secs: 3600,
       current_version: '1.0.0',
       latest_seen: null,
@@ -151,7 +151,7 @@ describe('daemon 客户端请求帧形状', () => {
     fake = await startFakeDaemon({
       res: 'release_watch_status',
       watching: true,
-      repo: 'H3CoF6/WeQ',
+      repo: 'weq-devs/WeQ',
       interval_secs: 3600,
       current_version: '1.0.0',
       latest_seen: '1.1.0',
@@ -179,7 +179,7 @@ describe('daemon 客户端请求帧形状', () => {
     const result = await daemonReleaseWatchStart(
       {
         api_base: 'https://api.github.com',
-        repo: 'H3CoF6/WeQ',
+        repo: 'weq-devs/WeQ',
         interval_secs: 3600,
         current_version: '1.0.0',
       },

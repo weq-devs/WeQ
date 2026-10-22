@@ -56,11 +56,7 @@
 .weq-group-todos > .group-info-heading {
   flex-shrink: 0;
 }
-.weq-group-todos-body {
-  min-height: 0;
-  overflow: auto;
-  padding: 0 14px;
-}
+
 .weq-group-todos-body > .weq-qq-actions {
   margin: 0;
   padding: 0;
@@ -75,9 +71,7 @@
   width: 26px;
   height: 26px;
 }
-.weq-group-todos-body p {
-  margin: 4px 0;
-}
+
 .weq-group-sections > .weq-group-content-actions {
   padding-top: 0;
 }

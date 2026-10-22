@@ -246,21 +246,6 @@
   stroke: var(--weq-accent-effective);
 }
 
-/* 二级菜单：贴在扇区外侧的竖排列表，选中后直接进入对应子工具。 */
-.weq-tools-child-menu {
-  pointer-events: auto;
-  position: absolute;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 6px;
-  border: 1px solid var(--weq-border-strong);
-  border-radius: 12px;
-  background: var(--weq-bg-surface);
-  box-shadow: var(--weq-shadow-card);
-  animation: weq-tools-child-open 130ms ease-out;
-}
 .weq-tools-child-menu.is-left {
   animation-name: weq-tools-child-open-left;
 }
@@ -282,52 +267,6 @@
   to {
     opacity: 1;
     transform: translateX(0);
-  }
-}
-.weq-tools-child-head {
-  display: block;
-  padding: 4px 8px 6px;
-  color: var(--weq-fg-muted);
-  font-size: 11px;
-  letter-spacing: 0.02em;
-}
-.weq-tools-child-menu > button {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  height: 30px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--weq-fg-primary);
-  font-size: 12.5px;
-  text-align: left;
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.weq-tools-child-menu > button:hover,
-.weq-tools-child-menu > button:focus-visible {
-  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
-  color: var(--weq-accent-effective);
-  outline: none;
-}
-.weq-tools-child-icon {
-  display: grid;
-  place-items: center;
-  flex: none;
-  opacity: 0.85;
-}
-html[data-theme='dark'] .weq-tools-child-menu {
-  background: var(--weq-bg-surface);
-  border-color: var(--weq-border-strong);
-}
-@media (prefers-reduced-motion: reduce) {
-  .weq-tools-child-menu {
-    animation: none;
   }
 }
 
@@ -568,20 +507,7 @@ html[data-theme='dark'] .weq-tools-child-menu {
   min-width: 0;
   flex-wrap: nowrap;
 }
-.weq-exp-pane-icon {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  color: var(--weq-accent-effective);
-  background: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
-}
-.weq-exp-pane-icon > svg {
-  width: 16px;
-  height: 16px;
-}
+
 .weq-exp-pane-heading {
   display: flex;
   flex-direction: column;

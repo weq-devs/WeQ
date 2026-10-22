@@ -168,7 +168,7 @@ describe('设置归位后的实际页面', () => {
   it('常规不再混入账号、缓存、日志；二级页仅呈现对应配置', () => {
     const f = mount('global');
     try {
-      expect(f.host.querySelectorAll('.weq-settings-nav-item')).toHaveLength(10);
+      expect(f.host.querySelectorAll('.weq-settings-nav-item')).toHaveLength(12);
       for (const title of ['现有配置', '缓存目录', '日志保留时长', '导出保存目录'])
         expect(f.body().textContent).not.toContain(title);
       expect(f.host.querySelector('.weq-settings-scope')).toBeNull();

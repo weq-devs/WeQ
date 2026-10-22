@@ -16,7 +16,6 @@ import type { RedPacketDraft } from './redPacketPanel';
 import { ToolDetailPane } from './toolsPane';
 import type { ComposerActionRegistry } from './composerActions';
 import type { ConversationDetailActionRegistry } from './conversationDetailActions';
-import type { GroupUpdateInput } from './conversationDetails';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
 import type { MessageRenderer } from './messageRenderers';
 import type { ProfileActionRegistry } from './profileActions';
@@ -64,16 +63,8 @@ export function ChatMainContent({
   conversationPrefs,
   drafts,
   query = '',
-  onAcceptContactRequest: _onAcceptContactRequest,
-  onRejectContactRequest: _onRejectContactRequest,
-  onAcceptGroupRequest: _onAcceptGroupRequest,
-  onRejectGroupRequest: _onRejectGroupRequest,
-  onMessageContact: _onMessageContact,
-  onMessageGroup: _onMessageGroup,
   onBackContact,
   onBackGroup,
-  onUpdateConversationPreference: _onUpdateConversationPreference,
-  onUpdateGroup: _onUpdateGroup,
   onLoadMoreGroupMembers,
   groupMembersLoading,
   groupMembersError,
@@ -82,7 +73,6 @@ export function ChatMainContent({
   onLoadMoreGroupMemberSearch,
   profileLoading,
   sendAvailable,
-  onOpenNotificationSettings: _onOpenNotificationSettings,
   onSend,
   onRepeatMessage,
   onResolveMentions,
@@ -160,20 +150,8 @@ export function ChatMainContent({
   conversationPrefs: Record<string, ConversationPreference>;
   drafts: ConversationDrafts;
   query?: string;
-  onAcceptContactRequest: (requestId: string) => Promise<void>;
-  onRejectContactRequest: (requestId: string) => Promise<void>;
-  onAcceptGroupRequest: (requestId: string) => Promise<void>;
-  onRejectGroupRequest: (requestId: string) => Promise<void>;
-  onMessageContact: (contact: Contact) => Promise<void>;
-  onMessageGroup: (conversationId: string) => Promise<void>;
   onBackContact: () => void;
   onBackGroup: () => void;
-  onUpdateConversationPreference: (
-    conversationId: string,
-    key: keyof ConversationPreference,
-    value: boolean,
-  ) => void;
-  onUpdateGroup: (conversationId: string, input: GroupUpdateInput) => Promise<void>;
   onLoadMoreGroupMembers?: () => void;
   groupMembersLoading?: boolean;
   groupMembersError?: string | null;
@@ -187,7 +165,6 @@ export function ChatMainContent({
   profileLoading?: boolean;
   /** 当前账号是否有可用于发消息的、在线且允许注入的 QQ 实例。 */
   sendAvailable?: boolean;
-  onOpenNotificationSettings: () => void;
   onSend: (body: string, locals?: LocalMediaRef[]) => Promise<void>;
   onRepeatMessage?: (message: Message, conversation: Conversation) => Promise<void>;
   onResolveMentions?: (

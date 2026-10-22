@@ -7,9 +7,9 @@ import {
   HardDrive,
   KeyRound,
   Trash2,
-  X,
 } from 'lucide-react';
 import { WorkspacePage } from '../WorkspacePages';
+import { PageShell } from '../PageShell';
 import type { DbRepairAccountOption } from '../DbRepairPanel';
 import { DbRepairWindowRequest } from '../DbRepairWindow';
 import { CacheView } from '../../views/cache/CacheView';
@@ -124,28 +124,22 @@ export function DataMaintenanceDialog({
   return (
     <WorkspacePage title={label} onClose={onClose}>
       <div className="weq-maintenance-dialog" role="region" aria-labelledby="weq-maintenance-title">
-        <button
-          type="button"
-          className="weq-maintenance-close"
-          onClick={onClose}
-          aria-label="关闭"
-          title="关闭"
+        <PageShell
+          title={label}
+          titleId="weq-maintenance-title"
+          meta={account.name || account.uin}
+          onClose={onClose}
         >
-          <X size={18} strokeWidth={2} />
-        </button>
-        <header className="weq-maintenance-head">
-          <h2 id="weq-maintenance-title">{label}</h2>
-          <span>{account.name || account.uin}</span>
-        </header>
-        <div className={`weq-maintenance-body${flush ? ' is-flush' : ''}`}>
-          {tool === 'cache' ? (
-            <CacheView />
-          ) : tool === 'database' ? (
-            <DbExplorer />
-          ) : tool === 'db-decrypt' ? (
-            <ExportTool initialMode="database" lockMode />
-          ) : null}
-        </div>
+          <div className={`weq-maintenance-body${flush ? ' is-flush' : ''}`}>
+            {tool === 'cache' ? (
+              <CacheView />
+            ) : tool === 'database' ? (
+              <DbExplorer />
+            ) : tool === 'db-decrypt' ? (
+              <ExportTool initialMode="database" lockMode />
+            ) : null}
+          </div>
+        </PageShell>
       </div>
     </WorkspacePage>
   );

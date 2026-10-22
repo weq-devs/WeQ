@@ -64,7 +64,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # nt_helper.node 与装扮资源 *.dat 不入库：打包前从 H3CoF6/nt_helper_release
+      # nt_helper.node 与装扮资源 *.dat 不入库：打包前从 weq-devs/nt_helper_release
       # 取最新的一份（脚本默认只取本 runner 的平台，再带上三个 .dat —— 它们同源，
       # 不能混版本）。--require-fresh 卡住 30 天有效期，--verify 当场 require 一次
       # 跑 getInitStatus()，二进制有问题在这里就炸，而不是出厂后才发现。

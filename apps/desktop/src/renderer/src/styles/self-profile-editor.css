@@ -94,11 +94,7 @@
   min-height: 100px;
   max-height: 240px;
 }
-.weq-self-profile-feedback {
-  min-height: 20px;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
+
 .weq-self-profile-feedback .weq-qq-write-result {
   margin: 4px 0;
 }

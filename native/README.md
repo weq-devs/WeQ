@@ -4,7 +4,7 @@
 
 | 路径 | 是否入库 | 从哪来 | 怎么更新 |
 | --- | --- | --- | --- |
-| `<platform>/<arch>/nt_helper.node` | **不入库** | 私仓 `H3CoF6/nt_helper`（Rust/napi-rs）构建后发布到公开仓 [`H3CoF6/nt_helper_release`](https://github.com/H3CoF6/nt_helper_release) | `pnpm native:fetch`（取 `pinned.json` 锚定的 tag；dev）/ release 流水线打包前自动取 |
+| `<platform>/<arch>/nt_helper.node` | **不入库** | 私仓 `weq-devs/nt_helper`（Rust/napi-rs）构建后发布到公开仓 [`weq-devs/nt_helper_release`](https://github.com/weq-devs/nt_helper_release) | `pnpm native:fetch`（取 `pinned.json` 锚定的 tag；dev）/ release 流水线打包前自动取 |
 | `<platform>/<arch>/ninebird/*` | 入库 | 同一个私仓的 NineBird 构建，手工同步 | 手工换成新构建再提交 |
 
 ## 布局约定（加载器与 nt_helper 内部都按这个找文件）

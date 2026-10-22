@@ -384,39 +384,6 @@
   border-color: var(--weq-accent-effective);
 }
 
-.weq-analysis-empty {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 28px;
-  border: 1px dashed var(--weq-border-strong);
-  border-radius: 12px;
-  text-align: center;
-  color: var(--weq-fg-secondary);
-}
-.weq-analysis-empty-icon {
-  display: grid;
-  place-items: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
-  color: var(--weq-accent-effective);
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-}
-.weq-analysis-empty strong {
-  font-size: 13.5px;
-  color: var(--weq-fg-primary);
-}
-.weq-analysis-empty p {
-  margin: 0;
-  max-width: 320px;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
 .weq-analysis-locked-target {
   display: flex;
   flex: 1;

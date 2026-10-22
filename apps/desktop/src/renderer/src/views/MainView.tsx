@@ -250,7 +250,6 @@ import {
   type GroupJoinRequest,
   type GroupMember,
   type GroupNoticeHandleState,
-  type GroupUpdateInput,
   type ArkContactSource,
   type ArkLocationProvider,
   type ArkPayload,
@@ -9314,19 +9313,8 @@ export function MainView(): ReactElement {
                           conversationPrefs={conversationPrefs}
                           drafts={drafts}
                           query={shell.query}
-                          onAcceptContactRequest={noopAsync}
-                          onRejectContactRequest={noopAsync}
-                          onAcceptGroupRequest={noopAsync}
-                          onRejectGroupRequest={noopAsync}
-                          onMessageContact={noopAsync}
-                          onMessageGroup={noopAsync}
                           onBackContact={shell.backContact}
                           onBackGroup={shell.backGroup}
-                          onUpdateConversationPreference={updateConversationPreference}
-                          onUpdateGroup={async (
-                            _conversationId: string,
-                            _input: GroupUpdateInput,
-                          ) => undefined}
                           onLoadMoreGroupMembers={requestMoreGroupMembers}
                           groupMembersLoading={selectedGroupMembersLoading}
                           groupMembersError={selectedGroupMembersError}
@@ -9335,7 +9323,6 @@ export function MainView(): ReactElement {
                           onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
                           profileLoading={groupDetail.isLoading}
                           sendAvailable={sendAvailable}
-                          onOpenNotificationSettings={noopAsync}
                           onSend={sendComposerMessage}
                           onRepeatMessage={repeatMessage}
                           onResolveMentions={resolveMentions}

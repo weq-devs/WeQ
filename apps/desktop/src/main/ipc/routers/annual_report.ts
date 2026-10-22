@@ -135,7 +135,7 @@ function buildShareOverlay(nick: string, avatar?: Buffer): string {
     }
   </style>
   <div class="weq-shot-share">${face}${name}</div>
-  <div class="weq-shot-sign">来自 WEQ · github.com/H3CoF6/WeQ</div>`;
+  <div class="weq-shot-sign">来自 WEQ · github.com/weq-devs/WeQ</div>`;
 }
 
 const reportExportInput = z.object({
