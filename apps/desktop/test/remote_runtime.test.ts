@@ -40,9 +40,13 @@ describe('远程服务的故障关闭', () => {
       );
       await setImmediate();
       expect(runtime.status().network.state).toBe('online');
-      const invite = runtime.pairing.invite();
+      const invite = await runtime.invite();
+      const pairingURL = new URL(invite.pairingURL);
+      expect(pairingURL.protocol).toBe('weq-remote:');
+      expect(pairingURL.searchParams.get('endpoint')).toBe('http://100.64.0.10:7691');
+      expect(invite.qr).toMatch(/^data:image\/png;base64,/);
       const request = runtime.pairing.claim({
-        invitation: invite.secret,
+        invitation: pairingURL.searchParams.get('invitation')!,
         name: '手机',
         tokenHash: tokenHash('a'.repeat(64)),
       });

@@ -124,6 +124,7 @@ export class RemoteRuntime {
     url.searchParams.set('invitation', invite.secret);
     return {
       expiresAt: invite.expiresAt,
+      pairingURL: url.toString(),
       qr: await QRCode.toDataURL(url.toString(), {
         width: 240,
         margin: 4,

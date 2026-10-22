@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Check,
+  Copy,
   ExternalLink,
   MonitorSmartphone,
   QrCode,
@@ -38,9 +39,10 @@ export function RemotePanel({
   onInvite,
   onDecide,
   onRevoke,
+  onCopy,
 }: {
   data?: RemoteStatus;
-  qr: { qr: string; expiresAt: number } | null;
+  qr: { qr: string; expiresAt: number; pairingURL?: string } | null;
   busy: boolean;
   error: string | null;
   onToggle: (enabled: boolean) => void;
@@ -48,6 +50,7 @@ export function RemotePanel({
   onInvite: () => void;
   onDecide: (id: string, approve: boolean) => void;
   onRevoke: (id: string) => void;
+  onCopy?: () => void;
 }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -126,6 +129,12 @@ export function RemotePanel({
               <h4>等待手机扫码</h4>
               <p>有效期剩余 {Math.max(0, Math.ceil((qr.expiresAt - now) / 1000))} 秒</p>
               <p>扫码后将在此电脑确认设备。</p>
+              {qr.pairingURL && onCopy ? (
+                <button type="button" className="weq-set-btn" disabled={busy} onClick={onCopy}>
+                  <Copy size={14} />
+                  复制配对链接
+                </button>
+              ) : null}
             </div>
           </div>
         ) : (

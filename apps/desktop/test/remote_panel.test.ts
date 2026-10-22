@@ -105,4 +105,26 @@ describe('电脑端远程连接面板', () => {
     await render(base, { qr });
     expect(container.querySelector('img')).toBeNull();
   });
+
+  it('只有有效邀请才展示复制配对链接入口', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    const onCopy = vi.fn();
+    const qr = {
+      qr: 'data:image/png;base64,fixture',
+      expiresAt: 3000,
+      pairingURL: 'weq-remote://pair?fixture=ui-only',
+    };
+    await render({ ...base, invitationExpiresAt: 3000 }, { qr, onCopy });
+    const button = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('复制配对链接'),
+    );
+    expect(button).toBeDefined();
+    await act(async () => button?.click());
+    expect(onCopy).toHaveBeenCalledOnce();
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(container.textContent).not.toContain('复制配对链接');
+  });
 });

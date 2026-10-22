@@ -9,7 +9,7 @@ export function RemoteSection() {
   const invite = trpc.remote.invite.useMutation();
   const decide = trpc.remote.decide.useMutation();
   const revoke = trpc.remote.revoke.useMutation();
-  const [qr, setQr] = useState<{ qr: string; expiresAt: number } | null>(null);
+  const [qr, setQr] = useState<{ qr: string; expiresAt: number; pairingURL?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const busy =
     toggle.isLoading || login.isLoading || invite.isLoading || decide.isLoading || revoke.isLoading;
@@ -44,6 +44,11 @@ export function RemoteSection() {
       }
       onDecide={(id, approve) => void act(() => decide.mutateAsync({ id, approve }))}
       onRevoke={(id) => void act(() => revoke.mutateAsync({ id }))}
+      onCopy={() =>
+        void act(async () => {
+          if (qr?.pairingURL) await navigator.clipboard.writeText(qr.pairingURL);
+        })
+      }
     />
   );
 }
