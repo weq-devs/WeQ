@@ -3,6 +3,7 @@ import { applicationToolPopupOptions } from './tool_window';
 import { floatingWindowTypeOption, ozoneRelaunchArgs } from './linux_window_backend';
 import {
   app,
+  autoUpdater,
   BrowserWindow,
   clipboard,
   ClipboardItem,
@@ -59,6 +60,7 @@ import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
 import { createMainWindowLifecycle } from './main_window_lifecycle';
+import { registerAppQuitPreparation } from './app_quit_lifecycle';
 import { createRendererRecovery } from './renderer_recovery';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
 import { macApplicationMenu, nativeMenuLabels } from './application_menu';
@@ -790,7 +792,7 @@ app.on('window-all-closed', () => {
 
 // A real quit is underway (tray「退出」/ 确认框「完全退出」/ Cmd+Q / OS shutdown):
 // flip the flag so the `close` handler stops intercepting, and drop the tray.
-app.on('before-quit', () => {
+registerAppQuitPreparation(app, autoUpdater, () => {
   isQuitting = true;
   stopRendererDiagnostics?.();
   stopRendererDiagnostics = null;

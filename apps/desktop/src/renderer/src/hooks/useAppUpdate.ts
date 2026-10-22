@@ -9,7 +9,7 @@
  * 走 `update.onProgress` / `update.onEvent` 订阅。dev（未打包）下只能检查。
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { trpc, client } from '../trpc/client';
 import { useDialog } from '../components/Dialog';
 
@@ -20,6 +20,7 @@ export type UpdatePhase =
   | 'available'
   | 'downloading'
   | 'downloaded'
+  | 'installing'
   | 'error';
 
 export interface UpdateProgress {
@@ -84,6 +85,7 @@ export function useAppUpdate(): AppUpdate {
   const [progress, setProgress] = useState<UpdateProgress | null>(null);
   const [mirror, setMirror] = useState<string | null>(null);
   const [mirrorCount, setMirrorCount] = useState<number | null>(null);
+  const installPending = useRef(false);
 
   const isDev = version.data?.isDev ?? false;
   const current = version.data?.app ?? state.data?.current ?? '';
@@ -119,13 +121,19 @@ export function useAppUpdate(): AppUpdate {
           setPhase((p) => (p === 'checking' ? (e.hasUpdate ? 'available' : 'uptodate') : p));
         } else if (e.kind === 'available') {
           setLatest(e.latest);
-          setPhase((p) => (p === 'downloading' || p === 'downloaded' ? p : 'available'));
+          setPhase((p) =>
+            p === 'downloading' || p === 'downloaded' || p === 'installing' ? p : 'available',
+          );
         } else if (e.kind === 'downloaded') {
           setProgress(null);
-          setPhase('downloaded');
+          setPhase((p) => (p === 'installing' ? p : 'downloaded'));
+        } else if (e.kind === 'installing') {
+          installPending.current = true;
+          setPhase('installing');
         } else if (e.kind === 'error') {
+          installPending.current = false;
           setProgress(null);
-          setPhase((p) => (p === 'downloading' ? 'error' : p));
+          setPhase((p) => (p === 'installing' ? 'downloaded' : p === 'downloading' ? 'error' : p));
           showError('更新失败', e.message);
         }
       },
@@ -167,10 +175,16 @@ export function useAppUpdate(): AppUpdate {
   }, [downloadMut, showError]);
 
   const install = useCallback(async (): Promise<void> => {
+    if (installPending.current) return;
+    installPending.current = true;
+    setPhase('installing');
     try {
       await installMut.mutateAsync();
     } catch (e) {
-      showError('安装失败', errMsg(e));
+      const needsError = installPending.current;
+      installPending.current = false;
+      setPhase('downloaded');
+      if (needsError) showError('安装失败', errMsg(e));
     }
   }, [installMut, showError]);
 

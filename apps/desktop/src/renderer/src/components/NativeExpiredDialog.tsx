@@ -111,7 +111,12 @@ export function NativeExpiredDialog({
                 </span>
               </div>
               <div className="weq-set-row-ctrl">
-                {phase === 'downloaded' ? (
+                {phase === 'installing' ? (
+                  <button type="button" className="weq-set-btn" disabled aria-busy="true">
+                    <Loader2 size={14} strokeWidth={2} className="weq-spin" aria-hidden />
+                    正在重启…
+                  </button>
+                ) : phase === 'downloaded' ? (
                   <button type="button" className="weq-set-btn" onClick={() => void install()}>
                     <RotateCw size={14} strokeWidth={1.8} aria-hidden />
                     重启并安装
