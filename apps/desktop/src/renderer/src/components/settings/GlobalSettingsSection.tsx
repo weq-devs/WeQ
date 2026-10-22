@@ -17,6 +17,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import {
   Cloud,
+  ChevronRight,
   FolderOpen,
   HardDrive,
   Loader2,
@@ -37,6 +38,7 @@ import { Card, Row, SectionHeader, Toggle } from './controls';
 import { ToastSettingsCard } from './ToastSettingsCard';
 import { TypingStatusSettingsCard } from './TypingStatusSettingsCard';
 import { DesktopOnly, IS_WEB } from '../../lib/target';
+import { groupRetainedStorage } from '../../lib/storage-groups';
 import '../../styles/save-preferences.css';
 import '../../styles/storage-management.css';
 
@@ -143,7 +145,10 @@ export function GlobalSettingsSection({
   const clearWeqCache = trpc.bootstrap.clearWeqCache.useMutation();
   const [pickedCats, setPickedCats] = useState<Set<string>>(new Set());
   const cacheItems = cacheUsage.data ?? [];
-  const clearableItems = cacheItems.filter((item) => item.clearable);
+  const clearableItems = cacheItems.filter(
+    (item) => item.clearable && (item.bytes > 0 || item.incomplete),
+  );
+  const retainedGroups = groupRetainedStorage(cacheItems);
   const totalCacheBytes = cacheItems.reduce((sum, it) => sum + it.bytes, 0);
   const clearableBytes = clearableItems.reduce((sum, it) => sum + it.bytes, 0);
   const selectedItems = clearableItems.filter((item) => pickedCats.has(item.id));
@@ -653,68 +658,7 @@ export function GlobalSettingsSection({
       {/* WeQ 存储管理 */}
       {section === 'storage' && (
         <Card title="WeQ 存储管理">
-          <div className="weq-set-cache-list" {...cacheMulti.rootProps}>
-            {cacheUsage.isLoading ? (
-              <div className="weq-set-empty" role="status">
-                读取存储占用中…
-              </div>
-            ) : cacheUsage.isError ? (
-              <div className="weq-set-empty" role="alert">
-                读取存储占用失败：{errMsg(cacheUsage.error)}
-              </div>
-            ) : cacheItems.length === 0 ? (
-              <div className="weq-set-empty">暂无存储数据</div>
-            ) : (
-              [
-                { title: '可清理缓存', items: clearableItems },
-                { title: '保留数据', items: cacheItems.filter((item) => !item.clearable) },
-              ].map(
-                (group) =>
-                  group.items.length > 0 && (
-                    <div className="weq-storage-group" key={group.title}>
-                      <h4>{group.title}</h4>
-                      {group.items.map((item) => {
-                        const content = (
-                          <>
-                            <HardDrive size={14} strokeWidth={1.8} aria-hidden />
-                            <span className="weq-storage-detail">
-                              <span>{item.label}</span>
-                              <small>{item.reason}</small>
-                              <small className="weq-storage-path">{item.path}</small>
-                            </span>
-                            <span className="weq-set-cache-size weq-number">
-                              {item.incomplete ? '至少 ' : ''}
-                              {formatBytes(item.bytes)}
-                            </span>
-                          </>
-                        );
-                        return item.clearable ? (
-                          <label
-                            key={item.id}
-                            className="weq-set-cache-item"
-                            {...cacheMulti.itemProps(item.id)}
-                          >
-                            <input
-                              type="checkbox"
-                              aria-label={item.label}
-                              checked={pickedCats.has(item.id)}
-                              readOnly
-                              disabled={clearWeqCache.isLoading || cacheUsage.isFetching}
-                            />
-                            {content}
-                          </label>
-                        ) : (
-                          <div key={item.id} className="weq-set-cache-item is-readonly">
-                            {content}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ),
-              )
-            )}
-          </div>
-          <div className="weq-set-actions">
+          <div className="weq-set-actions weq-storage-toolbar">
             <span className="weq-set-cache-total">
               合计占用 <strong className="weq-number">{formatBytes(totalCacheBytes)}</strong>
               {' · '}可清理 <strong className="weq-number">{formatBytes(clearableBytes)}</strong>
@@ -748,6 +692,88 @@ export function GlobalSettingsSection({
               )}
               {pickedCats.size > 0 ? '清理所选' : '清理缓存'}
             </button>
+          </div>
+          <div className="weq-set-cache-list" {...cacheMulti.rootProps}>
+            {cacheUsage.isLoading ? (
+              <div className="weq-set-empty" role="status">
+                读取存储占用中…
+              </div>
+            ) : cacheUsage.isError ? (
+              <div className="weq-set-empty" role="alert">
+                读取存储占用失败：{errMsg(cacheUsage.error)}
+              </div>
+            ) : cacheItems.length === 0 ? (
+              <div className="weq-set-empty">暂无存储数据</div>
+            ) : (
+              <>
+                {clearableItems.length > 0 && (
+                  <div className="weq-storage-group">
+                    <h4>可清理缓存</h4>
+                    {clearableItems.map((item) => (
+                      <label
+                        key={item.id}
+                        className="weq-set-cache-item"
+                        {...cacheMulti.itemProps(item.id)}
+                      >
+                        <input
+                          type="checkbox"
+                          aria-label={item.label}
+                          checked={pickedCats.has(item.id)}
+                          readOnly
+                          disabled={clearWeqCache.isLoading || cacheUsage.isFetching}
+                        />
+                        <HardDrive size={14} strokeWidth={1.8} aria-hidden />
+                        <span className="weq-storage-detail">
+                          <span>{item.label}</span>
+                          <small>{item.reason}</small>
+                          <small className="weq-storage-path">{item.path}</small>
+                        </span>
+                        <span className="weq-set-cache-size weq-number">
+                          {item.incomplete ? '至少 ' : ''}
+                          {formatBytes(item.bytes)}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {retainedGroups.length > 0 && (
+                  <div className="weq-storage-group">
+                    <h4>保留数据</h4>
+                    {retainedGroups.map((group) => (
+                      <details className="weq-storage-category" key={group.label}>
+                        <summary>
+                          <ChevronRight size={14} className="weq-storage-chevron" aria-hidden />
+                          <span className="weq-storage-detail">{group.label}</span>
+                          <span className="weq-set-cache-size weq-number">
+                            {group.incomplete ? '至少 ' : ''}
+                            {formatBytes(group.bytes)}
+                          </span>
+                        </summary>
+                        <div className="weq-storage-entries">
+                          {group.items.map((item) => (
+                            <div key={item.id} className="weq-set-cache-item is-readonly">
+                              <HardDrive size={14} strokeWidth={1.8} aria-hidden />
+                              <span className="weq-storage-detail">
+                                <span>{item.label}</span>
+                                <small>{item.reason}</small>
+                                <small className="weq-storage-path">{item.path}</small>
+                              </span>
+                              <span className="weq-set-cache-size weq-number">
+                                {item.incomplete ? '至少 ' : ''}
+                                {formatBytes(item.bytes)}
+                              </span>
+                            </div>
+                          ))}
+                          {group.items.length === 0 && (
+                            <div className="weq-set-empty">系统辅助文件</div>
+                          )}
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </Card>
       )}

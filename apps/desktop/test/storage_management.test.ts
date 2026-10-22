@@ -74,6 +74,11 @@ describe('WeQ 存储管理页面', () => {
       expect(host.textContent).toContain('可清理 1.0 KB');
       expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
       const readonly = host.querySelector<HTMLElement>('.is-readonly')!;
+      const toolbar = host.querySelector('.weq-storage-toolbar')!;
+      expect(toolbar.nextElementSibling?.classList.contains('weq-set-cache-list')).toBe(true);
+      const category = host.querySelector<HTMLDetailsElement>('.weq-storage-category')!;
+      expect(category.open).toBe(false);
+      expect(category.querySelector('summary')?.textContent).toContain('消息与搜索数据');
       expect(readonly.textContent).toContain('图片识别结果');
       expect(readonly.querySelector('input')).toBeNull();
       expect(readonly.hasAttribute('data-weq-select-id')).toBe(false);
@@ -87,6 +92,35 @@ describe('WeQ 存储管理页面', () => {
     } finally {
       act(() => root.unmount());
       host.remove();
+    }
+  });
+
+  it('同类数据折叠合并，系统文件不显示但占用仍计入合计', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const originalLength = fixture.items.length;
+    fixture.items.push(
+      { ...fixture.items[1], id: 'search', label: '全文搜索索引', path: '/synthetic/search-index' },
+      { ...fixture.items[1], id: 'system', label: '.DS_Store', path: '/synthetic/.DS_Store' },
+      { ...fixture.items[0], id: 'empty', label: '空缓存', bytes: 0 },
+    );
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      expect(host.textContent).toContain('合计占用 7.0 KB');
+      expect(host.textContent).not.toContain('.DS_Store');
+      expect(host.textContent).not.toContain('空缓存');
+      const categories = [...host.querySelectorAll('.weq-storage-category')];
+      expect(categories).toHaveLength(2);
+      expect(categories[0].querySelector('summary')?.textContent).toContain('4.0 KB');
+      expect(categories[0].querySelectorAll('.is-readonly')).toHaveLength(2);
+      expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      fixture.items.splice(originalLength);
     }
   });
 });
