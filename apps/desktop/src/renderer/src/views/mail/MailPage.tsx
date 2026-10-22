@@ -58,6 +58,7 @@ import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { IS_WEB } from '../../lib/target';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../../lib/autoRead';
+import { useMultiSelection } from '../../hooks/useMultiSelection';
 
 const initialStatus: MailStatus = {
   state: 'disconnected',
@@ -115,6 +116,13 @@ export function MailPage({
   const [threadRoot, setThreadRoot] = useState<string | null>(null);
   const [checked, setChecked] = useState<string[]>([]),
     [actionBusy, setActionBusy] = useState(false);
+  const selectionAnchor = useRef<string | null>(null);
+  const mailIds = useMemo(() => page.items.map((item) => item.id), [page.items]);
+  const checkedIds = useMemo(() => new Set(checked), [checked]);
+  const clearChecked = useCallback(() => {
+    selectionAnchor.current = null;
+    setChecked([]);
+  }, []);
   const [draft, setDraft] = useState<MailDraft | null>(null),
     [showCompose, setShowCompose] = useState(false),
     [composeBusy, setComposeBusy] = useState(false),
@@ -135,22 +143,33 @@ export function MailPage({
   visible.current = activity.enabled;
   composeVisible.current = showCompose;
   const ready = status.state === 'ready';
+  const multi = useMultiSelection({
+    ids: mailIds,
+    selected: checkedIds,
+    onChange: (next) => setChecked([...next]),
+    enabled: active && ready && !showCompose,
+    normalClick: 'passthrough',
+    anchorRef: selectionAnchor,
+  });
   const selectedFolder = folders.find((item) => item.id === folderId);
   const selection = checked.length ? checked : selectedId ? [selectedId] : [];
-  const chooseFolder = useCallback((id: number): void => {
-    setThreadRoot(null);
-    setPage(emptyPage);
-    setFolderId(id);
-    setPageNumber(0);
-    setSelectedId(null);
-    setDetail(null);
-    setChecked([]);
-    setKeyword('');
-    setQuery('');
-    setShowCompose(false);
-    // 重选当前文件夹时查询参数不变，也必须显式重新读取列表。
-    setRevision((value) => value + 1);
-  }, []);
+  const chooseFolder = useCallback(
+    (id: number): void => {
+      setThreadRoot(null);
+      setPage(emptyPage);
+      setFolderId(id);
+      setPageNumber(0);
+      setSelectedId(null);
+      setDetail(null);
+      clearChecked();
+      setKeyword('');
+      setQuery('');
+      setShowCompose(false);
+      // 重选当前文件夹时查询参数不变，也必须显式重新读取列表。
+      setRevision((value) => value + 1);
+    },
+    [clearChecked],
+  );
   const handledSearch = useRef('');
   const [searchReadRevision, setSearchReadRevision] = useState(0);
   const currentSearch = useRef(searchTarget);
@@ -255,7 +274,13 @@ export function MailPage({
       controller.signal,
     )
       .then((value) => {
-        if (!controller.signal.aborted && sequence === loadSequence.current) setPage(value);
+        if (!controller.signal.aborted && sequence === loadSequence.current) {
+          setPage(value);
+          const ids = new Set(value.items.map((item) => item.id));
+          setChecked((current) => current.filter((id) => ids.has(id)));
+          if (selectionAnchor.current && !ids.has(selectionAnchor.current))
+            selectionAnchor.current = null;
+        }
       })
       .catch((error) => {
         if (!controller.signal.aborted && sequence === loadSequence.current)
@@ -333,6 +358,7 @@ export function MailPage({
     )
       return;
     setSelectedId(item.id);
+    selectionAnchor.current = item.id;
     setShowCompose(false);
   }
   function start(mode: 'reply' | 'all' | 'forward' | 'edit'): void {
@@ -415,7 +441,7 @@ export function MailPage({
       setSelectedId(null);
       setDetail(null);
       setPage(emptyPage);
-      setChecked([]);
+      clearChecked();
       setStatus(initialStatus);
     } catch (error) {
       setError(mailError(error));
@@ -632,7 +658,7 @@ export function MailPage({
                 event.preventDefault();
                 setKeyword(query.trim());
                 setPageNumber(0);
-                setChecked([]);
+                clearChecked();
                 setSelectedId(null);
                 setDetail(null);
                 setShowCompose(false);
@@ -655,6 +681,7 @@ export function MailPage({
                     setQuery('');
                     setKeyword('');
                     setPageNumber(0);
+                    clearChecked();
                   }}
                 >
                   <X size={14} />
@@ -674,7 +701,7 @@ export function MailPage({
                   onChange={(event) => {
                     setUnreadOnly(event.target.checked);
                     setPageNumber(0);
-                    setChecked([]);
+                    clearChecked();
                   }}
                 />
                 未读
@@ -686,9 +713,10 @@ export function MailPage({
                 aria-label="选择当前页全部邮件"
                 checked={allChecked}
                 disabled={!page.items.length}
-                onChange={(event) =>
-                  setChecked(event.target.checked ? page.items.map((item) => item.id) : [])
-                }
+                onChange={(event) => {
+                  selectionAnchor.current = event.target.checked ? (mailIds[0] ?? null) : null;
+                  setChecked(event.target.checked ? mailIds : []);
+                }}
               />
               <span>{checked.length ? `已选 ${checked.length}` : ''}</span>
               <button
@@ -737,7 +765,7 @@ export function MailPage({
                 <Trash2 size={16} />
               </button>
             </div>
-            <div className="weq-mail-rows" aria-busy={loading}>
+            <div {...multi.rootProps} className="weq-mail-rows" aria-busy={loading}>
               {loading && !page.items.length ? (
                 <div className="weq-mail-empty">
                   <LoaderCircle size={24} className="weq-mail-spin" />
@@ -747,21 +775,17 @@ export function MailPage({
                 page.items.map((item) => (
                   <article
                     key={item.id}
-                    className={`weq-mail-row${item.id === selectedId ? ' is-selected' : ''}${item.unread ? ' is-unread' : ''}`}
+                    className={`weq-mail-row${item.id === selectedId || checkedIds.has(item.id) ? ' is-selected' : ''}${item.unread ? ' is-unread' : ''}`}
                   >
                     <input
                       type="checkbox"
                       aria-label={`选择 ${item.subject || '无主题'}`}
                       checked={checked.includes(item.id)}
-                      onChange={(event) =>
-                        setChecked((current) =>
-                          event.target.checked
-                            ? [...current, item.id]
-                            : current.filter((id) => id !== item.id),
-                        )
-                      }
+                      onClick={(event) => multi.toggle(item.id, event)}
+                      readOnly
                     />
                     <button
+                      {...multi.itemProps(item.id)}
                       type="button"
                       className="weq-mail-row-main weq-mail-sensitive"
                       onClick={() => void openMail(item)}
@@ -806,7 +830,7 @@ export function MailPage({
                 disabled={pageNumber === 0 || loading}
                 onClick={() => {
                   setPageNumber((value) => value - 1);
-                  setChecked([]);
+                  clearChecked();
                 }}
               >
                 <ChevronLeft size={17} />
@@ -821,7 +845,7 @@ export function MailPage({
                 disabled={!page.hasMore || loading}
                 onClick={() => {
                   setPageNumber((value) => value + 1);
-                  setChecked([]);
+                  clearChecked();
                 }}
               >
                 <ChevronRight size={17} />
