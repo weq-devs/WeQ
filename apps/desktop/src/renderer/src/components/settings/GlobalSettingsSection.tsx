@@ -664,34 +664,36 @@ export function GlobalSettingsSection({
               {' · '}可清理 <strong className="weq-number">{formatBytes(clearableBytes)}</strong>
               {cacheItems.some((item) => item.incomplete) ? '（统计不完整）' : ''}
             </span>
-            <button
-              type="button"
-              className="weq-set-btn"
-              title="刷新存储占用"
-              aria-label="刷新存储占用"
-              disabled={cacheUsage.isFetching || clearWeqCache.isLoading}
-              onClick={() => void cacheUsage.refetch()}
-            >
-              <RotateCcw size={14} aria-hidden />
-            </button>
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-danger"
-              disabled={
-                clearWeqCache.isLoading ||
-                cacheUsage.isFetching ||
-                cacheUsage.isError ||
-                cleanupBytes === 0
-              }
-              onClick={() => void onClearWeqCache()}
-            >
-              {clearWeqCache.isLoading ? (
-                <Loader2 size={14} strokeWidth={1.8} className="weq-spin" aria-hidden />
-              ) : (
-                <Trash2 size={14} strokeWidth={1.8} aria-hidden />
-              )}
-              {pickedCats.size > 0 ? '清理所选' : '清理缓存'}
-            </button>
+            <div className="weq-set-btn-group weq-storage-toolbar-buttons">
+              <button
+                type="button"
+                className="weq-set-btn"
+                title="刷新存储占用"
+                aria-label="刷新存储占用"
+                disabled={cacheUsage.isFetching || clearWeqCache.isLoading}
+                onClick={() => void cacheUsage.refetch()}
+              >
+                <RotateCcw size={14} aria-hidden />
+              </button>
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-danger"
+                disabled={
+                  clearWeqCache.isLoading ||
+                  cacheUsage.isFetching ||
+                  cacheUsage.isError ||
+                  cleanupBytes === 0
+                }
+                onClick={() => void onClearWeqCache()}
+              >
+                {clearWeqCache.isLoading ? (
+                  <Loader2 size={14} strokeWidth={1.8} className="weq-spin" aria-hidden />
+                ) : (
+                  <Trash2 size={14} strokeWidth={1.8} aria-hidden />
+                )}
+                {pickedCats.size > 0 ? '清理所选' : '清理缓存'}
+              </button>
+            </div>
           </div>
           <div className="weq-set-cache-list" {...cacheMulti.rootProps}>
             {cacheUsage.isLoading ? (
@@ -702,7 +704,7 @@ export function GlobalSettingsSection({
               <div className="weq-set-empty" role="alert">
                 读取存储占用失败：{errMsg(cacheUsage.error)}
               </div>
-            ) : cacheItems.length === 0 ? (
+            ) : clearableItems.length === 0 && retainedGroups.length === 0 ? (
               <div className="weq-set-empty">暂无存储数据</div>
             ) : (
               <>

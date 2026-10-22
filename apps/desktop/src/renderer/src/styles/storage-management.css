@@ -38,6 +38,10 @@
   border-bottom: 1px solid var(--weq-border-subtle);
 }
 
+.weq-storage-toolbar-buttons {
+  margin-left: auto;
+}
+
 .weq-storage-settings .weq-set-btn {
   flex: none;
   white-space: nowrap;
