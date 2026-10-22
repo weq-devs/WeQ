@@ -428,8 +428,8 @@ describe('可接入功能交互回归', () => {
     move.mockClear();
     expect(special.getAttribute('draggable')).not.toBe('true');
     const transfer = { effectAllowed: 'move', dropEffect: 'move', setData: vi.fn() };
-    const drag = (node: HTMLElement, type: string) => {
-      const event = new Event(type, { bubbles: true, cancelable: true });
+    const drag = (node: HTMLElement, type: string, clientY = 0) => {
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientY });
       Object.defineProperty(event, 'dataTransfer', { value: transfer });
       node.dispatchEvent(event);
     };
@@ -438,6 +438,24 @@ describe('可接入功能交互回归', () => {
       drag(other, 'drop');
     });
     expect(move).toHaveBeenCalledWith(['u_a', 'u_b'], 5);
+    move.mockClear();
+    const otherGroup = other.parentElement!;
+    vi.spyOn(otherGroup, 'getBoundingClientRect').mockReturnValue({
+      top: 100,
+      height: 100,
+    } as DOMRect);
+    await act(async () => other.click());
+    const insideRow = otherGroup.querySelector<HTMLElement>('.contact-cat-row')!;
+    expect(insideRow).not.toBeNull();
+    await act(async () => {
+      drag(f.host.querySelector('.contact-cat-row')!, 'dragstart');
+      drag(insideRow, 'dragover', 170);
+    });
+    expect(otherGroup.classList.contains('is-contact-drop-target')).toBe(true);
+    expect(otherGroup.dataset.dropPosition).toBeUndefined();
+    await act(async () => drag(insideRow, 'drop', 170));
+    expect(move).toHaveBeenCalledWith(['u_a', 'u_b'], 5);
+    expect(otherGroup.classList.contains('is-contact-drop-target')).toBe(false);
     await act(async () => {
       drag(normal, 'dragstart');
       drag(special, 'drop');
@@ -445,11 +463,25 @@ describe('可接入功能交互回归', () => {
     expect(sort).not.toHaveBeenCalled();
     await act(async () => {
       drag(normal, 'dragstart');
-      drag(other, 'drop');
+      drag(insideRow, 'dragover', 120);
     });
-    expect(sort).toHaveBeenCalledWith(0, 5);
+    expect(otherGroup.dataset.dropPosition).toBe('before');
+    expect(otherGroup.classList.contains('is-contact-drop-target')).toBe(false);
+    expect(other.style.outline).toBe('');
+    await act(async () => drag(insideRow, 'dragover', 180));
+    expect(otherGroup.dataset.dropPosition).toBe('after');
+    await act(async () => drag(insideRow, 'drop', 180));
+    expect(sort).toHaveBeenCalledWith(0, 5, 'after');
+    expect(otherGroup.dataset.dropPosition).toBeUndefined();
+    await act(async () => {
+      drag(normal, 'dragstart');
+      drag(other, 'dragover', 110);
+    });
+    expect(otherGroup.dataset.dropPosition).toBe('before');
+    await act(async () => drag(normal, 'dragend'));
+    expect(otherGroup.dataset.dropPosition).toBeUndefined();
     await act(async () => normal.click());
     expect(normal.getAttribute('aria-expanded')).toBe('false');
-    expect(other.getAttribute('aria-expanded')).toBe('false');
+    expect(other.getAttribute('aria-expanded')).toBe('true');
   });
 });

@@ -1227,7 +1227,10 @@ export function ContactList({
   const [categoryMenu, setCategoryMenu] = useState<{ x: number; y: number; id: number } | null>(
     null,
   );
-  const [dragTarget, setDragTarget] = useState<number | null>(null);
+  const [dragTarget, setDragTarget] = useState<{
+    id: number;
+    position: 'before' | 'after' | 'inside';
+  } | null>(null);
   const dragging = useRef<{ category?: number; uids?: string[] } | null>(null);
   const conversationRows = useMemo(
     () =>
@@ -1345,7 +1348,74 @@ export function ContactList({
       {categories.map((category) => {
         const open = Boolean(expanded[category.id]) || Boolean(needle);
         return (
-          <div className={cn('contact-cat')} key={category.id}>
+          <div
+            className={cn(
+              'contact-cat',
+              dragTarget?.id === category.id &&
+                dragTarget.position === 'inside' &&
+                'is-contact-drop-target',
+            )}
+            key={category.id}
+            data-drop-position={
+              dragTarget?.id === category.id && dragTarget.position !== 'inside'
+                ? dragTarget.position
+                : undefined
+            }
+            onDragOver={(event) => {
+              const source = dragging.current;
+              if (
+                typeof category.id !== 'number' ||
+                !source ||
+                !friendDirectory?.available ||
+                friendDirectory.busy ||
+                source.category === category.id
+              ) {
+                setDragTarget(null);
+                return;
+              }
+              event.preventDefault();
+              event.dataTransfer.dropEffect = 'move';
+              const rect = event.currentTarget.getBoundingClientRect();
+              setDragTarget({
+                id: category.id,
+                position:
+                  source.category === undefined
+                    ? 'inside'
+                    : event.clientY < rect.top + rect.height / 2
+                      ? 'before'
+                      : 'after',
+              });
+            }}
+            onDragLeave={(event) => {
+              if (
+                event.relatedTarget instanceof Node &&
+                event.currentTarget.contains(event.relatedTarget)
+              )
+                return;
+              setDragTarget(null);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              setDragTarget(null);
+              const source = dragging.current;
+              dragging.current = null;
+              if (
+                typeof category.id !== 'number' ||
+                !source ||
+                !friendDirectory?.available ||
+                friendDirectory.busy
+              )
+                return;
+              if (source.category !== undefined && source.category !== category.id) {
+                const rect = event.currentTarget.getBoundingClientRect();
+                friendDirectory.sort(
+                  source.category,
+                  category.id,
+                  event.clientY < rect.top + rect.height / 2 ? 'before' : 'after',
+                );
+              } else if (source.uids?.length) friendDirectory.move(source.uids, category.id);
+            }}
+          >
             <button
               type="button"
               className={cn('contact-cat-header')}
@@ -1364,40 +1434,6 @@ export function ContactList({
                 dragging.current = null;
                 setDragTarget(null);
               }}
-              onDragOver={(event) => {
-                if (
-                  typeof category.id !== 'number' ||
-                  !dragging.current ||
-                  !friendDirectory?.available ||
-                  friendDirectory.busy
-                )
-                  return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = 'move';
-                setDragTarget(category.id);
-              }}
-              onDragLeave={() => setDragTarget(null)}
-              onDrop={(event) => {
-                event.preventDefault();
-                setDragTarget(null);
-                const source = dragging.current;
-                dragging.current = null;
-                if (
-                  typeof category.id !== 'number' ||
-                  !source ||
-                  !friendDirectory?.available ||
-                  friendDirectory.busy
-                )
-                  return;
-                if (source.category !== undefined && source.category !== category.id)
-                  friendDirectory.sort(source.category, category.id);
-                else if (source.uids?.length) friendDirectory.move(source.uids, category.id);
-              }}
-              style={
-                dragTarget === category.id
-                  ? { outline: '2px solid var(--weq-accent-effective)', outlineOffset: -2 }
-                  : undefined
-              }
               onContextMenu={(event) => {
                 if (typeof category.id !== 'number') return;
                 event.preventDefault();

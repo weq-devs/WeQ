@@ -59,14 +59,18 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 it.each([
-  [0, 5, [5, 0, 9]],
-  [9, 5, [0, 9, 5]],
-  [0, 'last', [5, 9, 0]],
-  [9, 'first', [9, 0, 5]],
-] as const)('分组 %s 移到 %s，双向拖拽都改变顺序', async (source, target, ids) => {
+  [0, 5, 'after', [5, 0, 9]],
+  [9, 5, 'before', [0, 9, 5]],
+  [0, 9, 'before', [5, 0, 9]],
+  [9, 0, 'after', [0, 9, 5]],
+  [0, 9, 'after', [5, 9, 0]],
+  [9, 0, 'before', [9, 0, 5]],
+  [0, 'last', 'before', [5, 9, 0]],
+  [9, 'first', 'before', [9, 0, 5]],
+] as const)('分组 %s 插入 %s 的 %s 位置', async (source, target, position, ids) => {
   function Controls() {
     const directory = useFriendDirectory();
-    return h('button', { onClick: () => directory?.sort(source, target) }, '排序');
+    return h('button', { onClick: () => directory?.sort(source, target, position) }, '排序');
   }
   const host = document.createElement('div');
   document.body.append(host);
@@ -77,6 +81,30 @@ it.each([
     expect(state.mutate).toHaveBeenCalledWith(
       expect.objectContaining({ operation: { type: 'sort', ids } }),
     );
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it.each([
+  [0, 5, 'before'],
+  [5, 0, 'after'],
+  [5, 5, 'before'],
+  [5, 5, 'after'],
+  [0, 99, 'after'],
+] as const)('插入位置不改变顺序或目标无效时不写入 %s %s %s', async (source, target, position) => {
+  function Controls() {
+    const directory = useFriendDirectory();
+    return h('button', { onClick: () => directory?.sort(source, target, position) }, '排序');
+  }
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() => root.render(h(FriendDirectoryControls, null, h(Controls))));
+    await act(async () => host.querySelector('button')!.click());
+    expect(state.mutate).not.toHaveBeenCalled();
   } finally {
     act(() => root.unmount());
     host.remove();

@@ -55,9 +55,32 @@
   color: var(--foreground);
   border-color: var(--weq-accent-effective);
 }
-.contact-cat-header.is-drag-target {
+.contact-cat {
+  position: relative;
+}
+.contact-cat[data-drop-position]::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  height: 2px;
+  background: var(--weq-accent-effective);
+  pointer-events: none;
+  z-index: 1;
+}
+.contact-cat[data-drop-position='before']::after {
+  top: 0;
+}
+.contact-cat[data-drop-position='after']::after {
+  bottom: 0;
+}
+.contact-cat.is-contact-drop-target {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: -2px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+html[data-theme='dark'] .contact-cat.is-contact-drop-target {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
 html[data-theme='dark'] .weq-friend-directory-editor {
   background: var(--weq-bg-surface);

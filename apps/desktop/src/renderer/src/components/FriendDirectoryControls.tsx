@@ -29,7 +29,7 @@ export const FriendDirectoryContext = createContext<{
   create: () => void;
   edit: (type: 'rename' | 'delete', id: number) => void;
   move: (uids: string[], categoryId?: number) => void;
-  sort: (id: number, target: number | 'first' | 'last') => void;
+  sort: (id: number, target: number | 'first' | 'last', position?: 'before' | 'after') => void;
 } | null>(null);
 
 export function FriendDirectoryControls({ children }: { children: ReactNode }) {
@@ -130,15 +130,20 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
             setEditor({ scope, type: 'move', uids: targets });
           }
         },
-        sort: (id, target) => {
+        sort: (id, target, position = 'before') => {
           if (!categories) return;
           const ids = [...categories]
             .sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity))
             .map((row) => row.id);
+          if (!ids.includes(id) || target === id) return;
           const next = ids.filter((value) => value !== id);
+          if (typeof target === 'number' && !next.includes(target)) return;
           const index =
-            target === 'first' ? 0 : target === 'last' ? next.length : ids.indexOf(target);
-          if (index < 0 || !ids.includes(id)) return;
+            target === 'first'
+              ? 0
+              : target === 'last'
+                ? next.length
+                : next.indexOf(target) + (position === 'after' ? 1 : 0);
           next.splice(index, 0, id);
           if (next.join(',') !== ids.join(',')) void run({ type: 'sort', ids: next });
         },
