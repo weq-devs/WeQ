@@ -58,6 +58,7 @@ import { InteractionProfileSection } from './settings/InteractionProfileSection'
 import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTranscribeSection';
 import { OcrModelsSection } from './settings/OcrModelsSection';
 import { McpServerSection } from './settings/McpServerSection';
+import { RemoteSection } from './settings/RemoteSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
 import { DaemonSection } from './settings/DaemonSection';
@@ -272,6 +273,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: 'MCP 服务器',
     icon: <Plug size={16} strokeWidth={1.8} />,
     render: () => <McpServerSection />,
+  },
+  {
+    id: 'remote',
+    label: 'WeQ Remote',
+    icon: <Monitor size={16} strokeWidth={1.8} />,
+    render: () => <RemoteSection />,
   },
   {
     id: 'rkey',

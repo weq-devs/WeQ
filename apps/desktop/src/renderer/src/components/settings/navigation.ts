@@ -27,6 +27,7 @@ export type SectionId =
   | 'ocr'
   | 'model-usage'
   | 'mcp'
+  | 'remote'
   | 'rkey'
   | 'sse'
   | 'daemon'
@@ -62,7 +63,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Secti
       'ocr',
     ],
   },
-  { id: 'services', label: '服务与集成', sections: ['mcp', 'sse', 'rkey', 'daemon'] },
+  { id: 'services', label: '服务与集成', sections: ['remote', 'mcp', 'sse', 'rkey', 'daemon'] },
   { id: 'advanced', label: '高级与诊断', sections: ['credentials', 'diagnostics'] },
   { id: 'help', label: '帮助与关于', sections: ['help', 'logs', 'version', 'updates'] },
 ];

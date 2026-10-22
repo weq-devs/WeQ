@@ -1,0 +1,113 @@
+.weq-remote {
+  color: var(--weq-fg-primary);
+  min-width: 0;
+}
+.weq-remote-band {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-remote-heading,
+.weq-remote-state,
+.weq-remote-request,
+.weq-remote-device {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.weq-remote-heading {
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.weq-remote h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+.weq-remote-heading > span,
+.weq-remote-muted,
+.weq-remote-pair p,
+.weq-remote-device-main > span {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-remote-state {
+  padding: 12px 0;
+}
+.weq-remote-state > svg {
+  color: var(--weq-accent-effective);
+  flex-shrink: 0;
+}
+.weq-remote-state > div {
+  display: grid;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+.weq-remote-state code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  color: var(--weq-fg-secondary);
+}
+.weq-remote-pair {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  align-items: center;
+  gap: 24px;
+}
+.weq-remote-pair img {
+  display: block;
+  width: 240px;
+  height: 240px;
+  max-width: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+}
+.weq-remote-empty {
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--weq-fg-muted);
+  font-size: 13px;
+}
+.weq-remote-request,
+.weq-remote-device {
+  padding: 14px 0;
+  flex-wrap: wrap;
+}
+.weq-remote-device-main {
+  display: grid;
+  gap: 6px;
+  min-width: 100px;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.weq-remote-device-main strong {
+  font-size: 13px;
+}
+.weq-remote-code {
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  color: var(--weq-accent-effective);
+}
+.weq-remote-error {
+  color: var(--destructive);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+html[data-theme='dark'] .weq-remote-band {
+  border-color: var(--weq-border-strong);
+}
+@media (max-width: 620px) {
+  .weq-remote-pair {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    gap: 16px;
+  }
+  .weq-remote-pair > div {
+    text-align: center;
+  }
+}

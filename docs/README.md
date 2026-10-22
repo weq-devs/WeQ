@@ -26,6 +26,7 @@ NTQQ 各数据库的表结构与字段解析，全部依据 WeQ 自己的解析�
 面向贡献者，介绍项目架构、构建发版与贡献流程。
 
 - [开发者入口](./develop/index.md)
+- [WeQ Remote 电脑端原型与验证边界](./develop/weq-remote-prototype-20261022.md)
 - [贡献指南](../CONTRIBUTING.md)
 
 ---

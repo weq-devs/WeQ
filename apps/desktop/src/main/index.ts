@@ -47,6 +47,7 @@ import { handleRecallNotification } from './recall_notify';
 import { handleMailNotification } from './mail_notify';
 import { checkForUpdate, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
+import { remoteRuntime } from './remote/runtime';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
 import { startReleaseMonitor } from './daemon/release_monitor';
 import { ensureDaemonRunning, syncGuiAutostartIntent } from './daemon/runtime';
@@ -653,6 +654,16 @@ if (!hasSingleInstanceLock) {
 }
 
 void app.whenReady().then(async () => {
+  remoteRuntime.configure({
+    helper:
+      process.env.WEQ_REMOTE_HELPER ||
+      join(
+        app.getAppPath(),
+        '../../tools/remote-network',
+        process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
+      ),
+    stateDir: join(app.getPath('userData'), 'remote-network'),
+  });
   if (!hasSingleInstanceLock) return;
   electronApp.setAppUserModelId('app.weq.desktop');
 
@@ -807,6 +818,7 @@ app.on('before-quit', () => {
 // belongs to autostart / the user, and it keeps serving the QQ cards after
 // WeQ is gone.
 app.on('will-quit', () => {
+  remoteRuntime.stop();
   void stopMcpServer();
   void disposeExternalMcp();
   // 提权抓包子进程是 root 的 —— 退出时主动送走（子进程那边也会在环回连接断开时

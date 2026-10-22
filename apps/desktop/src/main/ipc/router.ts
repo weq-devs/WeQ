@@ -21,8 +21,10 @@ import { wonderfulToolsRouter } from './routers/wonderful_tools';
 import { dbRepairRouter } from './routers/db_repair';
 import { mergeForwardRouter } from './routers/merge_forward';
 import { mailRouter } from './routers/mail';
+import { remoteRouter } from './routers/remote';
 
 export const appRouter = router({
+  remote: remoteRouter,
   mail: mailRouter,
   bootstrap: bootstrapRouter,
   account: accountRouter,
