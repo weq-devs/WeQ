@@ -17,7 +17,20 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
   trpc: {
+    // `useQQWriteSession` 写完后会刷缓存；本用例只关心入口是否出现。
+    useUtils: () => ({ invalidate: async () => undefined }),
     account: {
+      // `withQQAccountScope` 用它校验「当前会话 = 当前数据源」，没有绑定就不渲染操作。
+      getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source-a' } }) },
+      getGroupAlbumAccessState: {
+        useQuery: () => ({ data: { qqOnline: true }, isLoading: false }),
+      },
+      qqWrite: {
+        // 共同关系行只关心「入口出现」，读取结果给空即可。
+        commonRelationships: {
+          useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }),
+        },
+      },
       dressup: {
         peerHome: { useQuery: () => ({ data: {}, isLoading: false }) },
         peerStats: { useQuery: () => ({ data: { level: 5, likeCount: 100 } }) },

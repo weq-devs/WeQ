@@ -6,7 +6,18 @@ import type { Contact } from '../src/renderer/src/im-template/template/types';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useUtils: () => ({ invalidate: async () => undefined }),
     account: {
+      // `withQQAccountScope` 要拿到当前数据源才渲染资料卡上的 QQ 操作入口。
+      getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'source-a' } }) },
+      getGroupAlbumAccessState: {
+        useQuery: () => ({ data: { qqOnline: true }, isLoading: false }),
+      },
+      qqWrite: {
+        commonRelationships: {
+          useQuery: () => ({ data: undefined, isLoading: false, isFetching: false }),
+        },
+      },
       dressup: { peerStats: { useQuery: () => ({ data: undefined, isLoading: false }) } },
       mutualMark: {
         get: {
