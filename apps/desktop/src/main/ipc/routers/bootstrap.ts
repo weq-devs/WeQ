@@ -60,6 +60,7 @@ import { runLogRetentionSweep } from '../../log_retention';
 import { takePendingConversationJump, takePendingGroupJump } from '../../group_keyword_bus';
 import { readNativeBuildInfo } from '@weq/native';
 import { procedure, router } from '../trpc';
+import { backupProcedures } from './backup';
 import {
   accountConfigId,
   fetchHomeDress,
@@ -183,6 +184,7 @@ export async function ensureUidForUin(
 }
 
 export const bootstrapRouter = router({
+  ...backupProcedures,
   ...intentSenseModelProcedures,
 
   /** 共享资源目录：只引用现有下载器，不另建模型副本。 */

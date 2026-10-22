@@ -1077,3 +1077,22 @@ export {
 export { runOwnedChild, type OwnedChildOptions, type OwnedChildResult } from './common/owned_child';
 
 export { SharedPrompt } from './common/shared_prompt';
+export { bootstrapWeqBackupFiles } from './bootstrap/backup_startup';
+export type { WeqFileStartup } from './bootstrap/backup_startup';
+export { WeqBackupService } from './bootstrap/backup_service';
+export { writeWeqBackupExclusive } from './bootstrap/backup_output';
+export type { WeqBackupSelection } from './bootstrap/backup_service';
+export {
+  hasPendingWeqBackupRestore,
+  applyPendingWeqBackupRestore,
+  weqBackupRestoreStatus,
+  pendingWeqClientSettings,
+  acknowledgeWeqClientSettings,
+  skipWeqClientSettings,
+  reassignWeqClientSettings,
+  cancelWeqBackupRestore,
+} from './bootstrap/backup_restore';
+export type { WeqRestoreChoice, WeqRestoreResult } from './bootstrap/backup_restore';
+export { readWeqBackupFile } from './bootstrap/backup_clones';
+export { WEQ_BACKUP_PARTS, WEQ_BACKUP_LIMITS } from './bootstrap/backup_bundle';
+export type { WeqBackupPart, WeqBackupSummary } from './bootstrap/backup_bundle';

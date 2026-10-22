@@ -12,6 +12,7 @@ import type { NativeBundle } from '@weq/native';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Platform } from '../types';
+import { weqAppDataRoot } from '../app_data_root';
 import { readLauncherCount, readQqVersion } from '../qq_meta';
 import {
   candidateTencentFilesRoots,
@@ -105,13 +106,7 @@ export function createWin32Platform(
   return {
     kind: 'win32',
     native,
-    appDataRoot: () => {
-      const base = process.env.APPDATA;
-      if (!base) {
-        throw new Error('%APPDATA% not set — cannot derive weq user data root on win32');
-      }
-      return join(base, 'weq');
-    },
+    appDataRoot: () => weqAppDataRoot('win32'),
     tencentFilesRoots: () => candidateTencentFilesRoots(undefined, override()),
     loginDbPath: () => findLoginDb(undefined, override()),
     qqDataRoot: () =>

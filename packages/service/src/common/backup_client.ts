@@ -16,6 +16,7 @@ export const WEQ_CLIENT_BACKUP_KEYS = [
 ] as const;
 
 const KEYS = new Set<string>(WEQ_CLIENT_BACKUP_KEYS);
+export const WEQ_CLIENT_RESTORE_RECEIPT = 'weq.backup-client-applied';
 export function isWeqClientBackupKey(key: string): boolean {
   return KEYS.has(key) || /^weq:group-assistant-pins:\d{1,20}(?:_[0-9a-f]{8})?$/.test(key);
 }
@@ -147,9 +148,17 @@ export function applyWeqClientSettings(
   storage: Storage,
   values: Record<string, string>,
   replace = true,
+  receiptId?: string,
 ): void {
   validateWeqClientSettings(values);
   const before = readClientSettings(storage);
+  if (receiptId !== undefined) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(receiptId))
+      throw new Error('无效的界面恢复回执');
+    const previous = storage.getItem(WEQ_CLIENT_RESTORE_RECEIPT);
+    if (previous !== null) before[WEQ_CLIENT_RESTORE_RECEIPT] = previous;
+    values = { ...values, [WEQ_CLIENT_RESTORE_RECEIPT]: receiptId };
+  }
   const keys = new Set([...Object.keys(values), ...(replace ? Object.keys(before) : [])]);
   try {
     for (const key of keys) {

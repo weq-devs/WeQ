@@ -23,6 +23,8 @@ export interface SaveTarget {
 }
 
 export interface HostBridge {
+  /** 仅宿主支持时提供；调用方必须先明确确认重启。 */
+  restartApplication?(): Promise<void>;
   /** Web 服务端导出根目录；桌面端由原生目录选择，不设此字段。 */
   readonly exportRoot?: string;
   registerDownload?(path: string, name: string, kind: 'file' | 'directory'): { url: string };

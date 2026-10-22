@@ -3,6 +3,7 @@ import {
   applyWeqClientSettings,
   snapshotWeqClientSettings,
   validateWeqClientSettings,
+  WEQ_CLIENT_RESTORE_RECEIPT,
 } from '../src/common/backup_client';
 
 function storage(initial: Record<string, string> = {}) {
@@ -23,6 +24,31 @@ function storage(initial: Record<string, string> = {}) {
   };
   return { value, values };
 }
+
+it('恢复回执与偏好一起提交，回执写入失败时回滚偏好与旧回执', () => {
+  const source = storage({
+    'weq.theme-preference': 'dark',
+    [WEQ_CLIENT_RESTORE_RECEIPT]: 'old-receipt',
+  });
+  const set = source.value.setItem;
+  let fail = true;
+  source.value.setItem = (key, value) => {
+    if (key === WEQ_CLIENT_RESTORE_RECEIPT && fail) {
+      fail = false;
+      throw Error('合成回执写入失败');
+    }
+    set(key, value);
+  };
+  const incoming = { 'weq.theme-preference': 'light' };
+  const id = '11111111-1111-4111-8111-111111111111';
+  expect(() => applyWeqClientSettings(source.value, incoming, true, id)).toThrow('回执写入失败');
+  expect(source.value.getItem('weq.theme-preference')).toBe('dark');
+  expect(source.value.getItem(WEQ_CLIENT_RESTORE_RECEIPT)).toBe('old-receipt');
+  applyWeqClientSettings(source.value, incoming, true, id);
+  expect(source.value.getItem(WEQ_CLIENT_RESTORE_RECEIPT)).toBe(id);
+  expect(snapshotWeqClientSettings(source.value)).toEqual(incoming);
+  expect(incoming).toEqual({ 'weq.theme-preference': 'light' });
+});
 
 it('只快照真实界面偏好，不混入令牌、草稿或恢复现场', () => {
   const source = storage({

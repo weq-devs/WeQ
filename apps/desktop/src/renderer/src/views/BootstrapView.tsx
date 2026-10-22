@@ -26,6 +26,7 @@ import { runAccountWarmup, type WarmupProgress } from '../lib/accountWarmup';
 import { setWindowLayout } from '../lib/windowLayout';
 import { DesktopOnly, IS_MAC, shellBridge } from '../lib/target';
 import logoUrl from '@resources/brand/logo.png';
+import { BackupSection } from '../components/settings/BackupSection';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -41,6 +42,7 @@ export function BootstrapView(): ReactElement {
   const utils = trpc.useUtils();
   /** 非 null 时 splash 显示预热进度条（自动进入的第二段）。 */
   const [warmup, setWarmup] = useState<WarmupProgress | null>(null);
+  const [backupOpen, setBackupOpen] = useState(false);
 
   const nativeStatus = trpc.bootstrap.nativeStatus.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -182,6 +184,18 @@ export function BootstrapView(): ReactElement {
 
   // ---- render ----
   if (nativeErr) {
+    if (backupOpen)
+      return (
+        <Shell>
+          <div className="weq-backup-native">
+            <button type="button" className="weq-set-btn" onClick={() => setBackupOpen(false)}>
+              <X size={14} />
+              返回组件诊断
+            </button>
+            <BackupSection />
+          </div>
+        </Shell>
+      );
     return (
       <Shell>
         <Centered>
@@ -189,11 +203,15 @@ export function BootstrapView(): ReactElement {
           <p className="mt-4 text-[14px] text-[#5b6b7d]">
             {nativeErr.kind === 'expired' ? '组件版本过旧，请更新。' : '组件安装损坏，请重新安装。'}
           </p>
+          <button type="button" className="weq-set-btn" onClick={() => setBackupOpen(true)}>
+            备份与恢复
+          </button>
         </Centered>
         {nativeErr.kind === 'expired' ? (
           <NativeExpiredDialog
             buildTime={nativeBuildInfo.data?.buildTime ?? null}
             expireTime={nativeBuildInfo.data?.expireTime ?? null}
+            onBackup={() => setBackupOpen(true)}
           />
         ) : null}
       </Shell>

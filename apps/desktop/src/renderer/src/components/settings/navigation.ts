@@ -11,6 +11,7 @@ export type SectionId =
   | 'qzone'
   | 'mail'
   | 'storage'
+  | 'backup'
   | 'media'
   | 'database'
   | 'database-status'
@@ -47,7 +48,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Secti
   {
     id: 'data',
     label: '数据与存储',
-    sections: ['storage', 'media', 'database', 'database-status', 'maintenance'],
+    sections: ['storage', 'media', 'backup', 'database', 'database-status', 'maintenance'],
   },
   {
     id: 'models',

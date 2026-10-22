@@ -11,7 +11,7 @@ import {
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { AgentLabPersona } from '@weq/agentlab';
+import { makeBackupPersona as persona } from './fixtures/backup_persona';
 import { AgentLabStore } from '@weq/agentlab';
 import { ConversationStore } from '../src/account/agentlab_conversation';
 import { MemoryStore } from '../src/account/agentlab_memory';
@@ -28,6 +28,7 @@ import { snapshotWeqClones } from '../src/bootstrap/backup_clones';
 import { buildWeqBackup, type WeqBackupFile } from '../src/bootstrap/backup_bundle';
 import { DEFAULT_APP_SETTINGS } from '../src/bootstrap/user_config';
 import { snapshotWeqApiSettings } from '../src/bootstrap/backup_settings';
+import { bootstrapWeqBackupFiles } from '../src/bootstrap/backup_startup';
 import {
   stageWeqBackupRestore,
   applyPendingWeqBackupRestore,
@@ -115,53 +116,6 @@ function account(id: string, name: string) {
     displayName: name,
   };
 }
-function persona(): AgentLabPersona {
-  return {
-    id: 'synthetic-persona',
-    ownerId: '10001',
-    name: '合成克隆',
-    sourceKind: 'c2c',
-    sourceId: 'u_synthetic',
-    sourceTitle: '合成来源',
-    models: { chat: { providerId: 'synthetic-provider', model: 'synthetic-model' } },
-    profile: {
-      card: {
-        tone: '合成语气',
-        personalityTraits: [],
-        catchphrases: [],
-        punctuationStyle: '',
-        addressing: '',
-        topics: [],
-      },
-      deep: { facts: [], relationship: '', reactionPatterns: [], boundaries: [], sharedEvents: [] },
-      styleSummary: '合成风格',
-      topTerms: [],
-      voiceRatio: 0,
-      voiceUsageSummary: '',
-      relationshipSummary: '',
-      extractedByLlm: false,
-    },
-    fewShots: [],
-    expressions: [],
-    stickers: [],
-    systemFaces: [],
-    stats: {
-      sourceMessageCount: 1,
-      friendMessageCount: 1,
-      avgFriendMsgChars: 1,
-      avgFriendBurst: 1,
-      turnCount: 1,
-      pairCount: 0,
-      corpusChars: 1,
-      groupStyleMessageCount: 0,
-    },
-    corpusMessageCount: 1,
-    pairCount: 0,
-    createdAt: 1,
-    updatedAt: 1,
-  };
-}
-
 it('暂存不会修改运行数据；冷启动只恢复所选偏好并保留锁密钥、路径和 API', () => {
   const f = fixture();
   const archive = buildWeqBackup([
@@ -379,6 +333,12 @@ it('中断留下原目录时不能丢弃，重新读取持久事务后可恢复�
     needsRecovery: true,
   });
   expect(() => cancelWeqBackupRestore(f.root, f.cache)).toThrow('事务');
+  expect(bootstrapWeqBackupFiles(f.root)).toMatchObject({
+    ok: false,
+    config: null,
+    backups: null,
+    result: { needsRecovery: true },
+  });
   faults.rename = null;
   expect(applyPendingWeqBackupRestore(f.root, f.cache)).toMatchObject({
     status: 'failed',
@@ -388,6 +348,34 @@ it('中断留下原目录时不能丢弃，重新读取持久事务后可恢复�
   expect(read(join(f.root, 'config.json'))).toEqual(f.initial);
   cancelWeqBackupRestore(f.root, f.cache);
   expect(weqBackupRestoreStatus(f.root).pending).toBeNull();
+});
+
+it('外置缓存配置在中断时已被移至原件区，文件启动仍能找到原缓存并完成回滚', () => {
+  const f = fixture(),
+    cache = join(f.root, 'synthetic-custom-cache');
+  mkdirSync(cache);
+  const original = { ...f.initial, cacheDirOverride: cache };
+  write(join(f.root, 'config.json'), original);
+  stageWeqBackupRestore(
+    f.root,
+    buildWeqBackup([file('settings/app.json', { renderTextMarkdown: false })]),
+    { parts: ['settings'], conflict: 'overwrite' },
+  );
+  faults.rename = (from, to) => {
+    if ((from.endsWith('/next') && to.endsWith('/config.json')) || from.endsWith('/before'))
+      throw Error('合成中断');
+  };
+  expect(applyPendingWeqBackupRestore(f.root, cache)).toMatchObject({ needsRecovery: true });
+  expect(existsSync(join(f.root, 'config.json'))).toBe(false);
+  faults.rename = null;
+  const started = bootstrapWeqBackupFiles(f.root);
+  expect(started).toMatchObject({
+    ok: true,
+    cacheRoot: cache,
+    result: { status: 'failed', needsRecovery: false },
+  });
+  // UserConfig 随后会补当前版本策略字段，原始字段仍全部保留。
+  expect(read(join(f.root, 'config.json'))).toMatchObject(original);
 });
 
 it('提交后的清理失败仍如实报告已应用，下一次启动补清理而不重复导入', () => {

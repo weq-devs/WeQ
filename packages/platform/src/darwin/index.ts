@@ -30,9 +30,8 @@
 
 import { readSipEnabled, type NativeBundle, type QqRuntimeModules } from '@weq/native';
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import type { Platform } from '../types';
+import { weqAppDataRoot } from '../app_data_root';
 import { readLauncherCount, readQqVersion } from '../qq_meta';
 import { createQqOnlineProbe } from './online_probe';
 import {
@@ -137,7 +136,7 @@ export function createDarwinPlatform(
     // macOS convention: per-user app data lives in ~/Library/Application
     // Support/<app> (the QQ data root itself is under the same tree, inside
     // the com.tencent.qq container).
-    appDataRoot: () => join(homedir(), 'Library', 'Application Support', 'weq'),
+    appDataRoot: () => weqAppDataRoot('darwin'),
     tencentFilesRoots: () => candidateQqRoots(home, override()),
     loginDbPath: () => findLoginDb(home, override()),
     qqDataRoot: () => pickQqRoot(home, override()),

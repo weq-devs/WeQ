@@ -27,10 +27,21 @@ import {
   type WeqBackupFile,
   type WeqBackupPart,
   type WeqBackupSummary,
+  weqAccountBackupScope,
 } from './backup_bundle';
 import { validateWeqBackupData } from './backup_data';
 import { readWeqBackupFile, relocateWeqCloneAssets } from './backup_clones';
-import { snapshotWeqAccount, snapshotWeqSettings } from './backup_settings';
+import {
+  snapshotWeqAccount,
+  snapshotWeqSettings,
+  validateWeqAccountSettings,
+} from './backup_settings';
+import { weqAccountSettingPath } from './backup_accounts';
+import {
+  WEQ_ACCOUNT_SETTING_FILES,
+  isWeqBackgroundName,
+  type WeqAccountSettingFile,
+} from '../common/backup_account_paths';
 import { DEFAULT_APP_SETTINGS } from './user_config';
 import type { AccountConfig } from '../account/user_config';
 import { validateWeqClientSettings } from '../common/backup_client';
@@ -40,6 +51,10 @@ export interface WeqRestoreChoice {
   conflict: 'skip' | 'overwrite';
   accountConfigIds?: string[];
   cloneConfigIds?: string[];
+  scopeMap?: Record<string, string>;
+  keepLocalPaths?: boolean;
+  clientId?: string;
+  includeClient?: boolean;
 }
 export interface WeqRestoreResult {
   id: string;
@@ -61,8 +76,10 @@ interface Pending {
   summary: WeqBackupSummary;
 }
 interface Operation {
-  kind: 'config' | 'client' | 'account' | 'clones';
+  kind: 'config' | 'client' | 'account' | 'clones' | 'account-setting';
   scope?: string;
+  setting?: WeqAccountSettingFile | 'background';
+  file?: string;
   hadOriginal: boolean;
   owned: boolean;
   hash: string;
@@ -153,6 +170,26 @@ function validateChoice(value: unknown): asserts value is WeqRestoreChoice {
         value[key].some((id) => typeof id !== 'string' || !isWeqBackupConfigId(id)))
     )
       throw new Error('无效的恢复数据域');
+  if (value.keepLocalPaths !== undefined && typeof value.keepLocalPaths !== 'boolean')
+    throw new Error('无效的机器路径选择');
+  if (value.includeClient !== undefined && typeof value.includeClient !== 'boolean')
+    throw new Error('无效的界面偏好选择');
+  if (
+    value.clientId !== undefined &&
+    (typeof value.clientId !== 'string' || !UUID.test(value.clientId))
+  )
+    throw new Error('无效的界面恢复设备标识');
+  if (value.scopeMap !== undefined) {
+    if (!record(value.scopeMap)) throw new Error('无效的数据域映射');
+    for (const [source, target] of Object.entries(value.scopeMap))
+      if (
+        !isWeqBackupConfigId(source) ||
+        typeof target !== 'string' ||
+        !isWeqBackupConfigId(target) ||
+        source.split('_')[0] !== target.split('_')[0]
+      )
+        throw new Error('只允许映射到同 QQ 号的数据域');
+  }
 }
 function validateResult(value: unknown): asserts value is WeqRestoreResult {
   if (
@@ -252,7 +289,7 @@ function readJournal(root: string): Journal | null {
   for (const item of value.operations) {
     if (
       !record(item) ||
-      !['config', 'client', 'account', 'clones'].includes(String(item.kind)) ||
+      !['config', 'client', 'account', 'clones', 'account-setting'].includes(String(item.kind)) ||
       typeof item.hadOriginal !== 'boolean' ||
       typeof item.owned !== 'boolean' ||
       typeof item.hash !== 'string' ||
@@ -265,12 +302,23 @@ function readJournal(root: string): Journal | null {
     )
       throw new Error('恢复事务原始配置校验无效');
     if (
-      item.kind === 'account' || item.kind === 'clones'
+      item.kind === 'account' || item.kind === 'clones' || item.kind === 'account-setting'
         ? typeof item.scope !== 'string' || !isWeqBackupConfigId(item.scope)
         : item.scope !== undefined
     )
       throw new Error('恢复事务目标无效');
-    const key = `${item.kind}:${item.scope ?? ''}`;
+    if (item.kind === 'account-setting') {
+      if (item.setting === 'background') {
+        if (typeof item.file !== 'string' || !isWeqBackgroundName(item.file))
+          throw new Error('恢复背景目标无效');
+      } else if (
+        !WEQ_ACCOUNT_SETTING_FILES.includes(item.setting as WeqAccountSettingFile) ||
+        item.file !== undefined
+      )
+        throw new Error('恢复偏好目标无效');
+    } else if (item.setting !== undefined || item.file !== undefined)
+      throw new Error('恢复事务目标无效');
+    const key = operationLabel(item as unknown as Operation);
     if (seen.has(key)) throw new Error('恢复事务目标重复');
     seen.add(key);
   }
@@ -281,12 +329,19 @@ function target(root: string, cacheRoot: string, op: Operation): string {
   if (op.kind === 'config') return join(root, 'config.json');
   if (op.kind === 'client') return clientPath(root);
   if (op.kind === 'account') return join(root, 'config', 'accounts', `${op.scope}.json`);
+  if (op.kind === 'account-setting')
+    return op.setting === 'background'
+      ? join(root, 'config', 'accounts', op.scope!, op.file!)
+      : weqAccountSettingPath(root, cacheRoot, op.scope!, op.setting as WeqAccountSettingFile);
   return join(cacheRoot, 'agentlab', op.scope!);
+}
+function operationLabel(op: Pick<Operation, 'kind' | 'scope' | 'setting' | 'file'>): string {
+  return [op.kind, op.scope, op.setting, op.file].filter((part) => part !== undefined).join(':');
 }
 function work(root: string, cacheRoot: string, id: string, op: Operation): string {
   return join(
     dirname(target(root, cacheRoot, op)),
-    `.weq-restore-${id}-${op.kind}${op.scope ? `-${op.scope}` : ''}`,
+    `.weq-restore-${id}-${operationLabel(op).replaceAll(':', '-')}`,
   );
 }
 function actual(path: string, directory: boolean): boolean {
@@ -368,6 +423,74 @@ function mergeRows(
       }
   return [...rows.values()];
 }
+function mappedScope(choice: WeqRestoreChoice, source: string): string {
+  return choice.scopeMap && Object.hasOwn(choice.scopeMap, source)
+    ? choice.scopeMap[source]!
+    : source;
+}
+function mappingRecords(root: string, bundle: WeqBackupBundle, choice: WeqRestoreChoice) {
+  const sources = new Set(
+    bundle.files.flatMap((file) =>
+      file.path.startsWith('accounts/')
+        ? [weqAccountBackupScope(file.path)]
+        : file.path.startsWith('clones/')
+          ? [file.path.split('/')[1]!]
+          : [],
+    ),
+  );
+  const targets = new Set<string>();
+  const records = new Map<string, { account: AccountConfig; hash: string }>();
+  for (const source of sources) {
+    const scope = mappedScope(choice, source);
+    if (targets.has(scope)) throw new Error('多个来源不能映射到同一数据域，请分别恢复');
+    targets.add(scope);
+    if (scope === source) continue;
+    const path = join(root, 'config', 'accounts', `${scope}.json`);
+    if (!actual(path, false)) throw new Error('映射目标必须是本机已有的同 QQ 号账号配置');
+    const data = readWeqBackupFile(path),
+      value = parseWeqBackupJson(data);
+    validateWeqAccountSettings(value, scope);
+    records.set(source, { account: value, hash: digest(data) });
+  }
+  return records;
+}
+function mappedAccount(source: AccountConfig, local: AccountConfig): AccountConfig {
+  const merged: Record<string, unknown> = { ...local, ...source };
+  for (const key of [
+    'mailNotifications',
+    'mailShowUnread',
+    'annualReport',
+    'groupKeyword',
+    'nativeMediaEnabled',
+    'homeDress',
+  ])
+    if (!Object.hasOwn(source, key)) delete merged[key];
+  for (const key of [
+    'configId',
+    'uin',
+    'uid',
+    'dbKey',
+    'algos',
+    'dataDir',
+    'static',
+    'mobile',
+    'nativeMediaDir',
+    'guid',
+    'displayName',
+    'avatarUrl',
+    'lastLoginAt',
+    'qqOnline',
+    'qqPid',
+    'session',
+    'a1Payload',
+    'rkeys',
+    'rkeyUpdatedAt',
+    'clientKey',
+    'loginPskey',
+  ] as const)
+    merged[key] = local[key];
+  return merged as unknown as AccountConfig;
+}
 function configPlan(
   current: Record<string, unknown>,
   files: readonly WeqBackupFile[],
@@ -379,11 +502,27 @@ function configPlan(
   const presets = files.find((file) => file.path === 'settings/export-presets.json');
   if (!app && !api && !presets) return null;
   let settings = record(current.settings) ? structuredClone(current.settings) : {};
-  if (app)
+  if (app) {
     settings = merge(
       merge(settings, snapshotWeqSettings(DEFAULT_APP_SETTINGS)),
       parseWeqBackupJson(app.data) as Record<string, unknown>,
     );
+    if (choice.keepLocalPaths !== false) {
+      const local = record(current.settings) ? current.settings : {};
+      settings.defaultExportDir =
+        typeof local.defaultExportDir === 'string' ? local.defaultExportDir : null;
+      settings.exportSaveMode =
+        typeof local.exportSaveMode === 'string'
+          ? local.exportSaveMode
+          : DEFAULT_APP_SETTINGS.exportSaveMode;
+      settings.externalChatpic = merge(settings.externalChatpic, {
+        dir:
+          record(local.externalChatpic) && typeof local.externalChatpic.dir === 'string'
+            ? local.externalChatpic.dir
+            : '',
+      });
+    }
+  }
   if (api) {
     const value = parseWeqBackupJson(api.data) as Record<string, unknown>;
     const base = structuredClone(settings);
@@ -458,10 +597,17 @@ function prepare(
   const original = hasConfig ? readWeqBackupFile(join(root, 'config.json')) : Buffer.from('{}');
   const currentConfig = parseWeqBackupJson(original);
   if (!record(currentConfig)) throw new Error('当前全局配置不是有效对象，未覆盖原件');
-  const add = (kind: Operation['kind'], files: WeqBackupFile[], scope?: string) => {
+  const mappings = mappingRecords(root, bundle, pending.choice);
+  const add = (
+    kind: Operation['kind'],
+    files: WeqBackupFile[],
+    scope?: string,
+    details: Pick<Operation, 'setting' | 'file' | 'originalHash'> = {},
+  ) => {
     const op: Operation = {
       kind,
       ...(scope ? { scope } : {}),
+      ...details,
       hadOriginal: false,
       owned: false,
       hash: kind === 'clones' ? treeHash(files) : digest(files[0]!.data),
@@ -471,12 +617,8 @@ function prepare(
       if (op.hadOriginal !== hasConfig) throw new Error('本机配置在准备期间发生变化，请重新预览');
       if (hasConfig) op.originalHash = digest(original);
     }
-    const label = `${kind}${scope ? `:${scope}` : ''}`;
-    if (
-      (kind === 'account' || kind === 'clones') &&
-      op.hadOriginal &&
-      pending.choice.conflict === 'skip'
-    ) {
+    const label = operationLabel(op);
+    if (kind === 'clones' && op.hadOriginal && pending.choice.conflict === 'skip') {
       result.skipped.push(label);
       return;
     }
@@ -493,44 +635,101 @@ function prepare(
       {
         path: '',
         data: Buffer.from(
-          JSON.stringify({ id: pending.id, values: parseWeqBackupJson(client.data) }),
+          JSON.stringify({
+            id: pending.id,
+            values: parseWeqBackupJson(client.data),
+            ...(pending.choice.clientId ? { clientId: pending.choice.clientId } : {}),
+          }),
         ),
       },
     ]);
     result.clientPending = true;
   }
   for (const file of accountFiles) {
-    const scope = file.path.split('/')[1]!.slice(0, -5);
-    const value = snapshotWeqAccount(parseWeqBackupJson(file.data) as unknown as AccountConfig);
-    add('account', [{ path: '', data: Buffer.from(JSON.stringify(value)) }], scope);
-    if (
-      existingConfig &&
-      record(existingConfig.autoEnter) &&
-      existingConfig.autoEnter.configId === scope &&
-      result.applied.includes(`account:${scope}`)
-    )
-      config = { ...existingConfig, autoEnter: null };
+    const sourceScope = weqAccountBackupScope(file.path),
+      scope = mappedScope(pending.choice, sourceScope),
+      parts = file.path.split('/');
+    if (parts.length === 2) {
+      let value = snapshotWeqAccount(parseWeqBackupJson(file.data) as unknown as AccountConfig);
+      const local = mappings.get(sourceScope);
+      if (local) value = mappedAccount(value, local.account);
+      add(
+        'account',
+        [{ path: '', data: Buffer.from(JSON.stringify(value)) }],
+        scope,
+        local ? { originalHash: local.hash } : {},
+      );
+    } else {
+      const setting =
+        parts[2] === 'background' ? 'background' : (parts[2] as WeqAccountSettingFile);
+      add('account-setting', [{ path: '', data: file.data }], scope, {
+        setting,
+        ...(setting === 'background' ? { file: parts[3]! } : {}),
+      });
+    }
   }
   for (const scope of new Set(
     bundle.files
       .filter((file) => file.path.startsWith('clones/'))
       .map((file) => file.path.split('/')[1]!),
   )) {
-    const prefix = `clones/${scope}/`;
+    const prefix = `clones/${scope}/`,
+      destination = mappedScope(pending.choice, scope);
     add(
       'clones',
       bundle.files
         .filter((file) => file.path.startsWith(prefix))
         .map((file) => ({
           path: file.path.slice(prefix.length),
-          data: relocateWeqCloneAssets(file, join(cacheRoot, 'agentlab')).data,
+          data: relocateWeqCloneAssets(
+            { ...file, path: file.path.replace(prefix, `clones/${destination}/`) },
+            join(cacheRoot, 'agentlab'),
+          ).data,
         })),
-      scope,
+      destination,
     );
   }
+  if (pending.choice.conflict === 'skip') {
+    const blocked = new Set(
+      plans
+        .filter(
+          (plan) =>
+            (plan.operation.kind === 'account' || plan.operation.kind === 'account-setting') &&
+            plan.operation.hadOriginal,
+        )
+        .map((plan) => plan.operation.scope!),
+    );
+    for (const scope of blocked) {
+      const labels = new Set(
+        plans
+          .filter(
+            (plan) =>
+              (plan.operation.kind === 'account' || plan.operation.kind === 'account-setting') &&
+              plan.operation.scope === scope,
+          )
+          .map((plan) => operationLabel(plan.operation)),
+      );
+      for (let index = plans.length - 1; index >= 0; index--)
+        if (labels.has(operationLabel(plans[index]!.operation))) plans.splice(index, 1);
+      result.applied = result.applied.filter((label) => !labels.has(label));
+      result.skipped.push(`account:${scope}`);
+    }
+  }
+  const autoEnter = existingConfig.autoEnter;
+  if (
+    record(autoEnter) &&
+    plans.some(
+      (plan) =>
+        (plan.operation.kind === 'account' || plan.operation.kind === 'account-setting') &&
+        plan.operation.scope === autoEnter.configId,
+    )
+  )
+    config = { ...existingConfig, autoEnter: null };
+  for (const [source, mapped] of mappings)
+    result.warnings.push(`${source} 将恢复到 ${mapped.account.configId}，保留本机接入信息。`);
   if (result.applied.some((label) => label.startsWith('account:')))
     result.warnings.push('账号配置不包含 QQ 数据库，原数据目录引用可能需要在本机重新选择。');
-  if (hasClones) {
+  if (hasClones || plans.some((plan) => plan.operation.kind === 'account-setting')) {
     const settings = record(existingConfig?.settings) ? existingConfig.settings : {};
     const agent = record(settings.agentLab) ? settings.agentLab : {};
     const voice = record(settings.voiceTranscribe) ? settings.voiceTranscribe : {};
@@ -544,10 +743,41 @@ function prepare(
         ? voice.ttsProviders.filter(record).map((provider) => provider.id)
         : [],
     );
+    for (const plan of plans.filter((plan) => plan.operation.kind === 'account-setting')) {
+      const setting = plan.operation.setting;
+      if (setting !== 'intent.json' && setting !== 'dress.json') continue;
+      const value = parseWeqBackupJson(plan.files[0]!.data);
+      if (!record(value)) continue;
+      if (
+        setting === 'intent.json' &&
+        ['providerRef', 'profileProviderRef', 'suggestionProviderRef'].some((key) => {
+          const ref = value[key];
+          return (
+            record(ref) &&
+            (!providerIds.has(ref.providerId) || typeof ref.model !== 'string' || !ref.model.trim())
+          );
+        })
+      )
+        result.warnings.push(
+          `${plan.operation.scope} 的意图／画像／推荐回复有未配置的模型引用，未自动替换提供方。`,
+        );
+      if (
+        setting === 'dress.json' &&
+        ['installedBubbles', 'installedFonts', 'installedWidgets'].some(
+          (key) => Array.isArray(value[key]) && value[key].length,
+        )
+      )
+        result.warnings.push(
+          `${plan.operation.scope} 的装扮选择已包含，QQ 气泡、字体与挂件资源需在本机重新获取。`,
+        );
+    }
     for (const file of bundle.files.filter(
       (file) => file.path.startsWith('clones/') && file.path.endsWith('.json'),
     )) {
-      if (result.skipped.includes(`clones:${file.path.split('/')[1]}`)) continue;
+      if (
+        result.skipped.includes(`clones:${mappedScope(pending.choice, file.path.split('/')[1]!)}`)
+      )
+        continue;
       const value = parseWeqBackupJson(file.data);
       if (!record(value)) continue;
       const persona = record(value.persona) ? value.persona : null;
@@ -611,10 +841,11 @@ export function previewWeqBackupRestore(
 
 function selectFiles(source: WeqBackupBundle, choice: WeqRestoreChoice): WeqBackupFile[] {
   const files = source.files.filter((file) => {
+    if (file.path === 'settings/client.json' && choice.includeClient === false) return false;
     const part = weqBackupPart(file.path);
     if (!choice.parts.includes(part)) return false;
     if (part === 'accounts' && choice.accountConfigIds)
-      return choice.accountConfigIds.includes(file.path.split('/')[1]!.slice(0, -5));
+      return choice.accountConfigIds.includes(weqAccountBackupScope(file.path));
     if (part === 'clones' && choice.cloneConfigIds)
       return choice.cloneConfigIds.includes(file.path.split('/')[1]!);
     return true;
@@ -636,6 +867,7 @@ export function stageWeqBackupRestore(
   const files = selectFiles(source, choice);
   const bundle = { manifest: source.manifest, files };
   validateWeqBackupData(bundle);
+  mappingRecords(root, bundle, choice);
   const selected = buildWeqBackup(files, source.manifest.createdAt);
   const id = randomUUID();
   const pending: Pending = {
@@ -668,7 +900,9 @@ function rollback(root: string, cacheRoot: string, journal: Journal): void {
         record(owner) &&
         owner.id === journal.id &&
         owner.kind === op.kind &&
-        owner.scope === op.scope
+        owner.scope === op.scope &&
+        owner.setting === op.setting &&
+        owner.file === op.file
       )
         op.owned = true;
       else {
@@ -797,7 +1031,14 @@ export function applyPendingWeqBackupRestore(
     const bundle = readWeqBackup(bytes);
     validateWeqBackupData(bundle);
     if (
-      bundle.files.some((file) => weqBackupPart(file.path) === 'clones') &&
+      bundle.files.some(
+        (file) =>
+          weqBackupPart(file.path) === 'clones' ||
+          (file.path.startsWith('accounts/') &&
+            ['anti-recall.json', 'intent.json', 'tolerance.json'].includes(
+              file.path.split('/')[2] ?? '',
+            )),
+      ) &&
       !existsSync(cacheRoot)
     ) {
       if (cacheRoot !== join(root, 'cache')) throw new Error('目标缓存根不可用，未创建替代目录');
@@ -827,6 +1068,8 @@ export function applyPendingWeqBackupRestore(
         id: pending.id,
         kind: op.kind,
         ...(op.scope ? { scope: op.scope } : {}),
+        ...(op.setting ? { setting: op.setting } : {}),
+        ...(op.file ? { file: op.file } : {}),
       });
       op.owned = true;
       if (op.kind === 'clones') ensureDirectory(join(directory, 'next'));
@@ -900,9 +1143,32 @@ export function weqBackupRestoreStatus(appRoot: string) {
   };
 }
 
+export function hasPendingWeqBackupRestore(appRoot: string): boolean {
+  const root = resolve(appRoot);
+  return present(pendingPath(root)) || present(journalPath(root));
+}
+
+/** 根配置可能已被同卷移至 before；只读取已校验事务内的原件，不猜缓存目录。 */
+export function readWeqRestoreStartupConfig(appRoot: string): Buffer | null {
+  const root = resolve(appRoot),
+    current = join(root, 'config.json');
+  if (present(current)) return readWeqBackupFile(current);
+  const journal = readJournal(root);
+  const operation = journal?.operations.find((op) => op.kind === 'config' && op.hadOriginal);
+  if (!journal || !operation) return null;
+  const before = join(work(root, journal.cacheRoot, journal.id, operation), 'before');
+  if (!present(before)) throw new Error('恢复现场缺少原始全局配置，未猜测缓存目录');
+  const bytes = readWeqBackupFile(before);
+  if (!operation.originalHash || digest(bytes) !== operation.originalHash)
+    throw new Error('恢复现场原始全局配置校验失败');
+  return bytes;
+}
+
 export function pendingWeqClientSettings(
   appRoot: string,
-): { id: string; values: Record<string, string> } | null {
+  clientId?: string,
+  allowOtherClient = false,
+): { id: string; values: Record<string, string>; clientId?: string } | null {
   const root = resolve(appRoot);
   if (!present(clientPath(root))) return null;
   const value = json(clientPath(root), WEQ_BACKUP_LIMITS.maxEntryBytes);
@@ -914,6 +1180,11 @@ export function pendingWeqClientSettings(
   )
     throw new Error('待恢复界面偏好无效');
   validateWeqClientSettings(value.values);
+  if (
+    value.clientId !== undefined &&
+    (typeof value.clientId !== 'string' || !UUID.test(value.clientId))
+  )
+    throw new Error('待恢复界面设备标识无效');
   const result = readResult(root),
     journal = readJournal(root);
   if (journal?.id === value.id && journal.phase !== 'committed') return null;
@@ -924,12 +1195,17 @@ export function pendingWeqClientSettings(
     }
   } else if (journal?.id !== value.id || journal.phase !== 'committed')
     throw new Error('缺少已提交的恢复回执，未应用界面偏好');
-  return value as unknown as { id: string; values: Record<string, string> };
+  if (!allowOtherClient && value.clientId !== undefined && value.clientId !== clientId) return null;
+  return value as unknown as { id: string; values: Record<string, string>; clientId?: string };
 }
 
-export function acknowledgeWeqClientSettings(appRoot: string, id: string): boolean {
+export function acknowledgeWeqClientSettings(
+  appRoot: string,
+  id: string,
+  clientId?: string,
+): boolean {
   const root = resolve(appRoot),
-    pending = pendingWeqClientSettings(root);
+    pending = pendingWeqClientSettings(root, clientId);
   if (!pending) {
     const result = readResult(root);
     return result?.id === id && result.status === 'applied' && !result.clientPending;
@@ -946,6 +1222,39 @@ export function acknowledgeWeqClientSettings(appRoot: string, id: string): boole
   if (!receipt) return false;
   save(resultPath(root), { ...receipt, clientPending: false });
   rmSync(clientPath(root));
+  return true;
+}
+
+export function skipWeqClientSettings(appRoot: string, id: string): boolean {
+  const root = resolve(appRoot),
+    result = readResult(root),
+    journal = readJournal(root);
+  const receipt =
+    result?.id === id && result.status === 'applied'
+      ? result
+      : journal?.id === id && journal.phase === 'committed'
+        ? journal.result
+        : null;
+  if (!receipt || (journal?.id === id && journal.phase !== 'committed')) return false;
+  if (!receipt.clientPending) {
+    rmSync(clientPath(root), { force: true });
+    return true;
+  }
+  save(resultPath(root), {
+    ...receipt,
+    clientPending: false,
+    warnings: [...receipt.warnings, '已选择保留本机界面偏好，未应用包内界面偏好。'],
+  });
+  rmSync(clientPath(root), { force: true });
+  return true;
+}
+
+export function reassignWeqClientSettings(appRoot: string, id: string, clientId: string): boolean {
+  if (!UUID.test(clientId)) throw new Error('无效的界面恢复设备标识');
+  const root = resolve(appRoot),
+    pending = pendingWeqClientSettings(root, undefined, true);
+  if (!pending || pending.id !== id) return false;
+  save(clientPath(root), { ...pending, clientId });
   return true;
 }
 

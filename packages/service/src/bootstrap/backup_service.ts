@@ -10,10 +10,12 @@ import {
   summarizeWeqBackup,
   isWeqBackupConfigId,
   WEQ_BACKUP_PARTS,
+  WEQ_BACKUP_LIMITS,
   type WeqBackupFile,
   type WeqBackupPart,
 } from './backup_bundle';
 import { snapshotWeqClones } from './backup_clones';
+import { snapshotWeqAccountPreferences } from './backup_accounts';
 import { validateWeqBackupData } from './backup_data';
 import { validateWeqClientSettings } from '../common/backup_client';
 import {
@@ -28,12 +30,15 @@ export interface WeqBackupSelection {
   parts: WeqBackupPart[];
   accountConfigIds?: string[];
   cloneConfigIds?: string[];
+  includeClient?: boolean;
 }
 
 /** UI 只持有不透明预览 ID；内存最多保留一份输入，不将归档或凭据回传渲染层。 */
 export class WeqBackupService {
   private source: { id: string; archive: Buffer; name: string } | null = null;
   private preview: { id: string; sourceId: string; choice: WeqRestoreChoice } | null = null;
+  private upload: { id: string; data: Buffer; received: number; name: string } | null = null;
+  private exported: { id: string; path: string } | null = null;
   readonly root: string;
   constructor(
     appRoot: string,
@@ -58,10 +63,11 @@ export class WeqBackupService {
         (account) => typeof account.configId === 'string' && isWeqBackupConfigId(account.configId),
       );
     return {
-      accounts: accounts.map(({ configId, uin, displayName }) => ({
+      accounts: accounts.map(({ configId, uin, displayName, dataDir }) => ({
         configId,
         uin,
         displayName: displayName ?? uin,
+        ...(typeof dataDir === 'string' ? { dataDir } : {}),
       })),
       cloneScopes: this.cloneScopes(),
       restore: weqBackupRestoreStatus(this.root),
@@ -90,9 +96,11 @@ export class WeqBackupService {
       : DEFAULT_APP_SETTINGS;
     const warnings: string[] = [];
     if (selection.parts.includes('settings')) {
-      validateWeqClientSettings(client);
       add('settings/app.json', snapshotWeqSettings(settings));
-      add('settings/client.json', client);
+      if (selection.includeClient !== false) {
+        validateWeqClientSettings(client);
+        add('settings/client.json', client);
+      }
       add('settings/export-presets.json', this.config.getExportPresets());
     }
     if (selection.parts.includes('api')) add('api/settings.json', snapshotWeqApiSettings(settings));
@@ -101,6 +109,13 @@ export class WeqBackupService {
         if (selection.accountConfigIds && !selection.accountConfigIds.includes(account.configId))
           continue;
         add(`accounts/${account.configId}.json`, snapshotWeqAccount(account));
+        const preferences = snapshotWeqAccountPreferences(
+          this.root,
+          this.config.cacheBaseDir(),
+          account.configId,
+        );
+        files.push(...preferences.files);
+        warnings.push(...preferences.warnings);
       }
     if (selection.parts.includes('clones')) {
       const clones = snapshotWeqClones(
@@ -122,10 +137,15 @@ export class WeqBackupService {
   }
 
   inspect(archive: Buffer, name: string) {
+    this.upload = null;
+    return this.inspectOwned(Buffer.from(archive), name);
+  }
+
+  private inspectOwned(archive: Buffer, name: string) {
     this.source = null;
     this.preview = null;
     const bundle = readWeqBackup(archive);
-    this.source = { id: randomUUID(), archive: Buffer.from(archive), name };
+    this.source = { id: randomUUID(), archive, name };
     return { id: this.source.id, name, summary: summarizeWeqBackup(bundle) };
   }
 
@@ -157,16 +177,75 @@ export class WeqBackupService {
   }
 
   dispose(sourceId: string): void {
+    if (this.upload?.id === sourceId) this.upload = null;
     if (this.source?.id === sourceId) {
       this.source = null;
       this.preview = null;
     }
   }
+  beginUpload(name: string, bytes: number): string {
+    if (
+      !Number.isSafeInteger(bytes) ||
+      bytes < 1 ||
+      bytes > WEQ_BACKUP_LIMITS.maxArchiveBytes ||
+      !name ||
+      name.length > 512
+    )
+      throw new Error('备份上传大小或名称无效');
+    this.upload = null;
+    this.source = null;
+    this.preview = null;
+    this.upload = { id: randomUUID(), data: Buffer.alloc(bytes), received: 0, name };
+    return this.upload.id;
+  }
+  uploadChunk(id: string, offset: number, encoded: string): number {
+    const upload = this.upload;
+    if (!upload || upload.id !== id) throw new Error('备份上传已失效');
+    if (
+      encoded.length > 87384 ||
+      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)
+    )
+      throw new Error('备份上传分片无效');
+    const bytes = Buffer.from(encoded, 'base64');
+    if (
+      !bytes.length ||
+      bytes.length > 65536 ||
+      !Number.isSafeInteger(offset) ||
+      offset < 0 ||
+      offset + bytes.length > upload.data.length
+    )
+      throw new Error('备份上传分片越界');
+    if (
+      offset < upload.received &&
+      offset + bytes.length <= upload.received &&
+      upload.data.subarray(offset, offset + bytes.length).equals(bytes)
+    )
+      return upload.received;
+    if (offset !== upload.received) throw new Error('备份上传分片顺序不一致');
+    bytes.copy(upload.data, offset);
+    upload.received += bytes.length;
+    return upload.received;
+  }
+  finishUpload(id: string) {
+    const upload = this.upload;
+    if (!upload || upload.id !== id || upload.received !== upload.data.length)
+      throw new Error('备份上传尚未完成或已失效');
+    this.upload = null;
+    return this.inspectOwned(upload.data, upload.name);
+  }
+  rememberExport(path: string): string {
+    this.exported = { id: randomUUID(), path };
+    return this.exported.id;
+  }
+  exportPath(id: string): string {
+    if (this.exported?.id !== id) throw new Error('导出记录已失效，已保存的文件不受影响');
+    return this.exported.path;
+  }
   cancel(): void {
     cancelWeqBackupRestore(this.root, this.config.cacheBaseDir());
   }
 
-  stageDefaults() {
+  stageDefaults(clientId?: string) {
     const result = stageWeqBackupRestore(
       this.root,
       buildWeqBackup([
@@ -177,10 +256,16 @@ export class WeqBackupService {
         { path: 'settings/client.json', data: Buffer.from('{}') },
         { path: 'settings/export-presets.json', data: Buffer.from('{}') },
       ]),
-      { parts: ['settings'], conflict: 'overwrite' },
+      {
+        parts: ['settings'],
+        conflict: 'overwrite',
+        keepLocalPaths: false,
+        ...(clientId ? { clientId } : {}),
+      },
     );
     this.source = null;
     this.preview = null;
+    this.upload = null;
     return result;
   }
 }

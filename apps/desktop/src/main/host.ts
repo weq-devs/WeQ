@@ -50,6 +50,10 @@ function revealInFileManager(path: string): Promise<void> {
 }
 
 export const electronHost: HostBridge = {
+  restartApplication: async () => {
+    app.relaunch();
+    setTimeout(() => app.quit(), 200);
+  },
   fetchMedia: (url, opts) => net.fetch(url, { signal: opts?.signal }),
   async validateImageBuffer(bytes) {
     return !nativeImage.createFromBuffer(Buffer.from(bytes)).isEmpty();

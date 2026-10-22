@@ -6,6 +6,11 @@ import {
 } from './backup_settings';
 import { validateWeqClientSettings } from '../common/backup_client';
 import { normalizeExportPresets } from './user_config';
+import { validateWeqAccountPreference } from './backup_accounts';
+import {
+  WEQ_ACCOUNT_SETTING_FILES,
+  type WeqAccountSettingFile,
+} from '../common/backup_account_paths';
 import { normalizeCloneGeneration, CLONE_GENERATION_KEYS } from '@weq/agentlab';
 
 function invalid(path: string): never {
@@ -413,8 +418,11 @@ export function validateWeqBackupData(bundle: WeqBackupBundle): void {
       const normalized = normalizeExportPresets(value);
       if (Object.keys(input).some((key) => !Object.hasOwn(normalized, key))) invalid(file.path);
     } else if (file.path === 'api/settings.json') validateWeqApiSettings(value);
-    else if (file.path.startsWith('accounts/'))
-      validateWeqAccountSettings(value, file.path.split('/')[1]!.slice(0, -5));
-    else if (file.path.startsWith('clones/')) cloneData(value, file.path);
+    else if (file.path.startsWith('accounts/')) {
+      if (file.path.split('/').length === 2)
+        validateWeqAccountSettings(value, file.path.split('/')[1]!.slice(0, -5));
+      else if (WEQ_ACCOUNT_SETTING_FILES.includes(file.path.split('/')[2] as WeqAccountSettingFile))
+        validateWeqAccountPreference(file.path.split('/')[2] as WeqAccountSettingFile, value);
+    } else if (file.path.startsWith('clones/')) cloneData(value, file.path);
   }
 }

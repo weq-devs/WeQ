@@ -59,6 +59,7 @@ import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTransc
 import { OcrModelsSection } from './settings/OcrModelsSection';
 import { McpServerSection } from './settings/McpServerSection';
 import { RemoteSection } from './settings/RemoteSection';
+import { BackupSection } from './settings/BackupSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
 import { DaemonSection } from './settings/DaemonSection';
@@ -98,6 +99,12 @@ interface SettingsSection {
 }
 
 const SETTINGS_SECTIONS: SettingsSection[] = [
+  {
+    id: 'backup',
+    label: '备份与恢复',
+    icon: <HardDrive size={16} />,
+    render: () => <BackupSection />,
+  },
   {
     id: 'global',
     label: '窗口行为',

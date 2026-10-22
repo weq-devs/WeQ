@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { buildZip, readZipEntries, type ZipEntry } from '../common/zip';
 import { sniffImageExt } from '../account/export/emoji_export';
 import { isWindowsReservedName } from '../common/path_sanitize';
+import { WEQ_ACCOUNT_SETTING_FILES, isWeqBackgroundName } from '../common/backup_account_paths';
 import {
   weqCloneStickerReferences,
   weqClonePersona,
@@ -53,6 +54,11 @@ export function isWeqBackupConfigId(value: string): boolean {
   return CONFIG_ID.test(value);
 }
 
+export function weqAccountBackupScope(path: string): string {
+  const scope = path.split('/')[1] ?? '';
+  return scope.endsWith('.json') ? scope.slice(0, -5) : scope;
+}
+
 export function weqBackupPart(path: string): WeqBackupPart {
   if (
     path.length > 300 ||
@@ -68,6 +74,15 @@ export function weqBackupPart(path: string): WeqBackupPart {
   if (parts[0] === 'accounts' && parts.length === 2) {
     const name = parts[1]!;
     if (name.endsWith('.json') && isWeqBackupConfigId(name.slice(0, -5))) return 'accounts';
+  }
+  if (parts[0] === 'accounts' && isWeqBackupConfigId(parts[1] ?? '')) {
+    if (
+      parts.length === 3 &&
+      WEQ_ACCOUNT_SETTING_FILES.includes(parts[2] as (typeof WEQ_ACCOUNT_SETTING_FILES)[number])
+    )
+      return 'accounts';
+    if (parts.length === 4 && parts[2] === 'background' && isWeqBackgroundName(parts[3]!))
+      return 'accounts';
   }
   if (parts[0] === 'clones' && isWeqBackupConfigId(parts[1] ?? '')) {
     const name = parts[2] ?? '';
@@ -170,10 +185,32 @@ export function validateWeqCloneAsset(path: string, data: Buffer): void {
   }
 }
 
+export function validateWeqBackground(data: Buffer, extension: string): void {
+  const image = sniffImageExt(data);
+  if (image && (image === extension || (image === '.jpg' && extension === '.jpeg'))) return;
+  if (
+    extension === '.webm' &&
+    data.length >= 4 &&
+    data.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))
+  )
+    return;
+  if (
+    (extension === '.mp4' || extension === '.mov') &&
+    data.length >= 12 &&
+    ['ftyp', 'moov', 'mdat', 'wide', 'free'].includes(data.toString('ascii', 4, 8))
+  )
+    return;
+  throw new Error('自定义背景格式与文件内容不符');
+}
+
 function validateFile(file: WeqBackupFile): void {
   const part = weqBackupPart(file.path);
   if (file.data.length > WEQ_BACKUP_LIMITS.maxEntryBytes) throw new Error('备份单文件超过 64 MiB');
   if (!file.path.endsWith('.json')) {
+    if (part === 'accounts') {
+      validateWeqBackground(file.data, file.path.slice(file.path.lastIndexOf('.')));
+      return;
+    }
     if (file.path.includes('/reports/')) {
       try {
         new TextDecoder('utf-8', { fatal: true }).decode(file.data);
@@ -194,7 +231,7 @@ function validateFile(file: WeqBackupFile): void {
     return;
   }
   if (!record(value)) throw new Error('备份配置必须是 JSON 对象');
-  if (part === 'accounts') {
+  if (part === 'accounts' && file.path.split('/').length === 2) {
     const id = file.path.slice('accounts/'.length, -5);
     if (
       value.configId !== id ||
@@ -343,7 +380,19 @@ export function summarizeWeqBackup(bundle: WeqBackupBundle): WeqBackupSummary {
     row.files++;
     row.bytes += file.data.length;
     parts.set(part, row);
-    if (part === 'accounts') accounts.add(file.path.split('/')[1]!.slice(0, -5));
+    if (part === 'accounts') accounts.add(weqAccountBackupScope(file.path));
+    if (part === 'accounts' && file.path.endsWith('/dress.json')) {
+      const value = parseWeqBackupJson(file.data);
+      if (
+        record(value) &&
+        typeof value.backgroundFile === 'string' &&
+        value.backgroundFile &&
+        !names.has(
+          `accounts/${weqAccountBackupScope(file.path)}/background/${value.backgroundFile}`,
+        )
+      )
+        warnings.push(`${file.path} 有未包含在备份中的自定义背景`);
+    }
     if (part === 'clones') clones.add(file.path.split('/')[1]!);
     if (part === 'clones' && file.path.endsWith('.json')) {
       const value = parseWeqBackupJson(file.data);

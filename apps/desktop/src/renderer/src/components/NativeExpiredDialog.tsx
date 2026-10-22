@@ -48,11 +48,13 @@ export interface NativeExpiredDialogProps {
   buildTime?: number | null;
   /** 二进制的过期时间（Unix 秒）；未知传 null。 */
   expireTime?: number | null;
+  onBackup?: () => void;
 }
 
 export function NativeExpiredDialog({
   buildTime,
   expireTime,
+  onBackup,
 }: NativeExpiredDialogProps): ReactElement {
   const {
     phase,
@@ -188,6 +190,11 @@ export function NativeExpiredDialog({
               <Terminal size={12} strokeWidth={1.9} aria-hidden /> 开发构建不能自更新：请在本仓库跑{' '}
               <code>pnpm native:fetch</code> 取一份新构建后重启。
             </p>
+          ) : null}
+          {onBackup ? (
+            <button type="button" className="weq-set-btn" onClick={onBackup}>
+              备份与恢复
+            </button>
           ) : null}
         </div>
       </div>

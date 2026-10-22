@@ -19,6 +19,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
@@ -55,7 +56,7 @@ import { createLinuxAttachHook } from '../attach_elevation';
 import {
   accountConfigId,
   AnnualReportService,
-  UserConfigService,
+  type UserConfigService,
   Win32DetectService,
   KeyService,
   GlobalConfigService,
@@ -989,60 +990,69 @@ export interface AppContext {
 
 let cached: AppContext | undefined;
 
-export function initAppContext(): AppContext {
-  configureNativeDressResources();
+function unavailableContext(nativeError: NativeInitError | null, reason: string): AppContext {
+  return {
+    platform: null,
+    bootstrap: null,
+    nativeError,
+    account: null,
+    services: null,
+    resourcePlatform: null,
+    accountIsStatic: false,
+    accountIsAndroidBackup: false,
+    dbTolerance: null,
+    scheduler: null,
+    setAccount(): Promise<void> {
+      throw new Error(reason);
+    },
+    setStaticAccount(): Promise<void> {
+      throw new Error(reason);
+    },
+    clearAccount(): void {
+      /* nothing to clear */
+    },
+    applyRealtime(): void {
+      /* no account to watch */
+    },
+    applySsePush(): Promise<void> {
+      /* no account — nothing to push */
+      return Promise.resolve();
+    },
+    applyGroupKeyword(): Promise<void> {
+      /* no account — nothing to match */
+      return Promise.resolve();
+    },
+    applyMcp(): Promise<void> {
+      /* no account — nothing to serve */
+      return Promise.resolve();
+    },
+    applyWeqAssistant(): Promise<number> {
+      /* no account — nothing to serve */
+      return Promise.resolve(0);
+    },
+    refreshRkeysNow(): Promise<boolean> {
+      return Promise.resolve(false);
+    },
+    transcribeSilk(): Promise<TranscribeSilkResult> {
+      return Promise.resolve({ ok: false, error: reason });
+    },
+  };
+}
+
+export function initAppContext(fileRoot?: string): AppContext {
   if (cached) return cached;
-
+  const files = initBackupContext(fileRoot);
+  if (!files.ok) {
+    cached = unavailableContext(null, files.error);
+    return cached;
+  }
+  configureNativeDressResources();
   const result = loadNativeSafe();
-
   if (!result.ok) {
-    // Degraded context: keep the app alive so the renderer can show a dialog.
-    cached = {
-      platform: null,
-      bootstrap: null,
-      nativeError: { kind: result.kind, status: result.status, message: result.message },
-      account: null,
-      services: null,
-      resourcePlatform: null,
-      accountIsStatic: false,
-      accountIsAndroidBackup: false,
-      dbTolerance: null,
-      scheduler: null,
-      setAccount(): Promise<void> {
-        throw new Error('native bundle failed to load — cannot open an account');
-      },
-      setStaticAccount(): Promise<void> {
-        throw new Error('native bundle failed to load — cannot open a static account');
-      },
-      clearAccount(): void {
-        /* nothing to clear */
-      },
-      applyRealtime(): void {
-        /* no account to watch */
-      },
-      applySsePush(): Promise<void> {
-        /* no account — nothing to push */
-        return Promise.resolve();
-      },
-      applyGroupKeyword(): Promise<void> {
-        /* no account — nothing to match */
-        return Promise.resolve();
-      },
-      applyMcp(): Promise<void> {
-        /* no account — nothing to serve */
-        return Promise.resolve();
-      },
-      applyWeqAssistant(): Promise<number> {
-        /* no account — nothing to serve */
-        return Promise.resolve(0);
-      },
-      refreshRkeysNow(): Promise<boolean> {
-        return Promise.resolve(false);
-      },
-      transcribeSilk(): Promise<TranscribeSilkResult> {
-        return Promise.resolve({ ok: false, error: '原生组件未就绪' });
-      },
-    };
+    cached = unavailableContext(
+      { kind: result.kind, status: result.status, message: result.message },
+      result.message,
+    );
     return cached;
   }
 
@@ -1077,7 +1087,7 @@ export function initAppContext(): AppContext {
     appDataRoot: platform.appDataRoot(),
     logDir: getLogDir(),
   });
-  const userConfig = new UserConfigService(platform);
+  const userConfig = files.config;
   // 词云 / 常用语的分词优先用 QQ 自带结巴词典，读不到时用随包的
   // resources/jieba（进程级单例）。账号无关、非关键路径，fire-and-forget 即可。
   void warmJiebaDict([platform.jiebaDictDir(), resolveResource('jieba')]);
@@ -2957,6 +2967,14 @@ export function requireBootstrap(): BootstrapServices {
     throw new Error('Native bundle unavailable — QQ helper failed to initialize.');
   }
   return ctx.bootstrap;
+}
+
+/** 仅失败的文件恢复上下文可以重建，此时没有账号或后台业务服务在途。 */
+export function retryBackupRecovery(): boolean {
+  const root = resetBackupContextForRecovery();
+  cached = undefined;
+  initAppContext(root);
+  return initBackupContext(root).ok;
 }
 
 /** Platform handle, asserting native loaded. */

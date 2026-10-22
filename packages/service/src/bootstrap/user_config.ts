@@ -806,7 +806,7 @@ export class UserConfigService {
   private cached: UserConfig | undefined;
   private readonly logger = getLogger().child({ scope: 'user-config' });
 
-  constructor(platform: Platform) {
+  constructor(platform: Pick<Platform, 'appDataRoot'>) {
     this.root = platform.appDataRoot();
     this.configPath = join(this.root, 'config.json');
     // 群关键词迁移先跑：它从 settings 里搬走旧键，而设置类迁移不保证原样保留

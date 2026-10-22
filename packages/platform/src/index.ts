@@ -7,6 +7,7 @@
  */
 
 export type { Platform } from './types';
+export { weqAppDataRoot } from './app_data_root';
 export { createWin32Platform } from './win32';
 export { createLinuxPlatform } from './linux';
 export { createDarwinPlatform } from './darwin';
