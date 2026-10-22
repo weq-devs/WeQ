@@ -9,6 +9,7 @@ import { CommonRelationships } from '../src/renderer/src/components/qq-actions/C
 import { ContactList } from '../src/renderer/src/im-template/template/conversationLists';
 import { FriendDirectoryContext } from '../src/renderer/src/components/FriendDirectoryControls';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
+import { sharedGroupConversation } from '../src/renderer/src/components/ark/groupShareCard';
 import {
   ContentSelectionProvider,
   useContentMultiSelect,
@@ -28,6 +29,7 @@ const state = vi.hoisted(() => ({
   reads: vi.fn(),
   special: vi.fn(async () => true),
   errors: {} as Record<string, string>,
+  commonGroups: [{ groupCode: '123', name: '合成共同群' }],
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
@@ -137,7 +139,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           },
           commonRelationships: {
             useQuery: () => ({
-              data: { friendCount: 3, groups: [{ groupCode: '123', name: '合成共同群' }] },
+              data: { friendCount: 3, groups: state.commonGroups },
             }),
           },
         },
@@ -153,6 +155,7 @@ beforeEach(() => {
   state.permissionFailure = false;
   state.albumConfirmed = false;
   state.errors = {};
+  state.commonGroups = [{ groupCode: '123', name: '合成共同群' }];
   state.writes.mockClear();
   state.reads.mockClear();
 });
@@ -296,8 +299,12 @@ describe('可接入功能交互回归', () => {
   );
   it('名片直接展示共同数量，列表需要手动打开，不额外显示完整性标签', async () => {
     const f = mount(() => h(CommonRelationships, { uin: '10002' }));
-    expect(f.host.textContent).toContain('共同好友 3');
-    expect(f.host.textContent).toContain('共同群 1');
+    const rows = [...f.host.querySelectorAll('.weq-profile-row')];
+    expect(rows.map((row) => row.querySelector('.weq-profile-row-label')?.textContent)).toEqual([
+      '共同好友',
+      '共同群',
+    ]);
+    expect(rows.map((row) => row.querySelector('strong')?.textContent)).toEqual(['3', '1']);
     expect(f.host.textContent).not.toContain('合成共同群');
     await act(async () =>
       [...f.host.querySelectorAll('button')]
@@ -306,6 +313,65 @@ describe('可接入功能交互回归', () => {
     );
     expect(f.host.textContent).toContain('合成共同群');
     expect(f.host.textContent).not.toContain('不完整');
+  });
+  it('共同群头像打开对应群名片，关闭名片后仍保留列表', async () => {
+    const f = mount(() => h(CommonRelationships, { uin: '10002' }));
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[title="查看共同群列表"]')!.click(),
+    );
+    const avatar = f.host.querySelector<HTMLButtonElement>(
+      '[aria-label="查看 合成共同群 的群名片"]',
+    );
+    expect(avatar).not.toBeNull();
+    await act(async () => avatar!.click());
+    expect(f.host.querySelector('[aria-label="群资料"]')?.textContent).toContain('合成共同群');
+    expect(f.host.querySelector('[aria-label="群资料"]')?.textContent).toContain('123');
+    expect(f.host.querySelector('[aria-label="群资料"]')?.textContent).not.toContain('群成员');
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="群资料"] [aria-label="关闭"]')!.click(),
+    );
+    expect(f.host.querySelector('[aria-label="群资料"]')).toBeNull();
+    expect(f.host.querySelector('[aria-label="查看 合成共同群 的群名片"]')).not.toBeNull();
+  });
+  it('共同群优先复用已收录的群资料，不显示伪造的零成员信息', async () => {
+    const conversation = sharedGroupConversation({ code: '123', name: '已收录的群', avatar: '' });
+    conversation.group.memberCount = 42;
+    conversation.group.announcement = '已有的群公告';
+    const f = mount(() =>
+      h(
+        ConversationDirectoryContext.Provider,
+        {
+          value: {
+            virtual: [],
+            real: [conversation],
+            onVirtual: vi.fn(),
+            onCreate: vi.fn(),
+          },
+        },
+        h(CommonRelationships, { uin: '10002' }),
+      ),
+    );
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[title="查看共同群列表"]')!.click(),
+    );
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="查看 合成共同群 的群名片"]')!.click(),
+    );
+    const profile = f.host.querySelector('[aria-label="群资料"]')!;
+    expect(profile.textContent).toContain('已收录的群');
+    expect(profile.querySelector('.weq-profile-members-head strong')?.textContent).toBe('42');
+    expect(profile.textContent).toContain('已有的群公告');
+  });
+  it('空共同群保留零数量和空态，切换数据源后关闭旧列表', async () => {
+    state.commonGroups = [];
+    const f = mount(() => h(CommonRelationships, { uin: '10002' }));
+    const trigger = f.host.querySelector<HTMLButtonElement>('[title="查看共同群列表"]')!;
+    expect(trigger.disabled).toBe(false);
+    await act(async () => trigger.click());
+    expect(f.host.textContent).toContain('暂无共同群');
+    state.config = 'source-b';
+    f.update();
+    expect(f.host.querySelector('[role="dialog"]')).toBeNull();
   });
   it('联系人菜单保留分析、备注、导出、漫游和特别关心，排除已读与置顶', async () => {
     const contact = {

@@ -96,8 +96,7 @@ html[data-theme='dark'] .weq-friend-directory-editor {
   border-radius: 6px;
   padding: 8px;
 }
-.weq-cloud-lookup-entry,
-.weq-common-relations {
+.weq-cloud-lookup-entry {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -111,38 +110,4 @@ html[data-theme='dark'] .weq-friend-directory-editor {
   width: 100%;
   border-top: 1px solid var(--border);
   text-align: left;
-}
-.weq-common-relations {
-  flex-wrap: wrap;
-  background: transparent;
-  padding: 8px 0;
-}
-.weq-common-relations button {
-  color: var(--foreground);
-  background: transparent;
-  border: 0;
-  padding: 0;
-  font-size: inherit;
-  cursor: pointer;
-}
-.weq-common-relations button:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-.weq-common-relations ul {
-  list-style: none;
-  padding: 0;
-  max-height: 55vh;
-  overflow-y: auto;
-}
-.weq-common-relations li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
-}
-.weq-common-relations small {
-  display: block;
-  color: var(--muted-foreground);
 }
