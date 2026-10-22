@@ -209,6 +209,11 @@ import type { RepeatElement } from '../../lib/messageRepeat';
 import { readMentionClipboard, writeMentionClipboard } from '../../lib/mentionClipboard';
 import '../../styles/message-repeat.css';
 import '../../styles/new-message-preview.css';
+import '../../styles/conversation-loading.css';
+import {
+  restoreReadingPosition,
+  type ConversationReadingPosition,
+} from '../../lib/conversationReadingPosition';
 import { MessageTimeDivider, shouldShowMessageTime } from './messageTime';
 import { MessageGapDivider, isSeqBetween, messageGapCount } from './messageGap';
 import { defaultConversationPreference } from './preferences';
@@ -405,6 +410,8 @@ export function ChatPane({
   composerActions,
   messageRenderers,
   loading,
+  loadingNewer = false,
+  initialReadingPosition,
   atLatest = true,
   latestMessageSeq,
   onPreviewLatest,
@@ -474,6 +481,8 @@ export function ChatPane({
   composerActions?: Partial<ComposerActionRegistry>;
   messageRenderers?: MessageRenderer[];
   loading: boolean;
+  loadingNewer?: boolean;
+  initialReadingPosition?: ConversationReadingPosition;
   /** 是否为最新窗口；历史分页不触发新消息提示，分离窗口改由实时会话水位驱动。 */
   atLatest?: boolean;
   latestMessageSeq?: string;
@@ -924,6 +933,7 @@ export function ChatPane({
   // Tracks whether the view is pinned to the bottom of the message list.
   // Drives auto-scroll-on-new-message vs. "new messages" pill behaviour.
   const atBottomRef = useRef(true);
+  const readingPositionApplied = useRef(false);
   const readGestureUntil = useRef(0);
   const lastReadSignal = useRef({ key: '', at: 0 });
   const readContextRef = useRef({
@@ -1248,12 +1258,34 @@ export function ChatPane({
     if (scrollConversationRef.current !== conversationId) {
       scrollConversationRef.current = conversationId;
       lastMessageIdRef.current = newestId;
-      atBottomRef.current = true;
+      readingPositionApplied.current = false;
+      atBottomRef.current = !initialReadingPosition;
       setNewMessagePill(0);
+      if (initialReadingPosition || loading) {
+        if (!loading && messageScrollRef.current && initialReadingPosition) {
+          restoreReadingPosition(messageScrollRef.current, initialReadingPosition);
+          readingPositionApplied.current = true;
+        }
+        return;
+      }
       scrollMessagesToBottomRef.current();
       const frame = window.requestAnimationFrame(() => scrollMessagesToBottomRef.current());
       return () => window.cancelAnimationFrame(frame);
     }
+
+    if (
+      initialReadingPosition &&
+      !readingPositionApplied.current &&
+      !loading &&
+      messageScrollRef.current
+    ) {
+      restoreReadingPosition(messageScrollRef.current, initialReadingPosition);
+      readingPositionApplied.current = true;
+      atBottomRef.current = false;
+      lastMessageIdRef.current = newestId;
+      return;
+    }
+    if (loadingNewer) return;
 
     // 尾部 id 没变，但列表内容可能变了。典型情况：打开会话时末尾挂着「数据库里还没有」
     // 的乐观消息，它先成为尾部，随后真实历史在它**上面**补全 —— 尾部 id 一直没变，
@@ -1291,7 +1323,15 @@ export function ChatPane({
     // Reading history → surface the pill instead of yanking the view down.
     setNewMessagePill((current) => current + appended);
     return;
-  }, [tabActive, visibleMessages, conversation?.id, loading, atLatest]);
+  }, [
+    tabActive,
+    visibleMessages,
+    conversation?.id,
+    loading,
+    loadingNewer,
+    atLatest,
+    initialReadingPosition,
+  ]);
 
   // 分离的历史窗口不会追加实时消息，用会话水位识别新到记录，而非历史分页。
   useEffect(() => {
@@ -3831,7 +3871,9 @@ export function ChatPane({
 
   function handleMessageScroll() {
     const bottom = isScrolledToBottom();
-    atBottomRef.current = bottom;
+    if (!bottom || !initialReadingPosition || readGestureUntil.current > performance.now()) {
+      atBottomRef.current = bottom;
+    }
     if (bottom && readGestureUntil.current > performance.now()) requestReadAtBottom();
     if (bottom && atLatest && newMessagePill > 0) {
       setNewMessagePill(0);
@@ -4370,7 +4412,7 @@ export function ChatPane({
           ) : null}
           {loading ? (
             <ChatMessagesSkeleton />
-          ) : visibleMessages.length === 0 ? (
+          ) : visibleMessages.length === 0 && !loadingNewer ? (
             <EmptyState title="还没有消息" body="发出第一条消息。" icon={<MessageSquareText />} />
           ) : (
             (() => {
@@ -4563,6 +4605,11 @@ export function ChatPane({
               return out;
             })()
           )}
+          {loadingNewer ? (
+            <div className="weq-conversation-loading" role="status" aria-label="正在加载后续消息">
+              <Loader2 size={18} />
+            </div>
+          ) : null}
           {pendingActions['timeline:poke'] ? (
             <div className="weq-inline-interaction-pending" role="status" aria-label="正在戳一戳">
               <span className="weq-message-sending">

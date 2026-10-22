@@ -1,0 +1,27 @@
+.weq-conversation-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 40px;
+  color: var(--weq-fg-muted);
+}
+
+.weq-conversation-loading svg {
+  animation: weq-conversation-loading 1s linear infinite;
+}
+
+html[data-theme='dark'] .weq-conversation-loading {
+  color: var(--weq-fg-secondary);
+}
+
+@keyframes weq-conversation-loading {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-conversation-loading svg {
+    animation: none;
+  }
+}

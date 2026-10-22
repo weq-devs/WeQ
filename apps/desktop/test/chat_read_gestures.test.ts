@@ -23,6 +23,77 @@ afterEach(() => {
 });
 
 describe('新消息按钮已读行为', () => {
+  it('恢复会话阅读位置后，下方加载与追加新消息均不自动滚动', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const demo = createTemplateDemoData();
+    const conversation = demo.conversations.find((item) => item.type === 'group')!;
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const first = { ...demo.messages[0]!, id: 'saved-row', conversationId: conversation.id };
+    const props = {
+      user: demo.user,
+      conversation,
+      loading: false,
+      atLatest: true,
+      initialReadingPosition: { scrollTop: 120 },
+      draft: '',
+      onSend: vi.fn(),
+      onDraftChange: vi.fn(),
+      onDraftClear: vi.fn(),
+      onBack: vi.fn(),
+    };
+    try {
+      act(() =>
+        root.render(createElement(ChatPane, { ...props, messages: [first], loadingNewer: true })),
+      );
+      const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+      expect(scroll.scrollTop).toBe(120);
+      expect(scroll.querySelector('[aria-label="正在加载后续消息"]')).not.toBeNull();
+      Object.defineProperties(scroll, {
+        scrollHeight: { configurable: true, value: 1600 },
+        clientHeight: { configurable: true, value: 400 },
+      });
+      act(() => {
+        for (const callback of frames.splice(0)) callback(0);
+      });
+      expect(scroll.scrollTop).toBe(120);
+      act(() =>
+        root.render(
+          createElement(ChatPane, {
+            ...props,
+            messages: [first, { ...first, id: 'new-row' }],
+            loadingNewer: false,
+          }),
+        ),
+      );
+      expect(scroll.scrollTop).toBe(120);
+      expect(scroll.querySelector('[aria-label="正在加载后续消息"]')).toBeNull();
+      act(() =>
+        root.render(
+          createElement(ChatPane, {
+            ...props,
+            conversation: { ...conversation, id: 'another-chat' },
+            messages: [first],
+            initialReadingPosition: { scrollTop: 340 },
+          }),
+        ),
+      );
+      expect(scroll.scrollTop).toBe(340);
+      act(() => root.render(createElement(ChatPane, { ...props, messages: [first] })));
+      expect(scroll.scrollTop).toBe(120);
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
+
   it.each([true, false])('点击新消息跳到底部，仅最新窗口标记已读：atLatest=%s', (atLatest) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());

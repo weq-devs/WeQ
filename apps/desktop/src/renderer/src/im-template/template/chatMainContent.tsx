@@ -6,6 +6,7 @@ import {
   GroupProfilePane,
 } from './profilePanes';
 import { ChatPane } from './chatPane';
+import type { ConversationReadingPosition } from '../../lib/conversationReadingPosition';
 import type { LocalMediaRef } from './composerSend';
 import type { RepeatElement } from '../../lib/messageRepeat';
 import type { LoadSelectionMessages } from '../../lib/messageSelection';
@@ -53,6 +54,8 @@ export function ChatMainContent({
   toolRegistry,
   selectedToolId,
   loadingMessages,
+  loadingNewer,
+  initialReadingPosition,
   atLatest,
   latestMessageSeq,
   onPreviewLatest,
@@ -146,6 +149,8 @@ export function ChatMainContent({
   toolRegistry?: ToolPaneGroup[];
   selectedToolId?: string | null;
   loadingMessages: boolean;
+  loadingNewer?: boolean;
+  initialReadingPosition?: ConversationReadingPosition;
   /** Whether `messages` is the live latest-anchored window (see ChatPane). */
   atLatest?: boolean;
   latestMessageSeq?: string;
@@ -305,6 +310,8 @@ export function ChatMainContent({
       composerActions={composerActions}
       messageRenderers={messageRenderers}
       loading={loadingMessages}
+      loadingNewer={loadingNewer}
+      initialReadingPosition={initialReadingPosition}
       atLatest={atLatest}
       latestMessageSeq={latestMessageSeq}
       onPreviewLatest={onPreviewLatest}

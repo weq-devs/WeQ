@@ -91,6 +91,12 @@ import { mergeRecentContactPages } from '../lib/recentContacts';
 import { useContentSelectionScope } from '../state/contentSelection';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { ConversationWindowCache, conversationWindowKey } from '../lib/conversationWindowCache';
+import { loadConversationEntry } from '../lib/conversationEntry';
+import {
+  captureReadingPosition,
+  restoreReadingPosition,
+  type ConversationReadingPosition,
+} from '../lib/conversationReadingPosition';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { useProfileResolver } from '../hooks/useProfileResolver';
@@ -2236,7 +2242,13 @@ export function MainView(): ReactElement {
     loadedRevisionRef = useRef(0),
     windowVerifiedAtRef = useRef(0);
   const verifiedWindowRowsRef = useRef<MessageWire[] | null>(null);
-  const cachedScrollRef = useRef<{ id: string; top: number } | null>(null);
+  const cachedScrollRef = useRef<{ id: string; position: ConversationReadingPosition } | null>(
+    null,
+  );
+  const [initialReadingPosition, setInitialReadingPosition] =
+    useState<ConversationReadingPosition>();
+  const [loadingNewerMessages, setLoadingNewerMessages] = useState(false);
+  const entryLoadingRef = useRef(false);
   useEffect(() => {
     const binding = messageBindingRef.current;
     messageScopeRef.current = binding
@@ -2505,7 +2517,8 @@ export function MainView(): ReactElement {
     const scope = messageScopeRef.current,
       binding = messageBindingRef.current;
     const revision = dbRevisionRef.current;
-    if (!scope || !binding || document.visibilityState === 'hidden') return;
+    if (!scope || !binding || entryLoadingRef.current || document.visibilityState === 'hidden')
+      return;
     const sel = selectionRef.current;
     const win = windowRef.current;
     if (!sel || !win.anchored) return;
@@ -4991,9 +5004,17 @@ export function MainView(): ReactElement {
     if (
       trackedMessageScope &&
       trackedMessageScope === messageScope &&
-      old?.id === trackedConversationId
+      old?.id === trackedConversationId &&
+      (!messagesLoading || loaded.length > 0)
     ) {
       const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
+      const position = scroll ? captureReadingPosition(scroll) : undefined;
+      const anchorIndex = loaded.findIndex((row) => timelineRowKey(row) === position?.anchorId);
+      if (position && anchorIndex >= 0) {
+        const anchor = loaded[anchorIndex]!;
+        if (old.kind === 'group' || anchor.source !== 'roaming' || anchor.ntSeqVerified)
+          position.anchorSeq = anchor.msgSeq;
+      }
       conversationWindows.put(
         conversationWindowKey(messageScope, old.kind === 'group' ? 'group' : 'c2c', old.id),
         {
@@ -5002,6 +5023,7 @@ export function MainView(): ReactElement {
           hasOlder,
           hasNewer,
           scrollTop: scroll?.scrollTop ?? 0,
+          readingPosition: position,
           revision: loadedRevisionRef.current,
           dirty:
             loadedRevisionRef.current !== dbRevisionRef.current ||
@@ -5009,6 +5031,7 @@ export function MainView(): ReactElement {
           storedAt: Date.now(),
           verifiedAt: windowVerifiedAtRef.current,
         },
+        anchorIndex >= 0 ? anchorIndex : undefined,
       );
     }
     if (trackedMessageScope !== messageScope) {
@@ -5044,10 +5067,14 @@ export function MainView(): ReactElement {
     setHasOlder(cached?.hasOlder ?? true);
     setHasNewer(cached?.hasNewer ?? false);
     setMessagesLoading(Boolean(shell.activeConversationId) && !cached);
+    setLoadingNewerMessages(false);
+    entryLoadingRef.current = false;
     loadedRevisionRef.current = cached?.revision ?? 0;
     windowVerifiedAtRef.current = cached?.verifiedAt ?? 0;
-    cachedScrollRef.current =
-      cached && selectedUid ? { id: selectedUid, top: cached.scrollTop } : null;
+    setInitialReadingPosition(
+      cached?.readingPosition ?? (cached ? { scrollTop: cached.scrollTop } : undefined),
+    );
+    cachedScrollRef.current = null;
     loadingOlderRef.current = false;
     loadingNewerRef.current = false;
     pendingScrollRestoreRef.current = null;
@@ -5058,7 +5085,7 @@ export function MainView(): ReactElement {
     if (!restore || restore.id !== selectedUid || !messagesTabActive) return;
     const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
     if (scroll) {
-      scroll.scrollTop = restore.top;
+      restoreReadingPosition(scroll, restore.position);
       cachedScrollRef.current = null;
     }
   }, [selectedUid, loaded, messagesTabActive]);
@@ -6933,6 +6960,10 @@ export function MainView(): ReactElement {
   }, [jumpToConvSeq]);
 
   // 命中缓存先恢复窗口，随后按水位增量读取；有变更或较久未校准时才重读已有范围。
+  const entryChatType =
+    selectedConversation?.type === 'direct'
+      ? (unreadChatType(selectedConversation.chatType ?? 1) ?? 1)
+      : 2;
   useEffect(() => {
     const binding = messageBindingRef.current,
       scope = messageScope;
@@ -6944,8 +6975,8 @@ export function MainView(): ReactElement {
     const conv = selectedUid;
     let cancelled = false;
     const selection = selectionRef.current,
-      expectedWindow = windowRef.current,
       revision = dbRevisionRef.current;
+    let expectedWindow = windowRef.current;
     const limit = isGroup ? GROUP_INITIAL_PAGE_SIZE : PAGE_SIZE;
     const valid = () =>
       !cancelled &&
@@ -6972,94 +7003,125 @@ export function MainView(): ReactElement {
         cancelled = true;
       };
     if (!cached) setMessagesLoading(true);
+    entryLoadingRef.current = true;
+    setLoadingNewerMessages(Boolean(cached));
+    if (cached?.anchored) {
+      // 增量页失败后仍保留向下重试入口，也避免在途实时刷新抢占阅读窗口。
+      setHasNewer(true);
+      setAnchoredToLatest(false);
+      windowRef.current = expectedWindow = { ...expectedWindow, anchored: false };
+    }
     void (async () => {
       try {
-        let rows: MessageWire[],
-          older: boolean,
-          newer = false,
-          anchored = true;
-        const seqs =
-          cached?.rows
-            .filter(
-              (row) => kind === 'group' || row.source !== 'roaming' || row.ntSeqVerified === true,
-            )
-            .map((row) => row.msgSeq)
-            .filter((seq) => /^[1-9]\d*$/.test(seq)) ?? [];
-        const max = seqs.reduce<string | null>(
-          (value, seq) => (value === null || BigInt(seq) > BigInt(value) ? seq : value),
-          null,
-        );
-        if (cached && !cached.anchored) {
-          if (!dirty || max === null) return;
-          const page = await client.account.listBefore.query({
-            ...binding,
-            kind,
-            conv,
-            beforeSeq: String(BigInt(max) + 1n),
-            limit: Math.min(200, Math.max(1, cached.rows.length)),
-          });
-          rows = page.map(toMessageWire).reverse();
-          older = page.length >= Math.min(200, cached.rows.length);
-          newer = cached.hasNewer;
-          anchored = false;
-        } else if (cached && !dirty && max !== null) {
-          const page = await client.account.listAfter.query({
-            ...binding,
-            kind,
-            conv,
-            afterSeq: max,
-            limit: 200,
-          });
-          if (!valid()) return;
-          if (dbRevisionRef.current !== revision) {
-            void refreshWindow();
-            return;
+        const saved = conversationWindows.getPosition(conversationWindowKey(scope, kind, conv));
+        let readSeq = saved?.anchorSeq;
+        if (!cached && !readSeq) {
+          try {
+            const [info] = await client.account.getUnreadInfos.query({
+              ...binding,
+              targets: [
+                {
+                  chatType: entryChatType,
+                  uid: conv,
+                },
+              ],
+            });
+            if (!valid()) return;
+            if (info && !info.readError && (info.unreadCount ?? 0) > 0)
+              readSeq = info.readSeq ?? undefined;
+          } catch (error) {
+            console.error('[msgs] entry unread snapshot failed', error);
           }
-          rows = mergeRoamingTimeline(
-            kind,
-            [
-              ...new Map(
-                [...cached.rows, ...page.map(toMessageWire)].map((row) => [
-                  timelineRowKey(row),
-                  row,
-                ]),
-              ).values(),
-            ],
-            [],
-          );
-          older = cached.hasOlder;
-          newer = page.length >= 200;
-          anchored = !newer;
-        } else if (cached && /^[1-9]\d*$/.test(cached.rows[0]?.msgSeq ?? '')) {
-          const page = await client.account.listFrom.query({
-            ...binding,
-            kind,
-            conv,
-            sinceSeq: cached.rows[0]!.msgSeq,
-            limit: 1000,
-          });
-          rows = page.map(toMessageWire).reverse();
-          older = cached.hasOlder || page.length >= 1000;
-        } else {
-          const page = await client.account.listLatest.query({ ...binding, kind, conv, limit });
-          rows = page.map(toMessageWire).reverse();
-          older = page.length >= limit;
         }
         if (!valid()) return;
-        loadedRevisionRef.current = revision;
-        if (!cached || dirty) windowVerifiedAtRef.current = Date.now();
-        windowRef.current = { minSeq: rows[0]?.msgSeq ?? null, anchored };
-        loadedRef.current = rows;
-        setLoaded(rows);
-        setHasOlder(older);
-        setHasNewer(newer);
-        setAnchoredToLatest(anchored);
-        setMessagesLoading(false);
-        verifiedWindowRowsRef.current = rows;
+        await loadConversationEntry<MessageWire>({
+          cached,
+          dirty,
+          readSeq,
+          limit,
+          current: valid,
+          cursor: (rows) =>
+            rows
+              .filter(
+                (row) => kind === 'group' || row.source !== 'roaming' || row.ntSeqVerified === true,
+              )
+              .map((row) => row.msgSeq)
+              .filter((seq) => /^[1-9]\d*$/.test(seq))
+              .reduce<string | undefined>(
+                (max, seq) => (!max || BigInt(seq) > BigInt(max) ? seq : max),
+                undefined,
+              ),
+          before: async (beforeSeq, size) =>
+            (
+              await client.account.listBefore.query({
+                ...binding,
+                kind,
+                conv,
+                beforeSeq,
+                limit: size,
+              })
+            ).map(toMessageWire),
+          after: async (afterSeq, size) =>
+            (
+              await client.account.listAfter.query({
+                ...binding,
+                kind,
+                conv,
+                afterSeq,
+                limit: size,
+              })
+            ).map(toMessageWire),
+          latest: async (size) =>
+            (await client.account.listLatest.query({ ...binding, kind, conv, limit: size })).map(
+              toMessageWire,
+            ),
+          show: (next, first) => {
+            if (!valid()) return;
+            if (first && readSeq) {
+              setInitialReadingPosition(
+                saved ?? {
+                  scrollTop: 0,
+                  anchorId: next.rows.length ? timelineRowKey(next.rows.at(-1)!) : undefined,
+                  alignToEnd: true,
+                  bottomInset: 64,
+                },
+              );
+              setLoadingNewerMessages(true);
+            } else if (!first) {
+              const scroll = document.querySelector<HTMLElement>(
+                '.weq-readonly-chat .message-scroll',
+              );
+              if (scroll) {
+                const position = captureReadingPosition(scroll);
+                if (position.anchorId) cachedScrollRef.current = { id: conv, position };
+              }
+            }
+            const rows = mergeRoamingTimeline(kind, next.rows, []);
+            loadedRevisionRef.current = revision;
+            windowVerifiedAtRef.current = Date.now();
+            windowRef.current = expectedWindow = {
+              minSeq: rows[0]?.msgSeq ?? null,
+              anchored: next.anchored,
+            };
+            loadedRef.current = rows;
+            setLoaded(rows);
+            setHasOlder(next.hasOlder);
+            setHasNewer(next.hasNewer);
+            setAnchoredToLatest(next.anchored);
+            setMessagesLoading(false);
+            verifiedWindowRowsRef.current = rows;
+          },
+        });
       } catch (err) {
-        if (cancelled || messageScopeRef.current !== scope) return;
-        console.error('[msgs] listLatest failed', err);
+        if (!valid()) return;
+        console.error('[msgs] entry load failed', err);
         setMessagesLoading(false);
+      } finally {
+        if (!cancelled && messageScopeRef.current === scope && selectionRef.current === selection) {
+          entryLoadingRef.current = false;
+          setLoadingNewerMessages(false);
+          if (dbRevisionRef.current !== revision) void refreshWindow();
+        }
       }
     })();
     return () => {
@@ -7070,6 +7132,7 @@ export function MainView(): ReactElement {
     isDirect,
     isGroup,
     centerWindowOnSeq,
+    entryChatType,
     messageScope,
     conversationWindows,
     refreshWindow,
@@ -7077,7 +7140,14 @@ export function MainView(): ReactElement {
 
   const requestOlderMessages = useCallback(
     (scroll: HTMLElement): void => {
-      if (!selectedConversation || !hasOlder || loadingOlderRef.current) return;
+      if (
+        !selectedConversation ||
+        !hasOlder ||
+        loadingOlderRef.current ||
+        entryLoadingRef.current ||
+        messagesLoading
+      )
+        return;
       if (pendingScrollRestoreRef.current !== null) return;
       const minSeq = loaded[0]?.msgSeq;
       if (!minSeq) return;
@@ -7134,7 +7204,7 @@ export function MainView(): ReactElement {
           console.error('[msgs] listBefore failed', err);
         });
     },
-    [selectedConversation, hasOlder, loaded],
+    [selectedConversation, hasOlder, loaded, messagesLoading],
   );
 
   // Scroll-down paging for a detached "jump context" window: append the page of
@@ -7142,7 +7212,8 @@ export function MainView(): ReactElement {
   // doesn't move it, so no scroll-restore is needed. When the tail reaches the
   // latest, re-anchor so live messages flow in again.
   const requestNewerMessages = useCallback((): void => {
-    if (!selectedConversation || !hasNewer || loadingNewerRef.current) return;
+    if (!selectedConversation || !hasNewer || loadingNewerRef.current || entryLoadingRef.current)
+      return;
     const maxSeq = loaded[loaded.length - 1]?.msgSeq;
     if (!maxSeq) return;
 
@@ -7153,12 +7224,14 @@ export function MainView(): ReactElement {
       selection = selectionRef.current;
     if (!scope || !binding || selection?.id !== conv) return;
     loadingNewerRef.current = true;
+    setLoadingNewerMessages(true);
 
     client.account.listAfter
       .query({ ...binding, kind, conv, afterSeq: maxSeq, limit: PAGE_SIZE })
       .then((newer) => {
         if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
         loadingNewerRef.current = false;
+        setLoadingNewerMessages(false);
         if (loadedRef.current.at(-1)?.msgSeq !== maxSeq) return;
         if (selectionRef.current?.id !== conv) return;
         const known = new Set(loaded.map(timelineRowKey));
@@ -7179,6 +7252,7 @@ export function MainView(): ReactElement {
       .catch((err) => {
         if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
         loadingNewerRef.current = false;
+        setLoadingNewerMessages(false);
         console.error('[msgs] listAfter failed', err);
       });
   }, [selectedConversation, hasNewer, loaded]);
@@ -9178,6 +9252,8 @@ export function MainView(): ReactElement {
                           messages={templateMessages}
                           messageRenderers={messageRenderers}
                           loadingMessages={loadingInitialMessages}
+                          loadingNewer={loadingNewerMessages}
+                          initialReadingPosition={initialReadingPosition}
                           atLatest={anchoredToLatest}
                           latestMessageSeq={
                             recentContactsData.find((contact) => contact.targetUid === selectedUid)
