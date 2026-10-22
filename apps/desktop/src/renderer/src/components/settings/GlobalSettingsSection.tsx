@@ -35,6 +35,7 @@ import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { ToastSettingsCard } from './ToastSettingsCard';
+import { TypingStatusSettingsCard } from './TypingStatusSettingsCard';
 import { DesktopOnly, IS_WEB } from '../../lib/target';
 import '../../styles/save-preferences.css';
 import '../../styles/storage-management.css';
@@ -371,6 +372,7 @@ export function GlobalSettingsSection({
       {section === 'general' && (
         <>
           <ToastSettingsCard />
+          <TypingStatusSettingsCard />
           <DesktopOnly>
             <Card title="窗口">
               <Row

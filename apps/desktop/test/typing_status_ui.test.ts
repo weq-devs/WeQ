@@ -1,7 +1,8 @@
-import { act, createElement, createRef } from 'react';
+import { act, createElement, createRef, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TypingStatus } from '../src/renderer/src/components/qq-actions/ChatActions';
+import type { TypingStatusSettings } from '@weq/service';
 
 const session = vi.hoisted(() => ({
   available: true,
@@ -10,13 +11,62 @@ const session = vi.hoisted(() => ({
   result: null,
   run: vi.fn(),
   send: vi.fn(),
+  preferences: { defaultEnabled: false, overrides: [] } as TypingStatusSettings,
+  listeners: new Set<() => void>(),
 }));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => session,
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { account: { qqActions: { inputStatus: { mutate: session.send } } } },
-  trpc: {},
+  trpc: {
+    bootstrap: {
+      getTypingStatusSettings: {
+        useQuery: () => ({
+          data: useSyncExternalStore(
+            (listener) => {
+              session.listeners.add(listener);
+              return () => {
+                session.listeners.delete(listener);
+              };
+            },
+            () => session.preferences,
+          ),
+          isError: false,
+        }),
+      },
+      setTypingStatusDefault: { useMutation: () => ({ isLoading: false }) },
+      setTypingStatusOverride: {
+        useMutation: () => ({
+          isLoading: false,
+          mutateAsync: async (input: TypingStatusSettings['overrides'][number]) => ({
+            ...session.preferences,
+            overrides: [
+              ...session.preferences.overrides.filter(
+                (item) =>
+                  item.accountUin !== input.accountUin ||
+                  item.accountConfigId !== input.accountConfigId ||
+                  item.uid !== input.uid,
+              ),
+              input,
+            ],
+          }),
+        }),
+      },
+    },
+    useUtils: () => ({
+      bootstrap: {
+        getTypingStatusSettings: {
+          cancel: async () => {},
+          setData: (_input: undefined, next: TypingStatusSettings) => {
+            session.preferences = next;
+            for (const listener of session.listeners) listener();
+          },
+        },
+        getSettings: { invalidate: async () => {} },
+      },
+    }),
+  },
 }));
 
 afterEach(() => {
@@ -25,6 +75,8 @@ afterEach(() => {
   session.binding = { expectedAccountUin: '10000', expectedAccountConfigId: 'test' };
   session.run.mockReset();
   session.send.mockReset();
+  session.preferences = { defaultEnabled: false, overrides: [] };
+  session.listeners.clear();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -99,7 +151,7 @@ describe('正在输入状态工具栏按钮', () => {
       host.remove();
     }
   });
-  it('默认关闭，点击切换高亮状态，切换好友后恢复关闭', async () => {
+  it('默认关闭，点击保存并切换高亮状态，切换好友后恢复各自偏好', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     const root = createRoot(host);
@@ -111,14 +163,16 @@ describe('正在输入状态工具栏按钮', () => {
       expect(button.getAttribute('aria-label')).toBe('发送正在输入状态');
       expect(button.getAttribute('aria-pressed')).toBe('false');
       expect(host.querySelector('input[type="checkbox"]')).toBeNull();
-      act(() => button.click());
+      await act(async () => button.click());
       expect(button.getAttribute('aria-pressed')).toBe('true');
       expect(button.title).toContain('已开启');
-      act(() => button.click());
+      await act(async () => button.click());
       expect(button.getAttribute('aria-pressed')).toBe('false');
-      act(() => button.click());
+      await act(async () => button.click());
       await act(async () => root.render(createElement(TypingStatus, { uid: 'u_two', editors })));
       expect(button.getAttribute('aria-pressed')).toBe('false');
+      await act(async () => root.render(createElement(TypingStatus, { uid: 'u_one', editors })));
+      expect(button.getAttribute('aria-pressed')).toBe('true');
       session.available = false;
       await act(async () => root.render(createElement(TypingStatus, { uid: 'u_two', editors })));
       expect(button.disabled).toBe(true);

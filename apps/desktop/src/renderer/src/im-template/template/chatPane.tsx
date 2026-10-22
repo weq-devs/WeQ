@@ -5210,6 +5210,7 @@ export function ChatPane({
             <TypingStatus
               key={conversation.id}
               uid={conversation.otherUser.id}
+              name={conversation.name}
               editors={[composerEditorRef, expandedComposerEditorRef]}
             />
           )}

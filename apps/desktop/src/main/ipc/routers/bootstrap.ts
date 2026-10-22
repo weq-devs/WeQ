@@ -710,6 +710,31 @@ export const bootstrapRouter = router({
     return true;
   }),
 
+  getTypingStatusSettings: procedure.query(
+    () => requireBootstrap().userConfig.getSettings().typingStatus,
+  ),
+
+  setTypingStatusDefault: procedure.input(z.object({ enabled: z.boolean() })).mutation(
+    ({ input }) =>
+      requireBootstrap().userConfig.setSettings({
+        typingStatus: { defaultEnabled: input.enabled },
+      }).typingStatus,
+  ),
+
+  setTypingStatusOverride: procedure
+    .input(
+      z.object({
+        accountUin: z.string().min(1),
+        accountConfigId: z.string().min(1),
+        uid: z.string().min(1),
+        name: z.string(),
+        enabled: z.boolean().nullable(),
+      }),
+    )
+    .mutation(({ input: { enabled, ...target } }) =>
+      requireBootstrap().userConfig.setTypingStatusOverride(target, enabled),
+    ),
+
   /**
    * 日志保留天数（设置 → 日志 → 日志保留时长）。0 = 永久保留。
    *

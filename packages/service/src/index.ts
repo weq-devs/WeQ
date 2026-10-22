@@ -40,6 +40,8 @@ export type {
   UserConfig,
   AutoEnterTarget,
   AppSettings,
+  TypingStatusSettings,
+  TypingStatusOverride,
   AppLockConfig,
   AppLockMethod,
   WindowCloseBehavior,

@@ -58,6 +58,35 @@ export interface AutoEnterTarget {
   dataDir?: string;
 }
 
+export interface TypingStatusOverride {
+  accountUin: string;
+  accountConfigId: string;
+  uid: string;
+  name: string;
+  enabled: boolean;
+}
+
+export interface TypingStatusSettings {
+  defaultEnabled: boolean;
+  overrides: TypingStatusOverride[];
+}
+
+function normalizeTypingStatus(value: unknown): TypingStatusSettings {
+  const settings = isRecord(value) ? value : {};
+  const overrides = Array.isArray(settings.overrides)
+    ? settings.overrides.filter(
+        (item): item is TypingStatusOverride =>
+          isRecord(item) &&
+          ['accountUin', 'accountConfigId', 'uid'].every(
+            (key) => typeof item[key] === 'string' && item[key].length > 0,
+          ) &&
+          typeof item.name === 'string' &&
+          typeof item.enabled === 'boolean',
+      )
+    : [];
+  return { defaultEnabled: settings.defaultEnabled === true, overrides };
+}
+
 type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
@@ -499,6 +528,8 @@ export interface AppSettings {
    * 自动回退到原来的 `weq-media://` 代理路径。
    */
   preferCdn: boolean;
+  /** 私聊输入状态广播：全局默认值与显式设置的会话特例。 */
+  typingStatus: TypingStatusSettings;
   /**
    * 是否渲染消息里的每条装扮（气泡/字体/挂件，来自 column 40801）。
    * 关掉后所有消息统一走清单里的全局装扮，不做逐条渲染。默认开启。
@@ -731,6 +762,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showAvatarPendant: true,
   linkPreview: { enabled: true, screenshot: false },
   preferCdn: false,
+  typingStatus: { defaultEnabled: false, overrides: [] },
   showMsgDecoration: true,
   showMessageSeq: false,
   showMessageTime: false,
@@ -1230,6 +1262,7 @@ export class UserConfigService {
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       preferCdn: s?.preferCdn ?? d.preferCdn,
+      typingStatus: normalizeTypingStatus(s?.typingStatus),
       showMsgDecoration: s?.showMsgDecoration ?? d.showMsgDecoration,
       showMessageSeq: s?.showMessageSeq ?? d.showMessageSeq,
       showMessageTime: s?.showMessageTime ?? d.showMessageTime,
@@ -1330,6 +1363,7 @@ export class UserConfigService {
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       preferCdn: patch.preferCdn ?? current.preferCdn,
+      typingStatus: normalizeTypingStatus({ ...current.typingStatus, ...patch.typingStatus }),
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
       showMessageSeq: patch.showMessageSeq ?? current.showMessageSeq,
       showMessageTime: patch.showMessageTime ?? current.showMessageTime,
@@ -1426,6 +1460,22 @@ export class UserConfigService {
       externalRkeyEnabled: next.externalRkey.enabledServerId !== null,
     });
     return next;
+  }
+
+  setTypingStatusOverride(
+    target: Omit<TypingStatusOverride, 'enabled'>,
+    enabled: boolean | null,
+  ): TypingStatusSettings {
+    const current = this.getSettings().typingStatus;
+    const overrides = current.overrides.filter(
+      (item) =>
+        item.accountUin !== target.accountUin ||
+        item.accountConfigId !== target.accountConfigId ||
+        item.uid !== target.uid,
+    );
+    // 与默认值相同也保留显式设置；只有删除操作才恢复跟随默认。
+    if (enabled !== null) overrides.push({ ...target, enabled });
+    return this.setSettings({ typingStatus: { overrides } }).typingStatus;
   }
 
   getLocalModelId(kind: keyof LocalModelResources): string {
