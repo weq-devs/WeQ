@@ -124,9 +124,12 @@
   overflow-wrap: anywhere;
 }
 .weq-backup-gate {
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
+  height: 100dvh;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   padding: 24px;
   background: var(--weq-chat-bg, var(--background));
   color: var(--weq-fg-primary);
@@ -134,6 +137,8 @@
 .weq-backup-gate-content {
   width: min(100%, 560px);
   min-width: 0;
+  flex-shrink: 0;
+  margin-block: auto;
 }
 .weq-backup-gate h1 {
   font-size: 20px;
@@ -171,6 +176,14 @@ html[data-theme='dark'] .weq-backup-review {
   color: var(--weq-fg-primary);
   background: transparent;
   border-color: var(--weq-border-strong);
+}
+
+.weq-backup-gate .weq-set-btn {
+  max-width: 100%;
+  min-height: 32px;
+  height: auto;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .weq-backup .weq-set-btn:hover:not(:disabled),
 .weq-backup-gate .weq-set-btn:hover:not(:disabled) {
