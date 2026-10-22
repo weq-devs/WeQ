@@ -236,10 +236,11 @@ export namespace GetFriendSnsPage {
         : {
             categories: (body.categories as unknown[]).map((raw) => {
               const row = responseObject(raw, '好友分组');
-              if (typeof row.name !== 'string') throw new Error('好友分组缺少名称');
+              if (row.name !== undefined && typeof row.name !== 'string')
+                throw new Error('好友分组名称类型无效');
               return {
                 id: row.id === undefined ? null : requireUint32(Number(row.id), '好友分组', true),
-                name: row.name,
+                name: row.name ?? '',
                 buddyCount:
                   row.buddyCount === undefined
                     ? null

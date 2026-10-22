@@ -17,12 +17,20 @@ function fixture() {
   ];
   const friends = [{ uid: 'u_friend', uin: 10002n, categoryId: 5 }];
   let rejectMove = false;
+  let clearUpdatedNames = false;
   const commands: number[] = [];
   const send = vi.fn(async (_pid: number, command: number, _sub: number, body: Buffer) => {
     commands.push(command);
     if (command === GetFriendSnsPage.command)
       return Buffer.from(
-        encode(GetFriendSnsPage.respSchema, { selfUin: 10001n, friends, categories }),
+        encode(GetFriendSnsPage.respSchema, {
+          selfUin: 10001n,
+          friends,
+          categories: categories.map(({ sortOrder, ...row }) => ({
+            ...row,
+            ...(sortOrder === 0 ? {} : { sortOrder }),
+          })),
+        }),
       );
     if (command === MoveFriendCategory.command) {
       const request = decode(MoveFriendCategory.reqSchema, body);
@@ -40,8 +48,9 @@ function fixture() {
         sort?: number;
       }>) {
         const row = categories.find((row) => row.id === change.id)!;
-        if (change.name !== undefined) row.name = change.name;
-        if (change.sort !== undefined) row.sortOrder = change.sort;
+        // 服务端按完整条目替换；字段省略并不表示保留旧名称或旧排序。
+        row.name = clearUpdatedNames ? '' : (change.name ?? '');
+        row.sortOrder = change.sort ?? 0;
       }
     }
     if (command === CreateFriendCategory.command) {
@@ -69,6 +78,13 @@ function fixture() {
   );
   return {
     service,
+    send,
+    clearNames: () => {
+      for (const row of categories) row.name = '';
+    },
+    clearNamesOnUpdate: () => {
+      clearUpdatedNames = true;
+    },
     commands,
     rejectMove: () => {
       rejectMove = true;
@@ -175,6 +191,20 @@ describe('好友分组服务编排', () => {
     ]);
     await expect(f.service.friendRoster()).rejects.toThrow('可确认');
   });
+  it('空名称默认组的 ID 和零排序同时省略时，仍核对本地身份并合并后续页占位', async () => {
+    const first = encode(GetFriendSnsPage.respSchema, {
+      selfUin: 10001n,
+      cookie: Uint8Array.of(1),
+      isEnd: false,
+      friends: [{ uid: 'u_first', uin: 10002n }],
+      categories: [{ buddyCount: 2 }, { id: 5, name: '朋友', sortOrder: 1 }],
+    });
+    const f = pagedRoster([first, lastRosterPage()], '');
+    expect((await f.service.friendRoster()).categories).toMatchObject([
+      { id: 0, idPresent: false, name: '', sortOrder: 0 },
+      { id: 5, name: '朋友', sortOrder: 1 },
+    ]);
+  });
   it('完整名册中的默认组缺省字段保留存在性，只在同账号目录能唯一关联时恢复操作身份', async () => {
     const sendOidbPacket = async () =>
       Buffer.from(
@@ -239,11 +269,24 @@ describe('好友分组服务编排', () => {
     expect(await f.service.manageFriendCategories({ type: 'rename', id: 5, name: '同学' })).toEqual(
       { state: 'confirmed' },
     );
+    const rename = f.send.mock.calls.find((call) => call[1] === UpdateFriendCategories.command)!;
+    expect(decode(UpdateFriendCategories.reqSchema, rename[3])).toEqual({
+      categories: [{ id: 5, name: '同学', sort: 1 }],
+    });
     await expect(f.service.manageFriendCategories({ type: 'sort', ids: [5] })).rejects.toThrow(
       '目录已变化',
     );
     expect(await f.service.manageFriendCategories({ type: 'sort', ids: [5, 0] })).toEqual({
       state: 'confirmed',
+    });
+    const sort = f.send.mock.calls
+      .filter((call) => call[1] === UpdateFriendCategories.command)
+      .at(-1)!;
+    expect(decode(UpdateFriendCategories.reqSchema, sort[3])).toEqual({
+      categories: [
+        { id: 5, name: '同学', sort: 0 },
+        { id: 0, name: '默认', sort: 1 },
+      ],
     });
   });
   it('新建分组依据新目录 ID 和名称读回确认', async () => {
@@ -251,5 +294,43 @@ describe('好友分组服务编排', () => {
     expect(await f.service.manageFriendCategories({ type: 'create', name: '同事' })).toEqual({
       state: 'confirmed',
     });
+  });
+  it('已有空名称分组仍能读取、原样排序和改名，不把显示占位写回 QQ', async () => {
+    const f = fixture();
+    f.clearNames();
+    expect((await f.service.friendRoster()).categories?.map((row) => row.name)).toEqual(['', '']);
+    expect(await f.service.manageFriendCategories({ type: 'sort', ids: [5, 0] })).toEqual({
+      state: 'confirmed',
+    });
+    const request = f.send.mock.calls.find((call) => call[1] === UpdateFriendCategories.command)!;
+    expect(decode(UpdateFriendCategories.reqSchema, request[3])).toEqual({
+      categories: [
+        { id: 5, name: '', sort: 0 },
+        { id: 0, name: '', sort: 1 },
+      ],
+    });
+    // 改名时原排序零值已被云端省略，仍应保留零位。
+    expect(
+      await f.service.manageFriendCategories({ type: 'rename', id: 5, name: '新名称' }),
+    ).toEqual({
+      state: 'confirmed',
+    });
+    expect((await f.service.friendRoster()).categories?.find((row) => row.id === 5)).toMatchObject({
+      name: '新名称',
+      sortOrder: 0,
+    });
+    await expect(
+      f.service.manageFriendCategories({ type: 'rename', id: 5, name: '' }),
+    ).rejects.toThrow('不能为空');
+  });
+  it('排序读回名称发生变化时不能宣称成功，也不会自动重发写请求', async () => {
+    const f = fixture();
+    f.clearNamesOnUpdate();
+    expect(await f.service.manageFriendCategories({ type: 'sort', ids: [5, 0] })).toEqual({
+      state: 'unconfirmed',
+    });
+    expect(f.commands.filter((command) => command === UpdateFriendCategories.command)).toHaveLength(
+      1,
+    );
   });
 });

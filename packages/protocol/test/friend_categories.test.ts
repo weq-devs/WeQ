@@ -24,17 +24,19 @@ describe('现代好友分组协议', () => {
       }).categories,
     ).toEqual([{ id: null, name: '未知分组', buddyCount: null, sortOrder: null }]);
     expect(() => MoveFriendCategory.serialize({ uid: 'u_friend', categoryId: -1 })).toThrow();
-    expect(() => UpdateFriendCategories.serialize({ categories: [{ id: 0, sort: -1 }] })).toThrow();
+    expect(() =>
+      UpdateFriendCategories.serialize({ categories: [{ id: 0, name: 'A', sort: -1 }] }),
+    ).toThrow();
   });
-  it('非默认分组改名不顺带写排序 0', () => {
+  it('非默认分组改名显式保留现有排序，不假定省略排序能保留旧值', () => {
     expect(
       Buffer.from(
         encode(
           UpdateFriendCategories.reqSchema,
-          UpdateFriendCategories.serialize({ categories: [{ id: 5, name: 'A' }] }),
+          UpdateFriendCategories.serialize({ categories: [{ id: 5, name: 'A', sort: 3 }] }),
         ),
       ).toString('hex'),
-    ).toBe('0a050805120141');
+    ).toBe('0a0708051201411803');
   });
   it('单好友回默认组显式编码 0，普通形式、不签名', () => {
     expect(MoveFriendCategory.command).toBe(0x10eb);
@@ -49,7 +51,7 @@ describe('现代好友分组协议', () => {
       ).toString('hex'),
     ).toBe('0a03755f611000');
   });
-  it('新建与排序 0 不混淆，排序不改名', () => {
+  it('新建与排序 0 不混淆，排序显式保留现有名称', () => {
     expect(
       decode(
         CreateFriendCategory.reqSchema,
@@ -60,10 +62,26 @@ describe('现代好友分组协议', () => {
       Buffer.from(
         encode(
           UpdateFriendCategories.reqSchema,
-          UpdateFriendCategories.serialize({ categories: [{ id: 5, sort: 0 }] }),
+          UpdateFriendCategories.serialize({ categories: [{ id: 5, name: 'A', sort: 0 }] }),
         ),
       ).toString('hex'),
-    ).toBe('0a0408051800');
+    ).toBe('0a0708051201411800');
+  });
+  it('已有空名称可以原样保留，但禁止只传名称或排序的部分更新', () => {
+    expect(
+      Buffer.from(
+        encode(
+          UpdateFriendCategories.reqSchema,
+          UpdateFriendCategories.serialize({ categories: [{ id: 5, name: '', sort: 0 }] }),
+        ),
+      ).toString('hex'),
+    ).toBe('0a06080512001800');
+    expect(() => UpdateFriendCategories.serialize({ categories: [{ id: 5, name: 'A' }] })).toThrow(
+      '同时包含',
+    );
+    expect(() => UpdateFriendCategories.serialize({ categories: [{ id: 5, sort: 0 }] })).toThrow(
+      '同时包含',
+    );
   });
   it('拒绝删除默认组、非法名称与重复更新', () => {
     expect(() => DeleteFriendCategory.serialize({ categoryId: 0 })).toThrow();

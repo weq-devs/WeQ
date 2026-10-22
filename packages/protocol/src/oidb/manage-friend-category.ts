@@ -43,11 +43,16 @@ export namespace UpdateFriendCategories {
     )
       throw new Error('分组更新为空或重复');
     return {
-      categories: p.categories.map((row) => ({
-        id: requireUint32(row.id, '分组 ID', true),
-        ...(row.name === undefined ? {} : { name: categoryName(row.name) }),
-        ...(row.sort === undefined ? {} : { sort: requireUint32(row.sort, '分组排序', true) }),
-      })),
+      categories: p.categories.map((row) => {
+        // 不依赖服务端保留省略字段：排序须携带原名，改名须携带原排序。
+        if (row.name === undefined || row.sort === undefined)
+          throw new Error('分组更新必须同时包含名称和排序');
+        return {
+          id: requireUint32(row.id, '分组 ID', true),
+          name: row.name === '' ? '' : categoryName(row.name),
+          sort: requireUint32(row.sort, '分组排序', true),
+        };
+      }),
     };
   }
   export const deserialize = (_body: Record<string, unknown>): void => {};

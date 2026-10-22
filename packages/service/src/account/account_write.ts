@@ -263,9 +263,7 @@ export class AccountWriteService {
           row.buddyCount === null &&
           row.sortOrder === null &&
           [...categories.values()].some(
-            (entry) =>
-              entry.id === 0 ||
-              (entry.id === null && entry.buddyCount !== null && entry.sortOrder !== null),
+            (entry) => entry.id === 0 || (entry.id === null && entry.buddyCount !== null),
           )
         )
           continue;
@@ -287,8 +285,12 @@ export class AccountWriteService {
           : [];
         this.assertCurrentPid(pid);
         const missing = rawCategories.filter((row) => row.id === null);
+        const zeroSortOmitted =
+          rawCategories.filter((row) => row.sortOrder === null).length === 1 &&
+          !rawCategories.some((row) => row.sortOrder === 0);
         const resolved = rawCategories.map((row) => {
-          if (row.id !== null) return { ...row, id: row.id, idPresent: true };
+          const sortOrder = row.sortOrder ?? (zeroSortOmitted ? 0 : null);
+          if (row.id !== null) return { ...row, sortOrder, id: row.id, idPresent: true };
           // 只在完整名册中关联同账号本地默认组；不将任意缺失 ID 普遍补零。
           const candidates = local.filter((entry) => entry.id === 0 && entry.name === row.name);
           const memberCount = friends.filter((friend) => (friend.categoryId ?? 0) === 0).length;
@@ -299,7 +301,7 @@ export class AccountWriteService {
             (row.buddyCount !== null && row.buddyCount !== memberCount)
           )
             throw new Error('分组目录缺少可确认的 ID，请刷新本地联系人后重试');
-          return { ...row, id: 0, idPresent: false };
+          return { ...row, sortOrder, id: 0, idPresent: false };
         });
         const normalizedFriends = friends.map((row) =>
           row.categoryId === undefined
@@ -358,10 +360,14 @@ export class AccountWriteService {
     if (operation.type === 'create') {
       await write(() => CreateFriendCategory.invoke(this.nt, pid, operation));
     } else if (operation.type === 'rename') {
-      if (!hasCategory(operation.id)) throw new Error('分组已不存在');
+      if (operation.name === '') throw new Error('分组名称不能为空');
+      const category = categories.find((row) => row.id === operation.id);
+      if (!category) throw new Error('分组已不存在');
+      const sort = category.sortOrder;
+      if (sort === null) throw new Error('分组目录缺少可确认的排序，请重新读取');
       await write(() =>
         UpdateFriendCategories.invoke(this.nt, pid, {
-          categories: [{ id: operation.id, name: operation.name }],
+          categories: [{ id: operation.id, name: operation.name, sort }],
         }),
       );
     } else if (operation.type === 'sort') {
@@ -374,7 +380,11 @@ export class AccountWriteService {
         throw new Error('分组目录已变化，请刷新后重排');
       await write(() =>
         UpdateFriendCategories.invoke(this.nt, pid, {
-          categories: operation.ids.map((id, sort) => ({ id, sort })),
+          categories: operation.ids.map((id, sort) => ({
+            id,
+            name: categories.find((row) => row.id === id)!.name,
+            sort,
+          })),
         }),
       );
     } else {
@@ -431,7 +441,13 @@ export class AccountWriteService {
             (row) => row.name === operation.name && !categories.some((old) => old.id === row.id),
           )
         : operation.type === 'rename'
-          ? after.categories.some((row) => row.id === operation.id && row.name === operation.name)
+          ? after.categories.some(
+              (row) =>
+                row.id === operation.id &&
+                row.name === operation.name &&
+                (row.sortOrder ?? 0) ===
+                  (categories.find((entry) => entry.id === operation.id)!.sortOrder ?? 0),
+            )
           : operation.type === 'delete'
             ? !after.categories.some((row) => row.id === operation.id)
             : operation.type === 'move'
@@ -441,9 +457,12 @@ export class AccountWriteService {
                   ),
                 )
               : [...after.categories]
-                  .sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity))
+                  .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
                   .map((row) => row.id)
-                  .join(',') === operation.ids.join(',');
+                  .join(',') === operation.ids.join(',') &&
+                categories.every((before) =>
+                  after.categories!.some((row) => row.id === before.id && row.name === before.name),
+                );
     return { state: confirmed ? 'confirmed' : 'unconfirmed' };
   }
 

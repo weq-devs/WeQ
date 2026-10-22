@@ -2,6 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { decode, encode, GetFriendSnsPage, SNS_FRIEND_DISTURB } from '../src/index';
 
 describe('0xFD4 好友 SNS 子结构', () => {
+  it('名称字符串省略时按 protobuf 空字符串读取，不丢弃分组身份、人数和排序', () => {
+    // 合成分组 id=5、人数=2、排序=3，刻意不编码 name@2。
+    const bytes = Buffer.from('1801b20606080518022003', 'hex');
+    expect(GetFriendSnsPage.deserialize(decode(GetFriendSnsPage.respSchema, bytes))).toMatchObject({
+      categories: [{ id: 5, name: '', buddyCount: 2, sortOrder: 3 }],
+    });
+  });
+  it.each([null, 1, {}, []])('非法名称类型仍拒绝，不当作空字符串 %#', (name) => {
+    expect(() =>
+      GetFriendSnsPage.deserialize({ isEnd: true, categories: [{ id: 5, name }] }),
+    ).toThrow('名称');
+  });
   it('只读 SNS 时不因分组目录省略 ID 或无关资料字段异常而失败，也不把缺失 ID 猜成 0', () => {
     const body = {
       selfUin: 10001n,
