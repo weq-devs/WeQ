@@ -133,6 +133,7 @@ export function QQWriteSelectRow({
   preview,
   unlistedLabel,
   autoSave = false,
+  renderEditor,
 }: {
   label: string;
   icon?: ReactNode;
@@ -143,6 +144,7 @@ export function QQWriteSelectRow({
   preview?: (value: number | null) => ReactNode;
   unlistedLabel?: (value: number) => string;
   autoSave?: boolean;
+  renderEditor?: (value: number | null) => ReactNode;
 }) {
   const [value, setValue] = useState(initial === null ? '' : String(initial));
   const previous = useRef(value);
@@ -156,75 +158,79 @@ export function QQWriteSelectRow({
     setValue((current) => (current === before ? next : current));
     previous.current = next;
   }, [initial]);
+  const editor = renderEditor?.(value === '' ? null : Number(value));
   return (
-    <Row
-      label={<QQWriteRowLabel icon={icon} label={label} />}
-      control={
-        <div className={preview ? 'weq-qq-write-select-preview' : undefined}>
-          <div className="weq-qq-write-field" data-qq-action>
-            <select
-              className="weq-qq-write-input"
-              aria-label={label}
-              value={value}
-              disabled={disabled || saving}
-              onChange={(event) => {
-                if (savingRef.current) return;
-                const next = event.target.value;
-                setValue(next);
-                if (autoSave && next !== '') {
-                  savingRef.current = true;
-                  setSaving(true);
-                  const rollback = () =>
-                    setValue(latestInitial.current === null ? '' : String(latestInitial.current));
-                  void onSave(Number(next))
-                    .then((ok) => {
-                      if (!ok) rollback();
-                    }, rollback)
-                    .finally(() => {
+    <>
+      <Row
+        label={<QQWriteRowLabel icon={icon} label={label} />}
+        control={
+          <div className={preview ? 'weq-qq-write-select-preview' : undefined}>
+            <div className="weq-qq-write-field" data-qq-action>
+              <select
+                className="weq-qq-write-input"
+                aria-label={label}
+                value={value}
+                disabled={disabled || saving}
+                onChange={(event) => {
+                  if (savingRef.current) return;
+                  const next = event.target.value;
+                  setValue(next);
+                  if (autoSave && next !== '' && !renderEditor?.(Number(next))) {
+                    savingRef.current = true;
+                    setSaving(true);
+                    const rollback = () =>
+                      setValue(latestInitial.current === null ? '' : String(latestInitial.current));
+                    void onSave(Number(next))
+                      .then((ok) => {
+                        if (!ok) rollback();
+                      }, rollback)
+                      .finally(() => {
+                        savingRef.current = false;
+                        setSaving(false);
+                      });
+                  }
+                }}
+              >
+                {!options.some((option) => String(option.value) === value) && (
+                  <option value={value}>
+                    {value ? (unlistedLabel?.(Number(value)) ?? `未识别 (${value})`) : '尚未读取'}
+                  </option>
+                )}
+                {options.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {!autoSave && !editor ? (
+                <button
+                  type="button"
+                  className="weq-set-iconbtn"
+                  aria-label={`保存${label}`}
+                  title={`保存${label}`}
+                  disabled={
+                    disabled || saving || !options.some((option) => String(option.value) === value)
+                  }
+                  onClick={() => {
+                    if (savingRef.current) return;
+                    savingRef.current = true;
+                    setSaving(true);
+                    void onSave(Number(value)).finally(() => {
                       savingRef.current = false;
                       setSaving(false);
                     });
-                }
-              }}
-            >
-              {!options.some((option) => String(option.value) === value) && (
-                <option value={value}>
-                  {value ? (unlistedLabel?.(Number(value)) ?? `未识别 (${value})`) : '尚未读取'}
-                </option>
-              )}
-              {options.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            {!autoSave ? (
-              <button
-                type="button"
-                className="weq-set-iconbtn"
-                aria-label={`保存${label}`}
-                title={`保存${label}`}
-                disabled={
-                  disabled || saving || !options.some((option) => String(option.value) === value)
-                }
-                onClick={() => {
-                  if (savingRef.current) return;
-                  savingRef.current = true;
-                  setSaving(true);
-                  void onSave(Number(value)).finally(() => {
-                    savingRef.current = false;
-                    setSaving(false);
-                  });
-                }}
-              >
-                <Save size={16} />
-              </button>
-            ) : null}
+                  }}
+                >
+                  <Save size={16} />
+                </button>
+              ) : null}
+            </div>
+            {preview?.(value === '' ? null : Number(value))}
           </div>
-          {preview?.(value === '' ? null : Number(value))}
-        </div>
-      }
-    />
+        }
+      />
+      {editor}
+    </>
   );
 }
 

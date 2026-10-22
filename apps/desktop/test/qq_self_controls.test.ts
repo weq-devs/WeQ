@@ -6,6 +6,10 @@ import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/u
 import { TitleBar } from '../src/renderer/src/im-template/template/TitleBar';
 import type { User } from '../src/renderer/src/im-template/template/types';
 
+vi.mock('../src/renderer/src/components/settings/EditableSelfProfile', () => ({
+  EditableSelfProfile: () => null,
+}));
+
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
   useDialog: (selector: (s: { confirm: () => Promise<boolean> }) => unknown) =>
@@ -136,6 +140,13 @@ function input(host: HTMLElement, name: string, value: string) {
     field.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
+function selectExtended(host: HTMLElement, value: string) {
+  const select = host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!;
+  act(() => {
+    select.value = value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.configId = 'source-a';
@@ -154,6 +165,45 @@ afterEach(() => {
 });
 
 describe('个人资料编辑入口', () => {
+  it.each([
+    { label: '性别', value: '1', payload: { patch: { gender: 1 } } },
+    { label: '在线状态', value: '10', payload: { status: 10, extStatus: 0 } },
+  ])('$label 选择后直接提交，不显示保存按钮', async ({ label, value, payload }) => {
+    const f = fixture();
+    expect(f.host.querySelector(`[aria-label="保存${label}"]`)).toBeNull();
+    const select = f.host.querySelector<HTMLSelectElement>(`[aria-label="${label}"]`)!;
+    await act(async () => {
+      select.value = value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(state.mutate).toHaveBeenCalledOnce();
+    expect(state.mutate).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      ...payload,
+    });
+  });
+  it('只有选中自定义扩展状态才显示编辑与清除操作，选择自定义不写入', async () => {
+    const f = fixture();
+    expect(f.host.querySelector('[aria-label="自定义状态文字"]')).toBeNull();
+    expect(f.host.querySelector('[title="清除自定义状态"]')).toBeNull();
+    selectExtended(f.host, '2000');
+    expect(f.host.querySelector('[aria-label="自定义状态文字"]')).not.toBeNull();
+    expect(f.host.querySelector('[title="清除自定义状态"]')).not.toBeNull();
+    expect(f.host.querySelector('[aria-label="保存扩展在线状态"]')).toBeNull();
+    input(f.host, '自定义状态文字', '未保存草稿');
+    await act(async () => selectExtended(f.host, '1018'));
+    expect(f.host.querySelector('[aria-label="自定义状态文字"]')).toBeNull();
+    expect(f.host.querySelector('[title="清除自定义状态"]')).toBeNull();
+    expect(f.host.querySelector('[aria-label="保存扩展在线状态"]')).toBeNull();
+    expect(state.mutate).toHaveBeenCalledOnce();
+    state.mutate.mockClear();
+    selectExtended(f.host, '2000');
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="自定义状态文字"]')!.value).toBe(
+      '未保存草稿',
+    );
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
   it('自定义状态回读基础状态、文字与表情，迟到读取不覆盖文字草稿', () => {
     state.status = {
       type: 10,
@@ -183,6 +233,7 @@ describe('个人资料编辑入口', () => {
   });
   it('同号更换来源会清除另一来源的自定义状态草稿', () => {
     const f = fixture();
+    selectExtended(f.host, '2000');
     input(f.host, '自定义状态文字', '来源一草稿');
     state.configId = 'source-b';
     state.status = {
@@ -239,22 +290,25 @@ describe('个人资料编辑入口', () => {
     ).toBeTruthy();
     expect(state.mutate).not.toHaveBeenCalled();
   });
-  it('基础状态在扩展状态上方，扩展草稿实时预览且不自动提交', () => {
+  it('基础状态在扩展状态上方，预设扩展状态选择后直接提交并显示图标', async () => {
     const f = fixture();
     const basic = f.host.querySelector('[aria-label="在线状态"]')!;
     const extended = f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!;
     expect(basic.compareDocumentPosition(extended) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    act(() => {
+    await act(async () => {
       extended.value = '1018';
       extended.dispatchEvent(new Event('change', { bubbles: true }));
     });
     const preview = f.host.querySelector('[aria-label="扩展状态预览"]')!;
     expect(preview.textContent).toBe('学习中');
     expect(preview.querySelector('img')?.getAttribute('src')).toContain('study_3x.png');
-    expect(state.mutate).not.toHaveBeenCalled();
+    expect(state.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 10, extStatus: 1018 }),
+    );
   });
   it('自定义表情位于文字左侧，选择与输入互不覆盖', () => {
     const f = fixture();
+    selectExtended(f.host, '2000');
     const face = f.host.querySelector<HTMLButtonElement>('[aria-label="状态表情"]')!;
     const wording = f.host.querySelector('[aria-label="自定义状态文字"]')!;
     expect(face.parentElement).toBe(wording.parentElement);
@@ -271,13 +325,11 @@ describe('个人资料编辑入口', () => {
   it('预设扩展状态使用 status=10 和对应 extStatus，查询服务端状态不发写请求', async () => {
     const f = fixture();
     const select = f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!;
-    act(() => {
+    await act(async () => {
       select.value = '1018';
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    await act(async () =>
-      f.host.querySelector<HTMLButtonElement>('[aria-label="保存扩展在线状态"]')!.click(),
-    );
+    expect(f.host.querySelector('[aria-label="保存扩展在线状态"]')).toBeNull();
     expect(state.mutate).toHaveBeenCalledWith({
       expectedAccountUin: '10001',
       expectedAccountConfigId: 'source-a',
@@ -366,6 +418,7 @@ describe('个人资料编辑入口', () => {
   });
   it('状态表情使用本机目录的 QSid，并保留 0 号表情', async () => {
     const f = fixture();
+    selectExtended(f.host, '2000');
     input(f.host, '自定义状态文字', '测试状态');
     act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="状态表情"]')!.click());
     expect(f.host.querySelector('[title="[动态]"]')).toBeNull();
@@ -397,6 +450,7 @@ describe('个人资料编辑入口', () => {
   });
   it('状态选择器可搜索图片表情，提交 QSid 而非 Unicode 编号', async () => {
     const f = fixture();
+    selectExtended(f.host, '2000');
     input(f.host, '自定义状态文字', '新的状态');
     act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="状态表情"]')!.click());
     input(f.host, '搜索表情', '呲牙');
@@ -418,9 +472,12 @@ describe('个人资料编辑入口', () => {
   });
   it('同号切换数据源不携带上一个现场的未提交状态', () => {
     const f = fixture();
+    selectExtended(f.host, '2000');
     input(f.host, '自定义状态文字', '不能串到下一数据源');
     state.configId = 'source-b';
     f.render();
+    expect(f.host.querySelector('[aria-label="自定义状态文字"]')).toBeNull();
+    selectExtended(f.host, '2000');
     expect(f.host.querySelector<HTMLInputElement>('[aria-label="自定义状态文字"]')!.value).toBe('');
     expect(state.mutate).not.toHaveBeenCalled();
   });

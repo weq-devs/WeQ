@@ -185,6 +185,66 @@ describe('QQ 写控件', () => {
     expect(button.disabled).toBe(false);
   });
 
+  it.each(['failure', 'rejection'] as const)(
+    '选择即提交在途不重复，%s 时回退且自定义仅展开',
+    async (failure) => {
+      const f = fixture();
+      let finish!: (ok: boolean) => void;
+      let reject!: (error: Error) => void;
+      const save = vi.fn(
+        () =>
+          new Promise<boolean>((resolve, fail) => {
+            finish = resolve;
+            reject = fail;
+          }),
+      );
+      act(() =>
+        f.root.render(
+          h(QQWriteSelectRow, {
+            label: '状态',
+            initial: 10,
+            disabled: false,
+            autoSave: true,
+            options: [
+              { value: 10, label: '在线' },
+              { value: 20, label: '离开' },
+              { value: 2000, label: '自定义' },
+            ],
+            renderEditor: (value) =>
+              value === 2000 ? h('input', { 'aria-label': '自定义文字' }) : null,
+            onSave: save,
+          }),
+        ),
+      );
+      const select = f.host.querySelector('select')!;
+      const change = (value: string) => {
+        select.value = value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      expect(f.host.querySelector('button')).toBeNull();
+      act(() => change('2000'));
+      expect(f.host.querySelector('[aria-label="自定义文字"]')).not.toBeNull();
+      expect(save).not.toHaveBeenCalled();
+      act(() => {
+        change('20');
+        change('10');
+      });
+      expect(save).toHaveBeenCalledOnce();
+      expect(save).toHaveBeenCalledWith(20);
+      expect(select.disabled).toBe(true);
+      await act(async () => {
+        if (failure === 'failure') finish(false);
+        else reject(new Error('合成失败'));
+      });
+      expect(select.value).toBe('10');
+      expect(select.disabled).toBe(false);
+      act(() => change('20'));
+      await act(async () => finish(true));
+      expect(select.value).toBe('20');
+      expect(save).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it('无效输入、未知选项以及外部禁用条件仍阻止提交', () => {
     const f = fixture();
     const save = vi.fn(async () => true);

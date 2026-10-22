@@ -255,6 +255,7 @@ export function SelfQQControls() {
             />
             <QQWriteSelectRow
               label="性别"
+              autoSave
               icon={<PersonStanding size={14} strokeWidth={1.8} />}
               initial={ownProfile?.gender ?? null}
               disabled={disabled}
@@ -300,6 +301,7 @@ export function SelfQQControls() {
           <LiveStatusReadout />
           <QQWriteSelectRow
             label="在线状态"
+            autoSave
             icon={<CircleDot size={14} strokeWidth={1.8} />}
             initial={profile.data?.status?.type ?? null}
             options={profile.data?.statusOptions ?? []}
@@ -313,123 +315,129 @@ export function SelfQQControls() {
             }
           />
           <ExtendedStatusAction
+            key={identityKey}
             onSaved={() => {
               if (currentIdentity.current !== identityKey) return;
               setSyncIdentity(identityKey);
               setSyncRevision((value) => value + 1);
             }}
-          />
-          <Row
-            label={
-              <span className="weq-set-row-icon">
-                <AtSign size={14} strokeWidth={1.8} aria-hidden />
-                自定义状态
-              </span>
+            customEditor={
+              <>
+                <Row
+                  label={
+                    <span className="weq-set-row-icon">
+                      <AtSign size={14} strokeWidth={1.8} aria-hidden />
+                      自定义状态
+                    </span>
+                  }
+                  control={
+                    <div className="weq-qq-write-custom">
+                      <div className="weq-qq-write-custom-line">
+                        <button
+                          ref={faceTrigger}
+                          type="button"
+                          aria-label="状态表情"
+                          title={
+                            selectedFace?.desc ??
+                            (statusFaces.length ? '选择状态表情' : '本机表情目录不可用')
+                          }
+                          className="weq-qq-write-face-trigger"
+                          aria-expanded={choosingFace && !disabled}
+                          aria-controls={facePickerId}
+                          disabled={disabled || statusFaces.length === 0}
+                          onClick={() => setChoosingFace((value) => !value)}
+                        >
+                          {selectedFace ? (
+                            <FaceEmoji
+                              key={selectedFace.id}
+                              element={{ faceId: selectedFace.id, faceText: selectedFace.desc }}
+                              size={24}
+                            />
+                          ) : (
+                            <Smile size={24} aria-hidden />
+                          )}
+                          <ChevronDown size={12} aria-hidden />
+                        </button>
+                        <input
+                          aria-label="自定义状态文字"
+                          className="weq-qq-write-input"
+                          value={wording}
+                          maxLength={1024}
+                          disabled={disabled}
+                          onChange={(event) => setWording(event.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="weq-set-iconbtn"
+                          aria-label="保存自定义状态"
+                          title="保存自定义状态"
+                          disabled={disabled || !customValid}
+                          onClick={() => {
+                            void act(
+                              (binding) =>
+                                online.mutateAsync({
+                                  ...binding,
+                                  status: 10,
+                                  extStatus: 2000,
+                                  custom: { faceId: Number(faceId), faceType: 1, wording },
+                                }),
+                              'QQ 状态',
+                              (data) =>
+                                !data.statusError &&
+                                data.status?.type === 10 &&
+                                data.status.subType === 2000 &&
+                                data.status.customStatus?.text === wording &&
+                                data.status.customStatus?.faceId === Number(faceId),
+                            );
+                          }}
+                        >
+                          <Save size={16} />
+                        </button>
+                      </div>
+                      {choosingFace && !disabled && (
+                        <div
+                          ref={facePanel}
+                          id={facePickerId}
+                          className="weq-qq-write-face-picker"
+                          role="group"
+                          aria-label="状态表情选择"
+                          onKeyDown={(event) => {
+                            if (event.key === 'Escape') {
+                              event.stopPropagation();
+                              setChoosingFace(false);
+                              faceTrigger.current?.focus();
+                            }
+                          }}
+                        >
+                          <FacePicker
+                            purpose="status"
+                            selectedFaceId={selectedFace?.id}
+                            onPick={(face) => {
+                              setFaceId(String(face.faceId));
+                              setChoosingFace(false);
+                              faceTrigger.current?.focus();
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  }
+                />
+                <QQWriteActionRow
+                  label="清除自定义状态"
+                  disabled={disabled}
+                  icon={<X size={15} />}
+                  onClick={() => {
+                    void act(
+                      (binding) => online.mutateAsync({ ...binding, status: 10, extStatus: 0 }),
+                      'QQ 状态',
+                      (data) =>
+                        !data.statusError && data.status?.type === 10 && !data.status.subType,
+                    );
+                  }}
+                />
+              </>
             }
-            control={
-              <div className="weq-qq-write-custom">
-                <div className="weq-qq-write-custom-line">
-                  <button
-                    ref={faceTrigger}
-                    type="button"
-                    aria-label="状态表情"
-                    title={
-                      selectedFace?.desc ??
-                      (statusFaces.length ? '选择状态表情' : '本机表情目录不可用')
-                    }
-                    className="weq-qq-write-face-trigger"
-                    aria-expanded={choosingFace && !disabled}
-                    aria-controls={facePickerId}
-                    disabled={disabled || statusFaces.length === 0}
-                    onClick={() => setChoosingFace((value) => !value)}
-                  >
-                    {selectedFace ? (
-                      <FaceEmoji
-                        key={selectedFace.id}
-                        element={{ faceId: selectedFace.id, faceText: selectedFace.desc }}
-                        size={24}
-                      />
-                    ) : (
-                      <Smile size={24} aria-hidden />
-                    )}
-                    <ChevronDown size={12} aria-hidden />
-                  </button>
-                  <input
-                    aria-label="自定义状态文字"
-                    className="weq-qq-write-input"
-                    value={wording}
-                    maxLength={1024}
-                    disabled={disabled}
-                    onChange={(event) => setWording(event.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className="weq-set-iconbtn"
-                    aria-label="保存自定义状态"
-                    title="保存自定义状态"
-                    disabled={disabled || !customValid}
-                    onClick={() => {
-                      void act(
-                        (binding) =>
-                          online.mutateAsync({
-                            ...binding,
-                            status: 10,
-                            extStatus: 2000,
-                            custom: { faceId: Number(faceId), faceType: 1, wording },
-                          }),
-                        'QQ 状态',
-                        (data) =>
-                          !data.statusError &&
-                          data.status?.type === 10 &&
-                          data.status.subType === 2000 &&
-                          data.status.customStatus?.text === wording &&
-                          data.status.customStatus?.faceId === Number(faceId),
-                      );
-                    }}
-                  >
-                    <Save size={16} />
-                  </button>
-                </div>
-                {choosingFace && !disabled && (
-                  <div
-                    ref={facePanel}
-                    id={facePickerId}
-                    className="weq-qq-write-face-picker"
-                    role="group"
-                    aria-label="状态表情选择"
-                    onKeyDown={(event) => {
-                      if (event.key === 'Escape') {
-                        event.stopPropagation();
-                        setChoosingFace(false);
-                        faceTrigger.current?.focus();
-                      }
-                    }}
-                  >
-                    <FacePicker
-                      purpose="status"
-                      selectedFaceId={selectedFace?.id}
-                      onPick={(face) => {
-                        setFaceId(String(face.faceId));
-                        setChoosingFace(false);
-                        faceTrigger.current?.focus();
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-            }
-          />
-          <QQWriteActionRow
-            label="清除自定义状态"
-            disabled={disabled}
-            icon={<X size={15} />}
-            onClick={() => {
-              void act(
-                (binding) => online.mutateAsync({ ...binding, status: 10, extStatus: 0 }),
-                'QQ 状态',
-                (data) => !data.statusError && data.status?.type === 10 && !data.status.subType,
-              );
-            }}
           />
         </Card>
       </div>

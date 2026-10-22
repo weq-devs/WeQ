@@ -1,10 +1,17 @@
 import { Sparkles } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { client, trpc } from '../../trpc/client';
 import { QQWriteSelectRow } from '../QQWriteControls';
 import { OnlineStatusIcon } from '../OnlineStatus';
 import { ActionFeedback, useQQAction } from './shared';
 
-export function ExtendedStatusAction({ onSaved }: { onSaved?: () => void } = {}) {
+export function ExtendedStatusAction({
+  onSaved,
+  customEditor,
+}: {
+  onSaved?: () => void;
+  customEditor?: ReactNode;
+} = {}) {
   const a = useQQAction('extended-status');
   const options = trpc.account.qqActions.extendedStatuses.useQuery(
     { ...a.binding! },
@@ -18,14 +25,19 @@ export function ExtendedStatusAction({ onSaved }: { onSaved?: () => void } = {})
     <>
       <QQWriteSelectRow
         label="扩展在线状态"
+        autoSave
         icon={<Sparkles size={14} strokeWidth={1.8} />}
         initial={
           status.data?.status?.type === 10 && status.data.status.subType
             ? status.data.status.subType
             : null
         }
-        disabled={a.disabled || options.isFetching || !options.data?.length}
-        options={options.data ?? []}
+        disabled={a.disabled || options.isFetching}
+        options={[
+          ...(options.data ?? []).filter((option) => option.value !== 2000),
+          ...(customEditor ? [{ value: 2000, label: '自定义状态' }] : []),
+        ]}
+        renderEditor={(value) => (value === 2000 ? customEditor : null)}
         unlistedLabel={(value) => (value === 2000 ? '自定义状态' : `未识别 (${value})`)}
         preview={(value) => {
           const selected = options.data?.find((option) => option.value === value);
@@ -37,6 +49,7 @@ export function ExtendedStatusAction({ onSaved }: { onSaved?: () => void } = {})
           ) : null;
         }}
         onSave={async (extStatus) => {
+          if (extStatus === 2000) return false;
           const saved = await a.perform(
             (b) => client.account.qqWrite.onlineStatus.mutate({ ...b, status: 10, extStatus }),
             async () => {
