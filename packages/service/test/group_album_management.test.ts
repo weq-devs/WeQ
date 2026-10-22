@@ -4,6 +4,7 @@ import {
   modifyGroupAlbum,
   deleteGroupAlbum,
   getGroupAlbumUploadPermission,
+  getGroupAlbumDetails,
 } from '../src/account/web/group_album_management';
 import { computeBkn, WebAuthError } from '../src/account/web/credential';
 import { WebCredentialProvider } from '../src/account/web/credential';
@@ -23,6 +24,26 @@ afterEach(() => {
 });
 
 describe('群相册管理 Web 请求', () => {
+  it('翻页使用服务器 offset，而不是以记录数代替下一页起点', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ code: 0, data: { album: [{ id: 'a' }], total: 2, offset: 40 } })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 0, data: { album: [{ id: 'b' }], total: 2, offset: 80 } })));
+    vi.stubGlobal('fetch', fetcher);
+    expect((await getGroupAlbumList(credential, '123')).map((row) => row.id)).toEqual(['a', 'b']);
+    expect(new URL(String(fetcher.mock.calls[1]![0])).searchParams.get('start')).toBe('40');
+  });
+  it('相册字段缺失不能当成空表，明确 total=0 才允许缺省列表', async () => {
+    respond({ code: 0, data: {} }); await expect(getGroupAlbumList(credential, '123')).rejects.toThrow('列表缺失');
+    respond({ code: 0, data: { total: 0, offset: 1000 } }); expect(await getGroupAlbumList(credential, '123')).toEqual([]);
+  });
+  it('详情的 album 是单对象，保留原权限和已有封面，编辑只带回已存在字段', async () => {
+    respond({ code: 0, data: { album: { id: 'a', privacy: 0, lloc: 'original-cover' } } });
+    expect(await getGroupAlbumDetails(credential, '123', 'a', '10001')).toEqual({ privacy: 0, lloc: 'original-cover' });
+    const fetcher = respond({ code: 0 });
+    await modifyGroupAlbum(credential, { groupId: '123', albumId: 'a', title: 'A', description: '', privacy: 0, lloc: 'original-cover' });
+    expect(new URLSearchParams(String((fetcher.mock.calls[0] as unknown as [string, RequestInit])[1].body)).get('lloc')).toBe('original-cover');
+    respond({ code: 0, data: { album: { id: 'other', privacy: 0 } } });
+    await expect(getGroupAlbumDetails(credential, '123', 'a', '10001')).rejects.toThrow('目标不一致');
+  });
   it('新建复现官方字段，返回服务端相册 ID，不重放请求', async () => {
     const fetcher = respond({ code: 0, data: { albumid: 'synthetic-album' } });
     const beforeSend = vi.fn();

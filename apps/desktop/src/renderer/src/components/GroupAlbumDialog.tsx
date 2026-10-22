@@ -19,6 +19,8 @@ import { QzoneMediaPreview, type QzonePreviewMedia } from './QzoneMediaPreview';
 import { MediaSourceSave } from './MediaSaveControls';
 import { OverlayLayer } from './OverlayLayer';
 import { GroupAlbumMediaActions, GroupAlbumUpload } from './qq-actions/MediaActions';
+import { GroupAlbumManagement } from './qq-actions/GroupAlbumManagement';
+import { GroupAlbumVideoUpload } from './qq-actions/GroupAlbumVideoUpload';
 import { withQQAccountScope } from './qq-actions/shared';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../lib/autoRead';
@@ -221,6 +223,15 @@ function GroupAlbumDialogBody({
         </header>
 
         <div className="group-album-body" ref={body}>
+          <GroupAlbumManagement
+            key={`${groupCode}:${mediaState.album?.id ?? 'new'}`}
+            groupCode={groupCode}
+            album={mediaState.album}
+            onChanged={() => {
+              setAlbumRevision((value) => value + 1);
+              setMediaState({ status: 'idle', album: null, items: [], error: null });
+            }}
+          />
           {mediaState.album ? (
             <AlbumMediaView
               key={mediaState.album.id}
@@ -527,6 +538,11 @@ function AlbumMediaView({
       </div>
       {state.album && uploadOpen && (
         <div className="group-album-upload">
+          <GroupAlbumVideoUpload
+            groupId={Number(groupCode)}
+            albumId={state.album.id}
+            onChanged={onChanged}
+          />
           <GroupAlbumUpload
             key={state.album.id}
             groupId={Number(groupCode)}

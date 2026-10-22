@@ -13,6 +13,7 @@ import type { AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import type { QQWriteBinding } from './qq_write';
 import { exportSavePolicyInput } from './export_save';
+import { AlbumVideoStaging } from './album_video_staging';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),
@@ -94,6 +95,7 @@ export function createQQActionsRouter(
   resolveStatus = resolve,
 ) {
   const busy = new WeakSet<QQActionServices>();
+  const videoStaging = new AlbumVideoStaging();
   const pending = new WeakMap<
     QQActionServices,
     Map<string, { request: GroupRequest; expires: number }>
@@ -142,6 +144,161 @@ export function createQQActionsRouter(
     if (!permissions.canManage) throw new Error('此操作需要群主或管理员权限');
   }
   return router({
+    albumVideoStart: procedure
+      .input(binding.extend({ size: z.number().int().safe().min(16) }))
+      .mutation(({ input }) => videoStaging.start(resolve(input), input.size)),
+    albumVideoChunk: procedure
+      .input(
+        binding.extend({
+          uploadId: z.string().uuid(),
+          offset: z.number().int().safe().min(0),
+          base64: z.string().min(1).max(1398104),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        if (Buffer.from(input.base64, 'base64').toString('base64') !== input.base64)
+          throw new Error('视频分段编码无效');
+        const s = resolve(input);
+        const result = await videoStaging.append(
+          s,
+          input.uploadId,
+          input.offset,
+          Buffer.from(input.base64, 'base64'),
+        );
+        if (resolve(input) !== s) throw new Error('账号已切换，已停止视频暂存');
+        return result;
+      }),
+    albumVideoDiscard: procedure
+      .input(binding.extend({ uploadId: z.string().uuid() }))
+      .mutation(({ input }) => videoStaging.discard(resolveStatus(input), input.uploadId)),
+    albumVideoUpload: procedure
+      .input(
+        album
+          .extend({
+            uploadId: z.string().uuid().optional(),
+            path: z.string().min(1).optional(),
+            coverBase64: z.string().min(1),
+            fileName: z.string().min(1).max(255),
+            durationMs: z.number().int().safe().positive(),
+            width: z.number().int().safe().positive(),
+            height: z.number().int().safe().positive(),
+          })
+          .refine((value) => Boolean(value.path) !== Boolean(value.uploadId)),
+      )
+      .mutation(async ({ input: i }) => {
+        let videoId: string | null = null;
+        await write(i, async (s, current) => {
+          const albums = await s.webQuery.getGroupAlbumList(String(i.groupId), current);
+          const selected = albums.find((row) => row.id === i.albumId);
+          if (!selected) throw new Error('目标相册不存在或不可见');
+          const permission = await s.webQuery.getGroupAlbumUploadPermission(String(i.groupId));
+          current();
+          if (!permission.allowed) throw new Error('当前账号无权上传到群相册');
+          for (const value of [i.coverBase64])
+            if (Buffer.from(value, 'base64').toString('base64') !== value)
+              throw new Error('媒体编码无效');
+          const path = i.uploadId
+            ? videoStaging.acquire(s, i.uploadId)
+            : await s.fileResource.resolveLocalFile(i.path!);
+          try {
+            current();
+            if (!path) throw new Error('视频文件未授权或已不可用，请重新选择');
+            const result = await s.webQuery.uploadGroupAlbumVideo({
+              groupId: String(i.groupId),
+              albumId: i.albumId,
+              albumName: selected.title,
+              fileName: i.fileName,
+              video: path,
+              cover: Buffer.from(i.coverBase64, 'base64'),
+              durationMs: i.durationMs,
+              width: i.width,
+              height: i.height,
+              beforeSend: current,
+            });
+            videoId = result.videoId;
+          } finally {
+            if (i.uploadId) await videoStaging.discard(s, i.uploadId, true);
+          }
+        });
+        return { state: 'unconfirmed' as const, videoId };
+      }),
+    qzoneFriendPermissionList: procedure
+      .input(binding.extend({ kind: z.enum(['blocked', 'hidden']) }))
+      .query(({ input }) =>
+        read(input, (s) => s.webQuery.getQzoneFriendPermissionList(input.kind)),
+      ),
+    qzoneFriendPermission: procedure
+      .input(
+        binding.extend({
+          kind: z.enum(['blocked', 'hidden']),
+          targetUin: z.string().regex(/^[1-9]\d{4,11}$/),
+          enabled: z.boolean(),
+        }),
+      )
+      .mutation(({ input }) =>
+        write(input, (s, current) =>
+          s.webQuery.setQzoneFriendPermission(input.kind, input.targetUin, input.enabled, current),
+        ),
+      ),
+    albumManagement: procedure
+      .input(
+        group.extend({
+          action: z.enum(['create', 'modify', 'delete']),
+          albumId: id.optional(),
+          title: z.string().trim().min(1).max(30).optional(),
+          description: z.string().max(2000).optional(),
+        }),
+      )
+      .mutation(({ input: i }) =>
+        write(i, async (s, current) => {
+          const g = String(i.groupId);
+          const albums = await s.webQuery.getGroupAlbumList(g, current);
+          current();
+          if (i.action === 'create') {
+            const permission = await s.webQuery.getGroupAlbumUploadPermission(g);
+            current();
+            if (!permission.allowed) throw new Error('当前账号不能创建群相册');
+            if (!i.title) throw new Error('相册名称不能为空');
+            await s.webQuery.createGroupAlbum({
+              groupId: g,
+              title: i.title,
+              description: i.description ?? '',
+              beforeSend: current,
+            });
+          } else {
+            const album = albums.find((row) => row.id === i.albumId);
+            if (!album) throw new Error('相册已不存在或当前账号不可见');
+            const permissions = await groupPermissions(s, i.groupId);
+            current();
+            if (String(album.createUin) !== permissions.selfUin && !permissions.canManage)
+              throw new Error('只有相册创建者或群管理员可以管理此相册');
+            if (i.action === 'delete')
+              await s.webQuery.deleteGroupAlbum({
+                groupId: g,
+                albumId: album.id,
+                beforeSend: current,
+              });
+            else {
+              if (!i.title) throw new Error('相册名称不能为空');
+              const details = await s.webQuery.getGroupAlbumDetails(
+                g,
+                album.id,
+                String(album.createUin),
+              );
+              current();
+              await s.webQuery.modifyGroupAlbum({
+                groupId: g,
+                albumId: album.id,
+                title: i.title,
+                description: i.description ?? '',
+                privacy: details.privacy,
+                ...(details.lloc === undefined ? {} : { lloc: details.lloc }),
+                beforeSend: current,
+              });
+            }
+          }
+        }),
+      ),
     profileLike: procedure
       .input(
         binding.extend({ uid, count: z.number().int().min(1).max(PROFILE_LIKE_MAX_PER_REQUEST) }),

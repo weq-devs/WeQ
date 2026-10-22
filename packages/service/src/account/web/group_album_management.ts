@@ -1,6 +1,6 @@
 import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
 import { WEB_READ_RETRY, webRequestText } from './http';
-import { parseQzoneJson } from './qzone';
+import { parseQzoneCallback } from './qzone';
 
 const ALBUM_CGI = 'https://h5.qzone.qq.com/proxy/domain/u.photo.qzone.qq.com/cgi-bin/upp/';
 const AUTH_CODES = new Set([-3000, -10000]);
@@ -21,6 +21,7 @@ export interface ModifyGroupAlbumParams extends CreateGroupAlbumParams {
   albumId: string;
   /** 必须使用最新相册资料中的原值；未确认群相册权限枚举，不替调用方猜默认值。 */
   privacy: number;
+  lloc?: string;
 }
 export interface GroupAlbumUploadPermission {
   allowed: boolean;
@@ -52,8 +53,8 @@ function record(value: unknown): Record<string, unknown> {
 }
 function responseData(text: string): Record<string, unknown> {
   // 复用非执行 JSON 解析，兼容官方 formSender 的 frameElement.callback 外壳。
-  const response = record(parseQzoneJson<unknown>(text));
-  if (response.code !== 0) {
+  const response = record(parseQzoneCallback<unknown>(text));
+  if (response.code !== 0 || (response.subcode !== undefined && response.subcode !== 0)) {
     if (typeof response.code !== 'number' || !Number.isSafeInteger(response.code))
       throw new Error('群相册响应缺少明确业务码，结果未确认');
     const message = typeof response.message === 'string' ? response.message.slice(0, 256) : '';
@@ -116,7 +117,56 @@ export async function modifyGroupAlbum(
     ...albumText(params),
     albumId: albumId(params.albumId),
     priv: String(params.privacy),
+    ...(params.lloc === undefined ? {} : { lloc: params.lloc }),
   });
+}
+
+export async function getGroupAlbumDetails(
+  cred: WebCredential,
+  groupId: string,
+  id: string,
+  hostUin: string,
+) {
+  const query = new URLSearchParams({
+    uin: cred.uin,
+    qunId: groupCode(groupId),
+    qunid: groupId,
+    albumId: albumId(id),
+    albumid: id,
+    hostUin,
+    cmd: 'qunGetPhotoList',
+    start: '0',
+    num: '1',
+    getalbum: '1',
+    getCommentCnt: '0',
+    getMemberRole: '0',
+    attach_info: '',
+    platform: 'qzone',
+    source: 'qzone',
+    inCharset: 'utf-8',
+    outCharset: 'utf-8',
+    format: 'json',
+    g_tk: String(computeBkn(cred.pskey || cred.skey)),
+  });
+  const data = responseData(
+    await webRequestText(`${ALBUM_CGI}qun_list_photo_v2?${query}`, {
+      cookie: cookieHeader(cred),
+      retry: WEB_READ_RETRY,
+    }),
+  );
+  const album = record(data.album);
+  if (album.id !== id) throw new Error('返回相册与编辑目标不一致');
+  if (
+    typeof album.privacy !== 'number' ||
+    !Number.isSafeInteger(album.privacy) ||
+    album.privacy < 0 ||
+    album.privacy > 0xffffffff
+  )
+    throw new Error('相册详情未提供有效权限值');
+  return {
+    privacy: album.privacy,
+    ...(typeof album.lloc === 'string' ? { lloc: album.lloc } : {}),
+  };
 }
 
 /** 删除整个相册及其中媒体；调用方负责确认目标、权限和破坏范围，并在之后读回。 */

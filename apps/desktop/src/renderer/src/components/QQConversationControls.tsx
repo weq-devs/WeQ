@@ -24,6 +24,7 @@ import { groupMemberEditing } from '../lib/groupMemberEditing';
 import { Card } from './settings/controls';
 import { useDialog } from './Dialog';
 import { GroupActions } from './qq-actions/GroupActions';
+import { QzoneFriendPermissions } from './qq-actions/QzoneFriendPermissions';
 import {
   QQWriteActionRow,
   QQWriteResult,
@@ -347,6 +348,7 @@ export function QQConversationControls({
                     disabled={friendDisabled || specialCare.disabled}
                     onSave={specialCare.change}
                   />
+                  {state.friendUin && <QzoneFriendPermissions targetUin={state.friendUin} />}
                   <QQWriteSelectRow
                     label="好友分组"
                     autoSave
