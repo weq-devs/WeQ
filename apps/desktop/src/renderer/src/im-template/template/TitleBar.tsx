@@ -3,6 +3,7 @@ import { useId, useState, type ReactNode } from 'react';
 import { Modal } from '../../components/Dialog';
 import { SelfQQControls } from '../../components/settings/SelfQQControls';
 import { OnlineStatus } from '../../components/OnlineStatus';
+import { RestrictedModeIndicator } from '../../components/RestrictedMode';
 import '../../styles/self-profile.css';
 import { Avatar } from './primitives';
 import type { User } from './types';
@@ -104,6 +105,7 @@ export function TitleBar({
         {user.signature && <span className="app-title-bar-signature">{user.signature}</span>}
       </div>
       <div className="app-title-bar-drag" />
+      <RestrictedModeIndicator />
       {/* macOS 有原生红黄绿三键，自绘的 最小化/最大化/关闭 会重复，隐藏掉。 */}
       {!IS_MAC && (
         <DesktopOnly>

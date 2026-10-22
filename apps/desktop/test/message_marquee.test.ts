@@ -104,6 +104,13 @@ it('空白框选松开后才提交多选，正文不触发，取消和切会话�
     return serial;
   });
   vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+  const flushFrame = () =>
+    act(() => {
+      const entry = frames.entries().next().value;
+      if (!entry) return;
+      frames.delete(entry[0]);
+      entry[1](0);
+    });
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -152,16 +159,20 @@ it('空白框选松开后才提交多选，正文不触发，取消和切会话�
     vi.spyOn(scroll, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 500, 300));
     Object.defineProperty(scroll, 'clientWidth', { value: 500 });
     Object.defineProperty(scroll, 'clientHeight', { value: 300 });
-    [...scroll.querySelectorAll<HTMLElement>('[data-message-id]')].forEach((row, i) => {
-      vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(
-        new DOMRect(200, 40 + i * 60, 100, 40),
-      );
-    });
+    const rowRects = [...scroll.querySelectorAll<HTMLElement>('[data-message-id]')].map((row, i) =>
+      vi
+        .spyOn(row, 'getBoundingClientRect')
+        .mockReturnValue(new DOMRect(200, 40 + i * 60, 100, 40)),
+    );
     pointer(scroll.querySelector('.message-bubble')!, 'pointerdown', 220, 50);
     pointer(scroll, 'pointermove', 240, 150);
     expect(host.querySelector('[data-marquee]')).toBeNull();
     pointer(scroll, 'pointerdown', 10, 35);
     pointer(scroll, 'pointermove', 15, 120);
+    for (let y = 121; y <= 130; y++) pointer(scroll, 'pointermove', 15, y);
+    expect(rowRects.reduce((sum, rect) => sum + rect.mock.calls.length, 0)).toBe(0);
+    flushFrame();
+    expect(rowRects.reduce((sum, rect) => sum + rect.mock.calls.length, 0)).toBe(3);
     expect(host.querySelector('output')?.textContent).toBe('');
     expect(host.querySelector('output')?.getAttribute('data-mode')).toBe('false');
     expect(host.querySelector('[data-marquee]')).not.toBeNull();

@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -123,8 +124,13 @@ export function useMultiSelection<K extends string | number>({
     wasEnabled.current = enabled;
   }, [enabled, locked, focusChoice, document]);
   const [focusRequest, setFocusRequest] = useState<{ id: string; revision: number } | null>(null);
-  const keys = ids.map(String);
-  const values = new Map(ids.map((id) => [String(id), id]));
+  const { keys, values } = useMemo(
+    () => ({
+      keys: ids.map(String),
+      values: new Map(ids.map((id) => [String(id), id])),
+    }),
+    [ids],
+  );
   const update = (next: Set<string>) => {
     const mapped = new Set<K>();
     const previousValues = new Map([...current.current].map((id) => [String(id), id]));
@@ -139,7 +145,7 @@ export function useMultiSelection<K extends string | number>({
   const toggle = (id: K, modifiers: SelectionModifiers = {}) => {
     if (locked) return;
     const key = String(id);
-    if (!keys.includes(key)) return;
+    if (!values.has(key)) return;
     if (beforeSelect?.(id, modifiers)) return;
     if (!enabled) onStart?.();
     update(
@@ -151,8 +157,7 @@ export function useMultiSelection<K extends string | number>({
         modifiers,
       ),
     );
-    if (!modifiers.shiftKey || !anchor.current || !keys.includes(anchor.current))
-      anchor.current = key;
+    if (!modifiers.shiftKey || !anchor.current || !values.has(anchor.current)) anchor.current = key;
   };
   useEffect(() => {
     if (!focusRequest) return;

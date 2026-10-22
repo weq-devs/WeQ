@@ -94,11 +94,7 @@
   min-height: 100px;
   max-height: 240px;
 }
-.weq-self-profile-feedback {
-  min-height: 20px;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
+
 .weq-self-profile-feedback .weq-qq-write-result {
   margin: 4px 0;
 }
@@ -110,4 +106,25 @@ html[data-theme='dark'] .weq-self-profile-avatar-action {
     grid-template-columns: minmax(0, 1fr);
     gap: 0;
   }
+}
+.weq-profile-region-editor {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 100%;
+}
+.weq-profile-region-editor select,
+.weq-profile-region-editor input {
+  min-width: 0;
+  max-width: 150px;
+  padding: 6px 8px;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+html[data-theme='dark'] .weq-profile-region-editor select,
+html[data-theme='dark'] .weq-profile-region-editor input {
+  border-color: var(--weq-border-strong);
 }

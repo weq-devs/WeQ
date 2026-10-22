@@ -26,7 +26,7 @@ import { Modal } from './Dialog';
 import { Toggle } from './settings/controls';
 import logoUrl from '@resources/brand/logo.png';
 
-const REPO_URL = 'https://github.com/H3CoF6/WeQ';
+const REPO_URL = 'https://github.com/weq-devs/WeQ';
 
 /** 扫描 QQ 内存能解锁的在线能力（本框的核心说服点）。 */
 const MEMORY_SCAN_FEATURES: ReadonlyArray<{ title: string; desc: string }> = [
@@ -97,7 +97,7 @@ export function WelcomeDialog(): ReactElement | null {
                 开源、完全免费 ——{' '}
                 <a href={REPO_URL} target="_blank" rel="noreferrer" className="weq-welcome-link">
                   <Github size={12} strokeWidth={1.9} aria-hidden />
-                  github.com/H3CoF6/WeQ
+                  github.com/weq-devs/WeQ
                 </a>
                 。若你是付费获取的，请来仓库提 issue。
               </p>

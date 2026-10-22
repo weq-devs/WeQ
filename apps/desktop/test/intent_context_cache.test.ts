@@ -13,6 +13,8 @@ import { DEFAULT_ANALYSIS_CONTEXT_MESSAGES } from '@weq/service/intent-context';
 const fixture = vi.hoisted(() => ({
   status: {
     enabled: true,
+    persistentDisplay: true,
+    hoverDisplay: true,
     engine: 'local',
     localReady: true,
     suggestionsEnabled: true,
@@ -89,6 +91,8 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixture.status = {
     ...fixture.status,
+    persistentDisplay: true,
+    hoverDisplay: true,
     analyzeAfterSelf: true,
     suggestAfterSelf: false,
     analysisContextMessages: DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
@@ -118,7 +122,7 @@ function renderFixture() {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = (latestMessageId?: string | null) =>
+  const render = (latestMessageId?: string | null, roamingMessageKey?: string) =>
     act(async () =>
       root.render(
         h(
@@ -128,6 +132,7 @@ function renderFixture() {
             conv: 'u_peer',
             latestPeerMsgId: null,
             latestMessageId,
+            roamingMessageKey,
           } as Parameters<typeof IntentSenseProvider>[0],
           h(Consumer),
         ),
@@ -228,6 +233,45 @@ it('自己的新消息触发增量分析，旧批次未包含它时单条补齐�
   expect(fixture.utils.account.intentSense.getSuggestions.invalidate).not.toHaveBeenCalled();
 });
 
+it('快速连发复用旧批次时重新补齐范围，不只单查最后一条', async () => {
+  fixture.list.mockResolvedValue([]);
+  let finish!: (stats: { analyzed: number; failed: number; latestMsgId: string }) => void;
+  const pending = new Promise((resolve) => {
+    finish = resolve;
+  });
+  fixture.ensure.mockReturnValueOnce(pending).mockReturnValueOnce(pending);
+  fixture.ensure.mockImplementationOnce(async () => {
+    fixture.callbacks.at(-1)!({
+      kind: 'c2c',
+      conv: 'u_peer',
+      results: ['own-1', 'own-2', 'own-3'].map((msgId) => ({ ...sample, msgId, mine: true })),
+    });
+    return { analyzed: 3, peerAnalyzed: 0, failed: 0, latestMsgId: 'own-3' };
+  });
+  const f = renderFixture();
+  await f.render(null);
+  await f.render('own-3');
+  await act(async () => finish({ analyzed: 0, failed: 0, latestMsgId: 'peer-before' }));
+  expect(fixture.ensure).toHaveBeenCalledTimes(3);
+  for (const msgId of ['own-1', 'own-2', 'own-3'])
+    expect(f.get().getAnalysis(msgId)?.mine).toBe(true);
+  expect(fixture.analyze).not.toHaveBeenCalled();
+  expect(fixture.utils.account.intentSense.getSuggestions.invalidate).not.toHaveBeenCalled();
+});
+
+it.each([{ failed: 1 }, { error: 'fixture-error' }, { skipped: 'disabled' }])(
+  '旧批次失败或被禁用时不追加重试：%j',
+  async (stats) => {
+    fixture.list.mockResolvedValue([]);
+    fixture.ensure.mockResolvedValue({ analyzed: 0, latestMsgId: 'peer-before', ...stats });
+    const f = renderFixture();
+    await f.render('own');
+    expect(fixture.ensure).toHaveBeenCalledTimes(1);
+    expect(fixture.analyze).not.toHaveBeenCalled();
+    expect(f.get().settled).toBe(true);
+  },
+);
+
 it('关闭自己发送后分析时不发增量请求，推荐开关独立控制建议查询', async () => {
   fixture.status.analyzeAfterSelf = false;
   const f = renderFixture();
@@ -270,4 +314,52 @@ it('只更新自己的分析时，不触发对方画像或建议的模型刷新'
   await f.render('own');
   expect(fixture.utils.account.intentSense.getProfile.invalidate).not.toHaveBeenCalled();
   expect(fixture.utils.account.intentSense.getSuggestions.invalidate).not.toHaveBeenCalled();
+});
+
+it('补入较早的漫游消息时，最新消息不变也重新补齐分析；相同列表不重复触发', async () => {
+  fixture.ensure.mockResolvedValue({ analyzed: 0, failed: 0, latestMsgId: 'own' });
+  const f = renderFixture();
+  await f.render('own', '');
+  expect(fixture.ensure).toHaveBeenCalledTimes(1);
+  await f.render('own', 'roaming:protocol:2:77');
+  expect(fixture.ensure).toHaveBeenCalledTimes(2);
+  await f.render('own', 'roaming:protocol:2:77');
+  expect(fixture.ensure).toHaveBeenCalledTimes(2);
+  fixture.status.analyzeAfterSelf = false;
+  await f.render('own', 'roaming:protocol:2:77|roaming:protocol:3:77');
+  expect(fixture.ensure).toHaveBeenCalledTimes(2);
+});
+
+it('显示开关即时进入消息上下文，不清空结果、不额外触发自动分析', async () => {
+  fixture.ensure.mockResolvedValue({ analyzed: 0, failed: 0, latestMsgId: 'own' });
+  const f = renderFixture();
+  await f.render('own');
+  fixture.status.persistentDisplay = false;
+  await f.render('own');
+  expect(f.get()).toMatchObject({ persistentDisplay: false, hoverDisplay: true });
+  fixture.status.hoverDisplay = false;
+  await f.render('own');
+  expect(f.get()).toMatchObject({ persistentDisplay: false, hoverDisplay: false });
+  expect(f.get().getAnalysis('old')).toBeDefined();
+  expect(fixture.ensure).toHaveBeenCalledTimes(1);
+});
+
+it('单条分析在途状态逐条通知，结束后停止窄条并标记不可用', async () => {
+  let finish!: (value: null) => void;
+  fixture.analyze.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const f = renderFixture();
+  await f.render();
+  act(() => {
+    f.get().requestAnalysis('pending');
+  });
+  expect(f.get().isPending?.('pending')).toBe(true);
+  expect(f.get().isPending?.('another')).toBe(false);
+  await act(async () => finish(null));
+  expect(f.get().isPending?.('pending')).toBe(false);
+  expect(f.get().isUnavailable('pending')).toBe(true);
 });

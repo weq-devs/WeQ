@@ -24,6 +24,7 @@ export const ConversationDirectoryContext = createContext<{
   real?: Conversation[];
   /** 主会话列表始终排除这些群，完整目录搜索也不能绕过归属。 */
   groupAssistantIds?: ReadonlySet<string>;
+  showGroupAssistantMessageCount?: boolean;
   locate?: { id: string; revision: number } | null;
   onVirtual: (item: VirtualConversation) => void;
   /** 新建好友克隆（支持批量：一次性把多个好友交给 AgentLab）。 */

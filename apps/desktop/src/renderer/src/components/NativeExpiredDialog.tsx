@@ -48,11 +48,13 @@ export interface NativeExpiredDialogProps {
   buildTime?: number | null;
   /** 二进制的过期时间（Unix 秒）；未知传 null。 */
   expireTime?: number | null;
+  onBackup?: () => void;
 }
 
 export function NativeExpiredDialog({
   buildTime,
   expireTime,
+  onBackup,
 }: NativeExpiredDialogProps): ReactElement {
   const {
     phase,
@@ -72,7 +74,7 @@ export function NativeExpiredDialog({
   const expiredAt = fmtDateTime(expireTime);
 
   return (
-    <Modal labelledBy="weq-native-expired-title" width={420}>
+    <Modal labelledBy="weq-native-expired-title" width={420} className="weq-message-modal">
       <div className="weq-dialog weq-dialog-error weq-native-expired">
         <div className="weq-dialog-head">
           <span className="weq-dialog-icon">
@@ -109,7 +111,12 @@ export function NativeExpiredDialog({
                 </span>
               </div>
               <div className="weq-set-row-ctrl">
-                {phase === 'downloaded' ? (
+                {phase === 'installing' ? (
+                  <button type="button" className="weq-set-btn" disabled aria-busy="true">
+                    <Loader2 size={14} strokeWidth={2} className="weq-spin" aria-hidden />
+                    正在重启…
+                  </button>
+                ) : phase === 'downloaded' ? (
                   <button type="button" className="weq-set-btn" onClick={() => void install()}>
                     <RotateCw size={14} strokeWidth={1.8} aria-hidden />
                     重启并安装
@@ -188,6 +195,11 @@ export function NativeExpiredDialog({
               <Terminal size={12} strokeWidth={1.9} aria-hidden /> 开发构建不能自更新：请在本仓库跑{' '}
               <code>pnpm native:fetch</code> 取一份新构建后重启。
             </p>
+          ) : null}
+          {onBackup ? (
+            <button type="button" className="weq-set-btn" onClick={onBackup}>
+              备份与恢复
+            </button>
           ) : null}
         </div>
       </div>

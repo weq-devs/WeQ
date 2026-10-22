@@ -21,6 +21,7 @@ import type { NtHelperBinding } from '@weq/native';
 import { type decodeMessage, fetchC2cHistoryRaw, fetchGroupHistoryRaw } from '@weq/protocol';
 import { toRenderElements, type RenderElement } from './msg_view';
 import { RoamMsgCacheDb } from './roam_msg_cache';
+import type { DeletedMsgStore } from './deleted_msgs';
 import { mediaElementFromRenderElement, type MediaElement } from './media_url';
 import { withRoamingRequest } from '../common/roaming_request_queue';
 import { statfsSync } from 'node:fs';
@@ -169,8 +170,13 @@ export class GapHistoryService {
     private readonly resolvePid: () => number,
     /** 本账号漫游消息缓存库的绝对路径（weq 缓存目录 /roam-msg/<uin>.db）。 */
     cacheDbPath: string,
+    private readonly deleted?: DeletedMsgStore,
   ) {
-    this.cache = new RoamMsgCacheDb(nt, cacheDbPath);
+    this.cache = new RoamMsgCacheDb(
+      nt,
+      cacheDbPath,
+      (kind, conv) => this.deleted?.listHiddenIds(kind, conv) ?? [],
+    );
   }
 
   /**
@@ -206,8 +212,8 @@ export class GapHistoryService {
     return this.cache.query(kind, conv, startSeq, endSeq, kind === 'c2c', limit, descending);
   }
 
-  latestSent(): Promise<GapFetchedMessage[]> {
-    return this.cache.latestSent();
+  async latestSent(): Promise<GapFetchedMessage[]> {
+    return (await this.cache.latestSent()).filter((row) => !this.deleted?.isHiddenCached(row));
   }
 
   /** Batch coverage is committed only after this durable cache write succeeds. */
@@ -215,8 +221,22 @@ export class GapHistoryService {
     for (let i = 0; i < messages.length; i += 80) await this.cache.store(messages.slice(i, i + 80));
   }
 
-  async cachedForExport(kind: 'c2c' | 'group', conv: string): Promise<GapFetchedMessage[]> {
-    return this.cache.allForExport(kind, conv);
+  async cachedForExport(
+    kind: 'c2c' | 'group',
+    conv: string,
+    includeHidden = false,
+  ): Promise<GapFetchedMessage[]> {
+    const rows = await this.cache.allForExport(kind, conv);
+    return includeHidden ? rows : rows.filter((row) => !this.deleted?.isHiddenCached(row));
+  }
+
+  /** 删除入口需要读取精确缓存行，包括已隐藏记录。 */
+  async cachedForDeletion(
+    kind: 'c2c' | 'group',
+    conv: string,
+    seq: number,
+  ): Promise<GapFetchedMessage[]> {
+    return this.cache.query(kind, conv, seq, seq, kind === 'c2c', 2000, true, true);
   }
 
   resolveReplySeq(
@@ -372,6 +392,7 @@ export class GapHistoryService {
           if (decoded.observations.length)
             await this.cache.storeProtocolObservations(decoded.observations);
           await this.cache.store(decoded.messages);
+          this.deleted?.restoreFetched(decoded.messages);
           const observed = [
             ...decoded.messages.map((row) => Number(row.msgSeq)),
             ...decoded.observations.map((row) => row.msgSeq),

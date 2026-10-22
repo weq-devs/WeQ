@@ -1,0 +1,336 @@
+import { describe, expect, it, vi } from 'vitest';
+import {
+  decode,
+  encode,
+  GetFriendSnsPage,
+  MoveFriendCategory,
+  UpdateFriendCategories,
+  DeleteFriendCategory,
+  CreateFriendCategory,
+} from '@weq/protocol';
+import { AccountWriteService } from '../src/account/account_write';
+
+function fixture() {
+  let categories = [
+    { id: 0, name: '默认', buddyCount: 0, sortOrder: 0 },
+    { id: 5, name: '朋友', buddyCount: 1, sortOrder: 1 },
+  ];
+  const friends = [{ uid: 'u_friend', uin: 10002n, categoryId: 5 }];
+  let rejectMove = false;
+  let clearUpdatedNames = false;
+  const commands: number[] = [];
+  const send = vi.fn(async (_pid: number, command: number, _sub: number, body: Buffer) => {
+    commands.push(command);
+    if (command === GetFriendSnsPage.command)
+      return Buffer.from(
+        encode(GetFriendSnsPage.respSchema, {
+          selfUin: 10001n,
+          friends,
+          categories: categories.map(({ sortOrder, ...row }) => ({
+            ...row,
+            ...(sortOrder === 0 ? {} : { sortOrder }),
+          })),
+        }),
+      );
+    if (command === MoveFriendCategory.command) {
+      const request = decode(MoveFriendCategory.reqSchema, body);
+      if (!rejectMove) friends[0]!.categoryId = Number(request.categoryId);
+    }
+    if (command === DeleteFriendCategory.command) {
+      const request = decode(DeleteFriendCategory.reqSchema, body);
+      categories = categories.filter((row) => row.id !== request.categoryId);
+    }
+    if (command === UpdateFriendCategories.command) {
+      const request = decode(UpdateFriendCategories.reqSchema, body);
+      for (const change of request.categories as Array<{
+        id: number;
+        name?: string;
+        sort?: number;
+      }>) {
+        const row = categories.find((row) => row.id === change.id)!;
+        // 服务端按完整条目替换；字段省略并不表示保留旧名称或旧排序。
+        row.name = clearUpdatedNames ? '' : (change.name ?? '');
+        row.sortOrder = change.sort ?? 0;
+      }
+    }
+    if (command === CreateFriendCategory.command) {
+      const request = decode(CreateFriendCategory.reqSchema, body);
+      const row = { id: 6, name: String(request.name), buddyCount: 0, sortOrder: 2 };
+      categories.push(row);
+      return Buffer.from(
+        encode(CreateFriendCategory.respSchema, {
+          category: { id: row.id, name: row.name, sort: 2 },
+        }),
+      );
+    }
+    return Buffer.alloc(0);
+  });
+  const service = new AccountWriteService(
+    { sendOidbPacket: send, sendPacket: async () => Buffer.alloc(0) },
+    {
+      uin: '10001',
+      selfUid: 'u_self',
+      getBuddy: async (uid) =>
+        uid === 'u_friend' ? { uid, uin: 10002n, qid: '', categoryId: 5 } : null,
+      listCategories: async () => [],
+    },
+    () => 1,
+  );
+  return {
+    service,
+    send,
+    clearNames: () => {
+      for (const row of categories) row.name = '';
+    },
+    clearNamesOnUpdate: () => {
+      clearUpdatedNames = true;
+    },
+    commands,
+    rejectMove: () => {
+      rejectMove = true;
+    },
+  };
+}
+describe('好友分组服务编排', () => {
+  // 真实后续页的 tag102 只有 name@2；使用合成好友，不保存真实名册。
+  const continuationDefault = Buffer.from('b2060e120ce68891e79a84e5a5bde58f8b', 'hex');
+  function pagedRoster(pages: Uint8Array[], localName = '自定义默认组') {
+    let page = 0;
+    const sendOidbPacket = vi.fn(async (_pid: number, command: number) => {
+      expect(command).toBe(GetFriendSnsPage.command);
+      return Buffer.from(pages[page++]!);
+    });
+    const service = new AccountWriteService(
+      { sendOidbPacket, sendPacket: async () => Buffer.alloc(0) },
+      {
+        uin: '10001',
+        selfUid: 'u_self',
+        getBuddy: async () => null,
+        listCategories: async () => [{ id: 0, name: localName, buddyCount: 2, sortOrder: 1 }],
+      },
+      () => 1,
+    );
+    return { service, sendOidbPacket };
+  }
+  function firstDirectoryPage(id?: number, buddyCount = 2) {
+    return encode(GetFriendSnsPage.respSchema, {
+      selfUin: 10001n,
+      cookie: Uint8Array.of(1),
+      isEnd: false,
+      friends: [{ uid: 'u_first', uin: 10002n }],
+      categories: [
+        { ...(id === undefined ? {} : { id }), name: '自定义默认组', buddyCount, sortOrder: 1 },
+        { id: 5, name: '朋友', buddyCount: 0, sortOrder: 2 },
+      ],
+    });
+  }
+  function lastRosterPage(directory: Uint8Array = continuationDefault) {
+    return Buffer.concat([
+      encode(GetFriendSnsPage.respSchema, {
+        selfUin: 10001n,
+        isEnd: true,
+        friends: [{ uid: 'u_last', uin: 10003n }],
+      }),
+      directory,
+    ]);
+  }
+  it.each([undefined, 0])('后续页的名称占位不覆盖前页默认组，ID=%s', async (id) => {
+    const middlePages = [2, 3, 4].map((cursor) =>
+      Buffer.concat([
+        encode(GetFriendSnsPage.respSchema, {
+          selfUin: 10001n,
+          cookie: Uint8Array.of(cursor),
+          isEnd: false,
+        }),
+        continuationDefault,
+      ]),
+    );
+    const f = pagedRoster([firstDirectoryPage(id), ...middlePages, lastRosterPage()]);
+    const roster = await f.service.friendRoster();
+    expect(roster.categories).toEqual([
+      { id: 0, idPresent: id !== undefined, name: '自定义默认组', buddyCount: 2, sortOrder: 1 },
+      { id: 5, idPresent: true, name: '朋友', buddyCount: 0, sortOrder: 2 },
+    ]);
+    expect(roster.friends).toHaveLength(2);
+    expect(roster.friends.every((row) => row.categoryId === 0)).toBe(true);
+    expect(f.sendOidbPacket).toHaveBeenCalledTimes(5);
+  });
+  it.each(
+    [
+      [{ name: '未知分组' }],
+      [{ name: '我的好友', buddyCount: 3 }],
+      [{ name: '我的好友', sortOrder: 0 }],
+      [{ name: '我的好友' }, { id: 6, name: '另一个组' }],
+    ].map((categories) => ({ categories })),
+  )('不是已验证的单条名称占位时仍拒绝缺失 ID %#', async ({ categories }) => {
+    const f = pagedRoster([
+      firstDirectoryPage(),
+      lastRosterPage(encode(GetFriendSnsPage.respSchema, { categories })),
+    ]);
+    await expect(f.service.friendRoster()).rejects.toThrow('可确认');
+  });
+  it('名称占位不能掩盖本地默认组不匹配或完整名册人数不符', async () => {
+    const wrongName = pagedRoster([firstDirectoryPage(), lastRosterPage()], '本地不同名');
+    await expect(wrongName.service.friendRoster()).rejects.toThrow('可确认');
+    const wrongCount = pagedRoster([firstDirectoryPage(undefined, 3), lastRosterPage()]);
+    await expect(wrongCount.service.friendRoster()).rejects.toThrow('可确认');
+  });
+  it('第一页的名称记录不能当作后续页占位丢弃', async () => {
+    const f = pagedRoster([lastRosterPage()]);
+    await expect(f.service.friendRoster()).rejects.toThrow('可确认');
+  });
+  it('前页没有默认组依据时不能忽略后续页名称记录', async () => {
+    const f = pagedRoster([
+      encode(GetFriendSnsPage.respSchema, {
+        selfUin: 10001n,
+        cookie: Uint8Array.of(1),
+        isEnd: false,
+        categories: [{ id: 5, name: '朋友' }],
+      }),
+      lastRosterPage(),
+    ]);
+    await expect(f.service.friendRoster()).rejects.toThrow('可确认');
+  });
+  it('空名称默认组的 ID 和零排序同时省略时，仍核对本地身份并合并后续页占位', async () => {
+    const first = encode(GetFriendSnsPage.respSchema, {
+      selfUin: 10001n,
+      cookie: Uint8Array.of(1),
+      isEnd: false,
+      friends: [{ uid: 'u_first', uin: 10002n }],
+      categories: [{ buddyCount: 2 }, { id: 5, name: '朋友', sortOrder: 1 }],
+    });
+    const f = pagedRoster([first, lastRosterPage()], '');
+    expect((await f.service.friendRoster()).categories).toMatchObject([
+      { id: 0, idPresent: false, name: '', sortOrder: 0 },
+      { id: 5, name: '朋友', sortOrder: 1 },
+    ]);
+  });
+  it('完整名册中的默认组缺省字段保留存在性，只在同账号目录能唯一关联时恢复操作身份', async () => {
+    const sendOidbPacket = async () =>
+      Buffer.from(
+        encode(GetFriendSnsPage.respSchema, {
+          selfUin: 10001n,
+          isEnd: true,
+          friends: [{ uid: 'u_friend', uin: 10002n }],
+          categories: [{ name: '默认', buddyCount: 1, sortOrder: 0 }],
+        }),
+      );
+    const identity = {
+      uin: '10001',
+      selfUid: 'u_self',
+      getBuddy: async () => null,
+      listCategories: async () => [{ id: 0, name: '默认', buddyCount: 1, sortOrder: 0 }],
+    };
+    const service = new AccountWriteService(
+      { sendOidbPacket, sendPacket: async () => Buffer.alloc(0) },
+      identity,
+      () => 1,
+    );
+    expect(await service.friendRoster()).toMatchObject({
+      categories: [{ id: 0, idPresent: false }],
+      friends: [{ categoryId: 0, categoryIdPresent: false }],
+    });
+    identity.listCategories = async () => [{ id: 0, name: '默认', buddyCount: 1, sortOrder: 7 }];
+    expect(await service.friendRoster()).toMatchObject({
+      categories: [{ id: 0, idPresent: false, sortOrder: 0 }],
+    });
+    identity.listCategories = async () => [
+      { id: 0, name: '另一个分组名', buddyCount: 1, sortOrder: 0 },
+    ];
+    await expect(service.friendRoster()).rejects.toThrow('可确认');
+  });
+  it('非空删除先明确移组并读回，再删除与读回目录', async () => {
+    const f = fixture();
+    expect(await f.service.manageFriendCategories({ type: 'delete', id: 5, mergeInto: 0 })).toEqual(
+      { state: 'confirmed' },
+    );
+    expect(f.commands).toEqual([0xfd4, 0x10eb, 0xfd4, 0xfd4, 0x1125, 0xfd4]);
+  });
+  it('移组未读回时停止，绝不删除仍有成员的分组', async () => {
+    const f = fixture();
+    f.rejectMove();
+    await expect(
+      f.service.manageFriendCategories({ type: 'delete', id: 5, mergeInto: 0 }),
+    ).rejects.toThrow('停止');
+    expect(f.commands).not.toContain(DeleteFriendCategory.command);
+  });
+  it('未选择合并目标或删除默认分组时不写', async () => {
+    const f = fixture();
+    await expect(f.service.manageFriendCategories({ type: 'delete', id: 5 })).rejects.toThrow(
+      '目标',
+    );
+    await expect(f.service.manageFriendCategories({ type: 'delete', id: 0 })).rejects.toThrow(
+      '默认',
+    );
+    expect(f.commands.every((cmd) => cmd === GetFriendSnsPage.command)).toBe(true);
+  });
+  it('重命名保留排序，排序必须覆盖现有完整目录，特殊分组字符串不能成为协议目标', async () => {
+    const f = fixture();
+    expect(await f.service.manageFriendCategories({ type: 'rename', id: 5, name: '同学' })).toEqual(
+      { state: 'confirmed' },
+    );
+    const rename = f.send.mock.calls.find((call) => call[1] === UpdateFriendCategories.command)!;
+    expect(decode(UpdateFriendCategories.reqSchema, rename[3])).toEqual({
+      categories: [{ id: 5, name: '同学', sort: 1 }],
+    });
+    await expect(f.service.manageFriendCategories({ type: 'sort', ids: [5] })).rejects.toThrow(
+      '目录已变化',
+    );
+    expect(await f.service.manageFriendCategories({ type: 'sort', ids: [5, 0] })).toEqual({
+      state: 'confirmed',
+    });
+    const sort = f.send.mock.calls
+      .filter((call) => call[1] === UpdateFriendCategories.command)
+      .at(-1)!;
+    expect(decode(UpdateFriendCategories.reqSchema, sort[3])).toEqual({
+      categories: [
+        { id: 5, name: '同学', sort: 0 },
+        { id: 0, name: '默认', sort: 1 },
+      ],
+    });
+  });
+  it('新建分组依据新目录 ID 和名称读回确认', async () => {
+    const f = fixture();
+    expect(await f.service.manageFriendCategories({ type: 'create', name: '同事' })).toEqual({
+      state: 'confirmed',
+    });
+  });
+  it('已有空名称分组仍能读取、原样排序和改名，不把显示占位写回 QQ', async () => {
+    const f = fixture();
+    f.clearNames();
+    expect((await f.service.friendRoster()).categories?.map((row) => row.name)).toEqual(['', '']);
+    expect(await f.service.manageFriendCategories({ type: 'sort', ids: [5, 0] })).toEqual({
+      state: 'confirmed',
+    });
+    const request = f.send.mock.calls.find((call) => call[1] === UpdateFriendCategories.command)!;
+    expect(decode(UpdateFriendCategories.reqSchema, request[3])).toEqual({
+      categories: [
+        { id: 5, name: '', sort: 0 },
+        { id: 0, name: '', sort: 1 },
+      ],
+    });
+    // 改名时原排序零值已被云端省略，仍应保留零位。
+    expect(
+      await f.service.manageFriendCategories({ type: 'rename', id: 5, name: '新名称' }),
+    ).toEqual({
+      state: 'confirmed',
+    });
+    expect((await f.service.friendRoster()).categories?.find((row) => row.id === 5)).toMatchObject({
+      name: '新名称',
+      sortOrder: 0,
+    });
+    await expect(
+      f.service.manageFriendCategories({ type: 'rename', id: 5, name: '' }),
+    ).rejects.toThrow('不能为空');
+  });
+  it('排序读回名称发生变化时不能宣称成功，也不会自动重发写请求', async () => {
+    const f = fixture();
+    f.clearNamesOnUpdate();
+    expect(await f.service.manageFriendCategories({ type: 'sort', ids: [5, 0] })).toEqual({
+      state: 'unconfirmed',
+    });
+    expect(f.commands.filter((command) => command === UpdateFriendCategories.command)).toHaveLength(
+      1,
+    );
+  });
+});

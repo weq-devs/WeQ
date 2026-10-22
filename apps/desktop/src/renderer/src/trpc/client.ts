@@ -24,13 +24,13 @@
  * IpcClient, which fixes it.
  */
 
-import { createTRPCReact } from '@trpc/react-query';
+import { createTRPCReact, type CreateTRPCReact } from '@trpc/react-query';
 import { createTRPCClientProxy } from '@trpc/client';
 import superjson from 'superjson';
 import { createLinks } from '@transport';
 import type { AppRouter } from '../../../shared/router';
 
-export const trpc = createTRPCReact<AppRouter>();
+export const trpc: CreateTRPCReact<AppRouter, unknown, null> = createTRPCReact<AppRouter>();
 
 /**
  * The single underlying (untyped) client for the whole renderer. Passed to

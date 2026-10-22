@@ -68,7 +68,7 @@ function DurationRow({
     previous.current = String(initial);
   }, [initial]);
   const seconds = value.trim() === '' ? NaN : Number(value);
-  const canSave = !disabled && !saving && isToastDuration(seconds) && seconds !== initial;
+  const canSave = !disabled && !saving && isToastDuration(seconds);
   async function submit() {
     if (!canSave || busy.current) return;
     busy.current = true;

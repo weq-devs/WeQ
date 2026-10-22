@@ -35,19 +35,23 @@ it('重发与重新编辑的表情图保留子类型和表情摘要，不变成�
   }
 });
 
+const readingSettings = vi.hoisted(() => ({
+  jumpToLatestAfterSend: undefined as boolean | undefined,
+}));
 vi.mock('../src/renderer/src/trpc/client', () => {
-  const proxy = (): unknown =>
-    new Proxy(() => proxy(), {
+  const proxy = (path: string[] = []): unknown =>
+    new Proxy(() => proxy(path), {
       get: (_target, key) =>
         key === 'useQuery'
-          ? () => ({ data: undefined })
+          ? () => ({ data: path.at(-1) === 'getSettings' ? readingSettings : undefined })
           : key === 'useMutation'
             ? () => ({ mutate: vi.fn(), isLoading: false })
-            : proxy(),
+            : proxy([...path, String(key)]),
     });
   return { trpc: proxy(), client: proxy() };
 });
 afterEach(() => {
+  readingSettings.jumpToLatestAfterSend = undefined;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -112,6 +116,61 @@ function type(editor: HTMLElement, text: string) {
 }
 
 describe('输入区发送交接', () => {
+  it.each([true, false])(
+    '已经加载最新窗口但在阅读上方历史时，发送后按设置滚到底部：%s',
+    async (enabled) => {
+      readingSettings.jumpToLatestAfterSend = enabled;
+      const f = mount();
+      try {
+        f.render({ initialReadingPosition: { scrollTop: 120 }, atLatest: true });
+        const scroll = f.host.querySelector<HTMLElement>('.message-scroll')!;
+        Object.defineProperties(scroll, {
+          scrollHeight: { configurable: true, value: 1600 },
+          clientHeight: { configurable: true, value: 400 },
+        });
+        scroll.scrollTop = 120;
+        await act(async () => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+        await act(async () => f.finish());
+        expect(scroll.scrollTop).toBe(enabled ? 1600 : 120);
+      } finally {
+        f.close();
+      }
+    },
+  );
+
+  it.each([undefined, true, false])('发送成功按设置定位最新历史窗口：%s', async (enabled) => {
+    readingSettings.jumpToLatestAfterSend = enabled;
+    const f = mount();
+    const jump = vi.fn().mockResolvedValue(true);
+    try {
+      f.render({ atLatest: false, onJumpToLatest: jump });
+      await act(async () => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+      expect(jump).not.toHaveBeenCalled();
+      await act(async () => f.finish());
+      expect(jump).toHaveBeenCalledTimes(enabled === false ? 0 : 1);
+    } finally {
+      f.close();
+    }
+  });
+
+  it('发送失败或回执前切走会话时不定位', async () => {
+    for (const switchConversation of [false, true]) {
+      const f = mount();
+      const jump = vi.fn().mockResolvedValue(true);
+      try {
+        f.render({ atLatest: false, onJumpToLatest: jump });
+        await act(async () => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+        if (switchConversation) {
+          f.render({ conversation: { ...f.props.conversation, id: 'other-conversation' } });
+          await act(async () => f.finish());
+        } else await act(async () => f.fail());
+        expect(jump).not.toHaveBeenCalled();
+      } finally {
+        f.close();
+      }
+    }
+  });
+
   it('连续图片发送失败后移除消息，释放遗留 Blob 资源而不是持续增长', async () => {
     const live = new Map<string, number>();
     let seq = 0;
@@ -271,6 +330,7 @@ describe('输入区发送交接', () => {
     }
   });
   it('失败占位提供独立移除入口，不重发也不覆盖输入草稿', async () => {
+    const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(true);
     const f = mount();
     const remove = vi.fn();
     const message = {
@@ -295,7 +355,8 @@ describe('输入区发送交接', () => {
       ].find((button) => button.textContent === '移除失败消息');
       expect(button).toBeDefined();
       await act(async () => button!.click());
-      expect(remove).toHaveBeenCalledWith(message, f.props.conversation);
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(remove).toHaveBeenCalledWith(message, f.props.conversation, false);
       expect(serializeComposer(f.editor())).toBe('第一条');
       expect(f.onSend).not.toHaveBeenCalled();
     } finally {
@@ -373,6 +434,7 @@ describe('输入区发送交接', () => {
     },
   );
   it('混合多选删除先确认，仅移除支持的失败占位，保留发送成功条目', async () => {
+    const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(true);
     const f = mount();
     const remove = vi.fn();
     const base = {
@@ -411,7 +473,7 @@ describe('输入区发送交接', () => {
         f.host.querySelector<HTMLElement>('[data-message-id="optimistic-confirmed"]')!.click(),
       );
       expect(deletion().disabled).toBe(false);
-      act(() => deletion().click());
+      await act(async () => deletion().click());
       expect(remove).not.toHaveBeenCalled();
       const confirmation = () => document.querySelector<HTMLElement>('.weq-message-batch-dialog')!;
       const confirmButton = (label: string) =>
@@ -422,9 +484,10 @@ describe('输入区发送交接', () => {
       act(() => confirmButton('取消').click());
       expect(remove).not.toHaveBeenCalled();
       expect(confirmation()).toBeNull();
-      act(() => deletion().click());
+      await act(async () => deletion().click());
       expect(remove).not.toHaveBeenCalled();
       await act(async () => confirmButton('仅删除支持的 2 条').click());
+      expect(confirm).toHaveBeenCalledOnce();
       expect(remove.mock.calls.map(([message]) => message.id)).toEqual([
         'optimistic-one',
         'optimistic-two',
@@ -433,7 +496,7 @@ describe('输入区发送交接', () => {
       expect(
         f.host.querySelector('.message-line.is-selected')?.getAttribute('data-message-id'),
       ).toBe('optimistic-confirmed');
-      act(() => deletion().click());
+      await act(async () => deletion().click());
       expect(confirmation().textContent).toContain('1 条消息不支持删除，0 条可以继续');
       expect(confirmButton('仅删除支持的 0 条').disabled).toBe(true);
       act(() => confirmButton('仅删除支持的 0 条').click());

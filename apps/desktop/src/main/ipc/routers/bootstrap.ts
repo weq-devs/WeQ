@@ -60,6 +60,7 @@ import { runLogRetentionSweep } from '../../log_retention';
 import { takePendingConversationJump, takePendingGroupJump } from '../../group_keyword_bus';
 import { readNativeBuildInfo } from '@weq/native';
 import { procedure, router } from '../trpc';
+import { backupProcedures } from './backup';
 import {
   accountConfigId,
   fetchHomeDress,
@@ -182,7 +183,16 @@ export async function ensureUidForUin(
   return null;
 }
 
+function storageRoots(): Array<{ path: string; label: string }> {
+  const host = getHost();
+  return [
+    ...(host.storageRoots?.() ?? []),
+    ...(host.exportRoot ? [{ path: host.exportRoot, label: 'Web 导出文件' }] : []),
+  ];
+}
+
 export const bootstrapRouter = router({
+  ...backupProcedures,
   ...intentSenseModelProcedures,
 
   /** 共享资源目录：只引用现有下载器，不另建模型副本。 */
@@ -700,6 +710,31 @@ export const bootstrapRouter = router({
     return true;
   }),
 
+  getTypingStatusSettings: procedure.query(
+    () => requireBootstrap().userConfig.getSettings().typingStatus,
+  ),
+
+  setTypingStatusDefault: procedure.input(z.object({ enabled: z.boolean() })).mutation(
+    ({ input }) =>
+      requireBootstrap().userConfig.setSettings({
+        typingStatus: { defaultEnabled: input.enabled },
+      }).typingStatus,
+  ),
+
+  setTypingStatusOverride: procedure
+    .input(
+      z.object({
+        accountUin: z.string().min(1),
+        accountConfigId: z.string().min(1),
+        uid: z.string().min(1),
+        name: z.string(),
+        enabled: z.boolean().nullable(),
+      }),
+    )
+    .mutation(({ input: { enabled, ...target } }) =>
+      requireBootstrap().userConfig.setTypingStatusOverride(target, enabled),
+    ),
+
   /**
    * 日志保留天数（设置 → 日志 → 日志保留时长）。0 = 永久保留。
    *
@@ -751,6 +786,27 @@ export const bootstrapRouter = router({
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ showMessageUnreadBadge: input.enabled });
+      return true;
+    }),
+
+  setReadFromFirstUnread: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ readFromFirstUnread: input.enabled });
+      return true;
+    }),
+
+  setJumpToLatestAfterSend: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ jumpToLatestAfterSend: input.enabled });
+      return true;
+    }),
+
+  setShowGroupAssistantMessageCount: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showGroupAssistantMessageCount: input.enabled });
       return true;
     }),
 
@@ -1207,7 +1263,7 @@ export const bootstrapRouter = router({
       } else {
         const started = await daemonReleaseWatchStart({
           api_base: 'https://api.github.com',
-          repo: 'H3CoF6/WeQ',
+          repo: 'weq-devs/WeQ',
           interval_secs: 3600,
           current_version: getHost().appVersion(),
         });
@@ -1624,11 +1680,12 @@ export const bootstrapRouter = router({
     return boot.userConfig.getCacheDirInfo();
   }),
 
-  /**
-   * Per-category size of the clearable WeQ caches (头像/媒体/商城表情/语音).
-   * Only these re-downloadable/re-generatable categories are listed —
-   * agentlab / weq-assistant / export are user content and stay untouched.
-   */
+  /** 应用数据与宿主运行目录的完整占用，含仅统计项目。 */
+  listStorageUsage: procedure.query(async () => {
+    return requireBootstrap().userConfig.listStorageUsage(storageRoots());
+  }),
+
+  /** 旧接口保留为可清理项的子集。 */
   listClearableCache: procedure.query(async () => {
     return requireBootstrap().userConfig.listClearableCache();
   }),
@@ -1637,7 +1694,7 @@ export const bootstrapRouter = router({
   clearWeqCache: procedure
     .input(z.object({ ids: z.array(z.string()).optional() }).optional())
     .mutation(async ({ input }) => {
-      return requireBootstrap().userConfig.clearCache(input?.ids);
+      return requireBootstrap().userConfig.clearCache(input?.ids, storageRoots());
     }),
 
   // ---- filesystem dialog (Tencent Files fallback / manual db pick) ----
@@ -2196,6 +2253,12 @@ export const bootstrapRouter = router({
       });
       return ctx.account!.context;
     }),
+
+  /** Web 首屏只读取已打开账号的标识，不暴露密钥或重新打开数据库。 */
+  currentAccount: procedure.query(() => {
+    const account = getAppContext().account;
+    return account ? { uin: String(account.context.uin) } : null;
+  }),
 
   /** True if an account session is currently open. */
   accountOpen: procedure.query(() => {

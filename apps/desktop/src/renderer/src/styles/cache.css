@@ -89,14 +89,6 @@
   color: var(--weq-accent-effective);
 }
 
-/* 静态账号说明：只有数据库一项时，交代其余资源为何不在这里。 */
-.weq-cache-static-note {
-  margin: 10px 2px 0;
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--weq-fg-muted);
-}
-
 /* 隐藏资源列滚动条（保留滚动）。 */
 .weq-cache-cats-body {
   scrollbar-width: none;
@@ -1040,7 +1032,7 @@
 
 .weq-cache-btn.is-primary {
   background: var(--weq-accent-effective);
-  color: #ffffff;
+  color: var(--primary-foreground);
   box-shadow: 0 10px 22px -14px rgba(0, 122, 204, 0.9);
 }
 
@@ -1256,7 +1248,7 @@
 
 .weq-avpath-segbtn.is-on {
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
   font-weight: 600;
 }
 
@@ -3351,10 +3343,6 @@ html[data-theme='dark'] .weq-related-stage {
   white-space: nowrap;
 }
 
-.weq-mpack-principle-note {
-  color: var(--weq-fg-muted, #78828f);
-}
-
 /* 密钥计算器入口按钮（信息栏 / 详情头右侧） */
 .weq-mpack-keytool-btn {
   margin-left: auto;
@@ -3471,11 +3459,6 @@ html[data-theme='dark'] .weq-mpack-card:hover {
 html[data-theme='dark'] .weq-mpack-emoji {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
-}
-
-html[data-theme='dark'] .weq-mpack-manual-input {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.12);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -4003,7 +3986,7 @@ html[data-theme='dark'] .weq-filerow-name {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  color: #fff;
+  color: var(--primary-foreground);
   background: var(--weq-accent-effective);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
 }
@@ -4372,13 +4355,6 @@ html[data-theme='dark'] .weq-filerow-name {
   color: var(--weq-fg-muted);
 }
 
-/* 图表卡片区 */
-.weq-ra-charts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 14px;
-}
-
 .weq-ra-card {
   padding: 15px 16px;
   border-radius: 14px;
@@ -4559,7 +4535,7 @@ html[data-theme='dark'] .weq-filerow-name {
 }
 
 .weq-ra-metric button.is-on {
-  color: #fff;
+  color: var(--primary-foreground);
   background: var(--weq-accent-effective);
   border-color: var(--weq-accent-effective);
 }
@@ -5151,7 +5127,7 @@ html[data-theme='dark'] .weq-filerow-name {
   border: 1px solid transparent;
   border-radius: 9px;
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
@@ -5163,7 +5139,12 @@ html[data-theme='dark'] .weq-filerow-name {
   filter: brightness(1.06);
 }
 .weq-clean-go.is-danger {
-  background: #e5484d;
+  background: var(--weq-danger-solid-background);
+  color: var(--weq-danger-solid-foreground);
+}
+.weq-clean-go.is-danger:hover:not(:disabled) {
+  filter: none;
+  background: var(--weq-danger-solid-hover);
 }
 .weq-clean-go:disabled {
   opacity: 0.45;

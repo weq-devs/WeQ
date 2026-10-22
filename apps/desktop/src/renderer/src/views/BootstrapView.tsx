@@ -24,8 +24,9 @@ import { WarmupSplash } from '../components/WarmupSplash';
 import { NativeExpiredDialog } from '../components/NativeExpiredDialog';
 import { runAccountWarmup, type WarmupProgress } from '../lib/accountWarmup';
 import { setWindowLayout } from '../lib/windowLayout';
-import { DesktopOnly, IS_MAC, shellBridge } from '../lib/target';
+import { DesktopOnly, IS_MAC, IS_WEB, shellBridge } from '../lib/target';
 import logoUrl from '@resources/brand/logo.png';
+import { BackupSection } from '../components/settings/BackupSection';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -41,6 +42,7 @@ export function BootstrapView(): ReactElement {
   const utils = trpc.useUtils();
   /** 非 null 时 splash 显示预热进度条（自动进入的第二段）。 */
   const [warmup, setWarmup] = useState<WarmupProgress | null>(null);
+  const [backupOpen, setBackupOpen] = useState(false);
 
   const nativeStatus = trpc.bootstrap.nativeStatus.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -48,18 +50,29 @@ export function BootstrapView(): ReactElement {
   const nativeErr = nativeStatus.data ?? null;
   const nativeOk = nativeStatus.isSuccess && nativeStatus.data === null;
 
+  const currentAccount = trpc.bootstrap.currentAccount.useQuery(undefined, {
+    enabled: IS_WEB && nativeOk && homeStage === 'booting',
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  const needsStartup =
+    nativeOk &&
+    (!IS_WEB || homeStage !== 'booting' || (currentAccount.isSuccess && !currentAccount.data));
+
   const install = trpc.bootstrap.describeInstall.useQuery(undefined, {
-    enabled: nativeOk,
+    enabled: needsStartup,
     refetchOnWindowFocus: false,
   });
   const configs = trpc.bootstrap.listAccountConfigs.useQuery(undefined, {
-    enabled: nativeOk,
+    enabled: needsStartup,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const autoTarget = trpc.bootstrap.getAutoEnter.useQuery(undefined, {
-    enabled: nativeOk,
+    enabled: needsStartup,
     refetchOnWindowFocus: false,
   });
 
@@ -99,6 +112,23 @@ export function BootstrapView(): ReactElement {
       booted.current = true;
       setHomeStage('home');
       return;
+    }
+    if (IS_WEB && nativeOk) {
+      if (currentAccount.isError) {
+        booted.current = true;
+        setHomeStage('home');
+        showError('读取当前账号失败', errMsg(currentAccount.error));
+        return;
+      }
+      if (!currentAccount.isSuccess) return;
+      if (currentAccount.data) {
+        // Web 是已有桌面会话的另一个视图，不重开数据库或重建账号服务。
+        booted.current = true;
+        setHomeStage('home');
+        setOpenedUin(currentAccount.data.uin);
+        goTo('main');
+        return;
+      }
     }
     if (!nativeOk || !autoTarget.isFetched || !configs.isFetched) return;
     booted.current = true;
@@ -169,6 +199,10 @@ export function BootstrapView(): ReactElement {
     homeStage,
     nativeOk,
     nativeErr,
+    currentAccount.isSuccess,
+    currentAccount.isError,
+    currentAccount.error,
+    currentAccount.data,
     autoTarget.isFetched,
     autoTarget.data,
     configs.isFetched,
@@ -182,18 +216,34 @@ export function BootstrapView(): ReactElement {
 
   // ---- render ----
   if (nativeErr) {
+    if (backupOpen)
+      return (
+        <Shell>
+          <div className="weq-backup-native">
+            <button type="button" className="weq-set-btn" onClick={() => setBackupOpen(false)}>
+              <X size={14} />
+              返回组件诊断
+            </button>
+            <BackupSection />
+          </div>
+        </Shell>
+      );
     return (
       <Shell>
         <Centered>
           <img src={logoUrl} alt="" width={84} height={84} className="opacity-40 grayscale" />
-          <p className="mt-4 text-[14px] text-[#5b6b7d]">
+          <p className="mt-4 text-[14px] text-muted-foreground">
             {nativeErr.kind === 'expired' ? '组件版本过旧，请更新。' : '组件安装损坏，请重新安装。'}
           </p>
+          <button type="button" className="weq-set-btn" onClick={() => setBackupOpen(true)}>
+            备份与恢复
+          </button>
         </Centered>
         {nativeErr.kind === 'expired' ? (
           <NativeExpiredDialog
             buildTime={nativeBuildInfo.data?.buildTime ?? null}
             expireTime={nativeBuildInfo.data?.expireTime ?? null}
+            onBackup={() => setBackupOpen(true)}
           />
         ) : null}
       </Shell>
@@ -264,7 +314,7 @@ function Shell({ children }: { children: ReactNode }): ReactElement {
   };
 
   return (
-    <main className="weq-home-shell h-screen overflow-hidden font-sans text-[#142235]">
+    <main className="weq-home-shell h-screen overflow-hidden font-sans text-foreground">
       {/* 右上角只挂窗口级小按钮（打开日志目录 / 关闭）：绝对定位，落在内容之外，
           不占任何一屏的布局空间。 */}
       <div className="absolute right-4 top-4 z-20 flex items-center gap-1.5">

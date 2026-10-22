@@ -9,15 +9,11 @@ import {
   FAVORITE_EMOJI_MAX_ARCHIVE_BYTES,
   FAVORITE_EMOJI_MAX_ITEMS,
 } from '@weq/service';
-import {
-  parseGroupShareLocation,
-  resolveGroupShareAuthKey,
-  type GroupShareTarget,
-} from '@weq/service/qq-group-join';
 import type { AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import type { QQWriteBinding } from './qq_write';
 import { exportSavePolicyInput } from './export_save';
+import { AlbumVideoStaging } from './album_video_staging';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),
@@ -96,17 +92,13 @@ async function image(
 
 export function createQQActionsRouter(
   resolve: (input: QQWriteBinding) => QQActionServices,
-  resolveShare = resolveGroupShareAuthKey,
   resolveStatus = resolve,
 ) {
   const busy = new WeakSet<QQActionServices>();
+  const videoStaging = new AlbumVideoStaging();
   const pending = new WeakMap<
     QQActionServices,
     Map<string, { request: GroupRequest; expires: number }>
-  >();
-  const joins = new WeakMap<
-    QQActionServices,
-    Map<string, { groupId: number; share: string; questionRequired: boolean; expires: number }>
   >();
   const write = async (
     input: QQWriteBinding,
@@ -152,6 +144,161 @@ export function createQQActionsRouter(
     if (!permissions.canManage) throw new Error('此操作需要群主或管理员权限');
   }
   return router({
+    albumVideoStart: procedure
+      .input(binding.extend({ size: z.number().int().safe().min(16) }))
+      .mutation(({ input }) => videoStaging.start(resolve(input), input.size)),
+    albumVideoChunk: procedure
+      .input(
+        binding.extend({
+          uploadId: z.string().uuid(),
+          offset: z.number().int().safe().min(0),
+          base64: z.string().min(1).max(1398104),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        if (Buffer.from(input.base64, 'base64').toString('base64') !== input.base64)
+          throw new Error('视频分段编码无效');
+        const s = resolve(input);
+        const result = await videoStaging.append(
+          s,
+          input.uploadId,
+          input.offset,
+          Buffer.from(input.base64, 'base64'),
+        );
+        if (resolve(input) !== s) throw new Error('账号已切换，已停止视频暂存');
+        return result;
+      }),
+    albumVideoDiscard: procedure
+      .input(binding.extend({ uploadId: z.string().uuid() }))
+      .mutation(({ input }) => videoStaging.discard(resolveStatus(input), input.uploadId)),
+    albumVideoUpload: procedure
+      .input(
+        album
+          .extend({
+            uploadId: z.string().uuid().optional(),
+            path: z.string().min(1).optional(),
+            coverBase64: z.string().min(1),
+            fileName: z.string().min(1).max(255),
+            durationMs: z.number().int().safe().positive(),
+            width: z.number().int().safe().positive(),
+            height: z.number().int().safe().positive(),
+          })
+          .refine((value) => Boolean(value.path) !== Boolean(value.uploadId)),
+      )
+      .mutation(async ({ input: i }) => {
+        let videoId: string | null = null;
+        await write(i, async (s, current) => {
+          const albums = await s.webQuery.getGroupAlbumList(String(i.groupId), current);
+          const selected = albums.find((row) => row.id === i.albumId);
+          if (!selected) throw new Error('目标相册不存在或不可见');
+          const permission = await s.webQuery.getGroupAlbumUploadPermission(String(i.groupId));
+          current();
+          if (!permission.allowed) throw new Error('当前账号无权上传到群相册');
+          for (const value of [i.coverBase64])
+            if (Buffer.from(value, 'base64').toString('base64') !== value)
+              throw new Error('媒体编码无效');
+          const path = i.uploadId
+            ? videoStaging.acquire(s, i.uploadId)
+            : await s.fileResource.resolveLocalFile(i.path!);
+          try {
+            current();
+            if (!path) throw new Error('视频文件未授权或已不可用，请重新选择');
+            const result = await s.webQuery.uploadGroupAlbumVideo({
+              groupId: String(i.groupId),
+              albumId: i.albumId,
+              albumName: selected.title,
+              fileName: i.fileName,
+              video: path,
+              cover: Buffer.from(i.coverBase64, 'base64'),
+              durationMs: i.durationMs,
+              width: i.width,
+              height: i.height,
+              beforeSend: current,
+            });
+            videoId = result.videoId;
+          } finally {
+            if (i.uploadId) await videoStaging.discard(s, i.uploadId, true);
+          }
+        });
+        return { state: 'unconfirmed' as const, videoId };
+      }),
+    qzoneFriendPermissionList: procedure
+      .input(binding.extend({ kind: z.enum(['blocked', 'hidden']) }))
+      .query(({ input }) =>
+        read(input, (s) => s.webQuery.getQzoneFriendPermissionList(input.kind)),
+      ),
+    qzoneFriendPermission: procedure
+      .input(
+        binding.extend({
+          kind: z.enum(['blocked', 'hidden']),
+          targetUin: z.string().regex(/^[1-9]\d{4,11}$/),
+          enabled: z.boolean(),
+        }),
+      )
+      .mutation(({ input }) =>
+        write(input, (s, current) =>
+          s.webQuery.setQzoneFriendPermission(input.kind, input.targetUin, input.enabled, current),
+        ),
+      ),
+    albumManagement: procedure
+      .input(
+        group.extend({
+          action: z.enum(['create', 'modify', 'delete']),
+          albumId: id.optional(),
+          title: z.string().trim().min(1).max(30).optional(),
+          description: z.string().max(2000).optional(),
+        }),
+      )
+      .mutation(({ input: i }) =>
+        write(i, async (s, current) => {
+          const g = String(i.groupId);
+          const albums = await s.webQuery.getGroupAlbumList(g, current);
+          current();
+          if (i.action === 'create') {
+            const permission = await s.webQuery.getGroupAlbumUploadPermission(g);
+            current();
+            if (!permission.allowed) throw new Error('当前账号不能创建群相册');
+            if (!i.title) throw new Error('相册名称不能为空');
+            await s.webQuery.createGroupAlbum({
+              groupId: g,
+              title: i.title,
+              description: i.description ?? '',
+              beforeSend: current,
+            });
+          } else {
+            const album = albums.find((row) => row.id === i.albumId);
+            if (!album) throw new Error('相册已不存在或当前账号不可见');
+            const permissions = await groupPermissions(s, i.groupId);
+            current();
+            if (String(album.createUin) !== permissions.selfUin && !permissions.canManage)
+              throw new Error('只有相册创建者或群管理员可以管理此相册');
+            if (i.action === 'delete')
+              await s.webQuery.deleteGroupAlbum({
+                groupId: g,
+                albumId: album.id,
+                beforeSend: current,
+              });
+            else {
+              if (!i.title) throw new Error('相册名称不能为空');
+              const details = await s.webQuery.getGroupAlbumDetails(
+                g,
+                album.id,
+                String(album.createUin),
+              );
+              current();
+              await s.webQuery.modifyGroupAlbum({
+                groupId: g,
+                albumId: album.id,
+                title: i.title,
+                description: i.description ?? '',
+                privacy: details.privacy,
+                ...(details.lloc === undefined ? {} : { lloc: details.lloc }),
+                beforeSend: current,
+              });
+            }
+          }
+        }),
+      ),
     profileLike: procedure
       .input(
         binding.extend({ uid, count: z.number().int().min(1).max(PROFILE_LIKE_MAX_PER_REQUEST) }),
@@ -176,86 +323,6 @@ export function createQQActionsRouter(
     groupPermissions: procedure
       .input(group)
       .query(({ input: i }) => read(i, (s) => groupPermissions(s, i.groupId))),
-    prepareJoin: procedure
-      .input(binding.extend({ share: z.string().url().max(8192) }))
-      .mutation(({ input: i }) =>
-        read(i, async (s) => {
-          const url = new URL(i.share);
-          if (
-            url.protocol !== 'https:' ||
-            !['qm.qq.com', 'qun.qq.com', 'jq.qq.com'].includes(url.hostname) ||
-            url.username ||
-            url.password ||
-            (url.port && url.port !== '443')
-          )
-            throw new Error('请选择有效的 QQ 群分享链接');
-          let target: GroupShareTarget;
-          try {
-            target = parseGroupShareLocation(url.href) ?? (await resolveShare(url.href));
-          } catch {
-            throw new Error('无法解析 QQ 群分享链接，请重新获取分享链接');
-          }
-          const groupId = Number(target.groupCode);
-          if (!Number.isInteger(groupId) || groupId <= 0 || groupId > 0xffffffff)
-            throw new Error('分享链接的群号不合法');
-          const info = await s.groupInfo.getJoinInfo(groupId).catch(() => ({
-            groupId,
-            name: '',
-            categoryId: null,
-            categoryName: null,
-            option: null,
-            question: null,
-            questionState: 'unavailable' as const,
-          }));
-          const member = (await s.groupInfo.listGroupDirectory()).some(
-            (g) => g.groupCode === String(groupId),
-          );
-          const cache = joins.get(s) ?? new Map();
-          for (const [key, value] of cache) if (value.expires < Date.now()) cache.delete(key);
-          if (cache.size >= 50) throw new Error('待提交加群目标过多，请稍后重试');
-          const token = randomUUID();
-          cache.set(token, {
-            groupId,
-            share: url.href,
-            questionRequired: info.questionState === 'available',
-            expires: Date.now() + 120000,
-          });
-          joins.set(s, cache);
-          return { ...info, token, alreadyMember: member };
-        }),
-      ),
-    join: procedure
-      .input(group.extend({ token: z.string().uuid(), answer: z.string().max(1024).default('') }))
-      .mutation(async ({ input: i }) => {
-        let state: 'accepted' | 'unconfirmed' = 'unconfirmed';
-        await write(i, async (s, current) => {
-          const cache = joins.get(s),
-            target = cache?.get(i.token);
-          if (!target || target.expires < Date.now() || target.groupId !== i.groupId)
-            throw new Error('加群目标已过期，请重新读取');
-          if (target.questionRequired && !i.answer.trim()) throw new Error('请填写入群回答');
-          const members = await s.groupInfo.listGroupDirectory();
-          current();
-          if (members.some((g) => g.groupCode === String(i.groupId)))
-            throw new Error('当前账号已经在群内');
-          let fresh: GroupShareTarget;
-          try {
-            fresh = parseGroupShareLocation(target.share) ?? (await resolveShare(target.share));
-          } catch {
-            throw new Error('分享链接已失效，请重新获取');
-          }
-          current();
-          if (Number(fresh.groupCode) !== i.groupId)
-            throw new Error('分享链接目标已变化，请重新读取');
-          cache?.delete(i.token);
-          state = await s.interaction.submitGroupJoinRequest({
-            groupCode: i.groupId,
-            authKey: fresh.authKey,
-            answer: i.answer,
-          });
-        });
-        return { state };
-      }),
     extendedStatuses: procedure
       .input(binding)
       .query(({ input: i }) => read(i, async (s) => s.onlineStatus.editableExtendedStatuses())),

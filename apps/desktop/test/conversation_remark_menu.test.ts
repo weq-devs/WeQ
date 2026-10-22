@@ -18,9 +18,13 @@ import {
   initialExportMode,
 } from '../src/renderer/src/views/export/exportScope';
 import type { Conversation } from '../src/renderer/src/im-template/template/types';
+vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {}, client: {} }));
 
 vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
   OverlayLayer: ({ children }: { children: React.ReactNode }) => children,
+}));
+vi.mock('../src/renderer/src/hooks/useFriendSpecialCare', () => ({
+  useFriendSpecialCare: () => ({ enabled: false, disabled: false, change: vi.fn() }),
 }));
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

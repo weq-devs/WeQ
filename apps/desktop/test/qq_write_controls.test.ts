@@ -107,7 +107,7 @@ afterEach(() => {
 });
 
 describe('QQ 写控件', () => {
-  it('编辑中的备注不被迟到缓存覆盖，受理后不重复提交相同值', async () => {
+  it('编辑中的备注不被迟到缓存覆盖，受理后仍可主动再次提交相同值', async () => {
     const f = fixture();
     const save = vi.fn(async () => true);
     const render = (initial: string) =>
@@ -123,12 +123,14 @@ describe('QQ 写控件', () => {
     expect(input.value).toBe('新备注');
     await act(async () => f.host.querySelector<HTMLButtonElement>('button')!.click());
     expect(save).toHaveBeenCalledWith('新备注');
-    expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+    expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(false);
+    await act(async () => f.host.querySelector<HTMLButtonElement>('button')!.click());
+    expect(save).toHaveBeenCalledTimes(2);
     render('新备注');
     expect(input.value).toBe('新备注');
   });
 
-  it('清空字符串仍可提交，未编辑的字段不提交', async () => {
+  it('原值和清空字符串都可主动提交，不编辑不会自动提交', async () => {
     const f = fixture();
     const save = vi.fn(async () => true);
     act(() =>
@@ -136,10 +138,147 @@ describe('QQ 写控件', () => {
         h(QQWriteTextRow, { label: '个性签名', initial: '原签名', disabled: false, onSave: save }),
       ),
     );
-    expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+    expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+    await act(async () => f.host.querySelector<HTMLButtonElement>('button')!.click());
+    expect(save).toHaveBeenLastCalledWith('原签名');
     type(f.host.querySelector('input')!, '');
     await act(async () => f.host.querySelector<HTMLButtonElement>('button')!.click());
     expect(save).toHaveBeenCalledWith('');
+  });
+
+  it.each(['text', 'select'] as const)('%s 原值可提交，但在途重复点击仍只发一次', async (kind) => {
+    const f = fixture();
+    let finish!: (ok: boolean) => void;
+    const save = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    act(() =>
+      f.root.render(
+        kind === 'text'
+          ? h(QQWriteTextRow, { label: '备注', initial: '原备注', disabled: false, onSave: save })
+          : h(QQWriteSelectRow, {
+              label: '在线状态',
+              initial: 10,
+              disabled: false,
+              options: [{ value: 10, label: '在线' }],
+              onSave: save,
+            }),
+      ),
+    );
+    const button = f.host.querySelector<HTMLButtonElement>('button')!;
+    expect(button.disabled).toBe(false);
+    act(() => {
+      button.click();
+      button.click();
+    });
+    expect(save).toHaveBeenCalledOnce();
+    expect(button.disabled).toBe(true);
+    await act(async () => finish(true));
+    expect(button.disabled).toBe(false);
+    act(() => button.click());
+    expect(save).toHaveBeenCalledTimes(2);
+    await act(async () => finish(false));
+    expect(button.disabled).toBe(false);
+  });
+
+  it.each(['failure', 'rejection'] as const)(
+    '选择即提交在途不重复，%s 时回退且自定义仅展开',
+    async (failure) => {
+      const f = fixture();
+      let finish!: (ok: boolean) => void;
+      let reject!: (error: Error) => void;
+      const save = vi.fn(
+        () =>
+          new Promise<boolean>((resolve, fail) => {
+            finish = resolve;
+            reject = fail;
+          }),
+      );
+      act(() =>
+        f.root.render(
+          h(QQWriteSelectRow, {
+            label: '状态',
+            initial: 10,
+            disabled: false,
+            autoSave: true,
+            options: [
+              { value: 10, label: '在线' },
+              { value: 20, label: '离开' },
+              { value: 2000, label: '自定义' },
+            ],
+            renderEditor: (value) =>
+              value === 2000 ? h('input', { 'aria-label': '自定义文字' }) : null,
+            onSave: save,
+          }),
+        ),
+      );
+      const select = f.host.querySelector('select')!;
+      const change = (value: string) => {
+        select.value = value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      expect(f.host.querySelector('button')).toBeNull();
+      act(() => change('2000'));
+      expect(f.host.querySelector('[aria-label="自定义文字"]')).not.toBeNull();
+      expect(save).not.toHaveBeenCalled();
+      act(() => {
+        change('20');
+        change('10');
+      });
+      expect(save).toHaveBeenCalledOnce();
+      expect(save).toHaveBeenCalledWith(20);
+      expect(select.disabled).toBe(true);
+      await act(async () => {
+        if (failure === 'failure') finish(false);
+        else reject(new Error('合成失败'));
+      });
+      expect(select.value).toBe('10');
+      expect(select.disabled).toBe(false);
+      act(() => change('20'));
+      await act(async () => finish(true));
+      expect(select.value).toBe('20');
+      expect(save).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('无效输入、未知选项以及外部禁用条件仍阻止提交', () => {
+    const f = fixture();
+    const save = vi.fn(async () => true);
+    act(() =>
+      f.root.render(
+        h(QQWriteTextRow, {
+          label: '昵称',
+          initial: '',
+          allowEmpty: false,
+          disabled: false,
+          onSave: save,
+        }),
+      ),
+    );
+    expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+    act(() =>
+      f.root.render(
+        h(QQWriteSelectRow, {
+          label: '状态',
+          initial: 999,
+          options: [{ value: 10, label: '在线' }],
+          disabled: false,
+          onSave: save,
+        }),
+      ),
+    );
+    expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+    act(() =>
+      f.root.render(
+        h(QQWriteTextRow, { label: '备注', initial: '原备注', disabled: true, onSave: save }),
+      ),
+    );
+    expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+    expect(save).not.toHaveBeenCalled();
   });
 
   it('未读取的值使用明确的清空动作，不要求先联网读旧值', async () => {

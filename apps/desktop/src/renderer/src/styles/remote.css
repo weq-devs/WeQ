@@ -1,0 +1,271 @@
+.weq-set.weq-remote-settings {
+  width: 100%;
+  max-width: 960px;
+  gap: 20px;
+  color: var(--weq-fg-primary);
+}
+.weq-remote-web,
+.weq-remote-web-controls {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+.weq-remote-web .weq-set-row {
+  min-height: 36px;
+}
+.weq-remote-settings > .weq-remote {
+  padding-top: 20px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-remote {
+  color: var(--weq-fg-primary);
+  min-width: 0;
+}
+.weq-remote-band {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-remote-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding-bottom: 20px;
+}
+.weq-remote-modes button,
+.weq-remote-phone-modes button {
+  min-width: 0;
+  min-height: 42px;
+  padding: 6px 4px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  color: var(--weq-fg-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+.weq-remote-modes button[aria-pressed='true'],
+.weq-remote-phone-modes button[aria-pressed='true'] {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  border-color: var(--weq-accent-effective);
+}
+.weq-remote-phone-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  max-width: 100%;
+}
+.weq-remote-phone-choice {
+  margin-bottom: 18px;
+}
+.weq-remote .weq-remote-phone-choice .weq-set-row-ctrl {
+  flex: 1;
+  min-width: 0;
+  max-width: 320px;
+}
+.weq-remote .weq-remote-phone-choice .weq-set-row-main {
+  flex: none;
+}
+.weq-remote-bootstrap select {
+  min-width: 0;
+  max-width: 100%;
+  padding: 8px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+}
+.weq-remote-heading,
+.weq-remote-web-actions,
+.weq-remote-state,
+.weq-remote-request,
+.weq-remote-device {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.weq-remote-web-actions {
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 12px 16px;
+}
+.weq-remote-web-address {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.weq-remote-web-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.weq-remote-web-actions .weq-set-btn {
+  min-height: 34px;
+  justify-content: center;
+  border-color: var(--weq-border-strong);
+  color: var(--weq-fg-primary);
+  background: transparent;
+  text-decoration: none;
+}
+.weq-remote-web-actions .weq-set-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  box-shadow: none;
+}
+.weq-remote-copy-token {
+  min-width: 142px;
+}
+.weq-remote > .weq-remote-band {
+  padding: 0 0 18px;
+}
+.weq-remote > .weq-remote-band:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.weq-remote-heading {
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.weq-remote h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+.weq-remote-heading > span,
+.weq-remote-muted,
+.weq-remote-pair p,
+.weq-remote-device-main > span {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-remote-state {
+  padding: 12px 0;
+}
+.weq-remote-state > svg {
+  color: var(--weq-accent-effective);
+  flex-shrink: 0;
+}
+.weq-remote-state > div {
+  display: grid;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+.weq-remote-state code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  color: var(--weq-fg-secondary);
+}
+.weq-remote-pair {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  align-items: center;
+  gap: 24px;
+}
+.weq-remote-pair img {
+  display: block;
+  width: 240px;
+  height: 240px;
+  max-width: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+}
+.weq-remote-empty {
+  min-height: 104px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--weq-fg-muted);
+  font-size: 13px;
+}
+.weq-remote-request,
+.weq-remote-device {
+  padding: 14px 0;
+  flex-wrap: wrap;
+}
+.weq-remote-device-main {
+  display: grid;
+  gap: 6px;
+  min-width: 100px;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.weq-remote-device-main strong {
+  font-size: 13px;
+}
+.weq-remote-code {
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  color: var(--weq-accent-effective);
+}
+.weq-remote-error {
+  color: var(--destructive);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.weq-remote-bootstrap {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 20px;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+.weq-remote-bootstrap > input {
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+}
+.weq-remote-bootstrap input:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+.weq-remote-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.weq-remote-consent input {
+  accent-color: var(--weq-accent-effective);
+}
+.weq-remote-bootstrap p {
+  margin: 0;
+}
+.weq-remote-bootstrap a {
+  color: var(--weq-accent-effective);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  justify-self: start;
+}
+html[data-theme='dark'] .weq-remote-band {
+  border-color: var(--weq-border-strong);
+}
+html[data-theme='dark'] .weq-remote-settings > .weq-remote {
+  border-top-color: var(--weq-border-strong);
+}
+@media (max-width: 620px) {
+  .weq-remote-web-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .weq-remote-web-address {
+    flex: auto;
+  }
+  .weq-remote-pair {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    gap: 16px;
+  }
+  .weq-remote-pair > div {
+    text-align: center;
+  }
+}

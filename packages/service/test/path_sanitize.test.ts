@@ -43,8 +43,10 @@ describe('sanitizeSegment', () => {
     expect(sanitizeSegment(name, 'fb')).toBe('fb');
   });
 
-  it('保留名带后缀不算保留', () => {
-    expect(sanitizeSegment('con.txt', 'fb')).toBe('con.txt');
+  it('Windows 设备名带扩展名或上标端口仍需回退', () => {
+    for (const name of ['con.txt', 'NUL.json', 'COM1.backup.zip', 'LPT².html', 'COM³.mp3'])
+      expect(sanitizeSegment(name, 'fb')).toBe('fb');
+    expect(sanitizeSegment('console.txt', 'fb')).toBe('console.txt');
   });
 });
 

@@ -23,9 +23,10 @@ export async function exportMedia(
   source: { url: string; name?: string },
   mode: MediaExportMode,
   ownerDocument: Document = document,
+  richClipboard?: { text: string; html: string },
 ): Promise<MediaExportResult> {
   const invoke = window.electron?.ipcRenderer?.invoke;
-  if (!invoke || source.url.startsWith('blob:')) {
+  if (!invoke || source.url.startsWith('blob:') || (mode === 'clipboard' && richClipboard)) {
     if (mode !== 'clipboard') return { ok: false, error: '当前环境不支持另存为' };
     try {
       const clipboard =
@@ -66,7 +67,17 @@ export async function exportMedia(
       })();
       // 剪贴板权限先被拒绝时，取图仍可能稍后失败；避免留下未处理的拒绝。
       void png.catch(() => {});
-      await clipboard.write([new Item({ 'image/png': png })]);
+      await clipboard.write([
+        new Item({
+          'image/png': png,
+          ...(richClipboard
+            ? {
+                'text/plain': new Blob([richClipboard.text], { type: 'text/plain' }),
+                'text/html': new Blob([richClipboard.html], { type: 'text/html' }),
+              }
+            : {}),
+        }),
+      ]);
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : '复制图片失败' };

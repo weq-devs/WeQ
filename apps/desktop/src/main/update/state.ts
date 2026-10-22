@@ -40,6 +40,7 @@ export type UpdateEvent =
   | { kind: 'chosen'; base: string; ranked: string[]; latest: string; hasUpdate: boolean }
   | { kind: 'available'; latest: string }
   | { kind: 'downloaded'; latest: string }
+  | { kind: 'installing' }
   | { kind: 'error'; message: string };
 
 export const updateBus = new EventEmitter();

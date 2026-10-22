@@ -70,10 +70,29 @@ it('收藏与后部页面入口按实际页面高亮，返回消息后清除旧�
       [120, '99+'],
       [0, null],
     ] as const) {
-      act(() => root.render(h(AppRail, { ...props, view: 'messages', messageBadgeCount: count })));
+      act(() =>
+        root.render(
+          h(AppRail, {
+            ...props,
+            view: 'messages',
+            messageBadgeCount: count,
+            mailBadgeCount: count,
+            contactBadgeCount: count,
+          }),
+        ),
+      );
       expect(host.querySelector('.rail-message-entry .rail-badge')?.textContent ?? null).toBe(
         label,
       );
+      expect(host.querySelector('.rail-badge-mail')?.textContent ?? null).toBe(label);
+      if (count > 0) {
+        expect(host.querySelector('.rail-badge-mail')?.getAttribute('aria-label')).toBe(
+          `${count} 封未读邮件`,
+        );
+        expect(host.querySelector('.rail-tab-contacts .rail-badge-dot')?.textContent).toBe('');
+      } else {
+        expect(host.querySelector('.rail-tab-contacts .rail-badge-dot')).toBeNull();
+      }
     }
     act(() =>
       root.render(
@@ -111,6 +130,11 @@ it('收藏与后部页面入口按实际页面高亮，返回消息后清除旧�
       expect(host.querySelectorAll('.rail-tab.active')).toHaveLength(1);
       expect(host.querySelector('.rail-tab-settings')?.getAttribute('aria-current')).toBe('page');
       expect(host.querySelector('.rail-tab-dressup')?.classList.contains('active')).toBe(false);
+    }
+    for (const view of ['messages', 'contacts', 'qzone', 'channel', 'mail', 'tools'] as const) {
+      act(() => root.render(h(AppRail, { ...props, view })));
+      expect(host.querySelector(`.rail-tab-${view}`)?.getAttribute('aria-current')).toBe('page');
+      expect(host.querySelectorAll('.rail-tab[aria-current="page"]')).toHaveLength(1);
     }
   } finally {
     act(() => root.unmount());

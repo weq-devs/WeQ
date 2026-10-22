@@ -1,0 +1,115 @@
+html[data-theme] .weq-modal.weq-qr-modal {
+  display: flex;
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+}
+
+.weq-qr-modal .weq-qr-dialog {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}
+
+.weq-qr-modal .weq-qr-dialog-head {
+  flex-shrink: 0;
+  border-color: var(--weq-border-subtle);
+}
+
+.weq-qr-modal .weq-qr-dialog-head > div {
+  min-width: 0;
+}
+
+.weq-qr-label,
+.weq-qr-spinner {
+  color: var(--weq-accent-ink);
+}
+
+.weq-qr-modal .weq-qr-dialog-body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.weq-qr-modal .weq-qr-frame {
+  flex-shrink: 0;
+  border-color: var(--weq-border-strong);
+  /* 二维码图像自带白色静区，加载与错误状态的外框仍跟随主题。 */
+  background: var(--weq-bg-elevated);
+}
+
+.weq-qr-modal .weq-qr-profile {
+  min-width: 0;
+  border-color: var(--weq-border-subtle);
+}
+
+.weq-qr-modal .weq-qr-profile.is-anonymous {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.weq-qr-modal .weq-qr-profile-top {
+  display: block;
+}
+
+.weq-qr-modal .weq-qr-name {
+  color: var(--weq-fg-primary);
+}
+
+.weq-qr-modal .weq-qr-status {
+  max-height: min(30dvh, 180px);
+  margin-top: 6px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-qr-modal .weq-qr-identity,
+.weq-qr-modal .weq-qr-identity .weq-number {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-qr-modal .weq-qr-identity span:last-child {
+  border-color: var(--weq-border-subtle);
+}
+
+.weq-qr-close {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  cursor: pointer;
+}
+
+.weq-qr-close:focus-visible {
+  outline: 2px solid var(--weq-accent-ink);
+  outline-offset: 2px;
+}
+
+.weq-qr-render-error {
+  max-width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  color: var(--weq-list-alert-ink);
+  font-size: 12px;
+}
+
+html[data-theme='dark'] .weq-qr-modal .weq-qr-dialog {
+  background: var(--weq-bg-elevated);
+  border-color: var(--weq-border-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html .weq-qr-modal .weq-qr-spinner {
+    animation: none;
+  }
+}

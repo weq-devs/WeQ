@@ -19,23 +19,53 @@
   z-index: 1;
   top: 5px;
   right: 3px;
-  width: auto;
+}
+
+html .app-shell .rail-nav :is(.rail-message-badge, .rail-badge-mail),
+html .app-shell .conversation-row .row-unread {
+  box-sizing: border-box;
+  display: inline-grid;
+  place-items: center;
+  width: max-content;
   min-width: 18px;
   height: 18px;
-  padding: 0 5px;
+  padding: 0 4px;
   grid-template-rows: 1fr;
   gap: 0;
-  border: 0;
+  border: 1px solid var(--weq-rail-badge-border);
   border-radius: 999px;
-  background: var(--destructive);
-  color: var(--destructive-foreground);
+  background: var(--weq-rail-badge-background);
+  color: var(--weq-rail-badge-foreground);
+  font-family: inherit;
   font-size: 11px;
+  font-weight: 600;
   line-height: 1;
+  letter-spacing: 0;
   font-variant-numeric: tabular-nums;
 }
 
+html .app-shell .conversation-row .row-unread.muted {
+  background: var(--weq-unread-muted-background);
+  color: var(--weq-fg-primary);
+}
+
+html .app-shell .conversation-row .row-unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--weq-fg-muted);
+}
+
+html .app-shell .rail-nav .rail-badge-dot {
+  min-width: 9px;
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  border: 0;
+}
+
 .app-shell .rail-nav .rail-message-entry > .rail-message-badge:focus-visible {
-  outline: 2px solid var(--ring);
+  outline: 2px solid var(--weq-accent-ink, var(--weq-fg-primary));
   outline-offset: 2px;
 }
 
@@ -44,6 +74,16 @@
   max-height: 100%;
   overflow-y: auto;
   scrollbar-width: thin;
+}
+
+.app-shell .rail-nav .rail-tab[aria-current='page'] {
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.app-shell .rail-tab-messages[aria-current='page'] .rail-tab-icon::before,
+.app-shell .rail-tab-messages[aria-current='page'] .rail-tab-icon::after {
+  background: var(--weq-bg-surface);
 }
 
 @media (max-width: 760px) {
@@ -61,6 +101,11 @@
     right: calc(50% - 24px);
   }
 
+  html .app-shell .rail-nav .rail-badge-dot {
+    top: 2px;
+    right: calc(50% - 20px);
+  }
+
   .app-shell .rail-groups {
     overflow-x: auto;
     overflow-y: hidden;
@@ -73,7 +118,7 @@
     gap: 0;
   }
 
-  .app-shell .rail-nav button,
+  .app-shell .rail-nav button:not(.rail-message-badge),
   .app-shell .rail-nav button.rail-tab-messages,
   .app-shell .rail-nav button.rail-tab-contacts {
     width: 100%;

@@ -12,8 +12,8 @@
  * 不用为每种颜色单独写样式。
  */
 
-/** WeQ 默认主色（与设置页 DEFAULT_ACCENT 一致）。 */
-export const DEFAULT_ACCENT = '#0099ff';
+import { DEFAULT_ACCENT, accentColors, mix, normalizeHex } from '../../shared/theme_colors';
+export { DEFAULT_ACCENT, mix } from '../../shared/theme_colors';
 
 export type WeqThemeMode = 'light' | 'dark';
 
@@ -49,42 +49,10 @@ interface Rgb {
   b: number;
 }
 
-/** `#rgb` / `#rrggbb` → 规范化 `#rrggbb`；非法返回 null。 */
-function normalizeHex(input: string | undefined | null): string | null {
-  if (!input) return null;
-  let h = input.trim().replace(/^#/, '');
-  if (/^[0-9a-fA-F]{3}$/.test(h))
-    h = h
-      .split('')
-      .map((c) => c + c)
-      .join('');
-  if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
-  return `#${h.toLowerCase()}`;
-}
-
 function hexToRgb(hex: string): Rgb {
   const h = normalizeHex(hex) ?? DEFAULT_ACCENT;
   const n = parseInt(h.slice(1), 16);
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
-}
-
-function rgbToHex({ r, g, b }: Rgb): string {
-  const clamp = (v: number): string =>
-    Math.max(0, Math.min(255, Math.round(v)))
-      .toString(16)
-      .padStart(2, '0');
-  return `#${clamp(r)}${clamp(g)}${clamp(b)}`;
-}
-
-/** 线性插值混色：t=0 → a，t=1 → b。 */
-export function mix(a: string, b: string, t: number): string {
-  const A = hexToRgb(a);
-  const B = hexToRgb(b);
-  return rgbToHex({
-    r: A.r + (B.r - A.r) * t,
-    g: A.g + (B.g - A.g) * t,
-    b: A.b + (B.b - A.b) * t,
-  });
 }
 
 /** hex + alpha → `rgba(...)`。 */
@@ -134,6 +102,7 @@ export interface WeqPalette {
 
 export function buildPalette(theme: WeqTheme): WeqPalette {
   const accent = normalizeHex(theme.accent) ?? DEFAULT_ACCENT;
+  const { ink } = accentColors(accent, theme.mode);
   const accent2 = mix(accent, '#8b5cf6', 0.55); // 主色 → 紫罗兰，双色对角光晕
   if (theme.mode === 'dark') {
     return {
@@ -149,11 +118,11 @@ export function buildPalette(theme: WeqTheme): WeqPalette {
       body: 'rgba(255, 255, 255, 0.82)',
       sub: 'rgba(255, 255, 255, 0.66)',
       tagBg: rgba(accent, 0.24),
-      tagInk: mix(accent, '#ffffff', 0.5),
+      tagInk: ink,
       pillBg: 'rgba(255, 255, 255, 0.08)',
       pillBorder: 'rgba(255, 255, 255, 0.14)',
       pillInk: 'rgba(255, 255, 255, 0.85)',
-      accentInk: mix(accent, '#ffffff', 0.35),
+      accentInk: ink,
       chipBg: 'rgba(255, 255, 255, 0.10)',
       chipShadow: 'rgba(0, 0, 0, 0.45)',
       watermark: 0.1,
@@ -172,11 +141,11 @@ export function buildPalette(theme: WeqTheme): WeqPalette {
     body: '#3f4d63',
     sub: '#5b6b86',
     tagBg: rgba(accent, 0.12),
-    tagInk: mix(accent, '#000000', 0.22),
+    tagInk: ink,
     pillBg: rgba(accent, 0.1),
     pillBorder: rgba(accent, 0.2),
-    pillInk: mix(accent, '#000000', 0.15),
-    accentInk: mix(accent, '#000000', 0.12),
+    pillInk: ink,
+    accentInk: ink,
     chipBg: '#ffffff',
     chipShadow: 'rgba(15, 23, 42, 0.28)',
     watermark: 0.09,

@@ -79,6 +79,184 @@ describe('IntentSenseService', () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([
+    { name: '没有消息', messages: [] },
+    { name: '只有自己的消息', messages: [textMsg(1n, 'u_self', '自己发出的消息', 1000)] },
+    { name: '对方只有空白文本', messages: [textMsg(1n, 'u_peer', ' \n\t ', 1000)] },
+    {
+      name: '对方只有不可分析元素',
+      messages: [{ ...textMsg(1n, 'u_peer', '', 1000), elements: [] }],
+    },
+  ])('$name 时不生成画像，也不调用模型', async ({ messages }) => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const inferMbti = vi.fn(async () => null);
+    const svc = new IntentSenseService(makeSession(messages), dir, {
+      localEngine: { ...makeLocalPort(async () => null), inferMbti },
+      resolveEndpoint: () => ({
+        baseUrl: 'https://synthetic.invalid',
+        apiKey: 'synthetic',
+        model: 'synthetic',
+      }),
+    });
+    for (const profileEngine of ['heuristic', 'local', 'api', 'follow'] as const) {
+      await svc.setConfig({
+        enabled: true,
+        engine: 'api',
+        providerRef: { providerId: 'synthetic', model: 'synthetic' },
+        profileEnabled: true,
+        profileEngine,
+        profileProviderRef: { providerId: 'synthetic', model: 'synthetic' },
+        profileMinSamples: 1,
+      });
+      expect(await svc.getProfile('u_peer')).toBeNull();
+    }
+    expect(inferMbti).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('当前消息已为空时，旧分析缓存不能凭空生成画像；新对方消息出现后恢复计算', async () => {
+    const messages = [textMsg(1n, 'u_peer', '之前的对方消息', 1000)];
+    const svc = new IntentSenseService(makeSession(messages), dir, {
+      localEngine: makeLocalPort(async () => ({
+        intent: 'chat',
+        emotion: 'neutral',
+        intensity: 20,
+        sentiment: 0,
+        confidence: 0.9,
+      })),
+    });
+    await svc.setConfig({ enabled: true, engine: 'local', profileEngine: 'heuristic' });
+    await svc.ensureAnalysis('c2c', 'u_peer');
+    expect(await svc.getProfile('u_peer')).toMatchObject({ sampled: 1, analyzedSamples: 1 });
+    messages.length = 0;
+    expect(await svc.getProfile('u_peer')).toBeNull();
+    messages.push(textMsg(2n, 'u_self', '自己的新消息', 1020));
+    expect(await svc.getProfile('u_peer')).toBeNull();
+    messages.push(textMsg(3n, 'u_peer', '新的对方消息', 1040));
+    expect(await svc.getProfile('u_peer')).toMatchObject({ sampled: 2, analyzedSamples: 0 });
+  });
+
+  it('读取失败保留错误，不将数据库错误冒充暂无消息', async () => {
+    const session = makeSession([]);
+    vi.mocked(session.c2cMsgs.listLatest).mockRejectedValue(new Error('合成数据库读取失败'));
+    const svc = new IntentSenseService(session, dir);
+    await expect(svc.getProfile('u_peer')).rejects.toThrow('合成数据库读取失败');
+  });
+
+  it.each(['analysis', 'profile', 'suggestions'] as const)(
+    '%s 真实 API 路径温度被拒后去参回退，不改设置且两次尝试独立记账',
+    async (feature) => {
+      const usage = new TokenUsageStore(join(dir, 'usage.json'));
+      const response =
+        feature === 'analysis'
+          ? {
+              results: [
+                {
+                  i: 0,
+                  intent: 'chat',
+                  emotion: 'neutral',
+                  intensity: 20,
+                  sentiment: 0,
+                  confidence: 0.9,
+                },
+              ],
+            }
+          : feature === 'profile'
+            ? {
+                mbti: ['EI', 'SN', 'TF', 'JP'].map((key) => ({ key, leftPct: 60 })),
+                topics: ['合成话题'],
+              }
+            : { replies: [{ text: '合成回退建议', tone: '简短' }] };
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            '{"error":{"param":"temperature","code":"unsupported_parameter","message":"Unsupported parameter: temperature"},"usage":{"total_tokens":1}}',
+            { status: 400 },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: JSON.stringify(response) } }],
+              usage: { total_tokens: 5 },
+            }),
+          ),
+        );
+      vi.stubGlobal('fetch', fetch);
+      const svc = new IntentSenseService(
+        makeSession([textMsg(1n, 'u_peer', '合成消息', 1000)]),
+        dir,
+        {
+          resolveEndpoint: () => ({
+            baseUrl: 'https://synthetic.invalid',
+            apiKey: 'synthetic-key',
+            model: 'synthetic-model',
+            onUsage: (entry) =>
+              usage.record({ ...entry, ts: entry.startedAt!, scope: entry.feature! }),
+          }),
+        },
+      );
+      const ref = { providerId: 'synthetic-provider', model: 'synthetic-model' };
+      await svc.setConfig({
+        enabled: true,
+        engine: 'api',
+        providerRef: ref,
+        suggestionsEnabled: true,
+        suggestionProviderRef: ref,
+        profileEnabled: true,
+        profileEngine: 'api',
+        profileProviderRef: ref,
+        profileMinSamples: 1,
+        analysisTemperature: 0.1,
+        profileTemperature: 0.2,
+        suggestionTemperature: 0.3,
+      });
+      if (feature === 'analysis') {
+        await svc.ensureAnalysis('c2c', 'u_peer');
+        expect(svc.listMessageAnalyses('c2c', 'u_peer')).toHaveLength(1);
+        await svc.ensureAnalysis('c2c', 'u_peer');
+      } else if (feature === 'profile') {
+        expect(await svc.getProfile('u_peer')).toMatchObject({
+          engine: 'api',
+          topics: [{ topic: '合成话题' }],
+        });
+      } else {
+        expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([
+          { text: '合成回退建议', tone: '简短' },
+        ]);
+        await svc.getSuggestions('c2c', 'u_peer');
+      }
+      expect(fetch).toHaveBeenCalledTimes(2);
+      const first = JSON.parse(String((fetch.mock.calls[0]![1] as RequestInit).body));
+      const retry = JSON.parse(String((fetch.mock.calls[1]![1] as RequestInit).body));
+      const { temperature: _temperature, ...expected } = first;
+      expect(first.temperature).toBe(
+        feature === 'analysis' ? 0.1 : feature === 'profile' ? 0.2 : 0.3,
+      );
+      expect(retry).toEqual(expected);
+      expect(svc.getStatus()).toMatchObject({
+        analysisTemperature: 0.1,
+        profileTemperature: 0.2,
+        suggestionTemperature: 0.3,
+      });
+      expect(usage.getStats()).toMatchObject({
+        totalCalls: 2,
+        failedCalls: 1,
+        totalTokens: 6,
+        pendingCalls: 0,
+      });
+      expect(usage.getStats().byFeature[0]?.feature).toBe(
+        feature === 'analysis'
+          ? 'intent-analysis'
+          : feature === 'profile'
+            ? 'intent-profile'
+            : 'reply-suggestion',
+      );
+    },
+  );
+
   it.each(['api', 'local'] as const)(
     '真实 %s 分析路径仅记录实际 API 请求，缓存和本地引擎不混入 Token',
     async (engine) => {

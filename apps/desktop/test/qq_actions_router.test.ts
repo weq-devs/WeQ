@@ -72,6 +72,7 @@ function fixture() {
     },
     groupAlbumMedia: { deleteMedia: empty(), setLike: empty(), comment: empty() },
     webQuery: {
+      getQzoneFriendPermissionList: vi.fn(async (_kind: 'blocked' | 'hidden') => []),
       getDaySignedList: vi.fn(async () => []),
       uploadQzoneImage: vi.fn(async () => ({ richval: 'uploaded-richval' })),
       getGroupNotice: vi.fn(async () => []),
@@ -170,24 +171,26 @@ function fixture() {
       throw new Error('账号已切换');
     return s as unknown as QQActionServices;
   };
-  const resolveShare = vi.fn(async () => ({
-    groupCode: '888',
-    authKey: 'synthetic-share-key',
-    uin: '10001',
-    token: 'opaque-share-data',
-    svctype: '5',
-    tempid: 'h5_group_info',
-  }));
+  const actions = createQQActionsRouter(resolve);
   return {
     s,
     record,
-    caller: createQQActionsRouter(resolve, resolveShare).createCaller({}),
-    resolveShare,
+    caller: actions.createCaller({}),
+    router: actions,
     switchAccount: () => {
       active = false;
     },
   };
 }
+
+describe('空间权限独立查询入口', () => {
+  it.each(['blocked', 'hidden'] as const)('只读取指定的 %s 名单', async (kind) => {
+    const f = fixture();
+    expect(await f.caller.qzoneFriendPermissionList({ ...binding, kind })).toEqual([]);
+    expect(f.s.webQuery.getQzoneFriendPermissionList).toHaveBeenCalledOnce();
+    expect(f.s.webQuery.getQzoneFriendPermissionList).toHaveBeenCalledWith(kind);
+  });
+});
 
 describe('收藏包导入路由', () => {
   it('本地群待办不要求在线写入能力，转换大序号并拒绝切号后的迟到结果', async () => {
@@ -206,7 +209,7 @@ describe('收藏包导入路由', () => {
       throw new Error('离线');
     });
     const local = () => f.s as unknown as QQActionServices;
-    const caller = createQQActionsRouter(online, undefined, local).createCaller({});
+    const caller = createQQActionsRouter(online, local).createCaller({});
     await expect(caller.todoLocalList(group)).resolves.toEqual([
       {
         sequence: '18446744073709551615',
@@ -264,7 +267,6 @@ describe('收藏包导入路由', () => {
       });
       const offline = createQQActionsRouter(
         offlineResolve,
-        undefined,
         () => f.s as unknown as QQActionServices,
       ).createCaller({});
       expect((await offline.favoriteImportState(binding))?.token).toBe(view.token);
@@ -545,73 +547,12 @@ describe('主动操作的账号与参数边界', () => {
     );
     expect(f.s.groupFile.deleteFile).toHaveBeenCalledTimes(1);
   });
-  it('通用加群不向界面泄露鉴权串，必须按读到的目标提交回答', async () => {
+  it('通用分享链接加群接口已移除，群设置和申请审批继续保留', () => {
     const f = fixture();
-    const target = await f.caller.prepareJoin({
-      ...binding,
-      share: 'https://qm.qq.com/q/synthetic',
-    });
-    expect(target.groupId).toBe(888);
-    expect(target.question).toBe('为什么加入');
-    expect(JSON.stringify(target)).not.toContain('synthetic-share-key');
-    await expect(
-      f.caller.join({ ...binding, groupId: 888, token: target.token, answer: '' }),
-    ).rejects.toThrow('回答');
-    await expect(
-      f.caller.join({ ...binding, groupId: 889, token: target.token, answer: '回答' }),
-    ).rejects.toThrow('目标');
-    await expect(
-      f.caller.join({ ...binding, groupId: 888, token: target.token, answer: '我的回答' }),
-    ).resolves.toEqual({ state: 'unconfirmed' });
-    expect(f.s.interaction.submitGroupJoinRequest).toHaveBeenCalledWith({
-      groupCode: 888,
-      authKey: 'synthetic-share-key',
-      answer: '我的回答',
-    });
-    await expect(
-      f.caller.join({ ...binding, groupId: 888, token: target.token, answer: '重复提交' }),
-    ).rejects.toThrow('过期');
-  });
-  it('拒绝非 QQ 链接、过期目标以及分享目标漂移', async () => {
-    const f = fixture();
-    await expect(
-      f.caller.prepareJoin({ ...binding, share: 'https://127.0.0.1/private' }),
-    ).rejects.toThrow('分享链接');
-    expect(f.resolveShare).not.toHaveBeenCalled();
-    const target = await f.caller.prepareJoin({
-      ...binding,
-      share: 'https://qm.qq.com/q/synthetic',
-    });
-    f.resolveShare.mockResolvedValueOnce({
-      groupCode: '999',
-      authKey: 'synthetic',
-      uin: '10001',
-      token: '',
-      svctype: '5',
-      tempid: 'h5_group_info',
-    });
-    await expect(
-      f.caller.join({ ...binding, groupId: 888, token: target.token, answer: '回答' }),
-    ).rejects.toThrow('变化');
-    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 121000);
-    try {
-      await expect(
-        f.caller.join({ ...binding, groupId: 888, token: target.token, answer: '回答' }),
-      ).rejects.toThrow('过期');
-    } finally {
-      now.mockRestore();
-    }
-    expect(f.s.interaction.submitGroupJoinRequest).not.toHaveBeenCalled();
-  });
-  it('问题读取失败保留 unavailable，不伪造无需回答', async () => {
-    const f = fixture();
-    f.s.groupInfo.getJoinInfo.mockRejectedValueOnce(new Error('拒绝读取'));
-    const target = await f.caller.prepareJoin({
-      ...binding,
-      share: 'https://qm.qq.com/q/synthetic',
-    });
-    expect(target.questionState).toBe('unavailable');
-    expect(target.question).toBeNull();
+    expect(f.router._def.procedures).not.toHaveProperty('prepareJoin');
+    expect(f.router._def.procedures).not.toHaveProperty('join');
+    expect(f.router._def.procedures).toHaveProperty('groupSettings');
+    expect(f.router._def.procedures).toHaveProperty('request');
   });
   it('文件上传固定当前目录，发布结果不明时不报已受理', async () => {
     const f = fixture();

@@ -8,7 +8,7 @@ body:
       value: |
         感谢反馈！发起前请确认：
 
-        - 已完整阅读 [H3CoF6/WeQ](https://github.com/H3CoF6/WeQ) 的全部 issue，确认没有重复
+        - 已完整阅读 [weq-devs/WeQ](https://github.com/weq-devs/WeQ) 的全部 issue，确认没有重复
         - 使用的是最新版本，或最新代码的构建（`pnpm dev`）
         - 已准备好当天的日志；UI 问题附截图；密钥问题附数据库头部 hexdump（可在「设置 → 帮助 → 反馈 bug」里一键生成）
 

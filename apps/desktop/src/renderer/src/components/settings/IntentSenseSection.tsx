@@ -25,6 +25,8 @@ interface StatusWire {
   lastSuggestionApiError?: string | null;
   suggestionsEnabled: boolean;
   analyzeAfterSelf: boolean;
+  persistentDisplay: boolean;
+  hoverDisplay: boolean;
   suggestAfterSelf: boolean;
   analysisContextMessages: number;
   suggestionContextMessages: number;
@@ -197,6 +199,33 @@ export function IntentSenseSection({
       {modelControls}
       <details className="weq-model-advanced">
         <summary>高级设置</summary>
+        {!suggestionsPage ? (
+          <Card title="显示方式">
+            <Row
+              label="常驻显示"
+              control={
+                <Toggle
+                  label="常驻显示"
+                  checked={s?.persistentDisplay !== false}
+                  disabled={status.isLoading || setConfig.isLoading}
+                  onChange={(persistentDisplay) => void patch({ persistentDisplay })}
+                />
+              }
+            />
+            <Row
+              label="悬停显示"
+              control={
+                <Toggle
+                  label="悬停显示"
+                  checked={s?.hoverDisplay !== false}
+                  disabled={status.isLoading || setConfig.isLoading}
+                  onChange={(hoverDisplay) => void patch({ hoverDisplay })}
+                />
+              }
+            />
+          </Card>
+        ) : null}
+
         <Card title="触发与缓存">
           {suggestionsPage ? (
             <Row

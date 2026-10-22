@@ -12,11 +12,17 @@ it('自己的 id／UIN／UID 都属于可分析消息，但都不是回复推荐
   for (const senderId of self)
     expect(
       intentTimelineTargets([peer, { id: 'own', senderId, body: '自己正文' }], self, system),
-    ).toEqual({ latestMessageId: 'own', latestPeerMsgId: null, latestSuggestionId: 'own' });
+    ).toEqual({
+      latestMessageId: 'own',
+      latestPeerMsgId: null,
+      latestSuggestionId: 'own',
+      latestSelfMessageIds: ['own'],
+    });
   expect(intentTimelineTargets([peer], self, system)).toEqual({
     latestMessageId: 'peer',
     latestPeerMsgId: 'peer',
     latestSuggestionId: 'peer',
+    latestSelfMessageIds: [],
   });
 });
 
@@ -31,6 +37,7 @@ it('灰条、撤回和删除不覆盖目标；自己的媒体与发送占位会�
       latestMessageId: 'own',
       latestPeerMsgId: null,
       latestSuggestionId: 'own',
+      latestSelfMessageIds: ['own'],
     });
   }
   for (const optimistic of ['sending', 'sent', 'failed'])
@@ -38,6 +45,7 @@ it('灰条、撤回和删除不覆盖目标；自己的媒体与发送占位会�
       latestMessageId: 'peer',
       latestPeerMsgId: null,
       latestSuggestionId: null,
+      latestSelfMessageIds: [],
     });
   expect(
     intentTimelineTargets(
@@ -45,12 +53,41 @@ it('灰条、撤回和删除不覆盖目标；自己的媒体与发送占位会�
       self,
       system,
     ),
-  ).toEqual({ latestMessageId: 'peer', latestPeerMsgId: null, latestSuggestionId: 'own' });
+  ).toEqual({
+    latestMessageId: 'peer',
+    latestPeerMsgId: null,
+    latestSuggestionId: 'own',
+    latestSelfMessageIds: [],
+  });
   expect(intentTimelineTargets([own, { ...peer, id: 'new-peer' }], self, system)).toEqual({
     latestMessageId: 'new-peer',
     latestPeerMsgId: 'new-peer',
     latestSuggestionId: 'new-peer',
+    latestSelfMessageIds: [],
   });
+});
+
+it('末尾连续自己的有效文本都保留胶囊目标，对方消息结束这一轮', () => {
+  const own = (id: string) => ({ id, senderId: 'u_self', body: '自己的正文' });
+  const messages = [
+    own('older-own'),
+    peer,
+    own('own-1'),
+    { ...own('media'), qqElements: [{ type: 'pic', data: {} }] },
+    { ...peer, id: 'system' },
+    { ...peer, id: 'recalled', recalled: true },
+    own('own-2'),
+    { ...own('pending'), optimistic: 'sending' },
+  ];
+  expect(intentTimelineTargets(messages, self, system).latestSelfMessageIds).toEqual([
+    'own-2',
+    'own-1',
+  ]);
+  expect(
+    intentTimelineTargets([...messages, { ...peer, id: 'new-peer' }], self, system)
+      .latestSelfMessageIds,
+  ).toEqual([]);
+  expect(intentTimelineTargets(messages, new Set(), system).latestSelfMessageIds).toEqual([]);
 });
 
 it('只认正文文本和表情说明，不把引用、提及或媒体预览当成可分析文本', () => {

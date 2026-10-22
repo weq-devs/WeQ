@@ -10,6 +10,8 @@ import {
   useCurrentContentSelection,
 } from '../src/renderer/src/state/contentSelection';
 
+vi.mock('../src/renderer/src/trpc/client', () => ({ client: {}, trpc: {} }));
+
 afterEach(() => vi.unstubAllGlobals());
 
 it.each([

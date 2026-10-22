@@ -76,31 +76,6 @@
   background: radial-gradient(circle at 30% 18%, rgba(0, 153, 247, 0.08), transparent 34%), #f2f2f2;
 }
 
-.auth-card,
-.invite-card {
-  display: grid;
-  width: min(430px, 100%);
-  gap: 16px;
-  padding: 30px;
-  border: 1px solid var(--im-color-line, #dedede);
-  border-radius: 8px;
-  background: var(--card, #ffffff);
-  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.11);
-}
-
-.auth-card h1,
-.invite-card h1 {
-  margin: 0;
-  font-size: 34px;
-  line-height: 1.1;
-}
-
-.auth-card p,
-.invite-card p {
-  margin: 0;
-  color: var(--weq-fg-secondary, #666666);
-}
-
 .brand-mark {
   display: inline-grid;
   width: 48px;
@@ -116,37 +91,10 @@
   height: 48px;
 }
 
-.auth-switch {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--weq-bg-surface, #f2f2f2) 80%, var(--weq-bg-app, #f2f2f2));
-}
-
-.auth-switch button {
-  height: 36px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  cursor: pointer;
-}
-
 .auth-switch button.active {
   background: var(--card, #ffffff);
   color: var(--weq-accent-effective, #0099f7);
   font-weight: 600;
-}
-
-.invite-card {
-  justify-items: start;
-}
-
-.invite-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 
 .splash {
@@ -197,10 +145,6 @@ html[data-theme='dark'] .unread-dock-button:focus-visible {
   box-shadow:
     0 6px 22px rgba(0, 0, 0, 0.48),
     0 0 0 1px color-mix(in srgb, var(--dock-tone, #4db3ff) 52%, transparent);
-}
-
-html[data-theme='dark'] .notice-header {
-  background: #101112;
 }
 
 html[data-theme='dark'] .app-rail {
@@ -389,8 +333,8 @@ html[data-theme='dark'] .loading-spinner {
 
 html[data-theme='dark'] .conversation-row.active,
 html[data-theme='dark'] .contact-row.active {
-  background: #0877d8;
-  color: #ffffff;
+  background: var(--weq-list-selected-background);
+  color: var(--weq-fg-primary);
 }
 
 html[data-theme='dark'] .contact-tools > button + button {
@@ -657,20 +601,6 @@ html[data-theme='dark'] .group-info-panel {
   box-shadow: -18px 0 42px rgba(0, 0, 0, 0.26);
 }
 
-html[data-theme='dark'] .group-announcement-content {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--weq-accent-effective) 14%, var(--weq-bg-surface)),
-    color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-elevated))
-  );
-  border-color: color-mix(in srgb, var(--weq-accent-effective) 24%, rgba(255, 255, 255, 0.08));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-}
-
-html[data-theme='dark'] .group-announcement-content p {
-  color: var(--weq-fg-primary);
-}
-
 html[data-theme='dark'] .group-announcement-content.is-empty {
   background: color-mix(in srgb, var(--weq-bg-surface) 72%, transparent);
 }
@@ -740,11 +670,6 @@ html[data-theme='dark'] .create-group-check {
 html[data-theme='dark'] .create-group-contact.active .create-group-check {
   border-color: #149dff;
   background: #149dff;
-}
-
-html[data-theme='dark'] .group-member-row small {
-  background: rgba(20, 157, 255, 0.16);
-  color: #42b4ff;
 }
 
 html[data-theme='dark'] .app-modal {
@@ -874,26 +799,16 @@ html[data-theme='dark'] .contact-row:hover {
 
 html[data-theme='dark'] .contact-row.active,
 html[data-theme='dark'] .contact-row.active:hover {
-  background: #272829;
-  color: #eef0f3;
+  background: var(--weq-list-selected-background);
+  color: var(--weq-fg-primary);
 }
 
 html[data-theme='dark'] .contact-row.active .row-main span {
-  color: #a0a3a9;
+  color: var(--weq-fg-secondary);
 }
 
 html[data-theme='dark'] .contact-row.active .row-meta {
-  color: #a0a3a9;
-}
-
-html[data-theme='dark'] .contact-profile-fields,
-html[data-theme='dark'] .contact-profile-row {
-  border-color: #2c2d2f;
-}
-
-html[data-theme='dark'] .contact-profile-head span,
-html[data-theme='dark'] .contact-profile-row strong {
-  color: #a2a5ab;
+  color: var(--weq-fg-secondary);
 }
 
 html[data-theme='dark'] .contact-profile-actions .secondary-button {
@@ -982,28 +897,6 @@ html[data-theme='dark'] .group-edit-actions .primary-button {
   border-color: #0877d8;
   background: #0877d8;
   color: #ffffff;
-}
-
-html[data-theme='dark'] .group-invite-button:hover {
-  background: #2b2c2e;
-  color: #f1f3f5;
-}
-
-html[data-theme='dark'] .invite-qr-modal {
-  border-color: #343537;
-  background: #272829;
-  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.4);
-}
-
-html[data-theme='dark'] .invite-qr-profile span,
-html[data-theme='dark'] .invite-qr-modal p,
-html[data-theme='dark'] .invite-qr-domain,
-html[data-theme='dark'] .invite-qr-code > span:not(.invite-qr-logo) {
-  color: #9b9ea3;
-}
-
-html[data-theme='dark'] .invite-qr-logo {
-  border-color: #ffffff;
 }
 
 html[data-theme='dark'] .group-invite-dialog {
@@ -1173,10 +1066,6 @@ html[data-theme='dark'] .mobile-settings-search-input::placeholder {
 html[data-theme='dark'] .mobile-detail-header,
 html[data-theme='dark'] .mobile-settings-header {
   background: #191a1c;
-}
-
-html[data-theme='dark'] .mobile-settings-search-input {
-  color: #eef0f3;
 }
 
 @media (max-width: 760px) {

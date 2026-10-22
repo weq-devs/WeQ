@@ -23,6 +23,13 @@ files:
   # 所以整包从 asar 里剔掉。
   - "!node_modules/onnxruntime-node/**"
 extraResources:
+  - from: ../web/dist/public
+    to: remote-web
+  - from: ../../tools/remote-network
+    to: remote-network
+    filter:
+      - weq-remote-network
+      - weq-remote-network.exe
   # Shared static assets (brand/logo, …). Copied whole so the main process can
   # read them at runtime via process.resourcesPath/resources. QQ emoji are NOT
   # bundled — they stream from the account's QQ NT dir at runtime.
@@ -221,6 +228,6 @@ mac:
 # releaseType: release => the Release is published (not a draft) and marked latest.
 publish:
   provider: github
-  owner: H3CoF6
+  owner: weq-devs
   repo: WeQ
   releaseType: release

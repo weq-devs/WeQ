@@ -149,12 +149,12 @@ export function AvatarContextMenu({
       {showChangeCard && onChangeCard ? (
         <button
           type="button"
-          title={moderationBlockedReason ?? '修改群名片'}
+          title={moderationBlockedReason ?? '修改群昵称'}
           disabled={moderationDisabled}
           onClick={() => onChangeCard(state.sender)}
         >
           <Pencil size={17} />
-          <span>修改群名片</span>
+          <span>修改群昵称</span>
         </button>
       ) : null}
       {showChangeTitle && onChangeTitle ? (

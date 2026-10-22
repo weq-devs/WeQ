@@ -32,7 +32,7 @@ import {
   GroupCallEndedMessage,
   GROUP_CALL_ENDED_SUBTYPES,
 } from '../../components/GroupCallEndedMessage';
-import { QqDynamic } from '../../components/QqDynamic';
+import { QqDynamic, qqDynamicElementProps } from '../../components/QqDynamic';
 import { MessageProvenance } from '../../components/MessageProvenance';
 import type { ReactionRemoval } from '../../components/SetEmojiReactions';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
@@ -154,12 +154,7 @@ export function GrayTipLine({
       const d = (gt.el.data ?? {}) as Record<string, unknown>;
       return (
         <div className="flex justify-center py-1">
-          <QqDynamic
-            desc={d.dynamicDesc as { mainDesc?: string; subDesc?: string } | undefined}
-            desc2={d.dynamicDesc2 as { mainDesc?: string; subDesc?: string } | undefined}
-            coverUrl={d.dynamicCoverUrl as string | undefined}
-            zoneLogoUrl={d.dynamicZoneLogoUrl as string | undefined}
-          />
+          <QqDynamic {...qqDynamicElementProps(d)} />
         </div>
       );
     }

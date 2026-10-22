@@ -41,3 +41,13 @@ it('建议查询兼容旧客户端，缓存版本不覆盖服务端实际配置'
     caller.getSuggestions({ kind: 'group', conv: '123', revision: -1 }),
   ).rejects.toThrow();
 });
+
+it('显示开关按独立布尔值传给服务，拒绝字符串', async () => {
+  const caller = intentSenseRouter.createCaller({});
+  await caller.setConfig({ persistentDisplay: false, hoverDisplay: true });
+  expect(service.setConfig).toHaveBeenLastCalledWith({
+    persistentDisplay: false,
+    hoverDisplay: true,
+  });
+  await expect(caller.setConfig({ persistentDisplay: 'false' } as never)).rejects.toThrow();
+});

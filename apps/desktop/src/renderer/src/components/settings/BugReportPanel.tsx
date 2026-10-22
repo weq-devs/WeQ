@@ -43,7 +43,7 @@ import bugBannerDark from '@resources/brand/bug_banner_2.png';
 const REMARK_PLUGINS = [remarkGfm];
 const PLUGINS = { code: shikiCodeHighlighter };
 
-const REPO = 'H3CoF6/WeQ';
+const REPO = 'weq-devs/WeQ';
 const REPO_ISSUES = `https://github.com/${REPO}/issues`;
 const QQ_DEEP_LINK =
   'tencent://ntqq-open/?subCmd=flashTransfer&action=openTransPage&actionParams={"fileSetId":"","allChecked":"","selectedItems":"","sourceType":"share"}';
@@ -157,7 +157,7 @@ export function BugReportPanel(): ReactElement {
       platformHint,
       '',
       '## weq 版本',
-      appVersion || '<填写设置 → 全局设置 显示的版本号>',
+      appVersion || '<填写设置 → 帮助与关于 → 版本与更新中的版本号>',
       '',
       '## 错误的功能描述',
       '<在这里描述发生了什么，附上报错文本 / 日志 / 截图>',
@@ -344,6 +344,7 @@ export function BugReportPanel(): ReactElement {
       if (!linkRes.ok) parts.push(`唤起 QQ 失败：${linkRes.error}`);
       pushToast({
         tone: 'info',
+        durationKind: parts.length ? 'failure' : 'success',
         title: '已打包并打开反馈目录',
         detail: res.folder + (parts.length > 0 ? `\n${parts.join('\n')}` : ''),
       });

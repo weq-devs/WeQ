@@ -4,6 +4,7 @@ import {
   fetchQzoneVisitorCount,
   parseQzoneContentCounts,
   parseQzoneVisitorCount,
+  parseQzoneVisitorStats,
 } from '../src/account/web/qzone_stats';
 import { parseQzoneLikesResult } from '../src/account/web/qzone_interaction';
 import { WebAuthError } from '../src/account/web/credential';
@@ -16,12 +17,37 @@ const content = (SS: unknown, XC: unknown) => ({
 });
 const visits = (totalcount: unknown) => ({
   code: 0,
-  data: { modvisitcount: [{ totalcount, todaycount: 2 }] },
+  data: { modvisitcount: [{ mod: 0, totalcount, todaycount: 2 }] },
 });
 const stringify = (value: unknown) => `_Callback(${JSON.stringify(value)});`;
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Qzone space statistics', () => {
+  it('只采用唯一 mod=0 的累计与今日访问人次，不将唯一无标识记录猜作空间统计', () => {
+    expect(
+      parseQzoneVisitorStats(
+        stringify({
+          code: 0,
+          data: {
+            modvisitcount: [
+              { mod: 1, totalcount: 999 },
+              { mod: 0, totalcount: 20, todaycount: 3 },
+            ],
+          },
+        }),
+      ),
+    ).toEqual({ totalCount: 20, todayCount: 3 });
+    for (const rows of [
+      [{ totalcount: 8 }],
+      [
+        { mod: 0, totalcount: 1 },
+        { mod: 0, totalcount: 2 },
+      ],
+    ])
+      expect(parseQzoneVisitorStats(stringify({ code: 0, data: { modvisitcount: rows } }))).toEqual(
+        { totalCount: null, todayCount: null },
+      );
+  });
   it('reads service totals, including explicit zero and numeric strings', () => {
     expect(parseQzoneContentCounts(stringify(content(0, '12345')))).toEqual({
       postCount: 0,
@@ -99,6 +125,8 @@ describe('Qzone space statistics', () => {
     expect(await service.getQzoneSpaceStats('10002')).toEqual({
       postCount: 8,
       photoCount: 9,
+      totalCount: null,
+      todayCount: null,
     });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
@@ -113,6 +141,8 @@ describe('Qzone space statistics', () => {
     expect(await service.getQzoneSpaceStats('10002')).toEqual({
       postCount: null,
       photoCount: null,
+      totalCount: null,
+      todayCount: null,
     });
     expect(fetch).toHaveBeenCalledTimes(1);
   });

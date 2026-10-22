@@ -19,9 +19,8 @@
 
 import type { NativeBundle } from '@weq/native';
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import type { Platform } from '../types';
+import { weqAppDataRoot } from '../app_data_root';
 import { readLauncherCount, readQqVersion } from '../qq_meta';
 import {
   candidateQqRoots,
@@ -102,11 +101,7 @@ export function createLinuxPlatform(
   return {
     kind: 'linux',
     native,
-    appDataRoot: () => {
-      const xdg = process.env.XDG_CONFIG_HOME;
-      const base = xdg && xdg.length > 0 ? xdg : join(homedir(), '.config');
-      return join(base, 'weq');
-    },
+    appDataRoot: () => weqAppDataRoot('linux'),
     tencentFilesRoots: () => candidateQqRoots(home, override()),
     loginDbPath: () => findLoginDb(home, override()),
     qqDataRoot: () => pickQqRoot(home, override()),

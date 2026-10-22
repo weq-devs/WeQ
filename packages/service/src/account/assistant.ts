@@ -22,6 +22,9 @@ import { randomUUID } from 'node:crypto';
 import { basename, extname, join, resolve, sep } from 'node:path';
 import {
   fetchApi,
+  requestApiJson,
+  ApiHttpError,
+  isUnsupportedTemperature,
   isApiCancellation,
   apiErrorMessage,
   pickMessageText,
@@ -1352,36 +1355,21 @@ export class AssistantService {
     specs: AssistantToolSpec[],
     options: { maxTokens?: number } = {},
   ): Promise<{ choices?: Array<{ message?: ApiMessage }>; usage?: unknown }> {
-    const { response: res, usage } = await fetchApi(endpoint, '/chat/completions', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
-      body: JSON.stringify({
-        model: endpoint.model,
-        temperature: 0.3,
-        messages,
-        ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
-        ...(specs.length ? { tools: specs, tool_choice: 'auto' } : {}),
-      }),
-    });
     try {
-      if (!res.ok) {
-        const detail = await res.text().catch(() => '');
-        try {
-          usage.report(JSON.parse(detail));
-        } catch {}
-        throw new Error(httpErrorMessage(res.status, detail));
-      }
-      const data = (await res.json()) as {
-        choices?: Array<{ message?: ApiMessage }>;
-        usage?: unknown;
-      };
-      usage.report(data);
-      const error = apiErrorMessage(data);
-      if (error) throw new Error(`模型服务错误：${error}`);
-      usage.finish('success');
-      return data;
+      return await requestApiJson(endpoint, '/chat/completions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
+        body: JSON.stringify({
+          model: endpoint.model,
+          temperature: 0.3,
+          messages,
+          ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
+          ...(specs.length ? { tools: specs, tool_choice: 'auto' } : {}),
+        }),
+      });
     } catch (error) {
-      usage.finish('failed');
+      if (error instanceof ApiHttpError)
+        throw new Error(httpErrorMessage(error.status, error.detail));
       throw error;
     }
   }
@@ -1394,6 +1382,7 @@ export class AssistantService {
    * - reasoning：`reasoningEffort` 非 off 时带 `reasoning_effort`；若 provider 不认（400），
    *   去掉该参数重试一次，并回填 `this.reasoningUnsupported` 让本进程后续不再带（防基础聊天回归）。
    * - tool_calls：流式下每片是 `delta.tool_calls[]`，需按 `index` 分槽把 name/arguments 碎片拼全。
+   * - 温度：明确拒绝时只去参重试一次；SSE 必须尚无正文、推理或工具片段，避免重复生成。
    */
   private async callApiStream(
     endpoint: AgentLabEndpoint,
@@ -1404,11 +1393,13 @@ export class AssistantService {
   ): Promise<{ content: string; reasoning: string; toolCalls: ApiMessage['tool_calls'] }> {
     const effort = this.config.reasoningEffort;
     const withReasoning = !!effort && effort !== 'off' && !this.reasoningUnsupported;
+    let temperatureOmitted = false;
+    let lastReasoning = withReasoning;
 
     const buildBody = (reasoning: boolean): string =>
       JSON.stringify({
         model: endpoint.model,
-        temperature: 0.3,
+        ...(temperatureOmitted ? {} : { temperature: 0.3 }),
         stream: true,
         stream_options: { include_usage: true },
         messages,
@@ -1418,6 +1409,7 @@ export class AssistantService {
 
     let accounting: Awaited<ReturnType<typeof fetchApi>>['usage'] | undefined;
     const post = async (reasoning: boolean): Promise<Response> => {
+      lastReasoning = reasoning;
       accounting?.finish('failed');
       const result = await fetchApi(
         endpoint,
@@ -1434,6 +1426,7 @@ export class AssistantService {
         true,
       );
       accounting = result.usage;
+      temperatureOmitted ||= result.temperatureOmitted;
       return result.response;
     };
     const rejectResponse = async (response: Response) => {
@@ -1445,29 +1438,36 @@ export class AssistantService {
       return detail;
     };
 
-    let res: Response;
-    try {
-      res = await post(withReasoning);
-      // provider 不识别 reasoning_effort → 400：去掉重试一次，并记住本进程内别再带。
-      if (!res.ok && res.status === 400 && withReasoning) {
-        this.reasoningUnsupported = true;
-        await rejectResponse(res);
-        res = await post(false);
+    let reasoningRetried = false;
+    let rateRetried = false;
+    const requestResponse = async (reasoning: boolean): Promise<Response> => {
+      try {
+        let response = await post(reasoning);
+        // provider 不识别 reasoning_effort → 400：去掉重试一次，并记住本进程内别再带。
+        if (!response.ok && response.status === 400 && reasoning && !reasoningRetried) {
+          reasoningRetried = true;
+          this.reasoningUnsupported = true;
+          await rejectResponse(response);
+          response = await post(false);
+        }
+        // 429 限流/额度：退避 ~1.5s（可被停止打断）后重试一次；仍失败则落到下面的分类报错。
+        if (response.status === 429 && !rateRetried) {
+          rateRetried = true;
+          await rejectResponse(response);
+          await sleep(1500, signal);
+          response = await post(lastReasoning);
+        }
+        return response;
+      } catch (error) {
+        // 用户取消（AbortError）原样放行，交给上层 aborted 分支；其余多为网络层失败（fetch 抛 TypeError）。
+        accounting?.finish(isApiCancellation(error, signal) ? 'cancelled' : 'failed');
+        if (error instanceof Error && error.name === 'AbortError') throw error;
+        throw new Error(
+          `网络连接失败：无法连接到模型服务（${hostOf(endpoint.baseUrl)}），请检查网络或服务地址是否正确。`,
+        );
       }
-      // 429 限流/额度：退避 ~1.5s（可被停止打断）后重试一次；仍失败则落到下面的分类报错。
-      if (res.status === 429) {
-        await rejectResponse(res);
-        await sleep(1500, signal);
-        res = await post(withReasoning && !this.reasoningUnsupported);
-      }
-    } catch (error) {
-      // 用户取消（AbortError）原样放行，交给上层 aborted 分支；其余多为网络层失败（fetch 抛 TypeError）。
-      accounting?.finish(isApiCancellation(error, signal) ? 'cancelled' : 'failed');
-      if (error instanceof Error && error.name === 'AbortError') throw error;
-      throw new Error(
-        `网络连接失败：无法连接到模型服务（${hostOf(endpoint.baseUrl)}），请检查网络或服务地址是否正确。`,
-      );
-    }
+    };
+    let res = await requestResponse(withReasoning);
     if (!res.ok || !res.body) {
       const detail = await rejectResponse(res);
       throw new Error(httpErrorMessage(res.status, detail));
@@ -1477,13 +1477,18 @@ export class AssistantService {
     let reasoning = '';
     // 按 index 累积的工具调用槽（流式下 arguments 是逐片拼接的）。
     const toolSlots = new Map<number, { id: string; name: string; args: string }>();
+    let temperatureRejected = false;
 
-    // 消费一个完整 SSE 事件（可能含多行；只认 `data:` 行）。
+    // 消费 SSE data 行，也识别兼容端点在拒绝请求时返回的普通 JSON。
     const consumeEvent = (rawEvent: string): void => {
-      for (const line of rawEvent.split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith('data:')) continue;
-        const data = trimmed.slice(5).trim();
+      const dataLines = rawEvent
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trim());
+      // 有些兼容端点即使请求 stream，也会用普通 JSON 返回参数错误。
+      if (!dataLines.length && rawEvent.trim().startsWith('{')) dataLines.push(rawEvent.trim());
+      for (const data of dataLines) {
         if (!data || data === '[DONE]') continue;
         let chunk: StreamChunk;
         try {
@@ -1492,8 +1497,14 @@ export class AssistantService {
           continue; // 半个 JSON（理论上被事件切分保护，兜底跳过）
         }
         if (chunk.usage) accounting?.report({ usage: chunk.usage });
-        const error = apiErrorMessage(chunk);
-        if (error) throw new Error(`模型服务错误：${error}`);
+        const rejectedTemperature = isUnsupportedTemperature(chunk, 200);
+        const error =
+          apiErrorMessage(chunk) ??
+          (rejectedTemperature ? apiErrorMessage({ error: chunk }) : null);
+        if (error || rejectedTemperature) {
+          temperatureRejected = rejectedTemperature;
+          throw new Error(`模型服务错误：${error ?? '模型不支持温度参数'}`);
+        }
         const delta = chunk.choices?.[0]?.delta;
         if (!delta) continue;
         if (typeof delta.content === 'string' && delta.content) {
@@ -1515,30 +1526,52 @@ export class AssistantService {
       }
     };
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    try {
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        // CRLF 归一（部分 provider 用 \r\n\r\n 分隔事件），再按空行切完整事件、残片留到下一片。
-        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
-        let sep = buffer.indexOf('\n\n');
-        while (sep >= 0) {
-          consumeEvent(buffer.slice(0, sep));
-          buffer = buffer.slice(sep + 2);
-          sep = buffer.indexOf('\n\n');
+    const readResponse = async (response: Response): Promise<boolean> => {
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          // CRLF 归一（部分 provider 用 \r\n\r\n 分隔事件），再按空行切完整事件、残片留到下一片。
+          buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+          let sep = buffer.indexOf('\n\n');
+          while (sep >= 0) {
+            consumeEvent(buffer.slice(0, sep));
+            buffer = buffer.slice(sep + 2);
+            sep = buffer.indexOf('\n\n');
+          }
         }
+        // 流结束后残留的最后一个事件（provider 未补尾部空行时）。
+        if (buffer.trim()) consumeEvent(buffer);
+        accounting?.finish('success');
+      } catch (error) {
+        accounting?.finish(isApiCancellation(error, signal) ? 'cancelled' : 'failed');
+        if (
+          temperatureRejected &&
+          !temperatureOmitted &&
+          !content &&
+          !reasoning &&
+          toolSlots.size === 0 &&
+          !isApiCancellation(error, signal)
+        ) {
+          await reader.cancel().catch(() => {});
+          return true;
+        }
+        throw error;
+      } finally {
+        reader.releaseLock();
       }
-      // 流结束后残留的最后一个事件（provider 未补尾部空行时）。
-      if (buffer.trim()) consumeEvent(buffer);
-      accounting?.finish('success');
-    } catch (error) {
-      accounting?.finish(isApiCancellation(error, signal) ? 'cancelled' : 'failed');
-      throw error;
-    } finally {
-      reader.releaseLock();
+      return false;
+    };
+
+    if (await readResponse(res)) {
+      temperatureOmitted = true;
+      res = await requestResponse(lastReasoning);
+      if (!res.ok || !res.body)
+        throw new Error(httpErrorMessage(res.status, await rejectResponse(res)));
+      await readResponse(res);
     }
 
     const toolCalls = [...toolSlots.entries()]

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { groupMemberToWire, userProfileToWire } from '../serde';
+import { QQ_REGIONS, QQ_PROFESSIONS } from '@weq/protocol';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),
@@ -19,9 +20,19 @@ export interface QQWriteServices {
   accountWrite: Pick<
     AccountServices['accountWrite'],
     | 'friendRemark'
+    | 'getFriendRemark'
     | 'groupRemark'
     | 'pin'
     | 'friendDisturb'
+    | 'getFriendDisturb'
+    | 'getFriendSpecialCare'
+    | 'friendSpecialCare'
+    | 'friendRoster'
+    | 'manageFriendCategories'
+    | 'exactProfile'
+    | 'commonRelationships'
+    | 'editableSelfProfile'
+    | 'editSelfProfile'
     | 'groupMessagePolicy'
     | 'friendCategory'
     | 'selfProfile'
@@ -78,6 +89,107 @@ export function createQQWriteRouter(
   read: (input: QQWriteBinding) => QQWriteServices,
 ) {
   return router({
+    friendRemarkState: procedure.input(binding.extend({ uid })).query(async ({ input }) => {
+      const services = resolve(input);
+      const result = await services.accountWrite.getFriendRemark(input.uid);
+      if (resolve(input) !== services) throw new Error('账号已切换，请重新读取备注');
+      if (result.uid !== input.uid) throw new Error('返回好友与读取目标不一致');
+      return { ...result, source: 'qq-server' as const };
+    }),
+    profileRegions: procedure.query(() => ({ regions: QQ_REGIONS, professions: QQ_PROFESSIONS })),
+    editableSelfProfile: procedure.input(binding).query(async ({ input }) => {
+      const services = resolve(input);
+      const result = await services.accountWrite.editableSelfProfile();
+      if (resolve(input) !== services) throw new Error('账号已切换，请重新读取资料');
+      return result;
+    }),
+    editSelfProfile: procedure
+      .input(
+        binding.extend({
+          patch: z
+            .object({
+              birthday: z
+                .string()
+                .regex(/^\d{4}-\d{2}-\d{2}$/)
+                .optional(),
+              region: z.array(z.string().max(4)).length(3).optional(),
+              hometown: z.array(z.string().max(4)).length(4).optional(),
+              email: z.string().max(996).optional(),
+              school: z.string().max(996).optional(),
+              profession: z.number().int().min(1).max(14).optional(),
+            })
+            .strict()
+            .refine((value) => Object.keys(value).length === 1),
+        }),
+      )
+      .mutation(({ input }) => resolve(input).accountWrite.editSelfProfile(input.patch)),
+    exactProfile: procedure
+      .input(
+        binding.extend({
+          kind: z.enum(['user', 'group']),
+          target: z
+            .string()
+            .regex(/^[1-9]\d{0,9}$/)
+            .refine((value) => BigInt(value) <= 0xffffffffn),
+        }),
+      )
+      .query(async ({ input }) => {
+        const services = resolve(input);
+        const result = await services.accountWrite.exactProfile(input.kind, input.target);
+        if (resolve(input) !== services) throw new Error('账号已切换，请重新查询');
+        return result;
+      }),
+    commonRelationships: procedure
+      .input(
+        binding.extend({
+          target: z
+            .string()
+            .regex(/^[1-9]\d{4,9}$/)
+            .refine((value) => BigInt(value) <= 0xffffffffn),
+        }),
+      )
+      .query(async ({ input }) => {
+        const services = resolve(input);
+        const result = await services.accountWrite.commonRelationships(input.target);
+        if (resolve(input) !== services) throw new Error('账号已切换，请重新读取共同关系');
+        return result;
+      }),
+    friendRoster: procedure.input(binding).query(async ({ input }) => {
+      const services = resolve(input);
+      const result = await services.accountWrite.friendRoster();
+      if (resolve(input) !== services) throw new Error('账号已切换，请重新读取好友名册');
+      return result;
+    }),
+    friendCategories: procedure
+      .input(
+        binding.extend({
+          operation: z.discriminatedUnion('type', [
+            z.object({ type: z.literal('create'), name: z.string().min(1).max(255) }),
+            z.object({ type: z.literal('rename'), id: uint32, name: z.string().min(1).max(255) }),
+            z.object({ type: z.literal('sort'), ids: z.array(uint32).min(1).max(1000) }),
+            z.object({
+              type: z.literal('delete'),
+              id: uint32.positive(),
+              mergeInto: uint32.optional(),
+            }),
+            z.object({
+              type: z.literal('move'),
+              uids: z
+                .array(uid)
+                .min(1)
+                .max(3000)
+                .refine((uids) => new Set(uids).size === uids.length),
+              categoryId: uint32,
+            }),
+          ]),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const services = resolve(input);
+        const result = await services.accountWrite.manageFriendCategories(input.operation);
+        if (resolve(input) !== services) throw new Error('账号已切换，请重新读取分组操作结果');
+        return result;
+      }),
     profileDetails: procedure
       .input(binding.extend({ uids: z.array(uid).min(1).max(200) }))
       .query(async ({ input }) => {
@@ -102,6 +214,25 @@ export function createQQWriteRouter(
       if (resolve(input) !== services) throw new Error('账号已切换，请重新读取消息策略');
       return { ...result, source: 'qq-server' as const };
     }),
+    friendDisturbState: procedure.input(binding.extend({ uid })).query(async ({ input }) => {
+      const services = resolve(input);
+      const result = await services.accountWrite.getFriendDisturb(input.uid);
+      if (resolve(input) !== services) throw new Error('账号已切换，请重新读取免打扰状态');
+      if (result.uid !== input.uid) throw new Error('返回好友与读取目标不一致');
+      return { ...result, source: 'qq-server' as const };
+    }),
+    friendSpecialCareState: procedure.input(binding.extend({ uid })).query(async ({ input }) => {
+      const services = resolve(input);
+      const result = await services.accountWrite.getFriendSpecialCare(input.uid);
+      if (resolve(input) !== services) throw new Error('账号已切换，请重新读取特别关心');
+      if (result.uid !== input.uid) throw new Error('返回好友与读取目标不一致');
+      return { ...result, source: 'qq-server' as const };
+    }),
+    friendSpecialCare: procedure
+      .input(binding.extend({ uid, enabled: z.boolean() }))
+      .mutation(({ input }) =>
+        resolve(input).accountWrite.friendSpecialCare(input.uid, input.enabled),
+      ),
     memberState: procedure.input(binding.extend({ groupId, uid })).query(async ({ input }) => {
       const services = read(input);
       const [member, group] = await Promise.all([
@@ -111,6 +242,10 @@ export function createQQWriteRouter(
       if (read(input) !== services) throw new Error('账号已切换，请重新读取成员资料');
       if (member && (member.uid !== input.uid || member.groupCode !== BigInt(input.groupId)))
         throw new Error('返回成员与读取目标不一致');
+      const identity = services.accountWrite.selfIdentity();
+      const isSelf = member?.uid === identity.uid;
+      if (isSelf && member && member.uin !== 0n && member.uin.toString() !== identity.uin)
+        throw new Error('当前账号群资料身份不一致');
       const targetRole =
         !group.ownerUid || !member
           ? null
@@ -122,6 +257,7 @@ export function createQQWriteRouter(
       return member
         ? {
             uid: member.uid,
+            isSelf,
             card: member.card,
             title: member.customTitle,
             role: group.role,
@@ -209,6 +345,7 @@ export function createQQWriteRouter(
           pinned: tops.some((item) => item.targetId === conv),
           notifyLevel,
           friend: Boolean(buddy),
+          friendUin: buddy?.uin.toString() ?? null,
           friendDisturb: buddy ? (profile?.extInfo?.friendDisturb ?? null) : null,
           categoryId: buddy?.categoryId ?? null,
           remark: profile?.remark ?? group?.remark ?? null,

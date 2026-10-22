@@ -11,11 +11,19 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { trpc } from '../../trpc/client';
+import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Modal } from '../../components/Dialog';
-import { Card, CheckPillGroup, Row, SectionHeader } from './controls';
+import { Card, CheckPillGroup, QueryError, Row, SectionHeader } from './controls';
 import { useDraftClose } from '../../lib/draftClose';
+import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
+import {
+  connectionTestKey,
+  runConnectionTest,
+  useConnectionTestTasks,
+} from '../../lib/connectionTestTask';
+import { useToast } from '../Toast';
+import '../../styles/provider-settings.css';
 
 type Capability = 'chat' | 'embedding' | 'vision';
 const CAPABILITIES: { value: Capability; label: string }[] = [
@@ -38,20 +46,19 @@ type ProviderForm = {
 const DEFAULT_VENDOR = 'siliconflow';
 
 function emptyForm(): ProviderForm {
-  return { id: '', name: '', vendor: DEFAULT_VENDOR, baseUrl: '', apiKey: '', models: [] };
+  return {
+    id: crypto.randomUUID(),
+    name: '',
+    vendor: DEFAULT_VENDOR,
+    baseUrl: '',
+    apiKey: '',
+    models: [],
+  };
 }
 
 /** 模板标签去掉括号说明后的显示名：硅基流动 SiliconFlow（推荐）→ 硅基流动 SiliconFlow。 */
 function templateDisplayName(label: string | undefined): string {
   return label?.replace(/（.*?）/g, '').trim() ?? '';
-}
-
-function normalizeId(input: string): string {
-  return input
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-_]+/g, '-')
-    .replace(/^-+|-+$/g, '');
 }
 
 export function AgentLabSection(): ReactElement {
@@ -61,20 +68,23 @@ export function AgentLabSection(): ReactElement {
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   });
+  const catalogRef = useRef(catalog.data);
+  catalogRef.current = catalog.data;
   const providers = trpc.bootstrap.listAgentLabProviders.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const saveProvider = trpc.bootstrap.saveAgentLabProvider.useMutation();
+  const providerLabels = providerDisplayLabels(providers.data ?? []);
   const deleteProvider = trpc.bootstrap.deleteAgentLabProvider.useMutation();
-  const testProvider = trpc.bootstrap.testAgentLabProvider.useMutation();
   const fetchModels = trpc.bootstrap.fetchAgentLabModels.useMutation();
 
   const [selectedId, setSelectedId] = useState<string>('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ProviderForm>(emptyForm);
-  const [testing, setTesting] = useState(false);
+  const testKey = connectionTestKey('llm', form.id);
+  const testing = useConnectionTestTasks((state) => state.running.has(testKey));
   const [fetchingModels, setFetchingModels] = useState(false);
   /** 从 base_url 拉回来的模型清单（待用户勾选导入）；null = 未拉取。 */
   const [fetchedModels, setFetchedModels] = useState<ModelForm[] | null>(null);
@@ -83,7 +93,7 @@ export function AgentLabSection(): ReactElement {
   const guard = useDraftClose(
     () => setOpen(false),
     form,
-    saveProvider.isLoading || deleteProvider.isLoading || testing || fetchingModels,
+    saveProvider.isLoading || deleteProvider.isLoading || fetchingModels,
   );
 
   /** 上一次由模板带入的 base_url / 名称：表单值与之相同 = 用户没改过，可以跟着模板切换。 */
@@ -101,7 +111,7 @@ export function AgentLabSection(): ReactElement {
       apiKey: string;
       models: Array<{ id: string; label?: string | null; capabilities: string[] }>;
     }) => {
-      const entry = catalog.data?.find((c) => c.vendor === item.vendor);
+      const entry = catalogRef.current?.find((c) => c.vendor === item.vendor);
       const presetIds = new Set((entry?.models ?? []).map((m) => m.id));
       // 只有 id 与模板推荐一致的模型算「模板模型」；用户自己加的不算，切换模板时保留。
       templateModelIdsRef.current = new Set(
@@ -126,7 +136,8 @@ export function AgentLabSection(): ReactElement {
       setForm(next);
       guard.reset(next);
     },
-    [catalog.data, guard.reset],
+    // 模板查询迟到只更新模板来源，不重新灌入并覆盖正在编辑的草稿。
+    [guard.reset],
   );
 
   useEffect(() => {
@@ -298,10 +309,8 @@ export function AgentLabSection(): ReactElement {
     }));
   }
   async function onSave(): Promise<void> {
-    // Provider ID 不再暴露给用户：编辑已有 provider 时保持原 id（克隆体里的引用指向它），
-    // 新建时由系统从显示名称自动生成。
-    const id =
-      form.id || normalizeId(form.name) || normalizeId(`${form.vendor}-${Date.now().toString(36)}`);
+    // 新建草稿有独立 ID；同名／同模板不覆盖，编辑和重复保存仍沿用原引用。
+    const id = form.id;
     const models = form.models
       .map((m) => ({
         id: m.id.trim(),
@@ -333,38 +342,33 @@ export function AgentLabSection(): ReactElement {
   }
 
   /** 测试连通性：用表单里第一个带「聊天」能力的模型探活，把详细错误（状态码/响应体）展示出来。 */
-  async function onTest(): Promise<void> {
+  function onTest(): void {
     if (!form.baseUrl.trim()) {
-      dialog.error('无法测试', '请先填写 Base URL。');
+      useToast
+        .getState()
+        .push({ tone: 'warning', title: '无法测试', detail: '请先填写 Base URL。' });
       return;
     }
     const chatModel = form.models
       .find((m) => m.capabilities.includes('chat') && m.id.trim())
       ?.id.trim();
     if (!chatModel) {
-      dialog.error('无法测试', '请先添加并填写一个带「聊天」能力的模型。');
+      useToast.getState().push({
+        tone: 'warning',
+        title: '无法测试',
+        detail: '请先添加并填写一个带「聊天」能力的模型。',
+      });
       return;
     }
-    setTesting(true);
-    try {
-      const res = await testProvider.mutateAsync({
-        baseUrl: form.baseUrl.trim(),
-        apiKey: form.apiKey.trim(),
-        model: chatModel,
-      });
-      if (res.ok) {
-        dialog.success(
-          '测试通过',
-          `模型「${chatModel}」可正常调用${res.reply ? `，回了：${res.reply}` : '。'}`,
-        );
-      } else {
-        dialog.error('测试失败', res.error ?? '未知错误');
-      }
-    } catch (error) {
-      dialog.error('测试失败', error instanceof Error ? error.message : String(error));
-    } finally {
-      setTesting(false);
-    }
+    const input = { baseUrl: form.baseUrl.trim(), apiKey: form.apiKey.trim(), model: chatModel };
+    const label = `${form.name.trim() || 'API'} · ${form.id.slice(-8)} · ${chatModel}`;
+    void runConnectionTest(testKey, label, async () => {
+      const res = await client.bootstrap.testAgentLabProvider.mutate(input);
+      if (!res.ok) throw new Error(res.error ?? '未知错误');
+      return {
+        detail: `模型「${chatModel}」可正常调用${res.reply ? `，回了：${res.reply}` : '。'}`,
+      };
+    });
   }
 
   async function onDelete(): Promise<void> {
@@ -407,16 +411,31 @@ export function AgentLabSection(): ReactElement {
           </button>
         }
       >
-        {(providers.data ?? []).length === 0 ? (
-          <div className="weq-set-row-desc" style={{ padding: '4px 2px' }}>
-            还没有 provider，点右上角「新建」添加一个厂商。
-          </div>
+        {providers.error ? (
+          <QueryError
+            message={`API 配置读取失败：${providers.error.message}`}
+            retryLabel="重新读取 API 配置"
+            retrying={providers.isFetching}
+            onRetry={() => void providers.refetch()}
+          />
+        ) : null}
+        {providers.isLoading ? (
+          <p className="weq-set-empty" role="status">
+            正在读取 API 配置…
+          </p>
+        ) : (providers.data ?? []).length === 0 ? (
+          providers.error ? null : (
+            <div className="weq-set-row-desc" style={{ padding: '4px 2px' }}>
+              还没有 provider，点右上角「新建」添加一个厂商。
+            </div>
+          )
         ) : (
           <div className="weq-agentlab-provider-list">
             {(providers.data ?? []).map((item) => (
               <button
                 key={item.id}
                 type="button"
+                title={providerLabels.get(item.id)}
                 className={`weq-agentlab-provider-item${open && selectedId === item.id ? ' is-active' : ''}`}
                 onClick={() => editProvider(item.id)}
               >
@@ -427,7 +446,7 @@ export function AgentLabSection(): ReactElement {
                     aria-hidden
                     style={{ marginRight: 6, verticalAlign: '-2px', opacity: 0.7 }}
                   />
-                  {item.name}
+                  {providerLabels.get(item.id)}
                 </span>
                 <small>
                   {item.models.length} 个模型 · {item.baseUrl}
@@ -439,7 +458,12 @@ export function AgentLabSection(): ReactElement {
       </Card>
 
       {open ? (
-        <Modal presentation="panel" onClose={guard.requestClose} width={620}>
+        <Modal
+          presentation="panel"
+          onClose={guard.requestClose}
+          width={620}
+          className="weq-provider-window"
+        >
           <div className="weq-provider-modal">
             <header className="weq-provider-modal-head">
               <span className="weq-provider-modal-icon">
@@ -457,15 +481,28 @@ export function AgentLabSection(): ReactElement {
             </header>
 
             <div className="weq-provider-modal-body">
+              {catalog.error ? (
+                <QueryError
+                  message={`厂商模板读取失败：${catalog.error.message}`}
+                  retryLabel="重新读取厂商模板"
+                  retrying={catalog.isFetching}
+                  onRetry={() => void catalog.refetch()}
+                />
+              ) : null}
               <Row
                 label="厂商模板"
                 desc="选模板自动带入 base_url 与推荐模型。"
                 control={
                   <select
                     className="weq-set-input"
+                    aria-label="API 厂商模板"
                     value={form.vendor}
+                    disabled={catalog.isLoading}
                     onChange={(e) => applyVendor(e.target.value)}
                   >
+                    {!catalog.data?.some((item) => item.vendor === form.vendor) ? (
+                      <option value={form.vendor}>{form.vendor}</option>
+                    ) : null}
                     {(catalog.data ?? []).map((item) => (
                       <option key={item.vendor} value={item.vendor}>
                         {item.label}
@@ -479,6 +516,7 @@ export function AgentLabSection(): ReactElement {
                 control={
                   <input
                     className="weq-set-input"
+                    aria-label="API 显示名称"
                     value={form.name}
                     onChange={(e) => update('name', e.target.value)}
                     placeholder="硅基流动"
@@ -495,6 +533,7 @@ export function AgentLabSection(): ReactElement {
                 control={
                   <input
                     className="weq-set-input"
+                    aria-label="API Base URL"
                     value={form.baseUrl}
                     onChange={(e) => update('baseUrl', e.target.value)}
                     placeholder="https://api.siliconflow.cn/v1"
@@ -508,6 +547,7 @@ export function AgentLabSection(): ReactElement {
                   <input
                     className="weq-set-input"
                     type="password"
+                    aria-label="API Key"
                     value={form.apiKey}
                     onChange={(e) => update('apiKey', e.target.value)}
                     placeholder="sk-..."
@@ -552,17 +592,7 @@ export function AgentLabSection(): ReactElement {
               </div>
 
               {fetchedModels ? (
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                    padding: '8px 10px',
-                    borderRadius: 8,
-                    border: '1px dashed rgba(0,153,255,0.45)',
-                    background: 'rgba(0,153,255,0.06)',
-                  }}
-                >
+                <div className="weq-provider-fetched">
                   <div
                     style={{
                       display: 'flex',
@@ -605,6 +635,8 @@ export function AgentLabSection(): ReactElement {
                         setFetchedModels(null);
                         setCheckedModelIds([]);
                       }}
+                      aria-label="关闭模型拉取结果"
+                      title="关闭模型拉取结果"
                     >
                       <X size={12} />
                     </button>
@@ -637,18 +669,11 @@ export function AgentLabSection(): ReactElement {
                     <div
                       // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
                       key={index}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        flexWrap: 'wrap',
-                        padding: '8px 10px',
-                        borderRadius: 8,
-                        background: 'rgba(127,127,127,0.07)',
-                      }}
+                      className="weq-provider-model-row"
                     >
                       <input
                         className="weq-set-input"
+                        aria-label={`模型 ${index + 1} ID`}
                         style={{ flex: '1 1 200px' }}
                         value={model.id}
                         onChange={(e) => updateModel(index, { id: e.target.value })}
@@ -665,6 +690,8 @@ export function AgentLabSection(): ReactElement {
                         type="button"
                         className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
                         onClick={() => removeModel(index)}
+                        aria-label={`删除模型 ${index + 1}`}
+                        title={`删除模型 ${index + 1}`}
                       >
                         <X size={12} />
                       </button>

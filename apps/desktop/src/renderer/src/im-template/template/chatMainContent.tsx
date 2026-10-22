@@ -6,6 +6,7 @@ import {
   GroupProfilePane,
 } from './profilePanes';
 import { ChatPane } from './chatPane';
+import type { ConversationReadingPosition } from '../../lib/conversationReadingPosition';
 import type { LocalMediaRef } from './composerSend';
 import type { RepeatElement } from '../../lib/messageRepeat';
 import type { LoadSelectionMessages } from '../../lib/messageSelection';
@@ -15,7 +16,6 @@ import type { RedPacketDraft } from './redPacketPanel';
 import { ToolDetailPane } from './toolsPane';
 import type { ComposerActionRegistry } from './composerActions';
 import type { ConversationDetailActionRegistry } from './conversationDetailActions';
-import type { GroupUpdateInput } from './conversationDetails';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
 import type { MessageRenderer } from './messageRenderers';
 import type { ProfileActionRegistry } from './profileActions';
@@ -53,6 +53,8 @@ export function ChatMainContent({
   toolRegistry,
   selectedToolId,
   loadingMessages,
+  loadingNewer,
+  initialReadingPosition,
   atLatest,
   latestMessageSeq,
   onPreviewLatest,
@@ -61,16 +63,8 @@ export function ChatMainContent({
   conversationPrefs,
   drafts,
   query = '',
-  onAcceptContactRequest: _onAcceptContactRequest,
-  onRejectContactRequest: _onRejectContactRequest,
-  onAcceptGroupRequest: _onAcceptGroupRequest,
-  onRejectGroupRequest: _onRejectGroupRequest,
-  onMessageContact: _onMessageContact,
-  onMessageGroup: _onMessageGroup,
   onBackContact,
   onBackGroup,
-  onUpdateConversationPreference: _onUpdateConversationPreference,
-  onUpdateGroup: _onUpdateGroup,
   onLoadMoreGroupMembers,
   groupMembersLoading,
   groupMembersError,
@@ -79,7 +73,6 @@ export function ChatMainContent({
   onLoadMoreGroupMemberSearch,
   profileLoading,
   sendAvailable,
-  onOpenNotificationSettings: _onOpenNotificationSettings,
   onSend,
   onRepeatMessage,
   onResolveMentions,
@@ -123,6 +116,7 @@ export function ChatMainContent({
   onSearchChatRecords,
   onOpenRoamingBackfill,
   deletedIds,
+  hiddenDeletedIds,
   onRestoreMessage,
   onOpenTool,
   onSelectTool,
@@ -145,6 +139,8 @@ export function ChatMainContent({
   toolRegistry?: ToolPaneGroup[];
   selectedToolId?: string | null;
   loadingMessages: boolean;
+  loadingNewer?: boolean;
+  initialReadingPosition?: ConversationReadingPosition;
   /** Whether `messages` is the live latest-anchored window (see ChatPane). */
   atLatest?: boolean;
   latestMessageSeq?: string;
@@ -154,20 +150,8 @@ export function ChatMainContent({
   conversationPrefs: Record<string, ConversationPreference>;
   drafts: ConversationDrafts;
   query?: string;
-  onAcceptContactRequest: (requestId: string) => Promise<void>;
-  onRejectContactRequest: (requestId: string) => Promise<void>;
-  onAcceptGroupRequest: (requestId: string) => Promise<void>;
-  onRejectGroupRequest: (requestId: string) => Promise<void>;
-  onMessageContact: (contact: Contact) => Promise<void>;
-  onMessageGroup: (conversationId: string) => Promise<void>;
   onBackContact: () => void;
   onBackGroup: () => void;
-  onUpdateConversationPreference: (
-    conversationId: string,
-    key: keyof ConversationPreference,
-    value: boolean,
-  ) => void;
-  onUpdateGroup: (conversationId: string, input: GroupUpdateInput) => Promise<void>;
   onLoadMoreGroupMembers?: () => void;
   groupMembersLoading?: boolean;
   groupMembersError?: string | null;
@@ -181,7 +165,6 @@ export function ChatMainContent({
   profileLoading?: boolean;
   /** 当前账号是否有可用于发消息的、在线且允许注入的 QQ 实例。 */
   sendAvailable?: boolean;
-  onOpenNotificationSettings: () => void;
   onSend: (body: string, locals?: LocalMediaRef[]) => Promise<void>;
   onRepeatMessage?: (message: Message, conversation: Conversation) => Promise<void>;
   onResolveMentions?: (
@@ -208,7 +191,11 @@ export function ChatMainContent({
   onDraftClear: (conversationId: string) => void;
   onBackConversation: () => void;
   onEditRaw?: (message: Message) => void;
-  onDeleteMessage?: (message: Message, conversation: Conversation) => void | Promise<void>;
+  onDeleteMessage?: (
+    message: Message,
+    conversation: Conversation,
+    hidden?: boolean,
+  ) => void | Promise<void>;
   onOpenGroupAlbums?: (conversation: GroupConversation) => void;
   onOpenGroupFiles?: (conversation: GroupConversation) => void;
   onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
@@ -255,6 +242,7 @@ export function ChatMainContent({
   onOpenRoamingBackfill?: (conversation: Conversation) => void;
   /** msgIds WeQ deleted in the active conversation (in-place overlay). */
   deletedIds?: Set<string>;
+  hiddenDeletedIds?: Set<string>;
   /** Restore one WeQ-deleted message (overlay hover button). */
   onRestoreMessage?: (msgId: string) => Promise<void>;
   /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
@@ -299,6 +287,8 @@ export function ChatMainContent({
       composerActions={composerActions}
       messageRenderers={messageRenderers}
       loading={loadingMessages}
+      loadingNewer={loadingNewer}
+      initialReadingPosition={initialReadingPosition}
       atLatest={atLatest}
       latestMessageSeq={latestMessageSeq}
       onPreviewLatest={onPreviewLatest}
@@ -357,6 +347,7 @@ export function ChatMainContent({
       onSearchChatRecords={onSearchChatRecords}
       onOpenRoamingBackfill={onOpenRoamingBackfill}
       deletedIds={deletedIds}
+      hiddenDeletedIds={hiddenDeletedIds}
       onRestoreMessage={onRestoreMessage}
       unreadDock={unreadDock}
       missingJumpSeq={missingJumpSeq}

@@ -22,10 +22,9 @@ import {
   writeFileSync,
   readdirSync,
   unlinkSync,
-  rmSync,
   existsSync,
 } from 'node:fs';
-import { readdir, stat } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
 import type { AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
@@ -34,6 +33,12 @@ import { normalizeAccountConfig } from '../account/user_config';
 import type { ExportFormat } from '../account/export/types';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { getLogger, logErrorContext } from '../common/logger';
+import {
+  listStorageUsage,
+  measureStorage,
+  type StorageRoot,
+  type StorageUsageItem,
+} from './storage_usage';
 import {
   DEFAULT_QZONE_PAGINATION,
   normalizeQzonePagination,
@@ -51,6 +56,35 @@ export interface AutoEnterTarget {
   configId: string;
   uin: string;
   dataDir?: string;
+}
+
+export interface TypingStatusOverride {
+  accountUin: string;
+  accountConfigId: string;
+  uid: string;
+  name: string;
+  enabled: boolean;
+}
+
+export interface TypingStatusSettings {
+  defaultEnabled: boolean;
+  overrides: TypingStatusOverride[];
+}
+
+function normalizeTypingStatus(value: unknown): TypingStatusSettings {
+  const settings = isRecord(value) ? value : {};
+  const overrides = Array.isArray(settings.overrides)
+    ? settings.overrides.filter(
+        (item): item is TypingStatusOverride =>
+          isRecord(item) &&
+          ['accountUin', 'accountConfigId', 'uid'].every(
+            (key) => typeof item[key] === 'string' && item[key].length > 0,
+          ) &&
+          typeof item.name === 'string' &&
+          typeof item.enabled === 'boolean',
+      )
+    : [];
+  return { defaultEnabled: settings.defaultEnabled === true, overrides };
 }
 
 type DeepPartial<T> = {
@@ -266,7 +300,7 @@ function normalizeExportLightboxPreset(value: unknown): ExportLightboxPreset | u
 }
 
 /** Coerce a persisted / patched presets map; malformed variants are dropped. */
-function normalizeExportPresets(value: unknown): ExportPresets {
+export function normalizeExportPresets(value: unknown): ExportPresets {
   if (!isRecord(value)) return {};
   const p = value as Record<string, unknown>;
   const presets: ExportPresets = {};
@@ -448,6 +482,8 @@ export interface AppSettings {
    * 数据库与本地文件。唯一豁免：登录时的数据库密钥提取。
    */
   autoAttachQq: boolean;
+  /** 仅桌面客户端启动时启用本机 Web 服务；默认关闭。 */
+  webServiceAutoStart: boolean;
   /** 向 QQ 服务端上报在 WeQ 中阅读的位置，默认关闭。 */
   reportReadEnabled: boolean;
   /** 手动标记及撤销推进已读水位时上报，独立于自动阅读，默认关闭。 */
@@ -492,6 +528,8 @@ export interface AppSettings {
    * 自动回退到原来的 `weq-media://` 代理路径。
    */
   preferCdn: boolean;
+  /** 私聊输入状态广播：全局默认值与显式设置的会话特例。 */
+  typingStatus: TypingStatusSettings;
   /**
    * 是否渲染消息里的每条装扮（气泡/字体/挂件，来自 column 40801）。
    * 关掉后所有消息统一走清单里的全局装扮，不做逐条渲染。默认开启。
@@ -503,6 +541,12 @@ export interface AppSettings {
   showMessageTime: boolean;
   /** 左栏「消息」入口显示汇总未读角标，不改变阅读状态。 */
   showMessageUnreadBadge: boolean;
+  /** 进入会话时恢复阅读位置，从第一条新消息继续阅读。 */
+  readFromFirstUnread: boolean;
+  /** 发送成功后定位到当前会话的最新消息。 */
+  jumpToLatestAfterSend: boolean;
+  /** 群助手入口显示汇总未读消息数，而不是仅显示圆点。 */
+  showGroupAssistantMessageCount: boolean;
   /**
    * 外部安卓 chatpic 目录（聊天图片本地 miss 后、CDN 下载前的兜底）。
    * 见 account/chatpic.ts 的寻址与校验。
@@ -704,6 +748,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // 默认关闭：是否扫描 QQ 内存由首次运行欢迎框征得同意后再打开，见
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
   autoAttachQq: false,
+  webServiceAutoStart: false,
   reportReadEnabled: false,
   manualReadReportEnabled: false,
   autoLockMinutes: 0,
@@ -723,10 +768,14 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showAvatarPendant: true,
   linkPreview: { enabled: true, screenshot: false },
   preferCdn: false,
+  typingStatus: { defaultEnabled: false, overrides: [] },
   showMsgDecoration: true,
   showMessageSeq: false,
   showMessageTime: false,
   showMessageUnreadBadge: true,
+  readFromFirstUnread: false,
+  jumpToLatestAfterSend: true,
+  showGroupAssistantMessageCount: false,
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
   ssePush: { servers: [], enabledServerId: null, debounceMs: 2000, massThreshold: 50 },
@@ -806,7 +855,7 @@ export class UserConfigService {
   private cached: UserConfig | undefined;
   private readonly logger = getLogger().child({ scope: 'user-config' });
 
-  constructor(platform: Platform) {
+  constructor(platform: Pick<Platform, 'appDataRoot'>) {
     this.root = platform.appDataRoot();
     this.configPath = join(this.root, 'config.json');
     // 群关键词迁移先跑：它从 settings 里搬走旧键，而设置类迁移不保证原样保留
@@ -1209,6 +1258,7 @@ export class UserConfigService {
           ? s.exportSaveMode
           : d.exportSaveMode,
       autoAttachQq,
+      webServiceAutoStart: s?.webServiceAutoStart === true,
       reportReadEnabled: s?.reportReadEnabled === true,
       manualReadReportEnabled: s?.manualReadReportEnabled === true,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
@@ -1221,10 +1271,15 @@ export class UserConfigService {
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       preferCdn: s?.preferCdn ?? d.preferCdn,
+      typingStatus: normalizeTypingStatus(s?.typingStatus),
       showMsgDecoration: s?.showMsgDecoration ?? d.showMsgDecoration,
       showMessageSeq: s?.showMessageSeq ?? d.showMessageSeq,
       showMessageTime: s?.showMessageTime ?? d.showMessageTime,
       showMessageUnreadBadge: s?.showMessageUnreadBadge ?? d.showMessageUnreadBadge,
+      readFromFirstUnread: s?.readFromFirstUnread ?? d.readFromFirstUnread,
+      jumpToLatestAfterSend: s?.jumpToLatestAfterSend ?? d.jumpToLatestAfterSend,
+      showGroupAssistantMessageCount:
+        s?.showGroupAssistantMessageCount ?? d.showGroupAssistantMessageCount,
       externalChatpic: {
         dir: s?.externalChatpic?.dir ?? d.externalChatpic.dir,
         enabled: s?.externalChatpic?.enabled ?? d.externalChatpic.enabled,
@@ -1308,6 +1363,7 @@ export class UserConfigService {
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
+      webServiceAutoStart: patch.webServiceAutoStart ?? current.webServiceAutoStart,
       reportReadEnabled: patch.reportReadEnabled ?? current.reportReadEnabled,
       manualReadReportEnabled: patch.manualReadReportEnabled ?? current.manualReadReportEnabled,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
@@ -1320,10 +1376,15 @@ export class UserConfigService {
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       preferCdn: patch.preferCdn ?? current.preferCdn,
+      typingStatus: normalizeTypingStatus({ ...current.typingStatus, ...patch.typingStatus }),
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
       showMessageSeq: patch.showMessageSeq ?? current.showMessageSeq,
       showMessageTime: patch.showMessageTime ?? current.showMessageTime,
       showMessageUnreadBadge: patch.showMessageUnreadBadge ?? current.showMessageUnreadBadge,
+      readFromFirstUnread: patch.readFromFirstUnread ?? current.readFromFirstUnread,
+      jumpToLatestAfterSend: patch.jumpToLatestAfterSend ?? current.jumpToLatestAfterSend,
+      showGroupAssistantMessageCount:
+        patch.showGroupAssistantMessageCount ?? current.showGroupAssistantMessageCount,
       externalChatpic: {
         dir: patch.externalChatpic?.dir ?? current.externalChatpic.dir,
         enabled: patch.externalChatpic?.enabled ?? current.externalChatpic.enabled,
@@ -1416,6 +1477,22 @@ export class UserConfigService {
       externalRkeyEnabled: next.externalRkey.enabledServerId !== null,
     });
     return next;
+  }
+
+  setTypingStatusOverride(
+    target: Omit<TypingStatusOverride, 'enabled'>,
+    enabled: boolean | null,
+  ): TypingStatusSettings {
+    const current = this.getSettings().typingStatus;
+    const overrides = current.overrides.filter(
+      (item) =>
+        item.accountUin !== target.accountUin ||
+        item.accountConfigId !== target.accountConfigId ||
+        item.uid !== target.uid,
+    );
+    // 与默认值相同也保留显式设置；只有删除操作才恢复跟随默认。
+    if (enabled !== null) overrides.push({ ...target, enabled });
+    return this.setSettings({ typingStatus: { overrides } }).typingStatus;
   }
 
   getLocalModelId(kind: keyof LocalModelResources): string {
@@ -1548,61 +1625,38 @@ export class UserConfigService {
     });
   }
 
-  /**
-   * WeQ 缓存清理.
-   *
-   * The `<cacheBase>/<category>/` layout is written by various callers
-   * (avatars, media previews, 商城表情, 语音转录). These four categories are
-   * pure caches — every file is re-downloadable / re-generatable on demand,
-   * so wiping them only costs a re-fetch. We deliberately DO NOT expose
-   * `agentlab`（克隆体运行数据）, `weq-assistant`（推文/周报快照）or
-   * `export`（导出产物）here: those hold user-generated content, not cache.
-   */
-  private static readonly CLEARABLE_CACHE_CATEGORIES: ReadonlyArray<{
-    id: string;
-    label: string;
-  }> = [
-    { id: 'avatar', label: '头像缓存' },
-    { id: 'media', label: '图片/视频缓存' },
-    { id: 'marketface', label: '商城表情缓存' },
-    { id: 'voice', label: '语音转录缓存' },
-  ];
-
-  /** Per-category on-disk size (bytes) for the clearable cache categories. */
-  async listClearableCache(): Promise<Array<{ id: string; label: string; bytes: number }>> {
-    const base = this.cacheBaseDir();
-    return Promise.all(
-      UserConfigService.CLEARABLE_CACHE_CATEGORIES.map(async ({ id, label }) => ({
-        id,
-        label,
-        bytes: await dirSizeBytes(join(base, id)),
-      })),
-    );
+  /** 统计应用数据、当前及默认缓存、宿主运行目录；不扫描 QQ 原始数据或用户导出目录。 */
+  async listStorageUsage(extraRoots: readonly StorageRoot[] = []): Promise<StorageUsageItem[]> {
+    return listStorageUsage(this.root, this.cacheBaseDir(), extraRoots);
   }
 
-  /**
-   * Delete the given clearable cache categories (or all of them when `ids` is
-   * omitted). Unknown / non-clearable ids are ignored — we never rm outside
-   * the whitelist, so this can't touch agentlab / export / config / logs.
-   * Returns the number of bytes freed.
-   */
-  async clearCache(ids?: string[]): Promise<{ freedBytes: number; cleared: string[] }> {
-    const base = this.cacheBaseDir();
-    const allowed = new Set(UserConfigService.CLEARABLE_CACHE_CATEGORIES.map((c) => c.id));
-    const targets = (ids && ids.length > 0 ? ids : [...allowed]).filter((id) => allowed.has(id));
+  /** 兼容旧客户端，仍只返回可清理项。 */
+  async listClearableCache(): Promise<StorageUsageItem[]> {
+    return (await this.listStorageUsage()).filter((item) => item.clearable);
+  }
+
+  /** 清理前重新生成白名单；空数组不清理，只有省略 ids 才表示全部可清理项。 */
+  async clearCache(
+    ids?: string[],
+    extraRoots: readonly StorageRoot[] = [],
+  ): Promise<{ freedBytes: number; cleared: string[]; failed: string[] }> {
+    const items = await this.listStorageUsage(extraRoots);
+    const selected = ids === undefined ? undefined : new Set(ids);
+    const targets = items.filter((item) => item.clearable && (!selected || selected.has(item.id)));
     let freedBytes = 0;
     const cleared: string[] = [];
-    for (const id of targets) {
-      const dir = join(base, id);
+    const failed: string[] = [];
+    for (const item of targets) {
+      const { id, path: dir } = item;
       if (!existsSync(dir)) continue;
-      freedBytes += await dirSizeBytes(dir);
       try {
-        // Remove the category folder wholesale, then recreate it empty so the
-        // next writer's mkdir -p is a no-op and nothing breaks mid-session.
-        rmSync(dir, { recursive: true, force: true });
-        mkdirSync(dir, { recursive: true });
+        await rm(dir, { recursive: true, force: true });
+        await mkdir(dir, { recursive: true });
+        const remaining = await measureStorage(dir);
+        freedBytes += Math.max(0, item.bytes - remaining.bytes);
         cleared.push(id);
       } catch (error) {
+        failed.push(id);
         this.logger.error('failed to clear cache category', {
           event: 'clear-cache-failed',
           category: id,
@@ -1616,43 +1670,6 @@ export class UserConfigService {
       cleared,
       freedBytes,
     });
-    return { freedBytes, cleared };
+    return { freedBytes, cleared, failed };
   }
-}
-
-/**
- * Recursive directory byte size with a hard node-visit cap so a pathological
- * tree (the avatar/media caches can hold tens of thousands of tiny files)
- * can't wedge the caller. Missing dirs return 0. Async so a huge tree never
- * blocks the main process / UI while the settings page computes cache usage.
- */
-async function dirSizeBytes(root: string, cap = 500_000): Promise<number> {
-  let total = 0;
-  let visited = 0;
-  const stack: string[] = [root];
-  while (stack.length > 0) {
-    const dir = stack.pop() as string;
-    let dirents: import('node:fs').Dirent[];
-    try {
-      dirents = await readdir(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    const sizes: Promise<number>[] = [];
-    for (const d of dirents) {
-      if (++visited > cap) return total;
-      const full = join(dir, d.name);
-      if (d.isDirectory()) {
-        stack.push(full);
-      } else if (d.isFile()) {
-        sizes.push(
-          stat(full)
-            .then((s) => s.size)
-            .catch(() => 0),
-        );
-      }
-    }
-    total += (await Promise.all(sizes)).reduce((sum, size) => sum + size, 0);
-  }
-  return total;
 }

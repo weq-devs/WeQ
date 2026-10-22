@@ -31,13 +31,13 @@
 .weq-settings-subnav-item:hover,
 .weq-settings-subnav-item.is-active {
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-  color: var(--weq-accent-effective);
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
 }
 
 .weq-settings-dialog .weq-settings-nav-item.is-active,
 html[data-theme='dark'] .weq-settings-dialog .weq-settings-nav-item.is-active {
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-  color: var(--weq-accent-effective);
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
 }
 
 .weq-settings-content > .weq-settings-body {

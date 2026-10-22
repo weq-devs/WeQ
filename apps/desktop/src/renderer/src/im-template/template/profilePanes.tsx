@@ -32,6 +32,7 @@ import { QzoneNavigationContext } from '../../lib/qzoneNavigation';
 import { openLightbox } from '../../components/ImageLightbox';
 import { PersonalityHomeDialog } from '../../components/PersonalityHomeDialog';
 import { ProfileLikesRow } from '../../components/qq-actions/ProfileLikesRow';
+import { CommonRelationships } from '../../components/qq-actions/CommonRelationships';
 import { MutualMarkDialog } from '../../components/MutualMarkDialog';
 import { albumMediaUrl, collectionImageUrl } from '../../lib/resourceUrl';
 import { cn } from './classNames';
@@ -410,6 +411,9 @@ export function ContactProfileDialog({
         ) : null}
 
         <div className="weq-profile-list">
+          {profile.identityLabel === 'QQ' && profile.kind !== 'bot' && (
+            <CommonRelationships uin={profile.identityValue} />
+          )}
           <ProfileRow icon={<User size={13} />} label="用户名" value={profile.username} mono />
           {profile.qid ? (
             <ProfileRow icon={<Fingerprint size={13} />} label="QID" value={profile.qid} mono />

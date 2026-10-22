@@ -14,6 +14,7 @@ import {
   type KeyboardEvent,
   type ReactElement,
 } from 'react';
+import '../styles/app-lock.css';
 
 const DEFAULT_LENGTH = 6;
 

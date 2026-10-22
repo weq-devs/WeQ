@@ -298,6 +298,191 @@ async function attachmentView() {
   }
   return { ...view, api };
 }
+
+describe('邮箱修饰键多选', () => {
+  async function selectionView() {
+    const { api, list } = fixture();
+    const items = ['a', 'b', 'c', 'd', 'e'].map((id) => ({
+      ...page().items[0]!,
+      id,
+      subject: `邮件 ${id}`,
+    }));
+    list.mockResolvedValue({ ...page(), items, total: 60, hasMore: true });
+    vi.mocked(api.read).mockImplementation(async (id) => ({
+      ...items.find((item) => item.id === id)!,
+      html: '<p>合成正文</p>',
+      replyTo: null,
+      attachments: [],
+    }));
+    const view = await mount(api);
+    return {
+      ...view,
+      api,
+      list,
+      click: (id: string, modifiers: MouseEventInit = {}, checkbox = false) =>
+        act(async () => {
+          const target = checkbox
+            ? view.host.querySelector(`[aria-label="选择 邮件 ${id}"]`)
+            : view.host.querySelector(`[data-weq-select-id="${id}"]`);
+          target!.dispatchEvent(new MouseEvent('click', { bubbles: true, ...modifiers }));
+        }),
+      checked: () =>
+        [...view.host.querySelectorAll<HTMLInputElement>('.weq-mail-row > input')]
+          .filter((input) => input.checked)
+          .map((input) => input.getAttribute('aria-label')!.replace('选择 邮件 ', '')),
+    };
+  }
+
+  it('Ctrl 与 ⌘ 点击切换单封，选中行高亮且不读取正文', async () => {
+    const f = await selectionView();
+    try {
+      await f.click('a', { ctrlKey: true });
+      await f.click('c', { metaKey: true });
+      expect(f.checked()).toEqual(['a', 'c']);
+      expect(f.host.querySelectorAll('.weq-mail-row.is-selected')).toHaveLength(2);
+      await f.click('a', { ctrlKey: true });
+      expect(f.checked()).toEqual(['c']);
+      expect(f.api.read).not.toHaveBeenCalled();
+      await act(async () =>
+        f.host.querySelector<HTMLButtonElement>('[aria-label="标为未读"]')!.click(),
+      );
+      expect(f.api.action).toHaveBeenCalledWith(['c'], 'unread');
+    } finally {
+      f.close();
+    }
+  });
+
+  it('普通打开建立锚点，Shift 正反向范围替换，⌘＋Shift 追加范围', async () => {
+    const f = await selectionView();
+    try {
+      await f.click('c');
+      expect(f.api.read).toHaveBeenCalledWith('c', expect.any(AbortSignal));
+      expect(f.checked()).toEqual([]);
+      await f.click('e', { shiftKey: true });
+      expect(f.checked()).toEqual(['c', 'd', 'e']);
+      await f.click('a', { shiftKey: true });
+      expect(f.checked()).toEqual(['a', 'b', 'c']);
+      await f.click('e', { metaKey: true, shiftKey: true });
+      expect(f.checked()).toEqual(['a', 'b', 'c', 'd', 'e']);
+      expect(f.api.read).toHaveBeenCalledTimes(1);
+    } finally {
+      f.close();
+    }
+  });
+
+  it('复选框共用范围锚点，修饰键 pointerdown 后 click 不会重复切换', async () => {
+    const f = await selectionView();
+    try {
+      await f.click('b', {}, true);
+      await f.click('d', { shiftKey: true }, true);
+      expect(f.checked()).toEqual(['b', 'c', 'd']);
+      const button = f.host.querySelector<HTMLButtonElement>('[data-weq-select-id="e"]')!;
+      act(() => {
+        button.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, ctrlKey: true }));
+        button.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+      });
+      expect(f.checked()).toEqual(['b', 'c', 'd', 'e']);
+      expect(f.api.read).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+
+  it.each(['下一页', '收件箱', '未读', '搜索'])('%s 后清空选择和旧锚点', async (action) => {
+    const f = await selectionView();
+    try {
+      await f.click('a', { ctrlKey: true });
+      await f.click('c', { shiftKey: true });
+      await act(async () => {
+        if (action === '收件箱')
+          f.host.querySelector<HTMLButtonElement>('.weq-mail-folders [title="收件箱"]')!.click();
+        else if (action === '未读')
+          f.host.querySelector<HTMLInputElement>('.weq-mail-list-heading input')!.click();
+        else if (action === '搜索')
+          f.host
+            .querySelector<HTMLFormElement>('.weq-mail-search')!
+            .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        else f.host.querySelector<HTMLButtonElement>('[aria-label="下一页"]')!.click();
+      });
+      expect(f.checked()).toEqual([]);
+      await f.click('e', { shiftKey: true });
+      expect(f.checked()).toEqual(['e']);
+    } finally {
+      f.close();
+    }
+  });
+
+  it('自动刷新移除失效选择和锚点，不把旧邮件带入批量操作', async () => {
+    const f = await selectionView();
+    try {
+      await f.click('a', { ctrlKey: true });
+      f.list.mockResolvedValue({
+        ...page(),
+        items: [{ ...page().items[0]!, id: 'e', subject: '邮件 e' }],
+      });
+      await f.setActive(false);
+      await f.setActive(true);
+      expect(f.checked()).toEqual([]);
+      await f.click('e', { shiftKey: true });
+      expect(f.checked()).toEqual(['e']);
+    } finally {
+      f.close();
+    }
+  });
+
+  it('列表键盘全选与取消沿用公共逻辑，不拦截搜索输入框', async () => {
+    const f = await selectionView();
+    try {
+      await f.click('b', { ctrlKey: true });
+      await act(async () =>
+        f.host.querySelector('[data-weq-select-id="b"]')!.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'a',
+            metaKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      );
+      expect(f.checked()).toEqual(['a', 'b', 'c', 'd', 'e']);
+      act(() => {
+        const button = f.host.querySelector<HTMLButtonElement>('[data-weq-select-id="b"]')!;
+        button.focus();
+        button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      });
+      expect(f.checked()).toEqual([]);
+      const search = f.host.querySelector<HTMLInputElement>('[aria-label="搜索邮件"]')!;
+      act(() => {
+        search.focus();
+        search.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }),
+        );
+      });
+      expect(f.checked()).toEqual([]);
+      expect(f.api.read).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+
+  it('带修饰键点击星标仍只处理该邮件，不混入多选或读信', async () => {
+    const f = await selectionView();
+    try {
+      await f.click('a', { ctrlKey: true });
+      await act(async () =>
+        f.host
+          .querySelector('[aria-label="设为星标 邮件 c"]')!
+          .dispatchEvent(new MouseEvent('click', { ctrlKey: true, bubbles: true })),
+      );
+      expect(f.api.action).toHaveBeenCalledWith(['c'], 'star');
+      expect(f.checked()).toEqual(['a']);
+      expect(f.api.read).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+});
+
 describe('附件公共保存入口', () => {
   it('按所选附件的真实文件名准备单文件，创建任务而非直接另存', async () => {
     const view = await attachmentView();

@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WeQ Web 容器测试</title>
+<style>body{font:16px system-ui;margin:24px;color:#202522;background:#f8faf9}h1{font-size:22px}button{font:inherit;padding:12px;margin:8px 0}@media(prefers-color-scheme:dark){body{color:#f0f3f1;background:#171b18}}</style></head>
+<body><h1>Web 容器联通测试</h1><p>本机隔离 TS 测试，不连接真实 QQ 数据。</p><p id="result">正在请求</p><p id="socket">正在建立订阅</p><button id="probe">验证网页请求</button>
+<script>
+async function probe(){const response=await fetch('/trpc/probe');document.querySelector('#result').textContent=response.ok?'Web 已连接':'授权已撤销';}
+document.querySelector('#probe').onclick=probe;probe();
+const socket=new WebSocket(location.origin.replace(/^http/,'ws')+'/trpc-ws');
+socket.onopen=()=>socket.send(JSON.stringify({id:1,method:'subscription',params:{path:'stream'}}));
+socket.onmessage=()=>document.querySelector('#socket').textContent='WebSocket 已连接';
+socket.onclose=()=>{document.querySelector('#socket').textContent='订阅已断开';probe();};
+</script></body></html>

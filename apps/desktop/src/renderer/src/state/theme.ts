@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { accentColors, normalizeHex } from '../../../shared/theme_colors';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type ThemeResolved = 'light' | 'dark';
@@ -106,6 +107,7 @@ function applyTheme({
   componentStyle: ThemeComponentStyle;
 }) {
   const resolved = resolvePreference(preference);
+  const colors = accentColors(accent, resolved);
   const root = document.documentElement;
   root.dataset.themePreference = preference;
   root.dataset.theme = resolved;
@@ -114,6 +116,12 @@ function applyTheme({
   root.classList.toggle('dark', resolved === 'dark');
   root.style.colorScheme = resolved;
   root.style.setProperty('--weq-accent-custom', accent || '');
+  root.style.setProperty('--weq-accent-on', colors.onAccent);
+  root.style.setProperty('--weq-accent-ink', colors.ink);
+  root.style.setProperty('--weq-accent-hover', colors.hover);
+  root.style.setProperty('--weq-accent-solid', colors.solid);
+  root.style.setProperty('--weq-accent-solid-foreground', colors.onSolid);
+  root.style.setProperty('--weq-accent-solid-hover', colors.solidHover);
   // Keep the built-in QQ 频道 / QQ 空间 browsers' 深/浅 mode in lockstep with WeQ.
   // Safe when no such window is open; the bridge may be absent in non-electron
   // contexts (tests), hence the optional chaining.
@@ -122,7 +130,7 @@ function applyTheme({
     window.weq?.qzone?.setTheme?.(preference);
     // The 每日推文 ARK 封面 / 跳转页 render in the main process (no localStorage),
     // so push the effective accent + resolved 深/浅 for them to follow.
-    window.weq?.weqAssistant?.setTheme?.({ accent, mode: resolved });
+    window.weq?.weqAssistant?.setTheme?.({ accent: colors.accent, mode: resolved });
   } catch {}
 }
 
@@ -147,6 +155,7 @@ let lastPointer: { x: number; y: number } | null = null;
 let pointerTracked = false;
 /** 递增序号：连续快切时只让最后一次的收尾清掉 ripple class。 */
 let rippleSeq = 0;
+let preferenceRevision = 0;
 
 function ensurePointerTracking() {
   if (pointerTracked) return;
@@ -208,8 +217,11 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   componentStyle: 'classic',
   initialized: false,
   setPreference: (preference) => {
-    const { accent, background, componentStyle, resolved } = get();
+    const { resolved } = get();
+    const revision = ++preferenceRevision;
     const commit = () => {
+      if (revision !== preferenceRevision) return;
+      const { accent, background, componentStyle } = get();
       applyTheme({ preference, accent, background, componentStyle });
       persist(storageKeys.preference, preference);
       set({
@@ -225,7 +237,8 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     }
     runThemeRipple(commit);
   },
-  setAccent: (accent) => {
+  setAccent: (input) => {
+    const accent = normalizeHex(input) ?? '';
     const { preference, background, componentStyle } = get();
     applyTheme({ preference, accent, background, componentStyle });
     persist(storageKeys.accent, accent);
@@ -250,8 +263,9 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     set({ resolved });
   },
   hydrate: () => {
+    preferenceRevision++;
     const preference = readPreference();
-    const accent = readAccent();
+    const accent = normalizeHex(readAccent()) ?? '';
     const background = readBackground();
     const componentStyle = readComponentStyle();
     applyTheme({ preference, accent, background, componentStyle });

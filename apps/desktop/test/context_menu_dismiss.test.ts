@@ -148,7 +148,8 @@ describe('右键菜单外部点击', () => {
     });
     press(host.querySelector('.weq-acct-switch')!);
     act(() => {
-      host
+      // 账号列表挂在 OverlayLayer 里，而它 portal 到 document.body —— 不在 host 下。
+      document
         .querySelector('.weq-acct-row')!
         .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
     });

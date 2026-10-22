@@ -81,60 +81,6 @@
   display: none;
 }
 
-/* 「更多功能」壳：只为把弹框锚在这个按钮右边（rail 本身是 grid，按钮位置不固定）。 */
-.rail-more-wrap {
-  position: relative;
-  display: grid;
-  justify-items: center;
-}
-
-.rail-more-popover {
-  position: absolute;
-  left: 62px;
-  top: -6px;
-  z-index: 40;
-  display: grid;
-  width: max-content;
-  grid-template-columns: repeat(3, 56px);
-  gap: 6px;
-  padding: 8px;
-  border: 1px solid var(--im-color-line, rgba(0, 0, 0, 0.08));
-  border-radius: 10px;
-  background: var(--popover, rgba(255, 255, 255, 0.98));
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.16);
-}
-
-.rail-more-popover .rail-more-tile {
-  position: relative;
-  display: grid;
-  width: 56px;
-  height: 56px;
-  place-items: center;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--weq-fg-secondary, #6b7686);
-  cursor: pointer;
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
-}
-
-.rail-more-popover .rail-more-tile svg {
-  color: inherit;
-}
-
-.rail-more-popover .rail-more-tile:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
-  color: var(--weq-accent-effective, #0099f7);
-}
-
-html[data-theme='dark'] .rail-more-popover {
-  border-color: rgba(255, 255, 255, 0.1);
-  background: #1f2429;
-  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.5);
-}
-
 .rail-tab-icon {
   position: relative;
   display: grid;
@@ -243,34 +189,18 @@ html[data-theme='dark'] .rail-more-popover {
 }
 
 /*
- * 桌面端 rail 按钮被 app-shell 缩到 38×38（见 styles/index.css），17px 的通用气泡
- * 会压住 22px 的图标。邮箱等未放大的 tab 用小号气泡并贴角；消息/联系人 tab 有
- * 46×46 的专属气泡规则。
+ * 不同入口保留各自的角标定位，数字尺寸与配色由 rail-navigation.css 统一。
  */
 .app-shell .rail-nav .rail-badge-mail {
   top: 2px;
   right: 2px;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 4px;
-  border: 1px solid var(--im-color-rail-bg, #e7e7e9);
-  font-size: 9.5px;
-}
-
-html[data-theme='dark'] .app-shell .rail-nav .rail-badge-mail {
-  border-color: #343638;
 }
 
 /* 移动端 rail 按钮铺满格子、带文字标签，沿用通用气泡的居上定位。 */
 @media (max-width: 760px) {
   .app-shell .rail-nav .rail-badge-mail {
-    top: -2px;
+    top: 0;
     right: calc(50% - 24px);
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-width: 2px;
-    font-size: 10px;
   }
 }
 
@@ -282,49 +212,6 @@ html[data-theme='dark'] .app-shell .rail-nav .rail-badge-mail {
   width: 9px;
   height: 9px;
   padding: 0;
-}
-
-.rail-menu-popover {
-  position: absolute;
-  left: 58px;
-  bottom: 0;
-  z-index: 30;
-  display: grid;
-  width: max-content;
-  padding: 6px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 8px;
-  background: var(--popover, rgba(255, 255, 255, 0.96));
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.14);
-}
-
-.rail-menu-popover button {
-  display: grid;
-  width: 100%;
-  height: 34px;
-  min-height: 34px;
-  grid-template-columns: 20px max-content;
-  align-items: center;
-  justify-items: start;
-  gap: 8px;
-  padding: 0 9px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--weq-fg-primary, #111111);
-  font-size: 15px;
-  font-weight: 400;
-  text-align: left;
-  cursor: pointer;
-}
-
-.rail-menu-popover button span {
-  justify-self: start;
-  text-align: left;
-}
-
-.rail-menu-popover button:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
 }
 
 .profile-popover {

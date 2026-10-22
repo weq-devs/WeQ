@@ -3,6 +3,7 @@ import {
   messageContentClipboard,
   messageContentText,
   selectedMessageClipboard,
+  messageRichClipboard,
 } from '../src/renderer/src/lib/messageClipboard';
 import { readMentionClipboard } from '../src/renderer/src/lib/mentionClipboard';
 
@@ -27,6 +28,130 @@ const elements = [
   { type: 'text', data: { textContent: '后' } },
 ];
 describe('消息内容复制', () => {
+  it('单条与批量的纯文本、富文本卡片复制保留类型与基础信息，不暴露资源票据', () => {
+    const card = {
+      type: 'ark',
+      data: {
+        arkData: JSON.stringify({
+          app: 'com.tencent.miniapp.lua',
+          prompt: '[小程序]',
+          meta: {
+            detail_1: {
+              title: '合成小程序',
+              desc: '基础描述',
+              source: '合成来源',
+              qqdocurl: 'https://example.invalid/shared',
+              preview: 'https://example.invalid/private-image?token=synthetic-secret',
+            },
+          },
+          config: { token: 'synthetic-private-token' },
+        }),
+      },
+    };
+    const single = messageContentClipboard([card]);
+    expect(single.text).toContain('[小程序卡片]');
+    expect(single.text).toContain('合成小程序');
+    expect(single.text).toContain('基础描述');
+    expect(single.text).toContain('https://example.invalid/shared');
+    expect(single.text).not.toMatch(/synthetic-secret|synthetic-private-token|arkData/);
+    const rich = messageRichClipboard([
+      { sender: '合成用户', time: '2026-10-22T05:00:00+08:00', body: '[卡片]', elements: [card] },
+    ]);
+    expect(rich.text).toContain(single.text);
+    expect(new DOMParser().parseFromString(rich.html, 'text/html').body.textContent).toContain(
+      '合成小程序',
+    );
+  });
+
+  it.each([
+    {
+      app: 'com.tencent.music.lua',
+      meta: { music: { title: '合成歌曲', desc: '合成歌手' } },
+      kind: '音乐卡片',
+      text: '合成歌曲',
+    },
+    {
+      app: 'com.tencent.troopsharecard',
+      meta: { contact: { title: '合成群', id: '123456', type: 'group' } },
+      kind: '群名片',
+      text: '123456',
+    },
+    {
+      app: 'com.tencent.template.public',
+      meta: { mail: { title: '合成发件人', subTitle: '合成主题', content: '合成正文' } },
+      kind: '邮箱通知卡片',
+      text: '合成主题',
+    },
+    {
+      app: 'custom.example',
+      meta: { card: { title: '未知卡片的可读标题' } },
+      kind: 'custom.example',
+      text: '未知卡片的可读标题',
+    },
+  ])('$app 保留可辨别的卡片类型与已知字段', ({ app, meta, kind, text }) => {
+    const value = messageContentText([{ type: 'ark', data: { arkData: { app, meta } } }]);
+    expect(value).toContain(kind);
+    expect(value).toContain(text);
+    expect(value).not.toBe('[卡片]');
+  });
+
+  it('损坏卡片不会中断复制，仍保留类型和可用摘要；HTML 只放转义后的文本', () => {
+    expect(
+      messageContentText([{ type: 'ark', data: { arkData: 'broken', summary: '可用摘要' } }]),
+    ).toContain('可用摘要');
+    const value = messageContentClipboard([
+      {
+        type: 'ark',
+        data: {
+          arkData: {
+            app: 'custom.example',
+            meta: { card: { title: '<script>synthetic()</script>' } },
+          },
+        },
+      },
+    ]);
+    expect(value.text).toContain('<script>synthetic()</script>');
+    expect(
+      new DOMParser().parseFromString(value.html, 'text/html').querySelector('script'),
+    ).toBeNull();
+  });
+  it('位置、动态、Markdown 与编码公告保留可读字段，不重复附带的兼容文本', () => {
+    const announcement = {
+      type: 'ark',
+      data: {
+        arkData: {
+          app: 'com.tencent.mannounce',
+          meta: { announce: { encode: 1, title: btoa('Notice'), text: btoa('Visible content') } },
+        },
+      },
+    };
+    expect(messageContentText([announcement])).toContain('[群公告]\nNotice\nVisible content');
+    expect(
+      messageContentText([{ type: 'shareLocation', data: { shareLocationText: '合成地点' } }]),
+    ).toContain('[位置卡片]\n合成地点');
+    expect(
+      messageContentText([
+        { type: 'qqDynamic', data: { dynamicDesc: { mainDesc: '合成动态', subDesc: '基础信息' } } },
+      ]),
+    ).toContain('[QQ 动态卡片]\n合成动态\n基础信息');
+    const markdown = [
+      { type: 'markdown', data: { markdownContent: '合成正文' } },
+      { type: 'text', data: { textContent: '合成正文' } },
+    ];
+    expect(messageContentText(markdown)).toBe('[Markdown 卡片]\n合成正文');
+    expect(
+      new DOMParser().parseFromString(messageContentClipboard(markdown).html, 'text/html').body
+        .textContent,
+    ).toBe('[Markdown 卡片]\n合成正文');
+    expect(
+      messageContentText([
+        {
+          type: 'ark',
+          data: { arkData: { app: '__proto__', meta: { card: { title: '安全回退' } } } },
+        },
+      ]),
+    ).toContain('安全回退');
+  });
   it('完整序列化引用、系统表情、提及及贴纸，纯文本与富文本内容一致', () => {
     const value = messageContentClipboard(elements, '不完整的旧摘要');
     expect(value.text).toBe('> 原话[微笑]\n前[大笑]@甲[贴纸]后');

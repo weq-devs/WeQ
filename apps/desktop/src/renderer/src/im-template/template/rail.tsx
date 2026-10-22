@@ -10,7 +10,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { SiQzone } from 'react-icons/si';
-import { useEffect, useRef, useState, useTransition } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { cn } from './classNames';
 import { Avatar } from './primitives';
@@ -64,13 +64,11 @@ export function AppRail({
   activeRailItem?: 'settings' | 'dressup';
 }) {
   const [profileOpen, setProfileOpen] = useState(false);
-  const [pendingView, setPendingView] = useState<MainView | null>(null);
-  const [, startViewTransition] = useTransition();
   const railRef = useRef<HTMLElement | null>(null);
   const activeTitle = useWorkspaceActiveTitle();
   const activePage =
     activeTitle === '个性装扮' ? 'dressup' : activeTitle === '设置' ? 'settings' : undefined;
-  const activeView = activePage ?? activeRailItem ?? pendingView ?? view;
+  const activeView = activePage ?? activeRailItem ?? view;
   const updateAvailable = useUpdateStore((s) => s.available);
   const settingsButton = (mobile = false) => (
     <button
@@ -106,12 +104,6 @@ export function AppRail({
   ];
 
   useEffect(() => {
-    if (pendingView !== null && view === pendingView) {
-      setPendingView(null);
-    }
-  }, [view, pendingView]);
-
-  useEffect(() => {
     if (!profileOpen) {
       return;
     }
@@ -142,13 +134,8 @@ export function AppRail({
 
   function selectView(nextView: MainView) {
     setProfileOpen(false);
-    // Paint the active-state change immediately, then push the heavy
-    // view switch into a transition so the button animation isn't blocked
-    // by downstream rendering work (e.g. loading a large message list).
-    setPendingView(nextView);
-    startViewTransition(() => {
-      onViewChange(nextView);
-    });
+    // 导航与高亮一起提交，避免后台刷新反复抢占低优先级的页面切换。
+    onViewChange(nextView);
   }
 
   return (
@@ -196,6 +183,7 @@ export function AppRail({
               )}
               onClick={() => selectView('messages')}
               title="消息"
+              aria-current={activeView === 'messages' ? 'page' : undefined}
             >
               <span className={cn('rail-tab-icon')}>
                 <MessageCircle size={22} strokeWidth={1.5} />
@@ -210,7 +198,6 @@ export function AppRail({
                 aria-label={`定位首条未读会话，共 ${messageBadgeCount} 条未读消息`}
                 onClick={() => {
                   setProfileOpen(false);
-                  setPendingView('messages');
                   if (onMessageBadgeClick) onMessageBadgeClick();
                   else selectView('messages');
                 }}
@@ -223,6 +210,7 @@ export function AppRail({
             className={cn(railButtonClass(activeView === 'contacts'), 'rail-tab rail-tab-contacts')}
             onClick={() => selectView('contacts')}
             title="联系人"
+            aria-current={activeView === 'contacts' ? 'page' : undefined}
           >
             <span className={cn('rail-tab-icon')}>
               <ContactRailIcon />
@@ -240,6 +228,7 @@ export function AppRail({
             className={cn(railButtonClass(activeView === 'qzone'), 'rail-tab rail-tab-qzone')}
             onClick={() => selectView('qzone')}
             title="QQ 空间"
+            aria-current={activeView === 'qzone' ? 'page' : undefined}
             type="button"
           >
             <span className={cn('rail-tab-icon')}>
@@ -251,6 +240,7 @@ export function AppRail({
             className={cn(railButtonClass(activeView === 'channel'), 'rail-tab rail-tab-channel')}
             onClick={() => selectView('channel')}
             title="QQ 频道"
+            aria-current={activeView === 'channel' ? 'page' : undefined}
             type="button"
           >
             <span className={cn('rail-tab-icon')}>
@@ -263,13 +253,21 @@ export function AppRail({
             className={cn(railButtonClass(activeView === 'mail'), 'rail-tab rail-tab-mail')}
             onClick={() => selectView('mail')}
             title="QQ 邮箱"
+            aria-current={activeView === 'mail' ? 'page' : undefined}
           >
             <span className={cn('rail-tab-icon')}>
               <Mail size={22} strokeWidth={1.5} />
             </span>
             <span className={cn('rail-label')}>QQ邮箱</span>
             {mailBadgeCount > 0 ? (
-              <span className="rail-badge rail-badge-mail">{formatBadgeCount(mailBadgeCount)}</span>
+              <span
+                className="rail-badge rail-badge-mail"
+                role="status"
+                aria-label={`${mailBadgeCount} 封未读邮件`}
+                title={`${mailBadgeCount} 封未读邮件`}
+              >
+                {formatBadgeCount(mailBadgeCount)}
+              </span>
             ) : null}
           </button>
           {contentItems.map((item) => (
@@ -309,6 +307,7 @@ export function AppRail({
             )}
             type="button"
             title="应用"
+            aria-current={activeView === 'tools' ? 'page' : undefined}
             onClick={() => selectView('tools')}
           >
             <span className={cn('rail-tab-icon')}>

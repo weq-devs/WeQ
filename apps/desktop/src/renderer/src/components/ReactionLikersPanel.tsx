@@ -18,6 +18,8 @@ import { RotateCw, Users } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { cn } from '../lib/utils';
 import { QqAvatar } from './QqAvatar';
+import { ProfileAvatar } from './ProfileAvatar';
+import { displayGroupMemberName } from '../im-template/template/user';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
@@ -82,7 +84,7 @@ export function ReactionLikersPanel({
   // 分页拍平 + 按 uin 去重（服务端分页理论上不重叠，这里只是兜底）。
   const users = useMemo(() => {
     const seen = new Set<string>();
-    const out: Array<{ uin: string; nick: string; avatarUrl: string }> = [];
+    const out: NonNullable<typeof query.data>['pages'][number]['items'] = [];
     for (const page of query.data?.pages ?? []) {
       for (const user of page.items) {
         if (seen.has(user.uin)) continue;
@@ -173,23 +175,32 @@ export function ReactionLikersPanel({
           <div className={cn('reaction-likers-body')} onScroll={onScroll}>
             {users.map((user) => {
               const isSelf = selfUin !== '' && user.uin === selfUin;
-              // 服务端 / 本地都没给昵称时退化成 QQ 号，至少还能认人。
-              const name = user.nick || `QQ ${user.uin}`;
+              const name = displayGroupMemberName(user.card, user.remark, user.nick, user.uin);
               return (
                 <div
                   key={user.uin}
                   className={cn('reaction-likers-row', isSelf && 'is-self')}
-                  title={user.nick ? `${user.nick}（${user.uin}）` : user.uin}
+                  title={name !== user.uin ? `${name}（${user.uin}）` : user.uin}
                 >
-                  <QqAvatar
-                    uin={user.uin}
-                    url={user.avatarUrl || null}
-                    size={30}
-                    className={cn('reaction-likers-avatar')}
-                  />
+                  <ProfileAvatar
+                    target={{
+                      identity: user.uid || user.uin,
+                      uin: user.uin,
+                      name,
+                      avatarUrl: user.avatarUrl,
+                      group: { code: groupId, name: '' },
+                    }}
+                  >
+                    <QqAvatar
+                      uin={user.uin}
+                      url={user.avatarUrl || null}
+                      size={30}
+                      className={cn('reaction-likers-avatar')}
+                    />
+                  </ProfileAvatar>
                   <span className={cn('reaction-likers-meta')}>
                     <span className={cn('reaction-likers-name')}>{name}</span>
-                    {user.nick ? (
+                    {name !== user.uin ? (
                       <span className={cn('reaction-likers-uin')}>{user.uin}</span>
                     ) : null}
                   </span>

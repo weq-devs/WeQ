@@ -15,8 +15,10 @@ import {
 } from 'react';
 import {
   Activity,
+  ArrowLeft,
   AudioLines,
   Bot,
+  Bug,
   BrainCircuit,
   Check,
   ChevronRight,
@@ -37,6 +39,7 @@ import {
   ScanText,
   Settings2,
   ScanSearch,
+  ScrollText,
   ShieldCheck,
   Sun,
   User,
@@ -52,12 +55,13 @@ import { AppLockSection } from './settings/AppLockSection';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
-import { IntentModelsSection } from './settings/IntentModelsSection';
 import { CloneSettingsSection } from './settings/CloneSettingsSection';
 import { InteractionProfileSection } from './settings/InteractionProfileSection';
 import { VoiceTranscribeSection, TtsProvidersCard } from './settings/VoiceTranscribeSection';
 import { OcrModelsSection } from './settings/OcrModelsSection';
 import { McpServerSection } from './settings/McpServerSection';
+import { RemoteSection } from './settings/RemoteSection';
+import { BackupSection } from './settings/BackupSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
 import { DaemonSection } from './settings/DaemonSection';
@@ -65,8 +69,10 @@ import { DatabaseToleranceSection } from './settings/DatabaseToleranceSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
 import { SectionHeader, SettingsScopeContext, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
+import { DEFAULT_ACCENT, normalizeHex } from '../../../shared/theme_colors';
 import { AntiRecallDialog } from './AntiRecallDialog';
 import { WorkspacePage } from './WorkspacePages';
+import { IS_WEB } from '../lib/target';
 import { UsagePanel } from '../views/agentlab/UsagePanel';
 import '../styles/settings-responsive.css';
 import '../styles/settings-navigation.css';
@@ -98,6 +104,12 @@ interface SettingsSection {
 
 const SETTINGS_SECTIONS: SettingsSection[] = [
   {
+    id: 'backup',
+    label: '备份与恢复',
+    icon: <HardDrive size={16} />,
+    render: () => <BackupSection />,
+  },
+  {
     id: 'global',
     label: '窗口行为',
     icon: <Settings2 size={16} strokeWidth={1.8} />,
@@ -105,7 +117,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'version',
-    label: '版本',
+    label: '版本与更新',
     icon: <Package size={16} strokeWidth={1.8} />,
     render: () => <VersionSection />,
   },
@@ -230,12 +242,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     ),
   },
   {
-    id: 'local-models',
-    label: '语音识别',
-    icon: <HardDrive size={16} strokeWidth={1.8} />,
-    render: () => <VoiceTranscribeSection />,
-  },
-  {
     id: 'clone-settings',
     label: '好友克隆',
     icon: <Users size={16} />,
@@ -256,12 +262,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <IntentSenseSection page="suggestions" />,
   },
   {
-    id: 'intent-models',
-    label: '意图模型',
-    icon: <BrainCircuit size={16} strokeWidth={1.8} />,
-    render: () => <IntentModelsSection />,
-  },
-  {
     id: 'intent-sense',
     label: '意图感知',
     icon: <BrainCircuit size={16} strokeWidth={1.8} />,
@@ -272,6 +272,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     label: 'MCP 服务器',
     icon: <Plug size={16} strokeWidth={1.8} />,
     render: () => <McpServerSection />,
+  },
+  {
+    id: 'remote',
+    label: 'Web 与 Remote',
+    icon: <Monitor size={16} strokeWidth={1.8} />,
+    render: () => <RemoteSection />,
   },
   {
     id: 'rkey',
@@ -292,10 +298,16 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <DaemonSection />,
   },
   {
-    id: 'help',
-    label: '帮助',
+    id: 'faq',
+    label: '常见问题',
     icon: <HelpCircle size={16} strokeWidth={1.8} />,
-    render: () => <HelpSection />,
+    render: () => <HelpSection page="faq" />,
+  },
+  {
+    id: 'feedback',
+    label: '反馈',
+    icon: <Bug size={16} strokeWidth={1.8} />,
+    render: () => <HelpSection page="feedback" />,
   },
   {
     id: 'message-display',
@@ -317,7 +329,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'storage',
-    label: '缓存与网络',
+    label: '存储与网络',
     icon: <HardDrive size={16} />,
     render: () => <GlobalSettingsSection section="storage" />,
   },
@@ -335,27 +347,15 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'logs',
-    label: '日志设置',
-    icon: <Activity size={16} />,
-    render: () => <GlobalSettingsSection section="logs" />,
-  },
-  {
-    id: 'updates',
-    label: '更新提醒',
-    icon: <Package size={16} />,
-    render: () => <DaemonSection panel="updates" />,
-  },
-  {
-    id: 'tts',
-    label: '语音合成',
-    icon: <AudioLines size={16} />,
-    render: () => <TtsProvidersCard />,
+    label: '日志',
+    icon: <ScrollText size={16} />,
+    render: () => <HelpSection page="logs" />,
   },
 ];
 
 /** Quick-pick accent presets. First entry is the WeQ default blue. */
 const ACCENT_PRESETS = [
-  '#0099ff',
+  DEFAULT_ACCENT,
   '#3b82f6',
   '#6f8aa6',
   '#16b8a6',
@@ -365,8 +365,6 @@ const ACCENT_PRESETS = [
   '#ec4899',
   '#8b5cf6',
 ];
-
-const DEFAULT_ACCENT = '#0099ff';
 
 export function SettingsDialog({
   open,
@@ -391,6 +389,7 @@ export function SettingsDialog({
     settingsSectionFor(initialSection ?? 'global'),
   );
   const navRef = useRef<HTMLElement | null>(null);
+  const [mobileCategoryOpen, setMobileCategoryOpen] = useState(Boolean(initialSection));
   const subnavRef = useRef<HTMLElement | null>(null);
   const sections = SETTINGS_SECTIONS;
   const group = settingsGroupFor(activeId);
@@ -398,6 +397,7 @@ export function SettingsDialog({
 
   useEffect(() => {
     if (open && initialSection) setActiveId(settingsSectionFor(initialSection));
+    if (open) setMobileCategoryOpen(Boolean(initialSection));
   }, [open, initialSection]);
 
   useEffect(() => {
@@ -418,11 +418,25 @@ export function SettingsDialog({
   return (
     <WorkspacePage title="设置" onClose={onClose} standalone>
       <section
-        className="weq-settings-dialog"
+        className={`weq-settings-dialog${IS_WEB ? ' weq-mobile-settings' : ''}`}
+        data-mobile-category={mobileCategoryOpen || undefined}
         role="region"
         aria-labelledby="weq-settings-title"
         onMouseDown={(e) => e.stopPropagation()}
       >
+        {IS_WEB && (
+          <header className="weq-mobile-settings-header">
+            <button
+              type="button"
+              aria-label={mobileCategoryOpen ? '返回设置分类' : '返回'}
+              title="返回"
+              onClick={() => (mobileCategoryOpen ? setMobileCategoryOpen(false) : onClose())}
+            >
+              <ArrowLeft size={22} />
+            </button>
+            <strong>{mobileCategoryOpen ? group.label : '设置'}</strong>
+          </header>
+        )}
         <button
           className="weq-settings-close"
           type="button"
@@ -443,12 +457,16 @@ export function SettingsDialog({
                   type="button"
                   className={`weq-settings-nav-item${s.id === group.id ? ' is-active' : ''}`}
                   aria-current={s.id === group.id ? 'page' : undefined}
-                  onClick={() => setActiveId(s.sections[0]!)}
+                  onClick={() => {
+                    setActiveId(s.sections[0]!);
+                    setMobileCategoryOpen(true);
+                  }}
                 >
                   <span className="weq-settings-nav-icon">
                     {sections.find((section) => section.id === s.sections[0])!.icon}
                   </span>
                   <span>{s.label}</span>
+                  {IS_WEB && <ChevronRight className="weq-mobile-settings-chevron" size={18} />}
                 </button>
               </li>
             ))}
@@ -529,8 +547,13 @@ function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactEleme
   const setShowMessageSeq = trpc.bootstrap.setShowMessageSeq.useMutation();
   const setShowMessageTime = trpc.bootstrap.setShowMessageTime.useMutation();
   const setShowMessageUnreadBadge = trpc.bootstrap.setShowMessageUnreadBadge.useMutation();
+  const setReadFromFirstUnread = trpc.bootstrap.setReadFromFirstUnread.useMutation();
+  const setJumpToLatestAfterSend = trpc.bootstrap.setJumpToLatestAfterSend.useMutation();
+  const setShowGroupAssistantMessageCount =
+    trpc.bootstrap.setShowGroupAssistantMessageCount.useMutation();
   const utils = trpc.useUtils();
   const [badgeError, setBadgeError] = useState<string | null>(null);
+  const [readingError, setReadingError] = useState<string | null>(null);
   const [seqError, setSeqError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(true);
   const [pendant, setPendant] = useState(true);
@@ -667,6 +690,48 @@ function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactEleme
       )}
       {page === 'messages' && (
         <>
+          {[
+            {
+              key: 'readFromFirstUnread' as const,
+              label: '从第一条新消息开始阅读',
+              fallback: false,
+              mutation: setReadFromFirstUnread,
+            },
+            {
+              key: 'jumpToLatestAfterSend' as const,
+              label: '发送消息后定位到最新消息',
+              fallback: true,
+              mutation: setJumpToLatestAfterSend,
+            },
+            {
+              key: 'showGroupAssistantMessageCount' as const,
+              label: '群助手显示总消息数',
+              fallback: false,
+              mutation: setShowGroupAssistantMessageCount,
+            },
+          ].map(({ key, label, fallback, mutation }) => (
+            <div className="weq-settings-appearance-card" key={key}>
+              <div className="weq-settings-appearance-head">
+                <strong>{label}</strong>
+                <Toggle
+                  checked={settings.data?.[key] ?? fallback}
+                  disabled={!settings.data || mutation.isLoading}
+                  onChange={(enabled) => {
+                    setReadingError(null);
+                    mutation.mutate(
+                      { enabled },
+                      {
+                        onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
+                        onError: (error) => setReadingError(error.message),
+                      },
+                    );
+                  }}
+                  label={label}
+                />
+              </div>
+            </div>
+          ))}
+          {readingError ? <p role="alert">{readingError}</p> : null}
           <div className="weq-settings-appearance-card">
             <div className="weq-settings-appearance-head">
               <strong>显示消息汇总红点</strong>
@@ -870,18 +935,6 @@ type Hsl = { h: number; s: number; l: number };
 
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
-}
-
-function normalizeHex(input: string): string | null {
-  let hex = input.trim().replace(/^#/, '');
-  if (/^[0-9a-fA-F]{3}$/.test(hex)) {
-    hex = hex
-      .split('')
-      .map((c) => c + c)
-      .join('');
-  }
-  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
-  return `#${hex.toLowerCase()}`;
 }
 
 function hexToHsl(input: string): Hsl | null {

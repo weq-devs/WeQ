@@ -140,4 +140,33 @@ describe('消息富文本及图片', () => {
     expect(result.error).toContain('不支持');
     expect(fetcher).not.toHaveBeenCalled();
   });
+  it('输入框单图写入系统位图时，同时保留应用内无损还原用的富文本', async () => {
+    class Item {
+      constructor(readonly data: Record<string, Blob | Promise<Blob>>) {}
+    }
+    vi.stubGlobal('ClipboardItem', Item);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array([1, 2, 3]), {
+            headers: { 'content-type': 'image/png' },
+          }),
+      ),
+    );
+    const write = vi.spyOn(navigator.clipboard, 'write').mockResolvedValue();
+    const rich = {
+      text: 'image.png',
+      html: '<div data-weq-composer-clipboard="fixture"><img></div>',
+    };
+    expect(await exportMedia({ url: 'blob:fixture' }, 'clipboard', document, rich)).toEqual({
+      ok: true,
+    });
+    const item = write.mock.calls[0]![0][0] as unknown as Item;
+    expect(Object.keys(item.data).sort()).toEqual(['image/png', 'text/html', 'text/plain']);
+    expect(await (await item.data['text/html']!).text()).toBe(rich.html);
+    expect(new Uint8Array(await (await item.data['image/png']!).arrayBuffer())).toEqual(
+      new Uint8Array([1, 2, 3]),
+    );
+  });
 });

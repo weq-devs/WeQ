@@ -12,6 +12,7 @@ import { Loader2 } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { WARMUP_TOTAL, type WarmupProgress } from '../lib/accountWarmup';
 import logoUrl from '@resources/brand/logo.png';
+import '../styles/startup-home.css';
 
 export function WarmupSplash({
   progress,
@@ -22,11 +23,11 @@ export function WarmupSplash({
 }): ReactElement {
   if (!progress) {
     return (
-      <div className="flex h-full flex-col items-center justify-center">
+      <div className="weq-warmup flex h-full flex-col items-center justify-center">
         <img src={logoUrl} alt="WeQ" width={80} height={80} className="weq-splash-logo" />
-        <div className="mt-5 flex items-center gap-2 text-[13px] text-[#3c5368]">
+        <div className="weq-warmup-status mt-5 flex items-center gap-2 text-[13px]">
           <Loader2
-            className="animate-spin text-[#0099ff]"
+            className="weq-warmup-spinner animate-spin"
             size={15}
             strokeWidth={1.85}
             aria-hidden
@@ -39,9 +40,9 @@ export function WarmupSplash({
 
   const pct = Math.round((progress.done / (progress.total || WARMUP_TOTAL)) * 100);
   return (
-    <div className="flex h-full flex-col items-center justify-center">
+    <div className="weq-warmup flex h-full flex-col items-center justify-center">
       <img src={logoUrl} alt="WeQ" width={80} height={80} className="weq-splash-logo" />
-      <div className="mt-5 w-[260px]">
+      <div className="weq-warmup-progress mt-5 w-[260px]">
         <div
           className="weq-splash-track"
           role="progressbar"
@@ -51,9 +52,9 @@ export function WarmupSplash({
         >
           <div className="weq-splash-bar" style={{ width: `${pct}%` }} />
         </div>
-        <div className="mt-2.5 flex items-baseline justify-between text-[12px] text-[#3c5368]">
+        <div className="weq-warmup-status mt-2.5 flex items-baseline justify-between text-[12px]">
           <span>{progress.pending ? `正在载入${progress.pending}…` : '即将进入…'}</span>
-          <span className="tabular-nums text-[#7a8b9e]">{pct}%</span>
+          <span className="tabular-nums">{pct}%</span>
         </div>
       </div>
     </div>

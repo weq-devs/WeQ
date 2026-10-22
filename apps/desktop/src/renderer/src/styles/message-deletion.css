@@ -1,0 +1,35 @@
+.weq-message-delete-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.weq-message-delete-option input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin: 0;
+  accent-color: var(--weq-accent-effective);
+}
+
+.message-line.is-deleted .message-bubble .weq-msg-deleted-veil {
+  position: static;
+  inset: auto;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0;
+}
+
+.message-line.is-deleted .message-bubble .weq-msg-deleted-badge,
+.message-line.is-deleted .message-bubble .weq-msg-restore {
+  flex-shrink: 0;
+  white-space: nowrap;
+  letter-spacing: 0;
+}
+
+.message-line.is-deleted .message-bubble .weq-msg-restore {
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}

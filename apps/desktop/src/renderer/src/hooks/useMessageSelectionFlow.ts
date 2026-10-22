@@ -5,11 +5,13 @@ import { useDialog } from '../components/Dialog';
 import { useToast } from '../components/Toast';
 import { runMessageLoadTask } from '../components/MessageLoadTask';
 import { grayTipOf } from '../im-template/template/messageRow';
+import { createSelectionGapIndex } from '../lib/selectionGapIndex';
 import {
   messageSelectionItems,
   parseSelectionGap,
   selectionGapId,
   selectionGapsBetween,
+  mergeSelectionGaps,
   type SelectionGap,
   type SelectionModifiers,
   type LoadSelectionMessages,
@@ -67,6 +69,15 @@ export function useMessageSelectionFlow({
     [messages, selection.selectionMode, missingJumpSeq],
   );
   const order = useMemo(() => items.map((item) => item.id), [items]);
+  const itemsById = useMemo(() => {
+    const byId = new Map<string, (typeof items)[number]>();
+    for (const item of items) if (!byId.has(item.id)) byId.set(item.id, item);
+    return byId;
+  }, [items]);
+  const messagesById = useMemo(
+    () => new Map(messages.map((message, index) => [message.id, { message, index }])),
+    [messages],
+  );
   const gaps = useMemo(
     () =>
       [...selection.selectedIds].flatMap((id) => {
@@ -75,12 +86,8 @@ export function useMessageSelectionFlow({
       }),
     [selection.selectedIds],
   );
-  const gapSelected = (gap: SelectionGap) =>
-    gaps.some(
-      (selected) =>
-        BigInt(selected.previousSeq) <= BigInt(gap.previousSeq) &&
-        BigInt(selected.currentSeq) >= BigInt(gap.currentSeq),
-    );
+  const gapIndex = useMemo(() => createSelectionGapIndex(gaps), [gaps]);
+  const gapSelected = useCallback((gap: SelectionGap) => gapIndex.containsGap(gap), [gapIndex]);
   useLayoutEffect(() => {
     const identity = (message: Message) => {
       const seq = seqOf(message);
@@ -120,14 +127,17 @@ export function useMessageSelectionFlow({
       );
       return;
     }
-    for (const message of messages)
-      if (selection.selectedIds.has(message.id) || selection.anchorRef.current === message.id)
-        cache.set(message.id, message);
+    for (const id of new Set([...selection.selectedIds, selection.anchorRef.current])) {
+      if (!id) continue;
+      const message = messagesById.get(id)?.message;
+      if (message) cache.set(id, message);
+    }
     if (!busy)
       for (const id of cache.keys())
         if (!selection.selectedIds.has(id) && selection.anchorRef.current !== id) cache.delete(id);
   }, [
     messages,
+    messagesById,
     selection.selectedIds,
     selection.anchorRef,
     selection.setSelectedIds,
@@ -135,21 +145,39 @@ export function useMessageSelectionFlow({
     busy,
     seqOf,
   ]);
-  const selectedMessages = useMemo(() => {
-    const available = new Map(cache);
-    for (const message of messages) available.set(message.id, message);
-    const positions = new Map(messages.map((message, index) => [message.id, index]));
-    return [...selection.selectedIds]
-      .flatMap((id) => (available.has(id) ? [available.get(id)!] : []))
-      .sort((a, b) => {
-        if (positions.has(a.id) && positions.has(b.id))
-          return positions.get(a.id)! - positions.get(b.id)!;
-        const aSeq = seqOf(a),
-          bSeq = seqOf(b);
-        if (aSeq !== null && bSeq !== null && aSeq !== bSeq) return aSeq < bSeq ? -1 : 1;
-        return Date.parse(a.createdAt) - Date.parse(b.createdAt);
-      });
-  }, [cache, messages, selection.selectedIds, seqOf]);
+  const selectedFrom = useCallback(
+    (ids: ReadonlySet<string>) => {
+      return [...ids]
+        .flatMap((id) => {
+          const message = messagesById.get(id)?.message ?? cache.get(id);
+          return message ? [message] : [];
+        })
+        .sort((a, b) => {
+          const aPosition = messagesById.get(a.id),
+            bPosition = messagesById.get(b.id);
+          if (aPosition && bPosition) return aPosition.index - bPosition.index;
+          const aSeq = seqOf(a),
+            bSeq = seqOf(b);
+          if (aSeq !== null && bSeq !== null && aSeq !== bSeq) return aSeq < bSeq ? -1 : 1;
+          return Date.parse(a.createdAt) - Date.parse(b.createdAt);
+        });
+    },
+    [cache, messagesById, seqOf],
+  );
+  const selectedMessages = useMemo(
+    () => selectedFrom(selection.selectedIds),
+    [selectedFrom, selection.selectedIds],
+  );
+  const mergedGaps = useMemo(() => mergeSelectionGaps(gaps), [gaps]);
+  const selectedCount = useMemo(
+    () =>
+      mergedGaps.reduce((count, gap) => count + gap.count, 0) +
+      selectedMessages.filter((message) => {
+        const seq = seqOf(message);
+        return seq === null || !gapIndex.containsSequence(seq);
+      }).length,
+    [mergedGaps, selectedMessages, seqOf, gapIndex],
+  );
   const current = (controller: AbortController) =>
     !controller.signal.aborted &&
     latest.current.owner === owner &&
@@ -199,8 +227,15 @@ export function useMessageSelectionFlow({
     );
     return received;
   };
-  async function fetchGaps(chosen: SelectionGap[]) {
-    if (!chosen.length || request.current || !conversation) return;
+  async function prepare(action: string): Promise<Message[] | null> {
+    if (request.current || !conversation || !active) return null;
+    const chosen = mergeSelectionGaps(
+      [...selection.selectedIdsRef.current].flatMap((id) => {
+        const gap = parseSelectionGap(id);
+        return gap ? [gap] : [];
+      }),
+    );
+    if (!chosen.length) return selectedFrom(selection.selectedIdsRef.current);
     const controller = new AbortController();
     request.current = controller;
     setBusy(true);
@@ -208,34 +243,54 @@ export function useMessageSelectionFlow({
       const yes = await useDialog
         .getState()
         .confirm(
-          '拉取所选消息缺口？',
-          `选中了 ${chosen.length} 处消息缺口，是否通过现有漫游接口拉取缺失消息？`,
-          { okLabel: '拉取漫游', cancelLabel: '保留缺口选择' },
+          '操作前拉取所选消息缺口？',
+          `选区包含 ${chosen.length} 个合并区间，是否先合并拉取缺失消息，再${action}？`,
+          { okLabel: `拉取并${action}`, cancelLabel: '保留选择' },
         );
-      if (!yes || !current(controller)) return;
+      if (!yes || !current(controller)) return null;
       for (const gap of chosen) {
-        const received = await load(
-          controller,
-          'roaming',
-          (BigInt(gap.previousSeq) + 1n).toString(),
-          (BigInt(gap.currentSeq) - 1n).toString(),
-        );
-        if (!current(controller)) return;
-        const known = [...cache.values(), ...received].filter((message) => {
+        const start = (BigInt(gap.previousSeq) + 1n).toString();
+        const end = (BigInt(gap.currentSeq) - 1n).toString();
+        // 跨窗口的候选区间可能只是尚未显示；先补本机已有消息，再合并拉取真正的空窗。
+        await load(controller, 'local', start, end);
+        if (!current(controller)) return null;
+        const known = [...cache.values()].filter((message) => {
+          const seq = seqOf(message);
+          return seq !== null && seq > BigInt(gap.previousSeq) && seq < BigInt(gap.currentSeq);
+        });
+        for (const missing of selectionGapsBetween(gap.previousSeq, gap.currentSeq, known)) {
+          await load(
+            controller,
+            'roaming',
+            (BigInt(missing.previousSeq) + 1n).toString(),
+            (BigInt(missing.currentSeq) - 1n).toString(),
+          );
+          if (!current(controller)) return null;
+        }
+      }
+      const next = new Set(selection.selectedIdsRef.current);
+      for (const id of [...next]) {
+        const gap = parseSelectionGap(id);
+        if (!gap) continue;
+        const known = [...cache.values()].filter((message) => {
           const seq = seqOf(message);
           return seq !== null && seq > BigInt(gap.previousSeq) && seq < BigInt(gap.currentSeq);
         });
         const remaining = selectionGapsBetween(gap.previousSeq, gap.currentSeq, known);
-        selection.setSelectedIds((previous) => {
-          const next = new Set(previous);
-          next.delete(selectionGapId(gap));
-          for (const message of known) next.add(message.id);
-          for (const missing of remaining) next.add(selectionGapId(missing));
-          return next;
-        });
+        next.delete(id);
+        for (const message of known) next.add(message.id);
+        for (const missing of remaining) next.add(selectionGapId(missing));
       }
+      selection.selectedIdsRef.current = next;
+      selection.setSelectedIds(next);
+      if ([...next].some((id) => parseSelectionGap(id))) {
+        useToast.getState().push({ tone: 'warning', title: `所选缺口尚未补全，未执行${action}` });
+        return null;
+      }
+      return selectedFrom(next);
     } catch {
       // 横幅保留具体错误；未成功的缺口与原选区不丢弃。
+      return null;
     } finally {
       if (request.current === controller) {
         request.current = null;
@@ -245,53 +300,27 @@ export function useMessageSelectionFlow({
   }
   const onChange = (next: Set<string>) => {
     selection.setSelectedIds(next);
-    const chosen = [...next]
-      .filter((id) => !selection.selectedIds.has(id))
-      .flatMap((id) => {
-        const gap = parseSelectionGap(id);
-        return gap ? [gap] : [];
-      });
-    if (chosen.length) void fetchGaps(chosen);
   };
-  async function loadRange(start: bigint, end: bigint, modifiers: SelectionModifiers) {
-    if (request.current || !conversation) return;
-    const controller = new AbortController();
-    request.current = controller;
-    setBusy(true);
-    let next: Set<string> | null = null;
-    try {
-      const yes = await useDialog
-        .getState()
-        .confirm(
-          '加载未显示的消息区间？',
-          '起止消息之间包含尚未加载的区间。加载本地消息后再完成范围选择，消息缺口会另行确认是否拉取漫游。',
-          { okLabel: '加载并选择', cancelLabel: '保留原选区' },
-        );
-      if (!yes || !current(controller)) return;
-      await load(controller, 'local', start.toString(), end.toString());
-      if (!current(controller)) return;
-      const range = [...cache.values(), ...messages].filter((message) => {
-        const seq = seqOf(message);
-        return seq !== null && seq >= start && seq <= end;
-      });
-      next = new Set(modifiers.ctrlKey || modifiers.metaKey ? selection.selectedIds : []);
-      for (const message of range) next.add(message.id);
-      for (const gap of selectionGapsBetween((start - 1n).toString(), (end + 1n).toString(), range))
-        next.add(selectionGapId(gap));
-    } catch {
-      // 范围加载失败或取消不替换原选区，右下角保留处理结果。
-    } finally {
-      if (request.current === controller) {
-        request.current = null;
-        setBusy(false);
-      }
-    }
-    if (next && current(controller)) onChange(next);
+  function selectRange(start: bigint, end: bigint, modifiers: SelectionModifiers) {
+    const range = [...cache.values(), ...messages].filter((message) => {
+      const seq = seqOf(message);
+      return seq !== null && seq >= start && seq <= end;
+    });
+    const next = new Set(modifiers.ctrlKey || modifiers.metaKey ? selection.selectedIds : []);
+    for (const message of range) next.add(message.id);
+    for (const gap of selectionGapsBetween((start - 1n).toString(), (end + 1n).toString(), range))
+      next.add(selectionGapId(gap));
+    onChange(next);
   }
   const beforeSelect = (id: string, modifiers: SelectionModifiers) => {
-    const item = items.find((item) => item.id === id);
+    const item = itemsById.get(id);
     if (item?.message) cache.set(id, item.message);
-    if (item?.gap && gapSelected(item.gap) && !selection.selectedIds.has(id)) {
+    if (
+      !modifiers.shiftKey &&
+      item?.gap &&
+      gapSelected(item.gap) &&
+      !selection.selectedIds.has(id)
+    ) {
       selection.setSelectedIds(
         (previous) =>
           new Set(
@@ -311,8 +340,7 @@ export function useMessageSelectionFlow({
     }
     if (!modifiers.shiftKey || !selection.anchorRef.current) return false;
     const anchor =
-      cache.get(selection.anchorRef.current) ??
-      messages.find((message) => message.id === selection.anchorRef.current);
+      cache.get(selection.anchorRef.current) ?? itemsById.get(selection.anchorRef.current)?.message;
     const anchorGap = parseSelectionGap(selection.anchorRef.current);
     const targetSeq = item?.message
       ? seqOf(item.message)
@@ -333,24 +361,9 @@ export function useMessageSelectionFlow({
           ? BigInt(item.gap.currentSeq) - 1n
           : BigInt(item.gap.previousSeq) + 1n
         : null;
-    if (a === null || b === null) {
-      if (!order.includes(selection.anchorRef.current)) {
-        useToast
-          .getState()
-          .push({ tone: 'warning', title: '起止消息没有可信序号，无法加载跨窗口范围' });
-        return true;
-      }
-      return false;
-    }
-    const anchorIndex = order.indexOf(selection.anchorRef.current),
-      targetIndex = order.indexOf(id);
-    const crossesGap =
-      anchorIndex >= 0 &&
-      items
-        .slice(Math.min(anchorIndex, targetIndex), Math.max(anchorIndex, targetIndex) + 1)
-        .some((item) => item.gap);
-    if (anchorIndex < 0 || crossesGap) {
-      void loadRange(a < b ? a : b, a > b ? a : b, modifiers);
+    if (a === null || b === null) return false;
+    if (!order.includes(selection.anchorRef.current)) {
+      selectRange(a < b ? a : b, a > b ? a : b, modifiers);
       return true;
     }
     return false;
@@ -359,11 +372,13 @@ export function useMessageSelectionFlow({
     items,
     order,
     selectedMessages,
+    selectedCount,
     gaps,
     gapSelected,
     busy,
     onChange,
     beforeSelect,
+    prepare,
     cancel: () => request.current?.abort(),
   };
 }

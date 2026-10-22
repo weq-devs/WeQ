@@ -90,6 +90,8 @@ export async function checkForUpdate(force = false): Promise<UpdateState> {
 }
 
 let wired = false;
+let downloaded = false;
+let installing = false;
 
 /** Attach the persistent autoUpdater listeners once (progress + downloaded). */
 function wireAutoUpdater(): void {
@@ -114,7 +116,15 @@ function wireAutoUpdater(): void {
   });
 
   autoUpdater.on('update-downloaded', (info) => {
+    downloaded = true;
     updateBus.emit('event', { kind: 'downloaded', latest: info.version } satisfies UpdateEvent);
+  });
+
+  // macOS 的系统准备／安装发生在下载 Promise 结束之后，仍需把错误送回界面。
+  autoUpdater.on('error', (error) => {
+    if (!installing) return;
+    installing = false;
+    updateBus.emit('event', { kind: 'error', message: error.message } satisfies UpdateEvent);
   });
 }
 
@@ -190,8 +200,21 @@ export async function startDownload(): Promise<void> {
 /** Quit, run the downloaded NSIS installer silently, and relaunch. */
 export function quitAndInstall(): void {
   if (isDev()) throw new Error('开发模式不支持自更新。');
+  if (!downloaded) throw new Error('更新尚未下载完成，请先下载更新。');
+  if (installing) return;
+  installing = true;
+  updateBus.emit('event', { kind: 'installing' } satisfies UpdateEvent);
   // (isSilent, isForceRunAfter): silent install in place, then relaunch.
-  autoUpdater.quitAndInstall(true, true);
+  try {
+    autoUpdater.quitAndInstall(true, true);
+  } catch (error) {
+    installing = false;
+    updateBus.emit('event', {
+      kind: 'error',
+      message: error instanceof Error ? error.message : String(error),
+    } satisfies UpdateEvent);
+    throw error;
+  }
 }
 
 /** Wire this Electron implementation into the shell-agnostic update router. */

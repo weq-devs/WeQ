@@ -688,16 +688,16 @@
 
   .conversation-row.active .row-unread {
     background: #f2543d;
-    color: #ffffff;
+    color: var(--weq-unread-foreground);
   }
 
   .row-unread.muted {
-    background: #c3c7d2;
+    background: var(--weq-unread-muted-background);
   }
 
   .conversation-row.active .row-unread.muted {
-    background: #c3c7d2;
-    color: #ffffff;
+    background: var(--weq-unread-muted-background);
+    color: var(--weq-fg-primary);
   }
 
   .row-muted {
@@ -1221,7 +1221,7 @@
 	   那条会把 hover/focus 底色设成 transparent 的规则。 */
   .mobile-composer-expanded-tools .composer-send-expanded:not(:disabled) {
     background: var(--weq-accent-effective, #0099ff);
-    color: #ffffff;
+    color: var(--primary-foreground);
   }
 
   .mobile-composer-expanded-tools .composer-send-expanded:disabled {
@@ -1234,7 +1234,7 @@
 	   把底色设成 transparent（权重 0,3,2），比上面那条高，这里再抬一级盖回来。 */
   html[data-theme='dark'] .mobile-composer-expanded-tools .composer-send-expanded:not(:disabled) {
     background: var(--weq-accent-effective, #0099ff);
-    color: #ffffff;
+    color: var(--primary-foreground);
   }
 
   html[data-theme='dark'] .mobile-composer-expanded-tools .composer-send-expanded:disabled {
@@ -1325,10 +1325,6 @@
 	   上面那条选择器管不到，这里单独藏掉；移动端用展开面板里的发送键。 */
   .composer > .composer-send {
     display: none;
-  }
-
-  .composer-desktop-history {
-    display: none !important;
   }
 
   .emoji-panel {
@@ -1463,48 +1459,6 @@
     background: #c5c8ce;
   }
 
-  .notice-header {
-    display: grid;
-    min-height: 58px;
-    grid-template-columns: 84px minmax(0, 1fr) 84px;
-    align-items: center;
-    gap: 6px;
-    padding: 0 8px;
-    background: #f8f8f9;
-  }
-
-  .notice-header h2 {
-    min-width: 0;
-    overflow: hidden;
-    font-size: 18px;
-    font-weight: 600;
-    text-align: center;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .notice-header div {
-    justify-content: end;
-    gap: 4px;
-  }
-
-  .notice-back-button,
-  .notice-back-spacer {
-    display: inline-grid;
-  }
-
-  .notice-back-button {
-    width: 38px;
-    height: 38px;
-    place-items: center;
-    border-radius: 50%;
-  }
-
-  .notice-back-spacer {
-    width: 38px;
-    height: 38px;
-  }
-
   .notice-header .icon-button {
     width: 38px;
     height: 38px;
@@ -1513,11 +1467,6 @@
   .notice-header .icon-button svg {
     width: 22px;
     height: 22px;
-  }
-
-  .notice-list {
-    gap: 10px;
-    padding: 12px 12px calc(22px + env(safe-area-inset-bottom, 0px));
   }
 
   .notice-card {
@@ -2006,31 +1955,6 @@
     white-space: nowrap;
   }
 
-  .mobile-profile-qr-actions {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    padding: 10px 34px calc(22px + env(safe-area-inset-bottom, 0px));
-  }
-
-  .mobile-profile-qr-action {
-    display: grid;
-    justify-items: center;
-    gap: 8px;
-    border: 0;
-    background: transparent;
-    color: #15171c;
-  }
-
-  .mobile-profile-qr-action span {
-    font-size: 14px;
-    line-height: 1.2;
-  }
-
-  .mobile-conversation-details {
-    box-shadow: -18px 0 40px rgba(0, 0, 0, 0.12);
-    animation: mobileDetailIn 160ms ease-out;
-  }
-
   .mobile-profile-edit-page {
     z-index: 72;
   }
@@ -2168,88 +2092,9 @@
     border-radius: 12px;
   }
 
-  .mobile-detail-trailing {
-    display: grid;
-    place-items: center;
-  }
-
-  .mobile-detail-main {
-    min-height: 0;
-    overflow: auto;
-    padding: 12px 14px 24px;
-  }
-
-  .mobile-detail-card {
-    overflow: hidden;
-    border-radius: 14px;
-    background: #ffffff;
-  }
-
-  .mobile-detail-card + .mobile-detail-card {
-    margin-top: 12px;
-  }
-
-  .mobile-detail-card:first-child .mobile-detail-row-label {
-    font-size: 21px;
-  }
-
-  .mobile-group-summary {
-    display: grid;
-    grid-template-columns: 64px minmax(0, 1fr) 36px;
-    align-items: center;
-    gap: 12px;
-    padding: 0 0 14px;
-  }
-
   .mobile-group-summary .avatar {
     width: 56px;
     height: 56px;
-  }
-
-  .mobile-group-copy {
-    display: grid;
-    min-width: 0;
-    gap: 6px;
-  }
-
-  .mobile-group-copy strong {
-    overflow: hidden;
-    font-size: 21px;
-    font-weight: 600;
-    line-height: 1.1;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-group-copy span {
-    color: #7f838a;
-    font-size: 15px;
-    line-height: 1.1;
-  }
-
-  .mobile-group-qr-button {
-    display: grid;
-    width: 36px;
-    height: 36px;
-    place-items: center;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: #7a7d84;
-  }
-
-  .mobile-member-grid {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 12px 8px;
-    padding: 14px 14px 14px;
-  }
-
-  .mobile-member-item {
-    display: grid;
-    min-width: 0;
-    justify-items: center;
-    gap: 6px;
   }
 
   .mobile-member-item .avatar {
@@ -2257,142 +2102,9 @@
     height: 42px;
   }
 
-  .mobile-member-name,
-  .mobile-member-empty {
-    overflow: hidden;
-    max-width: 100%;
-    color: #7c8088;
-    font-size: 12px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-member-empty {
-    grid-column: 1 / -1;
-    padding-bottom: 12px;
-    color: #969aa3;
-    font-size: 14px;
-    text-align: center;
-  }
-
-  .mobile-detail-row,
-  .mobile-detail-switch-row {
-    display: grid;
-    min-height: 56px;
-    width: 100%;
-    align-items: center;
-    gap: 8px;
-    padding: 0 15px;
-    border: 0;
-    border-bottom: 1px solid #ededed;
-    background: #ffffff;
-    color: #17191f;
-    text-align: left;
-  }
-
-  .mobile-detail-row {
-    grid-template-columns: 44px minmax(0, 1fr) minmax(0, max-content) 22px;
-  }
-
-  .mobile-detail-row-no-icon {
-    grid-template-columns: max-content minmax(0, 1fr) 24px;
-    column-gap: 10px;
-  }
-
-  .mobile-detail-row-multiline {
-    align-items: start;
-    padding-top: 14px;
-    padding-bottom: 14px;
-  }
-
-  .mobile-detail-switch-row {
-    grid-template-columns: 38px minmax(0, 1fr) auto;
-  }
-
-  .mobile-detail-switch-row-no-icon {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .mobile-detail-row:last-child,
-  .mobile-detail-switch-row:last-child {
-    border-bottom: 0;
-  }
-
-  .mobile-detail-row-icon {
-    display: grid;
-    width: 44px;
-    height: 44px;
-    place-items: center;
-    border-radius: 50%;
-  }
-
   .mobile-detail-row-icon .avatar {
     width: 44px;
     height: 44px;
-  }
-
-  .mobile-detail-row-label,
-  .mobile-detail-switch-label {
-    min-width: 0;
-    overflow: hidden;
-    color: #17191f;
-    font-size: 17px;
-    font-weight: 400;
-    line-height: 1.1;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-detail-row-value {
-    min-width: 0;
-    justify-self: end;
-    overflow: hidden;
-    color: #969aa3;
-    font-size: 14px;
-    line-height: 1.35;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-detail-row-value-multiline {
-    max-width: min(220px, 100%);
-    text-align: right;
-    white-space: normal;
-  }
-
-  .mobile-detail-switch-icon {
-    display: grid;
-    width: 38px;
-    height: 38px;
-    place-items: center;
-    color: #17191f;
-  }
-
-  .mobile-detail-row-icon svg,
-  .mobile-detail-switch-icon svg {
-    width: 22px;
-    height: 22px;
-  }
-
-  .mobile-detail-switch {
-    position: relative;
-    width: 50px;
-    height: 28px;
-    border-radius: 999px;
-    background: #dedfe1;
-    transition: background 140ms ease;
-  }
-
-  .mobile-detail-switch span {
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    background: #ffffff;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
-    transition: transform 140ms ease;
   }
 
   .mobile-detail-switch.on {
@@ -2411,49 +2123,6 @@
     min-height: 0;
     overflow: auto;
     padding: 10px 14px calc(20px + env(safe-area-inset-bottom, 0px));
-  }
-
-  .mobile-settings-search {
-    display: grid;
-    height: 42px;
-    grid-template-columns: 22px max-content;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin-bottom: 20px;
-    padding: 0 12px;
-    border-radius: 14px;
-    background: #ffffff;
-    color: #999ca3;
-  }
-
-  .mobile-settings-search:focus-within {
-    grid-template-columns: 22px minmax(0, 1fr);
-    justify-content: stretch;
-  }
-
-  .mobile-settings-search-input {
-    width: 44px;
-    min-width: 0;
-    border: 0;
-    outline: 0;
-    background: transparent;
-    color: #15171c;
-    font-size: 17px;
-  }
-
-  .mobile-settings-search svg {
-    width: 22px;
-    height: 22px;
-  }
-
-  .mobile-settings-search:focus-within .mobile-settings-search-input,
-  .mobile-settings-search-input:not(:placeholder-shown) {
-    width: 100%;
-  }
-
-  .mobile-settings-search-input::placeholder {
-    color: #999ca3;
   }
 
   .mobile-settings-section {
@@ -2528,10 +2197,6 @@
     height: 38px;
   }
 
-  .contact-profile-pane {
-    padding: 58px 20px 20px;
-  }
-
   .icon-button.contact-profile-back {
     position: absolute;
     top: calc(8px + env(safe-area-inset-top, 0px));
@@ -2550,45 +2215,9 @@
     height: 22px;
   }
 
-  .contact-profile-inner {
-    width: 100%;
-    gap: 16px;
-  }
-
-  .contact-profile-head {
-    grid-template-columns: 60px minmax(0, 1fr);
-    gap: 14px;
-  }
-
   .contact-profile-head .avatar {
     width: 58px;
     height: 58px;
-  }
-
-  .contact-profile-head strong {
-    font-size: 19px;
-    font-weight: 500;
-  }
-
-  .contact-profile-head span {
-    font-size: 13px;
-  }
-
-  .contact-profile-row {
-    min-height: 46px;
-  }
-
-  .contact-profile-row span {
-    font-size: 15px;
-    font-weight: 400;
-  }
-
-  .contact-profile-row strong {
-    font-size: 13px;
-  }
-
-  .group-profile-announcement-row strong {
-    max-width: 100%;
   }
 
   html[data-theme='dark'] .app-rail {
@@ -2735,10 +2364,6 @@
 
   html[data-theme='dark'] .chat-header {
     border-bottom-color: #25272b;
-  }
-
-  html[data-theme='dark'] .notice-header {
-    background: #101112;
   }
 
   html[data-theme='dark'] .composer,

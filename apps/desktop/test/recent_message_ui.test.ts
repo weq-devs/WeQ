@@ -319,6 +319,12 @@ describe('新增消息交互', () => {
       expect(create).not.toHaveBeenCalled();
       expect(button(fixture.host, '添加会话').getAttribute('aria-expanded')).toBe('true');
       const createItem = fixture.host.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
+      const createItems = [
+        ...fixture.host.querySelectorAll<HTMLButtonElement>(
+          '[aria-label="添加会话菜单"] [role="menuitem"]',
+        ),
+      ].map((item) => item.textContent?.trim());
+      expect(createItems).toEqual(['新建好友克隆', '新建克隆体群聊', 'QQ 号搜索', '群号搜索']);
       expect(createItem.textContent).toContain('新建好友克隆');
       act(() => createItem.click());
       expect(create).toHaveBeenCalledOnce();
@@ -472,7 +478,7 @@ describe('新增消息交互', () => {
       fixture.close();
     }
   });
-  it('右键转发传真实消息，多选操作栏只有图标和提示', () => {
+  it('右键转发传真实消息，多选操作栏只有图标和提示', async () => {
     const fixture = mount();
     const demo = createTemplateDemoData();
     const forward = vi.fn();
@@ -520,16 +526,19 @@ describe('新增消息交互', () => {
       const actions = [
         ...fixture.host.querySelectorAll<HTMLButtonElement>('.selection-bar-actions button'),
       ];
-      expect(actions.length).toBe(5);
+      expect(actions.length).toBe(6);
+      expect(actions.some((action) => action.getAttribute('aria-label') === '撤回所选消息')).toBe(
+        true,
+      );
       for (const action of actions) {
         expect(action.textContent).toBe('');
         expect(action.getAttribute('title')).toBeTruthy();
         expect(action.getAttribute('aria-label')).toBeTruthy();
       }
       act(() => button(fixture.host, '转发').click());
-      act(() => button(document.body, '逐条转发').click());
+      await act(async () => button(document.body, '逐条转发').click());
       expect(forward).toHaveBeenCalledTimes(2);
-      act(() => button(fixture.host, '添加到素材库').click());
+      await act(async () => button(fixture.host, '添加到素材库').click());
       expect(composition).toHaveBeenCalledTimes(2);
     } finally {
       fixture.close();
@@ -660,6 +669,7 @@ describe('新增消息交互', () => {
       act(() => button(fixture.host, '刷新联系人列表').click());
       expect(refresh).toHaveBeenCalledOnce();
       act(() => button(fixture.host, '多选联系人').click());
+      act(() => fixture.host.querySelector<HTMLButtonElement>('.contact-cat-header')!.click());
       act(() => fixture.host.querySelector<HTMLButtonElement>('.contact-row')!.click());
       expect(fixture.host.querySelector('.contact-row.is-multiselected')).not.toBeNull();
       expect(fixture.host.querySelector('input[type="checkbox"]')).toBeNull();

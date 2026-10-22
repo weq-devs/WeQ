@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useDialog } from '../../components/Dialog';
 import { useViewState } from '../../state/view';
@@ -108,7 +108,8 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
 
   const selected = accounts.find((a) => a.key === selectedKey) ?? null;
 
-  const loading = mode === 'existing' ? savedConfigs.isLoading : historical.isLoading;
+  const accountQuery = mode === 'existing' ? savedConfigs : historical;
+  const loading = accountQuery.isLoading;
 
   function onEntered(uin: string): void {
     setOpenedUin(uin);
@@ -163,6 +164,25 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
 
       <div className="weq-select-body">
         <section className="weq-select-left">
+          {accountQuery.error ? (
+            <div className="weq-select-error" role="alert">
+              <span>读取账号失败：{accountQuery.error.message}</span>
+              <button
+                type="button"
+                className="weq-icon-button"
+                title="重新读取账号"
+                aria-label="重新读取账号"
+                disabled={accountQuery.isFetching}
+                onClick={() => void accountQuery.refetch()}
+              >
+                <RefreshCw
+                  size={16}
+                  className={accountQuery.isFetching ? 'weq-spin' : undefined}
+                  aria-hidden
+                />
+              </button>
+            </div>
+          ) : null}
           {loading ? (
             <div className="weq-select-loading">
               <Loader2
@@ -173,10 +193,10 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
               />
               <span>正在准备账号…</span>
             </div>
-          ) : accounts.length === 0 ? (
-            <div className="weq-select-empty">
-              {mode === 'existing' ? '暂无保存的账号配置' : '未发现可用账号'}
-            </div>
+          ) : accounts.length === 0 && mode === 'existing' ? (
+            accountQuery.error ? null : (
+              <div className="weq-select-empty">暂无保存的账号配置</div>
+            )
           ) : (
             <LoginPanel
               mode={mode === 'existing' ? 'existing' : 'new'}

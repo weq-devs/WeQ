@@ -30,10 +30,16 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { trpc } from '../../trpc/client';
+import { trpc, client } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
-import { Card, Row, SectionHeader, Toggle } from './controls';
+import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
+import '../../styles/settings-services.css';
+import {
+  connectionTestKey,
+  runConnectionTest,
+  useConnectionTestTasks,
+} from '../../lib/connectionTestTask';
 
 interface PushForm {
   id: string;
@@ -61,11 +67,12 @@ export function SsePushSection(): ReactElement {
   const deleteServer = trpc.bootstrap.deleteSsePushServer.useMutation();
   const setEnabled = trpc.bootstrap.setSsePushEnabled.useMutation();
   const setTuning = trpc.bootstrap.setSsePushTuning.useMutation();
-  const testServer = trpc.bootstrap.testSsePushServer.useMutation();
 
   const [form, setForm] = useState<PushForm | null>(null);
   const [revealToken, setRevealToken] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [draftId, setDraftId] = useState(() => crypto.randomUUID());
+  const testKey = connectionTestKey('sse', form?.id || draftId);
+  const testing = useConnectionTestTasks((state) => state.running.has(testKey));
   const [debounceDraft, setDebounceDraft] = useState('2000');
   const [thresholdDraft, setThresholdDraft] = useState('50');
 
@@ -74,11 +81,13 @@ export function SsePushSection(): ReactElement {
   const enabledServerId = sse?.enabledServerId ?? null;
   const busy = saveServer.isLoading || deleteServer.isLoading || setEnabled.isLoading;
 
+  // 普通重读不清空草稿，只同步发生变化的服务端数值。
   useEffect(() => {
-    if (!sse) return;
-    setDebounceDraft(String(sse.debounceMs));
-    setThresholdDraft(String(sse.massThreshold));
-  }, [sse]);
+    if (sse?.debounceMs != null) setDebounceDraft(String(sse.debounceMs));
+  }, [sse?.debounceMs]);
+  useEffect(() => {
+    if (sse?.massThreshold != null) setThresholdDraft(String(sse.massThreshold));
+  }, [sse?.massThreshold]);
 
   async function refetch(): Promise<void> {
     await settings.refetch();
@@ -89,6 +98,7 @@ export function SsePushSection(): ReactElement {
   }
 
   function startCreate(): void {
+    setDraftId(crypto.randomUUID());
     setForm(EMPTY_FORM);
     setRevealToken(false);
   }
@@ -170,34 +180,23 @@ export function SsePushSection(): ReactElement {
     }
   }
 
-  async function onTest(): Promise<void> {
+  function onTest(): void {
     const pushUrl = form?.pushUrl.trim() ?? '';
     if (!pushUrl) {
-      showError('信息不完整', '请先填写推送地址。');
+      pushToast({ tone: 'warning', title: '信息不完整', detail: '请先填写推送地址。' });
       return;
     }
     const accessToken = form?.accessToken.trim() ?? '';
-    setTesting(true);
-    try {
-      const result = await testServer.mutateAsync({ pushUrl, accessToken });
-      pushToast({
-        tone: 'success',
-        title: '连接成功',
-        message: `已发送 ping 事件，耗时 ${result.latencyMs}ms`,
-      });
-    } catch (err) {
-      showError('连接失败', errMsg(err));
-    } finally {
-      setTesting(false);
-    }
+    const input = { pushUrl, accessToken };
+    const label = `${form?.name.trim() || 'SSE'} · ${(form?.id || draftId).slice(-8)}`;
+    void runConnectionTest(testKey, label, async () => {
+      const result = await client.bootstrap.testSsePushServer.mutate(input);
+      return { detail: `已发送 ping 事件，耗时 ${result.latencyMs}ms` };
+    });
   }
 
-  const tuningChanged =
-    sse !== undefined &&
-    (debounceDraft !== String(sse.debounceMs) || thresholdDraft !== String(sse.massThreshold));
-
   return (
-    <div className="weq-set">
+    <div className="weq-set weq-service-settings">
       <SectionHeader
         icon={<Radio size={18} strokeWidth={1.8} />}
         title="SSE 消息推送"
@@ -218,10 +217,24 @@ export function SsePushSection(): ReactElement {
           </button>
         }
       >
-        {servers.length === 0 ? (
-          <div className="weq-set-empty">
-            还没有配置任何推送目标。启用后 WeQ 会把新消息 POST 到该地址。
-          </div>
+        {settings.error ? (
+          <QueryError
+            message={`SSE 配置读取失败：${settings.error.message}`}
+            retryLabel="重新读取 SSE 配置"
+            retrying={settings.isFetching}
+            onRetry={() => void settings.refetch()}
+          />
+        ) : null}
+        {settings.isLoading ? (
+          <p className="weq-set-empty" role="status">
+            正在读取 SSE 配置…
+          </p>
+        ) : servers.length === 0 ? (
+          settings.error ? null : (
+            <div className="weq-set-empty">
+              还没有配置任何推送目标。启用后 WeQ 会把新消息 POST 到该地址。
+            </div>
+          )
         ) : (
           <ul className="weq-set-server-list">
             {servers.map((server) => {
@@ -234,10 +247,12 @@ export function SsePushSection(): ReactElement {
                   <div className="weq-set-server-main">
                     <div className="weq-set-server-title">
                       <Radio size={14} strokeWidth={1.8} className="weq-set-server-ico" />
-                      <span className="weq-set-server-name">{server.name}</span>
+                      <span className="weq-set-server-name" title={server.name}>
+                        {server.name}
+                      </span>
                       {isEnabled ? <span className="weq-set-server-badge">推送中</span> : null}
                     </div>
-                    <div className="weq-set-server-sub">
+                    <div className="weq-set-server-sub" title={server.pushUrl}>
                       {server.pushUrl} ·{' '}
                       {server.accessToken ? 'access_token 已设置' : 'access_token 未设置'}
                     </div>
@@ -287,6 +302,7 @@ export function SsePushSection(): ReactElement {
                 control={
                   <input
                     className="weq-set-input"
+                    aria-label="SSE 名称"
                     value={form.name}
                     spellCheck={false}
                     placeholder="例如：SSE 接收端"
@@ -300,6 +316,7 @@ export function SsePushSection(): ReactElement {
                 control={
                   <input
                     className="weq-set-input weq-set-input-wide"
+                    aria-label="SSE 推送地址"
                     value={form.pushUrl}
                     spellCheck={false}
                     autoComplete="off"
@@ -321,6 +338,7 @@ export function SsePushSection(): ReactElement {
                     />
                     <input
                       className="weq-set-token-input"
+                      aria-label="SSE access_token"
                       type={revealToken ? 'text' : 'password'}
                       value={form.accessToken}
                       spellCheck={false}
@@ -408,7 +426,7 @@ export function SsePushSection(): ReactElement {
           <button
             type="button"
             className="weq-set-btn weq-set-btn-sm"
-            disabled={setTuning.isLoading || !tuningChanged}
+            disabled={setTuning.isLoading || !sse}
             onClick={() => void onSaveTuning()}
           >
             {setTuning.isLoading ? (

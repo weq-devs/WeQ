@@ -11,6 +11,7 @@
 import type { ReactElement } from 'react';
 import { FolderClock, Sparkles } from 'lucide-react';
 import logoUrl from '@resources/brand/logo.png';
+import '../../styles/startup-home.css';
 
 export function HomeScreen({
   hasConfigs,

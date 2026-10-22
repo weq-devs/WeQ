@@ -39,6 +39,7 @@ export function ActionIcon({
   return (
     <button
       type="button"
+      data-qq-action
       className="weq-set-iconbtn"
       title={label}
       aria-label={label}

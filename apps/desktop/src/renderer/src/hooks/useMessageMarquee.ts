@@ -62,6 +62,7 @@ export function useMessageMarquee({
   orderedIds?: readonly string[];
   anchorRef?: { current: string | null };
 }) {
+  const [previewIds, setPreviewIds] = useState<ReadonlySet<string> | null>(null);
   const [box, setBox] = useState<{
     left: number;
     top: number;
@@ -79,6 +80,7 @@ export function useMessageMarquee({
     clientX: number;
     clientY: number;
     moved: boolean;
+    dirty: boolean;
     base: Set<string>;
     pending: Set<string>;
     selectionMode: boolean;
@@ -95,6 +97,7 @@ export function useMessageMarquee({
     if (drag?.element.hasPointerCapture?.(drag.pointer))
       drag.element.releasePointerCapture(drag.pointer);
     setBox(null);
+    setPreviewIds(null);
   }, []);
   useEffect(() => {
     if (!enabled) finish();
@@ -123,7 +126,21 @@ export function useMessageMarquee({
         bottom: rect.bottom - bounds.top + drag.element.scrollTop,
       });
     }
-    drag.pending = marqueeMessageIds([...drag.rows.values()], drag.y, y, drag.base, drag.modifiers);
+    const pending = marqueeMessageIds(
+      [...drag.rows.values()],
+      drag.y,
+      y,
+      drag.base,
+      drag.modifiers,
+    );
+    drag.pending = pending;
+    setPreviewIds((previous) =>
+      previous !== null &&
+      previous.size === pending.size &&
+      [...pending].every((id) => previous.has(id))
+        ? previous
+        : pending,
+    );
     const nextBox = {
       left: Math.min(drag.x, x),
       top: Math.min(drag.y, y),
@@ -146,16 +163,24 @@ export function useMessageMarquee({
     const rect = drag.element.getBoundingClientRect();
     const speed = drag.clientY < rect.top + 28 ? -12 : drag.clientY > rect.bottom - 28 ? 12 : 0;
     if (speed) {
+      const previous = drag.element.scrollTop;
       drag.element.scrollTop += speed;
+      if (drag.element.scrollTop !== previous) drag.dirty = true;
+    }
+    if (drag.dirty) {
+      drag.dirty = false;
       update();
     }
-    frame.current = requestAnimationFrame(tick);
+    if (gesture.current === drag) frame.current = requestAnimationFrame(tick);
   };
   return {
     box,
+    previewIds,
     dragging: Boolean(box),
     handlers: {
-      onScrollCapture: update,
+      onScrollCapture: () => {
+        if (gesture.current) gesture.current.dirty = true;
+      },
       onPointerDownCapture: (event: PointerEvent<HTMLDivElement>) => {
         if (
           !enabled ||
@@ -194,6 +219,7 @@ export function useMessageMarquee({
           clientX: event.clientX,
           clientY: event.clientY,
           moved: false,
+          dirty: false,
           base: new Set(selected),
           pending: new Set(),
           selectionMode,
@@ -225,7 +251,7 @@ export function useMessageMarquee({
           frame.current = requestAnimationFrame(tick);
         }
         event.preventDefault();
-        update();
+        drag.dirty = true;
       },
       onPointerUp: (event: PointerEvent<HTMLDivElement>) => {
         const drag = gesture.current;

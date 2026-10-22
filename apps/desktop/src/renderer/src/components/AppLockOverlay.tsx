@@ -19,6 +19,7 @@ import {
   TOTP_STATUS_QUERY_KEY,
 } from '../lib/appLockStatus';
 import { TotpDigits } from './TotpDigits';
+import '../styles/app-lock.css';
 
 /** Reset the idle timer on any of these. */
 const IDLE_EVENTS = [
@@ -199,7 +200,9 @@ export function AppLockOverlay(): ReactElement | null {
             验证身份后继续访问当前账号数据。
           </p>
           {systemError ? (
-            <p className="weq-totp-error is-show">{systemError}</p>
+            <p className="weq-totp-error is-show" role="alert">
+              {systemError}
+            </p>
           ) : (
             <p className="weq-lock-tip">解锁需要通过系统认证。</p>
           )}
@@ -272,7 +275,10 @@ export function AppLockOverlay(): ReactElement | null {
             />
 
             <div className="weq-totp-meta">
-              <span className={`weq-totp-error${totpError ? ' is-show' : ''}`}>
+              <span
+                className={`weq-totp-error${totpError ? ' is-show' : ''}`}
+                role={totpError ? 'alert' : undefined}
+              >
                 {totpError ?? '验证码每 30 秒自动刷新'}
               </span>
               <span className="weq-totp-countdown" aria-hidden>

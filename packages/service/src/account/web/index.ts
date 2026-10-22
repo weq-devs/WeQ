@@ -20,11 +20,13 @@ import {
   type GroupAlbum,
   type UploadGroupAlbumImageParams,
 } from './group_album';
+import { getGroupAlbumFeed, type GroupAlbumFeedRequest } from './group_album_feed';
 import {
   createGroupAlbum,
   modifyGroupAlbum,
   deleteGroupAlbum,
   getGroupAlbumUploadPermission,
+  getGroupAlbumDetails,
   type CreateGroupAlbumParams,
   type ModifyGroupAlbumParams,
   type DeleteGroupAlbumParams,
@@ -83,10 +85,16 @@ import {
 } from './qzone_comments';
 import { fetchQzoneForwardPage } from './qzone_forwards';
 import { fetchQzoneNicknames } from './qzone_people';
-import { fetchQzoneContentCounts } from './qzone_stats';
+import { fetchQzoneContentCounts, fetchQzoneVisitorStats } from './qzone_stats';
 import { fetchQzonePostDetail, fetchQzonePostImages } from './qzone_detail';
 import { fetchQzoneRelated, fetchQzoneMemories } from './qzone_recall';
 import { getSpecialCare } from './special_care';
+import { uploadGroupAlbumVideo, type GroupAlbumVideoUpload } from './group_album_video';
+import {
+  getQzonePermissionList,
+  setQzoneFriendPermission,
+  type QzoneFriendPermission,
+} from './qzone_friend_permissions';
 import { getSelfDress, type SelfDress } from './self_dress';
 import { getFriendMutualMark, type FriendMutualMark } from './friend_mutualmark';
 import { getDressRank, searchDress, type DressAppId, type DressMallItem } from './dress_mall';
@@ -125,6 +133,27 @@ export class WebQueryService {
     return withRetry(this.creds, QZONE_DOMAIN, (cred) => getSpecialCare(cred));
   }
 
+  async uploadGroupAlbumVideo(params: GroupAlbumVideoUpload) {
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    return uploadGroupAlbumVideo(cred, params);
+  }
+
+  async getQzoneFriendPermissionList(kind: QzoneFriendPermission) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) => getQzonePermissionList(cred, kind));
+  }
+
+  async setQzoneFriendPermission(
+    kind: QzoneFriendPermission,
+    target: string,
+    enabled: boolean,
+    beforeSend: () => void,
+  ) {
+    await withRetry(this.creds, QZONE_DOMAIN, (cred) => getQzonePermissionList(cred, kind));
+    beforeSend();
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    await setQzoneFriendPermission(cred, kind, target, enabled, beforeSend);
+  }
+
   async getGroupEssence(
     groupCode: string,
     pageStart = 0,
@@ -143,12 +172,42 @@ export class WebQueryService {
     );
   }
 
-  async getGroupAlbumList(groupId: string): Promise<GroupAlbum[]> {
-    return withRetry(this.creds, QZONE_DOMAIN, (c) => getGroupAlbumList(c, groupId));
+  async getGroupAlbumList(groupId: string, beforeSend?: () => void): Promise<GroupAlbum[]> {
+    return withRetry(this.creds, QZONE_DOMAIN, (c) => getGroupAlbumList(c, groupId), beforeSend);
+  }
+
+  async getGroupAlbumFeed(
+    request: GroupAlbumFeedRequest,
+    beforeSend?: () => void,
+    signal?: AbortSignal,
+  ) {
+    const check = () => {
+      signal?.throwIfAborted();
+      beforeSend?.();
+    };
+    const credentials = {
+      forDomain: (domain: string) => {
+        check();
+        return this.creds.forDomain(domain);
+      },
+      invalidate: (domain: string) => this.creds.invalidate(domain),
+    };
+    return withRetry(
+      credentials,
+      QZONE_DOMAIN,
+      (credential) => getGroupAlbumFeed(credential, request, signal),
+      check,
+    );
   }
 
   async getGroupAlbumUploadPermission(groupId: string) {
     return withRetry(this.creds, QZONE_DOMAIN, (c) => getGroupAlbumUploadPermission(c, groupId));
+  }
+
+  async getGroupAlbumDetails(groupId: string, albumId: string, hostUin: string) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getGroupAlbumDetails(cred, groupId, albumId, hostUin),
+    );
   }
 
   /** 相册写入不走换票重放；beforeSend 在异步取票之后、HTTP 发出之前执行。 */
@@ -367,15 +426,20 @@ export class WebQueryService {
 
   async getQzoneSpaceStats(targetUin: string, signal?: AbortSignal) {
     signal?.throwIfAborted();
+    const visitors = await withRetry(this.creds, QZONE_DOMAIN, async (cred) =>
+      targetUin === cred.uin
+        ? fetchQzoneVisitorStats(cred, signal)
+        : { totalCount: null, todayCount: null },
+    ).catch(() => ({ totalCount: null, todayCount: null }));
     try {
       const counts = await withRetry(this.creds, QZONE_DOMAIN, (cred) =>
         fetchQzoneContentCounts(cred, targetUin, signal),
       );
       signal?.throwIfAborted();
-      return counts;
+      return { ...counts, ...visitors };
     } catch {
       signal?.throwIfAborted();
-      return { postCount: null, photoCount: null };
+      return { postCount: null, photoCount: null, ...visitors };
     }
   }
 

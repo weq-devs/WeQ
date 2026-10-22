@@ -10,6 +10,8 @@
  * via `setHost()`. This keeps `import 'electron'` out of the router layer.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 /** Where a "save as" request should land, plus how to hand it to the user. */
 export interface SaveTarget {
   /** Absolute path the caller should write/copy to. */
@@ -23,6 +25,10 @@ export interface SaveTarget {
 }
 
 export interface HostBridge {
+  /** 宿主额外拥有的运行目录，仅参与存储统计，不开放直接清理。 */
+  storageRoots?(): Array<{ path: string; label: string }>;
+  /** 仅宿主支持时提供；调用方必须先明确确认重启。 */
+  restartApplication?(): Promise<void>;
   /** Web 服务端导出根目录；桌面端由原生目录选择，不设此字段。 */
   readonly exportRoot?: string;
   registerDownload?(path: string, name: string, kind: 'file' | 'directory'): { url: string };
@@ -129,6 +135,12 @@ export interface HostBridge {
 }
 
 let installed: HostBridge | null = null;
+const requestHost = new AsyncLocalStorage<HostBridge>();
+
+/** 同进程 Web 请求使用自己的宿主，不改变桌面端原生能力。 */
+export function withHost<T>(host: HostBridge, action: () => T): T {
+  return requestHost.run(host, action);
+}
 
 /** Install the host implementation. Call once, before any router runs. */
 export function setHost(host: HostBridge): void {
@@ -136,6 +148,8 @@ export function setHost(host: HostBridge): void {
 }
 
 export function getHost(): HostBridge {
+  const scoped = requestHost.getStore();
+  if (scoped) return scoped;
   if (!installed) throw new Error('HostBridge not installed — call setHost() at startup.');
   return installed;
 }

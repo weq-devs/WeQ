@@ -5,10 +5,11 @@
  */
 
 import type { ReactElement } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { QqAvatar } from '../../components/QqAvatar';
 import { QrImage } from '../../components/QrImage';
+import '../../styles/qr-login.css';
 
 export function QrDialog({
   uin,
@@ -30,18 +31,32 @@ export function QrDialog({
   onClose: () => void;
 }): ReactElement {
   return (
-    <Modal onClose={onClose} labelledBy="weq-qr-title" width="min(23.5rem, calc(100vw - 3rem))">
+    <Modal
+      onClose={onClose}
+      labelledBy="weq-qr-title"
+      width="min(23.5rem, calc(100vw - 3rem))"
+      className="weq-qr-modal"
+    >
       <div className="weq-qr-dialog">
         <header className="weq-qr-dialog-head">
           <div>
-            <p className="text-[13px] font-medium text-[#0099ff]">扫码登录</p>
+            <p className="weq-qr-label text-[13px] font-medium">扫码登录</p>
             <h3
               id="weq-qr-title"
-              className="weq-display mt-1 text-[21px] font-normal leading-tight text-[#0f2d4c]"
+              className="weq-display mt-1 text-[21px] font-normal leading-tight"
             >
               QQ 安全验证
             </h3>
           </div>
+          <button
+            type="button"
+            className="weq-qr-close"
+            title="关闭扫码登录"
+            aria-label="关闭扫码登录"
+            onClick={onClose}
+          >
+            <X size={18} aria-hidden />
+          </button>
         </header>
         <div className="weq-qr-dialog-body">
           <div className="weq-qr-frame">
@@ -49,19 +64,23 @@ export function QrDialog({
               <QrImage url={qrUrl} size={154} />
             ) : (
               <Loader2
-                className="animate-spin text-[#0099ff]"
+                className="weq-qr-spinner animate-spin"
                 size={28}
                 strokeWidth={1.7}
                 aria-label="正在获取二维码"
               />
             )}
           </div>
-          <div className="weq-qr-profile">
+          <div className={`weq-qr-profile${anonymous ? ' is-anonymous' : ''}`}>
             {!anonymous && <QqAvatar uin={uin} url={avatarUrl} size={44} />}
             <div className="weq-qr-profile-main">
               <div className="weq-qr-profile-top">
-                <div className="weq-qr-name">{anonymous ? '扫码登录新账号' : name}</div>
-                <div className="weq-qr-status">{status}</div>
+                <div className="weq-qr-name" title={anonymous ? undefined : name}>
+                  {anonymous ? '扫码登录新账号' : name}
+                </div>
+                <div className="weq-qr-status" role="status">
+                  {status}
+                </div>
               </div>
               <div className="weq-qr-identity">
                 {!anonymous && <span className="weq-number">{uin}</span>}

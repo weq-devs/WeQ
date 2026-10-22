@@ -61,9 +61,43 @@ function fixture() {
   const services: QQWriteServices = {
     accountWrite: {
       friendRemark: vi.fn(accepted),
+      getFriendRemark: vi.fn(async (uid: string) => ({ uid, remark: '' })),
       groupRemark: vi.fn(accepted),
       pin: vi.fn(accepted),
       friendDisturb: vi.fn(accepted),
+      getFriendDisturb: vi.fn(async (uid: string) => ({ uid, enabled: true })),
+      getFriendSpecialCare: vi.fn(async (uid: string) => ({
+        uid,
+        enabled: true,
+        zone: true,
+        ring: true,
+      })),
+      friendSpecialCare: vi.fn(accepted),
+      friendRoster: vi.fn(async () => ({ friends: [], categories: null })),
+      manageFriendCategories: vi.fn(accepted),
+      exactProfile: vi.fn(async (kind, target) => ({
+        kind,
+        id: target,
+        name: '合成资料',
+        level: null,
+        category: null,
+      })),
+      commonRelationships: vi.fn(async () => ({
+        friendCount: 3,
+        groups: [],
+        friendError: null,
+        groupError: null,
+      })),
+      editableSelfProfile: vi.fn(async () => ({
+        birthday: null,
+        region: null,
+        email: '',
+        school: '',
+        profession: null,
+        hometown: null,
+        errors: {},
+      })),
+      editSelfProfile: vi.fn(accepted),
       groupMessagePolicy: vi.fn(accepted),
       friendCategory: vi.fn(accepted),
       selfProfile: vi.fn(accepted),
@@ -113,9 +147,11 @@ function fixture() {
     return services;
   }
   const write = vi.fn((input: QQWriteBinding) => read(input));
-  const caller = createQQWriteRouter(write, read).createCaller({});
+  const router = createQQWriteRouter(write, read);
+  const caller = router.createCaller({});
   return {
     caller,
+    procedures: Object.keys(router._def.procedures),
     services,
     write,
     switchAccount: () => {
@@ -125,6 +161,98 @@ function fixture() {
 }
 
 describe('QQ 写 IPC 边界', () => {
+  it('自己与他人的群资料按当前账号 UID 区分，自己 UID 与号码不一致时拒绝编辑身份', async () => {
+    const f = fixture();
+    f.services.groupInfo.getMemberInfo = async () => ({
+      ...groupMember,
+      uid: 'u_self',
+      uin: 10001n,
+    });
+    expect(await f.caller.memberState({ ...binding, groupId: 123, uid: 'u_self' })).toMatchObject({
+      isSelf: true,
+    });
+    f.services.groupInfo.getMemberInfo = async () => ({ ...groupMember, uid: 'u_self', uin: 0n });
+    expect(await f.caller.memberState({ ...binding, groupId: 123, uid: 'u_self' })).toMatchObject({
+      isSelf: true,
+    });
+    f.services.groupInfo.getMemberInfo = async () => groupMember;
+    expect(await f.caller.memberState({ ...binding, groupId: 123, uid: 'u_peer' })).toMatchObject({
+      isSelf: false,
+    });
+    f.services.groupInfo.getMemberInfo = async () => ({ ...groupMember, uid: 'u_self' });
+    await expect(f.caller.memberState({ ...binding, groupId: 123, uid: 'u_self' })).rejects.toThrow(
+      '身份不一致',
+    );
+  });
+  it('特别关心用一个整体开关绑定好友，错目标与切源读回拒绝', async () => {
+    const f = fixture();
+    expect(await f.caller.friendSpecialCareState({ ...binding, uid: 'u_peer' })).toMatchObject({
+      uid: 'u_peer',
+      enabled: true,
+      zone: true,
+      ring: true,
+    });
+    await f.caller.friendSpecialCare({ ...binding, uid: 'u_peer', enabled: false });
+    expect(f.services.accountWrite.friendSpecialCare).toHaveBeenCalledWith('u_peer', false);
+    f.services.accountWrite.getFriendSpecialCare = async () => ({
+      uid: 'u_other',
+      enabled: true,
+      zone: true,
+      ring: true,
+    });
+    await expect(f.caller.friendSpecialCareState({ ...binding, uid: 'u_peer' })).rejects.toThrow(
+      '目标',
+    );
+  });
+  it('资料编辑只允许一个已建模字段，分组与精确查询拒绝越界身份', async () => {
+    const f = fixture();
+    await f.caller.editSelfProfile({ ...binding, patch: { birthday: '2000-02-29' } });
+    await expect(
+      f.caller.editSelfProfile({ ...binding, patch: { email: '', school: '' } }),
+    ).rejects.toThrow();
+    await expect(
+      f.caller.exactProfile({ ...binding, kind: 'user', target: '4294967296' }),
+    ).rejects.toThrow();
+    await expect(
+      f.caller.friendCategories({
+        ...binding,
+        operation: { type: 'move', uids: ['u_peer', 'u_peer'], categoryId: 0 },
+      }),
+    ).rejects.toThrow();
+  });
+  it('撤掉展示头衔的查询与设置路由，保留专属头衔文本编辑', () => {
+    const f = fixture();
+    expect(f.procedures).not.toContain('groupIdentityState');
+    expect(f.procedures).not.toContain('groupIdentity');
+    expect(f.procedures).toContain('groupSpecialTitle');
+  });
+  it('好友云端免打扰独立使用在线绑定，不回落到本机缓存', async () => {
+    const f = fixture();
+    expect(await f.caller.friendDisturbState({ ...binding, uid: 'u_peer' })).toEqual({
+      uid: 'u_peer',
+      enabled: true,
+      source: 'qq-server',
+    });
+    expect(f.write).toHaveBeenCalledTimes(2);
+    expect(f.services.profile.getProfile).not.toHaveBeenCalled();
+  });
+  it('好友云端免打扰拒绝错目标与在途切号', async () => {
+    const f = fixture();
+    f.services.accountWrite.getFriendDisturb = vi.fn(async () => ({
+      uid: 'u_other',
+      enabled: false,
+    }));
+    await expect(f.caller.friendDisturbState({ ...binding, uid: 'u_peer' })).rejects.toThrow(
+      '目标不一致',
+    );
+    f.services.accountWrite.getFriendDisturb = vi.fn(async (uid) => {
+      f.switchAccount();
+      return { uid, enabled: true };
+    });
+    await expect(f.caller.friendDisturbState({ ...binding, uid: 'u_peer' })).rejects.toThrow(
+      '切换',
+    );
+  });
   it.each([true, false])(
     '好友免打扰只返回匹配目标的明确资料值 %s，非好友保持未知',
     async (enabled) => {

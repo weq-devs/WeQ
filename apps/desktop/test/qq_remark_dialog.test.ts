@@ -42,6 +42,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.configId } }) },
       qqWrite: {
+        friendRemarkState: {
+          useQuery: () => ({
+            data: { uid: 'u_peer', remark: state.remark },
+            refetch: state.refetch,
+          }),
+        },
         peerState: {
           useQuery: () => ({
             data: { remark: state.remark, friend: state.friend },

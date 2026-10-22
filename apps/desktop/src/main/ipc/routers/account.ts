@@ -182,6 +182,23 @@ function requireExpectedAccount(expected?: string, expectedConfigId?: string): A
   return requireServices();
 }
 
+function groupAlbumReadScope(input: {
+  expectedAccountUin?: string;
+  expectedAccountConfigId?: string;
+}) {
+  const services = requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+  const configId = services.accountConfig?.getRecord()?.configId;
+  const check = () => {
+    if (
+      requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+        services ||
+      services.accountConfig?.getRecord()?.configId !== configId
+    )
+      throw new Error('账号或数据源已切换，已丢弃旧相册请求');
+  };
+  return { services, check };
+}
+
 async function readMessageScope<T>(
   input: { expectedAccountUin?: string; expectedAccountConfigId?: string },
   read: () => Promise<T>,
@@ -461,6 +478,18 @@ const dressInput = z
 
 const groupAlbumMediaInput = groupAlbumInput.extend({
   albumId: z.string().min(1),
+});
+const groupAlbumFeedInput = z.object({
+  groupCode: z.string().regex(/^[1-9]\d{4,19}$/),
+  albumId: z.string().regex(/^[A-Za-z0-9_.-]{1,256}$/),
+  batchId: z.string().regex(/^[1-9]\d{0,19}$/),
+  legacyFocus: z
+    .string()
+    .regex(/^[\x21-\x7e]{1,512}$/)
+    .optional(),
+  cursor: z.string().max(16384).optional(),
+  expectedAccountUin: z.string().min(1),
+  expectedAccountConfigId: z.string().min(1),
 });
 
 const albumSelectionInput = z.object({
@@ -1131,6 +1160,7 @@ async function collectAlbumMedia(
   groupCode: string,
   albumId: string,
   signal?: AbortSignal,
+  beforeRequest?: () => void,
 ): Promise<AlbumMediaWire[]> {
   const out: AlbumMediaWire[] = [];
   const seenKeys = new Set<string>();
@@ -1138,7 +1168,9 @@ async function collectAlbumMedia(
   let attachInfo = '';
   for (let guard = 0; guard < 100; guard += 1) {
     signal?.throwIfAborted();
+    beforeRequest?.();
     const page = await services.groupAlbumMedia.getMediaList(groupCode, albumId, attachInfo);
+    beforeRequest?.();
     signal?.throwIfAborted();
     for (const wire of page.mediaList
       .map(mediaToWire)
@@ -1619,7 +1651,6 @@ export const accountRouter = router({
       requireQqOnlineForAlbum(services);
       return services;
     },
-    undefined,
     (input) => requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
   ),
   qqWrite: createQQWriteRouter(
@@ -3995,30 +4026,47 @@ export const accountRouter = router({
         msgId: z.string().min(1),
         kind: z.enum(['c2c', 'group']),
         conv: z.string().min(1),
+        hideAfterDelete: z.boolean().optional(),
+        ...exportAccountBindingInput.shape,
       }),
     )
     .mutation(async ({ input }) => {
-      const services = requireServices();
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
       if (input.msgId.startsWith('roaming:')) {
-        const match = /^roaming:protocol:([1-9]\d{0,9}):(-?\d{1,20})$/.exec(input.msgId);
+        const match = /^roaming:(?:(?:native|protocol):)?([1-9]\d{0,9}):(-?\d{1,20})$/.exec(
+          input.msgId,
+        );
         if (!match || Number(match[1]) > 0xffffffff) throw new Error('无效的缓存消息身份');
-        const rows = await services.gapHistory.cached(
+        const rows = await services.gapHistory.cachedForDeletion(
           input.kind,
           input.conv,
-          Number(match[1]),
           Number(match[1]),
         );
         const message = rows.find(
           (row) =>
             row.kind === input.kind &&
             row.conv === input.conv &&
-            row.localSent &&
-            timelineRowKey({ ...row, source: 'roaming' }) === input.msgId,
+            // 格式会随缓存补全改变；同会话、序号和消息 ID 才是删除身份。
+            row.msgSeq === match[1] &&
+            row.msgId === match[2],
         );
-        if (!message) throw new Error('这条已发送消息不在当前会话缓存中');
-        return services.msgs.deleteCachedSentMessage(message);
+        if (!message) throw new Error('这条消息不在当前会话缓存中');
+        if (
+          requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+          services
+        )
+          throw new Error('账号已切换，已停止操作');
+        return services.msgs.deleteCachedSentMessage(message, input.hideAfterDelete ?? false);
       }
-      return services.msgs.deleteMessage(BigInt(input.msgId), input.kind, input.conv);
+      return services.msgs.deleteMessage(
+        BigInt(input.msgId),
+        input.kind,
+        input.conv,
+        input.hideAfterDelete ?? false,
+      );
     }),
 
   /** Restore a WeQ-deleted message (write the original 40011/40012 back). */
@@ -4028,14 +4076,19 @@ export const accountRouter = router({
         msgId: z.string().min(1),
         kind: z.enum(['c2c', 'group']).optional(),
         conv: z.string().min(1).optional(),
+        ...exportAccountBindingInput.shape,
       }),
     )
     .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
       if (input.msgId.startsWith('roaming:')) {
         if (!input.kind || !input.conv) throw new Error('恢复缓存消息需要明确的会话目标');
-        return requireServices().msgs.restoreCachedSentMessage(input.msgId, input.kind, input.conv);
+        return services.msgs.restoreCachedSentMessage(input.msgId, input.kind, input.conv);
       }
-      return requireServices().msgs.restoreMessage(BigInt(input.msgId));
+      return services.msgs.restoreMessage(BigInt(input.msgId));
     }),
 
   /**
@@ -4047,6 +4100,12 @@ export const accountRouter = router({
     .query(({ input }): string[] => {
       return requireServices().msgs.getDeletedMsgIds(input.kind, input.conv);
     }),
+
+  hiddenDeletedMsgIds: procedure
+    .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
+    .query(({ input }): string[] =>
+      requireServices().msgs.getHiddenDeletedMsgIds(input.kind, input.conv),
+    ),
 
   /**
    * List the WeQ-deleted (restorable) messages of one conversation,
@@ -4064,18 +4123,25 @@ export const accountRouter = router({
           ? (rows as RenderGroupMsg[]).map(groupMsgToWire)
           : (rows as RenderC2cMsg[]).map(c2cMsgToWire);
       const cachedIds = new Set(
-        msgs.getDeletedMsgIds(input.kind, input.conv).filter((id) => id.startsWith('roaming:')),
+        msgs
+          .getDeletedMsgIds(input.kind, input.conv)
+          .filter((id) => id.startsWith('roaming:'))
+          .map((id) => id.replace(/^roaming:(?:native:|protocol:)/, 'roaming:')),
       );
       if (cachedIds.size) {
-        const cached = await services.gapHistory.cachedForExport(input.kind, input.conv);
+        const cached = await services.gapHistory.cachedForExport(input.kind, input.conv, true);
         wire.push(
           ...cached
             .filter(
               (row) =>
                 row.kind === input.kind &&
                 row.conv === input.conv &&
-                row.localSent &&
-                cachedIds.has(timelineRowKey({ ...row, source: 'roaming' })),
+                cachedIds.has(
+                  timelineRowKey({ ...row, source: 'roaming' }).replace(
+                    /^roaming:(?:native:|protocol:)/,
+                    'roaming:',
+                  ),
+                ),
             )
             .map((row) => ({ ...roamingMsgToWire(row), deletedKind: 'weq' as const })),
         );
@@ -4408,17 +4474,23 @@ export const accountRouter = router({
   recallMessage: procedure
     .input(
       z.object({
+        expectedAccountUin: z.string().min(1).optional(),
+        expectedAccountConfigId: z.string().min(1).optional(),
         kind: z.enum(['c2c', 'group']),
         conv: z.string().min(1),
-        sequence: z.number().int().positive(),
+        sequence: z.number().int().safe().positive(),
         random: z.number().int().nonnegative().optional(),
         timestamp: z.number().int().nonnegative().optional(),
         clientSequence: z.number().int().nonnegative().optional(),
       }),
     )
     .mutation(async ({ input }) => {
-      requireQqOnlineForAlbum();
-      await requireServices().groupModeration.recallMessage({
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      await services.groupModeration.recallMessage({
         kind: input.kind,
         conv: input.conv,
         sequence: input.sequence,
@@ -5687,28 +5759,42 @@ export const accountRouter = router({
   }),
 
   /** List group albums via Qzone web CGI. Requires online QQ (pt_login can mint p_skey). */
-  listGroupAlbums: procedure.input(groupAlbumInput).query(async ({ input }) => {
-    const services = requireServices();
-    // qzone.qq.com 的 p_skey 可由 ptlogin2 本地快速登录兜底，无需注入 / ClientKey。
-    requireOnlineQqForWeb(services);
-    const albums = await services.webQuery.getGroupAlbumList(input.groupCode);
-    services.contentSearch?.remember(
-      albums.map((album) => ({
-        target: { kind: 'groupAlbum', groupCode: input.groupCode, albumId: album.id },
-        title: album.title,
-        content: album.desc,
-        sourceName: `群 ${input.groupCode}`,
-        time: 0,
-      })),
-    );
-    return albums;
-  }),
+  listGroupAlbums: procedure
+    .input(groupAlbumInput.merge(exportAccountBindingInput))
+    .query(async ({ input }) => {
+      const { services, check } = groupAlbumReadScope(input);
+      // qzone.qq.com 的 p_skey 可由 ptlogin2 本地快速登录兜底，无需注入 / ClientKey。
+      requireOnlineQqForWeb(services);
+      const albums = await services.webQuery.getGroupAlbumList(input.groupCode, check);
+      check();
+      services.contentSearch?.remember(
+        albums.map((album) => ({
+          target: { kind: 'groupAlbum', groupCode: input.groupCode, albumId: album.id },
+          title: album.title,
+          content: album.desc,
+          sourceName: `群 ${input.groupCode}`,
+          time: 0,
+        })),
+      );
+      return albums;
+    }),
 
   /** List all media for one group album. Requires the saved online QQ pid. */
-  listGroupAlbumMedia: procedure.input(groupAlbumMediaInput).query(async ({ input }) => {
-    const services = requireServices();
-    requireQqOnlineForAlbum(services);
-    return collectAlbumMedia(services, input.groupCode, input.albumId);
+  listGroupAlbumMedia: procedure
+    .input(groupAlbumMediaInput.merge(exportAccountBindingInput))
+    .query(async ({ input }) => {
+      const { services, check } = groupAlbumReadScope(input);
+      requireQqOnlineForAlbum(services);
+      return collectAlbumMedia(services, input.groupCode, input.albumId, undefined, check);
+    }),
+
+  getGroupAlbumFeed: procedure.input(groupAlbumFeedInput).query(async ({ input }) => {
+    const { services, check } = groupAlbumReadScope(input);
+    requireOnlineQqForWeb(services);
+    const { expectedAccountUin: _uin, expectedAccountConfigId: _config, ...request } = input;
+    const page = await services.webQuery.getGroupAlbumFeed(request, check);
+    check();
+    return page;
   }),
 
   // ---- 个人空间相册（QQ 空间 · 空间相册查看器）----
@@ -7097,7 +7183,7 @@ export const accountRouter = router({
           }
         };
         if (input.target === 'github') {
-          await openExternal('https://github.com/H3CoF6/WeQ/issues', '打开 GitHub 失败');
+          await openExternal('https://github.com/weq-devs/WeQ/issues', '打开 GitHub 失败');
         } else {
           await openExternal(
             'tencent://ntqq-open/?subCmd=flashTransfer&action=openTransPage&actionParams={"fileSetId":"","allChecked":"","selectedItems":"","sourceType":"share"}',
@@ -7151,7 +7237,7 @@ export const accountRouter = router({
       return { level: config.level, grantedAt: config.grantedAt ?? null, closedSalvage };
     }),
 
-  // 坏页扫描原本在这里（只能扫"当前打开的账号"）。它已经搬到 设置 → 数据与存储 → 维护工具 → 数据库修复
+  // 坏页扫描原本在这里（只能扫"当前打开的账号"）。它已经搬到 设置 → 数据维护 → 维护工具 → 数据库修复
   // 的 `client.dbRepair.scanBadPages`：那边对**任意账号**可用，而且与修复共用同一份
   // 实现（`@weq/service` 的 `bad_pages`），口径不会漂。设置页不再有扫描入口。
 

@@ -1,8 +1,8 @@
 # 原生二进制与装扮资源的分发
 
 `nt_helper.node`（5 个平台）和加密后的装扮资源 `resources/dress/*.dat` **不再入库**。
-它们由私有 native 仓 `H3CoF6/nt_helper` 构建后发布到公开仓
-[`H3CoF6/nt_helper_release`](https://github.com/H3CoF6/nt_helper_release)，WeQ 这边按需取回。
+它们由私有 native 仓 `weq-devs/nt_helper` 构建后发布到公开仓
+[`weq-devs/nt_helper_release`](https://github.com/weq-devs/nt_helper_release)，WeQ 这边按需取回。
 
 ## 为什么要拆出去
 
@@ -15,9 +15,9 @@
 
 | 路径 | 是否入库 | 来源 | 更新方式 |
 | --- | --- | --- | --- |
-| `native/<platform>/<arch>/nt_helper.node` | 否 | `H3CoF6/nt_helper` 的 Rust 构建 | `pnpm native:fetch` |
+| `native/<platform>/<arch>/nt_helper.node` | 否 | `weq-devs/nt_helper` 的 Rust 构建 | `pnpm native:fetch` |
 | `resources/dress/{bubble,widget,font}.dat` | 否 | 同上（`build.rs` 打包 + AES 加密） | `pnpm native:fetch` |
-| `native/<platform>/<arch>/ninebird/*` | **是** | `H3CoF6/nt_helper` 的 NineBird 构建 | 手工同步（另一条链，未自动化） |
+| `native/<platform>/<arch>/ninebird/*` | **是** | `weq-devs/nt_helper` 的 NineBird 构建 | 手工同步（另一条链，未自动化） |
 | `resources/dress/screen/**`、`ranking-*.json` | 是 | 手工整理的静态素材 | 正常提交 |
 | `resources/dress/*_resources` | 否 | `scripts/fetch_dress_resources.ts` 抓取 | 本地生成，喂给 native 构建 |
 
@@ -76,7 +76,7 @@ pnpm native:fetch --from-dir ./dist   # 从本地目录装（离线 / 镜像；�
 
 | 环境变量 | 作用 |
 | --- | --- |
-| `NT_HELPER_RELEASE_REPO` | 覆盖发布仓，默认 `H3CoF6/nt_helper_release` |
+| `NT_HELPER_RELEASE_REPO` | 覆盖发布仓，默认 `weq-devs/nt_helper_release` |
 | `NT_HELPER_RELEASE_BASE_URL` | 覆盖下载前缀（镜像 / 代理），默认 GitHub Releases |
 | `NT_HELPER_VERSION` | 钉死 tag，等价于 `--version`（CI 里临时试构建用） |
 | `HTTPS_PROXY` / `HTTP_PROXY` | 出网代理（另支持 `NO_PROXY`）。脚本自己读这几个变量走 CONNECT 隧道 —— Node 内置 `fetch` 不认它们，Clash 之类只开 HTTP 代理又没开 TUN 时直连 GitHub 会超时 |
@@ -90,26 +90,26 @@ pnpm native:fetch --from-dir ./dist   # 从本地目录装（离线 / 镜像；�
 ## 发布链路
 
 ```
-H3CoF6/nt_helper (私有)                     H3CoF6/nt_helper_release (公开)
+weq-devs/nt_helper (私有)                    weq-devs/nt_helper_release (公开)
   Rust-Release-Build (workflow_dispatch)
     build × 5 平台  ─────────────────────►  GitHub Release: nt-helper-<yyyymmdd>-<sha7>
       nt_helper.node × 5                       ├ nt_helper-win32-x64.node
       resources/dress/*.dat                    ├ nt_helper-linux-x64.node
     publish-release job                        ├ nt_helper-linux-arm64.node
-      （stage → manifest → Release）            ├ nt_helper-darwin-x64.node
+      （stage → manifest → Release）           ├ nt_helper-darwin-x64.node
                                                ├ nt_helper-darwin-arm64.node
                                                ├ dress-{bubble,widget,font}.dat
                                                ├ manifest.json
                                                └ SHA256SUMS
-                                             main 分支: README.md + latest.json
+                                              main 分支: README.md + latest.json
                                                ↑ 与 Release 里的 manifest 同源
 ```
 
 稳定入口（不需要 API、不需要 token）：
 
 ```
-https://github.com/H3CoF6/nt_helper_release/releases/latest/download/manifest.json
-https://github.com/H3CoF6/nt_helper_release/releases/download/<tag>/<asset>
+https://github.com/weq-devs/nt_helper_release/releases/latest/download/manifest.json
+https://github.com/weq-devs/nt_helper_release/releases/download/<tag>/<asset>
 ```
 
 `manifest.json` 结构：
@@ -120,7 +120,7 @@ https://github.com/H3CoF6/nt_helper_release/releases/download/<tag>/<asset>
   "commit": "<nt_helper commit sha>",
   "builtAt": "2026-09-16T05:12:33Z",
   "runId": "1234567890",
-  "source": "H3CoF6/nt_helper@<sha>",
+  "source": "weq-devs/nt_helper@<sha>",
   "dressKeySeed": "<sha>",
   "platforms": {
     "linux-x64": { "asset": "nt_helper-linux-x64.node", "sha256": "…", "size": 13924216 }
@@ -183,7 +183,7 @@ macos-x64 / macos-arm64 / web）在 `pnpm install` 之后各插了一步：
 mkdir -p /tmp/weq-native-keep
 cp -a native /tmp/weq-native-keep/native
 cp -a resources/dress/bubble.dat resources/dress/widget.dat resources/dress/font.dat /tmp/weq-native-keep/
-git clone --mirror https://github.com/H3CoF6/WeQ /tmp/weq-remote-backup.git
+git clone --mirror https://github.com/weq-devs/WeQ /tmp/weq-remote-backup.git
 
 # 1) 重写（filter-branch，777 commits 实测 34 秒；没装 filter-repo 也够用）
 FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch --force \
@@ -212,7 +212,7 @@ git push --force origin --tags
 验证（在**全新 clone** 里做，才是别人实际拿到的结果）：
 
 ```bash
-git clone https://github.com/H3CoF6/WeQ /tmp/weq-fresh && cd /tmp/weq-fresh
+git clone https://github.com/weq-devs/WeQ /tmp/weq-fresh && cd /tmp/weq-fresh
 du -sh .git                                               # 65 MB
 git rev-list --count --all                                # 768（本地另有 9 个私有分支的提交）
 git tag | wc -l                                           # 47

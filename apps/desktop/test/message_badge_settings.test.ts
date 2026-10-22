@@ -5,7 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SettingsDialog } from '../src/renderer/src/components/SettingsDialog';
 
 const fixture = vi.hoisted(() => ({
-  settings: {} as { showMessageUnreadBadge?: boolean },
+  settings: {} as Record<string, boolean>,
+  settingKey: 'showMessageUnreadBadge',
   save: vi.fn(),
   invalidate: vi.fn(),
   loading: false,
@@ -23,8 +24,12 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             })
           : key === 'useMutation'
             ? () => ({
-                isLoading: path.at(-1) === 'setShowMessageUnreadBadge' && fixture.loading,
-                mutate: fixture.save,
+                isLoading: fixture.loading,
+                mutate: (...args: Parameters<typeof fixture.save>) => {
+                  const name = path.at(-1)!.slice(3);
+                  fixture.settingKey = name[0]!.toLowerCase() + name.slice(1);
+                  fixture.save(...args);
+                },
               })
             : key === 'invalidate'
               ? fixture.invalidate
@@ -47,7 +52,7 @@ beforeEach(() => {
     ) => {
       if (fixture.failed) callbacks.onError(new Error('保存失败'));
       else {
-        fixture.settings = { showMessageUnreadBadge: input.enabled };
+        fixture.settings = { ...fixture.settings, [fixture.settingKey]: input.enabled };
         callbacks.onSuccess();
       }
     },
@@ -117,6 +122,35 @@ it('保存失败保留原值并提示，保存期间不能重复点击', () => {
     expect(f.toggle().disabled).toBe(true);
     act(() => f.toggle().click());
     expect(fixture.save).toHaveBeenCalledOnce();
+  } finally {
+    f.close();
+  }
+});
+
+it.each([
+  ['从第一条新消息开始阅读', 'readFromFirstUnread', false],
+  ['发送消息后定位到最新消息', 'jumpToLatestAfterSend', true],
+  ['群助手显示总消息数', 'showGroupAssistantMessageCount', false],
+] as const)('%s 默认值正确，点击保存、重开恢复、失败不改变原值', (label, key, defaultValue) => {
+  let f = mount();
+  const toggle = () =>
+    f.host.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${label}"]`)!;
+  try {
+    expect(toggle().getAttribute('aria-checked')).toBe(String(defaultValue));
+    act(() => toggle().click());
+    expect(fixture.save).toHaveBeenCalledWith({ enabled: !defaultValue }, expect.any(Object));
+    expect(fixture.settings[key]).toBe(!defaultValue);
+    expect(fixture.invalidate).toHaveBeenCalledOnce();
+    f.close();
+    f = mount();
+    expect(toggle().getAttribute('aria-checked')).toBe(String(!defaultValue));
+    fixture.failed = true;
+    act(() => toggle().click());
+    expect(toggle().getAttribute('aria-checked')).toBe(String(!defaultValue));
+    expect(f.host.querySelector('[role="alert"]')?.textContent).toBe('保存失败');
+    fixture.loading = true;
+    f.render();
+    expect(toggle().disabled).toBe(true);
   } finally {
     f.close();
   }

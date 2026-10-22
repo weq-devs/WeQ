@@ -115,49 +115,51 @@ describe('群成员头像菜单', () => {
   });
   for (const source of ['message', 'sidebar'] as const) {
     it.each(['owner', 'admin', 'member'] as const)(
-      `${source}：%s 仅按当前角色提供群名片与头衔操作`,
+      `${source}：%s 仅按当前角色提供群昵称与头衔操作`,
       (role) => {
         const f = fixture(role);
         f.open(source);
-        expect(Boolean(f.button('修改群名片'))).toBe(role !== 'member');
+        expect(Boolean(f.button('修改群昵称'))).toBe(role !== 'member');
         expect(Boolean(f.button('编辑专属头衔'))).toBe(role === 'owner');
         if (role === 'owner') {
           act(() => f.button('编辑专属头衔')!.click());
           expect(f.title).toHaveBeenCalledWith(f.conversation, f.peer, 'u_peer');
           expect(f.rename).not.toHaveBeenCalled();
         } else if (role === 'admin') {
-          act(() => f.button('修改群名片')!.click());
+          act(() => f.button('修改群昵称')!.click());
           expect(f.rename).toHaveBeenCalledWith(f.conversation, f.peer, 'u_peer');
         }
       },
     );
   }
-  it('普通成员不显示自己的名片和头衔编辑入口', () => {
+  it('普通成员可修改自己的群昵称，但不显示专属头衔编辑入口', () => {
     const f = fixture('member', true, true);
     f.open('sidebar');
-    expect(f.button('修改群名片')).toBeUndefined();
+    expect(f.button('修改群昵称')).toBeDefined();
     expect(f.button('编辑专属头衔')).toBeUndefined();
+    act(() => f.button('修改群昵称')!.click());
+    expect(f.rename).toHaveBeenCalledWith(f.conversation, f.peer, 'u_self');
   });
   it.each(['owner', 'admin', 'member'] as const)(
     '管理员对目标 %s 不显示头衔，对群主也不显示名片编辑',
     (targetRole) => {
       const f = fixture('admin', true, false, targetRole);
       f.open('sidebar');
-      expect(Boolean(f.button('修改群名片'))).toBe(targetRole !== 'owner');
+      expect(Boolean(f.button('修改群昵称'))).toBe(targetRole !== 'owner');
       expect(f.button('编辑专属头衔')).toBeUndefined();
     },
   );
   it('缺少目标 UID 时不显示无法定位的名片和头衔入口', () => {
     const f = fixture('owner', true, false, 'member', true);
     f.open('sidebar');
-    expect(f.button('修改群名片')).toBeUndefined();
+    expect(f.button('修改群昵称')).toBeUndefined();
     expect(f.button('编辑专属头衔')).toBeUndefined();
   });
   it('离线保留群主入口并置灰，不调用任何编辑回调', () => {
     const f = fixture('owner', false);
     f.open('sidebar');
     expect(f.button('编辑专属头衔')!.disabled).toBe(true);
-    expect(f.button('修改群名片')!.disabled).toBe(true);
+    expect(f.button('修改群昵称')!.disabled).toBe(true);
     act(() => f.button('编辑专属头衔')!.click());
     expect(f.title).not.toHaveBeenCalled();
   });

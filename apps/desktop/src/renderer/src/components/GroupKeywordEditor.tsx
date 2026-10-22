@@ -23,6 +23,7 @@ import { client } from '../trpc/client';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { Avatar } from '../im-template/template/primitives';
 import { cn } from '../im-template/template/classNames';
+import { ProfileAvatar } from './ProfileAvatar';
 
 export interface KeywordMember {
   uid: string;
@@ -294,7 +295,17 @@ export function GroupKeywordEditor({
                   <div className="group-keyword-members">
                     {selected.slice(0, 8).map((m) => (
                       <span key={m.uid} className="group-keyword-member" title={m.displayName}>
-                        <Avatar name={m.displayName} avatarUrl={m.avatarUrl} seed={m.uid} />
+                        <ProfileAvatar
+                          target={{
+                            identity: m.uid,
+                            uin: m.uin,
+                            name: m.displayName,
+                            avatarUrl: m.avatarUrl,
+                            group: { code: groupId, name: '' },
+                          }}
+                        >
+                          <Avatar name={m.displayName} avatarUrl={m.avatarUrl} seed={m.uid} />
+                        </ProfileAvatar>
                         <span className="group-keyword-member-name">{m.displayName}</span>
                       </span>
                     ))}
@@ -339,7 +350,17 @@ export function GroupKeywordEditor({
                       <div className="group-keyword-members">
                         {selected.map((m) => (
                           <span key={m.uid} className="group-keyword-member">
-                            <Avatar name={m.displayName} avatarUrl={m.avatarUrl} seed={m.uid} />
+                            <ProfileAvatar
+                              target={{
+                                identity: m.uid,
+                                uin: m.uin,
+                                name: m.displayName,
+                                avatarUrl: m.avatarUrl,
+                                group: { code: groupId, name: '' },
+                              }}
+                            >
+                              <Avatar name={m.displayName} avatarUrl={m.avatarUrl} seed={m.uid} />
+                            </ProfileAvatar>
                             <span className="group-keyword-member-name">{m.displayName}</span>
                             <button type="button" title="移除" {...memberMulti.itemProps(m.uid)}>
                               <X size={12} />

@@ -338,7 +338,7 @@ export function LoginPanel({
 
       {mode === 'new' && source === 'backup' ? (
         <StaticBackupPanel onEntered={onEntered} />
-      ) : (
+      ) : selected ? (
         <>
           <AccountSelector
             accounts={accounts}
@@ -356,7 +356,7 @@ export function LoginPanel({
           />
 
           {status && (
-            <div className="weq-login-status">
+            <div className="weq-login-status" role="status">
               {busy && (
                 <Loader2 className="animate-spin" size={13} strokeWidth={1.85} aria-hidden />
               )}
@@ -403,6 +403,8 @@ export function LoginPanel({
             />
           )}
         </>
+      ) : (
+        <div className="weq-select-empty">未选择账号</div>
       )}
     </div>
   );

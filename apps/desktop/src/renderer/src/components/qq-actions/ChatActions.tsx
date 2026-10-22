@@ -3,6 +3,7 @@ import { Keyboard, ListTodo, Radio } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import type { Conversation, Message } from '../../im-template/template/types';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
+import { useTypingStatusSettings } from '../../hooks/useTypingStatusSettings';
 import { ActionFeedback, ActionIcon, useQQAction, useQQGroupPermissions } from './shared';
 
 export function MessageTodoAction({
@@ -69,24 +70,38 @@ export function MessageTodoAction({
   );
 }
 
-/** 只在用户主动开启后广播，最多每十秒一次；不猜测未核实的“停止输入”枚举。 */
+/** 按会话偏好广播，最多每十秒一次；不猜测未核实的“停止输入”枚举。 */
 export function TypingStatus({
   uid,
+  name,
   editors,
 }: {
   uid: string;
+  name?: string;
   editors: RefObject<HTMLDivElement | null>[];
 }) {
   const session = useQQWriteSession(`typing:${uid}`);
-  const [enabled, setEnabled] = useState(false);
+  const preferences = useTypingStatusSettings();
+  const target = session.binding && {
+    accountUin: session.binding.expectedAccountUin,
+    accountConfigId: session.binding.expectedAccountConfigId,
+    uid,
+    name: name || uid,
+  };
+  const override = preferences.query.data?.overrides.find(
+    (item) =>
+      item.accountUin === target?.accountUin &&
+      item.accountConfigId === target?.accountConfigId &&
+      item.uid === uid,
+  );
+  const enabled =
+    !preferences.query.isError &&
+    (override?.enabled ?? preferences.query.data?.defaultEnabled ?? false);
   const latest = useRef(session);
   latest.current = session;
   const identity = `${session.binding?.expectedAccountUin}:${session.binding?.expectedAccountConfigId}:${uid}`;
   const refs = useRef(editors);
   refs.current = editors;
-  useEffect(() => {
-    setEnabled(false);
-  }, [identity]);
   useEffect(() => {
     if (!enabled) return;
     let last = Number.NEGATIVE_INFINITY;
@@ -113,8 +128,8 @@ export function TypingStatus({
       aria-label="发送正在输入状态"
       aria-pressed={enabled}
       title={`发送正在输入状态（${enabled ? '已开启' : '已关闭'}）${session.result?.error ? `：${session.result.text}` : ''}`}
-      disabled={!session.available}
-      onClick={() => setEnabled((value) => !value)}
+      disabled={!session.available || !target || preferences.disabled}
+      onClick={() => target && void preferences.setOverride(target, !enabled)}
     >
       <Keyboard size={21} strokeWidth={1.5} />
       {session.result?.error && (

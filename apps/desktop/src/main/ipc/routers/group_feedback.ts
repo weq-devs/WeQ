@@ -23,7 +23,7 @@ import { bundleFeedbackFiles } from './help';
 
 const logger = getLogger().child({ scope: 'group-feedback' });
 
-const REPO = 'H3CoF6/WeQ';
+const REPO = 'weq-devs/WeQ';
 const GITHUB_API = `https://api.github.com/repos/${REPO}/issues`;
 
 export interface GithubIssueItem {

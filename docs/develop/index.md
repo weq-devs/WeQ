@@ -29,6 +29,8 @@ pnpm dev
 - [窗口与浮层](./nonmodal-surfaces-20261018.md)：页面、侧栏、浮窗、锚定窗格与模态层的职责。
 - [页面现场保留](./tab-state-retention-20261015.md)：活动性、隐藏页监听与内存状态边界。
 - [原生 QQ 邮箱](./qqmail-native-20261017.md)：账号级认证、邮件协议、附件、正文隔离与提醒生命周期。
+- [手机连接与重连](./remote-two-paths-20261022.md)：局域网、已有/内嵌 TS、持久设备凭据和 iOS WebView 会话身份。
+- [Remote 手机壳独立仓库](./remote-repository-split-20261023.md)：手机源码、构建和协议测试的维护边界与电脑夹具入口。
 - [会话分析时间轴 + 我的主场轮盘](./conversation-timeline-home-wheel-20261018.md) — 默认最近一年、拖动重算、全历史绿墙与群聊卡片轮盘的翻页守卫
 - [引用、提及与 +1](./message-mentions-repeat-20261017.md)：唯一身份剪贴板、当前账号名称解析与相同消息重发
 - [多选修饰键与键盘契约](./multi-selection-keyboard-20261017.md)：选择组、范围锚点、键盘隔离与业务限制。
@@ -49,6 +51,7 @@ pnpm dev
 - [nt_helper.node 接口文档](./nt-helper-interface.md) — 原生模块能力总览，**写代码前先看，别重复造轮子**
 - [原生二进制与装扮资源的分发](./native-artifacts.md) — `pnpm native:fetch`、发布链路、历史清洗记录
 - [测试约定](./testing.md) — `@weq/testkit`
+- [WeQ 存储管理](./storage-management.md)：统计范围、嵌套目录去重、只读数据与缓存清理白名单。
 - [macOS QQ 进程探测](./macos-startup-probe-20261015.md)：异步归属判断与子进程生命周期。
 - [Linux 窗口后端与 XWayland](./linux-ozone-xwayland-20261019.md)：为什么 `ozone-platform` 必须走 Electron 启动参数，不能 `appendSwitch`。
 - [图文 Ark 卡片发送](./ark-send.md) — OIDB 0xdc2_34 的下发结果解析，以及 PC/Linux 端的已知实现缺口
@@ -62,12 +65,19 @@ pnpm dev
 - [主动操作类协议能力](./protocol-actions-20261019.md) — 群管理 / 群文件 / 群相册 / 群待办 / 收藏表情 / 请求处理 / 在线状态的命令、分层与签名判定
 - [主动操作界面接入](./qq-actions-ui-20261019.md) — 原始候选与新增协议的入口、账号隔离、结果边界、通用加群及针对性验证。
 - [QQ 交互修复记录](./qq-actions-fixes-20261020.md) — 免打扰未知态、画像雷达与在线状态 EOF 的字段证据和验证边界。
+- [更新安装退出顺序](./update-install-lifecycle-20261022.md) — 更新专用退出事件、窗口关闭偏好与安装错误恢复。
+- [外观优化进行中](./appearance-optimization-20261022.md) — 主题可读色、公共控件与全应用验收矩阵；不代表整项已完成。
+- [Web 竖屏布局](./mobile-web-layout-20261022.md)：手机主导航、整屏聊天、设置返回层级与可视视口适配。
 - [群文件管理器](./group-file-manager-20261021.md) — 统一列表、来源绑定、拖拽、冲突检查与批次结果的实现边界。
 - [页面自动更新](./qq-actions-auto-refresh-20261021.md) — 前台恢复、隐藏停轮询、读取重试与草稿保护。
 - [群成员编辑入口](./qq-member-edit-permissions-20261021.md) — 角色与目标身份、直接编辑及窗口边界。
 - [失败发送占位移除](./failed-outgoing-20261021.md) — 本机清理、确认状态保护、迟到回调与序号定位。
 - [消息正确性与邮件导出修补](./qq-message-correctness-20261021.md)：合成时间、逐条间隔、图文重编辑、设备未读、连续消息与图片资源生命周期。
 - [QQ 交互当前版本收尾](./qq-actions-followups-20261022.md)：表情包、资料卡、独立修复窗、频道多选、自发缓存与混合消息操作的实现和验证边界。
+- [模型温度参数回退](./temperature-fallback-20261022.md)：明确拒绝识别、JSON／SSE 重试边界、取消与物理用量记账。
+- [备份与恢复](./settings-backup-20261022.md)：版本化格式、真实配置校验、冷启动事务、设置入口与按设备交接界面偏好。
+- [消息选择与框选](./message-selection-performance-20261022.md)：临时预览、最终提交、稳定行尺寸、区间索引与长时间线定向性能回归。
+- [群相册卡片导航](./group-album-card-navigation-20261022.md)：真实载荷关系、明确目标解析、来源绑定的相册／批次与评论视图。
 - [贡献指南](../../CONTRIBUTING.md)
 
 ---

@@ -10,7 +10,8 @@
  */
 
 import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
-import { WEB_READ_RETRY, webRequestJson } from './http';
+import { WEB_READ_RETRY, webRequestJson, webRequestText } from './http';
+import { parseQzoneCallback } from './qzone';
 import { createHash } from 'node:crypto';
 
 export interface GroupAlbum {
@@ -34,6 +35,7 @@ export interface GroupAlbum {
   updateTime: string;
   /** 原始相册权限值；缺失不补默认，编辑时必须先取得真实值。 */
   privacy?: number | null;
+  lloc?: string;
 }
 
 interface RawAlbum {
@@ -47,12 +49,14 @@ interface RawAlbum {
   createtime?: string;
   updatetime?: string;
   privacy?: number;
+  lloc?: string;
 }
 
 interface RawAlbumListRet {
   code?: number;
   message?: string;
-  data?: { album?: RawAlbum[] | null };
+  subcode?: number;
+  data?: { album?: RawAlbum[] | null; total?: number; offset?: number };
 }
 
 /**
@@ -88,44 +92,78 @@ export async function getGroupAlbumList(
     uin: cred.uin,
     getMemberRole: '0',
   });
-  const url = `https://h5.qzone.qq.com/proxy/domain/u.photo.qzone.qq.com/cgi-bin/upp/qun_list_album_v2?${params.toString()}`;
+  const url =
+    'https://h5.qzone.qq.com/proxy/domain/u.photo.qzone.qq.com/cgi-bin/upp/qun_list_album_v2';
 
-  const ret = await webRequestJson<RawAlbumListRet>(url, {
-    method: 'GET',
-    cookie: cookieHeader(cred),
-    retry: WEB_READ_RETRY,
-  });
+  const result: GroupAlbum[] = [];
+  const seen = new Set<string>();
+  let start = 0;
+  for (let page = 0; page < 100; page++) {
+    params.set('start', String(start));
+    const ret = parseQzoneCallback<RawAlbumListRet>(
+      await webRequestText(`${url}?${params}`, {
+        method: 'GET',
+        cookie: cookieHeader(cred),
+        retry: WEB_READ_RETRY,
+      }),
+    );
 
-  // 票据过期时这支 cgi 回的是 **HTTP 200** 加一个错误码,不检查的话空相册和
-  // 「cookie 失效」长得一模一样 —— 用户看到的是「这个群没有相册」,而不是让上层
-  // 有机会换票重试。凭证类的错码单独抛 WebAuthError,由 withRetry 接住。
-  if (typeof ret.code !== 'number' || !Number.isSafeInteger(ret.code)) {
-    throw new Error('群相册列表缺少明确业务码，不能确认相册状态');
+    // 票据过期时这支 cgi 回的是 **HTTP 200** 加一个错误码,不检查的话空相册和
+    // 「cookie 失效」长得一模一样 —— 用户看到的是「这个群没有相册」,而不是让上层
+    // 有机会换票重试。凭证类的错码单独抛 WebAuthError,由 withRetry 接住。
+    if (typeof ret.code !== 'number' || !Number.isSafeInteger(ret.code)) {
+      throw new Error('群相册列表缺少明确业务码，不能确认相册状态');
+    }
+    if (ret.code !== 0 || (ret.subcode !== undefined && ret.subcode !== 0)) {
+      const msg = `群相册列表失败: code=${ret.code} ${ret.message ?? ''}`.trim();
+      throw AUTH_CODES.has(ret.code) ? new WebAuthError(msg, ret.code) : new Error(msg);
+    }
+
+    const data = ret.data;
+    const total =
+      typeof data?.total === 'number' && Number.isSafeInteger(data.total) && data.total >= 0
+        ? data.total
+        : null;
+    if (
+      !data ||
+      (data.album == null && total !== 0) ||
+      (data.album !== undefined && data.album !== null && !Array.isArray(data.album))
+    )
+      throw new Error('群相册列表缺失，不能确认相册是否存在');
+    const albums = data.album ?? [];
+    for (const a of albums) {
+      if (!a || typeof a.id !== 'string' || !a.id || seen.has(a.id))
+        throw new Error('群相册标识缺失或分页重复');
+      seen.add(a.id);
+      result.push({
+        id: a.id,
+        title: a.title ?? '',
+        photoCount: a.photocnt ?? 0,
+        coverUrl: a.coverurl ?? '',
+        desc: a.desc ?? '',
+        createUin: a.createuin ?? 0,
+        createNickname: a.createnickname ?? '',
+        createTime: a.createtime ?? '',
+        updateTime: a.updatetime ?? '',
+        privacy:
+          typeof a.privacy === 'number' &&
+          Number.isSafeInteger(a.privacy) &&
+          a.privacy >= 0 &&
+          a.privacy <= 0xffffffff
+            ? a.privacy
+            : null,
+        ...(typeof a.lloc === 'string' ? { lloc: a.lloc } : {}),
+      });
+    }
+    if (total !== null && result.length > total) throw new Error('群相册列表数量与总数不一致');
+    if ((total !== null && result.length === total) || (total === null && albums.length < 1000))
+      return result;
+    const next = data.offset;
+    if (!Number.isSafeInteger(next) || next! <= start || !albums.length)
+      throw new Error('群相册分页未完成或游标无效，请重试');
+    start = next!;
   }
-  if (ret.code !== 0) {
-    const msg = `群相册列表失败: code=${ret.code} ${ret.message ?? ''}`.trim();
-    throw AUTH_CODES.has(ret.code) ? new WebAuthError(msg, ret.code) : new Error(msg);
-  }
-
-  const albums = ret.data?.album ?? [];
-  return albums.map((a) => ({
-    id: a.id ?? '',
-    title: a.title ?? '',
-    photoCount: a.photocnt ?? 0,
-    coverUrl: a.coverurl ?? '',
-    desc: a.desc ?? '',
-    createUin: a.createuin ?? 0,
-    createNickname: a.createnickname ?? '',
-    createTime: a.createtime ?? '',
-    updateTime: a.updatetime ?? '',
-    privacy:
-      typeof a.privacy === 'number' &&
-      Number.isSafeInteger(a.privacy) &&
-      a.privacy >= 0 &&
-      a.privacy <= 0xffffffff
-        ? a.privacy
-        : null,
-  }));
+  throw new Error('群相册分页超过读取上限');
 }
 
 // ───────────────────────── 写操作：上传图片 ─────────────────────────

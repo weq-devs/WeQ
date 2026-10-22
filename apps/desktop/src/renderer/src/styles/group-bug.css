@@ -251,7 +251,7 @@ html[data-theme='dark'] .weq-group-bug {
 
 .weq-group-bug-btn-primary {
   background: var(--weq-accent-effective);
-  color: #ffffff;
+  color: var(--primary-foreground);
   height: 32px;
   padding: 0 16px;
   box-shadow: 0 2px 8px color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);

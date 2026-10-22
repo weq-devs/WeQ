@@ -21,7 +21,7 @@ export function atAllMentionState(input: {
   });
   if (input.loading) return unavailable('读取中', '正在核对权限与全体成员额度');
   if (input.error) return unavailable('读取失败', '额度读取失败，暂不可用');
-  if (!input.online) return unavailable('离线', 'QQ 离线或完整功能不可用，无法核实额度');
+  if (!input.online) return unavailable('受限', '受限模式下无法使用全体成员提醒');
   const data = input.data;
   if (!data?.role) return unavailable('权限未知');
   if (!data.canManage || (data.role !== 'owner' && data.role !== 'admin'))

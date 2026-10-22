@@ -6,7 +6,12 @@ import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
 
 const fixture = vi.hoisted(() => ({
-  provider: {} as { latestMessageId?: string | null; latestPeerMsgId?: string | null },
+  provider: {} as {
+    latestMessageId?: string | null;
+    latestPeerMsgId?: string | null;
+    latestSelfMessageIds?: readonly string[];
+    roamingMessageKey?: string;
+  },
   bar: {} as { replyTargetId?: string | null },
 }));
 vi.mock('../src/renderer/src/components/intentSense/context', () => ({
@@ -17,6 +22,8 @@ vi.mock('../src/renderer/src/components/intentSense/context', () => ({
     children: ReactNode;
     latestMessageId?: string | null;
     latestPeerMsgId?: string | null;
+    latestSelfMessageIds?: readonly string[];
+    roamingMessageKey?: string;
   }) => {
     fixture.provider = props;
     return children;
@@ -82,13 +89,19 @@ it.each(['group', 'direct'] as const)(
         ),
       );
     try {
-      await render([peer, own]);
+      const ownBefore = message('own-before', '10000');
+      await render([peer, ownBefore, own]);
       expect(fixture.provider.latestMessageId).toBe('own');
+      expect(fixture.provider.latestSelfMessageIds).toEqual(['own', 'own-before']);
       expect(fixture.provider.latestPeerMsgId).toBeNull();
       expect(fixture.bar.replyTargetId).toBeNull();
+      await render([peer, message('roaming:protocol:2:77', 'u_peer'), ownBefore, own]);
+      expect(fixture.provider.roamingMessageKey).toBe('roaming:protocol:2:77');
+      expect(fixture.provider.latestMessageId).toBe('own');
       const next = message('new-peer', 'u_peer');
       await render([peer, own, next]);
       expect(fixture.provider.latestMessageId).toBe('new-peer');
+      expect(fixture.provider.latestSelfMessageIds).toEqual([]);
       expect(fixture.bar.replyTargetId).toBe('new-peer');
       await act(async () =>
         root.render(

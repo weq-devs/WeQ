@@ -29,8 +29,16 @@ import {
 import { trpc, client } from '../../trpc/client';
 import { Modal, useDialog } from '../Dialog';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { Card, Row, SectionHeader } from './controls';
+import { Card, QueryError, Row, SectionHeader } from './controls';
+import '../../styles/provider-settings.css';
 import { useDraftClose } from '../../lib/draftClose';
+import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
+import {
+  connectionTestKey,
+  runConnectionTest,
+  useConnectionTestTasks,
+} from '../../lib/connectionTestTask';
+import { useToast } from '../Toast';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -280,7 +288,7 @@ interface TtsForm {
 
 function emptyTtsForm(): TtsForm {
   return {
-    id: '',
+    id: crypto.randomUUID(),
     name: '',
     vendor: 'cosyvoice',
     baseUrl: '',
@@ -293,14 +301,6 @@ function emptyTtsForm(): TtsForm {
     format: '',
     speed: '',
   };
-}
-
-function normalizeId(input: string): string {
-  return input
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-_]+/g, '-')
-    .replace(/^-+|-+$/g, '');
 }
 
 export function TtsProvidersCard(): ReactElement {
@@ -316,17 +316,18 @@ export function TtsProvidersCard(): ReactElement {
     refetchOnMount: 'always',
   });
   const saveProvider = trpc.bootstrap.saveTtsProvider.useMutation();
+  const providerLabels = providerDisplayLabels(providers.data ?? []);
   const deleteProvider = trpc.bootstrap.deleteTtsProvider.useMutation();
-  const testProvider = trpc.bootstrap.testTtsProvider.useMutation();
 
   const [selectedId, setSelectedId] = useState<string>('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<TtsForm>(emptyTtsForm);
-  const [testing, setTesting] = useState(false);
+  const testKey = connectionTestKey('tts', form.id);
+  const testing = useConnectionTestTasks((state) => state.running.has(testKey));
   const guard = useDraftClose(
     () => setOpen(false),
     form,
-    saveProvider.isLoading || deleteProvider.isLoading || testing,
+    saveProvider.isLoading || deleteProvider.isLoading,
   );
 
   /** 把已保存的 TTS 服务商数据填进表单。 */
@@ -374,7 +375,8 @@ export function TtsProvidersCard(): ReactElement {
     () => catalog.data?.find((item) => item.vendor === form.vendor),
     [catalog.data, form.vendor],
   );
-  const has = (field: string): boolean => vendorEntry?.fields.includes(field as never) ?? false;
+  const has = (field: keyof TtsForm): boolean =>
+    vendorEntry ? vendorEntry.fields.some((item) => item === field) : form[field].trim().length > 0;
 
   function update<K extends keyof TtsForm>(key: K, value: TtsForm[K]): void {
     setForm((current) => ({ ...current, [key]: value }));
@@ -426,10 +428,9 @@ export function TtsProvidersCard(): ReactElement {
   }
 
   async function onSave(): Promise<void> {
-    // 服务商 ID 不再暴露给用户：编辑已有 provider 时保持原 id（克隆体里的引用指向它），
-    // 新建时由系统从显示名称自动生成。
-    const id = form.id || normalizeId(form.name);
-    if (!id) {
+    // 同名语音服务商也使用独立 ID，编辑与重存保持现有克隆体引用。
+    const id = form.id;
+    if (!form.name.trim()) {
       dialog.error('保存失败', '请先填写显示名称。');
       return;
     }
@@ -470,32 +471,32 @@ export function TtsProvidersCard(): ReactElement {
     }
   }
 
-  async function onTest(): Promise<void> {
+  function onTest(): void {
     if (!form.baseUrl.trim()) {
-      dialog.error('无法测试', '请先填写服务地址（Base URL）。');
+      useToast
+        .getState()
+        .push({ tone: 'warning', title: '无法测试', detail: '请先填写服务地址（Base URL）。' });
       return;
     }
-    setTesting(true);
-    try {
-      const res = await testProvider.mutateAsync(
-        toPayload(normalizeId(form.id || form.name) || 'test'),
-      );
-      if (!res.ok) {
-        dialog.error('测试失败', res.error ?? '未知错误');
-        return;
-      }
+    const input = toPayload(form.id);
+    const label = `${form.name.trim() || 'TTS'} · ${form.id.slice(-8)}`;
+    void runConnectionTest(testKey, label, async () => {
+      const res = await client.bootstrap.testTtsProvider.mutate(input);
+      if (!res.ok) throw new Error(res.error ?? '未知错误');
       if (res.audioBase64) {
         const audio = new Audio(`data:audio/${res.format ?? 'mp3'};base64,${res.audioBase64}`);
-        void audio.play().catch(() => {});
-        dialog.success('测试成功', '已生成样例语音，正在播放。');
-      } else {
-        dialog.success('测试通过', res.error ?? '配置可用。');
+        const play = () => {
+          void audio.play().catch((error: unknown) => {
+            useToast
+              .getState()
+              .push({ tone: 'warning', title: '样例语音播放失败', detail: errMsg(error) });
+          });
+        };
+        play();
+        return { detail: '已生成样例语音。', action: { label: '播放样例语音', run: play } };
       }
-    } catch (error) {
-      dialog.error('测试失败', error instanceof Error ? error.message : String(error));
-    } finally {
-      setTesting(false);
-    }
+      return { detail: res.error ?? '配置可用。' };
+    });
   }
 
   return (
@@ -516,10 +517,24 @@ export function TtsProvidersCard(): ReactElement {
         <p className="weq-set-desc">
           用于好友克隆的文字转语音与声音复刻；合成时会向所选服务商提交对应文本或参考语音。
         </p>
-        {(providers.data ?? []).length === 0 ? (
-          <div className="weq-set-row-desc" style={{ padding: '4px 2px' }}>
-            暂无语音合成服务商。
-          </div>
+        {providers.error ? (
+          <QueryError
+            message={`TTS 配置读取失败：${providers.error.message}`}
+            retryLabel="重新读取 TTS 配置"
+            retrying={providers.isFetching}
+            onRetry={() => void providers.refetch()}
+          />
+        ) : null}
+        {providers.isLoading ? (
+          <p className="weq-set-empty" role="status">
+            正在读取 TTS 配置…
+          </p>
+        ) : (providers.data ?? []).length === 0 ? (
+          providers.error ? null : (
+            <div className="weq-set-row-desc" style={{ padding: '4px 2px' }}>
+              暂无语音合成服务商。
+            </div>
+          )
         ) : (
           <div className="weq-agentlab-provider-list">
             {(providers.data ?? []).map((item) => {
@@ -528,6 +543,7 @@ export function TtsProvidersCard(): ReactElement {
                 <button
                   key={item.id}
                   type="button"
+                  title={providerLabels.get(item.id)}
                   className={`weq-agentlab-provider-item${open && selectedId === item.id ? ' is-active' : ''}`}
                   onClick={() => editProvider(item.id)}
                 >
@@ -538,7 +554,7 @@ export function TtsProvidersCard(): ReactElement {
                       aria-hidden
                       style={{ marginRight: 6, verticalAlign: '-2px', opacity: 0.7 }}
                     />
-                    {item.name}
+                    {providerLabels.get(item.id)}
                     {entry?.capabilities.clone ? (
                       <span className="weq-set-badge weq-set-badge-ok"> 可复刻</span>
                     ) : null}
@@ -552,7 +568,12 @@ export function TtsProvidersCard(): ReactElement {
       </Card>
 
       {open ? (
-        <Modal presentation="panel" onClose={guard.requestClose} width={620}>
+        <Modal
+          presentation="panel"
+          onClose={guard.requestClose}
+          width={620}
+          className="weq-provider-window"
+        >
           <div className="weq-provider-modal">
             <header className="weq-provider-modal-head">
               <span className="weq-provider-modal-icon">
@@ -570,15 +591,28 @@ export function TtsProvidersCard(): ReactElement {
             </header>
 
             <div className="weq-provider-modal-body">
+              {catalog.error ? (
+                <QueryError
+                  message={`厂商模板读取失败：${catalog.error.message}`}
+                  retryLabel="重新读取厂商模板"
+                  retrying={catalog.isFetching}
+                  onRetry={() => void catalog.refetch()}
+                />
+              ) : null}
               <Row
                 label="厂商模板"
                 desc={vendorEntry?.note}
                 control={
                   <select
                     className="weq-set-input"
+                    aria-label="TTS 厂商模板"
                     value={form.vendor}
+                    disabled={catalog.isLoading}
                     onChange={(e) => applyVendor(e.target.value)}
                   >
+                    {!catalog.data?.some((item) => item.vendor === form.vendor) ? (
+                      <option value={form.vendor}>{form.vendor}</option>
+                    ) : null}
                     {(catalog.data ?? []).map((item) => (
                       <option key={item.vendor} value={item.vendor}>
                         {item.label}

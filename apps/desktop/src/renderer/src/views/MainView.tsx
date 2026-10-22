@@ -17,6 +17,7 @@ import React, {
   type ReactElement,
 } from 'react';
 import { trpc } from '../trpc/client';
+import { IS_WEB } from '../lib/target';
 import { findReplyPreview } from '../lib/replyPreview';
 import { intimateRelationOf } from '../lib/profileRelations';
 import {
@@ -37,6 +38,7 @@ import { useDialog } from '../components/Dialog';
 import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
 import { useNoticeUnread } from '../hooks/useNoticeUnread';
+import { groupNoticeId } from '../lib/contactNotice';
 import { ProfileNavigationContext } from '../lib/profileNavigation';
 import { buddyRequestState } from '@weq/service/buddy-request';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
@@ -52,6 +54,7 @@ import { selfIdentityValues } from '../lib/selfIdentity';
 import { isMineMessage } from '../lib/messageDirection';
 import { isLocalOutgoingMessage } from '../lib/messageSelection';
 import { messageBatchBlockReason } from '../lib/messageBatchAction';
+import { deletionIdentity } from '../lib/messageDeletion';
 import type { LoadSelectionMessages } from '../lib/messageSelection';
 import {
   mergeOptimisticInto,
@@ -89,6 +92,12 @@ import { mergeRecentContactPages } from '../lib/recentContacts';
 import { useContentSelectionScope } from '../state/contentSelection';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { ConversationWindowCache, conversationWindowKey } from '../lib/conversationWindowCache';
+import { loadConversationEntry } from '../lib/conversationEntry';
+import {
+  captureReadingPosition,
+  restoreReadingPosition,
+  type ConversationReadingPosition,
+} from '../lib/conversationReadingPosition';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
 import { useProfileResolver } from '../hooks/useProfileResolver';
@@ -108,6 +117,7 @@ import { CollectionDialog } from '../components/CollectionDialog';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { DressUpDialog } from '../components/DressUpDialog';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
+import { GroupAlbumCardNavigationProvider } from '../components/GroupAlbumCardNavigation';
 import { GroupFileDialog } from '../components/GroupFileDialog';
 import {
   GroupAnnouncementsDialog,
@@ -128,6 +138,7 @@ import { GroupInfoDetailDialog } from '../components/GroupInfoDetailDialog';
 import type { GroupInfoDetail } from '../im-template/template/conversationDetails';
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
 import { QQRemarkDialog } from '../components/QQRemarkDialog';
+import { FriendDirectoryControls } from '../components/FriendDirectoryControls';
 import { GroupEssenceDialog } from '../components/GroupEssenceDialog';
 import {
   projectGroupEssence,
@@ -239,7 +250,6 @@ import {
   type GroupJoinRequest,
   type GroupMember,
   type GroupNoticeHandleState,
-  type GroupUpdateInput,
   type ArkContactSource,
   type ArkLocationProvider,
   type ArkPayload,
@@ -1044,7 +1054,7 @@ function groupNotifyToGroupRequest(
       : null;
 
   return {
-    id: `group-notify:${notify.groupUin}:${notify.operatedUid}:${notify.msgTime}`,
+    id: groupNoticeId(notify),
     handleState,
     action: GROUP_NOTIFY_ACTION[notify.status] ?? '群通知',
     message: notify.remark || null,
@@ -1350,7 +1360,6 @@ function messageSender(
       customTitle: !isUinOnly ? member?.customTitle : undefined,
       levelName: !isUinOnly ? member?.levelName : undefined,
       memberLevel: !isUinOnly ? member?.memberLevel : undefined,
-      levelBracket: !isUinOnly ? levelBracketFor(member?.memberLevel) : 0,
     } as User;
   }
 
@@ -2233,7 +2242,13 @@ export function MainView(): ReactElement {
     loadedRevisionRef = useRef(0),
     windowVerifiedAtRef = useRef(0);
   const verifiedWindowRowsRef = useRef<MessageWire[] | null>(null);
-  const cachedScrollRef = useRef<{ id: string; top: number } | null>(null);
+  const cachedScrollRef = useRef<{ id: string; position: ConversationReadingPosition } | null>(
+    null,
+  );
+  const [initialReadingPosition, setInitialReadingPosition] =
+    useState<ConversationReadingPosition>();
+  const [loadingNewerMessages, setLoadingNewerMessages] = useState(false);
+  const entryLoadingRef = useRef(false);
   useEffect(() => {
     const binding = messageBindingRef.current;
     messageScopeRef.current = binding
@@ -2448,10 +2463,14 @@ export function MainView(): ReactElement {
         useViewState.getState().openedUin === accountUin &&
         results.some((result) => result.isError)
       )
-        pushToast({ tone: 'info', title: '部分联系人数据刷新失败，已保留上次结果' });
+        pushToast({
+          tone: 'info',
+          durationKind: 'failure',
+          title: '部分联系人数据刷新失败，已保留上次结果',
+        });
     } catch {
       if (useViewState.getState().openedUin === accountUin)
-        pushToast({ tone: 'info', title: '联系人刷新失败，请稍后重试' });
+        pushToast({ tone: 'info', durationKind: 'failure', title: '联系人刷新失败，请稍后重试' });
     } finally {
       refreshingContactsRef.current = false;
       setRefreshingContacts(false);
@@ -2498,7 +2517,8 @@ export function MainView(): ReactElement {
     const scope = messageScopeRef.current,
       binding = messageBindingRef.current;
     const revision = dbRevisionRef.current;
-    if (!scope || !binding || document.visibilityState === 'hidden') return;
+    if (!scope || !binding || entryLoadingRef.current || document.visibilityState === 'hidden')
+      return;
     const sel = selectionRef.current;
     const win = windowRef.current;
     if (!sel || !win.anchored) return;
@@ -2870,10 +2890,10 @@ export function MainView(): ReactElement {
     conversation: Conversation;
     messages: MessageWire[];
   } | null>(null);
-  // msgIds WeQ deleted in the SELECTED conversation — drives the in-place
-  // translucent overlay in the chat. Loaded per conversation, updated
-  // optimistically on delete/restore.
+  // 当前会话的删除遮罩与隐藏标记；写入成功后更新，切换来源时清空。
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
+  const [hiddenDeletedIds, setHiddenDeletedIds] = useState<Set<string>>(new Set());
+  const deletionRevision = useRef(0);
 
   const handleEditRaw = useCallback(async (message: Message) => {
     if (message.source === 'roaming') return;
@@ -2913,25 +2933,39 @@ export function MainView(): ReactElement {
     return { kind: 'c2c', conv: c.id }; // merged — should never actually be called
   }, []);
 
-  // QQ-style delete: rewrites 40011/40012 to (1,1) in the DB — the message
-  // stays in the chat under a translucent overlay. Optimistically mark it
-  // deleted so the overlay appears instantly.
+  // QQ 原库保留 QQ 式删除；漫游消息只改 WeQ 的可恢复缓存标记。
   const handleDeleteMessage = useCallback(
-    async (message: Message, conversation: Conversation) => {
+    async (message: Message, conversation: Conversation, hidden = false) => {
       if (messageBatchBlockReason(message, 'delete')) return;
       if (isLocalOutgoingMessage(message)) {
         dismissFailedOutgoing(message, conversation.id);
         return;
       }
       const { kind, conv } = convFetchKey(conversation);
-      setDeletedIds((current) => new Set(current).add(message.id));
+      const scope = messageScopeRef.current;
+      const binding = messageBindingRef.current;
+      if (!scope || !binding) throw new Error('账号或数据源尚未就绪');
+      deletionRevision.current += 1;
       try {
         const removed = await client.account.deleteMessage.mutate({
           msgId: message.id,
           kind,
           conv,
+          hideAfterDelete: hidden,
+          ...binding,
         });
         if (!removed) throw new Error('未找到可删除的消息记录');
+        deletionRevision.current += 1;
+        if (messageScopeRef.current !== scope || selectionRef.current?.id !== conversation.id)
+          return;
+        setDeletedIds((current) => new Set(current).add(message.id));
+        setHiddenDeletedIds((current) => {
+          const next = new Set(
+            [...current].filter((id) => deletionIdentity(id) !== deletionIdentity(message.id)),
+          );
+          if (hidden) next.add(message.id);
+          return next;
+        });
       } catch (e) {
         console.error('[MainView] Failed to delete message:', e);
         pushToast({
@@ -2939,12 +2973,7 @@ export function MainView(): ReactElement {
           title: '删除消息失败',
           detail: e instanceof Error ? e.message : String(e),
         });
-        // Roll the optimistic overlay back on failure.
-        setDeletedIds((current) => {
-          const next = new Set(current);
-          next.delete(message.id);
-          return next;
-        });
+        throw e;
       }
     },
     [convFetchKey, dismissFailedOutgoing, pushToast],
@@ -3250,6 +3279,7 @@ export function MainView(): ReactElement {
           if (result.nextStartSeq === null) {
             pushToast({
               tone: 'info',
+              durationKind: 'failure',
               message: '该缺口未拉取到可用记录，消息可能已过期或未开启漫游。',
             });
             return;
@@ -3258,6 +3288,7 @@ export function MainView(): ReactElement {
         }
         pushToast({
           tone: 'info',
+          durationKind: 'failure',
           message: '已检查 240 个消息序号，暂未找到记录；可再次点击继续。',
         });
       } catch (error) {
@@ -3277,17 +3308,31 @@ export function MainView(): ReactElement {
 
   const handleRestoreMessage = useCallback(
     async (msgId: string, conversation?: Conversation | null): Promise<void> => {
+      const scope = messageScopeRef.current;
+      const binding = messageBindingRef.current;
+      if (!scope || !binding) throw new Error('账号或数据源尚未就绪');
+      deletionRevision.current += 1;
       const restored = await client.account.restoreMessage.mutate({
         msgId,
+        ...binding,
         ...(msgId.startsWith('roaming:') && conversation ? convFetchKey(conversation) : {}),
       });
       if (!restored) throw new Error('未找到可恢复的消息记录');
+      deletionRevision.current += 1;
+      if (messageScopeRef.current !== scope) return;
       // Clear the in-place overlay for the restored message.
-      setDeletedIds((current) => {
-        const next = new Set(current);
-        next.delete(msgId);
-        return next;
-      });
+      if (!conversation || selectionRef.current?.id === conversation.id) {
+        setDeletedIds((current) => {
+          return new Set(
+            [...current].filter((id) => deletionIdentity(id) !== deletionIdentity(msgId)),
+          );
+        });
+        setHiddenDeletedIds((current) => {
+          return new Set(
+            [...current].filter((id) => deletionIdentity(id) !== deletionIdentity(msgId)),
+          );
+        });
+      }
       if (deletedConv) {
         await loadDeletedMessages(deletedConv);
       }
@@ -4254,13 +4299,20 @@ export function MainView(): ReactElement {
       ),
     [buddyRequests.data, profileByUid],
   );
+  // 红点按原始通知建立基线，不把群资料加载后补出的卡片当作新通知。
+  const groupNoticeRecords = useMemo(
+    () =>
+      ((groupNotifies.data ?? []) as GroupNotifyWire[]).filter((n) =>
+        Object.hasOwn(GROUP_NOTIFY_ACTION, n.status),
+      ),
+    [groupNotifies.data],
+  );
   const groupRequests = useMemo(
     () =>
-      ((groupNotifies.data ?? []) as GroupNotifyWire[])
-        .filter((n) => [1, 3, 6, 11, 13, 15].includes(n.status))
+      groupNoticeRecords
         .map((n) => groupNotifyToGroupRequest(n, profileByUid, groupsById))
         .filter((r): r is NonNullable<typeof r> => r !== null),
-    [groupNotifies.data, profileByUid, groupsById],
+    [groupNoticeRecords, profileByUid, groupsById],
   );
   const noticeConfig = trpc.account.getAccountConfig.useQuery(undefined, {
     enabled: Boolean(openedUin),
@@ -4293,8 +4345,8 @@ export function MainView(): ReactElement {
     contacts: profileContacts,
     conversationPrefs,
     initialActiveConversationId: null,
-    // 进入应用先落在主页（标题栏 logo 那颗按钮），会话由用户显式点选后才进入。
-    initialView: 'home',
+    // 手机直接落在消息列表；桌面保留主页，会话均由用户显式点选。
+    initialView: IS_WEB && isMobileShell() ? 'messages' : 'home',
     sidebarWidthStorageKey: 'weq.desktop.sidebarWidth.v2',
     history: shellHistory,
   });
@@ -4308,7 +4360,7 @@ export function MainView(): ReactElement {
   const groupNoticeCount = useNoticeUnread(
     noticeAccountKey,
     'group',
-    groupRequests.map((r) => r.id),
+    groupNoticeRecords.map(groupNoticeId),
     shell.contactNotice === 'group',
     groupNotifies.isSuccess,
   );
@@ -4710,27 +4762,32 @@ export function MainView(): ReactElement {
     syncDraftsFromPending();
   }, [shell.activeConversationId, syncDraftsFromPending]);
 
-  // Load the WeQ-deleted msgIds whenever the selected conversation changes so
-  // the in-place "deleted" overlay is correct on entry. Stale responses from a
-  // quickly-switched-away conversation are ignored.
   useEffect(() => {
     setDeletedIds(new Set());
+    setHiddenDeletedIds(new Set());
+  }, [selectedUid, isDirect, isGroup, messageScope]);
+
+  // 补拉成功会解除对应隐藏记录；只同步标记，不再触发时间线重载。
+  useEffect(() => {
     if (!selectedUid || !(isDirect || isGroup)) return;
-    const kind = isGroup ? 'group' : 'c2c';
-    const conv = selectedUid;
     let alive = true;
-    client.account.deletedMsgIds
-      .query({ kind, conv })
-      .then((ids) => {
-        if (alive) setDeletedIds(new Set(ids));
+    const revision = deletionRevision.current;
+    const target = { kind: isGroup ? ('group' as const) : ('c2c' as const), conv: selectedUid };
+    void Promise.all([
+      client.account.deletedMsgIds.query(target),
+      client.account.hiddenDeletedMsgIds.query(target),
+    ])
+      .then(([ids, hidden]) => {
+        if (alive && revision === deletionRevision.current) {
+          setDeletedIds(new Set(ids));
+          setHiddenDeletedIds(new Set(hidden));
+        }
       })
-      .catch(() => {
-        /* overlay silently absent on failure; delete/restore still work */
-      });
+      .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [selectedUid, isDirect, isGroup]);
+  }, [loaded, selectedUid, isDirect, isGroup, messageScope]);
 
   // 群资料灯箱：拉取所选群在 group_member3 里的前若干名成员，用于头像横排展示。
   const groupDetailCode = shell.selectedGroupConversationId ?? '';
@@ -4947,9 +5004,17 @@ export function MainView(): ReactElement {
     if (
       trackedMessageScope &&
       trackedMessageScope === messageScope &&
-      old?.id === trackedConversationId
+      old?.id === trackedConversationId &&
+      (!messagesLoading || loaded.length > 0)
     ) {
       const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
+      const position = scroll ? captureReadingPosition(scroll) : undefined;
+      const anchorIndex = loaded.findIndex((row) => timelineRowKey(row) === position?.anchorId);
+      if (position && anchorIndex >= 0) {
+        const anchor = loaded[anchorIndex]!;
+        if (old.kind === 'group' || anchor.source !== 'roaming' || anchor.ntSeqVerified)
+          position.anchorSeq = anchor.msgSeq;
+      }
       conversationWindows.put(
         conversationWindowKey(messageScope, old.kind === 'group' ? 'group' : 'c2c', old.id),
         {
@@ -4958,6 +5023,7 @@ export function MainView(): ReactElement {
           hasOlder,
           hasNewer,
           scrollTop: scroll?.scrollTop ?? 0,
+          readingPosition: position,
           revision: loadedRevisionRef.current,
           dirty:
             loadedRevisionRef.current !== dbRevisionRef.current ||
@@ -4965,6 +5031,7 @@ export function MainView(): ReactElement {
           storedAt: Date.now(),
           verifiedAt: windowVerifiedAtRef.current,
         },
+        anchorIndex >= 0 ? anchorIndex : undefined,
       );
     }
     if (trackedMessageScope !== messageScope) {
@@ -4984,6 +5051,7 @@ export function MainView(): ReactElement {
     }
     const cached =
       messageScope &&
+      displaySettings.data?.readFromFirstUnread === true &&
       selectedUid &&
       (isDirect || isGroup) &&
       pendingSearchJumpRef.current?.conv !== selectedUid
@@ -5000,10 +5068,14 @@ export function MainView(): ReactElement {
     setHasOlder(cached?.hasOlder ?? true);
     setHasNewer(cached?.hasNewer ?? false);
     setMessagesLoading(Boolean(shell.activeConversationId) && !cached);
+    setLoadingNewerMessages(false);
+    entryLoadingRef.current = false;
     loadedRevisionRef.current = cached?.revision ?? 0;
     windowVerifiedAtRef.current = cached?.verifiedAt ?? 0;
-    cachedScrollRef.current =
-      cached && selectedUid ? { id: selectedUid, top: cached.scrollTop } : null;
+    setInitialReadingPosition(
+      cached?.readingPosition ?? (cached ? { scrollTop: cached.scrollTop } : undefined),
+    );
+    cachedScrollRef.current = null;
     loadingOlderRef.current = false;
     loadingNewerRef.current = false;
     pendingScrollRestoreRef.current = null;
@@ -5014,7 +5086,7 @@ export function MainView(): ReactElement {
     if (!restore || restore.id !== selectedUid || !messagesTabActive) return;
     const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
     if (scroll) {
-      scroll.scrollTop = restore.top;
+      restoreReadingPosition(scroll, restore.position);
       cachedScrollRef.current = null;
     }
   }, [selectedUid, loaded, messagesTabActive]);
@@ -6250,7 +6322,7 @@ export function MainView(): ReactElement {
   async function undoConversationReadState(undo = readUndoRef.current) {
     if (!undo || undo.accountUin !== openedUin || readStateBusyRef.current) return;
     if (readUndoRef.current?.token !== undo.token) {
-      pushToast({ tone: 'info', title: '请撤销最近一次标记' });
+      pushToast({ tone: 'info', durationKind: 'failure', title: '请撤销最近一次标记' });
       return;
     }
     readStateBusyRef.current = true;
@@ -6276,6 +6348,7 @@ export function MainView(): ReactElement {
       setReadUndo(null);
       pushToast({
         tone: 'info',
+        durationKind: result.restored ? 'success' : 'failure',
         title: result.restored
           ? `已撤销 ${result.restored} 个会话的标记`
           : '会话已再次阅读，未覆盖最新状态',
@@ -6486,6 +6559,7 @@ export function MainView(): ReactElement {
         console.error('[centerWindowOnSeq] fetch failed', err);
         pushToast({
           tone: 'info',
+          durationKind: 'failure',
           title: '未找到该消息',
           detail: '该消息可能已被撤回或删除。',
         });
@@ -6533,6 +6607,7 @@ export function MainView(): ReactElement {
         setMissingJumpSeq(targetSeq);
         pushToast({
           tone: 'info',
+          durationKind: 'failure',
           title: '未找到该条消息',
           detail: '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。',
         });
@@ -6566,6 +6641,7 @@ export function MainView(): ReactElement {
       const notFound = (): void => {
         pushToast({
           tone: 'info',
+          durationKind: 'failure',
           title: '未找到该条消息',
           detail: '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。',
         });
@@ -6672,6 +6748,7 @@ export function MainView(): ReactElement {
         if (toastOnMissingSeq) {
           pushToast({
             tone: 'info',
+            durationKind: 'failure',
             title: '未找到该消息位置',
             detail: '该消息可能已被撤回或删除。',
           });
@@ -6884,6 +6961,10 @@ export function MainView(): ReactElement {
   }, [jumpToConvSeq]);
 
   // 命中缓存先恢复窗口，随后按水位增量读取；有变更或较久未校准时才重读已有范围。
+  const entryChatType =
+    selectedConversation?.type === 'direct'
+      ? (unreadChatType(selectedConversation.chatType ?? 1) ?? 1)
+      : 2;
   useEffect(() => {
     const binding = messageBindingRef.current,
       scope = messageScope;
@@ -6895,8 +6976,8 @@ export function MainView(): ReactElement {
     const conv = selectedUid;
     let cancelled = false;
     const selection = selectionRef.current,
-      expectedWindow = windowRef.current,
       revision = dbRevisionRef.current;
+    let expectedWindow = windowRef.current;
     const limit = isGroup ? GROUP_INITIAL_PAGE_SIZE : PAGE_SIZE;
     const valid = () =>
       !cancelled &&
@@ -6913,7 +6994,9 @@ export function MainView(): ReactElement {
         cancelled = true;
       };
     }
-    const cached = conversationWindows.get(conversationWindowKey(scope, kind, conv));
+    const cached = displaySettings.data?.readFromFirstUnread
+      ? conversationWindows.get(conversationWindowKey(scope, kind, conv))
+      : undefined;
     const dirty = Boolean(
       cached &&
         (cached.dirty || cached.revision !== revision || Date.now() - cached.verifiedAt > 30_000),
@@ -6923,94 +7006,128 @@ export function MainView(): ReactElement {
         cancelled = true;
       };
     if (!cached) setMessagesLoading(true);
+    entryLoadingRef.current = true;
+    setLoadingNewerMessages(Boolean(cached));
+    if (cached?.anchored) {
+      // 增量页失败后仍保留向下重试入口，也避免在途实时刷新抢占阅读窗口。
+      setHasNewer(true);
+      setAnchoredToLatest(false);
+      windowRef.current = expectedWindow = { ...expectedWindow, anchored: false };
+    }
     void (async () => {
       try {
-        let rows: MessageWire[],
-          older: boolean,
-          newer = false,
-          anchored = true;
-        const seqs =
-          cached?.rows
-            .filter(
-              (row) => kind === 'group' || row.source !== 'roaming' || row.ntSeqVerified === true,
-            )
-            .map((row) => row.msgSeq)
-            .filter((seq) => /^[1-9]\d*$/.test(seq)) ?? [];
-        const max = seqs.reduce<string | null>(
-          (value, seq) => (value === null || BigInt(seq) > BigInt(value) ? seq : value),
-          null,
-        );
-        if (cached && !cached.anchored) {
-          if (!dirty || max === null) return;
-          const page = await client.account.listBefore.query({
-            ...binding,
-            kind,
-            conv,
-            beforeSeq: String(BigInt(max) + 1n),
-            limit: Math.min(200, Math.max(1, cached.rows.length)),
-          });
-          rows = page.map(toMessageWire).reverse();
-          older = page.length >= Math.min(200, cached.rows.length);
-          newer = cached.hasNewer;
-          anchored = false;
-        } else if (cached && !dirty && max !== null) {
-          const page = await client.account.listAfter.query({
-            ...binding,
-            kind,
-            conv,
-            afterSeq: max,
-            limit: 200,
-          });
-          if (!valid()) return;
-          if (dbRevisionRef.current !== revision) {
-            void refreshWindow();
-            return;
+        const saved = displaySettings.data?.readFromFirstUnread
+          ? conversationWindows.getPosition(conversationWindowKey(scope, kind, conv))
+          : undefined;
+        let readSeq = saved?.anchorSeq;
+        if (displaySettings.data?.readFromFirstUnread && !cached && !readSeq) {
+          try {
+            const [info] = await client.account.getUnreadInfos.query({
+              ...binding,
+              targets: [
+                {
+                  chatType: entryChatType,
+                  uid: conv,
+                },
+              ],
+            });
+            if (!valid()) return;
+            if (info && !info.readError && (info.unreadCount ?? 0) > 0)
+              readSeq = info.readSeq ?? undefined;
+          } catch (error) {
+            console.error('[msgs] entry unread snapshot failed', error);
           }
-          rows = mergeRoamingTimeline(
-            kind,
-            [
-              ...new Map(
-                [...cached.rows, ...page.map(toMessageWire)].map((row) => [
-                  timelineRowKey(row),
-                  row,
-                ]),
-              ).values(),
-            ],
-            [],
-          );
-          older = cached.hasOlder;
-          newer = page.length >= 200;
-          anchored = !newer;
-        } else if (cached && /^[1-9]\d*$/.test(cached.rows[0]?.msgSeq ?? '')) {
-          const page = await client.account.listFrom.query({
-            ...binding,
-            kind,
-            conv,
-            sinceSeq: cached.rows[0]!.msgSeq,
-            limit: 1000,
-          });
-          rows = page.map(toMessageWire).reverse();
-          older = cached.hasOlder || page.length >= 1000;
-        } else {
-          const page = await client.account.listLatest.query({ ...binding, kind, conv, limit });
-          rows = page.map(toMessageWire).reverse();
-          older = page.length >= limit;
         }
         if (!valid()) return;
-        loadedRevisionRef.current = revision;
-        if (!cached || dirty) windowVerifiedAtRef.current = Date.now();
-        windowRef.current = { minSeq: rows[0]?.msgSeq ?? null, anchored };
-        loadedRef.current = rows;
-        setLoaded(rows);
-        setHasOlder(older);
-        setHasNewer(newer);
-        setAnchoredToLatest(anchored);
-        setMessagesLoading(false);
-        verifiedWindowRowsRef.current = rows;
+        await loadConversationEntry<MessageWire>({
+          cached,
+          dirty,
+          readSeq,
+          readFromFirstUnread: displaySettings.data?.readFromFirstUnread ?? false,
+          limit,
+          current: valid,
+          cursor: (rows) =>
+            rows
+              .filter(
+                (row) => kind === 'group' || row.source !== 'roaming' || row.ntSeqVerified === true,
+              )
+              .map((row) => row.msgSeq)
+              .filter((seq) => /^[1-9]\d*$/.test(seq))
+              .reduce<string | undefined>(
+                (max, seq) => (!max || BigInt(seq) > BigInt(max) ? seq : max),
+                undefined,
+              ),
+          before: async (beforeSeq, size) =>
+            (
+              await client.account.listBefore.query({
+                ...binding,
+                kind,
+                conv,
+                beforeSeq,
+                limit: size,
+              })
+            ).map(toMessageWire),
+          after: async (afterSeq, size) =>
+            (
+              await client.account.listAfter.query({
+                ...binding,
+                kind,
+                conv,
+                afterSeq,
+                limit: size,
+              })
+            ).map(toMessageWire),
+          latest: async (size) =>
+            (await client.account.listLatest.query({ ...binding, kind, conv, limit: size })).map(
+              toMessageWire,
+            ),
+          show: (next, first) => {
+            if (!valid()) return;
+            if (first && readSeq) {
+              setInitialReadingPosition(
+                saved ?? {
+                  scrollTop: 0,
+                  anchorId: next.rows.length ? timelineRowKey(next.rows.at(-1)!) : undefined,
+                  alignToEnd: true,
+                  bottomInset: 64,
+                },
+              );
+              setLoadingNewerMessages(true);
+            } else if (!first) {
+              const scroll = document.querySelector<HTMLElement>(
+                '.weq-readonly-chat .message-scroll',
+              );
+              if (scroll) {
+                const position = captureReadingPosition(scroll);
+                if (position.anchorId) cachedScrollRef.current = { id: conv, position };
+              }
+            }
+            const rows = mergeRoamingTimeline(kind, next.rows, []);
+            loadedRevisionRef.current = revision;
+            windowVerifiedAtRef.current = Date.now();
+            windowRef.current = expectedWindow = {
+              minSeq: rows[0]?.msgSeq ?? null,
+              anchored: next.anchored,
+            };
+            loadedRef.current = rows;
+            setLoaded(rows);
+            setHasOlder(next.hasOlder);
+            setHasNewer(next.hasNewer);
+            setAnchoredToLatest(next.anchored);
+            setMessagesLoading(false);
+            verifiedWindowRowsRef.current = rows;
+          },
+        });
       } catch (err) {
-        if (cancelled || messageScopeRef.current !== scope) return;
-        console.error('[msgs] listLatest failed', err);
+        if (!valid()) return;
+        console.error('[msgs] entry load failed', err);
         setMessagesLoading(false);
+      } finally {
+        if (!cancelled && messageScopeRef.current === scope && selectionRef.current === selection) {
+          entryLoadingRef.current = false;
+          setLoadingNewerMessages(false);
+          if (dbRevisionRef.current !== revision) void refreshWindow();
+        }
       }
     })();
     return () => {
@@ -7021,6 +7138,8 @@ export function MainView(): ReactElement {
     isDirect,
     isGroup,
     centerWindowOnSeq,
+    entryChatType,
+    displaySettings.data?.readFromFirstUnread,
     messageScope,
     conversationWindows,
     refreshWindow,
@@ -7028,7 +7147,14 @@ export function MainView(): ReactElement {
 
   const requestOlderMessages = useCallback(
     (scroll: HTMLElement): void => {
-      if (!selectedConversation || !hasOlder || loadingOlderRef.current) return;
+      if (
+        !selectedConversation ||
+        !hasOlder ||
+        loadingOlderRef.current ||
+        entryLoadingRef.current ||
+        messagesLoading
+      )
+        return;
       if (pendingScrollRestoreRef.current !== null) return;
       const minSeq = loaded[0]?.msgSeq;
       if (!minSeq) return;
@@ -7085,7 +7211,7 @@ export function MainView(): ReactElement {
           console.error('[msgs] listBefore failed', err);
         });
     },
-    [selectedConversation, hasOlder, loaded],
+    [selectedConversation, hasOlder, loaded, messagesLoading],
   );
 
   // Scroll-down paging for a detached "jump context" window: append the page of
@@ -7093,7 +7219,8 @@ export function MainView(): ReactElement {
   // doesn't move it, so no scroll-restore is needed. When the tail reaches the
   // latest, re-anchor so live messages flow in again.
   const requestNewerMessages = useCallback((): void => {
-    if (!selectedConversation || !hasNewer || loadingNewerRef.current) return;
+    if (!selectedConversation || !hasNewer || loadingNewerRef.current || entryLoadingRef.current)
+      return;
     const maxSeq = loaded[loaded.length - 1]?.msgSeq;
     if (!maxSeq) return;
 
@@ -7104,12 +7231,14 @@ export function MainView(): ReactElement {
       selection = selectionRef.current;
     if (!scope || !binding || selection?.id !== conv) return;
     loadingNewerRef.current = true;
+    setLoadingNewerMessages(true);
 
     client.account.listAfter
       .query({ ...binding, kind, conv, afterSeq: maxSeq, limit: PAGE_SIZE })
       .then((newer) => {
         if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
         loadingNewerRef.current = false;
+        setLoadingNewerMessages(false);
         if (loadedRef.current.at(-1)?.msgSeq !== maxSeq) return;
         if (selectionRef.current?.id !== conv) return;
         const known = new Set(loaded.map(timelineRowKey));
@@ -7130,6 +7259,7 @@ export function MainView(): ReactElement {
       .catch((err) => {
         if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
         loadingNewerRef.current = false;
+        setLoadingNewerMessages(false);
         console.error('[msgs] listAfter failed', err);
       });
   }, [selectedConversation, hasNewer, loaded]);
@@ -7270,6 +7400,7 @@ export function MainView(): ReactElement {
       if (!pinSession.available || pinSession.busy) {
         pushToast({
           tone: 'info',
+          durationKind: 'failure',
           title: pinSession.busy ? '请等待当前置顶操作完成' : 'QQ 在线能力未就绪，未改变置顶状态',
         });
         return;
@@ -8363,7 +8494,12 @@ export function MainView(): ReactElement {
         patchOptimistic({ state: 'sent' });
         // 业务结果无法从回包判定（见服务层 hint），所以如实说明「无法确认结果」，
         // 不给一个「已送达」的假信号。
-        pushToast({ tone: 'info', message: '位置卡片请求已发出', detail: outcome.hint });
+        pushToast({
+          tone: 'info',
+          durationKind: 'failure',
+          message: '位置卡片请求已发出',
+          detail: outcome.hint,
+        });
         return;
       }
 
@@ -8529,6 +8665,7 @@ export function MainView(): ReactElement {
     if (!target) {
       pushToast({
         tone: 'info',
+        durationKind: 'failure',
         title: '找不到该会话',
         detail: '它可能已不在会话列表里，无法打开撤回列表。',
       });
@@ -8548,7 +8685,7 @@ export function MainView(): ReactElement {
         if (profile?.uid) peer = { ...peer, id: profile.uid };
       }
       if (!peer.id) {
-        pushToast({ tone: 'info', title: '暂时无法确定此人的会话身份' });
+        pushToast({ tone: 'info', durationKind: 'failure', title: '暂时无法确定此人的会话身份' });
         return;
       }
       candidate = {
@@ -9122,6 +9259,8 @@ export function MainView(): ReactElement {
                           messages={templateMessages}
                           messageRenderers={messageRenderers}
                           loadingMessages={loadingInitialMessages}
+                          loadingNewer={loadingNewerMessages}
+                          initialReadingPosition={initialReadingPosition}
                           atLatest={anchoredToLatest}
                           latestMessageSeq={
                             recentContactsData.find((contact) => contact.targetUid === selectedUid)
@@ -9174,19 +9313,8 @@ export function MainView(): ReactElement {
                           conversationPrefs={conversationPrefs}
                           drafts={drafts}
                           query={shell.query}
-                          onAcceptContactRequest={noopAsync}
-                          onRejectContactRequest={noopAsync}
-                          onAcceptGroupRequest={noopAsync}
-                          onRejectGroupRequest={noopAsync}
-                          onMessageContact={noopAsync}
-                          onMessageGroup={noopAsync}
                           onBackContact={shell.backContact}
                           onBackGroup={shell.backGroup}
-                          onUpdateConversationPreference={updateConversationPreference}
-                          onUpdateGroup={async (
-                            _conversationId: string,
-                            _input: GroupUpdateInput,
-                          ) => undefined}
                           onLoadMoreGroupMembers={requestMoreGroupMembers}
                           groupMembersLoading={selectedGroupMembersLoading}
                           groupMembersError={selectedGroupMembersError}
@@ -9195,7 +9323,6 @@ export function MainView(): ReactElement {
                           onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
                           profileLoading={groupDetail.isLoading}
                           sendAvailable={sendAvailable}
-                          onOpenNotificationSettings={noopAsync}
                           onSend={sendComposerMessage}
                           onRepeatMessage={repeatMessage}
                           onResolveMentions={resolveMentions}
@@ -9268,6 +9395,7 @@ export function MainView(): ReactElement {
                             if (target) handleRoamingTargets([target]);
                           }}
                           deletedIds={deletedIds}
+                          hiddenDeletedIds={hiddenDeletedIds}
                           onRestoreMessage={(msgId) =>
                             handleRestoreMessage(msgId, selectedConversation)
                           }
@@ -9303,7 +9431,11 @@ export function MainView(): ReactElement {
                     saveGroupAssistantPins(user.identityValue, next);
                     setGroupAssistantPins(next);
                   } catch {
-                    pushToast({ tone: 'info', title: '群助手置顶保存失败，请重试' });
+                    pushToast({
+                      tone: 'info',
+                      durationKind: 'failure',
+                      title: '群助手置顶保存失败，请重试',
+                    });
                   }
                 }}
                 groupAssistantLoading={contacts.isLoading}
@@ -9659,7 +9791,11 @@ export function MainView(): ReactElement {
               }}
               onOpenChat={() => {
                 void openProfileChat({ kind: 'direct', user: memberCard.member }).catch(() =>
-                  pushToast({ tone: 'info', title: '暂时无法打开私聊，请稍后重试' }),
+                  pushToast({
+                    tone: 'info',
+                    durationKind: 'failure',
+                    title: '暂时无法打开私聊，请稍后重试',
+                  }),
                 );
               }}
               onPreviewChat={() => void previewPrivateChat(memberCard.member)}
@@ -9868,7 +10004,11 @@ export function MainView(): ReactElement {
           <ChatNavigationContext.Provider
             value={(target) => {
               void openProfileChat(target).catch(() =>
-                pushToast({ tone: 'info', title: '暂时无法打开会话，请稍后重试' }),
+                pushToast({
+                  tone: 'info',
+                  durationKind: 'failure',
+                  title: '暂时无法打开会话，请稍后重试',
+                }),
               );
             }}
           >
@@ -9889,6 +10029,8 @@ export function MainView(): ReactElement {
                 value={{
                   real: conversations,
                   groupAssistantIds,
+                  showGroupAssistantMessageCount:
+                    displaySettings.data?.showGroupAssistantMessageCount ?? false,
                   loadingError: contacts.error?.message,
                   virtual: virtualRows,
                   locate: conversationLocate,
@@ -9927,48 +10069,52 @@ export function MainView(): ReactElement {
                   },
                 }}
               >
-                <ContactDirectoryContext.Provider
-                  value={{
-                    query: contactDirectoryQuery,
-                    onQuery: setContactDirectoryQuery,
-                    ids:
-                      shell.contactTab === 'friends'
-                        ? [
-                            ...buddyContacts,
-                            ...specialContactSections.flatMap((section) => section.items),
-                            ...historicalContactSections.flatMap((section) => section.items),
-                          ]
-                            .filter(
-                              (contact) =>
-                                !contactDirectoryQuery ||
-                                `${displayUserName(contact)} ${contact.identityValue}`
-                                  .toLocaleLowerCase()
-                                  .includes(contactDirectoryQuery.toLocaleLowerCase()),
-                            )
-                            .map((contact) => contact.id)
-                        : contactDirectoryConversations
-                            .filter(
-                              (conversation) =>
-                                conversation.type === 'group' &&
-                                (!contactDirectoryQuery ||
-                                  `${conversation.group.name} ${conversation.id}`
+                <FriendDirectoryControls>
+                  <ContactDirectoryContext.Provider
+                    value={{
+                      query: contactDirectoryQuery,
+                      onQuery: setContactDirectoryQuery,
+                      ids:
+                        shell.contactTab === 'friends'
+                          ? [
+                              ...buddyContacts,
+                              ...specialContactSections.flatMap((section) => section.items),
+                              ...historicalContactSections.flatMap((section) => section.items),
+                            ]
+                              .filter(
+                                (contact) =>
+                                  !contactDirectoryQuery ||
+                                  `${displayUserName(contact)} ${contact.identityValue}`
                                     .toLocaleLowerCase()
-                                    .includes(contactDirectoryQuery.toLocaleLowerCase())),
-                            )
-                            .map((conversation) => conversation.id),
-                  }}
-                >
-                  <WorkspacePages
-                    navigationKey={`${shell.view}:${shell.activeConversationId ?? ''}:${shell.selectedContactId ?? ''}:${shell.selectedGroupConversationId ?? ''}:${surfaceNavigation}`}
-                    onNavigate={() => {
-                      setSettingsOpen(false);
-                      setConvSettings(null);
-                      setRemarkTarget(null);
+                                    .includes(contactDirectoryQuery.toLocaleLowerCase()),
+                              )
+                              .map((contact) => contact.id)
+                          : contactDirectoryConversations
+                              .filter(
+                                (conversation) =>
+                                  conversation.type === 'group' &&
+                                  (!contactDirectoryQuery ||
+                                    `${conversation.group.name} ${conversation.id}`
+                                      .toLocaleLowerCase()
+                                      .includes(contactDirectoryQuery.toLocaleLowerCase())),
+                              )
+                              .map((conversation) => conversation.id),
                     }}
                   >
-                    {chatContent}
-                  </WorkspacePages>
-                </ContactDirectoryContext.Provider>
+                    <WorkspacePages
+                      navigationKey={`${shell.view}:${shell.activeConversationId ?? ''}:${shell.selectedContactId ?? ''}:${shell.selectedGroupConversationId ?? ''}:${surfaceNavigation}`}
+                      onNavigate={() => {
+                        setSettingsOpen(false);
+                        setConvSettings(null);
+                        setRemarkTarget(null);
+                      }}
+                    >
+                      <GroupAlbumCardNavigationProvider binding={pinSession.binding}>
+                        {chatContent}
+                      </GroupAlbumCardNavigationProvider>
+                    </WorkspacePages>
+                  </ContactDirectoryContext.Provider>
+                </FriendDirectoryControls>
               </ConversationDirectoryContext.Provider>
             </QzoneCardNavigationContext.Provider>
           </ChatNavigationContext.Provider>

@@ -11,6 +11,7 @@ export type SectionId =
   | 'qzone'
   | 'mail'
   | 'storage'
+  | 'backup'
   | 'media'
   | 'database'
   | 'database-status'
@@ -27,12 +28,15 @@ export type SectionId =
   | 'ocr'
   | 'model-usage'
   | 'mcp'
+  | 'remote'
   | 'rkey'
   | 'sse'
   | 'daemon'
   | 'credentials'
   | 'diagnostics'
   | 'help'
+  | 'faq'
+  | 'feedback'
   | 'logs'
   | 'version'
   | 'updates';
@@ -44,9 +48,15 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Secti
   { id: 'account', label: '账号与消息', sections: ['accounts', 'account', 'anti-recall'] },
   { id: 'space-mail', label: '空间与邮箱', sections: ['qzone', 'mail'] },
   {
+    id: 'storage',
+    label: '存储与媒体',
+    sections: ['storage', 'media'],
+  },
+  { id: 'backup', label: '备份与恢复', sections: ['backup'] },
+  {
     id: 'data',
-    label: '数据与存储',
-    sections: ['storage', 'media', 'database', 'database-status', 'maintenance'],
+    label: '数据维护',
+    sections: ['database', 'database-status', 'maintenance'],
   },
   {
     id: 'models',
@@ -62,9 +72,9 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Secti
       'ocr',
     ],
   },
-  { id: 'services', label: '服务与集成', sections: ['mcp', 'sse', 'rkey', 'daemon'] },
+  { id: 'services', label: '服务与集成', sections: ['remote', 'mcp', 'sse', 'rkey', 'daemon'] },
   { id: 'advanced', label: '高级与诊断', sections: ['credentials', 'diagnostics'] },
-  { id: 'help', label: '帮助与关于', sections: ['help', 'logs', 'version', 'updates'] },
+  { id: 'help', label: '帮助与关于', sections: ['version', 'faq', 'logs', 'feedback'] },
 ];
 
 export interface SettingsScope {
@@ -98,6 +108,8 @@ export function settingsSectionFor(section: SectionId): SectionId {
   if (section === 'local-models') return 'voice';
   if (section === 'intent-models') return 'intent-sense';
   if (section === 'tts') return 'agentlab';
+  if (section === 'help') return 'faq';
+  if (section === 'updates') return 'version';
   return section;
 }
 

@@ -6,6 +6,14 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置的两级导航', () => {
+  it('帮助与关于只有四个目标页，旧帮助和更新提醒深链归到新页面', () => {
+    expect(settingsGroupFor('version').sections).toEqual(['version', 'faq', 'logs', 'feedback']);
+    expect(settingsSectionFor('help')).toBe('faq');
+    expect(settingsSectionFor('updates')).toBe('version');
+    for (const id of ['version', 'faq', 'logs', 'feedback', 'help', 'updates'] as const) {
+      expect(settingsGroupFor(id).id).toBe('help');
+    }
+  });
   it('模型保留单个一级分类，识别、克隆与画像分别归位', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',
@@ -13,7 +21,9 @@ describe('设置的两级导航', () => {
       '隐私与安全',
       '账号与消息',
       '空间与邮箱',
-      '数据与存储',
+      '存储与媒体',
+      '备份与恢复',
+      '数据维护',
       '模型与识别',
       '服务与集成',
       '高级与诊断',
@@ -40,6 +50,28 @@ describe('设置的两级导航', () => {
     expect(settingsGroupFor('mail').sections).toEqual(['qzone', 'mail']);
     expect(settingsGroupFor('qzone').id).toBe('space-mail');
     expect(settingsGroupFor('account').sections).not.toContain('qzone');
+  });
+
+  it('存储、备份和维护按用途拆分，原页面入口定位到各自分类', () => {
+    for (const id of ['storage', 'media'] as const) {
+      expect(settingsGroupFor(id)).toEqual({
+        id: 'storage',
+        label: '存储与媒体',
+        sections: ['storage', 'media'],
+      });
+    }
+    expect(settingsGroupFor('backup')).toEqual({
+      id: 'backup',
+      label: '备份与恢复',
+      sections: ['backup'],
+    });
+    for (const id of ['database', 'database-status', 'maintenance'] as const) {
+      expect(settingsGroupFor(id)).toEqual({
+        id: 'data',
+        label: '数据维护',
+        sections: ['database', 'database-status', 'maintenance'],
+      });
+    }
   });
 
   it('保留原分区深链，每个二级页只归属一个分类', () => {

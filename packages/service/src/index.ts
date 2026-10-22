@@ -40,6 +40,8 @@ export type {
   UserConfig,
   AutoEnterTarget,
   AppSettings,
+  TypingStatusSettings,
+  TypingStatusOverride,
   AppLockConfig,
   AppLockMethod,
   WindowCloseBehavior,
@@ -724,6 +726,11 @@ export type { GroupFileItem, GroupFolderItem, GroupFileListing } from './account
 
 export { GroupAlbumMediaService } from './account/group_album_media';
 export type {
+  GroupAlbumFeedRequest,
+  GroupAlbumFeedPage,
+  GroupAlbumFeedComment,
+} from './account/web/group_album_feed';
+export type {
   AlbumMedia,
   AlbumMediaImage,
   AlbumMediaPage,
@@ -1012,7 +1019,7 @@ export {
 } from './common/logger';
 export type { LogFileCandidate } from './common/logger';
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
-export { getHost, setHost } from './common/host';
+export { getHost, setHost, withHost } from './common/host';
 export type { HostBridge, SaveTarget } from './common/host';
 export { JsonStore, readJsonFile, writeJsonFileAtomic } from './common/json_store';
 export {
@@ -1077,3 +1084,22 @@ export {
 export { runOwnedChild, type OwnedChildOptions, type OwnedChildResult } from './common/owned_child';
 
 export { SharedPrompt } from './common/shared_prompt';
+export { bootstrapWeqBackupFiles } from './bootstrap/backup_startup';
+export type { WeqFileStartup } from './bootstrap/backup_startup';
+export { WeqBackupService } from './bootstrap/backup_service';
+export { writeWeqBackupExclusive } from './bootstrap/backup_output';
+export type { WeqBackupSelection } from './bootstrap/backup_service';
+export {
+  hasPendingWeqBackupRestore,
+  applyPendingWeqBackupRestore,
+  weqBackupRestoreStatus,
+  pendingWeqClientSettings,
+  acknowledgeWeqClientSettings,
+  skipWeqClientSettings,
+  reassignWeqClientSettings,
+  cancelWeqBackupRestore,
+} from './bootstrap/backup_restore';
+export type { WeqRestoreChoice, WeqRestoreResult } from './bootstrap/backup_restore';
+export { readWeqBackupFile } from './bootstrap/backup_clones';
+export { WEQ_BACKUP_PARTS, WEQ_BACKUP_LIMITS } from './bootstrap/backup_bundle';
+export type { WeqBackupPart, WeqBackupSummary } from './bootstrap/backup_bundle';

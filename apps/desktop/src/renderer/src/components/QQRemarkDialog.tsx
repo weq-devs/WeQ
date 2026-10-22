@@ -23,6 +23,15 @@ function QQRemarkDialogBody({ target, onClose }: { target: RoamingTarget; onClos
     { enabled: Boolean(session.binding), staleTime: 0, refetchOnMount: 'always' },
   );
   const friend = trpc.account.qqWrite.friendRemark.useMutation();
+  const friendState = trpc.account.qqWrite.friendRemarkState.useQuery(
+    { ...session.binding!, uid: target.conv },
+    {
+      enabled: target.kind === 'c2c' && session.available,
+      staleTime: 0,
+      refetchOnWindowFocus: false,
+      retry: false,
+    },
+  );
   const group = trpc.account.qqWrite.groupRemark.useMutation();
   const label = target.kind === 'group' ? '群备注' : '好友备注';
   async function close() {
@@ -56,16 +65,22 @@ function QQRemarkDialogBody({ target, onClose }: { target: RoamingTarget; onClos
       </header>
       <div className="weq-set weq-qq-remark-body">
         {state.error && <p role="alert">{state.error.message}</p>}
+        {target.kind === 'c2c' && friendState.error && (
+          <p role="alert">{friendState.error.message}</p>
+        )}
         {!session.available && <p role="status">QQ 在线能力未就绪</p>}
         {session.binding && state.isLoading && <p role="status">正在读取备注…</p>}
         {state.data && (
           <QQWriteTextRow
             label={label}
-            initial={state.data.remark}
+            initial={target.kind === 'c2c' ? (friendState.data?.remark ?? null) : state.data.remark}
             autoFocus
             onDirtyChange={setDirty}
             disabled={
-              !session.available || session.busy || (target.kind === 'c2c' && !state.data.friend)
+              !session.available ||
+              session.busy ||
+              (target.kind === 'c2c' &&
+                (!state.data.friend || !friendState.data || Boolean(friendState.error)))
             }
             onSave={(remark) =>
               session.run(
@@ -78,6 +93,11 @@ function QQRemarkDialogBody({ target, onClose }: { target: RoamingTarget; onClos
                   profileUid: target.kind === 'c2c' ? target.conv : undefined,
                   readbackSuccessText: remark ? '备注已保存' : '备注已清空',
                   readback: async () => {
+                    if (target.kind === 'c2c') {
+                      const updated = await friendState.refetch();
+                      if (updated.error) throw updated.error;
+                      return updated.data?.remark === remark;
+                    }
                     const updated = await state.refetch();
                     if (updated.error) throw updated.error;
                     return updated.data?.remark === remark;

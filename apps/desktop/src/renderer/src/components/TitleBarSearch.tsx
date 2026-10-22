@@ -8,7 +8,8 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useOverlayLayer } from '../lib/overlayStack';
-import { ArrowLeft, Search } from 'lucide-react';
+import { ArrowLeft, Search, UserRound, UsersRound } from 'lucide-react';
+import { QQExactLookup, type QQExactLookupKind } from './QQExactLookup';
 
 export function TitleBarSearch({
   query,
@@ -24,6 +25,8 @@ export function TitleBarSearch({
   onReturn?: () => boolean;
 }) {
   const [pinned, setPinned] = useState(false);
+  const [lookupOpen, setLookupOpen] = useState<QQExactLookupKind | null>(null);
+  const numericQuery = /^[1-9]\d{0,9}$/.test(query.trim()) && BigInt(query.trim()) <= 0xffffffffn;
   const [hovered, setHovered] = useState(false);
   const [suppressHover, setSuppressHover] = useState(false);
   const [position, setPosition] = useState<CSSProperties>({});
@@ -32,7 +35,8 @@ export function TitleBarSearch({
   const panel = useRef<HTMLDivElement>(null);
   const returning = useRef(false);
   const expanded = pinned || (hovered && !suppressHover);
-  const layer = useOverlayLayer(expanded && !!results);
+  const hasPanel = Boolean(results) || pinned;
+  const layer = useOverlayLayer(expanded && hasPanel);
 
   useEffect(() => {
     if (pinned && !returning.current) input.current?.focus();
@@ -49,15 +53,29 @@ export function TitleBarSearch({
         left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
         top: rect.bottom + 6,
         width,
+        maxHeight: Math.max(
+          0,
+          (window.visualViewport?.height ?? window.innerHeight) +
+            (window.visualViewport?.offsetTop ?? 0) -
+            rect.bottom -
+            14,
+        ),
+        overflowY: 'auto',
       });
     };
     update();
     window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
+    window.visualViewport?.addEventListener('resize', update);
+    window.visualViewport?.addEventListener('scroll', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('scroll', update);
+    };
   }, [expanded]);
 
   useEffect(() => {
-    if (!expanded) return;
+    if (!expanded || lookupOpen) return;
     const outside = (event: PointerEvent) => {
       if (
         !(event.target instanceof Node) ||
@@ -71,7 +89,7 @@ export function TitleBarSearch({
     };
     document.addEventListener('pointerdown', outside);
     return () => document.removeEventListener('pointerdown', outside);
-  }, [expanded]);
+  }, [expanded, lookupOpen]);
 
   return (
     <div
@@ -86,6 +104,7 @@ export function TitleBarSearch({
         setSuppressHover(false);
       }}
       onKeyDown={(event) => {
+        if (lookupOpen) return;
         if (event.key === 'Escape') {
           event.stopPropagation();
           setPinned(false);
@@ -144,7 +163,15 @@ export function TitleBarSearch({
           onSearchFocus?.();
         }}
       />
-      {expanded && results && typeof document !== 'undefined'
+      {lookupOpen && (
+        <QQExactLookup
+          key={lookupOpen}
+          kind={lookupOpen}
+          initial={numericQuery ? query.trim() : ''}
+          onClose={() => setLookupOpen(null)}
+        />
+      )}
+      {expanded && hasPanel && typeof document !== 'undefined'
         ? createPortal(
             <div
               ref={panel}
@@ -154,6 +181,23 @@ export function TitleBarSearch({
               onPointerLeave={() => setHovered(false)}
             >
               {results}
+              {pinned &&
+                (['user', 'group'] as const).map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    className="weq-cloud-lookup-entry"
+                    aria-label={kind === 'user' ? 'QQ 号搜索' : '群号搜索'}
+                    onClick={() => {
+                      setPinned(true);
+                      setLookupOpen(kind);
+                    }}
+                  >
+                    {kind === 'user' ? <UserRound size={16} /> : <UsersRound size={16} />}
+                    {kind === 'user' ? 'QQ 号搜索' : '群号搜索'}
+                    {numericQuery ? ` ${query.trim()}` : ''}
+                  </button>
+                ))}
             </div>,
             document.body,
           )

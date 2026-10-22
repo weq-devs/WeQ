@@ -686,9 +686,7 @@ export function CompositionWorkspace({
                             aria-label="逐条发送"
                             disabled={!sendAvailable || busy}
                             disabledReason={
-                              busy
-                                ? '正在发送，请稍后'
-                                : 'QQ 在线发送能力尚未就绪或处于完全离线模式'
+                              busy ? '正在发送，请稍后' : '受限模式下无法逐条发送消息'
                             }
                             onClick={() => void perform(() => requestSend(entry, 'sequential'))}
                           >
@@ -700,9 +698,7 @@ export function CompositionWorkspace({
                             aria-label="合并转发"
                             disabled={!sendAvailable || busy}
                             disabledReason={
-                              busy
-                                ? '正在发送，请稍后'
-                                : 'QQ 在线发送能力尚未就绪或处于完全离线模式'
+                              busy ? '正在发送，请稍后' : '受限模式下无法合并转发消息'
                             }
                             onClick={() => void perform(() => requestSend(entry, 'merged'))}
                           >
@@ -888,7 +884,7 @@ export function CompositionWorkspace({
                       ? '正在发送，请稍后'
                       : !working.nodes.length
                         ? '当前合成还没有消息'
-                        : 'QQ 在线发送能力尚未就绪或处于完全离线模式'
+                        : '受限模式下无法逐条发送消息'
                   }
                   onClick={() => void perform(() => requestSend(working, 'sequential'))}
                 >
@@ -904,7 +900,7 @@ export function CompositionWorkspace({
                       ? '正在发送，请稍后'
                       : !working.nodes.length
                         ? '当前合成还没有消息'
-                        : 'QQ 在线发送能力尚未就绪或处于完全离线模式'
+                        : '受限模式下无法合并转发消息'
                   }
                   onClick={() => void perform(() => requestSend(working, 'merged'))}
                 >

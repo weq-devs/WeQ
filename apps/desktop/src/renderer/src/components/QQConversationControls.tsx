@@ -18,11 +18,13 @@ import {
 import { trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
+import { useFriendSpecialCare } from '../hooks/useFriendSpecialCare';
 import { refreshGroupAvatar } from '../hooks/useAvatarUrl';
 import { groupMemberEditing } from '../lib/groupMemberEditing';
 import { Card } from './settings/controls';
 import { useDialog } from './Dialog';
 import { GroupActions } from './qq-actions/GroupActions';
+import { QzoneFriendPermissions } from './qq-actions/QzoneFriendPermissions';
 import {
   QQWriteActionRow,
   QQWriteResult,
@@ -61,6 +63,22 @@ export function QQConversationControls({
     ...autoRefresh,
     enabled: autoRefresh.enabled && Boolean(session.binding),
   });
+  const disturbSnapshot = trpc.account.qqWrite.friendDisturbState.useQuery(
+    {
+      expectedAccountUin: session.binding?.expectedAccountUin ?? '',
+      expectedAccountConfigId: session.binding?.expectedAccountConfigId ?? '',
+      uid: conv,
+    },
+    {
+      ...autoRefresh,
+      enabled:
+        autoRefresh.enabled &&
+        kind === 'c2c' &&
+        session.available &&
+        Boolean(snapshot.data?.friend),
+      refetchOnWindowFocus: false,
+    },
+  );
   const policySnapshot = trpc.account.qqWrite.groupPolicyState.useQuery(
     {
       expectedAccountUin: session.binding?.expectedAccountUin ?? '',
@@ -75,7 +93,21 @@ export function QQConversationControls({
     },
   );
   const categories = trpc.account.listCategories.useQuery(undefined, { enabled: kind === 'c2c' });
+  const cloudRoster = trpc.account.qqWrite.friendRoster.useQuery(session.binding!, {
+    enabled: kind === 'c2c' && session.available && Boolean(snapshot.data?.friend),
+    staleTime: 10000,
+    refetchOnWindowFocus: false,
+  });
   const remark = trpc.account.qqWrite.friendRemark.useMutation();
+  const friendRemarkState = trpc.account.qqWrite.friendRemarkState.useQuery(
+    { ...session.binding!, uid: conv },
+    {
+      enabled: kind === 'c2c' && session.available && Boolean(snapshot.data?.friend),
+      staleTime: 10000,
+      refetchOnWindowFocus: false,
+      retry: false,
+    },
+  );
   const groupRemark = trpc.account.qqWrite.groupRemark.useMutation();
   const pin = trpc.account.qqWrite.pin.useMutation();
   const disturb = trpc.account.qqWrite.friendDisturb.useMutation();
@@ -91,7 +123,8 @@ export function QQConversationControls({
   const [picking, setPicking] = useState(false);
   const [pickerError, setPickerError] = useState('');
   const state = snapshot.data;
-  const ownEditing = groupMemberEditing(state?.role, state?.role);
+  const specialCare = useFriendSpecialCare(kind === 'c2c' && state?.friend ? conv : undefined);
+  const ownEditing = groupMemberEditing(state?.role, state?.role, true);
   const disabled = session.busy || !session.available || !state || picking;
   const friendDisabled = disabled || !state?.friend;
   async function refresh(includePolicy = false) {
@@ -100,6 +133,10 @@ export function QQConversationControls({
     if (includePolicy && kind === 'group' && !management) {
       const policyResult = await policySnapshot.refetch();
       if (policyResult.error) throw policyResult.error;
+    }
+    if (includePolicy && kind === 'c2c' && result.data?.friend && session.available) {
+      const disturbResult = await disturbSnapshot.refetch();
+      if (disturbResult.error) throw disturbResult.error;
     }
   }
   const act = (action: Parameters<typeof session.run>[0]) => session.run(action, refresh);
@@ -122,6 +159,11 @@ export function QQConversationControls({
               ? '已开启免打扰'
               : '已关闭免打扰',
         readback: async () => {
+          if (field === 'friendDisturb') {
+            const updated = await disturbSnapshot.refetch();
+            if (updated.error) throw updated.error;
+            return updated.data?.enabled === enabled;
+          }
           const updated = await snapshot.refetch();
           if (updated.error) throw updated.error;
           return updated.data?.[field] === enabled;
@@ -180,6 +222,7 @@ export function QQConversationControls({
   return (
     <div
       className="weq-qq-write-panel"
+      data-qq-action
       key={`${session.binding?.expectedAccountUin}:${session.binding?.expectedAccountConfigId}:${kind}:${conv}`}
     >
       <div className="weq-qq-write-toolbar">
@@ -191,7 +234,9 @@ export function QQConversationControls({
           )}
           {session.available ? 'QQ 在线' : 'QQ 在线能力未就绪'}
         </span>
-        {(snapshot.error || (kind === 'group' && policySnapshot.error)) && (
+        {(snapshot.error ||
+          (kind === 'group' && policySnapshot.error) ||
+          (kind === 'c2c' && disturbSnapshot.error)) && (
           <button
             type="button"
             className="weq-set-iconbtn"
@@ -201,6 +246,7 @@ export function QQConversationControls({
               session.busy ||
               picking ||
               snapshot.isFetching ||
+              (kind === 'c2c' && disturbSnapshot.isFetching) ||
               (kind === 'group' && policySnapshot.isFetching)
             }
             onClick={() => {
@@ -214,6 +260,9 @@ export function QQConversationControls({
         )}
       </div>
       {snapshot.error && <p role="alert">{snapshot.error.message}</p>}
+      {kind === 'c2c' && disturbSnapshot.error && (
+        <p role="alert">免打扰状态读取失败：{disturbSnapshot.error.message}</p>
+      )}
       {kind === 'group' && !management && policySnapshot.error && (
         <p role="alert">消息策略读取失败：{policySnapshot.error.message}</p>
       )}
@@ -236,8 +285,12 @@ export function QQConversationControls({
               <QQWriteTextRow
                 label={kind === 'group' ? '群备注' : '好友备注'}
                 icon={<UserPen size={14} strokeWidth={1.8} />}
-                initial={state.remark}
-                disabled={kind === 'c2c' ? friendDisabled : disabled}
+                initial={kind === 'c2c' ? (friendRemarkState.data?.remark ?? null) : state.remark}
+                disabled={
+                  kind === 'c2c'
+                    ? friendDisabled || !friendRemarkState.data || Boolean(friendRemarkState.error)
+                    : disabled
+                }
                 onSave={(value) =>
                   session.run(
                     (binding) =>
@@ -253,6 +306,11 @@ export function QQConversationControls({
                       profileUid: kind === 'c2c' ? conv : undefined,
                       readbackSuccessText: value ? '备注已保存' : '备注已清空',
                       readback: async () => {
+                        if (kind === 'c2c') {
+                          const updated = await friendRemarkState.refetch();
+                          if (updated.error) throw updated.error;
+                          return updated.data?.remark === value;
+                        }
                         const updated = await snapshot.refetch();
                         if (updated.error) throw updated.error;
                         return updated.data?.remark === value;
@@ -270,22 +328,39 @@ export function QQConversationControls({
               />
               {kind === 'c2c' ? (
                 <>
-                  {/* 只采用好友资料的明确布尔值，不从 recent_contact 提醒级别推断。 */}
+                  {/* 云端查询与本机资料分离；读取失败不回落到过期缓存。 */}
                   <QQWriteToggleRow
                     label="消息免打扰"
                     icon={<BellOff size={14} strokeWidth={1.8} />}
-                    initial={state.friendDisturb ?? null}
-                    disabled={friendDisabled}
+                    initial={disturbSnapshot.error ? null : (disturbSnapshot.data?.enabled ?? null)}
+                    disabled={
+                      friendDisabled ||
+                      disturbSnapshot.isFetching ||
+                      !disturbSnapshot.data ||
+                      Boolean(disturbSnapshot.error)
+                    }
                     onSave={(enabled) => changePeerToggle('friendDisturb', enabled)}
                   />
+                  <QQWriteToggleRow
+                    label="特别关心"
+                    icon={<Sparkles size={14} strokeWidth={1.8} />}
+                    initial={specialCare.enabled}
+                    disabled={friendDisabled || specialCare.disabled}
+                    onSave={specialCare.change}
+                  />
+                  {state.friendUin && <QzoneFriendPermissions targetUin={state.friendUin} />}
                   <QQWriteSelectRow
                     label="好友分组"
+                    autoSave
                     icon={<Tag size={14} strokeWidth={1.8} />}
-                    initial={state.categoryId}
+                    initial={
+                      cloudRoster.data?.friends.find((row) => row.uid === conv)?.categoryId ??
+                      state.categoryId
+                    }
                     disabled={friendDisabled || categories.isLoading}
                     options={[
                       { value: 0, label: '默认分组' },
-                      ...(categories.data ?? [])
+                      ...(cloudRoster.data?.categories ?? categories.data ?? [])
                         .filter((item) => item.id !== 0)
                         .map((item) => ({ value: item.id, label: item.name })),
                     ]}
@@ -295,14 +370,19 @@ export function QQConversationControls({
                         async () => {
                           const updated = await categories.refetch();
                           if (updated.error) throw updated.error;
+                          await cloudRoster.refetch();
                         },
                         {
                           profileUid: conv,
                           readbackSuccessText: '已移入所选好友分组',
                           readback: async () => {
-                            const updated = await snapshot.refetch();
+                            const updated = await cloudRoster.refetch();
                             if (updated.error) throw updated.error;
-                            return updated.data?.categoryId === categoryId;
+                            return (
+                              updated.data?.friends.some(
+                                (row) => row.uid === conv && row.categoryId === categoryId,
+                              ) ?? false
+                            );
                           },
                         },
                       )

@@ -151,7 +151,7 @@ function GroupNoticeActionsBody({
   }
   const options = [
     ['popup', '弹窗提醒'],
-    ['editCardGuide', '群名片引导'],
+    ['editCardGuide', '群昵称引导'],
     ['pinned', '置顶'],
     ['required', '需要确认'],
     ['newMembers', '新成员公告'],

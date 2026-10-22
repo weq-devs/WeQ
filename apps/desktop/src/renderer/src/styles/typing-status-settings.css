@@ -1,0 +1,34 @@
+.weq-typing-settings .weq-set-row-main {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.weq-typing-settings .weq-set-row-label,
+.weq-typing-settings-heading {
+  color: var(--weq-fg-primary);
+}
+
+.weq-typing-settings .weq-set-row-desc {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-typing-settings-heading {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+html[data-theme='dark'] .weq-typing-settings .weq-set-row-label,
+html[data-theme='dark'] .weq-typing-settings-heading {
+  color: var(--weq-fg-primary);
+}
+
+html[data-theme='dark'] .weq-typing-settings .weq-set-row-desc {
+  color: var(--weq-fg-secondary);
+}
+
+@media (max-width: 480px) {
+  .weq-typing-settings .weq-set-row {
+    gap: 8px;
+  }
+}

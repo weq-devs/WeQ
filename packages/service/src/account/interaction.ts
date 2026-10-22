@@ -77,9 +77,12 @@ export interface MessageReactionUsersParams {
 
 /** 面板里的一行回应者。 */
 export interface MessageReactionUser {
+  uid: string;
   /** QQ 号（十进制字符串，直接当头像 URL 的 nk 用）。 */
   uin: string;
-  /** 显示名：服务端昵称 → 本地备注 / 昵称 → 空串（由前端退化成 uin）。 */
+  /** 群名片、好友备注与昵称分开返回，显示侧复用群内的统一优先级。 */
+  card: string;
+  remark: string;
   nick: string;
   /** 头像直链：服务端 headUrl → 本地 profile.avatarUrl → 空串（由前端退回 qlogo）。 */
   avatarUrl: string;
@@ -248,8 +251,8 @@ export class InteractionService {
    * 所以名单只能实时问服务端（需要在线已注入的 QQ）—— 离线时调用方要自己把错误
    * 呈现成「需要 QQ 在线」而不是空列表。
    *
-   * 服务端回包里 `nick` / `headUrl` 常常是空的，这里用本地 `profile_info` 按 uin 补一次；
-   * 都拿不到就把两个字段留成空串，渲染侧再退化成「QQ 号 + qlogo 头像」。
+   * 按当前群批量补群名片，并读取本地备注与昵称；本地库不可用时保留在线名单，
+   * 由渲染侧退化成「服务端昵称 / QQ 号 + qlogo 头像」。
    */
   async getMessageReactionUsers(
     params: MessageReactionUsersParams,
@@ -265,18 +268,25 @@ export class InteractionService {
       ...(params.cookie ? { cookie: params.cookie } : {}),
     });
 
+    const members = page.users.length
+      ? await this.session.groupMembers
+          .getMembersByUins(
+            BigInt(params.groupId),
+            page.users.map((user) => BigInt(user.uin)),
+          )
+          .catch(() => [])
+      : [];
+    const memberByUin = new Map(members.map((member) => [String(member.uin), member]));
     const users: MessageReactionUser[] = [];
     for (const user of page.users) {
-      // 服务端两样都给全了就不用碰本地库。
-      if (user.nick && user.headUrl) {
-        users.push({ uin: String(user.uin), nick: user.nick, avatarUrl: user.headUrl });
-        continue;
-      }
+      const member = memberByUin.get(String(user.uin));
       const local = await this.localProfile(user.uin);
       users.push({
+        uid: member?.uid || local?.uid || '',
         uin: String(user.uin),
-        // 有备注先显示备注（和会话列表 / 成员列表的习惯一致）。
-        nick: user.nick || local?.remark || local?.nick || '',
+        card: member?.card || '',
+        remark: local?.remark || '',
+        nick: member?.nick || local?.nick || user.nick || '',
         avatarUrl: user.headUrl || local?.avatarUrl || '',
       });
     }
@@ -287,12 +297,13 @@ export class InteractionService {
   /** 本地 profile_info 里按 uin 找一个人；查不到 / 库不可用都返回 null。 */
   private async localProfile(
     uin: number,
-  ): Promise<{ nick: string; remark: string; avatarUrl: string } | null> {
+  ): Promise<{ uid: string; nick: string; remark: string; avatarUrl: string } | null> {
     if (!Number.isSafeInteger(uin) || uin <= 0) return null;
     try {
       const profile = await this.session.profileInfo.getProfileByUin(BigInt(uin));
       if (!profile) return null;
       return {
+        uid: profile.uid ?? '',
         nick: profile.nick ?? '',
         remark: profile.remark ?? '',
         avatarUrl: profile.avatarUrl ?? '',

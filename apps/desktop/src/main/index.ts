@@ -3,6 +3,7 @@ import { applicationToolPopupOptions } from './tool_window';
 import { floatingWindowTypeOption, ozoneRelaunchArgs } from './linux_window_backend';
 import {
   app,
+  autoUpdater,
   BrowserWindow,
   clipboard,
   ClipboardItem,
@@ -47,6 +48,8 @@ import { handleRecallNotification } from './recall_notify';
 import { handleMailNotification } from './mail_notify';
 import { checkForUpdate, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
+import { remoteRuntime } from './remote/runtime';
+import { desktopWebRuntime } from './web/runtime';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
 import { startReleaseMonitor } from './daemon/release_monitor';
 import { ensureDaemonRunning, syncGuiAutostartIntent } from './daemon/runtime';
@@ -58,6 +61,7 @@ import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
 import { createMainWindowLifecycle } from './main_window_lifecycle';
+import { registerAppQuitPreparation } from './app_quit_lifecycle';
 import { createRendererRecovery } from './renderer_recovery';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
 import { macApplicationMenu, nativeMenuLabels } from './application_menu';
@@ -653,6 +657,30 @@ if (!hasSingleInstanceLock) {
 }
 
 void app.whenReady().then(async () => {
+  remoteRuntime.configure({
+    helper:
+      process.env.WEQ_REMOTE_HELPER ||
+      (app.isPackaged
+        ? join(
+            process.resourcesPath,
+            'remote-network',
+            process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
+          )
+        : join(
+            app.getAppPath(),
+            '../../tools/remote-network',
+            process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
+          )),
+    stateDir: join(app.getPath('userData'), 'remote-network'),
+    webPort: () => desktopWebRuntime.status().port,
+    onRequest: openMainWindow,
+  });
+  if (hasSingleInstanceLock)
+    void remoteRuntime
+      .resume()
+      .catch((error: unknown) =>
+        console.error('远程连接恢复失败', error instanceof Error ? error.message : '未知错误'),
+      );
   if (!hasSingleInstanceLock) return;
   electronApp.setAppUserModelId('app.weq.desktop');
 
@@ -668,6 +696,27 @@ void app.whenReady().then(async () => {
   setHost(electronHost);
   installUpdateActions();
   initAppContext();
+  const userConfig = getAppContext().bootstrap?.userConfig;
+  if (userConfig) {
+    desktopWebRuntime.configure({
+      publicDir: app.isPackaged
+        ? join(process.resourcesPath, 'remote-web')
+        : join(app.getAppPath(), '../web/dist/public'),
+      exportDir: join(app.getPath('userData'), 'web-exports'),
+      version: app.getVersion(),
+      router: appRouter,
+      pairing: remoteRuntime.pairing,
+      getAutoStart: () => userConfig.getSettings().webServiceAutoStart,
+      setAutoStart: (enabled) => {
+        userConfig.setSettings({ webServiceAutoStart: enabled });
+      },
+    });
+    if (desktopWebRuntime.status().autoStart) {
+      void desktopWebRuntime
+        .start()
+        .catch(() => logger.warn('Web 服务自动启动失败，可在设置中重试。'));
+    }
+  }
   const logDirectory = getLogDir();
   if (logDirectory)
     stopRendererDiagnostics = startRendererDiagnostics({
@@ -779,7 +828,7 @@ app.on('window-all-closed', () => {
 
 // A real quit is underway (tray「退出」/ 确认框「完全退出」/ Cmd+Q / OS shutdown):
 // flip the flag so the `close` handler stops intercepting, and drop the tray.
-app.on('before-quit', () => {
+registerAppQuitPreparation(app, autoUpdater, () => {
   isQuitting = true;
   stopRendererDiagnostics?.();
   stopRendererDiagnostics = null;
@@ -807,6 +856,8 @@ app.on('before-quit', () => {
 // belongs to autostart / the user, and it keeps serving the QQ cards after
 // WeQ is gone.
 app.on('will-quit', () => {
+  remoteRuntime.stop();
+  desktopWebRuntime.stop();
   void stopMcpServer();
   void disposeExternalMcp();
   // 提权抓包子进程是 root 的 —— 退出时主动送走（子进程那边也会在环回连接断开时

@@ -79,7 +79,7 @@ async function tick(): Promise<void> {
   });
 
   // 1) 系统通知（新 release 的提醒方式）。
-  const releaseUrl = `https://github.com/H3CoF6/WeQ/releases/tag/v${version}`;
+  const releaseUrl = `https://github.com/weq-devs/WeQ/releases/tag/v${version}`;
   lastReleaseUrl = releaseUrl;
   const entry = getReleaseChangelogEntry(version);
   const summary = entry?.summary ?? `WeQ ${version} 发布了，点击查看更新内容。`;

@@ -94,12 +94,12 @@ export function GroupMemberRenameDialog({
         role="dialog"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <DialogHeader title="修改群名片" subtitle={memberName} onClose={onCancel} />
+        <DialogHeader title="修改群昵称" subtitle={memberName} onClose={onCancel} />
         <div className="group-member-body">
           <input
             className="group-member-input"
             value={value}
-            placeholder="输入新的群名片（留空 = 清除）"
+            placeholder="输入新的群昵称（留空 = 清除）"
             autoFocus
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={(event) => {
@@ -111,7 +111,7 @@ export function GroupMemberRenameDialog({
               }
             }}
           />
-          <p className="group-member-hint">留空并保存将清除该成员的群名片。</p>
+          <p className="group-member-hint">留空并保存将清除该成员的群昵称。</p>
         </div>
         <footer className="group-member-actions">
           <button type="button" onClick={onCancel} disabled={busy}>

@@ -338,9 +338,3 @@ html[data-theme='dark'] .weq-ocr-cover {
 .weq-ocr-panel-btn-primary:hover {
   background: var(--weq-accent-effective, #4c8dff);
 }
-
-.weq-ocr-panel-hint {
-  padding: 2px 12px 10px;
-  color: rgba(255, 255, 255, 0.45);
-  font-size: 0.71rem;
-}

@@ -24,7 +24,6 @@ import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarH
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { FavoriteActions } from '../src/renderer/src/components/qq-actions/FavoriteActions';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
-import { GroupJoinAction } from '../src/renderer/src/components/qq-actions/GroupJoinAction';
 import { GroupActions, GroupTodos } from '../src/renderer/src/components/qq-actions/GroupActions';
 import { ProfileLikeAction } from '../src/renderer/src/components/qq-actions/ProfileLikeAction';
 import { PROFILE_LIKE_MAX_PER_REQUEST } from '@weq/protocol';
@@ -39,6 +38,8 @@ import {
 import { QqInlineKeyboard } from '../src/renderer/src/components/QqInlineKeyboard';
 import { useViewState } from '../src/renderer/src/state/view';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
+import type { TypingStatusSettings } from '@weq/service';
+import { TypingStatusSettingsCard } from '../src/renderer/src/components/settings/TypingStatusSettingsCard';
 
 const state = vi.hoisted(() => ({
   configId: 'source-a',
@@ -48,15 +49,6 @@ const state = vi.hoisted(() => ({
   ),
   confirm: vi.fn(async () => true),
   picker: vi.fn(async () => ({ path: '/selected/image.png', fileName: 'image.png' })),
-  prepare: vi.fn(async () => ({
-    groupId: 888,
-    name: '目标群',
-    option: 5,
-    question: '为什么加入',
-    questionState: 'available' as const,
-    token: '00000000-0000-4000-8000-000000000001',
-    alreadyMember: false,
-  })),
   refreshSigns: vi.fn(async () => {}),
   refreshTodos: vi.fn(async (_input?: unknown) => {}),
   refreshJoin: vi.fn(async () => {}),
@@ -109,7 +101,6 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     'todo',
     'groupSettings',
     'qzone',
-    'join',
     'inputStatus',
     'inlineButton',
     'profileLike',
@@ -156,15 +147,54 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           ...Object.fromEntries(
             names.map((name) => [name, { mutate: (input: unknown) => state.mutate(name, input) }]),
           ),
-          prepareJoin: { mutate: state.prepare },
         },
       },
     },
     trpc: {
       bootstrap: {
         getSettings: { useQuery: () => ({ data: { exportSaveMode: 'before' }, isLoading: false }) },
+        getTypingStatusSettings: {
+          useQuery: () => ({ data: state.data.typingStatus, isError: !!state.data.typingError }),
+        },
+        setTypingStatusDefault: {
+          useMutation: () => ({
+            mutateAsync: async ({ enabled }: { enabled: boolean }) => ({
+              ...(state.data.typingStatus as TypingStatusSettings),
+              defaultEnabled: enabled,
+            }),
+          }),
+        },
+        setTypingStatusOverride: {
+          useMutation: () => ({
+            mutateAsync: async (input: TypingStatusSettings['overrides'][number]) => {
+              if (state.data.typingSaveError) throw new Error('合成保存失败');
+              const current = state.data.typingStatus as TypingStatusSettings;
+              return {
+                ...current,
+                overrides: [
+                  ...current.overrides.filter(
+                    (item) =>
+                      item.accountUin !== input.accountUin ||
+                      item.accountConfigId !== input.accountConfigId ||
+                      item.uid !== input.uid,
+                  ),
+                  ...(input.enabled === null ? [] : [input]),
+                ],
+              };
+            },
+          }),
+        },
       },
       useUtils: () => ({
+        bootstrap: {
+          getTypingStatusSettings: {
+            cancel: async () => {},
+            setData: (_input: undefined, next: TypingStatusSettings) => {
+              state.data.typingStatus = next;
+            },
+          },
+          getSettings: { invalidate: async () => {} },
+        },
         account: {
           dressup: { peerStats: { invalidate: state.refreshPeerStats } },
           listBuddyRequests: { invalidate: async () => {} },
@@ -220,6 +250,7 @@ function captureManagement(host: HTMLElement, name: string) {
     'group-content-management',
     'conversation-actions',
     'profile-avatar',
+    'typing-status-settings',
   ]
     .map(
       (name) =>
@@ -274,12 +305,12 @@ beforeEach(() => {
   state.mutate.mockClear();
   state.confirm.mockReset().mockResolvedValue(true);
   state.picker.mockClear();
-  state.prepare.mockClear();
   state.refreshSigns.mockClear();
   state.refreshTodos.mockClear();
   state.refreshJoin.mockClear();
   state.refreshPeerStats.mockClear();
   state.data = {
+    typingStatus: { defaultEnabled: false, overrides: [] },
     groupPermissions: { canManage: true, role: 'admin', selfUin: '10001' },
     fileSummary: { fileCount: 1, maxCount: 100, usedSpace: 10, totalSpace: 1000 },
     folders: { folders: [{ folderId: 'folder-b', folderName: '目录 B' }] },
@@ -481,6 +512,8 @@ describe('QQ 主动操作的实际界面', () => {
   it('打卡页使用可见今日动作，防重复点击，成功后刷新记录，离线不可写', async () => {
     const management = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(management.button('群打卡')).toBeNull();
+    expect(management.host.textContent).not.toContain('群打卡与 @全体额度');
+    expect(management.host.querySelector('[aria-label="打卡日期"]')).toBeNull();
     const f = fixture(() =>
       h(GroupSignDialog, { groupCode: '123', groupName: '测试群', onClose: vi.fn() }),
     );
@@ -731,7 +764,7 @@ describe('QQ 主动操作的实际界面', () => {
       }),
     );
   });
-  it('输入状态默认不广播，显式开启后限流，切换数据源恢复关闭', async () => {
+  it('输入状态默认不广播，显式开启后限流，按会话和数据源记忆', async () => {
     const editor = createRef<HTMLDivElement>();
     const f = fixture(() =>
       h(
@@ -745,7 +778,8 @@ describe('QQ 主动操作的实际界面', () => {
     try {
       act(() => editor.current!.dispatchEvent(new Event('input', { bubbles: true })));
       expect(state.mutate).not.toHaveBeenCalled();
-      act(() => f.button('发送正在输入状态').click());
+      await act(async () => f.button('发送正在输入状态').click());
+      f.update();
       await act(async () => editor.current!.dispatchEvent(new Event('input', { bubbles: true })));
       await act(async () => editor.current!.dispatchEvent(new Event('input', { bubbles: true })));
       expect(state.mutate).toHaveBeenCalledTimes(1);
@@ -755,9 +789,106 @@ describe('QQ 主动操作的实际界面', () => {
       state.configId = 'source-b';
       f.update();
       expect(f.button('发送正在输入状态').getAttribute('aria-pressed')).toBe('false');
+      state.configId = 'source-a';
+      f.update();
+      expect(f.button('发送正在输入状态').getAttribute('aria-pressed')).toBe('true');
     } finally {
       clock.mockRestore();
     }
+  });
+  it('全局开启仍列出开启特例，支持切换和删除，删除后输入框跟随默认', async () => {
+    const editor = createRef<HTMLDivElement>();
+    const target = {
+      accountUin: '10001',
+      accountConfigId: 'source-a',
+      uid: 'u_friend',
+      name: '好友',
+    };
+    state.data.typingStatus = { defaultEnabled: true, overrides: [{ ...target, enabled: true }] };
+    const f = fixture(() =>
+      h(
+        'div',
+        null,
+        h('div', { ref: editor }),
+        h(TypingStatus, { uid: target.uid, editors: [editor] }),
+        h(TypingStatusSettingsCard),
+      ),
+    );
+    expect(f.button('好友的输入状态').getAttribute('aria-checked')).toBe('true');
+    await act(async () => f.button('好友的输入状态').click());
+    f.update();
+    expect(f.button('发送正在输入状态').getAttribute('aria-pressed')).toBe('false');
+    await act(async () => f.button('默认发送正在输入状态').click());
+    f.update();
+    expect(f.button('好友的输入状态')).not.toBeNull();
+    await act(async () => f.button('默认发送正在输入状态').click());
+    f.update();
+    expect(f.button('发送正在输入状态').getAttribute('aria-pressed')).toBe('false');
+    await act(async () => f.button('删除好友的输入状态特例').click());
+    f.update();
+    expect(f.button('好友的输入状态')).toBeNull();
+    expect(f.button('发送正在输入状态').getAttribute('aria-pressed')).toBe('true');
+  });
+  it('不同会话不共享开关，重新挂载后恢复已设置的会话状态', async () => {
+    const editor = createRef<HTMLDivElement>();
+    let uid = 'u_friend';
+    const f = fixture(() => h(TypingStatus, { key: uid, uid, editors: [editor] }));
+    await act(async () => f.button('发送正在输入状态').click());
+    uid = 'u_other';
+    f.update();
+    expect(f.button('发送正在输入状态').getAttribute('aria-pressed')).toBe('false');
+    uid = 'u_friend';
+    f.update();
+    expect(f.button('发送正在输入状态').getAttribute('aria-pressed')).toBe('true');
+  });
+  it('读取失败不使用旧开启值广播，保存失败不改变会话状态', async () => {
+    const editor = createRef<HTMLDivElement>();
+    state.data.typingStatus = { defaultEnabled: true, overrides: [] };
+    state.data.typingError = true;
+    const f = fixture(() =>
+      h(
+        'div',
+        null,
+        h('div', { ref: editor }),
+        h(TypingStatus, { uid: 'u_friend', editors: [editor] }),
+      ),
+    );
+    expect(f.button('发送正在输入状态').disabled).toBe(true);
+    await act(async () => editor.current!.dispatchEvent(new Event('input', { bubbles: true })));
+    expect(state.mutate).not.toHaveBeenCalled();
+    state.data.typingError = false;
+    state.data.typingSaveError = true;
+    f.update();
+    await act(async () => f.button('发送正在输入状态').click());
+    f.update();
+    expect(f.button('发送正在输入状态').getAttribute('aria-pressed')).toBe('true');
+    expect((state.data.typingStatus as TypingStatusSettings).overrides).toEqual([]);
+  });
+  it('输入状态设置同时展示开关特例及长名称', () => {
+    const name = '很长的会话名称用于验证窄屏换行与控制按钮布局';
+    state.data.typingStatus = {
+      defaultEnabled: true,
+      overrides: [
+        {
+          accountUin: '10001',
+          accountConfigId: 'synthetic-source-a',
+          uid: 'u_friend',
+          name,
+          enabled: true,
+        },
+        {
+          accountUin: '10001',
+          accountConfigId: 'synthetic-source-a',
+          uid: 'u_other',
+          name: '另一个会话',
+          enabled: false,
+        },
+      ],
+    };
+    const f = fixture(() => h('div', { className: 'weq-set' }, h(TypingStatusSettingsCard)));
+    expect(f.button(`${name}的输入状态`).getAttribute('aria-checked')).toBe('true');
+    expect(f.button('另一个会话的输入状态').getAttribute('aria-checked')).toBe('false');
+    captureManagement(f.host, 'typing-settings');
   });
   const file = {
     fileId: 'file-a',
@@ -1219,14 +1350,14 @@ describe('QQ 主动操作的实际界面', () => {
       '尚未确认的公告草稿',
     );
   });
-  it('公告界面传递弹窗提醒和群名片引导选项', async () => {
+  it('公告界面传递弹窗提醒和群昵称引导选项', async () => {
     const f = fixture(() => h(GroupNoticeActions, { groupId: 123 }));
     act(() => f.button('新建公告').click());
     value(f.host, '新公告内容', '新的公告');
     const inputs = [...f.host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
     act(() => {
       inputs.find((input) => input.parentElement?.textContent?.includes('弹窗提醒'))!.click();
-      inputs.find((input) => input.parentElement?.textContent?.includes('群名片引导'))!.click();
+      inputs.find((input) => input.parentElement?.textContent?.includes('群昵称引导'))!.click();
     });
     await act(async () => f.button('发布公告').click());
     expect(state.mutate).toHaveBeenCalledWith(
@@ -1654,6 +1785,30 @@ describe('QQ 主动操作的实际界面', () => {
     expect(menuButton('退出 QQ 群')).toBeDefined();
     expect(state.mutate).not.toHaveBeenCalled();
   });
+  it('目录同名且未返回数字身份时按操作名称合并显示数量，不产生重复React键', () => {
+    state.data.groupJoinSettings = { groupId: 123, categoryId: 37, categoryName: '合成分类' };
+    state.data.tags = [
+      { id: null, name: '同名目录项', type: null },
+      { id: null, name: '同名目录项', type: null },
+      { id: null, name: '另一目录项', type: null },
+    ];
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const f = fixture(() => h(GroupActions, { groupId: 123 }));
+      expect(f.host.querySelectorAll('.weq-group-tags li')).toHaveLength(2);
+      expect(f.host.textContent).toContain('同名目录项 (2 条)');
+      state.data.tags = [
+        { id: null, name: '同名目录项', type: null },
+        { id: null, name: '另一目录项', type: null },
+      ];
+      f.update();
+      expect(f.host.querySelectorAll('.weq-group-tags li')).toHaveLength(2);
+      expect(f.host.textContent).not.toContain('同名目录项 (2 条)');
+      expect(errors).not.toHaveBeenCalled();
+    } finally {
+      errors.mockRestore();
+    }
+  });
   it('群分类从真实群资料选择，未返回分类不默认为 0 或允许写入', async () => {
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(f.host.querySelector('input[aria-label="群分类编号"]')).toBeNull();
@@ -1716,24 +1871,6 @@ describe('QQ 主动操作的实际界面', () => {
     expect(f.host.querySelector('[aria-label="表情备注"]')).toBeNull();
     expect(state.mutate).not.toHaveBeenCalled();
   });
-  it('加群显示问题，未填回答不能提交，确认后只发一次目标 token', async () => {
-    const f = fixture(() => h(GroupJoinAction, { onClose: vi.fn() }));
-    value(f.host, 'QQ 群分享链接', 'https://qm.qq.com/q/synthetic');
-    await act(async () => f.button('读取加群资料').click());
-    expect(f.host.textContent).toContain('为什么加入');
-    expect(f.button('提交入群申请').disabled).toBe(true);
-    value(f.host, '入群回答', '我想加入讨论');
-    await act(async () => f.button('提交入群申请').click());
-    expect(state.mutate).toHaveBeenCalledOnce();
-    expect(state.mutate).toHaveBeenCalledWith(
-      'join',
-      expect.objectContaining({
-        groupId: 888,
-        answer: '我想加入讨论',
-        token: '00000000-0000-4000-8000-000000000001',
-      }),
-    );
-  });
   it('加群方式 4 带标准答案，方式 5 不让用户填写被忽略的答案', () => {
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     value(f.host, '加群方式', '4');
@@ -1742,15 +1879,25 @@ describe('QQ 主动操作的实际界面', () => {
     value(f.host, '加群方式', '5');
     expect(f.host.querySelector('[aria-label="加群答案"]')).toBeNull();
   });
-  it('加群方式与问题来自读回，55 按审核问答显示，答案不伪造', () => {
+  it('加群方式与问题来自读回，55 按审核问答显示，原值仍可保存且答案不伪造', async () => {
     state.data.groupJoinSettings = { groupId: 123, option: 55, question: '原问题' };
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(f.host.querySelector<HTMLSelectElement>('[aria-label="加群方式"]')!.value).toBe('5');
     expect(f.host.querySelector<HTMLInputElement>('[aria-label="加群问题"]')!.value).toBe('原问题');
     expect(f.host.querySelector('[aria-label="加群答案"]')).toBeNull();
-    expect(f.button('保存加群方式').disabled).toBe(true);
+    expect(f.button('保存加群方式').disabled).toBe(false);
+    await act(async () => f.button('保存加群方式').click());
+    expect(state.mutate).toHaveBeenCalledWith(
+      'groupSettings',
+      expect.objectContaining({
+        action: 'join',
+        addType: 5,
+        question: '原问题',
+        answer: undefined,
+      }),
+    );
   });
-  it('保存加群方式后自动回读，读回一致后清除草稿和重复提交入口', async () => {
+  it('保存加群方式后自动回读并清除草稿，仍允许主动再次提交相同值', async () => {
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     value(f.host, '加群方式', '1');
     state.mutate.mockImplementationOnce(async () => {
@@ -1760,7 +1907,10 @@ describe('QQ 主动操作的实际界面', () => {
     await act(async () => f.button('保存加群方式').click());
     expect(state.refreshJoin).toHaveBeenCalledOnce();
     expect(f.host.querySelector<HTMLSelectElement>('[aria-label="加群方式"]')!.value).toBe('1');
-    expect(f.button('保存加群方式').disabled).toBe(true);
+    expect(f.button('保存加群方式').disabled).toBe(false);
+    await act(async () => f.button('保存加群方式').click());
+    expect(state.mutate).toHaveBeenCalledTimes(2);
+    expect(state.refreshJoin).toHaveBeenCalledTimes(2);
   });
   it('迟到的加群资料不覆盖编辑草稿，未知答案不当作空答案回填', () => {
     state.data.groupJoinSettings = { groupId: 123, option: 4, question: '原问题' };

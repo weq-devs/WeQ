@@ -17,6 +17,7 @@ import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { Card, SectionHeader } from './controls';
 import { UpdateCard } from './UpdateCard';
+import { DaemonSection } from './DaemonSection';
 import { DesktopOnly } from '../../lib/target';
 import logoUrl from '@resources/brand/logo.png';
 
@@ -69,7 +70,7 @@ export function VersionSection(): ReactElement {
     <div className="weq-set">
       <SectionHeader
         icon={<Package size={16} strokeWidth={1.8} />}
-        title="版本"
+        title="版本与更新"
         desc="WeQ 版本、内置组件时间与软件更新。"
       />
 
@@ -152,6 +153,7 @@ export function VersionSection(): ReactElement {
       <DesktopOnly>
         <UpdateCard />
       </DesktopOnly>
+      <DaemonSection panel="updates" />
     </div>
   );
 }

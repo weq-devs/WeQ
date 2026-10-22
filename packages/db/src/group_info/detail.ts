@@ -13,7 +13,7 @@
  *   60006  memberCount     (INTEGER)
  *   60218  labels          (TEXT)
  *   60224  entranceQ       (TEXT)
- *   60240  descOld         (BLOB) - Old QQ migrated data
+ *   60240  groupTagsRaw    (BLOB) - 群原始标签，列表编码尚未建模
  *   60340  leaveFlag       (INTEGER) - 0: member, 1: left
  *   60241  customLabels    (BLOB) - Custom labels list
  *   60242  address         (BLOB) - Group location info

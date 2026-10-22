@@ -17,7 +17,14 @@
  *     the expandable detail
  */
 
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { create } from 'zustand';
 import {
   DEFAULT_TOAST_DURATIONS,
@@ -25,6 +32,7 @@ import {
   type ToastDurations,
 } from '@weq/service/toast-settings';
 import '../styles/toast-action.css';
+import '../styles/toast-layout.css';
 import {
   AlertTriangle,
   Check,
@@ -38,16 +46,19 @@ import {
 } from 'lucide-react';
 
 export type ToastTone = 'info' | 'warning' | 'error' | 'success';
+export type ToastDurationKind = 'success' | 'failure' | 'long';
 
 interface Toast {
   id: number;
   tone: ToastTone;
+  /** 计时分类与视觉 tone 独立，long 沿用长期任务原有时长。 */
+  durationKind: ToastDurationKind;
   loading?: boolean;
   /** 标题（第一行主内容） */
   title: ReactNode;
   /** 可选的详情，传入后显示展开按钮与复制按钮 */
   detail?: ReactNode;
-  /** 自动关闭毫秒数，0 表示常驻；成功、失败及警告遵循全局设置。 */
+  /** 自动关闭毫秒数，0 表示常驻；所有短期横幅遵循成功／失败设置。 */
   ttl: number;
   timerRevision: number;
   /** 进行中的发送任务仅提供停止按钮，避免误关进度后继续静默发送。 */
@@ -58,7 +69,10 @@ interface Toast {
 
 /** 就地改一条已在屏上的 toast —— 长任务用它把「进行中」推进成「成功/失败」。 */
 export type ToastPatch = Partial<
-  Pick<Toast, 'tone' | 'loading' | 'title' | 'detail' | 'ttl' | 'dismissible' | 'action'>
+  Pick<
+    Toast,
+    'tone' | 'durationKind' | 'loading' | 'title' | 'detail' | 'ttl' | 'dismissible' | 'action'
+  >
 >;
 
 interface ToastStore {
@@ -71,6 +85,7 @@ interface ToastStore {
   /** 推一条 toast，返回它的 id（之后可用 `update` 就地推进状态）。 */
   push(input: {
     tone?: ToastTone;
+    durationKind?: ToastDurationKind;
     loading?: boolean;
     /** 标题；兼容旧调用点的 message */
     title?: ReactNode;
@@ -85,7 +100,7 @@ interface ToastStore {
   /**
    * 原地更新一条 toast（不重播进场、不改变堆叠顺序）。
    *
-   * 结束阶段按全局偏好重新计时；进行中与普通提示仍可显式指定 ttl。
+   * 结束阶段按成功／失败偏好重新计时；长期任务仍保留原有 ttl。
    * id 已经不在栈里（被关掉/已过期）时静默忽略。
    */
   update(id: number, patch: ToastPatch): void;
@@ -96,17 +111,20 @@ interface ToastStore {
 }
 
 function toastTtl(
-  toast: Pick<Toast, 'tone' | 'loading' | 'dismissible'> & { ttl?: number },
+  toast: Pick<Toast, 'durationKind' | 'loading' | 'dismissible'> & { ttl?: number },
   durations: ToastDurations,
 ): number {
-  if (toast.loading || toast.dismissible === false) return toast.ttl ?? 0;
+  if (toast.loading || toast.dismissible === false || toast.durationKind === 'long')
+    return toast.ttl ?? 0;
   const seconds =
-    toast.tone === 'success'
-      ? durations.successSeconds
-      : toast.tone === 'error' || toast.tone === 'warning'
-        ? durations.failureSeconds
-        : null;
-  return seconds === null ? (toast.ttl ?? 10000) : seconds === -1 ? 0 : seconds * 1000;
+    toast.durationKind === 'success' ? durations.successSeconds : durations.failureSeconds;
+  return seconds === -1 ? 0 : seconds * 1000;
+}
+
+function defaultDurationKind(tone: ToastTone, ttl?: number): ToastDurationKind {
+  // 兼容旧调用点中明确常驻的普通提示，不把用户设置产生的 ttl=0 当作长期任务。
+  if (tone === 'info' && ttl === 0) return 'long';
+  return tone === 'warning' || tone === 'error' ? 'failure' : 'success';
 }
 
 export const useToast = create<ToastStore>((set, get) => ({
@@ -132,11 +150,12 @@ export const useToast = create<ToastStore>((set, get) => ({
   toasts: [],
   leaving: [],
   seq: 0,
-  push({ tone = 'info', loading, title, message, detail, ttl, dismissible, action }) {
+  push({ tone = 'info', durationKind, loading, title, message, detail, ttl, dismissible, action }) {
     const id = get().seq + 1;
     // 兼容旧调用点：只传一个内容时它就是标题；传了 title 时旧 message 变成详情
     const actualTitle = title ?? message ?? '';
     const actualDetail = detail ?? (title != null ? message : undefined);
+    const kind = durationKind ?? defaultDurationKind(tone, ttl);
     set({
       seq: id,
       toasts: [
@@ -144,10 +163,11 @@ export const useToast = create<ToastStore>((set, get) => ({
         {
           id,
           tone,
+          durationKind: kind,
           loading,
           title: actualTitle,
           detail: actualDetail,
-          ttl: toastTtl({ tone, loading, dismissible, ttl }, get().durations),
+          ttl: toastTtl({ durationKind: kind, loading, dismissible, ttl }, get().durations),
           timerRevision: 0,
           dismissible,
           action,
@@ -166,7 +186,11 @@ export const useToast = create<ToastStore>((set, get) => ({
           patch.tone !== undefined ||
           patch.ttl !== undefined ||
           patch.loading !== undefined ||
-          patch.dismissible !== undefined;
+          patch.dismissible !== undefined ||
+          patch.durationKind !== undefined;
+        next.durationKind =
+          patch.durationKind ??
+          (reset ? defaultDurationKind(next.tone, patch.ttl) : t.durationKind);
         return {
           ...next,
           ttl: toastTtl(next, get().durations),
@@ -402,9 +426,29 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
 /** Mount once near the root. Stacks active toasts bottom-right. */
 export function ToastHost(): ReactElement | null {
   const toasts = useToast((s) => s.toasts);
+  const host = useRef<HTMLDivElement>(null);
+  const follow = useRef(true);
+  const latestId = toasts.at(-1)?.id;
+  const count = toasts.length;
+  useLayoutEffect(() => {
+    if (count === 0) follow.current = true;
+    else if (follow.current && host.current) host.current.scrollTop = host.current.scrollHeight;
+  }, [count, latestId]);
   if (toasts.length === 0) return null;
   return (
-    <div className="weq-toast-host" aria-live="polite">
+    <div
+      ref={host}
+      className="weq-toast-host"
+      aria-live="polite"
+      onScrollCapture={(event) => {
+        if (event.target !== event.currentTarget) {
+          follow.current = false;
+          return;
+        }
+        const element = event.currentTarget;
+        follow.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 8;
+      }}
+    >
       {toasts.map((t) => (
         <ToastRow key={t.id} toast={t} />
       ))}

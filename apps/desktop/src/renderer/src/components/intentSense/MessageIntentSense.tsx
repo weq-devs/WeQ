@@ -2,8 +2,8 @@
  * 意图/情绪胶囊 —— 消息气泡下的呈现层。
  *
  * 两种形态共用一套 pill：
- *  • 常驻行（.weq-intent-chips，气泡 grid 的一个子元素，位于正文下方）——只挂在
- *    最新可分析文本消息上（包含自己），分析中显示 shimmer 占位。
+ *  • 常驻行（.weq-intent-chips，气泡 grid 的一个子元素，位于正文下方）——所有已有
+ *    结果的消息均显示胶囊，待分析文本逐条显示 shimmer 占位。
  *  • 悬停弹层（.weq-intent-popover，portal + fixed，空间不足向上避让）——悬停任意消息
  *    250ms 后出现，未命中缓存时触发单条分析并显示加载态。悬停交互仿
  *    SetEmojiReactions 的「延迟开、延迟关」手法，弹层自身 pointer-events:none，
@@ -158,18 +158,19 @@ export function MessageIntentSense({
   // 消费 version：新结果到达时重读本条。
   const version = ctx?.version ?? 0;
   const active = Boolean(ctx?.active && tabActive);
+  const hoverActive = active && ctx?.hoverDisplay !== false;
+  const persistentDisplay = ctx?.persistentDisplay !== false;
   const getAnalysis = ctx?.getAnalysis;
   const isUnavailable = ctx?.isUnavailable;
   const requestAnalysis = ctx?.requestAnalysis;
   const result = getAnalysis?.(msgId);
   const unavailable = isUnavailable?.(msgId) ?? false;
-  const isLatestMessage =
-    (ctx?.latestMessageId === undefined ? ctx?.latestPeerMsgId : ctx.latestMessageId) === msgId;
+  const pending = ctx?.isPending?.(msgId) || !ctx?.settled;
   void version;
 
   useEffect(() => {
     const bubble = bubbleRef.current;
-    if (!bubble || !active || !getAnalysis || !requestAnalysis) return;
+    if (!bubble || !hoverActive || !getAnalysis || !requestAnalysis) return;
 
     const shouldSuppress = (target: EventTarget | null): boolean => {
       if (bubble.classList.contains('context-active')) return true;
@@ -252,7 +253,7 @@ export function MessageIntentSense({
     };
   }, [
     bubbleRef,
-    active,
+    hoverActive,
     getAnalysis,
     isUnavailable,
     requestAnalysis,
@@ -263,9 +264,9 @@ export function MessageIntentSense({
 
   useEffect(() => {
     setAnchor(null);
-  }, [msgId, ctx?.conv, ctx?.kind, active]);
+  }, [msgId, ctx?.conv, ctx?.kind, hoverActive]);
 
-  const showPopover = active && anchor !== null && (!!result || !unavailable);
+  const showPopover = hoverActive && anchor !== null && (!!result || !unavailable);
   const layer = useOverlayLayer(showPopover);
   useLayoutEffect(() => {
     const popover = popoverRef.current;
@@ -328,15 +329,15 @@ export function MessageIntentSense({
 
   return (
     <>
-      {/* 常驻行：最新可分析文本含自己；本轮分析结束后仍无结果则静默
+      {/* 常驻行：所有已有结果与待分析文本；本轮分析结束后仍无结果则静默
           （引擎不可用 / 纯媒体消息 / 分析失败都不再永挂 shimmer）。 */}
-      {isLatestMessage && !result && !ctx?.settled && !unavailable ? (
+      {persistentDisplay && analyzable !== false && !result && pending && !unavailable ? (
         <span className="weq-intent-chips">
           <IntentPillLoading width={52} />
           <IntentPillLoading width={40} />
         </span>
       ) : null}
-      {isLatestMessage && result ? (
+      {persistentDisplay && result ? (
         <span className="weq-intent-chips">
           <IntentChips result={result} />
         </span>

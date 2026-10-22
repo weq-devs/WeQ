@@ -50,6 +50,9 @@ vi.mock('@renderer/components/MutualMarkDialog', () => ({ MutualMarkDialog: () =
 vi.mock('@renderer/components/MemberAnalyticsDialog', () => ({
   MemberAnalyticsDialog: () => null,
 }));
+vi.mock('@renderer/components/qq-actions/CommonRelationships', () => ({
+  CommonRelationships: () => null,
+}));
 
 import { MemberProfileCard } from '@renderer/components/MemberProfileCard';
 import { client } from '@renderer/trpc/client';

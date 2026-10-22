@@ -50,6 +50,8 @@ export function QQWriteTextRow({
 }) {
   const [value, setValue] = useState(initial ?? '');
   const [submitted, setSubmitted] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const clearingUnknown = initial === null && allowEmpty && value === '';
   const actionLabel = `${clearingUnknown ? '清空' : '保存'}${label}`;
   const previous = useRef(initial ?? '');
@@ -78,7 +80,7 @@ export function QQWriteTextRow({
     value,
     maxLength,
     required: !allowEmpty,
-    disabled,
+    disabled: disabled || saving,
     autoFocus,
     onChange: (event: { target: { value: string } }) => {
       setValue(event.target.value);
@@ -89,7 +91,7 @@ export function QQWriteTextRow({
     <Row
       label={<QQWriteRowLabel icon={icon} label={label} />}
       control={
-        <div className="weq-qq-write-field">
+        <div className="weq-qq-write-field" data-qq-action>
           {multiline ? <textarea {...input} rows={3} /> : <input {...input} />}
           <button
             type="button"
@@ -97,15 +99,20 @@ export function QQWriteTextRow({
             aria-label={actionLabel}
             title={actionLabel}
             disabled={
-              disabled ||
-              (!allowEmpty && !value.trim()) ||
-              (initial !== null && value === initial) ||
-              value === submitted
+              disabled || saving || (!allowEmpty && !value.trim()) || value.length > maxLength
             }
             onClick={() => {
-              void onSave(value).then((ok) => {
-                if (ok) setSubmitted(value);
-              });
+              if (savingRef.current) return;
+              savingRef.current = true;
+              setSaving(true);
+              void onSave(value)
+                .then((ok) => {
+                  if (ok) setSubmitted(value);
+                })
+                .finally(() => {
+                  savingRef.current = false;
+                  setSaving(false);
+                });
             }}
           >
             {clearingUnknown ? <Eraser size={16} /> : <Save size={16} />}
@@ -126,6 +133,7 @@ export function QQWriteSelectRow({
   preview,
   unlistedLabel,
   autoSave = false,
+  renderEditor,
 }: {
   label: string;
   icon?: ReactNode;
@@ -136,9 +144,9 @@ export function QQWriteSelectRow({
   preview?: (value: number | null) => ReactNode;
   unlistedLabel?: (value: number) => string;
   autoSave?: boolean;
+  renderEditor?: (value: number | null) => ReactNode;
 }) {
   const [value, setValue] = useState(initial === null ? '' : String(initial));
-  const [submitted, setSubmitted] = useState<string | null>(null);
   const previous = useRef(value);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -150,73 +158,79 @@ export function QQWriteSelectRow({
     setValue((current) => (current === before ? next : current));
     previous.current = next;
   }, [initial]);
+  const editor = renderEditor?.(value === '' ? null : Number(value));
   return (
-    <Row
-      label={<QQWriteRowLabel icon={icon} label={label} />}
-      control={
-        <div className={preview ? 'weq-qq-write-select-preview' : undefined}>
-          <div className="weq-qq-write-field">
-            <select
-              className="weq-qq-write-input"
-              aria-label={label}
-              value={value}
-              disabled={disabled || saving}
-              onChange={(event) => {
-                if (savingRef.current) return;
-                const next = event.target.value;
-                setValue(next);
-                setSubmitted(null);
-                if (autoSave && next !== '') {
-                  savingRef.current = true;
-                  setSaving(true);
-                  const rollback = () =>
-                    setValue(latestInitial.current === null ? '' : String(latestInitial.current));
-                  void onSave(Number(next))
-                    .then((ok) => {
-                      if (ok) setSubmitted(next);
-                      else rollback();
-                    }, rollback)
-                    .finally(() => {
+    <>
+      <Row
+        label={<QQWriteRowLabel icon={icon} label={label} />}
+        control={
+          <div className={preview ? 'weq-qq-write-select-preview' : undefined}>
+            <div className="weq-qq-write-field" data-qq-action>
+              <select
+                className="weq-qq-write-input"
+                aria-label={label}
+                value={value}
+                disabled={disabled || saving}
+                onChange={(event) => {
+                  if (savingRef.current) return;
+                  const next = event.target.value;
+                  setValue(next);
+                  if (autoSave && next !== '' && !renderEditor?.(Number(next))) {
+                    savingRef.current = true;
+                    setSaving(true);
+                    const rollback = () =>
+                      setValue(latestInitial.current === null ? '' : String(latestInitial.current));
+                    void onSave(Number(next))
+                      .then((ok) => {
+                        if (!ok) rollback();
+                      }, rollback)
+                      .finally(() => {
+                        savingRef.current = false;
+                        setSaving(false);
+                      });
+                  }
+                }}
+              >
+                {!options.some((option) => String(option.value) === value) && (
+                  <option value={value}>
+                    {value ? (unlistedLabel?.(Number(value)) ?? `未识别 (${value})`) : '尚未读取'}
+                  </option>
+                )}
+                {options.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {!autoSave && !editor ? (
+                <button
+                  type="button"
+                  className="weq-set-iconbtn"
+                  aria-label={`保存${label}`}
+                  title={`保存${label}`}
+                  disabled={
+                    disabled || saving || !options.some((option) => String(option.value) === value)
+                  }
+                  onClick={() => {
+                    if (savingRef.current) return;
+                    savingRef.current = true;
+                    setSaving(true);
+                    void onSave(Number(value)).finally(() => {
                       savingRef.current = false;
                       setSaving(false);
                     });
-                }
-              }}
-            >
-              {!options.some((option) => String(option.value) === value) && (
-                <option value={value}>
-                  {value ? (unlistedLabel?.(Number(value)) ?? `未识别 (${value})`) : '尚未读取'}
-                </option>
-              )}
-              {options.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            {!autoSave ? (
-              <button
-                type="button"
-                className="weq-set-iconbtn"
-                aria-label={`保存${label}`}
-                title={`保存${label}`}
-                disabled={
-                  disabled || value === '' || Number(value) === initial || value === submitted
-                }
-                onClick={() => {
-                  void onSave(Number(value)).then((ok) => {
-                    if (ok) setSubmitted(value);
-                  });
-                }}
-              >
-                <Save size={16} />
-              </button>
-            ) : null}
+                  }}
+                >
+                  <Save size={16} />
+                </button>
+              ) : null}
+            </div>
+            {preview?.(value === '' ? null : Number(value))}
           </div>
-          {preview?.(value === '' ? null : Number(value))}
-        </div>
-      }
-    />
+        }
+      />
+      {editor}
+    </>
   );
 }
 
@@ -244,26 +258,28 @@ export function QQWriteToggleRow({
       label={<QQWriteRowLabel icon={icon} label={label} />}
       desc={initial === null ? <span role="status">尚未读取</span> : undefined}
       control={
-        <Toggle
-          label={label}
-          checked={initial ?? draft ?? false}
-          indeterminate={initial === null}
-          disabled={disabled || saving}
-          onChange={async (next) => {
-            if (savingRef.current) return;
-            savingRef.current = true;
-            setSaving(true);
-            setDraft(next);
-            try {
-              await onSave(next);
-            } catch {
-              setDraft(null);
-            } finally {
-              savingRef.current = false;
-              setSaving(false);
-            }
-          }}
-        />
+        <span data-qq-action>
+          <Toggle
+            label={label}
+            checked={initial ?? draft ?? false}
+            indeterminate={initial === null}
+            disabled={disabled || saving}
+            onChange={async (next) => {
+              if (savingRef.current) return;
+              savingRef.current = true;
+              setSaving(true);
+              setDraft(next);
+              try {
+                await onSave(next);
+              } catch {
+                setDraft(null);
+              } finally {
+                savingRef.current = false;
+                setSaving(false);
+              }
+            }}
+          />
+        </span>
       }
     />
   );
@@ -284,7 +300,14 @@ export function QQWriteActionRow({
     <Row
       label={label}
       control={
-        <button type="button" className="weq-set-btn" disabled={disabled} onClick={onClick}>
+        <button
+          type="button"
+          data-qq-action
+          title={label}
+          className="weq-set-btn"
+          disabled={disabled}
+          onClick={onClick}
+        >
           {icon}
           {label}
         </button>

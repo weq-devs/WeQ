@@ -21,6 +21,7 @@ import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { WorkspacePage } from './WorkspacePages';
 import { WindowSurface } from './WindowSurface';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
+import '../styles/dialog-layout.css';
 
 export type DialogTone = 'error' | 'warning' | 'info';
 
@@ -283,7 +284,7 @@ export function DialogHost(): ReactElement | null {
       dismissOnOutside={!current.confirm && !current.password}
       labelledBy="weq-dialog-title"
       width={368}
-      className={isPasswordPrompt ? 'weq-password-modal' : undefined}
+      className={`weq-message-modal${isPasswordPrompt ? ' weq-password-modal' : ''}`}
     >
       <div
         className={`weq-dialog weq-dialog-${current.tone}${isPasswordPrompt ? ' weq-dialog-password' : ''}`}

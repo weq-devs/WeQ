@@ -200,17 +200,7 @@
 .weq-forward-banner button svg {
   flex: none;
 }
-.weq-forward-banner-targets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  max-height: 120px;
-  overflow: auto;
-}
-.weq-forward-banner-targets button span {
-  overflow-wrap: anywhere;
-  text-align: left;
-}
+
 html[data-theme='dark'] .weq-forward-banner button {
   color: var(--weq-fg-primary);
   border-color: var(--weq-border-strong);

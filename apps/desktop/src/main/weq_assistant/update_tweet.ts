@@ -56,7 +56,7 @@ export async function announceUpdateAvailable(version: string): Promise<void> {
   // 内容约定与 release 推文一致：正文取 CHANGELOG 对应章节的第一条 bullet。
   const entry = getReleaseChangelogEntry(v);
   const summary = entry?.summary ?? `WeQ ${v} 已发布，点击查看更新内容。`;
-  const releaseUrl = `https://github.com/H3CoF6/WeQ/releases/tag/v${v}`;
+  const releaseUrl = `https://github.com/weq-devs/WeQ/releases/tag/v${v}`;
   const title = `WeQ ${v} 更新可用`;
   const input: ReleasePageInput = { version: v, title, summary, releaseUrl, slug: SLUG };
 

@@ -16,3 +16,23 @@
 html[data-theme='dark'] .weq-message-marquee {
   background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
 }
+.weq-system-message-row.is-selected,
+.weq-graytip-band.is-selected:not(.weq-selectable-gap) {
+  outline: 1px dashed var(--weq-accent-effective);
+  outline-offset: -1px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+.message-scroll.is-marquee-selecting .message-line.is-selected {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  outline: 1px dashed var(--weq-accent-effective);
+  outline-offset: -1px;
+}
+html[data-theme='dark'] .weq-system-message-row.is-selected,
+html[data-theme='dark'] .weq-graytip-band.is-selected:not(.weq-selectable-gap),
+html[data-theme='dark'] .message-scroll.is-marquee-selecting .message-line.is-selected {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+}

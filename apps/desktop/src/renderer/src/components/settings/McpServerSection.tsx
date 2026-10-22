@@ -35,7 +35,8 @@ import { trpc } from '../../trpc/client';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
-import { Card, Row, SectionHeader, Toggle } from './controls';
+import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
+import '../../styles/settings-services.css';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -176,7 +177,6 @@ export function McpServerSection(): ReactElement {
       showError('端口无效', '请输入 1–65535 之间的端口号。');
       return;
     }
-    if (data && port === data.port) return;
     try {
       const result = await setPort.mutateAsync({ port });
       await status.refetch();
@@ -247,7 +247,7 @@ export function McpServerSection(): ReactElement {
           errors.map((e) => `${e.name}：${e.message ?? '未知错误'}`).join('\n'),
         );
       } else if (result.results.length === 0) {
-        pushToast({ tone: 'info', title: '没有可安装的客户端' });
+        pushToast({ tone: 'info', durationKind: 'failure', title: '没有可安装的客户端' });
       } else {
         const parts: string[] = [];
         if (ok) parts.push(`${ok} 个成功`);
@@ -267,7 +267,7 @@ export function McpServerSection(): ReactElement {
   const running = data?.running ?? false;
 
   return (
-    <div className="weq-set">
+    <div className="weq-set weq-service-settings">
       <SectionHeader
         icon={<Plug size={16} strokeWidth={1.8} />}
         title="MCP 服务器"
@@ -276,13 +276,22 @@ export function McpServerSection(): ReactElement {
 
       {/* Switch + live state */}
       <Card title="服务开关">
+        {status.error ? (
+          <QueryError
+            message={`MCP 状态读取失败：${status.error.message}`}
+            retryLabel="重新读取 MCP 状态"
+            retrying={status.isFetching}
+            onRetry={() => void status.refetch()}
+          />
+        ) : null}
         <Row
           label="启用 MCP 服务器"
           desc="仅在已登录账号时监听；切换或退出账号会自动停止。"
           control={
             <Toggle
               checked={enabled}
-              disabled={busy || status.isLoading}
+              indeterminate={!data}
+              disabled={busy || status.isLoading || !data}
               onChange={(next) => void onToggle(next)}
               label="启用 MCP 服务器"
             />
@@ -292,7 +301,15 @@ export function McpServerSection(): ReactElement {
           label={
             <span className="weq-set-mcp-state">
               <span className={`weq-set-mcp-dot${running ? ' is-on' : ''}`} aria-hidden />
-              {running ? '运行中' : enabled ? '已启用（等待账号）' : '已停止'}
+              {!data
+                ? status.isLoading
+                  ? '正在读取服务状态…'
+                  : '服务状态未知'
+                : running
+                  ? '运行中'
+                  : enabled
+                    ? '已启用（等待账号）'
+                    : '已停止'}
             </span>
           }
           desc={data ? data.url : '—'}
@@ -312,6 +329,14 @@ export function McpServerSection(): ReactElement {
 
       {/* Connection details */}
       <Card title="连接信息">
+        {clientConfig.error ? (
+          <QueryError
+            message={`MCP 客户端配置读取失败：${clientConfig.error.message}`}
+            retryLabel="重新读取 MCP 客户端配置"
+            retrying={clientConfig.isFetching}
+            onRetry={() => void clientConfig.refetch()}
+          />
+        ) : null}
         <Row
           label="端口"
           desc="修改后会立即重启服务（若正在运行）。"
@@ -332,7 +357,7 @@ export function McpServerSection(): ReactElement {
               <button
                 type="button"
                 className="weq-set-btn weq-set-btn-sm"
-                disabled={busy || portDraft === String(data?.port ?? '')}
+                disabled={busy || status.isLoading || !data}
                 onClick={() => void onSavePort()}
               >
                 保存
@@ -344,7 +369,15 @@ export function McpServerSection(): ReactElement {
         <div className="weq-set-keyfield">
           <KeyRound size={15} strokeWidth={1.8} className="weq-set-keyfield-icon" aria-hidden />
           <code className="weq-set-keyval">
-            {token ? (reveal ? token : maskedToken) : status.isLoading ? '读取中…' : '未生成'}
+            {token
+              ? reveal
+                ? token
+                : maskedToken
+              : status.isLoading
+                ? '读取中…'
+                : status.error
+                  ? '读取失败'
+                  : '未生成'}
           </code>
           <div className="weq-set-keyfield-actions">
             <button
@@ -372,7 +405,7 @@ export function McpServerSection(): ReactElement {
               className="weq-set-iconbtn"
               title="重新生成"
               aria-label="重新生成令牌"
-              disabled={busy}
+              disabled={busy || !data}
               onClick={() => void onRegen()}
             >
               <RotateCcw size={15} />
@@ -420,14 +453,24 @@ export function McpServerSection(): ReactElement {
           同一客户端只保留一个 <code>weq</code> 条目，不会重复安装。
         </p>
 
+        {agentTargets.error ? (
+          <QueryError
+            message={`MCP 客户端扫描失败：${agentTargets.error.message}`}
+            retryLabel="重新扫描 MCP 客户端"
+            retrying={agentTargets.isFetching}
+            onRetry={() => void onRescan()}
+          />
+        ) : null}
         {agentTargets.isLoading ? (
           <p className="weq-set-empty">正在扫描本机客户端…</p>
         ) : visibleTargets.length === 0 ? (
-          <div className="weq-set-empty">
-            <AlertCircle size={15} aria-hidden />
-            没找到本机已安装的 MCP 客户端。请先安装 Claude Code / Codex / Cursor / VS Code
-            等，再回来扫描。
-          </div>
+          agentTargets.error ? null : (
+            <div className="weq-set-empty">
+              <AlertCircle size={15} aria-hidden />
+              没找到本机已安装的 MCP 客户端。请先安装 Claude Code / Codex / Cursor / VS Code
+              等，再回来扫描。
+            </div>
+          )
         ) : (
           <div className="weq-set-agent-list" {...agentsMulti.rootProps}>
             {visibleTargets.map((t) => {
@@ -448,8 +491,12 @@ export function McpServerSection(): ReactElement {
                     {checked ? <Check size={12} /> : null}
                   </span>
                   <span className="weq-set-agent-main">
-                    <span className="weq-set-agent-name">{t.name}</span>
-                    <code className="weq-set-agent-path">{t.configPath}</code>
+                    <span className="weq-set-agent-name" title={t.name}>
+                      {t.name}
+                    </span>
+                    <code className="weq-set-agent-path" title={t.configPath}>
+                      {t.configPath}
+                    </code>
                   </span>
                   <span
                     className={`weq-set-agent-tag is-${status.tone}`}

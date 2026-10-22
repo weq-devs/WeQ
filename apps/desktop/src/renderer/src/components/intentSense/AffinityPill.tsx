@@ -52,12 +52,12 @@ export function AffinityPill({
   const [profileOpen, setProfileOpen] = useState(false);
   const prevTier = useRef<number | null>(null);
 
-  const tier = Math.max(0, Math.min(4, profile.data?.tier ?? 0));
-  const meta = TIERS[tier]!;
+  const tier = profile.data ? Math.max(0, Math.min(4, profile.data.tier)) : null;
+  const meta = TIERS[tier ?? 0]!;
   const Icon = meta.icon;
 
   useEffect(() => {
-    if (prevTier.current !== null && prevTier.current !== tier) {
+    if (tier !== null && prevTier.current !== null && prevTier.current !== tier) {
       setBumped(true);
       const t = setTimeout(() => setBumped(false), 450);
       return () => clearTimeout(t);
@@ -75,7 +75,7 @@ export function AffinityPill({
     />
   ) : null;
 
-  if (profile.isLoading || !profile.data) {
+  if (profile.isLoading) {
     // 加载中：低调的灰胶囊占位，避免 header 宽度跳动。
     return (
       <button
@@ -89,6 +89,8 @@ export function AffinityPill({
       </button>
     );
   }
+
+  if (!profile.data) return dialog;
 
   return (
     <>

@@ -23,7 +23,7 @@ const nt = requireFn('native/linux/x64/nt_helper.node');
 ```
 
 > 仓库里**不带** `native/**/nt_helper.node`（历史太大，已拆到
-> [nt_helper_release](https://github.com/H3CoF6/nt_helper_release) 分发）。
+> [nt_helper_release](https://github.com/weq-devs/nt_helper_release) 分发）。
 > dev 克隆先跑 `pnpm native:fetch` 取最新构建，细节见
 > [原生二进制与装扮资源的分发](./native-artifacts.md)。
 

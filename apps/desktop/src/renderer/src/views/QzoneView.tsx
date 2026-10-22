@@ -45,7 +45,8 @@ import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { QzoneMediaPreview, type QzonePreviewMedia } from '../components/QzoneMediaPreview';
 import { QzoneWriteActions, type QzoneLikeChange } from '../components/qq-actions/MediaActions';
 import { withQQAccountScope } from '../components/qq-actions/shared';
-import { albumMediaUrl, avatarFetchUrl } from '../lib/resourceUrl';
+import { albumMediaUrl } from '../lib/resourceUrl';
+import { QzoneEmoji } from '../components/QzoneEmoji';
 import {
   projectQzoneFeed,
   qzoneMediaSource,
@@ -328,28 +329,6 @@ function QzoneText({
         ),
       )}
     </>
-  );
-}
-
-/** Use the existing cached image bridge; direct CDN URLs are blocked by CSP. */
-function QzoneEmoji({ code }: { code: string }) {
-  const [sourceIndex, setSourceIndex] = useState(0);
-  if (sourceIndex >= 2)
-    return (
-      <span className="weq-qzn-emoji-unavailable" title={`QQ 表情 ${code}`}>
-        [QQ表情]
-      </span>
-    );
-  const extension = sourceIndex === 0 ? 'gif' : 'png';
-  return (
-    <img
-      className="weq-qzn-emoji"
-      src={avatarFetchUrl(`https://qzonestyle.gtimg.cn/qzone/em/${code}.${extension}`)}
-      alt="[QQ表情]"
-      title={`QQ 表情 ${code}`}
-      loading="lazy"
-      onError={() => setSourceIndex((current) => (current === sourceIndex ? current + 1 : current))}
-    />
   );
 }
 
@@ -965,6 +944,8 @@ function SpaceStats({ selfUin, hostUin }: { selfUin: string; hostUin: string }) 
   const [stats, setStats] = useState<{
     postCount: number | null;
     photoCount: number | null;
+    totalCount: number | null;
+    todayCount: number | null;
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -995,6 +976,12 @@ function SpaceStats({ selfUin, hostUin }: { selfUin: string; hostUin: string }) 
   const items = [
     ['说说', stats?.postCount],
     ['照片', stats?.photoCount],
+    ...(hostUin === selfUin
+      ? ([
+          ['累计访问', stats?.totalCount],
+          ['今日访问', stats?.todayCount],
+        ] as const)
+      : []),
   ] as const;
   return (
     <div className="weq-qzn-space-stats" aria-label="空间统计" aria-busy={loading}>

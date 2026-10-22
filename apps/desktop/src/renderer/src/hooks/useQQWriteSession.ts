@@ -99,8 +99,9 @@ export function useQQWriteSession(scope: string) {
     const toast = useToast.getState();
     let toastId: number | undefined;
     const finish = (title: string, tone: 'success' | 'warning' | 'error' | 'info') => {
-      if (toastId === undefined) toastId = toast.push({ title, tone });
-      else toast.update(toastId, { title, tone, loading: false, ttl: 10000 });
+      const durationKind = tone === 'success' ? 'success' : 'failure';
+      if (toastId === undefined) toastId = toast.push({ title, tone, durationKind });
+      else toast.update(toastId, { title, tone, durationKind, loading: false });
     };
     if (options?.refreshCaches !== false)
       toastId = toast.push({ title: '正在确认操作完成情况', loading: true, ttl: 0 });

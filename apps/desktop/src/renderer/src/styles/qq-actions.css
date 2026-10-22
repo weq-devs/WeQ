@@ -109,9 +109,7 @@
 .weq-qq-media-actions input {
   max-width: 100%;
 }
-.weq-qq-album-item {
-  min-width: 0;
-}
+
 .weq-qq-favorite-preview {
   width: 48px;
   height: 48px;
@@ -147,23 +145,10 @@ html[data-theme='dark'] .composer-tools button.weq-qq-typing-toggle[aria-pressed
 .weq-qq-keyboard-action > button {
   width: 100%;
 }
-.weq-qq-join-dialog {
-  display: flex;
-  flex-direction: column;
-  max-width: calc(100vw - 24px);
-  max-height: calc(100dvh - 32px);
-  padding: 0;
-  overflow: hidden;
-  color: var(--weq-fg-primary);
-  background: var(--weq-bg-surface);
-}
 .weq-qq-action-summary {
   color: var(--weq-fg-secondary);
   font-size: 12px;
   overflow-wrap: anywhere;
-}
-html[data-theme='dark'] .weq-qq-join-dialog {
-  border-color: var(--weq-border-strong);
 }
 .weq-qq-album-item > .group-album-media-card {
   width: 100%;
@@ -200,4 +185,24 @@ html[data-theme='dark'] .weq-qq-action-form select,
 html[data-theme='dark'] .weq-qq-action-form textarea {
   background: var(--weq-bg-surface);
   color: var(--weq-fg-primary);
+}
+.weq-album-video-cover {
+  display: block;
+  width: 160px;
+  height: 90px;
+  object-fit: contain;
+  margin-top: 8px;
+}
+.weq-qq-permission-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--destructive);
+  font-size: 12px;
+  margin: 8px 0;
+}
+.weq-qq-permission-error > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
