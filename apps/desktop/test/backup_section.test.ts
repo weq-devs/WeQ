@@ -94,6 +94,55 @@ it('恢复默认需二次确认，未变化的命令仍可再次主动执行', a
   await ui.click('确认');
   expect(f.api.defaults).toHaveBeenCalledTimes(2);
 });
+it('恢复默认确认区紧随下方按钮，取消不提交恢复', async () => {
+  const f = fixture(),
+    ui = await mount(f.api);
+  await ui.click('恢复默认设置');
+  const trigger = ui.button('恢复默认设置');
+  const confirmation = ui.host.querySelector('[aria-label="确认操作"]');
+  expect(confirmation).not.toBeNull();
+  expect(trigger.closest('section')?.nextElementSibling).toBe(confirmation);
+  expect(confirmation?.textContent).toContain('确认恢复默认设置');
+  await ui.click('返回');
+  expect(ui.host.querySelector('[aria-label="确认操作"]')).toBeNull();
+  expect(f.api.defaults).not.toHaveBeenCalled();
+});
+it('默认恢复暂存后的重启提示与重启确认都位于页面下方', async () => {
+  const f = fixture();
+  const staged = await f.api.defaults();
+  f.api.defaults.mockClear();
+  let pending = false;
+  const api: typeof backupApi = {
+    ...f.api,
+    inventory: async () => ({
+      ...(await f.api.inventory()),
+      canRestart: true,
+      restore: {
+        result: null,
+        pending: pending ? { id: staged.id, phase: 'ready', summary: staged.summary } : null,
+      },
+    }),
+    defaults: async () => {
+      pending = true;
+      return staged;
+    },
+    restart: vi.fn(async () => true),
+  };
+  const ui = await mount(api);
+  await ui.click('恢复默认设置');
+  await ui.click('确认');
+  const defaultsSection = ui.button('恢复默认设置').closest('section');
+  const restartSection = ui.button('重启 WeQ').closest('section');
+  expect(defaultsSection?.nextElementSibling).toBe(restartSection);
+  expect(restartSection?.textContent).toContain('已暂存，等待重启');
+  expect(api.restart).not.toHaveBeenCalled();
+  await ui.click('重启 WeQ');
+  const confirmation = ui.host.querySelector('[aria-label="确认操作"]');
+  expect(restartSection?.nextElementSibling).toBe(confirmation);
+  expect(confirmation?.textContent).toContain('确认重启 WeQ');
+  await ui.click('确认');
+  expect(api.restart).toHaveBeenCalledTimes(1);
+});
 it('组件关闭后迟到文件被释放，不把旧选择留作可确认输入', async () => {
   const f = fixture();
   let finish: ((value: Awaited<ReturnType<typeof f.api.pick>>) => void) | undefined;

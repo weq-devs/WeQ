@@ -97,6 +97,62 @@ it('允许部分设置恢复，并校验嵌套类型与现有分页规则', () =
   }
 });
 
+it('输入状态支持空特例、完整特例及部分设置备份', () => {
+  const override = {
+    accountUin: '10001',
+    accountConfigId: '10001_synthetic',
+    uid: 'u_synthetic',
+    name: '合成好友',
+    enabled: false,
+  };
+  for (const typingStatus of [
+    {},
+    { defaultEnabled: true },
+    { overrides: [] },
+    { defaultEnabled: true, overrides: [override, { ...override, uid: 'u_other', enabled: true }] },
+  ]) {
+    expect(() => validateWeqAppSettings({ typingStatus })).not.toThrow();
+  }
+});
+
+it('输入状态拒绝损坏特例，不将普通对象当成数组或静默丢弃字段', () => {
+  const override = {
+    accountUin: '10001',
+    accountConfigId: '10001_synthetic',
+    uid: 'u_synthetic',
+    name: '',
+    enabled: true,
+  };
+  for (const typingStatus of [
+    null,
+    [],
+    { defaultEnabled: 'true' },
+    { unknown: true },
+    { overrides: {} },
+    { overrides: null },
+    { overrides: [null] },
+    { overrides: [{}] },
+    ...[
+      { accountUin: '' },
+      { accountConfigId: '' },
+      { uid: '' },
+      { uid: 'u_\0synthetic' },
+      { name: null },
+      { enabled: 'true' },
+      { unknown: true },
+    ].map((patch) => ({ overrides: [{ ...override, ...patch }] })),
+  ]) {
+    expect(() => validateWeqAppSettings({ typingStatus })).toThrow('settings.typingStatus');
+  }
+  for (const key of Object.keys(override)) {
+    const incomplete = { ...override };
+    Reflect.deleteProperty(incomplete, key);
+    expect(() => validateWeqAppSettings({ typingStatus: { overrides: [incomplete] } })).toThrow(
+      'settings.typingStatus.overrides[0]',
+    );
+  }
+});
+
 it('设置分区不能注入 API、根目录或锁密钥，资源重复引用必须一致', () => {
   for (const value of [
     { agentLab: { providers: [] } },

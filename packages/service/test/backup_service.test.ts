@@ -125,6 +125,31 @@ it('未勾选的数据不进入包，也不因未勾选域的旧选择阻止设�
   ).toThrow('变化');
 });
 
+it('输入状态会话特例可备份并经冷启动恢复，保留显式开关与空名称', () => {
+  const f = fixture();
+  f.config.setSettings({ typingStatus: { defaultEnabled: true } });
+  const target = {
+    accountUin: '10001',
+    accountConfigId: '10001',
+    uid: 'u_synthetic',
+    name: '',
+  };
+  f.config.setTypingStatusOverride(target, false);
+  f.config.setTypingStatusOverride({ ...target, uid: 'u_other', name: '合成好友' }, true);
+  const expected = f.config.getSettings().typingStatus;
+  const snapshot = f.service.snapshot({ parts: ['settings'], includeClient: false }, {});
+  const app = readWeqBackup(snapshot.archive).files.find(
+    (entry) => entry.path === 'settings/app.json',
+  );
+  expect(JSON.parse(app!.data.toString()).typingStatus).toEqual(expected);
+  f.config.setSettings({ typingStatus: { defaultEnabled: false, overrides: [] } });
+  const source = f.service.inspect(snapshot.archive, 'synthetic.zip');
+  const preview = f.service.prepare(source.id, { parts: ['settings'], conflict: 'overwrite' });
+  f.service.stage(preview.id);
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  expect(new UserConfigService(f.platform).getSettings().typingStatus).toEqual(expected);
+});
+
 it('确认使用冻结的源包与选择；外部缓冲变化和确认后改选不改变恢复目标', () => {
   const f = fixture();
   const archive = buildWeqBackup([

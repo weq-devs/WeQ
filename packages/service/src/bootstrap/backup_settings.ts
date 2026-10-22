@@ -143,7 +143,37 @@ function shape(value: unknown, template: unknown, path: string): void {
 
 export function validateWeqAppSettings(value: unknown): asserts value is WeqAppBackupPatch {
   const input = record(value, 'settings');
-  shape(input, snapshotWeqSettings(DEFAULT_APP_SETTINGS), 'settings');
+  // 默认空数组无法描述元素结构，输入状态单独校验，避免被当作普通对象。
+  const { typingStatus, ...scalarSettings } = input;
+  shape(scalarSettings, snapshotWeqSettings(DEFAULT_APP_SETTINGS), 'settings');
+  if (Object.hasOwn(input, 'typingStatus')) {
+    const typing = fields(
+      typingStatus,
+      'settings.typingStatus',
+      [],
+      ['defaultEnabled', 'overrides'],
+    );
+    if (Object.hasOwn(typing, 'defaultEnabled') && typeof typing.defaultEnabled !== 'boolean')
+      fail('settings.typingStatus.defaultEnabled');
+    if (Object.hasOwn(typing, 'overrides')) {
+      const path = 'settings.typingStatus.overrides';
+      if (!Array.isArray(typing.overrides)) fail(path);
+      for (const [index, item] of typing.overrides.entries()) {
+        const where = `${path}[${index}]`;
+        const row = fields(item, where, [
+          'accountUin',
+          'accountConfigId',
+          'uid',
+          'name',
+          'enabled',
+        ]);
+        for (const key of ['accountUin', 'accountConfigId', 'uid'])
+          string(row[key], `${where}.${key}`, true);
+        string(row.name, `${where}.name`);
+        if (typeof row.enabled !== 'boolean') fail(`${where}.enabled`);
+      }
+    }
+  }
   if (
     input.exportSaveMode !== undefined &&
     !['before', 'after', 'preset'].includes(String(input.exportSaveMode))
