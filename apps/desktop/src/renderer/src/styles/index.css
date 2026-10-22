@@ -8143,26 +8143,6 @@ html[data-theme='dark'] .group-info-member-row.is-clickable:hover {
   box-shadow: 0 24px 60px -24px rgba(7, 31, 61, 0.42);
 }
 
-.weq-notice-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 44px 14px 18px;
-  border-bottom: 1px solid color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-}
-
-.weq-notice-head svg {
-  flex: none;
-  color: var(--weq-accent-effective);
-}
-
-.weq-notice-head h2 {
-  margin: 0;
-  color: #102d49;
-  font-size: 15px;
-  font-weight: 600;
-}
-
 .weq-notice-scroll {
   display: grid;
   align-content: start;
@@ -8393,14 +8373,6 @@ html[data-theme='dark'] .weq-notice-dialog {
     ),
     #1c1e20;
   box-shadow: 0 24px 60px -22px rgba(0, 0, 0, 0.6);
-}
-
-html[data-theme='dark'] .weq-notice-head {
-  border-color: rgba(255, 255, 255, 0.08);
-}
-
-html[data-theme='dark'] .weq-notice-head h2 {
-  color: #eef0f3;
 }
 
 html[data-theme='dark'] .weq-acct-ctx-menu {

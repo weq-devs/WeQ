@@ -300,7 +300,7 @@ describe('设置的数据与维护', () => {
         }
         expect(document.querySelectorAll('[aria-modal="true"]')).toHaveLength(0);
         // 所有维护子页统一右上角关闭按钮，不再有左上角返回箭头。
-        expect(document.querySelector('.weq-maintenance-head')?.textContent ?? '').not.toContain(
+        expect(document.querySelector('.weq-page-head')?.textContent ?? '').not.toContain(
           '返回数据与维护',
         );
         const back = [...document.querySelectorAll<HTMLButtonElement>('button')].find(

@@ -37,8 +37,7 @@
 .weq-maintenance-entry:hover:not(:disabled) {
   background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
 }
-.weq-maintenance-entry:focus-visible,
-.weq-maintenance-close:focus-visible {
+.weq-maintenance-entry:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }
@@ -54,7 +53,7 @@
   color: var(--weq-fg-secondary);
   overflow-wrap: anywhere;
 }
-/* 维护工具子页统一为「WorkspacePage + 右上角关闭」布局。 */
+/* 维护工具子页统一为「WorkspacePage + PageShell 头部」布局。 */
 .weq-maintenance-dialog {
   display: flex;
   flex-direction: column;
@@ -62,30 +61,6 @@
   min-height: 0;
   overflow: hidden;
   color: var(--weq-fg-primary);
-}
-.weq-maintenance-head {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 12px;
-  min-height: 52px;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--weq-border-subtle);
-}
-.weq-maintenance-head h2 {
-  flex: 1;
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-}
-.weq-maintenance-head > span {
-  min-width: 0;
-  max-width: 40%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
 }
 .weq-maintenance-body {
   flex: 1;
