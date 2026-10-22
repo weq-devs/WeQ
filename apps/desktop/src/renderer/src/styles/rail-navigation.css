@@ -49,6 +49,13 @@ html .app-shell .conversation-row .row-unread.muted {
   color: var(--weq-fg-primary);
 }
 
+html .app-shell .conversation-row .row-unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--weq-fg-muted);
+}
+
 html .app-shell .rail-nav .rail-badge-dot {
   min-width: 9px;
   width: 9px;

@@ -10,7 +10,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { SiQzone } from 'react-icons/si';
-import { useEffect, useRef, useState, useTransition } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { cn } from './classNames';
 import { Avatar } from './primitives';
@@ -64,13 +64,11 @@ export function AppRail({
   activeRailItem?: 'settings' | 'dressup';
 }) {
   const [profileOpen, setProfileOpen] = useState(false);
-  const [pendingView, setPendingView] = useState<MainView | null>(null);
-  const [, startViewTransition] = useTransition();
   const railRef = useRef<HTMLElement | null>(null);
   const activeTitle = useWorkspaceActiveTitle();
   const activePage =
     activeTitle === '个性装扮' ? 'dressup' : activeTitle === '设置' ? 'settings' : undefined;
-  const activeView = activePage ?? activeRailItem ?? pendingView ?? view;
+  const activeView = activePage ?? activeRailItem ?? view;
   const updateAvailable = useUpdateStore((s) => s.available);
   const settingsButton = (mobile = false) => (
     <button
@@ -106,12 +104,6 @@ export function AppRail({
   ];
 
   useEffect(() => {
-    if (pendingView !== null && view === pendingView) {
-      setPendingView(null);
-    }
-  }, [view, pendingView]);
-
-  useEffect(() => {
     if (!profileOpen) {
       return;
     }
@@ -142,13 +134,8 @@ export function AppRail({
 
   function selectView(nextView: MainView) {
     setProfileOpen(false);
-    // Paint the active-state change immediately, then push the heavy
-    // view switch into a transition so the button animation isn't blocked
-    // by downstream rendering work (e.g. loading a large message list).
-    setPendingView(nextView);
-    startViewTransition(() => {
-      onViewChange(nextView);
-    });
+    // 导航与高亮一起提交，避免后台刷新反复抢占低优先级的页面切换。
+    onViewChange(nextView);
   }
 
   return (
@@ -211,7 +198,6 @@ export function AppRail({
                 aria-label={`定位首条未读会话，共 ${messageBadgeCount} 条未读消息`}
                 onClick={() => {
                   setProfileOpen(false);
-                  setPendingView('messages');
                   if (onMessageBadgeClick) onMessageBadgeClick();
                   else selectView('messages');
                 }}
