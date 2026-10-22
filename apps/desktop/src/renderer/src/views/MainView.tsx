@@ -37,6 +37,7 @@ import { useDialog } from '../components/Dialog';
 import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
 import { useNoticeUnread } from '../hooks/useNoticeUnread';
+import { groupNoticeId } from '../lib/contactNotice';
 import { ProfileNavigationContext } from '../lib/profileNavigation';
 import { buddyRequestState } from '@weq/service/buddy-request';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
@@ -1046,7 +1047,7 @@ function groupNotifyToGroupRequest(
       : null;
 
   return {
-    id: `group-notify:${notify.groupUin}:${notify.operatedUid}:${notify.msgTime}`,
+    id: groupNoticeId(notify),
     handleState,
     action: GROUP_NOTIFY_ACTION[notify.status] ?? '群通知',
     message: notify.remark || null,
@@ -4285,13 +4286,20 @@ export function MainView(): ReactElement {
       ),
     [buddyRequests.data, profileByUid],
   );
+  // 红点按原始通知建立基线，不把群资料加载后补出的卡片当作新通知。
+  const groupNoticeRecords = useMemo(
+    () =>
+      ((groupNotifies.data ?? []) as GroupNotifyWire[]).filter((n) =>
+        Object.hasOwn(GROUP_NOTIFY_ACTION, n.status),
+      ),
+    [groupNotifies.data],
+  );
   const groupRequests = useMemo(
     () =>
-      ((groupNotifies.data ?? []) as GroupNotifyWire[])
-        .filter((n) => [1, 3, 6, 11, 13, 15].includes(n.status))
+      groupNoticeRecords
         .map((n) => groupNotifyToGroupRequest(n, profileByUid, groupsById))
         .filter((r): r is NonNullable<typeof r> => r !== null),
-    [groupNotifies.data, profileByUid, groupsById],
+    [groupNoticeRecords, profileByUid, groupsById],
   );
   const noticeConfig = trpc.account.getAccountConfig.useQuery(undefined, {
     enabled: Boolean(openedUin),
@@ -4339,7 +4347,7 @@ export function MainView(): ReactElement {
   const groupNoticeCount = useNoticeUnread(
     noticeAccountKey,
     'group',
-    groupRequests.map((r) => r.id),
+    groupNoticeRecords.map(groupNoticeId),
     shell.contactNotice === 'group',
     groupNotifies.isSuccess,
   );

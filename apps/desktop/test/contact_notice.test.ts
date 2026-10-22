@@ -2,7 +2,11 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
-import { bindNoticeOperations, type NoticeOperation } from '../src/renderer/src/lib/contactNotice';
+import {
+  bindNoticeOperations,
+  groupNoticeId,
+  type NoticeOperation,
+} from '../src/renderer/src/lib/contactNotice';
 import { useNoticeUnread } from '../src/renderer/src/hooks/useNoticeUnread';
 import type {
   ContactRequest,
@@ -94,6 +98,66 @@ describe('通知卡片操作匹配', () => {
   });
 });
 describe('通知红点', () => {
+  it('群资料补齐或处理状态变化不产生新通知，只有新记录点亮', () => {
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    cleanups.push(() => act(() => root.unmount()));
+    const record = { groupUin: '123', operatedUid: 'u_peer', msgTime: 1, verifyStatus: 1 };
+    function Probe({ records, groupsReady }: { records: (typeof record)[]; groupsReady: boolean }) {
+      const unread = useNoticeUnread(
+        'group-loading',
+        'group',
+        records.map(groupNoticeId),
+        false,
+        true,
+      );
+      return h('span', { 'data-groups-ready': groupsReady }, unread);
+    }
+    const render = (records: (typeof record)[], groupsReady: boolean) =>
+      act(() => root.render(h(Probe, { records, groupsReady })));
+    render([record], false);
+    expect(host.textContent).toBe('0');
+    render([{ ...record, verifyStatus: 2 }], true);
+    expect(host.textContent).toBe('0');
+    render([record, { ...record, msgTime: 2 }], true);
+    expect(host.textContent).toBe('1');
+  });
+  it.each(['friend', 'group'] as const)(
+    '首次成功读取历史通知不亮红点，之后只提醒新增：%s',
+    (kind) => {
+      const host = document.createElement('div');
+      const root = createRoot(host);
+      cleanups.push(() => act(() => root.unmount()));
+      function Probe({ ids, ready }: { ids: string[]; ready: boolean }) {
+        return h('span', null, useNoticeUnread('baseline', kind, ids, false, ready));
+      }
+      const render = (ids: string[], ready = true) =>
+        act(() => root.render(h(Probe, { ids, ready })));
+      render([], false);
+      render(['history-1', 'history-2']);
+      expect(host.textContent).toBe('0');
+      act(() => root.render(null));
+      render(['history-1', 'history-2']);
+      expect(host.textContent).toBe('0');
+      render(['history-1', 'history-2', 'new']);
+      expect(host.textContent).toBe('1');
+      act(() => root.render(null));
+      render(['history-1', 'history-2', 'new']);
+      expect(host.textContent).toBe('1');
+    },
+  );
+  it('首次成功读取为空也建立基线，后续通知不能被吞掉', () => {
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    cleanups.push(() => act(() => root.unmount()));
+    function Probe({ ids }: { ids: string[] }) {
+      return h('span', null, useNoticeUnread('empty', 'friend', ids, false, true));
+    }
+    act(() => root.render(h(Probe, { ids: [] })));
+    act(() => root.render(null));
+    act(() => root.render(h(Probe, { ids: ['new'] })));
+    expect(host.textContent).toBe('1');
+  });
   it.each(['friend', 'group'] as const)(
     '查看不同批次后重载保留已读，同号不同来源独立：%s',
     (kind) => {
@@ -111,7 +175,9 @@ describe('通知红点', () => {
       render('source-a', ['old-1', 'old-2', 'new-1']);
       expect(host.textContent).toBe('0');
       render('source-b', ['old-1', 'old-2', 'new-1']);
-      expect(host.textContent).toBe('3');
+      expect(host.textContent).toBe('0');
+      render('source-b', ['old-1', 'old-2', 'new-1', 'source-b-new']);
+      expect(host.textContent).toBe('1');
       render('source-a', ['old-1', 'old-2', 'new-1', 'new-2']);
       expect(host.textContent).toBe('1');
     },
@@ -143,17 +209,20 @@ describe('通知红点', () => {
       ready = true,
     ) => act(() => root.render(h(Probe, { account, kind, ids, open, ready })));
     render();
-    expect(host.textContent).toBe('1');
+    expect(host.textContent).toBe('0');
     render('a', 'friend', ['1'], true);
     expect(host.textContent).toBe('0');
     render();
     expect(host.textContent).toBe('0');
     render('a', 'friend', ['1', '2']);
     expect(host.textContent).toBe('1');
+    render('a', 'friend', ['1', '2'], true);
+    render('a', 'friend', ['1', '2']);
+    expect(host.textContent).toBe('0');
     render('b');
-    expect(host.textContent).toBe('1');
+    expect(host.textContent).toBe('0');
     render('a', 'group');
-    expect(host.textContent).toBe('1');
+    expect(host.textContent).toBe('0');
     act(() => root.render(null));
     render();
     expect(host.textContent).toBe('0');

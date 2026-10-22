@@ -1,5 +1,9 @@
 import type { ContactRequest, GroupJoinRequest } from '../im-template/template/types';
 
+export function groupNoticeId(notify: { groupUin: string; operatedUid: string; msgTime: number }) {
+  return `group-notify:${notify.groupUin}:${notify.operatedUid}:${notify.msgTime}`;
+}
+
 export type NoticeOperation = {
   kind: 'friend' | 'doubtFriend' | 'group' | 'filteredGroup';
   token: string;
