@@ -30,6 +30,7 @@ import '../../styles/self-profile-editor.css';
 import { LiveStatusReadout } from '../qq-actions/ChatActions';
 import { ExtendedStatusAction } from '../qq-actions/ExtendedStatusAction';
 import { QQWriteActionRow, QQWriteSelectRow, QQWriteTextRow } from '../QQWriteControls';
+import { EditableSelfProfile } from './EditableSelfProfile';
 
 export function SelfQQControls() {
   const session = useQQWriteSession('self-profile');
@@ -291,6 +292,7 @@ export function SelfQQControls() {
             />
           </div>
         </Card>
+        <EditableSelfProfile />
         <Card title="QQ 状态" icon={<Activity size={15} strokeWidth={1.9} />}>
           {profile.data?.statusError && (
             <p role="alert">状态读取失败：{profile.data.statusError}</p>

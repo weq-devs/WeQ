@@ -48,6 +48,7 @@ import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { PersonalityHomeDialog } from './PersonalityHomeDialog';
 import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
+import { CommonRelationships } from './qq-actions/CommonRelationships';
 import { MemberAnalyticsDialog } from './MemberAnalyticsDialog';
 import { IntentProfileDialog } from './intentSense/IntentProfileDialog';
 import { useIntentSenseStatus } from './intentSense/context';
@@ -372,7 +373,10 @@ export function MemberProfileCard({
                 />
               ) : null}
               {member.kind !== 'bot' && uin ? (
-                <ProfileLikesRow uid={uid} uin={uin} name={displayUserName(member)} />
+                <>
+                  <ProfileLikesRow uid={uid} uin={uin} name={displayUserName(member)} />
+                  <CommonRelationships uin={uin} />
+                </>
               ) : null}
               {joinedAt ? (
                 <ProfileRow icon={<CalendarDays size={13} />} label="入群时间" value={joinedAt} />
