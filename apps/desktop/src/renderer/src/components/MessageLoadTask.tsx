@@ -28,13 +28,22 @@ export async function runMessageLoadTask<T>(
     </span>
   );
   const id = toast.push({ title: content(), ttl: 0, dismissible: false });
+  let rejectOnAbort!: () => void;
+  // 在途 IPC 不一定响应取消；先结束前端等待，迟到页面仍由 signal 拦截。
+  const stopped = new Promise<never>((_resolve, reject) => {
+    rejectOnAbort = () => reject(controller.signal.reason);
+  });
+  controller.signal.addEventListener('abort', rejectOnAbort, { once: true });
   try {
-    const result = await run((delta) => {
-      controller.signal.throwIfAborted();
-      if (!Number.isSafeInteger(delta) || delta < 0) throw new Error('消息加载计数无效');
-      count += delta;
-      toast.update(id, { title: content() });
-    }, controller.signal);
+    const result = await Promise.race([
+      run((delta) => {
+        controller.signal.throwIfAborted();
+        if (!Number.isSafeInteger(delta) || delta < 0) throw new Error('消息加载计数无效');
+        count += delta;
+        toast.update(id, { title: content() });
+      }, controller.signal),
+      stopped,
+    ]);
     controller.signal.throwIfAborted();
     toast.update(id, {
       tone: 'success',
@@ -57,6 +66,7 @@ export async function runMessageLoadTask<T>(
     });
     throw error;
   } finally {
+    controller.signal.removeEventListener('abort', rejectOnAbort);
     outerSignal?.removeEventListener('abort', abort);
   }
 }

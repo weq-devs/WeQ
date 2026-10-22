@@ -589,6 +589,59 @@ it('加载中换会话中止后续读取，不把迟到结果选到新会话', a
   }
 });
 
+it('停止加载立即恢复操作并保留选区，不接受在途查询的迟到页面', async () => {
+  vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(true);
+  const f = fixture();
+  let release!: () => void;
+  let signal: AbortSignal | undefined;
+  const latePage = vi.fn();
+  try {
+    f.load.mockImplementationOnce(async (_request, onPage, current) => {
+      signal = current;
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      try {
+        onPage([f.message(2), f.message(3), f.message(4)]);
+      } catch (error) {
+        latePage(error);
+        throw error;
+      }
+    });
+    await f.click('[data-enter]');
+    await f.click('[data-weq-select-id="5"]', true);
+    await f.click('[aria-label="导出所选消息"]');
+    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="导出所选消息"]')!.disabled).toBe(
+      true,
+    );
+    await f.click('[aria-label="停止消息加载"]');
+    expect(signal?.aborted).toBe(true);
+    expect(f.host.textContent).toContain('已停止 · 已加载 0 条消息');
+    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="导出所选消息"]')!.disabled).toBe(
+      false,
+    );
+    expect(f.state()).toEqual({ mode: true, ids: ['1', 'gap:1:5', '5'], anchor: '1' });
+    await act(async () => release());
+    expect(latePage).toHaveBeenCalledOnce();
+    expect(latePage).toHaveBeenCalledWith(signal?.reason);
+    expect(JSON.parse(f.host.querySelector('[data-export]')!.textContent!)).toBeNull();
+    f.load.mockImplementation(async (_request, onPage) =>
+      onPage([f.message(2), f.message(3), f.message(4)]),
+    );
+    await f.click('[aria-label="导出所选消息"]');
+    expect(JSON.parse(f.host.querySelector('[data-export]')!.textContent!).scope.ids).toEqual([
+      '1',
+      '2',
+      '3',
+      '4',
+      '5',
+    ]);
+  } finally {
+    await act(async () => release());
+    f.close();
+  }
+});
+
 it('已选漫游消息同步为本地记录时迁移可靠身份，选择和锚点不丢失', async () => {
   vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(true);
   const f = fixture();
