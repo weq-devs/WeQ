@@ -178,7 +178,7 @@ const intentSenseFeatureProcedures = {
       requireServices().intentSense.analyzeMessage(input.kind, input.conv, input.msgId),
     ),
 
-  /** 对方互动画像（好感度/MBTI/雷达/话题）。仅私聊有语义。 */
+  /** 对方互动画像；无可分析对方消息时为 null。仅私聊有语义。 */
   getProfile: procedure
     .input(z.object({ peerUid: z.string().min(1) }))
     .query(({ input }) => requireServices().intentSense.getProfile(input.peerUid)),

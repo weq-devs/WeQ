@@ -79,6 +79,71 @@ describe('IntentSenseService', () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([
+    { name: '没有消息', messages: [] },
+    { name: '只有自己的消息', messages: [textMsg(1n, 'u_self', '自己发出的消息', 1000)] },
+    { name: '对方只有空白文本', messages: [textMsg(1n, 'u_peer', ' \n\t ', 1000)] },
+    {
+      name: '对方只有不可分析元素',
+      messages: [{ ...textMsg(1n, 'u_peer', '', 1000), elements: [] }],
+    },
+  ])('$name 时不生成画像，也不调用模型', async ({ messages }) => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const inferMbti = vi.fn(async () => null);
+    const svc = new IntentSenseService(makeSession(messages), dir, {
+      localEngine: { ...makeLocalPort(async () => null), inferMbti },
+      resolveEndpoint: () => ({
+        baseUrl: 'https://synthetic.invalid',
+        apiKey: 'synthetic',
+        model: 'synthetic',
+      }),
+    });
+    for (const profileEngine of ['heuristic', 'local', 'api', 'follow'] as const) {
+      await svc.setConfig({
+        enabled: true,
+        engine: 'api',
+        providerRef: { providerId: 'synthetic', model: 'synthetic' },
+        profileEnabled: true,
+        profileEngine,
+        profileProviderRef: { providerId: 'synthetic', model: 'synthetic' },
+        profileMinSamples: 1,
+      });
+      expect(await svc.getProfile('u_peer')).toBeNull();
+    }
+    expect(inferMbti).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('当前消息已为空时，旧分析缓存不能凭空生成画像；新对方消息出现后恢复计算', async () => {
+    const messages = [textMsg(1n, 'u_peer', '之前的对方消息', 1000)];
+    const svc = new IntentSenseService(makeSession(messages), dir, {
+      localEngine: makeLocalPort(async () => ({
+        intent: 'chat',
+        emotion: 'neutral',
+        intensity: 20,
+        sentiment: 0,
+        confidence: 0.9,
+      })),
+    });
+    await svc.setConfig({ enabled: true, engine: 'local', profileEngine: 'heuristic' });
+    await svc.ensureAnalysis('c2c', 'u_peer');
+    expect(await svc.getProfile('u_peer')).toMatchObject({ sampled: 1, analyzedSamples: 1 });
+    messages.length = 0;
+    expect(await svc.getProfile('u_peer')).toBeNull();
+    messages.push(textMsg(2n, 'u_self', '自己的新消息', 1020));
+    expect(await svc.getProfile('u_peer')).toBeNull();
+    messages.push(textMsg(3n, 'u_peer', '新的对方消息', 1040));
+    expect(await svc.getProfile('u_peer')).toMatchObject({ sampled: 2, analyzedSamples: 0 });
+  });
+
+  it('读取失败保留错误，不将数据库错误冒充暂无消息', async () => {
+    const session = makeSession([]);
+    vi.mocked(session.c2cMsgs.listLatest).mockRejectedValue(new Error('合成数据库读取失败'));
+    const svc = new IntentSenseService(session, dir);
+    await expect(svc.getProfile('u_peer')).rejects.toThrow('合成数据库读取失败');
+  });
+
   it.each(['analysis', 'profile', 'suggestions'] as const)(
     '%s 真实 API 路径温度被拒后去参回退，不改设置且两次尝试独立记账',
     async (feature) => {

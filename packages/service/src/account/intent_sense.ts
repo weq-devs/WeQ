@@ -1230,10 +1230,13 @@ export class IntentSenseService {
   /**
    * 对方互动画像（仅私聊有意义，group 会话没有「对方」概念，UI 不提供入口）。
    * 本地统计为主、引擎提示增强；无引擎结果时全部走启发式（heuristic 标记）。
+   * 当前统计范围内没有可分析的对方文本时返回 null，不用默认分数生成画像。
    */
-  async getProfile(peerUid: string): Promise<IntentProfile> {
+  async getProfile(peerUid: string): Promise<IntentProfile | null> {
     const revision = this.profileRevision;
     const rows = await this.loadMessages('c2c', peerUid, this.config.profileMessages);
+    if (revision !== this.profileRevision) throw new Error('互动画像设置已更改，请重新读取');
+    if (!rows.some((row) => !row.mine && row.text)) return null;
     const cache = this.cacheFor('c2c', peerUid);
     const byMsgId = new Map(cache.data.results.map((r) => [r.msgId, r]));
 

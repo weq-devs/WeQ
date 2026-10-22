@@ -24,19 +24,6 @@ const MBTI_LABELS: Record<string, [string, string]> = {
 
 const TIER_LABELS = ['初识', '熟络', '亲近', '挚友', '羁绊'];
 
-interface ProfileWire {
-  affinity: number;
-  tier: number;
-  trend: Array<{ date: string; score: number }>;
-  mbti: { letters: string; dims: Array<{ key: string; leftPct: number }>; heuristic: boolean };
-  radar: Array<{ axis: string; value: number }>;
-  topics: Array<{ topic: string; count: number }>;
-  sampled: number;
-  analyzedSamples: number;
-  engine: 'local' | 'api' | 'heuristic';
-  computedAt: number;
-}
-
 /** 五轴雷达（纯 SVG；中心 0 分、外圈 100 分）。 */
 function Radar({ axes }: { axes: Array<{ axis: string; value: number }> }) {
   const width = 340;
@@ -128,7 +115,7 @@ export function IntentProfileDialog({
     },
   );
 
-  const data = profile.data as ProfileWire | undefined;
+  const data = profile.data;
   const mbtiDims = useMemo(
     () =>
       (data?.mbti.dims ?? [])
@@ -194,8 +181,16 @@ export function IntentProfileDialog({
           </span>
         </header>
         <div className="group-keyword-body">
-          {profile.isLoading || !data ? (
-            <AnalyticsSkeleton />
+          {profile.error ? (
+            <p className="weq-int-note" role="alert">
+              画像读取失败：{profile.error.message}
+            </p>
+          ) : profile.isLoading ? (
+            <AnalyticsSkeleton variant="buddy" />
+          ) : !data ? (
+            <p className="weq-int-note" role="status">
+              暂无可分析的对方消息，未生成互动画像。
+            </p>
           ) : (
             <div className="weq-int-profile">
               <section>
