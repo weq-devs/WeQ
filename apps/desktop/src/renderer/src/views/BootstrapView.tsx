@@ -200,7 +200,7 @@ export function BootstrapView(): ReactElement {
       <Shell>
         <Centered>
           <img src={logoUrl} alt="" width={84} height={84} className="opacity-40 grayscale" />
-          <p className="mt-4 text-[14px] text-[#5b6b7d]">
+          <p className="mt-4 text-[14px] text-muted-foreground">
             {nativeErr.kind === 'expired' ? '组件版本过旧，请更新。' : '组件安装损坏，请重新安装。'}
           </p>
           <button type="button" className="weq-set-btn" onClick={() => setBackupOpen(true)}>
@@ -282,7 +282,7 @@ function Shell({ children }: { children: ReactNode }): ReactElement {
   };
 
   return (
-    <main className="weq-home-shell h-screen overflow-hidden font-sans text-[#142235]">
+    <main className="weq-home-shell h-screen overflow-hidden font-sans text-foreground">
       {/* 右上角只挂窗口级小按钮（打开日志目录 / 关闭）：绝对定位，落在内容之外，
           不占任何一屏的布局空间。 */}
       <div className="absolute right-4 top-4 z-20 flex items-center gap-1.5">

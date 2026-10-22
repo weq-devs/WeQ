@@ -74,7 +74,7 @@ export function NativeExpiredDialog({
   const expiredAt = fmtDateTime(expireTime);
 
   return (
-    <Modal labelledBy="weq-native-expired-title" width={420}>
+    <Modal labelledBy="weq-native-expired-title" width={420} className="weq-message-modal">
       <div className="weq-dialog weq-dialog-error weq-native-expired">
         <div className="weq-dialog-head">
           <span className="weq-dialog-icon">

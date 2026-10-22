@@ -1,0 +1,132 @@
+html .weq-home-shell {
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-app);
+}
+
+html .weq-home-shell::before,
+html .weq-home-shell::after {
+  display: none;
+}
+
+.weq-home-shell .weq-home {
+  justify-content: flex-start;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 48px 24px 24px;
+}
+
+.weq-home-shell .weq-home-brand {
+  flex-shrink: 0;
+  margin-top: auto;
+}
+
+.weq-home-shell .weq-home-actions {
+  flex-shrink: 0;
+  width: min(100%, 530px);
+  margin-bottom: auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.weq-home-shell :is(.weq-home-title, .weq-entry-title) {
+  color: var(--weq-fg-primary);
+}
+
+.weq-home-shell :is(.weq-home-sub, .weq-entry-desc) {
+  color: var(--weq-fg-secondary);
+  letter-spacing: 0;
+}
+
+.weq-home-shell .weq-entry-card {
+  border-radius: 8px;
+  border-color: var(--weq-border-strong);
+  background: var(--weq-bg-surface);
+  transition-property: transform, border-color, box-shadow;
+}
+
+.weq-home-shell .weq-entry-card.is-primary {
+  border-color: var(--weq-accent-ink);
+  background: var(--weq-list-selected-background);
+}
+
+.weq-home-shell .weq-entry-card:disabled {
+  opacity: 1;
+  background: var(--muted);
+  border-style: dashed;
+}
+
+.weq-home-shell .weq-entry-card .weq-entry-icon {
+  border-radius: 8px;
+  color: var(--weq-accent-ink);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.weq-home-shell :is(.weq-shell-log-btn, .weq-shell-close-btn) {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-home-shell :is(.weq-shell-log-btn, .weq-shell-close-btn):hover {
+  color: var(--weq-fg-primary);
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+}
+
+.weq-home-shell button:focus-visible {
+  outline: 2px solid var(--weq-accent-ink);
+  outline-offset: 2px;
+}
+
+.weq-warmup {
+  gap: 0;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.weq-warmup-status {
+  min-width: 0;
+  gap: 8px;
+  color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
+}
+
+.weq-warmup-status .tabular-nums {
+  flex-shrink: 0;
+}
+
+.weq-warmup-spinner {
+  flex-shrink: 0;
+  color: var(--weq-accent-ink);
+}
+
+.weq-warmup-progress {
+  max-width: 100%;
+}
+
+.weq-warmup .weq-splash-track {
+  background: var(--weq-border-strong);
+}
+
+.weq-warmup .weq-splash-bar {
+  background: var(--weq-accent-ink);
+}
+
+html[data-theme='dark'] .weq-home-shell .weq-entry-card {
+  background: var(--weq-bg-elevated);
+}
+
+html[data-theme='dark'] .weq-home-shell .weq-entry-card.is-primary {
+  background: var(--weq-list-selected-background);
+}
+
+@media (max-width: 520px) {
+  .weq-home-shell .weq-home-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html .weq-warmup [class],
+  html .weq-home-shell .weq-home,
+  html .weq-home-shell .weq-entry-card {
+    animation: none;
+    transition: none;
+  }
+}
