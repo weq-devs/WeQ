@@ -23,7 +23,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   return { trpc: proxy(), client: proxy() };
 });
 
-it('群助手默认仅显示未读圆点，开启总数不影响各群数字，无未读时不显示圆点', () => {
+it('群助手默认及关闭总数时不显示灰点或数字，开启总数不影响各群数字', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   const base = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
@@ -73,13 +73,23 @@ it('群助手默认仅显示未读圆点，开启总数不影响各群数字，�
     );
   try {
     render();
-    expect(host.querySelector('[aria-label="群助手有未读消息"]')).not.toBeNull();
+    expect(host.querySelector('.row-unread-dot')).toBeNull();
+    expect([...host.querySelectorAll('.row-unread')].map((el) => el.textContent)).toEqual(['3']);
+    render(false);
+    expect(host.querySelector('.row-unread-dot')).toBeNull();
     expect([...host.querySelectorAll('.row-unread')].map((el) => el.textContent)).toEqual(['3']);
     render(true);
     expect(host.querySelector('.row-unread-dot')).toBeNull();
-    expect([...host.querySelectorAll('.row-unread')].map((el) => el.textContent)).toContain('8');
+    expect([...host.querySelectorAll('.row-unread')].map((el) => el.textContent)).toEqual([
+      '8',
+      '3',
+    ]);
+    render(true, 0);
+    expect(host.querySelector('.row-unread-dot')).toBeNull();
+    expect([...host.querySelectorAll('.row-unread')].map((el) => el.textContent)).toEqual(['3']);
     render(false, 0);
     expect(host.querySelector('.row-unread-dot')).toBeNull();
+    expect([...host.querySelectorAll('.row-unread')].map((el) => el.textContent)).toEqual(['3']);
   } finally {
     act(() => root.unmount());
     host.remove();

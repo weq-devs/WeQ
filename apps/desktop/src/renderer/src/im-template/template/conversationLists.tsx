@@ -779,15 +779,10 @@ export function ConversationList({
                     ) : null}
                     {formatConversationTime(conversation.updatedAt)}
                   </span>
-                  {unreadCount ? (
-                    conversation.mergedKind === 'groupAssistant' &&
-                    !directory?.showGroupAssistantMessageCount ? (
-                      <span className={cn('row-unread-dot')} aria-label="群助手有未读消息" />
-                    ) : (
-                      <span className={cn(unreadClass(muted))}>
-                        {formatBadgeCount(unreadCount)}
-                      </span>
-                    )
+                  {unreadCount &&
+                  (conversation.mergedKind !== 'groupAssistant' ||
+                    directory?.showGroupAssistantMessageCount) ? (
+                    <span className={cn(unreadClass(muted))}>{formatBadgeCount(unreadCount)}</span>
                   ) : null}
                 </span>
               </button>
