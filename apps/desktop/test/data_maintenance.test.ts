@@ -308,7 +308,7 @@ describe('设置的数据与维护', () => {
         )!;
         act(() => back.click());
         expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-          '数据与存储',
+          '数据维护',
         );
         expect(document.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
         expect(document.querySelectorAll('[role="dialog"], [aria-modal="true"]')).toHaveLength(0);

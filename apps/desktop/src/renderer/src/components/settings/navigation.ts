@@ -48,9 +48,15 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Secti
   { id: 'account', label: '账号与消息', sections: ['accounts', 'account', 'anti-recall'] },
   { id: 'space-mail', label: '空间与邮箱', sections: ['qzone', 'mail'] },
   {
+    id: 'storage',
+    label: '存储与媒体',
+    sections: ['storage', 'media'],
+  },
+  { id: 'backup', label: '备份与恢复', sections: ['backup'] },
+  {
     id: 'data',
-    label: '数据与存储',
-    sections: ['storage', 'media', 'backup', 'database', 'database-status', 'maintenance'],
+    label: '数据维护',
+    sections: ['database', 'database-status', 'maintenance'],
   },
   {
     id: 'models',
