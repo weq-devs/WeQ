@@ -45,7 +45,8 @@ import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { QzoneMediaPreview, type QzonePreviewMedia } from '../components/QzoneMediaPreview';
 import { QzoneWriteActions, type QzoneLikeChange } from '../components/qq-actions/MediaActions';
 import { withQQAccountScope } from '../components/qq-actions/shared';
-import { albumMediaUrl, avatarFetchUrl } from '../lib/resourceUrl';
+import { albumMediaUrl } from '../lib/resourceUrl';
+import { QzoneEmoji } from '../components/QzoneEmoji';
 import {
   projectQzoneFeed,
   qzoneMediaSource,
@@ -328,28 +329,6 @@ function QzoneText({
         ),
       )}
     </>
-  );
-}
-
-/** Use the existing cached image bridge; direct CDN URLs are blocked by CSP. */
-function QzoneEmoji({ code }: { code: string }) {
-  const [sourceIndex, setSourceIndex] = useState(0);
-  if (sourceIndex >= 2)
-    return (
-      <span className="weq-qzn-emoji-unavailable" title={`QQ 表情 ${code}`}>
-        [QQ表情]
-      </span>
-    );
-  const extension = sourceIndex === 0 ? 'gif' : 'png';
-  return (
-    <img
-      className="weq-qzn-emoji"
-      src={avatarFetchUrl(`https://qzonestyle.gtimg.cn/qzone/em/${code}.${extension}`)}
-      alt="[QQ表情]"
-      title={`QQ 表情 ${code}`}
-      loading="lazy"
-      onError={() => setSourceIndex((current) => (current === sourceIndex ? current + 1 : current))}
-    />
   );
 }
 

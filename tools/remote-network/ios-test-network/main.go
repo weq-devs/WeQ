@@ -112,7 +112,7 @@ func run() error {
 	}()
 	select {
 	case address := <-ready:
-		data, _ := json.Marshal(map[string]string{"endpoint": address, "control": control.HTTPTestServer.URL, "relayPort": strconv.Itoa(port)})
+		data, _ := json.Marshal(map[string]string{"endpoint": address, "control": control.HTTPTestServer.URL})
 		if err := os.WriteFile(*config, data, 0600); err != nil {
 			return err
 		}

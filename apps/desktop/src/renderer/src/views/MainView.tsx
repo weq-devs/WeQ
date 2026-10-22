@@ -109,6 +109,7 @@ import { CollectionDialog } from '../components/CollectionDialog';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { DressUpDialog } from '../components/DressUpDialog';
 import { GroupAlbumDialog } from '../components/GroupAlbumDialog';
+import { GroupAlbumCardNavigationProvider } from '../components/GroupAlbumCardNavigation';
 import { GroupFileDialog } from '../components/GroupFileDialog';
 import {
   GroupAnnouncementsDialog,
@@ -10026,7 +10027,9 @@ export function MainView(): ReactElement {
                       setRemarkTarget(null);
                     }}
                   >
-                    {chatContent}
+                    <GroupAlbumCardNavigationProvider binding={pinSession.binding}>
+                      {chatContent}
+                    </GroupAlbumCardNavigationProvider>
                   </WorkspacePages>
                 </ContactDirectoryContext.Provider>
               </ConversationDirectoryContext.Provider>

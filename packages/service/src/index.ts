@@ -724,6 +724,11 @@ export type { GroupFileItem, GroupFolderItem, GroupFileListing } from './account
 
 export { GroupAlbumMediaService } from './account/group_album_media';
 export type {
+  GroupAlbumFeedRequest,
+  GroupAlbumFeedPage,
+  GroupAlbumFeedComment,
+} from './account/web/group_album_feed';
+export type {
   AlbumMedia,
   AlbumMediaImage,
   AlbumMediaPage,

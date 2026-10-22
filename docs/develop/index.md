@@ -71,7 +71,7 @@ pnpm dev
 - [模型温度参数回退](./temperature-fallback-20261022.md)：明确拒绝识别、JSON／SSE 重试边界、取消与物理用量记账。
 - [备份与恢复](./settings-backup-20261022.md)：版本化格式、真实配置校验、冷启动事务、设置入口与按设备交接界面偏好。
 - [消息选择与框选](./message-selection-performance-20261022.md)：临时预览、最终提交、稳定行尺寸、区间索引与长时间线定向性能回归。
-- [群相册卡片导航（接入中）](./group-album-card-navigation-20261022.md)：真实载荷关系、明确目标解析与尚待连接的批次／评论视图。
+- [群相册卡片导航](./group-album-card-navigation-20261022.md)：真实载荷关系、明确目标解析、来源绑定的相册／批次与评论视图。
 - [贡献指南](../../CONTRIBUTING.md)
 
 ---

@@ -22,6 +22,7 @@ import { GroupAlbumMediaActions, GroupAlbumUpload } from './qq-actions/MediaActi
 import { withQQAccountScope } from './qq-actions/shared';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../lib/autoRead';
+import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import '../styles/group-album-browser.css';
 
 type AccountOutput = inferRouterOutputs<AppRouter>['account'];
@@ -38,6 +39,7 @@ interface GroupAlbumDialogProps {
   groupName: string;
   initialAlbums?: GroupAlbumWire[];
   initialAlbumId?: string;
+  binding?: QQWriteBinding;
   onClose: () => void;
 }
 const ScopedGroupAlbumDialog = withQQAccountScope(GroupAlbumDialogBody);
@@ -49,6 +51,7 @@ function GroupAlbumDialogBody({
   groupName,
   initialAlbums,
   initialAlbumId,
+  binding,
   onClose,
 }: GroupAlbumDialogProps): ReactElement {
   const activity = useQQReadActivity(true);
@@ -64,6 +67,7 @@ function GroupAlbumDialogBody({
     };
   }, []);
   const [albums, setAlbums] = useState<GroupAlbumWire[]>(initialAlbums ?? []);
+  const [hasAlbumSnapshot, setHasAlbumSnapshot] = useState(initialAlbums !== undefined);
   const [loadingAlbums, setLoadingAlbums] = useState(!initialAlbums);
   const [albumError, setAlbumError] = useState<string | null>(null);
   const [albumRevision, setAlbumRevision] = useState(0);
@@ -88,10 +92,14 @@ function GroupAlbumDialogBody({
     if (initialAlbums && albumRevision === 0 && activity.revision === 0) return undefined;
     const controller = new AbortController();
     setLoadingAlbums(true);
-    readWithRetry(() => client.account.listGroupAlbums.query({ groupCode }), controller.signal)
+    readWithRetry(
+      () => client.account.listGroupAlbums.query({ groupCode, ...binding }),
+      controller.signal,
+    )
       .then((page) => {
         if (controller.signal.aborted) return;
         setAlbums(page);
+        setHasAlbumSnapshot(true);
         setAlbumError(null);
       })
       .catch((e) => {
@@ -104,7 +112,7 @@ function GroupAlbumDialogBody({
     return () => {
       controller.abort();
     };
-  }, [groupCode, initialAlbums, albumRevision, activity.enabled, activity.revision]);
+  }, [groupCode, binding, initialAlbums, albumRevision, activity.enabled, activity.revision]);
 
   const activeTitle = mediaState.album?.title || '';
   const bodyTitle = mediaState.album ? activeTitle : '群相册';
@@ -133,6 +141,7 @@ function GroupAlbumDialogBody({
           client.account.listGroupAlbumMedia.query({
             groupCode,
             albumId: album.id,
+            ...binding,
           }),
         controller.signal,
       );
@@ -166,13 +175,21 @@ function GroupAlbumDialogBody({
   }, [activity.enabled, activity.revision]);
   const handledSearch = useRef('');
   useEffect(() => {
-    if (!initialAlbumId || loadingAlbums || albumError || handledSearch.current === initialAlbumId)
+    if (
+      !activity.enabled ||
+      !hasAlbumSnapshot ||
+      !initialAlbumId ||
+      loadingAlbums ||
+      albumError ||
+      handledSearch.current === initialAlbumId
+    )
       return;
-    handledSearch.current = initialAlbumId;
     const album = albums.find((item) => item.id === initialAlbumId);
-    if (album) void openRef.current(album);
-    else setAlbumError('搜索命中的相册不存在或当前账号不可访问。');
-  }, [initialAlbumId, albums, loadingAlbums, albumError]);
+    if (album) {
+      handledSearch.current = initialAlbumId;
+      void openRef.current(album);
+    } else setAlbumError('指定相册不存在或当前账号不可访问。');
+  }, [initialAlbumId, albums, loadingAlbums, albumError, activity.enabled, hasAlbumSnapshot]);
 
   return (
     <OverlayLayer
@@ -234,6 +251,7 @@ function GroupAlbumDialogBody({
               loading={loadingAlbums}
               error={albumError}
               disabled={!activity.enabled || mediaState.status === 'loading'}
+              paused={!activity.enabled}
               search={search}
               onSearch={setSearch}
               sort={sort}
@@ -244,7 +262,10 @@ function GroupAlbumDialogBody({
                 handledSearch.current = '';
                 setAlbumRevision((value) => value + 1);
               }}
-              onOpenAlbum={(album) => void openAlbum(album)}
+              onOpenAlbum={(album) => {
+                handledSearch.current = initialAlbumId ?? '';
+                void openAlbum(album);
+              }}
             />
           )}
         </div>
@@ -259,6 +280,7 @@ function AlbumListView({
   error,
   onOpenAlbum,
   disabled,
+  paused,
   search,
   onSearch,
   sort,
@@ -272,6 +294,7 @@ function AlbumListView({
   error: string | null;
   onOpenAlbum: (album: GroupAlbumWire) => void;
   disabled?: boolean;
+  paused?: boolean;
   search: string;
   onSearch: (value: string) => void;
   sort: string;
@@ -308,9 +331,14 @@ function AlbumListView({
           <option value="count">媒体数量</option>
         </select>
       </div>
-      <p className="group-album-count" role="status">
-        {search.trim() ? `${filtered.length} / ${albums.length} 本相册` : `${albums.length} 本相册`}
-      </p>
+      {!paused || albums.length ? (
+        <p className="group-album-count" role="status">
+          {search.trim()
+            ? `${filtered.length} / ${albums.length} 本相册`
+            : `${albums.length} 本相册`}
+          {paused ? ' · 读取已暂停' : ''}
+        </p>
+      ) : null}
       {error && (
         <p className="group-album-read-error" role="alert">
           {error}
@@ -319,21 +347,27 @@ function AlbumListView({
             className="group-album-tool"
             title="重试读取相册列表"
             aria-label="重试读取相册列表"
-            disabled={loading}
+            disabled={loading || paused}
             onClick={onRefresh}
           >
             <RefreshCw size={16} />
           </button>
         </p>
       )}
-      {loading && !albums.length ? (
+      {loading && !paused && !albums.length ? (
         <div className="group-album-state">
           <Loader2 size={18} className="weq-spin" />
           正在查询群相册
         </div>
       ) : !filtered.length ? (
         <div className="group-album-state">
-          {search.trim() ? '没有匹配的相册' : error ? '相册暂时无法读取' : '暂无群相册'}
+          {paused
+            ? '读取已暂停'
+            : search.trim()
+              ? '没有匹配的相册'
+              : error
+                ? '相册暂时无法读取'
+                : '暂无群相册'}
         </div>
       ) : (
         <div className="group-album-grid">

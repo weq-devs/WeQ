@@ -20,6 +20,7 @@ import {
   type GroupAlbum,
   type UploadGroupAlbumImageParams,
 } from './group_album';
+import { getGroupAlbumFeed, type GroupAlbumFeedRequest } from './group_album_feed';
 import {
   createGroupAlbum,
   modifyGroupAlbum,
@@ -143,8 +144,32 @@ export class WebQueryService {
     );
   }
 
-  async getGroupAlbumList(groupId: string): Promise<GroupAlbum[]> {
-    return withRetry(this.creds, QZONE_DOMAIN, (c) => getGroupAlbumList(c, groupId));
+  async getGroupAlbumList(groupId: string, beforeSend?: () => void): Promise<GroupAlbum[]> {
+    return withRetry(this.creds, QZONE_DOMAIN, (c) => getGroupAlbumList(c, groupId), beforeSend);
+  }
+
+  async getGroupAlbumFeed(
+    request: GroupAlbumFeedRequest,
+    beforeSend?: () => void,
+    signal?: AbortSignal,
+  ) {
+    const check = () => {
+      signal?.throwIfAborted();
+      beforeSend?.();
+    };
+    const credentials = {
+      forDomain: (domain: string) => {
+        check();
+        return this.creds.forDomain(domain);
+      },
+      invalidate: (domain: string) => this.creds.invalidate(domain),
+    };
+    return withRetry(
+      credentials,
+      QZONE_DOMAIN,
+      (credential) => getGroupAlbumFeed(credential, request, signal),
+      check,
+    );
   }
 
   async getGroupAlbumUploadPermission(groupId: string) {

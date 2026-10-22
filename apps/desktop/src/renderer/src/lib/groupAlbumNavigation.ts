@@ -1,3 +1,5 @@
+import { createContext } from 'react';
+
 export type GroupAlbumCardTarget =
   | { kind: 'album'; groupCode: string; albumId: string }
   | {
@@ -9,6 +11,10 @@ export type GroupAlbumCardTarget =
       /** 旧详情链接的 f 定位串；保留但不猜成媒体或评论 ID。 */
       legacyFocus?: string;
     };
+
+export const GroupAlbumCardNavigationContext = createContext<
+  ((target: GroupAlbumCardTarget) => void) | null
+>(null);
 
 type Parsed = { state: 'unknown' | 'invalid' } | { state: 'target'; target: GroupAlbumCardTarget };
 const unknown: Parsed = { state: 'unknown' },
@@ -52,14 +58,17 @@ function target(
 }
 
 function parse(value: string, depth = 0): Parsed {
-  if (!value || value.length > 8192 || depth > 2) return invalid;
+  // 识别边界只限制内部导航；空的可选槽位和普通外链仍交原有流程。
+  if (!value || value.length > 8192) return unknown;
+  if (depth > 2) return invalid;
   try {
     const url = new URL(value);
-    if (url.username || url.password || url.port || url.hash) return invalid;
+    const unsafe = Boolean(url.username || url.password || url.port || url.hash);
     const params = url.searchParams;
     if (url.protocol === 'mqzone:' && url.hostname === 'arouse') {
       if (!['/groupalbum/albumdetail', '/groupalbum/feeddetail'].includes(url.pathname))
         return unknown;
+      if (unsafe) return invalid;
       if (
         ['f', 'picKey', 'photoid', 'photoId', 'commentid', 'commentId', 'replyid', 'replyId'].some(
           (key) => params.has(key),
@@ -85,6 +94,7 @@ function parse(value: string, depth = 0): Parsed {
         url.pathname,
       );
       if (album) {
+        if (unsafe) return invalid;
         if (
           ['batchid', 'batchId', 'p', 'f', 'picKey', 'commentid', 'commentId'].some((key) =>
             params.has(key),
@@ -104,10 +114,12 @@ function parse(value: string, depth = 0): Parsed {
       }
       const wrapped = /^\/groupphoto\/inqq\/detail\/([^/]+)\/groupphoto\/?$/.exec(url.pathname);
       if (wrapped) {
+        if (unsafe) return invalid;
         const nested = parse(decodeURIComponent(wrapped[1]!), depth + 1);
         return nested.state === 'target' && nested.target.kind === 'feed' ? nested : invalid;
       }
       if (url.pathname === '/groupphoto/album') {
+        if (unsafe) return invalid;
         if (
           ['f', 'picKey', 'commentid', 'commentId', 'replyid', 'replyId'].some((key) =>
             params.has(key),
@@ -124,6 +136,7 @@ function parse(value: string, depth = 0): Parsed {
       return unknown;
     }
     if (url.hostname === 'mobile.qzone.qq.com' && url.pathname === '/photo/group/batch') {
+      if (unsafe) return invalid;
       if (
         alias(params, ['a']) !== '422' ||
         alias(params, ['v']) !== '2' ||
@@ -148,6 +161,9 @@ function parse(value: string, depth = 0): Parsed {
 export function groupAlbumLinkTarget(value: string): GroupAlbumCardTarget | null {
   const parsed = parse(value);
   return parsed.state === 'target' ? parsed.target : null;
+}
+export function inspectGroupAlbumLink(value: string): Parsed {
+  return parse(value);
 }
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -184,17 +200,18 @@ function combine(
 }
 
 /** 仅从三类已观测 Ark 的明确跳转槽位取目标；多份目标冲突时不选其中之一。 */
-export function groupAlbumArkTarget(app: string, meta: unknown): GroupAlbumCardTarget | null {
-  if (!record(meta)) return null;
-  const payload =
+export function inspectGroupAlbumArk(app: string, meta: unknown): Parsed {
+  const key =
     app === 'com.tencent.activity.md'
-      ? meta.activity
+      ? 'activity'
       : app === 'com.tencent.feed.lua'
-        ? meta.feed
+        ? 'feed'
         : app === 'com.tencent.tuwen.lua'
-          ? meta.news
+          ? 'news'
           : null;
-  if (!record(payload)) return null;
+  if (!key) return unknown;
+  if (!record(meta) || !record(meta[key])) return invalid;
+  const payload = meta[key];
   const links =
     app === 'com.tencent.activity.md'
       ? [...jumps(payload.jumpUrl), ...jumps(payload.buttonJumpUrl)]
@@ -202,10 +219,15 @@ export function groupAlbumArkTarget(app: string, meta: unknown): GroupAlbumCardT
   let found: GroupAlbumCardTarget | null = null;
   for (const link of links) {
     const parsed = parse(link);
-    if (parsed.state === 'invalid') return null;
+    if (parsed.state === 'invalid') return invalid;
     if (parsed.state !== 'target') continue;
     found = found ? combine(found, parsed.target) : parsed.target;
-    if (!found) return null;
+    if (!found) return invalid;
   }
-  return found;
+  return found ? { state: 'target', target: found } : unknown;
+}
+
+export function groupAlbumArkTarget(app: string, meta: unknown): GroupAlbumCardTarget | null {
+  const parsed = inspectGroupAlbumArk(app, meta);
+  return parsed.state === 'target' ? parsed.target : null;
 }

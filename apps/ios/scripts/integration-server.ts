@@ -9,11 +9,7 @@ const backend = createRemoteServer(pairing);
 function testNetwork(): { endpoint: string; control: string } | null {
   try {
     return JSON.parse(
-      readFileSync(
-        process.env.WEQ_REMOTE_TEST_CONFIG ??
-          new URL('../.build/network-test.json', import.meta.url),
-        'utf8',
-      ),
+      readFileSync(new URL('../.build/network-test.json', import.meta.url), 'utf8'),
     );
   } catch {
     return null;

@@ -20,11 +20,30 @@
  *     自己的 com.tencent.map 包），远程图统一走 weq-avatar:// 磁盘缓存。
  */
 
-import { useContext, useMemo, useState, type ReactElement, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useMemo,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { QzoneCardNavigationContext, qzoneCardTarget } from '../../lib/qzoneNavigation';
+import {
+  GroupAlbumCardNavigationContext,
+  inspectGroupAlbumArk,
+  inspectGroupAlbumLink,
+  type GroupAlbumCardTarget,
+} from '../../lib/groupAlbumNavigation';
 import { MapPin, Megaphone, ShieldAlert } from 'lucide-react';
 import { cachedAvatarUrl } from '../../lib/avatarCache';
-import { resolveArkCard, parseArkData, decodeBase64Utf8, type ArkValues } from './arkCards';
+import {
+  resolveArkCard,
+  parseArkData,
+  decodeBase64Utf8,
+  type ArkValues,
+  type ArkData,
+} from './arkCards';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { GroupProfileDialog } from '../../im-template/template/profilePanes';
 import {
@@ -38,6 +57,11 @@ import '../../styles/group-share-card.css';
 // ---- types ---------------------------------------------------------------
 
 type ArkPayload = Record<string, unknown>;
+const ArkGroupAlbumTarget = createContext<{
+  target: GroupAlbumCardTarget | null;
+  allowDirect: boolean;
+  blocked: boolean;
+}>({ target: null, allowDirect: true, blocked: false });
 
 // ---- parsing helpers -----------------------------------------------------
 
@@ -76,13 +100,39 @@ function ArkShell({
   onActivate?: () => void;
 }): ReactElement {
   const navigate = useContext(QzoneCardNavigationContext);
+  const openGroupAlbum = useContext(GroupAlbumCardNavigationContext);
+  const albumNavigation = useContext(ArkGroupAlbumTarget);
+  const directAlbum = albumNavigation.allowDirect && jump ? inspectGroupAlbumLink(jump) : null;
+  const groupAlbumTarget =
+    albumNavigation.target ?? (directAlbum?.state === 'target' ? directAlbum.target : null);
+  const navigationBlocked =
+    !onActivate && (albumNavigation.blocked || directAlbum?.state === 'invalid');
   const target = jump ? qzoneCardTarget(jump) : null;
-  const onOpen = onActivate ?? (target && navigate ? () => navigate(target) : openHandler(jump));
+  const onOpen =
+    onActivate ??
+    (navigationBlocked
+      ? undefined
+      : groupAlbumTarget && openGroupAlbum
+        ? () => openGroupAlbum(groupAlbumTarget)
+        : target && navigate
+          ? () => navigate(target)
+          : openHandler(jump));
   return (
     <div
       className={className ? `weq-ark-container ${className}` : 'weq-ark-container'}
       role={onActivate ? 'button' : onOpen ? 'link' : undefined}
-      title={onActivate ? '查看群名片' : onOpen ? jump : undefined}
+      aria-disabled={navigationBlocked || undefined}
+      title={
+        navigationBlocked
+          ? '卡片目标无效或存在冲突'
+          : onActivate
+            ? '查看群名片'
+            : groupAlbumTarget && openGroupAlbum
+              ? '查看群相册'
+              : onOpen
+                ? jump
+                : undefined
+      }
       onClick={(event) => {
         if (onActivate) event.stopPropagation();
         onOpen?.();
@@ -929,7 +979,22 @@ function HeuristicCard({ p, prompt }: { p: ArkPayload; prompt: string }): ReactE
 
 export function QqArk({ arkData }: { arkData: unknown }): ReactElement | null {
   const data = useMemo(() => parseArkData(arkData), [arkData]);
+  const target = useMemo(() => {
+    const parsed = inspectGroupAlbumArk(data?.app ?? '', data?.meta);
+    return {
+      target: parsed.state === 'target' ? parsed.target : null,
+      allowDirect: parsed.state === 'unknown',
+      blocked: parsed.state === 'invalid',
+    };
+  }, [data]);
+  return (
+    <ArkGroupAlbumTarget.Provider value={target}>
+      <ArkCardBody data={data} />
+    </ArkGroupAlbumTarget.Provider>
+  );
+}
 
+function ArkCardBody({ data }: { data: ArkData | null }): ReactElement | null {
   const firstKey = data?.meta ? Object.keys(data.meta)[0] : undefined;
   const p: ArkPayload | null = data?.meta && firstKey ? (data.meta[firstKey] ?? null) : null;
   if (!data || !p) return null;

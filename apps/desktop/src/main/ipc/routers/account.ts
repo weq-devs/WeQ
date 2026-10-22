@@ -182,6 +182,23 @@ function requireExpectedAccount(expected?: string, expectedConfigId?: string): A
   return requireServices();
 }
 
+function groupAlbumReadScope(input: {
+  expectedAccountUin?: string;
+  expectedAccountConfigId?: string;
+}) {
+  const services = requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+  const configId = services.accountConfig?.getRecord()?.configId;
+  const check = () => {
+    if (
+      requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+        services ||
+      services.accountConfig?.getRecord()?.configId !== configId
+    )
+      throw new Error('账号或数据源已切换，已丢弃旧相册请求');
+  };
+  return { services, check };
+}
+
 async function readMessageScope<T>(
   input: { expectedAccountUin?: string; expectedAccountConfigId?: string },
   read: () => Promise<T>,
@@ -461,6 +478,18 @@ const dressInput = z
 
 const groupAlbumMediaInput = groupAlbumInput.extend({
   albumId: z.string().min(1),
+});
+const groupAlbumFeedInput = z.object({
+  groupCode: z.string().regex(/^[1-9]\d{4,19}$/),
+  albumId: z.string().regex(/^[A-Za-z0-9_.-]{1,256}$/),
+  batchId: z.string().regex(/^[1-9]\d{0,19}$/),
+  legacyFocus: z
+    .string()
+    .regex(/^[\x21-\x7e]{1,512}$/)
+    .optional(),
+  cursor: z.string().max(16384).optional(),
+  expectedAccountUin: z.string().min(1),
+  expectedAccountConfigId: z.string().min(1),
 });
 
 const albumSelectionInput = z.object({
@@ -1131,6 +1160,7 @@ async function collectAlbumMedia(
   groupCode: string,
   albumId: string,
   signal?: AbortSignal,
+  beforeRequest?: () => void,
 ): Promise<AlbumMediaWire[]> {
   const out: AlbumMediaWire[] = [];
   const seenKeys = new Set<string>();
@@ -1138,7 +1168,9 @@ async function collectAlbumMedia(
   let attachInfo = '';
   for (let guard = 0; guard < 100; guard += 1) {
     signal?.throwIfAborted();
+    beforeRequest?.();
     const page = await services.groupAlbumMedia.getMediaList(groupCode, albumId, attachInfo);
+    beforeRequest?.();
     signal?.throwIfAborted();
     for (const wire of page.mediaList
       .map(mediaToWire)
@@ -5722,28 +5754,42 @@ export const accountRouter = router({
   }),
 
   /** List group albums via Qzone web CGI. Requires online QQ (pt_login can mint p_skey). */
-  listGroupAlbums: procedure.input(groupAlbumInput).query(async ({ input }) => {
-    const services = requireServices();
-    // qzone.qq.com 的 p_skey 可由 ptlogin2 本地快速登录兜底，无需注入 / ClientKey。
-    requireOnlineQqForWeb(services);
-    const albums = await services.webQuery.getGroupAlbumList(input.groupCode);
-    services.contentSearch?.remember(
-      albums.map((album) => ({
-        target: { kind: 'groupAlbum', groupCode: input.groupCode, albumId: album.id },
-        title: album.title,
-        content: album.desc,
-        sourceName: `群 ${input.groupCode}`,
-        time: 0,
-      })),
-    );
-    return albums;
-  }),
+  listGroupAlbums: procedure
+    .input(groupAlbumInput.merge(exportAccountBindingInput))
+    .query(async ({ input }) => {
+      const { services, check } = groupAlbumReadScope(input);
+      // qzone.qq.com 的 p_skey 可由 ptlogin2 本地快速登录兜底，无需注入 / ClientKey。
+      requireOnlineQqForWeb(services);
+      const albums = await services.webQuery.getGroupAlbumList(input.groupCode, check);
+      check();
+      services.contentSearch?.remember(
+        albums.map((album) => ({
+          target: { kind: 'groupAlbum', groupCode: input.groupCode, albumId: album.id },
+          title: album.title,
+          content: album.desc,
+          sourceName: `群 ${input.groupCode}`,
+          time: 0,
+        })),
+      );
+      return albums;
+    }),
 
   /** List all media for one group album. Requires the saved online QQ pid. */
-  listGroupAlbumMedia: procedure.input(groupAlbumMediaInput).query(async ({ input }) => {
-    const services = requireServices();
-    requireQqOnlineForAlbum(services);
-    return collectAlbumMedia(services, input.groupCode, input.albumId);
+  listGroupAlbumMedia: procedure
+    .input(groupAlbumMediaInput.merge(exportAccountBindingInput))
+    .query(async ({ input }) => {
+      const { services, check } = groupAlbumReadScope(input);
+      requireQqOnlineForAlbum(services);
+      return collectAlbumMedia(services, input.groupCode, input.albumId, undefined, check);
+    }),
+
+  getGroupAlbumFeed: procedure.input(groupAlbumFeedInput).query(async ({ input }) => {
+    const { services, check } = groupAlbumReadScope(input);
+    requireOnlineQqForWeb(services);
+    const { expectedAccountUin: _uin, expectedAccountConfigId: _config, ...request } = input;
+    const page = await services.webQuery.getGroupAlbumFeed(request, check);
+    check();
+    return page;
   }),
 
   // ---- 个人空间相册（QQ 空间 · 空间相册查看器）----

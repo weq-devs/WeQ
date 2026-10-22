@@ -51,6 +51,11 @@ it('活动卡的跳转对象与按钮入口、feed 的原生与旧 URL、图文�
     }),
   ).toEqual(album);
   expect(
+    groupAlbumArkTarget('com.tencent.activity.md', {
+      activity: { jumpUrl: { jumpUrl: '', harmonyJumpUrl: nativeAlbum } },
+    }),
+  ).toEqual(album);
+  expect(
     groupAlbumArkTarget('com.tencent.feed.lua', {
       feed: { jumpUrl: nativeFeed, legacyUrl: wrap(legacyFeed), pcJumpUrl: wrap(legacyFeed) },
     }),
