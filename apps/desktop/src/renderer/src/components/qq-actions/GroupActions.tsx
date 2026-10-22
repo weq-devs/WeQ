@@ -15,7 +15,6 @@ import '../../styles/group-content-management.css';
 import '../../styles/qq-management.css';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh, useQQReadActivity } from '../../hooks/useQQAutoRefresh';
-import { GroupReadTools } from './GroupReadTools';
 import { GroupJoinSettings } from './GroupJoinSettings';
 import {
   ActionFeedback,
@@ -169,7 +168,6 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
         </section>
         <ActionFeedback action={a} />
       </div>
-      <GroupReadTools groupId={groupId} />
       {menu && (
         <ConversationActionsMenu
           x={menu.x}

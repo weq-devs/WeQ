@@ -481,6 +481,8 @@ describe('QQ 主动操作的实际界面', () => {
   it('打卡页使用可见今日动作，防重复点击，成功后刷新记录，离线不可写', async () => {
     const management = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(management.button('群打卡')).toBeNull();
+    expect(management.host.textContent).not.toContain('群打卡与 @全体额度');
+    expect(management.host.querySelector('[aria-label="打卡日期"]')).toBeNull();
     const f = fixture(() =>
       h(GroupSignDialog, { groupCode: '123', groupName: '测试群', onClose: vi.fn() }),
     );
