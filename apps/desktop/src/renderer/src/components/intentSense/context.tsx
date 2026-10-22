@@ -39,12 +39,16 @@ export interface IntentAnalysis {
 export interface IntentSenseContextValue {
   /** 功能在当前会话是否生效（总开关 + 引擎可用 + 会话未关）。 */
   active: boolean;
+  persistentDisplay?: boolean;
+  hoverDisplay?: boolean;
   /** 数据版本（每次合并 bump；消费者以此触发重渲染）。 */
   version: number;
   /** 读单条结果（未分析过返回 undefined）。 */
   getAnalysis: (msgId: string) => IntentAnalysis | undefined;
   /** 单条消息是否已确认为无文本（纯图片/表情/卡片）或分析不可用，避免悬停无限转圈。 */
   isUnavailable: (msgId: string) => boolean;
+  /** 单条悬停分析是否在途，供消息下的加载窄条使用。 */
+  isPending?: (msgId: string) => boolean;
   /** 悬停未命中时单条触发（带去重：同一消息本会话只发一次）。 */
   requestAnalysis: (msgId: string) => void;
   /** 当前回复目标；最新有效消息来自自己时为空。 */
@@ -83,6 +87,7 @@ export function IntentSenseProvider({
   latestPeerMsgId,
   latestMessageId,
   latestSelfMessageIds,
+  roamingMessageKey = '',
   children,
 }: {
   kind: 'c2c' | 'group';
@@ -90,6 +95,8 @@ export function IntentSenseProvider({
   latestPeerMsgId: string | null;
   latestMessageId?: string | null;
   latestSelfMessageIds?: readonly string[];
+  /** 已加载漫游消息的身份快照；补入旧消息也要触发增量分析。 */
+  roamingMessageKey?: string;
   children: ReactNode;
 }) {
   const analysisMessageId = latestMessageId === undefined ? latestPeerMsgId : latestMessageId;
@@ -148,6 +155,7 @@ export function IntentSenseProvider({
       )
         return;
       requestedRef.current.add(msgId);
+      bump();
       return client.account.intentSense.analyzeMessage
         .mutate({ kind, conv, msgId })
         .then((result) => {
@@ -269,6 +277,7 @@ export function IntentSenseProvider({
     autoAnalysisAllowed,
     engineKey,
     analysisMessageId,
+    roamingMessageKey,
     requestAnalysis,
     utils,
   ]);
@@ -299,13 +308,17 @@ export function IntentSenseProvider({
 
   const getAnalysis = useCallback((msgId: string) => analysesRef.current.get(msgId), []);
   const isUnavailable = useCallback((msgId: string) => unavailableRef.current.has(msgId), []);
+  const isPending = useCallback((msgId: string) => requestedRef.current.has(msgId), []);
 
   const value = useMemo<IntentSenseContextValue>(
     () => ({
       active: effective,
+      persistentDisplay: statusData?.persistentDisplay !== false,
+      hoverDisplay: statusData?.hoverDisplay !== false,
       version,
       getAnalysis,
       isUnavailable,
+      isPending,
       requestAnalysis,
       latestPeerMsgId,
       latestMessageId: analysisMessageId,
@@ -316,9 +329,12 @@ export function IntentSenseProvider({
     }),
     [
       effective,
+      statusData?.persistentDisplay,
+      statusData?.hoverDisplay,
       version,
       getAnalysis,
       isUnavailable,
+      isPending,
       requestAnalysis,
       latestPeerMsgId,
       analysisMessageId,

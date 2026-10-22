@@ -17,6 +17,7 @@
     "./draft-edit": "./src/account/draft_edit.ts",
     "./buddy-request": "./src/common/buddy_request.ts",
     "./intent-context": "./src/common/intent_context.ts",
+    "./roaming-timeline": "./src/common/roaming_timeline.ts",
     "./search-policy": "./src/account/search_policy.ts",
     "./report-time": "./src/account/annual_report/time.ts",
     "./report-assets": "./src/account/annual_report/report-assets.ts",

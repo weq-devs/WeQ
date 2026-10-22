@@ -25,7 +25,8 @@ import { existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { C2cMsg, C2cPartition, GroupMsg } from '@weq/db';
-import type { Element } from '@weq/codec';
+import type { GapHistoryService, GapFetchedMessage } from './gap_history';
+import { mergeRoamingTimeline, timelineRowKey, type TimelineRow } from '../common/roaming_timeline';
 import {
   pickMessageText,
   requestApiJson,
@@ -133,6 +134,10 @@ export interface IntentSenseConfig extends IntentTuning {
   suggestionsEnabled: boolean;
   /** 最新消息为自己发送时是否自动分析，旧配置默认开启。 */
   analyzeAfterSelf: boolean;
+  /** 消息下方常驻展示结果与分析加载条。 */
+  persistentDisplay: boolean;
+  /** 悬停消息时展示详情并允许单条补分析。 */
+  hoverDisplay: boolean;
   /** 最新消息为自己发送时是否继续生成候选，始终不自动发送。 */
   suggestAfterSelf: boolean;
   /** 分析目标之前的上文条数，不含目标本身，仍受对话时效窗口限制。 */
@@ -173,6 +178,8 @@ const DEFAULT_CONFIG: IntentSenseConfig = {
   profileProviderRef: null,
   suggestionsEnabled: false,
   analyzeAfterSelf: true,
+  persistentDisplay: true,
+  hoverDisplay: true,
   suggestAfterSelf: false,
   analysisContextMessages: DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
   suggestionContextMessages: DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
@@ -286,8 +293,14 @@ function fileSafe(key: string): string {
   return key.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+interface SenseElement {
+  kind: string;
+  textContent?: unknown;
+  faceText?: unknown;
+}
+
 /** 消息 → 供分析的文本：text + face 段；纯媒体消息返回 ''（不做分析）。 */
-function elementsToSenseText(elements: Element[]): string {
+function elementsToSenseText(elements: SenseElement[]): string {
   const parts: string[] = [];
   for (const el of elements) {
     if (el.kind === 'text') {
@@ -419,6 +432,8 @@ export interface IntentSenseOptions {
   resolveEndpoint?: EndpointResolver;
   /** local 引擎端口（桌面版 utilityProcess 桥；web 版缺省 null）。 */
   localEngine?: IntentLocalEnginePort | null;
+  /** 只读已落盘的漫游缓存，不发起 QQ 漫游请求。 */
+  gapHistory?: Pick<GapHistoryService, 'cachedTimeline'>;
 }
 
 /** ensureAnalysis 的执行统计。 */
@@ -503,6 +518,8 @@ export class IntentSenseService {
               ? { ...p.profileProviderRef }
               : null,
           analyzeAfterSelf: p.analyzeAfterSelf !== false,
+          persistentDisplay: p.persistentDisplay !== false,
+          hoverDisplay: p.hoverDisplay !== false,
           suggestAfterSelf: p.suggestAfterSelf === true,
           analysisContextMessages: isIntentContextCount(p.analysisContextMessages)
             ? p.analysisContextMessages
@@ -594,6 +611,9 @@ export class IntentSenseService {
     }
     if (typeof patch.hfMirror === 'boolean') next.hfMirror = patch.hfMirror;
     if (typeof patch.analyzeAfterSelf === 'boolean') next.analyzeAfterSelf = patch.analyzeAfterSelf;
+    if (typeof patch.persistentDisplay === 'boolean')
+      next.persistentDisplay = patch.persistentDisplay;
+    if (typeof patch.hoverDisplay === 'boolean') next.hoverDisplay = patch.hoverDisplay;
     if (typeof patch.suggestAfterSelf === 'boolean') next.suggestAfterSelf = patch.suggestAfterSelf;
     const analysisChanged =
       next.analysisTemperature !== this.config.analysisTemperature ||
@@ -797,6 +817,22 @@ export class IntentSenseService {
     } else {
       const rows = await this.loadMessages(kind, conv, 1, [msgId]);
       row = rows[0];
+      const roaming = /^roaming:(?:(?:native|protocol):)?([1-9]\d*):-?\d+$/.exec(msgId);
+      if (row && roaming && contextMessages > 0) {
+        const before = await this.loadMessages(
+          kind,
+          conv,
+          Math.max(60, contextMessages),
+          undefined,
+          BigInt(roaming[1]!),
+        );
+        context = extractContextBefore(
+          [...before, row],
+          before.length,
+          contextMessages,
+          this.config,
+        );
+      }
     }
     if (!row?.text) return null;
     if (row.mine && !this.config.analyzeAfterSelf) return null;
@@ -1571,6 +1607,7 @@ export class IntentSenseService {
     conv: string,
     limit: number,
     onlyMsgIds?: string[],
+    beforeSeq?: bigint,
   ): Promise<SenseRow[]> {
     const toRow = (m: C2cMsg | GroupMsg): SenseRow => {
       const mine =
@@ -1585,6 +1622,44 @@ export class IntentSenseService {
         elementsRaw: m.elements,
       };
     };
+    const toRoamingRow = (message: GapFetchedMessage): SenseTimelineRow => {
+      const elements = message.elements.map(
+        (element): SenseElement => ({
+          kind: element.type,
+          ...(element.type === 'text' ? { textContent: element.data.textContent } : {}),
+          ...(element.type === 'face' ? { faceText: element.data.faceText } : {}),
+        }),
+      );
+      return {
+        ...message,
+        source: 'roaming',
+        sense: {
+          msgId: timelineRowKey({ ...message, source: 'roaming' }),
+          mine:
+            kind === 'c2c'
+              ? message.senderUid !== conv
+              : message.senderUin === String(this.session.context.uin ?? ''),
+          sendTime: Number(message.sendTime),
+          text: elementsToSenseText(elements),
+          elementsRaw: elements,
+        },
+      };
+    };
+    const cached = async (start: number, end: number, count: number) => {
+      if (!this.opts.gapHistory) return [];
+      try {
+        const rows = await this.opts.gapHistory.cachedTimeline(kind, conv, start, end, count, true);
+        return rows
+          .filter((message) => message.kind === kind && message.conv === conv)
+          .map(toRoamingRow);
+      } catch (error) {
+        logger.debug('intent-sense roaming cache read failed', {
+          event: 'intent-sense-roaming-cache-failed',
+          ...logErrorContext(error),
+        });
+        return [];
+      }
+    };
     if (onlyMsgIds) {
       const ids = onlyMsgIds.map((id) => {
         try {
@@ -1594,19 +1669,45 @@ export class IntentSenseService {
         }
       });
       const valid = ids.filter((b): b is bigint => b !== null);
-      if (valid.length === 0) return [];
       const found =
-        kind === 'c2c'
-          ? await this.session.c2cMsgs.listByMsgIds(valid)
-          : await this.session.groupMsgs.listByMsgIds(valid);
-      return found.map(toRow);
+        valid.length === 0
+          ? []
+          : kind === 'c2c'
+            ? await this.session.c2cMsgs.listByMsgIds(valid)
+            : await this.session.groupMsgs.listByMsgIds(valid);
+      const result = found.map(toRow);
+      for (const msgId of onlyMsgIds) {
+        const match = /^roaming:(?:(?:native|protocol):)?([1-9]\d{0,9}):(-?\d{1,20})$/.exec(msgId);
+        if (!match || Number(match[1]) > 0xffffffff) continue;
+        const seq = Number(match[1]);
+        const messages = mergeRoamingTimeline(kind, [], await cached(seq, seq, 2000));
+        const message = messages.find((message) => message.sense.msgId === msgId);
+        if (message) result.push(message.sense);
+      }
+      return result;
     }
-    if (kind === 'c2c') {
-      const msgs = await this.session.c2cMsgs.listLatest(this.c2cPartition(conv), limit);
-      return msgs.map(toRow).reverse(); // listLatest 新→旧，分析按时间升序
-    }
-    const msgs = await this.session.groupMsgs.listLatest(conv, limit);
-    return msgs.map(toRow).reverse();
+    const msgs =
+      kind === 'c2c'
+        ? beforeSeq === undefined
+          ? await this.session.c2cMsgs.listLatest(this.c2cPartition(conv), limit)
+          : await this.session.c2cMsgs.listBefore(this.c2cPartition(conv), beforeSeq, limit)
+        : beforeSeq === undefined
+          ? await this.session.groupMsgs.listLatest(conv, limit)
+          : await this.session.groupMsgs.listBefore(conv, beforeSeq, limit);
+    if (!this.opts.gapHistory) return msgs.map(toRow).reverse();
+    const local: SenseTimelineRow[] = msgs.map((message) => ({
+      msgId: message.msgId.toString(),
+      msgSeq: message.msgSeq.toString(),
+      msgRandom: message.msgRandom?.toString(),
+      senderUid: message.senderUid,
+      sendTime: message.sendTime.toString(),
+      sense: toRow(message),
+    }));
+    const max = beforeSeq === undefined ? 0xffffffff : Number(beforeSeq - 1n);
+    const roaming = await cached(1, Math.min(max, 0xffffffff), limit);
+    return mergeRoamingTimeline(kind, local, roaming, { descending: true, limit })
+      .reverse()
+      .map((message) => message.sense);
   }
 
   private c2cPartition(peerUid: string): C2cPartition {
@@ -1666,7 +1767,11 @@ interface SenseRow {
   mine: boolean;
   sendTime: number;
   text: string;
-  elementsRaw: Element[];
+  elementsRaw: SenseElement[];
+}
+
+interface SenseTimelineRow extends TimelineRow {
+  sense: SenseRow;
 }
 
 // ── 小工具 ──────────────────────────────────────────────────────────────────

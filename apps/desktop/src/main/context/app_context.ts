@@ -1855,7 +1855,11 @@ export function initAppContext(fileRoot?: string): AppContext {
         intentSense: new IntentSenseService(
           session,
           userConfig.cacheDir(join('intent_sense', exportConfigId)),
-          { resolveEndpoint: resolveAgentEndpoint, localEngine: getActiveIntentSenseLocalEngine() },
+          {
+            resolveEndpoint: resolveAgentEndpoint,
+            localEngine: getActiveIntentSenseLocalEngine(),
+            gapHistory,
+          },
         ),
         avatarResource: new AvatarResourceService(session, platform),
         sysEmoji: new SysEmojiResourceService(session, platform, () => sysEmojiDownload.root()),
@@ -2554,7 +2558,11 @@ export function initAppContext(fileRoot?: string): AppContext {
         intentSense: new IntentSenseService(
           session,
           userConfig.cacheDir(join('intent_sense', exportConfigId)),
-          { resolveEndpoint: resolveAgentEndpoint, localEngine: getActiveIntentSenseLocalEngine() },
+          {
+            resolveEndpoint: resolveAgentEndpoint,
+            localEngine: getActiveIntentSenseLocalEngine(),
+            gapHistory,
+          },
         ),
         avatarResource: new AvatarResourceService(session, staticPlatform),
         sysEmoji: new SysEmojiResourceService(session, staticPlatform, () =>

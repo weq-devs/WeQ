@@ -10,6 +10,7 @@ const fixture = vi.hoisted(() => ({
     latestMessageId?: string | null;
     latestPeerMsgId?: string | null;
     latestSelfMessageIds?: readonly string[];
+    roamingMessageKey?: string;
   },
   bar: {} as { replyTargetId?: string | null },
 }));
@@ -22,6 +23,7 @@ vi.mock('../src/renderer/src/components/intentSense/context', () => ({
     latestMessageId?: string | null;
     latestPeerMsgId?: string | null;
     latestSelfMessageIds?: readonly string[];
+    roamingMessageKey?: string;
   }) => {
     fixture.provider = props;
     return children;
@@ -93,6 +95,9 @@ it.each(['group', 'direct'] as const)(
       expect(fixture.provider.latestSelfMessageIds).toEqual(['own', 'own-before']);
       expect(fixture.provider.latestPeerMsgId).toBeNull();
       expect(fixture.bar.replyTargetId).toBeNull();
+      await render([peer, message('roaming:protocol:2:77', 'u_peer'), ownBefore, own]);
+      expect(fixture.provider.roamingMessageKey).toBe('roaming:protocol:2:77');
+      expect(fixture.provider.latestMessageId).toBe('own');
       const next = message('new-peer', 'u_peer');
       await render([peer, own, next]);
       expect(fixture.provider.latestMessageId).toBe('new-peer');

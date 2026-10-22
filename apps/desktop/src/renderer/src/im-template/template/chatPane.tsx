@@ -1012,6 +1012,14 @@ export function ChatPane({
           },
     [intentSupported, visibleMessages, user],
   );
+  const roamingMessageKey = useMemo(
+    () =>
+      visibleMessages
+        .filter((message) => message.id.startsWith('roaming:'))
+        .map((message) => message.id)
+        .join('|'),
+    [visibleMessages],
+  );
   // 选中的消息（按时间线顺序）—— 合并转发 / 删除 / 复制 JSON 都用它。
   const selectionFlow = useMessageSelectionFlow({
     conversation,
@@ -4502,6 +4510,7 @@ export function ChatPane({
         latestPeerMsgId={latestPeerMsgId}
         latestMessageId={latestMessageId}
         latestSelfMessageIds={latestSelfMessageIds}
+        roamingMessageKey={roamingMessageKey}
       >
         <div
           className={cn('message-scroll', marquee.dragging && 'is-marquee-selecting')}

@@ -12,6 +12,8 @@ import {
 const fixture = vi.hoisted(() => ({
   status: {
     enabled: true,
+    persistentDisplay: true,
+    hoverDisplay: true,
     engine: 'local' as const,
     providerRef: null,
     suggestionsEnabled: true,
@@ -98,6 +100,8 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixture.status = {
     ...fixture.status,
+    persistentDisplay: true,
+    hoverDisplay: true,
     analysisContextMessages: DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
     suggestionContextMessages: DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
   };
@@ -189,4 +193,26 @@ it('无效、空值、在途及主进程尚未支持时不能保存或误提示�
   expect(f.input('意图感知上文条数').disabled).toBe(true);
   expect(f.host.textContent).toContain('当前主进程尚未提供参数');
   expect(fixture.save).not.toHaveBeenCalled();
+});
+
+it('常驻与悬停显示独立保存，只在意图感知页展示，在途禁用', async () => {
+  const f = renderFixture();
+  const toggle = (label: string) =>
+    f.host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+  expect(toggle('常驻显示').getAttribute('aria-checked')).toBe('true');
+  expect(toggle('悬停显示').getAttribute('aria-checked')).toBe('true');
+  await act(async () => toggle('常驻显示').click());
+  expect(fixture.save).toHaveBeenLastCalledWith({ persistentDisplay: false });
+  f.render();
+  expect(toggle('常驻显示').getAttribute('aria-checked')).toBe('false');
+  expect(toggle('悬停显示').getAttribute('aria-checked')).toBe('true');
+  await act(async () => toggle('悬停显示').click());
+  expect(fixture.save).toHaveBeenLastCalledWith({ hoverDisplay: false });
+  fixture.pending = true;
+  f.render();
+  expect(toggle('常驻显示').disabled).toBe(true);
+  expect(toggle('悬停显示').disabled).toBe(true);
+  f.render('suggestions');
+  expect(toggle('常驻显示')).toBeNull();
+  expect(toggle('悬停显示')).toBeNull();
 });

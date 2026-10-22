@@ -1,4 +1,11 @@
-import { act, createElement as h, useRef, type ReactNode } from 'react';
+import {
+  act,
+  cloneElement,
+  isValidElement,
+  createElement as h,
+  useRef,
+  type ReactNode,
+} from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MessageIntentSense } from '../src/renderer/src/components/intentSense/MessageIntentSense';
@@ -19,6 +26,8 @@ const fixture = vi.hoisted(() => ({
   },
   context: {
     active: true,
+    persistentDisplay: true,
+    hoverDisplay: true,
     version: 1,
     kind: 'group',
     conv: 'fixture',
@@ -29,6 +38,7 @@ const fixture = vi.hoisted(() => ({
     getAnalysis: vi.fn(),
     isUnavailable: vi.fn(),
     requestAnalysis: vi.fn(),
+    isPending: vi.fn(),
   },
   query: vi.fn(),
 }));
@@ -52,6 +62,11 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.useFakeTimers();
   fixture.context.getAnalysis.mockReset().mockReturnValue(fixture.result);
+  fixture.context.active = true;
+  fixture.context.persistentDisplay = true;
+  fixture.context.hoverDisplay = true;
+  fixture.context.settled = true;
+  fixture.context.isPending.mockReset().mockReturnValue(false);
   fixture.context.isUnavailable.mockReset().mockReturnValue(false);
   fixture.context.requestAnalysis.mockClear();
   fixture.query.mockReset().mockReturnValue({ data: [{ text: '旧候选' }], isFetching: false });
@@ -70,7 +85,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function OwnBubble({ msgId = 'own' }: { msgId?: string } = {}) {
+function OwnBubble({
+  msgId = 'own',
+  analyzable = true,
+}: {
+  msgId?: string;
+  analyzable?: boolean;
+} = {}) {
   const ref = useRef<HTMLDivElement>(null);
   return h(
     'div',
@@ -82,7 +103,7 @@ function OwnBubble({ msgId = 'own' }: { msgId?: string } = {}) {
         'div',
         { ref, className: 'message-bubble' },
         h('span', { className: 'message-content qq-text-run' }, '自己的文本'),
-        h(MessageIntentSense, { msgId, bubbleRef: ref, analyzable: true }),
+        h(MessageIntentSense, { msgId, bubbleRef: ref, analyzable }),
       ),
     ),
   );
@@ -96,7 +117,10 @@ async function render(component: ReactNode = h(OwnBubble)) {
     act(() => root.unmount());
     host.remove();
   });
-  return host;
+  return Object.assign(host, {
+    rerender: () =>
+      act(async () => root.render(isValidElement(component) ? cloneElement(component) : component)),
+  });
 }
 
 it('最新自己的消息常驻显示意图，悬停按自己的气泡右侧对齐', async () => {
@@ -115,10 +139,97 @@ it('连续自己发言时，非最新一条的分析结果仍常驻显示', asyn
   expect(host.querySelector('.weq-intent-chips')?.textContent).toContain('闲聊');
 });
 
-it('更早轮次的自己消息仍仅悬停展示，不扩大常驻范围', async () => {
-  const host = await render(h(OwnBubble, { msgId: 'older-own' }));
+it.each(['older-own', 'older-peer', 'roaming:protocol:2:77'])(
+  '任意历史消息 %s 已有结果时都常驻展示',
+  async (msgId) => {
+    const host = await render(h(OwnBubble, { msgId }));
+    expect(host.querySelector('.weq-intent-chips')?.textContent).toContain('闲聊');
+  },
+);
+
+it('批量分析期间，所有未分析文本都显示加载窄条，不只最新一条', async () => {
+  fixture.context.getAnalysis.mockReturnValue(undefined);
+  fixture.context.settled = false;
+  const host = await render(
+    h(
+      'div',
+      null,
+      h(OwnBubble, { msgId: 'older-own' }),
+      h(OwnBubble, { msgId: 'older-peer' }),
+      h(OwnBubble, { msgId: 'roaming:2:77' }),
+    ),
+  );
+  expect(host.querySelectorAll('.weq-intent-chips')).toHaveLength(3);
+  expect(host.querySelectorAll('.weq-intent-pill.is-loading')).toHaveLength(6);
+});
+
+it('单条历史消息分析在途时，即使批次已结束也显示加载窄条', async () => {
+  fixture.context.getAnalysis.mockReturnValue(undefined);
+  fixture.context.isPending.mockImplementation((id) => id === 'older-peer');
+  const host = await render(h(OwnBubble, { msgId: 'older-peer' }));
+  expect(host.querySelectorAll('.weq-intent-pill.is-loading')).toHaveLength(2);
+});
+
+it('分析结束后历史消息的加载窄条消失；已有结果替换占位', async () => {
+  fixture.context.getAnalysis.mockReturnValue(undefined);
+  fixture.context.settled = false;
+  const host = await render(h(OwnBubble, { msgId: 'older-peer' }));
+  expect(host.querySelector('.is-loading')).not.toBeNull();
+  fixture.context.settled = true;
+  await host.rerender();
+  expect(host.querySelector('.weq-intent-chips')).toBeNull();
+  fixture.context.getAnalysis.mockReturnValue(fixture.result);
+  await host.rerender();
+  expect(host.querySelector('.is-loading')).toBeNull();
+  expect(host.querySelector('.weq-intent-chips')?.textContent).toContain('闲聊');
+});
+
+it('关闭常驻显示隐藏结果和窄条，但保留悬停详情', async () => {
+  fixture.context.persistentDisplay = false;
+  const host = await render(h(OwnBubble, { msgId: 'older-peer' }));
+  expect(host.querySelector('.weq-intent-chips')).toBeNull();
+  await act(async () => {
+    host.querySelector('.message-bubble')!.dispatchEvent(new Event('pointerenter'));
+    vi.advanceTimersByTime(300);
+  });
+  expect(document.querySelector('.weq-intent-popover')?.textContent).toContain('闲聊');
+  fixture.context.getAnalysis.mockReturnValue(undefined);
+  fixture.context.settled = false;
+  await host.rerender();
   expect(host.querySelector('.weq-intent-chips')).toBeNull();
 });
+
+it('关闭悬停显示立即收起弹层，保留常驻结果且不触发悬停分析', async () => {
+  const host = await render();
+  await act(async () => {
+    host.querySelector('.message-bubble')!.dispatchEvent(new Event('pointerenter'));
+    vi.advanceTimersByTime(300);
+  });
+  expect(document.querySelector('.weq-intent-popover')).not.toBeNull();
+  fixture.context.hoverDisplay = false;
+  await host.rerender();
+  expect(document.querySelector('.weq-intent-popover')).toBeNull();
+  expect(host.querySelector('.weq-intent-chips')?.textContent).toContain('闲聊');
+  fixture.context.getAnalysis.mockReturnValue(undefined);
+  await host.rerender();
+  await act(async () => {
+    host.querySelector('.message-bubble')!.dispatchEvent(new Event('pointerenter'));
+    vi.advanceTimersByTime(300);
+  });
+  expect(fixture.context.requestAnalysis).not.toHaveBeenCalled();
+});
+
+it.each(['settled', 'unavailable', 'media', 'disabled'])(
+  '%s 状态不显示虚假的加载窄条',
+  async (state) => {
+    fixture.context.getAnalysis.mockReturnValue(undefined);
+    fixture.context.settled = state === 'settled';
+    fixture.context.active = state !== 'disabled';
+    fixture.context.isUnavailable.mockReturnValue(state === 'unavailable');
+    const host = await render(h(OwnBubble, { msgId: 'older-peer', analyzable: state !== 'media' }));
+    expect(host.querySelector('.weq-intent-chips')).toBeNull();
+  },
+);
 
 it('自己的真实文本容器无需旧 message-text 类也能触发悬停分析', async () => {
   fixture.context.getAnalysis.mockReturnValue(undefined);
