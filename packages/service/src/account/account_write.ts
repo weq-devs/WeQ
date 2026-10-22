@@ -5,6 +5,7 @@ import {
   SetGroupRemark,
   SetPeerPin,
   SetFriendDisturb,
+  GetFriendSnsPage,
   SetGroupMessagePolicy,
   SetFriendCategory,
   SetSelfProfile,
@@ -74,6 +75,40 @@ export class AccountWriteService {
     await this.friend(uid);
     const state = await SetFriendDisturb.invoke(this.nt, this.resolvePid(), { uid, enabled });
     return { state };
+  }
+
+  async getFriendDisturb(uid: string): Promise<{ uid: string; enabled: boolean | null }> {
+    const buddy = await this.friend(uid);
+    if (buddy.uid !== uid) throw new Error('好友资料与读取目标不一致');
+    const pid = this.resolvePid();
+    const seen = new Set<string>();
+    const cookies = new Set<string>();
+    let cookie: Uint8Array | undefined;
+    let found: { enabled: boolean | null } | undefined;
+    for (let page = 0; page < 100; page++) {
+      this.assertCurrentPid(pid);
+      const result = await GetFriendSnsPage.invoke(this.nt, pid, { cookie });
+      this.assertCurrentPid(pid);
+      if (result.selfUin !== undefined && result.selfUin !== this.identity.uin)
+        throw new Error('好友名册与当前账号不一致');
+      for (const row of result.friends) {
+        if (seen.has(row.uid)) throw new Error('好友名册分页返回重复目标，请重新读取');
+        seen.add(row.uid);
+        if (row.uid !== uid) continue;
+        if (row.uin !== String(buddy.uin)) throw new Error('好友名册与读取目标不一致');
+        found = { enabled: row.disturbPresent ? row.disturb : false };
+      }
+      cookie = result.cookie;
+      // 只有完整请求全部走完，缺省 SNS 才能按已验证的关闭响应处理。
+      if (!cookie?.length) {
+        if (!found) throw new Error('云端好友名册中没有读取目标');
+        return { uid, enabled: found.enabled };
+      }
+      const key = Buffer.from(cookie).toString('base64');
+      if (cookies.has(key)) throw new Error('好友名册分页游标循环');
+      cookies.add(key);
+    }
+    throw new Error('好友名册分页超过读取上限');
   }
 
   async groupMessagePolicy(

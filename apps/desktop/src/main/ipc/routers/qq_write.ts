@@ -22,6 +22,7 @@ export interface QQWriteServices {
     | 'groupRemark'
     | 'pin'
     | 'friendDisturb'
+    | 'getFriendDisturb'
     | 'groupMessagePolicy'
     | 'friendCategory'
     | 'selfProfile'
@@ -100,6 +101,13 @@ export function createQQWriteRouter(
       const services = resolve(input);
       const result = await services.groupInfo.getMessagePolicy(input.groupId);
       if (resolve(input) !== services) throw new Error('账号已切换，请重新读取消息策略');
+      return { ...result, source: 'qq-server' as const };
+    }),
+    friendDisturbState: procedure.input(binding.extend({ uid })).query(async ({ input }) => {
+      const services = resolve(input);
+      const result = await services.accountWrite.getFriendDisturb(input.uid);
+      if (resolve(input) !== services) throw new Error('账号已切换，请重新读取免打扰状态');
+      if (result.uid !== input.uid) throw new Error('返回好友与读取目标不一致');
       return { ...result, source: 'qq-server' as const };
     }),
     memberState: procedure.input(binding.extend({ groupId, uid })).query(async ({ input }) => {

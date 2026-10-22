@@ -159,6 +159,7 @@ export { SetGroupRemark } from './oidb/set-group-remark';
 export type { SetGroupRemarkParams } from './oidb/set-group-remark';
 export { SetFriendCategory } from './oidb/set-friend-category';
 export type { SetFriendCategoryParams } from './oidb/set-friend-category';
+export { GetFriendSnsPage, type FriendSnsPage } from './oidb/get-friend-sns';
 export {
   SetPeerPin,
   SetFriendDisturb,

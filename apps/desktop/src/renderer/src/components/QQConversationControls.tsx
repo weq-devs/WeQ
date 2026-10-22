@@ -61,6 +61,22 @@ export function QQConversationControls({
     ...autoRefresh,
     enabled: autoRefresh.enabled && Boolean(session.binding),
   });
+  const disturbSnapshot = trpc.account.qqWrite.friendDisturbState.useQuery(
+    {
+      expectedAccountUin: session.binding?.expectedAccountUin ?? '',
+      expectedAccountConfigId: session.binding?.expectedAccountConfigId ?? '',
+      uid: conv,
+    },
+    {
+      ...autoRefresh,
+      enabled:
+        autoRefresh.enabled &&
+        kind === 'c2c' &&
+        session.available &&
+        Boolean(snapshot.data?.friend),
+      refetchOnWindowFocus: false,
+    },
+  );
   const policySnapshot = trpc.account.qqWrite.groupPolicyState.useQuery(
     {
       expectedAccountUin: session.binding?.expectedAccountUin ?? '',
@@ -101,6 +117,10 @@ export function QQConversationControls({
       const policyResult = await policySnapshot.refetch();
       if (policyResult.error) throw policyResult.error;
     }
+    if (includePolicy && kind === 'c2c' && result.data?.friend && session.available) {
+      const disturbResult = await disturbSnapshot.refetch();
+      if (disturbResult.error) throw disturbResult.error;
+    }
   }
   const act = (action: Parameters<typeof session.run>[0]) => session.run(action, refresh);
   function changePeerToggle(field: 'pinned' | 'friendDisturb', enabled: boolean) {
@@ -122,6 +142,11 @@ export function QQConversationControls({
               ? '已开启免打扰'
               : '已关闭免打扰',
         readback: async () => {
+          if (field === 'friendDisturb') {
+            const updated = await disturbSnapshot.refetch();
+            if (updated.error) throw updated.error;
+            return updated.data?.enabled === enabled;
+          }
           const updated = await snapshot.refetch();
           if (updated.error) throw updated.error;
           return updated.data?.[field] === enabled;
@@ -191,7 +216,9 @@ export function QQConversationControls({
           )}
           {session.available ? 'QQ 在线' : 'QQ 在线能力未就绪'}
         </span>
-        {(snapshot.error || (kind === 'group' && policySnapshot.error)) && (
+        {(snapshot.error ||
+          (kind === 'group' && policySnapshot.error) ||
+          (kind === 'c2c' && disturbSnapshot.error)) && (
           <button
             type="button"
             className="weq-set-iconbtn"
@@ -201,6 +228,7 @@ export function QQConversationControls({
               session.busy ||
               picking ||
               snapshot.isFetching ||
+              (kind === 'c2c' && disturbSnapshot.isFetching) ||
               (kind === 'group' && policySnapshot.isFetching)
             }
             onClick={() => {
@@ -214,6 +242,9 @@ export function QQConversationControls({
         )}
       </div>
       {snapshot.error && <p role="alert">{snapshot.error.message}</p>}
+      {kind === 'c2c' && disturbSnapshot.error && (
+        <p role="alert">免打扰状态读取失败：{disturbSnapshot.error.message}</p>
+      )}
       {kind === 'group' && !management && policySnapshot.error && (
         <p role="alert">消息策略读取失败：{policySnapshot.error.message}</p>
       )}
@@ -270,12 +301,17 @@ export function QQConversationControls({
               />
               {kind === 'c2c' ? (
                 <>
-                  {/* 只采用好友资料的明确布尔值，不从 recent_contact 提醒级别推断。 */}
+                  {/* 云端查询与本机资料分离；读取失败不回落到过期缓存。 */}
                   <QQWriteToggleRow
                     label="消息免打扰"
                     icon={<BellOff size={14} strokeWidth={1.8} />}
-                    initial={state.friendDisturb ?? null}
-                    disabled={friendDisabled}
+                    initial={disturbSnapshot.error ? null : (disturbSnapshot.data?.enabled ?? null)}
+                    disabled={
+                      friendDisabled ||
+                      disturbSnapshot.isFetching ||
+                      !disturbSnapshot.data ||
+                      Boolean(disturbSnapshot.error)
+                    }
                     onSave={(enabled) => changePeerToggle('friendDisturb', enabled)}
                   />
                   <QQWriteSelectRow

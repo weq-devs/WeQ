@@ -64,6 +64,7 @@ function fixture() {
       groupRemark: vi.fn(accepted),
       pin: vi.fn(accepted),
       friendDisturb: vi.fn(accepted),
+      getFriendDisturb: vi.fn(async (uid: string) => ({ uid, enabled: true })),
       groupMessagePolicy: vi.fn(accepted),
       friendCategory: vi.fn(accepted),
       selfProfile: vi.fn(accepted),
@@ -125,6 +126,33 @@ function fixture() {
 }
 
 describe('QQ 写 IPC 边界', () => {
+  it('好友云端免打扰独立使用在线绑定，不回落到本机缓存', async () => {
+    const f = fixture();
+    expect(await f.caller.friendDisturbState({ ...binding, uid: 'u_peer' })).toEqual({
+      uid: 'u_peer',
+      enabled: true,
+      source: 'qq-server',
+    });
+    expect(f.write).toHaveBeenCalledTimes(2);
+    expect(f.services.profile.getProfile).not.toHaveBeenCalled();
+  });
+  it('好友云端免打扰拒绝错目标与在途切号', async () => {
+    const f = fixture();
+    f.services.accountWrite.getFriendDisturb = vi.fn(async () => ({
+      uid: 'u_other',
+      enabled: false,
+    }));
+    await expect(f.caller.friendDisturbState({ ...binding, uid: 'u_peer' })).rejects.toThrow(
+      '目标不一致',
+    );
+    f.services.accountWrite.getFriendDisturb = vi.fn(async (uid) => {
+      f.switchAccount();
+      return { uid, enabled: true };
+    });
+    await expect(f.caller.friendDisturbState({ ...binding, uid: 'u_peer' })).rejects.toThrow(
+      '切换',
+    );
+  });
   it.each([true, false])(
     '好友免打扰只返回匹配目标的明确资料值 %s，非好友保持未知',
     async (enabled) => {

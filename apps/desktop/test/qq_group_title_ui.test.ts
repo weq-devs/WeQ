@@ -46,6 +46,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       listCategories: { useQuery: () => ({}) },
       pickSendFile: { useMutation: () => ({}) },
       qqWrite: {
+        friendDisturbState: { useQuery: () => ({ data: undefined, isFetching: false }) },
         groupPolicyState: {
           useQuery: () => ({ data: { policy: 1, rawPolicy: 1 }, isFetching: false }),
         },
