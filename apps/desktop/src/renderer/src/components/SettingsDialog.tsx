@@ -15,6 +15,7 @@ import {
 } from 'react';
 import {
   Activity,
+  ArrowLeft,
   AudioLines,
   Bot,
   Bug,
@@ -72,6 +73,7 @@ import { trpc } from '../trpc/client';
 import { DEFAULT_ACCENT, normalizeHex } from '../../../shared/theme_colors';
 import { AntiRecallDialog } from './AntiRecallDialog';
 import { WorkspacePage } from './WorkspacePages';
+import { IS_WEB } from '../lib/target';
 import { UsagePanel } from '../views/agentlab/UsagePanel';
 import '../styles/settings-responsive.css';
 import '../styles/settings-navigation.css';
@@ -406,6 +408,7 @@ export function SettingsDialog({
     settingsSectionFor(initialSection ?? 'global'),
   );
   const navRef = useRef<HTMLElement | null>(null);
+  const [mobileCategoryOpen, setMobileCategoryOpen] = useState(Boolean(initialSection));
   const subnavRef = useRef<HTMLElement | null>(null);
   const sections = SETTINGS_SECTIONS;
   const group = settingsGroupFor(activeId);
@@ -413,6 +416,7 @@ export function SettingsDialog({
 
   useEffect(() => {
     if (open && initialSection) setActiveId(settingsSectionFor(initialSection));
+    if (open) setMobileCategoryOpen(Boolean(initialSection));
   }, [open, initialSection]);
 
   useEffect(() => {
@@ -433,11 +437,25 @@ export function SettingsDialog({
   return (
     <WorkspacePage title="设置" onClose={onClose} standalone>
       <section
-        className="weq-settings-dialog"
+        className={`weq-settings-dialog${IS_WEB ? ' weq-mobile-settings' : ''}`}
+        data-mobile-category={mobileCategoryOpen || undefined}
         role="region"
         aria-labelledby="weq-settings-title"
         onMouseDown={(e) => e.stopPropagation()}
       >
+        {IS_WEB && (
+          <header className="weq-mobile-settings-header">
+            <button
+              type="button"
+              aria-label={mobileCategoryOpen ? '返回设置分类' : '返回'}
+              title="返回"
+              onClick={() => (mobileCategoryOpen ? setMobileCategoryOpen(false) : onClose())}
+            >
+              <ArrowLeft size={22} />
+            </button>
+            <strong>{mobileCategoryOpen ? group.label : '设置'}</strong>
+          </header>
+        )}
         <button
           className="weq-settings-close"
           type="button"
@@ -458,12 +476,16 @@ export function SettingsDialog({
                   type="button"
                   className={`weq-settings-nav-item${s.id === group.id ? ' is-active' : ''}`}
                   aria-current={s.id === group.id ? 'page' : undefined}
-                  onClick={() => setActiveId(s.sections[0]!)}
+                  onClick={() => {
+                    setActiveId(s.sections[0]!);
+                    setMobileCategoryOpen(true);
+                  }}
                 >
                   <span className="weq-settings-nav-icon">
                     {sections.find((section) => section.id === s.sections[0])!.icon}
                   </span>
                   <span>{s.label}</span>
+                  {IS_WEB && <ChevronRight className="weq-mobile-settings-chevron" size={18} />}
                 </button>
               </li>
             ))}

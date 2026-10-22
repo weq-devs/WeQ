@@ -1,5 +1,6 @@
 ﻿// @ts-nocheck
-import type { CSSProperties, ReactNode } from 'react';
+import { useRef, type CSSProperties, type ReactNode } from 'react';
+import { useMobileWebViewport } from '../../hooks/useMobileWebViewport';
 import { TitleBarSearch } from '../../components/TitleBarSearch';
 import {
   useWorkspaceMainPageOpen,
@@ -10,7 +11,8 @@ import { cn } from './classNames';
 import { AppRail } from './rail';
 import { SidebarHeader, SidebarResizeHandle } from './sidebar';
 import { TitleBar } from './TitleBar';
-import { IS_MAC } from '../../lib/target';
+import { IS_MAC, IS_WEB } from '../../lib/target';
+import { MobileWebNavigation } from '../../components/MobileWebNavigation';
 import type { ContactNoticeView, ContactTab, MainView, SettingsTab, User } from './types';
 
 export function ChatShell({
@@ -104,15 +106,47 @@ export function ChatShell({
   activeRailItem?: 'settings' | 'dressup';
 }) {
   const pageOpen = useWorkspacePageOpen();
+  const root = useRef<HTMLDivElement>(null);
+  useMobileWebViewport(root, IS_WEB);
   const mainPageOpen = useWorkspaceMainPageOpen();
   const sidecarOpen = useWorkspaceSidecarOpen();
   const sidebarHidden = mainPageOpen || (view === 'messages' && sidecarOpen);
   const shellStyle = {
     '--sidebar-width': `${sidebarHidden ? 0 : sidebarWidth}px`,
   } as CSSProperties;
+  const mobileDetail = pageOpen || ((view === 'messages' || view === 'contacts') && mainOpen);
+  const mobileWorkspace = view !== 'messages' && view !== 'contacts' && view !== 'tools';
 
   return (
-    <div className={cn('app-shell-root', IS_MAC && 'is-mac')}>
+    <div
+      ref={root}
+      className={cn('app-shell-root', IS_MAC && 'is-mac', IS_WEB && 'weq-web-shell')}
+      data-mobile-detail={mobileDetail || undefined}
+      data-mobile-workspace={mobileWorkspace || undefined}
+    >
+      {IS_WEB && (
+        <MobileWebNavigation
+          user={user}
+          view={view}
+          hidden={mobileDetail}
+          query={query}
+          onQueryChange={onQueryChange}
+          onSearchFocus={onSearchFocus}
+          onSearchReturn={onSearchReturn}
+          searchPanel={searchPanel}
+          messageBadgeCount={messageBadgeCount}
+          onMessageBadgeClick={onMessageBadgeClick}
+          contactBadgeCount={contactBadgeCount}
+          mailBadgeCount={mailBadgeCount}
+          onViewChange={onViewChange}
+          onOpenSettings={onOpenSettings}
+          onOpenDressUp={onOpenDressUp}
+          onOpenCollection={onOpenCollection}
+          accountControls={
+            typeof railFooterContent === 'function' ? railFooterContent(null) : railFooterContent
+          }
+        />
+      )}
       <TitleBar
         user={user}
         homeActive={view === 'home'}

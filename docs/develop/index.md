@@ -67,6 +67,7 @@ pnpm dev
 - [QQ 交互修复记录](./qq-actions-fixes-20261020.md) — 免打扰未知态、画像雷达与在线状态 EOF 的字段证据和验证边界。
 - [更新安装退出顺序](./update-install-lifecycle-20261022.md) — 更新专用退出事件、窗口关闭偏好与安装错误恢复。
 - [外观优化进行中](./appearance-optimization-20261022.md) — 主题可读色、公共控件与全应用验收矩阵；不代表整项已完成。
+- [Web 竖屏布局](./mobile-web-layout-20261022.md)：手机主导航、整屏聊天、设置返回层级与可视视口适配。
 - [群文件管理器](./group-file-manager-20261021.md) — 统一列表、来源绑定、拖拽、冲突检查与批次结果的实现边界。
 - [页面自动更新](./qq-actions-auto-refresh-20261021.md) — 前台恢复、隐藏停轮询、读取重试与草稿保护。
 - [群成员编辑入口](./qq-member-edit-permissions-20261021.md) — 角色与目标身份、直接编辑及窗口边界。

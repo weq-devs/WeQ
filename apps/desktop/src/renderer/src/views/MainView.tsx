@@ -17,6 +17,7 @@ import React, {
   type ReactElement,
 } from 'react';
 import { trpc } from '../trpc/client';
+import { IS_WEB } from '../lib/target';
 import { findReplyPreview } from '../lib/replyPreview';
 import { intimateRelationOf } from '../lib/profileRelations';
 import {
@@ -4344,8 +4345,8 @@ export function MainView(): ReactElement {
     contacts: profileContacts,
     conversationPrefs,
     initialActiveConversationId: null,
-    // 进入应用先落在主页（标题栏 logo 那颗按钮），会话由用户显式点选后才进入。
-    initialView: 'home',
+    // 手机直接落在消息列表；桌面保留主页，会话均由用户显式点选。
+    initialView: IS_WEB && isMobileShell() ? 'messages' : 'home',
     sidebarWidthStorageKey: 'weq.desktop.sidebarWidth.v2',
     history: shellHistory,
   });
