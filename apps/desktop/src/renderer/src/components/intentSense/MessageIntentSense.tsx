@@ -3,7 +3,7 @@
  *
  * 两种形态共用一套 pill：
  *  • 常驻行（.weq-intent-chips，气泡 grid 的一个子元素，位于正文下方）——只挂在
- *    最新可分析文本消息上（包含自己），分析中显示 shimmer 占位。
+ *    最新可分析文本及末尾连续自己的文本消息上，最新一条分析中显示 shimmer 占位。
  *  • 悬停弹层（.weq-intent-popover，portal + fixed，空间不足向上避让）——悬停任意消息
  *    250ms 后出现，未命中缓存时触发单条分析并显示加载态。悬停交互仿
  *    SetEmojiReactions 的「延迟开、延迟关」手法，弹层自身 pointer-events:none，
@@ -165,6 +165,7 @@ export function MessageIntentSense({
   const unavailable = isUnavailable?.(msgId) ?? false;
   const isLatestMessage =
     (ctx?.latestMessageId === undefined ? ctx?.latestPeerMsgId : ctx.latestMessageId) === msgId;
+  const showChips = isLatestMessage || ctx?.latestSelfMessageIds?.has(msgId);
   void version;
 
   useEffect(() => {
@@ -336,7 +337,7 @@ export function MessageIntentSense({
           <IntentPillLoading width={40} />
         </span>
       ) : null}
-      {isLatestMessage && result ? (
+      {showChips && result ? (
         <span className="weq-intent-chips">
           <IntentChips result={result} />
         </span>

@@ -504,7 +504,7 @@ export function MessageBubble({
             <span>{reeditArmed && reeditClass ? '重新编辑' : optimisticText}</span>
           </StatusTag>
         ) : null}
-        {/* 意图感知：最新可分析文本（含自己）展示胶囊，悬停文本消息出弹层。
+        {/* 意图感知：最新可分析文本及末尾连续自己的文本展示胶囊，悬停文本消息出弹层。
             数据与悬停监听都在组件内部（经 IntentSenseContext），关掉功能时渲染 null。 */}
         <MessageIntentSense
           msgId={String(message.id)}

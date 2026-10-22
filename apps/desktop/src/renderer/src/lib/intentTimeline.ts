@@ -38,9 +38,12 @@ export function intentTimelineTargets<T extends IntentTimelineMessage>(
   latestMessageId: string | null;
   latestPeerMsgId: string | null;
   latestSuggestionId: string | null;
+  latestSelfMessageIds: string[];
 } {
   let latest: T | undefined;
   let latestMessageId: string | null = null;
+  const latestSelfMessageIds: string[] = [];
+  let inSelfRun = self.size > 0;
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index];
     if (
@@ -53,10 +56,12 @@ export function intentTimelineTargets<T extends IntentTimelineMessage>(
     )
       continue;
     latest ??= message;
+    if (!isSelfIdentity(self, message.senderId)) inSelfRun = false;
     if (!message.optimistic && !message.optimisticRejected && messageHasIntentText(message)) {
-      latestMessageId = message.id;
-      break;
+      latestMessageId ??= message.id;
+      if (inSelfRun) latestSelfMessageIds.push(message.id);
     }
+    if (latestMessageId && !inSelfRun) break;
   }
   const latestPeerMsgId =
     latest &&
@@ -68,5 +73,5 @@ export function intentTimelineTargets<T extends IntentTimelineMessage>(
       : null;
   const latestSuggestionId =
     latest && self.size > 0 && !latest.optimistic && !latest.optimisticRejected ? latest.id : null;
-  return { latestMessageId, latestPeerMsgId, latestSuggestionId };
+  return { latestMessageId, latestPeerMsgId, latestSuggestionId, latestSelfMessageIds };
 }

@@ -998,13 +998,18 @@ export function ChatPane({
   );
   const intentKind = conversation?.type === 'group' ? 'group' : 'c2c';
   const intentConv = intentSupported ? (conversation?.id ?? '') : '';
-  const { latestMessageId, latestPeerMsgId, latestSuggestionId } = useMemo(
+  const { latestMessageId, latestPeerMsgId, latestSuggestionId, latestSelfMessageIds } = useMemo(
     () =>
       intentSupported
         ? intentTimelineTargets(visibleMessages, new Set(selfIdentityValues(user)), (message) =>
             Boolean(grayTipOf(message)),
           )
-        : { latestMessageId: null, latestPeerMsgId: null, latestSuggestionId: null },
+        : {
+            latestMessageId: null,
+            latestPeerMsgId: null,
+            latestSuggestionId: null,
+            latestSelfMessageIds: [],
+          },
     [intentSupported, visibleMessages, user],
   );
   // 选中的消息（按时间线顺序）—— 合并转发 / 删除 / 复制 JSON 都用它。
@@ -4486,6 +4491,7 @@ export function ChatPane({
         conv={intentConv}
         latestPeerMsgId={latestPeerMsgId}
         latestMessageId={latestMessageId}
+        latestSelfMessageIds={latestSelfMessageIds}
       >
         <div
           className={cn('message-scroll', marquee.dragging && 'is-marquee-selecting')}

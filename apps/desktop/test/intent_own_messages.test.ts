@@ -24,6 +24,7 @@ const fixture = vi.hoisted(() => ({
     conv: 'fixture',
     latestPeerMsgId: null,
     latestMessageId: 'own',
+    latestSelfMessageIds: new Set(['own', 'own-before']),
     settled: true,
     getAnalysis: vi.fn(),
     isUnavailable: vi.fn(),
@@ -69,7 +70,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function OwnBubble() {
+function OwnBubble({ msgId = 'own' }: { msgId?: string } = {}) {
   const ref = useRef<HTMLDivElement>(null);
   return h(
     'div',
@@ -81,7 +82,7 @@ function OwnBubble() {
         'div',
         { ref, className: 'message-bubble' },
         h('span', { className: 'message-content qq-text-run' }, '自己的文本'),
-        h(MessageIntentSense, { msgId: 'own', bubbleRef: ref, analyzable: true }),
+        h(MessageIntentSense, { msgId, bubbleRef: ref, analyzable: true }),
       ),
     ),
   );
@@ -107,6 +108,16 @@ it('最新自己的消息常驻显示意图，悬停按自己的气泡右侧对�
   });
   const tooltip = document.querySelector<HTMLElement>('.weq-intent-popover')!;
   expect(Number.parseFloat(tooltip.style.left) + tooltip.getBoundingClientRect().width).toBe(360);
+});
+
+it('连续自己发言时，非最新一条的分析结果仍常驻显示', async () => {
+  const host = await render(h(OwnBubble, { msgId: 'own-before' }));
+  expect(host.querySelector('.weq-intent-chips')?.textContent).toContain('闲聊');
+});
+
+it('更早轮次的自己消息仍仅悬停展示，不扩大常驻范围', async () => {
+  const host = await render(h(OwnBubble, { msgId: 'older-own' }));
+  expect(host.querySelector('.weq-intent-chips')).toBeNull();
 });
 
 it('自己的真实文本容器无需旧 message-text 类也能触发悬停分析', async () => {
