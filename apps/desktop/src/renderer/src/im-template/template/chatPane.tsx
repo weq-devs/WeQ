@@ -107,6 +107,11 @@ import type {
 } from 'react';
 import { loadLayoutNumber, saveLayoutNumber } from './layoutStorage';
 import {
+  composerClipboardFragment,
+  readComposerClipboard,
+  writeComposerClipboard,
+} from './composerClipboard';
+import {
   attachmentToken,
   clipboardFiles,
   createAttachment,
@@ -160,7 +165,7 @@ import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
 import { chatHeaderTitle, isBotConversation, resolveMessageSender } from './conversationDisplay';
 import { createEmojiToken, parseMessageParts } from './emojiPacks';
 import type { EmojiItem } from './emojiPacks';
-import { elementToToken, elementsToComposerText } from './draftElements';
+import { elementToToken, elementsToComposerText, tokenToElement } from './draftElements';
 import { planNeedsLocalMedia, type LocalMediaRef } from './composerSend';
 import { prepareReeditDraft } from './composerReedit';
 import {
@@ -3084,7 +3089,87 @@ export function ChatPane({
     }
   }
 
+  function handleComposerCopy(event: ReactClipboardEvent<HTMLDivElement>) {
+    const editor = event.currentTarget;
+    const range = writeComposerClipboard(editor, event.clipboardData, inlineImagesRef.current);
+    if (!range) return;
+    event.preventDefault();
+    const selected = range.cloneContents();
+    const image = selected.childNodes.length === 1 ? selected.firstChild : null;
+    const element =
+      image instanceof HTMLImageElement ? tokenToElement(image.dataset.chatToken ?? '') : null;
+    if (
+      image instanceof HTMLImageElement &&
+      element &&
+      typeof element === 'object' &&
+      'kind' in element &&
+      element.kind === 'pic'
+    ) {
+      // 单张图片同时走现有系统图片剪贴板，便于粘到其他应用；图文混排保留富文本。
+      void exportMedia({ url: image.src, name: image.alt }, 'clipboard', editor.ownerDocument, {
+        text: event.clipboardData.getData('text/plain'),
+        html: event.clipboardData.getData('text/html'),
+      });
+    }
+    if (event.type === 'cut' && !currentPreference.blocked) {
+      range.deleteContents();
+      range.collapse(true);
+      const selection = editor.ownerDocument.defaultView?.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      syncComposerBody(editor);
+    }
+  }
+
   function handleComposerPaste(event: ReactClipboardEvent<HTMLDivElement>) {
+    const snapshot = readComposerClipboard(event.clipboardData);
+    if (snapshot) {
+      event.preventDefault();
+      const editor = event.currentTarget;
+      const selection = editor.ownerDocument.defaultView?.getSelection();
+      const range = selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+      const conversationId = conversation?.id;
+      const retained = snapshot.images.map((image) =>
+        inlineImagesRef.current.find((item) => item.file === image.file),
+      );
+      const missing = snapshot.images.filter((_image, index) => !retained[index]);
+      if (inlineImagesRef.current.length + missing.length > MAX_COMPOSER_ATTACHMENTS) {
+        setAttachmentError(`最多只能插 ${MAX_COMPOSER_ATTACHMENTS} 张图片`);
+        return;
+      }
+      void createAttachments(missing.map((image) => image.file))
+        .then((created) => {
+          if (
+            !editor.isConnected ||
+            currentComposerEditor() !== editor ||
+            attachmentConversationRef.current !== conversationId
+          ) {
+            for (const image of created) releaseAttachment(image);
+            return;
+          }
+          let next = 0;
+          const images = retained.map((image) => image ?? created[next++]!);
+          inlineImagesRef.current.push(...created);
+          if (
+            range &&
+            editor.contains(range.startContainer) &&
+            editor.contains(range.endContainer)
+          ) {
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+          }
+          insertComposerNode(editor, composerClipboardFragment(snapshot, images), range);
+          syncComposerBody(editor);
+        })
+        .catch((error) =>
+          pushToast({
+            tone: 'error',
+            message: '粘贴图片失败',
+            detail: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      return;
+    }
     // 剪贴板里带文件（截图 / 复制的图片）就吃进来：图片直接内联插进输入框，
     // 视频 / 文件挂成待发送的单独卡片。其余情况当纯文本贴。
     const files = clipboardFiles(event.clipboardData);
@@ -4255,6 +4340,7 @@ export function ChatPane({
       onTouchMoveCapture={handleReadGesture}
       onKeyUpCapture={handleReadGesture}
       onCopyCapture={(event) => {
+        if ((event.target as Element).closest('.composer-editor')) return;
         const rich = selectedMessageClipboard(event.currentTarget);
         if (!rich) return;
         event.clipboardData.setData('text/plain', rich.text);
@@ -5258,6 +5344,8 @@ export function ChatPane({
           }}
           onBlur={() => saveComposerSelection(composerEditorRef.current)}
           onPaste={handleComposerPaste}
+          onCopy={handleComposerCopy}
+          onCut={handleComposerCopy}
         />
         <button
           type="button"
@@ -5321,6 +5409,8 @@ export function ChatPane({
               }}
               onBlur={() => saveComposerSelection(expandedComposerEditorRef.current)}
               onPaste={handleComposerPaste}
+              onCopy={handleComposerCopy}
+              onCut={handleComposerCopy}
             />
             {mentionMenu ? (
               <MentionMenu
