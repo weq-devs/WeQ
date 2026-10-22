@@ -147,23 +147,10 @@ html[data-theme='dark'] .composer-tools button.weq-qq-typing-toggle[aria-pressed
 .weq-qq-keyboard-action > button {
   width: 100%;
 }
-.weq-qq-join-dialog {
-  display: flex;
-  flex-direction: column;
-  max-width: calc(100vw - 24px);
-  max-height: calc(100dvh - 32px);
-  padding: 0;
-  overflow: hidden;
-  color: var(--weq-fg-primary);
-  background: var(--weq-bg-surface);
-}
 .weq-qq-action-summary {
   color: var(--weq-fg-secondary);
   font-size: 12px;
   overflow-wrap: anywhere;
-}
-html[data-theme='dark'] .weq-qq-join-dialog {
-  border-color: var(--weq-border-strong);
 }
 .weq-qq-album-item > .group-album-media-card {
   width: 100%;

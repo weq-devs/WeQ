@@ -9,11 +9,10 @@ import {
 } from '../src/renderer/src/state/contentSelection';
 import { initialContactScope } from '../src/renderer/src/views/export/exportScope';
 
+vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {}, client: {} }));
+
 vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
   OverlayLayer: ({ children }: { children: ReactNode }) => children,
-}));
-vi.mock('../src/renderer/src/components/qq-actions/GroupJoinAction', () => ({
-  GroupJoinAction: () => null,
 }));
 beforeEach(() => vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true));
 afterEach(() => vi.unstubAllGlobals());

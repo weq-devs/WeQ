@@ -20,6 +20,7 @@ export function ConversationActionsMenu({
     disabled?: boolean;
     reason?: string;
     separatorBefore?: boolean;
+    keepOpen?: boolean;
   }>;
   onClose: () => void;
   label?: string;
@@ -89,7 +90,7 @@ export function ConversationActionsMenu({
             className={item.separatorBefore ? 'has-separator' : undefined}
             title={item.reason ?? item.label}
             onClick={() => {
-              onClose();
+              if (!item.keepOpen) onClose();
               item.action();
             }}
           >

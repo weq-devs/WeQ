@@ -56,6 +56,9 @@ import { DirectoryToolbar } from '../../components/DirectoryToolbar';
 import { ConversationSelectionToolbar } from '../../components/ConversationSelectionToolbar';
 import { useConversationBatchActions } from '../../components/useConversationBatchActions';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
+import { FriendConversationActionsMenu } from '../../components/FriendConversationActionsMenu';
+import { useFriendDirectory } from '../../components/FriendDirectoryControls';
+import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
 import { allSelectionIdsSelected, toggleAllSelectionIds } from '../../lib/multiSelection';
 import { WindowedList } from '../../components/WindowedList';
 import '../../styles/conversation-directory.css';
@@ -186,6 +189,7 @@ export function ConversationList({
   const [scope, setScope] = useState<ConversationScope>('all');
   const [scopeOpen, setScopeOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [lookupOpen, setLookupOpen] = useState<QQExactLookupKind | null>(null);
   const [selectingAll, setSelectingAll] = useState(false);
   const createMenuRef = useRef<HTMLDivElement>(null);
   const createTriggerRef = useRef<HTMLButtonElement>(null);
@@ -510,10 +514,35 @@ export function ConversationList({
                 <Users size={16} />
                 新建克隆体群聊
               </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setCreateOpen(false);
+                  setLookupOpen('user');
+                }}
+              >
+                <UserRound size={16} />
+                QQ 号搜索
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setCreateOpen(false);
+                  setLookupOpen('group');
+                }}
+              >
+                <Users size={16} />
+                群号搜索
+              </button>
             </div>
           ) : null}
         </div>
       </DirectoryToolbar>
+      {lookupOpen && (
+        <QQExactLookup key={lookupOpen} kind={lookupOpen} onClose={() => setLookupOpen(null)} />
+      )}
       {loading && !filtered.length ? <ListSkeleton rows={9} /> : null}
       {directory?.loadingError ? (
         <div role="alert">
@@ -795,7 +824,14 @@ export function ConversationList({
         />
       ) : null}
       {actionMenu ? (
-        <ConversationActionsMenu
+        <FriendConversationActionsMenu
+          friendUid={
+            actionMenu.ids.length === 1 &&
+            actionMenu.conversation.type === 'direct' &&
+            actionMenu.conversation.otherUser.kind !== 'bot'
+              ? actionMenu.conversation.otherUser.id
+              : undefined
+          }
           x={actionMenu.x}
           y={actionMenu.y}
           onClose={() => setActionMenu(null)}
@@ -1178,6 +1214,39 @@ export function ContactList({
   loading?: boolean;
 }) {
   const directory = useContext(ContactDirectoryContext);
+  const conversationDirectory = useContext(ConversationDirectoryContext);
+  const friendDirectory = useFriendDirectory();
+  const requestExport = useRequestContentExport();
+  const [actionMenu, setActionMenu] = useState<{
+    x: number;
+    y: number;
+    contact: Contact;
+    ids: string[];
+  } | null>(null);
+  const [categoryMenu, setCategoryMenu] = useState<{ x: number; y: number; id: number } | null>(
+    null,
+  );
+  const [dragTarget, setDragTarget] = useState<number | null>(null);
+  const dragging = useRef<{ category?: number; uids?: string[] } | null>(null);
+  const conversationRows = useMemo(
+    () =>
+      contacts.map(
+        (contact): Conversation =>
+          conversationDirectory?.real?.find(
+            (row) => row.type === 'direct' && row.otherUser.id === contact.id,
+          ) ?? {
+            id: contact.id,
+            type: 'direct',
+            otherUser: contact,
+            group: null,
+            members: [],
+            updatedAt: '',
+            lastMessage: null,
+          },
+      ),
+    [contacts, conversationDirectory?.real],
+  );
+  const batch = useConversationBatchActions(conversationRows);
   const selection = useContentMultiSelect({ kind: 'contacts', container: 'friends' });
   const needle = directory?.query.trim().toLocaleLowerCase() ?? '';
   const matches = useCallback(
@@ -1190,10 +1259,10 @@ export function ContactList({
   );
   const filtered = useMemo(() => contacts.filter(matches), [contacts, matches]);
 
-  // 按好友分组归类，分组内保持原顺序；分组按 categoryId 升序（0「我的好友」在前）。
+  // 特殊分组固定在两端；普通分组按云端排序，组内保持原顺序。
   const categories = useMemo(() => {
     const map = new Map<number, { id: number; name: string; items: Contact[]; order: number }>();
-    categoryDefinitions.forEach((category, index) => {
+    (friendDirectory?.categories ?? categoryDefinitions).forEach((category, index) => {
       map.set(category.id, {
         id: category.id,
         name: category.name || (category.id === 0 ? '我的好友' : '未命名分组'),
@@ -1202,7 +1271,7 @@ export function ContactList({
       });
     });
     for (const contact of filtered) {
-      const id = contact.categoryId ?? 0;
+      const id = friendDirectory?.assignments.get(contact.id) ?? contact.categoryId ?? 0;
       if (!map.has(id))
         map.set(id, {
           id,
@@ -1217,7 +1286,15 @@ export function ContactList({
       ...[...map.values()].sort((first, second) => first.order - second.order),
       ...trailingSections.map((section) => ({ ...section, items: section.items.filter(matches) })),
     ];
-  }, [filtered, categoryDefinitions, specialSections, trailingSections, matches]);
+  }, [
+    filtered,
+    categoryDefinitions,
+    specialSections,
+    trailingSections,
+    matches,
+    friendDirectory?.categories,
+    friendDirectory?.assignments,
+  ]);
   const selectionIds = useMemo(
     () => [...new Set(categories.flatMap((category) => category.items.map((item) => item.id)))],
     [categories],
@@ -1239,7 +1316,7 @@ export function ContactList({
     return <ListSkeleton rows={9} />;
   }
 
-  if (categories.length === 0) {
+  if (categories.length === 0 && !friendDirectory?.error) {
     return (
       <EmptyState
         title="暂无联系人"
@@ -1251,13 +1328,92 @@ export function ContactList({
 
   return (
     <div className={cn('list-stack', 'contact-cat-list')} {...multi.rootProps}>
+      {friendDirectory?.error && (
+        <div className="contact-cat-description" role="alert">
+          <small>好友分组读取失败：{friendDirectory.error}</small>
+          <button
+            type="button"
+            title="重新读取好友分组"
+            aria-label="重新读取好友分组"
+            onClick={friendDirectory.retry}
+          >
+            <RefreshCw size={14} />
+          </button>
+        </div>
+      )}
       {categories.map((category) => {
-        const open = Boolean(expanded[category.id]) || Boolean(needle) || selection.selectionMode;
+        const open = Boolean(expanded[category.id]) || Boolean(needle);
         return (
           <div className={cn('contact-cat')} key={category.id}>
             <button
               type="button"
               className={cn('contact-cat-header')}
+              draggable={
+                typeof category.id === 'number' &&
+                friendDirectory?.available &&
+                !friendDirectory.busy
+              }
+              onDragStart={(event) => {
+                if (typeof category.id !== 'number') return;
+                dragging.current = { category: category.id };
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', String(category.id));
+              }}
+              onDragEnd={() => {
+                dragging.current = null;
+                setDragTarget(null);
+              }}
+              onDragOver={(event) => {
+                if (
+                  typeof category.id !== 'number' ||
+                  !dragging.current ||
+                  !friendDirectory?.available ||
+                  friendDirectory.busy
+                )
+                  return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+                setDragTarget(category.id);
+              }}
+              onDragLeave={() => setDragTarget(null)}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDragTarget(null);
+                const source = dragging.current;
+                dragging.current = null;
+                if (
+                  typeof category.id !== 'number' ||
+                  !source ||
+                  !friendDirectory?.available ||
+                  friendDirectory.busy
+                )
+                  return;
+                if (source.category !== undefined && source.category !== category.id)
+                  friendDirectory.sort(source.category, category.id);
+                else if (source.uids?.length) friendDirectory.move(source.uids, category.id);
+              }}
+              style={
+                dragTarget === category.id
+                  ? { outline: '2px solid var(--weq-accent-effective)', outlineOffset: -2 }
+                  : undefined
+              }
+              onContextMenu={(event) => {
+                if (typeof category.id !== 'number') return;
+                event.preventDefault();
+                setActionMenu(null);
+                setCategoryMenu({ x: event.clientX, y: event.clientY, id: category.id });
+              }}
+              onKeyDown={(event) => {
+                if (
+                  typeof category.id !== 'number' ||
+                  (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                )
+                  return;
+                event.preventDefault();
+                const rect = event.currentTarget.getBoundingClientRect();
+                setActionMenu(null);
+                setCategoryMenu({ x: rect.left, y: rect.bottom, id: category.id });
+              }}
               aria-expanded={open}
               onClick={() =>
                 setExpanded((current) => ({
@@ -1307,7 +1463,52 @@ export function ContactList({
                         selection.selectionMode ? selection.selectedIds.has(contact.id) : undefined
                       }
                       {...multi.itemProps(contact.id)}
-                      onClick={() => onSelect(contact)}
+                      draggable={
+                        contacts.some((row) => row.id === contact.id) &&
+                        friendDirectory?.available &&
+                        !friendDirectory.busy
+                      }
+                      onDragStart={(event) => {
+                        const ids =
+                          selection.selectionMode && selection.selectedIds.has(contact.id)
+                            ? [...selection.selectedIds]
+                            : [contact.id];
+                        const uids = ids.filter((id) => contacts.some((row) => row.id === id));
+                        if (uids.length !== ids.length || !uids.length) {
+                          event.preventDefault();
+                          return;
+                        }
+                        dragging.current = { uids };
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('text/plain', uids.join(','));
+                      }}
+                      onDragEnd={() => {
+                        dragging.current = null;
+                        setDragTarget(null);
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        setCategoryMenu(null);
+                        setActionMenu({
+                          x: event.clientX,
+                          y: event.clientY,
+                          contact,
+                          ids:
+                            selection.selectionMode && selection.selectedIds.has(contact.id)
+                              ? [...selection.selectedIds]
+                              : [contact.id],
+                        });
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                          return;
+                        event.preventDefault();
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setActionMenu({ x: rect.left, y: rect.bottom, contact, ids: [contact.id] });
+                      }}
+                      onClick={() => {
+                        if (!selection.selectionMode) onSelect(contact);
+                      }}
                     >
                       <span className="contact-relation-avatar">
                         <Avatar
@@ -1360,6 +1561,112 @@ export function ContactList({
           </div>
         );
       })}
+      {actionMenu && (
+        <FriendConversationActionsMenu
+          x={actionMenu.x}
+          y={actionMenu.y}
+          onClose={() => setActionMenu(null)}
+          label="联系人操作"
+          friendUid={
+            actionMenu.ids.length === 1 && contacts.some((row) => row.id === actionMenu.contact.id)
+              ? actionMenu.contact.id
+              : undefined
+          }
+          actions={[
+            {
+              label: '多选',
+              icon: <ListChecks size={16} />,
+              action: () => {
+                selection.setSelectionMode(true);
+                selection.setSelectedIds(new Set(actionMenu.ids));
+              },
+            },
+            ...(actionMenu.ids.length === 1 &&
+            conversationDirectory?.onAnalyze &&
+            conversationAnalysisTarget(
+              conversationRows.find((row) => row.id === actionMenu.contact.id),
+            )
+              ? [
+                  {
+                    label: '分析',
+                    icon: <BarChart3 size={16} />,
+                    action: () =>
+                      conversationDirectory.onAnalyze(
+                        conversationRows.find((row) => row.id === actionMenu.contact.id),
+                      ),
+                  },
+                ]
+              : []),
+            ...(actionMenu.ids.length === 1 &&
+            conversationDirectory?.onEditRemark &&
+            contacts.some((row) => row.id === actionMenu.contact.id)
+              ? [
+                  {
+                    label: '修改好友备注',
+                    icon: <PenLine size={16} />,
+                    action: () =>
+                      conversationDirectory.onEditRemark(
+                        conversationRows.find((row) => row.id === actionMenu.contact.id),
+                      ),
+                  },
+                ]
+              : []),
+            ...(requestExport
+              ? [
+                  {
+                    label: actionMenu.ids.length > 1 ? '导出所选会话' : '导出',
+                    icon: <Download size={16} />,
+                    action: () => batch.runExport(actionMenu.ids),
+                  },
+                ]
+              : []),
+            ...(conversationDirectory?.onRoaming
+              ? [
+                  {
+                    label: actionMenu.ids.length > 1 ? '拉取所选会话漫游消息' : '拉取漫游消息',
+                    icon: <CloudDownload size={16} />,
+                    action: () => batch.runRoaming(actionMenu.ids),
+                  },
+                ]
+              : []),
+          ]}
+        />
+      )}
+      {categoryMenu && (
+        <ConversationActionsMenu
+          x={categoryMenu.x}
+          y={categoryMenu.y}
+          onClose={() => setCategoryMenu(null)}
+          label="分组操作"
+          actions={[
+            {
+              label: '重命名',
+              icon: <PenLine size={16} />,
+              disabled: !friendDirectory?.available || friendDirectory.busy,
+              action: () => friendDirectory?.edit('rename', categoryMenu.id),
+            },
+            {
+              label: '删除分组',
+              icon: <Trash2 size={16} />,
+              disabled: !categoryMenu.id || !friendDirectory?.available || friendDirectory.busy,
+              action: () => friendDirectory?.edit('delete', categoryMenu.id),
+            },
+            {
+              label: '移到最前',
+              icon: <ChevronRight size={16} />,
+              disabled: !friendDirectory?.available || friendDirectory.busy,
+              action: () => friendDirectory?.sort(categoryMenu.id, 'first'),
+            },
+            {
+              label: '移到最后',
+              icon: <ChevronRight size={16} />,
+              disabled: !friendDirectory?.available || friendDirectory.busy,
+              action: () => friendDirectory?.sort(categoryMenu.id, 'last'),
+            },
+          ]}
+        />
+      )}
+      {batch.confirmation}
     </div>
   );
 }

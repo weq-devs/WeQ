@@ -138,6 +138,7 @@ import { GroupInfoDetailDialog } from '../components/GroupInfoDetailDialog';
 import type { GroupInfoDetail } from '../im-template/template/conversationDetails';
 import { ConversationSettingsDialog } from '../components/ConversationSettingsDialog';
 import { QQRemarkDialog } from '../components/QQRemarkDialog';
+import { FriendDirectoryControls } from '../components/FriendDirectoryControls';
 import { GroupEssenceDialog } from '../components/GroupEssenceDialog';
 import {
   projectGroupEssence,
@@ -10081,50 +10082,52 @@ export function MainView(): ReactElement {
                   },
                 }}
               >
-                <ContactDirectoryContext.Provider
-                  value={{
-                    query: contactDirectoryQuery,
-                    onQuery: setContactDirectoryQuery,
-                    ids:
-                      shell.contactTab === 'friends'
-                        ? [
-                            ...buddyContacts,
-                            ...specialContactSections.flatMap((section) => section.items),
-                            ...historicalContactSections.flatMap((section) => section.items),
-                          ]
-                            .filter(
-                              (contact) =>
-                                !contactDirectoryQuery ||
-                                `${displayUserName(contact)} ${contact.identityValue}`
-                                  .toLocaleLowerCase()
-                                  .includes(contactDirectoryQuery.toLocaleLowerCase()),
-                            )
-                            .map((contact) => contact.id)
-                        : contactDirectoryConversations
-                            .filter(
-                              (conversation) =>
-                                conversation.type === 'group' &&
-                                (!contactDirectoryQuery ||
-                                  `${conversation.group.name} ${conversation.id}`
+                <FriendDirectoryControls>
+                  <ContactDirectoryContext.Provider
+                    value={{
+                      query: contactDirectoryQuery,
+                      onQuery: setContactDirectoryQuery,
+                      ids:
+                        shell.contactTab === 'friends'
+                          ? [
+                              ...buddyContacts,
+                              ...specialContactSections.flatMap((section) => section.items),
+                              ...historicalContactSections.flatMap((section) => section.items),
+                            ]
+                              .filter(
+                                (contact) =>
+                                  !contactDirectoryQuery ||
+                                  `${displayUserName(contact)} ${contact.identityValue}`
                                     .toLocaleLowerCase()
-                                    .includes(contactDirectoryQuery.toLocaleLowerCase())),
-                            )
-                            .map((conversation) => conversation.id),
-                  }}
-                >
-                  <WorkspacePages
-                    navigationKey={`${shell.view}:${shell.activeConversationId ?? ''}:${shell.selectedContactId ?? ''}:${shell.selectedGroupConversationId ?? ''}:${surfaceNavigation}`}
-                    onNavigate={() => {
-                      setSettingsOpen(false);
-                      setConvSettings(null);
-                      setRemarkTarget(null);
+                                    .includes(contactDirectoryQuery.toLocaleLowerCase()),
+                              )
+                              .map((contact) => contact.id)
+                          : contactDirectoryConversations
+                              .filter(
+                                (conversation) =>
+                                  conversation.type === 'group' &&
+                                  (!contactDirectoryQuery ||
+                                    `${conversation.group.name} ${conversation.id}`
+                                      .toLocaleLowerCase()
+                                      .includes(contactDirectoryQuery.toLocaleLowerCase())),
+                              )
+                              .map((conversation) => conversation.id),
                     }}
                   >
-                    <GroupAlbumCardNavigationProvider binding={pinSession.binding}>
-                      {chatContent}
-                    </GroupAlbumCardNavigationProvider>
-                  </WorkspacePages>
-                </ContactDirectoryContext.Provider>
+                    <WorkspacePages
+                      navigationKey={`${shell.view}:${shell.activeConversationId ?? ''}:${shell.selectedContactId ?? ''}:${shell.selectedGroupConversationId ?? ''}:${surfaceNavigation}`}
+                      onNavigate={() => {
+                        setSettingsOpen(false);
+                        setConvSettings(null);
+                        setRemarkTarget(null);
+                      }}
+                    >
+                      <GroupAlbumCardNavigationProvider binding={pinSession.binding}>
+                        {chatContent}
+                      </GroupAlbumCardNavigationProvider>
+                    </WorkspacePages>
+                  </ContactDirectoryContext.Provider>
+                </FriendDirectoryControls>
               </ConversationDirectoryContext.Provider>
             </QzoneCardNavigationContext.Provider>
           </ChatNavigationContext.Provider>

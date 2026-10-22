@@ -63,6 +63,8 @@
 
 .weq-titlebar-search-results {
   position: fixed;
+  display: flex;
+  flex-direction: column;
   z-index: 110;
   -webkit-app-region: no-drag;
 }
@@ -72,6 +74,20 @@
   inset: auto;
   max-height: calc(100dvh - 120px);
   overflow-y: auto;
+}
+
+/* 全局搜索正文不能被原侧栏的绝对定位脱离文档流，否则外层滚动容器只剩查询按钮的高度。 */
+.weq-titlebar-search-results > .weq-search-dropdown {
+  position: relative;
+  inset: auto;
+  margin: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.weq-titlebar-search-results > .weq-cloud-lookup-entry {
+  flex: none;
 }
 
 .app-title-bar-user {

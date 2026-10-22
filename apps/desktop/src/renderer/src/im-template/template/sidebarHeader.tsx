@@ -12,10 +12,11 @@ import {
 } from 'lucide-react';
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { ContactDirectoryContext } from '../../lib/conversationDirectory';
+import { FriendGroupCreateMenu } from '../../components/FriendGroupCreateMenu';
+import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
 import { useContentMultiSelect, useRequestContentExport } from '../../state/contentSelection';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
-import { GroupJoinAction } from '../../components/qq-actions/GroupJoinAction';
 import { allSelectionIdsSelected, toggleAllSelectionIds } from '../../lib/multiSelection';
 import { cn } from './classNames';
 import { Avatar } from './primitives';
@@ -71,7 +72,7 @@ export function SidebarHeader({
   groupNoticeCount?: number;
 }) {
   const [addOpen, setAddOpen] = useState(false);
-  const [joinOpen, setJoinOpen] = useState(false);
+  const [lookupOpen, setLookupOpen] = useState<QQExactLookupKind | null>(null);
   const directory = useContext(ContactDirectoryContext);
   const selection = useContentMultiSelect({ kind: 'contacts', container: contactTab });
   const requestExport = useRequestContentExport();
@@ -135,11 +136,21 @@ export function SidebarHeader({
               type="button"
               onClick={() => {
                 setAddOpen(false);
-                setJoinOpen(true);
+                setLookupOpen('user');
+              }}
+            >
+              <Search size={18} />
+              <span>QQ 号搜索</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAddOpen(false);
+                setLookupOpen('group');
               }}
             >
               <UsersRound size={18} />
-              <span>申请加入 QQ 群</span>
+              <span>群号搜索</span>
             </button>
             <button type="button" onClick={handleCreateGroup}>
               <UsersRound size={18} />
@@ -174,7 +185,9 @@ export function SidebarHeader({
       )}
     >
       <div className={cn('mobile-sidebar-top')}>
-        {joinOpen && <GroupJoinAction onClose={() => setJoinOpen(false)} />}
+        {lookupOpen && (
+          <QQExactLookup key={lookupOpen} kind={lookupOpen} onClose={() => setLookupOpen(null)} />
+        )}
         <button className={cn('mobile-sidebar-avatar')} type="button" onClick={onOpenProfile}>
           <Avatar
             name={displayUserName(user)}
@@ -251,6 +264,12 @@ export function SidebarHeader({
                 <RefreshCw size={15} className={refreshingContacts ? 'spin' : undefined} />
               </button>
             ) : null}
+            <FriendGroupCreateMenu
+              showGroup={contactTab === 'friends'}
+              onLookup={setLookupOpen}
+              onCreateGroup={handleCreateGroup}
+              onQuickInvite={handleQuickInvite}
+            />
           </DirectoryToolbar>
           {exportMenu && requestExport && (
             <ConversationActionsMenu
@@ -328,21 +347,6 @@ export function SidebarHeader({
                 群聊
               </button>
             </div>
-            {contactTab === 'groups' && (
-              <button
-                type="button"
-                className="weq-contact-join-entry"
-                title="申请加入 QQ 群"
-                aria-label="申请加入 QQ 群"
-                onClick={() => {
-                  setAddOpen(false);
-                  setJoinOpen(true);
-                }}
-              >
-                <UsersRound size={15} aria-hidden />
-                加入群聊
-              </button>
-            )}
           </div>
         </div>
       ) : null}

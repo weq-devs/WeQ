@@ -1,0 +1,125 @@
+.weq-friend-directory-editor {
+  padding: 18px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+}
+.weq-friend-directory-editor header,
+.weq-friend-directory-editor footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+}
+.weq-friend-directory-editor h3 {
+  font-size: 16px;
+  margin: 0;
+}
+.weq-friend-directory-editor form {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+.weq-friend-directory-editor label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+.weq-friend-directory-editor input,
+.weq-friend-directory-editor select {
+  min-width: 0;
+  width: 100%;
+  padding: 8px;
+  background: var(--background);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.weq-friend-directory-editor button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--foreground);
+  background: var(--background);
+}
+.weq-friend-directory-editor button:disabled {
+  opacity: 0.5;
+}
+.weq-friend-directory-editor footer {
+  justify-content: flex-end;
+}
+.weq-friend-directory-editor button[type='submit'] {
+  color: var(--foreground);
+  border-color: var(--weq-accent-effective);
+}
+.contact-cat-header.is-drag-target {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+html[data-theme='dark'] .weq-friend-directory-editor {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}
+.weq-friend-directory-editor textarea {
+  width: 100%;
+  min-height: 100px;
+  resize: vertical;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+}
+.weq-cloud-lookup-entry,
+.weq-common-relations {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  color: var(--foreground);
+  background: var(--background);
+  border: 0;
+  font-size: 13px;
+}
+.weq-cloud-lookup-entry {
+  width: 100%;
+  border-top: 1px solid var(--border);
+  text-align: left;
+}
+.weq-common-relations {
+  flex-wrap: wrap;
+  background: transparent;
+  padding: 8px 0;
+}
+.weq-common-relations button {
+  color: var(--foreground);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+  cursor: pointer;
+}
+.weq-common-relations button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.weq-common-relations ul {
+  list-style: none;
+  padding: 0;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+.weq-common-relations li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.weq-common-relations small {
+  display: block;
+  color: var(--muted-foreground);
+}

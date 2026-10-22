@@ -1651,7 +1651,6 @@ export const accountRouter = router({
       requireQqOnlineForAlbum(services);
       return services;
     },
-    undefined,
     (input) => requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
   ),
   qqWrite: createQQWriteRouter(
