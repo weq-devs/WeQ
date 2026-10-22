@@ -29,6 +29,7 @@ pnpm dev
 - [窗口与浮层](./nonmodal-surfaces-20261018.md)：页面、侧栏、浮窗、锚定窗格与模态层的职责。
 - [页面现场保留](./tab-state-retention-20261015.md)：活动性、隐藏页监听与内存状态边界。
 - [原生 QQ 邮箱](./qqmail-native-20261017.md)：账号级认证、邮件协议、附件、正文隔离与提醒生命周期。
+- [Remote 手机壳独立仓库](./remote-repository-split-20261023.md)：手机源码、构建和协议测试的维护边界与电脑夹具入口。
 - [会话分析时间轴 + 我的主场轮盘](./conversation-timeline-home-wheel-20261018.md) — 默认最近一年、拖动重算、全历史绿墙与群聊卡片轮盘的翻页守卫
 - [引用、提及与 +1](./message-mentions-repeat-20261017.md)：唯一身份剪贴板、当前账号名称解析与相同消息重发
 - [多选修饰键与键盘契约](./multi-selection-keyboard-20261017.md)：选择组、范围锚点、键盘隔离与业务限制。
