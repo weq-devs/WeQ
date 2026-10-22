@@ -36,7 +36,7 @@ import { QqWallet } from './QqWallet';
 import { QqGroupReceipt } from './QqGroupReceipt';
 import { QqCall } from './QqCall';
 import { QqShareLocation } from './QqShareLocation';
-import { QqDynamic } from './QqDynamic';
+import { QqDynamic, qqDynamicElementProps } from './QqDynamic';
 import { QqEmojiBounce } from './QqEmojiBounce';
 import { WindowShakeMessage } from './WindowShakeMessage';
 import { QqLinkCard } from './QqLinkCard';
@@ -855,20 +855,7 @@ export function QqMessageContent({
     const d = (qqDynamicElement.data ?? {}) as Record<string, unknown>;
     return (
       <div className={cn('message-content', 'qq-card-only')}>
-        <QqDynamic
-          dynamicType={d.dynamicType as number | undefined}
-          desc={d.dynamicDesc as { mainDesc?: string; subDesc?: string } | undefined}
-          desc2={d.dynamicDesc2 as { mainDesc?: string; subDesc?: string } | undefined}
-          coverUrl={d.dynamicCoverUrl as string | undefined}
-          zoneLogoUrl={d.dynamicZoneLogoUrl as string | undefined}
-          publisherUin={d.dynamicPublisherUin as number[] | undefined}
-          meta={d.dynamicMeta as string | undefined}
-          tags={
-            d.dynamicTags as
-              | { flag48191?: boolean; tagId?: number; tagContent?: string }[]
-              | undefined
-          }
-        />
+        <QqDynamic {...qqDynamicElementProps(d)} />
       </div>
     );
   }

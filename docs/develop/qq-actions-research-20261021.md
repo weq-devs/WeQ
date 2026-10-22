@@ -41,6 +41,13 @@
 - 现有 `qqDynamic` 元素已支持 JSON `jump_schema` → `mqqapi://qzoneschema` → `mqzone://arouse/detail` 的 `appid=311` 说说目标，并已有组件点击回归。
 - 这不覆盖所有系统消息载荷。下一步需要定位用户所指失败卡片的具体元素类型和脱敏载荷，不能从「动态」文案或发布者 QQ 号猜测跳转目标。
 
+### 2026-10-22 精确定位与修复
+
+- 按用户补充的位置，只读指定好友会话的相邻记录，确认是 msgType=23 的 QQ_DYNAMIC type=2。meta 已包含 `mqqapi://qzoneschema` → `mqzone://arouse/detail` 的合法 `appid=311`、uin 与 cellid，现有目标解析能识别；没有从文案、dynamicId 或发布者推测说说身份。
+- 真正断点是 `messageRow.tsx` 将动态分流为系统消息后，只传入描述和图片，漏掉 dynamicMeta 等字段。此前仅直接挂载 QqDynamic 的测试无法覆盖这层丢失。
+- 系统消息与普通气泡现在共用 `qqDynamicElementProps` 完整映射，保留类型、描述、图片、发布者、meta 和标签。新增实际 MessageRow 的 `qqElements`／转发 `elements` 两条路径回归，验证鼠标、Enter／Space 的精确内部目标；未知 appid 不跳转。
+- 原始消息与 URL 查询值没有写入仓库；脱敏结构报告只保存字段形状。未联网读取真实说说或改写 QQ 数据，详情页的可访问性仍由现有读取接口报告。浏览器真实组件仅使用同结构合成身份，验证桌面／窄屏深浅主题与键盘操作。
+
 ## 群相册 Ark 与评论卡片
 
 - 当前 `QqArk` 的通用外壳仅将已识别的个人空间永久链接交给 `QzoneCardNavigationContext`，并没有群相册的已确认载荷解析与导航契约；`GroupAlbumDialog` 的浏览和互动入口不能证明聊天卡片也已接通。

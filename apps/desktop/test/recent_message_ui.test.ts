@@ -472,7 +472,7 @@ describe('新增消息交互', () => {
       fixture.close();
     }
   });
-  it('右键转发传真实消息，多选操作栏只有图标和提示', () => {
+  it('右键转发传真实消息，多选操作栏只有图标和提示', async () => {
     const fixture = mount();
     const demo = createTemplateDemoData();
     const forward = vi.fn();
@@ -527,9 +527,9 @@ describe('新增消息交互', () => {
         expect(action.getAttribute('aria-label')).toBeTruthy();
       }
       act(() => button(fixture.host, '转发').click());
-      act(() => button(document.body, '逐条转发').click());
+      await act(async () => button(document.body, '逐条转发').click());
       expect(forward).toHaveBeenCalledTimes(2);
-      act(() => button(fixture.host, '添加到素材库').click());
+      await act(async () => button(fixture.host, '添加到素材库').click());
       expect(composition).toHaveBeenCalledTimes(2);
     } finally {
       fixture.close();
