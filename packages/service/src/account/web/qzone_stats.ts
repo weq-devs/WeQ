@@ -8,7 +8,7 @@ interface StatsResponse {
   error?: { type?: number; msg?: string };
   data?: {
     module_16?: { code?: number; data?: { SS?: unknown; XC?: unknown } };
-    modvisitcount?: Array<{ totalcount?: unknown; todaycount?: unknown }>;
+    modvisitcount?: Array<{ mod?: unknown; totalcount?: unknown; todaycount?: unknown }>;
   };
 }
 
@@ -38,9 +38,16 @@ export function parseQzoneContentCounts(text: string) {
 }
 
 export function parseQzoneVisitorCount(text: string): number | null {
+  return parseQzoneVisitorStats(text).totalCount;
+}
+
+export function parseQzoneVisitorStats(text: string) {
   const rows = accepted(text).data?.modvisitcount;
-  // mask=1 asks only for space visits. Never add unrelated module counters or list lengths.
-  return Array.isArray(rows) && rows.length === 1 ? count(rows[0]?.totalcount) : null;
+  const matches = Array.isArray(rows) ? rows.filter((row) => row.mod === 0) : [];
+  return {
+    totalCount: matches.length === 1 ? count(matches[0]?.totalcount) : null,
+    todayCount: matches.length === 1 ? count(matches[0]?.todaycount) : null,
+  };
 }
 
 async function readStats(
@@ -82,6 +89,18 @@ export async function fetchQzoneVisitorCount(
     await readStats(
       cred,
       hostUin,
+      'g.qzone.qq.com/cgi-bin/friendshow/cgi_get_visitor_simple',
+      { mask: '1' },
+      signal,
+    ),
+  );
+}
+
+export async function fetchQzoneVisitorStats(cred: WebCredential, signal?: AbortSignal) {
+  return parseQzoneVisitorStats(
+    await readStats(
+      cred,
+      cred.uin,
       'g.qzone.qq.com/cgi-bin/friendshow/cgi_get_visitor_simple',
       { mask: '1' },
       signal,

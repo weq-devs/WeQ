@@ -944,6 +944,8 @@ function SpaceStats({ selfUin, hostUin }: { selfUin: string; hostUin: string }) 
   const [stats, setStats] = useState<{
     postCount: number | null;
     photoCount: number | null;
+    totalCount: number | null;
+    todayCount: number | null;
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -974,6 +976,12 @@ function SpaceStats({ selfUin, hostUin }: { selfUin: string; hostUin: string }) 
   const items = [
     ['说说', stats?.postCount],
     ['照片', stats?.photoCount],
+    ...(hostUin === selfUin
+      ? ([
+          ['累计访问', stats?.totalCount],
+          ['今日访问', stats?.todayCount],
+        ] as const)
+      : []),
   ] as const;
   return (
     <div className="weq-qzn-space-stats" aria-label="空间统计" aria-busy={loading}>
