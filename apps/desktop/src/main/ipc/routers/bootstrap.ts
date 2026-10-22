@@ -1209,7 +1209,7 @@ export const bootstrapRouter = router({
       } else {
         const started = await daemonReleaseWatchStart({
           api_base: 'https://api.github.com',
-          repo: 'H3CoF6/WeQ',
+          repo: 'weq-devs/WeQ',
           interval_secs: 3600,
           current_version: getHost().appVersion(),
         });

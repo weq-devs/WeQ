@@ -370,13 +370,13 @@ export function DaemonSection({
             }
             desc={
               releaseData?.currentVersion
-                ? `当前版本 v${releaseData.currentVersion} · 仓库 H3CoF6/WeQ`
-                : '仓库 H3CoF6/WeQ'
+                ? `当前版本 v${releaseData.currentVersion} · 仓库 weq-devs/WeQ`
+                : '仓库 weq-devs/WeQ'
             }
             control={
               <a
                 className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-                href="https://github.com/H3CoF6/WeQ/releases"
+                href="https://github.com/weq-devs/WeQ/releases"
                 target="_blank"
                 rel="noreferrer"
               >

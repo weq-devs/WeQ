@@ -398,7 +398,7 @@ export const helpRouter = router({
           'issue',
           'create',
           '-R',
-          'H3CoF6/WeQ',
+          'weq-devs/WeQ',
           '--title',
           input.title,
           '--body-file',

@@ -167,7 +167,7 @@ mod tests {
             Request::HttpStatus,
             Request::ReleaseWatchStart(ReleaseWatchConfig {
                 api_base: "https://api.github.com".into(),
-                repo: "H3CoF6/WeQ".into(),
+                repo: "weq-devs/WeQ".into(),
                 interval_secs: 3600,
                 current_version: "0.4.6".into(),
             }),
@@ -203,7 +203,7 @@ mod tests {
             },
             Response::ReleaseWatchStatus(ReleaseWatchInfo {
                 watching: true,
-                repo: Some("H3CoF6/WeQ".into()),
+                repo: Some("weq-devs/WeQ".into()),
                 interval_secs: Some(3600),
                 current_version: Some("0.4.6".into()),
                 latest_seen: Some("0.5.0".into()),
@@ -231,12 +231,12 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&Request::ReleaseWatchStart(ReleaseWatchConfig {
                 api_base: "https://api.github.com".into(),
-                repo: "H3CoF6/WeQ".into(),
+                repo: "weq-devs/WeQ".into(),
                 interval_secs: 3600,
                 current_version: String::new(),
             }))
             .unwrap(),
-            r#"{"cmd":"release_watch_start","api_base":"https://api.github.com","repo":"H3CoF6/WeQ","interval_secs":3600,"current_version":""}"#
+            r#"{"cmd":"release_watch_start","api_base":"https://api.github.com","repo":"weq-devs/WeQ","interval_secs":3600,"current_version":""}"#
         );
         assert_eq!(
             serde_json::to_string(&Request::AutostartSet(AutostartMemory {
@@ -252,7 +252,7 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&Response::ReleaseWatchStatus(ReleaseWatchInfo {
                 watching: true,
-                repo: Some("H3CoF6/WeQ".into()),
+                repo: Some("weq-devs/WeQ".into()),
                 interval_secs: Some(3600),
                 current_version: Some("1.0.0".into()),
                 latest_seen: None,
@@ -260,7 +260,7 @@ mod tests {
                 last_error: None,
             }))
             .unwrap(),
-            r#"{"res":"release_watch_status","watching":true,"repo":"H3CoF6/WeQ","interval_secs":3600,"current_version":"1.0.0","latest_seen":null,"pending":null,"last_error":null}"#
+            r#"{"res":"release_watch_status","watching":true,"repo":"weq-devs/WeQ","interval_secs":3600,"current_version":"1.0.0","latest_seen":null,"pending":null,"last_error":null}"#
         );
     }
 

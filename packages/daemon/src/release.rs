@@ -343,13 +343,13 @@ mod tests {
     #[test]
     fn url_shape() {
         assert_eq!(
-            latest_url("https://api.github.com", "H3CoF6/WeQ"),
-            "https://api.github.com/repos/H3CoF6/WeQ/releases/latest"
+            latest_url("https://api.github.com", "weq-devs/WeQ"),
+            "https://api.github.com/repos/weq-devs/WeQ/releases/latest"
         );
         // 容忍多余斜杠 / 尾斜杠（WeQ 侧手抖不炸协议）。
         assert_eq!(
-            latest_url("https://api.github.com/", "/H3CoF6/WeQ/"),
-            "https://api.github.com/repos/H3CoF6/WeQ/releases/latest"
+            latest_url("https://api.github.com/", "/weq-devs/WeQ/"),
+            "https://api.github.com/repos/weq-devs/WeQ/releases/latest"
         );
     }
 
@@ -382,7 +382,7 @@ mod tests {
             pending: Some("0.5.0".into()),
             config: Some(ReleaseWatchConfig {
                 api_base: "https://api.github.com".into(),
-                repo: "H3CoF6/WeQ".into(),
+                repo: "weq-devs/WeQ".into(),
                 interval_secs: 3600,
                 current_version: "0.4.6".into(),
             }),

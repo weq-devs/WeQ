@@ -49,7 +49,7 @@ export interface AppUpdate {
 /** `https://gh-proxy.com/https://github.com/.../download` → `gh-proxy.com`。 */
 export function mirrorLabel(base: string | null): string {
   if (!base) return '';
-  const stripped = base.replace('https://github.com/H3CoF6/WeQ/releases/latest/download', '');
+  const stripped = base.replace('https://github.com/weq-devs/WeQ/releases/latest/download', '');
   if (!stripped) return 'github.com（直连）';
   try {
     return new URL(stripped).host;

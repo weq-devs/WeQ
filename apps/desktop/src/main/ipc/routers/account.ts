@@ -7178,7 +7178,7 @@ export const accountRouter = router({
           }
         };
         if (input.target === 'github') {
-          await openExternal('https://github.com/H3CoF6/WeQ/issues', '打开 GitHub 失败');
+          await openExternal('https://github.com/weq-devs/WeQ/issues', '打开 GitHub 失败');
         } else {
           await openExternal(
             'tencent://ntqq-open/?subCmd=flashTransfer&action=openTransPage&actionParams={"fileSetId":"","allChecked":"","selectedItems":"","sourceType":"share"}',

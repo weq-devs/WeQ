@@ -1,6 +1,6 @@
 ![banner](./resources/brand/banner.png)
 
-![GitHub Repo stars](https://img.shields.io/github/stars/H3CoF6/WeQ?style=flat-square)![GitHub forks](https://img.shields.io/github/forks/H3CoF6/WeQ?style=flat-square)![GitHub issues](https://img.shields.io/github/issues/H3CoF6/WeQ?style=flat-square)![GitHub pull requests](https://img.shields.io/github/issues-pr/H3CoF6/WeQ?style=flat-square)![GitHub all releases](https://img.shields.io/github/downloads/H3CoF6/WeQ/total?style=flat-square)
+![GitHub Repo stars](https://img.shields.io/github/stars/weq-devs/WeQ?style=flat-square)![GitHub forks](https://img.shields.io/github/forks/weq-devs/WeQ?style=flat-square)![GitHub issues](https://img.shields.io/github/issues/weq-devs/WeQ?style=flat-square)![GitHub pull requests](https://img.shields.io/github/issues-pr/weq-devs/WeQ?style=flat-square)![GitHub all releases](https://img.shields.io/github/downloads/weq-devs/WeQ/total?style=flat-square)
 
 **WeQ** 是一个 NTQQ 自主的本地数据库解密、解析与导出工具。
 
@@ -75,7 +75,7 @@ start.bat         # Windows
 开始运行：
 
 ```bash
-git clone https://github.com/H3CoF6/WeQ   # 克隆仓库代码
+git clone https://github.com/weq-devs/WeQ   # 克隆仓库代码
 cd WeQ
 
 pnpm i                     # 安装依赖（electron可能需要单独处理）
@@ -87,7 +87,7 @@ pnpm dev                   # 启动开发服务器
 ```
 
 > `native/**/nt_helper.node` 与 `resources/dress/*.dat` 不在仓库里（历史太大），
-> 由 [nt_helper_release](https://github.com/H3CoF6/nt_helper_release) 分发，
+> 由 [nt_helper_release](https://github.com/weq-devs/nt_helper_release) 分发，
 > 隔一段时间重新 `pnpm native:fetch` 一次即可 —— 细节见
 > [原生二进制与装扮资源的分发](./docs/develop/native-artifacts.md)。
 
@@ -113,8 +113,8 @@ pnpm --filter @weq/web build    # 浏览器版（先跑 pnpm run build:daemon �
 
 **同时也感谢每一个为WeQ及相关项目做出贡献的开发者**：
 
-<a href="https://github.com/H3CoF6/WeQ/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=H3CoF6/WeQ" />
+<a href="https://github.com/weq-devs/WeQ/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=weq-devs/WeQ" />
 </a>
 
 ## 开源协议

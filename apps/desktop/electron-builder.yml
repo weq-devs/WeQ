@@ -221,6 +221,6 @@ mac:
 # releaseType: release => the Release is published (not a draft) and marked latest.
 publish:
   provider: github
-  owner: H3CoF6
+  owner: weq-devs
   repo: WeQ
   releaseType: release

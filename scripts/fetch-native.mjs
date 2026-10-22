@@ -2,7 +2,7 @@
  * 拉取 / 校验 nt_helper 原生产物（5 个平台的 `nt_helper.node` + 装扮离线资源 `*.dat`）。
  *
  * 这两类文件**不再入库**：仓库里只留加载器与布局约定，二进制由 native 私仓
- * `H3CoF6/nt_helper` 构建后发布到公开仓 `H3CoF6/nt_helper_release`，这里按需取回。
+ * `weq-devs/nt_helper` 构建后发布到公开仓 `weq-devs/nt_helper_release`，这里按需取回。
  *
  * 为什么必须「成对取」：装扮资源 `.dat` 的 AES key 由构建 commit 派生
  * （nt_helper 的 `build.rs`，CI 传 `DRESS_KEY_SEED=github.sha`）并烘焙进 `.node`，
@@ -40,7 +40,7 @@
  *   pnpm native:fetch --dry-run            # 只打印将要写入的文件
  *
  * 环境变量：
- *   NT_HELPER_RELEASE_REPO      发布仓，默认 H3CoF6/nt_helper_release
+ *   NT_HELPER_RELEASE_REPO      发布仓，默认 weq-devs/nt_helper_release
  *   NT_HELPER_RELEASE_BASE_URL  下载前缀（镜像 / 代理），默认 GitHub Releases
  *   NT_HELPER_VERSION           钉死 tag（等价于 --version；CI 里临时试构建用）
  *   HTTPS_PROXY / HTTP_PROXY    出网代理（含 NO_PROXY）。Node 内置 fetch 不认这几个，
@@ -64,7 +64,7 @@ import { isStale, manifestValidity, validityText } from '../packages/native/vali
 // ─────────────────────────── 常量 ───────────────────────────
 
 /** 默认发布仓：私仓构建后把产物推到这里，WeQ（公开）与 dev 都从这里取。 */
-const DEFAULT_REPO = 'H3CoF6/nt_helper_release';
+const DEFAULT_REPO = 'weq-devs/nt_helper_release';
 /** 每个平台的目标目录与资产名，与 nt_helper 的 rust-release.yml 约定一致。 */
 const PLATFORMS = {
   'win32-x64': { dir: 'native/win32/x64', asset: 'nt_helper-win32-x64.node' },

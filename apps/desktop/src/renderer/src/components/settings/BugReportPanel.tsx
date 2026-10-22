@@ -43,7 +43,7 @@ import bugBannerDark from '@resources/brand/bug_banner_2.png';
 const REMARK_PLUGINS = [remarkGfm];
 const PLUGINS = { code: shikiCodeHighlighter };
 
-const REPO = 'H3CoF6/WeQ';
+const REPO = 'weq-devs/WeQ';
 const REPO_ISSUES = `https://github.com/${REPO}/issues`;
 const QQ_DEEP_LINK =
   'tencent://ntqq-open/?subCmd=flashTransfer&action=openTransPage&actionParams={"fileSetId":"","allChecked":"","selectedItems":"","sourceType":"share"}';
