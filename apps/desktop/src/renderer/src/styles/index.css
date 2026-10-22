@@ -27939,7 +27939,7 @@ html[data-theme='dark'] .weq-mf-mall-card {
   line-height: 1.5;
 }
 
-.group-keyword-member button {
+.group-keyword-member button:not(.weq-profile-avatar-button) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -27952,7 +27952,7 @@ html[data-theme='dark'] .weq-mf-mall-card {
   opacity: 0.7;
 }
 
-.group-keyword-member button:hover {
+.group-keyword-member button:not(.weq-profile-avatar-button):hover {
   background: color-mix(in srgb, currentColor 18%, transparent);
   opacity: 1;
 }

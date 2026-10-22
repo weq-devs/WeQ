@@ -37,6 +37,7 @@ import {
 import { decode as decodeRawProto, type RawField } from '@weq/codec/raw';
 import { cachedAvatarUrl } from '../lib/avatarCache';
 import { QqAvatar } from './QqAvatar';
+import { ProfileAvatar } from './ProfileAvatar';
 import { client } from '../trpc/client';
 
 interface DynamicDesc {
@@ -217,7 +218,15 @@ export function QqDynamic({
 
         {primaryUin ? (
           <div className="weq-dynamic-publisher">
-            <QqAvatar uin={String(primaryUin)} url={publisher?.avatarUrl} size={28} />
+            <ProfileAvatar
+              target={{
+                identity: String(primaryUin),
+                name: publisherName,
+                avatarUrl: publisher?.avatarUrl,
+              }}
+            >
+              <QqAvatar uin={String(primaryUin)} url={publisher?.avatarUrl} size={28} />
+            </ProfileAvatar>
             <span className="weq-dynamic-publisher-name">{publisherName}</span>
           </div>
         ) : null}

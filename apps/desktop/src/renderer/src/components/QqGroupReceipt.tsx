@@ -14,6 +14,7 @@ import { useEffect, useState, type ReactElement } from 'react';
 import { X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
+import { ProfileAvatar } from './ProfileAvatar';
 import { Modal } from './Dialog';
 import { useViewState } from '../state/view';
 import { closeFromScrim } from '../im-template/template/modalUtils';
@@ -47,7 +48,9 @@ function GroupReceiptDialog({
   groupCode: string;
   onClose: () => void;
 }): ReactElement {
-  const [profiles, setProfiles] = useState<Record<string, { nick?: string; card?: string }>>({});
+  const [profiles, setProfiles] = useState<
+    Record<string, { uid?: string; nick?: string; card?: string }>
+  >({});
 
   // 批量获取群成员信息（payer.uin 是数字 QQ 号，用 getGroupMembersByUins 查）
   useEffect(() => {
@@ -57,9 +60,10 @@ function GroupReceiptDialog({
     void client.account.getGroupMembersByUins
       .query({ groupCode, uins })
       .then((members) => {
-        const profileMap: Record<string, { nick?: string; card?: string }> = {};
+        const profileMap: Record<string, { uid?: string; nick?: string; card?: string }> = {};
         for (const member of members) {
           profileMap[member.uin] = {
+            uid: member.uid,
             nick: member.nick,
             card: member.card,
           };
@@ -94,7 +98,16 @@ function GroupReceiptDialog({
             const amount = payer.amount ?? 0;
             return (
               <div key={payer.uin} className="weq-group-receipt-item">
-                <QqAvatar uin={payer.uin} size={36} />
+                <ProfileAvatar
+                  target={{
+                    identity: profile?.uid || payer.uin,
+                    uin: payer.uin,
+                    name: displayName,
+                    group: { code: groupCode, name: '' },
+                  }}
+                >
+                  <QqAvatar uin={payer.uin} size={36} />
+                </ProfileAvatar>
                 <span className="weq-group-receipt-item-name">{displayName}</span>
                 <span className="weq-group-receipt-item-amount">¥{formatAmount(amount)}</span>
               </div>

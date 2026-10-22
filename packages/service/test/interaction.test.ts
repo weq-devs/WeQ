@@ -25,7 +25,11 @@ import { InteractionService } from '../src/account/interaction';
  * 补昵称头像」用（传 null 表示本地库没这个人）。
  */
 function fakeSession(
-  profiles: Record<string, { nick?: string; remark?: string; avatarUrl?: string }> = {},
+  profiles: Record<
+    string,
+    { uid?: string; nick?: string; remark?: string; avatarUrl?: string }
+  > = {},
+  members: Record<string, Array<{ uid: string; uin: bigint; card: string; nick: string }>> = {},
 ): AccountSession {
   return {
     context: { uin: 10001 },
@@ -37,8 +41,17 @@ function fakeSession(
       getProfileByUin: async (uin: bigint) => {
         const hit = profiles[String(uin)];
         if (!hit) return null;
-        return { nick: hit.nick ?? '', remark: hit.remark ?? '', avatarUrl: hit.avatarUrl ?? '' };
+        return {
+          uid: hit.uid ?? '',
+          nick: hit.nick ?? '',
+          remark: hit.remark ?? '',
+          avatarUrl: hit.avatarUrl ?? '',
+        };
       },
+    },
+    groupMembers: {
+      getMembersByUins: async (groupCode: bigint, uins: bigint[]) =>
+        (members[String(groupCode)] ?? []).filter((member) => uins.includes(member.uin)),
     },
   } as unknown as AccountSession;
 }
@@ -248,7 +261,7 @@ describe('InteractionService', () => {
       expect(decode(GetEmojiLikes.reqSchema, nt.calls[1]!.body).cookie).toBe('next');
     });
 
-    it('服务端给了昵称/头像就直接用，不再碰本地资料库', async () => {
+    it('服务端给全昵称头像时仍补群名片、备注与 UID，头像继续使用服务端结果', async () => {
       const resp = encode(GetEmojiLikes.respSchema, {
         users: [{ uin: 10001, nick: '服务端昵称', headUrl: 'https://cdn/1' }],
         cookie: 'next',
@@ -256,7 +269,17 @@ describe('InteractionService', () => {
       });
       const svc = new InteractionService(
         fakeNative(resp),
-        fakeSession({ '10001': { nick: '本地昵称', avatarUrl: 'https://local/1' } }),
+        fakeSession(
+          {
+            '10001': {
+              uid: 'u_self',
+              nick: '本地昵称',
+              remark: '好友备注',
+              avatarUrl: 'https://local/1',
+            },
+          },
+          { '12345': [{ uid: 'u_self', uin: 10001n, card: '群名片', nick: '群成员昵称' }] },
+        ),
         () => PID,
       );
       const page = await svc.getMessageReactionUsers({
@@ -265,7 +288,16 @@ describe('InteractionService', () => {
         emojiId: '76',
       });
       expect(page).toEqual({
-        users: [{ uin: '10001', nick: '服务端昵称', avatarUrl: 'https://cdn/1' }],
+        users: [
+          {
+            uid: 'u_self',
+            uin: '10001',
+            card: '群名片',
+            remark: '好友备注',
+            nick: '群成员昵称',
+            avatarUrl: 'https://cdn/1',
+          },
+        ],
         cookie: 'next',
         isLast: false,
       });
@@ -289,16 +321,58 @@ describe('InteractionService', () => {
         emojiId: '76',
       });
       expect(page.users).toEqual([
-        // 有备注先显示备注。
-        { uin: '10001', nick: '备注', avatarUrl: 'https://local/1' },
-        // 服务端给了昵称但没给头像：只补头像。
-        { uin: '20002', nick: '半个昵称', avatarUrl: 'https://local/2' },
+        {
+          uid: '',
+          uin: '10001',
+          card: '',
+          remark: '备注',
+          nick: '本地昵称',
+          avatarUrl: 'https://local/1',
+        },
+        {
+          uid: '',
+          uin: '20002',
+          card: '',
+          remark: '',
+          nick: '本地2',
+          avatarUrl: 'https://local/2',
+        },
         // 本地查无此人：留给渲染层退化成 QQ 号 + qlogo。
-        { uin: '30003', nick: '', avatarUrl: '' },
+        { uid: '', uin: '30003', card: '', remark: '', nick: '', avatarUrl: '' },
       ]);
       // 空 ack：名单为空、cookie 为空、isLast=true。
       expect(page.cookie).toBe('');
       expect(page.isLast).toBe(true);
+    });
+
+    it('同一回应者只读取目标群的名片，本地库失败仍保留服务端名单', async () => {
+      const nt = fakeNative(
+        encode(GetEmojiLikes.respSchema, {
+          users: [{ uin: 10001, nick: '在线昵称' }],
+        }),
+      );
+      const session = fakeSession(
+        {},
+        {
+          '12345': [{ uid: 'u_self', uin: 10001n, card: '甲群名片', nick: '' }],
+          '54321': [{ uid: 'u_self', uin: 10001n, card: '乙群名片', nick: '' }],
+        },
+      );
+      const svc = new InteractionService(nt, session, () => PID);
+      const params = { sequence: 1, emojiId: '76' };
+      expect(
+        (await svc.getMessageReactionUsers({ ...params, groupId: '12345' })).users[0]?.card,
+      ).toBe('甲群名片');
+      expect(
+        (await svc.getMessageReactionUsers({ ...params, groupId: '54321' })).users[0]?.card,
+      ).toBe('乙群名片');
+      vi.spyOn(session.groupMembers, 'getMembersByUins').mockRejectedValue(
+        new Error('合成库不可用'),
+      );
+      vi.spyOn(session.profileInfo, 'getProfileByUin').mockRejectedValue(new Error('合成库不可用'));
+      expect((await svc.getMessageReactionUsers({ ...params, groupId: '12345' })).users).toEqual([
+        { uid: '', uin: '10001', card: '', remark: '', nick: '在线昵称', avatarUrl: '' },
+      ]);
     });
   });
 

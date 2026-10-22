@@ -47,6 +47,7 @@ import { useBubbleFontFx } from '../hooks/useBubbleFontFx';
 import { OverlayLayerContext, useOverlayLayer } from '../lib/overlayStack';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import type { ResolvedWidget } from '@weq/service';
+import { ProfileAvatar } from './ProfileAvatar';
 
 // ---- types & store -------------------------------------------------------
 
@@ -624,14 +625,23 @@ function ForwardRow({
       data-fontfx={fontFxAttr}
       data-widget={widget?.animated ? widget.itemId : undefined}
     >
-      <div className="weq-forward-avatar">
-        {avatar ? (
-          <img src={avatar} alt="" loading="lazy" />
-        ) : (
-          <span className="weq-forward-avatar-fallback">{displayName.slice(0, 1)}</span>
-        )}
-        {widget ? <PendantLayer widget={widget} /> : null}
-      </div>
+      <ProfileAvatar
+        target={{
+          identity: record.senderUid || record.senderUin || '',
+          uin: record.senderUin,
+          name: displayName,
+          avatarUrl: avatar,
+        }}
+      >
+        <div className="weq-forward-avatar">
+          {avatar ? (
+            <img src={avatar} alt="" loading="lazy" />
+          ) : (
+            <span className="weq-forward-avatar-fallback">{displayName.slice(0, 1)}</span>
+          )}
+          {widget ? <PendantLayer widget={widget} /> : null}
+        </div>
+      </ProfileAvatar>
       <div className="weq-forward-row-main">
         <div className="weq-forward-row-meta">
           <span className="weq-forward-row-name">{displayName}</span>

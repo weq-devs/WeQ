@@ -30,6 +30,7 @@ import {
 import { useAnalyticsExport } from './useAnalyticsExport';
 import type { AnalysisScope } from '../views/analysis/model';
 import { AnalyticsRetry } from './AnalyticsRetry';
+import { ProfileAvatar } from './ProfileAvatar';
 import {
   GitHubTimeline,
   PersonWeekCard,
@@ -258,7 +259,12 @@ export function BuddyAnalyticsDialog({
     <>
       {/* Hero: peer + overview */}
       <div className="ba-hero">
-        <Avatar name={peerName} avatarUrl={avatarUrl(data.peer?.uin)} />
+        <ProfileAvatar
+          enabled={!exportMode}
+          target={{ identity: data.peer?.uid || peerUid, uin: data.peer?.uin, name: peerName }}
+        >
+          <Avatar name={peerName} avatarUrl={avatarUrl(data.peer?.uin)} />
+        </ProfileAvatar>
         <div className="ba-hero-info">
           <strong>{peerName}</strong>
           <span>
@@ -321,6 +327,7 @@ export function BuddyAnalyticsDialog({
         <div className="ca-people is-buddy">
           <PersonWeekCard
             name="我"
+            profile={exportMode ? undefined : { identity: data.self.uin, name: '我' }}
             avatarUrl={avatarUrl(data.self.uin)}
             count={stats.selfMessages}
             weekly={data.weeklySelf ?? []}
@@ -328,6 +335,11 @@ export function BuddyAnalyticsDialog({
           />
           <PersonWeekCard
             name={peerName}
+            profile={
+              exportMode
+                ? undefined
+                : { identity: data.peer.uid || peerUid, uin: data.peer.uin, name: peerName }
+            }
             avatarUrl={avatarUrl(data.peer.uin)}
             count={stats.peerMessages}
             weekly={data.weeklyPeer ?? []}

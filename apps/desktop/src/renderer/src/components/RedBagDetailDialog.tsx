@@ -25,16 +25,17 @@
  * —— 别人发来的红包自己没领本来就不让看领取情况 —— 静默吞掉；其余报错用 toast 一下。
  */
 
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import { Crown, RefreshCw, X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { QqAvatar } from './QqAvatar';
+import { ProfileAvatar } from './ProfileAvatar';
 import { useToast } from './Toast';
 import { redbagSkinUrl, resourceUrl } from '../lib/resourceUrl';
 import { useOverlayLayer } from '../lib/overlayStack';
-import { useEscapeToClose } from '../im-template/template/modalUtils';
+import { useSurfaceEscape } from '../lib/surfaceEscape';
 
 export interface RedBagClaimWire {
   uin: string;
@@ -139,7 +140,8 @@ function RedBagDetailDialog({
   target: RedBagDetailTarget;
   onClose: () => void;
 }): ReactElement {
-  useEscapeToClose(onClose);
+  const surface = useRef<HTMLElement>(null);
+  useSurfaceEscape(surface, onClose, true, true);
   const layer = useOverlayLayer(true);
   const pushToast = useToast((s) => s.push);
   const [detail, setDetail] = useState<RedBagDetailWire | null>(null);
@@ -228,6 +230,7 @@ function RedBagDetailDialog({
 
   /** 结果态用的头像：抢到之后服务端会回发红包者 uin。 */
   const resultSenderUin = result?.senderUin || senderUin;
+  const profileGroup = target.kind === 'group' ? { code: target.conv, name: '' } : undefined;
   /** 结果态 / 开态共用的封面文字：发送者 + 祝福语。 */
   const coverText = (
     <div className="weq-redbag-detail-plain-text">
@@ -248,6 +251,7 @@ function RedBagDetailDialog({
       }}
     >
       <section
+        ref={surface}
         className={`weq-redbag-detail${sheetVisible ? ' has-sheet' : ' is-plain'}`}
         role="dialog"
         aria-modal="true"
@@ -287,7 +291,11 @@ function RedBagDetailDialog({
                 <path d="M0,12 Q50,34 100,12 L100,40 L0,40 Z" />
               </svg>
               <div className="weq-redbag-detail-avatar">
-                <QqAvatar uin={senderUin || null} size={56} />
+                <ProfileAvatar
+                  target={{ identity: senderUin, name: senderLabel, group: profileGroup }}
+                >
+                  <QqAvatar uin={senderUin || null} size={56} />
+                </ProfileAvatar>
               </div>
             </div>
 
@@ -312,7 +320,15 @@ function RedBagDetailDialog({
                         key={`${c.uin}-${c.claimTime}`}
                         className={`weq-redbag-detail-item${mine ? ' is-mine' : ''}`}
                       >
-                        <QqAvatar uin={c.uin} size={36} />
+                        <ProfileAvatar
+                          target={{
+                            identity: c.uin,
+                            name: mine ? '我' : c.nickname || c.uin,
+                            group: profileGroup,
+                          }}
+                        >
+                          <QqAvatar uin={c.uin} size={36} />
+                        </ProfileAvatar>
                         <div className="weq-redbag-detail-item-main">
                           <span className="weq-redbag-detail-item-name">
                             {mine ? '我' : c.nickname || c.uin}
@@ -365,7 +381,15 @@ function RedBagDetailDialog({
               /* 领取结果：发送者头像落在领取记录弧线头像的同一位置，下面一行金额 */
               <>
                 <div className="weq-redbag-detail-avatar is-standalone">
-                  <QqAvatar uin={resultSenderUin || null} size={56} />
+                  <ProfileAvatar
+                    target={{
+                      identity: resultSenderUin,
+                      name: result?.senderNickname || senderLabel,
+                      group: profileGroup,
+                    }}
+                  >
+                    <QqAvatar uin={resultSenderUin || null} size={56} />
+                  </ProfileAvatar>
                 </div>
                 <div className="weq-redbag-detail-result">
                   <div className="weq-redbag-detail-result-amount">
