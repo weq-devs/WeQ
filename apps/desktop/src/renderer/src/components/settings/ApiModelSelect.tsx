@@ -1,6 +1,7 @@
 import type { AgentLabModelRef } from '@weq/agentlab';
 import { trpc } from '../../trpc/client';
 import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
+import { QueryError } from './controls';
 
 export function ApiModelSelect({
   value,
@@ -35,33 +36,44 @@ export function ApiModelSelect({
   );
   const missing = value && !options.some((option) => key(option) === key(value));
   return (
-    <select
-      className="weq-set-input"
-      aria-label={label}
-      value={value ? key(value) : ''}
-      disabled={disabled || providers.isLoading}
-      onChange={(event) =>
-        onChange(options.find((option) => key(option) === event.target.value) ?? null)
-      }
-    >
-      <option value="" disabled={required}>
-        {emptyLabel}
-      </option>
-      {missing && value ? (
-        <option value={key(value)}>
-          已保存但不可用：{value.providerId} · {value.model}
+    <div className="weq-api-model-field">
+      <select
+        className="weq-set-input"
+        aria-label={label}
+        value={value ? key(value) : ''}
+        disabled={disabled || providers.isLoading}
+        onChange={(event) =>
+          onChange(options.find((option) => key(option) === event.target.value) ?? null)
+        }
+      >
+        <option value="" disabled={required}>
+          {emptyLabel}
         </option>
+        {missing && value ? (
+          <option value={key(value)}>
+            {providers.isLoading || providers.error ? '已保存' : '已保存但不可用'}：
+            {value.providerId} · {value.model}
+          </option>
+        ) : null}
+        {groups.map((provider) => (
+          <optgroup key={provider.id} label={groupLabels.get(provider.id)}>
+            {provider.models.map((model) => (
+              <option key={model.id} value={key({ providerId: provider.id, model: model.id })}>
+                {model.label || model.id}
+                {groups.length > 1 ? ` · ${groupLabels.get(provider.id)}` : ''}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      {providers.error ? (
+        <QueryError
+          message={`模型列表读取失败：${providers.error.message}`}
+          retryLabel="重新读取模型列表"
+          retrying={providers.isFetching}
+          onRetry={() => void providers.refetch()}
+        />
       ) : null}
-      {groups.map((provider) => (
-        <optgroup key={provider.id} label={groupLabels.get(provider.id)}>
-          {provider.models.map((model) => (
-            <option key={model.id} value={key({ providerId: provider.id, model: model.id })}>
-              {model.label || model.id}
-              {groups.length > 1 ? ` · ${groupLabels.get(provider.id)}` : ''}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
+    </div>
   );
 }

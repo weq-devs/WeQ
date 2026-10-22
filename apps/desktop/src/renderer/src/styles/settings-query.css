@@ -1,0 +1,45 @@
+.weq-settings-query-error {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  max-height: min(28dvh, 180px);
+  padding: 10px 0;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  color: var(--weq-list-alert-ink);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.weq-settings-query-error button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  cursor: pointer;
+}
+
+.weq-api-model-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-api-model-field > select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+html[data-theme='dark'] .weq-settings-query-error button {
+  background: var(--weq-bg-elevated);
+}

@@ -29,7 +29,8 @@ import {
 import { trpc, client } from '../../trpc/client';
 import { Modal, useDialog } from '../Dialog';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { Card, Row, SectionHeader } from './controls';
+import { Card, QueryError, Row, SectionHeader } from './controls';
+import '../../styles/provider-settings.css';
 import { useDraftClose } from '../../lib/draftClose';
 import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
 import {
@@ -374,7 +375,8 @@ export function TtsProvidersCard(): ReactElement {
     () => catalog.data?.find((item) => item.vendor === form.vendor),
     [catalog.data, form.vendor],
   );
-  const has = (field: string): boolean => vendorEntry?.fields.includes(field as never) ?? false;
+  const has = (field: keyof TtsForm): boolean =>
+    vendorEntry ? vendorEntry.fields.some((item) => item === field) : form[field].trim().length > 0;
 
   function update<K extends keyof TtsForm>(key: K, value: TtsForm[K]): void {
     setForm((current) => ({ ...current, [key]: value }));
@@ -515,10 +517,24 @@ export function TtsProvidersCard(): ReactElement {
         <p className="weq-set-desc">
           用于好友克隆的文字转语音与声音复刻；合成时会向所选服务商提交对应文本或参考语音。
         </p>
-        {(providers.data ?? []).length === 0 ? (
-          <div className="weq-set-row-desc" style={{ padding: '4px 2px' }}>
-            暂无语音合成服务商。
-          </div>
+        {providers.error ? (
+          <QueryError
+            message={`TTS 配置读取失败：${providers.error.message}`}
+            retryLabel="重新读取 TTS 配置"
+            retrying={providers.isFetching}
+            onRetry={() => void providers.refetch()}
+          />
+        ) : null}
+        {providers.isLoading ? (
+          <p className="weq-set-empty" role="status">
+            正在读取 TTS 配置…
+          </p>
+        ) : (providers.data ?? []).length === 0 ? (
+          providers.error ? null : (
+            <div className="weq-set-row-desc" style={{ padding: '4px 2px' }}>
+              暂无语音合成服务商。
+            </div>
+          )
         ) : (
           <div className="weq-agentlab-provider-list">
             {(providers.data ?? []).map((item) => {
@@ -527,6 +543,7 @@ export function TtsProvidersCard(): ReactElement {
                 <button
                   key={item.id}
                   type="button"
+                  title={providerLabels.get(item.id)}
                   className={`weq-agentlab-provider-item${open && selectedId === item.id ? ' is-active' : ''}`}
                   onClick={() => editProvider(item.id)}
                 >
@@ -551,7 +568,12 @@ export function TtsProvidersCard(): ReactElement {
       </Card>
 
       {open ? (
-        <Modal presentation="panel" onClose={guard.requestClose} width={620}>
+        <Modal
+          presentation="panel"
+          onClose={guard.requestClose}
+          width={620}
+          className="weq-provider-window"
+        >
           <div className="weq-provider-modal">
             <header className="weq-provider-modal-head">
               <span className="weq-provider-modal-icon">
@@ -569,15 +591,28 @@ export function TtsProvidersCard(): ReactElement {
             </header>
 
             <div className="weq-provider-modal-body">
+              {catalog.error ? (
+                <QueryError
+                  message={`厂商模板读取失败：${catalog.error.message}`}
+                  retryLabel="重新读取厂商模板"
+                  retrying={catalog.isFetching}
+                  onRetry={() => void catalog.refetch()}
+                />
+              ) : null}
               <Row
                 label="厂商模板"
                 desc={vendorEntry?.note}
                 control={
                   <select
                     className="weq-set-input"
+                    aria-label="TTS 厂商模板"
                     value={form.vendor}
+                    disabled={catalog.isLoading}
                     onChange={(e) => applyVendor(e.target.value)}
                   >
+                    {!catalog.data?.some((item) => item.vendor === form.vendor) ? (
+                      <option value={form.vendor}>{form.vendor}</option>
+                    ) : null}
                     {(catalog.data ?? []).map((item) => (
                       <option key={item.vendor} value={item.vendor}>
                         {item.label}

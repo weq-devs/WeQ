@@ -1,9 +1,8 @@
 /**
  * Shared presentational controls for the 设置 panels.
  *
- * Visual language follows the rest of weq: #0099ff accent, thin borders,
- * small radii, light spacing. The toggle is modelled on the relation-graph
- * switch but lives under its own `weq-set-*` classes so the two never couple.
+ * 颜色跟随主题语义 token；控件沿用设置页的密度、细描边和小圆角。
+ * 开关使用独立 weq-set-* 类名，不与关系图等业务组件耦合。
  */
 
 import {
@@ -15,6 +14,37 @@ import {
 } from 'react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import type { SettingsScope } from './navigation';
+import { RefreshCw } from 'lucide-react';
+import '../../styles/settings-query.css';
+import '../../styles/settings-controls.css';
+
+/** 查询失败不冒充空配置；有缓存时由调用方继续展示原数据。 */
+export function QueryError({
+  message,
+  retryLabel,
+  retrying,
+  onRetry,
+}: {
+  message: string;
+  retryLabel: string;
+  retrying?: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="weq-settings-query-error" role="alert">
+      <span>{message}</span>
+      <button
+        type="button"
+        title={retryLabel}
+        aria-label={retryLabel}
+        disabled={retrying}
+        onClick={onRetry}
+      >
+        <RefreshCw size={14} className={retrying ? 'weq-spin' : undefined} aria-hidden />
+      </button>
+    </div>
+  );
+}
 
 export const SettingsScopeContext = createContext<SettingsScope | null>(null);
 

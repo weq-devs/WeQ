@@ -9,6 +9,9 @@ import { providerDisplayLabels } from '../src/renderer/src/lib/providerDisplayLa
 import { useToast } from '../src/renderer/src/components/Toast';
 
 const state = vi.hoisted(() => ({
+  queryMode: 'ready',
+  catalogError: false,
+  refetch: vi.fn(async () => ({})),
   providers: [] as AgentLabProviderConfig[],
   tts: [] as TtsProviderConfig[],
   saveTts: vi.fn(),
@@ -54,8 +57,25 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         },
       }),
       bootstrap: {
-        getAgentLabCatalog: { useQuery: () => ({ data: catalog }) },
-        listAgentLabProviders: { useQuery: () => ({ data: state.providers }) },
+        getAgentLabCatalog: {
+          useQuery: () => ({
+            data: state.catalogError ? undefined : catalog,
+            error: state.catalogError ? Error('合成模板读取失败') : null,
+            refetch: state.refetch,
+          }),
+        },
+        listAgentLabProviders: {
+          useQuery: () => ({
+            data: ['ready', 'stale'].includes(state.queryMode)
+              ? state.providers
+              : state.queryMode === 'empty'
+                ? []
+                : undefined,
+            isLoading: state.queryMode === 'loading',
+            error: ['error', 'stale'].includes(state.queryMode) ? Error('合成配置读取失败') : null,
+            refetch: state.refetch,
+          }),
+        },
         saveAgentLabProvider: {
           useMutation: () => ({ mutateAsync: state.save, isLoading: false }),
         },
@@ -68,17 +88,32 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         fetchAgentLabModels: { useMutation: () => ({ isLoading: false }) },
         getTtsCatalog: {
           useQuery: () => ({
-            data: [
-              {
-                vendor: 'cosyvoice',
-                label: 'Synthetic Voice',
-                fields: ['apiKey'],
-                capabilities: { clone: false },
-              },
-            ],
+            data: state.catalogError
+              ? undefined
+              : [
+                  {
+                    vendor: 'cosyvoice',
+                    label: 'Synthetic Voice',
+                    fields: ['apiKey'],
+                    capabilities: { clone: false },
+                  },
+                ],
+            error: state.catalogError ? Error('合成模板读取失败') : null,
+            refetch: state.refetch,
           }),
         },
-        listTtsProviders: { useQuery: () => ({ data: state.tts }) },
+        listTtsProviders: {
+          useQuery: () => ({
+            data: ['ready', 'stale'].includes(state.queryMode)
+              ? state.tts
+              : state.queryMode === 'empty'
+                ? []
+                : undefined,
+            isLoading: state.queryMode === 'loading',
+            error: ['error', 'stale'].includes(state.queryMode) ? Error('合成配置读取失败') : null,
+            refetch: state.refetch,
+          }),
+        },
         saveTtsProvider: { useMutation: () => ({ mutateAsync: state.saveTts, isLoading: false }) },
         deleteTtsProvider: { useMutation: () => ({ isLoading: false }) },
         testTtsProvider: { useMutation: () => ({ mutateAsync: state.testTts, isLoading: false }) },
@@ -88,6 +123,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
 });
 const cleanups: Array<() => void> = [];
 beforeEach(() => {
+  state.queryMode = 'ready';
+  state.catalogError = false;
+  state.refetch.mockClear();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.providers = [
     {
@@ -168,6 +206,81 @@ function mount(tts = false) {
   return { host, render, button, set, close };
 }
 describe('多 API provider 配置', () => {
+  it.each([false, true])('%s 加载配置不冒充空列表，失败可重试并保留缓存', (tts) => {
+    state.queryMode = 'loading';
+    const f = mount(tts);
+    expect(f.host.textContent).toContain('正在读取');
+    expect(f.host.textContent).not.toContain(tts ? '暂无语音合成' : '还没有 provider');
+    state.queryMode = 'error';
+    f.render();
+    expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('合成配置读取失败');
+    expect(f.host.textContent).not.toContain(tts ? '暂无语音合成' : '还没有 provider');
+    act(() => f.host.querySelector<HTMLButtonElement>('[role="alert"] button')!.click());
+    expect(state.refetch).toHaveBeenCalledOnce();
+    state.queryMode = 'stale';
+    f.render();
+    expect(f.host.querySelector('[role="alert"]')).not.toBeNull();
+    expect(f.host.querySelectorAll('.weq-agentlab-provider-item')).toHaveLength(1);
+    state.queryMode = 'empty';
+    f.render();
+    expect(f.host.querySelector('[role="alert"]')).toBeNull();
+    expect(f.host.textContent).toContain(tts ? '暂无语音合成' : '还没有 provider');
+  });
+  it.each([false, true])('%s 模板读取失败可重试，编辑保留原厂商与凭据', (tts) => {
+    state.catalogError = true;
+    const f = mount(tts);
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('合成模板读取失败');
+    act(() => f.host.querySelector<HTMLButtonElement>('[role="alert"] button')!.click());
+    expect(state.refetch).toHaveBeenCalledOnce();
+    expect(f.host.querySelector<HTMLSelectElement>('select')!.value).toBe(
+      tts ? 'cosyvoice' : 'siliconflow',
+    );
+    expect(f.host.querySelector<HTMLInputElement>('input[type="password"]')!.value).toBe(
+      tts ? 'synthetic-voice-first' : 'synthetic-first-key',
+    );
+  });
+  it('模型选择读取失败保留已保存引用，不误标不可用，并可重试', () => {
+    state.queryMode = 'error';
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const onChange = vi.fn();
+    act(() =>
+      root.render(
+        createElement(ApiModelSelect, {
+          label: '合成模型',
+          value: { providerId: 'synthetic-provider', model: 'shared-model' },
+          onChange,
+        }),
+      ),
+    );
+    cleanups.push(() => {
+      act(() => root.unmount());
+      host.remove();
+    });
+    expect(host.querySelector('select')!.value).toBe(
+      JSON.stringify(['synthetic-provider', 'shared-model']),
+    );
+    expect(host.textContent).not.toContain('不可用');
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('合成配置读取失败');
+    act(() => host.querySelector<HTMLButtonElement>('[role="alert"] button')!.click());
+    expect(state.refetch).toHaveBeenCalledOnce();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('模板迟到或重试成功不覆盖正在编辑的 API 草稿', () => {
+    state.catalogError = true;
+    const f = mount();
+    act(() => f.host.querySelector<HTMLButtonElement>('.weq-agentlab-provider-item')!.click());
+    f.set('input[type="password"]', 'synthetic-unsaved-edit');
+    state.catalogError = false;
+    f.render();
+    expect(f.host.querySelector<HTMLInputElement>('input[type="password"]')!.value).toBe(
+      'synthetic-unsaved-edit',
+    );
+    expect(state.save).not.toHaveBeenCalled();
+  });
   it.each([false, true])(
     '%s 提供方测试挂起时仍可关闭与编辑其他配置，迟到结果只更新原横幅',
     async (tts) => {

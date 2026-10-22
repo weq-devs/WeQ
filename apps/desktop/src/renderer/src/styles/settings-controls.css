@@ -1,0 +1,58 @@
+html[data-theme]
+  :is(.weq-set, .weq-provider-modal)
+  :is(.weq-set-row-desc, .weq-set-desc, .weq-set-note) {
+  color: var(--weq-fg-secondary);
+}
+
+html[data-theme] body .weq-set-chk {
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-secondary);
+  border-color: var(--weq-border-strong);
+  transition-property: border-color, box-shadow;
+}
+
+html[data-theme] body .weq-set-chk.is-on {
+  background: var(--weq-list-selected-background);
+  color: var(--weq-fg-primary);
+  border-color: var(--weq-accent-ink);
+}
+
+html[data-theme] body .weq-set-chk:hover:not(:disabled) {
+  border-color: var(--weq-accent-ink);
+}
+
+html[data-theme] body .weq-set-chk-box {
+  flex-shrink: 0;
+  border-color: var(--weq-border-strong);
+  background: var(--weq-bg-elevated);
+  transition-property: border-color, box-shadow;
+}
+
+html[data-theme] .weq-set-chk.is-on .weq-set-chk-box {
+  border-color: var(--weq-accent-solid);
+  background: var(--weq-accent-solid);
+}
+
+html[data-theme] .weq-set-chk.is-on .weq-set-chk-box::after {
+  border-color: var(--weq-accent-solid-foreground);
+}
+
+html[data-theme] body .weq-set-chk:disabled {
+  opacity: 1;
+  color: var(--weq-fg-secondary);
+  background: var(--muted);
+  border-color: var(--weq-border-subtle);
+}
+
+html[data-theme] .weq-set-chk:disabled .weq-set-chk-box {
+  background: var(--muted);
+  border-color: var(--weq-border-strong);
+}
+
+html[data-theme] .weq-set-chk:disabled .weq-set-chk-box::after {
+  border-color: var(--weq-fg-primary);
+}
+
+html[data-theme='dark'] body .weq-set-chk:not(.is-on):not(:disabled) {
+  background: var(--weq-bg-elevated);
+}

@@ -1,0 +1,125 @@
+.weq-agentlab-provider-list {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.weq-agentlab-provider-list > .weq-agentlab-provider-item {
+  min-width: 0;
+  max-width: 100%;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.weq-agentlab-provider-item :is(.weq-agentlab-provider-name, small) {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+html[data-theme] .weq-modal.weq-provider-window {
+  display: flex;
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+}
+
+html[data-theme] .weq-provider-window > .weq-provider-modal {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  max-height: inherit;
+  background: var(--weq-bg-surface);
+}
+
+.weq-provider-window :is(.weq-provider-modal-head, .weq-provider-modal-actions) {
+  flex-shrink: 0;
+}
+
+.weq-provider-window .weq-provider-modal-head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.weq-provider-window .weq-provider-modal-icon {
+  flex-shrink: 0;
+  color: var(--weq-accent-ink);
+}
+
+.weq-provider-window .weq-provider-modal-body {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.weq-provider-window .weq-set-row-ctrl {
+  flex: 0 1 280px;
+}
+
+.weq-provider-window .weq-set-row-ctrl > :is(input, select) {
+  width: 100%;
+}
+
+.weq-provider-window .weq-set-input {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-provider-window :is(.weq-set-card-head, .weq-set-card-action, .weq-provider-modal-actions) {
+  flex-wrap: wrap;
+}
+
+.weq-provider-window .weq-set-card-action {
+  max-width: 100%;
+}
+
+.weq-provider-window .weq-set-btn {
+  max-width: 100%;
+  min-height: 30px;
+  height: auto;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.weq-provider-fetched {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--weq-accent-ink);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, var(--weq-bg-surface));
+}
+
+.weq-provider-fetched .weq-set-chk {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.weq-provider-fetched .weq-set-chk-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.weq-provider-model-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+}
+
+html[data-theme='dark'] .weq-provider-window > .weq-provider-modal {
+  background: var(--weq-bg-elevated);
+}
+
+@media (max-width: 520px) {
+  .weq-provider-window .weq-set-row-ctrl {
+    flex-basis: 100%;
+    width: 100%;
+  }
+}
