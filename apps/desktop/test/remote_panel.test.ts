@@ -127,4 +127,115 @@ describe('电脑端远程连接面板', () => {
     });
     expect(container.textContent).not.toContain('复制配对链接');
   });
+
+  it('内嵌 Tailscale 填写 Key 后即可生成二维码，没有额外确认', async () => {
+    const onInvite = vi.fn();
+    await render({ ...base, mode: 'tailscale' }, { onInvite });
+    const input = container.querySelector<HTMLInputElement>('#weq-remote-auth-key');
+    expect(input?.type).toBe('password');
+    const generate = () =>
+      [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('生成配对码'))!;
+    expect(generate().disabled).toBe(true);
+    const authKey = `tskey-auth-${'k'.repeat(40)}`;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        authKey,
+      );
+      input!.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(generate().disabled).toBe(false);
+    await act(async () => generate().click());
+    expect(onInvite).toHaveBeenCalledWith({ authKey });
+    expect(input?.value).toBe('');
+    expect(container.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(container.textContent).toContain('不会撤销入网密钥');
+  });
+
+  it('局域网不需要登录或 Key，连接方式支持切换', async () => {
+    const onInvite = vi.fn(),
+      onMode = vi.fn();
+    await render({ ...base, mode: 'lan' }, { onInvite, onMode });
+    expect(container.querySelector('#weq-remote-auth-key')).toBeNull();
+    await act(async () =>
+      [...container.querySelectorAll('button')]
+        .find((b) => b.textContent?.includes('生成配对码'))
+        ?.click(),
+    );
+    expect(onInvite).toHaveBeenCalledWith(undefined);
+    await act(async () =>
+      [...container.querySelectorAll('button')].find((b) => b.textContent === 'Tailscale')?.click(),
+    );
+    expect(onMode).toHaveBeenCalledWith('tailscale');
+  });
+
+  it('已有 Tailscale 不需要 Key 或重新登录，只使用电脑的 Tailscale 地址', async () => {
+    const onInvite = vi.fn(),
+      onRefresh = vi.fn();
+    await render(
+      {
+        ...base,
+        mode: 'existing',
+        network: {
+          state: 'online',
+          addresses: ['https://192.168.1.8:7691', 'https://100.64.0.10:7692'],
+        },
+      },
+      { onInvite, onRefresh },
+    );
+    expect(container.querySelector('#weq-remote-auth-key')).toBeNull();
+    expect(container.textContent).not.toContain('验证 Tailscale');
+    expect(container.textContent).toContain('https://100.64.0.10:7692');
+    expect(container.textContent).not.toContain('https://192.168.1.8:7691');
+    await act(async () =>
+      [...container.querySelectorAll('button')]
+        .find((b) => b.textContent?.includes('生成配对码'))
+        ?.click(),
+    );
+    expect(onInvite).toHaveBeenCalledWith(undefined);
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('[aria-label="刷新连接地址"]')?.click(),
+    );
+    expect(onRefresh).toHaveBeenCalledOnce();
+  });
+
+  it('已有 Tailscale 没有可用地址时不能错误生成局域网二维码', async () => {
+    await render({
+      ...base,
+      mode: 'existing',
+      network: { state: 'online', addresses: ['https://192.168.1.8:7691'] },
+    });
+    expect(container.textContent).toContain('未检测到 Tailscale 地址');
+    expect(
+      [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('生成配对码'))
+        ?.disabled,
+    ).toBe(true);
+  });
+
+  it('顶层只有局域网与 Tailscale，手机已有/没有放在 Tailscale 内', async () => {
+    const onMode = vi.fn();
+    await render(
+      {
+        ...base,
+        mode: 'existing',
+        network: { state: 'online', addresses: ['https://100.64.0.10:7692'] },
+      },
+      { onMode },
+    );
+    const top = container.querySelector('[aria-label="连接方式"]')!;
+    expect([...top.querySelectorAll('button')].map((button) => button.textContent?.trim())).toEqual(
+      ['局域网', 'Tailscale'],
+    );
+    const phone = container.querySelector('[aria-label="手机上的 Tailscale"]')!;
+    expect(phone.textContent).toContain('已有 Tailscale');
+    expect(phone.textContent).toContain('没有 Tailscale');
+    await act(async () =>
+      [...phone.querySelectorAll('button')]
+        .find((button) => button.textContent?.includes('没有'))
+        ?.click(),
+    );
+    expect(onMode).toHaveBeenCalledWith('tailscale');
+    await render({ ...base, mode: 'lan' });
+    expect(container.querySelector('[aria-label="手机上的 Tailscale"]')).toBeNull();
+  });
 });

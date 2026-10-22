@@ -453,6 +453,8 @@ export interface AppSettings {
    * 数据库与本地文件。唯一豁免：登录时的数据库密钥提取。
    */
   autoAttachQq: boolean;
+  /** 仅桌面客户端启动时启用本机 Web 服务；默认关闭。 */
+  webServiceAutoStart: boolean;
   /** 向 QQ 服务端上报在 WeQ 中阅读的位置，默认关闭。 */
   reportReadEnabled: boolean;
   /** 手动标记及撤销推进已读水位时上报，独立于自动阅读，默认关闭。 */
@@ -709,6 +711,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // 默认关闭：是否扫描 QQ 内存由首次运行欢迎框征得同意后再打开，见
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
   autoAttachQq: false,
+  webServiceAutoStart: false,
   reportReadEnabled: false,
   manualReadReportEnabled: false,
   autoLockMinutes: 0,
@@ -1214,6 +1217,7 @@ export class UserConfigService {
           ? s.exportSaveMode
           : d.exportSaveMode,
       autoAttachQq,
+      webServiceAutoStart: s?.webServiceAutoStart === true,
       reportReadEnabled: s?.reportReadEnabled === true,
       manualReadReportEnabled: s?.manualReadReportEnabled === true,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
@@ -1313,6 +1317,7 @@ export class UserConfigService {
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
+      webServiceAutoStart: patch.webServiceAutoStart ?? current.webServiceAutoStart,
       reportReadEnabled: patch.reportReadEnabled ?? current.reportReadEnabled,
       manualReadReportEnabled: patch.manualReadReportEnabled ?? current.manualReadReportEnabled,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,

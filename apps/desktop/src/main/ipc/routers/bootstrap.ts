@@ -2208,6 +2208,12 @@ export const bootstrapRouter = router({
       return ctx.account!.context;
     }),
 
+  /** Web 首屏只读取已打开账号的标识，不暴露密钥或重新打开数据库。 */
+  currentAccount: procedure.query(() => {
+    const account = getAppContext().account;
+    return account ? { uin: String(account.context.uin) } : null;
+  }),
+
   /** True if an account session is currently open. */
   accountOpen: procedure.query(() => {
     return getAppContext().account !== null;

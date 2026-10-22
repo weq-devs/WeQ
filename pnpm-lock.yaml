@@ -247,6 +247,9 @@ importers:
       '@xmldom/xmldom':
         specifier: ^0.9.12
         version: 0.9.12
+      archiver:
+        specifier: 5.3.2
+        version: 5.3.2
       d3:
         specifier: ^7.9.0
         version: 7.9.0
@@ -326,6 +329,9 @@ importers:
       '@tailwindcss/vite':
         specifier: ^4.0.0
         version: 4.3.0(vite@8.3.4(@types/node@22.19.20)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4))
+      '@types/archiver':
+        specifier: 5.3.4
+        version: 5.3.4
       '@types/d3':
         specifier: ^7.4.3
         version: 7.4.3
@@ -344,6 +350,9 @@ importers:
       '@types/semver':
         specifier: ^7.7.0
         version: 7.7.1
+      '@types/ws':
+        specifier: 8.5.13
+        version: 8.5.13
       '@vitejs/plugin-react':
         specifier: ^6.1.2
         version: 6.1.2(vite@8.3.4(@types/node@22.19.20)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4))
@@ -2176,6 +2185,9 @@ packages:
 
   '@types/ws@8.18.1':
     resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
+
+  '@types/ws@8.5.13':
+    resolution: {integrity: sha512-osM/gWBTPKgHV8XkTunnegTRIsvF6owmf5w+JtAfOw472dptdm0dlGv4xCt6GwQRcC2XVOvvRE/0bAoQcL2QkA==}
 
   '@ungap/structured-clone@1.3.3':
     resolution: {integrity: sha512-60YRaenCQcVjYEKOcG824+DRGGIQ3VKErcBoAEDJZz5bKIs2ZG+X/H9Nk+Q6EVkwJk5QNApxbrc5QtBSwtrXAg==}
@@ -6558,6 +6570,10 @@ snapshots:
   '@types/whatwg-mimetype@3.0.2': {}
 
   '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 22.19.20
+
+  '@types/ws@8.5.13':
     dependencies:
       '@types/node': 22.19.20
 

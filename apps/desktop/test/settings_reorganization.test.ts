@@ -300,6 +300,18 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
+  it('服务二级导航显示 Web 与 Remote，保留 remote 深链', () => {
+    const f = mount('remote');
+    try {
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toContain(
+        'Web 与 Remote',
+      );
+      expect(f.body().querySelector('.weq-remote-settings')).not.toBeNull();
+    } finally {
+      f.close();
+    }
+  });
+
   it('损坏处理设置与容错记录分开，故障深链仍可到达', () => {
     const f = mount('database');
     try {

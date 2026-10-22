@@ -1,12 +1,14 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { type RemotePairing, claimSchema } from './pairing';
+import { RemoteWebGateway } from './web_gateway';
 
 function bearer(req: IncomingMessage): string {
   const value = req.headers.authorization ?? '';
   return /^Bearer [a-f0-9]{64}$/.test(value) ? value.slice(7) : '';
 }
 
-export function createRemoteServer(pairing: RemotePairing) {
+export function createRemoteServer(pairing: RemotePairing, webPort?: () => number | null) {
+  const web = webPort === undefined ? null : new RemoteWebGateway(pairing, webPort);
   let windowStart = Date.now();
   let requests = 0;
   const server = createServer(async (req, res) => {
@@ -18,6 +20,10 @@ export function createRemoteServer(pairing: RemotePairing) {
       });
       res.end(JSON.stringify(value));
     };
+    if (!(req.url ?? '').startsWith('/v1/') && web) {
+      web.handle(req, res);
+      return;
+    }
     // 原生客户端协议，不接受网页跨源调用，也不返回 CORS 授权。
     if (req.headers.origin) return send(403, { error: '不接受浏览器来源。' });
     if (Date.now() - windowStart >= 60_000) {
@@ -75,5 +81,6 @@ export function createRemoteServer(pairing: RemotePairing) {
   server.requestTimeout = 10_000;
   server.timeout = 10_000;
   server.maxConnections = 16;
+  web?.attach(server);
   return server;
 }

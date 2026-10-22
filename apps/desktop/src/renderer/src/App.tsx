@@ -10,6 +10,7 @@ import { useViewState } from './state/view';
 import { BootstrapView } from './views/BootstrapView';
 import { MainView } from './views/MainView';
 import { DialogHost } from './components/Dialog';
+import { RemoteRequests } from './components/RemoteRequests';
 import { HoverTooltip } from './components/HoverTooltip';
 import { ToastHost, useToast } from './components/Toast';
 import { DbRepairReturnOverlay } from './components/DbRepairReturnOverlay';
@@ -189,6 +190,7 @@ export default function App(): ReactElement {
                 自身决定是否显示（见 JoinGroupDialog 的判据）。 */}
             {view === 'main' ? <JoinGroupDialog /> : null}
             <DialogHost />
+            <RemoteRequests />
             <ToastHost />
             <HoverTooltip />
             {/* 「修复完成 → 回首页」的倒计时。挂在这一层（而不是维护与诊断工具弹窗里），

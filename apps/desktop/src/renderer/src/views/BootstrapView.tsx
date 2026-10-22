@@ -24,7 +24,7 @@ import { WarmupSplash } from '../components/WarmupSplash';
 import { NativeExpiredDialog } from '../components/NativeExpiredDialog';
 import { runAccountWarmup, type WarmupProgress } from '../lib/accountWarmup';
 import { setWindowLayout } from '../lib/windowLayout';
-import { DesktopOnly, IS_MAC, shellBridge } from '../lib/target';
+import { DesktopOnly, IS_MAC, IS_WEB, shellBridge } from '../lib/target';
 import logoUrl from '@resources/brand/logo.png';
 import { BackupSection } from '../components/settings/BackupSection';
 
@@ -50,18 +50,29 @@ export function BootstrapView(): ReactElement {
   const nativeErr = nativeStatus.data ?? null;
   const nativeOk = nativeStatus.isSuccess && nativeStatus.data === null;
 
+  const currentAccount = trpc.bootstrap.currentAccount.useQuery(undefined, {
+    enabled: IS_WEB && nativeOk && homeStage === 'booting',
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  const needsStartup =
+    nativeOk &&
+    (!IS_WEB || homeStage !== 'booting' || (currentAccount.isSuccess && !currentAccount.data));
+
   const install = trpc.bootstrap.describeInstall.useQuery(undefined, {
-    enabled: nativeOk,
+    enabled: needsStartup,
     refetchOnWindowFocus: false,
   });
   const configs = trpc.bootstrap.listAccountConfigs.useQuery(undefined, {
-    enabled: nativeOk,
+    enabled: needsStartup,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const autoTarget = trpc.bootstrap.getAutoEnter.useQuery(undefined, {
-    enabled: nativeOk,
+    enabled: needsStartup,
     refetchOnWindowFocus: false,
   });
 
@@ -101,6 +112,23 @@ export function BootstrapView(): ReactElement {
       booted.current = true;
       setHomeStage('home');
       return;
+    }
+    if (IS_WEB && nativeOk) {
+      if (currentAccount.isError) {
+        booted.current = true;
+        setHomeStage('home');
+        showError('读取当前账号失败', errMsg(currentAccount.error));
+        return;
+      }
+      if (!currentAccount.isSuccess) return;
+      if (currentAccount.data) {
+        // Web 是已有桌面会话的另一个视图，不重开数据库或重建账号服务。
+        booted.current = true;
+        setHomeStage('home');
+        setOpenedUin(currentAccount.data.uin);
+        goTo('main');
+        return;
+      }
     }
     if (!nativeOk || !autoTarget.isFetched || !configs.isFetched) return;
     booted.current = true;
@@ -171,6 +199,10 @@ export function BootstrapView(): ReactElement {
     homeStage,
     nativeOk,
     nativeErr,
+    currentAccount.isSuccess,
+    currentAccount.isError,
+    currentAccount.error,
+    currentAccount.data,
     autoTarget.isFetched,
     autoTarget.data,
     configs.isFetched,

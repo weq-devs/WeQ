@@ -49,7 +49,7 @@ describe('远程配对的会话授权', () => {
     expect(() => pairing.decide(next.id, true)).toThrow();
   });
 
-  it('管理状态不泄露邀请密钥或设备凭据，关闭后全部失效', () => {
+  it('管理状态不泄露密钥，关闭连接不丢失已批准凭据', () => {
     const pairing = new RemotePairing();
     const request = claim(pairing);
     pairing.decide(request.id, true);
@@ -57,8 +57,8 @@ describe('远程配对的会话授权', () => {
     expect(snapshot).not.toContain(token);
     expect(snapshot).not.toContain(tokenHash(token));
     pairing.clear();
-    expect(pairing.authenticate(token)).toBe(false);
-    expect(pairing.snapshot().devices).toEqual([]);
+    expect(pairing.authenticate(token)).toBe(true);
+    expect(pairing.snapshot().devices).toHaveLength(1);
   });
 
   it('拒绝空名称、额外字段和重复设备凭据', () => {

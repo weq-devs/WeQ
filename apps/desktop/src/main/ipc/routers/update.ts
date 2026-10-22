@@ -16,6 +16,7 @@
  */
 
 import { observable } from '@trpc/server/observable';
+import { TRPCError } from '@trpc/server';
 import { procedure, router } from '../trpc';
 import {
   getUpdateActions,
@@ -26,22 +27,30 @@ import {
   type UpdateState,
 } from '../../update/state';
 
+const desktop = procedure.use(({ ctx, next }) => {
+  if (ctx.authorize)
+    throw new TRPCError({ code: 'FORBIDDEN', message: '仅允许桌面端管理应用更新。' });
+  return next();
+});
+
 export const updateRouter = router({
   /** Last cached check result, or null if not checked yet this session. */
   getState: procedure.query((): UpdateState | null => getUpdateState()),
 
   /** True when this host can actually install updates (false on web). */
-  isSupported: procedure.query((): boolean => getUpdateActions().supported),
+  isSupported: procedure.query(
+    ({ ctx }): boolean => !ctx.authorize && getUpdateActions().supported,
+  ),
 
   /** Speed-test mirrors + compare versions. Rejects if no mirror is reachable. */
-  check: procedure.mutation((): Promise<UpdateState> => getUpdateActions().check(true)),
+  check: desktop.mutation((): Promise<UpdateState> => getUpdateActions().check(true)),
 
   /**
    * Kick off the download. Returns immediately — progress and the terminal
    * state arrive over `onProgress` / `onEvent`; failures surface as an `error`
    * event (so we swallow the rejection here).
    */
-  download: procedure.mutation((): boolean => {
+  download: desktop.mutation((): boolean => {
     void getUpdateActions()
       .startDownload()
       .catch(() => {});
@@ -49,7 +58,7 @@ export const updateRouter = router({
   }),
 
   /** Quit, install the downloaded update silently, relaunch. */
-  install: procedure.mutation((): boolean => {
+  install: desktop.mutation((): boolean => {
     getUpdateActions().quitAndInstall();
     return true;
   }),

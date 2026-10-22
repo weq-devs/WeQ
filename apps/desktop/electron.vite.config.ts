@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -21,6 +22,8 @@ const EXCLUDE_FROM_EXTERNAL = [
   '@weq/types',
 ];
 
+let remoteWebBuilt = false;
+
 // Wayland 会话默认让 Electron 走 XWayland（平铺合成器会把 `type: 'toolbar'` 平铺掉）。
 // 这个开关**必须出现在 Electron 启动参数里**，`app.commandLine.appendSwitch` 在 ready
 // 前调用也来不及 —— 详见 src/main/linux_window_backend.ts。electron-vite 会在本配置
@@ -35,7 +38,26 @@ process.env.ELECTRON_CLI_ARGS = JSON.stringify([
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin({ exclude: EXCLUDE_FROM_EXTERNAL })],
+    plugins: [
+      {
+        name: 'weq-remote-web-assets',
+        buildStart() {
+          if (remoteWebBuilt) return;
+          const pnpm = process.env.npm_execpath;
+          if (!pnpm) throw new Error('请通过 pnpm 运行桌面构建，以同时构建内置 Web 页面。');
+          const args = ['--filter', '@weq/web', 'exec', 'vite', 'build'];
+          const script = /\.[cm]?js$/.test(pnpm);
+          execFileSync(script ? process.execPath : pnpm, script ? [pnpm, ...args] : args, {
+            cwd: resolve(__dirname, '../..'),
+            stdio: 'inherit',
+            windowsHide: true,
+            shell: process.platform === 'win32' && pnpm.endsWith('.cmd'),
+          });
+          remoteWebBuilt = true;
+        },
+      },
+      externalizeDepsPlugin({ exclude: EXCLUDE_FROM_EXTERNAL }),
+    ],
     resolve: {
       alias: {
         '@main': resolve(__dirname, 'src/main'),

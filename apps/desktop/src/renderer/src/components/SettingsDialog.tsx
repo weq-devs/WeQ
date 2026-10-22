@@ -286,7 +286,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'remote',
-    label: 'WeQ Remote',
+    label: 'Web 与 Remote',
     icon: <Monitor size={16} strokeWidth={1.8} />,
     render: () => <RemoteSection />,
   },

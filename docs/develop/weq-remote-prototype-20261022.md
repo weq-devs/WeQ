@@ -1,6 +1,8 @@
 # WeQ Remote 电脑端原型（2026-10-22）
 
-## 范围与入口
+> 下文保留 0.1.0 初版设计与历史验证。当前 0.2.0 源码已扩展为内置 Web 服务与手机 WebView，支持一次性 Auth Key 扫码入网；当前使用及权限边界见 [Web 与手机连接](../guide/remote-web.md)。
+
+## 0.1.0 初版范围与入口
 
 设置 → 服务与集成 → WeQ Remote。默认关闭，不改变系统 VPN，不修改现有 Tailscale。
 
@@ -12,6 +14,10 @@ TS 节点身份另存在应用 userData 下的 `remote-network`，再次启用�
 后续曾增加 iOS / Android 0.1.0 开发客户端；手机壳现已迁至[独立仓库](./remote-repository-split-20261023.md)，不再位于本仓库 `apps` 下。本节以下保留早期仅验证状态的历史方案；电脑端配对与网络入口仍在本仓库维护。
 
 ## 构建与运行
+
+本机开发启动器现会先运行 `node scripts/prepare-remote-network.mjs`，构建本机架构的网络辅助程序，然后通过 `pnpm exec electron-vite dev` 启动桌面端。必须保留 pnpm 上下文：桌面构建钩子会同时构建 Web 页面，不能再直接执行 `node_modules/.bin/electron-vite dev`。Web 服务和远程节点是否运行仍由设置决定，构建本身不登录网络。
+
+以下手动命令使用项目默认开发 profile；已有桌面入口的用户应沿用原入口，避免无意切换用户目录。
 
 复用本机 Go 工具链及模块缓存；不下载原生 QQ 模块、不启动额外 QQ 或改动现用服务。
 

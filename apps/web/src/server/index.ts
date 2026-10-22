@@ -95,7 +95,7 @@ async function main(): Promise<void> {
     host: HOST,
     publicDir: PUBLIC_DIR,
     auth,
-    trpc: createTrpcHandler(appRouter),
+    trpc: createTrpcHandler(appRouter, auth),
   });
   attachWsHandler(server, appRouter, auth);
 

@@ -1017,7 +1017,7 @@ export {
 } from './common/logger';
 export type { LogFileCandidate } from './common/logger';
 export type { Logger, LoggerContext, LogLevel } from './common/logger';
-export { getHost, setHost } from './common/host';
+export { getHost, setHost, withHost } from './common/host';
 export type { HostBridge, SaveTarget } from './common/host';
 export { JsonStore, readJsonFile, writeJsonFileAtomic } from './common/json_store';
 export {
