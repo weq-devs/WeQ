@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsDialog, type SectionId } from '../src/renderer/src/components/SettingsDialog';
+import { HelpSection } from '../src/renderer/src/components/settings/HelpSection';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const queryData = (name: string) => {
@@ -34,8 +35,14 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     });
   return { trpc: proxy(), client: proxy() };
 });
-vi.mock('../src/renderer/src/components/settings/HelpSection', () => ({
-  HelpSection: () => '帮助内容',
+vi.mock('../src/renderer/src/components/settings/LogViewerPanel', () => ({
+  LogViewerPanel: () => '合成日志查看器',
+}));
+vi.mock('../src/renderer/src/components/settings/FaqPanel', () => ({
+  FaqPanel: () => '合成常见问题正文',
+}));
+vi.mock('../src/renderer/src/components/settings/BugReportPanel', () => ({
+  BugReportPanel: () => '合成反馈表单',
 }));
 
 afterEach(() => vi.unstubAllGlobals());
@@ -72,6 +79,58 @@ function mount(initialSection: SectionId, onCreateClone?: () => void) {
 }
 
 describe('设置归位后的实际页面', () => {
+  it('旧独立帮助内容仍能切换日志、常见问题和反馈', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      act(() => root.render(createElement(HelpSection)));
+      expect(host.textContent).toContain('合成日志查看器');
+      const tabs = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+      act(() => tabs.find((tab) => tab.textContent === '常见问题')!.click());
+      expect(host.textContent).toContain('合成常见问题正文');
+      act(() => tabs.find((tab) => tab.textContent === '反馈')!.click());
+      expect(host.textContent).toContain('合成反馈表单');
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
+  it('帮助与关于按四页展示，版本更新及日志能力各自合并，旧入口仍可达', () => {
+    const f = mount('version');
+    try {
+      expect(
+        [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((item) => item.textContent),
+      ).toEqual(['版本与更新', '常见问题', '日志', '反馈']);
+      expect(f.body().querySelector('h3')?.textContent).toBe('版本与更新');
+      expect(f.body().textContent).toContain('内置组件');
+      expect(f.body().textContent).toContain('监控新版本发布');
+      f.render('help');
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        '常见问题',
+      );
+      expect(f.body().textContent).toContain('合成常见问题正文');
+      expect(f.body().querySelector('[role="tablist"]')).toBeNull();
+      f.render('logs');
+      expect(f.body().querySelector('h3')?.textContent).toBe('日志');
+      expect(f.body().textContent).toContain('日志保留时长');
+      expect(f.body().textContent).toContain('合成日志查看器');
+      const feedback = [
+        ...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item'),
+      ].find((item) => item.textContent === '反馈')!;
+      act(() => feedback.click());
+      expect(f.body().textContent).toContain('合成反馈表单');
+      expect(f.body().textContent).not.toContain('合成日志查看器');
+      f.render('updates');
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        '版本与更新',
+      );
+      expect(f.body().textContent).toContain('监控新版本发布');
+    } finally {
+      f.close();
+    }
+  });
   it('好友克隆为空时仍可从设置打开已有创建流程', () => {
     const onCreateClone = vi.fn();
     const f = mount('clone-settings', onCreateClone);

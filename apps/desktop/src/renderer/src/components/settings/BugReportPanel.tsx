@@ -157,7 +157,7 @@ export function BugReportPanel(): ReactElement {
       platformHint,
       '',
       '## weq 版本',
-      appVersion || '<填写设置 → 全局设置 显示的版本号>',
+      appVersion || '<填写设置 → 帮助与关于 → 版本与更新中的版本号>',
       '',
       '## 错误的功能描述',
       '<在这里描述发生了什么，附上报错文本 / 日志 / 截图>',

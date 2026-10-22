@@ -17,6 +17,7 @@ import {
   Activity,
   AudioLines,
   Bot,
+  Bug,
   BrainCircuit,
   Check,
   ChevronRight,
@@ -37,6 +38,7 @@ import {
   ScanText,
   Settings2,
   ScanSearch,
+  ScrollText,
   ShieldCheck,
   Sun,
   User,
@@ -113,7 +115,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'version',
-    label: '版本',
+    label: '版本与更新',
     icon: <Package size={16} strokeWidth={1.8} />,
     render: () => <VersionSection />,
   },
@@ -306,10 +308,16 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <DaemonSection />,
   },
   {
-    id: 'help',
-    label: '帮助',
+    id: 'faq',
+    label: '常见问题',
     icon: <HelpCircle size={16} strokeWidth={1.8} />,
-    render: () => <HelpSection />,
+    render: () => <HelpSection page="faq" />,
+  },
+  {
+    id: 'feedback',
+    label: '反馈',
+    icon: <Bug size={16} strokeWidth={1.8} />,
+    render: () => <HelpSection page="feedback" />,
   },
   {
     id: 'message-display',
@@ -349,15 +357,9 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'logs',
-    label: '日志设置',
-    icon: <Activity size={16} />,
-    render: () => <GlobalSettingsSection section="logs" />,
-  },
-  {
-    id: 'updates',
-    label: '更新提醒',
-    icon: <Package size={16} />,
-    render: () => <DaemonSection panel="updates" />,
+    label: '日志',
+    icon: <ScrollText size={16} />,
+    render: () => <HelpSection page="logs" />,
   },
   {
     id: 'tts',

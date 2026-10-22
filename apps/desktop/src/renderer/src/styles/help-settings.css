@@ -1,0 +1,30 @@
+.weq-help .weq-help-log-toolbar {
+  flex-wrap: wrap;
+}
+
+.weq-help .weq-help-log-file {
+  flex: 1 1 200px;
+}
+
+.weq-help .weq-help-log-toolbar-right {
+  flex: 1 1 280px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.weq-help .weq-help-log-meta {
+  flex: 1 1 160px;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.weq-help .weq-help-bug-tips li {
+  display: block;
+}
+
+.weq-help .weq-help-bug-tips li > svg {
+  display: inline-block;
+  margin-right: 7px;
+  vertical-align: -2px;
+}

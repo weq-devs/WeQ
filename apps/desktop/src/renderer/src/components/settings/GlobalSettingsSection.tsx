@@ -357,7 +357,7 @@ export function GlobalSettingsSection({
             accounts: '账号管理',
             storage: '缓存与网络',
             saving: '默认保存',
-            logs: '日志设置',
+            logs: '日志',
           }[section]
         }
       />

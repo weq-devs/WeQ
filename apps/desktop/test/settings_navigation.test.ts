@@ -6,6 +6,14 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置的两级导航', () => {
+  it('帮助与关于只有四个目标页，旧帮助和更新提醒深链归到新页面', () => {
+    expect(settingsGroupFor('version').sections).toEqual(['version', 'faq', 'logs', 'feedback']);
+    expect(settingsSectionFor('help')).toBe('faq');
+    expect(settingsSectionFor('updates')).toBe('version');
+    for (const id of ['version', 'faq', 'logs', 'feedback', 'help', 'updates'] as const) {
+      expect(settingsGroupFor(id).id).toBe('help');
+    }
+  });
   it('模型保留单个一级分类，识别、克隆与画像分别归位', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',

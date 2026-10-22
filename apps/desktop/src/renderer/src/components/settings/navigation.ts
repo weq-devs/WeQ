@@ -35,6 +35,8 @@ export type SectionId =
   | 'credentials'
   | 'diagnostics'
   | 'help'
+  | 'faq'
+  | 'feedback'
   | 'logs'
   | 'version'
   | 'updates';
@@ -66,7 +68,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Secti
   },
   { id: 'services', label: '服务与集成', sections: ['remote', 'mcp', 'sse', 'rkey', 'daemon'] },
   { id: 'advanced', label: '高级与诊断', sections: ['credentials', 'diagnostics'] },
-  { id: 'help', label: '帮助与关于', sections: ['help', 'logs', 'version', 'updates'] },
+  { id: 'help', label: '帮助与关于', sections: ['version', 'faq', 'logs', 'feedback'] },
 ];
 
 export interface SettingsScope {
@@ -100,6 +102,8 @@ export function settingsSectionFor(section: SectionId): SectionId {
   if (section === 'local-models') return 'voice';
   if (section === 'intent-models') return 'intent-sense';
   if (section === 'tts') return 'agentlab';
+  if (section === 'help') return 'faq';
+  if (section === 'updates') return 'version';
   return section;
 }
 
