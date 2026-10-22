@@ -28,12 +28,17 @@ import {
   CloudDownload,
   Download,
 } from 'lucide-react';
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  pinOrderDelta,
-  conversationActivityTime,
-  conversationPinned,
-} from '@weq/service/conversation-order';
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { conversationPinned } from '@weq/service/conversation-order';
+import { sortConversationRows } from '../../lib/conversationListOrder';
 import {
   ConversationDirectoryContext,
   ContactDirectoryContext,
@@ -191,6 +196,7 @@ export function ConversationList({
     });
   const viewportRef = useRef<HTMLDivElement>(null);
   const [listHeight, setListHeight] = useState(600);
+  const [rowHeight, setRowHeight] = useState(62);
   const menuRef = useRef<HTMLDivElement>(null);
   const filtered = useMemo(() => {
     // 置顶会话排最前；其余按「最后一条消息时间」和真实会话混排。
@@ -220,17 +226,7 @@ export function ConversationList({
     const visible = directory?.groupAssistantIds
       ? sidebarConversationsWithoutAssistant(rows, directory.groupAssistantIds)
       : rows;
-    return visible.sort((first, second) => {
-      const pinnedDelta = pinOrderDelta(
-        isPinned(first, preferences),
-        isPinned(second, preferences),
-      );
-      if (pinnedDelta !== 0) return pinnedDelta;
-      return (
-        conversationActivityTime(second) - conversationActivityTime(first) ||
-        first.id.localeCompare(second.id)
-      );
-    });
+    return sortConversationRows(visible, preferences);
   }, [
     conversations,
     preferences,
@@ -347,9 +343,14 @@ export function ConversationList({
     setKeyword('');
     setScope('all');
   }, [locateId, locateRevision]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const measure = () => {
-      if (viewportRef.current) setListHeight(Math.max(1, viewportRef.current.clientHeight));
+      if (!viewportRef.current) return;
+      setListHeight(Math.max(1, viewportRef.current.clientHeight));
+      const configured = Number.parseFloat(
+        getComputedStyle(viewportRef.current).getPropertyValue('--weq-conversation-row-height'),
+      );
+      setRowHeight(Number.isFinite(configured) && configured > 0 ? configured : 62);
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -528,7 +529,7 @@ export function ConversationList({
       <div className="weq-conversation-viewport" ref={viewportRef}>
         <WindowedList
           items={filtered}
-          rowHeight={62}
+          rowHeight={rowHeight}
           height={listHeight}
           resetKey={`${scope}:${keyword}`}
           itemKey={(item) => item.id}
@@ -1034,7 +1035,7 @@ export function GroupList({
 
   if (loading) return <ListSkeleton rows={9} />;
   if (!categories.some((category) => category.items.length) && !historicalCategory.items.length)
-    return <EmptyState title="暂无群聊" body="从左上角 + 创建一个群聊。" icon={<Users />} />;
+    return <EmptyState title="暂无群聊" body="" icon={<Users />} />;
   return (
     <div className={cn('list-stack', 'contact-cat-list')} {...multi.rootProps}>
       <label className="weq-group-list-basis">
@@ -1145,19 +1146,26 @@ function GroupNotificationSection({ category, activeConversationId, onSelect, se
   );
 }
 
+const EMPTY_CONTACT_OPTIONS = [] as const;
+
 export function ContactList({
   contacts,
-  categoryDefinitions = [],
-  specialSections = [],
-  trailingSections = [],
+  categoryDefinitions = EMPTY_CONTACT_OPTIONS,
+  specialSections = EMPTY_CONTACT_OPTIONS,
+  trailingSections = EMPTY_CONTACT_OPTIONS,
   activeContactId,
   onSelect,
   loading,
 }: {
   contacts: Contact[];
-  categoryDefinitions?: { id: number; name: string; buddyCount: number; sortOrder?: number }[];
-  specialSections?: ContactSection[];
-  trailingSections?: ContactSection[];
+  categoryDefinitions?: readonly {
+    id: number;
+    name: string;
+    buddyCount: number;
+    sortOrder?: number;
+  }[];
+  specialSections?: readonly ContactSection[];
+  trailingSections?: readonly ContactSection[];
   activeContactId: string | null;
   onSelect: (contact: Contact) => void;
   loading?: boolean;
@@ -1203,11 +1211,15 @@ export function ContactList({
       ...trailingSections.map((section) => ({ ...section, items: section.items.filter(matches) })),
     ];
   }, [filtered, categoryDefinitions, specialSections, trailingSections, matches]);
+  const selectionIds = useMemo(
+    () => [...new Set(categories.flatMap((category) => category.items.map((item) => item.id)))],
+    [categories],
+  );
 
   // 默认全部折叠。
   const [expanded, setExpanded] = useState<Record<string | number, boolean>>({});
   const multi = useMultiSelection({
-    ids: [...new Set(categories.flatMap((category) => category.items.map((item) => item.id)))],
+    ids: selectionIds,
     selected: selection.selectedIds,
     onChange: selection.setSelectedIds,
     anchorRef: selection.anchorRef,
