@@ -161,6 +161,37 @@ export { SetFriendCategory } from './oidb/set-friend-category';
 export type { SetFriendCategoryParams } from './oidb/set-friend-category';
 export { GetFriendSnsPage, type FriendSnsPage } from './oidb/get-friend-sns';
 export {
+  getCloudProfile,
+  getCommonFriendCount,
+  getCommonGroups,
+  cloudProfileResponse,
+  commonGroupsResponse,
+} from './oidb/profile/cloud-profile';
+export {
+  QQ_REGIONS,
+  QQ_PROFESSIONS,
+  readEditableProfile,
+  writeEditableProfile,
+  packQqRegionCode,
+  encodeQqRegion,
+  packQqBirthday,
+  parseLegacyProfileBody,
+  encodeEditableProfile,
+  type EditableProfilePatch,
+} from './oidb/profile/editable-profile';
+export {
+  CreateFriendCategory,
+  UpdateFriendCategories,
+  DeleteFriendCategory,
+  MoveFriendCategory,
+} from './oidb/manage-friend-category';
+export {
+  SetFriendSpecialCare,
+  SNS_SPECIAL_CARE,
+  SNS_SPECIAL_CARE_ZONE,
+  SNS_SPECIAL_CARE_RING,
+} from './oidb/set-friend-special-care';
+export {
   GetGroupIdentity,
   SetGroupIdentity,
   type GroupIdentitySnapshot,

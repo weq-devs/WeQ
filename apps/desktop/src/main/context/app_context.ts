@@ -1924,6 +1924,13 @@ export function initAppContext(fileRoot?: string): AppContext {
             selfUid: session.selfUid,
             getBuddy: (uid) => session.buddies.getBuddy(uid),
             listCategories: () => session.categories.listCategories(),
+            clientVersion: () => {
+              const path = platform.qqMajorNodePath(resolveOnlinePid());
+              if (!path) throw new Error('无法读取当前 QQ 版本');
+              const info = platform.native.ntHelper.resolveAppidFromMajor(path);
+              if (!info.version || !info.build) throw new Error('当前 QQ 版本信息不完整');
+              return `${info.version}-${info.build}`;
+            },
           },
           () => {
             if (this.account !== session) throw new Error('账号已切换，请重新打开操作');
@@ -2620,6 +2627,13 @@ export function initAppContext(fileRoot?: string): AppContext {
             selfUid: session.selfUid,
             getBuddy: (uid) => session.buddies.getBuddy(uid),
             listCategories: () => session.categories.listCategories(),
+            clientVersion: () => {
+              const path = platform.qqMajorNodePath(livePid());
+              if (!path) throw new Error('无法读取当前 QQ 版本');
+              const info = platform.native.ntHelper.resolveAppidFromMajor(path);
+              if (!info.version || !info.build) throw new Error('当前 QQ 版本信息不完整');
+              return `${info.version}-${info.build}`;
+            },
           },
           () => {
             if (this.account !== session) throw new Error('账号已切换，请重新打开操作');

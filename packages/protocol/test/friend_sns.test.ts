@@ -2,13 +2,34 @@ import { describe, expect, it } from 'vitest';
 import { decode, encode, GetFriendSnsPage, SNS_FRIEND_DISTURB } from '../src/index';
 
 describe('0xFD4 好友 SNS 子结构', () => {
+  it('只读 SNS 时不因分组目录省略 ID 或无关资料字段异常而失败，也不把缺失 ID 猜成 0', () => {
+    const body = {
+      selfUin: 10001n,
+      friends: [
+        {
+          uid: 'u_friend',
+          uin: 10002n,
+          categoryId: -1,
+          sns: [{ key: SNS_FRIEND_DISTURB, value: new Uint8Array() }],
+        },
+      ],
+      categories: [{ name: '合成分组', buddyCount: 1 }],
+    };
+    expect(GetFriendSnsPage.deserialize(body, { includeDirectory: false })).toMatchObject({
+      friends: [{ uid: 'u_friend', disturb: false, disturbPresent: true }],
+    });
+    expect(GetFriendSnsPage.deserialize(body, { includeDirectory: false })).not.toHaveProperty(
+      'categories',
+    );
+    expect(() => GetFriendSnsPage.deserialize(body)).toThrow();
+  });
   it('独立原始字节样本把好友 tag101、SNS tag10002 和 UID/UIN 分别解码', () => {
     // 合成账号与好友；按官方字段表手写 wire，不用被测编码器生成期望。
     const bytes = Buffer.from(
       '38914eaa061e0a08755f667269656e6418924e92f1040d088b6a120800000001ffffffff',
       'hex',
     );
-    expect(GetFriendSnsPage.deserialize(decode(GetFriendSnsPage.respSchema, bytes))).toEqual({
+    expect(GetFriendSnsPage.deserialize(decode(GetFriendSnsPage.respSchema, bytes))).toMatchObject({
       selfUin: '10001',
       friends: [{ uid: 'u_friend', uin: '10002', disturb: true, disturbPresent: true }],
     });
@@ -32,7 +53,7 @@ describe('0xFD4 好友 SNS 子结构', () => {
   it('末页只有结束标志时仍是可识别的空页，不与零字节回包混同', () => {
     expect(
       GetFriendSnsPage.deserialize(decode(GetFriendSnsPage.respSchema, Uint8Array.of(24, 1))),
-    ).toEqual({ friends: [] });
+    ).toEqual({ friends: [], isEnd: true });
   });
   it.each([
     {},

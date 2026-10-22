@@ -45,6 +45,42 @@ function fixture(pages: Array<Record<string, unknown>>) {
 }
 
 describe('好友免打扰云端读回', () => {
+  it('明确未结束但没有游标时不当成完整名册，也不将缺失开关判为关闭', async () => {
+    const f = fixture([{ selfUin: 10001n, isEnd: false, friends: [row()] }]);
+    await expect(f.service.getFriendDisturb(friend.uid)).rejects.toThrow('尚未结束');
+  });
+  it('分组目录省略 ID 不阻断免打扰或特别关心状态，分组管理仍独立校验', async () => {
+    const page = {
+      selfUin: 10001n,
+      friends: [row(enabled)],
+      categories: [{ name: '合成分组', buddyCount: 1 }],
+    };
+    const f = fixture([page, page, page]);
+    expect(await f.service.getFriendDisturb(friend.uid)).toEqual({
+      uid: friend.uid,
+      enabled: true,
+    });
+    expect(await f.service.getFriendSpecialCare(friend.uid)).toEqual({
+      uid: friend.uid,
+      enabled: false,
+      zone: false,
+      ring: false,
+    });
+    await expect(f.service.friendRoster()).rejects.toThrow();
+  });
+  it('默认好友分组 ID、人数和排序均为 0 时不阻断免打扰读取', async () => {
+    const f = fixture([
+      {
+        selfUin: 10001n,
+        friends: [{ ...row(enabled), categoryId: 0 }],
+        categories: [{ id: 0, name: '我的好友', buddyCount: 0, sortOrder: 0 }],
+      },
+    ]);
+    expect(await f.service.getFriendDisturb(friend.uid)).toEqual({
+      uid: friend.uid,
+      enabled: true,
+    });
+  });
   it.each([
     [enabled, true],
     [new Uint8Array(), false],

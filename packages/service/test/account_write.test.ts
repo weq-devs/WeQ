@@ -1,11 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { encode, SetFriendRemark, SetGroupMessagePolicy } from '@weq/protocol';
+import {
+  decode,
+  encode,
+  SetFriendRemark,
+  SetGroupMessagePolicy,
+  GetFriendSnsPage,
+  MoveFriendCategory,
+} from '@weq/protocol';
 import { AccountWriteService, type AccountWriteIdentity } from '../src/account/account_write';
 import { OnlineStatusService, OnlineType, ONLINE_TYPE_NAMES } from '../src/account/online_status';
 
 function fixture() {
   const calls: Array<{ command: number; sub: number; body: Buffer }> = [];
   let live = true;
+  let categoryId = 0;
   const identity: AccountWriteIdentity = {
     uin: '10001',
     selfUid: 'u_self',
@@ -17,6 +25,19 @@ function fixture() {
     {
       sendOidbPacket: async (_pid, command, sub, body) => {
         calls.push({ command, sub, body });
+        if (command === GetFriendSnsPage.command)
+          return Buffer.from(
+            encode(GetFriendSnsPage.respSchema, {
+              selfUin: 10001n,
+              friends: [{ uid: 'u_friend', uin: 10002n, categoryId }],
+              categories: [
+                { id: 0, name: '默认' },
+                { id: 5, name: '同学' },
+              ],
+            }),
+          );
+        if (command === MoveFriendCategory.command)
+          categoryId = Number(decode(MoveFriendCategory.reqSchema, body).categoryId);
         if (command === SetFriendRemark.command)
           return Buffer.from(
             encode(SetFriendRemark.respSchema, {
@@ -71,16 +92,16 @@ describe('账号写操作编排', () => {
     const f = fixture();
     expect(await f.service.friendRemark('u_friend', '同学')).toEqual({ state: 'confirmed' });
     expect(await f.service.friendRemark('u_friend', '')).toEqual({ state: 'accepted' });
-    expect(f.calls.map((c) => c.command)).toEqual([0x912e, 0x912f]);
+    expect(f.calls.map((c) => c.command)).toEqual([0xfd4, 0x912e, 0xfd4, 0x912f]);
   });
 
-  it('未知分组不发包，已在目标分组不重复操作', async () => {
+  it('云端未知分组不写入，已在目标分组不重复操作，不依赖过期本地归属', async () => {
     const f = fixture();
     await expect(f.service.friendCategory('u_friend', 9)).rejects.toThrow(/不存在/);
-    expect(await f.service.friendCategory('u_friend', 0)).toEqual({ state: 'unchanged' });
-    expect(f.calls).toHaveLength(0);
+    expect(await f.service.friendCategory('u_friend', 0)).toEqual({ state: 'confirmed' });
+    expect(f.calls.every((call) => call.command === GetFriendSnsPage.command)).toBe(true);
     await f.service.friendCategory('u_friend', 5);
-    expect(f.calls).toHaveLength(1);
+    expect(f.calls.filter((call) => call.command === MoveFriendCategory.command)).toHaveLength(1);
   });
 
   it('等待名册期间切号，发包前重新核对绑定', async () => {
