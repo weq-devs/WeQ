@@ -688,16 +688,16 @@
 
   .conversation-row.active .row-unread {
     background: #f2543d;
-    color: #ffffff;
+    color: var(--weq-unread-foreground);
   }
 
   .row-unread.muted {
-    background: #c3c7d2;
+    background: var(--weq-unread-muted-background);
   }
 
   .conversation-row.active .row-unread.muted {
-    background: #c3c7d2;
-    color: #ffffff;
+    background: var(--weq-unread-muted-background);
+    color: var(--weq-fg-primary);
   }
 
   .row-muted {
@@ -1221,7 +1221,7 @@
 	   那条会把 hover/focus 底色设成 transparent 的规则。 */
   .mobile-composer-expanded-tools .composer-send-expanded:not(:disabled) {
     background: var(--weq-accent-effective, #0099ff);
-    color: #ffffff;
+    color: var(--primary-foreground);
   }
 
   .mobile-composer-expanded-tools .composer-send-expanded:disabled {
@@ -1234,7 +1234,7 @@
 	   把底色设成 transparent（权重 0,3,2），比上面那条高，这里再抬一级盖回来。 */
   html[data-theme='dark'] .mobile-composer-expanded-tools .composer-send-expanded:not(:disabled) {
     background: var(--weq-accent-effective, #0099ff);
-    color: #ffffff;
+    color: var(--primary-foreground);
   }
 
   html[data-theme='dark'] .mobile-composer-expanded-tools .composer-send-expanded:disabled {

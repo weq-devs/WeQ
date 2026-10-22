@@ -627,7 +627,7 @@ html[data-theme='dark'] .weq-int-select {
   border-radius: 999px;
   border: none;
   background: var(--weq-accent-effective, #12a8ff);
-  color: #fff;
+  color: var(--primary-foreground);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;

@@ -1139,7 +1139,7 @@ html[data-theme='dark'] .member-badge.level-6 {
 .message-action-button.primary {
   border-color: transparent;
   background: var(--weq-accent-effective, #12a8ff);
-  color: #ffffff;
+  color: var(--primary-foreground);
 }
 
 .message-action-button.primary:hover,
@@ -3237,7 +3237,7 @@ html[data-theme='dark'] .member-role-badge.admin {
   padding: 0 13px;
   border-radius: 7px;
   background: var(--weq-accent-effective, #0099ff);
-  color: #ffffff;
+  color: var(--primary-foreground);
   font-size: 13px;
   white-space: nowrap;
   line-height: 1;

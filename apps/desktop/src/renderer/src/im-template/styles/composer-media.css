@@ -713,7 +713,7 @@ button.composer-single-thumb {
   border: 0;
   border-radius: 50%;
   background: var(--weq-accent-effective, #0099ff);
-  color: #ffffff;
+  color: var(--primary-foreground);
   cursor: pointer;
   transition:
     transform 140ms ease,
@@ -726,7 +726,7 @@ button.composer-single-thumb {
 }
 
 .voice-review-play.is-playing {
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 78%, #000000);
+  background: var(--weq-accent-hover, var(--weq-accent-effective, #0099ff));
 }
 
 .voice-review-wave {
@@ -907,7 +907,7 @@ button.composer-single-thumb {
 
 .voice-btn.primary {
   background: var(--weq-accent-effective, #0099ff);
-  color: #ffffff;
+  color: var(--primary-foreground);
   font-weight: 500;
   box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
 }
@@ -1408,7 +1408,7 @@ button.composer-single-thumb {
 
 .link-card-btn.primary {
   background: var(--weq-accent-effective, #0099ff);
-  color: #ffffff;
+  color: var(--primary-foreground);
   font-weight: 500;
   box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
 }
@@ -1930,7 +1930,7 @@ html[data-theme='dark'] .link-card-preview-card {
 /* 正在播的那条：实心主题色 + 轻微呼吸，扫一眼就知道是哪条在响。 */
 .ai-voice-chip-play.is-playing {
   background: var(--weq-accent-effective, #0099ff);
-  color: #ffffff;
+  color: var(--primary-foreground);
   animation: ai-voice-pulse 1.4s ease-in-out infinite;
 }
 
@@ -1990,7 +1990,7 @@ html[data-theme='dark'] .link-card-preview-card {
 
 .ai-voice-btn.primary {
   background: var(--weq-accent-effective, #0099ff);
-  color: #ffffff;
+  color: var(--primary-foreground);
   font-weight: 500;
   box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
 }
@@ -2524,7 +2524,7 @@ html[data-theme='dark'] .ai-voice-chip {
 
 .bounce-btn.primary {
   background: var(--weq-accent-effective, #0099ff);
-  color: #ffffff;
+  color: var(--primary-foreground);
   font-weight: 500;
   box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
 }
@@ -2963,7 +2963,7 @@ html[data-theme='dark'] .bounce-search {
 
 .poke-btn.primary {
   background: var(--weq-accent-effective, #0099ff);
-  color: #ffffff;
+  color: var(--primary-foreground);
   font-weight: 500;
   box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
 }
@@ -3584,7 +3584,7 @@ html[data-theme='dark'] .poke-combo-btn {
 
 .redpacket-btn.primary {
   background: var(--weq-accent-effective, #0099ff);
-  color: #ffffff;
+  color: var(--primary-foreground);
   font-weight: 500;
   box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-effective, #0099ff) 32%, transparent);
 }

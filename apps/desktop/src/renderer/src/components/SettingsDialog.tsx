@@ -69,6 +69,7 @@ import { DatabaseToleranceSection } from './settings/DatabaseToleranceSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
 import { SectionHeader, SettingsScopeContext, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
+import { DEFAULT_ACCENT, normalizeHex } from '../../../shared/theme_colors';
 import { AntiRecallDialog } from './AntiRecallDialog';
 import { WorkspacePage } from './WorkspacePages';
 import { UsagePanel } from '../views/agentlab/UsagePanel';
@@ -371,7 +372,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
 
 /** Quick-pick accent presets. First entry is the WeQ default blue. */
 const ACCENT_PRESETS = [
-  '#0099ff',
+  DEFAULT_ACCENT,
   '#3b82f6',
   '#6f8aa6',
   '#16b8a6',
@@ -381,8 +382,6 @@ const ACCENT_PRESETS = [
   '#ec4899',
   '#8b5cf6',
 ];
-
-const DEFAULT_ACCENT = '#0099ff';
 
 export function SettingsDialog({
   open,
@@ -886,18 +885,6 @@ type Hsl = { h: number; s: number; l: number };
 
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
-}
-
-function normalizeHex(input: string): string | null {
-  let hex = input.trim().replace(/^#/, '');
-  if (/^[0-9a-fA-F]{3}$/.test(hex)) {
-    hex = hex
-      .split('')
-      .map((c) => c + c)
-      .join('');
-  }
-  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
-  return `#${hex.toLowerCase()}`;
 }
 
 function hexToHsl(input: string): Hsl | null {

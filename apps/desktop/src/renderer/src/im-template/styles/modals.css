@@ -1413,7 +1413,7 @@
 .primary-button {
   border-color: var(--weq-accent-effective, #0099f7);
   background: var(--weq-accent-effective, #0099f7);
-  color: #ffffff;
+  color: var(--primary-foreground);
 }
 
 .secondary-button {

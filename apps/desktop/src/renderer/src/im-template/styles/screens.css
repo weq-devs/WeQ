@@ -389,8 +389,8 @@ html[data-theme='dark'] .loading-spinner {
 
 html[data-theme='dark'] .conversation-row.active,
 html[data-theme='dark'] .contact-row.active {
-  background: #0877d8;
-  color: #ffffff;
+  background: var(--weq-accent-effective);
+  color: var(--primary-foreground);
 }
 
 html[data-theme='dark'] .contact-tools > button + button {
@@ -874,16 +874,16 @@ html[data-theme='dark'] .contact-row:hover {
 
 html[data-theme='dark'] .contact-row.active,
 html[data-theme='dark'] .contact-row.active:hover {
-  background: #272829;
-  color: #eef0f3;
+  background: var(--weq-accent-effective);
+  color: var(--primary-foreground);
 }
 
 html[data-theme='dark'] .contact-row.active .row-main span {
-  color: #a0a3a9;
+  color: var(--primary-foreground);
 }
 
 html[data-theme='dark'] .contact-row.active .row-meta {
-  color: #a0a3a9;
+  color: var(--primary-foreground);
 }
 
 html[data-theme='dark'] .contact-profile-fields,

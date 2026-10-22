@@ -493,13 +493,13 @@ html[data-theme='dark'] .contact-cat-count {
 .conversation-row.active,
 .contact-row.active {
   background: var(--weq-accent-effective, #0099f7);
-  color: #ffffff;
+  color: var(--primary-foreground);
 }
 
 .conversation-row.active .row-preview-line,
 .conversation-row.active .row-meta,
 .contact-row.active .row-main span {
-  color: rgba(255, 255, 255, 0.86);
+  color: var(--primary-foreground);
 }
 
 .row-unread {
@@ -510,18 +510,19 @@ html[data-theme='dark'] .contact-cat-count {
   padding: 0 5px;
   border-radius: 999px;
   background: #ff7468;
-  color: #ffffff;
+  color: var(--weq-unread-foreground);
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
 }
 
 .row-unread.muted {
-  background: #c9cbd0;
+  background: var(--weq-unread-muted-background);
+  color: var(--weq-fg-primary);
 }
 
 html[data-theme='dark'] .row-unread.muted {
-  background: #4a4a52;
+  background: var(--weq-unread-muted-background);
 }
 
 .row-muted {
@@ -533,20 +534,20 @@ html[data-theme='dark'] .row-unread.muted {
 
 .conversation-row.active .row-unread {
   background: #ff7468;
-  color: #ffffff;
+  color: var(--weq-unread-foreground);
 }
 
 .conversation-row.active .row-unread.muted {
-  background: #c9cbd0;
-  color: #ffffff;
+  background: var(--weq-unread-muted-background);
+  color: var(--weq-fg-primary);
 }
 
 html[data-theme='dark'] .conversation-row.active .row-unread.muted {
-  background: #4a4a52;
+  background: var(--weq-unread-muted-background);
 }
 
 .conversation-row.active .row-muted {
-  color: rgba(255, 255, 255, 0.82);
+  color: var(--primary-foreground);
 }
 
 .row-main {
@@ -688,7 +689,11 @@ html[data-theme='dark'] .conversation-row.active .row-unread.muted {
 }
 
 .conversation-row.active .row-pinned {
-  color: rgba(255, 255, 255, 0.86);
+  color: var(--primary-foreground);
+}
+
+.conversation-row.active .row-draft svg {
+  color: var(--primary-foreground);
 }
 
 .row-hidden {
@@ -697,7 +702,7 @@ html[data-theme='dark'] .conversation-row.active .row-unread.muted {
 }
 
 .conversation-row.active .row-hidden {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--primary-foreground);
 }
 
 .conversation-row .avatar,
@@ -743,7 +748,7 @@ html[data-theme='dark'] .conversation-row.active .row-unread.muted {
 }
 
 .contact-row.active .contact-card-status {
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--primary-foreground);
 }
 
 .contact-card-signature {
@@ -757,7 +762,7 @@ html[data-theme='dark'] .conversation-row.active .row-unread.muted {
 }
 
 .contact-row.active .contact-card-signature {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--primary-foreground);
 }
 
 .avatar {

@@ -5,7 +5,7 @@
   --weq-page-item: color-mix(in srgb, var(--weq-bg-surface) 72%, transparent);
   --weq-page-hover: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
   --weq-page-selected: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-  --weq-page-accent-ink: color-mix(in srgb, var(--weq-accent-effective) 45%, var(--weq-fg-primary));
+  --weq-page-accent-ink: var(--weq-accent-ink, var(--weq-fg-primary));
   background: var(--weq-chat-bg);
   color: var(--weq-fg-primary);
 }
@@ -15,7 +15,7 @@ html[data-theme='dark'] :is(.weq-workspace-content, .weq-workspace-page-fallback
   --weq-page-item: color-mix(in srgb, var(--weq-bg-surface) 78%, transparent);
   --weq-page-hover: color-mix(in srgb, var(--weq-fg-primary) 9%, transparent);
   --weq-page-selected: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
-  --weq-page-accent-ink: color-mix(in srgb, var(--weq-accent-effective) 40%, var(--weq-fg-primary));
+  --weq-page-accent-ink: var(--weq-accent-ink, var(--weq-fg-primary));
 }
 
 /* 明确高于旧弹窗的深色规则，避免页面被不透明底色截断。 */
@@ -171,7 +171,7 @@ html[data-theme]
     .weq-settings-subnav-item,
     .weq-wtools-nav-item
   ):focus-visible {
-  outline: 2px solid var(--weq-accent-effective);
+  outline: 2px solid var(--weq-accent-ink, var(--weq-fg-primary));
   outline-offset: -2px;
 }
 

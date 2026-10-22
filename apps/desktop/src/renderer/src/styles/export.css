@@ -89,7 +89,7 @@
 
 .weq-exp-mode.is-active .weq-exp-mode-icon {
   background: var(--weq-accent-effective);
-  color: #ffffff;
+  color: var(--primary-foreground);
 }
 
 .weq-exp-mode-text {
@@ -203,7 +203,7 @@
   border: 0;
   border-radius: 9px;
   background: var(--weq-accent-effective);
-  color: #ffffff;
+  color: var(--primary-foreground);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -1483,7 +1483,7 @@
 
 .weq-exp-cal-cell.is-end {
   background: var(--weq-accent-effective);
-  color: #ffffff;
+  color: var(--primary-foreground);
   border-radius: 7px;
   font-weight: 600;
 }
@@ -3490,7 +3490,7 @@ html[data-theme='dark'] .weq-exp-chip.is-active b {
   border: 0;
   border-radius: 9px;
   background: var(--weq-accent-effective);
-  color: #ffffff;
+  color: var(--primary-foreground);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -4389,7 +4389,7 @@ html[data-theme='dark'] .weq-exp-skel-sched-card {
   border: 0;
   border-radius: 9px;
   background: var(--weq-accent-effective);
-  color: #ffffff;
+  color: var(--primary-foreground);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;

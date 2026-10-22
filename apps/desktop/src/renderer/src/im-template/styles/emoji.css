@@ -293,7 +293,7 @@
 
 .emoji-chip.active {
   background: var(--weq-accent-effective, #12a8ff);
-  color: #ffffff;
+  color: var(--primary-foreground);
 }
 
 .emoji-chip em {
@@ -327,7 +327,7 @@
   padding: 3px 10px;
   border-radius: 999px;
   background: var(--weq-accent-effective, #12a8ff);
-  color: #ffffff;
+  color: var(--primary-foreground);
   font-size: 12px;
   font-weight: 500;
 }
@@ -1314,7 +1314,7 @@ html[data-theme='dark'] .reaction-likers {
   place-items: center;
   border-radius: 50%;
   background: var(--weq-accent-effective, #12a8ff);
-  color: #ffffff;
+  color: var(--primary-foreground);
   font-size: 11px;
   line-height: 1;
 }

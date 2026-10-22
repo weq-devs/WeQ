@@ -16,6 +16,7 @@
 @import './drag-region.css';
 /* 图片/视频灯箱底部操作条 + OCR 覆盖层与纯文本面板。 */
 @import './lightbox-actions.css';
+@import './appearance.css';
 
 /* streamdown 代码块用 Tailwind `dark:` 工具类切换 shiki 明/暗配色，但本项目暗色靠
  * html[data-theme="dark"]（同时 theme.ts 会 toggle .dark 类）。把 `dark:` variant 桥接到这两个
@@ -45,7 +46,7 @@ html[data-theme='light'] {
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.2 0 0);
   --primary: var(--weq-accent-effective); /* follows the picked accent */
-  --primary-foreground: oklch(0.99 0 0);
+  --primary-foreground: var(--weq-accent-on, #000000);
   --secondary: oklch(0.96 0 0);
   --secondary-foreground: oklch(0.3 0 0);
   --muted: oklch(0.97 0 0);
@@ -104,10 +105,21 @@ html[data-theme='light'] {
   --weq-chat-bubble-mine: var(--weq-accent-effective);
   --weq-chat-bubble-active: rgba(225, 232, 240, 0.96);
   --weq-fg-primary: var(--foreground);
+  --weq-unread-foreground: #000000;
+  --weq-danger-solid-foreground: #000000;
+  --weq-unread-muted-background: #c9cbd0;
   --weq-fg-secondary: oklch(0.45 0.02 248);
   --weq-fg-muted: oklch(0.58 0.015 248);
-  --weq-border-subtle: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
-  --weq-border-strong: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+  --weq-border-subtle: color-mix(
+    in srgb,
+    var(--weq-accent-effective) 12%,
+    color-mix(in srgb, var(--weq-fg-primary) 16%, transparent)
+  );
+  --weq-border-strong: color-mix(
+    in srgb,
+    var(--weq-accent-effective) 18%,
+    color-mix(in srgb, var(--weq-fg-primary) 28%, transparent)
+  );
   --weq-overlay: rgba(255, 255, 255, 0.72);
   /* Frosted bars (chat header / composer / group-info panel). Translucent so the
    * single --chat-surface gradient stays continuous behind them, with a blur to
@@ -120,6 +132,7 @@ html[data-theme='light'] {
 
 html[data-theme='dark'],
 .dark {
+  --weq-unread-muted-background: #4a4a52;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -127,7 +140,7 @@ html[data-theme='dark'],
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
   --primary: var(--weq-accent-effective);
-  --primary-foreground: oklch(0.205 0 0);
+  --primary-foreground: var(--weq-accent-on, #000000);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -6657,7 +6670,7 @@ html[data-theme='dark'] .weq-set-agent-tag {
 .weq-set-agent-item.is-on .weq-set-agent-chk {
   border-color: var(--weq-accent-effective);
   background: var(--weq-accent-effective);
-  color: #ffffff;
+  color: var(--primary-foreground);
 }
 
 .weq-set-agent-main {
@@ -6825,10 +6838,10 @@ html[data-theme='dark'] .weq-set-agent-tag {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  border: 1px solid var(--weq-accent-effective);
+  border: 1px solid var(--weq-accent-ink, var(--weq-accent-effective));
   border-radius: 7px;
   background: var(--weq-accent-effective);
-  color: #ffffff;
+  color: var(--primary-foreground);
   font-size: 13px;
   cursor: pointer;
   transition:
@@ -6837,7 +6850,8 @@ html[data-theme='dark'] .weq-set-agent-tag {
 }
 
 .weq-set-btn:hover:not(:disabled) {
-  filter: brightness(1.05);
+  filter: none;
+  box-shadow: inset 0 0 0 1px currentColor;
 }
 
 .weq-set-btn-soft {
@@ -8757,7 +8771,7 @@ html[data-theme='dark'] .group-info-member-row.is-clickable:hover {
 /* 待处理需要更强的存在感：实心底 + 反白字。已同意/已拒绝一律淡色，用描边虚实区分。 */
 .app-shell .notice-card-request .notice-state.is-pending {
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
 }
 
 .app-shell .notice-card-request .notice-state.is-agreed {
@@ -10289,7 +10303,7 @@ html[data-theme='dark'] .weq-flash-opening {
 .weq-group-receipt-dialog-tag {
   font-size: 11px;
   font-weight: 600;
-  color: #fff;
+  color: var(--primary-foreground);
   background: var(--weq-accent-effective);
   border-radius: 4px;
   padding: 2px 7px;
@@ -14322,7 +14336,7 @@ html[data-theme='dark'] .weq-provider-modal {
 
 .weq-perhome-show-switch button.is-active {
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
 }
 
 /* 有名片背景时切换胶囊跟着转亮。 */
@@ -14627,13 +14641,13 @@ html[data-theme='dark'] .weq-provider-modal {
 .weq-profile-perhome.is-analytics {
   border-color: transparent;
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
   font-weight: 600;
 }
 
 .weq-profile-perhome.is-analytics:hover {
   border-color: transparent;
-  background: color-mix(in srgb, var(--weq-accent-effective) 86%, #000);
+  background: var(--weq-accent-hover, var(--weq-accent-effective));
 }
 
 /* ───────────────────────── 互动标识灯箱（MutualMarkDialog）───────────────────────── */
@@ -15988,7 +16002,7 @@ html[data-theme='dark'] .weq-provider-modal {
 .weq-collection-chip.is-active {
   border-color: transparent;
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
 }
 .weq-collection-chip-n {
   font-size: 11px;
@@ -16436,7 +16450,7 @@ html[data-theme='dark'] .weq-provider-modal {
   width: 40px;
   height: 40px;
   border-radius: 9px;
-  color: #fff;
+  color: var(--primary-foreground);
   background: var(--weq-accent-effective);
 }
 .weq-col-loc-meta {
@@ -16662,7 +16676,7 @@ html[data-theme='dark'] .weq-collection-state {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  color: #fff;
+  color: var(--primary-foreground);
   background: var(--weq-accent-effective);
 }
 
@@ -17116,7 +17130,7 @@ html[data-theme='dark'] .weq-collection-state {
   border: 0;
   border-radius: 7px;
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -17514,7 +17528,7 @@ html[data-theme='dark'] .weq-wtools-hex-ascii {
   border: 0;
   border-radius: 9px;
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -17744,7 +17758,7 @@ html[data-theme='dark'] .weq-wtools-odev-pid {
   border: 0;
   border-radius: 9px;
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -17833,7 +17847,7 @@ html[data-theme='dark'] .weq-wtools-odev-pid {
   border: 0;
   border-radius: 7px;
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -18239,12 +18253,12 @@ html[data-theme='dark'] .weq-cap {
 .weq-cap-btn.is-primary {
   border-color: transparent;
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
   font-weight: 600;
 }
 .weq-cap-btn.is-primary:hover:not(:disabled) {
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
   filter: brightness(1.07);
 }
 .weq-cap-btn.is-primary.is-pause {
@@ -19038,7 +19052,7 @@ html[data-theme='dark'] .weq-rp-body {
 .weq-rp-step.is-active .weq-rp-step-dot {
   border-color: transparent;
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
 }
 
 .weq-rp-step.is-done .weq-rp-step-dot {
@@ -19307,7 +19321,7 @@ html[data-theme='dark'] .weq-rp-body {
 .weq-rp-db.is-busy .weq-rp-db-icon,
 .weq-rp-pick.is-active .weq-rp-pick-icon {
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
 }
 
 .weq-rp-db-name,
@@ -20458,7 +20472,7 @@ html[data-theme='dark'] .weq-rp-lb {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  color: #fff;
+  color: var(--primary-foreground);
   background: var(--weq-accent-effective);
 }
 .weq-help-dialog-head h2 {
@@ -24453,7 +24467,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   width: 24px;
   height: 24px;
   border-radius: 7px;
-  color: #fff;
+  color: var(--primary-foreground);
   background: var(--weq-accent-effective);
 }
 
@@ -24738,7 +24752,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   width: 24px;
   height: 24px;
   border-radius: 7px;
-  color: #fff;
+  color: var(--primary-foreground);
   background: var(--weq-accent-effective);
 }
 
@@ -25119,7 +25133,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   border: none;
   border-radius: 999px;
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
   font: inherit;
   font-size: 12px;
   font-weight: 550;
@@ -25461,13 +25475,13 @@ html.weq-theme-ripple::view-transition-new(root) {
 
 .weq-mf-primary {
   border: 1px solid transparent;
-  color: #fff;
+  color: var(--primary-foreground);
   background: var(--weq-accent-effective);
   box-shadow: 0 4px 12px color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
 }
 
 .weq-mf-primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--weq-accent-effective) 88%, #000);
+  background: var(--weq-accent-hover, var(--weq-accent-effective));
 }
 
 .weq-mf-primary:active:not(:disabled) {
@@ -26731,14 +26745,14 @@ html[data-theme='dark'] .weq-mf-preview {
   padding: 4px 12px;
   border: 1px solid transparent;
   border-radius: 999px;
-  color: #fff;
+  color: var(--primary-foreground);
   font-size: 12px;
   background: var(--weq-accent-effective);
   cursor: pointer;
 }
 
 .weq-mf-nested-done:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective) 88%, #000);
+  background: var(--weq-accent-hover, var(--weq-accent-effective));
 }
 
 /* 嵌在聊天记录里的编辑器：靠外层的工具栏进出，内层不再重复头部。 */
@@ -27086,7 +27100,7 @@ html[data-theme='dark'] .weq-mf-preview {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  color: #fff;
+  color: var(--primary-foreground);
   background: var(--weq-accent-effective);
 }
 
@@ -28098,7 +28112,7 @@ html[data-theme='dark'] .weq-mf-mall-card {
   border: none;
   border-radius: 0.4rem;
   background: var(--weq-accent-effective);
-  color: #ffffff;
+  color: var(--primary-foreground);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;

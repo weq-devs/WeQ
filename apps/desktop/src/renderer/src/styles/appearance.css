@@ -1,0 +1,149 @@
+/* 背景保留用户原色，文字与必要的描边、焦点单独派生。 */
+html[data-theme] {
+  --weq-chat-mine-ink: var(--primary-foreground);
+}
+
+html[data-theme='dark'] {
+  --weq-chat-mine-ink: var(--foreground);
+}
+
+html[data-theme]
+  :is(button, a, input, textarea, select, [role='button'], [role='tab']):focus-visible {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-fg-primary));
+  outline-offset: 2px;
+}
+
+html[data-theme] :is(.weq-set-btn, .weq-dialog-actions button) > svg {
+  flex-shrink: 0;
+}
+
+html[data-theme] :is(.weq-set-row-main, .weq-set-row-ctrl, .weq-set-btn-group) {
+  min-width: 0;
+}
+
+html[data-theme] .weq-set-row-ctrl {
+  max-width: 100%;
+}
+
+html[data-theme] :is(.weq-set-row-label, .weq-set-row-desc, .weq-dialog-body) {
+  overflow-wrap: anywhere;
+}
+
+html[data-theme]
+  .message-line.mine
+  .message-content:not(.qq-card-only, .qq-voice-only, .sticker-only, .markdown-image-only) {
+  color: var(--weq-chat-mine-ink);
+}
+
+html[data-theme]
+  .message-line.mine
+  .message-bubble.context-active
+  .message-content:not(.qq-card-only, .qq-voice-only, .sticker-only, .markdown-image-only) {
+  background: var(--weq-chat-bubble-mine);
+  color: var(--weq-chat-mine-ink);
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+html[data-theme]
+  .message-line.mine
+  .message-content:not(.qq-card-only, .qq-voice-only)
+  :is(.qq-link, .qq-at-element),
+html[data-theme]
+  .message-line.mine
+  .message-content:not(.qq-card-only, .qq-voice-only)
+  .qq-link:hover {
+  color: var(--weq-chat-mine-ink);
+  text-decoration-color: currentColor;
+}
+
+html[data-theme]
+  :is(
+    .weq-cp-hex,
+    .weq-settings-subnav-item.is-active,
+    .weq-settings-nav-item.is-active,
+    .weq-tools-child-menu > button:hover
+  ) {
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
+}
+
+html[data-theme] .weq-set-seg {
+  border-color: var(--weq-border-subtle);
+  background: color-mix(in srgb, var(--weq-accent-effective) 7%, transparent);
+}
+
+html[data-theme] .weq-set-seg-item {
+  color: var(--weq-fg-secondary);
+}
+
+html[data-theme] .weq-set-seg-item.is-on {
+  background: var(--weq-accent-effective);
+  color: var(--primary-foreground);
+  box-shadow: inset 0 0 0 1px var(--weq-accent-ink, var(--weq-fg-primary));
+}
+
+html[data-theme] :is(.composer-send:not(:disabled), .message-action-button.primary),
+html[data-theme]
+  .mobile-composer-expanded
+  .mobile-composer-expanded-tools
+  .composer-send-expanded:not(:disabled),
+html[data-theme] .weq-dialog-foot .weq-action-primary,
+html[data-theme] :is(.group-avatar-actions, .group-edit-actions) .primary-button {
+  border-color: var(--weq-accent-ink, var(--weq-accent-effective));
+  background: var(--weq-accent-effective);
+  color: var(--primary-foreground);
+}
+
+html[data-theme] :is(.composer-send, .message-action-button.primary):hover:not(:disabled),
+html[data-theme] .weq-dialog-foot .weq-action-primary:hover:not(:disabled) {
+  background: var(--weq-accent-hover, var(--weq-accent-effective));
+  color: var(--primary-foreground);
+  transform: none;
+}
+
+html[data-theme] .weq-dialog-info .weq-dialog-icon {
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
+}
+
+@media (max-width: 520px) {
+  html[data-theme] .weq-set-row {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+  html[data-theme] .weq-set-row-main {
+    flex: 1 1 180px;
+  }
+  html[data-theme] .weq-set-row-ctrl {
+    flex: 0 1 auto;
+    margin-left: auto;
+  }
+  html[data-theme] .weq-set-btn-group {
+    display: flex;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 760px) {
+  html[data-theme] .contact-row.active .row-main span {
+    color: var(--weq-fg-primary);
+  }
+  html[data-theme]
+    :is(.conversation-row, .contact-row).active
+    :is(
+      .row-preview-line,
+      .row-meta,
+      .row-muted,
+      .row-pinned,
+      .row-hidden,
+      .row-draft svg,
+      .contact-card-status,
+      .contact-card-signature
+    ) {
+    color: var(--weq-fg-secondary);
+  }
+}
+
+@media (min-width: 761px) {
+  html[data-theme] :is(.conversation-row, .contact-row).active .row-main strong {
+    color: var(--primary-foreground);
+  }
+}

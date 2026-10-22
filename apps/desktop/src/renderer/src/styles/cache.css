@@ -1040,7 +1040,7 @@
 
 .weq-cache-btn.is-primary {
   background: var(--weq-accent-effective);
-  color: #ffffff;
+  color: var(--primary-foreground);
   box-shadow: 0 10px 22px -14px rgba(0, 122, 204, 0.9);
 }
 
@@ -1256,7 +1256,7 @@
 
 .weq-avpath-segbtn.is-on {
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
   font-weight: 600;
 }
 
@@ -4003,7 +4003,7 @@ html[data-theme='dark'] .weq-filerow-name {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  color: #fff;
+  color: var(--primary-foreground);
   background: var(--weq-accent-effective);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
 }
@@ -4559,7 +4559,7 @@ html[data-theme='dark'] .weq-filerow-name {
 }
 
 .weq-ra-metric button.is-on {
-  color: #fff;
+  color: var(--primary-foreground);
   background: var(--weq-accent-effective);
   border-color: var(--weq-accent-effective);
 }
@@ -5151,7 +5151,7 @@ html[data-theme='dark'] .weq-filerow-name {
   border: 1px solid transparent;
   border-radius: 9px;
   background: var(--weq-accent-effective);
-  color: #fff;
+  color: var(--primary-foreground);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
@@ -5164,6 +5164,7 @@ html[data-theme='dark'] .weq-filerow-name {
 }
 .weq-clean-go.is-danger {
   background: #e5484d;
+  color: var(--weq-danger-solid-foreground);
 }
 .weq-clean-go:disabled {
   opacity: 0.45;

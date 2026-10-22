@@ -96,7 +96,7 @@
 
 .weq-dress-kind.is-active {
   background: var(--weq-accent-effective, #12a8ff);
-  color: #fff;
+  color: var(--primary-foreground);
   font-weight: 600;
 }
 
@@ -199,7 +199,7 @@
 .weq-dress-chip.is-active {
   border-color: transparent;
   background: var(--weq-accent-effective, #12a8ff);
-  color: #fff;
+  color: var(--primary-foreground);
   font-weight: 600;
 }
 
@@ -244,7 +244,7 @@
 
 .weq-dress-scope-btn.is-active {
   background: var(--weq-accent-effective, #12a8ff);
-  color: #fff;
+  color: var(--primary-foreground);
   font-weight: 600;
 }
 
@@ -421,7 +421,7 @@
 
 .weq-dress-use:hover:not(:disabled) {
   background: var(--weq-accent-effective, #12a8ff);
-  color: #fff;
+  color: var(--primary-foreground);
 }
 
 .weq-dress-use:disabled {
@@ -791,7 +791,7 @@ html[data-theme='dark'] .weq-dress-save {
   place-items: center;
   border-radius: 50%;
   background: var(--weq-accent-effective, #12a8ff);
-  color: #fff;
+  color: var(--primary-foreground);
 }
 
 .weq-dress-opacity {
