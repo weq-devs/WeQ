@@ -1472,6 +1472,13 @@ export function ChatPane({
   }, [conversation?.id]);
 
   useEffect(() => {
+    if (!tabActive) return;
+    const editor = composerEditorRef.current;
+    if (editor?.contentEditable !== 'true') return;
+    focusComposerEnd(editor);
+  }, [conversation?.id, tabActive]);
+
+  useEffect(() => {
     if (!tabActive || !mobileComposerExpanded) {
       return;
     }
