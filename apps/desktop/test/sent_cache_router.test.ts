@@ -74,6 +74,8 @@ it('缓存删除用原会话和精确行身份读取，绝不将缓存 ID 送入
   rpc.cached.mockResolvedValue([
     { ...row, conv: '888' },
     { ...row, msgId: '78', localSent: false },
+    { ...row, msgSeq: '3' },
+    { ...row, kind: 'c2c' },
   ]);
   await expect(
     api.deleteMessage({ msgId: 'roaming:protocol:2:77', kind: 'group', conv: '777' }),
@@ -120,3 +122,20 @@ it('缓存格式升级后删除列表仍能定位同一消息', async () => {
     { msgId: '77', sourceFormat: 'native', deletedKind: 'weq' },
   ]);
 });
+
+it.each([undefined, 'native', 'protocol'] as const)(
+  '渲染窗口的 %s 格式旧身份在缓存格式变化后仍能删除同一精确消息',
+  async (displayFormat) => {
+    const api = accountRouter.createCaller({});
+    for (const cacheFormat of [undefined, 'native', 'protocol'] as const) {
+      const value = { ...row, sourceFormat: cacheFormat, localSent: false };
+      rpc.cached.mockResolvedValueOnce([value]);
+      const id = `roaming:${displayFormat ? `${displayFormat}:` : ''}2:77`;
+      await expect(
+        api.deleteMessage({ msgId: id, kind: 'group', conv: '777', hideAfterDelete: true }),
+      ).resolves.toBe(true);
+      expect(rpc.removeCached).toHaveBeenLastCalledWith(value, true);
+    }
+    expect(rpc.removeDb).not.toHaveBeenCalled();
+  },
+);

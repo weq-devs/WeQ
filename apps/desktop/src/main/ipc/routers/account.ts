@@ -4018,7 +4018,9 @@ export const accountRouter = router({
           (row) =>
             row.kind === input.kind &&
             row.conv === input.conv &&
-            timelineRowKey({ ...row, source: 'roaming' }) === input.msgId,
+            // 格式会随缓存补全改变；同会话、序号和消息 ID 才是删除身份。
+            row.msgSeq === match[1] &&
+            row.msgId === match[2],
         );
         if (!message) throw new Error('这条消息不在当前会话缓存中');
         if (

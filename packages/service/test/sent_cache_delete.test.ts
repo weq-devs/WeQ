@@ -97,6 +97,29 @@ it('补拉只解除已实际收到的隐藏记录，不误恢复其他会话、�
   expect(reopened.getHiddenDeletedMsgIds('group', '888')).toEqual(['roaming:protocol:2:1234']);
 });
 
+it('删除后格式更新仍隐藏同一精确消息，旧窗口的格式身份也可恢复且不跨会话', () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-delete-format-'));
+  roots.push(root);
+  const store = new DeletedMsgStore(join(root, 'deleted.json'));
+  const service = new MsgService({} as never, store);
+  for (const cachedFormat of [undefined, 'native', 'protocol'] as const) {
+    const row = { ...message, sourceFormat: cachedFormat, localSent: false };
+    for (const displayFormat of [undefined, 'native', 'protocol'] as const) {
+      expect(service.deleteCachedSentMessage(row, true)).toBe(true);
+      expect(store.isHiddenCached({ ...row, sourceFormat: displayFormat })).toBe(true);
+      expect(store.isHiddenCached({ ...row, sourceFormat: displayFormat, conv: '888' })).toBe(
+        false,
+      );
+      expect(store.isHiddenCached({ ...row, sourceFormat: displayFormat, msgId: '5678' })).toBe(
+        false,
+      );
+      const id = `roaming:${displayFormat ? `${displayFormat}:` : ''}${row.msgSeq}:${row.msgId}`;
+      expect(service.restoreCachedSentMessage(id, 'group', '777')).toBe(true);
+      expect(store.listHiddenIds('group', '777')).toEqual([]);
+    }
+  }
+});
+
 it('原库重复删除切换隐藏选项不覆盖原始类型，恢复后仍回到删除前类型', async () => {
   const root = mkdtempSync(join(tmpdir(), 'weq-delete-toggle-'));
   roots.push(root);
