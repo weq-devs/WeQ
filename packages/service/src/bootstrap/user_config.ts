@@ -266,7 +266,7 @@ function normalizeExportLightboxPreset(value: unknown): ExportLightboxPreset | u
 }
 
 /** Coerce a persisted / patched presets map; malformed variants are dropped. */
-function normalizeExportPresets(value: unknown): ExportPresets {
+export function normalizeExportPresets(value: unknown): ExportPresets {
   if (!isRecord(value)) return {};
   const p = value as Record<string, unknown>;
   const presets: ExportPresets = {};

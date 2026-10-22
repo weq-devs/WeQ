@@ -43,6 +43,12 @@ const RESERVED_NAMES = new Set([
   'lpt9',
 ]);
 
+/** Windows 设备名不能通过扩展名规避，上标 1/2/3 也属于 COM/LPT 名称。 */
+export function isWindowsReservedName(value: string): boolean {
+  const stem = (value.split('.')[0] ?? '').trimEnd().toLowerCase();
+  return RESERVED_NAMES.has(stem) || /^(?:com|lpt)[¹²³]$/.test(stem);
+}
+
 /** {@link sanitizeSegment} 的选项。 */
 export interface SanitizeSegmentOpts {
   /** 最大长度（UTF-16 code unit）。默认 80。 */
@@ -66,7 +72,7 @@ export function sanitizeSegment(
     .replace(/[. ]+$/, '')
     .slice(0, maxLen)
     .trim();
-  if (!cleaned || RESERVED_NAMES.has(cleaned.toLowerCase())) return fallback;
+  if (!cleaned || isWindowsReservedName(cleaned)) return fallback;
   return cleaned;
 }
 
