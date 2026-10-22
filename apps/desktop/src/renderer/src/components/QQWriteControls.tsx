@@ -91,7 +91,7 @@ export function QQWriteTextRow({
     <Row
       label={<QQWriteRowLabel icon={icon} label={label} />}
       control={
-        <div className="weq-qq-write-field">
+        <div className="weq-qq-write-field" data-qq-action>
           {multiline ? <textarea {...input} rows={3} /> : <input {...input} />}
           <button
             type="button"
@@ -161,7 +161,7 @@ export function QQWriteSelectRow({
       label={<QQWriteRowLabel icon={icon} label={label} />}
       control={
         <div className={preview ? 'weq-qq-write-select-preview' : undefined}>
-          <div className="weq-qq-write-field">
+          <div className="weq-qq-write-field" data-qq-action>
             <select
               className="weq-qq-write-input"
               aria-label={label}
@@ -252,26 +252,28 @@ export function QQWriteToggleRow({
       label={<QQWriteRowLabel icon={icon} label={label} />}
       desc={initial === null ? <span role="status">尚未读取</span> : undefined}
       control={
-        <Toggle
-          label={label}
-          checked={initial ?? draft ?? false}
-          indeterminate={initial === null}
-          disabled={disabled || saving}
-          onChange={async (next) => {
-            if (savingRef.current) return;
-            savingRef.current = true;
-            setSaving(true);
-            setDraft(next);
-            try {
-              await onSave(next);
-            } catch {
-              setDraft(null);
-            } finally {
-              savingRef.current = false;
-              setSaving(false);
-            }
-          }}
-        />
+        <span data-qq-action>
+          <Toggle
+            label={label}
+            checked={initial ?? draft ?? false}
+            indeterminate={initial === null}
+            disabled={disabled || saving}
+            onChange={async (next) => {
+              if (savingRef.current) return;
+              savingRef.current = true;
+              setSaving(true);
+              setDraft(next);
+              try {
+                await onSave(next);
+              } catch {
+                setDraft(null);
+              } finally {
+                savingRef.current = false;
+                setSaving(false);
+              }
+            }}
+          />
+        </span>
       }
     />
   );
@@ -292,7 +294,14 @@ export function QQWriteActionRow({
     <Row
       label={label}
       control={
-        <button type="button" className="weq-set-btn" disabled={disabled} onClick={onClick}>
+        <button
+          type="button"
+          data-qq-action
+          title={label}
+          className="weq-set-btn"
+          disabled={disabled}
+          onClick={onClick}
+        >
           {icon}
           {label}
         </button>

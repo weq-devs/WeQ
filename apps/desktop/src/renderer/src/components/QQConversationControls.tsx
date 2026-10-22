@@ -206,6 +206,7 @@ export function QQConversationControls({
   return (
     <div
       className="weq-qq-write-panel"
+      data-qq-action
       key={`${session.binding?.expectedAccountUin}:${session.binding?.expectedAccountConfigId}:${kind}:${conv}`}
     >
       <div className="weq-qq-write-toolbar">

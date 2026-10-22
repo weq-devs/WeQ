@@ -4203,25 +4203,35 @@ export function ChatPane({
     currentPreference.blocked ||
     sending ||
     (body.trim().length === 0 && !hasSingleSend && !hasQuote);
-  const sendTitle = sendAvailable ? '发送' : 'QQ 未在线或处于完全离线模式，暂不可发送';
+  const sendTitle = sendAvailable ? '发送' : '受限模式下无法发送消息';
   // 所有「发包类」操作（戳一戳 / 贴表情 / 撤回 / 群管理）与发送按钮共用同一套硬限制：
   // QQ 在线且未完全离线 + 会话未被屏蔽 + 当前没有消息正在发送。渲染层不再各自放一套
   // 宽松判断，避免「戳一戳能点、发送键却灰着」这类不一致。
   const sendGateReason = !sendAvailable
-    ? 'QQ 未在线或处于完全离线模式'
+    ? '受限模式下无法发送消息'
     : currentPreference.blocked
       ? '当前会话已被屏蔽'
       : sending
         ? '消息发送中，请稍候'
         : null;
-  const pokeBlockedReason = sendGateReason ? `${sendGateReason}，暂不可戳一戳` : null;
+  const pokeBlockedReason = !sendAvailable
+    ? '受限模式下无法戳一戳'
+    : sendGateReason
+      ? `${sendGateReason}，暂不可戳一戳`
+      : null;
   const reactionBlockedReason =
     conversation.type !== 'group'
       ? '仅群消息支持贴表情'
-      : sendGateReason
-        ? `${sendGateReason}，暂不可贴表情`
-        : null;
-  const moderationBlockedReason = sendGateReason ? `${sendGateReason}，暂不可执行该操作` : null;
+      : !sendAvailable
+        ? '受限模式下无法贴表情'
+        : sendGateReason
+          ? `${sendGateReason}，暂不可贴表情`
+          : null;
+  const moderationBlockedReason = !sendAvailable
+    ? '受限模式下无法撤回消息或执行群管理操作'
+    : sendGateReason
+      ? `${sendGateReason}，暂不可执行该操作`
+      : null;
   // 头像菜单里群管理操作的可见性（按我的身份 vs 目标身份算），以及右键消息的撤回可用性。
   const avatarMenuFlags = avatarMenu ? avatarModerationFlags(avatarMenu.sender) : null;
   const contextRecallInfo = contextMenu ? recallAvailability(contextMenu.message) : null;
@@ -4457,7 +4467,7 @@ export function ChatPane({
                     'group-header-bug-action',
                   )}
                   type="button"
-                  title={groupBugOnline ? '反馈 Bug' : 'QQ 未在线，暂不可反馈'}
+                  title={groupBugOnline ? '反馈 Bug' : '受限模式下无法反馈 Bug'}
                   disabled={!groupBugOnline}
                   onClick={() => onOpenGroupBug(conversation)}
                 >
@@ -4646,7 +4656,11 @@ export function ChatPane({
                           <button
                             type="button"
                             className="weq-message-repeat"
-                            title={sendGateReason || '发送一条相同的消息'}
+                            title={
+                              !sendAvailable
+                                ? '受限模式下无法复读消息'
+                                : sendGateReason || '发送一条相同的消息'
+                            }
                             aria-label="+1，发送相同消息"
                             disabled={Boolean(sendGateReason) || sending || repeating}
                             aria-busy={repeating}
@@ -4927,7 +4941,11 @@ export function ChatPane({
                 aria-label="转发"
                 title={
                   selectionBlockedReason ||
-                  (sendGateReason ? `${sendGateReason}，暂不可发送` : '转发')
+                  (!sendAvailable
+                    ? '受限模式下无法转发消息'
+                    : sendGateReason
+                      ? `${sendGateReason}，暂不可发送`
+                      : '转发')
                 }
                 aria-haspopup="menu"
                 aria-expanded={selectionMenu?.kind === 'forward'}

@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import '../styles/hover-tooltip.css';
 import { useRenderDocument } from '../lib/renderDocument';
+import { useRestrictedMode } from '../state/restrictedMode';
+import { restrictedActionTitle } from '../lib/restrictedMode';
 
 // Half Chromium's 500 ms default; native title timing itself is not configurable.
 const HOVER_DELAY_MS = 250;
@@ -34,6 +36,18 @@ export function HoverTooltip() {
     let observer: MutationObserver;
     const hint = (element: Element) => {
       const title = element.getAttribute('title') ?? '';
+      const restriction = useRestrictedMode.getState();
+      if (
+        element.matches(':disabled, [aria-disabled="true"]') &&
+        element.closest('[data-qq-action]') &&
+        (restriction.reasons.length || restriction.requests.length)
+      ) {
+        const label = element.getAttribute('aria-label') || element.textContent?.trim() || '此项';
+        const editing = element.matches(
+          'input, textarea, select, [role="switch"], [role="checkbox"]',
+        );
+        return restrictedActionTitle(title || (editing ? `修改${label}` : label));
+      }
       const inherited = element.closest('fieldset:disabled')?.getAttribute('data-disabled-reason');
       return inherited && title ? `${title}：${inherited}` : title;
     };
@@ -111,7 +125,11 @@ export function HoverTooltip() {
           : target instanceof window.Node
             ? target.parentElement
             : null;
-      return element?.closest('[title]') ?? null;
+      return (
+        element?.closest(
+          '[title], [data-qq-action] :disabled[aria-label], [data-qq-action] button:disabled',
+        ) ?? null
+      );
     };
     const enter = (next: Element | null, x: number, y: number): void => {
       if (next && next === owner) return;

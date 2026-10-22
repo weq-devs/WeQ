@@ -1,0 +1,109 @@
+.weq-restricted-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 28px;
+  margin-right: 12px;
+  padding: 4px 8px;
+  color: var(--destructive);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.weq-restricted-indicator:hover {
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+}
+.weq-restricted-indicator.is-startup {
+  position: fixed;
+  top: 16px;
+  right: 88px;
+  z-index: 80;
+}
+.weq-restricted-panel {
+  position: fixed;
+  top: 46px;
+  right: 12px;
+  z-index: 2400;
+  width: min(390px, calc(100vw - 24px));
+  max-height: calc(100dvh - 58px);
+  display: flex;
+  flex-direction: column;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-elevated);
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 8px;
+  box-shadow: var(--weq-shadow-card);
+  -webkit-app-region: no-drag;
+}
+.weq-restricted-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-restricted-panel h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--destructive);
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+.weq-restricted-body {
+  padding: 16px;
+  overflow: auto;
+  min-height: 0;
+}
+.weq-restricted-panel h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.weq-restricted-panel p {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  color: var(--weq-fg-secondary);
+}
+.weq-restricted-auth {
+  border-top: 1px solid var(--weq-border-subtle);
+  padding-top: 12px;
+  margin-bottom: 12px;
+}
+.weq-restricted-auth label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.weq-restricted-auth input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+}
+.weq-restricted-panel :focus-visible,
+.weq-restricted-indicator:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+.weq-restricted-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+html[data-theme='dark'] .weq-restricted-panel {
+  background: var(--weq-bg-elevated);
+  border-color: var(--weq-border-strong);
+}

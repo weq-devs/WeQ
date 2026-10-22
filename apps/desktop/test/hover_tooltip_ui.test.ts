@@ -7,11 +7,50 @@ import { HoverTooltip } from '../src/renderer/src/components/HoverTooltip';
 import { Window as HappyWindow } from 'happy-dom';
 import { RenderDocumentContext } from '../src/renderer/src/lib/renderDocument';
 import { CompositionButton } from '../src/renderer/src/components/mergeForward/CompositionButton';
+import { useRestrictedMode } from '../src/renderer/src/state/restrictedMode';
 
 afterEach(() => {
+  useRestrictedMode.setState({ reasons: [], requests: [], open: false });
   vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+it('受限 QQ 控件显示操作限制，不改写可用操作与其它禁用控件的提示', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.useFakeTimers();
+  useRestrictedMode.setState({
+    reasons: [{ code: 'offline', title: 'QQ 不在线', guidance: '登录 QQ' }],
+  });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() => root.render(createElement(HoverTooltip)));
+    for (const [qq, disabled, expected] of [
+      [true, true, '受限模式下无法保存备注'],
+      [true, false, '保存备注'],
+      [false, true, '保存备注'],
+    ] as const) {
+      const button = document.createElement('button');
+      button.title = '保存备注';
+      button.disabled = disabled;
+      if (qq) button.setAttribute('data-qq-action', '');
+      host.append(button);
+      await act(async () => {
+        button.dispatchEvent(
+          new PointerEvent('pointerover', { bubbles: true, clientX: 20, clientY: 30 }),
+        );
+        vi.advanceTimersByTime(300);
+      });
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(expected);
+      act(() => button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true })));
+      button.remove();
+    }
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
 });
 
 it('独立合成文档中禁用按钮显示具体原因，提示不落在主窗口', async () => {

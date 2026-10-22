@@ -171,7 +171,7 @@ export function SelfQQControls() {
     faceId !== '' &&
     statusFaces.some((face) => String(face.id) === faceId);
   return (
-    <section className="weq-qq-write-panel" aria-label="QQ 资料与状态">
+    <section className="weq-qq-write-panel" aria-label="QQ 资料与状态" data-qq-action>
       <div className="weq-qq-write-toolbar">
         <span className="weq-qq-write-status">
           {session.available ? (

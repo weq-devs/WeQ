@@ -17,8 +17,7 @@ import { DbRepairWindowHost } from './components/DbRepairWindow';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { JoinGroupDialog } from './components/JoinGroupDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
-import { AttachHintDialog } from './components/AttachHintDialog';
-import { ElevationPasswordDialog } from './components/ElevationPasswordDialog';
+import { RestrictedModeHost } from './components/RestrictedMode';
 import { DesktopOnly } from './lib/target';
 import { ImageLightbox } from './components/ImageLightbox';
 import { VideoLightbox } from './components/VideoLightbox';
@@ -199,12 +198,7 @@ export default function App(): ReactElement {
             <DesktopOnly>
               <CloseConfirmDialog />
             </DesktopOnly>
-            <DesktopOnly>
-              <AttachHintDialog />
-            </DesktopOnly>
-            <DesktopOnly>
-              <ElevationPasswordDialog />
-            </DesktopOnly>
+            <RestrictedModeHost />
             <DesktopOnly>
               <AppLockOverlay />
             </DesktopOnly>
