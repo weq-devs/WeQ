@@ -115,6 +115,14 @@ function event(channel: string, payload: unknown) {
 }
 
 describe('非阻塞提权入口', () => {
+  it.each([undefined, ready])('启动即为完整模式及后续重复检查均不发成功通知：%j', (initial) => {
+    mock.access = initial;
+    const f = fixture();
+    mock.access = { ...ready };
+    f.render();
+    f.render();
+    expect(useToast.getState().toasts).toHaveLength(0);
+  });
   it('启动受限时发横幅但不自动遮罩；点击横幅打开详情，恢复完整后消失', () => {
     mock.access = { ...ready, qqOnline: false };
     const f = fixture();
@@ -130,9 +138,44 @@ describe('非阻塞提权入口', () => {
     f.render();
     expect(f.host.querySelector('.weq-restricted-indicator')).toBeNull();
     expect(f.host.querySelector('[role="dialog"]')).toBeNull();
-    mock.access = { ...ready, qqOnline: false };
+    expect(useToast.getState().toasts.at(-1)).toMatchObject({
+      tone: 'success',
+      title: '已恢复完整模式',
+      durationKind: 'success',
+    });
     f.render();
     expect(useToast.getState().toasts).toHaveLength(2);
+    mock.access = { ...ready, qqOnline: false };
+    f.render();
+    expect(useToast.getState().toasts).toHaveLength(3);
+    mock.access = { ...ready };
+    f.render();
+    expect(useToast.getState().toasts.filter((toast) => toast.tone === 'success')).toHaveLength(2);
+  });
+  it('部分限制解除或状态未知不报成功，确认全部恢复后仅提示一次', () => {
+    mock.access = { ...ready, qqOnline: false, attachEnabled: false };
+    const f = fixture();
+    mock.access = { ...ready, attachEnabled: false };
+    f.render();
+    expect(useToast.getState().toasts.some((toast) => toast.tone === 'success')).toBe(false);
+    mock.access = undefined;
+    f.render();
+    expect(useToast.getState().toasts.some((toast) => toast.tone === 'success')).toBe(false);
+    mock.access = { ...ready };
+    f.render();
+    f.render();
+    expect(useToast.getState().toasts.filter((toast) => toast.tone === 'success')).toHaveLength(1);
+  });
+  it('仍有待处理授权时不报恢复，最后一个限制解除才通知', () => {
+    mock.access = { ...ready, qqOnline: false };
+    const f = fixture();
+    event('elev:request-password', { token: 41 });
+    mock.access = { ...ready };
+    f.render();
+    expect(useToast.getState().toasts.some((toast) => toast.tone === 'success')).toBe(false);
+    event('elev:cancel-password', { token: 41 });
+    f.render();
+    expect(useToast.getState().toasts.filter((toast) => toast.tone === 'success')).toHaveLength(1);
   });
   it('待提权密码在详情内填写，正确回传 token，关闭详情不取消后台请求', () => {
     const f = fixture();

@@ -139,6 +139,7 @@ export function RestrictedModeHost() {
   const open = useRestrictedMode((s) => s.open);
   const panel = useRef<HTMLElement>(null);
   const previous = useRef('');
+  const recoveryPending = useRef(false);
   const notice = useRef<number | undefined>(undefined);
   const titleId = useId();
   const [busy, setBusy] = useState(false);
@@ -178,7 +179,15 @@ export function RestrictedModeHost() {
     ...reasons.map((r) => r.code),
     ...(requests.length ? ['authorization'] : []),
   ].join(',');
+  const fullModeConfirmed = active
+    ? Boolean(
+        access.data &&
+          !access.isError &&
+          restrictionReasons({ access: access.data, sipEnabled: sip.data }).length === 0,
+      )
+    : Boolean(online.data && !online.isError && online.data.count > 0);
   useEffect(() => {
+    if (signature) recoveryPending.current = true;
     if (signature && signature !== previous.current) {
       const toast = useToast.getState();
       if (notice.current !== undefined) toast.dismiss(notice.current);
@@ -201,9 +210,13 @@ export function RestrictedModeHost() {
       useRestrictedMode.getState().setOpen(false);
       if (notice.current !== undefined) useToast.getState().dismiss(notice.current);
       notice.current = undefined;
+      if (recoveryPending.current && fullModeConfirmed) {
+        useToast.getState().push({ tone: 'success', title: '已恢复完整模式' });
+        recoveryPending.current = false;
+      }
     }
     previous.current = signature;
-  }, [signature, reasons, requests]);
+  }, [signature, reasons, requests, fullModeConfirmed]);
   useEffect(() => {
     setError('');
     useRestrictedMode.getState().setOpen(false);
