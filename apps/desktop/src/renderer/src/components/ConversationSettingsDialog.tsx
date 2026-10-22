@@ -20,7 +20,6 @@ import { Card, Row, Toggle } from './settings/controls';
 import { GroupKeywordEditor, type KeywordMember } from './GroupKeywordEditor';
 import { WindowSurface } from './WindowSurface';
 import { QQConversationControls } from './QQConversationControls';
-import { GroupBadgeDisplayControls } from './GroupBadgeDisplayControls';
 import '../styles/conversation-settings.css';
 
 /** 通知开关的会话 key（与后端 `notifyKey` 一致）。 */
@@ -262,9 +261,6 @@ export function ConversationSettingsDialog({
                 </span>
               </div>
               <div className="weq-cvs-body-scroll">
-                {section === 'qq' && kind === 'group' ? (
-                  <GroupBadgeDisplayControls groupId={conv} />
-                ) : null}
                 <QQConversationControls
                   key={`${kind}:${conv}:${section}`}
                   kind={kind}

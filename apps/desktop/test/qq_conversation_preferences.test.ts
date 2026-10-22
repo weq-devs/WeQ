@@ -20,15 +20,13 @@ const mock = vi.hoisted(() => ({
   refetchPolicy: vi.fn(async () => {}),
   refetchDisturb: vi.fn(async () => {}),
   refetchCategories: vi.fn(async () => {}),
+  refetchCloudRoster: vi.fn(async () => {}),
   readCategory: 0,
   readbacks: [] as boolean[],
   successTexts: [] as string[],
 }));
 vi.mock('../src/renderer/src/components/qq-actions/GroupActions', () => ({
   GroupActions: () => null,
-}));
-vi.mock('../src/renderer/src/components/GroupIdentityControls', () => ({
-  GroupIdentityControls: () => null,
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   useDialog: (selector: (state: { confirm: () => Promise<boolean> }) => unknown) =>
@@ -55,6 +53,7 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useUtils: () => ({ account: { specialCare: { invalidate: async () => {} } } }),
     account: {
       listCategories: {
         useQuery: () => ({
@@ -67,6 +66,26 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
       pickSendFile: { useMutation: () => ({ mutateAsync: async () => null }) },
       qqWrite: {
+        friendRoster: {
+          useQuery: () => ({
+            data: {
+              friends: [{ uid: 'u_friend', categoryId: 0 }],
+              categories: [{ id: 5, name: '测试分组' }],
+            },
+            refetch: async () => {
+              await mock.refetchCloudRoster();
+              return { data: { friends: [{ uid: 'u_friend', categoryId: mock.readCategory }] } };
+            },
+          }),
+        },
+        friendRemarkState: {
+          useQuery: () => ({
+            data: { uid: 'u_peer', remark: '' },
+            refetch: async () => ({ data: { uid: 'u_peer', remark: '' } }),
+          }),
+        },
+        friendSpecialCareState: { useQuery: () => ({ data: undefined }) },
+        friendSpecialCare: { useMutation: () => ({}) },
         ...Object.fromEntries(
           [
             'friendRemark',
@@ -168,6 +187,7 @@ beforeEach(() => {
   mock.refetchPolicy.mockReset().mockResolvedValue(undefined);
   mock.refetchDisturb.mockReset().mockResolvedValue(undefined);
   mock.refetchCategories.mockReset().mockResolvedValue(undefined);
+  mock.refetchCloudRoster.mockReset().mockResolvedValue(undefined);
   mock.readCategory = 0;
   mock.readbacks = [];
   mock.successTexts = [];
@@ -330,17 +350,15 @@ it.each([
   expect(host.textContent).not.toContain(expected);
 });
 
-it.each([0, 5])('移入已有分组保存后核对实际读回 %s，不将受理当作同步', async (readCategory) => {
+it.each([0, 5])('选择已有分组即提交并核对实际读回 %s，不将受理当作同步', async (readCategory) => {
   mock.readCategory = readCategory;
   const host = fixture('c2c');
   const select = host.querySelector<HTMLSelectElement>('[aria-label="好友分组"]')!;
-  act(() => {
+  await act(async () => {
     select.value = '5';
     select.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  await act(async () =>
-    host.querySelector<HTMLButtonElement>('[aria-label="保存好友分组"]')!.click(),
-  );
+  expect(host.querySelector('[aria-label="保存好友分组"]')).toBeNull();
   expect(mock.mutate).toHaveBeenCalledWith({
     expectedAccountUin: '10001',
     expectedAccountConfigId: 'source-a',
@@ -349,4 +367,5 @@ it.each([0, 5])('移入已有分组保存后核对实际读回 %s，不将受理
   });
   expect(mock.readbacks).toEqual([readCategory === 5]);
   expect(mock.refetchCategories).toHaveBeenCalledOnce();
+  expect(mock.refetchCloudRoster).toHaveBeenCalledTimes(2);
 });

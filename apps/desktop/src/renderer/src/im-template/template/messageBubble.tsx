@@ -437,9 +437,7 @@ export function MessageBubble({
         <div className="weq-message-heading">
           {showSenderName ? (
             <span className={cn('message-name')}>
-              {conversation.type === 'group' ? (
-                <GroupMessageBadge groupId={conversation.group.identityValue} member={sender} />
-              ) : null}
+              {conversation.type === 'group' ? <GroupMessageBadge member={sender} /> : null}
               {senderName}
               {senderKind === 'bot' ? (
                 <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
@@ -504,7 +502,7 @@ export function MessageBubble({
             <span>{reeditArmed && reeditClass ? '重新编辑' : optimisticText}</span>
           </StatusTag>
         ) : null}
-        {/* 意图感知：最新可分析文本及末尾连续自己的文本展示胶囊，悬停文本消息出弹层。
+        {/* 意图感知：已有结果的消息展示胶囊，分析中逐条展示窄条，悬停文本消息出弹层。
             数据与悬停监听都在组件内部（经 IntentSenseContext），关掉功能时渲染 null。 */}
         <MessageIntentSense
           msgId={String(message.id)}

@@ -1359,7 +1359,6 @@ function messageSender(
       customTitle: !isUinOnly ? member?.customTitle : undefined,
       levelName: !isUinOnly ? member?.levelName : undefined,
       memberLevel: !isUinOnly ? member?.memberLevel : undefined,
-      levelBracket: !isUinOnly ? levelBracketFor(member?.memberLevel) : 0,
     } as User;
   }
 

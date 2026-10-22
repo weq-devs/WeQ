@@ -8,7 +8,6 @@ import {
 } from '../lib/backupClientRestore';
 import { useThemeStore } from '../state/theme';
 import { usePrivacyStore } from '../state/privacy';
-import { useGroupBadgeDisplay } from '../state/groupBadge';
 import { useToast } from './Toast';
 import '../styles/backup.css';
 
@@ -48,7 +47,6 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
       if (result.ok) {
         useThemeStore.getState().hydrate();
         usePrivacyStore.getState().hydrate();
-        useGroupBadgeDisplay.getState().reload();
       } else setError(result.error || '文件恢复尚未完成');
     } catch (e) {
       if (seq !== generation.current) return;

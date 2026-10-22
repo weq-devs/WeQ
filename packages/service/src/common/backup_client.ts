@@ -4,7 +4,6 @@ export const WEQ_CLIENT_BACKUP_KEYS = [
   'weq.theme-background',
   'weq.theme-component-style',
   'weq.privacy-mode',
-  'weq.group-badge-display.v1',
   'weq.groups.grouping',
   'weq.desktop.sidebarWidth.v2',
   'chat-template.layout.composerHeight',
@@ -87,25 +86,6 @@ export function validateWeqClientSettings(value: unknown): asserts value is Reco
       )
         fail(key);
     }
-    if (key === 'weq.group-badge-display.v1')
-      for (const [scope, display] of Object.entries(json(entry, key))) {
-        let target: unknown;
-        try {
-          target = JSON.parse(scope);
-        } catch {
-          fail(key);
-        }
-        if (
-          !Array.isArray(target) ||
-          target.length !== 2 ||
-          target.some((part) => typeof part !== 'string' || !part) ||
-          !object(display) ||
-          Object.keys(display).some((part) => part !== 'showTitle' && part !== 'showLevel') ||
-          typeof display.showTitle !== 'boolean' ||
-          typeof display.showLevel !== 'boolean'
-        )
-          fail(key);
-      }
     if (key === 'chat-template:conversation-preferences')
       for (const preference of Object.values(json(entry, key))) {
         if (

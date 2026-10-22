@@ -4,10 +4,13 @@ import type { GroupMemberRole } from '../im-template/template/types';
 export function groupMemberEditing(
   role: GroupMemberRole | null | undefined,
   targetRole: GroupMemberRole | null | undefined,
+  isSelf = false,
 ) {
   return {
     card:
-      role === 'owner' || (role === 'admin' && (targetRole === 'admin' || targetRole === 'member')),
+      isSelf ||
+      role === 'owner' ||
+      (role === 'admin' && (targetRole === 'admin' || targetRole === 'member')),
     title: role === 'owner',
   };
 }

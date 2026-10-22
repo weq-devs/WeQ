@@ -1,4 +1,3 @@
-import { GetGroupIdentity, SetGroupIdentity } from '@weq/protocol';
 import type { Buddy, Category } from '@weq/db';
 import {
   ClearFriendRemark,
@@ -465,26 +464,5 @@ export class AccountWriteService {
   }
   private assertCurrentPid(pid: number): void {
     if (this.resolvePid() !== pid) throw new Error('QQ 运行时已切换，请重新操作');
-  }
-
-  async getGroupIdentity(groupId: number) {
-    const pid = this.resolvePid();
-    const result = await GetGroupIdentity.invoke(this.nt, pid, {
-      groupId,
-      memberUin: this.identity.uin,
-    });
-    this.assertCurrentPid(pid);
-    return result;
-  }
-
-  async groupIdentity(groupId: number, titleId: number): Promise<AccountWriteOutcome> {
-    SetGroupIdentity.serialize({ groupId, titleId });
-    const pid = this.resolvePid();
-    const catalog = await this.getGroupIdentity(groupId);
-    this.assertCurrentPid(pid);
-    if (!catalog.titles.some((title) => title.settableId === titleId))
-      throw new Error('该头衔不在当前账号的可选目录中，请重新读取');
-    await SetGroupIdentity.invoke(this.nt, pid, { groupId, titleId });
-    return { state: 'accepted' };
   }
 }

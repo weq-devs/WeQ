@@ -25,8 +25,6 @@ export interface QQWriteServices {
     | 'pin'
     | 'friendDisturb'
     | 'getFriendDisturb'
-    | 'getGroupIdentity'
-    | 'groupIdentity'
     | 'getFriendSpecialCare'
     | 'friendSpecialCare'
     | 'friendRoster'
@@ -463,21 +461,5 @@ export function createQQWriteRouter(
         await resolve(input).groupModeration.setEssence(input);
         return { state: 'accepted' as const };
       }),
-    groupIdentityState: procedure.input(binding.extend({ groupId })).query(async ({ input }) => {
-      const services = resolve(input);
-      const result = await services.accountWrite.getGroupIdentity(input.groupId);
-      if (resolve(input) !== services) throw new Error('账号已切换，请重新读取展示头衔');
-      if (
-        result.groupId !== input.groupId ||
-        result.memberUin !== services.accountWrite.selfIdentity().uin
-      )
-        throw new Error('头衔响应与当前账号或群不一致');
-      return { ...result, source: 'qq-server' as const };
-    }),
-    groupIdentity: procedure
-      .input(binding.extend({ groupId, titleId: uint32 }))
-      .mutation(({ input }) =>
-        resolve(input).accountWrite.groupIdentity(input.groupId, input.titleId),
-      ),
   });
 }

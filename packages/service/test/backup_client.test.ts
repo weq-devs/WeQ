@@ -63,7 +63,8 @@ it('只快照真实界面偏好，不混入令牌、草稿或恢复现场', () =
     'weq-ui-recovery': '合成现场',
   });
   const snapshot = snapshotWeqClientSettings(source.value);
-  expect(Object.keys(snapshot)).toHaveLength(4);
+  expect(Object.keys(snapshot)).toHaveLength(3);
+  expect(snapshot).not.toHaveProperty('weq.group-badge-display.v1');
   expect(JSON.stringify(snapshot)).not.toContain('private-key');
   expect(JSON.stringify(snapshot)).not.toContain('合成草稿');
   expect(source.values.size).toBe(7);
@@ -86,7 +87,7 @@ it('恢复替换所选偏好而保留无关令牌和业务现场，空设置可�
 
 it('当前偏好损坏也能恢复，不让导出校验阻止修复现有配置', () => {
   const source = storage({
-    'weq.group-badge-display.v1': 'not-json',
+    'weq:group-assistant-pins:10001': 'not-json',
     'weq.theme-preference': 'invalid',
   });
   applyWeqClientSettings(source.value, { 'weq.theme-preference': 'system' });

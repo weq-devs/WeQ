@@ -6,6 +6,7 @@ import { QQGroupMemberControls } from '../src/renderer/src/components/QQGroupMem
 const rpc = vi.hoisted(() => ({
   role: 'owner',
   targetRole: 'member',
+  isSelf: false,
   card: '原名片',
   title: '原头衔',
   run: vi.fn(async (write: (binding: object) => Promise<unknown>) => {
@@ -35,6 +36,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
               uid: 'u_peer',
               role: rpc.role,
               targetRole: rpc.targetRole,
+              isSelf: rpc.isSelf,
               card: rpc.card,
               title: rpc.title,
             },
@@ -51,9 +53,58 @@ afterEach(() => {
   vi.clearAllMocks();
   rpc.role = 'owner';
   rpc.targetRole = 'member';
+  rpc.isSelf = false;
 });
 
-it.each(['群名片', '专属头衔'])(
+it('普通成员可在自己的资料卡原行编辑群昵称，但不能编辑专属头衔或他人昵称', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  rpc.role = 'member';
+  rpc.isSelf = true;
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = () =>
+    act(() =>
+      root.render(
+        h(QQGroupMemberControls, {
+          groupCode: '123',
+          uid: 'u_peer',
+          profile: { card: '原昵称', title: '原头衔' },
+        }),
+      ),
+    );
+  try {
+    render();
+    expect(host.querySelector('[aria-label="编辑专属头衔"]')).toBeNull();
+    const button = host.querySelector<HTMLButtonElement>('[aria-label="编辑群昵称"]');
+    expect(button).not.toBeNull();
+    act(() => button!.click());
+    const input = host.querySelector<HTMLInputElement>('[aria-label="群昵称"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        '自己的新昵称',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () =>
+      host
+        .querySelector('form')!
+        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+    );
+    expect(rpc.cardWrite).toHaveBeenCalledWith(
+      expect.objectContaining({ groupId: 123, targetUid: 'u_peer', card: '自己的新昵称' }),
+    );
+    rpc.isSelf = false;
+    render();
+    expect(host.querySelector('[aria-label="编辑群昵称"]')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it.each(['群昵称', '专属头衔'])(
   '%s 原行展示，点铅笔才进入编辑，取消不写，确认保留账号与目标',
   async (label) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -82,9 +133,9 @@ it.each(['群名片', '专属头衔'])(
       const unchangedSave = host.querySelector<HTMLButtonElement>(`[aria-label="保存${label}"]`)!;
       expect(unchangedSave.disabled).toBe(false);
       await act(async () => unchangedSave.click());
-      expect(label === '群名片' ? rpc.cardWrite : rpc.titleWrite).toHaveBeenLastCalledWith(
+      expect(label === '群昵称' ? rpc.cardWrite : rpc.titleWrite).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          [label === '群名片' ? 'card' : 'title']: label === '群名片' ? rpc.card : rpc.title,
+          [label === '群昵称' ? 'card' : 'title']: label === '群昵称' ? rpc.card : rpc.title,
         }),
       );
       edit();
@@ -102,20 +153,20 @@ it.each(['群名片', '专属头衔'])(
           .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
       );
       expect(rpc.run).toHaveBeenCalledTimes(2);
-      expect(label === '群名片' ? rpc.cardWrite : rpc.titleWrite).toHaveBeenCalledWith(
+      expect(label === '群昵称' ? rpc.cardWrite : rpc.titleWrite).toHaveBeenCalledWith(
         expect.objectContaining({
           expectedAccountUin: '10001',
           expectedAccountConfigId: 'source-a',
           groupId: 123,
           targetUid: 'u_peer',
-          [label === '群名片' ? 'card' : 'title']: '更新后的资料',
+          [label === '群昵称' ? 'card' : 'title']: '更新后的资料',
         }),
       );
       expect(host.querySelector('input')).toBeNull();
       rpc.role = 'member';
       render();
       expect(host.querySelector('[aria-label^="编辑"]')).toBeNull();
-      expect(host.textContent).toContain('群名片');
+      expect(host.textContent).toContain('群昵称');
       expect(host.textContent).toContain('专属头衔');
     } finally {
       act(() => root.unmount());

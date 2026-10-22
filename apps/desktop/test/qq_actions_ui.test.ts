@@ -1221,14 +1221,14 @@ describe('QQ 主动操作的实际界面', () => {
       '尚未确认的公告草稿',
     );
   });
-  it('公告界面传递弹窗提醒和群名片引导选项', async () => {
+  it('公告界面传递弹窗提醒和群昵称引导选项', async () => {
     const f = fixture(() => h(GroupNoticeActions, { groupId: 123 }));
     act(() => f.button('新建公告').click());
     value(f.host, '新公告内容', '新的公告');
     const inputs = [...f.host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
     act(() => {
       inputs.find((input) => input.parentElement?.textContent?.includes('弹窗提醒'))!.click();
-      inputs.find((input) => input.parentElement?.textContent?.includes('群名片引导'))!.click();
+      inputs.find((input) => input.parentElement?.textContent?.includes('群昵称引导'))!.click();
     });
     await act(async () => f.button('发布公告').click());
     expect(state.mutate).toHaveBeenCalledWith(

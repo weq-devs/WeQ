@@ -23,7 +23,6 @@ import { groupMemberEditing } from '../lib/groupMemberEditing';
 import { Card } from './settings/controls';
 import { useDialog } from './Dialog';
 import { GroupActions } from './qq-actions/GroupActions';
-import { GroupIdentityControls } from './GroupIdentityControls';
 import {
   QQWriteActionRow,
   QQWriteResult,
@@ -108,7 +107,7 @@ export function QQConversationControls({
   const [picking, setPicking] = useState(false);
   const [pickerError, setPickerError] = useState('');
   const state = snapshot.data;
-  const ownEditing = groupMemberEditing(state?.role, state?.role);
+  const ownEditing = groupMemberEditing(state?.role, state?.role, true);
   const disabled = session.busy || !session.available || !state || picking;
   const friendDisabled = disabled || !state?.friend;
   async function refresh(includePolicy = false) {
@@ -362,7 +361,6 @@ export function QQConversationControls({
           )}
           {kind === 'group' && !management && (
             <Card title="我的群身份" icon={<UserRoundCog size={15} strokeWidth={1.9} />}>
-              <GroupIdentityControls groupId={Number(conv)} session={session} disabled={disabled} />
               <QQWriteTextRow
                 label="我在本群的昵称"
                 icon={<UserRound size={14} strokeWidth={1.8} />}

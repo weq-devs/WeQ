@@ -61,19 +61,43 @@ function fixture() {
   const services: QQWriteServices = {
     accountWrite: {
       friendRemark: vi.fn(accepted),
+      getFriendRemark: vi.fn(async (uid: string) => ({ uid, remark: '' })),
       groupRemark: vi.fn(accepted),
       pin: vi.fn(accepted),
       friendDisturb: vi.fn(accepted),
       getFriendDisturb: vi.fn(async (uid: string) => ({ uid, enabled: true })),
-      getGroupIdentity: vi.fn(async (groupId: number) => ({
-        groupId,
-        memberUin: '10001',
-        level: null,
-        titles: [],
-        selectedTitleId: null,
-        selectionKnown: false,
+      getFriendSpecialCare: vi.fn(async (uid: string) => ({
+        uid,
+        enabled: true,
+        zone: true,
+        ring: true,
       })),
-      groupIdentity: vi.fn(accepted),
+      friendSpecialCare: vi.fn(accepted),
+      friendRoster: vi.fn(async () => ({ friends: [], categories: null })),
+      manageFriendCategories: vi.fn(accepted),
+      exactProfile: vi.fn(async (kind, target) => ({
+        kind,
+        id: target,
+        name: '合成资料',
+        level: null,
+        category: null,
+      })),
+      commonRelationships: vi.fn(async () => ({
+        friendCount: 3,
+        groups: [],
+        friendError: null,
+        groupError: null,
+      })),
+      editableSelfProfile: vi.fn(async () => ({
+        birthday: null,
+        region: null,
+        email: '',
+        school: '',
+        profession: null,
+        hometown: null,
+        errors: {},
+      })),
+      editSelfProfile: vi.fn(accepted),
       groupMessagePolicy: vi.fn(accepted),
       friendCategory: vi.fn(accepted),
       selfProfile: vi.fn(accepted),
@@ -123,9 +147,11 @@ function fixture() {
     return services;
   }
   const write = vi.fn((input: QQWriteBinding) => read(input));
-  const caller = createQQWriteRouter(write, read).createCaller({});
+  const router = createQQWriteRouter(write, read);
+  const caller = router.createCaller({});
   return {
     caller,
+    procedures: Object.keys(router._def.procedures),
     services,
     write,
     switchAccount: () => {
@@ -135,45 +161,70 @@ function fixture() {
 }
 
 describe('QQ 写 IPC 边界', () => {
-  it('群展示头衔查询与设置使用当前账号绑定，不允许传入其他成员身份', async () => {
+  it('自己与他人的群资料按当前账号 UID 区分，自己 UID 与号码不一致时拒绝编辑身份', async () => {
     const f = fixture();
-    expect(await f.caller.groupIdentityState({ ...binding, groupId: 123 })).toMatchObject({
-      groupId: 123,
-      memberUin: '10001',
-      source: 'qq-server',
+    f.services.groupInfo.getMemberInfo = async () => ({
+      ...groupMember,
+      uid: 'u_self',
+      uin: 10001n,
     });
-    await f.caller.groupIdentity({ ...binding, groupId: 123, titleId: 0 });
-    expect(f.services.accountWrite.groupIdentity).toHaveBeenCalledWith(123, 0);
+    expect(await f.caller.memberState({ ...binding, groupId: 123, uid: 'u_self' })).toMatchObject({
+      isSelf: true,
+    });
+    f.services.groupInfo.getMemberInfo = async () => ({ ...groupMember, uid: 'u_self', uin: 0n });
+    expect(await f.caller.memberState({ ...binding, groupId: 123, uid: 'u_self' })).toMatchObject({
+      isSelf: true,
+    });
+    f.services.groupInfo.getMemberInfo = async () => groupMember;
+    expect(await f.caller.memberState({ ...binding, groupId: 123, uid: 'u_peer' })).toMatchObject({
+      isSelf: false,
+    });
+    f.services.groupInfo.getMemberInfo = async () => ({ ...groupMember, uid: 'u_self' });
+    await expect(f.caller.memberState({ ...binding, groupId: 123, uid: 'u_self' })).rejects.toThrow(
+      '身份不一致',
+    );
+  });
+  it('特别关心用一个整体开关绑定好友，错目标与切源读回拒绝', async () => {
+    const f = fixture();
+    expect(await f.caller.friendSpecialCareState({ ...binding, uid: 'u_peer' })).toMatchObject({
+      uid: 'u_peer',
+      enabled: true,
+      zone: true,
+      ring: true,
+    });
+    await f.caller.friendSpecialCare({ ...binding, uid: 'u_peer', enabled: false });
+    expect(f.services.accountWrite.friendSpecialCare).toHaveBeenCalledWith('u_peer', false);
+    f.services.accountWrite.getFriendSpecialCare = async () => ({
+      uid: 'u_other',
+      enabled: true,
+      zone: true,
+      ring: true,
+    });
+    await expect(f.caller.friendSpecialCareState({ ...binding, uid: 'u_peer' })).rejects.toThrow(
+      '目标',
+    );
+  });
+  it('资料编辑只允许一个已建模字段，分组与精确查询拒绝越界身份', async () => {
+    const f = fixture();
+    await f.caller.editSelfProfile({ ...binding, patch: { birthday: '2000-02-29' } });
     await expect(
-      f.caller.groupIdentity({ ...binding, groupId: 123, titleId: 0x100000000 }),
+      f.caller.editSelfProfile({ ...binding, patch: { email: '', school: '' } }),
+    ).rejects.toThrow();
+    await expect(
+      f.caller.exactProfile({ ...binding, kind: 'user', target: '4294967296' }),
+    ).rejects.toThrow();
+    await expect(
+      f.caller.friendCategories({
+        ...binding,
+        operation: { type: 'move', uids: ['u_peer', 'u_peer'], categoryId: 0 },
+      }),
     ).rejects.toThrow();
   });
-  it('群展示头衔响应拒绝错群、错成员和在途切号', async () => {
+  it('撤掉展示头衔的查询与设置路由，保留专属头衔文本编辑', () => {
     const f = fixture();
-    const result = {
-      groupId: 123,
-      memberUin: '10001',
-      level: null,
-      titles: [],
-      selectedTitleId: null,
-      selectionKnown: false,
-    };
-    f.services.accountWrite.getGroupIdentity = vi.fn(async () => ({ ...result, groupId: 456 }));
-    await expect(f.caller.groupIdentityState({ ...binding, groupId: 123 })).rejects.toThrow(
-      '不一致',
-    );
-    f.services.accountWrite.getGroupIdentity = vi.fn(async () => ({
-      ...result,
-      memberUin: '10002',
-    }));
-    await expect(f.caller.groupIdentityState({ ...binding, groupId: 123 })).rejects.toThrow(
-      '不一致',
-    );
-    f.services.accountWrite.getGroupIdentity = vi.fn(async () => {
-      f.switchAccount();
-      return result;
-    });
-    await expect(f.caller.groupIdentityState({ ...binding, groupId: 123 })).rejects.toThrow('切换');
+    expect(f.procedures).not.toContain('groupIdentityState');
+    expect(f.procedures).not.toContain('groupIdentity');
+    expect(f.procedures).toContain('groupSpecialTitle');
   });
   it('好友云端免打扰独立使用在线绑定，不回落到本机缓存', async () => {
     const f = fixture();

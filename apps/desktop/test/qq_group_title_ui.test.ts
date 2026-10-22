@@ -2,9 +2,6 @@ import { act, cloneElement, isValidElement, createElement as h, type ReactNode }
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QQConversationControls } from '../src/renderer/src/components/QQConversationControls';
-vi.mock('../src/renderer/src/components/GroupIdentityControls', () => ({
-  GroupIdentityControls: () => null,
-}));
 import { QQGroupMemberControls } from '../src/renderer/src/components/QQGroupMemberControls';
 import { QQGroupMemberEditor } from '../src/renderer/src/components/QQGroupMemberControls';
 import { readFileSync } from 'node:fs';
@@ -45,10 +42,15 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useUtils: () => ({ account: { specialCare: { invalidate: async () => {} } } }),
     account: {
       listCategories: { useQuery: () => ({}) },
       pickSendFile: { useMutation: () => ({}) },
       qqWrite: {
+        friendRoster: { useQuery: () => ({ data: undefined }) },
+        friendRemarkState: { useQuery: () => ({ data: undefined }) },
+        friendSpecialCareState: { useQuery: () => ({ data: undefined }) },
+        friendSpecialCare: { useMutation: () => ({}) },
         friendDisturbState: { useQuery: () => ({ data: undefined, isFetching: false }) },
         groupPolicyState: {
           useQuery: () => ({ data: { policy: 1, rawPolicy: 1 }, isFetching: false }),
@@ -152,6 +154,13 @@ function fixture(element: ReactNode) {
   });
 }
 describe('专属头衔编辑权限', () => {
+  it('群设置不再挂载展示头衔选择、云端等级或本机显示开关', () => {
+    state.role = 'owner';
+    const host = fixture(h(QQConversationControls, { kind: 'group', conv: '123' }));
+    for (const label of ['展示头衔', '云端群等级', '显示头衔', '显示等级'])
+      expect(host.textContent).not.toContain(label);
+    expect(host.querySelector('[aria-label="我的专属头衔"]')).not.toBeNull();
+  });
   it.each([true, false])('成员弹窗不继承设置页的大间距，CSS 后加载顺序为 %s', (globalLast) => {
     const feature = readFileSync(resolve('src/renderer/src/styles/group-member-edit.css'), 'utf8');
     const global = '.weq-set { display: grid; gap: 16px; }';
@@ -175,12 +184,12 @@ describe('专属头衔编辑权限', () => {
         state.targetRole = targetRole;
         const host = fixture(h(QQGroupMemberControls, { groupCode: '123', uid: 'u_peer' }));
         expect(host.querySelector('details')).toBeNull();
-        expect(Boolean(host.querySelector('input[aria-label="群名片"]'))).toBe(
+        expect(Boolean(host.querySelector('input[aria-label="群昵称"]'))).toBe(
           role === 'owner' || (role === 'admin' && targetRole !== 'owner'),
         );
         expect(Boolean(host.querySelector('input[aria-label="专属头衔"]'))).toBe(role === 'owner');
         if (role === 'member' || (role === 'admin' && targetRole === 'owner'))
-          expect(host.textContent).not.toContain('群名片与头衔');
+          expect(host.textContent).not.toContain('群昵称与头衔');
         expect(state.mutate).not.toHaveBeenCalled();
       },
     );
@@ -216,7 +225,7 @@ describe('专属头衔编辑权限', () => {
     state.role = 'owner';
     state.available = false;
     const host = fixture(h(QQGroupMemberControls, { groupCode: '123', uid: 'u_peer' }));
-    expect(host.querySelector<HTMLInputElement>('[aria-label="群名片"]')!.disabled).toBe(true);
+    expect(host.querySelector<HTMLInputElement>('[aria-label="群昵称"]')!.disabled).toBe(true);
     expect(host.querySelector<HTMLInputElement>('[aria-label="专属头衔"]')!.disabled).toBe(true);
     const save = host.querySelector<HTMLButtonElement>('[aria-label="保存专属头衔"]')!;
     expect(save.disabled).toBe(true);
@@ -226,9 +235,9 @@ describe('专属头衔编辑权限', () => {
   it('管理员名片保存沿用绑定和目标，保存后核对实际名片读回', async () => {
     state.role = 'admin';
     state.targetRole = 'member';
-    state.readCard = '新群名片';
+    state.readCard = '新群昵称';
     const host = fixture(h(QQGroupMemberControls, { groupCode: '123', uid: 'u_peer' }));
-    const input = host.querySelector<HTMLInputElement>('[aria-label="群名片"]')!;
+    const input = host.querySelector<HTMLInputElement>('[aria-label="群昵称"]')!;
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
         input,
@@ -237,7 +246,7 @@ describe('专属头衔编辑权限', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
     await act(async () =>
-      host.querySelector<HTMLButtonElement>('[aria-label="保存群名片"]')!.click(),
+      host.querySelector<HTMLButtonElement>('[aria-label="保存群昵称"]')!.click(),
     );
     expect(state.mutate).toHaveBeenCalledTimes(1);
     expect(state.mutate).toHaveBeenCalledWith({
@@ -254,7 +263,7 @@ describe('专属头衔编辑权限', () => {
     const host = fixture(
       h(QQGroupMemberEditor, { groupCode: '123', uid: 'u_peer', field: 'title' }),
     );
-    expect(host.querySelector('[aria-label="群名片"]')).toBeNull();
+    expect(host.querySelector('[aria-label="群昵称"]')).toBeNull();
     const input = host.querySelector<HTMLInputElement>('[aria-label="专属头衔"]')!;
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
@@ -340,7 +349,7 @@ describe('专属头衔编辑权限', () => {
         if (role !== 'owner' && !member) expect(host.textContent).toContain('原头衔');
         else if (role !== 'owner') {
           expect(host.textContent).not.toContain('专属头衔');
-          expect(Boolean(host.querySelector('input[aria-label="群名片"]'))).toBe(role === 'admin');
+          expect(Boolean(host.querySelector('input[aria-label="群昵称"]'))).toBe(role === 'admin');
         } else
           expect(host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)?.value).toBe(
             '原头衔',

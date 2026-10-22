@@ -60,7 +60,11 @@ export function QQGroupMemberEditor({
   const card = trpc.account.qqWrite.groupMemberCard.useMutation();
   const title = trpc.account.qqWrite.groupSpecialTitle.useMutation();
   const matched = state.data?.uid === uid;
-  const permissions = groupMemberEditing(matched ? state.data?.role : null, state.data?.targetRole);
+  const permissions = groupMemberEditing(
+    matched ? state.data?.role : null,
+    state.data?.targetRole,
+    matched && state.data?.isSelf === true,
+  );
   const disabled = !session.available || session.busy;
   if (!valid) return null;
   if (profile)
@@ -70,7 +74,7 @@ export function QQGroupMemberEditor({
         key={`${session.binding?.expectedAccountUin}:${session.binding?.expectedAccountConfigId}:${groupCode}:${uid}`}
       >
         <MemberProfileField
-          label="群名片"
+          label="群昵称"
           icon={<UserRound size={13} />}
           initial={matched ? (state.data?.card ?? '') : (profile.card ?? '')}
           editable={matched && permissions.card}
@@ -168,7 +172,7 @@ export function QQGroupMemberEditor({
       aria-label="群成员资料编辑"
     >
       {field === 'all' && permissions.title && (
-        <h4 className="weq-qq-member-edit-title">群名片与头衔</h4>
+        <h4 className="weq-qq-member-edit-title">群昵称与头衔</h4>
       )}
       <QQWriteResult result={session.result} />
       {state.error && <p role="alert">{state.error.message}</p>}
@@ -177,7 +181,7 @@ export function QQGroupMemberEditor({
       >
         {field === 'all' && permissions.card && (
           <QQWriteTextRow
-            label="群名片"
+            label="群昵称"
             initial={state.data?.card ?? null}
             disabled={disabled}
             maxLength={256}

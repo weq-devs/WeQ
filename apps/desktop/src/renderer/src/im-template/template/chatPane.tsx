@@ -2268,7 +2268,7 @@ export function ChatPane({
       selfIdentityValues(member).some((identity) => selfIdentityValues(sender).includes(identity)),
     );
     const targetRole = isSelfAvatar(sender) ? myRole : (targetMember?.role ?? sender.role);
-    const editing = groupMemberEditing(myRole, targetRole);
+    const editing = groupMemberEditing(myRole, targetRole, isSelfAvatar(sender));
     const validUid = Boolean(targetUid && /^u_[A-Za-z0-9_-]+$/.test(targetUid));
     if (isSelfAvatar(sender)) {
       return {

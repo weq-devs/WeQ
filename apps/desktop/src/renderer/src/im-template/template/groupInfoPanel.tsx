@@ -23,6 +23,7 @@ import type { GroupConversationView } from './conversationDetailsTypes';
 import { displayUserName } from './user';
 import { cn } from './classNames';
 import { formatShortDate } from './format';
+import { GroupMessageBadge } from '../../components/GroupMessageBadge';
 import '../../styles/conversation-actions.css';
 import '../../styles/group-sidebar-sections.css';
 
@@ -267,7 +268,7 @@ export function GroupInfoPanel({
           <input
             type="text"
             value={memberSearch?.keyword ?? ''}
-            placeholder="搜索昵称 / 群名片 / QQ号"
+            placeholder="搜索昵称 / 群昵称 / QQ号"
             aria-label="搜索群成员"
             spellCheck={false}
             onChange={(event) => onMemberSearchChange?.(event.target.value)}
@@ -337,11 +338,13 @@ export function GroupInfoPanel({
               <span className="member-name-text">
                 <span className="member-name-with-badge">
                   <span className="member-display-name">{displayUserName(member)}</span>
-                  {member.role === 'owner' ? (
-                    <small className="member-badge owner">群主</small>
-                  ) : member.role === 'admin' ? (
-                    <small className="member-badge admin">管理员</small>
-                  ) : null}
+                  <GroupMessageBadge
+                    member={{
+                      role: member.role,
+                      customTitle: member.customTitle,
+                      levelName: member.levelName,
+                    }}
+                  />
                 </span>
               </span>
               {member.kind === 'bot' ? (
