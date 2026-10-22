@@ -4,6 +4,16 @@ html[data-theme]
   color: var(--weq-fg-secondary);
 }
 
+.weq-set-card,
+.weq-set-row-main {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.weq-set-row-ctrl :is(input, select, textarea) {
+  min-width: 0;
+  max-width: 100%;
+}
+
 html[data-theme] body .weq-set-chk {
   background: var(--weq-bg-surface);
   color: var(--weq-fg-secondary);

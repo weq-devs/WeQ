@@ -1,14 +1,23 @@
 .weq-save-preferences select {
   max-width: 100%;
 }
+.weq-save-preferences .weq-set-path {
+  max-width: 100%;
+}
 @media (max-width: 480px) {
-  .weq-save-preferences .weq-set-row {
+  html[data-theme] .weq-save-preferences .weq-set-row {
     flex-direction: column;
+    flex-wrap: nowrap;
     align-items: stretch;
     gap: 10px;
   }
-  .weq-save-preferences .weq-set-row-ctrl {
+  html[data-theme] .weq-save-preferences .weq-set-row-ctrl {
     width: 100%;
+    margin-left: 0;
+    flex: none;
+  }
+  html[data-theme] .weq-save-preferences .weq-set-row-main {
+    flex: none;
   }
   .weq-save-preferences select {
     width: 100%;

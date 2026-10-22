@@ -33,7 +33,8 @@ import {
 import { trpc, client } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
-import { Card, Row, SectionHeader, Toggle } from './controls';
+import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
+import '../../styles/settings-services.css';
 import {
   connectionTestKey,
   runConnectionTest,
@@ -80,11 +81,13 @@ export function SsePushSection(): ReactElement {
   const enabledServerId = sse?.enabledServerId ?? null;
   const busy = saveServer.isLoading || deleteServer.isLoading || setEnabled.isLoading;
 
+  // 普通重读不清空草稿，只同步发生变化的服务端数值。
   useEffect(() => {
-    if (!sse) return;
-    setDebounceDraft(String(sse.debounceMs));
-    setThresholdDraft(String(sse.massThreshold));
-  }, [sse]);
+    if (sse?.debounceMs != null) setDebounceDraft(String(sse.debounceMs));
+  }, [sse?.debounceMs]);
+  useEffect(() => {
+    if (sse?.massThreshold != null) setThresholdDraft(String(sse.massThreshold));
+  }, [sse?.massThreshold]);
 
   async function refetch(): Promise<void> {
     await settings.refetch();
@@ -193,7 +196,7 @@ export function SsePushSection(): ReactElement {
   }
 
   return (
-    <div className="weq-set">
+    <div className="weq-set weq-service-settings">
       <SectionHeader
         icon={<Radio size={18} strokeWidth={1.8} />}
         title="SSE 消息推送"
@@ -214,10 +217,24 @@ export function SsePushSection(): ReactElement {
           </button>
         }
       >
-        {servers.length === 0 ? (
-          <div className="weq-set-empty">
-            还没有配置任何推送目标。启用后 WeQ 会把新消息 POST 到该地址。
-          </div>
+        {settings.error ? (
+          <QueryError
+            message={`SSE 配置读取失败：${settings.error.message}`}
+            retryLabel="重新读取 SSE 配置"
+            retrying={settings.isFetching}
+            onRetry={() => void settings.refetch()}
+          />
+        ) : null}
+        {settings.isLoading ? (
+          <p className="weq-set-empty" role="status">
+            正在读取 SSE 配置…
+          </p>
+        ) : servers.length === 0 ? (
+          settings.error ? null : (
+            <div className="weq-set-empty">
+              还没有配置任何推送目标。启用后 WeQ 会把新消息 POST 到该地址。
+            </div>
+          )
         ) : (
           <ul className="weq-set-server-list">
             {servers.map((server) => {
@@ -230,10 +247,12 @@ export function SsePushSection(): ReactElement {
                   <div className="weq-set-server-main">
                     <div className="weq-set-server-title">
                       <Radio size={14} strokeWidth={1.8} className="weq-set-server-ico" />
-                      <span className="weq-set-server-name">{server.name}</span>
+                      <span className="weq-set-server-name" title={server.name}>
+                        {server.name}
+                      </span>
                       {isEnabled ? <span className="weq-set-server-badge">推送中</span> : null}
                     </div>
-                    <div className="weq-set-server-sub">
+                    <div className="weq-set-server-sub" title={server.pushUrl}>
                       {server.pushUrl} ·{' '}
                       {server.accessToken ? 'access_token 已设置' : 'access_token 未设置'}
                     </div>
@@ -283,6 +302,7 @@ export function SsePushSection(): ReactElement {
                 control={
                   <input
                     className="weq-set-input"
+                    aria-label="SSE 名称"
                     value={form.name}
                     spellCheck={false}
                     placeholder="例如：SSE 接收端"
@@ -296,6 +316,7 @@ export function SsePushSection(): ReactElement {
                 control={
                   <input
                     className="weq-set-input weq-set-input-wide"
+                    aria-label="SSE 推送地址"
                     value={form.pushUrl}
                     spellCheck={false}
                     autoComplete="off"
@@ -317,6 +338,7 @@ export function SsePushSection(): ReactElement {
                     />
                     <input
                       className="weq-set-token-input"
+                      aria-label="SSE access_token"
                       type={revealToken ? 'text' : 'password'}
                       value={form.accessToken}
                       spellCheck={false}

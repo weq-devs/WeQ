@@ -35,7 +35,8 @@ import {
 import { trpc, client } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
-import { Card, Row, SectionHeader, Toggle } from './controls';
+import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
+import '../../styles/settings-services.css';
 import {
   connectionTestKey,
   runConnectionTest,
@@ -198,7 +199,7 @@ export function ExternalRkeySection(): ReactElement {
   }
 
   return (
-    <div className="weq-set">
+    <div className="weq-set weq-service-settings">
       <SectionHeader
         icon={<CloudDownload size={18} strokeWidth={1.8} />}
         title="外部 RKEY 服务器"
@@ -252,8 +253,22 @@ export function ExternalRkeySection(): ReactElement {
           </button>
         }
       >
-        {servers.length === 0 ? (
-          <div className="weq-set-empty">还没有导入任何外部 rkey 服务器。</div>
+        {settings.error ? (
+          <QueryError
+            message={`RKEY 配置读取失败：${settings.error.message}`}
+            retryLabel="重新读取 RKEY 配置"
+            retrying={settings.isFetching}
+            onRetry={() => void settings.refetch()}
+          />
+        ) : null}
+        {settings.isLoading ? (
+          <p className="weq-set-empty" role="status">
+            正在读取 RKEY 配置…
+          </p>
+        ) : servers.length === 0 ? (
+          settings.error ? null : (
+            <div className="weq-set-empty">还没有导入任何外部 rkey 服务器。</div>
+          )
         ) : (
           <ul className="weq-set-server-list">
             {servers.map((server) => {
@@ -267,10 +282,14 @@ export function ExternalRkeySection(): ReactElement {
                   <div className="weq-set-server-main">
                     <div className="weq-set-server-title">
                       <Server size={14} strokeWidth={1.8} className="weq-set-server-ico" />
-                      <span className="weq-set-server-name">{server.name}</span>
+                      <span className="weq-set-server-name" title={server.name}>
+                        {server.name}
+                      </span>
                       {isEnabled ? <span className="weq-set-server-badge">已启用</span> : null}
                     </div>
-                    <div className="weq-set-server-sub">{server.baseUrl} · token 已设置</div>
+                    <div className="weq-set-server-sub" title={server.baseUrl}>
+                      {server.baseUrl} · token 已设置
+                    </div>
                     <div className={`weq-set-server-cache${cache.expired ? ' is-expired' : ''}`}>
                       {cache.expired ? null : <CheckCircle2 size={12} strokeWidth={2} />}
                       {cache.text}
@@ -334,6 +353,7 @@ export function ExternalRkeySection(): ReactElement {
               control={
                 <input
                   className="weq-set-input"
+                  aria-label="RKEY 名称"
                   value={form.name}
                   spellCheck={false}
                   placeholder="例如：瞌睡猫"
@@ -347,6 +367,7 @@ export function ExternalRkeySection(): ReactElement {
               control={
                 <input
                   className="weq-set-input weq-set-input-wide"
+                  aria-label="RKEY HTTP 地址"
                   value={form.baseUrl}
                   spellCheck={false}
                   autoComplete="off"
@@ -368,6 +389,7 @@ export function ExternalRkeySection(): ReactElement {
                   />
                   <input
                     className="weq-set-token-input"
+                    aria-label="RKEY access_token"
                     type={revealToken ? 'text' : 'password'}
                     value={form.accessToken}
                     spellCheck={false}

@@ -1,0 +1,103 @@
+.weq-service-settings :is(.weq-set-agent-list, .weq-set-agent-item) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-service-settings .weq-set-agent-item {
+  flex-wrap: wrap;
+}
+
+.weq-service-settings .weq-set-agent-main {
+  flex: 1 1 160px;
+}
+
+html[data-theme] .weq-service-settings .weq-set-agent-item {
+  opacity: 1;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}
+
+html[data-theme] .weq-service-settings .weq-set-agent-item.is-on {
+  background: var(--weq-list-selected-background);
+  border-color: var(--weq-accent-ink);
+}
+
+html[data-theme] .weq-service-settings .weq-set-agent-path {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-service-settings .weq-set-agent-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-service-settings .weq-set-server-item {
+  flex-wrap: wrap;
+}
+
+.weq-service-settings .weq-set-server-main {
+  flex: 1 1 220px;
+}
+
+html[data-theme] .weq-service-settings .weq-set-server-sub {
+  color: var(--weq-fg-secondary);
+}
+
+html[data-theme] .weq-service-settings .weq-set-agent-tag {
+  color: var(--weq-fg-primary);
+  background: transparent;
+  border: 1px solid var(--weq-border-strong);
+}
+
+html[data-theme] .weq-service-settings .weq-set-agent-tag.is-new {
+  color: var(--weq-list-info-ink);
+}
+
+html[data-theme] .weq-service-settings .weq-set-agent-tag.is-stale {
+  color: var(--weq-list-attention-ink);
+}
+
+html[data-theme] .weq-service-settings .weq-set-agent-tag.is-error,
+html[data-theme] .weq-service-settings .weq-set-iconbtn-danger {
+  color: var(--weq-list-alert-ink);
+}
+
+html[data-theme] .weq-service-settings .weq-set-agent-item.is-on .weq-set-agent-chk {
+  background: var(--weq-accent-solid);
+  border-color: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground);
+}
+
+html[data-theme] .weq-service-settings .weq-set-agent-chk {
+  background: var(--weq-bg-elevated);
+  border-color: var(--weq-border-strong);
+}
+
+html[data-theme] .weq-service-settings .weq-set-server-badge {
+  background: var(--weq-list-selected-background);
+  color: var(--weq-fg-primary);
+  border-color: var(--weq-border-strong);
+}
+
+html[data-theme] .weq-service-settings :is(.weq-set-server-ico, .weq-set-server-cache) {
+  color: var(--weq-fg-secondary);
+}
+
+html[data-theme] .weq-service-settings .weq-set-server-cache.is-expired {
+  color: var(--weq-list-attention-ink);
+}
+
+html[data-theme] .weq-service-settings .weq-set-iconbtn:disabled {
+  color: var(--weq-fg-secondary);
+  opacity: 1;
+}
+
+.weq-service-settings .weq-set-btn-group {
+  flex-wrap: wrap;
+}
+
+html[data-theme='dark'] .weq-service-settings .weq-set-agent-item:not(.is-on) {
+  background: var(--weq-bg-elevated);
+}
