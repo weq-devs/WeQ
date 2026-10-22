@@ -5,6 +5,7 @@ import { useDialog } from '../components/Dialog';
 import { useToast } from '../components/Toast';
 import { runMessageLoadTask } from '../components/MessageLoadTask';
 import { grayTipOf } from '../im-template/template/messageRow';
+import { createSelectionGapIndex } from '../lib/selectionGapIndex';
 import {
   messageSelectionItems,
   parseSelectionGap,
@@ -68,6 +69,15 @@ export function useMessageSelectionFlow({
     [messages, selection.selectionMode, missingJumpSeq],
   );
   const order = useMemo(() => items.map((item) => item.id), [items]);
+  const itemsById = useMemo(() => {
+    const byId = new Map<string, (typeof items)[number]>();
+    for (const item of items) if (!byId.has(item.id)) byId.set(item.id, item);
+    return byId;
+  }, [items]);
+  const messagesById = useMemo(
+    () => new Map(messages.map((message, index) => [message.id, { message, index }])),
+    [messages],
+  );
   const gaps = useMemo(
     () =>
       [...selection.selectedIds].flatMap((id) => {
@@ -76,12 +86,8 @@ export function useMessageSelectionFlow({
       }),
     [selection.selectedIds],
   );
-  const gapSelected = (gap: SelectionGap) =>
-    gaps.some(
-      (selected) =>
-        BigInt(selected.previousSeq) <= BigInt(gap.previousSeq) &&
-        BigInt(selected.currentSeq) >= BigInt(gap.currentSeq),
-    );
+  const gapIndex = useMemo(() => createSelectionGapIndex(gaps), [gaps]);
+  const gapSelected = useCallback((gap: SelectionGap) => gapIndex.containsGap(gap), [gapIndex]);
   useLayoutEffect(() => {
     const identity = (message: Message) => {
       const seq = seqOf(message);
@@ -121,14 +127,17 @@ export function useMessageSelectionFlow({
       );
       return;
     }
-    for (const message of messages)
-      if (selection.selectedIds.has(message.id) || selection.anchorRef.current === message.id)
-        cache.set(message.id, message);
+    for (const id of new Set([...selection.selectedIds, selection.anchorRef.current])) {
+      if (!id) continue;
+      const message = messagesById.get(id)?.message;
+      if (message) cache.set(id, message);
+    }
     if (!busy)
       for (const id of cache.keys())
         if (!selection.selectedIds.has(id) && selection.anchorRef.current !== id) cache.delete(id);
   }, [
     messages,
+    messagesById,
     selection.selectedIds,
     selection.anchorRef,
     selection.setSelectedIds,
@@ -138,36 +147,37 @@ export function useMessageSelectionFlow({
   ]);
   const selectedFrom = useCallback(
     (ids: ReadonlySet<string>) => {
-      const available = new Map(cache);
-      for (const message of messages) available.set(message.id, message);
-      const positions = new Map(messages.map((message, index) => [message.id, index]));
       return [...ids]
-        .flatMap((id) => (available.has(id) ? [available.get(id)!] : []))
+        .flatMap((id) => {
+          const message = messagesById.get(id)?.message ?? cache.get(id);
+          return message ? [message] : [];
+        })
         .sort((a, b) => {
-          if (positions.has(a.id) && positions.has(b.id))
-            return positions.get(a.id)! - positions.get(b.id)!;
+          const aPosition = messagesById.get(a.id),
+            bPosition = messagesById.get(b.id);
+          if (aPosition && bPosition) return aPosition.index - bPosition.index;
           const aSeq = seqOf(a),
             bSeq = seqOf(b);
           if (aSeq !== null && bSeq !== null && aSeq !== bSeq) return aSeq < bSeq ? -1 : 1;
           return Date.parse(a.createdAt) - Date.parse(b.createdAt);
         });
     },
-    [cache, messages, seqOf],
+    [cache, messagesById, seqOf],
   );
   const selectedMessages = useMemo(
     () => selectedFrom(selection.selectedIds),
     [selectedFrom, selection.selectedIds],
   );
   const mergedGaps = useMemo(() => mergeSelectionGaps(gaps), [gaps]);
-  const selectedCount =
-    mergedGaps.reduce((count, gap) => count + gap.count, 0) +
-    selectedMessages.filter((message) => {
-      const seq = seqOf(message);
-      return (
-        seq === null ||
-        !mergedGaps.some((gap) => seq > BigInt(gap.previousSeq) && seq < BigInt(gap.currentSeq))
-      );
-    }).length;
+  const selectedCount = useMemo(
+    () =>
+      mergedGaps.reduce((count, gap) => count + gap.count, 0) +
+      selectedMessages.filter((message) => {
+        const seq = seqOf(message);
+        return seq === null || !gapIndex.containsSequence(seq);
+      }).length,
+    [mergedGaps, selectedMessages, seqOf, gapIndex],
+  );
   const current = (controller: AbortController) =>
     !controller.signal.aborted &&
     latest.current.owner === owner &&
@@ -303,7 +313,7 @@ export function useMessageSelectionFlow({
     onChange(next);
   }
   const beforeSelect = (id: string, modifiers: SelectionModifiers) => {
-    const item = items.find((item) => item.id === id);
+    const item = itemsById.get(id);
     if (item?.message) cache.set(id, item.message);
     if (
       !modifiers.shiftKey &&
@@ -330,8 +340,7 @@ export function useMessageSelectionFlow({
     }
     if (!modifiers.shiftKey || !selection.anchorRef.current) return false;
     const anchor =
-      cache.get(selection.anchorRef.current) ??
-      messages.find((message) => message.id === selection.anchorRef.current);
+      cache.get(selection.anchorRef.current) ?? itemsById.get(selection.anchorRef.current)?.message;
     const anchorGap = parseSelectionGap(selection.anchorRef.current);
     const targetSeq = item?.message
       ? seqOf(item.message)

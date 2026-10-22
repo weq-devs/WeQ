@@ -54,7 +54,7 @@ function snapshot(name: string) {
   );
 }
 
-it('多选菜单合并复制和转发，分析与导出携带精确 ID，设置使用原位窗格', () => {
+it('多选菜单合并复制和转发，分析与导出携带精确 ID，设置使用原位窗格', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   const demo = createTemplateDemoData();
@@ -88,7 +88,7 @@ it('多选菜单合并复制和转发，分析与导出携带精确 ID，设置�
     );
   }
   const click = (selector: string) =>
-    act(() => document.querySelector<HTMLButtonElement>(selector)!.click());
+    act(async () => document.querySelector<HTMLButtonElement>(selector)!.click());
   try {
     act(() =>
       root.render(
@@ -117,11 +117,11 @@ it('多选菜单合并复制和转发，分析与导出携带精确 ID，设置�
         ),
       ),
     );
-    click('[data-select-fixture]');
+    await click('[data-select-fixture]');
     expect(host.querySelectorAll('.selection-bar [aria-label="复制"]')).toHaveLength(1);
     expect(host.querySelectorAll('.selection-bar [aria-label="转发"]')).toHaveLength(1);
     expect(host.querySelector('.selection-bar [aria-label="复制纯文本"]')).toBeNull();
-    click('[aria-label="复制"]');
+    await click('[aria-label="复制"]');
     expect(document.querySelector('[role="menu"][aria-label="复制格式"]')?.textContent).toBe(
       '纯文本富文本JSON',
     );
@@ -130,19 +130,19 @@ it('多选菜单合并复制和转发，分析与导出携带精确 ID，设置�
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
     );
     expect(document.activeElement?.getAttribute('aria-label')).toBe('复制');
-    click('[aria-label="转发"]');
+    await click('[aria-label="转发"]');
     expect(document.querySelector('[role="menu"][aria-label="转发方式"]')?.textContent).toBe(
       '合并转发逐条转发',
     );
     act(() =>
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
     );
-    click('[aria-label="分析所选消息"]');
+    await click('[aria-label="分析所选消息"]');
     expect(JSON.parse(host.querySelector('[data-analysis]')!.textContent!)).toMatchObject({
       target: { kind: 'group', groupCode: '777' },
       messageIds: ['1', '3'],
     });
-    click('[aria-label="导出所选消息"]');
+    await click('[aria-label="导出所选消息"]');
     expect(JSON.parse(host.querySelector('[data-export]')!.textContent!)).toMatchObject({
       selection: { scope: { type: 'items', ids: ['1', '3'] } },
     });

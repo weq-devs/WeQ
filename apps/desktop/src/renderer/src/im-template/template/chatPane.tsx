@@ -20,7 +20,8 @@ import { MessageTodoAction, TypingStatus } from '../../components/qq-actions/Cha
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useMessageSelectionFlow } from '../../hooks/useMessageSelectionFlow';
-import { selectionGapId, parseSelectionGap } from '../../lib/messageSelection';
+import { selectionGapId, parseSelectionGap, type SelectionGap } from '../../lib/messageSelection';
+import { createSelectionGapIndex } from '../../lib/selectionGapIndex';
 import { hasActiveModal } from '../../lib/overlayStack';
 import { useWorkspaceSidecarOpen } from '../../components/WorkspacePages';
 import { useAtAllMention } from '../../hooks/useAtAllMention';
@@ -77,7 +78,7 @@ import {
 } from '../../lib/messageBatchAction';
 import { MessageBatchActionDialog } from '../../components/MessageBatchActionDialog';
 import { confirmMessageDeletion } from '../../components/confirmMessageDeletion';
-import { deletionIdentity, hiddenDeletionSequences } from '../../lib/messageDeletion';
+import { deletionIdentity, hiddenDeletionLookup } from '../../lib/messageDeletion';
 import { useThemeStore } from '../../state/theme';
 import {
   Fragment,
@@ -969,8 +970,8 @@ export function ChatPane({
       ),
     [messages, hiddenMessageIds, hiddenDeletedKeys],
   );
-  const hiddenDeletionSeqs = useMemo(
-    () => hiddenDeletionSequences(messages, hiddenDeletedIds ?? new Set()),
+  const hasHiddenDeletionBetween = useMemo(
+    () => hiddenDeletionLookup(messages, hiddenDeletedIds ?? new Set()),
     [messages, hiddenDeletedIds],
   );
   // 分析和回复使用不同目标，自己的消息不触发推荐；跳过灰条、撤回和删除。
@@ -1107,6 +1108,21 @@ export function ChatPane({
     onStart: () => setSelectionMode(true),
     onSelect: (id, modifiers) => multi.toggle(id, modifiers),
   });
+  const previewGapIndex = useMemo(
+    () =>
+      marquee.previewIds
+        ? createSelectionGapIndex(
+            [...marquee.previewIds].flatMap((id) => {
+              const gap = parseSelectionGap(id);
+              return gap ? [gap] : [];
+            }),
+          )
+        : null,
+    [marquee.previewIds],
+  );
+  const displayedGapSelected = (gap: SelectionGap) =>
+    previewGapIndex ? previewGapIndex.containsGap(gap) : selectionFlow.gapSelected(gap);
+  const displayedSelectedIds = marquee.previewIds ?? selectedIds;
   const copySelectedMessagesText = useCallback(async () => {
     if (!conversation) return;
     if (selectionBlockedReason) {
@@ -4370,10 +4386,7 @@ export function ChatPane({
                 const previous = visibleMessages[index - 1];
                 const gapPrevious = previousForGap;
                 const deletedGap =
-                  gapPrevious &&
-                  hiddenDeletionSeqs.some((seq) =>
-                    isSeqBetween(seq, gapPrevious.msgSeq, message.msgSeq),
-                  );
+                  gapPrevious && hasHiddenDeletionBetween(gapPrevious.msgSeq, message.msgSeq);
                 const gap = messageGapCount(
                   gapPrevious,
                   message,
@@ -4399,7 +4412,7 @@ export function ChatPane({
                         currentSeq: String(message.msgSeq),
                       })}
                       selectionMode={selectionMode}
-                      selected={selectionFlow.gapSelected({
+                      selected={displayedGapSelected({
                         previousSeq: String(gapPrevious.msgSeq),
                         currentSeq: String(message.msgSeq),
                         count: 1,
@@ -4437,7 +4450,7 @@ export function ChatPane({
                       selectionMode={selectionMode}
                       selected={
                         gapPrevious
-                          ? selectionFlow.gapSelected({
+                          ? displayedGapSelected({
                               previousSeq: String(gapPrevious.msgSeq),
                               currentSeq: String(message.msgSeq),
                               count: gap,
@@ -4513,7 +4526,10 @@ export function ChatPane({
                         ) : undefined
                       }
                       selectionMode={selectionMode}
-                      selected={selectionMode && selectedIds.has(message.id)}
+                      selected={
+                        (selectionMode || Boolean(marquee.previewIds)) &&
+                        displayedSelectedIds.has(message.id)
+                      }
                       onToggleSelect={toggleSelectMessage}
                       reactionRemoval={{
                         onRemove: (code) => changeMessageReaction(message, code, false),

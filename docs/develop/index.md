@@ -70,6 +70,7 @@ pnpm dev
 - [QQ 交互当前版本收尾](./qq-actions-followups-20261022.md)：表情包、资料卡、独立修复窗、频道多选、自发缓存与混合消息操作的实现和验证边界。
 - [模型温度参数回退](./temperature-fallback-20261022.md)：明确拒绝识别、JSON／SSE 重试边界、取消与物理用量记账。
 - [备份与恢复](./settings-backup-20261022.md)：版本化格式、真实配置校验、冷启动事务、设置入口与按设备交接界面偏好。
+- [消息选择与框选](./message-selection-performance-20261022.md)：临时预览、最终提交、稳定行尺寸、区间索引与长时间线定向性能回归。
 - [贡献指南](../../CONTRIBUTING.md)
 
 ---
