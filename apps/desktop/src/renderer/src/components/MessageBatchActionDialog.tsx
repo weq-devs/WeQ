@@ -27,7 +27,7 @@ export function MessageBatchActionDialog({
   const id = useId();
   const [preview, setPreview] = useState(false);
   const reasons = new Map(batch.unsupported.map(({ message, reason }) => [message.id, reason]));
-  const label = { export: '导出', analysis: '分析', delete: '删除' }[action];
+  const label = { export: '导出', analysis: '分析', delete: '删除', recall: '撤回' }[action];
   return (
     <Modal
       width={560}

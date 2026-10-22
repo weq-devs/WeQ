@@ -823,6 +823,18 @@ export function ChatPane({
     setSelectedIds,
     anchorRef: selectionAnchor,
   } = selection;
+  const recallAccount = trpc.account.getAccountConfig.useQuery(undefined, {
+    enabled: selectionMode,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+  const recallBinding =
+    recallAccount.data?.uin === user.identityValue && recallAccount.data?.configId
+      ? {
+          expectedAccountUin: recallAccount.data.uin,
+          expectedAccountConfigId: recallAccount.data.configId,
+        }
+      : null;
   const selectionCancelRef = useRef<(() => void) | null>(null);
   const requestExport = useRequestContentExport();
   const requestAnalysis = useRequestContentAnalysis();
@@ -1041,10 +1053,35 @@ export function ChatPane({
     };
   }, [actionScope]);
   const [deletionBusy, setDeletionBusy] = useState(false);
+  const [recallBusy, setRecallBusy] = useState(false);
+  const recallRun = useRef<object | null>(null);
+  const recallScope = useMemo(
+    () => ({}),
+    [
+      actionScope,
+      selectionMode,
+      recallBinding?.expectedAccountUin,
+      recallBinding?.expectedAccountConfigId,
+    ],
+  );
+  const recallScopeRef = useRef<object | null>(recallScope);
+  recallScopeRef.current = recallScope;
+  useEffect(() => {
+    recallScopeRef.current = recallScope;
+    recallRun.current = null;
+    setRecallBusy(false);
+    return () => {
+      if (recallScopeRef.current === recallScope) recallScopeRef.current = null;
+    };
+  }, [recallScope]);
   const restorableSelection = selectionFlow.selectedMessages.filter(
     (message) => deletedKeys.has(deletionIdentity(message.id)) || message.deletedKind === 'weq',
   );
-  const selectionBlockedReason = selectionFlow.busy ? '正在加载所选范围' : null;
+  const selectionBlockedReason = selectionFlow.busy
+    ? '正在加载所选范围'
+    : recallBusy
+      ? '正在撤回所选消息'
+      : null;
   const [batchAction, setBatchAction] = useState<{
     action: MessageBatchAction;
     batch: ReturnType<typeof partitionMessageBatch>;
@@ -1062,6 +1099,7 @@ export function ChatPane({
         conversationAnalysisTarget(conversation),
         messages.map((message) => message.id),
       );
+    else if (action === 'recall') await recallSelectedMessages(messages);
     else {
       if (deletionBusy) return;
       const hidden = await confirmMessageDeletion(messages.length);
@@ -1107,10 +1145,28 @@ export function ChatPane({
   async function requestBatchAction(action: MessageBatchAction) {
     if (selectionBlockedReason || !selectedIds.size) return;
     const picked = await selectionFlow.prepare(
-      action === 'export' ? '导出' : action === 'analysis' ? '分析' : '删除',
+      action === 'export'
+        ? '导出'
+        : action === 'analysis'
+          ? '分析'
+          : action === 'recall'
+            ? '撤回'
+            : '删除',
     );
     if (!picked?.length) return;
-    const batch = partitionMessageBatch(picked, action);
+    if (action === 'recall' && recallScopeRef.current !== recallScope) return;
+    const batch = partitionMessageBatch(
+      picked,
+      action,
+      action === 'recall'
+        ? (message) => {
+            const availability = latestRecallAvailability.current(message);
+            return availability.show
+              ? availability.reason
+              : '没有权限撤回这条消息，或该记录属于系统消息';
+          }
+        : undefined,
+    );
     if (batch.unsupported.length) setBatchAction({ action, batch });
     else performBatchAction(action, batch.supported);
   }
@@ -1119,7 +1175,7 @@ export function ChatPane({
     selected: selectedIds,
     onChange: selectionFlow.onChange,
     enabled: selectionMode,
-    disabled: !tabActive || Boolean(selectionMenu) || selectionFlow.busy,
+    disabled: !tabActive || Boolean(selectionMenu) || selectionFlow.busy || recallBusy,
     onStart: () => setSelectionMode(true),
     onExit: exitSelection,
     anchorRef: selectionAnchor,
@@ -1127,7 +1183,8 @@ export function ChatPane({
   });
   const marquee = useMessageMarquee({
     conversationKey: conversation?.id,
-    enabled: tabActive && Boolean(conversation) && !selectionMenu && !selectionFlow.busy,
+    enabled:
+      tabActive && Boolean(conversation) && !selectionMenu && !selectionFlow.busy && !recallBusy,
     selectionMode,
     selected: selectedIds,
     orderedIds: selectionOrder,
@@ -2307,7 +2364,8 @@ export function ChatPane({
       return { show: false, reason: null };
     }
     const mine = isSelfIdentity(new Set(selfIdentityValues(user)), message.senderId);
-    const elevated = conversation.type === 'group' && conversation.group.role !== 'member';
+    const elevated =
+      conversation.type === 'group' && ['owner', 'admin'].includes(conversation.group.role);
     if (!mine && !elevated) {
       return { show: false, reason: null };
     }
@@ -2323,7 +2381,7 @@ export function ChatPane({
     const pendingReason = outgoingActionBlockReason(message);
     if (pendingReason) return { show: true, reason: pendingReason };
     const seq = Number((message as { msgSeq?: unknown }).msgSeq);
-    if (!Number.isFinite(seq) || seq <= 0) {
+    if (!Number.isSafeInteger(seq) || seq <= 0) {
       return { show: true, reason: '这条消息缺少会话内序号，无法撤回' };
     }
     if (conversation.type === 'direct') {
@@ -2351,20 +2409,28 @@ export function ChatPane({
   }
 
   /** 撤回一条消息。不做乐观渲染，只把结果 toast 出来，等 QQ 同步翻新会话。 */
-  function recallMessageFor(message: Message) {
+  function recallMessageFor(
+    message: Message,
+    options?: {
+      binding: { expectedAccountUin: string; expectedAccountConfigId: string };
+      quiet?: boolean;
+    },
+  ): Promise<boolean> {
     setContextMenu(null);
-    const current = visibleMessages.find((row) => row.id === message.id);
-    if (!current || grayTipOf(current)) return;
+    const current =
+      visibleMessages.find((row) => row.id === message.id) ??
+      (options ? selection.messageCache.get(message.id) : undefined);
+    if (!current || grayTipOf(current)) return Promise.resolve(false);
     message = current;
     const availability = recallAvailability(message);
-    if (!availability.show || availability.reason) return;
+    if (!availability.show || availability.reason) return Promise.resolve(false);
     if (!conversation || moderationBlockedReason) {
-      return;
+      return Promise.resolve(false);
     }
     const seq = Number((message as { msgSeq?: unknown }).msgSeq);
-    if (!Number.isFinite(seq) || seq <= 0) {
+    if (!Number.isSafeInteger(seq) || seq <= 0) {
       pushToast({ tone: 'warning', message: '这条消息缺少会话内序号，无法撤回' });
-      return;
+      return Promise.resolve(false);
     }
     const random = Number((message as { msgRandom?: unknown }).msgRandom) || 0;
     const timestamp = Math.floor(Date.parse(message.createdAt) / 1000) || 0;
@@ -2385,16 +2451,106 @@ export function ChatPane({
             ...(timestamp > 0 ? { timestamp } : {}),
           };
     const finish = beginInlineAction(message.id, '正在撤回消息');
-    recallMessage.mutate(params, {
-      onSettled: finish,
-      onError: (error) => {
-        pushToast({
-          tone: 'error',
-          title: '撤回失败',
-          detail: error instanceof Error ? error.message : String(error),
-        });
-      },
+    if (options) {
+      return recallMessage
+        .mutateAsync({ ...params, ...options.binding })
+        .then(() => true)
+        .catch((error) => {
+          if (!options.quiet)
+            pushToast({
+              tone: 'error',
+              title: '撤回失败',
+              detail: error instanceof Error ? error.message : String(error),
+            });
+          return false;
+        })
+        .finally(finish);
+    }
+    return new Promise((resolve) => {
+      recallMessage.mutate(
+        { ...params, ...options?.binding },
+        {
+          onSettled: finish,
+          onSuccess: () => resolve(true),
+          onError: (error) => {
+            if (!options?.quiet)
+              pushToast({
+                tone: 'error',
+                title: '撤回失败',
+                detail: error instanceof Error ? error.message : String(error),
+              });
+            resolve(false);
+          },
+        },
+      );
     });
+  }
+
+  const latestRecallMessageFor = useRef(recallMessageFor);
+  latestRecallMessageFor.current = recallMessageFor;
+  const latestRecallAvailability = useRef(recallAvailability);
+  latestRecallAvailability.current = recallAvailability;
+
+  async function recallSelectedMessages(messages: Message[]) {
+    if (
+      !recallBinding ||
+      recallScopeRef.current !== recallScope ||
+      recallRun.current ||
+      moderationBlockedReason ||
+      !messages.length
+    )
+      return;
+    const token = {},
+      scope = recallScope,
+      binding = { ...recallBinding };
+    recallRun.current = token;
+    setRecallBusy(true);
+    const current = () => recallScopeRef.current === scope && recallRun.current === token;
+    try {
+      if (
+        !(await useDialog
+          .getState()
+          .confirm(
+            '撤回所选消息',
+            `将依次向 QQ 提交 ${messages.length} 条消息的撤回请求，是否继续？`,
+          )) ||
+        !current()
+      )
+        return;
+      const processed: string[] = [];
+      let failed = 0;
+      for (const message of messages) {
+        if (!current()) break;
+        const ok = await latestRecallMessageFor.current(message, { binding, quiet: true });
+        if (ok) processed.push(message.id);
+        else {
+          failed++;
+          break;
+        }
+      }
+      if (!current()) return;
+      if (processed.length) {
+        const submitted = new Set(processed);
+        if ([...selection.selectedIdsRef.current].every((id) => submitted.has(id))) exitSelection();
+        else {
+          selection.removeSelectedIds(processed);
+          if (selectionAnchor.current && submitted.has(selectionAnchor.current))
+            selectionAnchor.current = null;
+        }
+      }
+      pushToast({
+        tone: failed ? 'warning' : 'success',
+        title: `已提交 ${processed.length} 条撤回请求${failed ? `，${failed} 条未完成` : ''}`,
+        detail: failed
+          ? `已停止后续提交，${messages.length - processed.length} 条消息保留在选区中，不会自动重试。以 QQ 后续同步结果为准。`
+          : '以 QQ 后续同步结果为准。',
+      });
+    } finally {
+      if (recallRun.current === token) {
+        recallRun.current = null;
+        setRecallBusy(false);
+      }
+    }
   }
 
   /**
@@ -4259,7 +4415,18 @@ export function ChatPane({
       : null;
   // 头像菜单里群管理操作的可见性（按我的身份 vs 目标身份算），以及右键消息的撤回可用性。
   const avatarMenuFlags = avatarMenu ? avatarModerationFlags(avatarMenu.sender) : null;
-  const contextRecallInfo = contextMenu ? recallAvailability(contextMenu.message) : null;
+  const selectionRecallBlockedReason =
+    selectionBlockedReason ||
+    moderationBlockedReason ||
+    (!recallBinding ? '账号信息尚未就绪' : null);
+  const contextSelectionRecall = Boolean(
+    contextMenu && selectionMode && selectedIds.size > 1 && selectedIds.has(contextMenu.message.id),
+  );
+  const contextRecallInfo = contextSelectionRecall
+    ? { show: true, reason: selectionRecallBlockedReason }
+    : contextMenu
+      ? recallAvailability(contextMenu.message)
+      : null;
   // 语音条只在真的内联显示时才占位（移动端展开态仍然不显示它）。
   const voicePanelActive = voiceOpen && !mobileComposerExpanded && !hasSingleSend;
   // 闪传文件框同样是**内联**的：占掉正文编辑区那一行（小屏与「只能单独发」的卡片
@@ -4998,6 +5165,16 @@ export function ChatPane({
               <button
                 type="button"
                 className={cn('selection-action')}
+                aria-label="撤回所选消息"
+                title={selectionRecallBlockedReason || '撤回所选消息'}
+                disabled={Boolean(selectionRecallBlockedReason) || !selectedIds.size}
+                onClick={() => requestBatchAction('recall')}
+              >
+                <RotateCcw size={17} />
+              </button>
+              <button
+                type="button"
+                className={cn('selection-action')}
                 aria-label="删除"
                 disabled={deletionBusy || Boolean(selectionBlockedReason) || !selectedIds.size}
                 title={selectionBlockedReason || '删除所选消息；失败占位仅从本机移除'}
@@ -5696,8 +5873,14 @@ export function ChatPane({
           }
           removeReactionBlockedReason={messageReactionBlockedReason(contextMenu.message)}
           // 撤回：不是自己的消息且无群管理权限时整项不出现；否则受 2 分钟 / 越级规则。
-          onRecall={contextRecallInfo?.show ? recallMessageFor : undefined}
+          onRecall={
+            contextRecallInfo?.show
+              ? (message) =>
+                  contextSelectionRecall ? requestBatchAction('recall') : recallMessageFor(message)
+              : undefined
+          }
           recallBlockedReason={contextRecallInfo?.show ? contextRecallInfo.reason : undefined}
+          recallCount={contextSelectionRecall ? selectionFlow.selectedCount : undefined}
         />
       ) : null}
       {avatarMenu ? (

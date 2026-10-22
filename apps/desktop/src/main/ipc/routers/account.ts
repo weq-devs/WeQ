@@ -4475,17 +4475,23 @@ export const accountRouter = router({
   recallMessage: procedure
     .input(
       z.object({
+        expectedAccountUin: z.string().min(1).optional(),
+        expectedAccountConfigId: z.string().min(1).optional(),
         kind: z.enum(['c2c', 'group']),
         conv: z.string().min(1),
-        sequence: z.number().int().positive(),
+        sequence: z.number().int().safe().positive(),
         random: z.number().int().nonnegative().optional(),
         timestamp: z.number().int().nonnegative().optional(),
         clientSequence: z.number().int().nonnegative().optional(),
       }),
     )
     .mutation(async ({ input }) => {
-      requireQqOnlineForAlbum();
-      await requireServices().groupModeration.recallMessage({
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      await services.groupModeration.recallMessage({
         kind: input.kind,
         conv: input.conv,
         sequence: input.sequence,

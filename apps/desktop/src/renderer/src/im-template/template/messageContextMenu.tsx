@@ -65,6 +65,7 @@ export function MessageContextMenu({
   reactBlockedReason,
   onRecall,
   recallBlockedReason,
+  recallCount,
   onRemoveReaction,
   removeReactionBlockedReason,
   extraActions,
@@ -108,6 +109,7 @@ export function MessageContextMenu({
   onRecall?: (message: Message) => void;
   /** 非空 = 撤回按钮置灰（QQ 未在线 / 超过 2 分钟且无越级权限 / 缺 seq）。 */
   recallBlockedReason?: string | null;
+  recallCount?: number;
   onRemoveReaction?: (message: Message, code: string) => void;
   removeReactionBlockedReason?: string | null;
   extraActions?: ReactNode;
@@ -239,12 +241,14 @@ export function MessageContextMenu({
       {onRecall ? (
         <button
           type="button"
-          title={recallBlockedReason ?? '撤回这条消息'}
+          title={
+            recallBlockedReason ?? (recallCount ? `撤回所选 ${recallCount} 条消息` : '撤回这条消息')
+          }
           disabled={Boolean(recallBlockedReason)}
           onClick={() => onRecall(state.message)}
         >
           <RotateCcw size={17} />
-          <span>撤回</span>
+          <span>{recallCount ? `撤回所选 ${recallCount} 条消息` : '撤回'}</span>
         </button>
       ) : null}
       {onRemoveReaction

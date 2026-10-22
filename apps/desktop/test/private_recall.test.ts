@@ -132,7 +132,7 @@ describe('私聊撤回入口', () => {
     [{ msgSeq: undefined }, true, '序号'],
     [{ createdAt: 'invalid' }, true, '定位'],
     [{ optimistic: 'sending' as const }, true, '发送中'],
-    [{}, false, '未在线'],
+    [{}, false, '受限模式'],
     [{ createdAt: new Date(Date.now() - 180_000).toISOString() }, true, '2 分钟'],
   ])('不可执行时保留菜单并说明原因 %j', (message, online, reason) => {
     const f = mount(message, online);
