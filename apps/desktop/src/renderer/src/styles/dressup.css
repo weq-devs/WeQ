@@ -352,12 +352,19 @@
     repeating-conic-gradient(rgba(0, 0, 0, 0.045) 0% 25%, transparent 0% 50%) 50% / 12px 12px;
 }
 
-.weq-dress-card-preview img {
+.weq-dress-card-preview img,
+.weq-dress-card-preview video {
   /* max-* 在 min-content 撑开的网格轨道里量不到可用空间（百分比参照的是自身内容），
    * 所以图会按原始像素铺开。给死 100% + contain 才真的贴合。 */
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+/* 通话背景是竖屏动态素材：铺满卡片比 letterbox 更像实际效果。 */
+.weq-dress-card-preview video {
+  object-fit: cover;
+  border-radius: inherit;
 }
 
 .weq-dress-card-noimg {

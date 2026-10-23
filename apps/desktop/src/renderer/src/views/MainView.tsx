@@ -34,6 +34,7 @@ import { useViewState } from '../state/view';
 import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
 import { useToast } from '../components/Toast';
+import { CallWindow } from '../components/CallWindow';
 import { useDialog } from '../components/Dialog';
 import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
@@ -2849,6 +2850,13 @@ export function MainView(): ReactElement {
   const [optimisticArks, setOptimisticArks] = useState<OptimisticArk[]>([]);
   // 同上，但发出去的是普通消息（文本 / @ / 表情 / 图片 / 视频 / 语音 / 文件…）。
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
+  /**
+   * 当前通话的初始快照。非 null 就渲染通话窗口，窗口自己订阅后续状态并在
+   * 结束后回调清空。只做主动发起 —— 来电由 QQ 本体处理，WeQ 收不到那条推送。
+   */
+  const [activeCall, setActiveCall] = useState<Parameters<typeof CallWindow>[0]['initial'] | null>(
+    null,
+  );
   const outgoingRecordsRef = useRef([optimisticMessages, optimisticArks, optimisticForwards]);
   outgoingRecordsRef.current = [optimisticMessages, optimisticArks, optimisticForwards];
   const outgoingAfterSeq = useCallback((convId?: string) => {
@@ -8054,6 +8062,38 @@ export function MainView(): ReactElement {
    * `MessageSendService.sendWindowShake`）。群聊没有这个能力，按钮已经在
    * ChatPane 里按会话类型藏掉了，这里再兜一层。
    */
+  /**
+   * 发起语音通话。
+   *
+   * 只有私聊：群通话要先进群房间再邀请（OIDB 4752/4753/4754），与私聊不是同一条
+   * 协议路径。通话窗口是独立浮层，挂断 / 结束由窗口自己收尾。
+   */
+  async function startVoiceCall(conversation: Extract<Conversation, { type: 'direct' }>) {
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
+      pushToast({
+        tone: 'warning',
+        message: 'QQ 未在线或处于完全离线模式',
+        detail: '语音通话需要借用在线 QQ 实例的凭据，请先登录 QQ 并退出完全离线模式。',
+      });
+      throw new Error('qq offline');
+    }
+
+    const other = conversation.otherUser;
+    const peerUin = /^\d+$/.test(other.identityValue) ? other.identityValue : other.id;
+    try {
+      const call = await client.call.start.mutate({
+        peerUin,
+        peerName: other.displayName || other.username || peerUin,
+        peerAvatar: other.avatarUrl ?? undefined,
+      });
+      setActiveCall(call as never);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      pushToast({ tone: 'error', message: '无法发起通话', detail: reason });
+      throw error;
+    }
+  }
+
   async function sendWindowShake(conversation: Extract<Conversation, { type: 'direct' }>) {
     if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
@@ -9342,6 +9382,7 @@ export function MainView(): ReactElement {
                             return result.members.map(mapGroupMemberWire);
                           }}
                           onSendWindowShake={sendWindowShake}
+                          onStartCall={startVoiceCall}
                           onSendArk={sendArkCard}
                           arkLocation={arkLocation}
                           arkContacts={arkContacts}
@@ -10127,6 +10168,8 @@ export function MainView(): ReactElement {
           </ChatNavigationContext.Provider>
         </QzoneProfileContext.Provider>
       </QzoneNavigationContext.Provider>
+      {/* 通话窗口盖在最上层：它是一次性的模态浮层，与主界面的浮层栈无关。 */}
+      {activeCall ? <CallWindow initial={activeCall} onClose={() => setActiveCall(null)} /> : null}
     </ProfileNavigationContext.Provider>
   );
 }

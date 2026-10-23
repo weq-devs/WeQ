@@ -107,6 +107,26 @@ export type {
   ClientKey,
 } from './account/user_config';
 export { fetchHomeDress, toPeerDress } from './account/home_dress';
+export { ensureCallBackground } from './account/call_background';
+export type { CallBackground } from './account/call_background';
+export {
+  CallSession,
+  protocolSignaling,
+  realTimers,
+} from './account/call_session';
+export type {
+  CallState,
+  CallEndReason,
+  CallSnapshot,
+  CallTarget,
+  CallSessionOptions,
+  CallSignaling,
+  CallAudioCodec,
+  CallListener,
+  CallAudioListener,
+  UdpTransport,
+  CallTimers,
+} from './account/call_session';
 export { warmJiebaDict, segmentWords } from './account/text_segment';
 export type { HomeDressSnapshot, PeerDressSnapshot } from './account/home_dress';
 export {

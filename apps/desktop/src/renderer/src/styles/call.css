@@ -1,0 +1,464 @@
+/* ================= 语音通话窗口 =================
+ *
+ * 颜色全部走 token：
+ *   --weq-accent-effective  用户选的主题色（强调、光环、接通态）
+ *   --weq-bg-surface        卡片底
+ *   --weq-fg-primary / --weq-fg-secondary / --weq-fg-muted  文字
+ *   --weq-border-subtle / --weq-shadow-card                 描边与投影
+ *
+ * 深色模式不用 `dark:`（本项目的钩子是 data-theme），差异显式写在文件末尾。
+ */
+
+.weq-call-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: grid;
+  place-items: center;
+  /* 半透明遮罩用 mask 而不是纯色：界面背景换成画布 / 纸张时也要透出来。 */
+  background: color-mix(in srgb, var(--weq-bg-surface) 45%, transparent);
+  backdrop-filter: blur(18px) saturate(120%);
+  animation: weq-call-fade-in 180ms ease-out;
+}
+
+.weq-call-card {
+  position: relative;
+  width: min(360px, calc(100vw - 48px));
+  padding: 40px 28px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  border-radius: 26px;
+  border: 1px solid var(--weq-border-subtle);
+  background:
+    radial-gradient(
+      120% 90% at 50% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 10%, transparent) 0%,
+      transparent 62%
+    ),
+    var(--weq-bg-surface);
+  box-shadow: var(--weq-shadow-card);
+  overflow: hidden;
+  animation: weq-call-rise 220ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+/* ── 个性化通话背景 ──
+ *
+ * 装扮里的「来电」素材是 720p 级别的动态视频，铺满卡片后
+ * 必须压暗并加模糊，否则白色文字在浅色素材上会读不清。
+ * 压暗用 `--weq-bg-surface` 系而非纯黑：深色主题下保持冷调，
+ * 浅色主题下也不会变成一块黑斑。
+ */
+.weq-call-backdrop-media {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.weq-call-backdrop-media video,
+.weq-call-backdrop-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* 轻微放大：模糊边缘会露出底色，放大一档盖住。 */
+  transform: scale(1.06);
+  /* 只压一点点：素材本身就是设计好的背景，糊掉或调暗都会浪费它。 */
+  filter: saturate(1.1) brightness(0.96);
+}
+
+/* 压暗层：保证文字对比度。深浅两套单独调（见文件末尾）。 */
+/* 压暗层只做「保证文字读得清」这一件事：
+ * 顶部和底部各压一档（那里有名字和按钮），中间几乎不动，让素材自己说话。
+ * 用渐变而不是整体加一层色 —— 整体加会把动态背景变成一块灰。 */
+.weq-call-card.has-backdrop .weq-call-backdrop-media::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--weq-bg-surface) 72%, transparent) 0%,
+    color-mix(in srgb, var(--weq-bg-surface) 62%, transparent) 26%,
+    color-mix(in srgb, var(--weq-bg-surface) 30%, transparent) 42%,
+    transparent 52%,
+    color-mix(in srgb, var(--weq-bg-surface) 58%, transparent) 80%,
+    color-mix(in srgb, var(--weq-bg-surface) 78%, transparent) 100%
+  );
+}
+
+/* 卡片自身的底色在有背景时让位给素材。 */
+.weq-call-card.has-backdrop {
+  background: var(--weq-bg-surface);
+}
+
+/* 有背景时给文字加一层柔和投影：素材明暗不可控，光靠压暗层仍有漏网的时候。 */
+.weq-call-card.has-backdrop .weq-call-name,
+.weq-call-card.has-backdrop .weq-call-status,
+.weq-call-card.has-backdrop .weq-call-details summary {
+  text-shadow: 0 1px 3px color-mix(in srgb, var(--weq-bg-surface) 85%, transparent);
+}
+
+html[data-theme='dark'] .weq-call-card.has-backdrop .weq-call-name,
+html[data-theme='dark'] .weq-call-card.has-backdrop .weq-call-status,
+html[data-theme='dark'] .weq-call-card.has-backdrop .weq-call-details summary {
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+}
+
+.weq-call-card.has-backdrop .weq-call-halo {
+  /* 背景已经很花，光环收敛，避免叠成一片。 */
+  opacity: calc(0.15 + var(--peer-level, 0) * 0.25);
+}
+
+/* 呼吸光环：呼叫中缓慢脉动，接通后跟随对端音量。 */
+.weq-call-halo {
+  position: absolute;
+  inset: -40% -40% auto;
+  height: 260px;
+  pointer-events: none;
+  background: radial-gradient(
+    50% 50% at 50% 50%,
+    color-mix(in srgb, var(--weq-accent-effective) 26%, transparent) 0%,
+    transparent 70%
+  );
+  opacity: calc(0.45 + var(--peer-level, 0) * 0.55);
+  transition: opacity 180ms ease-out;
+  animation: weq-call-breathe 3.2s ease-in-out infinite;
+}
+
+.weq-call-card[data-state='connected'] .weq-call-halo {
+  animation-duration: 2.4s;
+  opacity: calc(0.5 + var(--peer-level, 0) * 0.5);
+}
+
+.weq-call-avatar {
+  position: relative;
+  z-index: 1;
+  border-radius: 999px;
+  padding: 3px;
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--weq-accent-effective) 70%, transparent),
+    color-mix(in srgb, var(--weq-accent-effective) 15%, transparent)
+  );
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--weq-accent-effective) 24%, transparent);
+}
+
+.weq-call-avatar img,
+.weq-call-avatar-fallback {
+  display: block;
+  width: 112px;
+  height: 112px;
+  border-radius: 999px;
+  object-fit: cover;
+  background: var(--weq-bg-surface);
+}
+
+.weq-call-avatar-fallback {
+  display: grid;
+  place-items: center;
+  font-size: 40px;
+  font-weight: 600;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-surface));
+}
+
+.weq-call-name {
+  position: relative;
+  z-index: 1;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--weq-fg-primary);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-call-status {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--weq-fg-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-call-status.is-live {
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.weq-call-spin {
+  animation: weq-call-rotate 1.4s linear infinite;
+}
+
+/* ── 波形 ── */
+.weq-call-wave {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 44px;
+  width: 100%;
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+
+.weq-call-wave.is-visible {
+  opacity: 1;
+}
+
+.weq-call-wave-bar {
+  width: 4px;
+  min-height: 4px;
+  height: calc(var(--bar, 0.2) * 40px);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  transition: height 90ms linear;
+}
+
+.weq-call-wave-bar.is-peer {
+  background: color-mix(in srgb, var(--weq-accent-effective) 85%, transparent);
+}
+
+/* 两半之间空出一道缝：区分「我方」与「对方」。 */
+.weq-call-wave-bar:nth-child(17) {
+  margin-left: 10px;
+}
+
+/* ── 操作按钮 ── */
+.weq-call-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  margin-top: 4px;
+}
+
+.weq-call-btn {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 999px;
+  border: 1px solid var(--weq-border-subtle);
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+  color: var(--weq-fg-primary);
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.weq-call-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--weq-fg-primary) 11%, transparent);
+}
+
+.weq-call-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.weq-call-btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.weq-call-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 静音 / 关声：用「按下」的视觉，而不是红色（红色只留给挂断）。 */
+.weq-call-btn.is-off {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-call-btn.is-hangup {
+  width: 66px;
+  height: 66px;
+  border-color: transparent;
+  /* 挂断是唯一用固定红色的地方：它必须在任何主题色下都被一眼认出来。 */
+  background: #e5484d;
+  color: #fff;
+  box-shadow: 0 10px 26px color-mix(in srgb, #e5484d 40%, transparent);
+}
+
+.weq-call-btn.is-hangup:hover:not(:disabled) {
+  background: #d93d42;
+}
+
+/* ── 底部信息（默认收起）── */
+.weq-call-details {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--weq-fg-muted);
+}
+
+.weq-call-details summary {
+  cursor: pointer;
+  text-align: center;
+  list-style: none;
+  user-select: none;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.weq-call-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.weq-call-details summary:hover {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-call-details dl {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 8px 0 2px;
+  padding: 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--weq-fg-primary) 4%, transparent);
+}
+
+.weq-call-details dl > div {
+  min-width: 0;
+  text-align: center;
+}
+
+.weq-call-details dt {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.weq-call-details dd {
+  margin: 2px 0 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--weq-fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 动画 ── */
+@keyframes weq-call-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes weq-call-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes weq-call-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes weq-call-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── 深色模式：独立一套值，不是浅色取反 ── */
+html[data-theme='dark'] .weq-call-backdrop {
+  background: color-mix(in srgb, #000 48%, transparent);
+}
+
+html[data-theme='dark'] .weq-call-card.has-backdrop .weq-call-backdrop-media::after {
+  /* 深色主题：素材多数是亮的，靠上下压暗保证白字对比，中间留出画面。 */
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.62) 0%,
+    rgba(0, 0, 0, 0.52) 26%,
+    rgba(0, 0, 0, 0.34) 40%,
+    rgba(0, 0, 0, 0.28) 50%,
+    rgba(0, 0, 0, 0.66) 80%,
+    rgba(0, 0, 0, 0.86) 100%
+  );
+}
+
+html[data-theme='dark'] .weq-call-halo {
+  /* 深色底上同一档透明度看着更弱，单独提一档。 */
+  background: radial-gradient(
+    50% 50% at 50% 50%,
+    color-mix(in srgb, var(--weq-accent-effective) 40%, transparent) 0%,
+    transparent 72%
+  );
+}
+
+html[data-theme='dark'] .weq-call-card {
+  background:
+    radial-gradient(
+      120% 90% at 50% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 16%, transparent) 0%,
+      transparent 64%
+    ),
+    var(--weq-bg-surface);
+  border-color: color-mix(in srgb, #fff 10%, transparent);
+}
+
+html[data-theme='dark'] .weq-call-btn {
+  background: color-mix(in srgb, #fff 7%, transparent);
+  border-color: color-mix(in srgb, #fff 10%, transparent);
+}
+
+html[data-theme='dark'] .weq-call-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, #fff 13%, transparent);
+}
+
+html[data-theme='dark'] .weq-call-details dl {
+  background: color-mix(in srgb, #fff 5%, transparent);
+}
+
+/* ── 减少动态效果 ── */
+@media (prefers-reduced-motion: reduce) {
+  .weq-call-backdrop,
+  .weq-call-card {
+    animation: none;
+  }
+  .weq-call-halo {
+    animation: none;
+    opacity: 0.45;
+  }
+  .weq-call-wave-bar {
+    transition: none;
+  }
+  .weq-call-spin {
+    animation: none;
+  }
+}
