@@ -3,6 +3,7 @@ import { useId, useState, type ReactNode } from 'react';
 import { Modal } from '../../components/Dialog';
 import { SelfQQControls } from '../../components/settings/SelfQQControls';
 import { OnlineStatus } from '../../components/OnlineStatus';
+import { VipBadge } from '../../components/VipBadge';
 import { RestrictedModeIndicator } from '../../components/RestrictedMode';
 import '../../styles/self-profile.css';
 import { Avatar } from './primitives';
@@ -94,6 +95,8 @@ export function TitleBar({
       <div className="app-title-bar-user">
         <ProfileAvatar key={`${user.id}:${user.identityValue}`} user={user} />
         <span className="app-title-bar-nick">{displayUserName(user)}</span>
+        {/* 会员徽标：独立兄弟节点，不嵌进昵称 —— 那个 span 自带 ellipsis 会把它裁掉。 */}
+        <VipBadge key={user.identityValue} />
         {user.uid && (
           <OnlineStatus
             key={user.uid}

@@ -110,6 +110,13 @@ export { fetchHomeDress, toPeerDress } from './account/home_dress';
 export { warmJiebaDict, segmentWords } from './account/text_segment';
 export type { HomeDressSnapshot, PeerDressSnapshot } from './account/home_dress';
 export {
+  vipInfoFromPrivileges,
+  resolveVipBadge,
+  fetchAccountVipInfo,
+  VIP_PSKEY_DOMAIN,
+} from './account/vip';
+export type { VipInfo, VipTier, FetchAccountVipOptions } from './account/vip';
+export {
   fetchClientKey,
   fetchDownloadRkeys,
   requestDecryptKeyFromInstance,
@@ -668,6 +675,10 @@ export {
   HonorType,
   computeBkn,
   fetchWebTokens,
+  fetchVipInfo,
+  normalizeVipPayload,
+  parseExpireTime,
+  WebAuthError,
   setGroupNotice,
   deleteGroupNotice,
   uploadGroupNoticeImage,
@@ -706,6 +717,7 @@ export type {
   FriendMarkCategory,
   FriendMark,
   FriendMarkLevel,
+  RawVipUserInfo,
 } from './account/web';
 
 // ---- account protocol services (oidb/trpc packets) ----

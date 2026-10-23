@@ -463,6 +463,8 @@ function mappedAccount(source: AccountConfig, local: AccountConfig): AccountConf
     'groupKeyword',
     'nativeMediaEnabled',
     'homeDress',
+    'vip',
+    'vipCheckedAt',
   ])
     if (!Object.hasOwn(source, key)) delete merged[key];
   for (const key of [

@@ -17,6 +17,7 @@ import {
   saveExportOutput,
   exportOutputFileName,
   describeExportOutput,
+  resolveVipBadge,
 } from '@weq/service';
 import {
   exportDownloadName,
@@ -3239,6 +3240,35 @@ export const accountRouter = router({
   }),
 
   /**
+   * 本账号的会员身份（顶栏徽标）。优先级：
+   *
+   *   1. `AccountConfig.vip` —— 在线时从 club.vip 接口拿到的权威快照
+   *      （含年费与到期时间），离线照样可读；
+   *   2. 本地 `profile_info_v6` 的 21000 特权清单 —— 离线且**从没在线确认过**时
+   *      的兜底，只能推断超会/大会员与等级，年费恒 false。
+   *
+   * 注意 `vipCheckedAt` 的语义：它存在就说明在线接口给过结论。此时 `vip` 为空
+   * 表示「确认过不是会员」，不能再退回本地旧资料 —— 否则退会以后徽标会被本地
+   * 那份过期数据顶回来。
+   *
+   * 都不是会员（或还没有任何资料）返回 null —— 顶栏什么都不显示。
+   */
+  getSelfVip: procedure.query(async () => {
+    const services = requireServices();
+    const record = services.accountConfig.getRecord();
+    const uin = String(record?.uin ?? '');
+    // 在线结论优先，其次才是本地库；两者都没有就不查资料表了（省一次 SQL）。
+    const source = record?.vip ? 'club-api' : record?.vipCheckedAt ? null : 'local';
+    if (!source) return null;
+    const privileges =
+      source === 'local'
+        ? (await services.profile.getSelfProfile())?.extInfo?.privileges
+        : undefined;
+    const info = resolveVipBadge({ vip: record?.vip, privileges });
+    return info ? { ...info, uin, source } : null;
+  }),
+
+  /**
    * The persisted config record for the OPEN account — dbKey / algo / data dir
    * plus the live online state and harvested download rkeys. Backs 设置 → 账号
    * 信息. The payload is already IPC-safe (no bigint), so it ships as-is.
@@ -4703,6 +4733,24 @@ export const accountRouter = router({
       // 覆盖凭据在订阅建立前已就绪、或 Web 重连期间错过通知的情况。
       handler({ at: Date.now() });
       return () => accountEventBus.off('onlineCredentialsReady', handler);
+    });
+  }),
+
+  /**
+   * 会员身份快照被后台刷新了（`VipBadgeService` 拉到新数据后推一次）。
+   *
+   * 与 {@link onOnlineCredentialsReady} 同款：建立订阅时补发一次，覆盖「刷新
+   * 早于渲染层挂载」；按 services 身份过滤，不把上一个账号的推送串过来。
+   */
+  onVipChanged: procedure.subscription(() => {
+    const services = requireServices();
+    return observable<{ at: number }>((emit) => {
+      const handler = (event: { at: number }): void => {
+        if (getAppContext().services === services) emit.next(event);
+      };
+      accountEventBus.on('vipChanged', handler);
+      handler({ at: Date.now() });
+      return () => accountEventBus.off('vipChanged', handler);
     });
   }),
 

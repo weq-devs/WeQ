@@ -22,6 +22,7 @@ import type { DatabaseAlgorithms } from '@weq/native';
 import { getLogger, logErrorContext } from '../common/logger';
 import { writeFileAtomicSync } from '../common/atomic_write';
 import { normalizeGroupKeywordRules, type GroupKeywordRules } from './group_keyword';
+import type { VipInfo } from './vip';
 
 /**
  * A download rkey issued by QQ's OIDB service (`FetchDownloadRkeys`). Used
@@ -188,6 +189,20 @@ export interface AccountConfig {
    * hook round-trip.
    */
   loginPskey?: Record<string, string>;
+  /**
+   * 会员身份快照（VIP / SVIP / 大会员 + 年费 + 等级），顶栏徽标用。
+   * 在线拿到 vip.qq.com 的 p_skey 时刷新；离线读这份，缺失时再退回本地
+   * `profile_info_v6` 的特权清单（见 `account/vip.ts`）。
+   */
+  vip?: VipInfo;
+  /**
+   * 上一次**在线确认过**会员身份的时间（unix ms），无论结论是不是会员。
+   *
+   * 为什么单独一个字段：`vip` 缺失既可能是「还没查过」，也可能是「查过了、
+   * 不是会员」。前者该退回本地特权清单，后者不该 —— 否则退会以后本地那份
+   * 旧资料会把徽标又顶回来。有这个字段就以它的结论为准。
+   */
+  vipCheckedAt?: number;
   /** 首页个性装扮快照（挂件/名片/浮屏/个性标签 + 气泡/字体 id），在线注入后写入。 */
   homeDress?: {
     widgetUrl: string;
@@ -424,6 +439,23 @@ export class AccountConfigService {
   setHomeDress(homeDress: AccountConfig['homeDress']): void {
     this.patch({ homeDress });
     this.logger.info('stored home dress snapshot', { event: 'set-home-dress' });
+  }
+
+  /**
+   * Persist the 会员身份快照（顶栏徽标）。`null` = 在线确认过不是会员，
+   * 写空对象把旧值清掉，免得降级后徽标还挂着上一份身份。
+   *
+   * 同时记下 `vipCheckedAt`：它是「这次结论来自在线接口」的凭据，读取方据此
+   * 决定要不要退回本地特权清单（见 {@link AccountConfig.vipCheckedAt}）。
+   */
+  setVipInfo(vip: VipInfo | null, checkedAt = Date.now()): void {
+    this.patch({ vip: vip ?? undefined, vipCheckedAt: checkedAt });
+    this.logger.info('stored account vip snapshot', {
+      event: 'set-vip',
+      tier: vip?.tier ?? null,
+      year: vip?.year ?? null,
+      level: vip?.level ?? null,
+    });
   }
 
   /**

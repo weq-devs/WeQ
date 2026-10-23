@@ -45,6 +45,77 @@
   white-space: nowrap;
 }
 
+/* ---------------------------------------------------------------------------
+ * 顶栏会员徽标
+ *
+ * 三档身份各有固定配色（红 / 金 / 蓝黑），刻意**不**取 `--weq-accent-effective`
+ * —— 会员色是 QQ 的身份语义，不能跟着用户换主题色变成紫/绿。深浅模式各调一档
+ * 明度：浅色用饱和渐变 + 白字，深色压暗底色、提亮文字，保证在顶栏那层半透明
+ * 玻璃上仍然看得清。
+ *
+ * 布局：`flex: 0 0 auto` + `nowrap`，窗口变窄时让昵称先缩，徽标不被压扁也
+ * 不被省略。文案本身不含隐私信息，因此不进 privacy.css 的模糊名单。
+ * ------------------------------------------------------------------------- */
+.app-title-bar-vip-badge {
+  --vip-badge-bg: linear-gradient(135deg, #ff6b6b, #d7263d);
+  --vip-badge-fg: #fff;
+  --vip-badge-border: color-mix(in srgb, #b31f33 40%, transparent);
+
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid var(--vip-badge-border);
+  border-radius: 4px;
+  background: var(--vip-badge-bg);
+  color: var(--vip-badge-fg);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* 普通会员：红 */
+.app-title-bar-vip-badge.is-vip {
+  --vip-badge-bg: linear-gradient(135deg, #ff7a6e, #d7263d);
+  --vip-badge-fg: #fff;
+  --vip-badge-border: color-mix(in srgb, #b31f33 42%, transparent);
+}
+
+/* 超级会员：金（字用深红，照 QQ 自己的超会徽标） */
+.app-title-bar-vip-badge.is-svip {
+  --vip-badge-bg: linear-gradient(135deg, #ffe08a, #f0a500);
+  --vip-badge-fg: #7a2b1a;
+  --vip-badge-border: color-mix(in srgb, #c98a00 45%, transparent);
+}
+
+/* 大会员：蓝黑 */
+.app-title-bar-vip-badge.is-bvip {
+  --vip-badge-bg: linear-gradient(135deg, #33445f, #121a2b);
+  --vip-badge-fg: #dbe7ff;
+  --vip-badge-border: color-mix(in srgb, #6fb5ff 32%, transparent);
+}
+
+html[data-theme='dark'] .app-title-bar-vip-badge {
+  --vip-badge-bg: linear-gradient(135deg, #e05f5f, #8e1626);
+  --vip-badge-fg: #fff;
+  --vip-badge-border: color-mix(in srgb, #ff9a9a 28%, transparent);
+}
+
+html[data-theme='dark'] .app-title-bar-vip-badge.is-svip {
+  --vip-badge-bg: linear-gradient(135deg, #6e5314, #453108);
+  --vip-badge-fg: #ffe3a0;
+  --vip-badge-border: color-mix(in srgb, #f5c451 30%, transparent);
+}
+
+html[data-theme='dark'] .app-title-bar-vip-badge.is-bvip {
+  --vip-badge-bg: linear-gradient(135deg, #3a4d6e, #161e2e);
+  --vip-badge-fg: #cfe0ff;
+  --vip-badge-border: color-mix(in srgb, #6fb5ff 36%, transparent);
+}
+
 .weq-self-profile-dialog {
   display: flex;
   flex-direction: column;
