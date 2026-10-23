@@ -165,6 +165,8 @@ export class CallManager extends EventEmitter {
   private info: ActiveCallInfo | null = null;
   /** UDP 套接字。`CallSession` 只认 `UdpTransport` 接口，这里留一份方便收尾。 */
   private transport: NodeUdpTransport | null = null;
+  /** 每秒推进一次通话时长。通话中状态不变，光靠状态推送时长会停在 00:00。 */
+  private durationTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly nt: NtHelperBinding,
@@ -216,7 +218,10 @@ export class CallManager extends EventEmitter {
       durationSec: 0,
     };
 
-    session.onStateChange((snapshot) => this.publishState(snapshot));
+    session.onStateChange((snapshot) => {
+      if (snapshot.state === 'connected') this.startDurationTicker();
+      this.publishState(snapshot);
+    });
     session.onAudio((pcm) => {
       this.emit('event', { type: 'audio', pcm } satisfies CallEvent);
     });
@@ -248,13 +253,7 @@ export class CallManager extends EventEmitter {
 
   private publishState(snapshot: CallSnapshot): void {
     if (!this.info) return;
-    const connectedAt = snapshot.connectedAt;
-    this.info = {
-      ...snapshot,
-      peerName: this.info.peerName,
-      peerAvatar: this.info.peerAvatar,
-      durationSec: connectedAt ? Math.floor((Date.now() - connectedAt) / 1000) : 0,
-    };
+    this.info = this.buildInfo(snapshot);
     this.emit('event', { type: 'state', call: this.info } satisfies CallEvent);
     // 通话已经结束：把会话放掉，允许下一次发起。
     if (snapshot.state === 'ended' || snapshot.state === 'failed') {
@@ -262,7 +261,45 @@ export class CallManager extends EventEmitter {
     }
   }
 
+  /**
+   * 把会话快照翻成界面用的形状。
+   *
+   * 时长是**算出来的**，不能跟着状态变化走：通话中状态一直是 `connected`，
+   * 只在接通那一刻发过一次快照，界面上就会一直显示 00:00。所以除了状态推送，
+   * 还要有一个每秒一次的计时器（见 {@link startDurationTicker}）。
+   */
+  private buildInfo(snapshot: CallSnapshot): ActiveCallInfo {
+    const connectedAt = snapshot.connectedAt;
+    return {
+      ...snapshot,
+      peerName: this.info?.peerName ?? '',
+      peerAvatar: this.info?.peerAvatar ?? '',
+      durationSec: connectedAt ? Math.max(0, Math.floor((Date.now() - connectedAt) / 1000)) : 0,
+    };
+  }
+
+  /** 每秒把当前时长推一次，只在已接通时跑。 */
+  private startDurationTicker(): void {
+    if (this.durationTimer) return;
+    this.durationTimer = setInterval(() => {
+      const session = this.session;
+      if (!session) return;
+      const snapshot = session.snapshot();
+      if (snapshot.state !== 'connected') return;
+      if (!this.info) return;
+      this.info = this.buildInfo(snapshot);
+      this.emit('event', { type: 'state', call: this.info } satisfies CallEvent);
+    }, 1000);
+  }
+
+  private stopDurationTicker(): void {
+    if (!this.durationTimer) return;
+    clearInterval(this.durationTimer);
+    this.durationTimer = null;
+  }
+
   private cleanup(): void {
+    this.stopDurationTicker();
     // 会话自己会关 socket，但异常路径（订阅断了 / 渲染层崩了）可能没走到，
     // 这里兜一次底：重复 close 是幂等的。
     this.transport?.close();

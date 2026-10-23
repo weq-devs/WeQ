@@ -55,7 +55,12 @@ interface CallInfo {
 
 const CALL_RATE = 16_000;
 const FRAME_SAMPLES = 320;
-const FRAME_BYTES = FRAME_SAMPLES * 2;
+
+/**
+ * 采集缓冲区的采样数。`createScriptProcessor` 只接受 2 的幂且 256~16384，
+ * 取最小的 256（16 ms），再由回调自己攒成 320 采样一帧。
+ */
+const MIC_BUFFER_SAMPLES = 256;
 
 /**
  * 波形柱的静态形状：中间高两边低。
@@ -130,6 +135,8 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   const playContext = useRef<AudioContext | null>(null);
   const playBuffer = useRef<Int16Array[]>([]);
   const playTimer = useRef<number | null>(null);
+  /** 采集侧攒帧用的缓冲（16 ms 一段，凑满 20 ms 才发）。 */
+  const micPending = useRef<Float32Array>(new Float32Array(0));
   const mutedRef = useRef(muted);
   const speakerRef = useRef(speakerOff);
 
@@ -220,22 +227,34 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
         micContext.current = context;
         const source = context.createMediaStreamSource(stream);
         // 直接按 16 kHz 跑上下文：浏览器会在采集侧重采样，省掉自己插值。
-        const processor = context.createScriptProcessor(FRAME_SAMPLES, 1, 1);
+        //
+        // 缓冲区大小必须是 2 的幂且落在 256~16384 之间 —— 通话要的 320（20 ms）
+        // 不合法，`createScriptProcessor(320)` 会直接抛 IndexSizeError（而且抛在
+        // 一个 async 函数里，被下面的 catch 吞掉，表现成「麦克风静悄悄不工作」）。
+        // 所以取最小合法值 256（16 ms），攒够 320 个采样再切一帧发出去。
+        const processor = context.createScriptProcessor(MIC_BUFFER_SAMPLES, 1, 1);
         processor.onaudioprocess = (event) => {
-          if (mutedRef.current) return;
           const input = event.inputBuffer.getChannelData(0);
-          const pcm = new Int16Array(FRAME_SAMPLES);
-          let peak = 0;
-          for (let i = 0; i < FRAME_SAMPLES; i++) {
-            const v = Math.max(-1, Math.min(1, input[i] ?? 0));
-            peak = Math.max(peak, Math.abs(v));
-            pcm[i] = v < 0 ? Math.round(v * 0x8000) : Math.round(v * 0x7fff);
+          if (!mutedRef.current) {
+            let peak = 0;
+            for (let i = 0; i < input.length; i++) peak = Math.max(peak, Math.abs(input[i] ?? 0));
+            setLevel((prev) => prev * 0.5 + Math.min(1, peak * 3) * 0.5);
+            // 追加到待切缓冲末尾。
+            micPending.current = concatFloat(micPending.current, input);
           }
-          setLevel((prev) => prev * 0.5 + Math.min(1, peak * 3) * 0.5);
-          const bytes = new Uint8Array(pcm.buffer);
-          if (bytes.byteLength === FRAME_BYTES) {
-            void pushRef.current({ pcm: bytes });
+          // 攒够一帧（320 采样）就发出去；一次回调可能攒出不止一帧。
+          while (micPending.current.length >= FRAME_SAMPLES) {
+            const slice = micPending.current.subarray(0, FRAME_SAMPLES);
+            const frame = new Int16Array(FRAME_SAMPLES);
+            for (let i = 0; i < FRAME_SAMPLES; i++) {
+              const v = Math.max(-1, Math.min(1, slice[i] ?? 0));
+              frame[i] = v < 0 ? Math.round(v * 0x8000) : Math.round(v * 0x7fff);
+            }
+            micPending.current = micPending.current.subarray(FRAME_SAMPLES);
+            void pushRef.current({ pcm: new Uint8Array(frame.buffer) });
           }
+          // 积压超过 1 秒说明主进程那边卡住了，丢掉旧的保证实时。
+          if (micPending.current.length > CALL_RATE) micPending.current = new Float32Array(0);
         };
         source.connect(processor);
         processor.connect(context.destination);
@@ -255,6 +274,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
       if (interval !== null) window.clearInterval(interval);
       for (const track of micStream.current?.getTracks() ?? []) track.stop();
       micStream.current = null;
+      micPending.current = new Float32Array(0);
       void micContext.current?.close();
       micContext.current = null;
       setLevel(0);
@@ -394,6 +414,19 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
       </div>
     </div>
   );
+}
+
+/**
+ * 把两段 Float32 采样接起来。
+ *
+ * 不用 `Array.prototype.push` 攒数组再摊平：`onaudioprocess` 是音频线程回调，
+ * 每次调用都要保持 O(帧长)，攒成二维数组再展开会让 GC 在音频路径上抖动。
+ */
+function concatFloat(a: Float32Array, b: Float32Array): Float32Array {
+  const out = new Float32Array(a.length + b.length);
+  out.set(a, 0);
+  out.set(b, a.length);
+  return out;
 }
 
 function toInt16(bytes: Uint8Array): Int16Array {
