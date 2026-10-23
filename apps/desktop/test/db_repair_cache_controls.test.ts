@@ -6,6 +6,7 @@ import { DbRepairPanel } from '../src/renderer/src/components/DbRepairPanel';
 const fixture = vi.hoisted(() => ({
   freeBytes: 1,
   detailedBudget: true,
+  needsMigration: false,
   pick: vi.fn(async () => ({ override: '/synthetic/changed' })),
   reset: vi.fn(async () => ({ override: null })),
   invalidate: vi.fn(async () => {}),
@@ -41,7 +42,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
       dbRepair: {
         status: query(status),
         history: query([]),
-        detectLayout: query({ needsMigration: false }),
+        detectLayout: { useQuery: () => ({ data: { needsMigration: fixture.needsMigration } }) },
         preflight: {
           useQuery: () => ({
             data: {
@@ -87,6 +88,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixture.freeBytes = 1;
   fixture.detailedBudget = true;
+  fixture.needsMigration = false;
   fixture.pick.mockClear();
   fixture.reset.mockClear();
   fixture.invalidate.mockClear();
@@ -232,4 +234,20 @@ it('只备份正在使用缓存时，目录控件仍保持禁用', async () => {
   expect(fixture.backup).toHaveBeenCalledOnce();
   expect(button('选择修复缓存位置').disabled).toBe(true);
   expect(button('恢复默认修复缓存位置').disabled).toBe(true);
+});
+
+it('跳过体检后可确认布局迁移，等当前只读检查结束才真正提交', async () => {
+  fixture.freeBytes = 1000;
+  fixture.needsMigration = true;
+  selectDatabase();
+  expect(button('布局迁移').disabled).toBe(false);
+  act(() => button('布局迁移').click());
+  expect(button('确认迁移并替换').disabled).toBe(false);
+  await act(async () => button('确认迁移并替换').click());
+  expect(host.textContent).toContain('等待当前只读体检结束');
+  expect(fixture.start).not.toHaveBeenCalled();
+  expect(button('选择修复缓存位置').disabled).toBe(true);
+  await act(async () => finishCheckup());
+  expect(fixture.start).toHaveBeenCalledWith(expect.objectContaining({ layoutMigration: true }));
+  expect(button('选择修复缓存位置').disabled).toBe(true);
 });

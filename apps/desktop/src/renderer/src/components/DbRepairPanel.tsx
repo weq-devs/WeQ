@@ -906,6 +906,7 @@ export function DbRepairPanel({
 
   /** 体检的「停」开关：当前这个库跑完就不再往下走。 */
   const stopScanRef = useRef(false);
+  const checkupTaskRef = useRef<Promise<void> | null>(null);
 
   // ── 查询 ────────────────────────────────────────────────────────────────
   const statusQuery = trpc.dbRepair.status.useQuery(
@@ -1018,6 +1019,10 @@ export function DbRepairPanel({
     // 手动跑过也算「这个账号体检过了」，自动那次就不用再补。
     autoCheckedUins.add(uin);
     stopScanRef.current = false;
+    let finishScan = () => {};
+    checkupTaskRef.current = new Promise<void>((resolve) => {
+      finishScan = resolve;
+    });
     setBusy('checkup');
     setNotice(null);
     setScan({ done: 0, total: names.length, current: names[0] ?? null });
@@ -1035,7 +1040,10 @@ export function DbRepairPanel({
       }
     } finally {
       setScan(null);
-      setBusy(null);
+      // 已确认的修复可能正在等待本次只读检查，不能把它的写入锁清掉。
+      setBusy((current) => (current === 'checkup' ? null : current));
+      checkupTaskRef.current = null;
+      finishScan();
     }
   };
 
@@ -1169,14 +1177,23 @@ export function DbRepairPanel({
 
   const handleRepair = async (layoutMigration: boolean): Promise<void> => {
     if (uin === null || dbName === null) return;
+    const pendingScan = checkupTaskRef.current;
+    // 热更新前发起的体检没有完成凭据，仍须等旧调用返回，不能误当作已释放。
+    if (busy === 'checkup' && !pendingScan) return;
+    stopScanRef.current = true;
     // 任务期间的 `dbName` 可能被用户改掉（面板不拦），所以先把目标钉住。
     const target = dbName;
     setConfirmRepair(null);
     setBusy('repair');
     setNotice(null);
     setOutcome(null);
-    setProgress({ phase: 'backup', percent: 0, message: '准备中…' });
+    setProgress({
+      phase: 'backup',
+      percent: 0,
+      message: pendingScan ? '等待当前只读体检结束，随后开始；不再检查后续数据库。' : '准备中…',
+    });
     try {
+      await pendingScan;
       const result = (await startRepair.mutateAsync({
         uin,
         dbName: target,
@@ -1336,6 +1353,7 @@ export function DbRepairPanel({
 
   /** 从体检页进修复页。带上库名 = 预选它。 */
   const goRepair = (name: string | null): void => {
+    stopScanRef.current = true;
     setDbName(name);
     setConfirmRepair(null);
     setNotice(null);
@@ -1385,7 +1403,7 @@ export function DbRepairPanel({
   const canStart =
     uin !== null &&
     dbName !== null &&
-    busy === null &&
+    (busy === null || busy === 'checkup') &&
     !changingCache &&
     status?.keyPresent === true &&
     preflight !== undefined &&
@@ -1937,6 +1955,11 @@ export function DbRepairPanel({
                   {notice}
                 </Note>
               ) : null}
+              {busy === 'checkup' ? (
+                <Note tone="muted" icon={<Loader2 size={14} className="weq-spin" />}>
+                  当前只读体检尚未结束。可以先确认修复或布局迁移，当前检查结束后再开始，不再检查后续数据库。
+                </Note>
+              ) : null}
 
               {/* 布局迁移的优先路径：只在进入修复页、选中库后才检测。检测只读两个
                   4 KiB 页，不扫全库；没有命中就完全不打扰通用修复流程。 */}
@@ -2049,7 +2072,11 @@ export function DbRepairPanel({
                     <button
                       type="button"
                       className="weq-set-btn weq-set-btn-danger"
-                      disabled={!canStart || (marginShort && !allowLowSpace)}
+                      disabled={
+                        !canStart ||
+                        (busy === 'checkup' && !checkupTaskRef.current) ||
+                        (marginShort && !allowLowSpace)
+                      }
                       onClick={() => void handleRepair(confirmRepair === 'layout-migration')}
                     >
                       <Play size={13} strokeWidth={2} aria-hidden />
