@@ -90,7 +90,9 @@ describe('通话背景条目', () => {
     const withVideo = items.filter((i) => i.videoUrl && /\.mp4(\?|$)/.test(i.videoUrl));
     expect(withVideo.length).toBe(items.length);
     // 大图不能误取成 mp4
-    const badLarge = items.filter((i) => i.previewLargeUrl && /\.mp4(\?|$)/.test(i.previewLargeUrl));
+    const badLarge = items.filter(
+      (i) => i.previewLargeUrl && /\.mp4(\?|$)/.test(i.previewLargeUrl),
+    );
     expect(badLarge).toEqual([]);
     // 静态首帧可当兜底图
     expect(items.every((i) => Boolean(i.previewUrl))).toBe(true);
