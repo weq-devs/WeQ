@@ -24,7 +24,7 @@ import {
   PhoneIncoming,
 } from 'lucide-react';
 import { trpc } from '../trpc/client';
-import { dressUrl } from '../lib/resourceUrl';
+import { dressUrl, resourceUrl } from '../lib/resourceUrl';
 import '../styles/call.css';
 
 /** 通话状态（与主进程 `CallState` 一致）。 */
@@ -289,7 +289,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   // ── 铃声 ──
   useEffect(() => {
     if (info.state !== 'ringing' && info.state !== 'calling') return;
-    const audio = new Audio('weq-asset://call/ringtone-caller.mp3');
+    const audio = new Audio(resourceUrl('call', 'ringtone-caller.mp3'));
     audio.loop = true;
     // 自动播放策略：发起通话一定来自用户点击，这条播放是被允许的。
     void audio.play().catch(() => {});
