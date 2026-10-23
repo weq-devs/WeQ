@@ -54,7 +54,7 @@
     color-mix(in srgb, var(--weq-accent-effective) 26%, transparent) 0%,
     transparent 70%
   );
-  opacity: calc(0.35 + var(--peer-level, 0) * 0.65);
+  opacity: calc(0.45 + var(--peer-level, 0) * 0.55);
   transition: opacity 180ms ease-out;
   animation: weq-call-breathe 3.2s ease-in-out infinite;
 }
@@ -137,7 +137,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 3px;
   height: 44px;
   width: 100%;
   opacity: 0;
@@ -149,7 +149,7 @@
 }
 
 .weq-call-wave-bar {
-  width: 3px;
+  width: 4px;
   min-height: 4px;
   height: calc(var(--bar, 0.2) * 40px);
   border-radius: 999px;
@@ -159,6 +159,11 @@
 
 .weq-call-wave-bar.is-peer {
   background: color-mix(in srgb, var(--weq-accent-effective) 85%, transparent);
+}
+
+/* 两半之间空出一道缝：区分「我方」与「对方」。 */
+.weq-call-wave-bar:nth-child(17) {
+  margin-left: 10px;
 }
 
 /* ── 操作按钮 ── */
@@ -325,6 +330,15 @@
 /* ── 深色模式：独立一套值，不是浅色取反 ── */
 html[data-theme='dark'] .weq-call-backdrop {
   background: color-mix(in srgb, #000 48%, transparent);
+}
+
+html[data-theme='dark'] .weq-call-halo {
+  /* 深色底上同一档透明度看着更弱，单独提一档。 */
+  background: radial-gradient(
+    50% 50% at 50% 50%,
+    color-mix(in srgb, var(--weq-accent-effective) 40%, transparent) 0%,
+    transparent 72%
+  );
 }
 
 html[data-theme='dark'] .weq-call-card {
