@@ -44,6 +44,10 @@ interface CallInfo {
   peerUid: string;
   peerName: string;
   peerAvatar: string;
+  /** 通话背景静态图（个性装扮「来电」）。空表示没设。 */
+  backgroundUrl: string;
+  /** 通话背景动态版。非空时优先播它。 */
+  backgroundVideoUrl: string;
   startedAt: number | null;
   connectedAt: number | null;
   endReason: string | null;
@@ -309,6 +313,15 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
     hangup.mutate();
   }, [hangup]);
 
+  /**
+   * 背景素材加载失败（URL 过期 / 网络不通）。
+   *
+   * 素材挂了就退回无背景的样子 —— 否则会露出一块没有压暗层的破图，
+   * 白字直接压在杂色上，比没有背景更难看。
+   */
+  const [backdropFailed, setBackdropFailed] = useState(false);
+  const hasBackdrop = !backdropFailed && Boolean(info.backgroundUrl || info.backgroundVideoUrl);
+
   const initialLetter = useMemo(
     () => (info.peerName || info.peerUin).slice(0, 1).toUpperCase(),
     [info.peerName, info.peerUin],
@@ -316,7 +329,27 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
 
   return (
     <div className="weq-call-backdrop" role="dialog" aria-modal="true" aria-label="语音通话">
-      <div className={`weq-call-card${live ? ' is-live' : ''}`} data-state={info.state}>
+      <div
+        className={`weq-call-card${live ? ' is-live' : ''}${hasBackdrop ? ' has-backdrop' : ''}`}
+        data-state={info.state}
+      >
+        {/* 个性化通话背景：视频优先（这类装扮本来就是动图），静帧兜底。 */}
+        {hasBackdrop ? (
+          <div className="weq-call-backdrop-media" aria-hidden="true">
+            {info.backgroundVideoUrl && !backdropFailed ? (
+              <video
+                src={info.backgroundVideoUrl}
+                autoPlay
+                loop
+                muted
+                playsInline
+                onError={() => setBackdropFailed(true)}
+              />
+            ) : info.backgroundUrl && !backdropFailed ? (
+              <img src={info.backgroundUrl} alt="" onError={() => setBackdropFailed(true)} />
+            ) : null}
+          </div>
+        ) : null}
         {/* 呼吸光环：接通后跟随对端响度 */}
         <div className="weq-call-halo" style={{ ['--peer-level' as string]: peerLevel }} />
 

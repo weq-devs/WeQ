@@ -107,6 +107,8 @@ export type {
   ClientKey,
 } from './account/user_config';
 export { fetchHomeDress, toPeerDress } from './account/home_dress';
+export { ensureCallBackground } from './account/call_background';
+export type { CallBackground } from './account/call_background';
 export {
   CallSession,
   protocolSignaling,

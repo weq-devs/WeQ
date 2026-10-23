@@ -14,7 +14,7 @@
 
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
-import { getLogger } from '@weq/service';
+import { ensureCallBackground, getLogger } from '@weq/service';
 import { procedure, router } from '../trpc';
 import { getAppContext, requireAttachEnabled } from '../../context/app_context';
 import { callManagerFor } from '../../call_registry';
@@ -55,6 +55,16 @@ export const callRouter = router({
       const pid = ctx.platform?.resolveQqPid(selfUin);
       if (!pid) throw new Error('QQ 当前不在线，通话需要借用在线实例的凭据');
 
+      // 通话背景是装饰：取不到就直接用默认底图，绝不因为它拖慢或挡住拨号。
+      // `ensureCallBackground` 自己有缓存策略 —— 快照里查过这一项就不会再联网。
+      const background = await ensureCallBackground(
+        ctx.platform!.native.ntHelper,
+        session,
+        // 会话级服务里就是当前账号的配置服务。
+        ctx.services!.accountConfig,
+        pid,
+      ).catch(() => null);
+
       const manager = callManagerFor(ctx.platform!, pid);
       const call = await manager.start({
         pid,
@@ -64,6 +74,8 @@ export const callRouter = router({
         peerUid,
         peerName: input.peerName,
         peerAvatar: input.peerAvatar,
+        backgroundUrl: background?.imageUrl,
+        backgroundVideoUrl: background?.videoUrl,
       });
       logger.info('发起通话', { peer: input.peerUin, room: call.roomId });
       return call;

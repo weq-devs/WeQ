@@ -135,6 +135,10 @@ export interface ActiveCallInfo extends CallSnapshot {
   peerName: string;
   /** 目标头像 URL。 */
   peerAvatar: string;
+  /** 通话背景静态图（个性装扮 appId 17）；空表示没设。 */
+  backgroundUrl: string;
+  /** 通话背景动态版。非空时界面优先播它。 */
+  backgroundVideoUrl: string;
   /** 已接通时长（秒）；未接通为 0。 */
   durationSec: number;
 }
@@ -147,6 +151,9 @@ export interface StartCallParams {
   peerUid: string;
   peerName?: string;
   peerAvatar?: string;
+  /** 通话背景（由调用方先用 `ensureCallBackground` 取得；拿不到就留空）。 */
+  backgroundUrl?: string;
+  backgroundVideoUrl?: string;
 }
 
 export type CallEvent =
@@ -215,6 +222,8 @@ export class CallManager extends EventEmitter {
       ...session.snapshot(),
       peerName: params.peerName ?? '',
       peerAvatar: params.peerAvatar ?? '',
+      backgroundUrl: params.backgroundUrl ?? '',
+      backgroundVideoUrl: params.backgroundVideoUrl ?? '',
       durationSec: 0,
     };
 
@@ -274,6 +283,8 @@ export class CallManager extends EventEmitter {
       ...snapshot,
       peerName: this.info?.peerName ?? '',
       peerAvatar: this.info?.peerAvatar ?? '',
+      backgroundUrl: this.info?.backgroundUrl ?? '',
+      backgroundVideoUrl: this.info?.backgroundVideoUrl ?? '',
       durationSec: connectedAt ? Math.max(0, Math.floor((Date.now() - connectedAt) / 1000)) : 0,
     };
   }

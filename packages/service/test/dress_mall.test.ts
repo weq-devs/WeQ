@@ -47,6 +47,14 @@ const SAMPLES: Array<{ label: string; path: string; kind: 'json' | 'har'; minIte
     kind: 'json',
     minItems: 20,
   },
+  {
+    // 通话背景（appId 17）。服务端**没有**这一类的排行榜，这份是搜索结果的快照，
+    // 专门给离线/静态列表用 —— 所以条数按搜集到的来（常见词也就几十条）。
+    label: '静态排行(通话背景)',
+    path: 'resources/dress/ranking-callbg.json',
+    kind: 'json',
+    minItems: 40,
+  },
   { label: '排行 HAR(挂件)', path: 'tmp/ranking.har', kind: 'har', minItems: 20 },
   { label: '搜索 HAR(挂件)', path: 'tmp/search.har', kind: 'har', minItems: 40 },
 ];
@@ -68,6 +76,26 @@ function assertNormalized(
   const first = items[0]!;
   expect(first.labels).toBeInstanceOf(Array);
 }
+
+describe('通话背景条目', () => {
+  it('appId 17 的条目带动态视频，且不会把 mp4 当成大图', () => {
+    const payload = JSON.parse(
+      readFileSync(join(REPO_ROOT, 'resources/dress/ranking-callbg.json'), 'utf8'),
+    );
+    const items = normalizeMallItems(payload);
+    expect(items.length).toBeGreaterThan(0);
+    // 全部是来电类
+    expect(items.every((i) => i.appId === 17)).toBe(true);
+    // 每一条都应该有视频（通话背景的核心素材）
+    const withVideo = items.filter((i) => i.videoUrl && /\.mp4(\?|$)/.test(i.videoUrl));
+    expect(withVideo.length).toBe(items.length);
+    // 大图不能误取成 mp4
+    const badLarge = items.filter((i) => i.previewLargeUrl && /\.mp4(\?|$)/.test(i.previewLargeUrl));
+    expect(badLarge).toEqual([]);
+    // 静态首帧可当兜底图
+    expect(items.every((i) => Boolean(i.previewUrl))).toBe(true);
+  });
+});
 
 describe('normalizeMallItems (offline golden responses)', () => {
   for (const s of SAMPLES) {

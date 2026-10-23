@@ -43,6 +43,73 @@
   animation: weq-call-rise 220ms cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 
+/* ── 个性化通话背景 ──
+ *
+ * 装扮里的「来电」素材是 720p 级别的动态视频，铺满卡片后
+ * 必须压暗并加模糊，否则白色文字在浅色素材上会读不清。
+ * 压暗用 `--weq-bg-surface` 系而非纯黑：深色主题下保持冷调，
+ * 浅色主题下也不会变成一块黑斑。
+ */
+.weq-call-backdrop-media {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.weq-call-backdrop-media video,
+.weq-call-backdrop-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* 轻微放大：模糊边缘会露出底色，放大一档盖住。 */
+  transform: scale(1.06);
+  /* 只压一点点：素材本身就是设计好的背景，糊掉或调暗都会浪费它。 */
+  filter: saturate(1.1) brightness(0.96);
+}
+
+/* 压暗层：保证文字对比度。深浅两套单独调（见文件末尾）。 */
+/* 压暗层只做「保证文字读得清」这一件事：
+ * 顶部和底部各压一档（那里有名字和按钮），中间几乎不动，让素材自己说话。
+ * 用渐变而不是整体加一层色 —— 整体加会把动态背景变成一块灰。 */
+.weq-call-card.has-backdrop .weq-call-backdrop-media::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--weq-bg-surface) 72%, transparent) 0%,
+    color-mix(in srgb, var(--weq-bg-surface) 62%, transparent) 26%,
+    color-mix(in srgb, var(--weq-bg-surface) 30%, transparent) 42%,
+    transparent 52%,
+    color-mix(in srgb, var(--weq-bg-surface) 58%, transparent) 80%,
+    color-mix(in srgb, var(--weq-bg-surface) 78%, transparent) 100%
+  );
+}
+
+/* 卡片自身的底色在有背景时让位给素材。 */
+.weq-call-card.has-backdrop {
+  background: var(--weq-bg-surface);
+}
+
+/* 有背景时给文字加一层柔和投影：素材明暗不可控，光靠压暗层仍有漏网的时候。 */
+.weq-call-card.has-backdrop .weq-call-name,
+.weq-call-card.has-backdrop .weq-call-status,
+.weq-call-card.has-backdrop .weq-call-details summary {
+  text-shadow: 0 1px 3px color-mix(in srgb, var(--weq-bg-surface) 85%, transparent);
+}
+
+html[data-theme='dark'] .weq-call-card.has-backdrop .weq-call-name,
+html[data-theme='dark'] .weq-call-card.has-backdrop .weq-call-status,
+html[data-theme='dark'] .weq-call-card.has-backdrop .weq-call-details summary {
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+}
+
+.weq-call-card.has-backdrop .weq-call-halo {
+  /* 背景已经很花，光环收敛，避免叠成一片。 */
+  opacity: calc(0.15 + var(--peer-level, 0) * 0.25);
+}
+
 /* 呼吸光环：呼叫中缓慢脉动，接通后跟随对端音量。 */
 .weq-call-halo {
   position: absolute;
@@ -330,6 +397,19 @@
 /* ── 深色模式：独立一套值，不是浅色取反 ── */
 html[data-theme='dark'] .weq-call-backdrop {
   background: color-mix(in srgb, #000 48%, transparent);
+}
+
+html[data-theme='dark'] .weq-call-card.has-backdrop .weq-call-backdrop-media::after {
+  /* 深色主题：素材多数是亮的，靠上下压暗保证白字对比，中间留出画面。 */
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.62) 0%,
+    rgba(0, 0, 0, 0.52) 26%,
+    rgba(0, 0, 0, 0.34) 40%,
+    rgba(0, 0, 0, 0.28) 50%,
+    rgba(0, 0, 0, 0.66) 80%,
+    rgba(0, 0, 0, 0.86) 100%
+  );
 }
 
 html[data-theme='dark'] .weq-call-halo {

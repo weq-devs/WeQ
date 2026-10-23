@@ -439,6 +439,11 @@ export function validateWeqAccountSettings(
         'widgetId',
         'widgetName',
         'widgetPreviewUrl',
+        'callBgUrl',
+        'callBgVideoUrl',
+        'callBgId',
+        'callBgName',
+        'callBgCheckedAt',
       ],
     );
     for (const [key, value] of Object.entries(dress)) {
@@ -446,6 +451,7 @@ export function validateWeqAccountSettings(
         if (!Array.isArray(value) || value.some((tag) => typeof tag !== 'string'))
           fail('accounts.homeDress.tags');
       } else if (key.endsWith('Id')) number(value, `accounts.homeDress.${key}`);
+      else if (key.endsWith('At')) number(value, `accounts.homeDress.${key}`);
       else string(value, `accounts.homeDress.${key}`);
     }
   }
