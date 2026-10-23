@@ -385,6 +385,31 @@ describe('通话会话状态机', () => {
     expect(session.snapshot().lastError).toContain('服务器');
   });
 
+  it('GCS 无认证回包时 3 秒后换下一台', async () => {
+    const { session, transport, timers } = makeSession();
+    await session.start();
+    const firstAuth = transport.gcs(GcsBodyType.authReq)[0];
+    expect(firstAuth).toBeTruthy();
+    // 认证发往候选列表的第一台 GCS
+    expect(transport.sent[0]!.address).toBe('113.250.57.28');
+
+    const before = transport.gcs(GcsBodyType.authReq).length;
+    timers.advance(3000);
+    // 超时后重发认证（换了一台）
+    expect(transport.gcs(GcsBodyType.authReq).length).toBeGreaterThan(before);
+    expect(session.snapshot().state).toBe('calling');
+  });
+
+  it('认证回包到了就不再换台', async () => {
+    const { session, transport, timers } = makeSession();
+    await session.start();
+    transport.deliver(authRspPacket(777));
+    const before = transport.gcs(GcsBodyType.authReq).length;
+    timers.advance(10_000);
+    expect(transport.gcs(GcsBodyType.authReq).length).toBe(before);
+    expect(session.snapshot().state).toBe('calling');
+  });
+
   it('重复发起会被拒绝', async () => {
     const { session } = makeSession();
     await session.start();

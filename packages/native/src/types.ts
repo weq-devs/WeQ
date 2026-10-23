@@ -960,6 +960,30 @@ export interface NtHelperBinding {
    * `needSign` 同 {@link sendOidbPacket}，缺省 true。
    */
   sendPacket(pid: number, cmd: string, body: Buffer, needSign?: boolean): Promise<Buffer>;
+
+  // --- 语音通话的媒体编码 ---
+  /**
+   * 打开语音通话用的 Opus 编解码器。
+   *
+   * `modulesDir` 传 QQ 的 `resources/app` 目录（里面直接放 `AVSDKPlugin.dll`，
+   * linux 下则在它的 `avsdk/` 子目录）。进程内只打开一次，重复调用幂等。
+   *
+   * 用 QQ 自带的那一版而不是系统 libopus：服务端协商的是腾讯改过码表的实现，
+   * 两边不匹配时对端听到的是噪声。
+   */
+  openCallCodec(modulesDir: string): Promise<void>;
+  /** 关掉编解码器，释放对 AVSDKPlugin 的引用。挂断时调用。 */
+  closeCallCodec(): void;
+  /** 当前是否已打开。 */
+  isCallCodecOpen(): boolean;
+  /**
+   * 编一帧语音：输入 **640 字节**的 16 kHz 单声道 16-bit 小端 PCM
+   * （一帧固定 20 ms / 320 个采样），输出 Opus 字节。
+   */
+  encodeCallFrame(pcm: Buffer): Buffer;
+  /** 解一帧语音，输出 640 字节 PCM（16 kHz 单声道 16-bit，小端）。 */
+  decodeCallFrame(opus: Buffer): Buffer;
+
   /**
    * Sign a red bag pre-pack request (`hb_pc_pre_pack`) — the plaintext `f101`.
    *

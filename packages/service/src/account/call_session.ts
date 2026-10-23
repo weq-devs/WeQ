@@ -347,14 +347,54 @@ export class CallSession {
   // ── 服务器选择 ──
 
   /**
-   * 服务端给的是「同一台机器的多个地址」：type=1 是 GCS（控制面 + 音频），
-   * type=2 是中继。IPv4 与 IPv6 各一套，这里只用 IPv4（套接字是 udp4）。
+   * 服务端给两张表：type=1 是 GCS（控制面 + 音频），type=2 是中继。
+   *
+   * 两张表里是**同一批机器**，只是端口不同（GCS 8000/8001，中继 8800）。
+   * 所以「选哪个」不是查表的事 —— 得挑一个真的能收发的。这里的策略：
+   *
+   *   1. 首次认证从 type=1 的第一台开始，失败（3 秒内没有认证回包）就换下一台；
+   *   2. 全部失败再退到 type=2；
+   *   3. 中继列表也去重，同一对 ip:port 只注册一次。
+   *
+   * 试错结果记在 {@link goodGcs}，同一进程内的后续通话直接复用 —— 服务端每次
+   * 分配的机器会变，但可达性通常一致，能省掉一次 3 秒的空等。
    */
   private pickServers(servers: CallServer[]): void {
-    const gcs = servers.find((s) => s.type === 1);
-    this.gcs = gcs ?? servers.find((s) => s.type === 2) ?? null;
-    this.relays = servers.filter((s) => s.type === 2).slice(0, 2);
+    const gcsCandidates = servers.filter((s) => s.type === 1);
+    const relayCandidates = servers.filter((s) => s.type === 2);
+    this.gcsCandidates = [...gcsCandidates, ...relayCandidates];
+    this.gcs =
+      this.gcsCandidates.find((s) => s.ip === CallSession.goodGcsIp) ??
+      this.gcsCandidates[0] ??
+      null;
+    this.gcsIndex = Math.max(0, this.gcsCandidates.indexOf(this.gcs!));
+
+    const seen = new Set<string>();
+    this.relays = [];
+    for (const server of [...relayCandidates, ...gcsCandidates]) {
+      const key = `${server.ip}:${server.port}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      this.relays.push(server);
+      if (this.relays.length >= 2) break;
+    }
   }
+
+  /** 候选 GCS 地址，按尝试顺序。 */
+  private gcsCandidates: CallServer[] = [];
+  /**
+   * 进程内记住上次认证成功的 GCS **IP**（端口每次会变，不能整条复用）。
+   *
+   * 服务端每次分配的机器在一小撮里轮换，可达的那几台通常一直可达 —— 记住它
+   * 能省掉首次的 3 秒探测。
+   */
+  private static goodGcsIp: string | null = null;
+  /** 当前在第几台候选上。 */
+  private gcsIndex = 0;
+  /** 切换 GCS 的定时器。 */
+  private gcsRetryTimer: unknown = null;
+  /** 本轮是否已收到认证回包。 */
+  private authAcked = false;
 
   // ── 发包 ──
 
@@ -376,7 +416,7 @@ export class CallSession {
   }
 
   private sendAuth(): void {
-    if (!this.room) return;
+    if (!this.room || !this.gcs) return;
     const packet = buildGcsAuth({
       roomId: this.room.roomId,
       selfUin: Number(this.opts.selfUin),
@@ -384,9 +424,44 @@ export class CallSession {
       authKey: this.room.authKey,
       capabilities: DEFAULT_CAPABILITIES,
     });
+    this.authAcked = false;
     // 真实客户端连发两次；服务端对重复认证是幂等的。
     this.send(packet);
     this.send(packet);
+    this.armGcsProbe();
+  }
+
+  /**
+   * 3 秒内没等到认证回包就换下一台 GCS。
+   *
+   * 服务端给的地址里总有一两台是当前网络到不了的（跨运营商 / IPv6-only 的
+   * 备用地址）。真实客户端会并行试多个，我们串行试 —— 3 秒足够一次 RTT，
+   * 又不会让用户等太久。
+   */
+  private armGcsProbe(): void {
+    this.clearGcsRetry();
+    this.gcsRetryTimer = this.timers.setTimeout(() => {
+      this.gcsRetryTimer = null;
+      if (this.authAcked) return;
+      if (this.gcsIndex + 1 >= this.gcsCandidates.length) {
+        // 全部试过还是不通：留着当前这台继续心跳，可能是回包慢。
+        this.log?.warn('所有 GCS 候选都没有认证回包');
+        return;
+      }
+      this.gcsIndex++;
+      this.gcs = this.gcsCandidates[this.gcsIndex]!;
+      this.log?.debug('切换 GCS', { ip: this.gcs.ip, port: this.gcs.port });
+      this.sendAuth();
+      this.sendRelayGetIn();
+      this.sendCodecInit();
+    }, 3000);
+  }
+
+  private clearGcsRetry(): void {
+    if (this.gcsRetryTimer !== null) {
+      this.timers.clearTimeout(this.gcsRetryTimer);
+      this.gcsRetryTimer = null;
+    }
   }
 
   private sendRelayGetIn(): void {
@@ -644,6 +719,9 @@ export class CallSession {
   }
 
   private handleAuthRsp(): void {
+    this.authAcked = true;
+    this.clearGcsRetry();
+    if (this.gcs) CallSession.goodGcsIp = this.gcs.ip;
     // 认证成功即开始中继保活（中继注册先于认证发出去，服务端会缓存）。
     if (!this.relayTimer) this.startRelayKeepalive();
     this.log?.debug('GCS 认证成功', { roomId: this.room?.roomId.toString() });
@@ -870,6 +948,7 @@ export class CallSession {
       [this.audioTimer, 'clearTimeout'],
       [this.ringTimer, 'clearTimeout'],
       [this.connectTimer, 'clearTimeout'],
+      [this.gcsRetryTimer, 'clearTimeout'],
     ];
     for (const [handle, kind] of pairs) {
       if (handle !== null) this.timers[kind](handle);
@@ -881,6 +960,7 @@ export class CallSession {
     this.audioTimer = null;
     this.ringTimer = null;
     this.connectTimer = null;
+    this.gcsRetryTimer = null;
   }
 
   private emit(): void {
