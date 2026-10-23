@@ -330,7 +330,13 @@ export class CallSession {
       this.armRingTimeout();
       return this.snapshot();
     } catch (error) {
-      this.fail(error instanceof Error ? error.message : String(error));
+      // 这里必须**等**收尾走完才返回：`teardown` 是异步的，而终点状态
+      // （`failed`）在它末尾才落下。不 await 的话调用方拿到的快照还是
+      // `idle`，看起来像「什么都没发生」。
+      const message = error instanceof Error ? error.message : String(error);
+      this.lastError = message;
+      this.log?.error('通话失败', { error: message });
+      await this.teardown('error');
       return this.snapshot();
     }
   }
@@ -902,7 +908,10 @@ export class CallSession {
 
     this.stopTimers();
 
-    if (this.room && reason !== 'error') {
+    // 只要房间建出来了就必须收尾 —— 包括**失败路径**：开房 + 邀请是两条独立的
+    // 信令，后者成功时对端已经在振铃了。此时若因为后面某一步（编解码器、UDP
+    // 绑定…）失败就直接返回，对端会一直响到服务端超时。失败时更该主动挂断。
+    if (this.room) {
       const logout = buildGcsLogout({
         roomId: this.room.roomId,
         selfUin: Number(this.opts.selfUin),

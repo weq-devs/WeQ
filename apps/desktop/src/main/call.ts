@@ -235,9 +235,26 @@ export class CallManager extends EventEmitter {
       this.emit('event', { type: 'audio', pcm } satisfies CallEvent);
     });
 
-    await session.start();
-    this.publishState(session.snapshot());
-    return this.info!;
+    // `start()` 自己会吞掉异常并收敛到 `failed`，所以这里不会抛 —— 但它**不**
+    // 保证成功。失败时状态监听器已经把 `info` 清空（`cleanup`），原先再读
+    // `this.info!` 就拿到 null，调用方随后取 `call.roomId` 便抛
+    // 「Cannot read properties of null」，把编解码器 / UDP / 信令的真实原因
+    // 全盖掉了。所以先判状态，把 `lastError` 原样抛给界面。
+    try {
+      await session.start();
+      const snapshot = session.snapshot();
+      if (snapshot.state === 'failed') {
+        throw new Error(snapshot.lastError ?? '无法建立通话');
+      }
+      this.publishState(snapshot);
+      if (!this.info) throw new Error('通话未建立就被结束');
+      return this.info;
+    } catch (error) {
+      // 兜底：异常路径下 `publishState` 可能没跑到，会话就会一直留在
+      // `this.session` 上，让下一次发起被「当前已有通话」挡掉。
+      this.cleanup();
+      throw error;
+    }
   }
 
   /** 主动挂断。 */
