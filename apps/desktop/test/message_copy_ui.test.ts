@@ -144,6 +144,9 @@ describe('聊天内容复制交互', () => {
       const body = f.host.querySelector('.qq-reply-body')!;
       const range = document.createRange();
       range.selectNodeContents(body);
+      // 进入会话会自动聚焦输入框，选区里已有一条 collapsed range；happy-dom 的
+      // Selection 只保留单条 range，不清空的话 addRange 会被静默丢弃（真实浏览器不会）。
+      window.getSelection()!.removeAllRanges();
       window.getSelection()!.addRange(range);
       await copyMenu(f.host, body);
       expect(copied).toHaveBeenCalledWith(expect.objectContaining({ text: '前[微笑]后' }));

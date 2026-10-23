@@ -30,8 +30,14 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     });
   return {
     trpc: {
+      // `useQQWriteSession` 写完后会刷缓存；本用例只关心导航，给个空实现即可。
+      useUtils: () => ({ invalidate: async () => undefined }),
       account: {
         getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: rpc.configId } }) },
+        // `useQQWriteSession` 会顺带探测群相册写入权限。
+        getGroupAlbumAccessState: {
+          useQuery: () => ({ data: { qqOnline: true }, isLoading: false }),
+        },
       },
     },
     client: {

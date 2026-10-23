@@ -15,6 +15,9 @@ export default defineConfig({
     alias: {
       '@renderer': resolve(__dirname, 'src/renderer/src'),
       '@resources': resolve(__dirname, '../../resources'),
+      // `trpc/client.ts` 按构建目标解析 transport；单测两边都不能直接用——
+      // Electron 那份要 preload 暴露的 `electronTRPC`，web 那份会连 WebSocket。
+      '@transport': resolve(__dirname, 'test/support/transport.stub.ts'),
     },
   },
   test: {
