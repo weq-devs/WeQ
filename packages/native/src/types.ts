@@ -906,6 +906,8 @@ export interface NtHelperBinding {
   safeDecryptDatabase(dbPath: string, outPath: string, key: string, algo: DatabaseAlgorithms): void;
 
   // --- database repair ---
+  /** 1 = 提前释放明文源库并直接写带头产物；旧模块没有该方法。 */
+  databaseRepairStorageVersion?(): number;
   /**
    * 修复损坏的库，产出一份可直接使用的新库：坏页扫描 → 解密（不校验页 HMAC，
    * 所以坏页也能救回大部分 cell）→ SQLite 官方 `recover` 重建 → 用 QQ 的参数

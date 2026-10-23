@@ -1,0 +1,27 @@
+.weq-rp-cache-location {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 32px 32px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  color: var(--weq-fg-secondary);
+  border-bottom: 1px solid var(--weq-border-subtle);
+  font-size: 12px;
+}
+
+.weq-rp-cache-location code {
+  overflow-wrap: anywhere;
+  color: var(--weq-fg-primary);
+}
+
+.weq-rp-cache-location button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
+html[data-theme='dark'] .weq-rp-cache-location {
+  color: var(--weq-fg-secondary);
+  border-color: var(--weq-border-subtle);
+}

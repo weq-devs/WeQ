@@ -195,6 +195,9 @@ let closedAccountDuringRun = false;
 
 const deps: DbRepairDeps = {
   cacheDir: (...segments) => requireBootstrap().userConfig.cacheDir(join(...segments)),
+  scratchDir: () => requireBootstrap().userConfig.getDbRepairCacheDir(),
+  storageOptimized: () =>
+    (requirePlatform().native.ntHelper.databaseRepairStorageVersion?.() ?? 0) >= 1,
 
   resolveAccount: (uin) => resolveAccountInfo(uin),
 
@@ -447,6 +450,23 @@ const recordRef = accountRef.extend({ recordId: z.string().min(1) });
 // ────────────────────────── 路由 ──────────────────────────
 
 export const dbRepairRouter = router({
+  cacheLocation: procedure.query(() => ({
+    override: requireBootstrap().userConfig.getDbRepairCacheDir(),
+  })),
+
+  pickCacheLocation: procedure.mutation(async () => {
+    if (service.isBusy()) throw new Error('修复或回滚进行中，不能更改缓存位置');
+    const picked = await getHost().pickDirectory({ title: '选择数据库修复缓存位置' });
+    if (service.isBusy()) throw new Error('修复或回滚进行中，不能更改缓存位置');
+    if (picked) requireBootstrap().userConfig.setDbRepairCacheDir(picked);
+    return { override: requireBootstrap().userConfig.getDbRepairCacheDir() };
+  }),
+
+  resetCacheLocation: procedure.mutation(() => {
+    if (service.isBusy()) throw new Error('修复或回滚进行中，不能更改缓存位置');
+    requireBootstrap().userConfig.setDbRepairCacheDir(null);
+    return { override: null };
+  }),
   /**
    * 账号级状态 + 库体检表。
    *

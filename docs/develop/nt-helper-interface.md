@@ -194,6 +194,7 @@ SQLite 的保留页按**文件**设置：QQ 库因 1024 字节头保留 `262144`
 | `safeDecryptDatabase(dbPath, outPath, key, algo)` | 同上 | `void` | 安全解密：所有读走 SQLite（offset VFS + `sqlcipher_export`），长导出期间不怕 QQ checkpoint 撕页；无中间文件。产物同样是**标准布局**明文。 |
 | `checkDatabaseHealth(dbPath, key, algo)` | 路径 + key + algo | `Promise<DatabaseHealthResult>` | `PRAGMA integrity_check` 体检；整体失败时逐表出结果。 |
 | `recoverDatabase(options, onProgress?)` | `RecoverOptions` + 可选进度回调 | `Promise<RecoverReport>` | 重建损坏库：坏页扫描 → 解密 → SQLite recover → 重新加密 → 补 QQ 头 → 自检。源库只读。`sourceLayout` / `targetLayout` 可选（默认都 `qq`）；把旧版误修复的 standard 布局迁回 QQ 时传 `sourceLayout: 'standard', targetLayout: 'qq'`，产物报告会回显实际布局。旧产物会静默忽略这两个参数、也不回显布局，调用方必须在替换前核对。 |
+| `databaseRepairStorageVersion()`（可选） | 无 | `number` | 返回 1 表示重建后提前释放明文源库、通过 offset VFS 直接加密带头产物；方法缺失按旧模块预算预检。能力标记与实际加载模块绑定，不以应用版本推断。 |
 | `executeSqlSalvage(dbPath, sql, params?, level?)` | 路径 + SQL + 可选参数 + 宽容级别 | `Promise<SalvageQueryOutcome>` | 宽容只读查询（独立的 salvage 连接）。**不因“损坏”抛异常**，而是返回 `ok:false` + 错误码，由调用方决定放弃还是切更小的一段；其它错误照旧抛。级别 ≥ 1 时遇到损坏会换访问路径（`NOT INDEXED`）重试。 |
 | `executeSqlSalvageWithKey(dbPath, sql, key, algo, params?, level?)` | 同上 + key + algo | 同上 | 带密钥版本，语义相同。 |
 | `executeSqlSalvageScan(dbPath, sql, params, options, level?)` | + `SalvageScanOptions` | `Promise<SalvageScanOutcome>` | 分块容错扫描（L2/L3）：读不出来的块先换访问路径、再二分到 `minSpan`，仍坏就记成“跳过区间”；`ok:false`（超预算 / 未授权 L2 / 表被隔离）时行集被清空，不许把部分数据当完整数据用。 |

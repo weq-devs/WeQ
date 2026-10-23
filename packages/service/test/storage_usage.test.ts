@@ -30,6 +30,26 @@ afterEach(() => {
 });
 
 describe('WeQ 存储管理', () => {
+  it('独立修复缓存持久化、单独统计且不进入普通清理，原位置不自动迁移', async () => {
+    const f = fixture();
+    const cache = join(f.root, 'repair-custom');
+    const backup = f.file('repair-custom/db_repair/synthetic/backups/one/nt_msg.db', 71);
+    const original = f.file('repair-custom/personal.db', 100);
+    f.service.setDbRepairCacheDir(cache);
+    const reloaded = new UserConfigService({ appDataRoot: () => f.root });
+    expect(reloaded.getDbRepairCacheDir()).toBe(cache);
+    const items = await reloaded.listStorageUsage();
+    const item = items.find((row) => row.path === join(cache, 'db_repair/synthetic'));
+    expect(item).toMatchObject({ bytes: 71, requiresExit: true, clearable: true });
+    expect(item?.confirmation).toContain('回滚');
+    await reloaded.clearCache(item ? [item.id] : []);
+    expect(existsSync(backup)).toBe(true);
+    reloaded.setDbRepairCacheDir(null);
+    expect(reloaded.getDbRepairCacheDir()).toBeNull();
+    expect(existsSync(backup)).toBe(true);
+    expect(existsSync(original)).toBe(true);
+  });
+
   it('收藏媒体、QQ 秀和共享装扮资源可清理，账号装扮设置不受影响', async () => {
     const f = fixture();
     f.file('cache/collection/preview.jpg', 11);

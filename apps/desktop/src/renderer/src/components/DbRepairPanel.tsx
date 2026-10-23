@@ -68,6 +68,7 @@ import { client, trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { QqAvatar } from './QqAvatar';
 import { useToast } from './Toast';
+import '../styles/db-repair-storage.css';
 
 /** 展示当前账号用的最小信息（父级已有一份，不再重复探测）。 */
 export interface DbRepairAccountOption {
@@ -128,6 +129,9 @@ type DbRepairReadiness =
 
 /** 与主进程 `DbRepairPreflight` 对齐（只列展示用到的字段）。 */
 interface DbRepairPreflightView {
+  cachePath: string;
+  storageOptimized: boolean;
+  space: Array<{ paths: string[]; freeBytes: number | null; requiredBytes: number }>;
   readiness: DbRepairReadiness;
   holders: Array<{ pid: number; name: string }>;
   qqHolders: Array<{ pid: number; name: string }>;
@@ -935,6 +939,24 @@ export function DbRepairPanel({
   const restore = trpc.dbRepair.restore.useMutation();
   const removeRecord = trpc.dbRepair.deleteRecord.useMutation();
   const backupNow = trpc.dbRepair.backup.useMutation();
+  const cacheLocation = trpc.dbRepair.cacheLocation.useQuery();
+  const pickCacheLocation = trpc.dbRepair.pickCacheLocation.useMutation();
+  const resetCacheLocation = trpc.dbRepair.resetCacheLocation.useMutation();
+  const changingCache = pickCacheLocation.isLoading || resetCacheLocation.isLoading;
+
+  async function changeCacheLocation(reset: boolean): Promise<void> {
+    try {
+      if (reset) await resetCacheLocation.mutateAsync();
+      else await pickCacheLocation.mutateAsync();
+      await Promise.all([
+        utils.dbRepair.cacheLocation.invalidate(),
+        utils.dbRepair.preflight.invalidate(),
+      ]);
+      setConfirmRepair(null);
+    } catch (error) {
+      pushToast({ tone: 'error', title: '缓存位置未更改', detail: errMsg(error) });
+    }
+  }
 
   const existingDbs = useMemo(() => status?.databases ?? [], [status]);
   const liveDbs = useMemo(() => existingDbs.filter((row) => row.exists), [existingDbs]);
@@ -1331,12 +1353,13 @@ export function DbRepairPanel({
   const currentCheckup = dbName === null ? null : (checkups[dbName] ?? null);
   const readiness = preflight ? READINESS_COPY[preflight.readiness] : null;
   const spaceShort = Boolean(
-    preflight && preflight.freeBytes !== null && preflight.freeBytes < preflight.requiredBytes,
+    preflight?.space.some((item) => item.freeBytes !== null && item.freeBytes < item.requiredBytes),
   );
   const canStart =
     uin !== null &&
     dbName !== null &&
     busy === null &&
+    !changingCache &&
     status?.keyPresent === true &&
     preflight !== undefined &&
     !spaceShort;
@@ -1749,21 +1772,24 @@ export function DbRepairPanel({
                   value={readiness?.label ?? '检查中…'}
                   tone={readiness?.tone}
                 />
-                <Metric
-                  icon={<HardDrive size={12} strokeWidth={2} />}
-                  label="磁盘"
-                  value={preflight?.freeBytes != null ? formatBytes(preflight.freeBytes) : '未知'}
-                  hint={
-                    preflight
-                      ? `需要约 ${formatBytes(preflight.requiredBytes)}${
-                          spaceShort && preflight.freeBytes !== null
-                            ? `，还差 ${formatBytes(preflight.requiredBytes - preflight.freeBytes)}`
-                            : ''
-                        }`
-                      : undefined
-                  }
-                  tone={spaceShort ? 'warn' : preflight ? 'ok' : undefined}
-                />
+                {preflight?.space.map((item, index) => (
+                  <Metric
+                    key={item.paths.join('|')}
+                    icon={<HardDrive size={12} strokeWidth={2} />}
+                    label={
+                      item.paths.length > 1 ? '缓存与原库卷' : index === 0 ? '缓存卷' : '原库卷'
+                    }
+                    value={item.freeBytes !== null ? formatBytes(item.freeBytes) : '未知'}
+                    hint={`需预留约 ${formatBytes(item.requiredBytes)}`}
+                    tone={
+                      item.freeBytes === null
+                        ? undefined
+                        : item.freeBytes < item.requiredBytes
+                          ? 'warn'
+                          : 'ok'
+                    }
+                  />
+                ))}
                 <Metric
                   icon={<Waves size={12} strokeWidth={2} />}
                   label="预写日志"
@@ -1775,6 +1801,31 @@ export function DbRepairPanel({
                   }
                   tone={preflight && preflight.pendingWalBytes > 0 ? 'warn' : undefined}
                 />
+              </div>
+
+              <div className="weq-rp-cache-location">
+                <span>修复缓存</span>
+                <code>{cacheLocation.data?.override ?? preflight?.cachePath ?? '默认位置'}</code>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-sm"
+                  title="选择修复缓存位置"
+                  aria-label="选择修复缓存位置"
+                  disabled={busy !== null || changingCache}
+                  onClick={() => void changeCacheLocation(false)}
+                >
+                  <FolderOpen size={14} aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-sm"
+                  title="恢复默认修复缓存位置"
+                  aria-label="恢复默认修复缓存位置"
+                  disabled={busy !== null || changingCache || !cacheLocation.data?.override}
+                  onClick={() => void changeCacheLocation(true)}
+                >
+                  <RotateCcw size={14} aria-hidden />
+                </button>
               </div>
 
               {/* QQ 在线检查：在线就先结束它，否则会读出撕裂的页。 */}
@@ -1816,12 +1867,14 @@ export function DbRepairPanel({
               {readiness && readiness.tone !== 'ok' && !qqOnline ? (
                 <Note tone={readiness.tone}>{readiness.short}</Note>
               ) : null}
-              {spaceShort && preflight && preflight.freeBytes !== null ? (
-                <Note tone="warn">
-                  空间不够：需要约 {formatBytes(preflight.requiredBytes)}，只有{' '}
-                  {formatBytes(preflight.freeBytes)}。
-                </Note>
-              ) : null}
+              {preflight?.space
+                .filter((item) => item.freeBytes !== null && item.freeBytes < item.requiredBytes)
+                .map((item) => (
+                  <Note key={item.paths.join('|')} tone="warn">
+                    {item.paths.join('、')}：需预留约 {formatBytes(item.requiredBytes)}，当前可用{' '}
+                    {formatBytes(item.freeBytes)}。
+                  </Note>
+                ))}
               {notice ? (
                 <Note tone="warn" icon={<AlertTriangle size={14} strokeWidth={2} />}>
                   {notice}

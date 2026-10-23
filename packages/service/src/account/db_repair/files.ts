@@ -9,6 +9,8 @@
 import { createHash } from 'node:crypto';
 import {
   closeSync,
+  constants,
+  copyFileSync,
   existsSync,
   mkdirSync,
   openSync,
@@ -54,26 +56,58 @@ export function hashFileSync(path: string): FileFingerprint {
  * 把 `src` 拷贝到 `dest`（懒建父目录），同时算出源文件的 sha256。
  * 返回的指纹描述的是**源文件**（备份场景下就是修复前那一份）。
  */
-export function copyFileAndHashSync(src: string, dest: string): FileFingerprint {
+export function copyFileAndHashSync(src: string, dest: string, exclusive = false): FileFingerprint {
   mkdirSync(dirname(dest), { recursive: true });
   const inFd = openSync(src, 'r');
-  const outFd = openSync(dest, 'w');
+  let outFd: number | null = null;
   const hash = createHash('sha256');
   const buffer = Buffer.allocUnsafe(CHUNK_BYTES);
   let bytes = 0;
   try {
+    outFd = openSync(dest, exclusive ? 'wx' : 'w');
     for (;;) {
       const read = readSync(inFd, buffer, 0, CHUNK_BYTES, null);
       if (read <= 0) break;
-      writeSync(outFd, buffer, 0, read);
+      let offset = 0;
+      while (offset < read) {
+        const written = writeSync(outFd, buffer, offset, read - offset);
+        if (written <= 0) throw new Error('备份写入未取得进展');
+        offset += written;
+      }
       hash.update(buffer.subarray(0, read));
       bytes += read;
     }
+  } catch (error) {
+    if (outFd !== null && exclusive) {
+      closeSync(outFd);
+      outFd = null;
+      removeQuietly(dest);
+    }
+    throw error;
   } finally {
     closeSync(inFd);
-    closeSync(outFd);
+    if (outFd !== null) closeSync(outFd);
   }
   return { bytes, sha256: hash.digest('hex') };
+}
+
+/** 优先独立 CoW 克隆，不支持时退回分块复制；绝不使用会联动原库的硬链接。 */
+export function backupFileAndHashSync(src: string, dest: string): FileFingerprint {
+  mkdirSync(dirname(dest), { recursive: true });
+  try {
+    copyFileSync(src, dest, constants.COPYFILE_FICLONE_FORCE | constants.COPYFILE_EXCL);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (!code || !['ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV', 'EINVAL'].includes(code))
+      throw error;
+    return copyFileAndHashSync(src, dest, true);
+  }
+  try {
+    return hashFileSync(dest);
+  } catch (error) {
+    removeQuietly(dest);
+    throw error;
+  }
 }
 
 /** 文件字节数；不存在或读不了返回 `null`（界面展示用，不该因此报错）。 */

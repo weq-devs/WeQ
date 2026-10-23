@@ -7,6 +7,8 @@ export interface StorageRoot {
   /** 宿主明确拥有的运行数据；安装资源不得开启。 */
   clearableAfterExit?: boolean;
   protected?: boolean;
+  /** 独立业务根的损失说明，不能用通用运行缓存话术代替。 */
+  confirmation?: string;
 }
 
 export interface StorageUsageItem {
@@ -239,7 +241,10 @@ export async function listStorageUsage(
             ? '退出应用后清除；文件无法保证恢复'
             : '应用安装资源，请通过系统卸载管理',
           ...(root.clearableAfterExit
-            ? { confirmation: '此项是应用运行文件，删除后可能需要重新登录或下载。' }
+            ? {
+                confirmation:
+                  root.confirmation ?? '此项是应用运行文件，删除后可能需要重新登录或下载。',
+              }
             : {}),
           incomplete: false,
         });
@@ -337,7 +342,7 @@ export async function listStorageUsage(
         incomplete: size.incomplete,
         ...(safeCache && name === 'dress_shared' ? { cleanupKind: 'dress-shared' as const } : {}),
         ...(persistent && previews ? { cleanupKind: 'dress-data' as const } : {}),
-        ...(persistent ? { confirmation: dataRisk(name) } : {}),
+        ...(persistent ? { confirmation: root.confirmation ?? dataRisk(name) } : {}),
         ...(safeCache && name === 'dress_shared'
           ? {
               confirmation:

@@ -13,6 +13,7 @@
  * 无上限增长迟早吃掉用户磁盘。
  */
 
+import { existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { JsonStore } from '../../common/json_store';
 import { fileBytes, removeDirQuietly } from './files';
@@ -58,7 +59,9 @@ export class DbRepairHistory {
 
   /** 全部记录，**最新在前**。 */
   list(): DbRepairRecord[] {
-    return [...this.store.data.records].sort((left, right) => right.at.localeCompare(left.at));
+    return [...this.store.data.records]
+      .reverse()
+      .sort((left, right) => right.at.localeCompare(left.at));
   }
 
   find(id: string): DbRepairRecord | undefined {
@@ -107,14 +110,15 @@ export class DbRepairHistory {
    */
   pruneBackups(keep: number = DEFAULT_BACKUP_KEEP): string[] {
     if (keep < 0) return [];
-    const withBackup = this.store.data.records
-      .filter((record) => record.backupPath !== null && record.purgedAt === undefined)
-      .sort((left, right) => right.at.localeCompare(left.at));
+    const withBackup = this.list().filter(
+      (record) => record.backupPath !== null && record.purgedAt === undefined,
+    );
 
     const purged: string[] = [];
     for (const record of withBackup.slice(keep)) {
       const backupPath = record.backupPath;
       if (backupPath) removeDirQuietly(dirname(backupPath));
+      if (backupPath && existsSync(backupPath)) continue;
       const index = this.store.data.records.findIndex((item) => item.id === record.id);
       if (index >= 0) {
         this.store.data.records[index] = {

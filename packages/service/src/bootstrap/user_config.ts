@@ -792,6 +792,7 @@ export interface UserConfig {
   tencentFilesRootOverride?: string | null;
   settings?: DeepPartial<AppSettings>;
   cacheDirOverride?: string | null;
+  dbRepairCacheDir?: string | null;
   welcomeAcknowledged?: boolean;
   /**
    * 已经确认过的「首次运行欢迎框」策略版本（缺省 = 1，见
@@ -1626,9 +1627,29 @@ export class UserConfigService {
     });
   }
 
+  getDbRepairCacheDir(): string | null {
+    return this.read().dbRepairCacheDir?.trim() || null;
+  }
+
+  setDbRepairCacheDir(dir: string | null): void {
+    this.write({ dbRepairCacheDir: dir?.trim() || null });
+  }
+
   /** 统计应用数据、当前及默认缓存、宿主运行目录；不扫描 QQ 原始数据或用户导出目录。 */
   async listStorageUsage(extraRoots: readonly StorageRoot[] = []): Promise<StorageUsageItem[]> {
-    return listStorageUsage(this.root, this.cacheBaseDir(), extraRoots);
+    const scratch = this.getDbRepairCacheDir();
+    const repairRoots: StorageRoot[] = scratch
+      ? [
+          {
+            path: join(scratch, 'db_repair'),
+            label: '自定义数据库修复缓存',
+            clearableAfterExit: true,
+            confirmation:
+              '将删除修复备份与临时工作文件，失去对应记录的回滚能力；不会删除 QQ 原始数据库。',
+          },
+        ]
+      : [];
+    return listStorageUsage(this.root, this.cacheBaseDir(), [...extraRoots, ...repairRoots]);
   }
 
   /** 兼容旧客户端，仍只返回可清理项。 */
