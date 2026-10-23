@@ -1984,7 +1984,10 @@ export function initAppContext(fileRoot?: string): AppContext {
           // 同步比首屏那次 getState 晚几秒，不推前端会一直显示旧清单。
           emitDressChanged();
         },
-        () => mail.credentialsAvailable(),
+        () => {
+          accountEventBus.emit('onlineCredentialsReady', { at: Date.now() });
+          mail.credentialsAvailable();
+        },
       );
       accountMonitor.start();
       logger.info('opened account session', {
@@ -2688,7 +2691,10 @@ export function initAppContext(fileRoot?: string): AppContext {
         () => userConfig.getSettings().autoAttachQq,
         bootstrap.attachHook,
         undefined,
-        () => mail.credentialsAvailable(),
+        () => {
+          accountEventBus.emit('onlineCredentialsReady', { at: Date.now() });
+          mail.credentialsAvailable();
+        },
       );
       accountMonitor.start();
 

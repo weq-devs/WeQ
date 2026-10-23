@@ -41,6 +41,7 @@ import {
   getAppContext,
   closeSalvageConnections,
   dbEventBus,
+  accountEventBus,
   type AccountServices,
   type RoamingCacheChange,
 } from '../../context/app_context';
@@ -4689,6 +4690,20 @@ export const accountRouter = router({
   /** Live prerequisites for group album list/media/export. */
   getGroupAlbumAccessState: procedure.query(() => {
     return albumAccessState();
+  }),
+
+  /** 凭据登记完成后立即重查能力；不等待 rkey 等网络请求或前端轮询。 */
+  onOnlineCredentialsReady: procedure.subscription(() => {
+    const services = requireServices();
+    return observable<{ at: number }>((emit) => {
+      const handler = (event: { at: number }): void => {
+        if (getAppContext().services === services) emit.next(event);
+      };
+      accountEventBus.on('onlineCredentialsReady', handler);
+      // 覆盖凭据在订阅建立前已就绪、或 Web 重连期间错过通知的情况。
+      handler({ at: Date.now() });
+      return () => accountEventBus.off('onlineCredentialsReady', handler);
+    });
   }),
 
   /**

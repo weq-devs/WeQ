@@ -144,6 +144,17 @@ export function RestrictedModeHost() {
   const titleId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const utils = trpc.useUtils();
+  useEffect(() => {
+    if (!active) return;
+    const subscription = client.account.onOnlineCredentialsReady.subscribe(undefined, {
+      onData: () => {
+        // 刷新共享查询，让发送按钮等在线入口与受限提示一起恢复。
+        void utils.account.getGroupAlbumAccessState.invalidate();
+      },
+    });
+    return () => subscription.unsubscribe();
+  }, [active, uin, utils]);
   const access = trpc.account.getGroupAlbumAccessState.useQuery(undefined, {
     enabled: active,
     refetchInterval: 5000,
