@@ -1,8 +1,8 @@
 /**
  * 「修复完成，N 秒后回到首页」的浮动提示。
  *
- * 挂载在 `App`，与 BootstrapView / MainView 同层级（**不是**维护与诊断工具弹窗里），所以关掉
- * 弹窗、切回首页都不会把它弄丢 —— 理由见 `state/dbRepairReturn.ts`。
+ * 由 App 里的 DbRepairWindowHost 常驻管理，只把提示 portal 到当前修复窗口；
+ * 关闭修复窗口后移回主窗口，同一个倒计时与返回守卫不会重新挂载。
  *
  * 为什么非要回首页：修复在替换库文件前会先 `clearAccount()`（Windows 上 `rename` 会被
  * 占用挡住；Linux 上旧 inode 还在被读）。那一刻起主进程里账号已经关了，而渲染层还停在
@@ -11,13 +11,18 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import { DB_REPAIR_RETURN_SECONDS, useDbRepairReturn } from '../state/dbRepairReturn';
 import { leaveAccountForBootstrap } from '../lib/leaveAccount';
 import { useToast } from './Toast';
 
-export function DbRepairReturnOverlay(): ReactElement | null {
+export function DbRepairReturnOverlay({
+  ownerDocument = document,
+}: {
+  ownerDocument?: Document;
+}): ReactElement | null {
   const pending = useDbRepairReturn((s) => s.pending);
   const disarm = useDbRepairReturn((s) => s.disarm);
   const pushToast = useToast((s) => s.push);
@@ -79,7 +84,7 @@ export function DbRepairReturnOverlay(): ReactElement | null {
 
   if (!pending) return null;
 
-  return (
+  return createPortal(
     <div
       className={`weq-rp-return${pending.tone === 'warn' ? ' is-warn' : ''}`}
       role="status"
@@ -109,6 +114,7 @@ export function DbRepairReturnOverlay(): ReactElement | null {
       >
         立即返回
       </button>
-    </div>
+    </div>,
+    ownerDocument.body,
   );
 }

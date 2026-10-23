@@ -2024,8 +2024,7 @@ export function DbRepairPanel({
                     <em>{outcome.detail}</em>
                     {outcome.closedAccount ? (
                       <em className="is-warn">
-                        这个账号在替换前被关掉了：倒计时结束后会自动回启动页，也可以点上面的「立即
-                        返回」自己重新打开它。
+                        这个账号在替换前已关闭。请通过顶部提示中的「立即返回」或等待倒计时回到启动页，再重新打开账号。
                       </em>
                     ) : null}
                   </span>
