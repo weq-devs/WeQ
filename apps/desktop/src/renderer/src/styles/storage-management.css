@@ -42,6 +42,14 @@
   margin-left: auto;
 }
 
+.weq-storage-result {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .weq-storage-settings .weq-set-btn {
   flex: none;
   white-space: nowrap;

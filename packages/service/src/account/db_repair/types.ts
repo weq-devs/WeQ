@@ -174,6 +174,10 @@ export type DbRepairReadiness =
 
 /** 开修前的检查结果（只读，不落盘）。 */
 export interface DbRepairPreflight extends DbRepairTarget {
+  /** 实际缓存与原库各卷预算，同卷按阶段峰值合并。 */
+  space: import('./space').RepairSpaceBudget[];
+  cachePath: string;
+  storageOptimized: boolean;
   readiness: DbRepairReadiness;
   /** 全部持有者（探测失败时为空数组）。 */
   holders: DbRepairLockHolder[];
@@ -187,8 +191,10 @@ export interface DbRepairPreflight extends DbRepairTarget {
   dbBytes: number;
   /** 源库所在分区的可用空间；探测不到为 `null`（不阻断）。 */
   freeBytes: number | null;
-  /** 本次修复需要的空间估算：明文中间件 + 产物 + 备份 ≈ 3× 源库。 */
+  /** 各卷预计新增峰值之和，包含 WAL 增长；具体判断以 space 为准。 */
   requiredBytes: number;
+  /** 含建议余量的各卷估算之和，不作为不可绕过的硬门槛。 */
+  recommendedBytes: number;
   /** 账号配置里有 key。 */
   keyPresent: boolean;
   /** 已有备份份数（超过保留上限会淘汰最旧那份）。 */

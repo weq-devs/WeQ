@@ -79,7 +79,7 @@
  */
 
 import type { FontFx, ResolvedWidget } from '@weq/service';
-import { decorationImageCache } from './decodedImageCache';
+import { decorationImageCache, type PinOwner } from './decodedImageCache';
 import {
   dressBubbleUrl,
   dressBubbleFrameUrl,
@@ -862,6 +862,34 @@ function preloadImage(url: string): Promise<void> {
   return decorationImageCache.preload(url);
 }
 
+/**
+ * 当前生效装扮的帧持有凭据。
+ *
+ * 与逐条消息装扮（msgDecorationStyle）不同,生效装扮是**可换的** —— 换款时旧款的
+ * `@keyframes` 会被整份重写掉,所以旧的帧也该回到 LRU;这份凭据在每次
+ * {@link applyDressSkin} 重写样式前归还。
+ */
+let appliedPin: PinOwner | null = null;
+
+/**
+ * 生效装扮正在播的全部帧 url(气泡帧 + 炫彩帧 + 挂件帧)。
+ *
+ * 这条路径的首屏注入是同步的({@link syncDressSkin}),没有「等解码再开播」的门控,
+ * 所以帧必须在注入当下就钉住 —— 否则首屏几十条消息各自挂着同一款挂件时,LRU 会
+ * 为了给别的预热腾位置把这批帧摘掉,正在播的动画就退回逐帧重解码。
+ */
+function appliedFrameUrls(
+  bubble: BubbleSkinCss | null,
+  font: FontSkinCss | null,
+  widget: ResolvedWidget | null,
+): string[] {
+  return [
+    ...bubbleFrameUrls(bubble),
+    ...fontFxFrameUrls(toFontFxSkin(font)),
+    ...widgetFrameUrls(widget),
+  ];
+}
+
 /** 已注册进 document.fonts 的那个 face。换字体时要先撤掉,否则会越积越多。 */
 let registeredFace: FontFace | null = null;
 
@@ -938,6 +966,9 @@ export function applyDressSkin(
 
   if (!bubble && !font && !widget) {
     existing?.remove();
+    // 装扮全清了,在播的帧也要放回 LRU,否则旧款的帧会一直被钉着。
+    appliedPin?.release();
+    appliedPin = null;
     return;
   }
 
@@ -957,6 +988,13 @@ export function applyDressSkin(
   // 内容没变就别写 —— 赋值 textContent 会让浏览器重算整张样式表,而
   // getState 的每次 invalidate 都会走到这里(清单对象换了引用但内容常常一样)。
   if (node.textContent !== css) node.textContent = css;
+
+  // 换款/换作用范围都是整份重写,旧款的 `@keyframes` 已经不在样式表里了,旧的帧也
+  // 该放回 LRU。**先钉新的再放旧的**:同款重注入(每次 invalidate 都会走到这里)
+  // 反过来的话会先掉到 0 pin、被淘汰,再重新下载解码。
+  const nextPin = decorationImageCache.pin(appliedFrameUrls(bubble, font, widget));
+  appliedPin?.release();
+  appliedPin = nextPin;
 }
 
 /**
@@ -975,20 +1013,30 @@ export async function applyDressSkinPreloaded(
   widget: ResolvedWidget | null,
   scope: DressScope = 'mine',
 ): Promise<void> {
-  await Promise.all(
+  // 先把这批帧钉住再等解码:不然在这段 await 期间,别的预热(浏览装扮列表、
+  // 其他会话的逐条装扮)可能刚好把它们挤出 LRU —— 等我们注入时又得重新解码,
+  // 用户看到的就是「切换装扮后先闪一下」。
+  const frameUrls = appliedFrameUrls(bubble, font, widget);
+  const hold = decorationImageCache.pin(frameUrls);
+
+  await Promise.allSettled(
     [
       // 底图 + 动效叠加层的每一帧都要先解码,否则开播第一圈会逐帧闪光。
       // 底图与帧图都是本地 protocol 文件,基本秒达。
       bubble ? preloadImage(bubbleImageUrl(bubble)) : null,
-      ...bubbleFrameUrls(bubble).map((url) => preloadImage(url)),
+      // 帧是**开播前置条件**,走必须真排队的 require(见 decodedImageCache 的模块头)。
+      ...bubbleFrameUrls(bubble).map((url) => decorationImageCache.require(url)),
       font ? preloadFont(font) : null,
       // 炫彩帧同样要预先解码(帧多、播放短,第一圈逐帧解码就是可见的闪)。
-      ...fontFxFrameUrls(toFontFxSkin(font)).map((url) => preloadImage(url)),
+      ...fontFxFrameUrls(toFontFxSkin(font)).map((url) => decorationImageCache.require(url)),
       // 挂件帧是本地 protocol 文件,首帧以后基本秒达;但首帧没解码就开播仍然会闪,
       // 所以逐帧预加载完再注入(与 msgDecorationStyle 的 preloadImages 同思路)。
-      ...widgetFrameUrls(widget).map((url) => preloadImage(url)),
+      ...widgetFrameUrls(widget).map((url) => decorationImageCache.require(url)),
     ].filter(Boolean),
   );
 
+  // applyDressSkin 会自己钉一份并释放上一份;这里在它之后再放掉临时持有,中间没有
+  // await,不会出现「两份都松手」的窗口。
   applyDressSkin(bubble, font, widget, scope);
+  hold.release();
 }

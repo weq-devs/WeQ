@@ -2,11 +2,13 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { StorageUsageItem } from '@weq/service';
 import { GlobalSettingsSection } from '../src/renderer/src/components/settings/GlobalSettingsSection';
 
 const fixture = vi.hoisted(() => ({
-  confirm: vi.fn(async () => true),
+  confirm: vi.fn(async (_title: string, _body: string, _options: unknown) => true),
   clear: vi.fn(async () => ({ freedBytes: 1024, cleared: ['avatar'], failed: [] })),
+  exitClear: vi.fn(async () => ({ scheduled: true })),
   refetch: vi.fn(),
   items: [
     {
@@ -27,7 +29,7 @@ const fixture = vi.hoisted(() => ({
       reason: '持久数据',
       incomplete: false,
     },
-  ],
+  ] as StorageUsageItem[],
 }));
 
 vi.mock('../src/renderer/src/trpc/client', () => {
@@ -42,7 +44,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               isFetching: false,
             })
           : key === 'useMutation'
-            ? () => ({ mutateAsync: fixture.clear, isLoading: false })
+            ? () => ({
+                mutateAsync: path.at(-1) === 'clearStorageData' ? fixture.exitClear : fixture.clear,
+                isLoading: false,
+              })
             : proxy([...path, String(key)]),
     });
   return { trpc: proxy() };
@@ -61,6 +66,81 @@ afterEach(() => {
 });
 
 describe('WeQ 存储管理页面', () => {
+  it('风险数据不参与默认清理，明确选择后提示不可恢复并走退出清除接口', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const originalLength = fixture.items.length;
+    fixture.items.push({
+      ...fixture.items[0],
+      id: 'db_repair',
+      label: '数据库修复工作区',
+      path: '/synthetic/cache/db_repair',
+      requiresExit: true,
+      confirmation: '将删除修复备份，失去回滚能力，无法自动恢复。',
+    });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+        (item) => item.textContent === '清理缓存',
+      )!;
+      await act(async () => button.click());
+      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'] });
+      expect(fixture.exitClear).not.toHaveBeenCalled();
+      const checkbox = host.querySelector<HTMLInputElement>(
+        'input[aria-label="数据库修复工作区"]',
+      )!;
+      expect(checkbox.checked).toBe(false);
+      act(() => checkbox.closest('label')!.click());
+      fixture.confirm.mockResolvedValueOnce(false);
+      await act(async () => button.click());
+      expect(fixture.exitClear).not.toHaveBeenCalled();
+      expect(fixture.confirm.mock.calls.at(-1)?.[1]).toContain('失去回滚能力');
+      await act(async () => button.click());
+      expect(fixture.exitClear).toHaveBeenCalledWith({ ids: ['db_repair'], acknowledgeRisk: true });
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      fixture.items.splice(originalLength);
+    }
+  });
+
+  it('新增装扮项可单独选择，确认告知装扮影响，取消不清理', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const originalLength = fixture.items.length;
+    fixture.items.push({
+      ...fixture.items[0],
+      id: 'dress_shared',
+      label: '共享装扮资源缓存',
+      path: '/synthetic/cache/dress_shared',
+      confirmation: '共享装扮资源清理后需要重新进入账号，装扮设置不会删除。',
+    });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      act(() => host.querySelector<HTMLElement>('[data-weq-select-id="dress_shared"]')!.click());
+      const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+        (item) => item.textContent === '清理所选',
+      )!;
+      fixture.confirm.mockResolvedValueOnce(false);
+      await act(async () => button.click());
+      expect(fixture.clear).not.toHaveBeenCalled();
+      expect(fixture.confirm.mock.calls[0][1]).toContain('重新进入账号');
+      expect(fixture.confirm.mock.calls[0][1]).toContain('装扮设置不会删除');
+      await act(async () => button.click());
+      expect(fixture.clear).toHaveBeenCalledWith({ ids: ['dress_shared'] });
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      fixture.items.splice(originalLength);
+    }
+  });
+
   it('只读项目没有复选框、不参与全选和清理请求', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());

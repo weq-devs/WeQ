@@ -487,7 +487,12 @@ export async function scanConvMedia(
       fileTtlSec,
       {
         senderUin: m.senderUin.toString(),
-        peerUin: 'targetGroupCode' in m ? m.targetGroupCode : m.targetUin.toString(),
+        peerUin:
+          'targetGroupCode' in m
+            ? m.targetGroupCode
+            : m.targetUin > 0n
+              ? m.targetUin.toString()
+              : '',
         isGroup: kind === 'group',
       },
     );

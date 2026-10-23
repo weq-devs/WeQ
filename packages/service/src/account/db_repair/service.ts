@@ -23,6 +23,7 @@
  * * **不承诺零丢失**：只给对账口径（见 `report.ts`）。
  */
 
+import { randomUUID } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { DatabaseAlgorithms } from '@weq/native';
@@ -30,6 +31,7 @@ import { writeFileAtomicSync } from '../../common/atomic_write';
 import { getHost } from '../../common/host';
 import { getLogger } from '../../common/logger';
 import {
+  backupFileAndHashSync,
   copyFileAndHashSync,
   fileBytes,
   freeBytesAt,
@@ -52,6 +54,7 @@ import {
   type DbRepairPaths,
 } from './paths';
 import { renderDbRepairReportMarkdown } from './report';
+import { repairSpaceBudget, type RepairDiskSpace } from './space';
 import type {
   DbRepairLockHolder,
   DbRepairPreflight,
@@ -77,6 +80,8 @@ export type DbRepairErrorCode =
   | 'blocked'
   /** 磁盘空间不够。 */
   | 'insufficient-space'
+  /** 预计峰值足够，但未确认接受建议余量不足。 */
+  | 'space-margin'
   /** 已有修复任务在进行。 */
   | 'busy'
   /** 修复期间源库被改动 —— 可重试（建议先关账号）。 */
@@ -122,6 +127,10 @@ export interface DbRepairAccountInfo {
 export interface DbRepairDeps {
   /** 缓存根（`userConfig.cacheDir` 的绑定）——记录 / 备份 / 报告都放它下面。 */
   cacheDir(...segments: string[]): string;
+  /** 仅重定向备份和明文临时件，历史索引与报告保持原位。 */
+  scratchDir?(): string | null;
+  storageOptimized?(): boolean;
+  diskSpace?(path: string): RepairDiskSpace;
   /** 由 uin 解析账号的库目录与密钥；解析不了（没配置）返回 `null`。 */
   resolveAccount(uin: string): DbRepairAccountInfo | null;
   /** native 修复（`recoverDatabase` 的适配）。 */
@@ -181,6 +190,8 @@ export interface DbRepairRequest {
   dbName: string;
   /** 是否先备份（默认 `true`）：没有备份就没有"后悔"。 */
   backup?: boolean;
+  /** 仅接受建议余量不足；不能绕过预计峰值不足，也不影响备份与自检。 */
+  allowLowSpace?: boolean;
   /** 严格页模式：坏页先清零，内容一定经过校验，代价是那些行明确丢失。 */
   strictPages?: boolean;
   /** 是否从 freelist 捞已删除的记录（默认 `false`；打开会"复活"已删除消息）。 */
@@ -229,7 +240,12 @@ export class DbRepairService {
   /** 该账号的修复根目录与路径碎片（路径来自 `resolveAccount`，不来自渲染层）。 */
   paths(uin: string): DbRepairPaths {
     const info = this.accountInfo(uin);
-    return dbRepairPaths(dbRepairRoot(this.deps.cacheDir, uin, info.dataDir));
+    const root = dbRepairRoot(this.deps.cacheDir, uin, info.dataDir);
+    const scratch = this.deps.scratchDir?.();
+    return dbRepairPaths(
+      root,
+      scratch ? dbRepairRoot((...parts) => join(scratch, ...parts), uin, info.dataDir) : root,
+    );
   }
 
   history(uin: string): DbRepairHistory {
@@ -305,10 +321,23 @@ export class DbRepairService {
    * `unknown-lock` 不阻断（探测失败 ≠ 没锁）：真正的把关在替换前那道复核。
    * `self-hold`（只有 WeQ 自己拿着句柄）同样不阻断 —— 见 {@link classifyLock}。
    */
-  preflight(uin: string, dbName: string): DbRepairPreflight {
+  preflight(uin: string, dbName: string, backup = true): DbRepairPreflight {
+    this.assertScratchAvailable();
     const target = this.resolveTarget(uin, dbName);
     const lock = this.classifyLock(target.dbPath, uin);
     const dbBytes = fileBytes(target.dbPath) ?? 0;
+    const paths = this.paths(uin);
+    const walBytes = pendingWalBytes(target.dbPath);
+    const storageOptimized = this.deps.storageOptimized?.() === true;
+    const space = repairSpaceBudget({
+      sourceDir: target.dbDir,
+      cacheDir: dirname(paths.workDir),
+      dbBytes,
+      walBytes,
+      backup,
+      optimized: storageOptimized,
+      probe: this.deps.diskSpace,
+    });
     return {
       ...target,
       readiness: lock.readiness,
@@ -317,9 +346,12 @@ export class DbRepairService {
       selfHolders: lock.selfHolders,
       otherHolders: lock.otherHolders,
       dbBytes,
+      space,
+      cachePath: dirname(paths.workDir),
+      storageOptimized,
       freeBytes: freeBytesAt(target.dbDir),
-      // 明文中间件 + 产物 + 备份，各约一个库大小。
-      requiredBytes: dbBytes * 3,
+      requiredBytes: space.reduce((sum, item) => sum + item.requiredBytes, 0),
+      recommendedBytes: space.reduce((sum, item) => sum + item.recommendedBytes, 0),
       keyPresent: target.key !== '',
       backupsKept: this.countBackups(uin),
       pendingWalBytes: pendingWalBytes(target.dbPath),
@@ -328,8 +360,10 @@ export class DbRepairService {
 
   /** 手动备份（界面上独立的"立即备份"按钮）。 */
   backup(uin: string, dbName: string, stamp?: string): DbRepairBackupResult {
+    if (this.running) throw new DbRepairError('busy', '已有修复或回滚在进行，请等待完成');
+    this.assertScratchAvailable();
     const target = this.resolveTarget(uin, dbName);
-    return this.writeBackup(target, this.paths(uin), stamp ?? makeStamp(this.now()));
+    return this.writeBackup(target, this.paths(uin), stamp ?? this.operationStamp());
   }
 
   /**
@@ -351,11 +385,23 @@ export class DbRepairService {
 
     const { uin } = request;
     const target = this.resolveTarget(uin, request.dbName);
-    const preflight = this.preflight(uin, request.dbName);
-    if (preflight.freeBytes !== null && preflight.freeBytes < preflight.requiredBytes) {
+    const preflight = this.preflight(uin, request.dbName, request.backup !== false);
+    const shortage = preflight.space.find(
+      (item) => item.freeBytes !== null && item.freeBytes < item.requiredBytes,
+    );
+    if (shortage) {
       throw new DbRepairError(
         'insufficient-space',
-        `磁盘空间不足：需要约 ${formatMb(preflight.requiredBytes)}，当前可用 ${formatMb(preflight.freeBytes)}`,
+        `磁盘空间不足（${shortage.paths.join('、')}）：预计新增峰值约 ${formatMb(shortage.requiredBytes)}，当前可用 ${formatMb(shortage.freeBytes!)}`,
+      );
+    }
+    const margin = preflight.space.find(
+      (item) => item.freeBytes !== null && item.freeBytes < item.recommendedBytes,
+    );
+    if (margin && request.allowLowSpace !== true) {
+      throw new DbRepairError(
+        'space-margin',
+        `磁盘建议余量不足（${margin.paths.join('、')}）：预计新增峰值约 ${formatMb(margin.requiredBytes)}，建议预留 ${formatMb(margin.recommendedBytes)}，当前可用 ${formatMb(margin.freeBytes!)}。可在修复确认中明确接受风险后继续。`,
       );
     }
     if (preflight.readiness === 'blocked-by-qq') {
@@ -373,7 +419,7 @@ export class DbRepairService {
 
     const paths = this.paths(uin);
     const history = this.history(uin);
-    const stamp = makeStamp(this.now());
+    const stamp = this.operationStamp();
     const product = productTempPath(target.dbDir, target.dbName, stamp);
     const startedAt = this.now().toISOString();
     const startMs = Date.now();
@@ -397,6 +443,7 @@ export class DbRepairService {
       dbPath: target.dbPath,
       strictPages: request.strictPages ?? false,
       backup: request.backup !== false,
+      allowLowSpace: request.allowLowSpace === true,
       layoutMigration: request.layoutMigration === true,
     });
 
@@ -578,6 +625,7 @@ export class DbRepairService {
         code: classified.code,
         error: classified.message,
       });
+      history.pruneBackups(this.deps.keepBackups ?? DEFAULT_BACKUP_KEEP);
       if (error instanceof DbRepairError) throw error;
       throw new DbRepairError(classified.code, classified.message);
     } finally {
@@ -645,7 +693,7 @@ export class DbRepairService {
       );
     }
 
-    const stamp = makeStamp(this.now());
+    const stamp = this.operationStamp();
     this.running = { dbPath: record.dbPath, startedAt: this.now().toISOString() };
     try {
       this.deps.releaseHandles?.(uin, record.dbPath);
@@ -760,24 +808,44 @@ export class DbRepairService {
     stamp: string,
   ): DbRepairBackupResult {
     const dest = paths.backupFile(stamp, target.dbName);
-    const fingerprint = copyFileAndHashSync(target.dbPath, dest);
-    writeFileAtomicSync(
-      paths.backupMetaFile(stamp),
-      `${JSON.stringify(
-        {
-          at: this.now().toISOString(),
-          uin: target.uin,
-          dataDir: target.dataDir,
-          dbName: target.dbName,
-          source: target.dbPath,
-          bytes: fingerprint.bytes,
-          sha256: fingerprint.sha256,
-        },
-        null,
-        2,
-      )}\n`,
-    );
+    const fingerprint = backupFileAndHashSync(target.dbPath, dest);
+    try {
+      writeFileAtomicSync(
+        paths.backupMetaFile(stamp),
+        `${JSON.stringify(
+          {
+            at: this.now().toISOString(),
+            uin: target.uin,
+            dataDir: target.dataDir,
+            dbName: target.dbName,
+            source: target.dbPath,
+            bytes: fingerprint.bytes,
+            sha256: fingerprint.sha256,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    } catch (error) {
+      // dest 由本次排他创建，元数据失败时不留下无法追踪的大文件。
+      removeQuietly(dest);
+      throw error;
+    }
     return { path: dest, bytes: fingerprint.bytes, sha256: fingerprint.sha256 };
+  }
+
+  private assertScratchAvailable(): void {
+    const scratch = this.deps.scratchDir?.();
+    if (scratch && !isDirectory(scratch)) {
+      throw new DbRepairError(
+        'not-found',
+        '自定义修复缓存目录不可用，请重新选择；不会创建替代目录',
+      );
+    }
+  }
+
+  private operationStamp(): string {
+    return `${makeStamp(this.now())}-${randomUUID()}`;
   }
 
   /** 把备份装回原位（先写同目录临时文件再 `rename`，失败不会毁掉当前文件）。 */
@@ -1017,6 +1085,14 @@ function isPlainDatabaseName(dbName: string): boolean {
 function isRegularFile(path: string): boolean {
   try {
     return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
   } catch {
     return false;
   }

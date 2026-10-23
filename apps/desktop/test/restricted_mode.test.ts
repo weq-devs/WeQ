@@ -25,10 +25,23 @@ const mock = vi.hoisted(() => ({
   refetch: vi.fn(async () => ({})),
   send: vi.fn(),
   listeners: new Map<string, (...args: unknown[]) => void>(),
+  credentialsReady: undefined as undefined | (() => void),
+  unsubscribe: vi.fn(),
+  invalidateAccess: vi.fn(async () => {}),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  client: {},
+  client: {
+    account: {
+      onOnlineCredentialsReady: {
+        subscribe: (_input: undefined, handlers: { onData: () => void }) => {
+          mock.credentialsReady = handlers.onData;
+          return { unsubscribe: mock.unsubscribe };
+        },
+      },
+    },
+  },
   trpc: {
+    useUtils: () => utils,
     account: {
       getGroupAlbumAccessState: {
         useQuery: () => ({ data: mock.access, isError: mock.failed, refetch: mock.refetch }),
@@ -42,6 +55,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
 }));
+const utils = { account: { getGroupAlbumAccessState: { invalidate: mock.invalidateAccess } } };
 
 describe('受限原因按实际能力判定', () => {
   it('macOS SIP 开启但凭据可用时不误判；Linux / Windows 无 SIP 原因', () => {
@@ -89,6 +103,9 @@ beforeEach(() => {
   mock.sip = null;
   mock.send.mockClear();
   mock.listeners.clear();
+  mock.credentialsReady = undefined;
+  mock.unsubscribe.mockClear();
+  mock.invalidateAccess.mockReset();
   useViewState.setState({ view: 'main', openedUin: '10001' });
   useRestrictedMode.setState({ reasons: [], requests: [], open: false });
   useToast.setState({ toasts: [], leaving: [], seq: 0 });
@@ -115,6 +132,44 @@ function event(channel: string, payload: unknown) {
 }
 
 describe('非阻塞提权入口', () => {
+  it('提交授权不冒充成功，凭据就绪后立即刷新共享状态并恢复，无需手动刷新', async () => {
+    mock.access = { ...ready, hasD2Key: false };
+    const f = fixture();
+    event('elev:request-password', { token: 41 });
+    event('elev:cancel-password', { token: 41 });
+    expect(f.host.textContent).toContain('受限模式');
+    expect(mock.invalidateAccess).not.toHaveBeenCalled();
+    expect(useToast.getState().toasts.some((t) => t.tone === 'success')).toBe(false);
+    mock.invalidateAccess.mockImplementation(async () => {
+      mock.access = { ...ready };
+      f.render();
+    });
+    await act(async () => mock.credentialsReady?.());
+    expect(mock.invalidateAccess).toHaveBeenCalledOnce();
+    expect(f.host.querySelector('.weq-restricted-indicator')).toBeNull();
+    expect(useToast.getState().toasts.filter((t) => t.tone === 'success')).toHaveLength(1);
+  });
+  it('就绪信号只触发实际状态重查，不掩盖凭据缺失或未结束的授权', async () => {
+    mock.access = { ...ready, hasD2Key: false };
+    const f = fixture();
+    await act(async () => mock.credentialsReady?.());
+    expect(mock.invalidateAccess).toHaveBeenCalledOnce();
+    expect(f.host.textContent).toContain('受限模式');
+    expect(useToast.getState().toasts.some((t) => t.tone === 'success')).toBe(false);
+    event('elev:request-password', { token: 41 });
+    mock.access = { ...ready };
+    f.render();
+    await act(async () => mock.credentialsReady?.());
+    expect(f.host.textContent).toContain('受限模式');
+    expect(useToast.getState().toasts.some((t) => t.tone === 'success')).toBe(false);
+  });
+  it('退出账号时清理就绪订阅，启动页不订阅账号凭据', () => {
+    const f = fixture();
+    expect(mock.credentialsReady).toBeTypeOf('function');
+    act(() => useViewState.setState({ view: 'startup', openedUin: null }));
+    f.render();
+    expect(mock.unsubscribe).toHaveBeenCalledOnce();
+  });
   it.each([undefined, ready])('启动即为完整模式及后续重复检查均不发成功通知：%j', (initial) => {
     mock.access = initial;
     const f = fixture();

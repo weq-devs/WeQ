@@ -11,6 +11,8 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import type { StorageRoot, StorageUsageItem } from '../bootstrap/storage_usage';
+import type { StorageCleanupResult } from '../bootstrap/storage_cleanup';
 
 /** Where a "save as" request should land, plus how to hand it to the user. */
 export interface SaveTarget {
@@ -25,8 +27,10 @@ export interface SaveTarget {
 }
 
 export interface HostBridge {
-  /** 宿主额外拥有的运行目录，仅参与存储统计，不开放直接清理。 */
-  storageRoots?(): Array<{ path: string; label: string }>;
+  /** 宿主额外拥有的目录，显式标记运行数据或受保护的安装资源。 */
+  storageRoots?(): StorageRoot[];
+  clearStorageAfterExit?(targets: StorageUsageItem[]): Promise<void>;
+  storageCleanupResult?(): Promise<StorageCleanupResult | null>;
   /** 仅宿主支持时提供；调用方必须先明确确认重启。 */
   restartApplication?(): Promise<void>;
   /** Web 服务端导出根目录；桌面端由原生目录选择，不设此字段。 */

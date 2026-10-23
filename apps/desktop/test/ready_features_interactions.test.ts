@@ -1,7 +1,11 @@
 import { act, createElement as h, useEffect, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { QzoneFriendPermissions } from '../src/renderer/src/components/qq-actions/QzoneFriendPermissions';
+import { QqAvatar } from '../src/renderer/src/components/QqAvatar';
 import { EditableSelfProfile } from '../src/renderer/src/components/settings/EditableSelfProfile';
 import { GroupAlbumManagement } from '../src/renderer/src/components/qq-actions/GroupAlbumManagement';
 import { QQExactLookup } from '../src/renderer/src/components/QQExactLookup';
@@ -28,12 +32,17 @@ const state = vi.hoisted(() => ({
   writes: vi.fn(async (_name: string, _input: unknown) => ({ state: 'unconfirmed' as const })),
   reads: vi.fn(),
   special: vi.fn(async () => true),
+  confirm: true,
   errors: {} as Record<string, string>,
   commonGroups: [{ groupCode: '123', name: '合成共同群' }],
+  searchFriends: [
+    { uid: 'u_peer', uin: '10002', nick: '合成好友', remark: '好友备注' },
+    { uid: 'u_self', uin: '10001', nick: '自己', remark: '' },
+  ],
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
-  useDialog: () => async () => true,
+  useDialog: () => async () => state.confirm,
 }));
 vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
   OverlayLayer: ({ children }: { children: ReactNode }) => children,
@@ -79,6 +88,13 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     },
     trpc: {
       account: {
+        searchQuick: {
+          useQuery: () => ({
+            data: { friends: state.searchFriends },
+            isFetching: false,
+            error: null,
+          }),
+        },
         getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.config } }) },
         qqActions: {
           qzoneFriendPermissionList: {
@@ -153,7 +169,9 @@ beforeEach(() => {
   useViewState.setState({ openedUin: '10001' });
   state.config = 'source-a';
   state.permissionFailure = false;
+  state.confirm = true;
   state.albumConfirmed = false;
+  state.permissions = { blocked: [], hidden: [] };
   state.errors = {};
   state.commonGroups = [{ groupCode: '123', name: '合成共同群' }];
   state.writes.mockClear();
@@ -187,6 +205,27 @@ function setValue(node: HTMLInputElement | HTMLTextAreaElement, value: string) {
     node.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
+function capturePermissions(host: HTMLElement, name: string) {
+  const output = process.env.WEQ_PERMISSION_LAYOUT_DIR;
+  if (!output) return;
+  mkdirSync(output, { recursive: true });
+  const snapshot = host.cloneNode(true) as HTMLElement;
+  for (const image of snapshot.querySelectorAll('img'))
+    image.outerHTML = renderToStaticMarkup(h(QqAvatar, { size: 24 }));
+  const css = [
+    'index.css',
+    'settings-controls.css',
+    'settings-query.css',
+    'qq-actions.css',
+    'qzone-permissions.css',
+  ]
+    .map((file) => readFileSync(resolve('src/renderer/src/styles', file), 'utf8'))
+    .join('\n');
+  writeFileSync(
+    resolve(output, `${name}.html`),
+    `<!doctype html><html lang="zh-CN" data-theme="light"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}\n*{box-sizing:border-box}body{margin:0;padding:24px;font-family:system-ui;background:var(--weq-bg-surface);color:var(--weq-fg-primary)}main{max-width:680px;margin:auto}</style><body><main class="weq-set">${snapshot.innerHTML}</main></body></html>`,
+  );
+}
 describe('可接入功能交互回归', () => {
   it('空间一个名单失败不阻断另一个开关，失败项不能显示成已关闭', () => {
     state.permissionFailure = true;
@@ -197,6 +236,121 @@ describe('可接入功能交互回归', () => {
     expect(toggles).toHaveLength(2);
     expect(toggles[0]!.disabled).toBe(false);
     expect(toggles[1]!.disabled).toBe(true);
+    expect(f.host.textContent).toContain('合成读取失败');
+  });
+  it('空间名单使用头像与昵称排列，不再逐人显示开关；移除只更新对应名单', async () => {
+    state.permissions.blocked = [{ uin: '10002', name: '合成好友' }];
+    const f = mount(() => h(QzoneFriendPermissions));
+    expect(f.host.querySelector('[role="switch"]')).toBeNull();
+    expect(f.host.querySelector('.weq-qzone-permission-users img')).not.toBeNull();
+    expect(f.host.querySelector('.weq-qzone-permission-users')?.textContent).toContain('合成好友');
+    const remove = f.host.querySelector<HTMLButtonElement>(
+      '[aria-label^="从不让 ta 看我的空间移除"]',
+    )!;
+    state.writes.mockImplementationOnce(async () => {
+      state.permissions.blocked = [];
+      return { state: 'unconfirmed' };
+    });
+    await act(async () => remove.click());
+    expect(state.writes).toHaveBeenCalledWith('permission', {
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      kind: 'blocked',
+      targetUin: '10002',
+      enabled: false,
+    });
+    f.update();
+    expect(f.host.querySelector('[aria-label^="从不让 ta 看我的空间移除"]')).toBeNull();
+  });
+  it('空间名单取消移除不提交，长昵称与号码兜底仍可辨认', async () => {
+    state.permissions.blocked = [
+      { uin: '10002', name: '合成好友' },
+      { uin: '10003', name: '很长很长的好友昵称用于检查换行和省略号显示' },
+      { uin: '10004', name: '' },
+      { uin: '10005', name: '另一位好友' },
+    ];
+    state.confirm = false;
+    const f = mount(() => h(QzoneFriendPermissions));
+    capturePermissions(f.host, 'lists');
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label^="从不让 ta 看我的空间移除"]')!.click(),
+    );
+    expect(state.writes).not.toHaveBeenCalled();
+    expect(f.host.textContent).toContain('10004');
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="添加到不看 ta 的空间"]')!.click(),
+    );
+    setValue(f.host.querySelector('input')!, '合成');
+    capturePermissions(f.host, 'adding');
+  });
+  it('空间名单可搜索添加好友，读回未确认时保留输入，确认后收起', async () => {
+    const f = mount(() => h(QzoneFriendPermissions));
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="添加到不看 ta 的空间"]')!.click(),
+    );
+    setValue(f.host.querySelector('input')!, '合成');
+    expect(f.host.querySelector('.weq-qzone-permission-candidates')?.textContent).not.toContain(
+      '自己',
+    );
+    const add = () => f.host.querySelector<HTMLButtonElement>('[title="添加 好友备注"]')!;
+    await act(async () => add().click());
+    expect(f.host.querySelector('input')?.value).toBe('合成');
+    state.writes.mockImplementationOnce(async () => {
+      state.permissions.hidden = [{ uin: '10002', name: '合成好友' }];
+      return { state: 'unconfirmed' };
+    });
+    await act(async () => add().click());
+    expect(state.writes).toHaveBeenLastCalledWith('permission', {
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      kind: 'hidden',
+      targetUin: '10002',
+      enabled: true,
+    });
+    expect(f.host.querySelector('input')).toBeNull();
+  });
+  it('空间名单拒绝重复、本人和无效号码，直接输入 QQ 号可添加；切数据源清空草稿', async () => {
+    state.permissions.blocked = [{ uin: '10002', name: '已添加' }];
+    const f = mount(() => h(QzoneFriendPermissions));
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="添加到不让 ta 看我的空间"]')!.click(),
+    );
+    for (const value of ['10001', '10002', '00003', '12', '1234567890123']) {
+      setValue(f.host.querySelector('input')!, value);
+      expect(f.host.querySelector<HTMLButtonElement>('[aria-label="添加此 QQ 号"]')!.disabled).toBe(
+        true,
+      );
+      expect(f.host.querySelector('[title="添加 好友备注"]')).toBeNull();
+    }
+    setValue(f.host.querySelector('input')!, '10003');
+    await act(async () =>
+      f.host
+        .querySelector('form')!
+        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+    );
+    expect(state.writes).toHaveBeenCalledWith(
+      'permission',
+      expect.objectContaining({ kind: 'blocked', targetUin: '10003', enabled: true }),
+    );
+    expect(f.host.querySelector('input')?.value).toBe('10003');
+    state.config = 'source-b';
+    f.update();
+    expect(f.host.querySelector('input')).toBeNull();
+  });
+  it('空间名单读取失败不冒充空名单，禁用添加与移除，但不阻断另一名单', () => {
+    state.permissionFailure = true;
+    state.permissions.hidden = [{ uin: '10002', name: '缓存好友' }];
+    const f = mount(() => h(QzoneFriendPermissions));
+    expect(
+      f.host.querySelector<HTMLButtonElement>('[aria-label="添加到不让 ta 看我的空间"]')!.disabled,
+    ).toBe(false);
+    expect(
+      f.host.querySelector<HTMLButtonElement>('[aria-label="添加到不看 ta 的空间"]')!.disabled,
+    ).toBe(true);
+    expect(
+      f.host.querySelector<HTMLButtonElement>('[aria-label^="从不看 ta 的空间移除"]')!.disabled,
+    ).toBe(true);
+    expect(f.host.textContent).toContain('缓存好友');
     expect(f.host.textContent).toContain('合成读取失败');
   });
   it('资料按字段隔离读取失败，邮箱失败时生日仍可保存', () => {

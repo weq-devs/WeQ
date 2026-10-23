@@ -35,6 +35,7 @@ import {
   Sparkles,
   WifiOff,
   Palette,
+  PhoneCall,
   Type,
   Image as ImageIcon,
   Gem,
@@ -55,18 +56,22 @@ import { WorkspacePage } from './WorkspacePages';
 import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLightbox';
 import '../styles/dressup.css';
 
-type DressKind = 'bubble' | 'font' | 'widget' | 'background' | 'emoji';
+type DressKind = 'bubble' | 'font' | 'widget' | 'callbg' | 'background' | 'emoji';
 
 const KINDS: Array<{ id: DressKind; label: string; icon: ReactElement }> = [
   { id: 'bubble', label: '聊天气泡', icon: <Palette size={14} /> },
   { id: 'font', label: '聊天字体', icon: <Type size={14} /> },
   { id: 'widget', label: '头像挂件', icon: <Gem size={14} /> },
+  { id: 'callbg', label: '通话背景', icon: <PhoneCall size={14} /> },
   { id: 'background', label: '聊天背景', icon: <ImageIcon size={14} /> },
   { id: 'emoji', label: '商城表情', icon: <Store size={14} /> },
 ];
 
-/** 商城那三类共用一套列表 UI;背景和表情包是各自独立的形状。 */
-type MallKind = 'bubble' | 'font' | 'widget';
+/** 商城那几类共用一套列表 UI;聊天背景和表情包是各自独立的形状。 */
+type MallKind = 'bubble' | 'font' | 'widget' | 'callbg';
+
+/** 通话背景没有「安装」概念,选中即用(远程 url 直接给通话窗口引)。 */
+const isCallBg = (kind: MallKind): boolean => kind === 'callbg';
 
 const SCOPES: Array<{ id: DressScope; label: string; hint: string }> = [
   { id: 'mine', label: '仅自己', hint: '只渲染我发出的消息(与手机 QQ 一致)' },
@@ -225,8 +230,15 @@ export function DressUpDialog({
   const scope = manifest?.scope ?? 'mine';
 
   // 背景和表情包都不走装扮商城,装扮列表 query 一律停掉;下面两处的 kind 因此可以安全窄化。
-  const isMall = kind === 'bubble' || kind === 'font' || kind === 'widget';
-  const mallKind: MallKind = kind === 'font' ? 'font' : kind === 'widget' ? 'widget' : 'bubble';
+  const isMall = kind === 'bubble' || kind === 'font' || kind === 'widget' || kind === 'callbg';
+  const mallKind: MallKind =
+    kind === 'font'
+      ? 'font'
+      : kind === 'widget'
+        ? 'widget'
+        : kind === 'callbg'
+          ? 'callbg'
+          : 'bubble';
 
   // 关键词为空 → 排行榜;有关键词 → 搜索。两条 query 互斥启用。
   const searching = keyword.length > 0;
@@ -281,6 +293,7 @@ export function DressUpDialog({
   const pickBackground = trpc.account.dressup.pickBackground.useMutation();
   const setBackground = trpc.account.dressup.setBackground.useMutation();
   const setWidget = trpc.account.dressup.setWidget.useMutation();
+  const setCallBackground = trpc.account.dressup.setCallBackground.useMutation();
   const setBackgroundOpacity = trpc.account.dressup.setBackgroundOpacity.useMutation();
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -316,14 +329,17 @@ export function DressUpDialog({
             name,
             previewUrl: item.previewLargeUrl || item.previewUrl,
           });
-        } else {
+        } else if (mallKind === 'widget') {
           await installWidget.mutateAsync({
             itemId: item.itemId,
             name,
             previewUrl: item.previewLargeUrl || item.previewUrl,
           });
         }
-        const manifest = await setActive.mutateAsync({ kind: mallKind, itemId: item.itemId });
+        const manifest = await setActive.mutateAsync({
+          kind: mallKind as Exclude<MallKind, 'callbg'>,
+          itemId: item.itemId,
+        });
         // setActive 回的就是新清单,直接拿它注入,不必等 refetch 往返。
         await syncDressSkinPreloaded(manifest);
         await refresh();
@@ -333,14 +349,31 @@ export function DressUpDialog({
         setBusyId(0);
       }
     },
-    [mallKind, installBubble, installFont, installWidget, setActive, refresh, dialog],
+    [
+      mallKind,
+      installBubble,
+      installFont,
+      installWidget,
+      setActive,
+      setCallBackground,
+      refresh,
+      dialog,
+    ],
   );
 
   /** 取消当前生效的装扮,回到默认外观。 */
   const clear = useCallback(async (): Promise<void> => {
     setClearing(true);
     try {
-      const manifest = await setActive.mutateAsync({ kind: mallKind, itemId: 0 });
+      if (isCallBg(mallKind)) {
+        await setCallBackground.mutateAsync({ itemId: 0 });
+        await refresh();
+        return;
+      }
+      const manifest = await setActive.mutateAsync({
+        kind: mallKind as Exclude<MallKind, 'callbg'>,
+        itemId: 0,
+      });
       await syncDressSkinPreloaded(manifest);
       await refresh();
     } catch (e) {
@@ -348,7 +381,7 @@ export function DressUpDialog({
     } finally {
       setClearing(false);
     }
-  }, [mallKind, setActive, refresh, dialog]);
+  }, [mallKind, setActive, refresh, dialog, setCallBackground.mutateAsync]);
 
   const changeScope = useCallback(
     async (next: DressScope): Promise<void> => {
@@ -421,8 +454,9 @@ export function DressUpDialog({
   /** 任何一种会改动聊天外观的操作正在进行 —— 驱动整个对话框的遮罩。 */
   const applying = busyId !== 0 || clearing || scoping;
 
-  const activeId =
-    mallKind === 'bubble'
+  const activeId = isCallBg(mallKind)
+    ? (state.data?.own.callBgId ?? 0)
+    : mallKind === 'bubble'
       ? (manifest?.activeBubble ?? 0)
       : mallKind === 'font'
         ? (manifest?.activeFont ?? 0)
@@ -456,8 +490,9 @@ export function DressUpDialog({
       placeholderName?: boolean;
       installed: boolean;
       previewUrl: string;
-    }> =
-      mallKind === 'bubble'
+    }> = isCallBg(mallKind)
+      ? []
+      : mallKind === 'bubble'
         ? manifest.bubbles.map((b: BubbleSkin) => ({
             itemId: b.itemId,
             name: b.name || `气泡 ${b.itemId}`,
@@ -498,6 +533,13 @@ export function DressUpDialog({
         name: own?.widgetName,
         preview: own?.widgetPreviewUrl,
         label: '挂件',
+      },
+      callbg: {
+        id: own?.callBgId,
+        name: own?.callBgName,
+        // 静态图优先；动态素材的首帧也是这张。
+        preview: own?.callBgUrl,
+        label: '通话背景',
       },
     }[mallKind];
     const ownId = ownMap.id ?? 0;
@@ -543,6 +585,9 @@ export function DressUpDialog({
         <div className="weq-dress-card-preview">
           {localPreview ? (
             localPreview
+          ) : isCallBg(mallKind) && item.videoUrl ? (
+            // 通话背景本来就是动态的 —— 列表里直接播，静帧看不出效果。
+            <video src={dressUrl(item.videoUrl)} autoPlay loop muted playsInline />
           ) : previewSrc ? (
             <img src={previewSrc} alt={item.name} loading="lazy" />
           ) : (
@@ -580,7 +625,7 @@ export function DressUpDialog({
                   bubbleId: mallKind === 'bubble' ? item.itemId : 0,
                   fontId: mallKind === 'font' ? item.itemId : 0,
                   widgetId: mallKind === 'widget' ? item.itemId : 0,
-                  kind: mallKind,
+                  kind: mallKind as Exclude<MallKind, 'callbg'>,
                 },
                 `${mallKind}:${item.itemId}`,
                 intent,

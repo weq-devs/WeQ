@@ -68,6 +68,7 @@ import { client, trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { QqAvatar } from './QqAvatar';
 import { useToast } from './Toast';
+import '../styles/db-repair-storage.css';
 
 /** 展示当前账号用的最小信息（父级已有一份，不再重复探测）。 */
 export interface DbRepairAccountOption {
@@ -128,6 +129,14 @@ type DbRepairReadiness =
 
 /** 与主进程 `DbRepairPreflight` 对齐（只列展示用到的字段）。 */
 interface DbRepairPreflightView {
+  cachePath: string;
+  storageOptimized: boolean;
+  space: Array<{
+    paths: string[];
+    freeBytes: number | null;
+    requiredBytes: number;
+    recommendedBytes: number;
+  }>;
   readiness: DbRepairReadiness;
   holders: Array<{ pid: number; name: string }>;
   qqHolders: Array<{ pid: number; name: string }>;
@@ -169,6 +178,7 @@ type DbRepairFailureCode =
   | 'no-credentials'
   | 'blocked'
   | 'insufficient-space'
+  | 'space-margin'
   | 'busy'
   | 'changed-during-repair'
   | 'needs-confirm'
@@ -208,6 +218,7 @@ const FAILURE_TITLES: Record<DbRepairFailureCode, string> = {
   'changed-during-repair': '修复期间库被改动，已中止',
   'verify-failed': '修复产物自检未通过',
   'insufficient-space': '磁盘空间不够',
+  'space-margin': '磁盘建议余量不足',
   'no-credentials': '拿不到数据库密钥',
   'not-found': '找不到这个数据库',
   busy: '已有修复任务在跑',
@@ -216,9 +227,11 @@ const FAILURE_TITLES: Record<DbRepairFailureCode, string> = {
   'recover-failed': '重建失败',
 };
 
-/** 这两类失败一定发生在替换**之前**，所以可以说「替换还没开始」（别的不能这么说）。 */
+/** 这些失败一定发生在替换**之前**，所以可以说「替换还没开始」（别的不能这么说）。 */
 const PRE_SWAP_FAILURES: ReadonlySet<DbRepairFailureCode> = new Set([
   'blocked',
+  'insufficient-space',
+  'space-margin',
   'changed-during-repair',
 ] as const);
 
@@ -475,7 +488,7 @@ function Metric({
   icon: ReactNode;
   label: string;
   value: string;
-  hint?: string;
+  hint?: ReactNode;
   tone?: Tone;
 }): ReactElement {
   return (
@@ -870,6 +883,7 @@ export function DbRepairPanel({
   /** 修复前的确认（点「开始修复」不会立刻开跑）。 */
   /** 确认卡是哪种操作：通用修复 / 布局迁移。 */
   const [confirmRepair, setConfirmRepair] = useState<'repair' | 'layout-migration' | null>(null);
+  const [allowLowSpace, setAllowLowSpace] = useState(false);
   /** 正在跑的那件事（按钮据此禁用，避免同时发起两个任务）。 */
   const [busy, setBusy] = useState<'repair' | 'restore' | 'backup' | 'checkup' | 'kill' | null>(
     null,
@@ -892,6 +906,7 @@ export function DbRepairPanel({
 
   /** 体检的「停」开关：当前这个库跑完就不再往下走。 */
   const stopScanRef = useRef(false);
+  const checkupTaskRef = useRef<Promise<void> | null>(null);
 
   // ── 查询 ────────────────────────────────────────────────────────────────
   const statusQuery = trpc.dbRepair.status.useQuery(
@@ -911,6 +926,10 @@ export function DbRepairPanel({
     },
   );
   const preflight = preflightQuery.data as DbRepairPreflightView | undefined;
+  useEffect(() => {
+    // 确认只对本次操作与当前缓存位置有效，不沿用上一次的风险接受。
+    setAllowLowSpace(false);
+  }, [confirmRepair, dbName, preflight?.cachePath]);
   /**
    * 页布局检测：只在修复页选中库时跑（不在启动 / 面板挂载时自动跑）。
    *
@@ -935,6 +954,26 @@ export function DbRepairPanel({
   const restore = trpc.dbRepair.restore.useMutation();
   const removeRecord = trpc.dbRepair.deleteRecord.useMutation();
   const backupNow = trpc.dbRepair.backup.useMutation();
+  const cacheLocation = trpc.dbRepair.cacheLocation.useQuery();
+  const pickCacheLocation = trpc.dbRepair.pickCacheLocation.useMutation();
+  const resetCacheLocation = trpc.dbRepair.resetCacheLocation.useMutation();
+  const changingCache = pickCacheLocation.isLoading || resetCacheLocation.isLoading;
+  // 只读体检不使用修复缓存，不能妨碍用户在开修前解决空间不足。
+  const cacheLocationLocked = running || busy === 'backup' || changingCache;
+
+  async function changeCacheLocation(reset: boolean): Promise<void> {
+    try {
+      if (reset) await resetCacheLocation.mutateAsync();
+      else await pickCacheLocation.mutateAsync();
+      await Promise.all([
+        utils.dbRepair.cacheLocation.invalidate(),
+        utils.dbRepair.preflight.invalidate(),
+      ]);
+      setConfirmRepair(null);
+    } catch (error) {
+      pushToast({ tone: 'error', title: '缓存位置未更改', detail: errMsg(error) });
+    }
+  }
 
   const existingDbs = useMemo(() => status?.databases ?? [], [status]);
   const liveDbs = useMemo(() => existingDbs.filter((row) => row.exists), [existingDbs]);
@@ -980,6 +1019,10 @@ export function DbRepairPanel({
     // 手动跑过也算「这个账号体检过了」，自动那次就不用再补。
     autoCheckedUins.add(uin);
     stopScanRef.current = false;
+    let finishScan = () => {};
+    checkupTaskRef.current = new Promise<void>((resolve) => {
+      finishScan = resolve;
+    });
     setBusy('checkup');
     setNotice(null);
     setScan({ done: 0, total: names.length, current: names[0] ?? null });
@@ -997,7 +1040,10 @@ export function DbRepairPanel({
       }
     } finally {
       setScan(null);
-      setBusy(null);
+      // 已确认的修复可能正在等待本次只读检查，不能把它的写入锁清掉。
+      setBusy((current) => (current === 'checkup' ? null : current));
+      checkupTaskRef.current = null;
+      finishScan();
     }
   };
 
@@ -1131,17 +1177,27 @@ export function DbRepairPanel({
 
   const handleRepair = async (layoutMigration: boolean): Promise<void> => {
     if (uin === null || dbName === null) return;
+    const pendingScan = checkupTaskRef.current;
+    // 热更新前发起的体检没有完成凭据，仍须等旧调用返回，不能误当作已释放。
+    if (busy === 'checkup' && !pendingScan) return;
+    stopScanRef.current = true;
     // 任务期间的 `dbName` 可能被用户改掉（面板不拦），所以先把目标钉住。
     const target = dbName;
     setConfirmRepair(null);
     setBusy('repair');
     setNotice(null);
     setOutcome(null);
-    setProgress({ phase: 'backup', percent: 0, message: '准备中…' });
+    setProgress({
+      phase: 'backup',
+      percent: 0,
+      message: pendingScan ? '等待当前只读体检结束，随后开始；不再检查后续数据库。' : '准备中…',
+    });
     try {
+      await pendingScan;
       const result = (await startRepair.mutateAsync({
         uin,
         dbName: target,
+        ...(allowLowSpace ? { allowLowSpace: true } : {}),
         ...(layoutMigration ? { layoutMigration: true } : {}),
       })) as DbRepairTaskResultView;
       // 分类好的失败是**返回值**（这样才带得回「账号是否已被关掉」），不是异常。
@@ -1297,6 +1353,7 @@ export function DbRepairPanel({
 
   /** 从体检页进修复页。带上库名 = 预选它。 */
   const goRepair = (name: string | null): void => {
+    stopScanRef.current = true;
     setDbName(name);
     setConfirmRepair(null);
     setNotice(null);
@@ -1330,15 +1387,27 @@ export function DbRepairPanel({
     dbName === null ? null : (existingDbs.find((row) => row.dbName === dbName) ?? null);
   const currentCheckup = dbName === null ? null : (checkups[dbName] ?? null);
   const readiness = preflight ? READINESS_COPY[preflight.readiness] : null;
+  const spaceBudgetReady =
+    preflight?.space.every((item) => typeof item.recommendedBytes === 'number') === true;
   const spaceShort = Boolean(
-    preflight && preflight.freeBytes !== null && preflight.freeBytes < preflight.requiredBytes,
+    preflight?.space.some((item) => item.freeBytes !== null && item.freeBytes < item.requiredBytes),
+  );
+  const marginShort = Boolean(
+    preflight?.space.some(
+      (item) =>
+        item.freeBytes !== null &&
+        item.freeBytes >= item.requiredBytes &&
+        item.freeBytes < item.recommendedBytes,
+    ),
   );
   const canStart =
     uin !== null &&
     dbName !== null &&
-    busy === null &&
+    (busy === null || busy === 'checkup') &&
+    !changingCache &&
     status?.keyPresent === true &&
     preflight !== undefined &&
+    spaceBudgetReady &&
     !spaceShort;
   /**
    * 修复页铺哪些库：**有问题的在前**，完好的收在「其他数据库」后面。
@@ -1749,21 +1818,37 @@ export function DbRepairPanel({
                   value={readiness?.label ?? '检查中…'}
                   tone={readiness?.tone}
                 />
-                <Metric
-                  icon={<HardDrive size={12} strokeWidth={2} />}
-                  label="磁盘"
-                  value={preflight?.freeBytes != null ? formatBytes(preflight.freeBytes) : '未知'}
-                  hint={
-                    preflight
-                      ? `需要约 ${formatBytes(preflight.requiredBytes)}${
-                          spaceShort && preflight.freeBytes !== null
-                            ? `，还差 ${formatBytes(preflight.requiredBytes - preflight.freeBytes)}`
-                            : ''
-                        }`
-                      : undefined
-                  }
-                  tone={spaceShort ? 'warn' : preflight ? 'ok' : undefined}
-                />
+                {preflight?.space.map((item, index) => (
+                  <Metric
+                    key={item.paths.join('|')}
+                    icon={<HardDrive size={12} strokeWidth={2} />}
+                    label={
+                      item.paths.length > 1 ? '缓存与原库卷' : index === 0 ? '缓存卷' : '原库卷'
+                    }
+                    value={item.freeBytes !== null ? formatBytes(item.freeBytes) : '未知'}
+                    hint={
+                      spaceBudgetReady ? (
+                        <>
+                          <span className="weq-rp-space-line">
+                            预计新增 {formatBytes(item.requiredBytes)}
+                          </span>
+                          <span className="weq-rp-space-line">
+                            建议预留 {formatBytes(item.recommendedBytes)}
+                          </span>
+                        </>
+                      ) : (
+                        `旧版预检值 ${formatBytes(item.requiredBytes)}`
+                      )
+                    }
+                    tone={
+                      item.freeBytes === null
+                        ? undefined
+                        : item.freeBytes < item.recommendedBytes
+                          ? 'warn'
+                          : 'ok'
+                    }
+                  />
+                ))}
                 <Metric
                   icon={<Waves size={12} strokeWidth={2} />}
                   label="预写日志"
@@ -1775,6 +1860,31 @@ export function DbRepairPanel({
                   }
                   tone={preflight && preflight.pendingWalBytes > 0 ? 'warn' : undefined}
                 />
+              </div>
+
+              <div className="weq-rp-cache-location">
+                <span>修复缓存</span>
+                <code>{cacheLocation.data?.override ?? preflight?.cachePath ?? '默认位置'}</code>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-sm"
+                  title="选择修复缓存位置"
+                  aria-label="选择修复缓存位置"
+                  disabled={cacheLocationLocked}
+                  onClick={() => void changeCacheLocation(false)}
+                >
+                  <FolderOpen size={14} aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-sm"
+                  title="恢复默认修复缓存位置"
+                  aria-label="恢复默认修复缓存位置"
+                  disabled={cacheLocationLocked || !cacheLocation.data?.override}
+                  onClick={() => void changeCacheLocation(true)}
+                >
+                  <RotateCcw size={14} aria-hidden />
+                </button>
               </div>
 
               {/* QQ 在线检查：在线就先结束它，否则会读出撕裂的页。 */}
@@ -1813,18 +1923,41 @@ export function DbRepairPanel({
               {preflightQuery.error ? (
                 <Note tone="warn">{errMsg(preflightQuery.error)}</Note>
               ) : null}
+              {preflight && !spaceBudgetReady ? (
+                <Note tone="warn">
+                  主进程仍返回旧版空间预检结果，请重启开发版加载更新后再修复。缓存位置仍可更换。
+                </Note>
+              ) : null}
               {readiness && readiness.tone !== 'ok' && !qqOnline ? (
                 <Note tone={readiness.tone}>{readiness.short}</Note>
               ) : null}
-              {spaceShort && preflight && preflight.freeBytes !== null ? (
+              {spaceBudgetReady &&
+                preflight?.space
+                  .filter((item) => item.freeBytes !== null && item.freeBytes < item.requiredBytes)
+                  .map((item) => (
+                    <Note key={item.paths.join('|')} tone="warn">
+                      {item.paths.join('、')}：预计新增峰值约 {formatBytes(item.requiredBytes)}
+                      ，当前可用 {formatBytes(item.freeBytes)}。
+                    </Note>
+                  ))}
+              {marginShort && !spaceShort ? (
                 <Note tone="warn">
-                  空间不够：需要约 {formatBytes(preflight.requiredBytes)}，只有{' '}
-                  {formatBytes(preflight.freeBytes)}。
+                  预计峰值空间足够，但建议余量不足；实际占用可能超过估算，继续可能因磁盘写满而失败。
+                </Note>
+              ) : null}
+              {preflight && !preflight.storageOptimized ? (
+                <Note tone="muted">
+                  当前原生组件尚未提供低占用修复能力，预计新增空间仍按旧流程计算。
                 </Note>
               ) : null}
               {notice ? (
                 <Note tone="warn" icon={<AlertTriangle size={14} strokeWidth={2} />}>
                   {notice}
+                </Note>
+              ) : null}
+              {busy === 'checkup' ? (
+                <Note tone="muted" icon={<Loader2 size={14} className="weq-spin" />}>
+                  当前只读体检尚未结束。可以先确认修复或布局迁移，当前检查结束后再开始，不再检查后续数据库。
                 </Note>
               ) : null}
 
@@ -1891,8 +2024,7 @@ export function DbRepairPanel({
                     <em>{outcome.detail}</em>
                     {outcome.closedAccount ? (
                       <em className="is-warn">
-                        这个账号在替换前被关掉了：倒计时结束后会自动回启动页，也可以点上面的「立即
-                        返回」自己重新打开它。
+                        这个账号在替换前已关闭。请通过顶部提示中的「立即返回」或等待倒计时回到启动页，再重新打开账号。
                       </em>
                     ) : null}
                   </span>
@@ -1924,15 +2056,36 @@ export function DbRepairPanel({
                   {currentCheckup ? null : (
                     <p className="weq-rp-hint">尚未检查该数据库，请先核对目标与修复选项。</p>
                   )}
+                  {marginShort && !spaceShort ? (
+                    <label className="weq-rp-space-consent">
+                      <input
+                        type="checkbox"
+                        aria-label="余量不足时仍继续"
+                        checked={allowLowSpace}
+                        onChange={(event) => setAllowLowSpace(event.currentTarget.checked)}
+                      />
+                      <span>我接受磁盘余量不足的风险，仍要继续</span>
+                    </label>
+                  ) : null}
                   <div className="weq-rp-actions">
                     <button
                       type="button"
                       className="weq-set-btn weq-set-btn-danger"
-                      disabled={!canStart}
+                      disabled={
+                        !canStart ||
+                        (busy === 'checkup' && !checkupTaskRef.current) ||
+                        (marginShort && !allowLowSpace)
+                      }
                       onClick={() => void handleRepair(confirmRepair === 'layout-migration')}
                     >
                       <Play size={13} strokeWidth={2} aria-hidden />
-                      {confirmRepair === 'layout-migration' ? '确认迁移并替换' : '确认替换并修复'}
+                      {marginShort
+                        ? confirmRepair === 'layout-migration'
+                          ? '仍要继续并迁移'
+                          : '仍要继续并修复'
+                        : confirmRepair === 'layout-migration'
+                          ? '确认迁移并替换'
+                          : '确认替换并修复'}
                     </button>
                     <button
                       type="button"

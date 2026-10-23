@@ -75,15 +75,21 @@ export function matchForwardMessages(
   return matches;
 }
 
-function canDiscardRecord(item: LocalOutgoingRecord): boolean {
-  return (
-    item.id.startsWith('optimistic-') &&
-    item.state === 'failed' &&
-    (!item.seq || item.seq === '0') &&
-    !item.cid &&
-    !item.seqRejected &&
-    !item.fileSync?.fileId
-  );
+/**
+ * 本机占位是否可以直接扔掉。
+ *
+ * - 失败占位：服务端明确拒绝或传输层异常，没有 random / seq，也没有别的确认信号；
+ * - 未送达占位（`allowRejected`）：回执 seq=0 的静默丢弃。它带着 random（对账主键），
+ *   所以不能走失败那套「无 cid」判定 —— 但它同样是一条**没有可信序号**的前端记录，
+ *   用户看不到对方是否收到，需要一个「移除」出口。
+ *
+ * 两者都不碰确认过的发送、漫游和原库记录。
+ */
+function canDiscardRecord(item: LocalOutgoingRecord, allowRejected = false): boolean {
+  if (!item.id.startsWith('optimistic-') || item.fileSync?.fileId) return false;
+  const unpositioned = !item.seq || item.seq === '0';
+  if (item.state === 'failed') return unpositioned && !item.cid && !item.seqRejected;
+  return allowRejected && item.state === 'sent' && unpositioned && Boolean(item.seqRejected);
 }
 
 /** 只移除本机失败占位；确认过的发送、漫游和原库记录不走这条路径。 */
@@ -99,6 +105,27 @@ export function canDiscardFailedMessage(message: Message): boolean {
       cid: message.msgRandom,
       seqRejected: message.optimisticRejected,
     })
+  );
+}
+
+/** 回执 seq=0 的「可能未送达」占位：可被「移除」按钮直接清掉。 */
+export function canDiscardRejectedMessage(message: Message): boolean {
+  return (
+    !message.localSent &&
+    message.source !== 'roaming' &&
+    message.optimistic === 'sent' &&
+    Boolean(message.optimisticRejected) &&
+    canDiscardRecord(
+      {
+        id: message.id,
+        convId: message.conversationId,
+        state: message.optimistic,
+        seq: message.msgSeq ?? undefined,
+        cid: message.msgRandom,
+        seqRejected: message.optimisticRejected,
+      },
+      true,
+    )
   );
 }
 
@@ -135,13 +162,28 @@ export function captureOutgoingAfterSeq(
   return last.toString();
 }
 
-export function failedOutgoingRemoval(message: Message, convId: string): OutgoingRemoval | null {
-  if (message.conversationId !== convId || !canDiscardFailedMessage(message)) return null;
+function removalsFor(
+  message: Message,
+  convId: string,
+  allowRejected: boolean,
+): OutgoingRemoval | null {
+  const discardable = allowRejected ? canDiscardRejectedMessage : canDiscardFailedMessage;
+  if (message.conversationId !== convId || !discardable(message)) return null;
   const id = message.id;
   return <T extends LocalOutgoingRecord>(current: T[]): T[] => {
-    const remove = (item: T) => item.id === id && item.convId === convId && canDiscardRecord(item);
+    const remove = (item: T) =>
+      item.id === id && item.convId === convId && canDiscardRecord(item, allowRejected);
     return current.some(remove) ? current.filter((item) => !remove(item)) : current;
   };
+}
+
+export function failedOutgoingRemoval(message: Message, convId: string): OutgoingRemoval | null {
+  return removalsFor(message, convId, false);
+}
+
+/** 「可能未送达」（回执 seq=0）占位的移除；判据同 {@link canDiscardRejectedMessage}。 */
+export function rejectedOutgoingRemoval(message: Message, convId: string): OutgoingRemoval | null {
+  return removalsFor(message, convId, true);
 }
 
 export interface ComposerSubmission {

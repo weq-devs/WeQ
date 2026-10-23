@@ -40,3 +40,23 @@ N-API 冒烟使用 64 MiB 合成密文，不接触 QQ 数据。它校验全部�
 
 `_cdylib` 是旧 SQLite 扩展入口的条件编译分支，不是产品构建使用的 feature；
 直接 `--all-features` 会启用该分支并出现既有接口缺失，不能用它替代默认产品配置的检查。
+
+## 开发版实际加载核验
+
+2026-10-23 04:43（北京时间）开发版再次在旧 `std::fs::read` 路径退出。
+加载日志确认使用的是仓库 `native` 目录，而非已热修复的安装版模块。
+源码版本、已安装版和开发版原生产物必须分别核验，不能用其中一份的测试代替另一份。
+
+```sh
+pnpm native:check-streaming
+# 或显式检查将要使用的模块（也可用 ELECTRON_RUN_AS_NODE=1 配合 Electron 运行）
+node scripts/check-native-streaming.mjs /absolute/path/to/nt_helper.node
+```
+
+默认检查 `WEQ_NATIVE_DIR/<platform>/<arch>/nt_helper.node`，没有覆盖时检查本仓库
+`native`。检查只生成 64 MiB 合成密文，校验完整输出哈希及解密额外峰值内存，
+结束后清理临时文件，不打开 QQ 原库。旧整库缓冲模块在同一检查中应失败。
+本机开发启动器在启动 Electron 前对实际目标运行此检查；失败不启动应用。
+
+同步本地热修复时，必须一起核验模块与装扮 `.dat` 的密钥兼容性，并如实记录
+本地覆盖来源；不要将本地模块伪装成 `native/pinned.json` 的正式发布产物。

@@ -90,6 +90,9 @@ interface HarnessOptions {
   checkpoint?: (dbPath: string) => Promise<DbRepairWalCheckpoint>;
   /** 报告里写死一个版本号，避免测试依赖宿主。 */
   appVersion?: string;
+  scratchDir?: DbRepairDeps['scratchDir'];
+  storageOptimized?: DbRepairDeps['storageOptimized'];
+  diskSpace?: DbRepairDeps['diskSpace'];
 }
 
 function makeReport(overrides: Partial<DbRepairRecoverReport> = {}): DbRepairRecoverReport {
@@ -148,6 +151,9 @@ function createHarness(options: HarnessOptions = {}) {
   };
 
   const deps: DbRepairDeps = {
+    scratchDir: options.scratchDir,
+    storageOptimized: options.storageOptimized,
+    diskSpace: options.diskSpace,
     cacheDir: (...segments) => join(cacheRoot, ...segments),
     resolveAccount: () => {
       if (options.unknownAccount) return null;
@@ -344,6 +350,125 @@ describe('DbRepairService.repair 成功路径', () => {
 });
 
 // ────────────────────────── 中止与失败 ──────────────────────────
+
+describe('修复空间与自定义缓存', () => {
+  it('基线足够但建议余量不足时要求明确确认，确认后正常修复且不跳过备份', async () => {
+    const h = createHarness({ diskSpace: () => ({ volume: 'same', freeBytes: 1024 * 1024 }) });
+    const budget = h.service.preflight(REF, 'nt_msg.db').space[0]!;
+    expect(budget.requiredBytes).toBeLessThan(1024 * 1024);
+    expect(budget.recommendedBytes).toBeGreaterThan(1024 * 1024);
+    await expect(
+      h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {}),
+    ).rejects.toMatchObject({ code: 'space-margin' });
+    expect(h.calls.recover).toBe(0);
+    expect(readFileSync(h.dbPath)).toEqual(originalBytes());
+    const record = await h.service.repair(
+      { uin: REF, dbName: 'nt_msg.db', allowLowSpace: true },
+      () => {},
+    );
+    expect(record.state).toBe('applied');
+    expect(readFileSync(record.backupPath!)).toEqual(originalBytes());
+  });
+
+  it('即使确认忽略余量，也不能绕过另一卷预计峰值不足', async () => {
+    const h = createHarness({
+      diskSpace: (path) => ({
+        volume: path.includes('cache') ? 'cache' : 'source',
+        freeBytes: path.includes('cache') ? 1024 * 1024 : 1,
+      }),
+    });
+    await expect(
+      h.service.repair({ uin: REF, dbName: 'nt_msg.db', allowLowSpace: true }, () => {}),
+    ).rejects.toMatchObject({ code: 'insufficient-space' });
+    expect(h.calls.recover).toBe(0);
+  });
+
+  it('缓存卷不足时阻断，不因原库卷空间充足而放行', async () => {
+    const h = createHarness({
+      diskSpace: (path) => ({
+        volume: path.includes('cache') ? 'cache' : 'source',
+        freeBytes: path.includes('cache') ? 1 : 1e12,
+      }),
+    });
+    const result = h.service.preflight(REF, 'nt_msg.db');
+    expect(
+      result.space.some((item) => item.freeBytes !== null && item.freeBytes < item.requiredBytes),
+    ).toBe(true);
+    await expect(h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {})).rejects.toThrow(
+      /空间不足/,
+    );
+    expect(h.calls.recover).toBe(0);
+  });
+
+  it('同卷按阶段峰值合并，旧 native 保持较高预算且计入 WAL', () => {
+    const optimized = createHarness({
+      storageOptimized: () => true,
+      diskSpace: () => ({ volume: 'same', freeBytes: 1e12 }),
+    });
+    const legacy = createHarness({ diskSpace: () => ({ volume: 'same', freeBytes: 1e12 }) });
+    const low = optimized.service.preflight(REF, 'nt_msg.db');
+    const high = legacy.service.preflight(REF, 'nt_msg.db');
+    expect(low.space).toHaveLength(1);
+    expect(high.requiredBytes).toBeGreaterThan(low.requiredBytes);
+    writeFileSync(`${optimized.dbPath}-wal`, Buffer.alloc(8192));
+    expect(optimized.service.preflight(REF, 'nt_msg.db').requiredBytes).toBeGreaterThan(
+      low.requiredBytes,
+    );
+  });
+
+  it('切换大文件缓存不移动历史，旧备份仍能回滚', async () => {
+    let scratch: string | null = null;
+    const h = createHarness({ scratchDir: () => scratch });
+    const old = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {});
+    const historyFile = h.service.paths(REF).history;
+    scratch = tmpDir('custom-cache');
+    const paths = h.service.paths(REF);
+    expect(paths.workDir.startsWith(scratch)).toBe(true);
+    expect(paths.backupsDir.startsWith(scratch)).toBe(true);
+    expect(paths.history).toBe(historyFile);
+    expect(h.service.history(REF).find(old.id)?.backupPath).toBe(old.backupPath);
+    h.service.restore(REF, old.id, { force: true });
+    expect(readFileSync(h.dbPath)).toEqual(originalBytes());
+  });
+
+  it('连续修复失败也限制备份数，最新备份仍保留', async () => {
+    const h = createHarness({
+      recover: async () => {
+        throw new Error('synthetic failure');
+      },
+    });
+    for (let index = 0; index < 5; index += 1) {
+      await expect(h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {})).rejects.toThrow();
+    }
+    const records = h.service.history(REF).list();
+    expect(records).toHaveLength(5);
+    expect(
+      records.filter((record) => record.backupPath && record.purgedAt === undefined),
+    ).toHaveLength(3);
+    expect(existsSync(records[0]!.backupPath!)).toBe(true);
+  });
+
+  it('同一秒连续修复不覆盖已有备份或成功记录', async () => {
+    const h = createHarness();
+    const first = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {});
+    const second = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {});
+    expect(second.id).not.toBe(first.id);
+    expect(h.service.history(REF).list()).toHaveLength(2);
+    expect(readFileSync(first.backupPath!)).toEqual(originalBytes());
+    expect(readFileSync(second.backupPath!)).toEqual(repairedBytes());
+    expect(h.service.history(REF).list()[0]!.id).toBe(second.id);
+  });
+
+  it('自定义目录失效时不创建替代目录，仍可读取旧历史', async () => {
+    let scratch: string | null = null;
+    const h = createHarness({ scratchDir: () => scratch });
+    const old = await h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {});
+    scratch = join(h.cacheRoot, 'missing-volume');
+    expect(() => h.service.preflight(REF, 'nt_msg.db')).toThrow(/不会创建替代目录/);
+    expect(h.service.history(REF).find(old.id)).toBeDefined();
+    expect(existsSync(scratch)).toBe(false);
+  });
+});
 
 describe('DbRepairService.repair 中止 / 失败', () => {
   it('native 报错：源库不动、记录为失败、按原生信息透传', async () => {

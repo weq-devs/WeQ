@@ -49,13 +49,13 @@ export interface DbRepairPaths {
   reportFile(stamp: string): string;
 }
 
-export function dbRepairPaths(root: string): DbRepairPaths {
-  const backupsDir = join(root, 'backups');
+export function dbRepairPaths(root: string, scratchRoot = root): DbRepairPaths {
+  const backupsDir = join(scratchRoot, 'backups');
   const reportsDir = join(root, 'reports');
   return {
     root,
     history: join(root, 'history.json'),
-    workDir: join(root, 'work'),
+    workDir: join(scratchRoot, 'work'),
     reportsDir,
     backupsDir,
     backupDir: (stamp) => join(backupsDir, stamp),

@@ -46,7 +46,16 @@ export const DressAppId = {
   Bubble: 2,
   /** 头像挂件。 */
   Widget: 4,
+  /** 聊天字体。 */
   Font: 5,
+  /**
+   * 来电（通话背景 + 铃声）。
+   *
+   * ⚠️ 这一类**没有排行榜**：`GetItemLikeRank` 对 appId 17 在任何 `rankType` 下都回
+   * 空数组（对比 appId 2 同一端点正常出数据），所以排行榜只能读仓库里的静态快照
+   * （`ranking-callbg.json`）。搜索是好的，但结果本来就少（常见词也就几条到几十条）。
+   */
+  CallBackground: 17,
 } as const;
 export type DressAppId = (typeof DressAppId)[keyof typeof DressAppId];
 
@@ -65,10 +74,32 @@ export interface DressMallItem {
   price: number;
   /** 出品方名。 */
   mallName: string;
+  /**
+   * 动态预览视频（来电类才是真有值）。静态装扮为空串。
+   *
+   * 取 `extraappinfo.funcallOplist[0].mediaUrl`，退回 `extraimage.images` 里以
+   * `.mp4` 结尾的那条 —— 两个字段在抓包里都指向同一个文件。
+   */
+  videoUrl?: string;
+  /** 未购买时服务端给的模糊图（来电类有），没有则空串。 */
+  fuzzyUrl?: string;
+  /** 缩略图（比 `previewUrl` 小一号，列表里用得上）。 */
+  thumbnailUrl?: string;
+  /** SVIP 免费之类，形如 `DISCOUNT_SVIP_FREE`；没有折扣时为空串。 */
+  discountType?: string;
 }
 
 interface RawLabel {
   msg?: string;
+}
+
+/** 来电类特有的一段资源描述（抓包实测见 `ranking-callbg.json`）。 */
+interface RawFunCallOp {
+  mediaUrl?: string;
+  imageUrl?: string;
+  smallImageUrl?: string;
+  thumbNailUrl?: string;
+  fuzzImageUrl?: string;
 }
 
 interface RawItem {
@@ -79,6 +110,8 @@ interface RawItem {
   labels?: RawLabel[];
   extraimage?: { images?: string[] };
   extrainfo?: { price?: number; mallname?: string };
+  extraappinfo?: { funcallOplist?: RawFunCallOp[] };
+  discount?: { itemDiscount?: { type?: string } };
 }
 
 /** 排行榜的条目外面包了一层;搜索没有。两种都喂给 normalize。 */
@@ -93,15 +126,25 @@ interface RawResponse {
 function normalizeItem(raw: RawItem): DressMallItem | null {
   const itemId = Number(raw.itemId ?? 0);
   if (!itemId) return null;
+  const images = raw.extraimage?.images ?? [];
+  const op = raw.extraappinfo?.funcallOplist?.[0];
+  // 视频：优先 funcallOplist（来电类的权威来源），退回 images 里的 mp4。
+  const videoUrl = op?.mediaUrl || images.find((u) => /\.mp4(\?|$)/i.test(u)) || '';
+  // 大图：images[0] 在来电类里就是 mp4，别把它当图片用。
+  const previewLargeUrl = images[0] && !/\.mp4(\?|$)/i.test(images[0]) ? images[0] : '';
   return {
     appId: Number(raw.appId ?? 0),
     itemId,
     name: raw.name ?? '',
     previewUrl: raw.image ?? '',
-    previewLargeUrl: raw.extraimage?.images?.[0] ?? '',
+    previewLargeUrl,
     labels: (raw.labels ?? []).map((l) => l.msg ?? '').filter(Boolean),
     price: Number(raw.extrainfo?.price ?? 0),
     mallName: raw.extrainfo?.mallname ?? '',
+    videoUrl,
+    fuzzyUrl: op?.fuzzImageUrl ?? '',
+    thumbnailUrl: op?.thumbNailUrl ?? '',
+    discountType: raw.discount?.itemDiscount?.type ?? '',
   };
 }
 

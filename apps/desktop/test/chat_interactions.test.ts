@@ -124,7 +124,11 @@ describe('主页头像', () => {
 describe('发送状态', () => {
   const demo = createTemplateDemoData();
   const conversation = demo.conversations.find((item) => item.type === 'group')!;
-  function bubble(state: 'sending' | 'sent' | 'failed', rejected = false) {
+  function bubble(
+    state: 'sending' | 'sent' | 'failed',
+    rejected = false,
+    onDismissUnsent?: () => void,
+  ) {
     return renderToStaticMarkup(
       createElement(MessageBubble, {
         message: {
@@ -138,6 +142,7 @@ describe('发送状态', () => {
         senderName: '测试用户',
         onContextMenu: () => {},
         onLongPress: () => {},
+        ...(onDismissUnsent ? { onDismissUnsent } : {}),
       }),
     );
   }
@@ -152,5 +157,16 @@ describe('发送状态', () => {
   it('失败和疑似静默拒收仍保留下方提示', () => {
     expect(bubble('failed')).toContain('发送失败');
     expect(bubble('sent', true)).toContain('可能未送达');
+  });
+  it('未送达占位在状态条旁给出一键移除按钮', () => {
+    const html = bubble('sent', true, () => {});
+    expect(html).toContain('weq-msg-dismiss-unsent');
+    expect(html).toContain('移除');
+  });
+  it('只有未送达占位才有移除按钮：失败占位与正常已发送都没有', () => {
+    expect(bubble('failed', false, () => {})).not.toContain('weq-msg-dismiss-unsent');
+    expect(bubble('sent', false, () => {})).not.toContain('weq-msg-dismiss-unsent');
+    // 宿主没接这个回调时（只读视图）不渲染按钮，避免点了没反应。
+    expect(bubble('sent', true)).not.toContain('weq-msg-dismiss-unsent');
   });
 });

@@ -16,6 +16,42 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it.each(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph'])(
+  '单按 %s 不取消等待或关闭提示，组合键仍关闭并恢复标题',
+  async (key) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.useFakeTimers();
+    const host = document.createElement('div');
+    const button = document.createElement('button');
+    button.title = '保存备注';
+    document.body.append(host, button);
+    const root = createRoot(host);
+    const press = (key: string, init: KeyboardEventInit = {}) =>
+      act(() =>
+        button.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key, ...init })),
+      );
+    try {
+      act(() => root.render(createElement(HoverTooltip)));
+      act(() => button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
+      press(key);
+      await act(async () => vi.advanceTimersByTime(300));
+      const tooltip = document.querySelector('[role="tooltip"]');
+      expect(tooltip?.textContent).toBe('保存备注');
+      press(key);
+      expect(document.querySelector('[role="tooltip"]')).toBe(tooltip);
+      expect(button.getAttribute('aria-describedby')).toContain('weq-hover-tooltip');
+      press('c', { ctrlKey: true });
+      expect(document.querySelector('[role="tooltip"]')).toBeNull();
+      expect(button.title).toBe('保存备注');
+      expect(button.hasAttribute('aria-describedby')).toBe(false);
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      button.remove();
+    }
+  },
+);
+
 it('受限 QQ 控件显示操作限制，不改写可用操作与其它禁用控件的提示', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.useFakeTimers();

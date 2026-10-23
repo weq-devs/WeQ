@@ -116,6 +116,32 @@ afterEach(() => {
 });
 
 describe('account monitor authorization and SSO readiness', () => {
+  it('等待授权读取及原生登记完成后才通知，后续取票未结束也不延迟通知', async () => {
+    const ready = vi.fn();
+    const f = fixture(false, ready);
+    const scan = deferred<typeof material>();
+    const registration = deferred<void>();
+    const rkeys = deferred<Array<{ type: number; expiresAt: number }>>();
+    f.hook.ensure.mockReturnValueOnce(scan.promise);
+    f.nt.setSsoSession.mockReturnValueOnce(registration.promise);
+    tickets.rkeys.mockReturnValueOnce(rkeys.promise);
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ready).not.toHaveBeenCalled();
+    expect(f.record.session).toBeNull();
+    scan.resolve(material);
+    await flushPromises();
+    expect(f.record.session).toMatchObject({ ...material, pid: 42 });
+    expect(ready).not.toHaveBeenCalled();
+    registration.resolve();
+    await flushPromises();
+    expect(ready).toHaveBeenCalledOnce();
+    expect(tickets.rkeys).toHaveBeenCalledOnce();
+    expect(f.config.setRkeys).not.toHaveBeenCalled();
+    rkeys.resolve([]);
+    await flushPromises();
+    f.monitor.stop();
+  });
   it('凭据登记成功后立即通知后台服务，失败与停止后不通知', async () => {
     const ready = vi.fn();
     const f = fixture(false, ready);

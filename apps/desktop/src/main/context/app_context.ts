@@ -20,6 +20,7 @@
 
 import { EventEmitter } from 'node:events';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
+import { VipBadgeService } from '../vip_badge';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
@@ -349,6 +350,17 @@ function unmountAntiRecallMonitor(): void {
 }
 /** Background login/pid/rkey monitor for the open account, if any. */
 let accountMonitor: AccountMonitorService | null = null;
+/** 顶栏会员徽标的刷新器（账号级，跟着会话起落）。 */
+let vipBadge: VipBadgeService | null = null;
+
+/**
+ * 停掉会员徽标刷新并清空引用。三条换账号/关账号路径都要先调它 —— 晚到的
+ * 会员响应不能再写进已经换掉的那个账号。
+ */
+function stopVipBadge(): void {
+  vipBadge?.stop();
+  vipBadge = null;
+}
 let dbHealthCheckSeq = 0;
 /** Guards against running more than one full health check at a time. */
 let dbHealthCheckRunning = false;
@@ -1242,6 +1254,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       dbHealthCheckRunning = false;
       accountMonitor?.stop();
       accountMonitor = null;
+      stopVipBadge();
       void stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
@@ -1984,9 +1997,28 @@ export function initAppContext(fileRoot?: string): AppContext {
           // 同步比首屏那次 getState 晚几秒，不推前端会一直显示旧清单。
           emitDressChanged();
         },
-        () => mail.credentialsAvailable(),
+        () => {
+          accountEventBus.emit('onlineCredentialsReady', { at: Date.now() });
+          mail.credentialsAvailable();
+        },
       );
       accountMonitor.start();
+
+      // 顶栏会员徽标：登录 seed 的 vip p_skey 立刻试一次；之后 AccountMonitor
+      // 每次登记好 SSO 会话都会发 `onlineCredentialsReady`（QQ 后上线 / 重启换
+      // pid），由这里再换活票刷新。
+      vipBadge = new VipBadgeService(
+        String(session.context.uin),
+        platform.native.ntHelper,
+        accountConfig,
+        (handler) => {
+          accountEventBus.on('onlineCredentialsReady', handler);
+          return () => accountEventBus.off('onlineCredentialsReady', handler);
+        },
+        () => accountEventBus.emit('vipChanged', { at: Date.now() }),
+      );
+      vipBadge.start();
+
       logger.info('opened account session', {
         event: 'open-account-success',
         accountUin: session.context.uin,
@@ -2089,6 +2121,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       dbHealthCheckRunning = false;
       accountMonitor?.stop();
       accountMonitor = null;
+      stopVipBadge();
       void stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
@@ -2688,9 +2721,26 @@ export function initAppContext(fileRoot?: string): AppContext {
         () => userConfig.getSettings().autoAttachQq,
         bootstrap.attachHook,
         undefined,
-        () => mail.credentialsAvailable(),
+        () => {
+          accountEventBus.emit('onlineCredentialsReady', { at: Date.now() });
+          mail.credentialsAvailable();
+        },
       );
       accountMonitor.start();
+
+      // 会员徽标与在线账号同一套：同号 QQ 在线时走活 hook，离线时只读缓存。
+      // 静态账号不写 homeDress，但会员身份属于账号本身，照常刷新。
+      vipBadge = new VipBadgeService(
+        String(session.context.uin),
+        platform.native.ntHelper,
+        accountConfig,
+        (handler) => {
+          accountEventBus.on('onlineCredentialsReady', handler);
+          return () => accountEventBus.off('onlineCredentialsReady', handler);
+        },
+        () => accountEventBus.emit('vipChanged', { at: Date.now() }),
+      );
+      vipBadge.start();
 
       // 监听走和在线账号完全相同的一套：导入目录里的库照样会变（同步工具落盘、
       // 手动覆盖、WeQ 自己写入），没理由区别对待。
@@ -2732,6 +2782,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       dbHealthCheckRunning = false;
       accountMonitor?.stop();
       accountMonitor = null;
+      stopVipBadge();
       // Tear down the scheduler's wake timer before dropping the services
       // object — otherwise a late tick would call into a disposed
       // ExportTaskManager.

@@ -595,3 +595,10 @@ markdown / 签名错的 ark 这类**服务端静默吞掉**的发送，回执是
    当前窗口下界（用户往上翻过），它按「无位置」处理、不插到顶部 —— 否则会在顶部造出假缺口。
 3. **`seq === 0` 主动告警。** 回执 seq 为 0 时立刻弹一次 warning toast，气泡上额外挂一个
    琥珀色「可能未送达」标签（`optimisticRejected`）。这是静默失败当前唯一的可靠信号。
+4. **未送达占位可一键移除。** 这类条目没有可信序号，只能一直排在时间线末尾，所以状态条右侧
+   另给一枚「移除」按钮（`MessageBubble` 的 `onDismissUnsent`）。判据是
+   `canDiscardRejectedMessage`（`state === 'sent'` + `optimisticRejected` + 无 `seq` + 本机
+   `optimistic-` 占位），与失败占位的 `canDiscardFailedMessage` 分开 —— 后者要求 `!cid`，
+   而未送达条目**正好带着 random** 作对账主键。两者都只清前端 state：不写库、不改对方的
+   接收结果，迟到的真消息回来后仍正常显示。`captureOutgoingAfterSeq` 沿用原规则 ——
+   没有可信序号的占位让水位退回「不确定」，不因为现在可移除就放宽。

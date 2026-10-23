@@ -4,6 +4,7 @@ import '../styles/hover-tooltip.css';
 import { useRenderDocument } from '../lib/renderDocument';
 import { useRestrictedMode } from '../state/restrictedMode';
 import { restrictedActionTitle } from '../lib/restrictedMode';
+import { shouldDismissHoverHint } from '../lib/hoverHint';
 
 // Half Chromium's 500 ms default; native title timing itself is not configurable.
 const HOVER_DELAY_MS = 250;
@@ -175,13 +176,16 @@ export function HoverTooltip() {
     const leave = (event: PointerEvent): void => {
       if (!event.relatedTarget) clear();
     };
+    const keydown = (event: KeyboardEvent): void => {
+      if (shouldDismissHoverHint(event)) clear();
+    };
     document.addEventListener('pointerover', over, true);
     document.addEventListener('pointerout', out, true);
     document.addEventListener('pointerleave', leave);
     document.addEventListener('focusin', focus, true);
     document.addEventListener('focusout', focusOut, true);
     document.addEventListener('pointerdown', clear, true);
-    document.addEventListener('keydown', clear, true);
+    document.addEventListener('keydown', keydown, true);
     document.addEventListener('scroll', clear, true);
     window.addEventListener('blur', clear);
     window.addEventListener('resize', clear);
@@ -193,7 +197,7 @@ export function HoverTooltip() {
       document.removeEventListener('focusin', focus, true);
       document.removeEventListener('focusout', focusOut, true);
       document.removeEventListener('pointerdown', clear, true);
-      document.removeEventListener('keydown', clear, true);
+      document.removeEventListener('keydown', keydown, true);
       document.removeEventListener('scroll', clear, true);
       window.removeEventListener('blur', clear);
       window.removeEventListener('resize', clear);

@@ -20,6 +20,8 @@ import {
   copyExportSavePolicy,
   resolveExportSaveDirectory,
   describeExportOutput,
+  selectStorageCleanupTargets,
+  type StorageRoot,
 } from '@weq/service';
 import {
   bindExportSaveRequest,
@@ -83,6 +85,7 @@ import {
 import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
 import { normalizeQqDataRoot } from '@weq/platform';
 import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
+import { isDbRepairBusy } from './db_repair';
 
 /** Result of the QQ data-directory picker. */
 export interface PickRootResult {
@@ -183,7 +186,7 @@ export async function ensureUidForUin(
   return null;
 }
 
-function storageRoots(): Array<{ path: string; label: string }> {
+function storageRoots(): StorageRoot[] {
   const host = getHost();
   return [
     ...(host.storageRoots?.() ?? []),
@@ -1682,8 +1685,43 @@ export const bootstrapRouter = router({
 
   /** 应用数据与宿主运行目录的完整占用，含仅统计项目。 */
   listStorageUsage: procedure.query(async () => {
-    return requireBootstrap().userConfig.listStorageUsage(storageRoots());
+    const items = await requireBootstrap().userConfig.listStorageUsage(storageRoots());
+    return items.map((item) =>
+      item.requiresExit && !getHost().clearStorageAfterExit
+        ? { ...item, clearable: false, reason: '此项需在电脑桌面端退出应用后清除' }
+        : item,
+    );
   }),
+
+  storageCleanupResult: procedure.query(() => getHost().storageCleanupResult?.() ?? null),
+
+  clearStorageData: procedure
+    .input(z.object({ ids: z.array(z.string()).min(1), acknowledgeRisk: z.literal(true) }))
+    .mutation(async ({ input }) => {
+      const host = getHost();
+      if (!host.clearStorageAfterExit) throw new Error('请在电脑桌面端执行退出后清除');
+      if (isDbRepairBusy()) throw new Error('数据库修复或回滚仍在进行，请等待完成后再清除');
+      if (
+        getAppContext()
+          .services?.exportManager.listTasks()
+          .some((task) => task.status === 'running' || task.status === 'pending')
+      ) {
+        throw new Error('导出任务仍在进行，请先暂停或取消任务');
+      }
+      if (isIntentModelDownloading()) throw new Error('模型仍在下载，请等待完成后再清除');
+      const boot = requireBootstrap();
+      if (
+        [...boot.ocrModels.listModels(), ...boot.voiceTranscribe.listModels()].some(
+          (model) => model.downloading,
+        )
+      ) {
+        throw new Error('模型仍在下载，请等待完成后再清除');
+      }
+      const items = await requireBootstrap().userConfig.listStorageUsage(storageRoots());
+      const targets = selectStorageCleanupTargets(items, input.ids);
+      await host.clearStorageAfterExit(targets);
+      return { scheduled: true };
+    }),
 
   /** 旧接口保留为可清理项的子集。 */
   listClearableCache: procedure.query(async () => {

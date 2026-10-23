@@ -13,7 +13,6 @@ import { DialogHost } from './components/Dialog';
 import { RemoteRequests } from './components/RemoteRequests';
 import { HoverTooltip } from './components/HoverTooltip';
 import { ToastHost, useToast } from './components/Toast';
-import { DbRepairReturnOverlay } from './components/DbRepairReturnOverlay';
 import { DbRepairWindowHost } from './components/DbRepairWindow';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { JoinGroupDialog } from './components/JoinGroupDialog';
@@ -193,9 +192,6 @@ export default function App(): ReactElement {
             <RemoteRequests />
             <ToastHost />
             <HoverTooltip />
-            {/* 「修复完成 → 回首页」的倒计时。挂在这一层（而不是维护与诊断工具弹窗里），
-                关掉弹窗或切视图都不会把它弄丢。 */}
-            <DbRepairReturnOverlay />
             <DbRepairWindowHost />
             <DesktopOnly>
               <CloseConfirmDialog />

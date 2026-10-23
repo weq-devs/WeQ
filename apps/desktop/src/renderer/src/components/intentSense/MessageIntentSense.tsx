@@ -17,6 +17,7 @@ import { createPortal } from 'react-dom';
 import { useRenderDocument } from '../../lib/renderDocument';
 import { useOverlayLayer } from '../../lib/overlayStack';
 import { intentPopoverPosition } from '../../lib/intentPopoverPosition';
+import { shouldDismissHoverHint } from '../../lib/hoverHint';
 import { useTabActive } from '../RetainedTabs';
 import {
   Award,
@@ -309,16 +310,19 @@ export function MessageIntentSense({
     if (!anchor) return;
     const view = ownerDocument.defaultView;
     const dismiss = (): void => setAnchor(null);
+    const keydown = (event: KeyboardEvent): void => {
+      if (shouldDismissHoverHint(event)) dismiss();
+    };
     ownerDocument.addEventListener('scroll', dismiss, true);
     ownerDocument.addEventListener('pointerdown', dismiss, true);
-    ownerDocument.addEventListener('keydown', dismiss);
+    ownerDocument.addEventListener('keydown', keydown);
     view?.addEventListener('blur', dismiss);
     view?.addEventListener('resize', dismiss);
     view?.visualViewport?.addEventListener('resize', dismiss);
     return () => {
       ownerDocument.removeEventListener('scroll', dismiss, true);
       ownerDocument.removeEventListener('pointerdown', dismiss, true);
-      ownerDocument.removeEventListener('keydown', dismiss);
+      ownerDocument.removeEventListener('keydown', keydown);
       view?.removeEventListener('blur', dismiss);
       view?.removeEventListener('resize', dismiss);
       view?.visualViewport?.removeEventListener('resize', dismiss);

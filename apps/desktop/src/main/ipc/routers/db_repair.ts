@@ -195,6 +195,9 @@ let closedAccountDuringRun = false;
 
 const deps: DbRepairDeps = {
   cacheDir: (...segments) => requireBootstrap().userConfig.cacheDir(join(...segments)),
+  scratchDir: () => requireBootstrap().userConfig.getDbRepairCacheDir(),
+  storageOptimized: () =>
+    (requirePlatform().native.ntHelper.databaseRepairStorageVersion?.() ?? 0) >= 1,
 
   resolveAccount: (uin) => resolveAccountInfo(uin),
 
@@ -327,6 +330,7 @@ const deps: DbRepairDeps = {
 };
 
 const service = new DbRepairService(deps);
+export const isDbRepairBusy = (): boolean => service.isBusy();
 
 // ────────────────────────── 展示用的小工具 ──────────────────────────
 
@@ -446,6 +450,23 @@ const recordRef = accountRef.extend({ recordId: z.string().min(1) });
 // ────────────────────────── 路由 ──────────────────────────
 
 export const dbRepairRouter = router({
+  cacheLocation: procedure.query(() => ({
+    override: requireBootstrap().userConfig.getDbRepairCacheDir(),
+  })),
+
+  pickCacheLocation: procedure.mutation(async () => {
+    if (service.isBusy()) throw new Error('修复或回滚进行中，不能更改缓存位置');
+    const picked = await getHost().pickDirectory({ title: '选择数据库修复缓存位置' });
+    if (service.isBusy()) throw new Error('修复或回滚进行中，不能更改缓存位置');
+    if (picked) requireBootstrap().userConfig.setDbRepairCacheDir(picked);
+    return { override: requireBootstrap().userConfig.getDbRepairCacheDir() };
+  }),
+
+  resetCacheLocation: procedure.mutation(() => {
+    if (service.isBusy()) throw new Error('修复或回滚进行中，不能更改缓存位置');
+    requireBootstrap().userConfig.setDbRepairCacheDir(null);
+    return { override: null };
+  }),
   /**
    * 账号级状态 + 库体检表。
    *
@@ -687,6 +708,7 @@ export const dbRepairRouter = router({
     .input(
       targetRef.extend({
         backup: z.boolean().optional(),
+        allowLowSpace: z.boolean().optional(),
         /** 坏页先清零（内容一定经过校验，代价是那些行明确丢失）。 */
         strictPages: z.boolean().optional(),
         /** 走布局迁移：按 standard 源布局读、写回 QQ 布局。 */
@@ -703,6 +725,7 @@ export const dbRepairRouter = router({
             uin: input.uin,
             dbName: input.dbName,
             ...(input.backup === undefined ? {} : { backup: input.backup }),
+            ...(input.allowLowSpace === undefined ? {} : { allowLowSpace: input.allowLowSpace }),
             ...(input.strictPages === undefined ? {} : { strictPages: input.strictPages }),
             ...(input.layoutMigration === undefined
               ? {}

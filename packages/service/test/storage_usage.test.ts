@@ -30,7 +30,103 @@ afterEach(() => {
 });
 
 describe('WeQ 存储管理', () => {
-  it('统计模型、持久数据及未知文件，但只开放明确可重建的缓存', async () => {
+  it('独立修复缓存持久化、单独统计且不进入普通清理，原位置不自动迁移', async () => {
+    const f = fixture();
+    const cache = join(f.root, 'repair-custom');
+    const backup = f.file('repair-custom/db_repair/synthetic/backups/one/nt_msg.db', 71);
+    const original = f.file('repair-custom/personal.db', 100);
+    f.service.setDbRepairCacheDir(cache);
+    const reloaded = new UserConfigService({ appDataRoot: () => f.root });
+    expect(reloaded.getDbRepairCacheDir()).toBe(cache);
+    const items = await reloaded.listStorageUsage();
+    const item = items.find((row) => row.path === join(cache, 'db_repair/synthetic'));
+    expect(item).toMatchObject({ bytes: 71, requiresExit: true, clearable: true });
+    expect(item?.confirmation).toContain('回滚');
+    await reloaded.clearCache(item ? [item.id] : []);
+    expect(existsSync(backup)).toBe(true);
+    reloaded.setDbRepairCacheDir(null);
+    expect(reloaded.getDbRepairCacheDir()).toBeNull();
+    expect(existsSync(backup)).toBe(true);
+    expect(existsSync(original)).toBe(true);
+  });
+
+  it('收藏媒体、QQ 秀和共享装扮资源可清理，账号装扮设置不受影响', async () => {
+    const f = fixture();
+    f.file('cache/collection/preview.jpg', 11);
+    f.file('cache/qqshow/preview.png', 12);
+    f.file('cache/dress_shared/fonts/font.ttf', 13);
+    const config = f.file('config/accounts/synthetic/dress.json', 14);
+    const items = await f.service.listStorageUsage();
+    for (const id of ['collection', 'qqshow', 'dress_shared']) {
+      expect(items.find((item) => item.id === id)?.clearable).toBe(true);
+    }
+    expect(items.find((item) => item.id === 'dress_shared')?.confirmation).toContain(
+      '重新进入账号',
+    );
+    const result = await f.service.clearCache(['collection', 'qqshow', 'dress_shared']);
+    expect(result.freedBytes).toBe(36);
+    expect(result.cleared).toEqual(
+      expect.arrayContaining(['collection', 'qqshow', 'dress_shared']),
+    );
+    expect(existsSync(config)).toBe(true);
+    expect(existsSync(join(f.root, 'cache/dress_shared/fonts/font.ttf'))).toBe(false);
+    for (const name of ['bubbles', 'fonts', 'pendants']) {
+      expect(existsSync(join(f.root, 'cache/dress_shared', name))).toBe(true);
+    }
+  });
+
+  it('装扮预览只清理下载器生成的顶层图片，不删除自定义背景、旧清单或未知文件', async () => {
+    const f = fixture();
+    const cached = f.file(`cache/dress/${'a'.repeat(40)}.png`, 21);
+    const retained = [
+      f.file('cache/dress/account/background/custom.png', 22),
+      f.file('cache/dress/account/manifest.json', 23),
+      f.file('cache/dress/my-background.jpg', 24),
+      f.file(`cache/dress/${'b'.repeat(40)}.txt`, 25),
+      f.file(`cache/dress/${'c'.repeat(40)}.webp/keep`, 26),
+    ];
+    const other = fixture();
+    const original = other.file('original.jpg', 100);
+    symlinkSync(original, join(f.root, 'cache/dress', `${'d'.repeat(40)}.jpg`));
+    const items = await f.service.listStorageUsage();
+    const preview = items.find((item) => item.label === '装扮预览图片');
+    expect(preview).toMatchObject({ bytes: 21, clearable: true });
+    const legacy = items.find(
+      (item) => item.path === join(f.root, 'cache/dress') && item.requiresExit,
+    )!;
+    expect(legacy.bytes).toBeGreaterThan(120);
+    const result = await f.service.clearCache([preview!.id, legacy.id]);
+    expect(result.freedBytes).toBe(21);
+    expect(existsSync(cached)).toBe(false);
+    for (const path of [...retained, original]) expect(existsSync(path)).toBe(true);
+    expect(
+      (await f.service.listStorageUsage()).find((item) => item.id === preview!.id)?.bytes,
+    ).toBe(0);
+  });
+
+  it('新增清理项同样支持旧默认缓存，并保护符号链接与嵌套宿主根', async () => {
+    const f = fixture();
+    const other = fixture();
+    const original = other.file('original', 100);
+    f.file('cache/collection/preview.jpg', 10);
+    f.file('cache/dress_shared/protected/font.ttf', 20);
+    f.file(`cache/dress/${'a'.repeat(40)}.jpg`, 30);
+    symlinkSync(other.root, join(f.root, 'cache/qqshow'), 'dir');
+    f.service.setCacheDirOverride(join(f.root, 'custom'));
+    const extra = [{ path: join(f.root, 'cache/dress_shared/protected'), label: '宿主资源' }];
+    const items = await f.service.listStorageUsage(extra);
+    const targets = items.filter((item) => item.clearable);
+    expect(targets.some((item) => item.label === '收藏媒体缓存（默认目录）')).toBe(true);
+    const result = await f.service.clearCache(
+      items.map((item) => item.id),
+      extra,
+    );
+    expect(result.freedBytes).toBe(40);
+    expect(existsSync(original)).toBe(true);
+    expect(existsSync(join(f.root, 'cache/dress_shared/protected/font.ttf'))).toBe(true);
+  });
+
+  it('持久数据需退出确认，旧缓存接口不会删除它们或未知文件', async () => {
     const f = fixture();
     f.file('cache/avatar/a', 11);
     f.file('cache/linkpreview/a', 12);
@@ -44,11 +140,11 @@ describe('WeQ 存储管理', () => {
     for (const [suffix, bytes, clearable] of [
       ['cache/avatar', 11, true],
       ['cache/linkpreview', 12, true],
-      ['cache/ocr', 13, false],
-      ['cache/agentlab', 14, false],
-      ['cache/search-index', 15, false],
-      ['models', 16, false],
-      ['merge-forward', 17, false],
+      ['cache/ocr', 13, true],
+      ['cache/agentlab', 14, true],
+      ['cache/search-index', 15, true],
+      ['models', 16, true],
+      ['merge-forward', 17, true],
       ['unknown.bin', 18, false],
     ] as const) {
       expect(items.find((item) => item.path === join(f.root, suffix))).toMatchObject({
@@ -58,6 +154,9 @@ describe('WeQ 存储管理', () => {
     }
     const protectedItems = items.filter((item) => !item.clearable);
     expect(protectedItems.every((item) => item.reason.length > 0)).toBe(true);
+    for (const item of items.filter((item) => item.requiresExit)) {
+      expect(item.confirmation).toBeTruthy();
+    }
     await f.service.clearCache([...items.map((item) => item.id), '../models']);
     expect(existsSync(join(f.root, 'cache/avatar/a'))).toBe(false);
     expect(existsSync(join(f.root, 'cache/ocr/result.json'))).toBe(true);

@@ -7,6 +7,7 @@ import { useDbRepairWindow } from '../state/dbRepairWindow';
 import { useAppLock } from '../state/lock';
 import { trpc } from '../trpc/client';
 import { DbRepairPanel, type DbRepairAccountOption } from './DbRepairPanel';
+import { DbRepairReturnOverlay } from './DbRepairReturnOverlay';
 import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
 import { HoverTooltip } from './HoverTooltip';
@@ -48,40 +49,45 @@ export function DbRepairWindowHost() {
     tool.close();
     useDbRepairWindow.getState().dismiss();
   };
-  if (tool.fallback)
-    return (
-      <Modal width={360} onClose={close} centered>
-        <div className="weq-db-repair-window-error" role="alert">
-          <h3>无法打开数据库修复窗口</h3>
-          <button type="button" className="weq-set-btn" onClick={() => tool.open()}>
-            重新打开
-          </button>
-        </div>
-      </Modal>
-    );
-  if (!tool.popup || tool.popup.closed || !account) return null;
-  return createPortal(
-    <RenderDocumentContext.Provider value={tool.popup.document}>
-      <TabActivity active={!locked}>
-        <div className="weq-db-repair-native" hidden={locked} inert={locked}>
-          <DbRepairPanel
-            currentUin={account.uin}
-            accounts={[account]}
-            onRefreshAccounts={() => {
-              void utils.bootstrap.listAccountConfigs.invalidate();
-            }}
-          />
-          <ToastHost />
-          <HoverTooltip />
-        </div>
-      </TabActivity>
-      {locked ? (
-        <div className="weq-db-repair-window-locked" role="status">
-          <LockKeyhole size={24} />
-          <span>应用已锁定</span>
-        </div>
+  const popup = tool.popup && !tool.popup.closed ? tool.popup : null;
+  return (
+    <>
+      <DbRepairReturnOverlay ownerDocument={!locked && popup ? popup.document : document} />
+      {tool.fallback ? (
+        <Modal width={360} onClose={close} centered>
+          <div className="weq-db-repair-window-error" role="alert">
+            <h3>无法打开数据库修复窗口</h3>
+            <button type="button" className="weq-set-btn" onClick={() => tool.open()}>
+              重新打开
+            </button>
+          </div>
+        </Modal>
+      ) : popup && account ? (
+        createPortal(
+          <RenderDocumentContext.Provider value={popup.document}>
+            <TabActivity active={!locked}>
+              <div className="weq-db-repair-native" hidden={locked} inert={locked}>
+                <DbRepairPanel
+                  currentUin={account.uin}
+                  accounts={[account]}
+                  onRefreshAccounts={() => {
+                    void utils.bootstrap.listAccountConfigs.invalidate();
+                  }}
+                />
+                <ToastHost />
+                <HoverTooltip />
+              </div>
+            </TabActivity>
+            {locked ? (
+              <div className="weq-db-repair-window-locked" role="status">
+                <LockKeyhole size={24} />
+                <span>应用已锁定</span>
+              </div>
+            ) : null}
+          </RenderDocumentContext.Provider>,
+          popup.document.body,
+        )
       ) : null}
-    </RenderDocumentContext.Provider>,
-    tool.popup.document.body,
+    </>
   );
 }

@@ -69,6 +69,38 @@ async function fixture() {
   return { host, root, close: () => act(() => root.unmount()) };
 }
 describe('意图浮窗的宿主与关闭', () => {
+  it.each(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph'])(
+    '单按 %s 保留意图浮窗，松开后也不关闭',
+    async (key) => {
+      const f = await fixture();
+      try {
+        const tooltip = document.querySelector('.weq-intent-popover');
+        expect(tooltip).not.toBeNull();
+        for (const type of ['keydown', 'keyup']) {
+          act(() => f.host.dispatchEvent(new KeyboardEvent(type, { bubbles: true, key })));
+          expect(document.querySelector('.weq-intent-popover')).toBe(tooltip);
+        }
+      } finally {
+        f.close();
+      }
+    },
+  );
+  it.each([
+    { key: 'Escape' },
+    { key: 'Tab' },
+    { key: 'a' },
+    { key: 'c', ctrlKey: true },
+    { key: 'c', metaKey: true },
+    { key: 'ArrowDown', shiftKey: true },
+  ])('按下 $key 仍立即关闭意图浮窗（包括组合键）', async (init) => {
+    const f = await fixture();
+    try {
+      act(() => f.host.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ...init })));
+      expect(document.querySelector('.weq-intent-popover')).toBeNull();
+    } finally {
+      f.close();
+    }
+  });
   it('离开会裁切的业务祖先，按聊天底边上翻且使用浮层栈', async () => {
     const f = await fixture();
     try {

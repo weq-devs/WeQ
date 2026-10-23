@@ -1,6 +1,6 @@
 {
   "name": "weq",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "private": true,
   "type": "module",
   "description": "QQ NT 本地聊天记录解密、导出、查看与年度报告",
@@ -23,6 +23,7 @@
     "build:daemon": "node packages/daemon/scripts/build.mjs",
     "native:fetch": "node scripts/fetch-native.mjs",
     "native:check": "node scripts/fetch-native.mjs --check",
+    "native:check-streaming": "node scripts/check-native-streaming.mjs",
     "version:set": "node scripts/set-version.mjs",
     "mface:fetch": "node scripts/parcel_crawler.mjs",
     "rpskin:fetch": "tsx scripts/fetch_red_pack_skins.ts",
