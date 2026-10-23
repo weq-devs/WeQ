@@ -54,11 +54,12 @@ export function VipBadge({ className }: { className?: string }) {
   if (!data || stale) return null;
 
   const tier = data.tier;
-  const label = `${data.year ? '年 ' : ''}${TIER_TEXT[tier]}`;
+  // 等级直接进徽标文字（SVIP4 / 大会员8），与 QQ 自己的写法一致；0 表示该档位没有等级。
+  const label = `${data.year ? '年 ' : ''}${TIER_TEXT[tier]}${data.level > 0 ? data.level : ''}`;
   const detail = [
     TIER_NAME[tier] + (data.year ? '（年费）' : ''),
     data.source === 'local' ? '来自本地资料库' : null,
-    data.source === 'club-api' && data.level > 0 ? `${data.level} 级` : null,
+    data.level > 0 ? `${data.level} 级` : null,
     expireText(data.expireAt) ? `到期 ${expireText(data.expireAt)}` : null,
   ]
     .filter(Boolean)

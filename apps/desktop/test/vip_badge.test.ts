@@ -64,10 +64,11 @@ afterEach(() => {
 describe('顶栏会员徽标', () => {
   it('三档各有自己的文案与修饰类', () => {
     const f = fixture();
+    // base.level = 4，所以文案本身就带等级（与 QQ 自己的 SVIP4 写法一致）。
     const cases: Array<[VipWire['tier'], string]> = [
-      ['vip', 'VIP'],
-      ['svip', 'SVIP'],
-      ['bvip', '大会员'],
+      ['vip', 'VIP4'],
+      ['svip', 'SVIP4'],
+      ['bvip', '大会员4'],
     ];
     for (const [tier, text] of cases) {
       state.vip = { ...base, tier };
@@ -78,7 +79,7 @@ describe('顶栏会员徽标', () => {
     }
   });
 
-  it('年费加「年」前缀，等级与到期写进悬浮提示', () => {
+  it('年费加「年」前缀，等级进徽标，到期写进悬浮提示', () => {
     const f = fixture();
     state.vip = {
       ...base,
@@ -89,14 +90,14 @@ describe('顶栏会员徽标', () => {
     };
     f.render();
     const badge = f.host.querySelector('.app-title-bar-vip-badge')!;
-    expect(badge.textContent).toBe('年 大会员');
+    expect(badge.textContent).toBe('年 大会员8');
     const title = badge.getAttribute('title') ?? '';
     expect(title).toContain('大会员（年费）');
     expect(title).toContain('8 级');
     expect(title).toContain('到期');
   });
 
-  it('本地兜底数据标明来源，且不编造等级外的信息', () => {
+  it('等级为 0 时不拼数字（本地清单也可能缺等级）', () => {
     const f = fixture();
     state.vip = { ...base, tier: 'svip', level: 0, source: 'local' };
     f.render();
@@ -104,6 +105,7 @@ describe('顶栏会员徽标', () => {
     expect(badge.getAttribute('title')).toContain('来自本地资料库');
     // 「超级会员」三字里也有「级」，这里要断言的是没有「<数字> 级」这种等级段。
     expect(badge.getAttribute('title')).not.toMatch(/\d+ 级/);
+    expect(badge.textContent).toBe('SVIP');
   });
 
   it('不是会员时什么都不渲染', () => {
