@@ -50,14 +50,33 @@ const injectedWidgets = new Set<number>();
  *
  * resolve 后额外等两个绘制帧，让浏览器把解码结果提交到 GPU 纹理缓存，
  * 避免动画第一圈仍因纹理上传延迟而闪烁。
+ *
+ * 走 {@link decorationImageCache.require} 而不是 `preload`：这批帧是**开播前置条件**，
+ * 队列超过上限时也要真排队。`preload` 在队列满时会立刻 resolve，门控就被绕过去了
+ * —— 那正是「首屏同时挂很多款装扮时仍在闪」的原因。
  */
 function preloadImages(urls: string[]): Promise<void> {
-  return Promise.all(urls.map((url) => decorationImageCache.preload(url))).then(
+  return Promise.allSettled(urls.map((url) => decorationImageCache.require(url))).then(
     () =>
       new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       ),
   );
+}
+
+/**
+ * 开播并**把这几帧钉住**：`@keyframes` 注入后一直有效，帧一旦被 LRU 淘汰就会退回
+ * 「每圈逐帧重新解码」的闪烁路径（见 decodedImageCache 的模块头）。
+ *
+ * 这里刻意不归还：本模块只处理**真实消息里出现过的**逐条装扮（`injectXxxCss` 是
+ * write-once 的，`injectedBubbles` 等集合同理），数量随会话里真正出现过的装扮款数
+ * 增长，而不是「装配中心里浏览过的全部」。后者走 dressSkin 的预览路径，仍由 LRU
+ * 正常淘汰 —— 38686072 要修的累积就是在那里。
+ *
+ * 同款装扮被多个调用方注入时各自持一份引用计数，互不影响。
+ */
+function launchAnimation(urls: string[]): void {
+  decorationImageCache.pin(urls);
 }
 
 function px(v: number): string {
@@ -390,6 +409,7 @@ export function injectBubbleCss(skin: BubbleSkin): void {
       dressBubbleFrameUrl(skin.itemId, i + 1),
     );
     void preloadImages(frameUrls).then(() => {
+      launchAnimation(frameUrls);
       append(
         `${overlaySel} { animation: ${frameAnim.animation}; }\n` +
           `${theirsBubbleSel(skin.itemId, '::after')} { animation: ${frameAnim.animation}; }\n` +
@@ -447,9 +467,12 @@ export function injectFontCss(fontId: number, font: FontDerived | null): void {
     // 先解码再等属性挂上（属性是量完尺寸才挂的，帧解完码差不多刚好）——
     // 第一圈逐帧解码会肉眼看得出闪，与气泡动效同一个坑。
     const total = fxSkin.fx.variants.reduce((n, v) => n + v.frames.length, 0);
-    void preloadImages(
-      Array.from({ length: total }, (_, i) => dressFontFrameUrl(fontId, i + 1, deriveVersion)),
+    const frameUrls = Array.from({ length: total }, (_, i) =>
+      dressFontFrameUrl(fontId, i + 1, deriveVersion),
     );
+    // 这条路径不推迟开播（见上面的说明），所以解码完立刻钉住：属性一挂上就在播，
+    // 中间没有「还没开播、可以放心淘汰」的窗口。
+    void preloadImages(frameUrls).then(() => launchAnimation(frameUrls));
   }
 }
 
@@ -519,6 +542,7 @@ export function injectWidgetCss(widget: ResolvedWidget): void {
     dressPendantFrameUrl(widget.itemId, i + 1),
   );
   void preloadImages(frameUrls).then(() => {
+    launchAnimation(frameUrls);
     append(
       `${sel} { animation: ${frameAnim.animation}; }\n` +
         `@media (prefers-reduced-motion: reduce) { ${sel} { animation: none; } }`,
