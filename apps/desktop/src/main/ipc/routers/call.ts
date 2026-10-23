@@ -16,9 +16,9 @@ import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
 import { getLogger } from '@weq/service';
 import { procedure, router } from '../trpc';
-import { getAppContext } from '../../context/app_context';
-import { requireAttachEnabled } from '../../context/app_context';
+import { getAppContext, requireAttachEnabled } from '../../context/app_context';
 import { callManagerFor } from '../../call_registry';
+import type { ActiveCallInfo, CallEvent } from '../../call';
 
 const logger = getLogger().child({ scope: 'call-router' });
 
@@ -108,22 +108,20 @@ export const callRouter = router({
   }),
 
   /** 通话状态变化（发起 / 振铃 / 接通 / 结束）。 */
-  onCallState: procedure.subscription(() => {
-    const ctx = getAppContext();
-    const platform = ctx.platform;
-    const uin = ctx.account?.context.uin;
-    if (!platform || !uin) return observable(() => () => {});
-    const manager = callManagerFor(platform, platform.resolveQqPid(uin) ?? 0);
-    return observable<unknown>((emit) => {
-      const handler = (event: unknown) => {
-        const e = event as { type: string; call?: unknown; message?: string };
-        if (e.type === 'state' && e.call) emit.next(e.call);
-        if (e.type === 'error') emit.next({ error: e.message });
+  onCallState: procedure.subscription(() =>
+    observable<ActiveCallInfo>((emit) => {
+      const ctx = getAppContext();
+      const platform = ctx.platform;
+      const uin = ctx.account?.context.uin;
+      if (!platform || !uin) return () => {};
+      const manager = callManagerFor(platform, platform.resolveQqPid(uin) ?? 0);
+      const handler = (event: CallEvent) => {
+        if (event.type === 'state') emit.next(event.call);
       };
       manager.on('event', handler);
       return () => manager.off('event', handler);
-    });
-  }),
+    }),
+  ),
 
   /** 对端音频（已解码成 16 kHz PCM）。 */
   onCallAudio: procedure.subscription(() =>
@@ -133,9 +131,8 @@ export const callRouter = router({
       const uin = ctx.account?.context.uin;
       if (!platform || !uin) return () => {};
       const manager = callManagerFor(platform, platform.resolveQqPid(uin) ?? 0);
-      const handler = (event: unknown) => {
-        const e = event as { type: string; pcm?: Uint8Array };
-        if (e.type === 'audio' && e.pcm) emit.next(e.pcm);
+      const handler = (event: CallEvent) => {
+        if (event.type === 'audio') emit.next(event.pcm);
       };
       manager.on('event', handler);
       return () => manager.off('event', handler);
