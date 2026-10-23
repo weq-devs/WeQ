@@ -352,6 +352,37 @@ describe('DbRepairService.repair 成功路径', () => {
 // ────────────────────────── 中止与失败 ──────────────────────────
 
 describe('修复空间与自定义缓存', () => {
+  it('基线足够但建议余量不足时要求明确确认，确认后正常修复且不跳过备份', async () => {
+    const h = createHarness({ diskSpace: () => ({ volume: 'same', freeBytes: 1024 * 1024 }) });
+    const budget = h.service.preflight(REF, 'nt_msg.db').space[0]!;
+    expect(budget.requiredBytes).toBeLessThan(1024 * 1024);
+    expect(budget.recommendedBytes).toBeGreaterThan(1024 * 1024);
+    await expect(
+      h.service.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {}),
+    ).rejects.toMatchObject({ code: 'space-margin' });
+    expect(h.calls.recover).toBe(0);
+    expect(readFileSync(h.dbPath)).toEqual(originalBytes());
+    const record = await h.service.repair(
+      { uin: REF, dbName: 'nt_msg.db', allowLowSpace: true },
+      () => {},
+    );
+    expect(record.state).toBe('applied');
+    expect(readFileSync(record.backupPath!)).toEqual(originalBytes());
+  });
+
+  it('即使确认忽略余量，也不能绕过另一卷预计峰值不足', async () => {
+    const h = createHarness({
+      diskSpace: (path) => ({
+        volume: path.includes('cache') ? 'cache' : 'source',
+        freeBytes: path.includes('cache') ? 1024 * 1024 : 1,
+      }),
+    });
+    await expect(
+      h.service.repair({ uin: REF, dbName: 'nt_msg.db', allowLowSpace: true }, () => {}),
+    ).rejects.toMatchObject({ code: 'insufficient-space' });
+    expect(h.calls.recover).toBe(0);
+  });
+
   it('缓存卷不足时阻断，不因原库卷空间充足而放行', async () => {
     const h = createHarness({
       diskSpace: (path) => ({

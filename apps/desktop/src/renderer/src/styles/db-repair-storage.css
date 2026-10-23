@@ -25,3 +25,24 @@ html[data-theme='dark'] .weq-rp-cache-location {
   color: var(--weq-fg-secondary);
   border-color: var(--weq-border-subtle);
 }
+
+.weq-rp-space-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0;
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+}
+
+.weq-rp-space-line {
+  display: block;
+}
+
+.weq-rp-space-consent input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  accent-color: var(--weq-accent-effective);
+}

@@ -101,24 +101,25 @@ describe('分卷峰值预算', () => {
       probe: () => ({ volume: 'same', freeBytes: 1e12 }),
     });
     expect(result).toHaveLength(1);
-    expect(result[0]!.requiredBytes).toBe(size * 3 * 1.25 + margin);
+    expect(result[0]!.requiredBytes).toBe(size * 3);
+    expect(result[0]!.recommendedBytes).toBe(size * 3 * 1.25 + margin);
   });
   it('分卷分别覆盖重建缓存和最终产物，旧模块预留四份缓存', () => {
     const probe = (path: string) => ({ volume: path, freeBytes: 1e12 });
     const result = repairSpaceBudget({ ...base, probe });
-    expect(result.map((item) => item.requiredBytes)).toEqual([
-      size * 3 * 1.25 + margin,
-      size * 1.25 + margin,
-    ]);
+    expect(result.map((item) => item.requiredBytes)).toEqual([size * 3, size]);
     expect(repairSpaceBudget({ ...base, optimized: false, probe })[0]!.requiredBytes).toBe(
-      size * 4 * 1.25 + margin,
+      size * 4,
     );
   });
   it('无法识别卷时按可能共卷估算，不把未知当成空间充足', () => {
     const result = repairSpaceBudget({ ...base, probe: () => ({ volume: null, freeBytes: null }) });
     expect(
       result.every(
-        (item) => item.freeBytes === null && item.requiredBytes === size * 3 * 1.25 + margin,
+        (item) =>
+          item.freeBytes === null &&
+          item.requiredBytes === size * 3 &&
+          item.recommendedBytes === size * 3 * 1.25 + margin,
       ),
     ).toBe(true);
   });

@@ -80,6 +80,8 @@ export type DbRepairErrorCode =
   | 'blocked'
   /** 磁盘空间不够。 */
   | 'insufficient-space'
+  /** 预计峰值足够，但未确认接受建议余量不足。 */
+  | 'space-margin'
   /** 已有修复任务在进行。 */
   | 'busy'
   /** 修复期间源库被改动 —— 可重试（建议先关账号）。 */
@@ -188,6 +190,8 @@ export interface DbRepairRequest {
   dbName: string;
   /** 是否先备份（默认 `true`）：没有备份就没有"后悔"。 */
   backup?: boolean;
+  /** 仅接受建议余量不足；不能绕过预计峰值不足，也不影响备份与自检。 */
+  allowLowSpace?: boolean;
   /** 严格页模式：坏页先清零，内容一定经过校验，代价是那些行明确丢失。 */
   strictPages?: boolean;
   /** 是否从 freelist 捞已删除的记录（默认 `false`；打开会"复活"已删除消息）。 */
@@ -347,6 +351,7 @@ export class DbRepairService {
       storageOptimized,
       freeBytes: freeBytesAt(target.dbDir),
       requiredBytes: space.reduce((sum, item) => sum + item.requiredBytes, 0),
+      recommendedBytes: space.reduce((sum, item) => sum + item.recommendedBytes, 0),
       keyPresent: target.key !== '',
       backupsKept: this.countBackups(uin),
       pendingWalBytes: pendingWalBytes(target.dbPath),
@@ -387,7 +392,16 @@ export class DbRepairService {
     if (shortage) {
       throw new DbRepairError(
         'insufficient-space',
-        `磁盘空间不足（${shortage.paths.join('、')}）：需要约 ${formatMb(shortage.requiredBytes)}，当前可用 ${formatMb(shortage.freeBytes!)}`,
+        `磁盘空间不足（${shortage.paths.join('、')}）：预计新增峰值约 ${formatMb(shortage.requiredBytes)}，当前可用 ${formatMb(shortage.freeBytes!)}`,
+      );
+    }
+    const margin = preflight.space.find(
+      (item) => item.freeBytes !== null && item.freeBytes < item.recommendedBytes,
+    );
+    if (margin && request.allowLowSpace !== true) {
+      throw new DbRepairError(
+        'space-margin',
+        `磁盘建议余量不足（${margin.paths.join('、')}）：预计新增峰值约 ${formatMb(margin.requiredBytes)}，建议预留 ${formatMb(margin.recommendedBytes)}，当前可用 ${formatMb(margin.freeBytes!)}。可在修复确认中明确接受风险后继续。`,
       );
     }
     if (preflight.readiness === 'blocked-by-qq') {
@@ -429,6 +443,7 @@ export class DbRepairService {
       dbPath: target.dbPath,
       strictPages: request.strictPages ?? false,
       backup: request.backup !== false,
+      allowLowSpace: request.allowLowSpace === true,
       layoutMigration: request.layoutMigration === true,
     });
 

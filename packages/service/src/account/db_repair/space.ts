@@ -11,6 +11,7 @@ export interface RepairSpaceBudget {
   paths: string[];
   freeBytes: number | null;
   requiredBytes: number;
+  recommendedBytes: number;
 }
 
 /** 未创建的子目录按最近的现有父目录探测，不为预检落盘。 */
@@ -65,8 +66,9 @@ export function repairSpaceBudget(options: {
     return {
       paths: indices.map((index) => paths[index]!),
       freeBytes: free.length ? Math.min(...free) : null,
-      // 索引排序、恢复表及文件系统开销有波动，另留 25% 与 64 MiB；不是硬上界。
-      requiredBytes: Math.ceil(peak * 1.25) + 64 * 1024 * 1024,
+      requiredBytes: peak,
+      // 余量只是建议，与预计峰值分开；两者都不是实际占用的硬上界。
+      recommendedBytes: Math.ceil(peak * 1.25) + 64 * 1024 * 1024,
     };
   });
 }

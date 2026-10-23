@@ -708,6 +708,7 @@ export const dbRepairRouter = router({
     .input(
       targetRef.extend({
         backup: z.boolean().optional(),
+        allowLowSpace: z.boolean().optional(),
         /** 坏页先清零（内容一定经过校验，代价是那些行明确丢失）。 */
         strictPages: z.boolean().optional(),
         /** 走布局迁移：按 standard 源布局读、写回 QQ 布局。 */
@@ -724,6 +725,7 @@ export const dbRepairRouter = router({
             uin: input.uin,
             dbName: input.dbName,
             ...(input.backup === undefined ? {} : { backup: input.backup }),
+            ...(input.allowLowSpace === undefined ? {} : { allowLowSpace: input.allowLowSpace }),
             ...(input.strictPages === undefined ? {} : { strictPages: input.strictPages }),
             ...(input.layoutMigration === undefined
               ? {}

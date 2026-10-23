@@ -191,8 +191,10 @@ export interface DbRepairPreflight extends DbRepairTarget {
   dbBytes: number;
   /** 源库所在分区的可用空间；探测不到为 `null`（不阻断）。 */
   freeBytes: number | null;
-  /** 各卷估算之和，包含 WAL 增长与余量；具体判断以 space 为准。 */
+  /** 各卷预计新增峰值之和，包含 WAL 增长；具体判断以 space 为准。 */
   requiredBytes: number;
+  /** 含建议余量的各卷估算之和，不作为不可绕过的硬门槛。 */
+  recommendedBytes: number;
   /** 账号配置里有 key。 */
   keyPresent: boolean;
   /** 已有备份份数（超过保留上限会淘汰最旧那份）。 */
