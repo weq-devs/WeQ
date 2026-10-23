@@ -182,26 +182,40 @@ async function* mergeBySendTime<T extends { sendTime: bigint }>(
  * 把漫游缓存消息适配成渲染消息流（按 sendTime 升序），并过滤不属于本会话的
  * 脏数据。GapFetchedMessage 已带渲染元素（{ type, data }），与 DB 渲染消息同形。
  */
-async function* roamMessageStream<T extends { sendTime: bigint }>(
+function roamMessageStream(
+  kind: 'group',
   conv: string,
   source: RoamMessageSource,
-): AsyncGenerator<T> {
-  const messages = await source();
-  const adapted = messages
-    .filter((m) => m.conv === conv)
-    .map(
-      (m) =>
-        ({
-          msgId: BigInt(m.msgId),
-          msgSeq: BigInt(m.msgSeq),
-          sendTime: BigInt(m.sendTime),
-          senderUid: m.senderUid,
-          senderUin: BigInt(m.senderUin),
-          elements: m.elements,
-          source: 'roaming',
-          sourceFormat: m.sourceFormat,
-        }) as unknown as T,
-    );
+): AsyncGenerator<RenderGroupMsg>;
+function roamMessageStream(
+  kind: 'c2c',
+  conv: string,
+  source: RoamMessageSource,
+): AsyncGenerator<RenderC2cMsg>;
+async function* roamMessageStream(
+  kind: 'group' | 'c2c',
+  conv: string,
+  source: RoamMessageSource,
+): AsyncGenerator<RenderGroupMsg | RenderC2cMsg> {
+  const messages = (await source()).filter((m) => m.kind === kind && m.conv === conv);
+  // 私聊会话键是 uid；仅对端发出的消息能证明其 QQ 号，缺失时沿用 DB 的 0 约定。
+  const peerUin =
+    kind === 'c2c' ? BigInt(messages.find((m) => m.senderUid === conv)?.senderUin ?? '0') : 0n;
+  const adapted = messages.map((m) => {
+    const common = {
+      msgId: BigInt(m.msgId),
+      msgSeq: BigInt(m.msgSeq),
+      sendTime: BigInt(m.sendTime),
+      senderUid: m.senderUid,
+      senderUin: BigInt(m.senderUin),
+      elements: m.elements,
+      source: 'roaming',
+      sourceFormat: m.sourceFormat,
+    };
+    return kind === 'group'
+      ? { ...common, targetGroupCode: conv }
+      : { ...common, targetUid: conv, targetUin: peerUin };
+  });
   adapted.sort((a, b) => (a.sendTime < b.sendTime ? -1 : a.sendTime > b.sendTime ? 1 : 0));
   yield* adapted;
 }
@@ -240,7 +254,7 @@ export async function* iterateGroupMessages(
     pageGroupBySeqlessRowId(msgs, groupCode, pageSize, salvage),
   );
   if (opts.roam) {
-    merged = mergeBySendTime(merged, roamMessageStream<RenderGroupMsg>(groupCode, opts.roam));
+    merged = mergeBySendTime(merged, roamMessageStream('group', groupCode, opts.roam));
   }
   const deduped = opts.roam
     ? dedupeByMsgId(merged, msgs.exportFilter?.messageIds ? messageSelectionKey : undefined)
@@ -333,7 +347,7 @@ export async function* iterateC2cMessages(
       pageC2cBySeqlessRowId(msgs, peerUid, pageSize, salvage),
     );
   if (opts.roam) {
-    merged = mergeBySendTime(merged, roamMessageStream<RenderC2cMsg>(peerUid, opts.roam));
+    merged = mergeBySendTime(merged, roamMessageStream('c2c', peerUid, opts.roam));
   }
   const deduped = opts.roam
     ? dedupeByMsgId(merged, msgs.exportFilter?.messageIds ? messageSelectionKey : undefined)
