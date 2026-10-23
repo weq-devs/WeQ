@@ -327,6 +327,7 @@ const deps: DbRepairDeps = {
 };
 
 const service = new DbRepairService(deps);
+export const isDbRepairBusy = (): boolean => service.isBusy();
 
 // ────────────────────────── 展示用的小工具 ──────────────────────────
 

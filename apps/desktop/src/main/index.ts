@@ -80,7 +80,9 @@ import { mediaSaveRouter } from './ipc/routers/media_save';
 import { systemAuthService } from './system_auth';
 import { totpAuthService } from './totp_auth';
 import { screenshotPage } from './link_shot';
+import { guardStorageCleanupStartup } from './storage_cleanup';
 const moduleDir = dirname(fileURLToPath(import.meta.url));
+guardStorageCleanupStartup();
 
 // Wayland 会话默认走 XWayland（见 linux_window_backend.ts）：这里**不能**用
 // `appendSwitch`，ozone 后端必须在 Electron 启动参数里指定。开发时由

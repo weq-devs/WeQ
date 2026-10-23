@@ -23,6 +23,11 @@ files:
   # 所以整包从 asar 里剔掉。
   - "!node_modules/onnxruntime-node/**"
 extraResources:
+  - from: out/main/storageCleanupWorker.mjs
+    to: out/main/storageCleanupWorker.mjs
+  # 独立清除助手与主进程共享纯文件系统模块；子进程不能从 asar 里解析相邻 chunks。
+  - from: out/main/chunks
+    to: out/main/chunks
   - from: ../web/dist/public
     to: remote-web
   - from: ../../tools/remote-network

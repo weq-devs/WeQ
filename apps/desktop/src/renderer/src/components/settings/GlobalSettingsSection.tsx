@@ -143,16 +143,27 @@ export function GlobalSettingsSection({
     refetchOnMount: 'always',
   });
   const clearWeqCache = trpc.bootstrap.clearWeqCache.useMutation();
+  const clearStorageData = trpc.bootstrap.clearStorageData.useMutation();
+  const cleanupResult = trpc.bootstrap.storageCleanupResult.useQuery(undefined, {
+    enabled: section === 'storage',
+  });
+  const cleanupBusy = clearWeqCache.isLoading || clearStorageData.isLoading;
   const [pickedCats, setPickedCats] = useState<Set<string>>(new Set());
   const cacheItems = cacheUsage.data ?? [];
   const clearableItems = cacheItems.filter(
     (item) => item.clearable && (item.bytes > 0 || item.incomplete),
   );
   const retainedGroups = groupRetainedStorage(cacheItems);
+  const safeCacheItems = clearableItems.filter((item) => !item.requiresExit);
+  const riskGroups = groupRetainedStorage(
+    clearableItems
+      .filter((item) => item.requiresExit)
+      .map((item) => ({ ...item, clearable: false })),
+  );
   const totalCacheBytes = cacheItems.reduce((sum, it) => sum + it.bytes, 0);
   const clearableBytes = clearableItems.reduce((sum, it) => sum + it.bytes, 0);
   const selectedItems = clearableItems.filter((item) => pickedCats.has(item.id));
-  const cleanupBytes = (pickedCats.size > 0 ? selectedItems : clearableItems).reduce(
+  const cleanupBytes = (pickedCats.size > 0 ? selectedItems : safeCacheItems).reduce(
     (sum, item) => sum + item.bytes,
     0,
   );
@@ -244,22 +255,56 @@ export function GlobalSettingsSection({
     ids: clearableItems.map((item) => item.id),
     selected: pickedCats,
     onChange: setPickedCats,
-    disabled: clearWeqCache.isLoading || cacheUsage.isFetching,
+    disabled: cleanupBusy || cacheUsage.isFetching,
   });
 
+  const storageItem = (item: (typeof cacheItems)[number]) => (
+    <label key={item.id} className="weq-set-cache-item" {...cacheMulti.itemProps(item.id)}>
+      <input
+        type="checkbox"
+        aria-label={item.label}
+        checked={pickedCats.has(item.id)}
+        readOnly
+        disabled={cleanupBusy || cacheUsage.isFetching}
+      />
+      <HardDrive size={14} strokeWidth={1.8} aria-hidden />
+      <span className="weq-storage-detail">
+        <span>{item.label}</span>
+        <small>{item.confirmation ?? item.reason}</small>
+        <small className="weq-storage-path">{item.path}</small>
+      </span>
+      <span className="weq-set-cache-size weq-number">{formatBytes(item.bytes)}</span>
+    </label>
+  );
+
   async function onClearWeqCache(): Promise<void> {
-    const targets = pickedCats.size > 0 ? selectedItems : clearableItems;
+    const targets = pickedCats.size > 0 ? selectedItems : safeCacheItems;
     const ids = targets.map((item) => item.id);
     if (ids.length === 0) return;
     const willFree = targets.reduce((sum, it) => sum + it.bytes, 0);
     const label = pickedCats.size > 0 ? targets.map((t) => t.label).join('、') : '全部可清理缓存';
+    const exit = targets.some((item) => item.requiresExit);
+    const extra = targets.flatMap((item) =>
+      item.confirmation ? [`${item.label}：${item.confirmation}`] : [],
+    );
     const ok = await confirm(
-      '清理 WeQ 缓存',
-      `将删除「${label}」，预计释放约 ${formatBytes(willFree)}。需要时会重新下载或生成；保留数据不受影响。是否继续？`,
-      { okLabel: '清理', cancelLabel: '取消', tone: 'warning' },
+      exit ? '退出并清除所选数据' : '清理 WeQ 缓存',
+      exit
+        ? `将完全退出 WeQ，然后永久删除「${label}」，预计清除约 ${formatBytes(willFree)}。只删除所选路径中的数据，不会额外清理其它 QQ 数据目录。请先停止导出、模型下载和数据库修复，并退出托管 QQ。\n\n${extra.join('\n\n')}\n\n清除期间不要重新启动应用；下次打开存储管理可查看结果。确认接受这些风险并退出？`
+        : `将删除「${label}」，预计释放约 ${formatBytes(willFree)}。需要时会重新下载或生成；保留数据不受影响。${extra.length ? `\n\n${extra.join('\n')}\n\n` : ''}是否继续？`,
+      { okLabel: exit ? '退出并清除' : '清理', cancelLabel: '取消', tone: 'warning' },
     );
     if (!ok) return;
     try {
+      if (exit) {
+        await clearStorageData.mutateAsync({ ids, acknowledgeRisk: true });
+        pushToast({
+          tone: 'warning',
+          title: '已安排退出后清除',
+          message: '等待清除完成后再打开 WeQ；清除结果会保留。',
+        });
+        return;
+      }
       const res = await clearWeqCache.mutateAsync({ ids });
       await cacheUsage.refetch();
       setPickedCats(new Set());
@@ -670,7 +715,7 @@ export function GlobalSettingsSection({
                 className="weq-set-btn"
                 title="刷新存储占用"
                 aria-label="刷新存储占用"
-                disabled={cacheUsage.isFetching || clearWeqCache.isLoading}
+                disabled={cacheUsage.isFetching || cleanupBusy}
                 onClick={() => void cacheUsage.refetch()}
               >
                 <RotateCcw size={14} aria-hidden />
@@ -679,22 +724,40 @@ export function GlobalSettingsSection({
                 type="button"
                 className="weq-set-btn weq-set-btn-danger"
                 disabled={
-                  clearWeqCache.isLoading ||
-                  cacheUsage.isFetching ||
-                  cacheUsage.isError ||
-                  cleanupBytes === 0
+                  cleanupBusy || cacheUsage.isFetching || cacheUsage.isError || cleanupBytes === 0
                 }
                 onClick={() => void onClearWeqCache()}
               >
-                {clearWeqCache.isLoading ? (
+                {cleanupBusy ? (
                   <Loader2 size={14} strokeWidth={1.8} className="weq-spin" aria-hidden />
                 ) : (
                   <Trash2 size={14} strokeWidth={1.8} aria-hidden />
                 )}
-                {pickedCats.size > 0 ? '清理所选' : '清理缓存'}
+                {selectedItems.some((item) => item.requiresExit)
+                  ? '退出并清除所选'
+                  : pickedCats.size > 0
+                    ? '清理所选'
+                    : '清理缓存'}
               </button>
             </div>
           </div>
+          {cleanupResult.data && (
+            <div
+              className="weq-storage-result"
+              role={cleanupResult.data.failed.length ? 'alert' : 'status'}
+            >
+              <span>
+                上次退出后清除：{cleanupResult.data.cleared.length} 项成功，
+                {cleanupResult.data.failed.length} 项失败，清除约{' '}
+                {formatBytes(cleanupResult.data.freedBytes)}。
+              </span>
+              {cleanupResult.data.failed.map((item) => (
+                <div key={item.label}>
+                  {item.label}：{item.error}
+                </div>
+              ))}
+            </div>
+          )}
           <div className="weq-set-cache-list" {...cacheMulti.rootProps}>
             {cacheUsage.isLoading ? (
               <div className="weq-set-empty" role="status">
@@ -708,33 +771,26 @@ export function GlobalSettingsSection({
               <div className="weq-set-empty">暂无存储数据</div>
             ) : (
               <>
-                {clearableItems.length > 0 && (
+                {safeCacheItems.length > 0 && (
                   <div className="weq-storage-group">
                     <h4>可清理缓存</h4>
-                    {clearableItems.map((item) => (
-                      <label
-                        key={item.id}
-                        className="weq-set-cache-item"
-                        {...cacheMulti.itemProps(item.id)}
-                      >
-                        <input
-                          type="checkbox"
-                          aria-label={item.label}
-                          checked={pickedCats.has(item.id)}
-                          readOnly
-                          disabled={clearWeqCache.isLoading || cacheUsage.isFetching}
-                        />
-                        <HardDrive size={14} strokeWidth={1.8} aria-hidden />
-                        <span className="weq-storage-detail">
-                          <span>{item.label}</span>
-                          <small>{item.reason}</small>
-                          <small className="weq-storage-path">{item.path}</small>
-                        </span>
-                        <span className="weq-set-cache-size weq-number">
-                          {item.incomplete ? '至少 ' : ''}
-                          {formatBytes(item.bytes)}
-                        </span>
-                      </label>
+                    {safeCacheItems.map(storageItem)}
+                  </div>
+                )}
+                {riskGroups.length > 0 && (
+                  <div className="weq-storage-group">
+                    <h4>需确认风险的数据</h4>
+                    {riskGroups.map((group) => (
+                      <details className="weq-storage-category" key={group.label}>
+                        <summary>
+                          <ChevronRight size={14} className="weq-storage-chevron" aria-hidden />
+                          <span className="weq-storage-detail">{group.label}</span>
+                          <span className="weq-set-cache-size weq-number">
+                            {formatBytes(group.bytes)}
+                          </span>
+                        </summary>
+                        <div className="weq-storage-entries">{group.items.map(storageItem)}</div>
+                      </details>
                     ))}
                   </div>
                 )}

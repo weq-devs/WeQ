@@ -35,6 +35,7 @@ import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { getLogger, logErrorContext } from '../common/logger';
 import {
   listStorageUsage,
+  listDressPreviewFiles,
   measureStorage,
   type StorageRoot,
   type StorageUsageItem,
@@ -1632,17 +1633,19 @@ export class UserConfigService {
 
   /** 兼容旧客户端，仍只返回可清理项。 */
   async listClearableCache(): Promise<StorageUsageItem[]> {
-    return (await this.listStorageUsage()).filter((item) => item.clearable);
+    return (await this.listStorageUsage()).filter((item) => item.clearable && !item.requiresExit);
   }
 
-  /** 清理前重新生成白名单；空数组不清理，只有省略 ids 才表示全部可清理项。 */
+  /** 只处理普通缓存；空数组不清理，省略 ids 表示全部普通缓存，风险数据永不混入。 */
   async clearCache(
     ids?: string[],
     extraRoots: readonly StorageRoot[] = [],
   ): Promise<{ freedBytes: number; cleared: string[]; failed: string[] }> {
     const items = await this.listStorageUsage(extraRoots);
     const selected = ids === undefined ? undefined : new Set(ids);
-    const targets = items.filter((item) => item.clearable && (!selected || selected.has(item.id)));
+    const targets = items.filter(
+      (item) => item.clearable && !item.requiresExit && (!selected || selected.has(item.id)),
+    );
     let freedBytes = 0;
     const cleared: string[] = [];
     const failed: string[] = [];
@@ -1650,9 +1653,23 @@ export class UserConfigService {
       const { id, path: dir } = item;
       if (!existsSync(dir)) continue;
       try {
-        await rm(dir, { recursive: true, force: true });
-        await mkdir(dir, { recursive: true });
-        const remaining = await measureStorage(dir);
+        if (item.cleanupKind === 'dress-previews') {
+          const previews = await listDressPreviewFiles(dir);
+          if (previews.incomplete) throw new Error('装扮预览目录读取不完整，未清理');
+          for (const file of previews.files) await rm(file, { force: true });
+        } else {
+          await rm(dir, { recursive: true, force: true });
+          await mkdir(dir, { recursive: true });
+          // 共享装扮服务持有这三个下载目录；保留当前会话继续下载所需的结构。
+          if (item.cleanupKind === 'dress-shared') {
+            for (const name of ['bubbles', 'fonts', 'pendants'])
+              await mkdir(join(dir, name), { recursive: true });
+          }
+        }
+        const remaining =
+          item.cleanupKind === 'dress-previews'
+            ? await listDressPreviewFiles(dir)
+            : await measureStorage(dir);
         freedBytes += Math.max(0, item.bytes - remaining.bytes);
         cleared.push(id);
       } catch (error) {

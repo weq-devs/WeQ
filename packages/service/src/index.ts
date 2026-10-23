@@ -1103,3 +1103,10 @@ export type { WeqRestoreChoice, WeqRestoreResult } from './bootstrap/backup_rest
 export { readWeqBackupFile } from './bootstrap/backup_clones';
 export { WEQ_BACKUP_PARTS, WEQ_BACKUP_LIMITS } from './bootstrap/backup_bundle';
 export type { WeqBackupPart, WeqBackupSummary } from './bootstrap/backup_bundle';
+export type { StorageRoot, StorageUsageItem } from './bootstrap/storage_usage';
+export {
+  selectStorageCleanupTargets,
+  executeStorageCleanup,
+  readStorageCleanupResult,
+} from './bootstrap/storage_cleanup';
+export type { StorageCleanupPlan, StorageCleanupResult } from './bootstrap/storage_cleanup';

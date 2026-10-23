@@ -8,7 +8,8 @@ import { app, dialog, shell, nativeImage, net } from 'electron';
 import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
-import type { HostBridge, SaveTarget } from '@weq/service';
+import type { HostBridge, SaveTarget, StorageRoot } from '@weq/service';
+import { clearStorageAfterExit, storageCleanupResult } from './storage_cleanup';
 
 /**
  * `shell.openPath` 在 Windows / Linux 上都会等待系统处理程序返回：
@@ -51,7 +52,7 @@ function revealInFileManager(path: string): Promise<void> {
   });
 }
 
-function desktopStorageRoots(): Array<{ path: string; label: string }> {
+function desktopStorageRoots(): StorageRoot[] {
   const home = homedir();
   const cache =
     process.platform === 'darwin'
@@ -59,7 +60,7 @@ function desktopStorageRoots(): Array<{ path: string; label: string }> {
       : process.platform === 'win32'
         ? process.env.LOCALAPPDATA || join(home, 'AppData', 'Local')
         : process.env.XDG_CACHE_HOME || join(home, '.cache');
-  const roots = [
+  const roots: StorageRoot[] = [
     { path: app.getPath('userData'), label: '桌面运行数据' },
     { path: app.getPath('sessionData'), label: '浏览器会话数据' },
     { path: app.getPath('logs'), label: '桌面日志' },
@@ -86,13 +87,16 @@ function desktopStorageRoots(): Array<{ path: string; label: string }> {
           ? join(dirname(appPath), '..', '..')
           : process.env.APPIMAGE || dirname(app.getPath('exe')),
       label: '应用安装资源',
+      protected: true,
     });
   }
-  return roots;
+  return roots.map((root) => (root.protected ? root : { ...root, clearableAfterExit: true }));
 }
 
 export const electronHost: HostBridge = {
   storageRoots: desktopStorageRoots,
+  clearStorageAfterExit,
+  storageCleanupResult,
   restartApplication: async () => {
     app.relaunch();
     setTimeout(() => app.quit(), 200);
