@@ -233,6 +233,21 @@ export interface AccountConfig {
     widgetName?: string;
     /** 正在用的挂件预览图直链（newPreview2）。 */
     widgetPreviewUrl?: string;
+    /** 正在用的通话背景静态图（appId 17）。空表示没设。 */
+    callBgUrl?: string;
+    /** 通话背景的动态版（funCall/.../media.mp4）。有值时优先播视频。 */
+    callBgVideoUrl?: string;
+    /** 通话背景装扮 itemId。 */
+    callBgId?: number;
+    /** 通话背景装扮款名。 */
+    callBgName?: string;
+    /**
+     * 上次为「通话背景」这一项查过服务的时刻（毫秒）。
+     *
+     * 用来区分「确实没设背景」与「老快照里根本没查过这一项」：
+     * `callBgUrl` 为空且这里有值 = 查过了、用户没设，通话时不必再查。
+     */
+    callBgCheckedAt?: number;
   };
 }
 

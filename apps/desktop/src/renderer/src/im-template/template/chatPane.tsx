@@ -53,6 +53,7 @@ import {
   ClipboardCopy,
   MessageSquareText,
   Mic,
+  PhoneCall,
   Rocket,
   SendHorizontal,
   Settings2,
@@ -436,6 +437,7 @@ export function ChatPane({
   onResolveMentions,
   onSearchMentionMembers,
   onSendWindowShake,
+  onStartCall,
   onSendArk,
   onSendFlash,
   onSendRedPacket,
@@ -526,6 +528,11 @@ export function ChatPane({
    * 群聊没有这个能力，所以按钮只在 `conversation.type === 'direct'` 时渲染。
    */
   onSendWindowShake?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
+  /**
+   * 发起语音通话。只支持私聊 —— 群通话要先进房间再邀请，协议路径不同。
+   * 应用层负责拿 peerUin / 头像，这里只把会话透上去。
+   */
+  onStartCall?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
   /**
    * Ark 卡片面板「发送」—— 面板只收输入、不知道发到哪，所以把**当前会话**一起交回
    * 应用层，由它补 peerType / targetId 再走 IPC（与 onSendWindowShake 同）。
@@ -3181,6 +3188,20 @@ export function ChatPane({
    * 都不动。真正的下发走 `onSendWindowShake`（应用层直接接 protocol 的
    * `commonElem serviceType=2`），这里只负责置忙态、失败时报错。
    */
+  /**
+   * 发起语音通话：与窗口抖动一样是「点一下就走」的独立动作，不动输入框内容。
+   * 群聊暂不支持（协议侧要先进群房间，见 `@weq/protocol` 的 group 信令）。
+   */
+  async function startVoiceCall() {
+    if (conversation?.type !== 'direct' || !onStartCall) return;
+    if (currentPreference.blocked) return;
+    try {
+      await onStartCall(conversation);
+    } catch (error) {
+      console.error('[composer] start call failed:', error);
+    }
+  }
+
   async function sendWindowShake() {
     if (conversation?.type !== 'direct' || !onSendWindowShake) return;
     if (!sendAvailable || currentPreference.blocked || sending) return;
@@ -5338,6 +5359,18 @@ export function ChatPane({
               onClick={() => void sendWindowShake()}
             >
               <Vibrate size={21} strokeWidth={1.5} />
+            </button>
+          ) : null}
+          {/* 语音通话：仅私聊。群通话要先进群房间再邀请，协议路径不同，暂不做。 */}
+          {conversation?.type === 'direct' && onStartCall ? (
+            <button
+              type="button"
+              className={cn('composer-tool')}
+              title="语音通话"
+              disabled={currentPreference.blocked}
+              onClick={() => void startVoiceCall()}
+            >
+              <PhoneCall size={21} strokeWidth={1.5} />
             </button>
           ) : null}
           <button

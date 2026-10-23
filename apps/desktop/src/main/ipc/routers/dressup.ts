@@ -71,13 +71,21 @@ const PEER_STATS_HINT =
 
 const PEER_QQ_SHOW_HINT = '获取失败 —— QQ 秀形象要发 OIDB 包，请确认这个账号的 QQ 客户端正在运行。';
 
-const kindInput = z.enum(['bubble', 'font', 'widget']);
+const kindInput = z.enum(['bubble', 'font', 'widget', 'callbg']);
 type DressKindInput = z.infer<typeof kindInput>;
 
 function appIdFor(kind: DressKindInput): DressAppId {
   if (kind === 'bubble') return DressAppId.Bubble;
-  return kind === 'font' ? DressAppId.Font : DressAppId.Widget;
+  if (kind === 'font') return DressAppId.Font;
+  if (kind === 'callbg') return DressAppId.CallBackground;
+  return DressAppId.Widget;
 }
+
+/**
+ * 通话背景**没有在线排行榜**（`GetItemLikeRank` 对 appId 17 任何 rankType 都回空），
+ * 所以这一类一律读仓库里的静态快照，不去打接口。
+ */
+const STATIC_ONLY_KINDS: ReadonlySet<DressKindInput> = new Set(['callbg']);
 
 /**
  * 静态排行榜兜底。存的是接口的**原始响应**,与联网路径共用
@@ -166,6 +174,11 @@ export const dressupRouter = router({
         widgetPreviewUrl: record?.homeDress?.widgetPreviewUrl ?? '',
         /** 聊天背景是直链(目录段是服务端 nonce,推不出来),空串表示没设。 */
         chatBgUrl: record?.homeDress?.chatBgUrl ?? '',
+        /** 通话背景(个性装扮「来电」)。WeQ 侧可以覆盖成用户自己选的那款。 */
+        callBgId: record?.homeDress?.callBgId ?? 0,
+        callBgName: record?.homeDress?.callBgName ?? '',
+        callBgUrl: record?.homeDress?.callBgUrl ?? '',
+        callBgVideoUrl: record?.homeDress?.callBgVideoUrl ?? '',
       },
     };
   }),
@@ -178,7 +191,7 @@ export const dressupRouter = router({
     .input(z.object({ kind: kindInput, pageIndex: z.number().int().min(1).optional() }))
     .query(async ({ input }) => {
       const services = requireServices();
-      if (webQqOnline(services)) {
+      if (!STATIC_ONLY_KINDS.has(input.kind) && webQqOnline(services)) {
         try {
           const items = await services.webQuery.getDressRank(
             appIdFor(input.kind),
@@ -283,9 +296,15 @@ export const dressupRouter = router({
       );
     }),
 
-  /** 切换生效的装扮。`itemId` 传 0 表示取消该项、回到默认外观。 */
+  /**
+   * 切换生效的装扮。`itemId` 传 0 表示取消该项、回到默认外观。
+   *
+   * 通话背景不走这里 —— 它没有「安装」概念，用 {@link setCallBackground}。
+   */
   setActive: procedure
-    .input(z.object({ kind: kindInput, itemId: z.number().int().min(0) }))
+    .input(
+      z.object({ kind: z.enum(['bubble', 'font', 'widget']), itemId: z.number().int().min(0) }),
+    )
     .mutation(({ input }) => {
       return requireServices().dressInstall.setActive(input.kind, input.itemId);
     }),
@@ -320,6 +339,41 @@ export const dressupRouter = router({
     }),
 
   /** 背景不透明度。服务端再 clamp 一次,不信前端的滑块范围。 */
+  /**
+   * 选定通话背景。
+   *
+   * 与气泡/字体不同，这里**不装任何东西** —— 通话背景只是一张远程图 / 一段远程
+   * 视频，通话窗口直接引它的 URL 就够。所以只把选择记进账号快照，`callBgCheckedAt`
+   * 一并写上，让通话流程知道「这一项已经定了，不必再去查询」。
+   *
+   * 传空 itemId 表示恢复默认（清掉选择）。
+   */
+  setCallBackground: procedure
+    .input(
+      z.object({
+        itemId: z.number().int().min(0),
+        name: z.string().optional(),
+        imageUrl: z.string().optional(),
+        videoUrl: z.string().optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const services = requireServices();
+      const record = services.accountConfig.getRecord();
+      const dress = record?.homeDress;
+      if (!dress) throw new Error('还没有装扮快照，请先打开过一次账号');
+      services.accountConfig.setHomeDress({
+        ...dress,
+        callBgId: input.itemId || undefined,
+        callBgName: input.itemId ? (input.name ?? '') : undefined,
+        callBgUrl: input.itemId ? (input.imageUrl ?? '') : undefined,
+        callBgVideoUrl: input.itemId ? (input.videoUrl ?? '') : undefined,
+        // 用户亲手定了，标记成「已确定」——后续通话直接用，不再联网覆盖。
+        callBgCheckedAt: Date.now(),
+      });
+      return services.accountConfig.getRecord()?.homeDress ?? null;
+    }),
+
   setBackgroundOpacity: procedure.input(z.object({ opacity: z.number() })).mutation(({ input }) => {
     return requireServices().dressInstall.setBackgroundOpacity(input.opacity);
   }),

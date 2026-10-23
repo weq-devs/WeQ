@@ -45,6 +45,9 @@ const ENDPOINT =
 /** 照 HAR 请求的 appId 集合 —— 服务端按这个列表分桶返回。 */
 const QUERY_APP_IDS = [3, 2, 4, 8, 5, 15, 23, 26, 37, 17, 22, 352, 20];
 
+/** 来电（通话背景 + 铃声）。 */
+const CALL_BG = 17;
+
 /** 手 Q Android 的 UA(照 HAR;这个端点认 Dalvik UA,不是 webview UA)。 */
 const DRESS_UA =
   'Dalvik/2.1.0 (Linux; U; Android 13; 2109119BC Build/TKQ1.221114.001) V1_AND_SQ_9.3.25_15220_YYB_D QQ/9.3.25.38950 NetType/4G WebP/0.4.1 AppId/537375289';
@@ -73,6 +76,18 @@ interface RawResponse {
  * 拿 itemId 拼出来的 `chatBg/item/67066/aioImage` 是 404。所以只从 img 抠目录、换文件名,
  * 绝不自己拼 id。匹配不上 chatBg 的形状就返回 undefined(宁可没有,也不发一个错的 url)。
  */
+/**
+ * 通话背景（appId 17）的动态版 url。
+ *
+ * 接口 `usingItems[].img` 给的是 `.../funCall/item/<段>/image.jpg`，同目录下的
+ * `media.mp4` 才是真正播放的那份。段不一定是 itemId（与 {@link chatBgHdUrl} 同一个坑），
+ * 所以只做同目录换名。
+ */
+function callBgVideoUrl(img: string): string | undefined {
+  const m = img.match(/^(https:\/\/[^/]+\/funCall\/item\/[^/]+\/)[^/]+$/);
+  return m ? `${m[1]}media.mp4` : undefined;
+}
+
 function chatBgHdUrl(img: string): string | undefined {
   const m = img.match(/^(https:\/\/tianquan\.gtimg\.cn\/chatBg\/item\/[^/]+\/)[^/]+$/);
   return m ? `${m[1]}aioImage` : undefined;
@@ -129,6 +144,12 @@ export async function getSelfDress(cred: WebCredential): Promise<SelfDress> {
       if (appId === 8) {
         const hd = chatBgHdUrl(previewUrl);
         if (hd) item.hdUrl = hd;
+      }
+      // 通话背景（17）：同目录的 media.mp4 是它的动态版。目录段同样不一定是
+      // itemId，一律从 img 换文件名，别自己拼。
+      if (appId === CALL_BG) {
+        const video = callBgVideoUrl(previewUrl);
+        if (video) item.hdUrl = video;
       }
       items.push(item);
     }
