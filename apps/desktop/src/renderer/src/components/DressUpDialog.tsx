@@ -587,7 +587,7 @@ export function DressUpDialog({
             localPreview
           ) : isCallBg(mallKind) && item.videoUrl ? (
             // 通话背景本来就是动态的 —— 列表里直接播，静帧看不出效果。
-            <video src={item.videoUrl} autoPlay loop muted playsInline />
+            <video src={dressUrl(item.videoUrl)} autoPlay loop muted playsInline />
           ) : previewSrc ? (
             <img src={previewSrc} alt={item.name} loading="lazy" />
           ) : (

@@ -24,6 +24,7 @@ import {
   PhoneIncoming,
 } from 'lucide-react';
 import { trpc } from '../trpc/client';
+import { dressUrl } from '../lib/resourceUrl';
 import '../styles/call.css';
 
 /** 通话状态（与主进程 `CallState` 一致）。 */
@@ -338,7 +339,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
           <div className="weq-call-backdrop-media" aria-hidden="true">
             {info.backgroundVideoUrl && !backdropFailed ? (
               <video
-                src={info.backgroundVideoUrl}
+                src={dressUrl(info.backgroundVideoUrl)}
                 autoPlay
                 loop
                 muted
@@ -346,7 +347,11 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
                 onError={() => setBackdropFailed(true)}
               />
             ) : info.backgroundUrl && !backdropFailed ? (
-              <img src={info.backgroundUrl} alt="" onError={() => setBackdropFailed(true)} />
+              <img
+                src={dressUrl(info.backgroundUrl)}
+                alt=""
+                onError={() => setBackdropFailed(true)}
+              />
             ) : null}
           </div>
         ) : null}
