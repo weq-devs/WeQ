@@ -263,6 +263,9 @@ export class CallManager extends EventEmitter {
   }
 
   private cleanup(): void {
+    // 会话自己会关 socket，但异常路径（订阅断了 / 渲染层崩了）可能没走到，
+    // 这里兜一次底：重复 close 是幂等的。
+    this.transport?.close();
     this.session = null;
     this.transport = null;
     this.info = null;
