@@ -1,0 +1,71 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   未送达占位的一键移除 (im-template/messageBubble)
+   回执 seq=0 的「可能未送达」没有可信序号，只能挂在时间线末尾；状态条旁边给一枚
+   一次点击的移除按钮，避免用户为了清掉它去开右键菜单 / 多选。
+
+   所有颜色走 design token：按钮本身沿用琥珀色（与 .is-rejected 同族），悬停加深，
+   深色模式单独覆盖一档，不靠 Tailwind 的 dark: variant（本项目钩子是 data-theme）。 */
+.weq-msg-status-row {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 3px;
+  width: fit-content;
+}
+
+/* 行容器已经顶了外边距，行内标签不再各自叠一层。 */
+.weq-msg-status-row > .weq-msg-optimistic-tag {
+  margin-top: 0;
+}
+
+.weq-msg-dismiss-unsent {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, #e0a800 82%, var(--weq-fg-muted));
+  background: transparent;
+  border: 1px solid color-mix(in srgb, #e0a800 26%, transparent);
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.weq-msg-dismiss-unsent:hover {
+  background: color-mix(in srgb, #e0a800 14%, transparent);
+  border-color: color-mix(in srgb, #e0a800 42%, transparent);
+}
+
+.weq-msg-dismiss-unsent:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-msg-dismiss-unsent svg {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+/* 深色：琥珀色在深底上偏暗，提亮一档保证对比度。 */
+html[data-theme='dark'] .weq-msg-dismiss-unsent {
+  color: color-mix(in srgb, #f0c33c 86%, var(--weq-fg-primary));
+  border-color: color-mix(in srgb, #f0c33c 26%, transparent);
+}
+
+html[data-theme='dark'] .weq-msg-dismiss-unsent:hover {
+  background: color-mix(in srgb, #f0c33c 16%, transparent);
+  border-color: color-mix(in srgb, #f0c33c 44%, transparent);
+}
+
+/* 减少动态效果：这枚按钮本来就没有过渡，这里只是把可能的全局 hover 位移压掉。 */
+@media (prefers-reduced-motion: reduce) {
+  .weq-msg-dismiss-unsent {
+    transition: none;
+  }
+}

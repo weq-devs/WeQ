@@ -449,6 +449,7 @@ export function ChatPane({
   onBack,
   onEditRaw,
   onDeleteMessage,
+  onDismissUnsentMessage,
   onOpenGroupAlbums,
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
@@ -559,6 +560,11 @@ export function ChatPane({
     conversation: Conversation,
     hidden?: boolean,
   ) => void | Promise<void>;
+  /**
+   * 「可能未送达」（回执 seq=0）占位的移除。这类占位没有可信序号、只能挂在时间线
+   * 末尾，气泡状态条旁给一枚一次点击的「移除」按钮（不影响对方是否收到）。
+   */
+  onDismissUnsentMessage?: (message: Message) => void;
   onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupFiles?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
@@ -4849,6 +4855,7 @@ export function ChatPane({
                       onLongPress={openMobileMessageMenu}
                       onAction={onMessageAction}
                       onReedit={reeditMessage}
+                      onDismissUnsent={onDismissUnsentMessage}
                       repeatAction={
                         !selectionMode &&
                         onRepeatMessage &&

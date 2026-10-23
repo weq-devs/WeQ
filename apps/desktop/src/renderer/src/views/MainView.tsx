@@ -62,8 +62,10 @@ import {
   needsFailedPreparation,
   matchForwardMessages,
   type ComposerSubmission,
+  type OutgoingRemoval,
 } from '../lib/localOutgoing';
 import { useFailedOutgoingRemoval } from '../hooks/useFailedOutgoingRemoval';
+import { useDismissUnsentOutgoing } from '../hooks/useDismissUnsentOutgoing';
 import { reconcileFileMessages, type FileSyncReceipt } from '../lib/fileSendReconcile';
 import {
   createUnreadRefresh,
@@ -2858,13 +2860,14 @@ export function MainView(): ReactElement {
       outgoingRecordsRef.current,
     );
   }, []);
-  const dismissFailedOutgoing = useFailedOutgoingRemoval(
-    (remove) => {
-      setOptimisticMessages(remove);
-      setOptimisticArks(remove);
-      setOptimisticForwards(remove);
-    },
-    async (conversations) => {
+  // 失败占位与「可能未送达」占位共用同一套应用 + 刷新：都只清前端 state，不碰原库。
+  const applyOutgoingRemoval = useCallback((remove: OutgoingRemoval) => {
+    setOptimisticMessages(remove);
+    setOptimisticArks(remove);
+    setOptimisticForwards(remove);
+  }, []);
+  const refreshAfterRemoval = useCallback(
+    async (conversations: ReadonlySet<string>) => {
       await Promise.all([
         utils.account.listRecentContacts.invalidate(),
         selectionRef.current && conversations.has(selectionRef.current.id)
@@ -2872,7 +2875,10 @@ export function MainView(): ReactElement {
           : undefined,
       ]);
     },
+    [utils, refreshWindow],
   );
+  const dismissFailedOutgoing = useFailedOutgoingRemoval(applyOutgoingRemoval, refreshAfterRemoval);
+  const dismissUnsentOutgoing = useDismissUnsentOutgoing(applyOutgoingRemoval, refreshAfterRemoval);
   const consumedFileMessages = useRef(new Set<string>());
   // "删除列表" panel: which conversation is open + its fetched deleted rows.
   const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
@@ -9351,6 +9357,7 @@ export function MainView(): ReactElement {
                           onBackConversation={shell.backConversation}
                           onEditRaw={handleEditRaw}
                           onDeleteMessage={handleDeleteMessage}
+                          onDismissUnsentMessage={dismissUnsentOutgoing}
                           onOpenGroupAlbums={handleOpenGroupAlbums}
                           onOpenGroupFiles={handleOpenGroupFiles}
                           onOpenGroupAnnouncements={handleOpenGroupAnnouncements}
