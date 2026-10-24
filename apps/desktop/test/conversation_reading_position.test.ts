@@ -56,4 +56,21 @@ describe('阅读锚点', () => {
     restoreReadingPosition(scroll, { scrollTop: 120, anchorId: 'removed' });
     expect(scroll.scrollTop).toBe(120);
   });
+  it('翻页只补偿可见消息上方的变化，不把底部图片展开和新消息高度算进去', () => {
+    const { scroll } = fixture(20);
+    scroll.scrollTop = 212;
+    const position = captureReadingPosition(scroll);
+    let prependedHeight = 0;
+    for (const [i, line] of [...scroll.children].entries()) {
+      vi.spyOn(line, 'getBoundingClientRect').mockImplementation(
+        () => new DOMRect(0, 100 + prependedHeight + i * 50 - scroll.scrollTop, 500, 50),
+      );
+    }
+    prependedHeight = 300;
+    Object.defineProperty(scroll, 'scrollHeight', { configurable: true, value: 5000 });
+    restoreReadingPosition(scroll, position);
+    expect(scroll.scrollTop).toBe(512);
+    restoreReadingPosition(scroll, position);
+    expect(scroll.scrollTop).toBe(512);
+  });
 });

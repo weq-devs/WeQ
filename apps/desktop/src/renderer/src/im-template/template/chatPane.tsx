@@ -1358,7 +1358,16 @@ export function ChatPane({
         return;
       }
       scrollMessagesToBottomRef.current();
-      const frame = window.requestAnimationFrame(() => scrollMessagesToBottomRef.current());
+      const frame = window.requestAnimationFrame(() => {
+        const current = readContextRef.current;
+        if (
+          atBottomRef.current &&
+          current.tabActive &&
+          current.atLatest &&
+          current.conversation?.id === conversationId
+        )
+          scrollMessagesToBottomRef.current();
+      });
       return () => window.cancelAnimationFrame(frame);
     }
 
@@ -1405,7 +1414,16 @@ export function ChatPane({
     if (atBottomRef.current) {
       setNewMessagePill(0);
       scrollMessagesToBottomRef.current();
-      const frame = window.requestAnimationFrame(() => scrollMessagesToBottomRef.current());
+      const frame = window.requestAnimationFrame(() => {
+        const current = readContextRef.current;
+        if (
+          atBottomRef.current &&
+          current.tabActive &&
+          current.atLatest &&
+          current.conversation?.id === conversationId
+        )
+          scrollMessagesToBottomRef.current();
+      });
       return () => window.cancelAnimationFrame(frame);
     }
 
