@@ -1843,6 +1843,13 @@ export function initAppContext(fileRoot?: string): AppContext {
             marketFace: (pack, hash) => emojiService.getMarketFace(pack, hash),
             // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
             messageBackfill: gapHistory,
+            exportAccountUin: session.context.uin,
+            fetchForward: (resId) =>
+              new ForwardMsgService(
+                session,
+                platform.native.ntHelper,
+                resolveOnlinePid,
+              ).fetchRemote(resId),
             // 漫游缓存元素回退：补全消息不在本地 msg 表，导出下载按 msgId 定位媒体元素。
             gapHistory,
           },
@@ -2557,6 +2564,9 @@ export function initAppContext(fileRoot?: string): AppContext {
             },
             // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
             messageBackfill: gapHistory,
+            exportAccountUin: session.context.uin,
+            fetchForward: (resId) =>
+              new ForwardMsgService(session, platform.native.ntHelper, livePid).fetchRemote(resId),
             // 漫游缓存元素回退：补全消息不在本地 msg 表，导出下载按 msgId 定位媒体元素。
             gapHistory,
           },

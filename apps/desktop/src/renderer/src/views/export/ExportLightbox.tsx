@@ -40,11 +40,15 @@ import {
   UserRound,
   Undo2,
   X,
+  ShieldAlert,
 } from 'lucide-react';
 import { Card, Row, Toggle } from '../../components/settings/controls';
 import { client } from '../../trpc/client';
 import { useToast } from '../../components/Toast';
 import { ocrReadiness, type OcrReadiness } from './preflight';
+import { useExportAuthorization, type ExportAuthorizationIndicatorState } from './authorization';
+import { BaselinePicker } from './BaselinePicker';
+import '../../styles/chat-export-continuation.css';
 import { Segmented } from './widgets';
 import { TimeRangePicker } from './TimeRangePicker';
 import type { CalendarTarget } from '../../lib/messageCalendar';
@@ -82,6 +86,9 @@ function normalizeLightboxOptions(partial?: Partial<ExportOptions>): ExportOptio
 }
 
 export interface LightboxResult {
+  authorization?: { commit: () => void; cancel: () => void };
+  baselineDirectory?: string;
+  baselineByConversation?: Record<string, string>;
   saveAsDefault?: boolean;
   /** 灯箱里多选的导出格式（至少一种）。 */
   formats: ExportFormat[];
@@ -311,12 +318,14 @@ export function ExportLightbox({
   calendarTargets,
   initialOptions,
   initialFormats,
+  initialBaselineDirectory,
   initialSchedule = DEFAULT_SCHEDULE,
   submitting = false,
   disabled = false,
   onPickPath,
   onClose,
   onConfirm,
+  onAuthorizationChange,
 }: {
   embedded?: boolean;
   hidden?: boolean;
@@ -335,6 +344,7 @@ export function ExportLightbox({
   initialOptions?: Partial<ExportOptions>;
   /** 上次使用的导出格式；缺失或不在当前变体可选范围内时退回默认格式。 */
   initialFormats?: ExportFormat[];
+  initialBaselineDirectory?: string;
   initialSchedule?: Schedule;
   submitting?: boolean;
   disabled?: boolean;
@@ -347,6 +357,7 @@ export function ExportLightbox({
   autoSaveHint?: string;
   onClose: () => void;
   onConfirm: (result: LightboxResult) => void;
+  onAuthorizationChange?: (state: ExportAuthorizationIndicatorState | null) => void;
 }): ReactElement {
   useEscapeToClose(() => {
     if (!embedded && !hidden) onClose();
@@ -357,16 +368,35 @@ export function ExportLightbox({
     return contactScope === 'groups' ? { ...value, exportAvatar: false } : value;
   });
   const [saveAsDefault, setSaveAsDefault] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [schedule, setSchedule] = useState<Schedule>(initialSchedule);
   const [path, setPath] = useState<string | null>(null);
   const [pickingPath, setPickingPath] = useState(false);
+  const [baselineDirectory, setBaselineDirectory] = useState<string | undefined>(
+    initialBaselineDirectory,
+  );
+  const [pickingBaseline, setPickingBaseline] = useState(false);
+  const [baselineByConversation, setBaselineByConversation] = useState<Record<string, string>>();
 
   // 灯箱打开时探测：QQ 在线实例（4.1 可点击前提）+ 语音转录模型（5.2 前提）。
   const [qqOnline, setQqOnline] = useState<boolean | null>(null);
   const [attachEnabled, setAttachEnabled] = useState<boolean | null>(null);
   const [voiceModelReady, setVoiceModelReady] = useState<boolean | null>(null);
-  /** 在线转录 arm 中（点开关时 run）。 */
-  const [armingOnline, setArmingOnline] = useState(false);
+  /** 在线功能在确认导出时授权；选择开关本身不启动抓包。 */
+  const authorization = useExportAuthorization(opts, ['full', 'guild'].includes(variant));
+  const authorizationAction = useRef<() => void>(() => {});
+  authorizationAction.current = () => {
+    void authorization.prepare(opts).then((value) => {
+      if (value) setOpts(value);
+    });
+  };
+  useEffect(() => {
+    onAuthorizationChange?.({
+      needed: authorization.needsElevation,
+      request: () => authorizationAction.current(),
+    });
+    return () => onAuthorizationChange?.(null);
+  }, [authorization.needsElevation, onAuthorizationChange]);
   /** 图片文字识别的前置状态（在线可用 / 本地模型 / 筛图模型）。 */
   const [ocrReady, setOcrReady] = useState<OcrReadiness | null>(null);
   /** OCR 模型清单（含已选中的模型 id）—— 面板里直接下载用。 */
@@ -385,8 +415,6 @@ export function ExportLightbox({
   ocrModelsRef.current = ocrModels;
   const pushToastRef = useRef(pushToast);
   pushToastRef.current = pushToast;
-  /** 本次灯箱是否已确认导出 —— 未确认就关闭时把在线转录的抓包收掉。 */
-  const submittedRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
     void client.account.getGroupAlbumAccessState.query().then((s) => {
@@ -444,14 +472,6 @@ export function ExportLightbox({
     })();
     return () => {
       cancelled = true;
-    };
-  }, []);
-
-  // 灯箱关闭时若没确认导出、却开着在线转录 —— 把抓包会话收掉，别留个 root 抓包在后台。
-  useEffect(() => {
-    return () => {
-      if (submittedRef.current) return;
-      void client.account.onlineTranscribeDisarm.mutate().catch(() => undefined);
     };
   }, []);
 
@@ -605,41 +625,14 @@ export function ExportLightbox({
     setOpts((o) => ({ ...o, exportMedia: true, qzoneInteractions: true }));
   }, [htmlForced]);
 
-  /**
-   * 开关在线转录：开启前先 arm 抓包会话（Windows 缺 Npcap / 未提权 / 离线都会
-   * 抛错，这里弹 toast 提示）。只有 arm 成功才置 true —— 保证后续导出可在线转写。
-   */
+  /** 在线转录先记本次选择，确认导出时再就绪抓包。 */
   async function toggleOnlineTranscribe(v: boolean): Promise<void> {
     if (!v) {
       patch({ onlineTranscribe: false });
-      void client.account.onlineTranscribeDisarm.mutate().catch(() => undefined);
+      void authorization.releaseCapture().catch(() => undefined);
       return;
     }
-    setArmingOnline(true);
-    try {
-      const support = await client.wonderfulTools.captureSupport.query();
-      if (!support.available) {
-        pushToast({
-          tone: 'warning',
-          title: '抓包后端不可用',
-          detail: support.hint || '在线转录需要能抓本机网卡（Windows 需安装 Npcap）。',
-          ttl: 6000,
-        });
-        return;
-      }
-      await client.account.onlineTranscribeArm.mutate({});
-      patch({ onlineTranscribe: true });
-      pushToast({ tone: 'success', title: '在线转录已开启', ttl: 2600 });
-    } catch (e) {
-      pushToast({
-        tone: 'error',
-        title: '在线转录开启失败',
-        detail: e instanceof Error ? e.message : String(e),
-        ttl: 6000,
-      });
-    } finally {
-      setArmingOnline(false);
-    }
+    patch({ onlineTranscribe: true });
   }
 
   async function pickPath(): Promise<void> {
@@ -653,15 +646,41 @@ export function ExportLightbox({
     }
   }
 
-  function confirm(): void {
-    submittedRef.current = true;
-    onConfirm({
-      saveAsDefault,
-      formats,
-      options: opts,
-      schedule: isScheduled ? schedule : undefined,
-      downloadPath: isAlbum ? path : undefined,
-    });
+  async function confirm(): Promise<void> {
+    if (confirming) return;
+    if (
+      baselineDirectory &&
+      baselineByConversation &&
+      calendarTargets?.some(
+        (target) => !Object.hasOwn(baselineByConversation, `${target.kind}:${target.conv}`),
+      )
+    ) {
+      setPickingBaseline(true);
+      return;
+    }
+    setConfirming(true);
+    try {
+      const prepared = await authorization.prepare(opts);
+      if (!prepared) return;
+      setOpts(prepared);
+      await onConfirm({
+        authorization: {
+          commit: () => authorization.commit(prepared),
+          cancel: () => {
+            void authorization.releaseCapture().catch(() => {});
+          },
+        },
+        baselineDirectory,
+        baselineByConversation,
+        saveAsDefault,
+        formats,
+        options: prepared,
+        schedule: isScheduled ? schedule : undefined,
+        downloadPath: isAlbum ? path : undefined,
+      });
+    } finally {
+      setConfirming(false);
+    }
   }
 
   const selectedMediaKinds = new Set(
@@ -759,12 +778,63 @@ export function ExportLightbox({
               </button>
             ) : null}
           </div>
+          {authorization.needsElevation && !onAuthorizationChange ? (
+            <button
+              type="button"
+              className="weq-exp-edit-list weq-export-needs-elevation"
+              onClick={() => {
+                void authorization.prepare(opts).then((value) => {
+                  if (value) setOpts(value);
+                });
+              }}
+            >
+              <ShieldAlert size={15} />
+              需要提权
+            </button>
+          ) : null}
           <button type="button" className="weq-exp-dialog-close" onClick={onClose} title="关闭">
             <X size={18} />
           </button>
         </header>
 
         <div className="weq-exp-dialog-body">
+          {variant === 'full' ? (
+            <div className="weq-export-baseline">
+              <span>增量基线文件夹</span>
+              <input
+                aria-label="增量基线文件夹"
+                value={baselineDirectory ?? ''}
+                placeholder="未选择"
+                readOnly
+                disabled={submitting}
+              />
+              <button
+                type="button"
+                className="weq-exp-tool"
+                title="选择增量基线文件夹"
+                aria-label="选择增量基线文件夹"
+                disabled={pickingBaseline || submitting}
+                onClick={() => setPickingBaseline(true)}
+              >
+                <FolderOpen size={15} />
+              </button>
+              {baselineDirectory ? (
+                <button
+                  type="button"
+                  className="weq-exp-tool"
+                  title="清除增量基线"
+                  aria-label="清除增量基线"
+                  disabled={submitting}
+                  onClick={() => {
+                    setBaselineDirectory(undefined);
+                    setBaselineByConversation(undefined);
+                  }}
+                >
+                  <X size={15} />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {isAlbum ? (
             <div className="weq-exp-album-pane">
               <Card title="下载目录">
@@ -1245,13 +1315,15 @@ export function ExportLightbox({
                         label="在线转录"
                         desc={
                           opts.onlineTranscribe
-                            ? '已就绪：优先用 QQ 服务端转写，漏包 / 过期回退本地'
+                            ? authorization.armed
+                              ? '已就绪：优先用 QQ 服务端转写，漏包 / 过期回退本地'
+                              : '待就绪：导出前准备官方转写抓包'
                             : '优先用 QQ 服务端转写（需保持 QQ 在线）'
                         }
                         control={
                           <Toggle
                             checked={opts.onlineTranscribe}
-                            disabled={armingOnline}
+                            disabled={authorization.busy}
                             onChange={(v) => void toggleOnlineTranscribe(v)}
                           />
                         }
@@ -1377,13 +1449,26 @@ export function ExportLightbox({
             type="button"
             className="weq-exp-btn is-primary"
             onClick={confirm}
-            disabled={submitting || disabled}
+            disabled={submitting || disabled || confirming}
           >
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}
             {isScheduled ? '创建定时任务' : '开始导出'}
           </button>
         </footer>
       </section>
+      {pickingBaseline ? (
+        <BaselinePicker
+          initialDirectory={baselineDirectory}
+          targets={calendarTargets}
+          onClose={() => setPickingBaseline(false)}
+          onSelect={(selection) => {
+            setBaselineDirectory(selection?.directory);
+            setBaselineByConversation(selection?.byConversation);
+            setPickingBaseline(false);
+          }}
+        />
+      ) : null}
+      {authorization.dialog}
     </div>
   );
 }

@@ -38,6 +38,19 @@ export function exportOptionsHash(task: ExportTask): string {
   return createHash('sha256').update(JSON.stringify(options)).digest('hex');
 }
 
+export function messageSelectionHash(task: ExportTask): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        kind: task.kind,
+        conv: task.conv,
+        range: task.range ?? null,
+        filter: task.filter ?? null,
+      }),
+    )
+    .digest('hex');
+}
+
 export async function fileSha256(path: string, signal?: AbortSignal): Promise<string> {
   signal?.throwIfAborted();
   const before = lstatSync(path, { bigint: true });

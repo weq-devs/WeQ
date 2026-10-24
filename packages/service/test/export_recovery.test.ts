@@ -8,7 +8,7 @@ import {
   readFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ExportTaskManager, type MediaDeps } from '../src/account/export/task_manager';
 import { sourceStamp, roamingDigest, fileSha256 } from '../src/account/export/resume';
@@ -73,7 +73,13 @@ function fixture(total = 3000, deps: MediaDeps = {}) {
     },
     browse: async () => ({ items: rows.slice(0, 100), hasMore: total > 100 }),
   } as unknown as MsgService;
-  return { root, source, msgs, manager: new ExportTaskManager(msgs, join(root, 'exports'), deps) };
+  return {
+    root,
+    source,
+    msgs,
+    rows,
+    manager: new ExportTaskManager(msgs, join(root, 'exports'), deps),
+  };
 }
 
 it('精确导出自己的已发送缓存直接读本地来源，不要求开启联网补全', async () => {
@@ -398,7 +404,32 @@ it('a completed format checkpoint is hash-verified and reused after restart', as
   expect(reloaded.listTasks()[0]!.logs.some((line) => line.text.includes('复用已校验'))).toBe(true);
 });
 
-it('changed source refuses resume instead of combining two snapshots', async () => {
+it('旧任务只有格式断点时先建立消息基线，之后可继续增量', async () => {
+  const f = fixture(3);
+  const id = await f.manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '旧格式断点',
+    format: 'txt',
+    total: 3,
+  });
+  await wait(() => f.manager.getTask(id)?.status === 'completed');
+  const task = f.manager.getTask(id)!;
+  expect(f.manager.listBaselines(dirname(task.journalPath!)).items).toHaveLength(1);
+  rmSync(task.journalPath!);
+  delete task.journalPath;
+  task.status = 'paused';
+  expect(f.manager.resumeTask(id)).toBe(true);
+  await wait(() => ['completed', 'failed'].includes(task.status));
+  expect(task.error).toBeUndefined();
+  expect(existsSync(task.journalPath!)).toBe(true);
+  expect(f.manager.resumeTask(id, true)).toBe(true);
+  await wait(() => ['completed', 'failed'].includes(task.status));
+  expect(task.error).toBeUndefined();
+  expect(task.current).toBe(3);
+});
+
+it('来源变化后按已保存消息继续，不因 QQ 正常写入阻断续作', async () => {
   const f = fixture();
   let paused = false;
   f.manager.on('progress', () => {
@@ -418,8 +449,281 @@ it('changed source refuses resume instead of combining two snapshots', async () 
   await wait(() => f.manager.listTasks()[0]?.canResume === true);
   writeFileSync(f.source, 'changed source');
   expect(f.manager.resumeTask(id)).toBe(true);
+  await wait(() => ['completed', 'failed'].includes(f.manager.getTask(id)!.status));
+  expect(f.manager.getTask(id)?.error).toBeUndefined();
+  expect(f.manager.getTask(id)?.current).toBe(3000);
+});
+
+it('暂停收尾生成可保存的有效 JSON，续作与增量不重复消息', async () => {
+  const f = fixture();
+  let paused = false;
+  f.manager.on('progress', () => {
+    const t = f.manager.listTasks()[0];
+    if (!paused && t && (t.stages.find((s) => s.key === 'message')?.current ?? 0) >= 1000) {
+      paused = true;
+      f.manager.pauseTask(t.id);
+    }
+  });
+  const id = await f.manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '暂停快照',
+    format: 'json',
+    total: 3000,
+  });
+  await wait(() => f.manager.listTasks()[0]?.canResume === true);
+  const task = f.manager.getTask(id)!;
+  expect(task.current).toBeGreaterThanOrEqual(1000);
+  expect(task.partialReady).toBe(false);
+  await expect(f.manager.saveTaskOutput(id, join(f.root, 'before-finalize'))).rejects.toThrow();
+  let observedFinalizing = false;
+  f.manager.on('progress', (event) => {
+    if (event.message === '收尾中')
+      observedFinalizing =
+        f.manager.listTasks().find((task) => task.id === id)?.isFinalizing === true;
+  });
+  const finishing = f.manager.finalizeTask(id);
+  expect(await f.manager.finalizeTask(id)).toBe(false);
+  expect(await finishing).toBe(true);
+  expect(observedFinalizing).toBe(true);
+  const finalized = readFileSync(task.filePath!);
+  expect(await f.manager.finalizeTask(id)).toBe(true);
+  expect(readFileSync(task.filePath!)).toEqual(finalized);
+  expect(() => JSON.parse(readFileSync(task.filePath!, 'utf8'))).not.toThrow();
+  const target = join(f.root, 'partial');
+  mkdirSync(target);
+  expect(await f.manager.saveTaskOutput(id, target)).toContain(target);
+  expect(f.manager.resumeTask(id)).toBe(true);
+  await wait(() => f.manager.getTask(id)?.status === 'completed');
+  expect(f.manager.resumeTask(id, true)).toBe(true);
+  await wait(() => f.manager.getTask(id)?.status === 'completed');
+  expect(f.manager.getTask(id)?.current).toBe(3000);
+});
+
+it('增量导出补入新消息，保留源库已删除的旧记录，重复执行不增加副本', async () => {
+  const f = fixture(3);
+  const target = join(f.root, 'direct');
+  mkdirSync(target);
+  const id = await f.manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '增量',
+    format: 'jsonl',
+    total: 3,
+    savePolicy: { mode: 'before', directory: target },
+  });
+  await wait(() => f.manager.getTask(id)?.status === 'completed');
+  const path = f.manager.getTask(id)!.filePath!;
+  expect(path).toBe(join(realpathSync(target), '增量.jsonl'));
+  expect(existsSync(join(f.root, 'exports', `task-${id}`))).toBe(false);
+  const old = f.rows.shift()!;
+  f.rows.push({
+    ...old,
+    msgId: 4n,
+    msgSeq: 4n,
+    elements: [{ type: 'text', data: { textContent: '新增消息' } }],
+  });
+  writeFileSync(f.source, 'updated database');
+  for (let i = 0; i < 2; i++) {
+    expect(f.manager.resumeTask(id, true)).toBe(true);
+    await wait(() => ['completed', 'failed'].includes(f.manager.getTask(id)!.status));
+    expect(f.manager.getTask(id)?.error).toBeUndefined();
+    expect(f.manager.getTask(id)?.current).toBe(4);
+  }
+  const rows = readFileSync(path, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  expect(rows.map((row) => row.msgId)).toEqual(['1', '2', '3', '4']);
+  expect(f.manager.deleteTask(id)).toBe(true);
+  expect(existsSync(path)).toBe(true);
+});
+
+it('选择基线文件夹在新任务中合并归档，不依赖原任务索引且不改写基线', async () => {
+  const f = fixture(3, { exportAccountUin: '10001' });
+  const target = join(f.root, 'baseline');
+  mkdirSync(target);
+  const id = await f.manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '基线',
+    format: 'jsonl',
+    total: 3,
+    range: { start: 1800000000, end: 1800000001 },
+    savePolicy: { mode: 'before', directory: target },
+  });
+  await wait(() => f.manager.getTask(id)?.status === 'completed');
+  const original = readFileSync(f.manager.getTask(id)!.filePath!);
+  const removed = f.rows.shift()!;
+  f.rows[0]!.elements = [{ type: 'text', data: { textContent: '来源内容已改变' } }];
+  f.rows.push({ ...removed, msgId: 4n, msgSeq: 4n });
+  const manager = new ExportTaskManager(f.msgs, join(f.root, 'new-exports'), {
+    exportAccountUin: '10002',
+  });
+  const next = await manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '增量结果',
+    format: 'jsonl',
+    total: 3,
+    baselineDirectory: target,
+  });
+  await wait(() => ['completed', 'failed'].includes(manager.getTask(next)!.status));
+  expect(manager.getTask(next)?.error).toBeUndefined();
+  const rows = readFileSync(manager.getTask(next)!.filePath!, 'utf8')
+    .trim()
+    .split('\n')
+    .map((row) => JSON.parse(row));
+  expect(rows.map((row) => row.msgId)).toEqual(['1', '2', '3', '4']);
+  expect(JSON.stringify(rows[1])).toContain('message 1');
+  expect(manager.getTask(next)?.mergeWarnings?.conflictingMessages).toBe(1);
+  expect(readFileSync(f.manager.getTask(id)!.filePath!)).toEqual(original);
+  const other = new ExportTaskManager(f.msgs, join(f.root, 'other-account'), {
+    exportAccountUin: '10002',
+  });
+  const bad = await other.startTask({
+    kind: 'group',
+    conv: '888',
+    name: '不同会话',
+    format: 'jsonl',
+    total: 3,
+    baselineDirectory: target,
+  });
+  await wait(() => other.getTask(bad)?.status === 'failed');
+  expect(other.getTask(bad)?.error).toContain('匹配的增量基线');
+});
+
+it('直接写入采用独占命名，已有文件和报告均不被覆盖', async () => {
+  const f = fixture(2);
+  const target = join(f.root, 'direct');
+  mkdirSync(target);
+  writeFileSync(join(target, '原件.txt'), '用户原件');
+  writeFileSync(join(target, '原件 (1).txt.report.json'), '旧报告');
+  const id = await f.manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '原件',
+    format: 'txt',
+    total: 2,
+    savePolicy: { mode: 'preset', directory: target },
+  });
+  await wait(() => f.manager.getTask(id)?.status === 'completed');
+  expect(f.manager.getTask(id)?.save?.path).toBe(join(realpathSync(target), '原件 (2).txt'));
+  expect(readFileSync(join(target, '原件.txt'), 'utf8')).toBe('用户原件');
+  expect(readFileSync(join(target, '原件 (1).txt.report.json'), 'utf8')).toBe('旧报告');
+});
+
+it('多格式直接写入独立目标包，增量和暂停不把几个格式写到同一文件', async () => {
+  const f = fixture(3);
+  const target = join(f.root, 'bundle');
+  mkdirSync(target);
+  const id = await f.manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '多个格式',
+    format: 'txt',
+    formats: ['txt', 'csv', 'json'],
+    total: 3,
+    savePolicy: { mode: 'before', directory: target },
+  });
+  await wait(() => ['completed', 'failed'].includes(f.manager.getTask(id)!.status));
+  const task = f.manager.getTask(id)!;
+  expect(task.error).toBeUndefined();
+  expect(task.bundleDir?.startsWith(realpathSync(target))).toBe(true);
+  expect(readFileSync(join(task.bundleDir!, '多个格式.txt'), 'utf8')).toContain('message 2');
+  expect(readFileSync(join(task.bundleDir!, '多个格式.csv'), 'utf8')).toContain('message 2');
+  expect(() =>
+    JSON.parse(readFileSync(join(task.bundleDir!, '多个格式.json'), 'utf8')),
+  ).not.toThrow();
+  expect(task.save?.path).toBe(task.bundleDir);
+});
+
+it('续作选项从单文件变为多格式时转入独立目录，不覆盖原文件或混写格式', async () => {
+  const f = fixture(3);
+  const target = join(f.root, 'options-change');
+  mkdirSync(target);
+  const id = await f.manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '格式变化',
+    format: 'txt',
+    total: 3,
+    savePolicy: { mode: 'before', directory: target },
+  });
+  await wait(() => f.manager.getTask(id)?.status === 'completed');
+  const task = f.manager.getTask(id)!;
+  const original = task.filePath!,
+    bytes = readFileSync(original);
+  task.formats = ['txt', 'json'];
+  expect(f.manager.resumeTask(id, true)).toBe(true);
+  await wait(() => ['completed', 'failed'].includes(task.status));
+  expect(task.error).toBeUndefined();
+  expect(task.bundleDir).toBeDefined();
+  expect(readFileSync(original)).toEqual(bytes);
+  expect(() =>
+    JSON.parse(readFileSync(join(task.bundleDir!, '格式变化.json'), 'utf8')),
+  ).not.toThrow();
+  expect(task.current).toBe(3);
+});
+
+it('目标目录失效不重建替代目录，用户修改过的目标文件不被增量覆盖', async () => {
+  const f = fixture(2);
+  const target = join(f.root, 'direct-protect');
+  mkdirSync(target);
+  const id = await f.manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '保护结果',
+    format: 'txt',
+    total: 2,
+    savePolicy: { mode: 'before', directory: target },
+  });
+  await wait(() => f.manager.getTask(id)?.status === 'completed');
+  const task = f.manager.getTask(id)!;
+  writeFileSync(task.filePath!, '用户修改');
+  expect(f.manager.resumeTask(id, true)).toBe(true);
   await wait(() => f.manager.getTask(id)?.status === 'failed');
-  expect(f.manager.getTask(id)?.error).toContain('来源数据库或导出选项已变化');
+  expect(readFileSync(task.filePath!, 'utf8')).toBe('用户修改');
+  expect(task.error).toContain('已有修改');
+  rmSync(target, { recursive: true });
+  expect(f.manager.resumeTask(id)).toBe(true);
+  await wait(() => f.manager.getTask(id)?.status === 'failed');
+  expect(existsSync(target)).toBe(false);
+  expect(task.error).toContain('目录不可用');
+});
+
+it('暂停后可单独跳过头像，继续正文且在报告保留用户跳过证据', async () => {
+  const get = vi.fn(async () => null);
+  const f = fixture(3000, {
+    avatarCache: { get } as unknown as NonNullable<MediaDeps['avatarCache']>,
+  });
+  let paused = false;
+  f.manager.on('progress', () => {
+    const t = f.manager.listTasks()[0];
+    if (!paused && t && (t.stages.find((s) => s.key === 'message')?.current ?? 0) >= 1000) {
+      paused = true;
+      f.manager.pauseTask(t.id);
+    }
+  });
+  const id = await f.manager.startTask({
+    kind: 'group',
+    conv: '777',
+    name: '跳过头像',
+    format: 'txt',
+    total: 3000,
+    exportAvatar: true,
+  });
+  await wait(() => f.manager.listTasks()[0]?.canResume === true);
+  expect(await f.manager.skipTaskStage(id, 'message')).toBe(false);
+  expect(await f.manager.skipTaskStage(id, 'avatar')).toBe(true);
+  expect(f.manager.resumeTask(id)).toBe(true);
+  await wait(() => ['completed', 'failed'].includes(f.manager.getTask(id)!.status));
+  const task = f.manager.getTask(id)!;
+  expect(task.error).toBeUndefined();
+  expect(task.current).toBe(3000);
+  expect(task.stages.find((s) => s.key === 'avatar')?.status).toBe('skipped');
+  expect(get).not.toHaveBeenCalled();
+  expect(JSON.parse(readFileSync(task.reportPath!, 'utf8')).skippedStages).toEqual(['avatar']);
 });
 
 it('report separates actual message counts from format copies and full-history claims', async () => {
@@ -440,6 +744,13 @@ it('report separates actual message counts from format copies and full-history c
   expect(report.messages.parsing.unknownElements).toBe(0);
   expect(report.allServerHistoryVerified).toBe(false);
   expect(report.media.originalQualityVerified).toBe(false);
+  const originalHtml = task.reportHtmlPath!;
+  writeFileSync(originalHtml, '已有 HTML 原件');
+  delete task.reportHtmlPath;
+  expect(f.manager.getReportPath(id)).toMatch(/\.html$/);
+  expect(task.reportHtmlPath).not.toBe(originalHtml);
+  expect(readFileSync(originalHtml, 'utf8')).toBe('已有 HTML 原件');
+  expect(readFileSync(task.reportHtmlPath!, 'utf8')).toContain('导出完整性报告');
 });
 
 it('preflight distinguishes bounded sampling from exact filtered counts', async () => {

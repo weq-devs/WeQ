@@ -1,11 +1,23 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { getCloneTasks, subscribeCloneTasks } from '../views/agentlab/cloneTaskStore';
 import type { GeneratedSearchHit } from './search/types';
-import { BarChart3, Bot, Download, FileStack, ListTodo, Settings, X } from 'lucide-react';
+import {
+  BarChart3,
+  Bot,
+  Download,
+  FileStack,
+  FolderOpen,
+  ListTodo,
+  Settings,
+  ShieldAlert,
+  X,
+} from 'lucide-react';
+import type { ExportAuthorizationIndicatorState } from '../views/export/authorization';
 import { Modal } from './Dialog';
 import { FloatingToolsBar, type FloatingToolItem } from './FloatingToolsBar';
 import { RetainedTabs } from './RetainedTabs';
 import { ExportTool } from '../views/ExportView';
+import { ExportViewer } from '../views/ExportViewer';
 import { AgentLabView } from '../views/AgentLabView';
 import { trpc } from '../trpc/client';
 import {
@@ -39,9 +51,10 @@ import {
   type WorkspaceContext,
 } from '../lib/toolTargets';
 
-type Tool = 'export' | 'tasks' | 'assistant' | 'backfill' | 'analysis';
+type Tool = 'export' | 'viewer' | 'tasks' | 'assistant' | 'backfill' | 'analysis';
 const TITLES: Record<Tool, string> = {
   export: '导出',
+  viewer: '导出查看器',
   tasks: '任务',
   assistant: 'WeQ 助手',
   backfill: '拉取漫游消息',
@@ -71,6 +84,8 @@ export function WorkspaceTools({
   onOpenClone?: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [exportAuthorization, setExportAuthorization] =
+    useState<ExportAuthorizationIndicatorState | null>(null);
   const [tool, setTool] = useState<Tool>('export');
   const [assistantSettings, setAssistantSettings] = useState(false);
   const [analysisTarget, setAnalysisTarget] = useState<AnalysisTarget | undefined>();
@@ -78,6 +93,7 @@ export function WorkspaceTools({
   const [analysisFixedTarget, setAnalysisFixedTarget] = useState(false);
   const [exportFixedScope, setExportFixedScope] = useState(false);
   const [exportMode, setExportMode] = useState<ExportMode | undefined>();
+  const [exportBaseline, setExportBaseline] = useState<string>();
   const [exportListRevision, setExportListRevision] = useState(0);
   const [roamingTargets, setRoamingTargets] = useState<RoamingTarget[]>([]);
   const [analysisSeed, setAnalysisSeed] = useState(0);
@@ -184,14 +200,15 @@ export function WorkspaceTools({
   /** 把选中的草稿交给导出面板。 */
   const openExport = (
     nextSelection: ContentSelection | null | undefined,
-    options: { fixed?: boolean; mode?: ExportMode } = {},
+    options: { fixed?: boolean; mode?: ExportMode; baselineDirectory?: string } = {},
   ) => {
+    setExportBaseline(options.baselineDirectory);
     const key = nextSelection && accountKey ? JSON.stringify([accountKey, nextSelection]) : null;
     // 同一份选择重新打开工具时保留面板现场（输入过的草稿、已选格式都还在）。
-    // 必须重建的只有一种情况：从「固定范围」快捷入口切回完整选择界面
-    // （固定界面没有内容列表）。种类切换现在由面板自己负责，不算重建理由。
+    // 固定范围与完整选择界面切换时重建，避免查看器的增量入口沿用旧的列表模式。
+    // 种类切换由面板自己负责，不算重建理由。
     const sameDraft = Boolean(key && exportDraft?.key === key);
-    const modeSwitch = options.fixed === false && fixedExportScope;
+    const modeSwitch = options.fixed !== undefined && options.fixed !== fixedExportScope;
     if (sameDraft && !modeSwitch) {
       setExportListRevision((previous) => previous + 1);
       setTool('export');
@@ -263,6 +280,12 @@ export function WorkspaceTools({
       action: () => select('export'),
     },
     {
+      id: 'viewer',
+      label: '导出查看器',
+      icon: <FolderOpen size={20} />,
+      action: () => select('viewer'),
+    },
+    {
       id: 'tasks',
       label: '任务',
       icon: <ListTodo size={20} />,
@@ -302,6 +325,16 @@ export function WorkspaceTools({
       >
         <header className="weq-tools-header">
           <h2 id="weq-tools-title">{TITLES[tool]}</h2>
+          {tool === 'export' && exportAuthorization?.needed ? (
+            <button
+              type="button"
+              className="weq-export-needs-elevation"
+              onClick={exportAuthorization.request}
+            >
+              <ShieldAlert size={15} />
+              需要提权
+            </button>
+          ) : null}
           {tool === 'assistant' && (
             <button
               type="button"
@@ -324,10 +357,12 @@ export function WorkspaceTools({
           {open && tool !== 'tasks' && tool !== 'backfill' ? (
             tool === 'export' ? (
               <ExportTool
+                onAuthorizationChange={setExportAuthorization}
                 key={JSON.stringify([
                   exportDraft?.draft.accountId === accountKey ? exportDraft.key : 'empty',
                   fixedExportScope,
                   exportMode,
+                  exportBaseline,
                 ])}
                 initialSelection={
                   exportDraft?.draft.accountId === accountKey
@@ -335,9 +370,27 @@ export function WorkspaceTools({
                     : undefined
                 }
                 initialMode={exportMode}
+                initialBaselineDirectory={exportBaseline}
                 onClose={close}
                 fixedScope={fixedExportScope}
                 contentListRevision={fixedExportScope ? undefined : exportListRevision}
+              />
+            ) : tool === 'viewer' ? (
+              <ExportViewer
+                onNavigate={close}
+                onIncrement={(source) => {
+                  if (!source.conversation || !source.baselineDirectory) return;
+                  openExport(
+                    {
+                      owner: {
+                        kind: 'messages',
+                        container: `${source.conversation.kind}:${source.conversation.conv}`,
+                      },
+                      scope: { type: 'all' },
+                    },
+                    { fixed: true, mode: 'full', baselineDirectory: source.baselineDirectory },
+                  );
+                }}
               />
             ) : tool === 'assistant' ? (
               <>

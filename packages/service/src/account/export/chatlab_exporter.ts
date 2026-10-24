@@ -309,6 +309,7 @@ export async function exportToChatlab(
       generator: GENERATOR,
     },
     meta: {
+      conversationId: opts.conv,
       name: groupName,
       platform: PLATFORM,
       type: opts.kind === 'group' ? 'group' : 'private',

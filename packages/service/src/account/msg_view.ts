@@ -382,6 +382,7 @@ export interface RenderMarkdownElement {
  * carrying its own `forwardMessages` (recursion is resolved at expand time).
  */
 export interface ForwardMessage {
+  msgId?: string;
   /** Sender display name (nickname / card / uin fallback). */
   senderName: string;
   /** Sender QQ number, when known ('' otherwise). */

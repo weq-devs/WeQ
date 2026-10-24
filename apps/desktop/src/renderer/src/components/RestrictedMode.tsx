@@ -74,7 +74,14 @@ export function RestrictedModeIndicator({ startup = false }: { startup?: boolean
   );
 }
 
-function AuthorizationForm({ request }: { request: AuthorizationRequest }) {
+export function cancelAuthorizationRequest(request: AuthorizationRequest): void {
+  if (request.kind === 'password')
+    ipc()?.send('elev:respond-password', { token: request.token, password: null });
+  else ipc()?.send('attach:respond-hint', { token: request.token, choice: 'cancel', password: '' });
+  useRestrictedMode.getState().remove(request.kind, request.token);
+}
+
+export function AuthorizationForm({ request }: { request: AuthorizationRequest }) {
   const [password, setPassword] = useState('');
   const id = useId();
   function respond(cancel = false, retry = false) {

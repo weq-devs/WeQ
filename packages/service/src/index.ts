@@ -850,6 +850,16 @@ export type {
 } from './account/export';
 export { ExportTaskManager } from './account/export/task_manager';
 export {
+  describeViewerFile,
+  discoverViewerSources,
+  readViewerPage,
+  resolveViewerMedia,
+  type ExportViewerSource,
+  type ExportViewerMessage,
+  type ExportViewerPart,
+  type ExportViewerConversation,
+} from './account/export/viewer';
+export {
   describeExportOutput,
   messageOutputFlags,
   exportOutputFileName,

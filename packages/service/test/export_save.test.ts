@@ -51,6 +51,27 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+it('JSON 与 HTML 报告一起另存，HTML 重名时回收本轮 JSON 且不覆盖旧文件', async () => {
+  const f = fixture();
+  const filePath = join(f.source, 'messages.txt'),
+    reportPath = join(f.source, 'report.json'),
+    reportHtmlPath = join(f.source, 'report.html');
+  writeFileSync(filePath, 'messages');
+  writeFileSync(reportPath, '{}');
+  writeFileSync(reportHtmlPath, '<html>report</html>');
+  const target = join(f.target, 'messages.txt');
+  writeFileSync(`${target}.report.html`, '原报告');
+  const output = { name: '消息', filePath, reportPath, reportHtmlPath };
+  const saved = await saveExportOutput(output, { filePath: target, unique: true });
+  expect(saved).not.toBe(target);
+  expect(readFileSync(`${target}.report.html`, 'utf8')).toBe('原报告');
+  expect(existsSync(`${target}.report.json`)).toBe(false);
+  expect(readFileSync(`${saved}.report.html`, 'utf8')).toBe('<html>report</html>');
+  expect(readFileSync(`${saved}.report.json`, 'utf8')).toBe('{}');
+  const folder = await saveExportOutput(output, f.target);
+  expect(readFileSync(join(folder, 'export-report.html'), 'utf8')).toBe('<html>report</html>');
+});
+
 describe('导出保存策略与结果发布', () => {
   it('服务器自动命名只规范化父目录，拒绝父目录逃逸但不跟随已有最终文件链接', () => {
     const f = fixture();

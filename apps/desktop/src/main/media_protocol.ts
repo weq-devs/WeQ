@@ -36,6 +36,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { viewerMedia } from './export_viewer';
 import { fileResponse as streamFile } from './file_response';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -416,6 +417,17 @@ async function routeMediaRequest(request: Request): Promise<Response> {
     const kind = url.hostname;
     const q = url.searchParams;
 
+    if (kind === 'exportviewer') {
+      const path = await viewerMedia(q.get('id') ?? '', q.get('path') ?? '');
+      if (!path) return notFound('export media unavailable');
+      const response = await fileResponse(path);
+      const headers = new Headers(response.headers);
+      headers.set('Content-Security-Policy', "default-src 'none'; sandbox");
+      headers.set('X-Content-Type-Options', 'nosniff');
+      headers.set('Cache-Control', 'no-store');
+      return new Response(response.body, { status: response.status, headers });
+    }
+
     // 装扮资源只依赖 bootstrap 的缓存,不需要打开的账号 —— 放在 services 断言之前。
     if (kind === 'dress') {
       try {
@@ -487,7 +499,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
       return notFound('redbag skin fetch failed');
     }
 
-    // 走到这里的 kind 都需要账号会话（不需要的那四个已在上面提前返回）。
+    // 走到这里的 kind 都需要账号会话（离线查看等免账号分支已在上面提前返回）。
     // 未知 kind 也走这条断言，随后由下面的 switch default 报「unknown media kind」。
     // 没有账号会话（含 AppContext 尚未初始化）→ 统一 404。别让 getAppContext
     // 的 assert 冒出去：协议层抛异常时 Chromium 只会看到一个没有 CORS 头的失败，

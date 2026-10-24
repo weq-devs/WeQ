@@ -33,8 +33,8 @@ function handledKinds(): Set<string> {
   return kinds;
 }
 
-/** 免账号 kind：文档里约定的四个，只靠 bootstrap 缓存就能解析。 */
-const NO_ACCOUNT_KINDS = new Set(['dress', 'qqshow', 'linkpreview', 'redbag']);
+/** 免账号 kind：bootstrap 缓存或用户明确选择的离线导出。 */
+const NO_ACCOUNT_KINDS = new Set(['dress', 'qqshow', 'linkpreview', 'redbag', 'exportviewer']);
 
 /** 在 `services` 断言之前出现的 `if (kind === '…')` 提前返回分支。 */
 function earlyKinds(): string[] {

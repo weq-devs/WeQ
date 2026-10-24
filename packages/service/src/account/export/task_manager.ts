@@ -24,6 +24,7 @@ import {
   rmSync,
   readdirSync,
   lstatSync,
+  realpathSync,
 } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { sanitizeSegment, uniqueName } from '../../common/path_sanitize';
@@ -52,8 +53,11 @@ import { createAtomicExportBundle, type AtomicExportBundle } from './atomic_bund
 import { QzoneHistoryStore } from './qzone_history';
 import { createExportWriter } from './stream_utils';
 import { MessageAudit, type MessageCoverage } from './message_audit';
-import { exportReport } from './export_report';
-import { exportOptionsHash, fileSha256, roamingDigest } from './resume';
+import { exportReport, exportReportHtml } from './export_report';
+import { exportOptionsHash, fileSha256, roamingDigest, messageSelectionHash } from './resume';
+import { MessageJournal } from './message_journal';
+import { findExportBaseline, listExportBaselines } from './baseline';
+import { prepareDirectOutput, type DirectOutput } from './direct_output';
 import { inspectDestination } from './storage_preflight';
 import {
   copyExportSavePolicy,
@@ -342,6 +346,14 @@ export interface ExportTask {
     cacheDirectory?: string;
   };
   save?: ExportSaveState;
+  directOutput?: DirectOutput;
+  journalPath?: string;
+  outputDirectory?: string;
+  skippedStages?: StageKey[];
+  partialReady?: boolean;
+  outputHashes?: Record<string, string>;
+  baselineDirectory?: string;
+  mergeWarnings?: ReturnType<MessageJournal['mergeWarnings']>;
   resumeBinding?: { source: string; options: string; roaming?: string };
   formatCheckpoints?: Record<
     string,
@@ -352,6 +364,7 @@ export interface ExportTask {
   sequenceCoverage?: ReturnType<typeof sequenceCoverage>;
   reportVersion?: 1;
   reportPath?: string;
+  reportHtmlPath?: string;
   messageCoverage?: MessageCoverage;
   formatCounts?: Record<string, number>;
   id: string;
@@ -445,11 +458,14 @@ export interface ExportTaskView
   generated?: Omit<GeneratedContentSnapshot, 'messages'> & { messageCount: number };
   logs: TaskLogLine[];
   canResume: boolean;
+  isFinalizing: boolean;
   resumeMode?: 'checkpoint' | 'restart';
 }
 
 /** Main-process dependencies injected for media export (silk-wasm lives in the app). */
 export interface MediaDeps {
+  exportAccountUin?: string;
+  fetchForward?: (resId: string) => Promise<import('../forward').FetchedForwardRecord[]>;
   exportSavePolicy?: () => ExportSavePolicy;
   resolveSaveDirectory?: (directory: string) => string;
   avatarCache?: AvatarCacheService;
@@ -534,6 +550,8 @@ export interface MediaDeps {
 }
 
 export class ExportTaskManager extends EventEmitter {
+  private journals = new Map<string, MessageJournal>();
+  private finalizing = new Set<string>();
   private startedAt = Date.now();
   private filteredSources = new Map<string, MsgService>();
   private tasks = new Map<string, ExportTask>();
@@ -605,18 +623,80 @@ export class ExportTaskManager extends EventEmitter {
       for (const task of this.tasks.values()) {
         if (task.createdAt >= this.startedAt) task.reportVersion = 1;
         if (
+          task.journalPath &&
+          ['completed', 'paused'].includes(task.status) &&
+          !this.abortControllers.has(task.id) &&
+          !this.finalizing.has(task.id) &&
+          existsSync(task.journalPath)
+        ) {
+          try {
+            const manifestPath = join(dirname(task.journalPath), 'baseline.json');
+            const manifest = JSON.stringify({
+              version: 1,
+              owner: this.deps.exportAccountUin ?? '',
+              kind: task.kind,
+              conv: task.conv,
+              name: task.name,
+              formats: task.formats ?? [task.format],
+              messageCount: task.current,
+              range: task.range ?? null,
+              selection: messageSelectionHash(task),
+              journal: basename(task.journalPath),
+              updatedAt: task.updatedAt,
+            });
+            if (!existsSync(manifestPath) || readFileSync(manifestPath, 'utf8') !== manifest)
+              writeFileAtomicSync(manifestPath, manifest);
+          } catch (error) {
+            console.warn('[ExportTaskManager] baseline manifest unavailable:', error);
+          }
+        }
+        if (
           task.reportVersion &&
           ['completed', 'failed', 'cancelled', 'paused'].includes(task.status)
         ) {
-          const path = task.bundleDir
+          const desiredPath = task.bundleDir
             ? join(task.bundleDir, 'export-report.json')
             : task.filePath
               ? `${task.filePath}.report.json`
               : join(this.cacheDir, `report-${task.id}.json`);
+          const path =
+            task.directOutput && !existsSync(dirname(desiredPath))
+              ? join(this.cacheDir, `report-${task.id}.json`)
+              : desiredPath;
           const report = JSON.stringify(exportReport(task), null, 2);
-          if (!existsSync(path) || readFileSync(path, 'utf8') !== report)
-            writeFileAtomicSync(path, report);
-          task.reportPath = path;
+          const html = exportReportHtml(task);
+          try {
+            let htmlPath =
+              task.reportHtmlPath && dirname(task.reportHtmlPath) === dirname(path)
+                ? task.reportHtmlPath
+                : join(dirname(path), `${basename(path, '.json')}.html`);
+            for (let suffix = 1; existsSync(htmlPath); suffix++) {
+              const regular = lstatSync(htmlPath).isFile();
+              if (
+                regular &&
+                (task.reportHtmlPath === htmlPath || readFileSync(htmlPath, 'utf8') === html)
+              )
+                break;
+              htmlPath = join(
+                dirname(path),
+                `export-report-${sanitizeSegment(task.id, 'task', { maxLen: 96 })}-${suffix}.html`,
+              );
+            }
+            if (!existsSync(path) || readFileSync(path, 'utf8') !== report)
+              writeFileAtomicSync(path, report);
+            task.reportPath = path;
+            if (!existsSync(htmlPath) || readFileSync(htmlPath, 'utf8') !== html)
+              writeFileAtomicSync(htmlPath, html);
+            task.reportHtmlPath = htmlPath;
+          } catch (error) {
+            if (!task.directOutput) throw error;
+            const fallback = join(this.cacheDir, `report-${task.id}.json`);
+            writeFileAtomicSync(fallback, report);
+            task.reportPath = fallback;
+            const fallbackHtml = join(this.cacheDir, `report-${task.id}.html`);
+            writeFileAtomicSync(fallbackHtml, html);
+            task.reportHtmlPath = fallbackHtml;
+          }
         }
       }
       writeFileAtomicSync(this.persistPath, JSON.stringify([...this.tasks.values()], null, 2));
@@ -723,8 +803,14 @@ export class ExportTaskManager extends EventEmitter {
     const active = this.outputSaves.get(taskId);
     if (active) return active;
     const task = this.tasks.get(taskId);
-    if (task?.status !== 'completed')
-      return Promise.reject(new Error('只能保存已完成的导出任务。'));
+    if (
+      !task ||
+      (task.status !== 'completed' && !(task.status === 'paused' && task.partialReady)) ||
+      this.abortControllers.has(taskId) ||
+      this.finalizing.has(taskId) ||
+      (!task.filePath && !task.bundleDir)
+    )
+      return Promise.reject(new Error('请等待导出或暂停收尾完成后保存现有进度。'));
     if (directory && filePath) throw new Error('保存位置只能选择文件或目录之一。');
     if (uniqueFileName && !filePath) throw new Error('自动文件命名仅支持单文件位置。');
     let selectedFile =
@@ -838,6 +924,7 @@ export class ExportTaskManager extends EventEmitter {
               }
             : {}),
           canResume,
+          isFinalizing: this.finalizing.has(task.id),
           ...(canResume
             ? {
                 resumeMode:
@@ -915,6 +1002,7 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   async startTask(opts: {
+    baselineDirectory?: string;
     savePolicy?: ExportSavePolicy;
     kind: ConvKind;
     conv: string;
@@ -1197,6 +1285,12 @@ export class ExportTaskManager extends EventEmitter {
       kind: opts.kind,
       conv: opts.conv,
       name: opts.name,
+      ...(opts.baselineDirectory
+        ? {
+            baselineDirectory:
+              this.deps.resolveSaveDirectory?.(opts.baselineDirectory) ?? opts.baselineDirectory,
+          }
+        : {}),
       format: opts.format,
       ...(opts.formats?.length ? { formats: opts.formats } : {}),
       status: 'pending',
@@ -1493,16 +1587,19 @@ export class ExportTaskManager extends EventEmitter {
   /** 该任务的导出消息源：guild 任务用 guild_msg.db 适配源，其余用主库 MsgService。 */
   private msgsFor(task: ExportTask): MsgService {
     if (!task.guild) {
-      if (typeof this.msgs.withExportFilter !== 'function') return this.msgs;
-      if (!task.filter && !this.abortControllers.has(task.id)) return this.msgs;
       let source = this.filteredSources.get(task.id);
       if (!source) {
-        source = this.msgs.withExportFilter(
-          task.filter,
-          this.abortControllers.get(task.id)?.signal,
-        );
+        source =
+          typeof this.msgs.withExportFilter === 'function'
+            ? this.msgs.withExportFilter(task.filter, this.abortControllers.get(task.id)?.signal)
+            : Object.assign(Object.create(this.msgs) as MsgService, {
+                exportFilter: task.filter,
+                exportSignal: this.abortControllers.get(task.id)?.signal,
+              });
         this.filteredSources.set(task.id, source);
       }
+      source.exportJournal = this.journals.get(task.id);
+      source.exportFetchForward = task.media?.completeMessages ? this.deps.fetchForward : undefined;
       return source;
     }
     let src = this.guildSources.get(task.id);
@@ -1672,6 +1769,7 @@ export class ExportTaskManager extends EventEmitter {
     if (!task || task.status === 'cancelled') return;
 
     task.status = 'running';
+    task.partialReady = false;
     task.updatedAt = Date.now();
     this.saveTasks();
 
@@ -1696,8 +1794,10 @@ export class ExportTaskManager extends EventEmitter {
           task.resumeBinding &&
           (task.resumeBinding.source !== binding.source ||
             task.resumeBinding.options !== binding.options)
-        )
-          throw new Error('来源数据库或导出选项已变化，不能续作原任务。请创建新的导出任务。');
+        ) {
+          task.formatCheckpoints = {};
+          this.log(id, 'task', '来源或选项已有变化，保留消息断点并重新生成所选格式');
+        }
         task.resumeBinding = { ...task.resumeBinding, ...binding };
         task.reportVersion = 1;
         this.saveTasks();
@@ -1724,11 +1824,58 @@ export class ExportTaskManager extends EventEmitter {
         messageOutputFlags(task, this.outputCapabilities());
       const needsScan = wantMedia || wantTranscribe || wantOcr;
       const formats = task.formats?.length ? task.formats : [task.format];
+      if (task.directOutput?.filePath && isBundle) {
+        const previous = task.directOutput;
+        const expanded = prepareDirectOutput(
+          { mode: 'before', directory: dirname(previous.filePath!) },
+          id,
+          task.name,
+        );
+        if (!expanded) throw new Error('无法为多文件结果准备目标目录。');
+        expanded.journalDirectory = previous.journalDirectory;
+        task.directOutput = expanded;
+        task.outputDirectory = expanded.directory;
+        task.formatCheckpoints = {};
+      }
       // Avatars / media / transcription → output is a bundle folder; else a lone
       // file. 系统表情也产出 media/face/，需要 bundle。HTML 始终是 bundle。
       // 多格式同任务：多个文件必须放同一个 bundle 目录。
-      const outDir = join(this.cacheDir, isBundle ? `bundle-${id}` : `task-${id}`);
-      mkdirSync(outDir, { recursive: true });
+      if (
+        !task.directOutput &&
+        !task.outputDirectory &&
+        !task.filePath &&
+        !Object.keys(task.formatCheckpoints ?? {}).length &&
+        task.save
+      ) {
+        try {
+          task.directOutput = prepareDirectOutput(task.save.policy, id, task.name);
+        } catch (error) {
+          this.log(id, 'task', `目标位置不可写，保留任务结果供重新保存：${String(error)}`, 'warn');
+        }
+      }
+      const outDir =
+        task.outputDirectory ??
+        task.directOutput?.directory ??
+        task.bundleDir ??
+        (task.filePath ? dirname(task.filePath) : undefined) ??
+        join(this.cacheDir, isBundle ? `bundle-${id}` : `task-${id}`);
+      task.outputDirectory = outDir;
+      if (task.directOutput) {
+        if (
+          !existsSync(outDir) ||
+          !lstatSync(outDir).isDirectory() ||
+          !existsSync(task.directOutput.journalDirectory)
+        )
+          throw new Error('目标目录或进度目录不可用，请恢复原位置后继续。');
+      } else mkdirSync(outDir, { recursive: true });
+      for (const [path, hash] of Object.entries(task.outputHashes ?? {})) {
+        if (!this.exportFilePaths(task, outDir).includes(path)) continue;
+        if (existsSync(path) && (await fileSha256(path, abort.signal)) !== hash)
+          throw new Error('目标导出文件已有修改，请保留该文件并使用其他位置导出。');
+      }
+      task.outputHashes = undefined;
+      if (isBundle) task.bundleDir = outDir;
+      task.filePath = this.exportFilePaths(task, outDir)[0];
       const mediaRoot = join(outDir, 'media');
       const senders = wantAvatars ? new Set<string>() : undefined;
       const faces = wantSysFaces ? new Set<string>() : undefined;
@@ -1904,7 +2051,12 @@ export class ExportTaskManager extends EventEmitter {
       const selectedCached = task.filter?.messageIds?.some((id) => id.startsWith('roaming:'));
       if (selectedCached && !this.deps.messageBackfill)
         throw new Error('当前数据源无法读取所选缓存消息');
-      const roam = wantBackfill || selectedCached ? this.roamSource(task) : undefined;
+      const roam =
+        wantBackfill ||
+        selectedCached ||
+        (task.skippedStages?.includes('backfill') && this.deps.messageBackfill)
+          ? this.roamSource(task)
+          : undefined;
       if (roam && task.resumeBinding) {
         const cached = await roam();
         const digest = roamingDigest(cached);
@@ -1918,7 +2070,7 @@ export class ExportTaskManager extends EventEmitter {
           );
         backfillWindow = undefined;
         if (task.resumeBinding.roaming && task.resumeBinding.roaming !== digest)
-          throw new Error('本地漫游缓存已变化，不能混用原格式断点。请创建新的导出任务。');
+          task.formatCheckpoints = {};
         task.resumeBinding.roaming = digest;
         this.saveTasks();
       }
@@ -2135,6 +2287,35 @@ export class ExportTaskManager extends EventEmitter {
       }
 
       // ---- 消息导出（HTML + 装扮需等 manifest；其余格式仅等装扮用量扫描） ----
+      if (!task.guild && (task.kind === 'group' || task.kind === 'c2c')) {
+        const journalDir = task.directOutput?.journalDirectory ?? outDir;
+        if (task.journalPath && task.current > 0 && !existsSync(task.journalPath))
+          throw new Error('原消息进度记录已丢失，请恢复进度目录后继续。');
+        task.journalPath = join(journalDir, `messages-${messageSelectionHash(task)}.jsonl`);
+        if (task.baselineDirectory && !existsSync(task.journalPath)) {
+          const source = this.baselineFor(task);
+          const active = [...this.tasks.values()].some(
+            (candidate) =>
+              candidate.journalPath === source &&
+              (this.abortControllers.has(candidate.id) || this.finalizing.has(candidate.id)),
+          );
+          if (active) throw new Error('基线任务仍在写入，请暂停或完成后再选择。');
+          const { copyFile, constants, rename, unlink } = await import('node:fs/promises');
+          const importing = `${task.journalPath}.${randomUUID()}.import`;
+          try {
+            await copyFile(source, importing, constants.COPYFILE_EXCL);
+            await rename(importing, task.journalPath);
+          } finally {
+            await unlink(importing).catch(() => {});
+          }
+        }
+        if (!existsSync(task.journalPath)) task.formatCheckpoints = {};
+        this.journals.set(
+          id,
+          new MessageJournal(task.journalPath, abort.signal, !!task.filter?.messageIds),
+        );
+        this.saveTasks();
+      }
       const messageJob = (async (): Promise<ExportResult | null> => {
         if (task.format === 'html' && dressExportPromise) await dressExportPromise;
         this.touchStage(
@@ -2590,6 +2771,7 @@ export class ExportTaskManager extends EventEmitter {
                 },
                 8,
                 (text, level) => this.log(id, 'image', text, level ?? 'info'),
+                abort.signal,
               );
               this.touchStage(
                 task,
@@ -2950,6 +3132,35 @@ export class ExportTaskManager extends EventEmitter {
         if (!paused()) task.status = 'cancelled';
         return;
       }
+      for (const key of task.skippedStages ?? []) {
+        const stage = this.stage(task, key);
+        if (stage) {
+          stage.status = 'skipped';
+          stage.note = '用户跳过';
+        }
+      }
+      const journal = this.journals.get(id);
+      if (journal && (task.kind === 'group' || task.kind === 'c2c')) {
+        const previous = task.mergeWarnings;
+        task.mergeWarnings = await journal.inspectWarnings(task.kind, task.conv);
+        if (!journal.sourceCompared && previous) {
+          task.mergeWarnings.conflictingMessages = previous.conflictingMessages;
+          task.mergeWarnings.conflictMessageIds = previous.conflictMessageIds;
+        }
+        const warnings = task.mergeWarnings;
+        if (warnings.conflictingMessages || warnings.sequenceGapCount) {
+          const notice = `归档保留原消息：${warnings.conflictingMessages} 条消息内容与现有记录不同；发现 ${warnings.sequenceGapCount} 段可疑序号缺口（不代表已证实丢失消息），请查看完整性报告。`;
+          this.log(id, 'message', notice, 'warn');
+          this.emit('progress', {
+            taskId: id,
+            status: task.status,
+            current: task.current,
+            progress: task.progress,
+            message: notice,
+            notice,
+          });
+        }
+      }
       this.log(
         id,
         'task',
@@ -2960,8 +3171,14 @@ export class ExportTaskManager extends EventEmitter {
         typeof this.msgs.exportSourceStamp === 'function' &&
         task.resumeBinding.source !==
           this.msgs.exportSourceStamp(task.kind as 'group' | 'c2c', task.conv);
+      task.outputHashes = await this.hashMessageOutputs(task);
       task.status = 'completed';
       task.progress = 100;
+      if (task.directOutput && task.save) {
+        task.save.status = 'saved';
+        task.save.path = task.bundleDir ?? task.filePath;
+        delete task.save.error;
+      }
     } catch (e) {
       if (aborted() && (paused() || task.status === 'cancelled')) return;
       task.status = 'failed';
@@ -2975,8 +3192,25 @@ export class ExportTaskManager extends EventEmitter {
       this.log(id, 'task', `导出失败：${task.error}`, 'error');
     } finally {
       if (aborted() && !paused()) task.status = 'cancelled';
+      if (paused()) {
+        const journal = this.journals.get(id);
+        task.current = Math.max(
+          task.current,
+          journal?.count ?? 0,
+          ...Object.values(task.formatCheckpoints ?? {}).map(
+            (checkpoint) => checkpoint.result.messageCount,
+          ),
+        );
+        if (
+          journal &&
+          (journal.sourceCompared || !task.mergeWarnings) &&
+          (task.kind === 'group' || task.kind === 'c2c')
+        )
+          task.mergeWarnings = journal.mergeWarnings(task.kind, task.conv);
+      }
       task.updatedAt = Date.now();
       this.abortControllers.delete(id);
+      this.journals.delete(id);
       this.filteredSources.delete(id);
       this.saveTasks();
       this.emit('progress', {
@@ -2984,7 +3218,12 @@ export class ExportTaskManager extends EventEmitter {
         status: task.status,
         progress: task.progress,
         current: task.current,
-        message: task.status === 'completed' ? '导出完成' : (task.error ?? '已取消'),
+        message:
+          task.status === 'completed'
+            ? '导出完成'
+            : paused()
+              ? (task.error ?? '已暂停，可继续或收尾')
+              : (task.error ?? '已取消'),
       });
     }
   }
@@ -4217,11 +4456,111 @@ export class ExportTaskManager extends EventEmitter {
   /** 本次导出会产出的消息文件路径（与 {@link exportMessages} 的命名规则一致）。 */
   private exportFilePaths(task: ExportTask, outDir: string): string[] {
     const formats = task.formats?.length ? task.formats : [task.format];
-    return formats.map((format) =>
-      format === 'html'
-        ? join(outDir, 'index.html')
-        : join(outDir, `${sanitizeSegment(task.name, task.conv || task.id)}.${format}`),
+    return formats.map(
+      (format) =>
+        task.directOutput?.filePath ??
+        (format === 'html'
+          ? join(outDir, 'index.html')
+          : join(outDir, `${sanitizeSegment(task.name, task.conv || task.id)}.${format}`)),
     );
+  }
+
+  private async hashMessageOutputs(task: ExportTask): Promise<Record<string, string>> {
+    const hashes: Record<string, string> = {};
+    for (const path of this.exportFilePaths(task, task.outputDirectory!)) {
+      hashes[path] = await fileSha256(path);
+      const checkpoint = Object.values(task.formatCheckpoints ?? {}).find(
+        (item) => item.result.filePath === path,
+      );
+      if (checkpoint) checkpoint.sha256 = hashes[path]!;
+    }
+    return hashes;
+  }
+
+  private baselineFor(task: ExportTask): string {
+    const directory = realpathSync(task.baselineDirectory!);
+    const canonical = (path: string | undefined) => {
+      try {
+        return path ? realpathSync(path) : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const known = [...this.tasks.values()]
+      .filter(
+        (candidate) =>
+          candidate.id !== task.id &&
+          candidate.journalPath &&
+          existsSync(candidate.journalPath) &&
+          candidate.kind === task.kind &&
+          candidate.conv === task.conv &&
+          [
+            candidate.bundleDir,
+            candidate.outputDirectory,
+            candidate.journalPath ? dirname(candidate.journalPath) : undefined,
+            candidate.save?.path
+              ? candidate.bundleDir
+                ? candidate.save.path
+                : dirname(candidate.save.path)
+              : undefined,
+          ].some((path) => canonical(path) === directory),
+      )
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+    if (known.length > 1)
+      throw new Error(`找到 ${known.length} 个相同会话的基线，请选择具体导出文件夹。`);
+    const baseline = known[0];
+    if (baseline) {
+      if (this.abortControllers.has(baseline.id) || this.finalizing.has(baseline.id))
+        throw new Error('基线任务仍在写入，请暂停或完成后再选择。');
+      if (baseline.status === 'completed' || baseline.status === 'paused')
+        return baseline.journalPath!;
+    }
+    return findExportBaseline(directory, task);
+  }
+
+  listBaselines(directory: string) {
+    const resolved = this.deps.resolveSaveDirectory?.(directory) ?? directory;
+    const result = listExportBaselines(resolved);
+    const root = realpathSync(resolved);
+    for (const task of this.tasks.values()) {
+      if (
+        !task.journalPath ||
+        !existsSync(task.journalPath) ||
+        !['group', 'c2c'].includes(task.kind)
+      )
+        continue;
+      const locations = [
+        task.outputDirectory,
+        task.bundleDir,
+        dirname(task.journalPath),
+        task.save?.path ? (task.bundleDir ? task.save.path : dirname(task.save.path)) : undefined,
+      ];
+      const inside = locations.some((path) => {
+        try {
+          if (!path) return false;
+          const actual = realpathSync(path);
+          return actual === root || dirname(actual) === root;
+        } catch {
+          return false;
+        }
+      });
+      const journalPath = realpathSync(task.journalPath);
+      if (!inside || result.items.some((item) => item.journalPath === journalPath)) continue;
+      result.items.push({
+        directory: dirname(journalPath),
+        journalPath,
+        name: task.name,
+        kind: task.kind,
+        conv: task.conv,
+        messageCount: task.current,
+        formats: task.formats ?? [task.format],
+        range: task.range ?? null,
+        updatedAt: task.updatedAt,
+        bytes: lstatSync(task.journalPath).size,
+      });
+    }
+    result.items.sort((a, b) => b.updatedAt - a.updatedAt);
+    return result;
   }
 
   /**
@@ -4243,9 +4582,10 @@ export class ExportTaskManager extends EventEmitter {
   ): Promise<ExportResult> {
     const formats = task.formats?.length ? task.formats : [task.format];
     const filePathFor = (format: ExportFormat): string =>
-      format === 'html'
+      task.directOutput?.filePath ??
+      (format === 'html'
         ? join(outDir, 'index.html')
-        : join(outDir, `${sanitizeSegment(task.name, task.conv || task.id)}.${format}`);
+        : join(outDir, `${sanitizeSegment(task.name, task.conv || task.id)}.${format}`));
     const startedAt = Date.now();
     let count = 0;
     let fileSize = 0;
@@ -4289,7 +4629,7 @@ export class ExportTaskManager extends EventEmitter {
           dressKinds,
         );
         this.abortControllers.get(task.id)?.signal.throwIfAborted();
-        if (task.resumeBinding) {
+        if (task.resumeBinding && !this.finalizing.has(task.id)) {
           task.formatCheckpoints ??= {};
           task.formatCheckpoints[format] = {
             result,
@@ -4562,11 +4902,12 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   private canResume(task: ExportTask): boolean {
+    if (this.finalizing.has(task.id) || this.outputSaves.has(task.id)) return false;
     if (task.contacts || task.generated || task.qzone)
       return ['paused', 'failed'].includes(task.status) && !this.abortControllers.has(task.id);
     return (
       ['paused', 'failed'].includes(task.status) &&
-      !!task.resumeBinding &&
+      (task.kind === 'group' || task.kind === 'c2c') &&
       !task.guild &&
       !task.qzone &&
       !task.contacts &&
@@ -4578,10 +4919,112 @@ export class ExportTaskManager extends EventEmitter {
     );
   }
 
-  resumeTask(id: string): boolean {
+  getReportPath(id: string): string | undefined {
     const task = this.tasks.get(id);
-    if (!task || !this.canResume(task)) return false;
+    if (!task) return undefined;
+    if (!task.reportHtmlPath || !existsSync(task.reportHtmlPath)) {
+      task.reportVersion = 1;
+      this.saveTasks();
+    }
+    return task.reportHtmlPath && existsSync(task.reportHtmlPath)
+      ? task.reportHtmlPath
+      : task.reportPath;
+  }
+
+  async finalizeTask(id: string): Promise<boolean> {
+    const task = this.tasks.get(id);
+    if (
+      task?.status !== 'paused' ||
+      !this.canResume(task) ||
+      !task.journalPath ||
+      !existsSync(task.journalPath)
+    )
+      return false;
+    if (task.partialReady) return true;
+    this.finalizing.add(id);
+    this.emit('progress', {
+      taskId: id,
+      status: task.status,
+      progress: task.progress,
+      current: task.current,
+      message: '收尾中',
+    });
+    try {
+      this.filteredSources.delete(id);
+      const journal = new MessageJournal(task.journalPath, undefined, !!task.filter?.messageIds);
+      journal.sealed = true;
+      this.journals.set(id, journal);
+      const result = await this.exportMessages(
+        task,
+        task.outputDirectory ?? dirname(task.filePath!),
+        undefined,
+        !!task.media?.exportMedia,
+        () => {},
+      );
+      task.filePath = result.filePath;
+      task.current = result.messageCount;
+      task.messageCoverage = result.coverage;
+      task.outputHashes = await this.hashMessageOutputs(task);
+      task.partialReady = true;
+      if (task.kind === 'group' || task.kind === 'c2c') {
+        const previous = task.mergeWarnings;
+        task.mergeWarnings = await journal.inspectWarnings(task.kind, task.conv);
+        if (previous) {
+          task.mergeWarnings.conflictingMessages = previous.conflictingMessages;
+          task.mergeWarnings.conflictMessageIds = previous.conflictMessageIds;
+        }
+      }
+      task.error = undefined;
+      this.log(id, 'task', `收尾完成：${result.messageCount} 条消息，可另存或继续`);
+      return true;
+    } catch (error) {
+      task.error = `收尾失败：${String(error)}`;
+      task.partialReady = false;
+      this.log(id, 'task', task.error, 'error');
+      return false;
+    } finally {
+      this.finalizing.delete(id);
+      this.journals.delete(id);
+      this.filteredSources.delete(id);
+      task.updatedAt = Date.now();
+      this.saveTasks();
+      this.emit('progress', {
+        taskId: id,
+        status: task.status,
+        progress: task.progress,
+        current: task.current,
+        message: task.error ?? '收尾完成',
+      });
+    }
+  }
+
+  resumeTask(id: string, incremental = false): boolean {
+    const task = this.tasks.get(id);
+    if (
+      !task ||
+      this.outputSaves.has(id) ||
+      (!(
+        incremental &&
+        task.status === 'completed' &&
+        task.journalPath &&
+        !this.abortControllers.has(id)
+      ) &&
+        !this.canResume(task))
+    )
+      return false;
+    if (incremental) task.formatCheckpoints = {};
+    if (incremental) {
+      for (const stage of task.stages) {
+        if (task.skippedStages?.includes(stage.key)) continue;
+        stage.status = 'pending';
+        stage.current = 0;
+        stage.failed = 0;
+        delete stage.note;
+        delete stage.failures;
+      }
+    }
     task.status = 'pending';
+    if (task.directOutput && task.save) task.save.status = 'pending';
     task.error = undefined;
     task.updatedAt = Date.now();
     task.reportVersion = 1;
@@ -4611,9 +5054,128 @@ export class ExportTaskManager extends EventEmitter {
     return true;
   }
 
+  async skipTaskStage(id: string, key: StageKey): Promise<boolean> {
+    const task = this.tasks.get(id);
+    const stage = task?.stages.find((item) => item.key === key);
+    const allowed = [
+      'backfill',
+      'dress',
+      'avatar',
+      'media',
+      'image',
+      'video',
+      'file',
+      'ptt',
+      'transcribe',
+      'ocrfilter',
+      'ocr',
+      'sysface',
+    ];
+    if (
+      !task ||
+      !stage ||
+      this.finalizing.has(id) ||
+      !allowed.includes(key) ||
+      task.guild ||
+      task.resource ||
+      task.contacts ||
+      task.qzone ||
+      task.generated ||
+      task.collection ||
+      task.marketpack ||
+      task.emojipack ||
+      !['running', 'paused', 'failed'].includes(task.status) ||
+      stage.status === 'completed' ||
+      stage.status === 'skipped'
+    )
+      return false;
+    const running = task.status === 'running';
+    if (running) this.pauseTask(id);
+    while (this.abortControllers.has(id) || this.finalizing.has(id))
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    if (task.status !== 'paused' && task.status !== 'failed') return false;
+    task.skippedStages = [...new Set([...(task.skippedStages ?? []), key])];
+    task.media ??= {
+      exportMedia: false,
+      completeMessages: false,
+      completeMedia: false,
+      downloadVideo: false,
+      downloadFile: false,
+      downloadPtt: false,
+      transcribeVoice: false,
+    };
+    switch (key) {
+      case 'backfill':
+        task.media.completeMessages = false;
+        break;
+      case 'dress':
+        task.dress = undefined;
+        break;
+      case 'avatar':
+        task.exportAvatar = false;
+        break;
+      case 'media':
+        task.media.exportMedia = false;
+        break;
+      case 'image':
+        task.media.completeMedia = false;
+        break;
+      case 'video':
+        task.media.downloadVideo = false;
+        break;
+      case 'file':
+        task.media.downloadFile = false;
+        break;
+      case 'ptt':
+        task.media.downloadPtt = false;
+        break;
+      case 'transcribe':
+        task.media.transcribeVoice = false;
+        break;
+      case 'ocrfilter':
+        task.media.ocrPrefilter = false;
+        break;
+      case 'ocr':
+        task.media.ocrImages = false;
+        break;
+      case 'sysface':
+        task.media.mediaKinds = {
+          image: true,
+          voice: true,
+          video: true,
+          file: true,
+          ...task.media.mediaKinds,
+          sysface: false,
+        };
+        break;
+    }
+    stage.status = 'skipped';
+    stage.note = '用户跳过';
+    this.log(id, key, '用户跳过此项，已完成的文件和其他阶段进度保留', 'warn');
+    this.saveTasks();
+    return running ? this.resumeTask(id) : true;
+  }
+
   /** Remove a task's on-disk output (the whole bundle folder, or the lone file). */
   private cleanupOutput(task: ExportTask): void {
+    if (task.directOutput) return;
     try {
+      const cachedHtml = join(this.cacheDir, `report-${task.id}.html`);
+      if (task.reportHtmlPath === cachedHtml && existsSync(cachedHtml)) unlinkSync(cachedHtml);
+      if (
+        !task.bundleDir &&
+        task.filePath &&
+        task.reportHtmlPath === `${task.filePath}.report.html` &&
+        existsSync(task.reportHtmlPath)
+      )
+        unlinkSync(task.reportHtmlPath);
+      if (
+        task.outputDirectory === join(this.cacheDir, `task-${task.id}`) ||
+        task.outputDirectory === join(this.cacheDir, `bundle-${task.id}`)
+      ) {
+        rmSync(task.outputDirectory, { recursive: true, force: true });
+        return;
+      }
       if (task.resource?.cacheDirectory === join(this.cacheDir, `bundle-${task.id}`)) {
         rmSync(task.resource.cacheDirectory, { recursive: true, force: true });
         return;
@@ -4645,7 +5207,7 @@ export class ExportTaskManager extends EventEmitter {
 
   cancelTask(id: string): boolean {
     const task = this.tasks.get(id);
-    if (!task || task.status === 'completed') return false;
+    if (!task || task.status === 'completed' || this.finalizing.has(id)) return false;
     if (task.status === 'running') this.abortControllers.get(id)?.abort();
     task.status = 'cancelled';
     task.updatedAt = Date.now();
@@ -4664,7 +5226,12 @@ export class ExportTaskManager extends EventEmitter {
   deleteTask(id: string): boolean {
     const task = this.tasks.get(id);
     if (!task) return false;
-    if (task.status === 'running' || this.abortControllers.has(id) || this.outputSaves.has(id))
+    if (
+      task.status === 'running' ||
+      this.abortControllers.has(id) ||
+      this.finalizing.has(id) ||
+      this.outputSaves.has(id)
+    )
       return false;
     this.cleanupOutput(task);
     this.tasks.delete(id);

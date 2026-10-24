@@ -184,7 +184,9 @@ function dropExt(filename: string): string {
  *   file / onlineFile             → media/file/<fileName>
  *   ptt                           → media/record/<stem>.wav   (decoded)
  */
-export function mediaRelPath(el: RenderElement): string | null {
+export function mediaRelPath(
+  el: RenderElement | { type: string; data: { fileName?: string } },
+): string | null {
   switch (el.type) {
     case 'pic':
       return el.data.fileName ? `media/image/${el.data.fileName}` : null;
@@ -219,6 +221,9 @@ export function annotateExportPaths(elements: RenderElement[]): void {
     if (el.type === 'reply' && Array.isArray(el.data.origElements)) {
       annotateExportPaths(el.data.origElements);
     }
+    if (el.type === 'multiMsg') {
+      for (const message of el.data.forwardMessages ?? []) annotateExportPaths(message.elements);
+    }
   }
 }
 
@@ -229,6 +234,9 @@ export function annotateExportPaths(elements: RenderElement[]): void {
  */
 export function collectFaceIds(elements: RenderElement[], out: Set<string>): void {
   for (const el of elements) {
+    if (el.type === 'multiMsg') {
+      for (const message of el.data.forwardMessages ?? []) collectFaceIds(message.elements, out);
+    }
     if (el.type === 'face') {
       const id = el.data.faceId;
       if (typeof id === 'number' && Number.isInteger(id)) out.add(String(id));

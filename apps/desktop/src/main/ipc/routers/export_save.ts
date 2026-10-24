@@ -180,7 +180,8 @@ export async function saveCompletedExportTask(
 ): Promise<string | null> {
   check();
   const task = manager.getTask(taskId);
-  if (task?.status !== 'completed') throw new Error('只能保存已完成的导出任务。');
+  if (!task || (task.status !== 'completed' && !(task.status === 'paused' && task.partialReady)))
+    throw new Error('请等待导出或暂停收尾完成后保存现有进度。');
   const explicit = selected.directory || selected.filePath;
   if (selected.uniqueFileName && !selected.filePath)
     throw new Error('自动文件命名仅支持单文件位置。');

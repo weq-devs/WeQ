@@ -71,6 +71,8 @@ export function mediaDirsFromAccountDir(accountDir: string): MediaDirs {
 
 /** One referenced media file. */
 export interface MediaRef {
+  forwardMsgId?: string;
+  forwardElement?: RenderElement;
   msgId: string;
   msgSeq: string;
   sendTime: number;
@@ -285,9 +287,29 @@ function collectFromElements(
   sendTime: number,
   out: MediaRef[],
   fileTtlSec: number,
-  msgCtx: { senderUin: string; peerUin: string; isGroup: boolean },
+  msgCtx: { senderUin: string; peerUin: string; isGroup: boolean; forwardMsgId?: string },
+  depth = 0,
 ): void {
+  if (depth > 16) return;
   for (const el of els) {
+    if (el.type === 'multiMsg') {
+      for (const message of el.data.forwardMessages ?? []) {
+        collectFromElements(
+          message.elements,
+          msgId,
+          msgSeq,
+          message.sendTime || sendTime,
+          out,
+          fileTtlSec,
+          {
+            ...msgCtx,
+            senderUin: message.senderUin || msgCtx.senderUin,
+            forwardMsgId: message.msgId,
+          },
+          depth + 1,
+        );
+      }
+    }
     let kind: MediaKind | null = null;
     let fileName = '';
     let fileToken = '';
@@ -363,6 +385,8 @@ function collectFromElements(
     }
     if (!kind || !fileName) continue;
     out.push({
+      ...(msgCtx.forwardMsgId ? { forwardMsgId: msgCtx.forwardMsgId } : {}),
+      ...(depth > 0 ? { forwardElement: el } : {}),
       msgId,
       msgSeq,
       sendTime,
