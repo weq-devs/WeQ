@@ -4908,8 +4908,8 @@ export function ChatPane({
                         displayedSelectedIds.has(message.id)
                       }
                       onToggleSelect={toggleSelectMessage}
-                      reactionRemoval={{
-                        onRemove: (code) => changeMessageReaction(message, code, false),
+                      reactionInteraction={{
+                        onChange: (code, isSet) => changeMessageReaction(message, code, isSet),
                         blockedReason: messageReactionBlockedReason(message),
                         busy: setMessageReaction.isLoading,
                       }}

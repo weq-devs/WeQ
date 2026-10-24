@@ -76,7 +76,7 @@ export function useToolWindow({
   bodyClass,
   disposeEvent = null,
 }: {
-  name: 'weq-compose' | 'weq-db-repair';
+  name: 'weq-compose' | 'weq-db-repair' | 'weq-call';
   title: string;
   width: number;
   height: number;

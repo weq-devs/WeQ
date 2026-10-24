@@ -403,12 +403,17 @@ describe('全局工具条范围', () => {
       const buttons = [...document.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')];
       expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
         '导出',
+        '导出查看器',
         '任务',
         '分析与报告',
         'WeQ 助手',
         '合成聊天记录',
       ]);
-      act(() => buttons[2]!.click());
+      act(() =>
+        document
+          .querySelector<HTMLButtonElement>('[role="toolbar"] [aria-label="分析与报告"]')!
+          .click(),
+      );
       expect(analysis).not.toHaveBeenCalled();
       expect(document.querySelector('#weq-tools-title')?.textContent).toBe('分析与报告');
       expect(document.querySelector('[aria-label="报告类型"]')).not.toBeNull();

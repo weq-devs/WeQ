@@ -7,6 +7,23 @@ export function applicationToolPopupOptions(
   url: string,
   frameName: string,
 ): BrowserWindowConstructorOptions | null {
+  if (url === 'about:blank' && frameName === 'weq-call')
+    return {
+      title: 'WeQ · 语音通话',
+      width: 400,
+      height: 600,
+      minWidth: 340,
+      minHeight: 540,
+      frame: true,
+      autoHideMenuBar: true,
+      ...floatingWindowTypeOption(),
+      webPreferences: {
+        preload: undefined,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+      },
+    };
   if (url === 'about:blank' && frameName === 'weq-db-repair')
     return {
       title: 'WeQ · 数据库修复',

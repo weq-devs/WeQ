@@ -1,7 +1,7 @@
 /**
  * 通话窗口。
  *
- * 一个独立浮层，跟着通话状态走：呼叫中 → 振铃 → 接通 → 挂断。
+ * 独立系统窗口，跟着通话状态走：呼叫中 → 振铃 → 接通 → 挂断。
  * 只在**主动发起**时出现 —— 来电由 QQ 本体处理，WeQ 收不到那条推送。
  *
  * 音频链路在这里闭环：
@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Mic,
   MicOff,
@@ -25,6 +26,11 @@ import {
 } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { dressUrl, resourceUrl } from '../lib/resourceUrl';
+import { useToolWindow } from '../hooks/useCompositionWindow';
+import { RenderDocumentContext } from '../lib/renderDocument';
+import { HoverTooltip } from './HoverTooltip';
+import { useToast } from './Toast';
+import { useAppLock } from '../state/lock';
 import '../styles/call.css';
 
 /** 通话状态（与主进程 `CallState` 一致）。 */
@@ -73,7 +79,10 @@ const MIC_BUFFER_SAMPLES = 256;
  * 预先算好而不是在渲染里 `Math.sin`，一是避免每帧重算，二是给每根柱子一个
  * 稳定的 key（用下标当 key 会让 lint 报错，且柱子的顺序本身不会变）。
  */
-const WAVE_BARS = Array.from({ length: 24 }, (_, i) => Math.abs(Math.sin((i / 23) * Math.PI)));
+const WAVE_BARS = Array.from({ length: 24 }, (_, i) => ({
+  id: `bar-${i}`,
+  shape: Math.abs(Math.sin((i / 23) * Math.PI)),
+}));
 
 /** 状态 → 文案。接通后显示时长，其余显示阶段。 */
 function statusText(info: CallInfo): string {
@@ -127,6 +136,7 @@ function formatDuration(seconds: number): string {
  * 之后再留 1.6 秒给用户看结果，然后自己关掉。
  */
 export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: () => void }) {
+  const locked = useAppLock((state) => state.locked);
   const [info, setInfo] = useState<CallInfo>(initial);
   const [muted, setMuted] = useState(false);
   const [speakerOff, setSpeakerOff] = useState(false);
@@ -149,7 +159,63 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   speakerRef.current = speakerOff;
 
   const pushAudio = trpc.call.pushAudio.useMutation();
-  const hangup = trpc.call.hangup.useMutation();
+  const hangup = trpc.call.hangup.useMutation({
+    onError: () => {
+      hangupRequested.current = false;
+    },
+  });
+  const tool = useToolWindow({
+    name: 'weq-call',
+    title: 'WeQ · 语音通话',
+    width: 400,
+    height: 600,
+    bodyClass: 'weq-call-window-body',
+  });
+  const finishedRef = useRef(false);
+  finishedRef.current = info.state === 'ended' || info.state === 'failed';
+  const hangupRef = useRef(hangup.mutate);
+  hangupRef.current = hangup.mutate;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const hangupRequested = useRef(false);
+  const closeRequested = useRef(false);
+  const requestHangup = useCallback(() => {
+    if (finishedRef.current || hangupRequested.current) return;
+    hangupRequested.current = true;
+    hangupRef.current();
+  }, []);
+  const closeWindow = useCallback(() => {
+    if (closeRequested.current) return;
+    closeRequested.current = true;
+    tool.close();
+    onCloseRef.current();
+  }, [tool.close]);
+  const lifecycle = useRef(0);
+  useEffect(() => {
+    const generation = ++lifecycle.current;
+    const popup = tool.open();
+    if (!popup) {
+      requestHangup();
+      useToast.getState().push({
+        tone: 'error',
+        message: '无法打开通话窗口',
+        detail: '已结束本次呼叫，请允许弹出窗口后重试。',
+      });
+      onCloseRef.current();
+    }
+    const timer = window.setInterval(() => {
+      if (!popup?.closed) return;
+      requestHangup();
+      closeWindow();
+    }, 200);
+    return () => {
+      window.clearInterval(timer);
+      // StrictMode 会立即重挂载；只为真正卸载（切号／退出主界面）挂断。
+      queueMicrotask(() => {
+        if (lifecycle.current === generation) requestHangup();
+      });
+    };
+  }, [tool.open, requestHangup, closeWindow]);
   const pushRef = useRef(pushAudio.mutate);
   pushRef.current = pushAudio.mutate;
 
@@ -306,13 +372,13 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   // 结束后停留一会儿让用户看到结果
   useEffect(() => {
     if (!finished) return;
-    const timer = window.setTimeout(onClose, 1600);
+    const timer = window.setTimeout(closeWindow, 1600);
     return () => window.clearTimeout(timer);
-  }, [finished, onClose]);
+  }, [finished, closeWindow]);
 
   const handleHangup = useCallback(() => {
-    hangup.mutate();
-  }, [hangup]);
+    requestHangup();
+  }, [requestHangup]);
 
   /**
    * 背景素材加载失败（URL 过期 / 网络不通）。
@@ -328,129 +394,147 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
     [info.peerName, info.peerUin],
   );
 
-  return (
-    <div className="weq-call-backdrop" role="dialog" aria-modal="true" aria-label="语音通话">
+  const popup = tool.popup;
+  if (!popup || popup.closed) return null;
+
+  return createPortal(
+    <RenderDocumentContext.Provider value={popup.document}>
       <div
-        className={`weq-call-card${live ? ' is-live' : ''}${hasBackdrop ? ' has-backdrop' : ''}`}
-        data-state={info.state}
+        className="weq-call-backdrop"
+        role="region"
+        aria-label="语音通话"
+        hidden={locked}
+        inert={locked}
       >
-        {/* 个性化通话背景：视频优先（这类装扮本来就是动图），静帧兜底。 */}
-        {hasBackdrop ? (
-          <div className="weq-call-backdrop-media" aria-hidden="true">
-            {info.backgroundVideoUrl && !backdropFailed ? (
-              <video
-                src={dressUrl(info.backgroundVideoUrl)}
-                autoPlay
-                loop
-                muted
-                playsInline
-                onError={() => setBackdropFailed(true)}
-              />
-            ) : info.backgroundUrl && !backdropFailed ? (
-              <img
-                src={dressUrl(info.backgroundUrl)}
-                alt=""
-                onError={() => setBackdropFailed(true)}
-              />
-            ) : null}
+        <div
+          className={`weq-call-card${live ? ' is-live' : ''}${hasBackdrop ? ' has-backdrop' : ''}`}
+          data-state={info.state}
+        >
+          {/* 个性化通话背景：视频优先（这类装扮本来就是动图），静帧兜底。 */}
+          {hasBackdrop ? (
+            <div className="weq-call-backdrop-media" aria-hidden="true">
+              {info.backgroundVideoUrl && !backdropFailed ? (
+                <video
+                  src={dressUrl(info.backgroundVideoUrl)}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  onError={() => setBackdropFailed(true)}
+                />
+              ) : info.backgroundUrl && !backdropFailed ? (
+                <img
+                  src={dressUrl(info.backgroundUrl)}
+                  alt=""
+                  onError={() => setBackdropFailed(true)}
+                />
+              ) : null}
+            </div>
+          ) : null}
+          {/* 呼吸光环：接通后跟随对端响度 */}
+          <div className="weq-call-halo" style={{ ['--peer-level' as string]: peerLevel }} />
+
+          <div className="weq-call-avatar">
+            {info.peerAvatar ? (
+              <img src={info.peerAvatar} alt="" draggable={false} />
+            ) : (
+              <span className="weq-call-avatar-fallback">{initialLetter}</span>
+            )}
           </div>
-        ) : null}
-        {/* 呼吸光环：接通后跟随对端响度 */}
-        <div className="weq-call-halo" style={{ ['--peer-level' as string]: peerLevel }} />
 
-        <div className="weq-call-avatar">
-          {info.peerAvatar ? (
-            <img src={info.peerAvatar} alt="" draggable={false} />
-          ) : (
-            <span className="weq-call-avatar-fallback">{initialLetter}</span>
-          )}
+          <div className="weq-call-name">{info.peerName || info.peerUin}</div>
+          <div className={`weq-call-status${live ? ' is-live' : ''}`}>
+            {ringing ? <Loader2 size={14} className="weq-call-spin" /> : null}
+            {live ? <PhoneIncoming size={14} /> : null}
+            <span>{statusText(info)}</span>
+          </div>
+
+          {/* 波形：两排细柱，左本端右对端 */}
+          <div className={`weq-call-wave${live ? ' is-visible' : ''}`} aria-hidden="true">
+            {WAVE_BARS.map(({ id, shape }) => (
+              <span
+                key={`self-${id}`}
+                className="weq-call-wave-bar"
+                style={{
+                  ['--bar' as string]: String(0.18 + shape * (0.25 + level * 0.9)),
+                }}
+              />
+            ))}
+            {WAVE_BARS.map(({ id, shape }) => (
+              <span
+                key={`peer-${id}`}
+                className="weq-call-wave-bar is-peer"
+                style={{
+                  ['--bar' as string]: String(0.18 + shape * (0.25 + peerLevel * 0.9)),
+                }}
+              />
+            ))}
+          </div>
+
+          <div className="weq-call-actions">
+            <button
+              type="button"
+              className={`weq-call-btn${muted ? ' is-off' : ''}`}
+              onClick={() => setMuted((v) => !v)}
+              disabled={finished}
+              title={muted ? '取消静音' : '静音'}
+              aria-pressed={muted}
+            >
+              {muted ? <MicOff size={22} /> : <Mic size={22} />}
+            </button>
+
+            <button
+              type="button"
+              className="weq-call-btn is-hangup"
+              onClick={handleHangup}
+              disabled={finished || hangup.isPending}
+              title="挂断"
+            >
+              <PhoneOff size={26} />
+            </button>
+
+            <button
+              type="button"
+              className={`weq-call-btn${speakerOff ? ' is-off' : ''}`}
+              onClick={() => setSpeakerOff((v) => !v)}
+              disabled={finished}
+              title={speakerOff ? '打开声音' : '关闭声音'}
+              aria-pressed={speakerOff}
+            >
+              {speakerOff ? <VolumeX size={22} /> : <Volume2 size={22} />}
+            </button>
+          </div>
+
+          {/* 链路细节：只在展开时显示，避免主界面堆字 */}
+          <details className="weq-call-details">
+            <summary>通话信息</summary>
+            <dl>
+              <div>
+                <dt>房间</dt>
+                <dd>{info.roomId ?? '—'}</dd>
+              </div>
+              <div>
+                <dt>已发送</dt>
+                <dd>{info.sentFrames} 帧</dd>
+              </div>
+              <div>
+                <dt>已接收</dt>
+                <dd>{info.receivedFrames} 帧</dd>
+              </div>
+            </dl>
+          </details>
+
+          {ringing ? <PhoneCall size={0} aria-hidden="true" /> : null}
         </div>
-
-        <div className="weq-call-name">{info.peerName || info.peerUin}</div>
-        <div className={`weq-call-status${live ? ' is-live' : ''}`}>
-          {ringing ? <Loader2 size={14} className="weq-call-spin" /> : null}
-          {live ? <PhoneIncoming size={14} /> : null}
-          <span>{statusText(info)}</span>
-        </div>
-
-        {/* 波形：两排细柱，左本端右对端 */}
-        <div className={`weq-call-wave${live ? ' is-visible' : ''}`} aria-hidden="true">
-          {WAVE_BARS.map((shape, _index) => (
-            <span
-              key={`self-${shape}`}
-              className="weq-call-wave-bar"
-              style={{
-                ['--bar' as string]: String(0.18 + shape * (0.25 + level * 0.9)),
-              }}
-            />
-          ))}
-          {WAVE_BARS.map((shape) => (
-            <span
-              key={`peer-${shape}`}
-              className="weq-call-wave-bar is-peer"
-              style={{
-                ['--bar' as string]: String(0.18 + shape * (0.25 + peerLevel * 0.9)),
-              }}
-            />
-          ))}
-        </div>
-
-        <div className="weq-call-actions">
-          <button
-            type="button"
-            className={`weq-call-btn${muted ? ' is-off' : ''}`}
-            onClick={() => setMuted((v) => !v)}
-            disabled={finished}
-            title={muted ? '取消静音' : '静音'}
-            aria-pressed={muted}
-          >
-            {muted ? <MicOff size={22} /> : <Mic size={22} />}
-          </button>
-
-          <button
-            type="button"
-            className="weq-call-btn is-hangup"
-            onClick={handleHangup}
-            disabled={finished || hangup.isPending}
-            title="挂断"
-          >
-            <PhoneOff size={26} />
-          </button>
-
-          <button
-            type="button"
-            className={`weq-call-btn${speakerOff ? ' is-off' : ''}`}
-            onClick={() => setSpeakerOff((v) => !v)}
-            disabled={finished}
-            title={speakerOff ? '打开声音' : '关闭声音'}
-            aria-pressed={speakerOff}
-          >
-            {speakerOff ? <VolumeX size={22} /> : <Volume2 size={22} />}
-          </button>
-        </div>
-
-        {/* 链路细节：只在展开时显示，避免主界面堆字 */}
-        <details className="weq-call-details">
-          <summary>通话信息</summary>
-          <dl>
-            <div>
-              <dt>房间</dt>
-              <dd>{info.roomId ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>已发送</dt>
-              <dd>{info.sentFrames} 帧</dd>
-            </div>
-            <div>
-              <dt>已接收</dt>
-              <dd>{info.receivedFrames} 帧</dd>
-            </div>
-          </dl>
-        </details>
-
-        {ringing ? <PhoneCall size={0} aria-hidden="true" /> : null}
       </div>
-    </div>
+      {locked ? (
+        <div className="weq-call-locked" role="status">
+          应用已锁定
+        </div>
+      ) : null}
+      <HoverTooltip />
+    </RenderDocumentContext.Provider>,
+    popup.document.body,
   );
 }
 

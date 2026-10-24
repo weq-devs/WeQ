@@ -54,7 +54,18 @@ export function IntentSuggestionBar({
     },
   );
 
-  const list = (suggestions.data ?? []) as SuggestionWire[];
+  const scope = JSON.stringify([kind, conv, status.data?.suggestionRevision ?? 0, active]);
+  const [previous, setPrevious] = useState<{ scope: string; list: SuggestionWire[] } | null>(null);
+  useEffect(() => {
+    if (!active || suggestions.data === undefined) {
+      setPrevious((current) => (current?.scope === scope ? current : null));
+      return;
+    }
+    setPrevious({ scope, list: suggestions.data as SuggestionWire[] });
+  }, [active, scope, suggestions.data]);
+  // 仅在同一会话、同一配置的新消息加载期间保留候选；空结果仍正常清空。
+  const list = (suggestions.data ??
+    (suggestions.isFetching && previous?.scope === scope ? previous.list : [])) as SuggestionWire[];
   const loading = suggestions.isFetching || busy;
   const visible = active && (list.length > 0 || loading);
   const trackRef = useRef<HTMLDivElement>(null);

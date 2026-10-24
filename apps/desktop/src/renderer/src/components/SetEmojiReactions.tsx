@@ -29,8 +29,8 @@ const CLOSE_DELAY_MS = 220;
 
 /** 弹出面板的状态。`x/y` 是鼠标位置（client 坐标）。 */
 type OpenState = { emojiId: string; setNum: number; x: number; y: number };
-export interface ReactionRemoval {
-  onRemove: (code: string) => void;
+export interface ReactionInteraction {
+  onChange: (code: string, isSet: boolean) => void;
   blockedReason?: string | null;
   busy?: boolean;
 }
@@ -52,14 +52,14 @@ export function SetEmojiReactions({
   list,
   groupId,
   sequence,
-  removal,
+  interaction,
 }: {
   list?: SetEmojiItem[];
   /** 群号；非群聊不传 —— 没有它就没有回应人名单可查。 */
   groupId?: string | number | null;
   /** 被回应消息的 msgSeq；0 / 缺省表示这条消息没有会话内序号。 */
   sequence?: number;
-  removal?: ReactionRemoval;
+  interaction?: ReactionInteraction;
 }) {
   const [open, setOpen] = useState<OpenState | null>(null);
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -114,37 +114,39 @@ export function SetEmojiReactions({
       <div className={cn('msg-reactions')}>
         {list.map((item) => {
           const active = open?.emojiId === item.emojiId;
-          const removable = Boolean(
-            item.isSelfSet && removal && !removal.blockedReason && !removal.busy && canQuery,
+          const canChange = Boolean(
+            interaction && !interaction.blockedReason && !interaction.busy && canQuery,
           );
+          const actionLabel = item.isSelfSet
+            ? `撤回贴表情 ${item.emojiId}`
+            : `跟贴表情 ${item.emojiId}`;
           return (
             <button
               type="button"
               key={item.emojiId}
               className={cn('msg-reaction', item.isSelfSet && 'is-self', active && 'is-open')}
               title={
-                removable
-                  ? `撤回自己的贴表情 ${item.emojiId}`
-                  : removal?.blockedReason ||
+                canChange
+                  ? actionLabel
+                  : interaction?.blockedReason ||
                     (canQuery ? `${item.emojiId} · 悬停查看谁贴了` : item.emojiId)
               }
-              disabled={!canQuery || Boolean(item.isSelfSet && removal?.busy)}
+              disabled={!canQuery || Boolean(interaction?.busy)}
+              aria-pressed={interaction ? item.isSelfSet : undefined}
               // 只有能查名单时才是「可交互」的：给键盘用户同一份能力。
               {...(canQuery
                 ? {
                     tabIndex: 0,
                     role: 'button',
-                    'aria-label': removable
-                      ? `撤回贴表情 ${item.emojiId}`
-                      : `查看 ${item.emojiId} 的回应人`,
+                    'aria-label': canChange ? actionLabel : `查看 ${item.emojiId} 的回应人`,
                   }
                 : {})}
               onPointerEnter={(event) => scheduleOpen(item, event)}
               onClick={(event) => {
-                if (removable && removal) {
+                if (canChange && interaction) {
                   clearTimers();
                   setOpen(null);
-                  removal.onRemove(item.emojiId);
+                  interaction.onChange(item.emojiId, !item.isSelfSet);
                 } else {
                   const rect = event.currentTarget.getBoundingClientRect();
                   scheduleOpen(

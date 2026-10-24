@@ -6,7 +6,7 @@ import { renderMessageWithRegistry, type MessageRenderer } from './messageRender
 import { Avatar } from './primitives';
 import type { Conversation, Message, MessageAction, User } from './types';
 import { cn } from './classNames';
-import { SetEmojiReactions, type ReactionRemoval } from '../../components/SetEmojiReactions';
+import { SetEmojiReactions, type ReactionInteraction } from '../../components/SetEmojiReactions';
 import { MessageIntentSense } from '../../components/intentSense/MessageIntentSense';
 import { useSelfPendant } from '../../hooks/useSelfPendant';
 import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget';
@@ -98,7 +98,7 @@ export function MessageBubble({
   selected,
   selectionMode,
   onToggleSelect,
-  reactionRemoval,
+  reactionInteraction,
   repeatAction,
   pendingAction,
 }: {
@@ -157,7 +157,7 @@ export function MessageBubble({
   /** 多选模式：点击整行切换选中（而不是触发右键菜单）。 */
   selectionMode?: boolean;
   onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;
-  reactionRemoval?: ReactionRemoval;
+  reactionInteraction?: ReactionInteraction;
   repeatAction?: import('react').ReactNode;
   pendingAction?: import('react').ReactNode;
 }) {
@@ -472,7 +472,7 @@ export function MessageBubble({
           list={message.setEmojiList}
           groupId={conversation.type === 'group' ? conversation.group.identityValue : null}
           sequence={Number((message as { msgSeq?: unknown }).msgSeq) || 0}
-          removal={selectionMode ? undefined : reactionRemoval}
+          interaction={selectionMode ? undefined : reactionInteraction}
         />
         {pendingAction}
         {isEssence ? (

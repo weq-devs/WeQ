@@ -8066,7 +8066,7 @@ export function MainView(): ReactElement {
    * 发起语音通话。
    *
    * 只有私聊：群通话要先进群房间再邀请（OIDB 4752/4753/4754），与私聊不是同一条
-   * 协议路径。通话窗口是独立浮层，挂断 / 结束由窗口自己收尾。
+   * 协议路径。通话界面使用独立系统窗口，挂断 / 结束由窗口自己收尾。
    */
   async function startVoiceCall(conversation: Extract<Conversation, { type: 'direct' }>) {
     if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
