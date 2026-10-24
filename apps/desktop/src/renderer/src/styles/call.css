@@ -41,12 +41,13 @@
   width: 100%;
   min-height: 100%;
   flex-shrink: 0;
-  padding: 40px 28px 20px;
+  padding: 32px 20px 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* 抽屉展开后卡片会长高：用 space-between 让抽屉自然贴底，舞台留在视觉中心。 */
   justify-content: center;
-  gap: 14px;
+  gap: 12px;
   border-radius: 0;
   background:
     radial-gradient(
@@ -267,7 +268,11 @@ html[data-theme='dark'] .weq-call-card.has-backdrop .weq-call-details summary {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 24px;
+  /* 四个按钮（麦克风 / 录音 / 挂断 / 扬声器）在 340px 最小窗宽下也要放得下：
+     54 + 54 + 66 + 54 + 3×16 = 276，留足余量。未来加摄像头 / 屏幕共享时靠
+     `flex-wrap` 换行，不至于把挂断挤出屏幕。 */
+  flex-wrap: wrap;
+  gap: 16px;
   margin-top: 4px;
 }
 
@@ -312,6 +317,15 @@ html[data-theme='dark'] .weq-call-card.has-backdrop .weq-call-details summary {
   background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
   border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
   color: var(--weq-accent-effective);
+}
+
+/* 录音键：录音中用固定红（与挂断同一个理由 —— 任何主题色下都要一眼认出来），
+   外加一圈缓慢脉动，提示「正在录」。 */
+.weq-call-btn-record.is-recording {
+  background: color-mix(in srgb, #e5484d 20%, transparent);
+  border-color: color-mix(in srgb, #e5484d 55%, transparent);
+  color: #e5484d;
+  animation: weq-call-record-pulse 1.8s ease-in-out infinite;
 }
 
 .weq-call-btn.is-hangup {
@@ -421,6 +435,16 @@ html[data-theme='dark'] .weq-call-card.has-backdrop .weq-call-details summary {
   }
 }
 
+@keyframes weq-call-record-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, #e5484d 34%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 8px color-mix(in srgb, #e5484d 0%, transparent);
+  }
+}
+
 /* ── 深色模式：独立一套值，不是浅色取反 ── */
 html[data-theme='dark'] .weq-call-backdrop {
   background: var(--weq-bg-surface);
@@ -486,6 +510,9 @@ html[data-theme='dark'] .weq-call-details dl {
     transition: none;
   }
   .weq-call-spin {
+    animation: none;
+  }
+  .weq-call-btn-record.is-recording {
     animation: none;
   }
 }

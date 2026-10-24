@@ -4,52 +4,34 @@
  * 独立系统窗口，跟着通话状态走：呼叫中 → 振铃 → 接通 → 挂断。
  * 只在**主动发起**时出现 —— 来电由 QQ 本体处理，WeQ 收不到那条推送。
  *
- * 音频链路在这里闭环：
- *   上行 —— `getUserMedia` → `AudioContext`（16 kHz）→ 切 20 ms 帧 → `pushAudio`
- *   下行 —— `onCallAudio` 订阅 → 环形队列 → `AudioContext` 定时喂出
+ * 这个文件只负责**窗口生命周期与编排**（订阅、开关窗、挂断收尾）。界面拆到了
+ * `components/call/`：
  *
- * 用 Web Audio 而不是 `<audio>` 播对端：通话是连续的 20 ms 流，`<audio>` 的
- * 解码 / 缓冲模型适合整段文件，不适合实时流。
+ *   CallStage          背景 / 光环 / 头像 / 名字 / 状态 / 波形（形状按多人通话定）
+ *   CallControls       底部操作栏（`extra` 插槽留给未来的摄像头 / 屏幕共享）
+ *   CallRecorderBar    录音中的状态条 / 结束后的录音卡片
+ *   CallSettingsDrawer 底部折叠抽屉，**后续设置都往这里加**
+ *
+ * 音频链路在 `hooks/useCallAudio.ts`，录音控制在 `hooks/useCallRecorder.ts`。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  Mic,
-  MicOff,
-  PhoneOff,
-  Volume2,
-  VolumeX,
-  Loader2,
-  PhoneCall,
-  PhoneIncoming,
-} from 'lucide-react';
 import { trpc } from '../trpc/client';
-import { dressUrl, resourceUrl } from '../lib/resourceUrl';
+import { resourceUrl } from '../lib/resourceUrl';
 import { useToolWindow } from '../hooks/useCompositionWindow';
-import {
-  CALL_WAVE_BAR_COUNT,
-  callLevel,
-  callWaveBar,
-  callWaveShape,
-  smoothLevel,
-} from '../lib/callWave';
+import { useCallAudio } from '../hooks/useCallAudio';
+import { useCallRecorder, type CallRecordingMode } from '../hooks/useCallRecorder';
 import { RenderDocumentContext } from '../lib/renderDocument';
 import { HoverTooltip } from './HoverTooltip';
 import { useToast } from './Toast';
 import { useAppLock } from '../state/lock';
+import { CallStage, type CallPeer, type CallState } from './call/CallStage';
+import { CallControls } from './call/CallControls';
+import { CallRecorderBar, CallRecordingCard, formatDuration } from './call/CallRecorderBar';
+import { CallSettingsDrawer, useCallRecordingSettings } from './call/CallSettingsDrawer';
 import '../styles/call.css';
-
-/** 通话状态（与主进程 `CallState` 一致）。 */
-type CallState =
-  | 'idle'
-  | 'calling'
-  | 'ringing'
-  | 'connecting'
-  | 'connected'
-  | 'ending'
-  | 'ended'
-  | 'failed';
+import '../styles/call-recorder.css';
 
 interface CallInfo {
   state: CallState;
@@ -70,26 +52,6 @@ interface CallInfo {
   receivedFrames: number;
   durationSec: number;
 }
-
-const CALL_RATE = 16_000;
-const FRAME_SAMPLES = 320;
-
-/**
- * 采集缓冲区的采样数。`createScriptProcessor` 只接受 2 的幂且 256~16384，
- * 取最小的 256（16 ms），再由回调自己攒成 320 采样一帧。
- */
-const MIC_BUFFER_SAMPLES = 256;
-
-/**
- * 波形柱的静态形状：中间高两边低。
- *
- * 预先算好而不是在渲染里 `Math.sin`，一是避免每帧重算，二是给每根柱子一个
- * 稳定的 key（用下标当 key 会让 lint 报错，且柱子的顺序本身不会变）。
- */
-const WAVE_BARS = Array.from({ length: CALL_WAVE_BAR_COUNT }, (_, index) => ({
-  id: `bar-${index}`,
-  shape: callWaveShape(index),
-}));
 
 /** 状态 → 文案。接通后显示时长，其余显示阶段。 */
 function statusText(info: CallInfo): string {
@@ -130,42 +92,40 @@ function endText(reason: string | null): string {
   }
 }
 
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
 /**
  * 通话窗口。
  *
  * `call` 是发起时拿到的快照；后续状态全靠订阅推。窗口在 `ended` / `failed`
- * 之后再留 1.6 秒给用户看结果，然后自己关掉。
+ * 之后再留 1.6 秒给用户看结果，然后自己关掉 —— **但录过音时不自动关**，
+ * 录音卡片要留给用户播放 / 打开目录。
  */
 export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: () => void }) {
   const locked = useAppLock((state) => state.locked);
   const [info, setInfo] = useState<CallInfo>(initial);
   const [muted, setMuted] = useState(false);
   const [speakerOff, setSpeakerOff] = useState(false);
-  /** 本端麦克风的实时响度（0..1），画波形用。 */
-  const [level, setLevel] = useState(0);
-  /** 对端的实时响度。 */
-  const [peerLevel, setPeerLevel] = useState(0);
+  const [backdropFailed, setBackdropFailed] = useState(false);
 
-  const micStream = useRef<MediaStream | null>(null);
-  const micContext = useRef<AudioContext | null>(null);
-  const playContext = useRef<AudioContext | null>(null);
-  const playBuffer = useRef<Int16Array[]>([]);
-  const playTimer = useRef<number | null>(null);
-  /** 采集侧攒帧用的缓冲（16 ms 一段，凑满 20 ms 才发）。 */
-  const micPending = useRef<Float32Array>(new Float32Array(0));
-  const mutedRef = useRef(muted);
-  const speakerRef = useRef(speakerOff);
+  const finished = info.state === 'ended' || info.state === 'failed';
+  const live = info.state === 'connected';
 
-  mutedRef.current = muted;
-  speakerRef.current = speakerOff;
+  const settings = useCallRecordingSettings();
+  const recorder = useCallRecorder({
+    live,
+    defaults: settings.config
+      ? { mode: settings.config.mode, systemAudio: settings.config.systemAudio }
+      : null,
+    capability: settings.capability,
+  });
 
-  const pushAudio = trpc.call.pushAudio.useMutation();
+  // 录音期间即使点了静音也要保持麦克风采集（否则录下来的是空轨）。
+  const { level, peerLevel } = useCallAudio({
+    live,
+    muted,
+    speakerOff,
+    keepMicForRecording: Boolean(recorder.recording?.active),
+  });
+
   const hangup = trpc.call.hangup.useMutation({
     onError: () => {
       hangupRequested.current = false;
@@ -175,11 +135,11 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
     name: 'weq-call',
     title: 'WeQ · 语音通话',
     width: 400,
-    height: 600,
+    height: 620,
     bodyClass: 'weq-call-window-body',
   });
-  const finishedRef = useRef(false);
-  finishedRef.current = info.state === 'ended' || info.state === 'failed';
+  const finishedRef = useRef(finished);
+  finishedRef.current = finished;
   const hangupRef = useRef(hangup.mutate);
   hangupRef.current = hangup.mutate;
   const onCloseRef = useRef(onClose);
@@ -223,8 +183,6 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
       });
     };
   }, [tool.open, requestHangup, closeWindow]);
-  const pushRef = useRef(pushAudio.mutate);
-  pushRef.current = pushAudio.mutate;
 
   // ── 状态订阅 ──
   trpc.call.onCallState.useSubscription(undefined, {
@@ -235,134 +193,14 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
     onError: (error) => console.error('[call] state subscription error', error),
   });
 
-  // ── 对端音频：解码后进队列，由独立定时器按 20 ms 喂出 ──
-  trpc.call.onCallAudio.useSubscription(undefined, {
-    onData: (pcm) => {
-      const raw = pcm as unknown as Uint8Array;
-      if (speakerRef.current) return;
-      playBuffer.current.push(toInt16(raw));
-      // 积压超过 10 帧（200 ms）说明播放卡了，丢掉旧的保持实时。
-      if (playBuffer.current.length > 10)
-        playBuffer.current.splice(0, playBuffer.current.length - 10);
+  // 主进程侧的非致命错误（目前只有「电脑声音采集失败」）。用 toast 而不是塞进
+  // 状态行：通话本身没问题，不该让状态文字变成报错。
+  trpc.call.onCallError.useSubscription(undefined, {
+    onData: (message) => {
+      useToast.getState().push({ tone: 'warning', message });
     },
-    onError: (error) => console.error('[call] audio subscription error', error),
+    onError: (error) => console.error('[call] error subscription error', error),
   });
-
-  // ── 播放循环 ──
-  useEffect(() => {
-    const Context = window.AudioContext;
-    if (!Context) return;
-    const context = new Context();
-    playContext.current = context;
-    const schedule = () => {
-      playTimer.current = window.setTimeout(() => {
-        const frame = playBuffer.current.shift();
-        if (frame && !speakerRef.current) {
-          const buffer = context.createBuffer(1, frame.length, CALL_RATE);
-          const channel = buffer.getChannelData(0);
-          for (let i = 0; i < frame.length; i++) channel[i] = (frame[i] ?? 0) / 0x8000;
-          // 与上行同一套响度：两边柱子对同样大小的声音应该一样高。
-          const next = callLevel(channel);
-          setPeerLevel((prev) => smoothLevel(prev, next));
-          const source = context.createBufferSource();
-          source.buffer = buffer;
-          source.connect(context.destination);
-          source.start();
-        } else {
-          setPeerLevel((prev) => smoothLevel(prev, 0));
-        }
-        schedule();
-      }, 20);
-    };
-    schedule();
-    return () => {
-      if (playTimer.current !== null) window.clearTimeout(playTimer.current);
-      void context.close();
-      playContext.current = null;
-    };
-  }, []);
-
-  // ── 麦克风采集 ──
-  useEffect(() => {
-    let cancelled = false;
-    let interval: number | null = null;
-
-    const start = async () => {
-      if (info.state !== 'connected') return;
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
-        });
-        if (cancelled) {
-          for (const track of stream.getTracks()) track.stop();
-          return;
-        }
-        micStream.current = stream;
-        const context = new AudioContext({ sampleRate: CALL_RATE });
-        micContext.current = context;
-        // 采集是在「接通」之后才开始的，那时早就没有瞬时用户激活了。Electron
-        // 默认允许自动播放，但上下文万一以 suspended 状态建出来，音频线程不跑、
-        // `onaudioprocess` 一次都不回调 —— 表现就是没有波形、也没有上行声音。
-        if (context.state === 'suspended') await context.resume().catch(() => {});
-        if (context.state !== 'running') {
-          console.warn('[call] 麦克风音频上下文未运行', context.state);
-        }
-        const source = context.createMediaStreamSource(stream);
-        // 直接按 16 kHz 跑上下文：浏览器会在采集侧重采样，省掉自己插值。
-        //
-        // 缓冲区大小必须是 2 的幂且落在 256~16384 之间 —— 通话要的 320（20 ms）
-        // 不合法，`createScriptProcessor(320)` 会直接抛 IndexSizeError（而且抛在
-        // 一个 async 函数里，被下面的 catch 吞掉，表现成「麦克风静悄悄不工作」）。
-        // 所以取最小合法值 256（16 ms），攒够 320 个采样再切一帧发出去。
-        const processor = context.createScriptProcessor(MIC_BUFFER_SAMPLES, 1, 1);
-        processor.onaudioprocess = (event) => {
-          const input = event.inputBuffer.getChannelData(0);
-          if (!mutedRef.current) {
-            // 响度走 RMS + dBFS：回声消除 / 降噪下峰值只有 0.1 上下，按峰值线性
-            // 放大时柱子几乎不动，观感就是「本端没有波形」。
-            const next = callLevel(input);
-            setLevel((prev) => smoothLevel(prev, next));
-            // 追加到待切缓冲末尾。
-            micPending.current = concatFloat(micPending.current, input);
-          }
-          // 攒够一帧（320 采样）就发出去；一次回调可能攒出不止一帧。
-          while (micPending.current.length >= FRAME_SAMPLES) {
-            const slice = micPending.current.subarray(0, FRAME_SAMPLES);
-            const frame = new Int16Array(FRAME_SAMPLES);
-            for (let i = 0; i < FRAME_SAMPLES; i++) {
-              const v = Math.max(-1, Math.min(1, slice[i] ?? 0));
-              frame[i] = v < 0 ? Math.round(v * 0x8000) : Math.round(v * 0x7fff);
-            }
-            micPending.current = micPending.current.subarray(FRAME_SAMPLES);
-            void pushRef.current({ pcm: new Uint8Array(frame.buffer) });
-          }
-          // 积压超过 1 秒说明主进程那边卡住了，丢掉旧的保证实时。
-          if (micPending.current.length > CALL_RATE) micPending.current = new Float32Array(0);
-        };
-        source.connect(processor);
-        processor.connect(context.destination);
-
-        // 静音时响度归零（采集本身不停，只是不再累计响度与帧）
-        interval = window.setInterval(() => {
-          if (mutedRef.current) setLevel((prev) => smoothLevel(prev, 0));
-        }, 100);
-      } catch (error) {
-        console.error('[call] 麦克风不可用', error);
-      }
-    };
-    void start();
-
-    return () => {
-      cancelled = true;
-      if (interval !== null) window.clearInterval(interval);
-      for (const track of micStream.current?.getTracks() ?? []) track.stop();
-      micStream.current = null;
-      micPending.current = new Float32Array(0);
-      void micContext.current?.close();
-      micContext.current = null;
-      setLevel(0);
-    };
-  }, [info.state]);
 
   // ── 铃声 ──
   useEffect(() => {
@@ -377,34 +215,54 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
     };
   }, [info.state]);
 
-  const ringing = info.state === 'calling' || info.state === 'ringing';
-  const live = info.state === 'connected';
-  const finished = info.state === 'ended' || info.state === 'failed';
-
-  // 结束后停留一会儿让用户看到结果
+  // 结束后停留一会儿让用户看到结果。录过音就不自动关 —— 录音卡片要留给用户操作。
+  const hasRecording = Boolean(recorder.finished);
   useEffect(() => {
-    if (!finished) return;
+    if (!finished || hasRecording) return;
     const timer = window.setTimeout(closeWindow, 1600);
     return () => window.clearTimeout(timer);
-  }, [finished, closeWindow]);
+  }, [finished, hasRecording, closeWindow]);
 
   const handleHangup = useCallback(() => {
     requestHangup();
   }, [requestHangup]);
 
-  /**
-   * 背景素材加载失败（URL 过期 / 网络不通）。
-   *
-   * 素材挂了就退回无背景的样子 —— 否则会露出一块没有压暗层的破图，
-   * 白字直接压在杂色上，比没有背景更难看。
-   */
-  const [backdropFailed, setBackdropFailed] = useState(false);
-  const hasBackdrop = !backdropFailed && Boolean(info.backgroundUrl || info.backgroundVideoUrl);
+  /** 录音按钮：录音中再点就是停。 */
+  const handleToggleRecording = useCallback(() => {
+    if (recorder.recording?.active) void recorder.end();
+    else void recorder.begin();
+  }, [recorder]);
 
-  const initialLetter = useMemo(
-    () => (info.peerName || info.peerUin).slice(0, 1).toUpperCase(),
-    [info.peerName, info.peerUin],
+  const handleModeChange = useCallback(
+    (mode: CallRecordingMode) => settings.update({ mode }),
+    [settings],
   );
+  const handleSystemAudioChange = useCallback(
+    (enabled: boolean) => settings.update({ systemAudio: enabled }),
+    [settings],
+  );
+  const openFolder = trpc.help.openFolder.useMutation();
+  const handleOpenFolder = useCallback(() => {
+    const dir = settings.dir;
+    if (!dir) {
+      useToast.getState().push({
+        tone: 'info',
+        message: '暂时定位不到录音目录',
+        detail: '账号还没打开，或录音目录不可用。',
+      });
+      return;
+    }
+    openFolder.mutate({ path: dir });
+  }, [openFolder, settings.dir]);
+
+  const peers: CallPeer[] = [
+    {
+      uin: info.peerUin,
+      name: info.peerName || info.peerUin,
+      avatarUrl: info.peerAvatar,
+      level: peerLevel,
+    },
+  ];
 
   const popup = tool.popup;
   if (!popup || popup.closed) return null;
@@ -419,120 +277,64 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
         inert={locked}
       >
         <div
-          className={`weq-call-card${live ? ' is-live' : ''}${hasBackdrop ? ' has-backdrop' : ''}`}
+          className={`weq-call-card${live ? ' is-live' : ''}${
+            !backdropFailed && (info.backgroundUrl || info.backgroundVideoUrl)
+              ? ' has-backdrop'
+              : ''
+          }`}
           data-state={info.state}
         >
-          {/* 个性化通话背景：视频优先（这类装扮本来就是动图），静帧兜底。 */}
-          {hasBackdrop ? (
-            <div className="weq-call-backdrop-media" aria-hidden="true">
-              {info.backgroundVideoUrl && !backdropFailed ? (
-                <video
-                  src={dressUrl(info.backgroundVideoUrl)}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  onError={() => setBackdropFailed(true)}
-                />
-              ) : info.backgroundUrl && !backdropFailed ? (
-                <img
-                  src={dressUrl(info.backgroundUrl)}
-                  alt=""
-                  onError={() => setBackdropFailed(true)}
-                />
-              ) : null}
+          <CallStage
+            peers={peers}
+            state={info.state}
+            status={statusText(info)}
+            selfLevel={level}
+            backgroundUrl={info.backgroundUrl}
+            backgroundVideoUrl={info.backgroundVideoUrl}
+            backdropFailed={backdropFailed}
+            onBackdropError={() => setBackdropFailed(true)}
+          />
+
+          {recorder.recording?.active ? <CallRecorderBar recording={recorder.recording} /> : null}
+          {recorder.finished ? (
+            <CallRecordingCard
+              recording={recorder.finished}
+              onOpenFolder={handleOpenFolder}
+              onClose={closeWindow}
+            />
+          ) : null}
+          {recorder.error ? (
+            <div className="weq-call-recording-error" role="alert">
+              {recorder.error}
             </div>
           ) : null}
-          {/* 呼吸光环：接通后跟随对端响度 */}
-          <div className="weq-call-halo" style={{ ['--peer-level' as string]: peerLevel }} />
 
-          <div className="weq-call-avatar">
-            {info.peerAvatar ? (
-              <img src={info.peerAvatar} alt="" draggable={false} />
-            ) : (
-              <span className="weq-call-avatar-fallback">{initialLetter}</span>
-            )}
-          </div>
+          <CallControls
+            muted={muted}
+            speakerOff={speakerOff}
+            recording={Boolean(recorder.recording?.active)}
+            recordingEnabled={live && !recorder.busy}
+            finished={finished}
+            hangupPending={hangup.isPending}
+            onToggleMute={() => setMuted((value) => !value)}
+            onToggleSpeaker={() => setSpeakerOff((value) => !value)}
+            onToggleRecording={handleToggleRecording}
+            onHangup={handleHangup}
+          />
 
-          <div className="weq-call-name">{info.peerName || info.peerUin}</div>
-          <div className={`weq-call-status${live ? ' is-live' : ''}`}>
-            {ringing ? <Loader2 size={14} className="weq-call-spin" /> : null}
-            {live ? <PhoneIncoming size={14} /> : null}
-            <span>{statusText(info)}</span>
-          </div>
-
-          {/* 波形：两排细柱，左本端右对端 */}
-          <div className={`weq-call-wave${live ? ' is-visible' : ''}`} aria-hidden="true">
-            {WAVE_BARS.map(({ id, shape }) => (
-              <span
-                key={`self-${id}`}
-                className="weq-call-wave-bar"
-                style={{ ['--bar' as string]: String(callWaveBar(shape, level)) }}
-              />
-            ))}
-            {WAVE_BARS.map(({ id, shape }, index) => (
-              <span
-                key={`peer-${id}`}
-                className={`weq-call-wave-bar is-peer${index === 0 ? ' is-peer-start' : ''}`}
-                style={{ ['--bar' as string]: String(callWaveBar(shape, peerLevel)) }}
-              />
-            ))}
-          </div>
-
-          <div className="weq-call-actions">
-            <button
-              type="button"
-              className={`weq-call-btn${muted ? ' is-off' : ''}`}
-              onClick={() => setMuted((v) => !v)}
-              disabled={finished}
-              title={muted ? '取消静音' : '静音'}
-              aria-pressed={muted}
-            >
-              {muted ? <MicOff size={22} /> : <Mic size={22} />}
-            </button>
-
-            <button
-              type="button"
-              className="weq-call-btn is-hangup"
-              onClick={handleHangup}
-              disabled={finished || hangup.isPending}
-              title="挂断"
-            >
-              <PhoneOff size={26} />
-            </button>
-
-            <button
-              type="button"
-              className={`weq-call-btn${speakerOff ? ' is-off' : ''}`}
-              onClick={() => setSpeakerOff((v) => !v)}
-              disabled={finished}
-              title={speakerOff ? '打开声音' : '关闭声音'}
-              aria-pressed={speakerOff}
-            >
-              {speakerOff ? <VolumeX size={22} /> : <Volume2 size={22} />}
-            </button>
-          </div>
-
-          {/* 链路细节：只在展开时显示，避免主界面堆字 */}
-          <details className="weq-call-details">
-            <summary>通话信息</summary>
-            <dl>
-              <div>
-                <dt>房间</dt>
-                <dd>{info.roomId ?? '—'}</dd>
-              </div>
-              <div>
-                <dt>已发送</dt>
-                <dd>{info.sentFrames} 帧</dd>
-              </div>
-              <div>
-                <dt>已接收</dt>
-                <dd>{info.receivedFrames} 帧</dd>
-              </div>
-            </dl>
-          </details>
-
-          {ringing ? <PhoneCall size={0} aria-hidden="true" /> : null}
+          <CallSettingsDrawer
+            mode={settings.config?.mode ?? 'mixed'}
+            systemAudio={settings.config?.systemAudio ?? false}
+            capability={settings.capability}
+            recordingDir={settings.config?.dir ?? null}
+            locked={Boolean(recorder.recording?.active)}
+            roomId={info.roomId}
+            sentFrames={info.sentFrames}
+            receivedFrames={info.receivedFrames}
+            onModeChange={handleModeChange}
+            onSystemAudioChange={handleSystemAudioChange}
+            onPickDir={() => settings.pickDir()}
+          />
         </div>
       </div>
       {locked ? (
@@ -544,24 +346,4 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
     </RenderDocumentContext.Provider>,
     popup.document.body,
   );
-}
-
-/**
- * 把两段 Float32 采样接起来。
- *
- * 不用 `Array.prototype.push` 攒数组再摊平：`onaudioprocess` 是音频线程回调，
- * 每次调用都要保持 O(帧长)，攒成二维数组再展开会让 GC 在音频路径上抖动。
- */
-function concatFloat(a: Float32Array, b: Float32Array): Float32Array {
-  const out = new Float32Array(a.length + b.length);
-  out.set(a, 0);
-  out.set(b, a.length);
-  return out;
-}
-
-function toInt16(bytes: Uint8Array): Int16Array {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const out = new Int16Array(Math.floor(bytes.length / 2));
-  for (let i = 0; i < out.length; i++) out[i] = view.getInt16(i * 2, true);
-  return out;
 }

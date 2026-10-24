@@ -590,6 +590,60 @@ export interface AppSettings {
   logRetentionDays: number;
   /** App-wide online Qzone page request budget, shared across accounts and exports. */
   qzonePagination: QzonePaginationSettings;
+  /** 通话录音（设置 → 通话与录音，通话窗口的录音抽屉共用同一份）。 */
+  callRecording: CallRecordingConfig;
+}
+
+/**
+ * 通话录音的混音来源。
+ *
+ *   - `self`  只录本端麦克风（自己说的话）；
+ *   - `peer`  只录对端（对方说的话）；
+ *   - `mixed` 双方叠加。
+ */
+export type CallRecordingMode = 'self' | 'peer' | 'mixed';
+
+/** 通话录音配置。 */
+export interface CallRecordingConfig {
+  /** 混音来源，默认 `mixed`。 */
+  mode: CallRecordingMode;
+  /**
+   * 是否把电脑正在播放的声音一并录进去。
+   *
+   * 只影响录音，**不影响通话上行** —— 系统声音不该被发给对方。平台能力见
+   * `call_system_audio.ts`：Linux 走 PulseAudio 的默认监视源，Windows 走
+   * Electron 的 loopback，macOS 没有系统音频采集能力（需要虚拟声卡）。
+   */
+  systemAudio: boolean;
+  /**
+   * 录音保存目录；null 表示默认目录
+   * （`<appDataRoot>/recordings/<本机 QQ 号>`）。
+   */
+  dir: string | null;
+}
+
+/** 归一化通话录音模式；非法值返回 undefined，交给调用方回落到默认值。 */
+export function normalizeCallRecordingMode(value: unknown): CallRecordingMode | undefined {
+  return value === 'self' || value === 'peer' || value === 'mixed' ? value : undefined;
+}
+
+/** 归一化录音保存目录：空串 / 非字符串一律当「未设置」。 */
+function normalizeRecordingDir(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const dir = value.trim();
+  return dir ? dir : null;
+}
+
+/** 归一化整份通话录音配置（缺字段用默认值补齐）。 */
+export function normalizeCallRecording(
+  value: Partial<CallRecordingConfig> | undefined,
+  fallback: CallRecordingConfig = DEFAULT_APP_SETTINGS.callRecording,
+): CallRecordingConfig {
+  return {
+    mode: normalizeCallRecordingMode(value?.mode) ?? fallback.mode,
+    systemAudio: typeof value?.systemAudio === 'boolean' ? value.systemAudio : fallback.systemAudio,
+    dir: value?.dir !== undefined ? normalizeRecordingDir(value.dir) : fallback.dir,
+  };
 }
 
 /** 日志保留天数的默认值（7 天）。 */
@@ -785,6 +839,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   defaultExportDir: null,
   logRetentionDays: DEFAULT_LOG_RETENTION_DAYS,
   qzonePagination: { ...DEFAULT_QZONE_PAGINATION },
+  // 默认双方混音；电脑声音默认不录（Linux / Windows 都要多占一路采集）。
+  callRecording: { mode: 'mixed', systemAudio: false, dir: null },
 };
 
 export interface UserConfig {
@@ -1307,6 +1363,7 @@ export class UserConfigService {
       defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
       logRetentionDays: normalizeLogRetentionDays(s?.logRetentionDays) ?? d.logRetentionDays,
       qzonePagination: normalizeQzonePagination(s?.qzonePagination),
+      callRecording: normalizeCallRecording(s?.callRecording, d.callRecording),
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
@@ -1426,6 +1483,10 @@ export class UserConfigService {
       logRetentionDays:
         normalizeLogRetentionDays(patch.logRetentionDays) ?? current.logRetentionDays,
       qzonePagination: normalizeQzonePagination(patch.qzonePagination, current.qzonePagination),
+      callRecording: normalizeCallRecording(
+        { ...current.callRecording, ...patch.callRecording },
+        current.callRecording,
+      ),
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,

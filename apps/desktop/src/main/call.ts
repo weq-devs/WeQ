@@ -26,10 +26,22 @@ import {
   getLogger,
   protocolSignaling,
   type CallAudioCodec,
+  type CallRecordingConfig,
   type CallSnapshot,
   type CallState,
   type UdpTransport,
 } from '@weq/service';
+import { CallRecorder, type RecordingSnapshot } from './call_recorder';
+import {
+  CallRecordingStore,
+  recordingsRootFor,
+  type CallRecordingEntry,
+} from './call_recording_store';
+import {
+  LinuxSystemAudioCapture,
+  systemAudioCapability,
+  type SystemAudioCapability,
+} from './call_system_audio';
 
 const logger = getLogger().child({ scope: 'call' });
 
@@ -141,12 +153,18 @@ export interface ActiveCallInfo extends CallSnapshot {
   backgroundVideoUrl: string;
   /** 已接通时长（秒）；未接通为 0。 */
   durationSec: number;
+  /** 正在录音时的状态；没在录为 null。 */
+  recording: RecordingSnapshot | null;
 }
 
 export interface StartCallParams {
   pid: number;
   selfUin: string;
   selfUid: string;
+  /** 会话类型。目前只有私聊，字段先留好给群通话。 */
+  kind?: 'c2c' | 'group';
+  /** 会话标识（私聊 = 对方 uid，群聊 = 群号）。留空时用 peerUid 兜底。 */
+  conv?: string;
   peerUin: string;
   peerUid: string;
   peerName?: string;
@@ -154,11 +172,15 @@ export interface StartCallParams {
   /** 通话背景（由调用方先用 `ensureCallBackground` 取得；拿不到就留空）。 */
   backgroundUrl?: string;
   backgroundVideoUrl?: string;
+  /** 录音设置（取设置页当前值；不传则按默认「双方混音、不录电脑声音」）。 */
+  recordingConfig?: CallRecordingConfig;
 }
 
 export type CallEvent =
   | { type: 'state'; call: ActiveCallInfo }
   | { type: 'audio'; pcm: Uint8Array }
+  /** 录音收尾完成（含内部收尾：对端挂断 / 被踢 / 崩溃）。 */
+  | { type: 'recording'; entry: CallRecordingEntry }
   | { type: 'error'; message: string };
 
 /**
@@ -174,6 +196,19 @@ export class CallManager extends EventEmitter {
   private transport: NodeUdpTransport | null = null;
   /** 每秒推进一次通话时长。通话中状态不变，光靠状态推送时长会停在 00:00。 */
   private durationTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** 当前这通电话的录音设置（发起时取一次，通话中改设置不影响进行中的录音）。 */
+  private recordingConfig: CallRecordingConfig = { mode: 'mixed', systemAudio: false, dir: null };
+  private recorder: CallRecorder | null = null;
+  /** 录音记录（落盘后才有；收尾时用它回报给界面）。 */
+  private recordingEntry: CallRecordingEntry | null = null;
+  /** 当前录音所在的索引（收尾时补时长）。 */
+  private recordingStore: CallRecordingStore | null = null;
+  /** 会话类型与标识（写进录音索引，气泡回放据此匹配）。 */
+  private kind: 'c2c' | 'group' = 'c2c';
+  private conv = '';
+  /** Linux 的监视源采集。Windows 走渲染层，这里为 null。 */
+  private systemCapture: LinuxSystemAudioCapture | null = null;
 
   constructor(
     private readonly nt: NtHelperBinding,
@@ -218,6 +253,10 @@ export class CallManager extends EventEmitter {
 
     this.session = session;
     this.transport = transport;
+    this.kind = params.kind ?? 'c2c';
+    this.conv = params.conv ?? params.peerUid ?? '';
+    this.recordingConfig = params.recordingConfig ?? this.recordingConfig;
+    this.recordingEntry = null;
     this.info = {
       ...session.snapshot(),
       peerName: params.peerName ?? '',
@@ -225,6 +264,7 @@ export class CallManager extends EventEmitter {
       backgroundUrl: params.backgroundUrl ?? '',
       backgroundVideoUrl: params.backgroundVideoUrl ?? '',
       durationSec: 0,
+      recording: null,
     };
 
     session.onStateChange((snapshot) => {
@@ -232,6 +272,8 @@ export class CallManager extends EventEmitter {
       this.publishState(snapshot);
     });
     session.onAudio((pcm) => {
+      // 对端音频同时喂录音（混音用），再照常推给渲染层播放。
+      this.recorder?.pushPeer(pcm);
       this.emit('event', { type: 'audio', pcm } satisfies CallEvent);
     });
 
@@ -261,20 +303,153 @@ export class CallManager extends EventEmitter {
   async hangup(): Promise<void> {
     const session = this.session;
     if (!session) return;
+    // 先收录音再拆会话：`session.hangup()` 之后不会再有音频帧进来，录音的时长
+    // 才是准的；反过来则会在最后一帧之后继续补静音。
+    await this.finalizeRecording();
     await session.hangup();
     this.cleanup();
   }
 
-  /** 界面推来一帧麦克风音频。 */
-  pushAudio(pcm: Uint8Array): void {
-    this.session?.pushAudio(pcm);
+  /**
+   * 界面推来一帧麦克风音频。
+   *
+   * `muted` 只影响**是否发给对方**：录音始终要这帧（否则静音期间录下来的是
+   * 空轨，回放时会听到一段莫名其妙的静音）。
+   */
+  pushAudio(pcm: Uint8Array, muted = false): void {
+    this.recorder?.pushSelf(pcm);
+    if (!muted) this.session?.pushAudio(pcm);
+  }
+
+  /** 界面推来一帧「电脑正在播放的声音」（Windows 走渲染层采集）。 */
+  pushSystemAudio(pcm: Uint8Array): void {
+    this.recorder?.pushSystem(pcm);
+  }
+
+  /** 当前录音状态；没在录为 null。 */
+  recording(): RecordingSnapshot | null {
+    return this.recorder?.snapshot() ?? null;
+  }
+
+  /** 录音能力（界面据此决定「电脑声音」开关能否开）。 */
+  systemAudioCapability(): SystemAudioCapability {
+    return systemAudioCapability();
+  }
+
+  /**
+   * 开始录音。只在**已接通**时允许 —— 没接通时录下来的只有静音，而且用户看到
+   * 「录音中」却什么都没录到，比直接拒绝更糟。
+   */
+  async startRecording(override?: Partial<CallRecordingConfig>): Promise<RecordingSnapshot> {
+    if (!this.session) throw new Error('当前没有通话');
+    if (this.session.snapshot().state !== 'connected') throw new Error('通话接通后才能录音');
+    if (this.recorder) return this.recorder.snapshot();
+
+    const config: CallRecordingConfig = { ...this.recordingConfig, ...override };
+    const root =
+      config.dir ?? recordingsRootFor(this.platform.appDataRoot(), this.session.snapshot().peerUin);
+    const store = new CallRecordingStore(root);
+    await store.ensure();
+
+    const startedAt = Date.now();
+    const entry = await store.create({
+      kind: this.kind,
+      conv: this.conv || this.session.snapshot().peerUid || this.session.snapshot().peerUin,
+      peerUin: this.session.snapshot().peerUin,
+      peerName: this.info?.peerName ?? '',
+      startedAt,
+      endedAt: startedAt,
+      durationSec: 0,
+      mode: config.mode,
+      systemAudio: config.systemAudio,
+    });
+
+    const recorder = new CallRecorder({
+      path: join(store.root, entry.fileName),
+      mode: config.mode,
+      systemAudio: config.systemAudio,
+      startedAt,
+    });
+    recorder.start();
+    this.recorder = recorder;
+    this.recordingStore = store;
+    this.recordingEntry = entry;
+
+    // Linux：主进程直接起 parec 采监视源。Windows 由渲染层采集后推回来，这里不做事。
+    if (config.systemAudio && systemAudioCapability() === 'native') {
+      const capture = new LinuxSystemAudioCapture({
+        onFrame: (pcm) => this.recorder?.pushSystem(pcm),
+        onError: (error) => {
+          logger.warn('电脑声音采集中断', { error: error.message });
+          this.systemCapture?.stop();
+          this.systemCapture = null;
+          this.emit('event', {
+            type: 'error',
+            message: '电脑声音采集失败，录音仍在继续（只录通话声音）',
+          } satisfies CallEvent);
+        },
+      });
+      if (capture.start()) this.systemCapture = capture;
+    }
+
+    logger.info('开始录音', { path: entry.fileName, mode: config.mode });
+    this.publishRecording();
+    return recorder.snapshot();
+  }
+
+  /** 停止录音并落盘收尾。没有在录时返回 null。 */
+  async stopRecording(): Promise<CallRecordingEntry | null> {
+    const recorder = this.recorder;
+    const entry = this.recordingEntry;
+    const store = this.recordingStore;
+    if (!recorder || !entry) return null;
+    this.systemCapture?.stop();
+    this.systemCapture = null;
+    await recorder.stop();
+    const snapshot = recorder.snapshot();
+    this.recorder = null;
+    this.recordingEntry = null;
+    this.recordingStore = null;
+
+    entry.endedAt = Date.now();
+    entry.durationSec = snapshot.durationSec;
+    // 索引里那条记录是最先写进去的（时长还是 0），这里补上时长与结束时刻。
+    await store?.update(entry).catch((error) => {
+      logger.warn('更新录音索引失败', { error: error instanceof Error ? error.message : error });
+    });
+    logger.info('录音结束', { path: entry.fileName, durationSec: snapshot.durationSec });
+    this.publishRecording();
+    // 内部收尾（对端挂断 / 被踢）时渲染层没有 await 这次调用，必须推一条事件，
+    // 否则窗口会以为「没录到音」而自动关掉，录音卡片就永远看不到。
+    this.emit('event', { type: 'recording', entry } satisfies CallEvent);
+    return entry;
+  }
+
+  /** 把录音状态推给界面（通话状态没变，只有录音变了）。 */
+  private publishRecording(): void {
+    if (!this.info) return;
+    this.info = { ...this.info, recording: this.recording() };
+    this.emit('event', { type: 'state', call: this.info } satisfies CallEvent);
+  }
+
+  /** 录音收尾（挂断 / 崩溃 / 切号三条路径都要走到）。 */
+  private async finalizeRecording(): Promise<void> {
+    const recorder = this.recorder;
+    if (!recorder) return;
+    // 会话可能已经处于终态，`stopRecording` 只依赖 recorder 本身，照常走。
+    await this.stopRecording().catch((error) => {
+      logger.warn('录音收尾失败', { error: error instanceof Error ? error.message : error });
+    });
   }
 
   /** 进程退出 / 账号切换时强制收尾。 */
   dispose(): void {
     const session = this.session;
     if (!session) return;
-    void session.hangup().finally(() => this.cleanup());
+    void this.finalizeRecording()
+      .catch(() => {})
+      .then(() => session.hangup())
+      .finally(() => this.cleanup());
   }
 
   private publishState(snapshot: CallSnapshot): void {
@@ -303,6 +478,7 @@ export class CallManager extends EventEmitter {
       backgroundUrl: this.info?.backgroundUrl ?? '',
       backgroundVideoUrl: this.info?.backgroundVideoUrl ?? '',
       durationSec: connectedAt ? Math.max(0, Math.floor((Date.now() - connectedAt) / 1000)) : 0,
+      recording: this.recorder?.snapshot() ?? null,
     };
   }
 
@@ -315,6 +491,7 @@ export class CallManager extends EventEmitter {
       const snapshot = session.snapshot();
       if (snapshot.state !== 'connected') return;
       if (!this.info) return;
+      // 录音时长跟着同一拍走：它也是一秒一变，没必要另起一个定时器。
       this.info = this.buildInfo(snapshot);
       this.emit('event', { type: 'state', call: this.info } satisfies CallEvent);
     }, 1000);
@@ -328,6 +505,8 @@ export class CallManager extends EventEmitter {
 
   private cleanup(): void {
     this.stopDurationTicker();
+    // 兜底：对端挂断 / 被踢 / 异常路径都会走到这里，录音必须在这里收尾。
+    void this.finalizeRecording();
     // 会话自己会关 socket，但异常路径（订阅断了 / 渲染层崩了）可能没走到，
     // 这里兜一次底：重复 close 是幂等的。
     this.transport?.close();

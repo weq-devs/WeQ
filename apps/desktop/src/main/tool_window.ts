@@ -11,7 +11,7 @@ export function applicationToolPopupOptions(
     return {
       title: 'WeQ · 语音通话',
       width: 400,
-      height: 600,
+      height: 620,
       minWidth: 340,
       minHeight: 540,
       frame: true,

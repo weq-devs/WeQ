@@ -62,6 +62,8 @@ export type {
   ExportLightboxPreset,
   ExportScheduledPreset,
   ExportPresetOptions,
+  CallRecordingConfig,
+  CallRecordingMode,
 } from './bootstrap/user_config';
 export { AgentLabConfigService } from './bootstrap/agentlab_config';
 

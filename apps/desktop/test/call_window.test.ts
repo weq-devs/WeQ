@@ -28,7 +28,23 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         },
       },
       onCallAudio: { useSubscription: () => {} },
+      onCallRecording: { useSubscription: () => {} },
+      onCallError: { useSubscription: () => {} },
+      // 录音相关的 RPC：这个测试只关心窗口生命周期与通话控件，录音一律给空。
+      startRecording: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
+      stopRecording: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
+      pushSystemAudio: { useMutation: () => ({ mutate: vi.fn() }) },
+      recordingCapabilities: {
+        useQuery: () => ({ data: { systemAudio: 'unsupported', dir: null }, refetch: vi.fn() }),
+      },
+      recordingForMessage: { useQuery: () => ({ data: null }) },
     },
+    bootstrap: {
+      getSettings: { useQuery: () => ({ data: undefined, refetch: vi.fn() }) },
+      setCallRecording: { useMutation: () => ({ mutate: vi.fn(), isLoading: false }) },
+      pickCallRecordingDir: { useMutation: () => ({ mutate: vi.fn(), isLoading: false }) },
+    },
+    help: { openFolder: { useMutation: () => ({ mutate: vi.fn() }) } },
   },
 }));
 vi.mock('../src/renderer/src/components/HoverTooltip', () => ({ HoverTooltip: () => null }));
@@ -107,7 +123,7 @@ it('界面仅挂在子窗口，主题同步，通话控件可用，结束后自�
   const close = vi.spyOn(popup, 'close');
   const app = mount();
   try {
-    expect(open).toHaveBeenCalledWith('about:blank', 'weq-call', 'popup,width=400,height=600');
+    expect(open).toHaveBeenCalledWith('about:blank', 'weq-call', 'popup,width=400,height=620');
     expect(app.host.querySelector('[aria-label="语音通话"]')).toBeNull();
     expect(popup.document.querySelector('[aria-label="语音通话"]')).not.toBeNull();
     expect(popup.document.title).toBe('WeQ · 语音通话');

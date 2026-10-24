@@ -215,6 +215,15 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
       if (item !== normalized[key as keyof typeof normalized])
         fail(`settings.qzonePagination.${key}`);
   }
+  if (input.callRecording !== undefined) {
+    const recording = record(input.callRecording, 'settings.callRecording');
+    if (recording.mode !== undefined && !['self', 'peer', 'mixed'].includes(String(recording.mode)))
+      fail('settings.callRecording.mode');
+    if (recording.systemAudio !== undefined && typeof recording.systemAudio !== 'boolean')
+      fail('settings.callRecording.systemAudio');
+    if (recording.dir !== undefined && recording.dir !== null)
+      string(recording.dir, 'settings.callRecording.dir');
+  }
   const resources =
     input.modelResources === undefined
       ? undefined

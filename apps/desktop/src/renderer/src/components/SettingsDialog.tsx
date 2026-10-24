@@ -34,6 +34,7 @@ import {
   Moon,
   Package,
   Palette,
+  PhoneCall,
   Plug,
   Radio,
   ScanText,
@@ -50,6 +51,7 @@ import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
 import { HelpSection } from './settings/HelpSection';
 import { VersionSection } from './settings/VersionSection';
 import { QzoneSettingsSection } from './settings/QzoneSettingsSection';
+import { CallRecordingSection } from './settings/CallRecordingSection';
 import { MailSettingsSection } from './settings/MailSettingsSection';
 import { AppLockSection } from './settings/AppLockSection';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
@@ -158,6 +160,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     ),
   },
   { id: 'anti-recall', label: '防撤回', icon: <ShieldCheck size={16} />, render: () => null },
+  {
+    id: 'call-recording',
+    label: '通话与录音',
+    icon: <PhoneCall size={16} strokeWidth={1.8} />,
+    render: () => <CallRecordingSection />,
+  },
   {
     id: 'qzone',
     label: 'QQ 空间',
