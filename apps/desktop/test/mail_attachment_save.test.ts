@@ -86,6 +86,73 @@ it('整封邮件复用公共目录任务，旧来源不入队，完成后保留�
   ).toContain('正文');
   expect(read).toHaveBeenCalledWith('mail-fixture', expect.any(AbortSignal), false);
 });
+it('全量与筛选通过公共任务执行，非法日期范围不创建任务', async () => {
+  const api = mailRouter.createCaller({});
+  await expect(
+    api.exportMessages({
+      selfUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      ids: null,
+      savePolicy: { mode: 'after' },
+      filter: { startTime: 200, endTime: 100 },
+    }),
+  ).rejects.toThrow('结束时间');
+  expect(manager.listTasks()).toHaveLength(0);
+  const summary = {
+    id: 'all-mail',
+    time: 100,
+    subject: '合成邮件',
+    sender: { name: '合成发件人', email: 'sender@example.invalid' },
+  };
+  Object.assign((state.services as { mail: object }).mail, {
+    folders: vi.fn(async () => [{ id: 1, locked: false }]),
+    list: vi.fn(async () => ({ items: [summary], hasMore: false })),
+    read: vi.fn(async () => ({ ...summary, html: '<p>全量正文</p>', attachments: [] })),
+  });
+  const id = await api.exportMessages({
+    selfUin: '10001',
+    expectedAccountConfigId: 'source-a',
+    ids: null,
+    savePolicy: { mode: 'after' },
+    filter: { startTime: 100, endTime: 101, sender: 'sender@' },
+  });
+  await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
+  const task = manager.getTask(id)!;
+  expect(task.resource?.kind).toBe('mail-messages');
+  expect(JSON.parse(readFileSync(join(task.bundleDir!, 'files', 'index.json'), 'utf8'))).toEqual([
+    { id: 'all-mail', directory: expect.any(String) },
+  ]);
+});
+it('预览只列出匹配邮件且不建任务，切换来源后拒绝预览', async () => {
+  const api = mailRouter.createCaller({});
+  const summary = {
+    id: 'preview-mail',
+    time: 100,
+    subject: '待导出主题',
+    sender: { name: '夹具', email: 'sender@example.invalid' },
+  };
+  const read = vi.fn();
+  Object.assign((state.services as { mail: object }).mail, {
+    folders: vi.fn(async () => [{ id: 1, locked: false }]),
+    list: vi.fn(async () => ({
+      items: [summary, { ...summary, id: 'skip', time: 99 }],
+      hasMore: false,
+    })),
+    read,
+  });
+  const request = {
+    selfUin: '10001',
+    expectedAccountConfigId: 'source-a',
+    ids: null,
+    requestId: '33333333-3333-4333-8333-333333333333',
+    filter: { startTime: 100 },
+  };
+  expect(await api.previewExport(request)).toEqual([summary]);
+  expect(manager.listTasks()).toHaveLength(0);
+  expect(read).not.toHaveBeenCalled();
+  state.configId = 'source-b';
+  await expect(api.previewExport(request)).rejects.toThrow('数据源已切换');
+});
 it('无扩展名附件保持真实单文件，不补 bin 或 json 后缀', async () => {
   attachment.name = 'README';
   const id = await mailRouter

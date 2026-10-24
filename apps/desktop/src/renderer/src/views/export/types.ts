@@ -14,6 +14,7 @@ export type ExportMode =
   | 'full'
   | 'guild'
   | 'generated'
+  | 'mail'
   | 'qzone'
   | 'contacts'
   | 'collection'

@@ -13,11 +13,15 @@ import { resolve } from 'node:path';
 const saveState = vi.hoisted(() => ({
   current: true,
   web: false,
+  requestExport: vi.fn(),
   prepare: vi.fn(
     async (_intent?: ExportSavePolicy, _output?: unknown): Promise<ExportSavePolicy | null> => ({
       mode: 'after',
     }),
   ),
+}));
+vi.mock('../src/renderer/src/state/contentSelection', () => ({
+  useRequestContentExport: () => saveState.requestExport,
 }));
 vi.mock('../src/renderer/src/lib/target', () => ({
   get IS_WEB() {
@@ -95,6 +99,7 @@ function fixture() {
 beforeEach(() => {
   saveState.current = true;
   saveState.web = false;
+  saveState.requestExport.mockReset();
   saveState.prepare.mockReset().mockResolvedValue({ mode: 'after' });
 });
 afterEach(() => {
@@ -143,26 +148,29 @@ async function mount(
 }
 
 describe('邮箱文件夹重复选择', () => {
-  it('所选邮件导出沿用公共保存策略与来源绑定，取消选择不创建任务', async () => {
+  it('顶部常驻按钮进入公共导出，未勾选默认全部，勾选后携带独立选区', async () => {
     const { api } = fixture();
     const f = await mount(api);
     try {
+      const button = f.host.querySelector<HTMLButtonElement>('[aria-label="导出邮件"]')!;
+      expect(button.disabled).toBe(false);
+      expect(f.host.querySelector('.weq-mail-list-tools [aria-label="导出所选邮件"]')).toBeNull();
+      expect(f.host.querySelector('.weq-mail-list-tools .weq-save-options')).toBeNull();
+      await act(async () => button.click());
+      expect(saveState.requestExport).toHaveBeenLastCalledWith({
+        owner: { kind: 'mail-messages', container: 'self@example.invalid' },
+        scope: { type: 'all' },
+      });
       await act(async () =>
         f.host.querySelector<HTMLInputElement>('[aria-label="选择当前页全部邮件"]')!.click(),
       );
-      await act(async () =>
-        f.host.querySelector<HTMLButtonElement>('[aria-label="导出所选邮件"]')!.click(),
-      );
-      expect(api.exportMessages).toHaveBeenCalledWith(
-        ['fixture-mail'],
-        { mode: 'after' },
-        'source-a',
-      );
-      saveState.prepare.mockResolvedValueOnce(null);
-      await act(async () =>
-        f.host.querySelector<HTMLButtonElement>('[aria-label="导出所选邮件"]')!.click(),
-      );
-      expect(api.exportMessages).toHaveBeenCalledTimes(1);
+      await act(async () => button.click());
+      expect(saveState.requestExport).toHaveBeenLastCalledWith({
+        owner: { kind: 'mail-messages', container: 'self@example.invalid' },
+        scope: { type: 'items', ids: ['fixture-mail'] },
+      });
+      expect(api.exportMessages).not.toHaveBeenCalled();
+      expect(saveState.prepare).not.toHaveBeenCalled();
     } finally {
       f.close();
     }

@@ -27,6 +27,8 @@ export function fixedScopeSummary(selection: ContentSelection): string {
       return count === null ? '联系人 · 全部' : `联系人 · 精确选中 ${count} 项`;
     case 'collections':
       return count === null ? '收藏 · 全部' : `收藏 · 精确选中 ${count} 条`;
+    case 'mail-messages':
+      return count === null ? '邮箱 · 所有邮件' : `邮箱 · 已选 ${count} 封邮件`;
     case 'qzone-posts':
       return count === null
         ? `空间 ${owner.container} · 全部说说`
@@ -48,6 +50,8 @@ export function fixedScopeSummary(selection: ContentSelection): string {
 
 export function initialExportMode(selection?: ContentSelection): ExportMode {
   switch (selection?.owner.kind) {
+    case 'mail-messages':
+      return 'mail';
     case 'clone-messages':
     case 'assistant-messages':
       return 'generated';

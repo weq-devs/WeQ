@@ -25,6 +25,7 @@ import {
   composeMailForm,
   count,
   items,
+  isMailThreadId,
   mailAddress,
   mailFolders,
   mailSummary,
@@ -257,7 +258,7 @@ export class QQMailService {
 
   async read(id: string, signal?: AbortSignal, markRead = true): Promise<MailDetail> {
     const group = id.startsWith('@');
-    if (id.startsWith('C') && !id.startsWith('CAD')) {
+    if (isMailThreadId(id)) {
       const match = /^C(\d+)T(.+)$/.exec(id);
       if (!match) throw new MailFailure('business', '会话邮件标识无效。');
       const body = await this.scoped((auth) =>

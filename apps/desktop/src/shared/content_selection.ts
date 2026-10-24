@@ -5,6 +5,7 @@ export type ContentKind =
   | 'guild-conversations'
   | 'contacts'
   | 'collections'
+  | 'mail-messages'
   | 'qzone-posts'
   | 'qzone-albums'
   | 'group-albums'

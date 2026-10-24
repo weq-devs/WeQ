@@ -7,6 +7,8 @@ import { describeExportOutput, exportOutputFileName, getHost } from '@weq/servic
 import {
   MailFailure,
   exportMailMessages,
+  exportAllMailMessages,
+  previewMailExport,
   type MailEvent,
   type QQMailService,
 } from '@weq/service/mail';
@@ -18,6 +20,20 @@ import { exportSavePolicyInput } from './export_save';
 const account = z.object({ selfUin: z.string().regex(/^[1-9]\d{4,19}$/) });
 const operation = account.extend({ requestId: z.string().uuid() });
 const mailId = z.string().min(1).max(2048);
+const mailExportFilterInput = z
+  .object({
+    startTime: z.number().int().nonnegative().optional(),
+    endTime: z.number().int().nonnegative().optional(),
+    sender: z.string().max(254).optional(),
+    subject: z.string().max(1000).optional(),
+  })
+  .refine(
+    (value) =>
+      value.startTime === undefined ||
+      value.endTime === undefined ||
+      value.startTime < value.endTime,
+    '结束时间必须晚于开始时间',
+  );
 const address = z.object({ email: z.string().min(3).max(254), name: z.string().max(256) });
 const pending = new Map<string, { service: QQMailService; controller: AbortController }>();
 
@@ -64,10 +80,34 @@ async function perform<T>(
 }
 
 export const mailRouter = router({
+  previewExport: procedure
+    .input(
+      operation.extend({
+        ids: z.array(mailId).min(1).max(100).nullable(),
+        filter: mailExportFilterInput,
+        expectedAccountConfigId: z.string().min(1),
+      }),
+    )
+    .mutation(({ input }) =>
+      perform(input, async (mail, signal) => {
+        const services = getAppContext().services!;
+        const check = () => {
+          if (
+            service(input.selfUin) !== mail ||
+            getAppContext().services !== services ||
+            services.accountConfig.getRecord()?.configId !== input.expectedAccountConfigId
+          )
+            throw new MailFailure('auth', '账号或数据源已切换，请重新查询待导出邮件。');
+        };
+        return previewMailExport(mail, input.ids, input.filter, signal, check);
+      }),
+    ),
   exportMessages: procedure
     .input(
       account.extend({
-        ids: z.array(mailId).min(1).max(100),
+        ids: z.array(mailId).min(1).max(100000).nullable(),
+        filter: mailExportFilterInput.optional(),
+        expandThreads: z.boolean().default(true),
         expectedAccountConfigId: z.string().min(1),
         savePolicy: exportSavePolicyInput,
       }),
@@ -86,9 +126,19 @@ export const mailRouter = router({
       check();
       return services.exportManager.startResourceExport({
         kind: 'mail-messages',
-        name: `邮件导出-${input.ids.length}封`,
+        name: input.ids === null ? '所有邮件' : `邮件导出-${input.ids.length}封`,
         savePolicy: input.savePolicy,
-        run: (context) => exportMailMessages(mail, input.ids, context, check),
+        run: (context) =>
+          input.ids === null
+            ? exportAllMailMessages(mail, context, check, input.filter)
+            : exportMailMessages(
+                mail,
+                input.ids,
+                context,
+                check,
+                input.filter,
+                input.expandThreads,
+              ),
       });
     }),
   saveAttachment: procedure

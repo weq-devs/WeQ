@@ -61,6 +61,14 @@ export interface MailListInput {
   keyword?: string;
 }
 
+export interface MailExportFilter {
+  /** Unix 秒，起点包含，终点不包含。 */
+  startTime?: number;
+  endTime?: number;
+  sender?: string;
+  subject?: string;
+}
+
 export interface MailComposeInput {
   subject: string;
   content: string;

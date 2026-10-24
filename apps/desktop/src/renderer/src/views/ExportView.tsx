@@ -17,6 +17,7 @@ import {
   Layers,
   Link2,
   MapPin,
+  Mail,
   MessagesSquare,
   Music,
   Pause,
@@ -93,6 +94,7 @@ import {
 } from './export/exportScope';
 import { ContactScopePicker } from './export/ContactScopePicker';
 import { GeneratedExportPane } from './export/GeneratedExportPane';
+import { MailExportPane } from './export/MailExportPane';
 import { QzoneScopePicker } from './export/QzoneScopePicker';
 import '../styles/unified-export.css';
 import { useTabActive } from '../components/RetainedTabs';
@@ -148,6 +150,13 @@ const MODES: ModeDef[] = [
     short: '收藏',
     desc: 'QQ 收藏导出为表格',
     icon: <Bookmark size={18} />,
+  },
+  {
+    id: 'mail',
+    label: '邮件导出',
+    short: '邮件',
+    desc: '邮件正文 / 元数据 / 附件',
+    icon: <Mail size={18} />,
   },
   {
     id: 'emojipack',
@@ -1751,7 +1760,15 @@ export function ExportTool({
             ) : null}
 
             <div className="weq-exp-pane-body">
-              {mode === 'generated' ? (
+              {mode === 'mail' ? (
+                <MailExportPane
+                  initialSelection={initialSelection}
+                  prepareSave={prepareSave}
+                  isCurrent={isCurrent}
+                  onStarted={refetchTasks}
+                  disabled={pickingSaveDirectory || globalSettings.isLoading}
+                />
+              ) : mode === 'generated' ? (
                 <GeneratedExportPane
                   initialSelection={initialSelection}
                   prepareSave={prepareSave}
@@ -2071,7 +2088,10 @@ export function ExportTool({
             </div>
 
             {/* 商城表情下载 / 导出表情包自带底部操作条，隐藏导出中心的通用 footer。 */}
-            {mode !== 'emojipack' && mode !== 'database' && mode !== 'generated' ? (
+            {mode !== 'emojipack' &&
+            mode !== 'database' &&
+            mode !== 'generated' &&
+            mode !== 'mail' ? (
               <footer className="weq-exp-pane-foot">
                 {mode === 'full' && execution === 'scheduled' ? (
                   <span className="weq-exp-foot-hint">
