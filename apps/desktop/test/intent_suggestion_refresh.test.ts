@@ -37,6 +37,37 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+it('手动刷新返回空结果不清空已有候选，后续非空结果直接替换', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        createElement(IntentSuggestionBar, {
+          kind: 'group',
+          conv: 'fixture',
+          latestMessageId: 'peer',
+          onInsert: vi.fn(),
+        }),
+      ),
+    );
+    const track = host.querySelector('.weq-int-suggest-track');
+    const button = host.querySelector<HTMLButtonElement>('[aria-label="换一批建议"]')!;
+    fixture.refresh.mockResolvedValue([]);
+    await act(async () => button.click());
+    expect(host.querySelector('.weq-int-suggest-text')?.textContent).toBe('旧候选');
+    fixture.refresh.mockResolvedValue([{ text: '新候选' }]);
+    await act(async () => button.click());
+    expect(host.querySelector('.weq-int-suggest-text')?.textContent).toBe('新候选');
+    expect(host.querySelector('.weq-int-suggest-track')).toBe(track);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
 it.each([false, true])(
   '自动查询允许=%s 时均可手动换一批，保留旧候选直到结果返回',
   async (replyAllowed) => {

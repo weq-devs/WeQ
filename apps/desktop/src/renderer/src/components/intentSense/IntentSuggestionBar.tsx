@@ -61,13 +61,13 @@ export function IntentSuggestionBar({
   const refreshPending = useRef(false);
   const [previous, setPrevious] = useState<{ scope: string; list: SuggestionWire[] } | null>(null);
   useEffect(() => {
-    if (!active || !replyAllowed || suggestions.data === undefined) {
+    if (!active || !replyAllowed || !suggestions.data?.length) {
       setPrevious((current) => (current?.scope === scope ? current : null));
       return;
     }
     setPrevious({ scope, list: suggestions.data as SuggestionWire[] });
   }, [active, replyAllowed, scope, suggestions.data]);
-  // 发送后暂停查询不清空已有候选；只接收当前允许查询的结果，空结果仍正常清空。
+  // 空结果也可能是发送时被服务端丢弃的旧请求；同一范围内只用非空候选替换。
   const list = (
     previous?.scope === scope
       ? previous.list
@@ -135,7 +135,8 @@ export function IntentSuggestionBar({
               ...(latestMessageId !== undefined ? { targetId: latestMessageId } : {}),
               refresh: true,
             });
-            if (requestContext.current === expected) setPrevious({ scope, list });
+            if (requestContext.current === expected && list.length > 0)
+              setPrevious({ scope, list });
           } catch (error) {
             if (requestContext.current === expected)
               useToast.getState().push({
