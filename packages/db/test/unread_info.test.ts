@@ -45,7 +45,7 @@ function setup(peer: string, blobHex: string, latestSeq: number): void {
   const sql = fixtureDb(dbPath);
   sql.exec(`CREATE TABLE msg_unread_info_table ("48901" TEXT PRIMARY KEY, "48902" BLOB)`);
   sql.exec(
-    `CREATE TABLE recent_contact_v3_table ("40021" TEXT, "40003" INTEGER, "40010" INTEGER DEFAULT 2)`,
+    `CREATE TABLE recent_contact_v3_table ("40021" TEXT, "40003" INTEGER, "40010" INTEGER DEFAULT 2, "40027" INTEGER)`,
   );
   sql.prepare(`INSERT INTO msg_unread_info_table VALUES (?, ?)`).run(peer, blobOf(blobHex));
   sql
@@ -64,6 +64,75 @@ function storedHex(): string {
 }
 
 describe('UnreadInfoDb.getUnreadInfo', () => {
+  it('按会话分区批量查找水位间的自己发送序号，去重且不混入对方和越界消息', async () => {
+    setup(`2_${GROUP}`, GROUP_BLOB, 1735);
+    const sql = fixtureDb(dbPath);
+    for (const table of ['c2c_msg_table', 'group_msg_table']) {
+      sql.exec(
+        `CREATE TABLE ${table} ("40027" INTEGER, "40003" INTEGER, "40020" TEXT, "40021" TEXT, "40033" INTEGER)`,
+      );
+      sql.exec(`CREATE INDEX ${table}_seq ON ${table} ("40027", "40003")`);
+    }
+    const insert = sql.prepare('INSERT INTO group_msg_table VALUES (?, ?, ?, ?, ?)');
+    for (const [seq, sender, uin] of [
+      [1731, 'u_self', 10001],
+      [1732, 'u_peer', 10002],
+      [1733, 'u_self', 10001],
+      [1733, 'u_self', 10001],
+      [1734, '', 10001],
+      [1735, 'u_peer', 10002],
+      [1736, 'u_self', 10001],
+    ] as const)
+      insert.run(GROUP, seq, sender, '', uin);
+    insert.run('70002', 1732, 'u_self', '', 10001);
+    sql
+      .prepare('INSERT INTO recent_contact_v3_table VALUES (?, ?, ?, ?)')
+      .run('u_friend', 1735, 1, 42);
+    const c2c = sql.prepare('INSERT INTO c2c_msg_table VALUES (?, ?, ?, ?, ?)');
+    c2c.run(42, 1732, 'u_self', 'u_friend', 10001);
+    c2c.run(42, 1733, 'u_friend', 'u_friend', 10002);
+    c2c.run(43, 1734, 'u_self', 'u_other', 10001);
+    sql
+      .prepare('INSERT INTO recent_contact_v3_table VALUES (?, ?, ?, ?)')
+      .run('u_fallback', 1735, 1, null);
+    c2c.run(44, 1732, 'u_self', 'u_fallback', 10001);
+    const extraTargets = Array.from({ length: 260 }, (_, i) => ({
+      chatType: 2,
+      uid: String(80000 + i),
+    }));
+    for (const target of extraTargets) {
+      sql
+        .prepare('INSERT INTO recent_contact_v3_table VALUES (?, ?, ?, ?)')
+        .run(target.uid, 1735, 2, null);
+      sql
+        .prepare('INSERT INTO msg_unread_info_table VALUES (?, ?)')
+        .run(`2_${target.uid}`, blobOf(GROUP_BLOB));
+      insert.run(target.uid, 1733, 'u_self', '', 10001);
+    }
+    await db.setReadState(1, 'u_friend', '1731', '1735', false);
+    await db.setReadState(1, 'u_fallback', '1731', '1735', false);
+    const rows = await db.getUnreadInfos(
+      [
+        { chatType: 2, uid: GROUP },
+        { chatType: 1, uid: 'u_friend' },
+        { chatType: 1, uid: 'u_fallback' },
+      ],
+      { selfUid: 'u_self', selfUin: '10001' },
+    );
+    expect(rows[0]?.outgoingSeqs).toEqual(['1733', '1734']);
+    expect(rows[1]?.outgoingSeqs).toEqual(['1732']);
+    expect(rows[2]?.outgoingSeqs).toEqual(['1732']);
+    const nt = createSqliteStub();
+    const query = vi.spyOn(nt, 'executeSql');
+    const reader = new UnreadInfoDb(nt, { dbPath });
+    const many = await reader.getUnreadInfos(extraTargets, { selfUid: 'u_self', selfUin: '10001' });
+    expect(many).toHaveLength(extraTargets.length);
+    expect(many.every((row) => row.outgoingSeqs?.join() === '1733')).toBe(true);
+    expect(query).toHaveBeenCalledTimes(6);
+    for (const call of query.mock.calls) expect(call[2]!.length).toBeLessThan(999);
+    reader.close();
+  });
+
   it('损坏的未读 BLOB 不影响同批其它会话，也不冒充空未读', async () => {
     setup(`2_${GROUP}`, GROUP_BLOB, 1732);
     fixtureDb(dbPath)

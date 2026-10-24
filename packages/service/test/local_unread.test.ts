@@ -202,7 +202,10 @@ describe('未读服务事件与阅读', () => {
     f.getUnreadInfos.mockResolvedValue(rows);
     const targets = rows.map(({ chatType, uid }) => ({ chatType, uid }));
     const result = await f.service.setReadState([...targets, targets[0]!], false);
-    expect(f.getUnreadInfos).toHaveBeenCalledWith(targets);
+    expect(f.getUnreadInfos).toHaveBeenCalledWith(targets, {
+      selfUid: 'u_self',
+      selfUin: '10001',
+    });
     expect(result.rows.map((row) => row.unreadCount)).toEqual([0, 0]);
     expect(f.markRead).not.toHaveBeenCalled();
     f.service.observeNewMessages(f.change);
@@ -286,6 +289,31 @@ const highlight = {
 };
 
 describe('本地未读基线', () => {
+  it('QQ 已读水位滞后时扣除自己发送的序号，不清除夹在其中的入站和手动未读', () => {
+    const { store } = fixture();
+    store.resolve(snapshot('5000', 5000));
+    const sent = {
+      ...snapshot('5002', 5000),
+      outgoingSeqs: ['5000', '5001', '5002', '5002', '9999'],
+    };
+    expect(store.resolve(sent).unreadCount).toBe(0);
+    store.recordLive(1, 'u_fixture', '5003');
+    const mixed = { ...snapshot('5004', 5000), outgoingSeqs: ['5001', '5002', '5004'] };
+    expect(store.resolve(mixed).unreadCount).toBe(1);
+    store.markRead(1, 'u_fixture', '5003');
+    expect(store.resolve(mixed).unreadCount).toBe(0);
+    store.setManualRead(store.resolve(mixed), true);
+    expect(
+      store.resolve({ ...snapshot('5005', 5000), outgoingSeqs: [...mixed.outgoingSeqs, '5005'] })
+        .unreadCount,
+    ).toBe(1);
+    store.recordLive(1, 'u_fixture', '5006');
+    expect(
+      store.resolve({ ...snapshot('5006', 5000), outgoingSeqs: [...mixed.outgoingSeqs, '5005'] })
+        .unreadCount,
+    ).toBe(2);
+  });
+
   it('手动已读即时覆盖旧快照，撤销恢复原未读且不吞掉期间的新消息', () => {
     const { store, path } = fixture();
     const row = snapshot('5000', 4990);
