@@ -22,7 +22,11 @@ describe('导出下载文件名', () => {
       pickSaveTarget: vi.fn(async () => null),
     };
     await pickExportOutputDestination(task, host);
-    expect(host.pickSaveTarget).toHaveBeenCalledWith({ defaultName: '合成库.db', extension: 'db' });
+    expect(host.pickSaveTarget).toHaveBeenCalledWith({
+      defaultName: '合成库.db',
+      extension: 'db',
+      locationKey: 'export-after',
+    });
   });
   it('保存等待前后核对账号、配置与服务实例，纯全局选择不要求已登录账号', () => {
     let context = { uin: '10001', configId: 'source-a', services: {} };
@@ -57,6 +61,7 @@ describe('导出下载文件名', () => {
     expect(host.pickSaveTarget).toHaveBeenCalledWith({
       defaultName: '联系人名单.vcf',
       extension: 'vcf',
+      locationKey: 'export-after',
     });
     expect(host.pickDirectory).not.toHaveBeenCalled();
     expect(

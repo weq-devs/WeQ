@@ -329,7 +329,10 @@ export const mailRouter = router({
     perform(input, async (mail, signal) => {
       const attachment = mail.attachments.get(input.id);
       const name = basename(attachment.name.replace(/\\/g, '/')) || '附件';
-      const target = await getHost().pickSaveTarget({ defaultName: name });
+      const target = await getHost().pickSaveTarget({
+        defaultName: name,
+        locationKey: 'mail-attachment',
+      });
       if (!target) return null;
       signal.throwIfAborted();
       const space = await statfs(dirname(target.path));

@@ -1,4 +1,5 @@
 import { dirname } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { classifyChatType } from '@weq/codec';
 import { describeViewerFile, discoverViewerSources, getHost, readViewerPage } from '@weq/service';
@@ -9,9 +10,26 @@ import {
   viewerSource,
   viewerMedia,
   beginViewerRead,
+  discoverExportDirectories,
 } from '../../export_viewer';
 import { pushConversationJump } from '../../group_keyword_bus';
 import { procedure, router } from '../trpc';
+
+const pendingScans = new Map<string, { path: string; expires: number }>();
+function registerExports(result: Awaited<ReturnType<typeof discoverExportDirectories>>) {
+  const registered: string[] = [];
+  try {
+    const sources = result.sources.map((source) => {
+      const item = registerViewerSource(source);
+      registered.push(item.id);
+      return item;
+    });
+    return { ...result, sources, scanToken: null as string | null };
+  } catch (error) {
+    closeViewerSources(registered);
+    throw error;
+  }
+}
 
 async function local(id: string) {
   const source = viewerSource(id);
@@ -41,21 +59,17 @@ export const exportViewerRouter = router({
       : await getHost().pickFile({ title: '选择聊天 JSON / JSONL', extensions: ['json', 'jsonl'] });
     if (!path) return null;
     if (input.directory) {
-      const result = await discoverViewerSources(path);
-      if (result.sources.length > 64)
-        throw new Error('导出过多，请选择更具体的文件夹（最多 64 项）。');
-      const registered: string[] = [];
-      try {
-        const sources = result.sources.map((source) => {
-          const item = registerViewerSource(source);
-          registered.push(item.id);
-          return item;
-        });
-        return { sources, truncated: result.truncated };
-      } catch (e) {
-        closeViewerSources(registered);
-        throw e;
+      const result = await discoverExportDirectories(path);
+      if (!result.sources.length) {
+        for (const [token, scan] of pendingScans) {
+          if (scan.expires < Date.now()) pendingScans.delete(token);
+        }
+        if (pendingScans.size >= 16) pendingScans.delete(pendingScans.keys().next().value!);
+        const scanToken = randomUUID();
+        pendingScans.set(scanToken, { path, expires: Date.now() + 10 * 60_000 });
+        return { ...registerExports(result), scanToken };
       }
+      return registerExports(result);
     }
     const source = await describeViewerFile(path);
     // 配套基线必须唯一且会话一致，不能仅凭文件名或最新时间猜测。
@@ -69,8 +83,24 @@ export const exportViewerRouter = router({
       ) ?? [];
     if (!catalog?.truncated && matches.length === 1)
       source.baselineDirectory = matches[0]?.baselineDirectory;
-    return { sources: [registerViewerSource(source)], truncated: false };
+    return {
+      sources: [registerViewerSource(source)],
+      truncated: false,
+      scanToken: null,
+      unreadable: 0,
+    };
   }),
+  scan: procedure
+    .input(z.object({ token: z.string().uuid(), recursive: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const pending = pendingScans.get(input.token);
+      pendingScans.delete(input.token);
+      if (!pending || pending.expires < Date.now()) throw new Error('目录选择已过期，请重新选择。');
+      if (!input.recursive) return null;
+      const result = await discoverExportDirectories(pending.path, true);
+      if (!result.sources.length) throw new Error('递归扫描未找到可查看的导出。');
+      return registerExports(result);
+    }),
   page: procedure
     .input(
       z.object({

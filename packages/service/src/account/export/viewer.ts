@@ -477,7 +477,7 @@ export async function describeViewerFile(path: string): Promise<ExportViewerSour
   }
   return source;
 }
-export async function discoverViewerSources(directory: string) {
+export async function discoverViewerSources(directory: string, allowEmpty = false) {
   const root = await realpath(directory);
   const catalog = listExportBaselines(root);
   const sources: ExportViewerSource[] = [];
@@ -539,7 +539,8 @@ export async function discoverViewerSources(directory: string) {
     source.root = dirname(path) === join(root, '.weq-export') ? root : source.root;
     sources.push(source);
   }
-  if (!sources.length) throw new Error('没有找到可查看的 WeQ 消息基线或聊天 JSON/JSONL 文件。');
+  if (!sources.length && !allowEmpty)
+    throw new Error('没有找到可查看的 WeQ 消息基线或聊天 JSON/JSONL 文件。');
   return { sources, truncated: catalog.truncated || files.length > 64 || journals.truncated };
 }
 export async function readViewerPage(

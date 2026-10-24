@@ -2480,6 +2480,7 @@ export const accountRouter = router({
       const { path } = services.assistant.artifactInfo(input.id);
       const ext = extname(path).slice(1) || 'html';
       const target = await getHost().pickSaveTarget({
+        locationKey: 'assistant-artifact',
         defaultName: exportOutputFileName({
           kind: 'file',
           name: input.name.replace(/\.[^.]+$/, ''),
@@ -6329,6 +6330,7 @@ export const accountRouter = router({
       const service = requireServices().collection;
       const name = await service.cachedMediaName(input.id);
       const target = await getHost().pickSaveTarget({
+        locationKey: 'collection-media',
         defaultName: name,
         extension: extname(name).slice(1),
       });
@@ -7058,6 +7060,7 @@ export const accountRouter = router({
       const extension =
         task.resource?.output?.extension || extname(input.sourcePath).slice(1) || task.format;
       const target = await getHost().pickSaveTarget({
+        locationKey: 'export-single-file',
         defaultName: exportOutputFileName({
           kind: 'file',
           name: input.defaultName.replace(/\.[^.]+$/, ''),

@@ -14,6 +14,7 @@ import { client, trpc } from '../trpc/client';
 import { useTabActive } from '../components/RetainedTabs';
 import { openLightbox } from '../components/ImageLightbox';
 import { mediaUrl } from '../lib/resourceUrl';
+import { useDialog } from '../components/Dialog';
 import '../styles/export-viewer.css';
 
 type Source = ExportViewerSource & { id: string };
@@ -189,7 +190,20 @@ export function ExportViewer({
     setError('');
     setNotice('');
     try {
-      const result = await client.exportViewer.pick.mutate({ directory });
+      let result = await client.exportViewer.pick.mutate({ directory });
+      if (result?.scanToken) {
+        const recursive =
+          mounted.current &&
+          activeRef.current &&
+          (await useDialog
+            .getState()
+            .confirm(
+              '递归扫描导出文件夹？',
+              '当前文件夹及下一级未找到导出，是否继续扫描所有子文件夹？大目录可能需要较长时间。',
+              { okLabel: '递归扫描', cancelLabel: '取消' },
+            ));
+        result = await client.exportViewer.scan.mutate({ token: result.scanToken, recursive });
+      }
       if (!result) return;
       if (!mounted.current || !activeRef.current) {
         await client.exportViewer.close.mutate({ ids: result.sources.map((s) => s.id) });
@@ -205,6 +219,8 @@ export function ExportViewer({
       setDate('');
       if (old.length) await client.exportViewer.close.mutate({ ids: old });
       if (result.truncated) setNotice('目录或文件较多，列表可能不完整，请选择更具体的导出文件夹。');
+      else if (result.unreadable)
+        setNotice(`有 ${result.unreadable} 个子目录无法读取，列表可能不完整。`);
     } catch (e) {
       if (mounted.current) setError(e instanceof Error ? e.message : String(e));
     } finally {

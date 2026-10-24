@@ -84,6 +84,7 @@ export async function prepareExportDestination(
     mode = 'before';
     if (output?.kind === 'file') {
       const selected = await host.pickSaveTarget({
+        locationKey: 'export-before',
         defaultName: exportOutputFileName(output),
         extension: output.extension,
       });
@@ -164,6 +165,7 @@ export async function pickExportOutputDestination(
     return directory ? { mode: 'before', directory } : null;
   }
   const selected = await host.pickSaveTarget({
+    locationKey: 'export-after',
     defaultName: exportDownloadName(task),
     extension: task.resource?.output?.extension ?? (task.format === 'vcard' ? 'vcf' : task.format),
   });

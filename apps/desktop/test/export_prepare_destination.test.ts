@@ -29,6 +29,7 @@ describe('生成前的位置准备', () => {
       await prepareExportDestination({ mode: 'before' }, '/unused/default', f.host, file),
     ).toEqual({ mode: 'before', filePath: join(f.directory, '用户选择.json') });
     expect(f.host.pickSaveTarget).toHaveBeenCalledWith({
+      locationKey: 'export-before',
       defaultName: '合成结果.json',
       extension: 'json',
     });

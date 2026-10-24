@@ -2,9 +2,11 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { ExportViewer } from '../src/renderer/src/views/ExportViewer';
+import { useDialog } from '../src/renderer/src/components/Dialog';
 
 const f = vi.hoisted(() => ({
   pick: vi.fn(),
+  scan: vi.fn(),
   close: vi.fn(async () => true),
   jump: vi.fn(async () => true),
   local: { kind: 'group', conv: '777', uin: '10001', configId: 'source-a' } as object | null,
@@ -43,6 +45,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     exportViewer: {
       pick: { mutate: f.pick },
+      scan: { mutate: f.scan },
       close: { mutate: f.close },
       jump: { mutate: f.jump },
     },
@@ -74,6 +77,7 @@ const navigate = vi.fn(),
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   f.pick.mockReset().mockResolvedValue({ sources: [source], truncated: false });
+  f.scan.mockReset().mockResolvedValue({ sources: [source], truncated: false });
   f.close.mockClear();
   f.jump.mockClear();
   f.local = { kind: 'group', conv: '777', uin: '10001', configId: 'source-a' };
@@ -87,6 +91,7 @@ afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 async function mount() {
   await act(async () =>
@@ -163,6 +168,24 @@ it('关闭撤销已打开来源', async () => {
   await click('打开文件夹');
   await click('关闭导出');
   expect(f.close).toHaveBeenCalledWith({ ids: [source.id] });
+  expect(host.textContent).toContain('尚未打开导出');
+});
+it('浅层空目录提示递归，确认后使用选择授权继续扫描', async () => {
+  const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(true);
+  f.pick.mockResolvedValueOnce({ sources: [], scanToken: 'synthetic-token', truncated: false });
+  await mount();
+  await click('打开文件夹');
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(f.scan).toHaveBeenCalledWith({ token: 'synthetic-token', recursive: true });
+  expect(host.textContent).toContain('合成归档');
+});
+it('取消递归会释放选择授权而不替换原列表', async () => {
+  vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(false);
+  f.pick.mockResolvedValueOnce({ sources: [], scanToken: 'synthetic-token', truncated: false });
+  f.scan.mockResolvedValueOnce(null);
+  await mount();
+  await click('打开文件夹');
+  expect(f.scan).toHaveBeenCalledWith({ token: 'synthetic-token', recursive: false });
   expect(host.textContent).toContain('尚未打开导出');
 });
 it('卸载后迟到的文件选择结果也会释放，不保留后台媒体能力', async () => {
