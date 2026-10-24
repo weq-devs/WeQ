@@ -29,7 +29,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 const group: RoamingTarget = { kind: 'group', conv: '12345', name: 'Synthetic protocol group' };
-function fixture(target = group, duplicateAt?: number) {
+function fixture(target = group, duplicateAt?: number, twinAt?: number) {
   const root = mkdtempSync(join(tmpdir(), 'weq-sso-window-'));
   roots.push(root);
   const sql = createSqliteStub();
@@ -48,7 +48,7 @@ function fixture(target = group, duplicateAt?: number) {
     expect(end - start + 1).toBeLessThanOrEqual(30);
     const rows = Array.from({ length: end - start + 1 }, (_, i) => start + i)
       .flatMap((seq) =>
-        Array.from({ length: seq === duplicateAt ? 2 : 1 }, (_, id) => ({
+        Array.from({ length: seq === duplicateAt || seq === twinAt ? 2 : 1 }, (_, id) => ({
           responseHead: {
             fromUin: 10001,
             fromUid: target.kind === 'group' ? 'u_sender' : target.conv,
@@ -59,8 +59,10 @@ function fixture(target = group, duplicateAt?: number) {
           contentHead: {
             sequence: target.kind === 'group' ? seq : 50000 + seq,
             ntMsgSeq: target.kind === 'c2c' ? seq : undefined,
-            newId: 9007199254740993000n + BigInt(seq) * 2n + BigInt(id),
-            msgId: seq + 10 + id,
+            // twinAt：同 seq 两条携带**完全相同的** newId/msgId —— 私聊通话记录挂靠
+            // 宿主消息时服务端就是这么回的（复用宿主的序号与消息 ID）。
+            newId: 9007199254740993000n + BigInt(seq) * 2n + (seq === twinAt ? 0n : BigInt(id)),
+            msgId: seq + 10 + (seq === twinAt ? 0 : id),
             timestamp: 1700000000,
           },
           body: { richText: { elems: [{ text: { str: 'Synthetic protocol history' } }] } },
@@ -285,6 +287,40 @@ describe('shared SSO physical windows', () => {
     expect(page.messages).toHaveLength(30);
     expect(page.messages.filter((row) => row.msgSeq === '1')).toHaveLength(2);
     expect(await f.history.cachedForExport('group', group.conv)).toHaveLength(30);
+  });
+  it('dedupes a private call record that reuses the host message identity', async () => {
+    const target: RoamingTarget = { kind: 'c2c', conv: 'u_peer', name: 'Synthetic private peer' };
+    const f = fixture(target, undefined, 5);
+    const page = await f.fetch(1, 10);
+    // 修复前：整窗抛「纯协议历史响应包含重复消息标识。」，10 条里一条都拿不到。
+    if (!page.ok) throw Error(page.message);
+    expect(page).toMatchObject({ networkRequested: true, unresolvedRecords: 1 });
+    expect(page.messages).toHaveLength(10);
+    expect(page.messages.filter((row) => row.msgSeq === '5')).toHaveLength(1);
+    expect(page.messages.every((row) => row.ntSeqVerified)).toBe(true);
+    const observed = await f.nt.executeSql(
+      f.cachePath,
+      'SELECT reason,protocol_raw FROM protocol_gap_observation',
+      null,
+    );
+    expect(observed).toHaveLength(1);
+    expect(observed[0]![0]).toBe('duplicate_message_identity');
+    expect(Buffer.from(String(observed[0]![1]), 'base64').length).toBeGreaterThan(0);
+  });
+  it('keeps same-seq different identities while only observed duplicates are deduped', async () => {
+    const f = fixture(group, 1);
+    const page = await f.fetch(1, 29);
+    if (!page.ok) throw Error(page.message);
+    // 同 seq 不同 ID 仍然两条都留，且不该产生任何观察记录。
+    expect(page.messages).toHaveLength(30);
+    expect(page.messages.filter((row) => row.msgSeq === '1')).toHaveLength(2);
+    expect(page.unresolvedRecords).toBe(0);
+    const observed = await f.nt.executeSql(
+      f.cachePath,
+      'SELECT reason FROM protocol_gap_observation',
+      null,
+    );
+    expect(observed).toHaveLength(0);
   });
   it('uses verified NT numbering for private physical windows', async () => {
     const target: RoamingTarget = { kind: 'c2c', conv: 'u_peer', name: 'Synthetic private peer' };
