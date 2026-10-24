@@ -932,10 +932,13 @@ export class CallSession {
       }
     }
 
-    this.opts.codec.close();
-    this.opts.transport.close();
-    this.sendQueue.length = 0;
-
+    // 先把状态落到终态，再释放资源。
+    //
+    // 顺序反过来过一次：`codec.close()` 卸载 native 模块时，Windows 上曾直接
+    // fail-fast 掉整个主进程（AVSDKPlugin 的后台线程还在跑，模块一卸就踩空）。
+    // 进程都没了，后面那行「通话结束」自然也没人写 —— 界面上就是点了挂断毫无
+    // 反应。native 侧已经改成模块永不卸载，但这里同样要把**本模块能控制的部分**
+    // 排在前面：终态与日志先落，清理即使出岔子也不会让 UI 卡在「正在挂断」。
     const wasConnected = this.connectedAt !== null;
     this.state = reason === 'error' ? 'failed' : 'ended';
     if (reason === 'error' && !this.lastError) this.lastError = '未知错误';
@@ -946,6 +949,20 @@ export class CallSession {
       received: this.receivedFrames,
     });
     this.emit();
+
+    // 释放顺序：先关 UDP 再关编解码器 —— 反过来的话，还在收包路径上的
+    // 回调会拿着已关闭的解码器去解一帧。
+    try {
+      this.opts.transport.close();
+    } catch (error) {
+      this.log?.warn('关闭 UDP 失败', { error });
+    }
+    try {
+      this.opts.codec.close();
+    } catch (error) {
+      this.log?.warn('关闭编解码器失败', { error });
+    }
+    this.sendQueue.length = 0;
   }
 
   private stopTimers(): void {

@@ -17,7 +17,7 @@ import { observable } from '@trpc/server/observable';
 import { ensureCallBackground, getLogger } from '@weq/service';
 import { procedure, router } from '../trpc';
 import { getAppContext, requireAttachEnabled } from '../../context/app_context';
-import { callManagerFor } from '../../call_registry';
+import { callManagerFor, findCallManager } from '../../call_registry';
 import type { ActiveCallInfo, CallEvent } from '../../call';
 
 const logger = getLogger().child({ scope: 'call-router' });
@@ -83,23 +83,14 @@ export const callRouter = router({
 
   /** 挂断当前通话。没有通话时是空操作。 */
   hangup: procedure.mutation(async () => {
-    const ctx = getAppContext();
-    const platform = ctx.platform;
-    const uin = ctx.account?.context.uin;
-    if (!platform || !uin) return { ok: false };
-    const manager = callManagerFor(platform, platform.resolveQqPid(uin) ?? 0);
+    const manager = findCallManager();
+    if (!manager) return { ok: false };
     await manager.hangup();
     return { ok: true };
   }),
 
   /** 当前通话快照（界面首次挂载时取一次，之后靠订阅）。 */
-  current: procedure.query(() => {
-    const ctx = getAppContext();
-    const platform = ctx.platform;
-    const uin = ctx.account?.context.uin;
-    if (!platform || !uin) return null;
-    return callManagerFor(platform, platform.resolveQqPid(uin) ?? 0).current();
-  }),
+  current: procedure.query(() => findCallManager()?.current() ?? null),
 
   /**
    * 推一帧麦克风音频。
@@ -111,22 +102,17 @@ export const callRouter = router({
     if (input.pcm.byteLength !== AUDIO_FRAME_BYTES) {
       throw new Error(`一帧必须是 ${AUDIO_FRAME_BYTES} 字节`);
     }
-    const ctx = getAppContext();
-    const platform = ctx.platform;
-    const uin = ctx.account?.context.uin;
-    if (!platform || !uin) return { ok: false };
-    callManagerFor(platform, platform.resolveQqPid(uin) ?? 0).pushAudio(input.pcm);
+    const manager = findCallManager();
+    if (!manager) return { ok: false };
+    manager.pushAudio(input.pcm);
     return { ok: true };
   }),
 
   /** 通话状态变化（发起 / 振铃 / 接通 / 结束）。 */
   onCallState: procedure.subscription(() =>
     observable<ActiveCallInfo>((emit) => {
-      const ctx = getAppContext();
-      const platform = ctx.platform;
-      const uin = ctx.account?.context.uin;
-      if (!platform || !uin) return () => {};
-      const manager = callManagerFor(platform, platform.resolveQqPid(uin) ?? 0);
+      const manager = findCallManager();
+      if (!manager) return () => {};
       const handler = (event: CallEvent) => {
         if (event.type === 'state') emit.next(event.call);
       };
@@ -138,11 +124,8 @@ export const callRouter = router({
   /** 对端音频（已解码成 16 kHz PCM）。 */
   onCallAudio: procedure.subscription(() =>
     observable<Uint8Array>((emit) => {
-      const ctx = getAppContext();
-      const platform = ctx.platform;
-      const uin = ctx.account?.context.uin;
-      if (!platform || !uin) return () => {};
-      const manager = callManagerFor(platform, platform.resolveQqPid(uin) ?? 0);
+      const manager = findCallManager();
+      if (!manager) return () => {};
       const handler = (event: CallEvent) => {
         if (event.type === 'audio') emit.next(event.pcm);
       };
