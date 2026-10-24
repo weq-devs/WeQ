@@ -89,6 +89,8 @@ import { fetchQzoneContentCounts, fetchQzoneVisitorStats } from './qzone_stats';
 import { fetchQzonePostDetail, fetchQzonePostImages } from './qzone_detail';
 import { fetchQzoneRelated, fetchQzoneMemories } from './qzone_recall';
 import { getSpecialCare } from './special_care';
+import { fetchVipInfo } from './vip_info';
+import type { VipInfo } from '../vip';
 import { uploadGroupAlbumVideo, type GroupAlbumVideoUpload } from './group_album_video';
 import {
   getQzonePermissionList,
@@ -234,6 +236,14 @@ export class WebQueryService {
   /** 查**本账号**正在用的全部装扮 —— 含查他人拿不到的气泡/字体。 */
   async getSelfDress(): Promise<SelfDress> {
     return withRetry(this.creds, VIP_DOMAIN, (c) => getSelfDress(c));
+  }
+
+  /**
+   * 查本账号的会员身份（VIP / SVIP / 大会员 + 年费 + 等级）。
+   * 不是会员返回 null；票据失效抛 `WebAuthError`，由 withRetry 换票重试一次。
+   */
+  async getVipInfo(): Promise<VipInfo | null> {
+    return withRetry(this.creds, VIP_DOMAIN, (c) => fetchVipInfo(c));
   }
 
   /** 查 `targetUin` 与你之间的互动标识(任务进度/关系标识),按 ti.qq.com 域取 skey/pskey。 */
@@ -663,6 +673,8 @@ export type { WebTokens } from './credential';
 export { getFriendDress } from './friend_dress';
 export type { FriendDress, FriendDressItem } from './friend_dress';
 export { getSelfDress } from './self_dress';
+export { fetchVipInfo, normalizeVipPayload, parseExpireTime } from './vip_info';
+export type { RawVipUserInfo } from './vip_info';
 export { getFriendMutualMark } from './friend_mutualmark';
 export type {
   FriendMutualMark,

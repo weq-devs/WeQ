@@ -185,6 +185,7 @@ export function MessageRow({
   onLongPress,
   onAction,
   onReedit,
+  onDismissUnsent,
   onAvatarClick,
   onAvatarContextMenu,
   selectionMode = false,
@@ -213,6 +214,8 @@ export function MessageRow({
   onLongPress?: (point: { x: number; y: number }, message: Message) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
   onReedit?: (message: Message) => Promise<boolean>;
+  /** 「可能未送达」占位的移除（见 MessageBubble 的同名 prop）。 */
+  onDismissUnsent?: (message: Message) => void;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
   onAvatarContextMenu?: (event: unknown, sender: User) => void;
   selectionMode?: boolean;
@@ -288,6 +291,7 @@ export function MessageRow({
       onLongPress={noopLongPress}
       onAction={onAction}
       onReedit={onReedit}
+      onDismissUnsent={onDismissUnsent}
       onAvatarClick={onAvatarClick}
       onAvatarContextMenu={onAvatarContextMenu}
       selectionMode={selectionMode}

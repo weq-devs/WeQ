@@ -786,7 +786,9 @@ html[data-theme='dark'] .weq-tools-trigger {
     width: 200px;
   }
 
+  /* 窄屏展开搜索时，用户块只剩头像 + 在线状态；会员徽标一起让位，别把搜索框挤回去。 */
   .app-title-bar:has(.weq-titlebar-search.is-expanded) .app-title-bar-signature,
+  .app-title-bar:has(.weq-titlebar-search.is-expanded) .app-title-bar-vip-badge,
   .app-title-bar:has(.weq-titlebar-search.is-expanded) .app-title-bar-nick {
     display: none;
   }

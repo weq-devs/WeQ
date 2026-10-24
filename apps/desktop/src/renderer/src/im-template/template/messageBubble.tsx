@@ -19,6 +19,7 @@ import { GroupMessageBadge } from '../../components/GroupMessageBadge';
 import { messageHasIntentText } from '../../lib/intentTimeline';
 import '../../styles/chat-interactions.css';
 import '../../styles/composer-reedit.css';
+import '../../styles/unsent-message.css';
 
 // 猜测式回退（newPreview 拼接，见 msg_decoration.ts）常年会有下架/过期 404。加载失败
 // 就把 <img> 本身藏起来，别让浏览器画那个裂图占位——头像本体照常显示，只是没有这个
@@ -91,6 +92,7 @@ export function MessageBubble({
   onLongPress,
   onAction,
   onReedit,
+  onDismissUnsent,
   onAvatarClick,
   onAvatarContextMenu,
   selected,
@@ -142,6 +144,11 @@ export function MessageBubble({
   onLongPress: (point: { x: number; y: number }, message: Message) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
   onReedit?: (message: Message) => Promise<boolean>;
+  /**
+   * 「可能未送达」（回执 seq=0）占位的移除出口。这类占位没有可信序号，只能一直挂在
+   * 时间线末尾，所以给一个一次点击的移除按钮；内容不进原库，不需要二次确认。
+   */
+  onDismissUnsent?: (message: Message) => void;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
   /** 右键头像：弹出「@他 / 戳一戳」轻互动菜单。 */
   onAvatarContextMenu?: (event: ReactMouseEvent, sender: User) => void;
@@ -215,6 +222,9 @@ export function MessageBubble({
   useEffect(
     () => setReeditArmed(false),
     [message.id, optimistic, optimisticRejected, recall?.recallTs],
+  );
+  const dismissable = Boolean(
+    onDismissUnsent && mine && !selectionMode && optimistic === 'sent' && optimisticRejected,
   );
   const StatusTag = mine && onReedit && !selectionMode ? 'button' : 'div';
   const reeditClass =
@@ -482,25 +492,45 @@ export function MessageBubble({
           </StatusTag>
         ) : null}
         {optimisticText ? (
-          <StatusTag
-            {...statusProps}
-            className={cn(
-              'weq-msg-optimistic-tag',
-              reeditClass,
-              `is-${optimistic}`,
-              optimisticRejected && 'is-rejected',
-            )}
-            title={
-              optimistic === 'failed'
-                ? (message as { optimisticError?: string }).optimisticError || '发送失败'
-                : optimisticRejected
-                  ? '服务端回了成功但没有分配消息序号，这条很可能被静默丢弃了 —— 请让对方确认是否收到'
-                  : '这条消息还没同步回来，先乐观显示'
-            }
-          >
-            {optimistic === 'failed' ? <X size={12} /> : <TriangleAlert size={12} />}
-            <span>{reeditArmed && reeditClass ? '重新编辑' : optimisticText}</span>
-          </StatusTag>
+          // 状态条与「移除」并排：未送达占位没有可信序号、只能挂在时间线末尾，
+          // 一键移除比一路点开右键菜单短得多。
+          <span className={cn('weq-msg-status-row')}>
+            <StatusTag
+              {...statusProps}
+              className={cn(
+                'weq-msg-optimistic-tag',
+                reeditClass,
+                `is-${optimistic}`,
+                optimisticRejected && 'is-rejected',
+              )}
+              title={
+                optimistic === 'failed'
+                  ? (message as { optimisticError?: string }).optimisticError || '发送失败'
+                  : optimisticRejected
+                    ? '服务端回了成功但没有分配消息序号，这条很可能被静默丢弃了 —— 请让对方确认是否收到'
+                    : '这条消息还没同步回来，先乐观显示'
+              }
+            >
+              {optimistic === 'failed' ? <X size={12} /> : <TriangleAlert size={12} />}
+              <span>{reeditArmed && reeditClass ? '重新编辑' : optimisticText}</span>
+            </StatusTag>
+            {dismissable ? (
+              <button
+                type="button"
+                className={cn('weq-msg-dismiss-unsent')}
+                title="从本机列表移除这条（对方是否收到不受影响）"
+                aria-label="移除这条未送达的消息"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDismissUnsent?.(message);
+                }}
+              >
+                <X size={12} />
+                <span>移除</span>
+              </button>
+            ) : null}
+          </span>
         ) : null}
         {/* 意图感知：已有结果的消息展示胶囊，分析中逐条展示窄条，悬停文本消息出弹层。
             数据与悬停监听都在组件内部（经 IntentSenseContext），关掉功能时渲染 null。 */}

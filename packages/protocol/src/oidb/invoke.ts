@@ -82,7 +82,17 @@ export interface TrpcSpec<TParams, TResult> {
   reqSchema: ProtoMessage;
   respSchema: ProtoMessage;
   serialize(params: TParams): Record<string, unknown>;
+  /**
+   * 自定义请求体编码。用于运行时的 schema 表达不了的 wire 形态（例如 fixed32 字段）。
+   * 提供了就跳过 `encode(reqSchema, serialize(params))`。
+   */
+  encodeRequest?(params: TParams): Uint8Array;
   deserialize(body: Record<string, unknown>): TResult;
+  /**
+   * 直接用原始回包字节解析，跳过 schema。字段含 fixed32 这类运行时表达不了的
+   * wire 形态时用（schema 解码会把这类字段整段跳过，结果看起来「字段是空的」）。
+   */
+  decodeResponse?(bytes: Uint8Array): TResult;
 }
 
 export async function invokeTrpc<TParams, TResult>(
@@ -91,9 +101,12 @@ export async function invokeTrpc<TParams, TResult>(
   spec: TrpcSpec<TParams, TResult>,
   params: TParams,
 ): Promise<TResult> {
-  const reqBytes = encode(spec.reqSchema, spec.serialize(params));
+  const reqBytes = spec.encodeRequest
+    ? spec.encodeRequest(params)
+    : encode(spec.reqSchema, spec.serialize(params));
   // 同 invokeOidb：未显式标注时按白名单推导。
   const needSign = spec.needSign ?? commandNeedsSign(spec.cmd);
   const respBytes = await sendPacket(nt, pid, spec.cmd, reqBytes, needSign);
+  if (spec.decodeResponse) return spec.decodeResponse(respBytes);
   return spec.deserialize(decode(spec.respSchema, respBytes));
 }

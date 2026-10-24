@@ -38,6 +38,8 @@ const WIDGET = 4;
 const CHAT_FONT = 5;
 const CHAT_BG = 8;
 const CARD = 15;
+/** 来电（通话背景 + 铃声）。appId 17 的条目同时带静态图和动态视频。 */
+const CALL_BG = 17;
 const SCREEN = 22;
 
 const VIP_DOMAIN = 'vip.qq.com';
@@ -79,6 +81,29 @@ export interface HomeDressSnapshot {
   widgetName?: string;
   /** 挂件预览图直链（newPreview2，已 upgradePreview）。 */
   widgetPreviewUrl?: string;
+  /**
+   * 正在用的通话背景（appId 17）。
+   *
+   * 通话窗口拿它当底图。`callBgVideoUrl` 有值时优先播视频 —— 这类装扮本来
+   * 就是动态的，静帧只是它的首帧。两个都空表示用户没设通话背景。
+   *
+   * 注意：这一项**不需要联网刷新**（URL 是不带签名的静态 CDN 地址），所以
+   * 发起通话时直接读快照即可，只有快照里完全没有这个字段时才需要去查一次。
+   */
+  callBgUrl?: string;
+  /** 通话背景的动态版（`funCall/item/<id>/media.mp4`）。 */
+  callBgVideoUrl?: string;
+  /** 通话背景装扮的 itemId（界面显示名字 / 去装扮页定位用）。 */
+  callBgId?: number;
+  /** 通话背景装扮的款名。 */
+  callBgName?: string;
+  /**
+   * 这次抓取是否覆盖了通话背景（写入时刻，毫秒）。
+   *
+   * 用来区分「用户没设背景」与「老快照压根没查过这一项」——光看 `callBgUrl` 为不
+   * 为空分不清这两种，通话时就会每次都白查一遍。见 `call_background.ts`。
+   */
+  callBgCheckedAt?: number;
 }
 
 /** newPreview1.xxx → newPreview2.xxx（同扩展名）。 */
@@ -166,6 +191,7 @@ export async function fetchHomeDress(
   const bubbleItem = pick(BUBBLE);
   const fontItem = pick(CHAT_FONT);
   const chatBgItem = pick(CHAT_BG);
+  const callBgItem = pick(CALL_BG);
 
   // ---- 2. 并发升级 preview url + 解析名片视频 ----
   const [widgetUrl, cardUrl, screenUrl, cardVideoUrl] = await Promise.all([
@@ -215,6 +241,19 @@ export async function fetchHomeDress(
   const chatBgUrl = chatBgItem?.hdUrl || chatBgItem?.previewUrl || '';
   if (chatBgUrl) snapshot.chatBgUrl = chatBgUrl;
 
+  // 通话背景：静态图一列，动态视频在 extraimage.images 里（以 .mp4 结尾）。
+  // 与聊天背景同理，目录段不一定是 itemId，所以只认接口给的完整 URL。
+  // 无论有没有设，都记下「这一项查过了」——通话时据此决定要不要再联网。
+  snapshot.callBgCheckedAt = Date.now();
+  if (callBgItem?.itemId) {
+    snapshot.callBgId = callBgItem.itemId;
+    if (callBgItem.name) snapshot.callBgName = callBgItem.name;
+    const still = callBgItem.previewUrl || '';
+    const video = callBgItem.hdUrl && /\.mp4(\?|$)/i.test(callBgItem.hdUrl) ? callBgItem.hdUrl : '';
+    if (still) snapshot.callBgUrl = still;
+    if (video) snapshot.callBgVideoUrl = video;
+  }
+
   logger.info('fetched home dress snapshot', {
     event: 'home-dress-fetched',
     hasWidget: Boolean(widgetUrl),
@@ -226,6 +265,7 @@ export async function fetchHomeDress(
     fontId: snapshot.fontId ?? 0,
     widgetId: snapshot.widgetId ?? 0,
     hasChatBg: Boolean(snapshot.chatBgUrl),
+    callBgId: snapshot.callBgId ?? 0,
   });
 
   return snapshot;

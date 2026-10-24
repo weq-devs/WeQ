@@ -73,6 +73,7 @@ describe('装扮预解码缓存', () => {
     expect(cache.stats()).toEqual({
       retainedImages: 0,
       retainedBytes: 0,
+      pinnedImages: 0,
       activeDecodes: 0,
       pendingImages: 0,
     });
@@ -103,4 +104,135 @@ describe('装扮预解码缓存', () => {
     expect(vi.getTimerCount()).toBe(0);
     cache.dispose();
   });
+});
+
+describe('在播帧不被淘汰（频闪回归）', () => {
+  /**
+   * 预算只放得下 3 帧的缓存，便于把「在播」与「可选预热」的取舍压到最小场景。
+   * 注意 `Frame` 是 1024×1024 ≈ 4 MiB，字节预算必须跟着放大，否则单帧就超限。
+   */
+  const tightLimits = {
+    ...DECORATION_DECODE_LIMITS,
+    maxImages: 3,
+    maxBytes: 3 * 4 * 1024 * 1024,
+  };
+
+  it('pin 住的帧在多轮后续预热后仍然持有图源，不被 LRU 摘掉', async () => {
+    const frames = new Map<string, Frame>();
+    const cache = createDecodedImageCache(tightLimits, () => {
+      const frame = new Frame();
+      frames.set(String(frames.size), frame);
+      return frame;
+    });
+    const playing = ['play:1', 'play:2', 'play:3'];
+    await Promise.all(playing.map((url) => cache.preload(url)));
+    cache.pin(playing);
+
+    // 模拟浏览装扮列表：一轮又一轮的可选预热，总量远超预算。
+    for (let round = 0; round < 4; round++) {
+      await Promise.all(
+        Array.from({ length: 10 }, (_, i) => cache.preload(`browse:${round}:${i}`)),
+      );
+    }
+
+    const kept = [...frames.values()]
+      .filter((frame) => frame.src && playing.includes(frame.src))
+      .map((frame) => frame.src)
+      .sort();
+    // 关键断言：正在播的三帧一张都不能被摘掉 src（摘掉就是逐帧重新解码 → 频闪）。
+    expect(kept).toEqual(playing);
+    cache.dispose();
+  });
+
+  it('release 之后这批帧回到普通 LRU，可以被后续预热挤出去', async () => {
+    const cache = createDecodedImageCache(tightLimits, () => new Frame());
+    const urls = ['a', 'b', 'c'];
+    await Promise.all(urls.map((url) => cache.preload(url)));
+    const owner = cache.pin(urls);
+    expect(cache.stats().pinnedImages).toBe(3);
+    owner.release();
+    expect(cache.stats().pinnedImages).toBe(0);
+
+    for (let round = 0; round < 3; round++) {
+      await Promise.all(Array.from({ length: 5 }, (_, i) => cache.preload(`x:${round}:${i}`)));
+    }
+    // 未 pin 时预算照常生效，不会因为引入 pin 就把上限架空了。
+    expect(cache.stats().retainedImages).toBeLessThanOrEqual(tightLimits.maxImages);
+    cache.dispose();
+  });
+
+  it('同款被多处注入时靠计数：还有一份没归还就继续不淘汰', async () => {
+    const cache = createDecodedImageCache(tightLimits, () => new Frame());
+    await cache.preload('shared');
+    const first = cache.pin(['shared']);
+    const second = cache.pin(['shared']);
+    first.release();
+    expect(cache.stats().pinnedImages).toBe(1);
+    for (let round = 0; round < 3; round++) {
+      await Promise.all(Array.from({ length: 5 }, (_, i) => cache.preload(`y:${round}:${i}`)));
+    }
+    // 第二份凭据还在，帧应当仍被保留。
+    expect(cache.stats().retainedImages).toBeGreaterThan(0);
+    second.release();
+    expect(cache.stats().pinnedImages).toBe(0);
+    cache.dispose();
+  });
+
+  it('require 在队列超限时不假成功，会一直等到真正解码完成', async () => {
+    const releases: (() => void)[] = [];
+    const limits = { ...DECORATION_DECODE_LIMITS, maxConcurrent: 1, maxPending: 1 };
+    const cache = createDecodedImageCache(limits, () => {
+      const frame = new Frame();
+      frame.decode = vi.fn(() => new Promise<void>((resolve) => releases.push(resolve)));
+      return frame;
+    });
+    let settled = false;
+    // 第一个占住并发槽，第二个占满队列，第三个（必达）必须排队而不是立刻 resolve。
+    void cache.preload('a');
+    void cache.preload('b');
+    const required = cache.require('c').then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(cache.stats().pendingImages).toBeLessThanOrEqual(limits.maxPending);
+
+    // 逐个放行，直到必达任务也真正解码完成。
+    for (let i = 0; i < 10 && !settled; i++) {
+      for (const release of releases.splice(0)) release();
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    await required;
+    expect(settled).toBe(true);
+    cache.dispose();
+  });
+
+  it('require 解码失败会 reject，调用方不会误以为帧已就绪', async () => {
+    const cache = createDecodedImageCache(DECORATION_DECODE_LIMITS, () => {
+      const frame = new Frame();
+      frame.decode = vi.fn(async () => {
+        throw new Error('decode failed');
+      });
+      return frame;
+    });
+    await expect(cache.require('broken')).rejects.toThrow();
+    // 可选预热对同一个 URL 仍然 silent。
+    await expect(cache.preload('broken')).resolves.toBeUndefined();
+    cache.dispose();
+  });
+});
+
+it('先 preload 后 require 同一个 URL 时会升格成必达，失败不再假成功', async () => {
+  const cache = createDecodedImageCache(DECORATION_DECODE_LIMITS, () => {
+    const frame = new Frame();
+    frame.decode = vi.fn(async () => {
+      throw new Error('decode failed');
+    });
+    return frame;
+  });
+  // 可选预热先占住在途任务。
+  void cache.preload('shared-broken');
+  await expect(cache.require('shared-broken')).rejects.toThrow();
+  cache.dispose();
 });

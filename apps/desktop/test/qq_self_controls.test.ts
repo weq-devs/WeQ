@@ -52,9 +52,13 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       account: {
         getSelfProfile: { invalidate: state.invalidate },
         getOnlineStatus: { invalidate: state.invalidate },
+        getSelfVip: { invalidate: state.invalidate },
       },
     }),
     account: {
+      // 顶栏会员徽标与资料编辑无关，这里让它不渲染。
+      getSelfVip: { useQuery: () => ({ data: null }) },
+      onVipChanged: { useSubscription: () => {} },
       qqActions: {
         liveStatus: {
           useQuery: () => ({

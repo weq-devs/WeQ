@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   canDiscardFailedMessage,
+  canDiscardRejectedMessage,
   captureOutgoingAfterSeq,
   failedOutgoingRemoval,
   mergeOptimisticInto,
   needsFailedPreparation,
   matchForwardMessages,
+  rejectedOutgoingRemoval,
   type LocalOutgoingRecord,
 } from '../src/renderer/src/lib/localOutgoing';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';
@@ -169,6 +171,73 @@ describe('失败占位清理', () => {
     expect(needsFailedPreparation(submission)).toBe(true);
     expect(needsFailedPreparation({ ...submission, started: true })).toBe(false);
     expect(needsFailedPreparation({ ...submission, accepted: true })).toBe(false);
+  });
+});
+
+describe('未送达占位清理', () => {
+  // 回执 seq=0 的静默丢弃：状态已是 sent、带 random（对账主键）+ seqRejected。
+  const rejected = {
+    ...message,
+    id: 'optimistic-rejected',
+    optimistic: 'sent' as const,
+    msgSeq: undefined,
+    msgRandom: '99',
+    optimisticRejected: true,
+  };
+  it('未送达占位可被一键移除，失败占位仍走原来那条判定', () => {
+    expect(canDiscardRejectedMessage(rejected)).toBe(true);
+    expect(canDiscardFailedMessage(rejected)).toBe(false);
+    expect(canDiscardFailedMessage(message)).toBe(true);
+    expect(canDiscardRejectedMessage(message)).toBe(false);
+  });
+  it('缺 seqRejected / 有可信序号 / 不是本机占位的都不清', () => {
+    const localSent = { ...rejected, localSent: true };
+    const roaming = { ...rejected, source: 'roaming' as const };
+    expect(canDiscardRejectedMessage({ ...rejected, optimisticRejected: undefined })).toBe(false);
+    expect(canDiscardRejectedMessage({ ...rejected, msgSeq: '42' })).toBe(false);
+    expect(canDiscardRejectedMessage({ ...rejected, id: 'real-msg' })).toBe(false);
+    expect(canDiscardRejectedMessage(localSent)).toBe(false);
+    expect(canDiscardRejectedMessage(roaming)).toBe(false);
+    expect(canDiscardRejectedMessage({ ...rejected, optimistic: 'failed' })).toBe(false);
+  });
+  it('移除时再次核对状态，不误删同 id 的失败占位或别的会话', () => {
+    const remove = rejectedOutgoingRemoval(rejected, '123')!;
+    const target: LocalOutgoingRecord = {
+      id: rejected.id,
+      convId: '123',
+      state: 'sent',
+      seqRejected: true,
+    };
+    // 同 id 但已有可信序号 / 文件回执的条目都不清；文件回执那条连「占位」都不算。
+    const untouched: LocalOutgoingRecord[] = [
+      { ...target, state: 'failed' },
+      { ...target, seq: '42', seqRejected: false },
+      record,
+    ];
+    expect(remove(untouched)).toBe(untouched);
+    const rows = [record, target];
+    Object.freeze(rows);
+    expect(remove(rows)).toEqual([record]);
+    expect(rows).toHaveLength(2);
+    expect(rejectedOutgoingRemoval(rejected, '456')).toBeNull();
+    expect(rejectedOutgoingRemoval(message, '123')).toBeNull();
+  });
+  it('未送达占位仍然不冒充发送水位，移除判据放宽不影响水位', () => {
+    const selection = { id: '123', kind: 'direct' as const };
+    const rejectedRecord: LocalOutgoingRecord = {
+      ...record,
+      id: 'optimistic-rejected',
+      state: 'sent',
+      cid: '99',
+      seqRejected: true,
+    };
+    // 没有可信序号的占位一律让水位退回「不确定」，哪怕它现在可被移除。
+    expect(
+      captureOutgoingAfterSeq('123', selection, true, [{ msgSeq: '10' }], [[rejectedRecord]]),
+    ).toBeUndefined();
+    expect(captureOutgoingAfterSeq('123', selection, true, [{ msgSeq: '10' }], [[record]])).toBe(
+      '10',
+    );
   });
 });
 

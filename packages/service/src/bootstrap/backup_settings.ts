@@ -439,6 +439,11 @@ export function validateWeqAccountSettings(
         'widgetId',
         'widgetName',
         'widgetPreviewUrl',
+        'callBgUrl',
+        'callBgVideoUrl',
+        'callBgId',
+        'callBgName',
+        'callBgCheckedAt',
       ],
     );
     for (const [key, value] of Object.entries(dress)) {
@@ -446,9 +451,24 @@ export function validateWeqAccountSettings(
         if (!Array.isArray(value) || value.some((tag) => typeof tag !== 'string'))
           fail('accounts.homeDress.tags');
       } else if (key.endsWith('Id')) number(value, `accounts.homeDress.${key}`);
+      else if (key.endsWith('At')) number(value, `accounts.homeDress.${key}`);
       else string(value, `accounts.homeDress.${key}`);
     }
   }
+  if (row.vip !== undefined) {
+    const vip = fields(
+      row.vip,
+      'accounts.vip',
+      [],
+      ['tier', 'year', 'level', 'expireAt', 'fetchedAt'],
+    );
+    if (vip.tier !== 'vip' && vip.tier !== 'svip' && vip.tier !== 'bvip') fail('accounts.vip.tier');
+    if (typeof vip.year !== 'boolean') fail('accounts.vip.year');
+    number(vip.level, 'accounts.vip.level');
+    number(vip.fetchedAt, 'accounts.vip.fetchedAt');
+    if (vip.expireAt !== undefined) number(vip.expireAt, 'accounts.vip.expireAt');
+  }
+  if (row.vipCheckedAt !== undefined) number(row.vipCheckedAt, 'accounts.vipCheckedAt');
   if (row.groupKeyword !== undefined)
     for (const [group, value] of Object.entries(
       record(row.groupKeyword, 'accounts.groupKeyword'),

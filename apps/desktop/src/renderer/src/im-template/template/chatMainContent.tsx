@@ -78,6 +78,7 @@ export function ChatMainContent({
   onResolveMentions,
   onSearchMentionMembers,
   onSendWindowShake,
+  onStartCall,
   onSendArk,
   arkLocation,
   arkContacts,
@@ -90,6 +91,7 @@ export function ChatMainContent({
   onBackConversation,
   onEditRaw,
   onDeleteMessage,
+  onDismissUnsentMessage,
   onOpenGroupAlbums,
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
@@ -174,6 +176,8 @@ export function ChatMainContent({
   onSearchMentionMembers?: (query: string, conversation: Conversation) => Promise<GroupMember[]>;
   /** 私聊「窗口抖动」；群聊不传（按钮整个不渲染）。 */
   onSendWindowShake?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
+  /** 发起语音通话（仅私聊）。 */
+  onStartCall?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
   /** Ark 卡片面板「发送」；不传则工具栏那个按钮点开也发不出去。 */
   onSendArk?: (conversation: Conversation, payload: ArkPayload) => Promise<void>;
   /** 位置卡片要用的地点搜索 / 逆地址解析（应用层注入）。 */
@@ -196,6 +200,8 @@ export function ChatMainContent({
     conversation: Conversation,
     hidden?: boolean,
   ) => void | Promise<void>;
+  /** 「可能未送达」占位的一键移除（见 MessageBubble 的同名 prop）。 */
+  onDismissUnsentMessage?: (message: Message) => void;
   onOpenGroupAlbums?: (conversation: GroupConversation) => void;
   onOpenGroupFiles?: (conversation: GroupConversation) => void;
   onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
@@ -309,6 +315,7 @@ export function ChatMainContent({
       onResolveMentions={onResolveMentions}
       onSearchMentionMembers={onSearchMentionMembers}
       onSendWindowShake={onSendWindowShake}
+      onStartCall={onStartCall}
       onSendArk={onSendArk}
       arkLocation={arkLocation}
       arkContacts={arkContacts}
@@ -321,6 +328,7 @@ export function ChatMainContent({
       onBack={onBackConversation}
       onEditRaw={onEditRaw}
       onDeleteMessage={onDeleteMessage}
+      onDismissUnsentMessage={onDismissUnsentMessage}
       onOpenGroupAlbums={onOpenGroupAlbums}
       onOpenGroupFiles={onOpenGroupFiles}
       onOpenGroupAnnouncements={onOpenGroupAnnouncements}
