@@ -23,6 +23,7 @@ import { requestOpenSettings } from '../lib/callSettingsBridge';
 import { useToolWindow } from '../hooks/useCompositionWindow';
 import { useCallAudio } from '../hooks/useCallAudio';
 import { useCallVideo } from '../hooks/useCallVideo';
+import { useCallCamera } from '../hooks/useCallCamera';
 import { useCallRecorder } from '../hooks/useCallRecorder';
 import { RenderDocumentContext } from '../lib/renderDocument';
 import { HoverTooltip } from './HoverTooltip';
@@ -122,6 +123,17 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   const peerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const selfCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const video = useCallVideo({ enabled: live && info.videoReceiving, canvasRef: peerCanvasRef });
+  // 本端摄像头：开关由按钮控制，采集后转 I420 推给主进程编码。
+  const camera = useCallCamera({ enabled: live && info.videoSending });
+  // 采集错误要告诉用户（权限被拒 / 没有设备），否则会以为「点了没反应」。
+  useEffect(() => {
+    if (!camera.error) return;
+    useToast.getState().push({
+      tone: 'warning',
+      message: '无法打开摄像头',
+      detail: camera.error,
+    });
+  }, [camera.error]);
 
   const settings = useCallRecordingSettings();
   const recorder = useCallRecorder({
@@ -349,6 +361,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
             peerVideoOn={info.videoReceiving}
             selfCanvasRef={videoLayout ? selfCanvasRef : undefined}
             selfVideoOn={info.videoSending}
+            selfVideoElement={camera.video}
             videoError={video.supported ? video.error : (video.error ?? '当前环境不支持视频解码')}
           />
 

@@ -33,6 +33,7 @@ import {
   type VideoStreamInfo,
 } from '@weq/service';
 import { CallRecorder, type RecordingSnapshot } from './call_recorder';
+import { NativeVideoEncoder } from './call_video_encoder';
 import {
   CallRecordingStore,
   recordingsRootFor,
@@ -208,6 +209,8 @@ export class CallManager extends EventEmitter {
   /** 每秒推进一次通话时长。通话中状态不变，光靠状态推送时长会停在 00:00。 */
   private durationTimer: ReturnType<typeof setInterval> | null = null;
 
+  /** 视频编码器（只有视频通话才非 null）。 */
+  private videoEncoder: NativeVideoEncoder | null = null;
   /** 当前这通电话的录音设置（发起时取一次，通话中改设置不影响进行中的录音）。 */
   private recordingConfig: CallRecordingConfig = { mode: 'mixed', systemAudio: false, dir: null };
   private recorder: CallRecorder | null = null;
@@ -242,6 +245,12 @@ export class CallManager extends EventEmitter {
 
     const transport = new NodeUdpTransport();
     const codec = new NativeCallCodec(this.nt, modulesDir);
+    // 视频编码器只在发起视频通话时建：它要打开 QQ 自带的那一版 x265，
+    // 纯语音通话没必要付这个开销。
+    const videoEncoder =
+      params.media === 'video' ? new NativeVideoEncoder(this.nt, modulesDir) : null;
+    if (videoEncoder) await videoEncoder.open();
+    this.videoEncoder = videoEncoder;
     const session = new CallSession({
       selfUin: params.selfUin,
       selfUid: params.selfUid,
@@ -260,6 +269,9 @@ export class CallManager extends EventEmitter {
         onError: (handler) => transport.onError(handler),
       },
       codec,
+      // 视频编码器：只有发起视频通话时才建。采在渲染层、编在主进程，
+      // 中间靠 pushVideoFrame 把 I420 推进来。
+      videoEncoder: videoEncoder ?? undefined,
       logger,
     });
 
@@ -331,6 +343,20 @@ export class CallManager extends EventEmitter {
     await this.finalizeRecording();
     await session.hangup();
     this.cleanup();
+  }
+
+  /**
+   * 渲染层推来一帧 I420（摄像头采集）。
+   *
+   * 只有视频通话且本端摄像头开着时才吃 —— 关摄像头后队列里的旧帧也不该再发。
+   */
+  pushVideoFrame(y: Uint8Array, u: Uint8Array, v: Uint8Array): boolean {
+    const session = this.session;
+    if (!session) return false;
+    if (!session.snapshot().videoSending) return false;
+    const encoder = this.videoEncoder;
+    encoder?.pushFrame({ y, u, v });
+    return encoder !== null;
   }
 
   /**
@@ -546,6 +572,8 @@ export class CallManager extends EventEmitter {
     // 会话自己会关 socket，但异常路径（订阅断了 / 渲染层崩了）可能没走到，
     // 这里兜一次底：重复 close 是幂等的。
     this.transport?.close();
+    this.videoEncoder?.close();
+    this.videoEncoder = null;
     this.session = null;
     this.transport = null;
     this.info = null;

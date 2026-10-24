@@ -168,8 +168,16 @@ export interface CallAudioCodec {
  * 只关心「给我一帧 Annex B」。
  */
 export interface CallVideoEncoder {
-  /** 取下一帧 Annex B 裸流；没有新画面时返回 null（不发包）。 */
+  /**
+   * 取下一帧 Annex B 裸流；没有新画面时返回 null（不发包）。
+   *
+   * 采集在渲染层（WebRTC 拿摄像头），编码在主进程（native `t265`）——
+   * 两者之间靠 {@link pushFrame} 连起来：渲染层把 I420 推进队列，
+   * 编码器在 `next()` 里取一帧编码。
+   */
   next(): Promise<Uint8Array | null>;
+  /** 渲染层推来一帧 I420（Y 全尺寸、U/V 各四分之一）。 */
+  pushFrame?(frame: { y: Uint8Array; u: Uint8Array; v: Uint8Array }): void;
   /** 视频规格（写进 SPS，供对端初始化）。 */
   info(): VideoStreamInfo;
   close(): void;
