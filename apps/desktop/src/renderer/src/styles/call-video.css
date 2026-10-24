@@ -81,7 +81,7 @@
  * 头像缩到左上角（未来成员列表往右侧长），名字与状态贴在头像右侧。
  */
 .weq-call-stage[data-layout='peer'] .weq-call-avatar,
-.weq-call-stage[data-layout='self'] .weq-call-avatar {
+.weq-call-stage[data-layout='self'] .weq-call-avatar,
 .weq-call-stage[data-layout='self-only'] .weq-call-avatar {
   position: absolute;
   top: 16px;
@@ -94,20 +94,20 @@
 .weq-call-stage[data-layout='self'] .weq-call-avatar img,
 .weq-call-stage[data-layout='self-only'] .weq-call-avatar img,
 .weq-call-stage[data-layout='peer'] .weq-call-avatar-fallback,
-.weq-call-stage[data-layout='self'] .weq-call-avatar-fallback {
+.weq-call-stage[data-layout='self'] .weq-call-avatar-fallback,
 .weq-call-stage[data-layout='self-only'] .weq-call-avatar-fallback {
   width: 44px;
   height: 44px;
 }
 
 .weq-call-stage[data-layout='peer'] .weq-call-avatar-fallback,
-.weq-call-stage[data-layout='self'] .weq-call-avatar-fallback {
+.weq-call-stage[data-layout='self'] .weq-call-avatar-fallback,
 .weq-call-stage[data-layout='self-only'] .weq-call-avatar-fallback {
   font-size: 17px;
 }
 
 .weq-call-stage[data-layout='peer'] .weq-call-name,
-.weq-call-stage[data-layout='self'] .weq-call-name {
+.weq-call-stage[data-layout='self'] .weq-call-name,
 .weq-call-stage[data-layout='self-only'] .weq-call-name {
   position: absolute;
   top: 22px;
@@ -120,7 +120,7 @@
 }
 
 .weq-call-stage[data-layout='peer'] .weq-call-status,
-.weq-call-stage[data-layout='self'] .weq-call-status {
+.weq-call-stage[data-layout='self'] .weq-call-status,
 .weq-call-stage[data-layout='self-only'] .weq-call-status {
   position: absolute;
   top: 42px;
@@ -132,7 +132,7 @@
 }
 
 .weq-call-stage[data-layout='peer'] .weq-call-status.is-live,
-.weq-call-stage[data-layout='self'] .weq-call-status.is-live {
+.weq-call-stage[data-layout='self'] .weq-call-status.is-live,
 .weq-call-stage[data-layout='self-only'] .weq-call-status.is-live {
   color: color-mix(in srgb, #fff 92%, transparent);
   font-size: 13px;
@@ -140,7 +140,7 @@
 
 /* ── 波形在视频布局下收成底部窄带 ── */
 .weq-call-stage[data-layout='peer'] .weq-call-wave,
-.weq-call-stage[data-layout='self'] .weq-call-wave {
+.weq-call-stage[data-layout='self'] .weq-call-wave,
 .weq-call-stage[data-layout='self-only'] .weq-call-wave {
   position: absolute;
   left: 20px;
@@ -215,16 +215,29 @@
  * 卡片背景是纯黑，控件本身已有自己的底色；这里只补一层柔和渐变，
  * 让按钮不会直接浮在画面上显得散。
  */
+/* 视频布局下，底部浮层（控件 / 抽屉 / 录音条）压在画面之上。 */
 .weq-call-card:has(.weq-call-stage[data-layout='peer']) .weq-call-actions,
-.weq-call-card:has(.weq-call-stage[data-layout='self']) .weq-call-actions {
-.weq-call-card:has(.weq-call-stage[data-layout='self-only']) .weq-call-actions {
+.weq-call-card:has(.weq-call-stage[data-layout='self']) .weq-call-actions,
+.weq-call-card:has(.weq-call-stage[data-layout='self-only']) .weq-call-actions,
+.weq-call-card:has(.weq-call-stage[data-layout='peer']) .weq-call-drawer,
+.weq-call-card:has(.weq-call-stage[data-layout='self']) .weq-call-drawer,
+.weq-call-card:has(.weq-call-stage[data-layout='self-only']) .weq-call-drawer,
+.weq-call-card:has(.weq-call-stage[data-layout='peer']) .weq-call-recorder-bar,
+.weq-call-card:has(.weq-call-stage[data-layout='self']) .weq-call-recorder-bar,
+.weq-call-card:has(.weq-call-stage[data-layout='self-only']) .weq-call-recorder-bar {
   position: relative;
   z-index: 2;
+}
+
+/* 控件栏贴底，并留一条渐变让按钮不直接浮在画面上。 */
+.weq-call-card:has(.weq-call-stage[data-layout='peer']) .weq-call-actions,
+.weq-call-card:has(.weq-call-stage[data-layout='self']) .weq-call-actions,
+.weq-call-card:has(.weq-call-stage[data-layout='self-only']) .weq-call-actions {
   margin-top: auto;
 }
 
 .weq-call-card:has(.weq-call-stage[data-layout='peer'])::after,
-.weq-call-card:has(.weq-call-stage[data-layout='self'])::after {
+.weq-call-card:has(.weq-call-stage[data-layout='self'])::after,
 .weq-call-card:has(.weq-call-stage[data-layout='self-only'])::after {
   content: '';
   position: absolute;
@@ -235,26 +248,13 @@
   z-index: 1;
 }
 
-.weq-call-card:has(.weq-call-stage[data-layout='peer']) .weq-call-actions,
-.weq-call-card:has(.weq-call-stage[data-layout='self']) .weq-call-actions,
-.weq-call-card:has(.weq-call-stage[data-layout='self-only']) .weq-call-actions,
-.weq-call-card:has(.weq-call-stage[data-layout='peer']) .weq-call-drawer,
-.weq-call-card:has(.weq-call-stage[data-layout='self']) .weq-call-drawer,
-.weq-call-card:has(.weq-call-stage[data-layout='self-only']) .weq-call-drawer,
-.weq-call-card:has(.weq-call-stage[data-layout='peer']) .weq-call-recorder-bar,
-.weq-call-card:has(.weq-call-stage[data-layout='self']) .weq-call-recorder-bar {
-.weq-call-card:has(.weq-call-stage[data-layout='self-only']) .weq-call-recorder-bar {
-  position: relative;
-  z-index: 2;
-}
-
 /* ── 深色模式 ──
  *
  * 视频布局的底是纯黑，深浅两套主题下都成立；这里只调整非画面元素，
  * 避免浅色主题的边框 / 文字投影在暗背景上显得脏。
  */
 html[data-theme='dark'] .weq-call-stage[data-layout='peer'] .weq-call-name,
-html[data-theme='dark'] .weq-call-stage[data-layout='self'] .weq-call-name {
+html[data-theme='dark'] .weq-call-stage[data-layout='self'] .weq-call-name,
 html[data-theme='dark'] .weq-call-stage[data-layout='self-only'] .weq-call-name {
   text-shadow: 0 1px 8px rgb(0 0 0 / 0.85);
 }
