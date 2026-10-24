@@ -122,7 +122,8 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   const videoLayout = info.videoReceiving || info.videoSending;
   const peerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const selfCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const video = useCallVideo({ enabled: live && info.videoReceiving, canvasRef: peerCanvasRef });
+  const videoEnabled = live && info.videoReceiving;
+  const video = useCallVideo({ enabled: videoEnabled, canvasRef: peerCanvasRef });
   // 本端摄像头：开关由按钮控制，采集后转 I420 推给主进程编码。
   const camera = useCallCamera({ enabled: live && info.videoSending });
   // 采集错误要告诉用户（权限被拒 / 没有设备），否则会以为「点了没反应」。

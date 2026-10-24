@@ -307,3 +307,55 @@ html[data-theme='dark'] .weq-call-self-video {
   flex-shrink: 0;
   color: var(--weq-accent-effective);
 }
+
+/* ── 视频布局下的控件栏 ──
+ *
+ * 卡片底是纯黑（`#0a0a0c`），而按钮颜色走 `--weq-fg-primary` —— 浅色主题下那
+ * 是深色，直接糊在黑底上看不见。所以视频布局里把按钮强制成浅色前景，
+ * 与画面上的名字 / 状态一致。
+ */
+.weq-call-card:has(.weq-call-stage[data-layout='peer']) .weq-call-btn,
+.weq-call-card:has(.weq-call-stage[data-layout='self']) .weq-call-btn,
+.weq-call-card:has(.weq-call-stage[data-layout='self-only']) .weq-call-btn {
+  background: rgb(255 255 255 / 0.14);
+  border-color: rgb(255 255 255 / 0.22);
+  color: #fff;
+}
+
+.weq-call-card:has(.weq-call-stage[data-layout='peer']) .weq-call-btn:hover:not(:disabled),
+.weq-call-card:has(.weq-call-stage[data-layout='self']) .weq-call-btn:hover:not(:disabled),
+.weq-call-card:has(.weq-call-stage[data-layout='self-only']) .weq-call-btn:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.24);
+}
+
+/* 关闭态（静音 / 关摄像头 / 关声音）仍用强调色，但要在黑底上够亮。 */
+.weq-call-card:has(.weq-call-stage[data-layout='peer']) .weq-call-btn.is-off,
+.weq-call-card:has(.weq-call-stage[data-layout='self']) .weq-call-btn.is-off,
+.weq-call-card:has(.weq-call-stage[data-layout='self-only']) .weq-call-btn.is-off {
+  background: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 70%, transparent);
+  color: #fff;
+}
+
+/* 挂断键保持固定红，但去掉深色投影（黑底上看不见）。 */
+.weq-call-card:has(.weq-call-stage[data-layout='peer']) .weq-call-btn.is-hangup,
+.weq-call-card:has(.weq-call-stage[data-layout='self']) .weq-call-btn.is-hangup,
+.weq-call-card:has(.weq-call-stage[data-layout='self-only']) .weq-call-btn.is-hangup {
+  background: #e5484d;
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.45);
+}
+
+/* 抽屉与录音条的文本同理。 */
+.weq-call-card:has(.weq-call-stage[data-layout='peer']) .weq-call-drawer-toggle,
+.weq-call-card:has(.weq-call-stage[data-layout='self']) .weq-call-drawer-toggle,
+.weq-call-card:has(.weq-call-stage[data-layout='self-only']) .weq-call-drawer-toggle {
+  color: rgb(255 255 255 / 0.8);
+}
+
+.weq-call-card:has(.weq-call-stage[data-layout='peer']) .weq-call-drawer-toggle:hover,
+.weq-call-card:has(.weq-call-stage[data-layout='self']) .weq-call-drawer-toggle:hover,
+.weq-call-card:has(.weq-call-stage[data-layout='self-only']) .weq-call-drawer-toggle:hover {
+  color: #fff;
+}

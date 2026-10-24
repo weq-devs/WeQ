@@ -183,6 +183,17 @@ export const callRouter = router({
     }>((emit) => {
       const manager = findCallManager();
       if (!manager) return () => {};
+      // 先补最近的关键帧：订阅是在「对端开始发视频」之后才建立的，首个关键帧
+      // 往往已经过去，没有它解码器起不来（后续 delta 帧会全被丢弃）。
+      const kf = manager.latestKeyframe();
+      if (kf?.hevc) {
+        emit.next({
+          hevc: kf.hevc,
+          timestamp: kf.timestamp,
+          keyframe: true,
+          info: kf.info,
+        });
+      }
       const handler = (event: CallEvent) => {
         if (event.type !== 'video') return;
         emit.next({

@@ -31,6 +31,7 @@ import {
   type CallState,
   type UdpTransport,
   type VideoStreamInfo,
+  type VideoFramePayload,
 } from '@weq/service';
 import { CallRecorder, type RecordingSnapshot } from './call_recorder';
 import { NativeVideoEncoder } from './call_video_encoder';
@@ -55,7 +56,10 @@ class NodeUdpTransport implements UdpTransport {
 
   async bind(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const socket = dgram.createSocket({ type: 'udp4', reuseAddr: false });
+      // 双栈套接字：视频通话的 P2P 直连地址是 **IPv6**（服务端下发的 bt=9
+      // 里是 16 字节裸 IPv6），udp4 发不出去。`ipv6Only: false` 让它同时
+      // 接受 IPv4 目标（Linux 上会自动走 ::ffff: 映射）。
+      const socket = dgram.createSocket({ type: 'udp6', reuseAddr: false, ipv6Only: false });
       socket.once('error', reject);
       socket.bind(0, () => {
         socket.removeListener('error', reject);
@@ -69,7 +73,15 @@ class NodeUdpTransport implements UdpTransport {
     if (!this.socket) return;
     // 直接拷一份：dgram 的回调可能在原缓冲被复写之后才跑。
     const buffer = Buffer.from(data);
-    this.socket.send(buffer, 0, buffer.length, port, address, () => {});
+    // udp6 套接字发纯 IPv4 目标时，部分平台需要显式映射成 ::ffff: 形式。
+    const target = address.includes(':') ? address : `::ffff:${address}`;
+    this.socket.send(buffer, 0, buffer.length, port, target, (error) => {
+      // 发送失败以前是静默吞掉的：地址不可达 / 套接字类型不匹配时
+      // 上层完全看不出「对方为什么收不到」。这里至少留一条日志。
+      if (error) {
+        logger.warn('UDP 发送失败', { address, port, error: error.message });
+      }
+    });
   }
 
   close(): void {
@@ -211,6 +223,10 @@ export class CallManager extends EventEmitter {
 
   /** 视频编码器（只有视频通话才非 null）。 */
   private videoEncoder: NativeVideoEncoder | null = null;
+  /** 上一帧是否基础层（用于「基础层优先」的取舍）。 */
+  private lastFrameWasBase = false;
+  /** 最近收到的一个关键帧（新订阅者补发用）。 */
+  private lastKeyframe: VideoFramePayload | null = null;
   /** 当前这通电话的录音设置（发起时取一次，通话中改设置不影响进行中的录音）。 */
   private recordingConfig: CallRecordingConfig = { mode: 'mixed', systemAudio: false, dir: null };
   private recorder: CallRecorder | null = null;
@@ -234,6 +250,17 @@ export class CallManager extends EventEmitter {
   /** 当前通话（没有则 null）。 */
   current(): ActiveCallInfo | null {
     return this.info;
+  }
+
+  /**
+   * 取最近的关键帧，供**新建立**的渲染层订阅补发。
+   *
+   * 渲染层是在「对端开始发视频」的状态推送之后才订阅 `onCallVideo` 的，而首个
+   * 关键帧通常已经过去。没有关键帧起解，后面的 delta 帧全解不出来 —— 所以
+   * 订阅时先补这一帧。
+   */
+  latestKeyframe(): VideoFramePayload | null {
+    return this.lastKeyframe;
   }
 
   /** 发起一路通话。已有通话在跑时直接报错，由界面提示先挂断。 */
@@ -302,7 +329,19 @@ export class CallManager extends EventEmitter {
     });
     session.onVideo((frame) => {
       // 只推基础层：增强层依赖基础层，单独解会花屏。
-      if (!frame.hevc || !frame.isBaseLayer) return;
+      //
+      // 但实测对端会在基础层之外再发 fidx=2 的增强层，而**基础层不是每帧都有**——
+      // 一旦对端把画面切成纯增强层（长时间静止后重新编码），全丢就会永久黑屏。
+      // 所以：基础层优先，没有基础层时退回增强层（解码器能解多少算多少，
+      // 花屏好过没画面）。
+      if (!frame.hevc) return;
+      // 增强层只在没有基础层可用时才推 —— 见上面的注释。
+      if (!frame.isBaseLayer && this.lastFrameWasBase) return;
+      this.lastFrameWasBase = frame.isBaseLayer;
+      // 缓存最近一个关键帧：渲染层的解码订阅是在「对端开始发视频」的状态推送
+      // **之后**才建立的，而首个关键帧往往已经过去 —— 后面的 delta 帧没有
+      // 关键帧起解，画面永远出不来。新订阅先用这份补一帧。
+      if (frame.isKeyframe) this.lastKeyframe = frame;
       this.emit('event', {
         type: 'video',
         hevc: frame.hevc,
@@ -355,8 +394,30 @@ export class CallManager extends EventEmitter {
     if (!session) return false;
     if (!session.snapshot().videoSending) return false;
     const encoder = this.videoEncoder;
-    encoder?.pushFrame({ y, u, v });
-    return encoder !== null;
+    if (!encoder) {
+      logger.warn('pushVideoFrame：本端没有视频编码器');
+      return false;
+    }
+    // tRPC 走 JSON 时 Uint8Array 可能变成普通对象；这里统一归一化，
+    // 否则 `Buffer.from(obj)` 会得到空/错数据，编码器静默不出帧。
+    const norm = (value: unknown): Uint8Array => {
+      if (value instanceof Uint8Array) return value;
+      const obj = value as { type?: string; data?: number[]; length?: number };
+      if (obj?.type === 'Buffer' && Array.isArray(obj.data)) return Uint8Array.from(obj.data);
+      if (typeof obj?.length === 'number') {
+        const out = new Uint8Array(obj.length);
+        for (let i = 0; i < obj.length; i++) {
+          out[i] = (value as unknown as Record<number, number>)[i] ?? 0;
+        }
+        return out;
+      }
+      return new Uint8Array(0);
+    };
+    const ny = norm(y);
+    const nu = norm(u);
+    const nv = norm(v);
+    encoder.pushFrame({ y: ny, u: nu, v: nv });
+    return true;
   }
 
   /**
@@ -368,7 +429,15 @@ export class CallManager extends EventEmitter {
   setCamera(enabled: boolean): boolean {
     const session = this.session;
     if (!session) return false;
+    const before = session.snapshot();
     session.setCamera(enabled);
+    const after = session.snapshot();
+    logger.info('切换摄像头', {
+      enabled,
+      state: before.state,
+      videoSending: `${before.videoSending} -> ${after.videoSending}`,
+      roomId: after.roomId,
+    });
     return true;
   }
 
@@ -574,6 +643,7 @@ export class CallManager extends EventEmitter {
     this.transport?.close();
     this.videoEncoder?.close();
     this.videoEncoder = null;
+    this.lastKeyframe = null;
     this.session = null;
     this.transport = null;
     this.info = null;

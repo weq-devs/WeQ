@@ -57,6 +57,7 @@ import {
   parseFecContainer,
   parseGcsPacket,
   parseQfb,
+  pbGetBytes,
   parseVideoPacket,
   rsEncode,
   splitHevcNals,
@@ -180,6 +181,8 @@ export interface CallVideoEncoder {
   pushFrame?(frame: { y: Uint8Array; u: Uint8Array; v: Uint8Array }): void;
   /** 视频规格（写进 SPS，供对端初始化）。 */
   info(): VideoStreamInfo;
+  /** 待编码的帧数（调试用）。 */
+  readonly pendingFrameCount?: number;
   close(): void;
 }
 
@@ -277,8 +280,59 @@ const FEC_GROUP = 4;
 const VIDEO_KEEPALIVE_MS = 2000;
 /** 视频发送轮询间隔：比最慢的帧间隔（10 fps）小一个量级。 */
 const VIDEO_PUMP_MS = 10;
+/**
+ * 多久没收到对端视频包就认定它停了。
+ *
+ * 实测帧间隔最大约 200 ms（10 fps 且抖动大），留 3 秒余量 —— 既不会被
+ * 正常的卡顿误判，又能在控制包丢失时较快收敛。
+ */
+const VIDEO_SILENCE_MS = 3000;
 
 // ─────────────────────────── 会话 ───────────────────────────
+
+/**
+ * 16 字节 IPv6 → 标准文本形式。
+ *
+ * 通话服务端下发的是裸 16 字节（不是字符串），要转成 `dgram.send` 认的写法。
+ * 用 `::` 压缩连续零段，否则 `240e:399:f9d:3f10:0:0:0:1` 这种写法虽然合法，
+ * 但和抓包里的形态对不上，排查时会误以为地址不同。
+ */
+function formatIpv6(raw: Uint8Array): string | null {
+  if (raw.length !== 16) return null;
+  const groups: number[] = [];
+  for (let i = 0; i < 16; i += 2) groups.push((raw[i]! << 8) | raw[i + 1]!);
+
+  // 找最长的一段连续 0（RFC 5952：至少两个零组才压缩）。
+  let bestStart = -1;
+  let bestLen = 0;
+  let runStart = -1;
+  let runLen = 0;
+  for (let i = 0; i < 8; i++) {
+    if (groups[i] === 0) {
+      if (runStart < 0) {
+        runStart = i;
+        runLen = 0;
+      }
+      runLen++;
+      if (runLen > bestLen) {
+        bestStart = runStart;
+        bestLen = runLen;
+      }
+    } else {
+      runStart = -1;
+      runLen = 0;
+    }
+  }
+
+  const hex = (n: number) => n.toString(16);
+  if (bestLen < 2) return groups.map(hex).join(':');
+  const head = groups.slice(0, bestStart).map(hex).join(':');
+  const tail = groups
+    .slice(bestStart + bestLen)
+    .map(hex)
+    .join(':');
+  return `${head}::${tail}`;
+}
 
 /**
  * 从一帧 Annex B 里读 HEVC 规格（分辨率 / profile）。
@@ -373,6 +427,22 @@ export class CallSession {
   private videoSending = false;
   private videoReceiving = false;
   private receivedVideoFrames = 0;
+  /** 最后一帧视频到达的时刻（毫秒），用于「对端静默停流」的兜底判断。 */
+  private lastVideoPacketAt = 0;
+  /**
+   * 对端的直连地址（P2P）。
+   *
+   * 视频通话的媒体与控制包**主要走对等端直连**，服务端只负责牵线并转发一小部分。
+   * 地址由 GCS 的 `bt=9` 下发（body.f7 = 16 字节 IPv6），拿到之后媒体包要
+   * **同时**发服务端和这里 —— 只发服务端对端收不到。
+   */
+  private peerDirect: { address: string; port: number } | null = null;
+  /** 最近一次收到对端包的来源（P2P 端口往往只能从实际流量里学到）。 */
+  private lastPeerFrom: { address: string; port: number } | null = null;
+  /** 已发出的视频帧数。 */
+  private sentVideoFrames = 0;
+  /** 连续取不到帧的轮数（用于只报一次警）。 */
+  private videoStarvedTicks = 0;
   private videoInfo: VideoStreamInfo | null = null;
   /** 视频帧序号（写进 sub-header，每帧 +1）。 */
   private videoFrameIndex = 0;
@@ -381,6 +451,8 @@ export class CallSession {
   private videoKeepaliveTimer: unknown = null;
   /** 视频发送循环定时器。 */
   private videoTimer: unknown = null;
+  /** 视频接收看门狗。 */
+  private videoWatchdogTimer: unknown = null;
   /** 本端视频编码器（由主进程注入；没有就只做接收）。 */
   private videoEncoder: CallVideoEncoder | null = null;
 
@@ -468,8 +540,21 @@ export class CallSession {
    * 没有注入编码器时只发控制包，对端会显示「等待对方画面」。
    */
   setCamera(enabled: boolean): void {
-    if (this.state !== 'connected') return;
-    if (this.videoSending === enabled) return;
+    this.log?.info('setCamera 请求', {
+      enabled,
+      state: this.state,
+      current: this.videoSending,
+      hasGcs: Boolean(this.gcs),
+      sessionTs: this.sessionTs,
+    });
+    if (this.state !== 'connected') {
+      this.log?.warn('setCamera 被拒：通话未接通', { state: this.state });
+      return;
+    }
+    if (this.videoSending === enabled) {
+      this.log?.warn('setCamera 被拒：状态已是目标值', { enabled });
+      return;
+    }
     this.videoSending = enabled;
     this.sendVideoControl();
     if (enabled) {
@@ -569,11 +654,21 @@ export class CallSession {
     const gcsCandidates = servers.filter((s) => s.type === 1);
     const relayCandidates = servers.filter((s) => s.type === 2);
     this.gcsCandidates = [...gcsCandidates, ...relayCandidates];
+    // 记住的 IP 优先在 **type=1（真 GCS）** 里找：同一个 IP 也可能出现在中继表
+    // 里（不同端口），直接在整个候选表里 find 会选中 8800 那个中继端口 ——
+    // 音频还能通（服务端两个端口都收），但视频控制包发到中继就没人处理。
     this.gcs =
+      gcsCandidates.find((s) => s.ip === CallSession.goodGcsIp) ??
+      gcsCandidates[0] ??
       this.gcsCandidates.find((s) => s.ip === CallSession.goodGcsIp) ??
       this.gcsCandidates[0] ??
       null;
     this.gcsIndex = Math.max(0, this.gcsCandidates.indexOf(this.gcs!));
+    this.log?.debug('服务器表', {
+      gcs: gcsCandidates.length,
+      relay: relayCandidates.length,
+      picked: this.gcs ? `${this.gcs.ip}:${this.gcs.port}` : 'none',
+    });
 
     const seen = new Set<string>();
     this.relays = [];
@@ -607,6 +702,26 @@ export class CallSession {
   private send(data: Uint8Array): void {
     if (!this.gcs) return;
     this.opts.transport.send(data, this.gcs.port, this.gcs.ip);
+  }
+
+  /**
+   * 发媒体包（`0x5b`）：**服务端与对端直连各发一份**。
+   *
+   * 实测视频通话的媒体主要走 P2P（对端直连），服务端只转发一小部分；只发服务端
+   * 时对端收不到画面。控制包（`sub=4`）同理 —— 它也要走 P2P。
+   *
+   * P2P 地址来自 `bt=9`，端口从对端实际发包的来源学到（见
+   * {@link rememberPeerSource}）。还没学到端口时只发服务端。
+   */
+  private sendMedia(data: Uint8Array): void {
+    this.send(data);
+    const peer = this.peerDirect;
+    if (peer && peer.port > 0 && this.gcs) {
+      // 同一台机器（回环场景）会和服务端地址撞上，避免重复发。
+      if (peer.address !== this.gcs.ip || peer.port !== this.gcs.port) {
+        this.opts.transport.send(data, peer.port, peer.address);
+      }
+    }
   }
 
   private sendTo(data: Uint8Array, server: CallServer): void {
@@ -710,7 +825,7 @@ export class CallSession {
       frameCounter: this.frameCounter,
       opus: OPUS_SILENCE,
     });
-    this.send(packet);
+    this.sendMedia(packet);
     this.sentFrames++;
   }
 
@@ -869,7 +984,7 @@ export class CallSession {
       opus,
       fecContainer,
     });
-    this.send(packet);
+    this.sendMedia(packet);
     this.sentFrames++;
 
     // 组结束：对本组 4 帧做 RS 编码，校验行留给下一组。
@@ -892,11 +1007,14 @@ export class CallSession {
 
   // ── 收包 ──
 
-  private handlePacket(data: Uint8Array, _from: { address: string; port: number }): void {
+  private handlePacket(data: Uint8Array, from: { address: string; port: number }): void {
     if (data.length < 1) return;
     const stx = data[0];
-    if (stx === GCS_STX) this.handleGcs(data);
-    else if (stx === AUDIO_STX) this.handleAudio(data);
+    // 媒体包（0x5b）的来源可能是 P2P 直连 —— 记下它，媒体回程要用。
+    if (stx === AUDIO_STX) {
+      this.rememberPeerSource(from);
+      this.handleAudio(data);
+    } else if (stx === GCS_STX) this.handleGcs(data);
     else if (stx === RELAY_STX) this.handleRelay(data);
   }
 
@@ -917,11 +1035,63 @@ export class CallSession {
       case GcsBodyType.peerJoin:
         this.ackPush(packet.typeId, packet.bodyType, packet.body);
         break;
+      case GcsBodyType.ctrlPush:
+        // bt=9 带对端直连地址 —— 视频通话的媒体与控制包主要走 P2P，
+        // 只发服务端对端收不到。解析完照常 ACK。
+        this.handlePeerAddress(packet.body);
+        this.ackPush(packet.typeId, packet.bodyType, packet.body);
+        break;
       default:
         // 其它推送类型一律回 ACK：不回的话服务端会重推。
         if (packet.bodyType % 2 === 1) this.ackPush(packet.typeId, packet.bodyType, packet.body);
         break;
     }
+  }
+
+  /**
+   * 解析 `bt=9` 里的对端直连地址。
+   *
+   * body 结构（实测）：
+   *
+   * ```text
+   * f1 bytes   固定 8 字节描述（链路类型等）
+   * f2 varint  对端 QQ 号
+   * f3 varint  端口相关（含义未定，实测不是监听端口）
+   * f7 bytes   16 字节 —— 对端 IPv6 地址 ★
+   * f8 varint  端口相关
+   * ```
+   *
+   * 端口不在 `f3` / `f8` 里（实测对端 P2P 端口是 47652 / 38965，两者都对不上），
+   * 所以这里只取地址；端口用**实际收到对端包时的来源端口**（见
+   * {@link rememberPeerSource}）—— 对端一旦开始发，来源就是可用的回程地址。
+   */
+  private handlePeerAddress(body: Uint8Array): void {
+    const raw = pbGetBytes(body, 7);
+    if (raw?.length !== 16) return;
+    const address = formatIpv6(raw);
+    if (!address) return;
+    if (this.peerDirect?.address === address) return;
+    // 端口先留 0：真正可用的是对端发包时的来源端口。
+    this.peerDirect = { address, port: this.peerDirect?.port ?? 0 };
+    this.log?.info('拿到对端直连地址', { address, port: this.peerDirect.port });
+  }
+
+  /**
+   * 记住对端包的来源地址与端口。
+   *
+   * P2P 的端口是**对端发起时临时协商**的，服务端下发的 bt=9 里没有 —— 但反过来，
+   * 对端发给我们的包天然带着它的源地址:端口，直接拿来当回程目标即可。
+   */
+  private rememberPeerSource(from: { address: string; port: number }): void {
+    if (this.lastPeerFrom?.address === from.address && this.lastPeerFrom?.port === from.port)
+      return;
+    this.lastPeerFrom = from;
+    // 判据是「来源 != 服务端」而不是「和 bt=9 一致」：bt=9 只给地址不给端口，
+    // 而真正的回程端口只能从对端实际发包的来源学到。服务端地址要排除掉。
+    const isServer = this.gcs && this.gcs.ip === from.address && this.gcs.port === from.port;
+    if (isServer) return;
+    this.peerDirect = { address: from.address, port: from.port };
+    this.log?.info('学到对端直连地址', { address: from.address, port: from.port });
   }
 
   private handleAuthRsp(): void {
@@ -1008,6 +1178,19 @@ export class CallSession {
     this.sampleBase = (this.tick() * 16) >>> 0;
     this.startQfb();
     this.startAudioLoop();
+    this.startVideoWatchdog();
+    // QQ 的默认行为：**视频通话接通时双方摄像头自动打开**（对方可以选择
+    // 语音接听，但那不影响我们这边开摄像头）。语音通话则保持关闭。
+    //
+    // 这里在 emit 之前切，界面上接通的那一刻就已经是「本端在发视频」。
+    if (this.opts.media === 'video' && !this.videoSending) {
+      this.videoSending = true;
+      this.sendVideoControl();
+      this.videoFrameIndex = 0;
+      this.startVideoLoop();
+      this.startVideoKeepalive();
+      this.log?.info('视频通话接通，自动开启摄像头');
+    }
     this.emit();
   }
 
@@ -1026,6 +1209,14 @@ export class CallSession {
     const header = parseAudioHeader(data);
     if (!header) return;
     this.lastPeerTick = header.tick;
+    // 0x5b 的每个子类型都记一笔：排查「对端到底发没发」时这是唯一线索。
+    if (header.subType !== AudioSubType.audio) {
+      this.log?.info('收到非音频媒体包', {
+        subType: `0x${header.subType.toString(16)}`,
+        len: data.length,
+        from: 'peer',
+      });
+    }
 
     switch (header.subType) {
       case AudioSubType.qfb:
@@ -1095,12 +1286,20 @@ export class CallSession {
    * 协议里**没有**开关位：收到一条就说明对端的摄像头状态**取反**。真正的画面
    * 会在随后几十毫秒内到（开）或停止（关）。
    *
-   * 这里以「是否真的收到视频包」为准来维护 `videoReceiving`，控制包只用来
-   * 记日志——对端可能因为采集失败（比如 Wayland 下的屏幕共享）发了控制包却
-   * 出不来画面，那时不该显示「对方正在视频」。
+   * **以控制包为准**切换 `videoReceiving`。早先这里只打日志不动作，界面会
+   * 永远停在「等待对方画面」，对端关了也退不出去。
+   *
+   * 画面本身由 {@link handleVideoPacket} 兜底：万一控制包丢了，收到真画面
+   * 也会把状态点亮。
    */
   private handleVideoControl(): void {
-    this.log?.debug('对端摄像头开关控制包', { receiving: this.videoReceiving });
+    this.videoReceiving = !this.videoReceiving;
+    this.log?.info('对端摄像头切换', { receiving: this.videoReceiving });
+    if (!this.videoReceiving) {
+      // 关掉时清空半帧，避免下一轮把旧的残片拼进来。
+      this.videoAssembler.reset();
+    }
+    this.emit();
   }
 
   private handleVideoPacket(data: Uint8Array): void {
@@ -1110,14 +1309,29 @@ export class CallSession {
     const frame = this.videoAssembler.push(packet, this.timers.now());
     if (!frame) return;
 
+    // 控制包是权威信号（对端开 / 关），视频包只做兜底：万一控制包丢了，
+    // 收到真画面也该把状态点亮。
     if (!this.videoReceiving) {
       this.videoReceiving = true;
-      this.log?.info('开始接收对端视频', { subType: packet.subType });
+      this.log?.info('开始接收对端视频（由视频包触发）', { subType: packet.subType });
       this.emit();
     }
     this.receivedVideoFrames++;
+    this.lastVideoPacketAt = this.timers.now();
 
     const hevc = extractHevc(frame);
+    // 前几帧把组帧结果打出来：拼不上 / 剥不出裸流是「收到包但没画面」的典型原因。
+    if (this.receivedVideoFrames <= 5 || this.receivedVideoFrames % 50 === 0) {
+      this.log?.info('视频帧组装', {
+        gidx: frame.gidx,
+        fidx: frame.fidx,
+        keyframe: frame.isKeyframe,
+        subHeaderSize: frame.subHeaderSize,
+        frameBytes: frame.frameData.length,
+        hevc: hevc ? hevc.length : null,
+        pending: this.videoAssembler.pendingCount,
+      });
+    }
     // 只在关键帧上读规格，避免每帧都解析 SPS。
     if (hevc && frame.isKeyframe) {
       const info = readHevcInfo(hevc);
@@ -1147,15 +1361,45 @@ export class CallSession {
       sessionTs: this.sessionTs,
       tick: this.tick(),
     });
-    this.send(packet);
-    this.send(packet);
+    this.log?.info('发摄像头控制包', {
+      to: this.gcs ? `${this.gcs.ip}:${this.gcs.port}` : 'none',
+      peer: this.peerDirect ? `${this.peerDirect.address}:${this.peerDirect.port}` : 'none',
+      sessionTs: this.sessionTs,
+      hex: Array.from(packet, (b) => b.toString(16).padStart(2, '0')).join(''),
+    });
+    // 控制包必须走 P2P：对端判断「你在开/关摄像头」靠的就是这条，只发服务端它收不到。
+    this.sendMedia(packet);
+    this.sendMedia(packet);
+  }
+
+  /**
+   * 视频接收看门狗。
+   *
+   * 对端关摄像头时除了发控制包，还会停发视频流。控制包是 UDP，可能丢 ——
+   * 丢了我们就会一直卡在「等待对方画面」。这里每秒查一次：超过
+   * {@link VIDEO_SILENCE_MS} 没收到视频包就认定对端已停。
+   *
+   * 只在「正在接收」时才检查，避免刚开摄像头那几百毫秒的建流期被误判。
+   */
+  private startVideoWatchdog(): void {
+    if (this.videoWatchdogTimer !== null) return;
+    this.videoWatchdogTimer = this.timers.setInterval(() => {
+      if (!this.videoReceiving) return;
+      if (this.lastVideoPacketAt === 0) return;
+      const silent = this.timers.now() - this.lastVideoPacketAt;
+      if (silent < VIDEO_SILENCE_MS) return;
+      this.log?.info('对端视频静默超时，按已关闭处理', { silentMs: silent });
+      this.videoReceiving = false;
+      this.videoAssembler.reset();
+      this.emit();
+    }, 1000);
   }
 
   /** 视频保活：每 2 秒一条，视频停了也继续发到挂断。 */
   private startVideoKeepalive(): void {
     if (this.videoKeepaliveTimer !== null) return;
     const beat = () => {
-      this.send(
+      this.sendMedia(
         buildVideoKeepalive({
           sessionTs: this.sessionTs,
           tick: this.tick(),
@@ -1208,7 +1452,23 @@ export class CallSession {
 
     try {
       const hevc = await encoder.next();
-      if (hevc && hevc.length > 0) this.sendVideoFrame(hevc);
+      if (hevc && hevc.length > 0) {
+        this.sentVideoFrames++;
+        if (this.sentVideoFrames <= 3 || this.sentVideoFrames % 30 === 0) {
+          this.log?.info('发出视频帧', {
+            n: this.sentVideoFrames,
+            bytes: hevc.length,
+            queued: this.videoEncoder?.pendingFrameCount ?? -1,
+          });
+        }
+        this.sendVideoFrame(hevc);
+      } else if (this.sentVideoFrames === 0) {
+        // 一直取不到帧：多半是渲染层没推 I420 进来。
+        this.videoStarvedTicks++;
+        if (this.videoStarvedTicks === 30) {
+          this.log?.warn('视频发送一直取不到帧（渲染层可能没推 I420）');
+        }
+      }
     } catch (error) {
       this.log?.warn('编码一帧视频失败', { error });
     }
@@ -1244,7 +1504,7 @@ export class CallSession {
       tick: this.tick(),
       seq: ++this.videoSeq,
     });
-    for (const packet of packets) this.send(packet);
+    for (const packet of packets) this.sendMedia(packet);
     this.videoFrameIndex++;
   }
 
@@ -1379,6 +1639,7 @@ export class CallSession {
       [this.gcsRetryTimer, 'clearTimeout'],
       [this.videoKeepaliveTimer, 'clearInterval'],
       [this.videoTimer, 'clearTimeout'],
+      [this.videoWatchdogTimer, 'clearInterval'],
     ];
     for (const [handle, kind] of pairs) {
       if (handle !== null) this.timers[kind](handle);
@@ -1393,6 +1654,7 @@ export class CallSession {
     this.gcsRetryTimer = null;
     this.videoKeepaliveTimer = null;
     this.videoTimer = null;
+    this.videoWatchdogTimer = null;
   }
 
   private emit(): void {

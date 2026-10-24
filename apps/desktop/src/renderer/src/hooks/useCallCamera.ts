@@ -55,6 +55,8 @@ export function useCallCamera(options: { enabled: boolean }): CallCameraState {
   // 用 ref 固定住，effect 只依赖 enabled。
   const pushRef = useRef(push);
   pushRef.current = push;
+  /** 已推帧数（只用于前几帧的排查日志）。 */
+  const pushCount = useRef(0);
 
   /** 停掉采集与定时器。 */
   const stop = useCallback(() => {
@@ -153,7 +155,16 @@ export function useCallCamera(options: { enabled: boolean }): CallCameraState {
       ctx.drawImage(video, 0, 0, ENCODE_WIDTH, ENCODE_HEIGHT);
       const rgba = ctx.getImageData(0, 0, ENCODE_WIDTH, ENCODE_HEIGHT).data;
       const { y, u, v } = rgbaToI420(rgba, ENCODE_WIDTH, ENCODE_HEIGHT);
-      pushRef.current.mutate({ y, u, v });
+      pushCount.current++;
+      // 只在首批帧失败时报错：持续失败会刷屏，但完全静默又没法排查。
+      pushRef.current.mutate(
+        { y, u, v },
+        {
+          onError: (error) => {
+            if (pushCount.current <= 5) console.error('[call] 推送视频帧失败', error);
+          },
+        },
+      );
     }
 
     return () => {

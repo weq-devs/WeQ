@@ -377,10 +377,17 @@ describe('接收视频', () => {
     expect(frames).toHaveLength(1);
   });
 
-  it('对端控制包只记日志，不改变接收状态', async () => {
+  it('收到对端控制包就切换接收状态（协议里没有开关位）', async () => {
     const ctx = makeSession();
     await connect(ctx);
+    expect(ctx.session.snapshot().videoReceiving).toBe(false);
+
+    // 第一条：对端开摄像头。
     ctx.transport.deliver(buildVideoControl({ sessionTs: 1, tick: 2 }));
+    expect(ctx.session.snapshot().videoReceiving).toBe(true);
+
+    // 第二条：对端关摄像头 —— 同一个包，靠「又收到一条」取反。
+    ctx.transport.deliver(buildVideoControl({ sessionTs: 1, tick: 3 }));
     expect(ctx.session.snapshot().videoReceiving).toBe(false);
   });
 
@@ -420,9 +427,24 @@ describe('发送视频', () => {
     expect(controls[0]!).toHaveLength(17);
   });
 
+  it('视频通话接通即自动开摄像头（QQ 的默认行为）', async () => {
+    const ctx = makeSession({ media: 'video' });
+    await connect(ctx);
+    // 接通那一刻就应该是「在发视频」，不需要用户再点一次。
+    expect(ctx.session.snapshot().videoSending).toBe(true);
+  });
+
+  it('语音通话接通不会自动开摄像头', async () => {
+    const ctx = makeSession();
+    await connect(ctx);
+    expect(ctx.session.snapshot().videoSending).toBe(false);
+  });
+
   it('快照里 videoSending 跟着切换', async () => {
     const ctx = makeSession({ media: 'video' });
     await connect(ctx);
+    // 接通即开，先关掉再验证开关。
+    ctx.session.setCamera(false);
     expect(ctx.session.snapshot().videoSending).toBe(false);
     ctx.session.setCamera(true);
     expect(ctx.session.snapshot().videoSending).toBe(true);

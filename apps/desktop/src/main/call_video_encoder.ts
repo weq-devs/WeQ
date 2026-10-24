@@ -122,4 +122,9 @@ export class NativeVideoEncoder implements CallVideoEncoder {
   get pending(): number {
     return this.queue.length;
   }
+
+  /** `CallSession` 日志里读它，看渲染层到底有没有在推帧。 */
+  get pendingFrameCount(): number {
+    return this.queue.length;
+  }
 }
