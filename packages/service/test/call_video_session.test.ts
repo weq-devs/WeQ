@@ -307,10 +307,10 @@ describe('接收视频', () => {
     const frames: VideoFramePayload[] = [];
     ctx.session.onVideo((f) => frames.push(f));
 
-    // 20 字节 sub-header（首字节 0x14）+ 起始码 + VPS。
+    // 20 字节 sub-header（首字节 0x14）+ 起始码 + IDR（NAL 类型 19 → 0x26）。
     const sub = new Uint8Array(20);
     sub[0] = 20;
-    const body = new Uint8Array([0, 0, 0, 1, 0x40, 0x01, 0x0c, 0x01]);
+    const body = new Uint8Array([0, 0, 0, 1, 0x26, 0x01, 0xaf, 0xe0]);
     const whole = new Uint8Array(sub.length + body.length);
     whole.set(sub, 0);
     whole.set(body, sub.length);

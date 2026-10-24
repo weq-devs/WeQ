@@ -19,9 +19,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { trpc } from '../trpc/client';
 import { resourceUrl } from '../lib/resourceUrl';
+import { requestOpenSettings } from '../lib/callSettingsBridge';
 import { useToolWindow } from '../hooks/useCompositionWindow';
 import { useCallAudio } from '../hooks/useCallAudio';
-import { useCallRecorder, type CallRecordingMode } from '../hooks/useCallRecorder';
+import { useCallVideo } from '../hooks/useCallVideo';
+import { useCallRecorder } from '../hooks/useCallRecorder';
 import { RenderDocumentContext } from '../lib/renderDocument';
 import { HoverTooltip } from './HoverTooltip';
 import { useToast } from './Toast';
@@ -32,6 +34,7 @@ import { CallRecorderBar, CallRecordingCard, formatDuration } from './call/CallR
 import { CallSettingsDrawer, useCallRecordingSettings } from './call/CallSettingsDrawer';
 import '../styles/call.css';
 import '../styles/call-recorder.css';
+import '../styles/call-video.css';
 
 interface CallInfo {
   state: CallState;
@@ -51,6 +54,12 @@ interface CallInfo {
   sentFrames: number;
   receivedFrames: number;
   durationSec: number;
+  /** 本端摄像头是否开着。 */
+  videoSending: boolean;
+  /** 对端是否在发视频。 */
+  videoReceiving: boolean;
+  receivedVideoFrames: number;
+  videoInfo: { width: number; height: number; profile: number; codec: 'hevc' } | null;
 }
 
 /** 状态 → 文案。接通后显示时长，其余显示阶段。 */
@@ -108,6 +117,11 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
 
   const finished = info.state === 'ended' || info.state === 'failed';
   const live = info.state === 'connected';
+  /** 对端在发视频（或本端开着摄像头）时才有必要跑解码 / 画中画。 */
+  const videoLayout = info.videoReceiving || info.videoSending;
+  const peerCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const selfCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const video = useCallVideo({ enabled: live && info.videoReceiving, canvasRef: peerCanvasRef });
 
   const settings = useCallRecordingSettings();
   const recorder = useCallRecorder({
@@ -131,6 +145,13 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
       hangupRequested.current = false;
     },
   });
+  /**
+   * 语音是竖屏（400×620，留给大头像与波形），视频是横屏（16:9 的画面）。
+   *
+   * 窗口尺寸只在 `open()` 时定，所以这里在布局切换时自己 `resizeTo` ——
+   * 保持左上角不动、按比例换宽高，用户手动改过的尺寸会被这一次切换覆盖，
+   * 但之后不再干预（只在 `videoLayout` 真变化时跑）。
+   */
   const tool = useToolWindow({
     name: 'weq-call',
     title: 'WeQ · 语音通话',
@@ -184,6 +205,25 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
     };
   }, [tool.open, requestHangup, closeWindow]);
 
+  /**
+   * 布局切换时换窗口尺寸。
+   *
+   * 语音 400×620（竖屏），视频 720×480（横屏 3:2，容得下 16:9 画面 + 底部控件）。
+   * 只在「有没有视频」这件事真的变化时跑，避免每次状态推送都 resize。
+   */
+  const sizedForVideo = useRef(false);
+  useEffect(() => {
+    const popup = tool.popup;
+    if (!popup || popup.closed) return;
+    if (sizedForVideo.current === videoLayout) return;
+    sizedForVideo.current = videoLayout;
+    try {
+      popup.resizeTo(videoLayout ? 720 : 400, videoLayout ? 480 : 620);
+    } catch {
+      // 某些窗口管理器会拒绝 resizeTo，退化成让 CSS 自己适配即可。
+    }
+  }, [tool.popup, videoLayout]);
+
   // ── 状态订阅 ──
   trpc.call.onCallState.useSubscription(undefined, {
     onData: (next) => {
@@ -233,14 +273,25 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
     else void recorder.begin();
   }, [recorder]);
 
-  const handleModeChange = useCallback(
-    (mode: CallRecordingMode) => settings.update({ mode }),
-    [settings],
-  );
-  const handleSystemAudioChange = useCallback(
-    (enabled: boolean) => settings.update({ systemAudio: enabled }),
-    [settings],
-  );
+  /**
+   * 摄像头开关。
+   *
+   * 主进程只发控制信令并切发送状态；画面要靠编码器（尚未接入），所以打开后
+   * 本端小窗先显示「本端画面准备中」。对端会立刻收到开关信号。
+   */
+  const setCamera = trpc.call.setCamera.useMutation();
+  const cameraPending = useRef(false);
+  const handleToggleCamera = useCallback(() => {
+    if (cameraPending.current) return;
+    cameraPending.current = true;
+    const next = !info.videoSending;
+    setCamera.mutate({ enabled: next }, { onSettled: () => (cameraPending.current = false) });
+  }, [info.videoSending, setCamera]);
+
+  /** 打开设置页的「通话与录音」。通话窗口不关，用户回来还能继续。 */
+  const openSettings = useCallback(() => {
+    requestOpenSettings('callRecording');
+  }, []);
   const openFolder = trpc.help.openFolder.useMutation();
   const handleOpenFolder = useCallback(() => {
     const dir = settings.dir;
@@ -293,6 +344,12 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
             backgroundVideoUrl={info.backgroundVideoUrl}
             backdropFailed={backdropFailed}
             onBackdropError={() => setBackdropFailed(true)}
+            peerCanvasRef={info.videoReceiving ? peerCanvasRef : undefined}
+            peerVideoActive={video.active}
+            peerVideoOn={info.videoReceiving}
+            selfCanvasRef={videoLayout ? selfCanvasRef : undefined}
+            selfVideoOn={info.videoSending}
+            videoError={video.supported ? video.error : (video.error ?? '当前环境不支持视频解码')}
           />
 
           {recorder.recording?.active ? <CallRecorderBar recording={recorder.recording} /> : null}
@@ -312,28 +369,28 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
           <CallControls
             muted={muted}
             speakerOff={speakerOff}
+            cameraOn={info.videoSending}
+            cameraEnabled={live}
             recording={Boolean(recorder.recording?.active)}
             recordingEnabled={live && !recorder.busy}
             finished={finished}
             hangupPending={hangup.isPending}
             onToggleMute={() => setMuted((value) => !value)}
             onToggleSpeaker={() => setSpeakerOff((value) => !value)}
+            onToggleCamera={handleToggleCamera}
             onToggleRecording={handleToggleRecording}
             onHangup={handleHangup}
           />
 
           <CallSettingsDrawer
-            mode={settings.config?.mode ?? 'mixed'}
-            systemAudio={settings.config?.systemAudio ?? false}
-            capability={settings.capability}
-            recordingDir={settings.config?.dir ?? null}
-            locked={Boolean(recorder.recording?.active)}
             roomId={info.roomId}
             sentFrames={info.sentFrames}
             receivedFrames={info.receivedFrames}
-            onModeChange={handleModeChange}
-            onSystemAudioChange={handleSystemAudioChange}
-            onPickDir={() => settings.pickDir()}
+            videoSending={info.videoSending}
+            videoReceiving={info.videoReceiving}
+            receivedVideoFrames={info.receivedVideoFrames}
+            videoSize={info.videoInfo}
+            onOpenSettings={openSettings}
           />
         </div>
       </div>

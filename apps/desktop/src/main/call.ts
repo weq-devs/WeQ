@@ -30,6 +30,7 @@ import {
   type CallSnapshot,
   type CallState,
   type UdpTransport,
+  type VideoStreamInfo,
 } from '@weq/service';
 import { CallRecorder, type RecordingSnapshot } from './call_recorder';
 import {
@@ -163,6 +164,8 @@ export interface StartCallParams {
   selfUid: string;
   /** 会话类型。目前只有私聊，字段先留好给群通话。 */
   kind?: 'c2c' | 'group';
+  /** 通话媒体类型。`video` 只影响信令档位，画面要另外开摄像头。 */
+  media?: 'audio' | 'video';
   /** 会话标识（私聊 = 对方 uid，群聊 = 群号）。留空时用 peerUid 兜底。 */
   conv?: string;
   peerUin: string;
@@ -179,6 +182,14 @@ export interface StartCallParams {
 export type CallEvent =
   | { type: 'state'; call: ActiveCallInfo }
   | { type: 'audio'; pcm: Uint8Array }
+  /** 对端一帧视频（Annex B 裸流，只推基础层）。 */
+  | {
+      type: 'video';
+      hevc: Uint8Array;
+      timestamp: number;
+      keyframe: boolean;
+      info: VideoStreamInfo | null;
+    }
   /** 录音收尾完成（含内部收尾：对端挂断 / 被踢 / 崩溃）。 */
   | { type: 'recording'; entry: CallRecordingEntry }
   | { type: 'error'; message: string };
@@ -236,6 +247,7 @@ export class CallManager extends EventEmitter {
       selfUid: params.selfUid,
       peerUin: params.peerUin,
       peerUid: params.peerUid,
+      media: params.media ?? 'audio',
       signaling: protocolSignaling(this.nt, params.pid),
       transport: {
         bind: async () => {
@@ -276,6 +288,17 @@ export class CallManager extends EventEmitter {
       this.recorder?.pushPeer(pcm);
       this.emit('event', { type: 'audio', pcm } satisfies CallEvent);
     });
+    session.onVideo((frame) => {
+      // 只推基础层：增强层依赖基础层，单独解会花屏。
+      if (!frame.hevc || !frame.isBaseLayer) return;
+      this.emit('event', {
+        type: 'video',
+        hevc: frame.hevc,
+        timestamp: frame.timestamp,
+        keyframe: frame.isKeyframe,
+        info: frame.info,
+      } satisfies CallEvent);
+    });
 
     // `start()` 自己会吞掉异常并收敛到 `failed`，所以这里不会抛 —— 但它**不**
     // 保证成功。失败时状态监听器已经把 `info` 清空（`cleanup`），原先再读
@@ -308,6 +331,19 @@ export class CallManager extends EventEmitter {
     await this.finalizeRecording();
     await session.hangup();
     this.cleanup();
+  }
+
+  /**
+   * 开 / 关本端摄像头。
+   *
+   * 只发控制信令并切换发送状态；画面要靠 `CallSession` 里注入的编码器吐帧
+   * （当前还没接），所以打开后对端会先看到「等待对方画面」。
+   */
+  setCamera(enabled: boolean): boolean {
+    const session = this.session;
+    if (!session) return false;
+    session.setCamera(enabled);
+    return true;
   }
 
   /**

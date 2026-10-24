@@ -57,6 +57,7 @@ export {
   hasAnnexBStartCode,
   splitHevcNals,
   hevcNalName,
+  isIrapNalType,
   buildVideoControl,
   buildVideoKeepalive,
   buildVideoPackets,
