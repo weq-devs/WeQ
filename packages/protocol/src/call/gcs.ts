@@ -16,10 +16,10 @@
 
 const VIEW = new DataView(new ArrayBuffer(8));
 
-function u32be(buf: Uint8Array, off: number): number {
+export function u32be(buf: Uint8Array, off: number): number {
   return ((buf[off]! << 24) | (buf[off + 1]! << 16) | (buf[off + 2]! << 8) | buf[off + 3]!) >>> 0;
 }
-function u16be(buf: Uint8Array, off: number): number {
+export function u16be(buf: Uint8Array, off: number): number {
   return ((buf[off]! << 8) | buf[off + 1]!) >>> 0;
 }
 function _u64be(buf: Uint8Array, off: number): bigint {
@@ -28,13 +28,13 @@ function _u64be(buf: Uint8Array, off: number): bigint {
   return v;
 }
 
-function writeU32be(buf: Uint8Array, off: number, value: number): void {
+export function writeU32be(buf: Uint8Array, off: number, value: number): void {
   buf[off] = (value >>> 24) & 0xff;
   buf[off + 1] = (value >>> 16) & 0xff;
   buf[off + 2] = (value >>> 8) & 0xff;
   buf[off + 3] = value & 0xff;
 }
-function writeU16be(buf: Uint8Array, off: number, value: number): void {
+export function writeU16be(buf: Uint8Array, off: number, value: number): void {
   buf[off] = (value >>> 8) & 0xff;
   buf[off + 1] = value & 0xff;
 }

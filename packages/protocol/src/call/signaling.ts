@@ -312,16 +312,54 @@ function baseCommon(roomId: bigint, relationId: number, scene: number, selfUid: 
 
 // ─────────────────────────── 私聊信令 ───────────────────────────
 
+/**
+ * 开房 / 邀请的媒体类型。
+ *
+ * ⚠️ 视频**不是**靠改 `scene` 或 `params.video` 区分的 —— 实测这两项在语音和
+ * 视频通话里都是 1 / 0。真正的差异在下面这几项（2026-10-25 抓包逐字节比对）：
+ *
+ * | 字段 | 语音 | 视频 |
+ * | --- | --- | --- |
+ * | `params.f3` | 1 | 0 |
+ * | `params.ipStack` | 88 | 12656 |
+ * | `params.f13` | 1 | 3 |
+ * | `invite.params.f3` | 5 | 15 |
+ * | `invite.params.f4` | 10056 | 10063 |
+ *
+ * 所以按场景查表，而不是拼一堆 if。
+ */
+export interface MediaProfile {
+  /** `params.f3`。 */
+  f3: number;
+  /** `params.ipStack`（fixed32）。 */
+  ipStack: number;
+  /** `params.f13`。 */
+  f13: number;
+  /** `invite.params.f3`。 */
+  inviteF3: number;
+  /** `invite.params.f4`。 */
+  inviteF4: number;
+}
+
+export const MEDIA_PROFILE: Record<'audio' | 'video', MediaProfile> = {
+  audio: { f3: 1, ipStack: CALL_IP_STACK, f13: 1, inviteF3: 5, inviteF4: 10056 },
+  video: { f3: 0, ipStack: 12656, f13: 3, inviteF3: 15, inviteF4: 10063 },
+};
+
+/** 开房 / 邀请请求里的媒体类型。 */
+export type CallMedia = keyof typeof MEDIA_PROFILE;
+
 /** `SsoCreateRoom`。 */
 export const CreateRoom: TrpcSpec<
-  { selfUid: string; peerUid: string; relationId: number },
+  { selfUid: string; peerUid: string; relationId: number; media?: CallMedia },
   CallRoom
 > = {
   cmd: C2C_SSO_CMD.createRoom,
   reqSchema: C2C_CREATE_ROOM_REQ,
   respSchema: C2C_CREATE_ROOM_RSP,
   // `ipStack` 是 fixed32，运行时表达不了，参数体逐字段手工拼。
-  encodeRequest: ({ selfUid, peerUid, relationId }) => {
+  encodeRequest: ({ selfUid, peerUid, relationId, media: kind = 'audio' }) => {
+    const profile = MEDIA_PROFILE[kind];
     const common = encode(C2C_MODE_COMMON, {
       ...baseCommon(0n, relationId, CALL_SCENE.c2cAudio, selfUid),
     });
@@ -335,24 +373,28 @@ export const CreateRoom: TrpcSpec<
       pbBytes(13, pbBytes(1, encode(USER_INFO, { uid: peerUid, uidType: 2 }))),
     ]);
     const params = concatBytes([
-      varintField(1, 1), // audio
-      varintField(2, 0), // video
-      varintField(3, 1),
-      fixed32Field(4, CALL_IP_STACK),
+      varintField(1, 1), // audio：视频通话里也恒为 1
+      varintField(2, 0), // video：语音与视频都是 0
+      varintField(3, profile.f3),
+      fixed32Field(4, profile.ipStack),
       varintField(5, 1),
       pbBytes(7, media),
       varintField(8, 0),
       pbBytes(10, new Uint8Array(0)),
       varintField(12, 0),
-      varintField(13, 1),
+      varintField(13, profile.f13),
       varintField(14, 0),
       varintField(15, 0),
     ]);
     return concatBytes([pbBytes(1, common), pbBytes(2, params)]);
   },
-  serialize: ({ selfUid, peerUid, relationId }) => ({
+  serialize: ({ selfUid, peerUid, relationId, media: kind = 'audio' }) => ({
     common: baseCommon(0n, relationId, CALL_SCENE.c2cAudio, selfUid),
-    params: { media: { peer: { user: { uid: peerUid, uidType: 2 } } } },
+    params: {
+      f3: MEDIA_PROFILE[kind].f3,
+      f13: MEDIA_PROFILE[kind].f13,
+      media: { peer: { user: { uid: peerUid, uidType: 2 } } },
+    },
   }),
   // `ip` / `altIp` 是 fixed32：运行时的 schema 解码会把 wire 不匹配的字段整段跳过，
   // 所以服务器表从原始字节里读。
@@ -364,18 +406,28 @@ export const CreateRoom: TrpcSpec<
  * `SsoInviteUser` —— 把对端拉进房间（对方客户端此时开始振铃）。
  *
  * 必须带开房回包里的 `sessionId`；`relationId` 递增一位即可，与服务端无约定。
+ * 视频的 `params.f3/f4` 与语音不同，见 {@link MEDIA_PROFILE}。
  */
 export const InviteUser: TrpcSpec<
-  { selfUid: string; roomId: bigint; sessionId: bigint; relationId: number },
+  {
+    selfUid: string;
+    roomId: bigint;
+    sessionId: bigint;
+    relationId: number;
+    media?: CallMedia;
+  },
   { authToken: number }
 > = {
   cmd: C2C_SSO_CMD.inviteUser,
   reqSchema: C2C_INVITE_USER_REQ,
   respSchema: INVITE_USER_RSP,
-  serialize: ({ selfUid, roomId, sessionId, relationId }) => ({
-    common: { ...baseCommon(roomId, relationId, CALL_SCENE.invite, selfUid), sessionId },
-    params: { f3: 5, f4: 10056, f5: 0, f12: 0, f13: 0 },
-  }),
+  serialize: ({ selfUid, roomId, sessionId, relationId, media: kind = 'audio' }) => {
+    const profile = MEDIA_PROFILE[kind];
+    return {
+      common: { ...baseCommon(roomId, relationId, CALL_SCENE.invite, selfUid), sessionId },
+      params: { f3: profile.inviteF3, f4: profile.inviteF4, f5: 0, f12: 0, f13: 0 },
+    };
+  },
   deserialize: (body) => {
     const params = (body.params ?? {}) as Record<string, unknown>;
     return { authToken: Number(params.authToken ?? 0) };
@@ -404,27 +456,33 @@ export const Logout: TrpcSpec<{ selfUid: string; roomId: bigint; relationId: num
 export type CallSignalingNative = Parameters<typeof invokeTrpc>[0];
 
 /**
- * 开一间私聊语音房，并邀请对端。
+ * 开一间私聊房（语音或视频），并邀请对端。
  *
  * 两步之间失败时已经开的房间会泄漏在服务端（无副作用，到期自清），调用方
  * 拿到异常后不必自己回收。
+ *
+ * `media` 只影响两条信令里的媒体档位（见 {@link MEDIA_PROFILE}），房间本身
+ * 是同一套；视频画面要靠 `0x5b subType=2` 的媒体流，信令只负责把对端叫起来。
  */
 export async function startC2CCall(
   nt: CallSignalingNative,
   pid: number,
-  params: { selfUid: string; peerUid: string },
+  params: { selfUid: string; peerUid: string; media?: CallMedia },
 ): Promise<{ room: CallRoom; authToken: number }> {
   const relationId = nextRelationId();
+  const media = params.media ?? 'audio';
   const room = await invokeTrpc(nt, pid, CreateRoom, {
     selfUid: params.selfUid,
     peerUid: params.peerUid,
     relationId,
+    media,
   });
   const { authToken } = await invokeTrpc(nt, pid, InviteUser, {
     selfUid: params.selfUid,
     roomId: room.roomId,
     sessionId: room.sessionId,
     relationId: relationId + 1,
+    media,
   });
   return { room, authToken };
 }
@@ -443,6 +501,7 @@ export function encodeCreateRoomReq(params: {
   selfUid: string;
   peerUid: string;
   relationId: number;
+  media?: CallMedia;
 }): Uint8Array {
   return CreateRoom.encodeRequest!(params);
 }

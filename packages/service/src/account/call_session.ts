@@ -46,13 +46,24 @@ import {
   buildRelayGetIn,
   buildRelayKeepalive,
   buildStatusReport,
+  buildVideoControl,
+  buildVideoKeepalive,
+  buildVideoPackets,
+  buildVideoSubHeader,
+  extractHevc,
   parseAudioFrame,
   parseAudioHeader,
   parseCallEvent,
   parseFecContainer,
   parseGcsPacket,
   parseQfb,
+  parseVideoPacket,
   rsEncode,
+  splitHevcNals,
+  VIDEO_CTRL_SUB_TYPE,
+  VIDEO_KEEPALIVE_SUB_TYPE,
+  VideoFrameAssembler,
+  isVideoSubType,
   endC2CCall,
   startC2CCall,
 } from '@weq/protocol';
@@ -105,6 +116,24 @@ export interface CallSnapshot {
   /** 收发的音频帧计数（调试 / 界面波形用）。 */
   sentFrames: number;
   receivedFrames: number;
+  /** 本端摄像头是否开着（发视频中）。 */
+  videoSending: boolean;
+  /** 对端摄像头是否开着（收到对端视频流）。 */
+  videoReceiving: boolean;
+  /** 收到的视频帧数（含增强层）。 */
+  receivedVideoFrames: number;
+  /** 视频流的最近一次关键帧信息；没收到过为 null。 */
+  videoInfo: VideoStreamInfo | null;
+}
+
+/** 从 SPS 里读出来的视频规格。 */
+export interface VideoStreamInfo {
+  width: number;
+  height: number;
+  /** HEVC profile（1 = Main）。 */
+  profile: number;
+  /** 编码格式，目前只认 hevc。 */
+  codec: 'hevc';
 }
 
 // ─────────────────────────── 依赖注入 ───────────────────────────
@@ -131,11 +160,27 @@ export interface CallAudioCodec {
   close(): void;
 }
 
+/**
+ * 视频编码能力（H.265）。由主进程注入，`CallSession` 只负责打包与发。
+ *
+ * 之所以做成回调而不是内置：H.265 编码要么用系统 `ffmpeg` / `x265`，要么走
+ * 浏览器的 WebCodecs（在渲染进程里），两条路的生命周期管理完全不同。会话层
+ * 只关心「给我一帧 Annex B」。
+ */
+export interface CallVideoEncoder {
+  /** 取下一帧 Annex B 裸流；没有新画面时返回 null（不发包）。 */
+  next(): Promise<Uint8Array | null>;
+  /** 视频规格（写进 SPS，供对端初始化）。 */
+  info(): VideoStreamInfo;
+  close(): void;
+}
+
 /** 借凭据发信令的最小表面（`@weq/protocol` 的实现直接满足）。 */
 export interface CallSignaling {
   start(params: {
     selfUid: string;
     peerUid: string;
+    media?: 'audio' | 'video';
   }): Promise<{ room: CallRoom; authToken: number }>;
   end(params: { selfUid: string; roomId: bigint; relationId: number }): Promise<void>;
 }
@@ -161,15 +206,40 @@ export const realTimers: CallTimers = {
 export type CallListener = (snapshot: CallSnapshot) => void;
 /** 收到一帧对端音频（已解码成 PCM）。 */
 export type CallAudioListener = (pcm: Uint8Array, at: number) => void;
+/**
+ * 收到一帧对端视频（已组装成完整帧，裸流通过 `hevc` 给出）。
+ *
+ * `hevc` 是 Annex B 裸流（含起始码），可直接喂给解码器；为 null 表示这一帧的
+ * 载荷不是可识别的 H.265（加密或损坏），调用方应当跳过。
+ */
+export type CallVideoListener = (frame: VideoFramePayload, at: number) => void;
+
+export interface VideoFramePayload {
+  gidx: number;
+  fidx: number;
+  /** 基础层才能独立解码。 */
+  isBaseLayer: boolean;
+  isKeyframe: boolean;
+  /** 真实帧时间戳（毫秒）。 */
+  timestamp: number;
+  /** 视频规格（只在关键帧上更新）。 */
+  info: VideoStreamInfo | null;
+  /** Annex B 裸流；不可识别时为 null。 */
+  hevc: Uint8Array | null;
+}
 
 export interface CallSessionOptions {
   selfUin: string;
   selfUid: string;
   peerUin: string;
   peerUid: string;
+  /** 通话媒体类型。默认 audio。 */
+  media?: 'audio' | 'video';
   signaling: CallSignaling;
   transport: UdpTransport;
   codec: CallAudioCodec;
+  /** 视频编码器。不给则只做接收（看不到本端画面）。 */
+  videoEncoder?: CallVideoEncoder;
   timers?: CallTimers;
   logger?: Logger;
 }
@@ -195,8 +265,76 @@ const LOGOUT_REPEATS = 5;
 
 /** 每 4 帧音频一组 RS 编码。 */
 const FEC_GROUP = 4;
+/** 视频保活周期（实测 2 秒）。 */
+const VIDEO_KEEPALIVE_MS = 2000;
+/** 视频发送轮询间隔：比最慢的帧间隔（10 fps）小一个量级。 */
+const VIDEO_PUMP_MS = 10;
 
 // ─────────────────────────── 会话 ───────────────────────────
+
+/**
+ * 从一帧 Annex B 里读 HEVC 规格（分辨率 / profile）。
+ *
+ * 只在关键帧上调：IDR 前面带 VPS + SPS + PPS，SPS 里有分辨率。实测视频流
+ * 640×360 Main。解析失败返回 null —— 规格只是给界面显示的，读不到不影响解码。
+ *
+ * SPS 的字段顺序（HEVC）：`profile_tier_level`(12B) 之后是
+ * `sps_seq_parameter_set_id`、`chroma_format_idc`（==3 时多一个
+ * `separate_colour_plane_flag`）、`pic_width_in_luma_samples`、
+ * `pic_height_in_luma_samples`，都是 Exp-Golomb。
+ */
+function readHevcInfo(annexb: Uint8Array): VideoStreamInfo | null {
+  for (const nal of splitHevcNals(annexb)) {
+    // SPS = 33。NAL 头 2 字节，之后是 RBSP。
+    if (nal.type !== 33 || nal.data.length < 15) continue;
+    const profile = nal.data[1]!; // profile_idc 在 NAL 头的第二个字节
+    const rbsp = nal.data.subarray(2 + 12);
+    const bits = new BitReader(rbsp);
+    try {
+      bits.ue(); // sps_seq_parameter_set_id
+      const chroma = bits.ue();
+      if (chroma === 3) bits.u(1); // separate_colour_plane_flag
+      const width = bits.ue();
+      const height = bits.ue();
+      if (width > 0 && height > 0 && width < 16384 && height < 16384) {
+        return { width, height, profile, codec: 'hevc' };
+      }
+    } catch {
+      // 位读越界：这帧的 SPS 不完整，交给下一个关键帧。
+    }
+  }
+  return null;
+}
+
+/** 极简位读取器，只够解析 SPS 的前几个 Exp-Golomb 字段。 */
+class BitReader {
+  private pos = 0;
+
+  constructor(private readonly data: Uint8Array) {}
+
+  /** 读 n 位。 */
+  u(n: number): number {
+    let value = 0;
+    for (let i = 0; i < n; i++) {
+      const byte = this.data[this.pos >> 3];
+      if (byte === undefined) throw new Error('位读越界');
+      value = (value << 1) | ((byte >> (7 - (this.pos & 7))) & 1);
+      this.pos++;
+    }
+    return value;
+  }
+
+  /** 无符号 Exp-Golomb。 */
+  ue(): number {
+    let zeros = 0;
+    while (this.u(1) === 0) {
+      zeros++;
+      if (zeros > 32) throw new Error('Exp-Golomb 过长');
+    }
+    if (zeros === 0) return 0;
+    return (1 << zeros) - 1 + this.u(zeros);
+  }
+}
 
 export class CallSession {
   private readonly opts: CallSessionOptions;
@@ -221,6 +359,22 @@ export class CallSession {
   private lastError: string | null = null;
   private sentFrames = 0;
   private receivedFrames = 0;
+
+  // 视频
+  private readonly videoAssembler = new VideoFrameAssembler();
+  private videoSending = false;
+  private videoReceiving = false;
+  private receivedVideoFrames = 0;
+  private videoInfo: VideoStreamInfo | null = null;
+  /** 视频帧序号（写进 sub-header，每帧 +1）。 */
+  private videoFrameIndex = 0;
+  private videoSeq = 0;
+  /** 视频保活定时器。 */
+  private videoKeepaliveTimer: unknown = null;
+  /** 视频发送循环定时器。 */
+  private videoTimer: unknown = null;
+  /** 本端视频编码器（由主进程注入；没有就只做接收）。 */
+  private videoEncoder: CallVideoEncoder | null = null;
 
   // 定时器
   private heartbeatTimer: unknown = null;
@@ -250,11 +404,13 @@ export class CallSession {
 
   private readonly listeners = new Set<CallListener>();
   private readonly audioListeners = new Set<CallAudioListener>();
+  private readonly videoListeners = new Set<CallVideoListener>();
 
   constructor(options: CallSessionOptions) {
     this.opts = options;
     this.timers = options.timers ?? realTimers;
     this.log = options.logger;
+    this.videoEncoder = options.videoEncoder ?? null;
   }
 
   // ── 对外 ──
@@ -271,6 +427,10 @@ export class CallSession {
       lastError: this.lastError,
       sentFrames: this.sentFrames,
       receivedFrames: this.receivedFrames,
+      videoSending: this.videoSending,
+      videoReceiving: this.videoReceiving,
+      receivedVideoFrames: this.receivedVideoFrames,
+      videoInfo: this.videoInfo,
     };
   }
 
@@ -282,6 +442,37 @@ export class CallSession {
   onAudio(listener: CallAudioListener): () => void {
     this.audioListeners.add(listener);
     return () => this.audioListeners.delete(listener);
+  }
+
+  /** 收到一帧对端视频（已组装、已剥掉 sub-header 的 H.265 裸流）。 */
+  onVideo(listener: CallVideoListener): () => void {
+    this.videoListeners.add(listener);
+    return () => this.videoListeners.delete(listener);
+  }
+
+  /**
+   * 开 / 关本端摄像头。
+   *
+   * 协议上**没有**「开」和「关」两种包：两者都是同一条空体 `subType=4`，
+   * 连发两次防丢包。所以这里只做「发控制包 + 切换本端发送状态」。
+   *
+   * 打开后真正发画面要等 `videoEncoder` 吐帧（见 {@link pumpVideo}）；
+   * 没有注入编码器时只发控制包，对端会显示「等待对方画面」。
+   */
+  setCamera(enabled: boolean): void {
+    if (this.state !== 'connected') return;
+    if (this.videoSending === enabled) return;
+    this.videoSending = enabled;
+    this.sendVideoControl();
+    if (enabled) {
+      this.videoFrameIndex = 0;
+      this.startVideoLoop();
+      this.startVideoKeepalive();
+    } else {
+      this.stopVideoLoop();
+    }
+    this.log?.info('摄像头状态', { enabled });
+    this.emit();
   }
 
   /** 把一帧 640 字节 PCM 排进发送队列。队列空的时候发静音帧。 */
@@ -303,6 +494,7 @@ export class CallSession {
       const { room, authToken } = await this.opts.signaling.start({
         selfUid: this.opts.selfUid,
         peerUid: this.opts.peerUid,
+        media: this.opts.media ?? 'audio',
       });
       this.room = room;
       this.authToken = authToken;
@@ -811,28 +1003,60 @@ export class CallSession {
     this.emit();
   }
 
+  /**
+   * `0x5b` 的分流。
+   *
+   * 音频、视频、质量反馈、控制包共用这一个首字节，靠 `[3]` 的 subType 区分：
+   *
+   *   0x01 音频 / 0x02 大画面 / 0x03 小画面 / 0x07 屏幕共享
+   *   0x04 摄像头开关控制 / 0x05 视频保活 / 0x0e 质量反馈
+   *
+   * ⚠️ 早先这里对非音频一律 `return`，视频包会被**静默丢弃**——表现为「对方
+   * 明明开了摄像头但什么都收不到」。
+   */
   private handleAudio(data: Uint8Array): void {
     const header = parseAudioHeader(data);
     if (!header) return;
     this.lastPeerTick = header.tick;
 
-    if (header.subType === AudioSubType.qfb) {
-      const qfb = parseQfb(data.subarray(17));
-      if (qfb && qfb.type === 1) {
-        this.send(
-          buildQfbResponse({
-            seq: this.qfbSeq,
-            sessionTs: this.sessionTs,
-            tick: this.tick(),
-            qfbSeq: qfb.qfbSeq,
-            echoTs: header.tick,
-          }),
-        );
-      }
-      return;
+    switch (header.subType) {
+      case AudioSubType.qfb:
+        this.handleQfb(data, header.tick);
+        return;
+      case VIDEO_CTRL_SUB_TYPE:
+        this.handleVideoControl();
+        return;
+      case VIDEO_KEEPALIVE_SUB_TYPE:
+        // 保活只说明「对端视频会话还在」，不改变状态。
+        return;
+      case AudioSubType.audio:
+        this.handleAudioFrame(data);
+        return;
+      default:
+        if (isVideoSubType(header.subType)) {
+          this.handleVideoPacket(data);
+          return;
+        }
+        return;
     }
+  }
 
-    if (header.subType !== AudioSubType.audio) return;
+  private handleQfb(data: Uint8Array, tick: number): void {
+    const qfb = parseQfb(data.subarray(17));
+    if (qfb && qfb.type === 1) {
+      this.send(
+        buildQfbResponse({
+          seq: this.qfbSeq,
+          sessionTs: this.sessionTs,
+          tick: this.tick(),
+          qfbSeq: qfb.qfbSeq,
+          echoTs: tick,
+        }),
+      );
+    }
+  }
+
+  private handleAudioFrame(data: Uint8Array): void {
     const frame = parseAudioFrame(data);
     if (!frame?.isOpus || frame.payload.length === 0) return;
 
@@ -843,16 +1067,177 @@ export class CallSession {
     }
 
     this.receivedFrames++;
-    void this.deliverAudio(frame, header.subType);
+    void this.deliverAudio(frame);
   }
 
-  private async deliverAudio(frame: AudioFrame, _subType: number): Promise<void> {
+  private async deliverAudio(frame: AudioFrame): Promise<void> {
     try {
       const pcm = await this.opts.codec.decode(frame.payload);
       for (const listener of this.audioListeners) listener(pcm, this.timers.now());
     } catch (error) {
       this.log?.warn('解码一帧失败', { error });
     }
+  }
+
+  // ── 视频 ──
+
+  /**
+   * 收到对端的摄像头开关控制包（`subType=4`，空体）。
+   *
+   * 协议里**没有**开关位：收到一条就说明对端的摄像头状态**取反**。真正的画面
+   * 会在随后几十毫秒内到（开）或停止（关）。
+   *
+   * 这里以「是否真的收到视频包」为准来维护 `videoReceiving`，控制包只用来
+   * 记日志——对端可能因为采集失败（比如 Wayland 下的屏幕共享）发了控制包却
+   * 出不来画面，那时不该显示「对方正在视频」。
+   */
+  private handleVideoControl(): void {
+    this.log?.debug('对端摄像头开关控制包', { receiving: this.videoReceiving });
+  }
+
+  private handleVideoPacket(data: Uint8Array): void {
+    const packet = parseVideoPacket(data);
+    if (!packet) return;
+
+    const frame = this.videoAssembler.push(packet, this.timers.now());
+    if (!frame) return;
+
+    if (!this.videoReceiving) {
+      this.videoReceiving = true;
+      this.log?.info('开始接收对端视频', { subType: packet.subType });
+      this.emit();
+    }
+    this.receivedVideoFrames++;
+
+    const hevc = extractHevc(frame);
+    // 只在关键帧上读规格，避免每帧都解析 SPS。
+    if (hevc && frame.isKeyframe) {
+      const info = readHevcInfo(hevc);
+      if (info && !this.videoInfo) {
+        this.videoInfo = info;
+        this.log?.info('对端视频规格', { ...info });
+        this.emit();
+      }
+    }
+
+    const payload: VideoFramePayload = {
+      gidx: frame.gidx,
+      fidx: frame.fidx,
+      isBaseLayer: frame.isBaseLayer,
+      isKeyframe: frame.isKeyframe,
+      timestamp: frame.timestamp,
+      info: this.videoInfo,
+      hevc,
+    };
+    const at = this.timers.now();
+    for (const listener of this.videoListeners) listener(payload, at);
+  }
+
+  /** 发摄像头开关控制包（连发两次防丢包，与真实客户端一致）。 */
+  private sendVideoControl(): void {
+    const packet = buildVideoControl({
+      sessionTs: this.sessionTs,
+      tick: this.tick(),
+    });
+    this.send(packet);
+    this.send(packet);
+  }
+
+  /** 视频保活：每 2 秒一条，视频停了也继续发到挂断。 */
+  private startVideoKeepalive(): void {
+    if (this.videoKeepaliveTimer !== null) return;
+    const beat = () => {
+      this.send(
+        buildVideoKeepalive({
+          sessionTs: this.sessionTs,
+          tick: this.tick(),
+        }),
+      );
+    };
+    beat();
+    this.videoKeepaliveTimer = this.timers.setInterval(beat, VIDEO_KEEPALIVE_MS);
+  }
+
+  private stopVideoKeepalive(): void {
+    if (this.videoKeepaliveTimer === null) return;
+    this.timers.clearInterval(this.videoKeepaliveTimer);
+    this.videoKeepaliveTimer = null;
+  }
+
+  /**
+   * 视频发送循环。
+   *
+   * 与音频的固定 20 ms 节拍不同，视频帧率由编码器决定（实测 10 fps，且帧间隔
+   * 抖动很大）——所以这里是「编码器有帧就发，没有就等下一拍」。用 10 ms 的
+   * 轮询兜住：比最慢的帧间隔小一个量级，又不会把主进程拖满。
+   */
+  private startVideoLoop(): void {
+    if (this.videoTimer !== null) return;
+    const pump = () => {
+      this.videoTimer = this.timers.setTimeout(() => {
+        void this.pumpVideo();
+      }, VIDEO_PUMP_MS);
+    };
+    pump();
+  }
+
+  private stopVideoLoop(): void {
+    if (this.videoTimer === null) return;
+    this.timers.clearTimeout(this.videoTimer);
+    this.videoTimer = null;
+  }
+
+  private async pumpVideo(): Promise<void> {
+    if (!this.videoSending || this.state !== 'connected') return;
+    const encoder = this.videoEncoder;
+    if (!encoder) {
+      // 没有编码器：控制包已经发了，画面等前端接上再说。
+      this.videoTimer = this.timers.setTimeout(() => {
+        void this.pumpVideo();
+      }, VIDEO_PUMP_MS);
+      return;
+    }
+
+    try {
+      const hevc = await encoder.next();
+      if (hevc && hevc.length > 0) this.sendVideoFrame(hevc);
+    } catch (error) {
+      this.log?.warn('编码一帧视频失败', { error });
+    }
+
+    if (!this.videoSending) return;
+    this.videoTimer = this.timers.setTimeout(() => {
+      void this.pumpVideo();
+    }, VIDEO_PUMP_MS);
+  }
+
+  /**
+   * 把一帧 Annex B 裸流切包发出去。
+   *
+   * 20 字节 sub-header + 裸流按 `maxPayload` 切分，每片一个 `0x5b subType=2`
+   * 包。实测单个 UDP 载荷约 1200 字节（IPv6 路径下更大，但 1200 是安全值）。
+   */
+  private sendVideoFrame(hevc: Uint8Array): void {
+    const timestampMs = this.tick();
+    const subHeader = buildVideoSubHeader({
+      gidx: this.videoFrameIndex & 0xff,
+      frameIndex: this.videoFrameIndex,
+      timestampMs,
+      variant: this.videoFrameIndex === 0 ? 1 : 0,
+    });
+    const frameData = new Uint8Array(subHeader.length + hevc.length);
+    frameData.set(subHeader, 0);
+    frameData.set(hevc, subHeader.length);
+
+    const packets = buildVideoPackets({
+      frameData,
+      gidx: this.videoFrameIndex & 0xff,
+      sessionTs: this.sessionTs,
+      tick: this.tick(),
+      seq: ++this.videoSeq,
+    });
+    for (const packet of packets) this.send(packet);
+    this.videoFrameIndex++;
   }
 
   private handleRelay(data: Uint8Array): void {
@@ -962,6 +1347,15 @@ export class CallSession {
     } catch (error) {
       this.log?.warn('关闭编解码器失败', { error });
     }
+    try {
+      this.videoEncoder?.close();
+    } catch (error) {
+      this.log?.warn('关闭视频编码器失败', { error });
+    }
+    this.videoEncoder = null;
+    this.videoAssembler.reset();
+    this.videoSending = false;
+    this.videoReceiving = false;
     this.sendQueue.length = 0;
   }
 
@@ -975,6 +1369,8 @@ export class CallSession {
       [this.ringTimer, 'clearTimeout'],
       [this.connectTimer, 'clearTimeout'],
       [this.gcsRetryTimer, 'clearTimeout'],
+      [this.videoKeepaliveTimer, 'clearInterval'],
+      [this.videoTimer, 'clearTimeout'],
     ];
     for (const [handle, kind] of pairs) {
       if (handle !== null) this.timers[kind](handle);
@@ -987,6 +1383,8 @@ export class CallSession {
     this.ringTimer = null;
     this.connectTimer = null;
     this.gcsRetryTimer = null;
+    this.videoKeepaliveTimer = null;
+    this.videoTimer = null;
   }
 
   private emit(): void {
