@@ -213,3 +213,37 @@ it('StrictMode 重挂载不会误挂断，真正卸载才挂断并关闭窗口',
   expect(close).toHaveBeenCalled();
   for (const popup of popups) popup.close();
 });
+
+it('StrictMode 模拟卸载不会关掉刚打开的通话窗口', async () => {
+  // Chromium 里 `window.close()` 之后 `closed` 不是同步置位的：紧接着的同名
+  // `window.open` 会拿回那个正在销毁的窗口。模拟卸载若真去关窗，重挂载就会
+  // 复用这个将死的窗口，200ms 后轮询到「已关闭」→ 自己把通话挂断。
+  vi.useFakeTimers();
+  const popups: Array<{ win: HappyWindow; closeCalls: number }> = [];
+  vi.spyOn(window, 'open').mockImplementation(() => {
+    const win = new HappyWindow();
+    const record = { win, closeCalls: 0 };
+    popups.push(record);
+    (win as unknown as { close: () => void }).close = () => {
+      record.closeCalls += 1;
+      setTimeout(() => {
+        Object.defineProperty(win, 'closed', { value: true, configurable: true });
+      }, 0);
+    };
+    return win as unknown as Window;
+  });
+
+  const app = mount(true);
+  try {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(popups).toHaveLength(1);
+    expect(popups[0]!.closeCalls).toBe(0);
+    expect(mocks.hangup).not.toHaveBeenCalled();
+    expect(app.onClose).not.toHaveBeenCalled();
+  } finally {
+    await app.dispose();
+    for (const { win } of popups) win.close();
+  }
+});
