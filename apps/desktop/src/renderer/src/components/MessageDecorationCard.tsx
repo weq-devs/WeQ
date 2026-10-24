@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { OverlayLayer } from './OverlayLayer';
 import { trpc } from '../trpc/client';
 import { dressFontUrl } from '../lib/resourceUrl';
+import { fontFaces } from '../lib/fontFaces';
 import { DecorationSaveControls, useDecorationSave } from './DecorationSaveControls';
 
 interface MessageDecorationCardProps {
@@ -84,12 +85,11 @@ function DecorationItem({ type, id, label, icon }: DecorationItemProps) {
     let cancelled = false;
     setFontPreviewState('loading');
     // 带派生版本：升级后同一款字体的产物被就地重做，url 跟着变才能绕过浏览器缓存。
-    void new FontFace(fontFamily, `url("${dressFontUrl(id, derived.deriveVersion)}")`)
-      .load()
-      .then((face) => {
+    const font = fontFaces.acquire(fontFamily, dressFontUrl(id, derived.deriveVersion));
+    void font.ready
+      .then((ok) => {
         if (cancelled) return;
-        document.fonts.add(face);
-        setFontPreviewState('ready');
+        setFontPreviewState(ok ? 'ready' : 'unavailable');
       })
       .catch(() => {
         if (!cancelled) setFontPreviewState('unavailable');
@@ -97,6 +97,7 @@ function DecorationItem({ type, id, label, icon }: DecorationItemProps) {
 
     return () => {
       cancelled = true;
+      font.release();
     };
   }, [fontFamily, fontResource.data?.font, fontResource.isInitialLoading, id, imageState, type]);
 

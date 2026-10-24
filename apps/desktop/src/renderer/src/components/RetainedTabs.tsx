@@ -10,7 +10,7 @@ import {
 const TabActivityContext = createContext(true);
 export const useTabActive = () => useContext(TabActivityContext);
 
-export function TabActivity({ active, children }: { active: boolean; children: ReactNode }) {
+export function TabActivity({ active, children }: { active: boolean; children?: ReactNode }) {
   const parentActive = useTabActive();
   return (
     <TabActivityContext.Provider value={parentActive && active}>

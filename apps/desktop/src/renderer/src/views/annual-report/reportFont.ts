@@ -5,11 +5,12 @@
  */
 
 import { dressFontUrl } from '../../lib/resourceUrl';
+import { fontFaces, type FontLease } from '../../lib/fontFaces';
 
 const revisions = new WeakMap<HTMLElement, number>();
 
-/** itemId → 该款是否成功注册过 face。null 表示正在加载。 */
-const faces = new Map<number, Promise<boolean>>();
+/** 每个报告根节点只持有自己使用的字体。 */
+const leases = new WeakMap<HTMLElement, FontLease>();
 
 /** 报告内引用某款装扮字体的 CSS family 名。 */
 export function reportFontFamily(itemId: number): string {
@@ -19,24 +20,10 @@ export function reportFontFamily(itemId: number): string {
 /**
  * 确保某款装扮字体的 face 已注册进 `document.fonts`，返回是否可用。
  *
- * 失败（ttf 坏了 / 被 Chromium 的 OTS 拒了 / 本地没缓存又没在线实例）时返回 false
- * 而不抛 —— 调用方退回默认字形，报告界面不出任何提示。结果按 itemId 记忆，
- * 同一款不会重复下载，失败的也不会反复重试。
+ * 同一款共享在途加载，调用方关闭或换款时归还；失败使用原来的默认字形。
  */
-export function ensureReportFontFace(itemId: number): Promise<boolean> {
-  if (itemId <= 0) return Promise.resolve(false);
-  let pending = faces.get(itemId);
-  if (!pending) {
-    pending = new FontFace(reportFontFamily(itemId), `url("${dressFontUrl(itemId)}")`)
-      .load()
-      .then((face) => {
-        document.fonts.add(face);
-        return true;
-      })
-      .catch(() => false);
-    faces.set(itemId, pending);
-  }
-  return pending;
+export function acquireReportFontFace(itemId: number): FontLease {
+  return fontFaces.acquire(reportFontFamily(itemId), dressFontUrl(itemId));
 }
 
 /**
@@ -57,9 +44,18 @@ export async function applyReportFont(
   const requests = nodes.map((node) => {
     const revision = (revisions.get(node) ?? 0) + 1;
     revisions.set(node, revision);
-    return { node, revision };
+    const font = acquireReportFontFace(itemId);
+    leases.get(node)?.release();
+    leases.set(node, font);
+    return { node, revision, font };
   });
-  const loaded = await ensureReportFontFace(itemId);
+  const loaded = (await Promise.all(requests.map(({ font }) => font.ready))).every(Boolean);
+  for (const { node, revision, font } of requests) {
+    if (!node.isConnected || revisions.get(node) !== revision) {
+      font.release();
+      if (leases.get(node) === font) leases.delete(node);
+    }
+  }
   const current = requests
     .filter(({ node, revision }) => node.isConnected && revisions.get(node) === revision)
     .map(({ node }) => node);
@@ -84,10 +80,12 @@ export async function applyReportFont(
   return current.length > 0;
 }
 
-/** 只清理指定报告，face 留在 document.fonts 中供其它报告复用。 */
+/** 只清理指定报告，其它报告仍持有的同款 face 不受影响。 */
 export function clearReportFont(targets: readonly (HTMLElement | null)[]): void {
   for (const node of targets) {
     if (!node) continue;
+    leases.get(node)?.release();
+    leases.delete(node);
     revisions.set(node, (revisions.get(node) ?? 0) + 1);
     node.style.removeProperty('--rp-serif');
     node.style.removeProperty('--rp-sans');

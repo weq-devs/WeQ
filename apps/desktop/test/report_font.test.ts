@@ -8,10 +8,16 @@ const roots: HTMLElement[] = [];
 let original: PropertyDescriptor | undefined;
 beforeEach(() => {
   original = Object.getOwnPropertyDescriptor(document, 'fonts');
-  Object.defineProperty(document, 'fonts', { configurable: true, value: { add: vi.fn() } });
+  Object.defineProperty(document, 'fonts', {
+    configurable: true,
+    value: { add: vi.fn(), delete: vi.fn() },
+  });
 });
 afterEach(() => {
-  for (const node of roots.splice(0)) node.remove();
+  for (const node of roots.splice(0)) {
+    clearReportFont([node]);
+    node.remove();
+  }
   if (original) Object.defineProperty(document, 'fonts', original);
   else Reflect.deleteProperty(document, 'fonts');
   vi.unstubAllGlobals();

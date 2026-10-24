@@ -176,7 +176,7 @@ export function MessageBubble({
   // 个性装扮页选的生效挂件/字体炫彩 —— 只在没有 per-message 装饰时顶上。
   const { widget: activeWidget, scope: activeScope } = useActiveWidget();
   const activeFontFx = useActiveFontFx();
-  const msgDec = useMsgDecoration((message as any).decoration);
+  const msgDec = useMsgDecoration((message as any).decoration, bubbleRef);
   const msgWidget = msgDec.widget;
   const msgBubbleId = msgDec.bubbleId;
   const msgFontId = msgDec.fontId;

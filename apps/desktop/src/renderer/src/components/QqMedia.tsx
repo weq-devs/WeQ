@@ -138,7 +138,8 @@ export function QqImage({
   if (isAnimatedEmoji) params.recv = 1;
   if (orig) params.orig = orig;
   if (md5) params.md5 = md5;
-  const proxySrc = mediaUrl('pic', params);
+  const originalProxySrc = mediaUrl('pic', params);
+  const proxySrc = isAnimatedEmoji ? originalProxySrc : mediaUrl('pic', { ...params, v: 'thumb' });
   // 「优先使用 CDN」开着且拼得出直链时先试它（浏览器直连，服务端零流量）；rkey 过期 /
   // 老图片 / CDN 抽风都会 onError 落回上面这条代理路径，再失败才是「未找到」占位。
   const cdn = useCdn();
@@ -158,6 +159,7 @@ export function QqImage({
   if (localPreviewUrl && !candidates.includes(localPreviewUrl)) candidates.push(localPreviewUrl);
   if (cdnSrc) candidates.push(cdnSrc);
   if (!candidates.includes(proxySrc)) candidates.push(proxySrc);
+  if (!isAnimatedEmoji && !candidates.includes(originalProxySrc)) candidates.push(originalProxySrc);
   const [srcIndex, setSrcIndex] = useState(0);
   const src = candidates[Math.min(srcIndex, candidates.length - 1)] ?? proxySrc;
 
@@ -197,7 +199,12 @@ export function QqImage({
       onClick={
         openable
           ? (event) =>
-              openLightbox(src, name || '[图片]', ocrContext, event.currentTarget.ownerDocument)
+              openLightbox(
+                src === proxySrc ? originalProxySrc : src,
+                name || '[图片]',
+                ocrContext,
+                event.currentTarget.ownerDocument,
+              )
           : undefined
       }
     >
@@ -207,6 +214,8 @@ export function QqImage({
         src={src}
         alt={isAnimatedEmoji ? '[动画表情]' : name || '[图片]'}
         draggable={false}
+        loading="lazy"
+        decoding="async"
         onError={() => {
           if (srcIndex < candidates.length - 1) setSrcIndex((index) => index + 1);
           else setBroken(true);

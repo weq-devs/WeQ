@@ -366,15 +366,15 @@ function ReportDeckView({
   }, []);
 
   // 离开报告时把注入的换字样式收干净，别影响应用其余部分。
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const fontTargets = [rootRef.current, overlayHostRef.current];
+    return () => {
       generationRef.current++;
       inFlight.current.clear();
       fontRequest.current++;
-      clearReportFont([rootRef.current, overlayHostRef.current]);
-    },
-    [],
-  );
+      clearReportFont(fontTargets);
+    };
+  }, []);
 
   // 报告是全视口的固定舞台：进来时把页面滚回顶部，上一屏可能已经滚到别处。
   useEffect(() => {

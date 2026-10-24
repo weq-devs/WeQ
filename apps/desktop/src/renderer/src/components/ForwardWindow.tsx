@@ -575,7 +575,7 @@ function ForwardRow({
   kind: 'c2c' | 'group';
 }): ReactElement {
   const rowRef = useRef<HTMLDivElement | null>(null);
-  const msgDec = useMsgDecoration(record.decoration);
+  const msgDec = useMsgDecoration(record.decoration, rowRef);
   // 转发行都是「对方」样式,生效挂件只在作用范围 all 时叠上来。
   const { widget: activeWidget, scope: activeScope } = useActiveWidget();
   // 炫彩只跟逐条消息字体走:生效字体的 font-family 规则只选中 .message-line（见

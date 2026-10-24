@@ -2,6 +2,8 @@ import { ipcRenderer } from 'electron';
 import {
   DIAGNOSTIC_SAMPLE_REQUEST,
   DIAGNOSTIC_SAMPLE_RESPONSE,
+  RESOURCE_DIAGNOSTIC_ID,
+  RESOURCE_DIAGNOSTIC_REQUEST,
 } from '../shared/renderer_diagnostics';
 
 /** 只响应主进程的分钟采样，不暴露网页调用入口或读取正文。 */
@@ -18,9 +20,25 @@ export function installRendererDiagnosticSampling(): void {
       }
       const preloadDocument = (
         globalThis as typeof globalThis & {
-          document?: { getElementsByTagName(name: '*'): { length: number } };
+          document?: {
+            dispatchEvent(event: Event): boolean;
+            getElementById(id: string): { getAttribute(name: string): string | null } | null;
+            getElementsByTagName(name: '*'): { length: number };
+          };
         }
       ).document;
+      let resources: unknown = null;
+      if (preloadDocument) {
+        preloadDocument.dispatchEvent(new Event(RESOURCE_DIAGNOSTIC_REQUEST));
+        const raw = preloadDocument.getElementById(RESOURCE_DIAGNOSTIC_ID)?.getAttribute('content');
+        if (raw && raw.length <= 2048) {
+          try {
+            resources = JSON.parse(raw);
+          } catch {
+            /* 未就绪时保留未知值。 */
+          }
+        }
+      }
       ipcRenderer.send(DIAGNOSTIC_SAMPLE_RESPONSE, sequence, {
         jsHeapUsedBytes: memory.heapUsed,
         jsHeapTotalBytes: memory.heapTotal,
@@ -29,6 +47,7 @@ export function installRendererDiagnosticSampling(): void {
         blinkAllocatedKB: blink?.allocated,
         blinkTotalKB: blink?.total,
         domNodes: preloadDocument?.getElementsByTagName('*').length,
+        resources,
       });
     } catch {
       ipcRenderer.send(DIAGNOSTIC_SAMPLE_RESPONSE, sequence, null);

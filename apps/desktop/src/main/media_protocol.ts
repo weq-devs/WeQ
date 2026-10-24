@@ -38,6 +38,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { viewerMedia } from './export_viewer';
 import { fileResponse as streamFile } from './file_response';
+import { decorationImageResponse } from './decoration_image_response';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -532,7 +533,9 @@ async function routeMediaRequest(request: Request): Promise<Response> {
       const id = Number(q.get('id') ?? '0');
       const frame = Number(q.get('frame') ?? '0');
       const path = id && frame > 0 ? services.dressInstall.fontFrameFile(id, frame) : null;
-      return path ? revalidatingFileResponse(path) : notFound('dress font fx frame not available');
+      return path
+        ? decorationImageResponse(path, currentRequest.getStore(), true)
+        : notFound('dress font fx frame not available');
     }
 
     // 走 protocol 兜底装上的气泡:九宫格 PNG 是从 static.zip 解出来的本地文件,
@@ -546,7 +549,9 @@ async function routeMediaRequest(request: Request): Promise<Response> {
         : frame > 0
           ? services.dressInstall.bubbleFrameFile(id, frame)
           : services.dressInstall.bubbleFile(id);
-      return path ? fileResponse(path) : notFound('dress bubble not installed');
+      return path
+        ? decorationImageResponse(path, currentRequest.getStore())
+        : notFound('dress bubble not installed');
     }
 
     // 走 protocol 换的头像挂件动画帧:other.zip → aio_file.zip 解出的逐帧 PNG,
@@ -556,7 +561,9 @@ async function routeMediaRequest(request: Request): Promise<Response> {
       const id = Number(q.get('id') ?? '0');
       const frame = Number(q.get('frame') ?? '0');
       const path = id && frame > 0 ? services.dressInstall.pendantFrameFile(id, frame) : null;
-      return path ? fileResponse(path) : notFound('dress pendant frame not available');
+      return path
+        ? decorationImageResponse(path, currentRequest.getStore())
+        : notFound('dress pendant frame not available');
     }
 
     // 用户自选的聊天背景:已拷进本账号的装扮目录,路径由清单给 —— 不接受 url 传路径,

@@ -94,6 +94,13 @@ describe('渲染内存诊断隐私与上限', () => {
       token: 'secret',
       externalBytes: Infinity,
       blinkAllocatedKB: -1,
+      resources: {
+        retainedBytes: 1024,
+        pinnedImages: 3,
+        totalPendingImages: 5,
+        token: 'secret',
+        reservedBytes: Infinity,
+      },
     });
     expect(sample).toMatchObject({
       jsHeapUsedBytes: 500,
@@ -103,6 +110,12 @@ describe('渲染内存诊断隐私与上限', () => {
       eventListeners: null,
     });
     expect(JSON.stringify(sample)).not.toContain('secret');
+    expect(sample.resources).toMatchObject({
+      retainedBytes: 1024,
+      pinnedImages: 3,
+      totalPendingImages: 5,
+      reservedBytes: null,
+    });
     expect(normalizeRendererSample(null).jsHeapUsedBytes).toBeNull();
   });
 

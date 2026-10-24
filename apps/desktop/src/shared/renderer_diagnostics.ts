@@ -1,5 +1,29 @@
 export const DIAGNOSTIC_SAMPLE_REQUEST = 'diagnostics:sample-request';
 export const DIAGNOSTIC_SAMPLE_RESPONSE = 'diagnostics:sample-response';
+export const RESOURCE_DIAGNOSTIC_REQUEST = 'weq:resource-diagnostic-request';
+export const RESOURCE_DIAGNOSTIC_ID = 'weq-resource-diagnostics';
+
+const RESOURCE_FIELDS = [
+  'retainedImages',
+  'retainedBytes',
+  'pinnedImages',
+  'reservedBytes',
+  'activeDecodes',
+  'pendingImages',
+  'totalPendingImages',
+  'cancelledJobs',
+  'managedFonts',
+  'loadingFonts',
+  'documentFonts',
+  'decorationStyles',
+  'decorationRules',
+  'omittedStyles',
+] as const;
+export function normalizeResourceSample(value: unknown) {
+  const data =
+    typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+  return Object.fromEntries(RESOURCE_FIELDS.map((field) => [field, diagnosticNumber(data[field])]));
+}
 
 export function diagnosticNumber(value: unknown): number | null {
   return typeof value === 'number' &&
@@ -22,6 +46,7 @@ export function normalizeRendererSample(value: unknown) {
     blinkAllocatedKB: diagnosticNumber(data.blinkAllocatedKB),
     blinkTotalKB: diagnosticNumber(data.blinkTotalKB),
     domNodes: diagnosticNumber(data.domNodes),
+    resources: normalizeResourceSample(data.resources),
     eventListeners: null,
   };
 }

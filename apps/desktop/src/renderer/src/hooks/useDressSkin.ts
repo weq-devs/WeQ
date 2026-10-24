@@ -127,6 +127,7 @@ export function useDressSkin(): void {
   useEffect(() => {
     syncDressSkin(manifest);
   }, [manifest]);
+  useEffect(() => () => applyDressSkin(null, null, null), []);
 }
 
 /**

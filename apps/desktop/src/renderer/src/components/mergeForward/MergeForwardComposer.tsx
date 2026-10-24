@@ -582,7 +582,7 @@ function PreviewRow({
   dragHandle?: ReactNode;
 }): ReactElement {
   const rowRef = useRef<HTMLDivElement | null>(null);
-  const msgDec = useMsgDecoration(node.decoration);
+  const msgDec = useMsgDecoration(node.decoration, rowRef);
   const { widget: activeWidget, scope: activeScope } = useActiveWidget();
   const fontFxAttr = useBubbleFontFx(msgDec.fontFx, rowRef);
   const widget = msgDec.widget ?? (activeScope === 'all' ? activeWidget : null);
