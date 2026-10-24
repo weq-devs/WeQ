@@ -451,6 +451,13 @@ function TaskDetail({
   const overall = t.status === 'completed' ? 100 : Math.min(100, Math.max(0, t.progress));
   const completion = completionSummary(t.stages);
   const resourceMissing = (t.generatedResources?.missing ?? t.resource?.failed ?? 0) > 0;
+  const pauseDraining =
+    t.canResume === false &&
+    !t.resource &&
+    !t.isMarketPack &&
+    !t.isEmojiPack &&
+    !t.isCollection &&
+    !t.isGuild;
   const hasCompletion = completion.ok > 0 || completion.failed > 0;
   const logs = t.logs ?? [];
   const stageLogs = (key: string): UiLogLine[] => logs.filter((l) => l.stage === key);
@@ -502,7 +509,9 @@ function TaskDetail({
             : t.status === 'paused' && t.partialReady
               ? '已收尾'
               : t.status === 'paused' && !t.canResume
-                ? '暂停中'
+                ? pauseDraining
+                  ? '暂停收尾中'
+                  : '暂停中'
                 : t.status === 'completed' && resourceMissing
                   ? '已完成 · 资源缺失'
                   : STATUS_LABEL[t.status]}

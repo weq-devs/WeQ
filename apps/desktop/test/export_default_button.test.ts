@@ -71,7 +71,7 @@ it.each([false, true])('设为默认按钮可撤销，确认时携带对应保�
         `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${styles}</style><style>body{margin:0;font-family:system-ui;background:var(--background)}*,*::before,*::after{box-sizing:border-box}.weq-export-options{height:100vh}</style><body>${host.innerHTML}</body></html>`,
       );
     }
-    act(() => button('开始导出').click());
+    await act(async () => button('开始导出').click());
     expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ saveAsDefault: !undo }));
   } finally {
     act(() => root.unmount());
