@@ -20,6 +20,7 @@
 
 import { EventEmitter } from 'node:events';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
+import { resolveBackupLocation, backupMediaRoots } from '../static_backup';
 import { VipBadgeService } from '../vip_badge';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -2121,6 +2122,9 @@ export function initAppContext(fileRoot?: string): AppContext {
         mobile?: boolean;
       } = {},
     ): Promise<void> {
+      const backup = await resolveBackupLocation(dirPath);
+      if (!backup) throw new Error('未找到 QQ 账号数据库目录');
+      dirPath = backup.dbDir;
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
       logger.info('opening static account session', {
@@ -2191,17 +2195,19 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Re-probed on every open: the user may have changed the global data-dir
       // override since last time, so the persisted path is display-only.
       const nativeDir = platform.accountDir(session.context.uin);
+      const importedMedia = backup.mediaDir;
       const nativeMediaOn = (): boolean =>
         nativeDir !== null && (accountConfig.getRecord()?.nativeMediaEnabled ?? true);
 
-      // Every service below resolves its resources through this wrapper instead
-      // of the bare platform. Databases point at the imported folder (otherwise
-      // the db browser and emoji.db reads would silently target the local
-      // install), and media resolves to the native dir only while bound — else
-      // null, which makes the media pipeline fall through to CDN completion.
+      // 数据库始终指向导入目录；媒体优先取备份自带的 nt_data，缺失时才使用
+      // 用户允许关联的本机同账号目录，否则由原有管线回退在线补全。
       const staticPlatform = withResourceRoots(platform, () => ({
         dbDir: dirPath,
-        media: nativeMediaOn() ? 'passthrough' : 'none',
+        media: importedMedia
+          ? backupMediaRoots(importedMedia, backup.accountDir)
+          : nativeMediaOn()
+            ? 'passthrough'
+            : 'none',
       }));
       this.resourcePlatform = staticPlatform;
       this.accountIsStatic = true;
@@ -2702,6 +2708,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountConfig.save({
         dataDir: dirPath,
         static: true,
+        backupAccountDir: backup.accountDir,
         ...(options.mobile ? { mobile: true } : {}),
         ...(selfUid ? { uid: selfUid } : {}),
         ...(nativeDir ? { nativeMediaDir: nativeDir } : {}),

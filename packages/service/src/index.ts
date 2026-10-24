@@ -142,6 +142,11 @@ export {
   requestDecryptKeyFromInstance,
 } from './account/online_ticket';
 export type { OnlineTicketNt } from './account/online_ticket';
+export {
+  fetchOtherDeviceDatabaseKey,
+  createOtherDeviceKeyContext,
+} from './account/other_device_key';
+export type { OtherDeviceInstance, OtherDeviceKeyContext } from './account/other_device_key';
 export type { BubbleSkin, BubbleSlice } from './account/bubble_skin';
 export { DressService, createDressService } from './account/dress_service';
 export { DressConfigService } from './account/dress_config';

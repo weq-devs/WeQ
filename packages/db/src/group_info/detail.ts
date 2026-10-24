@@ -78,7 +78,22 @@ export interface GroupDetailDbOptions {
   algo?: DatabaseAlgorithms;
 }
 
-const SELECT_COLUMNS = `"60001","60007","60216","60217","60026","60002","60004","60005","60006","60218","60224","60340","60241","60242"`;
+const DETAIL_COLUMNS = [
+  '60001',
+  '60007',
+  '60216',
+  '60217',
+  '60026',
+  '60002',
+  '60004',
+  '60005',
+  '60006',
+  '60218',
+  '60224',
+  '60340',
+  '60241',
+  '60242',
+];
 
 export class GroupDetailDb {
   private readonly qq: QqDb;
@@ -87,10 +102,20 @@ export class GroupDetailDb {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
+  private async detailColumns(): Promise<string> {
+    const columns = await this.qq.tableColumns('group_detail_info_ver1');
+    return DETAIL_COLUMNS.map((column) =>
+      column === '60340' && !columns.has(column) ? 'NULL' : `group_detail_info_ver1."${column}"`,
+    ).join(',');
+  }
+
   /** Official current membership list; independent of partial group_member3 caches. */
   async listDirectory(): Promise<GroupDirectoryEntry[]> {
+    const columns = await this.qq.tableColumns('group_list');
+    const notify = columns.has('60252') ? '"60252"' : 'NULL';
+    const unnamed = columns.has('60281') ? '"60281"' : 'NULL';
     const rows = await this.qq.query(
-      'SELECT "60001","60018","60022","60252","60281","60006" FROM group_list',
+      `SELECT "60001","60018","60022",${notify},${unnamed},"60006" FROM group_list`,
     );
     return rows.map(
       (row): GroupDirectoryEntry => ({
@@ -116,7 +141,7 @@ export class GroupDetailDb {
    */
   async getDetail(groupCode: bigint): Promise<GroupDetail | null> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_detail_info_ver1 WHERE "60001" = ? LIMIT 1`,
+      `SELECT ${await this.detailColumns()} FROM group_detail_info_ver1 WHERE "60001" = ? LIMIT 1`,
       [groupCode],
     );
     if (rows.length === 0) return null;
@@ -132,7 +157,7 @@ export class GroupDetailDb {
     if (unique.length === 0) return [];
     const placeholders = unique.map(() => '?').join(',');
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_detail_info_ver1 WHERE "60001" IN (${placeholders})`,
+      `SELECT ${await this.detailColumns()} FROM group_detail_info_ver1 WHERE "60001" IN (${placeholders})`,
       unique,
     );
     return rows.map(rowToDetail);
@@ -143,7 +168,7 @@ export class GroupDetailDb {
    */
   async listAll(limit = 100, offset = 0): Promise<GroupDetail[]> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_detail_info_ver1 LIMIT ? OFFSET ?`,
+      `SELECT ${await this.detailColumns()} FROM group_detail_info_ver1 LIMIT ? OFFSET ?`,
       [limit, offset],
     );
     return rows.map(rowToDetail);

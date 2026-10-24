@@ -33,6 +33,7 @@ import { CustomStatusBody } from '@weq/codec/proto/profile/20057';
 import { ProfileExtBody } from '@weq/codec/proto/profile/21000';
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { QqDb } from '../qq_db';
+import type { ProfileTableSchema } from './profile_table';
 
 const relationCodec = new ProtoMsg(GroupRelationBody);
 const statusCodec = new ProtoMsg(CustomStatusBody);
@@ -156,9 +157,30 @@ export interface ProfileInfoDbOptions {
   key?: string;
   /** Database algorithms (omit for plain decrypted). */
   algo?: DatabaseAlgorithms;
+  /** 静态旧备份使用已探测的资料表；在线账号保留默认 v6。 */
+  schema?: ProfileTableSchema;
 }
 
-const SELECT_COLUMNS = `"1000","1001","1002","20002","20004","20006","20007","20008","20009","20011","20014","20057","20070","20072","24103","24104","21000"`;
+const PROFILE_COLUMN_IDS = [
+  '1000',
+  '1001',
+  '1002',
+  '20002',
+  '20004',
+  '20006',
+  '20007',
+  '20008',
+  '20009',
+  '20011',
+  '20014',
+  '20057',
+  '20070',
+  '20072',
+  '24103',
+  '24104',
+  '21000',
+];
+const SELECT_COLUMNS = PROFILE_COLUMN_IDS.map((id) => `"${id}"`).join(',');
 
 /**
  * QQ 机器人专属的 uin 号段（闭区间，两端含）。
@@ -193,9 +215,22 @@ const BOT_UIN_RANGE_SQL = BOT_UIN_RANGES.map(([min, max]) =>
 
 export class ProfileInfoDb {
   private readonly qq: QqDb;
+  private readonly table: string;
+  private readonly columns?: ReadonlySet<string>;
+  private readonly selectColumns: string;
 
   constructor(nt: NtHelperBinding, opts: ProfileInfoDbOptions) {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
+    this.table = opts.schema?.table ?? 'profile_info_v6';
+    if (!/^profile_info_v\d+$/.test(this.table)) throw new Error('不支持的 QQ 资料表名');
+    this.columns = opts.schema?.columns;
+    this.selectColumns = this.columns
+      ? PROFILE_COLUMN_IDS.map((id) => this.column(id)).join(',')
+      : SELECT_COLUMNS;
+  }
+
+  private column(id: string, alias?: string): string {
+    return this.columns && !this.columns.has(id) ? 'NULL' : `${alias ? `${alias}.` : ''}"${id}"`;
   }
 
   /**
@@ -203,7 +238,7 @@ export class ProfileInfoDb {
    */
   async getProfile(uid: string): Promise<UserProfile | null> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM profile_info_v6 WHERE "1000" = ? LIMIT 1`,
+      `SELECT ${this.selectColumns} FROM ${this.table} WHERE "1000" = ? LIMIT 1`,
       [uid],
     );
     if (rows.length === 0) return null;
@@ -215,7 +250,7 @@ export class ProfileInfoDb {
    */
   async getProfileByUin(uin: bigint): Promise<UserProfile | null> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM profile_info_v6 WHERE "1002" = ? LIMIT 1`,
+      `SELECT ${this.selectColumns} FROM ${this.table} WHERE "1002" = ? LIMIT 1`,
       [uin],
     );
     if (rows.length === 0) return null;
@@ -232,7 +267,7 @@ export class ProfileInfoDb {
     if (unique.length === 0) return {};
     const placeholders = unique.map(() => '?').join(',');
     const rows = await this.qq.query(
-      `SELECT "1000","20002" FROM profile_info_v6 WHERE "1000" IN (${placeholders})`,
+      `SELECT "1000","20002" FROM ${this.table} WHERE "1000" IN (${placeholders})`,
       unique,
     );
     const out: Record<string, string> = {};
@@ -255,7 +290,7 @@ export class ProfileInfoDb {
     if (unique.length === 0) return [];
     const placeholders = unique.map(() => '?').join(',');
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM profile_info_v6 WHERE "1000" IN (${placeholders})`,
+      `SELECT ${this.selectColumns} FROM ${this.table} WHERE "1000" IN (${placeholders})`,
       unique,
     );
     return rows.map(rowToProfile);
@@ -280,14 +315,14 @@ export class ProfileInfoDb {
     const [countRows, rows] = await Promise.all([
       this.qq.query(
         `SELECT COUNT(*) FROM buddy_list b
-         LEFT JOIN profile_info_v6 p ON b."1000" = p."1000"
+         LEFT JOIN ${this.table} p ON b."1000" = p."1000"
          WHERE ${where}`,
         [like, like],
       ),
       this.qq.query(
-        `SELECT b."1000", b."1002", p."20002", p."20009", p."20004"
+        `SELECT b."1000", b."1002", p."20002", ${this.column('20009', 'p')}, ${this.column('20004', 'p')}
          FROM buddy_list b
-         LEFT JOIN profile_info_v6 p ON b."1000" = p."1000"
+         LEFT JOIN ${this.table} p ON b."1000" = p."1000"
          WHERE ${where}
          ORDER BY CASE
            WHEN CAST(b."1002" AS TEXT) = ? OR p."20002" = ? COLLATE NOCASE THEN 0
@@ -331,10 +366,10 @@ export class ProfileInfoDb {
     offset = 0,
   ): Promise<Array<{ uid: string; uin: string; nick: string; remark: string; intimacy: number }>> {
     const rows = await this.qq.query(
-      `SELECT b."1000", b."1002", p."20002", p."20009", p."20070"
+      `SELECT b."1000", b."1002", p."20002", ${this.column('20009', 'p')}, ${this.column('20070', 'p')}
        FROM buddy_list b
-       LEFT JOIN profile_info_v6 p ON b."1000" = p."1000"
-       ORDER BY COALESCE(p."20070", 0) DESC, b."1000" ASC
+       LEFT JOIN ${this.table} p ON b."1000" = p."1000"
+       ORDER BY COALESCE(${this.column('20070', 'p')}, 0) DESC, b."1000" ASC
        LIMIT ? OFFSET ?`,
       [limit, offset],
     );
@@ -362,8 +397,8 @@ export class ProfileInfoDb {
    */
   async botUids(): Promise<Set<string>> {
     const rows = await this.qq.query(
-      `SELECT "1000","1002","21000" FROM profile_info_v6
-       WHERE instr("21000", x'E29A0E') > 0 OR ${BOT_UIN_RANGE_SQL}`,
+      `SELECT "1000","1002",${this.column('21000')} FROM ${this.table}
+       WHERE instr(${this.column('21000')}, x'E29A0E') > 0 OR ${BOT_UIN_RANGE_SQL}`,
     );
     const out = new Set<string>();
     for (const row of rows) {
@@ -384,7 +419,7 @@ export class ProfileInfoDb {
    */
   async listProfiles(limit = 100, offset = 0): Promise<UserProfile[]> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM profile_info_v6 LIMIT ? OFFSET ?`,
+      `SELECT ${this.selectColumns} FROM ${this.table} LIMIT ? OFFSET ?`,
       [limit, offset],
     );
     return rows.map(rowToProfile);
@@ -404,9 +439,9 @@ export class ProfileInfoDb {
    */
   async getUidByUin(uin: bigint): Promise<string> {
     const rows = await this.qq.query(
-      `SELECT "1000" FROM profile_info_v6
+      `SELECT "1000" FROM ${this.table}
        WHERE "1002" = ? AND "1000" IS NOT NULL AND "1000" <> ''
-       ORDER BY ("20002" IS NULL OR "20002" = '') ASC, "20003" DESC
+       ORDER BY ("20002" IS NULL OR "20002" = '') ASC, ${this.column('20003')} DESC
        LIMIT 1`,
       [uin],
     );

@@ -111,8 +111,11 @@ export interface AccountConfig {
    * Absolute path to this account's user-data directory
    * (`…\Tencent Files\<uin>`). The true primary key; same uin + different
    * dataDir ⇒ separate record.
+   * 静态账号兼容旧记录，使用数据库目录作主键；完整账号根见 backupAccountDir。
    */
   dataDir?: string;
+  /** 静态备份的完整账号根；dataDir 保留数据库目录以兼容已有配置 ID 和设置。 */
+  backupAccountDir?: string;
   /** Last seen display name / nickname (for the picker). */
   displayName?: string;
   /** Cached avatar URL (for the picker), if resolved. */
@@ -256,6 +259,7 @@ export interface AccountConfigMetadata {
   displayName?: string;
   avatarUrl?: string;
   dataDir?: string;
+  backupAccountDir?: string;
   /** Account string uid (`u_...`), needed for linux account-dir derivation. */
   uid?: string;
   /** Set when opening a static (offline) account so the badge / re-open
@@ -331,6 +335,7 @@ export class AccountConfigService {
       algos: this.session.context.algos,
       ...(metadata.uid ? { uid: metadata.uid } : {}),
       ...(metadata.dataDir ? { dataDir: metadata.dataDir } : {}),
+      ...(metadata.backupAccountDir ? { backupAccountDir: metadata.backupAccountDir } : {}),
       ...(metadata.displayName ? { displayName: metadata.displayName } : {}),
       ...(metadata.avatarUrl ? { avatarUrl: metadata.avatarUrl } : {}),
       ...(metadata.static === true ? { static: true } : {}),

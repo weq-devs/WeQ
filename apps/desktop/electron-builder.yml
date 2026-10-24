@@ -23,6 +23,8 @@ files:
   # 所以整包从 asar 里剔掉。
   - "!node_modules/onnxruntime-node/**"
 extraResources:
+  - from: out/main/backupProbeWorker.mjs
+    to: out/main/backupProbeWorker.mjs
   - from: out/main/storageCleanupWorker.mjs
     to: out/main/storageCleanupWorker.mjs
   # 独立清除助手与主进程共享纯文件系统模块；子进程不能从 asar 里解析相邻 chunks。
@@ -88,6 +90,8 @@ extraResources:
     to: node_modules/onnxruntime-common
 
 asarUnpack:
+  - node_modules/sharp/**/*
+  - node_modules/@img/**/*
   # @resvg/resvg-js loads a platform .node binding (used by the WeQ 助手 cover
   # renderer in the main process). Native addons can't be loaded from inside the
   # asar, so unpack the resvg packages (base + per-platform binding). The

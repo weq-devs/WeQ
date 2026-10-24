@@ -51,6 +51,7 @@ export class FileAssistantDb {
 
     // 1. Try exact match with msgId + 1
     for (const table of ['file_assistant_v2', 'file_assistant'] as const) {
+      if (!(await this.qq.hasTable(table))) continue;
       const rows = await this.qq.query(
         `SELECT ${SELECT_COLUMNS} FROM ${table} WHERE "200016" = ? LIMIT 1`,
         [target],
@@ -64,6 +65,7 @@ export class FileAssistantDb {
     const upper = msgId + 2n;
 
     for (const table of ['file_assistant_v2', 'file_assistant'] as const) {
+      if (!(await this.qq.hasTable(table))) continue;
       const rows = await this.qq.query(
         `SELECT ${SELECT_COLUMNS} FROM ${table} WHERE "200016" >= ? AND "200016" <= ? ORDER BY ABS("200016" - ?) ASC LIMIT 1`,
         [lower, upper, msgId],
@@ -79,16 +81,12 @@ export class FileAssistantDb {
     limit: number,
     offset: number,
   ): Promise<FileAssistantRow[]> {
-    try {
-      const rows = await this.qq.query(
-        `SELECT ${SELECT_COLUMNS} FROM ${tableName} ORDER BY "200009" DESC LIMIT ? OFFSET ?`,
-        [limit, offset],
-      );
-      return rows.map((r) => rowToInfo(r, tableName));
-    } catch (_e) {
-      // Table might not exist in older versions
-      return [];
-    }
+    if (!(await this.qq.hasTable(tableName))) return [];
+    const rows = await this.qq.query(
+      `SELECT ${SELECT_COLUMNS} FROM ${tableName} ORDER BY "200009" DESC LIMIT ? OFFSET ?`,
+      [limit, offset],
+    );
+    return rows.map((r) => rowToInfo(r, tableName));
   }
 
   close(): void {

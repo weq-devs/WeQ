@@ -6,7 +6,7 @@
  *   2. Still-encrypted SQLCipher databases (key + algorithm required)
  *
  * The UIN is NOT derived from the directory name — it is read from
- * `profile_info.db → profile_info_v6`'s first row, column `"1002"`. This
+ * the detected `profile_info_vN` table in `profile_info.db`, column `"1002"`. This
  * works for phone backups or third-party decrypted folders whose directory
  * names carry no reliable UIN.
  *
@@ -54,6 +54,7 @@ import {
   GuildDirectMsgDb,
   GuildCommonProfileDb,
   wrapBindingForSalvage,
+  resolveProfileTableSchema,
 } from '@weq/db';
 import type { DatabaseAlgorithms, NtHelperBinding } from '@weq/native';
 import type { Platform } from '@weq/platform';
@@ -236,8 +237,8 @@ export async function deriveAndroidDbKey(
 }
 
 /**
- * Read the self row from `profile_info_v6` (the first row is the account
- * owner). Throws on missing files / SQLCipher-without-key / bad schema so
+ * Read the owner preview from the actual versioned profile table.
+ * Throws on missing files / SQLCipher-without-key / bad schema so
  * the caller can show a friendly "needs key" prompt.
  */
 export interface StaticSelfPreview {
@@ -252,6 +253,7 @@ export async function peekStaticSelfUin(
   dirPath: string,
   dbKey?: string,
   algos?: Record<string, DatabaseAlgorithms>,
+  expectedUin?: string,
 ): Promise<StaticSelfPreview> {
   const nt = platform.native.ntHelper;
   const profileInfoPath = requireFile(dirPath, 'profile_info.db');
@@ -260,23 +262,23 @@ export async function peekStaticSelfUin(
   // profile column through the codec pipeline just to read 3 fields.
   const qq = new QqDb(nt, dbOpts(profileInfoPath, dbKey, resolvedAlgos));
   try {
+    const schema = await resolveProfileTableSchema(qq);
     // 1002 = uin, 20002 = nick, 1000 = uid. We intentionally do NOT read the
     // stored avatar (20004) — it's a chat-CDN token that only a live QQ can
     // complete, so it 404s for offline/static accounts. The UI builds a stable
     // avatar URL from the uin instead (see QqAvatar/qqAvatarUrl).
-    // 20003 = lastUpdateTime; the account owner's row has the largest value.
-    // The first row is NOT guaranteed to be self (other contacts appear before it
-    // in some backups), so we ORDER BY 20003 DESC to find the correct self row.
+    // 已通过同账号密钥确认身份时精确匹配；无身份提示时保留原有更新时间启发式。
     const rows = await qq.query(
-      `SELECT "1000","1002","20002" FROM profile_info_v6 ORDER BY "20003" DESC LIMIT 1`,
+      `SELECT "1000","1002","20002" FROM "${schema.table}" ${expectedUin ? 'WHERE "1002" = ?' : ''} ORDER BY ${schema.columns.has('20003') ? '"20003"' : '"1002"'} DESC LIMIT 1`,
+      expectedUin ? [BigInt(expectedUin)] : [],
     );
     if (rows.length === 0 || rows[0] === undefined) {
-      throw new Error('profile_info_v6 为空，无法识别账号');
+      throw new Error('资料表中未找到目标账号，无法识别备份');
     }
     const row = rows[0];
     const uinRaw = row[1];
     const uin = uinRaw === null || uinRaw === undefined ? '' : String(uinRaw);
-    if (!uin) throw new Error('profile_info_v6 中未找到有效的 UIN');
+    if (!uin) throw new Error('资料表中未找到有效的 UIN');
     return {
       uin,
       uid: String(row[0] ?? ''),
@@ -377,6 +379,8 @@ export async function openStaticAccount(
   }
 
   const opts = (dbPath: string) => dbOpts(dbPath, guildKeyOf(dbPath), resolvedAlgos);
+  const schemaDb = new QqDb(nt, opts(profileInfoPath));
+  const profileSchema = await resolveProfileTableSchema(schemaDb).finally(() => schemaDb.close());
 
   const c2cMsgs = new C2cMsgDb(nt, opts(msgDbPath));
   // 数据线消息表结构同 c2c，复用 C2cMsgDb 只换表名。
@@ -442,7 +446,7 @@ export async function openStaticAccount(
   const buddies = new BuddyDb(nt, profileOpts);
   const categories = new CategoryDb(nt, profileOpts);
   const buddyReqs = new BuddyRequestDb(nt, profileOpts);
-  const profileInfo = new ProfileInfoDb(nt, profileOpts);
+  const profileInfo = new ProfileInfoDb(nt, { ...profileOpts, schema: profileSchema });
   const botProfiles = new BotProfileDb(nt, profileOpts);
 
   // ---- misc ----

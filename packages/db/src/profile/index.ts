@@ -12,6 +12,8 @@ export { BuddyRequestDb } from './buddy_req';
 export type { BuddyRequestDbOptions, BuddyRequest } from './buddy_req';
 
 export { ProfileInfoDb } from './profile_info';
+export { resolveProfileTableSchema } from './profile_table';
+export type { ProfileTableSchema } from './profile_table';
 export type {
   ProfileInfoDbOptions,
   UserProfile,

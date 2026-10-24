@@ -389,7 +389,7 @@ export function validateWeqAccountSettings(
     row,
     'accounts',
     ['dbKey'],
-    ['uid', 'dataDir', 'displayName', 'avatarUrl', 'guid', 'nativeMediaDir'],
+    ['uid', 'dataDir', 'backupAccountDir', 'displayName', 'avatarUrl', 'guid', 'nativeMediaDir'],
   );
   number(row.lastLoginAt, 'accounts.lastLoginAt');
   for (const [name, value] of Object.entries(record(row.algos, 'accounts.algos'))) {

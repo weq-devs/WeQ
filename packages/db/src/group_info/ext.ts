@@ -65,6 +65,7 @@ export class GroupExtDb {
   }
 
   async getExt(groupCode: bigint): Promise<GroupExt | null> {
+    if (!(await this.qq.hasTable('group_ext_list'))) return null;
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_ext_list WHERE "60001" = ? LIMIT 1`,
       [groupCode],
@@ -74,6 +75,7 @@ export class GroupExtDb {
   }
 
   async listAll(limit = 500, offset = 0): Promise<GroupExt[]> {
+    if (!(await this.qq.hasTable('group_ext_list'))) return [];
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_ext_list LIMIT ? OFFSET ?`,
       [limit, offset],

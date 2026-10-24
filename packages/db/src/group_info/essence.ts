@@ -49,6 +49,7 @@ export class GroupEssenceDb {
    * List essence messages for a group, newest first.
    */
   async listEssence(groupCode: bigint, limit = 50, offset = 0): Promise<GroupEssence[]> {
+    if (!(await this.qq.hasTable('group_essence'))) return [];
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_essence WHERE "60001" = ? ORDER BY "67508" DESC LIMIT ? OFFSET ?`,
       [groupCode, limit, offset],
@@ -61,6 +62,7 @@ export class GroupEssenceDb {
    * 给消息打「精华」角标用。不查网络、不拉消息体，表小、一次全量。
    */
   async listEssenceSeqs(groupCode: bigint): Promise<number[]> {
+    if (!(await this.qq.hasTable('group_essence'))) return [];
     const rows = await this.qq.query(
       `SELECT "67501" FROM group_essence WHERE "60001" = ? AND "67505" = 1 ORDER BY "67508" DESC`,
       [groupCode],

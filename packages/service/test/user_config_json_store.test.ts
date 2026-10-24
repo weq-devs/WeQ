@@ -221,4 +221,15 @@ describe('AccountConfigService.setA1Payload', () => {
     s.setA1Payload('aa');
     expect(s.getRecord()).toEqual(first);
   });
+  it('完整备份根单独保存，旧数据库目录主键不变', () => {
+    const { s } = svc();
+    const dataDir = '/backup/12345/nt_qq/nt_db';
+    s.save({ dataDir, static: true, backupAccountDir: '/backup/12345' });
+    expect(s.getRecord()).toMatchObject({
+      configId: accountConfigId('12345', dataDir),
+      dataDir,
+      backupAccountDir: '/backup/12345',
+      static: true,
+    });
+  });
 });

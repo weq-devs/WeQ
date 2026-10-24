@@ -22,6 +22,7 @@ import {
   describeExportOutput,
   selectStorageCleanupTargets,
   type StorageRoot,
+  createOtherDeviceKeyContext,
 } from '@weq/service';
 import {
   bindExportSaveRequest,
@@ -82,7 +83,8 @@ import {
   resolveDeviceGuid,
   localOcrBlocker,
 } from '@weq/service';
-import { peekStaticSelfUin, deriveAndroidDbKey } from '@weq/account';
+import { runBackupProbe } from '../../backup_probe';
+import { discoverBackups, probeBackup, resolveBackupDirectory } from '../../static_backup';
 import { normalizeQqDataRoot } from '@weq/platform';
 import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
 import { isDbRepairBusy } from './db_repair';
@@ -1760,8 +1762,35 @@ export const bootstrapRouter = router({
   }),
 
   pickStaticDbDir: procedure.mutation(async () => {
-    return getHost().pickDirectory({ title: '选择已解密的 QQ 数据库目录' });
+    return getHost().pickDirectory({ title: '选择 QQ 数据或本地备份文件夹' });
   }),
+  scanStaticDirs: procedure
+    .input(z.object({ dirPath: z.string().min(1), recursive: z.boolean().default(false) }))
+    .mutation(async ({ input }) => {
+      const boot = requireBootstrap();
+      const configs = boot.userConfig.listAccountConfigs();
+      for (const config of configs) if (config.uid) rememberAccountUid(config.uin, config.uid);
+      const result = await discoverBackups(input.dirPath, input.recursive);
+      const candidates = [];
+      const keyContext = createOtherDeviceKeyContext();
+      let online:
+        | ReturnType<typeof import('../../capture_session').resolveOnlineInstances>
+        | undefined;
+      const resolveOnline = () =>
+        (online ??= import('../../capture_session').then(({ resolveOnlineInstances }) =>
+          resolveOnlineInstances(boot, requirePlatform()),
+        ));
+      for (const info of result.candidates) {
+        const probe = await probeBackup(requirePlatform(), configs, info.dirPath, {
+          allowOnline: boot.userConfig.getSettings().autoAttachQq !== false,
+          attachHook: boot.attachHook,
+          keyContext,
+          resolveOnline,
+        });
+        candidates.push({ ...info, probe });
+      }
+      return { ...result, candidates };
+    }),
 
   // ---- key correctness probe ----
 
@@ -2183,58 +2212,20 @@ export const bootstrapRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const platform = requirePlatform();
-      if (!existsSync(input.dirPath)) {
-        return { ok: false as const, error: `目录不存在：${input.dirPath}` };
-      }
-      const profileInfoPath = join(input.dirPath, 'profile_info.db');
-      const ntMsgPath = join(input.dirPath, 'nt_msg.db');
-      if (!existsSync(profileInfoPath)) {
-        return { ok: false as const, error: '未在所选目录中找到 profile_info.db' };
-      }
-      if (!existsSync(ntMsgPath)) {
-        return { ok: false as const, error: '未在所选目录中找到 nt_msg.db' };
-      }
-      // 用户没给密钥时，先试着自己算 —— 安卓备份目录能从 uid + 头里的
-      // rand 推出 dbkey，省掉手输那一步。算不出来再走原来的流程。
-      let dbKey = input.dbKey;
-      let algos: Record<string, import('@weq/native').DatabaseAlgorithms> | undefined = input.algo
-        ? { 'nt_msg.db': input.algo }
-        : undefined;
-      let derived = false;
-      if (!dbKey) {
-        const d = await deriveAndroidDbKey(platform.native.ntHelper, input.dirPath);
-        if (d) {
-          dbKey = d.dbKey;
-          algos = d.algos;
-          derived = true;
-        }
-      }
-
-      try {
-        const preview = await peekStaticSelfUin(platform, input.dirPath, dbKey, algos);
-        return {
-          ok: true as const,
-          needKey: false as const,
-          // 自动算出来的密钥要回给前端 —— 「进入」时要用它开库并持久化。
-          ...(derived && dbKey ? { derivedKey: dbKey } : {}),
-          // 能自动推导密钥 ⇒ 安卓手机备份目录，标记为 mobile。
-          ...(derived ? { mobile: true as const } : {}),
-          preview: {
-            uin: preview.uin,
-            uid: preview.uid,
-            displayName: preview.nick,
-            avatarUrl: preview.avatarUrl,
-          },
-        };
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        // 用户没给密钥（自动派生也没成）—— 让 UI 去要，不算硬错误。
-        if (!input.dbKey) {
-          return { ok: true as const, needKey: true as const };
-        }
-        return { ok: false as const, error: `无法打开数据库：${msg}` };
-      }
+      const dbDir = await resolveBackupDirectory(input.dirPath);
+      if (!dbDir) return { ok: false as const, error: '未找到 nt_msg.db / profile_info.db' };
+      const boot = requireBootstrap();
+      const configs = boot.userConfig.listAccountConfigs();
+      for (const config of configs) if (config.uid) rememberAccountUid(config.uin, config.uid);
+      return probeBackup(requirePlatform(), configs, dbDir, {
+        dbKey: input.dbKey,
+        allowOnline: boot.userConfig.getSettings().autoAttachQq !== false,
+        attachHook: boot.attachHook,
+        resolveOnline: () =>
+          import('../../capture_session').then(({ resolveOnlineInstances }) =>
+            resolveOnlineInstances(boot, requirePlatform()),
+          ),
+      });
     }),
 
   /**
@@ -2263,31 +2254,27 @@ export const bootstrapRouter = router({
     )
     .mutation(async ({ input }) => {
       const ctx = getAppContext();
-      if (!existsSync(input.dirPath)) {
-        throw new Error(`目录不存在：${input.dirPath}`);
-      }
-      const ntMsgPath = join(input.dirPath, 'nt_msg.db');
-      if (!existsSync(ntMsgPath)) {
-        throw new Error(`未在所选目录中找到 nt_msg.db：${input.dirPath}`);
-      }
-      // 没带密钥时同样先自己算一遍 —— 覆盖「重开已存账号」以及旧版前端
-      // 不回传 derivedKey 的情况。算不出来就按明文 SQLite 打开（原行为）。
-      let dbKey = input.dbKey;
-      let algos: Record<string, import('@weq/native').DatabaseAlgorithms> | undefined = input.algo
+      const dirPath = await resolveBackupDirectory(input.dirPath);
+      if (!dirPath) throw new Error('未找到 nt_msg.db / profile_info.db');
+      // 真正切换账号前再次在隔离进程验证，避免旧客户端绕过目录探测。
+      const checked = await runBackupProbe({
+        dirPath,
+        dbKey: input.dbKey,
+        expectedUin: input.preview.uin,
+      });
+      if (checked.status === 'needKey') throw new Error('此备份需要数据库密钥，请先验证。');
+      if (checked.status === 'error') throw new Error(checked.error);
+      if (checked.preview.uin !== input.preview.uin)
+        throw new Error('备份账号已变化，请重新选择。');
+      const dbKey = checked.dbKey;
+      const algos: Record<string, import('@weq/native').DatabaseAlgorithms> | undefined = input.algo
         ? { 'nt_msg.db': input.algo }
         : undefined;
-      if (!dbKey) {
-        const d = await deriveAndroidDbKey(requirePlatform().native.ntHelper, input.dirPath);
-        if (d) {
-          dbKey = d.dbKey;
-          algos = d.algos;
-        }
-      }
 
-      await ctx.setStaticAccount(input.dirPath, input.preview, {
+      await ctx.setStaticAccount(dirPath, input.preview, {
         ...(dbKey ? { dbKey } : {}),
         ...(algos ? { algos } : {}),
-        ...(input.mobile ? { mobile: true } : {}),
+        ...(input.mobile || checked.mobile ? { mobile: true } : {}),
       });
       return ctx.account!.context;
     }),
