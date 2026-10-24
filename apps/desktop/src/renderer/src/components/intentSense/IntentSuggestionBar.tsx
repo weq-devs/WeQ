@@ -36,7 +36,7 @@ export function IntentSuggestionBar({
   const replyAllowed =
     replyTargetId !== null || (status.data?.suggestAfterSelf === true && !!latestMessageId);
   const overridden = status.data?.conversationOverrides?.[`${kind}:${conv}`];
-  const active = replyAllowed && overridden !== false && !!status.data?.suggestionsEnabled;
+  const active = overridden !== false && !!status.data?.suggestionsEnabled;
   const suggestions = trpc.account.intentSense.getSuggestions.useQuery(
     {
       kind,
@@ -46,7 +46,7 @@ export function IntentSuggestionBar({
       ...(latestMessageId !== undefined ? { targetId: latestMessageId } : {}),
     },
     {
-      enabled: active,
+      enabled: active && replyAllowed,
       refetchOnWindowFocus: false,
       staleTime: (status.data?.suggestionCacheSeconds ?? 90) * 1000,
       cacheTime: 0,
@@ -57,16 +57,16 @@ export function IntentSuggestionBar({
   const scope = JSON.stringify([kind, conv, status.data?.suggestionRevision ?? 0, active]);
   const [previous, setPrevious] = useState<{ scope: string; list: SuggestionWire[] } | null>(null);
   useEffect(() => {
-    if (!active || suggestions.data === undefined) {
+    if (!active || !replyAllowed || suggestions.data === undefined) {
       setPrevious((current) => (current?.scope === scope ? current : null));
       return;
     }
     setPrevious({ scope, list: suggestions.data as SuggestionWire[] });
-  }, [active, scope, suggestions.data]);
-  // 仅在同一会话、同一配置的新消息加载期间保留候选；空结果仍正常清空。
-  const list = (suggestions.data ??
-    (suggestions.isFetching && previous?.scope === scope ? previous.list : [])) as SuggestionWire[];
-  const loading = suggestions.isFetching || busy;
+  }, [active, replyAllowed, scope, suggestions.data]);
+  // 发送后暂停查询不清空已有候选；只接收当前允许查询的结果，空结果仍正常清空。
+  const list = ((replyAllowed ? suggestions.data : undefined) ??
+    (previous?.scope === scope ? previous.list : [])) as SuggestionWire[];
+  const loading = (replyAllowed && suggestions.isFetching) || busy;
   const visible = active && (list.length > 0 || loading);
   const trackRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -114,6 +114,7 @@ export function IntentSuggestionBar({
         className={`weq-int-suggest-refresh${loading ? ' is-busy' : ''}`}
         title="换一批"
         aria-label="换一批建议"
+        disabled={!replyAllowed}
         onClick={async () => {
           setBusy(true);
           try {
