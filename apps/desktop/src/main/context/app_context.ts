@@ -1986,6 +1986,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Persist credentials + metadata, keyed by data directory. Must run
       // before the monitor starts so its patches land on an existing record.
       accountConfig.save(metadata);
+      await accountConfig.refreshDisplayName();
       const mail = this.services.mail;
       mail.startBackground({
         notifications: accountConfig.getRecord()?.mailNotifications ?? false,
@@ -2715,6 +2716,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         ...(selfPreview.displayName ? { displayName: selfPreview.displayName } : {}),
         ...(selfPreview.avatarUrl ? { avatarUrl: selfPreview.avatarUrl } : {}),
       });
+      await accountConfig.refreshDisplayName();
       const mail = this.services.mail;
       mail.startBackground({
         notifications: accountConfig.getRecord()?.mailNotifications ?? false,

@@ -360,6 +360,22 @@ export class AccountConfigService {
     return this.readRecord();
   }
 
+  /** 打开账号后刷新菜单昵称，不能把切号时传回的旧配置当作最新资料。 */
+  async refreshDisplayName(): Promise<void> {
+    const configId = this.currentConfigId;
+    try {
+      const uin = BigInt(this.session.context.uin);
+      const profile = await this.session.profileInfo.getProfileByUin(uin);
+      if (this.currentConfigId !== configId || profile?.uin !== uin || !profile.nick) return;
+      if (this.getRecord()?.displayName !== profile.nick) this.patch({ displayName: profile.nick });
+    } catch (error) {
+      this.logger.warn('刷新账号昵称失败，保留已保存昵称', {
+        event: 'refresh-account-display-name-failed',
+        ...logErrorContext(error),
+      });
+    }
+  }
+
   setMailNotifications(enabled: boolean): void {
     this.patch({ mailNotifications: enabled });
   }
