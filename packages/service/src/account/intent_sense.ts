@@ -1485,26 +1485,35 @@ export class IntentSenseService {
 
   // ── 回复建议（API 引擎优先 + 本地意图候选兜底）─────────────────────────────
 
-  async getSuggestions(kind: IntentConversationKind, conv: string): Promise<ReplySuggestion[]> {
+  async getSuggestions(
+    kind: IntentConversationKind,
+    conv: string,
+    options: { refresh?: boolean } = {},
+  ): Promise<ReplySuggestion[]> {
     if (
       this.config.conversationOverrides[conversationKey(kind, conv)] === false ||
       !this.config.suggestionsEnabled
     )
       return [];
     const revision = this.suggestionRevision;
+    const manualRefresh = options.refresh === true;
     const contextMessages = this.config.suggestionContextMessages;
-    const current = () => revision === this.suggestionRevision;
     const key = conversationKey(kind, conv);
+    const current = () =>
+      revision === this.suggestionRevision &&
+      this.config.suggestionsEnabled &&
+      this.config.conversationOverrides[key] !== false;
     const rows = await this.loadMessages(kind, conv, contextMessages + 1);
     if (!current()) return [];
     if (rows.length === 0) return [];
     const last = rows[rows.length - 1] as SenseRow;
-    if (last.mine && !this.config.suggestAfterSelf) {
+    if (last.mine && !this.config.suggestAfterSelf && !manualRefresh) {
       this.suggestionCache.delete(key);
       return [];
     }
     const cachedHit = this.suggestionCache.get(key);
     if (
+      !manualRefresh &&
       cachedHit &&
       cachedHit.lastMsgId === last.msgId &&
       Date.now() - cachedHit.at < this.config.suggestionCacheSeconds * 1000
@@ -1527,20 +1536,20 @@ export class IntentSenseService {
       return suggestions;
     };
 
-    const stillLatestPeer = async (): Promise<boolean> => {
+    const stillLatestMessage = async (): Promise<boolean> => {
       if (!current()) return false;
       try {
         const latest = (await this.loadMessages(kind, conv, 1))[0];
         return (
           current() &&
           latest?.msgId === last.msgId &&
-          (!latest.mine || this.config.suggestAfterSelf)
+          (!latest.mine || this.config.suggestAfterSelf || manualRefresh)
         );
       } catch {
         return false;
       }
     };
-    const fallbackAfterRequest = async () => ((await stillLatestPeer()) ? fallbackLocal() : []);
+    const fallbackAfterRequest = async () => ((await stillLatestMessage()) ? fallbackLocal() : []);
 
     const endpoint = this.endpoint(this.config.suggestionProviderRef);
     if (!endpoint || Date.now() < this.suggestionApiCooldownUntil) {
@@ -1570,7 +1579,7 @@ export class IntentSenseService {
         signal: AbortSignal.timeout(this.config.apiTimeoutSeconds * 1000),
       });
       if (!current()) return [];
-      if (!(await stillLatestPeer())) return [];
+      if (!(await stillLatestMessage())) return [];
       this.lastSuggestionApiError = null;
       const parsed = extractJsonBlock(pickMessageText(body.choices?.[0]?.message)) as {
         replies?: unknown[];

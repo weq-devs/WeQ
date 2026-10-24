@@ -396,6 +396,97 @@ describe('IntentSenseService', () => {
     expect(requests[2]).toBe('对方: 消息6');
   });
 
+  it('手动换一批绕过候选缓存和自己发送后自动推荐开关，但不覆盖功能及会话开关', async () => {
+    const msgs = [textMsg(1n, 'u_peer', '合成对方消息', 1000)];
+    let batch = 0;
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                replies: [{ text: `第${++batch}批` }],
+              }),
+            },
+          },
+        ],
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const svc = new IntentSenseService(makeSession(msgs), dir, {
+      resolveEndpoint: (ref) => ({
+        baseUrl: 'http://fixture',
+        apiKey: 'fixture',
+        model: ref.model,
+      }),
+    });
+    await svc.setConfig({
+      suggestionsEnabled: true,
+      suggestionProviderRef: { providerId: 'fixture', model: 'fixture' },
+      suggestAfterSelf: false,
+    });
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([{ text: '第1批' }]);
+    expect(await svc.getSuggestions('c2c', 'u_peer', { refresh: true })).toEqual([
+      { text: '第2批' },
+    ]);
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([{ text: '第2批' }]);
+    msgs.push(textMsg(2n, 'u_self', '合成自己消息', 1020));
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
+    expect(await svc.getSuggestions('c2c', 'u_peer', { refresh: true })).toEqual([
+      { text: '第3批' },
+    ]);
+    expect(svc.getStatus().suggestAfterSelf).toBe(false);
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
+    await svc.setConversationOverride('c2c', 'u_peer', false);
+    expect(await svc.getSuggestions('c2c', 'u_peer', { refresh: true })).toEqual([]);
+    await svc.setConversationOverride('c2c', 'u_peer', null);
+    await svc.setConfig({ suggestionsEnabled: false });
+    expect(await svc.getSuggestions('c2c', 'u_peer', { refresh: true })).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(['message', 'config', 'conversation'])(
+    '手动换一批在 %s 改变后丢弃迟到结果',
+    async (change) => {
+      const msgs = [textMsg(1n, 'u_self', '合成自己消息', 1000)];
+      const response = {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '{"replies":[{"text":"迟到候选"}]}' } }],
+        }),
+      };
+      let finish!: (value: typeof response) => void;
+      const fetchMock = vi.fn(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+      const svc = new IntentSenseService(makeSession(msgs), dir, {
+        resolveEndpoint: (ref) => ({
+          baseUrl: 'http://fixture',
+          apiKey: 'fixture',
+          model: ref.model,
+        }),
+      });
+      await svc.setConfig({
+        suggestionsEnabled: true,
+        suggestionProviderRef: { providerId: 'fixture', model: 'fixture' },
+        suggestAfterSelf: false,
+      });
+      const pending = svc.getSuggestions('c2c', 'u_peer', { refresh: true });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+      if (change === 'message') msgs.push(textMsg(2n, 'u_self', '合成后续消息', 1020));
+      else if (change === 'conversation') await svc.setConversationOverride('c2c', 'u_peer', false);
+      else await svc.setConfig({ suggestionsEnabled: false });
+      finish(response);
+      expect(await pending).toEqual([]);
+      expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
+    },
+  );
+
   it('自己发送时的两个开关独立保存，旧配置保持分析开启、推荐关闭', async () => {
     const msgs = [textMsg(1n, 'u_self', '自己发出的合成消息', 1000)];
     const analyze = vi.fn(async () => ({

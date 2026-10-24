@@ -2,13 +2,14 @@
  * 回复建议条 —— composer 上方的一行候选回复 pills。
  *
  * 回复建议独立开启；API 不依赖意图感知引擎，本地只提供规则候选兜底。
- * 点击一条把文本填进 composer 草稿（onInsert）。刷新按钮走 refetch()（绕过
- * staleTime；后端侧还有同消息 90s 的请求级缓存，由 getSuggestions 自己把关）。
+ * 点击一条把文本填进 composer 草稿（onInsert）。手动换一批绕过候选缓存，
+ * 不受自己发送后的自动推荐开关限制，等待期间仍保留原候选。
  */
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { Lightbulb, RefreshCw } from 'lucide-react';
-import { trpc } from '../../trpc/client';
+import { trpc, client } from '../../trpc/client';
+import { useToast } from '../Toast';
 import { useIntentSenseStatus } from './context';
 import '../../styles/intent-sense.css';
 
@@ -55,6 +56,9 @@ export function IntentSuggestionBar({
   );
 
   const scope = JSON.stringify([kind, conv, status.data?.suggestionRevision ?? 0, active]);
+  const requestContext = useRef('');
+  requestContext.current = JSON.stringify([scope, latestMessageId, replyTargetId]);
+  const refreshPending = useRef(false);
   const [previous, setPrevious] = useState<{ scope: string; list: SuggestionWire[] } | null>(null);
   useEffect(() => {
     if (!active || !replyAllowed || suggestions.data === undefined) {
@@ -64,8 +68,11 @@ export function IntentSuggestionBar({
     setPrevious({ scope, list: suggestions.data as SuggestionWire[] });
   }, [active, replyAllowed, scope, suggestions.data]);
   // 发送后暂停查询不清空已有候选；只接收当前允许查询的结果，空结果仍正常清空。
-  const list = ((replyAllowed ? suggestions.data : undefined) ??
-    (previous?.scope === scope ? previous.list : [])) as SuggestionWire[];
+  const list = (
+    previous?.scope === scope
+      ? previous.list
+      : ((replyAllowed ? suggestions.data : undefined) ?? [])
+  ) as SuggestionWire[];
   const loading = (replyAllowed && suggestions.isFetching) || busy;
   const visible = active && (list.length > 0 || loading);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -114,12 +121,30 @@ export function IntentSuggestionBar({
         className={`weq-int-suggest-refresh${loading ? ' is-busy' : ''}`}
         title="换一批"
         aria-label="换一批建议"
-        disabled={!replyAllowed}
+        disabled={busy}
         onClick={async () => {
+          if (refreshPending.current) return;
+          refreshPending.current = true;
+          const expected = requestContext.current;
           setBusy(true);
           try {
-            await suggestions.refetch();
+            const list = await client.account.intentSense.getSuggestions.query({
+              kind,
+              conv,
+              revision: status.data?.suggestionRevision ?? 0,
+              ...(latestMessageId !== undefined ? { targetId: latestMessageId } : {}),
+              refresh: true,
+            });
+            if (requestContext.current === expected) setPrevious({ scope, list });
+          } catch (error) {
+            if (requestContext.current === expected)
+              useToast.getState().push({
+                tone: 'error',
+                message: '刷新推荐回复失败',
+                detail: error instanceof Error ? error.message : String(error),
+              });
           } finally {
+            refreshPending.current = false;
             setBusy(false);
           }
         }}
