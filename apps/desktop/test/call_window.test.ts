@@ -28,8 +28,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         },
       },
       onCallAudio: { useSubscription: () => {} },
+      onCallVideo: { useSubscription: () => {} },
       onCallRecording: { useSubscription: () => {} },
       onCallError: { useSubscription: () => {} },
+      setCamera: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) },
       // 录音相关的 RPC：这个测试只关心窗口生命周期与通话控件，录音一律给空。
       startRecording: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
       stopRecording: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
@@ -65,6 +67,10 @@ const initial: CallInfo = {
   sentFrames: 0,
   receivedFrames: 0,
   durationSec: 0,
+  videoSending: false,
+  videoReceiving: false,
+  receivedVideoFrames: 0,
+  videoInfo: null,
 };
 
 afterEach(() => {
@@ -261,5 +267,108 @@ it('StrictMode 模拟卸载不会关掉刚打开的通话窗口', async () => {
   } finally {
     await app.dispose();
     for (const { win } of popups) win.close();
+  }
+});
+
+/**
+ * 三种通话布局。
+ *
+ * 布局由 `CallStage` 上的 `data-layout` 决定，CSS 再据此分流：
+ *   audio —— 双方语音（背景 / 大头像 / 波形）
+ *   peer  —— 只有对端开视频（画面铺满 + 角落头像）
+ *   self  —— 双方都有视频（对端铺满 + 本端画中画）
+ */
+async function mountWithState(overrides: Partial<CallInfo>) {
+  const popups: HappyWindow[] = [];
+  vi.spyOn(window, 'open').mockImplementation(() => {
+    const popup = new HappyWindow();
+    popups.push(popup);
+    return popup as unknown as Window;
+  });
+  const app = mount();
+  await act(async () => {});
+  // 状态是从订阅推过来的，模拟一次服务端推送。
+  await act(async () => {
+    mocks.state?.onData({ ...initial, state: 'connected', ...overrides });
+  });
+  const stage = () => popups.at(-1)?.document.querySelector('.weq-call-stage');
+  return { app, popups, stage };
+}
+
+it('双方语音时是 audio 布局，不挂载视频画布', async () => {
+  const { app, popups, stage } = await mountWithState({});
+  try {
+    expect(stage()?.getAttribute('data-layout')).toBe('audio');
+    expect(popups.at(-1)?.document.querySelector('.weq-call-peer-video')).toBeNull();
+    expect(popups.at(-1)?.document.querySelector('.weq-call-self-video')).toBeNull();
+  } finally {
+    await app.dispose();
+    for (const popup of popups) popup.close();
+  }
+});
+
+it('只有对端开视频时是 peer 布局，有画布但没有画中画', async () => {
+  const { app, popups, stage } = await mountWithState({ videoReceiving: true });
+  try {
+    expect(stage()?.getAttribute('data-layout')).toBe('peer');
+    expect(popups.at(-1)?.document.querySelector('.weq-call-peer-video canvas')).not.toBeNull();
+    expect(popups.at(-1)?.document.querySelector('.weq-call-self-video')).toBeNull();
+  } finally {
+    await app.dispose();
+    for (const popup of popups) popup.close();
+  }
+});
+
+it('双方都开视频时是 self 布局，本端有画中画', async () => {
+  const { app, popups, stage } = await mountWithState({
+    videoReceiving: true,
+    videoSending: true,
+  });
+  try {
+    expect(stage()?.getAttribute('data-layout')).toBe('self');
+    expect(popups.at(-1)?.document.querySelector('.weq-call-peer-video canvas')).not.toBeNull();
+    expect(popups.at(-1)?.document.querySelector('.weq-call-self-video canvas')).not.toBeNull();
+  } finally {
+    await app.dispose();
+    for (const popup of popups) popup.close();
+  }
+});
+
+it('只有本端开摄像头时是 self-only 布局，本端画面铺满主区域', async () => {
+  const { app, popups, stage } = await mountWithState({ videoSending: true });
+  try {
+    expect(stage()?.getAttribute('data-layout')).toBe('self-only');
+    // 对端没开视频，不该出现「等待对方画面」。
+    expect(popups.at(-1)?.document.querySelector('.weq-call-peer-video')).toBeNull();
+    // 本端画面铺满，不是小窗。
+    const self = popups.at(-1)?.document.querySelector('.weq-call-self-video');
+    expect(self).not.toBeNull();
+    expect(self!.classList.contains('is-full')).toBe(true);
+  } finally {
+    await app.dispose();
+    for (const popup of popups) popup.close();
+  }
+});
+
+it('未接通时摄像头按钮不可点', async () => {
+  const popups: HappyWindow[] = [];
+  vi.spyOn(window, 'open').mockImplementation(() => {
+    const popup = new HappyWindow();
+    popups.push(popup);
+    return popup as unknown as Window;
+  });
+  const app = mount();
+  await act(async () => {});
+  try {
+    const buttons = [
+      ...(popups.at(-1)?.document.querySelectorAll<HTMLButtonElement>('.weq-call-actions button') ??
+        []),
+    ];
+    const camera = buttons.find((button) => button.title.includes('摄像头'));
+    expect(camera).toBeDefined();
+    expect(camera!.disabled).toBe(true);
+  } finally {
+    await app.dispose();
+    for (const popup of popups) popup.close();
   }
 });

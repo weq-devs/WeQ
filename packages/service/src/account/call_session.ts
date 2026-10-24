@@ -1191,10 +1191,10 @@ export class CallSession {
     if (!this.videoSending || this.state !== 'connected') return;
     const encoder = this.videoEncoder;
     if (!encoder) {
-      // 没有编码器：控制包已经发了，画面等前端接上再说。
-      this.videoTimer = this.timers.setTimeout(() => {
-        void this.pumpVideo();
-      }, VIDEO_PUMP_MS);
+      // 没有编码器：控制包已经发了，对端会显示「等待对方画面」。
+      // 这里**不能**继续轮询 —— 每 10ms 空转一次纯烧 CPU，而且永远不会有帧。
+      this.stopVideoLoop();
+      this.log?.info('本端没有视频编码器，只发控制信令不发画面');
       return;
     }
 

@@ -177,7 +177,10 @@ export function ChatMainContent({
   /** 私聊「窗口抖动」；群聊不传（按钮整个不渲染）。 */
   onSendWindowShake?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
   /** 发起语音通话（仅私聊）。 */
-  onStartCall?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
+  onStartCall?: (
+    conversation: Extract<Conversation, { type: 'direct' }>,
+    media: 'audio' | 'video',
+  ) => Promise<void>;
   /** Ark 卡片面板「发送」；不传则工具栏那个按钮点开也发不出去。 */
   onSendArk?: (conversation: Conversation, payload: ArkPayload) => Promise<void>;
   /** 位置卡片要用的地点搜索 / 逆地址解析（应用层注入）。 */

@@ -158,7 +158,8 @@ describe('VideoFrameAssembler', () => {
   it('凑齐分片后按 pkg_idx 顺序拼出一帧', () => {
     const assembler = new VideoFrameAssembler();
     // 20 字节 sub-header（首字节 0x14 = 20）+ 裸流，总长必须大于 20。
-    const parts = ['1400', '00000000', '00000001', '0000000000000000', '0000000140010c01'];
+    // 裸流是 IDR_W_RADL（NAL 类型 19 → 首字节 0x26），关键帧判定靠它。
+    const parts = ['14', '0000000000000000000000000000000000000000', '000000012601afe0'];
     const packets = packetsFor(0, 1, parts);
     let frame = null;
     for (const p of packets) {

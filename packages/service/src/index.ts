@@ -126,6 +126,10 @@ export type {
   CallAudioCodec,
   CallListener,
   CallAudioListener,
+  CallVideoListener,
+  CallVideoEncoder,
+  VideoFramePayload,
+  VideoStreamInfo,
   UdpTransport,
   CallTimers,
 } from './account/call_session';

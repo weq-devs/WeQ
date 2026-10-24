@@ -25,6 +25,7 @@ import {
 } from '../../call_recording_store';
 import { systemAudioCapability } from '../../call_system_audio';
 import type { ActiveCallInfo, CallEvent } from '../../call';
+import type { VideoStreamInfo } from '@weq/service';
 
 const logger = getLogger().child({ scope: 'call-router' });
 
@@ -42,6 +43,8 @@ export const callRouter = router({
         peerUin: z.string().min(1),
         peerName: z.string().optional(),
         peerAvatar: z.string().optional(),
+        /** 通话类型。视频只影响信令档位，画面要再调 `setCamera`。 */
+        media: z.enum(['audio', 'video']).optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -77,6 +80,7 @@ export const callRouter = router({
         selfUin,
         selfUid,
         kind: 'c2c',
+        media: input.media ?? 'audio',
         conv: peerUid,
         peerUin: input.peerUin,
         peerUid,
@@ -120,6 +124,17 @@ export const callRouter = router({
       return { ok: true };
     }),
 
+  /**
+   * 开 / 关本端摄像头。
+   *
+   * 只切发送状态并发控制信令；真正的画面要等主进程接上编码器。
+   */
+  setCamera: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    const manager = findCallManager();
+    if (!manager) return { ok: false };
+    return { ok: manager.setCamera(input.enabled) };
+  }),
+
   /** 通话状态变化（发起 / 振铃 / 接通 / 结束）。 */
   onCallState: procedure.subscription(() =>
     observable<ActiveCallInfo>((emit) => {
@@ -127,6 +142,35 @@ export const callRouter = router({
       if (!manager) return () => {};
       const handler = (event: CallEvent) => {
         if (event.type === 'state') emit.next(event.call);
+      };
+      manager.on('event', handler);
+      return () => manager.off('event', handler);
+    }),
+  ),
+
+  /**
+   * 对端视频帧（Annex B 裸流）。
+   *
+   * 走独立的 subscription 而不是塞进状态流：视频是每秒十几帧的高频数据，
+   * 混进状态推送会把音频/状态的实时性一起拖下水。
+   */
+  onCallVideo: procedure.subscription(() =>
+    observable<{
+      hevc: Uint8Array;
+      timestamp: number;
+      keyframe: boolean;
+      info: VideoStreamInfo | null;
+    }>((emit) => {
+      const manager = findCallManager();
+      if (!manager) return () => {};
+      const handler = (event: CallEvent) => {
+        if (event.type !== 'video') return;
+        emit.next({
+          hevc: event.hevc,
+          timestamp: event.timestamp,
+          keyframe: event.keyframe,
+          info: event.info,
+        });
       };
       manager.on('event', handler);
       return () => manager.off('event', handler);

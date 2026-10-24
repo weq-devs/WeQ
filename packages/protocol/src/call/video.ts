@@ -194,7 +194,14 @@ export interface VideoFrame {
   subType: number;
   /** 基础层（`fidx === 1`）才能独立解码。 */
   isBaseLayer: boolean;
-  /** 是否为关键帧（首个 GOP 的基础层，或带关键帧扩展）。 */
+  /**
+   * 是否为关键帧（IRAP：IDR / CRA / BLA）。
+   *
+   * **不能**用 `gidx === 0` 判：gidx 在通话内单调递增，而编码器会按需插入新的
+   * 关键帧（开摄像头、网络恢复、周期性刷新）。`VideoDecoder` 在 `configure()`
+   * 之后必须先吃到一个关键帧，否则直接抛 `DataError: A key frame is required`。
+   * 所以这里按 NAL 类型判，见 {@link isIrapNalType}。
+   */
   isKeyframe: boolean;
   /** sub-header 长度（`frameData[0]`，实测 20）。 */
   subHeaderSize: number;
@@ -316,8 +323,8 @@ function assemble(slot: PendingFrame): VideoFrame {
     tick: slot.tick,
     subType: slot.subType,
     isBaseLayer: slot.fidx === 1,
-    // 首个 GOP 的基础层就是 IDR；后续 GOP 是否关键帧要看扩展，这里按惯例判。
-    isKeyframe: slot.gidx === 0 && slot.fidx === 1,
+    // 关键帧按 NAL 类型判，不能按 gidx —— 见 `VideoFrame.isKeyframe` 的注释。
+    isKeyframe: containsIrap(frameData, subHeaderSize),
     subHeaderSize,
     timestamp,
     frameData,
@@ -333,6 +340,25 @@ export interface HevcNal {
   type: number;
   /** 不含起始码的 NAL 内容（从 2 字节 NAL 头开始）。 */
   data: Uint8Array;
+}
+
+/**
+ * 是否为 IRAP（随机接入点）NAL 类型。
+ *
+ * HEVC 里能独立解码的帧：BLA（16..18）、IDR（19/20）、CRA（21）。
+ * 解码器在 `configure()` 之后必须从这里开始，否则后续 delta 帧全解不了。
+ */
+export function isIrapNalType(type: number): boolean {
+  return (type >= 16 && type <= 21) || type === 21;
+}
+
+/** 一段 Annex B 数据里是否含 IRAP 帧。 */
+function containsIrap(frameData: Uint8Array, subHeaderSize: number): boolean {
+  if (subHeaderSize >= frameData.length) return false;
+  for (const nal of splitHevcNals(frameData.subarray(subHeaderSize))) {
+    if (isIrapNalType(nal.type)) return true;
+  }
+  return false;
 }
 
 const HEVC_NAMES: Record<number, string> = {
