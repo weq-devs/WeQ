@@ -723,6 +723,7 @@ void app.whenReady().then(async () => {
   if (logDirectory)
     stopRendererDiagnostics = startRendererDiagnostics({
       directory: logDirectory,
+      development: is.dev,
       mainWebContentsId: () => {
         const window = getMainWindow();
         return window && !window.isDestroyed() ? window.webContents.id : undefined;

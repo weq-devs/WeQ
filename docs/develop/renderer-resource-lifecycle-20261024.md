@@ -26,6 +26,26 @@
 
 分钟诊断经 DOM meta 与隔离 preload 按需交换固定数值：retained / pinned / reserved、完整在途数量、取消数、受管字体 / 加载中字体 / 文档字体数、样式与规则数。最多统计 512 个受管样式节点的规则，遗漏数量单列；payload 超 2048 字节不接受，主进程再次投影白名单，不含正文、URL、字体名、账号或堆快照。
 
+## 临时开发内存监控
+
+未打包且 `is.dev` 为真时，在原诊断链路上启用每 10 秒一次的监控；打包版本即使误传开关也拒绝开启，继续原有每分钟采样。开发监控独立写入日志目录的 `dev-memory-monitor/memory-diagnostics.jsonl`，轮转至同目录 `memory-diagnostics.previous.jsonl`；每文件最多 8 MiB / 8640 条，两份合计最多 16 MiB，先达到任一上限即轮转。恢复到默认模式后不覆盖这两份开发证据。
+
+监控同时记录进程 PID / 创建时间、working set / peak（KB）、JS 堆与 external（bytes）、Blink 分配（KB）、DOM 和受管资源数量。额外字段 `development.caches` 分为 images、scripts、cssStyleSheets、xslStyleSheets、fonts、other，各只保存 count、sizeBytes、liveSizeBytes。依据 [Electron 44.9.0 转换源码](https://github.com/electron/electron/blob/v44.9.0/shell/common/gin_converters/blink_converter.cc)，`liveSize` 实际映射 Blink 的 `decoded_size`，不能解释为「当前可见图片内存」，也不是全部原生内存；缺测保留 null。`development.animations` / `runningAnimations` 来自当前文档 `getAnimations()` 的总数 / running 数；`documentVisible` 只表示文档可见性，不代表窗口无遮挡或 GPU 正在绘制。
+
+不采集正文、资源 URL、动画名称、账号或堆快照；不自动 GC、清缓存、暂停动画或重载，避免改变待观察现场。启动和退出沿用现有诊断生命周期，关闭时清理定时器与监听。修改主进程和 preload 后，需下一次正常重启开发实例才启用，不由监控主动重启日常实例。此监控是取证辅助，不是 OOM 修复，也不能仅凭某项计数增长判定泄漏根因。
+
+监控新增及既有诊断共 16 项专项测试通过，覆盖开发 / 打包门禁、十秒间隔、停止清理、异常 API、字段白名单和日志轮转；桌面主进程类型检查通过。隔离 Electron 44.9.0 的真实 preload 与主进程链路收到两次样本，间隔 10.004 秒，六类缓存均为数值、运行中动画计数为 1；验证后关闭隔离实例并清理其 profile。未重启日常实例，也未据此宣称长时间运行稳定或 OOM 已修复。
+
+## 收藏预览缩图（2026-10-25）
+
+收藏列表和富文本正文经 `preview=1` 代理生成最长边 512 像素的 WebP，不再把原图直接放入小尺寸预览。灯箱仍走无 preview 参数的原始字节；导出不变。GIF/APNG 的收藏预览只取首帧，不影响聊天表情播放。预览组件在离屏或文档隐藏时移除 src，重新可见再加载；这不保证 Chromium 立刻归还所有缓存或 working set。
+
+缩图复用跨平台 sharp，桌面打包解包 sharp / @img 原生库，独立 Web 共用同一协议处理。预览单并发，最多 128 个等待读取的请求；输入像素上限 32 MiPixels，读取后拒绝超过 32 MiB 的压缩输入，处理失败不退回原图。按源内容 SHA-256 共享生成结果，输出 LRU 最多 64 项 / 16 MiB。输入字节上限不是上游下载过程的硬内存限制，缓存服务既有下载缓冲仍需单独评估。
+
+此修复覆盖已确认的收藏图片增长来源，不宣称覆盖所有图片入口或解释此前长时间 Blink 分配增长。普通聊天缺少缩略图的原图回退仍是后续检查方向。
+
+新增 5 项预览回归覆盖真实缩图、输入像素拒绝、排队容量、旋转与透明度、原图字节保持、错误不退回原图，以及离屏释放后的尺寸保持。隔离 Electron 44.9 使用真实缩图模块：6 个不同 URL 的 3456×4608 原图解码统计为 364.5 MiB，实际缩图路径的 6 个 URL 仅增加 4.5 MiB。完整本地 CI 七步通过；Web 构建与 Electron-free 检查通过。桌面 `build:unpack` 直接执行遇到既有 workspace 清单问题，按仓库发布流程生成并临时替换发布清单后打包通过，原开发清单已原样恢复；额外在隔离 Electron 中从产物 app.asar 加载 sharp，成功生成 384×512 WebP。没有安装或重启日常应用，也没有完成数小时业务长测。
+
 ## 验证边界
 
 回归覆盖释放与迟到回填、共享持有者、字体去重、队列容量与重试、在途字节预算、PNG 头异常和流取消、失败不开播、离屏 / 隐藏标签、缩略图与原图及诊断脱敏。使用合成夹具，不读取真实 QQ 数据或联网。

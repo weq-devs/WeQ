@@ -32,6 +32,9 @@ const NODE_MIN_MAJOR = 22;
 // `scripts/set-version.mjs` stamps this from the release tag; baked in so the
 // running server can report its own version without reading package.json.
 const { version } = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8'));
+const { dependencies: desktopDependencies } = JSON.parse(
+  readFileSync(join(repoRoot, 'apps/desktop/package.json'), 'utf8'),
+);
 
 /**
  * Packages that load native `.node` bindings. esbuild can't inline those, so
@@ -40,6 +43,7 @@ const { version } = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8
 const NATIVE_DEPS = {
   ws: '^8.18.0',
   '@resvg/resvg-js': '^2.6.2',
+  sharp: desktopDependencies.sharp,
 };
 
 /**
@@ -57,6 +61,7 @@ const NATIVE_DEPS = {
 const ENTRIES = {
   server: join(appRoot, 'src/server/index.ts'),
   attachWorker: join(desktopMain, 'attach_worker.ts'),
+  backupProbeWorker: join(desktopMain, 'backup_probe_worker.ts'),
   transcribeWorker: join(desktopMain, 'transcribe/worker.ts'),
   intentSenseWorker: join(desktopMain, 'intent_sense/worker.ts'),
 };

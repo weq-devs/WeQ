@@ -66,8 +66,8 @@ export function avatarFetchUrl(src: string): string {
  * through the disk-cached avatar bridge. The collector CDN is public (no referer),
  * so the generic fetch+cache bridge is enough; on failure `<img onError>` falls back.
  */
-export function collectionImageUrl(src: string): string {
-  return avatarFetchUrl(src);
+export function collectionImageUrl(src: string, preview = false): string {
+  return `${avatarFetchUrl(src)}${preview ? '&preview=1' : ''}`;
 }
 
 /**

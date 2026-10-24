@@ -36,7 +36,20 @@ export class FileSearchService {
   /**
    * Search for a file by timestamp, name, and type.
    */
-  async findFile(timestamp: number, filename: string, type: FileType): Promise<SearchResult> {
+  async findFile(
+    timestamp: number,
+    filename: string,
+    type: FileType,
+    md5?: string,
+  ): Promise<SearchResult> {
+    // 旧消息可能只有 16 字节 MD5、没有文件名。空字符串绝不能当作子串匹配条件。
+    const identity =
+      (type === 'pic' || type === 'emoji') && md5 && /^[a-f0-9]{32}$/i.test(md5)
+        ? md5.toLowerCase()
+        : filename;
+    if (!identity || identity === '.' || identity === '..' || /[\\/]/.test(identity)) {
+      return { source: null, thumb: type === 'file' ? this.getIconForExtension('') : null };
+    }
     const uin = this.session.context.uin;
     const date = new Date(timestamp);
     const year = date.getFullYear();
@@ -55,7 +68,7 @@ export class FileSearchService {
     ];
 
     for (const m of monthsToTry) {
-      const result = this.searchInMonthDir(uin, type, m, filename);
+      const result = this.searchInMonthDir(uin, type, m, identity);
       if (result.source || result.thumb) return result;
     }
 
@@ -67,7 +80,7 @@ export class FileSearchService {
       if (baseDir && existsSync(baseDir)) {
         for (const m of this.listMonths(baseDir)) {
           if (monthsToTry.includes(m)) continue;
-          const result = this.searchInMonthDir(uin, type, m, filename);
+          const result = this.searchInMonthDir(uin, type, m, identity);
           if (result.thumb || result.source) return result;
         }
       }
@@ -112,7 +125,7 @@ export class FileSearchService {
     // is `<stem>.<ext>`, so we match by stem (no extension). ptt has no separate
     // thumbnail, so we match the full filename and skip the Thumb dir.
     if (type === 'ptt') {
-      return { source: this.findFirstMatch(oriDir, filename), thumb: null };
+      return { source: this.findFirstMatch(oriDir, filename, false), thumb: null };
     }
 
     const stem = stripExt(filename);
@@ -146,21 +159,30 @@ export class FileSearchService {
     return { source, thumb };
   }
 
-  private findFirstMatch(dir: string, needle: string): string | null {
-    if (!existsSync(dir)) return null;
+  private findFirstMatch(dir: string, needle: string, variants = true): string | null {
+    if (!needle || !existsSync(dir)) return null;
     // Match case-insensitively — QQ stores hex names that may differ in case
     // between the DB field and the on-disk filename.
     const lcNeedle = needle.toLowerCase();
     try {
-      const entries = readdirSync(dir);
+      const entries = readdirSync(dir, { withFileTypes: true });
       // Prefer the entry whose stem equals the needle exactly (the real source,
       // e.g. `<stem>.mp4`) over a substring hit (e.g. the `<stem>_0.jpg` cover
       // sitting in the same dir) so a stem search returns the right file.
       let fallback: string | null = null;
       for (const entry of entries) {
-        const lcEntry = entry.toLowerCase();
-        if (stripExt(lcEntry) === lcNeedle) return join(dir, entry);
-        if (!fallback && lcEntry.includes(lcNeedle)) fallback = join(dir, entry);
+        if (!entry.isFile()) continue;
+        const lcEntry = entry.name.toLowerCase();
+        const stem = stripExt(lcEntry);
+        if (lcEntry === lcNeedle || stem === lcNeedle) return join(dir, entry.name);
+        if (
+          !fallback &&
+          variants &&
+          stem.startsWith(lcNeedle) &&
+          /^_\d+$/.test(stem.slice(lcNeedle.length))
+        ) {
+          fallback = join(dir, entry.name);
+        }
       }
       return fallback;
     } catch {

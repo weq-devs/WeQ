@@ -1,6 +1,7 @@
 import { createElement, useMemo, type ReactNode } from 'react';
 import { openLightbox } from './ImageLightbox';
 import { collectionImageUrl } from '../lib/resourceUrl';
+import { CollectionImage } from './CollectionImage';
 
 const DROP_TAGS = new Set([
   'script',
@@ -69,7 +70,7 @@ function imageUrl(value: string | null): string | null {
   if (url.port) return null;
   const domains = ['qpic.cn', 'qq.com', 'gtimg.cn', 'gtimg.com', 'weiyun.com'];
   return domains.some((domain) => url.hostname === domain || url.hostname.endsWith(`.${domain}`))
-    ? collectionImageUrl(href)
+    ? href
     : null;
 }
 
@@ -102,9 +103,9 @@ function contentNode(node: Node, key: string, depth = 0): ReactNode {
         key={key}
         type="button"
         className="weq-col-detail-image"
-        onClick={() => openLightbox(src, alt)}
+        onClick={() => openLightbox(collectionImageUrl(src), alt)}
       >
-        <img src={src} alt={alt} loading="lazy" />
+        <CollectionImage originalSrc={src} alt={alt} />
       </button>
     ) : (
       <span key={key} className="weq-col-detail-unavailable">

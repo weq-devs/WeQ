@@ -586,7 +586,12 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           // pic subType 1 = received animated emoji: lives under Emoji/emoji-recv
           // with no "original"; the displayable image comes back as `thumb`.
           const picType = q.get('recv') === '1' ? 'emoji' : 'pic';
-          const { source, thumb } = await services.fileSearch.findFile(tMs, name, picType);
+          const { source, thumb } = await services.fileSearch.findFile(
+            tMs,
+            name,
+            picType,
+            q.get('md5') ?? undefined,
+          );
           mediaBinding.getStore()?.();
           const path = wantThumb ? (thumb ?? source) : (source ?? thumb);
           if (path) return fileResponse(path);

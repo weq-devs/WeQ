@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -47,4 +47,24 @@ it('保存读取缓存期间切换来源，后续元素查找不能进入新来�
   expect(response.ok).toBe(false);
   expect(lookup).not.toHaveBeenCalled();
   expect(resolve).not.toHaveBeenCalled();
+});
+
+it('图片协议将旧消息 MD5 交给文件查找，缩略图和原图分别返回', async () => {
+  state.root = mkdtempSync(join(tmpdir(), 'weq-protocol-pic-'));
+  const source = join(state.root, 'source.png');
+  const thumb = join(state.root, 'thumb.jpg');
+  writeFileSync(source, 'synthetic original');
+  writeFileSync(thumb, 'synthetic thumbnail');
+  const findFile = vi.fn(async () => ({ source, thumb }));
+  state.services = { fileSearch: { findFile } };
+  const md5 = '1234567890abcdef1234567890abcdef';
+  const url = `weq-media://pic?t=1692144000000&name=&md5=${md5}&lookup=2`;
+  expect(await (await handleMediaRequest(new Request(`${url}&v=thumb`))).text()).toBe(
+    'synthetic thumbnail',
+  );
+  expect(await (await handleMediaRequest(new Request(url))).text()).toBe('synthetic original');
+  expect(findFile.mock.calls).toEqual([
+    [1692144000000, '', 'pic', md5],
+    [1692144000000, '', 'pic', md5],
+  ]);
 });

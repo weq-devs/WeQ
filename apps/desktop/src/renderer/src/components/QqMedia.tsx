@@ -134,7 +134,8 @@ export function QqImage({
     ? { width: fit.width, height: fit.height }
     : { maxWidth: maxW, maxHeight: maxH };
 
-  const params: Record<string, string | number> = { t: sendTimeMs, name, token };
+  // 定位规则升级后换 URL，避免继续命中此前空文件名误选图片的浏览器缓存。
+  const params: Record<string, string | number> = { t: sendTimeMs, name, token, lookup: 2 };
   if (isAnimatedEmoji) params.recv = 1;
   if (orig) params.orig = orig;
   if (md5) params.md5 = md5;
