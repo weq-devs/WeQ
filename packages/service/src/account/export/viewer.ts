@@ -39,7 +39,11 @@ export interface ExportViewerSource {
   baselineDirectory?: string;
   committedOnly?: boolean;
 }
-export const EXPORT_VIEWER_LIMITS = { jsonBytes: 64 * 1024 * 1024, lineBytes: 8 * 1024 * 1024 };
+export const EXPORT_VIEWER_LIMITS = {
+  jsonBytes: 64 * 1024 * 1024,
+  lineBytes: 8 * 1024 * 1024,
+  identityMessages: 256,
+};
 const { jsonBytes: MAX_JSON_BYTES, lineBytes: MAX_LINE_BYTES } = EXPORT_VIEWER_LIMITS;
 const record = (v: unknown): Record<string, unknown> =>
   v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -295,7 +299,7 @@ async function* values(
     for (const m of doc.members) yield { ...record(m), _type: 'member' };
   yield* rows;
 }
-export async function describeViewerFile(path: string): Promise<ExportViewerSource> {
+async function inspectViewerFile(path: string, committedOnly = false) {
   const canonical = await realpath(path);
   const info = await stat(canonical);
   const ext = extname(canonical).toLowerCase();
@@ -303,7 +307,9 @@ export async function describeViewerFile(path: string): Promise<ExportViewerSour
     throw new Error('请选择聊天 JSON 或 JSONL 文件。');
   const source: ExportViewerSource = {
     path: canonical,
-    root: dirname(canonical),
+    root: basename(dirname(canonical)).startsWith('.weq-export')
+      ? dirname(dirname(canonical))
+      : dirname(canonical),
     name: basename(canonical),
     format: ext === '.json' ? 'json' : 'jsonl',
     bytes: info.size,
@@ -311,34 +317,164 @@ export async function describeViewerFile(path: string): Promise<ExportViewerSour
     fileMtimeMs: info.mtimeMs,
     messageCount: null,
     conversation: null,
+    ...(committedOnly ? { committedOnly: true } : {}),
   };
   let seen = false;
   let container = false;
   let allowInference = true;
+  const declaredKinds = new Set<'c2c' | 'group'>();
+  let meta: Record<string, unknown> = {};
+  const members: Record<string, unknown>[] = [];
+  const senders = new Map<string, Record<string, unknown>>();
+  const candidates: ExportViewerConversation[] = [];
+  const messageIds = new Set<string>();
+  const add = (kind: 'group' | 'c2c', value: unknown) => {
+    const conv = scalar(value);
+    if (conv && conv !== '0' && conv.length <= 512) candidates.push({ kind, conv });
+  };
+  const targets = (row: Record<string, unknown>) => {
+    add('group', row.targetGroupCode);
+    // 群消息里的 targetUin 不是私聊目标；仅在没有群目标时解释。
+    if (!scalar(row.targetGroupCode)) add('c2c', scalar(row.targetUid) || row.targetUin);
+  };
+  let sampled = 0;
   for await (const value of values(source)) {
     const row = record(value);
     if (row._type === 'header') {
       container ||= row._viewerContainer === true;
-      const meta = record(row.meta);
+      meta = record(row.meta);
       if (typeof meta.platform === 'string' && meta.platform.toLowerCase() !== 'qq')
         allowInference = false;
-      source.name = scalar(meta.name).slice(0, 512) || source.name;
-      source.conversation = conversation(meta);
-    } else if (row._type !== 'member') {
-      if (!isMessage(row)) throw new Error('不是 WeQ 聊天消息文件。');
-      if (allowInference) {
-        source.conversation ??= scalar(row.targetGroupCode)
-          ? { kind: 'group', conv: scalar(row.targetGroupCode) }
-          : scalar(row.targetUid)
-            ? { kind: 'c2c', conv: scalar(row.targetUid) }
-            : null;
+      for (const kind of [meta.kind, meta.type]) {
+        if (!kind) continue;
+        if (!['private', 'c2c', 'group'].includes(String(kind))) allowInference = false;
+        else declaredKinds.add(kind === 'group' ? 'group' : 'c2c');
       }
+      source.name = scalar(meta.name).slice(0, 512) || source.name;
+      for (const field of ['conversationId', 'groupId', 'conv']) {
+        const candidate = conversation({ ...meta, conversationId: meta[field] });
+        if (candidate) candidates.push(candidate);
+      }
+      add('group', meta.groupId);
+      targets(meta);
+    } else if (row._type === 'member') {
+      members.push(row);
+    } else {
+      if (!isMessage(row)) throw new Error('不是 WeQ 聊天消息文件。');
+      targets(row);
+      const uid = scalar(row.senderUid);
+      const platformId = scalar(row.senderUin ?? row.sender);
+      if (uid || (platformId && platformId !== '0'))
+        senders.set(uid || platformId, { uid, platformId });
+      const id = scalar(row.msgId ?? row.platformMessageId);
+      if (id && id.length <= 128) messageIds.add(id);
       seen = true;
-      break;
+      if (++sampled >= EXPORT_VIEWER_LIMITS.identityMessages) break;
     }
   }
+  const owner = scalar(meta.ownerId);
+  const participants = members.length ? members : [...senders.values()];
+  if (['private', 'c2c'].includes(String(meta.kind ?? meta.type)) && owner) {
+    const isOwner = (m: Record<string, unknown>) =>
+      scalar(m.uid) === owner || scalar(m.platformId) === owner;
+    const peers = participants.filter((m) => !isOwner(m));
+    if (participants.some(isOwner) && peers.length === 1)
+      add('c2c', scalar(peers[0]!.uid) || peers[0]!.platformId);
+  }
+  // 旧 ChatLab 只有 QQ 号；有成员映射时统一为 UID 后再检查各来源是否一致。
+  const normalize = (candidate: ExportViewerConversation) => {
+    if (candidate.kind !== 'c2c') return candidate;
+    const matches = new Set(
+      participants
+        .filter((m) => scalar(m.platformId) === candidate.conv)
+        .map((m) => scalar(m.uid))
+        .filter(Boolean),
+    );
+    return matches.size === 1 ? { ...candidate, conv: [...matches][0]! } : candidate;
+  };
+  const identities = candidates.map(normalize);
+  const unique = new Map(identities.map((c) => [`${c.kind}:${c.conv}`, c]));
+  const declaredKind = [...declaredKinds][0];
+  const conflict =
+    unique.size > 1 ||
+    declaredKinds.size > 1 ||
+    identities.some((c) => declaredKind && c.kind !== declaredKind);
+  if (allowInference && !conflict) source.conversation = [...unique.values()][0] ?? null;
   if (!seen && !source.conversation && !container)
     throw new Error('没有可识别的聊天消息或会话信息。');
+  return { source, messageIds, allowInference, conflict, normalize, declaredKind };
+}
+async function hiddenViewerJournals(root: string) {
+  const entries = await readdir(root, { withFileTypes: true });
+  const hidden = entries.find((entry) => entry.name === '.weq-export' && entry.isDirectory());
+  const directory = hidden ? join(root, hidden.name) : root;
+  const files = (
+    hidden ? await readdir(directory, { withFileTypes: true }).catch(() => []) : entries
+  ).filter((entry) => entry.isFile() && /^messages-[a-f0-9]{64}\.jsonl$/.test(entry.name));
+  return {
+    paths: files.slice(0, 64).map((entry) => join(directory, entry.name)),
+    truncated: files.length > 64,
+  };
+}
+async function reportConversation(path: string, root: string) {
+  try {
+    const canonical = await realpath(path);
+    if (relative(root, canonical).split(sep).includes('..')) return null;
+    const info = await stat(canonical);
+    if (!info.isFile() || info.size > 65536) return null;
+    const report = record(await jsonDocument(canonical));
+    if (report.schema !== 'weq-export-report/1') return null;
+    const identity = record(report.conversation);
+    return conversation({ kind: identity.kind, conversationId: identity.id });
+  } catch {
+    return null;
+  }
+}
+export async function describeViewerFile(path: string): Promise<ExportViewerSource> {
+  const inspected = await inspectViewerFile(path);
+  const { source, messageIds, allowInference, conflict, declaredKind } = inspected;
+  if (!allowInference || conflict) return source;
+  const reportIdentity = await reportConversation(`${source.path}.report.json`, source.root);
+  if (reportIdentity) {
+    const sidecar = inspected.normalize(reportIdentity);
+    if (declaredKind && sidecar.kind !== declaredKind) {
+      source.conversation = null;
+      return source;
+    }
+    if (
+      source.conversation &&
+      (source.conversation.kind !== sidecar.kind || source.conversation.conv !== sidecar.conv)
+    )
+      source.conversation = null;
+    else source.conversation = sidecar;
+    return source;
+  }
+  if (source.conversation) return source;
+  const journals = await hiddenViewerJournals(source.root).catch(() => ({
+    paths: [],
+    truncated: false,
+  }));
+  if (journals.truncated) return source;
+  const matches = new Map<string, ExportViewerConversation>();
+  for (const journal of journals.paths) {
+    if (journal === source.path) continue;
+    const candidate = await inspectViewerFile(journal, true).catch(() => null);
+    if (!candidate?.source.conversation) continue;
+    if (![...messageIds].some((id) => candidate.messageIds.has(id))) continue;
+    const conv = candidate.source.conversation;
+    if (declaredKind && conv.kind !== declaredKind) continue;
+    matches.set(`${conv.kind}:${conv.conv}`, conv);
+  }
+  if (matches.size === 1) {
+    const match = [...matches.values()][0]!;
+    const reportIdentity = await reportConversation(
+      join(source.root, 'export-report.json'),
+      source.root,
+    );
+    const report = reportIdentity ? inspected.normalize(reportIdentity) : null;
+    if (!report || (report.kind === match.kind && report.conv === match.conv))
+      source.conversation = match;
+  }
   return source;
 }
 export async function discoverViewerSources(directory: string) {
@@ -385,8 +521,26 @@ export async function discoverViewerSources(directory: string) {
       continue;
     sources.push(source);
   }
+  const journals = await hiddenViewerJournals(root);
+  for (const path of journals.paths) {
+    if (sources.some((source) => source.path === path)) continue;
+    const inspected = await inspectViewerFile(path, true).catch(() => null);
+    if (!inspected) continue;
+    const source = inspected.source;
+    if (
+      source.conversation &&
+      sources.some(
+        (s) =>
+          s.conversation?.kind === source.conversation?.kind &&
+          s.conversation?.conv === source.conversation?.conv,
+      )
+    )
+      continue;
+    source.root = dirname(path) === join(root, '.weq-export') ? root : source.root;
+    sources.push(source);
+  }
   if (!sources.length) throw new Error('没有找到可查看的 WeQ 消息基线或聊天 JSON/JSONL 文件。');
-  return { sources, truncated: catalog.truncated || files.length > 64 };
+  return { sources, truncated: catalog.truncated || files.length > 64 || journals.truncated };
 }
 export async function readViewerPage(
   source: ExportViewerSource,

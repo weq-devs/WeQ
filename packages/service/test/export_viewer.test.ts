@@ -137,6 +137,168 @@ it('旧裸消息数组可查看，明确 targetUid 可以识别会话', async ()
     path = file(root, 'old.json', [{ ...row(), targetUid: 'u_peer' }]);
   expect((await describeViewerFile(path)).conversation).toEqual({ kind: 'c2c', conv: 'u_peer' });
 });
+it('旧私聊 JSON/JSONL 按导出者与唯一对端成员识别，不依赖昵称', async () => {
+  const root = fixture();
+  const meta = { platform: 'qq', type: 'private', ownerId: '123' };
+  const members = [
+    { uid: 'u_self', platformId: '123' },
+    { uid: 'u_peer', platformId: '456' },
+  ];
+  const json = file(root, 'legacy.json', { meta, members, messages: [row()] });
+  const jsonl = join(root, 'legacy.jsonl');
+  writeFileSync(
+    jsonl,
+    [{ _type: 'header', meta }, ...members.map((m) => ({ ...m, _type: 'member' })), row()]
+      .map((v) => JSON.stringify(v))
+      .join('\n'),
+  );
+  for (const path of [json, jsonl])
+    expect((await describeViewerFile(path)).conversation).toEqual({ kind: 'c2c', conv: 'u_peer' });
+});
+it('成员归属不全、有歧义或目标冲突时不关联，群主不能当私聊导出者', async () => {
+  const root = fixture();
+  const members = [
+    { uid: 'u_self', platformId: '123' },
+    { uid: 'u_peer', platformId: '456' },
+  ];
+  for (const [index, doc] of [
+    { meta: { type: 'private' }, members, messages: [row()] },
+    { meta: { type: 'private', ownerId: '999' }, members, messages: [row()] },
+    {
+      meta: { type: 'private', ownerId: '123' },
+      members: [...members, { uid: 'u_other', platformId: '789' }],
+      messages: [row()],
+    },
+    { meta: { type: 'group', ownerId: '123' }, members, messages: [row()] },
+    { meta: { type: 'group' }, messages: [{ ...row(), targetUid: 'u_peer' }] },
+    { meta: { type: 'private' }, messages: [{ ...row(), targetGroupCode: '777' }] },
+    {
+      meta: { type: 'private', ownerId: '123', conversationId: 'u_other' },
+      members,
+      messages: [row()],
+    },
+    {
+      messages: [
+        { ...row(), targetUid: 'u_peer' },
+        { ...row(2), targetUid: 'u_other' },
+      ],
+    },
+  ].entries())
+    expect(
+      (await describeViewerFile(file(root, `ambiguous-${index}.json`, doc))).conversation,
+    ).toBeNull();
+});
+it('首条灰条不妨碍读取后续目标，QQ 号通过成员映射为 UID', async () => {
+  const root = fixture();
+  const source = await describeViewerFile(
+    file(root, 'targets.json', {
+      members: [{ uid: 'u_peer', platformId: '456' }],
+      messages: [row(), { ...row(2), targetUin: '456' }],
+    }),
+  );
+  expect(source.conversation).toEqual({ kind: 'c2c', conv: 'u_peer' });
+});
+it('兼容明确的旧字段、只有 QQ 号的 ChatLab 成员与无成员表的双向私聊', async () => {
+  const root = fixture();
+  for (const meta of [
+    { groupId: '777' },
+    { kind: 'group', conv: '777' },
+    { targetGroupCode: '777' },
+  ])
+    expect(
+      (await describeViewerFile(file(root, 'group.json', { meta, messages: [row()] })))
+        .conversation,
+    ).toEqual({ kind: 'group', conv: '777' });
+  const chatlab = file(root, 'chatlab-old.json', {
+    meta: { type: 'private', ownerId: '123' },
+    members: [{ platformId: '123' }, { platformId: '456' }],
+    messages: [{ sender: '456', timestamp: 1792771200, type: 0, content: '合成正文' }],
+  });
+  expect((await describeViewerFile(chatlab)).conversation).toEqual({ kind: 'c2c', conv: '456' });
+  const raw = file(root, 'senders.json', {
+    meta: { type: 'private', ownerId: '123' },
+    messages: [
+      { ...row(), senderUid: 'u_self' },
+      { ...row(2), senderUid: 'u_peer', senderUin: '456' },
+    ],
+  });
+  expect((await describeViewerFile(raw)).conversation).toEqual({ kind: 'c2c', conv: 'u_peer' });
+});
+it('只信任配套的 WeQ 报告，报告不能覆盖冲突身份或其他平台限制', async () => {
+  const root = fixture();
+  const path = file(root, 'chat.json', [row()]);
+  const report = { schema: 'weq-export-report/1', conversation: { kind: 'c2c', id: 'u_peer' } };
+  file(root, 'chat.json.report.json', report);
+  expect((await describeViewerFile(path)).conversation).toEqual({ kind: 'c2c', conv: 'u_peer' });
+  file(root, 'chat.json', [{ ...row(), targetUid: 'u_other' }]);
+  expect((await describeViewerFile(path)).conversation).toBeNull();
+  file(root, 'chat.json', { meta: { platform: 'foreign' }, messages: [row()] });
+  expect((await describeViewerFile(path)).conversation).toBeNull();
+  file(root, 'chat.json', [row()]);
+  file(root, 'chat.json.report.json', { ...report, schema: 'unrelated/1' });
+  expect((await describeViewerFile(path)).conversation).toBeNull();
+});
+it('多个相同消息 ID 的隐藏日志有不同目标时不猜测，隐藏链接不跨目录读取', async () => {
+  const root = fixture(),
+    hidden = join(root, '.weq-export'),
+    outside = fixture();
+  mkdirSync(hidden);
+  for (const [selection, targetUid] of [
+    ['d', 'u_peer'],
+    ['e', 'u_other'],
+  ])
+    writeFileSync(
+      join(hidden, `messages-${selection!.repeat(64)}.jsonl`),
+      JSON.stringify({ ...row(), targetUid }) + '\n',
+    );
+  const path = file(root, 'chat.json', [row()]);
+  expect((await describeViewerFile(path)).conversation).toBeNull();
+  rmSync(hidden, { recursive: true });
+  writeFileSync(
+    join(outside, `messages-${'f'.repeat(64)}.jsonl`),
+    JSON.stringify({ ...row(), targetUid: 'u_peer' }) + '\n',
+  );
+  symlinkSync(outside, hidden);
+  expect((await describeViewerFile(path)).conversation).toBeNull();
+});
+it('缺少基线清单的隐藏日志仍可发现，并通过共有消息关联旧 JSON', async () => {
+  const root = fixture(),
+    hidden = join(root, '.weq-export');
+  mkdirSync(hidden);
+  const journal = join(hidden, `messages-${'b'.repeat(64)}.jsonl`);
+  writeFileSync(journal, JSON.stringify({ ...row(), targetUid: 'u_peer' }) + '\n');
+  const path = file(root, 'legacy.json', { meta: { name: '旧导出' }, messages: [row()] });
+  file(root, 'export-report.json', {
+    schema: 'weq-export-report/1',
+    conversation: { kind: 'c2c', id: 'u_peer' },
+  });
+  expect((await describeViewerFile(path)).conversation).toEqual({ kind: 'c2c', conv: 'u_peer' });
+  const result = await discoverViewerSources(root);
+  expect(result.sources).toHaveLength(1);
+  expect(result.sources[0]?.conversation).toEqual({ kind: 'c2c', conv: 'u_peer' });
+  expect(result.sources[0]?.baselineDirectory).toBeUndefined();
+  rmSync(path);
+  const orphan = (await discoverViewerSources(root)).sources[0]!;
+  expect(orphan.root).toBe(realpathSync(root));
+  expect(orphan.committedOnly).toBe(true);
+});
+it('邻近报告和日志不能串到无关文件，报告矛盾时不自动关联', async () => {
+  const root = fixture(),
+    hidden = join(root, '.weq-export');
+  mkdirSync(hidden);
+  writeFileSync(
+    join(hidden, `messages-${'c'.repeat(64)}.jsonl`),
+    JSON.stringify({ ...row(), targetUid: 'u_peer' }) + '\n',
+  );
+  file(root, 'export-report.json', {
+    schema: 'weq-export-report/1',
+    conversation: { kind: 'c2c', id: 'u_other' },
+  });
+  expect(
+    (await describeViewerFile(file(root, 'unrelated.json', [row(99)]))).conversation,
+  ).toBeNull();
+  expect((await describeViewerFile(file(root, 'conflict.json', [row()]))).conversation).toBeNull();
+});
 it('WeQ 的 ChatLab JSON/JSONL 按实际导出内容显示，不伪造已扁平化的嵌套结构', async () => {
   const root = fixture();
   const meta = { type: 'group', groupId: '777' };
@@ -216,6 +378,13 @@ it('损坏消息和非聊天 JSON 不伪装成成功，文件发生变化需重�
   );
   const bad = join(root, 'bad.jsonl');
   writeFileSync(bad, JSON.stringify(row()) + '\n{broken}\n');
+  await expect(describeViewerFile(bad)).rejects.toThrow();
+  writeFileSync(
+    bad,
+    Array.from({ length: EXPORT_VIEWER_LIMITS.identityMessages }, (_, i) =>
+      JSON.stringify(row(i)),
+    ).join('\n') + '\n{broken}\n',
+  );
   await expect(readViewerPage(await describeViewerFile(bad), { offset: 0 })).rejects.toThrow();
 });
 it('超大 JSON 在读取正文前拒绝，超长显示内容有明确截断', async () => {

@@ -15,7 +15,11 @@ const f = vi.hoisted(() => {
         msgSeq: bigint;
       } | null,
   );
-  const contacts = vi.fn(async () => [{ targetUid: '777', chatType: 'KCHATTYPEGROUP' }]);
+  const contacts = vi.fn(
+    async (): Promise<{ targetUid: string; targetUin?: bigint; chatType: string }[]> => [
+      { targetUid: '777', chatType: 'KCHATTYPEGROUP' },
+    ],
+  );
   const services = {
     recentContacts: { getRecentContact: contacts },
     accountConfig: { getRecord: () => ({ configId: 'source-a' }) },
@@ -73,6 +77,21 @@ it('相同标识但不同会话类型不关联，账号不可用时仍不触发�
   expect(await caller.local({ id })).toBeNull();
   await expect(caller.jump({ id, ...binding })).rejects.toThrow('不可用');
   expect(f.push).not.toHaveBeenCalled();
+});
+it('旧私聊只有 QQ 号时映射当前账号的 UID，再按 UID 跳转', async () => {
+  const item = registerViewerSource({ ...source(), conversation: { kind: 'c2c', conv: '456' } });
+  ids.push(item.id);
+  f.contacts.mockResolvedValue([
+    { targetUid: 'u_peer', targetUin: 456n, chatType: 'KCHATTYPEC2C' },
+  ]);
+  expect(await caller.local({ id: item.id })).toMatchObject({ kind: 'c2c', conv: 'u_peer' });
+  await caller.jump({ id: item.id, ...binding });
+  expect(f.push).toHaveBeenLastCalledWith({ kind: 'c2c', conv: 'u_peer', seq: '' });
+  f.contacts.mockResolvedValue([
+    { targetUid: 'u_peer', targetUin: 456n, chatType: 'KCHATTYPEC2C' },
+    { targetUid: 'u_other', targetUin: 456n, chatType: 'KCHATTYPEC2C' },
+  ]);
+  expect(await caller.local({ id: item.id })).toBeNull();
 });
 it('本机缺少消息、消息属于其他会话或无有效序号时不跳错位置', async () => {
   const id = opened();

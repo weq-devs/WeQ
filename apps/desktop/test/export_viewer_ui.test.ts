@@ -127,6 +127,22 @@ it('打开会话绑定当前账号与数据源，增量入口传递原基线', a
     expect.objectContaining({ baselineDirectory: source.baselineDirectory }),
   );
 });
+it('旧 QQ 号关联本机 UID 后，增量入口传递解析后的 UID', async () => {
+  f.pick.mockResolvedValue({
+    sources: [{ ...source, conversation: { kind: 'c2c', conv: '456' } }],
+    truncated: false,
+  });
+  f.local = { kind: 'c2c', conv: 'u_peer', uin: '10001', configId: 'source-a' };
+  await mount();
+  await click('打开文件夹');
+  await click('增量导出');
+  expect(increment).toHaveBeenCalledWith(
+    expect.objectContaining({
+      conversation: { kind: 'c2c', conv: 'u_peer' },
+      baselineDirectory: source.baselineDirectory,
+    }),
+  );
+});
 it('无本机会话或基线时禁用对应操作，不显示嵌套原消息跳转', async () => {
   f.local = null;
   f.pick.mockResolvedValue({

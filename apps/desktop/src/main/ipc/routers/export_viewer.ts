@@ -22,13 +22,17 @@ async function local(id: string) {
   const conv = source.conversation;
   if (!services || !uin || !configId || !conv) return null;
   const contacts = await services.recentContacts.getRecentContact(-1);
-  const hit = contacts.some(
+  const matches = contacts.filter(
     (c) =>
-      c.targetUid === conv.conv &&
+      (c.targetUid === conv.conv ||
+        (conv.kind === 'c2c' &&
+          /^[1-9]\d*$/.test(conv.conv) &&
+          String(c.targetUin) === conv.conv)) &&
       classifyChatType(c.chatType) === (conv.kind === 'group' ? 'group' : 'direct'),
   );
+  const targets = new Set(matches.map((c) => c.targetUid).filter(Boolean));
   if (getAppContext().services !== services) throw new Error('账号已切换，请重试。');
-  return hit ? { ...conv, uin, configId } : null;
+  return targets.size === 1 ? { kind: conv.kind, conv: [...targets][0]!, uin, configId } : null;
 }
 export const exportViewerRouter = router({
   pick: procedure.input(z.object({ directory: z.boolean() })).mutation(async ({ input }) => {

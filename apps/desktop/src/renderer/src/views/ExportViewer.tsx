@@ -342,7 +342,14 @@ export function ExportViewer({
                       ? '当前账号没有匹配会话'
                       : '增量导出'
                 }
-                onClick={() => source && onIncrement(source)}
+                onClick={() =>
+                  source &&
+                  local.data &&
+                  onIncrement({
+                    ...source,
+                    conversation: { kind: local.data.kind, conv: local.data.conv },
+                  })
+                }
               >
                 <RefreshCw size={15} />
                 增量导出
