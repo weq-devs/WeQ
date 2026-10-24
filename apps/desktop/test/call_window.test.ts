@@ -32,6 +32,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       onCallRecording: { useSubscription: () => {} },
       onCallError: { useSubscription: () => {} },
       setCamera: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) },
+      pushVideoFrame: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) },
       // 录音相关的 RPC：这个测试只关心窗口生命周期与通话控件，录音一律给空。
       startRecording: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
       stopRecording: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },

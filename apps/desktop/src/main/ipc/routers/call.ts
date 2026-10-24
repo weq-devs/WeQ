@@ -135,6 +135,26 @@ export const callRouter = router({
     return { ok: manager.setCamera(input.enabled) };
   }),
 
+  /**
+   * 渲染层推来一帧 I420（摄像头采集）。
+   *
+   * 尺寸必须与发起时协商的一致（默认 640×360，U/V 各 160×180）。不对就丢，
+   * 由 native 侧的越界检查兜底。
+   */
+  pushVideoFrame: procedure
+    .input(
+      z.object({
+        y: z.instanceof(Uint8Array),
+        u: z.instanceof(Uint8Array),
+        v: z.instanceof(Uint8Array),
+      }),
+    )
+    .mutation(({ input }) => {
+      const manager = findCallManager();
+      if (!manager) return { ok: false };
+      return { ok: manager.pushVideoFrame(input.y, input.u, input.v) };
+    }),
+
   /** 通话状态变化（发起 / 振铃 / 接通 / 结束）。 */
   onCallState: procedure.subscription(() =>
     observable<ActiveCallInfo>((emit) => {

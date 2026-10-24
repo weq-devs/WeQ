@@ -6,7 +6,7 @@
  * （`peers[].video` 非空就画视频，否则画头像）。
  */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Loader2, PhoneIncoming } from 'lucide-react';
 import { dressUrl } from '../../lib/resourceUrl';
 import { CALL_WAVE_BAR_COUNT, callWaveBar, callWaveShape } from '../../lib/callWave';
@@ -63,6 +63,8 @@ export interface CallStageProps {
   selfCanvasRef?: React.RefObject<HTMLCanvasElement | null>;
   /** 本端摄像头是否开着。 */
   selfVideoOn?: boolean;
+  /** 本端采集到的视频元素（画进 selfCanvasRef）。 */
+  selfVideoElement?: HTMLVideoElement | null;
   /** 对端是否在发视频（决定要不要铺满对端画面）。 */
   peerVideoOn?: boolean;
   /** 对端视频解码不可用时的提示；非空时画占位。 */
@@ -82,6 +84,7 @@ export function CallStage({
   peerVideoActive = false,
   selfCanvasRef,
   selfVideoOn = false,
+  selfVideoElement = null,
   peerVideoOn = false,
   videoError = null,
 }: CallStageProps) {
@@ -186,6 +189,8 @@ export function CallStage({
       {selfCanvasRef && (layout === 'self' || layout === 'self-only') ? (
         <div className={`weq-call-self-video${layout === 'self-only' ? ' is-full' : ''}`}>
           <canvas ref={selfCanvasRef} />
+          {/* 采集到的画面直接画进 canvas：video 元素只做解码源，不挂进 DOM。 */}
+          <SelfVideoPainter canvasRef={selfCanvasRef} video={selfVideoElement} />
         </div>
       ) : null}
 
@@ -208,4 +213,43 @@ export function CallStage({
       </div>
     </div>
   );
+}
+
+/**
+ * 把采集到的视频元素画进 canvas。
+ *
+ * 摄像头流是个 `<video>`（解码源），但界面上要的是 canvas（与对端画面同构，
+ * 也方便做镜像 / 裁剪）。用 `requestAnimationFrame` 跟随屏幕刷新率；
+ * 视频元素没就绪时跳过这一帧。
+ */
+function SelfVideoPainter({
+  canvasRef,
+  video,
+}: {
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  video: HTMLVideoElement | null;
+}) {
+  useEffect(() => {
+    if (!video) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let raf = 0;
+    const draw = () => {
+      if (video.readyState >= 2) {
+        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+        }
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.dataset.active = 'true';
+      }
+      raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [canvasRef, video]);
+  return null;
 }
