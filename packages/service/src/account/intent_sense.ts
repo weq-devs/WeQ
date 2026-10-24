@@ -39,6 +39,13 @@ import { segmentWords } from './text_segment';
 import { analyzePragmatics, calibrateIntentSense, type IntentContextTurn } from './intent_corpus';
 import { getLogger, logErrorContext } from '../common/logger';
 import {
+  buildSuggestionPrompt,
+  suggestionMentions,
+  type SuggestionElement,
+  type SuggestionMessage,
+  type SuggestionPerson,
+} from './intent_suggestion_prompt';
+import {
   DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
   DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
   MAX_INTENT_CONTEXT_MESSAGES,
@@ -293,17 +300,13 @@ function fileSafe(key: string): string {
   return key.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-interface SenseElement {
-  kind: string;
-  textContent?: unknown;
-  faceText?: unknown;
-}
+type SenseElement = SuggestionElement;
 
-/** 消息 → 供分析的文本：text + face 段；纯媒体消息返回 ''（不做分析）。 */
+/** 消息 → 供分析的文本：text + at + face 段；纯媒体消息返回 ''（不做分析）。 */
 function elementsToSenseText(elements: SenseElement[]): string {
   const parts: string[] = [];
   for (const el of elements) {
-    if (el.kind === 'text') {
+    if (el.kind === 'text' || el.kind === 'at') {
       const t = String(el.textContent ?? '').trim();
       if (t) parts.push(t);
     } else if (el.kind === 'face') {
@@ -1557,11 +1560,17 @@ export class IntentSenseService {
     }
     const baseUrl = endpoint.baseUrl.replace(/\/+$/, '');
 
-    const lines = rows.map((r) => `${r.mine ? '我' : '对方'}: ${r.text || '[媒体消息]'}`);
-    const system =
-      `根据聊天上下文，以「我」的口吻生成 ${this.config.suggestionCount} 条候选回复。要求：贴合语境、语气自然、` +
-      `长度接近日常聊天（一般不超过 ${this.config.suggestionTargetChars} 字）、候选风格要有差异（如 共情/幽默/简短）。` +
-      '只输出 JSON：{"replies":[{"text":"...","tone":"共情"}]}，不要输出其它内容。';
+    const people = await this.suggestionPeople(kind, conv, rows);
+    if (!current()) return [];
+    const prompt = buildSuggestionPrompt({
+      kind,
+      rows,
+      people,
+      self: { uid: this.session.selfUid, uin: this.session.context.uin?.toString() },
+      now: Date.now() / 1000,
+      count: this.config.suggestionCount,
+      targetChars: this.config.suggestionTargetChars,
+    });
     try {
       const body = await requestApiJson<{
         choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
@@ -1572,8 +1581,8 @@ export class IntentSenseService {
           model: endpoint.model,
           temperature: this.config.suggestionTemperature,
           messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: lines.join('\n') },
+            { role: 'system', content: prompt.system },
+            { role: 'user', content: prompt.user },
           ],
         }),
         signal: AbortSignal.timeout(this.config.apiTimeoutSeconds * 1000),
@@ -1610,6 +1619,67 @@ export class IntentSenseService {
 
   // ── 消息读取（内部）─────────────────────────────────────────────────────
 
+  /** 只查这批消息及 @ 涉及的本地资料，缺失时仍以消息自带身份生成上下文。 */
+  private async suggestionPeople(
+    kind: IntentConversationKind,
+    conv: string,
+    rows: readonly SenseRow[],
+  ): Promise<SuggestionPerson[]> {
+    const mentions = rows.flatMap((row) => suggestionMentions(row.elementsRaw));
+    const uids = [
+      ...new Set(
+        [
+          this.session.selfUid,
+          ...rows.map((row) => row.senderUid),
+          ...mentions.map((mention) => mention.uid),
+        ].filter((uid): uid is string => Boolean(uid)),
+      ),
+    ];
+    const uins = [
+      ...new Set(
+        [
+          this.session.context.uin?.toString(),
+          ...rows.map((row) => row.senderUin),
+          ...mentions.map((mention) => mention.uin),
+        ].filter((uin): uin is string => Boolean(uin && /^[1-9]\d*$/.test(uin))),
+      ),
+    ];
+    const people: SuggestionPerson[] = [];
+    try {
+      const profiles = (await this.session.profileInfo?.profilesByUids(uids)) ?? [];
+      people.push(
+        ...profiles.map((p) => ({ uid: p.uid, uin: String(p.uin), name: p.remark || p.nick })),
+      );
+    } catch (error) {
+      logger.debug('intent-sense suggestion profile lookup failed', logErrorContext(error));
+    }
+    if (kind === 'group') {
+      const lookups = [
+        () => this.session.groupMembers?.getMembersByUids(BigInt(conv), uids),
+        () => this.session.groupMembers?.getMembersByUins(BigInt(conv), uins.map(BigInt)),
+      ];
+      const groups = await Promise.all(
+        lookups.map(async (lookup) => {
+          try {
+            return (await lookup()) ?? [];
+          } catch (error) {
+            logger.debug('intent-sense suggestion member lookup failed', logErrorContext(error));
+            return [];
+          }
+        }),
+      );
+      for (const members of groups)
+        people.push(
+          ...members.map((p) => ({
+            uid: p.uid,
+            uin: String(p.uin),
+            name: p.card || p.nick,
+          })),
+        );
+    }
+    return people;
+  }
+
   /** 读最近 limit 条（或指定 msgId 集），返回时间升序、带分析文本与 mine 标记的行。 */
   private async loadMessages(
     kind: IntentConversationKind,
@@ -1626,6 +1696,8 @@ export class IntentSenseService {
       return {
         msgId: m.msgId.toString(),
         mine,
+        senderUid: m.senderUid,
+        senderUin: m.senderUin.toString(),
         sendTime: Number(m.sendTime),
         text: elementsToSenseText(m.elements),
         elementsRaw: m.elements,
@@ -1635,7 +1707,12 @@ export class IntentSenseService {
       const elements = message.elements.map(
         (element): SenseElement => ({
           kind: element.type,
-          ...(element.type === 'text' ? { textContent: element.data.textContent } : {}),
+          ...(element.type === 'text' || element.type === 'at'
+            ? {
+                textContent: element.data.textContent,
+                ...(element.type === 'at' ? { atTargetUid: element.data.atTargetUid } : {}),
+              }
+            : {}),
           ...(element.type === 'face' ? { faceText: element.data.faceText } : {}),
         }),
       );
@@ -1648,6 +1725,8 @@ export class IntentSenseService {
             kind === 'c2c'
               ? message.senderUid !== conv
               : message.senderUin === String(this.session.context.uin ?? ''),
+          senderUid: message.senderUid,
+          senderUin: message.senderUin,
           sendTime: Number(message.sendTime),
           text: elementsToSenseText(elements),
           elementsRaw: elements,
@@ -1771,13 +1850,7 @@ export class IntentSenseService {
 }
 
 /** 内部读取行（loadMessages 的产物）。 */
-interface SenseRow {
-  msgId: string;
-  mine: boolean;
-  sendTime: number;
-  text: string;
-  elementsRaw: SenseElement[];
-}
+type SenseRow = SuggestionMessage;
 
 interface SenseTimelineRow extends TimelineRow {
   sense: SenseRow;

@@ -24,10 +24,14 @@ import {
 
 interface StubMsg {
   msgId: bigint;
+  msgSeq: bigint;
   senderUid: string;
   senderUin: bigint;
   sendTime: bigint;
-  elements: Array<{ kind: 'text'; textContent: string } | { kind: 'face'; faceText: string }>;
+  elements: Array<
+    | { kind: 'text' | 'at'; textContent: string; atTargetUid?: string }
+    | { kind: 'face'; faceText: string }
+  >;
 }
 
 function makeSession(msgs: StubMsg[], peerUid = 'u_peer') {
@@ -52,6 +56,7 @@ function makeSession(msgs: StubMsg[], peerUid = 'u_peer') {
 function textMsg(msgId: bigint, senderUid: string, text: string, sendTime: number): StubMsg {
   return {
     msgId,
+    msgSeq: msgId,
     senderUid,
     senderUin: senderUid === 'u_peer' ? 22222n : 10000n,
     sendTime: BigInt(sendTime),
@@ -352,10 +357,10 @@ describe('IntentSenseService', () => {
     const msgs = Array.from({ length: 6 }, (_, i) =>
       textMsg(BigInt(i + 1), 'u_peer', `消息${i + 1}`, 1000 + i * 20),
     );
-    const requests: string[] = [];
+    const requests: Array<{ messages: Array<{ text: string }> }> = [];
     const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
-      requests.push(body.messages[1]!.content);
+      requests.push(JSON.parse(body.messages[1]!.content));
       return {
         ok: true,
         json: async () => ({
@@ -380,21 +385,115 @@ describe('IntentSenseService', () => {
       suggestionContextMessages: 1,
     });
     await svc.getSuggestions('c2c', 'u_peer');
-    expect(requests[0]?.split('\n')).toEqual(['对方: 消息5', '对方: 消息6']);
+    expect(requests[0]?.messages.map((row) => row.text)).toEqual(['消息5', '消息6']);
     await svc.getSuggestions('c2c', 'u_peer');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await svc.setConfig({ suggestionContextMessages: 3 });
     await svc.getSuggestions('c2c', 'u_peer');
-    expect(requests[1]?.split('\n')).toEqual([
-      '对方: 消息3',
-      '对方: 消息4',
-      '对方: 消息5',
-      '对方: 消息6',
+    expect(requests[1]?.messages.map((row) => row.text)).toEqual([
+      '消息3',
+      '消息4',
+      '消息5',
+      '消息6',
     ]);
     await svc.setConfig({ suggestionContextMessages: 0 });
     await svc.getSuggestions('c2c', 'u_peer');
-    expect(requests[2]).toBe('对方: 消息6');
+    expect(requests[2]?.messages.map((row) => row.text)).toEqual(['消息6']);
   });
+
+  it.each(['local', 'roaming', 'missing-names'])(
+    '%s 群上下文将真实发送者、@ 目标、名字和时间传入模型',
+    async (source) => {
+      const start = Date.parse('2026-10-24T12:00:00+08:00') / 1000;
+      const msgs = [
+        textMsg(1n, 'u_self', '我先问一下', start),
+        textMsg(2n, 'u_peer', '我来回答', start + 10),
+        textMsg(3n, 'u_other', '请看看', start + 20),
+      ];
+      msgs[2]!.senderUin = 33333n;
+      msgs[2]!.elements.push(
+        { kind: 'at', textContent: '@同名', atTargetUid: 'u_peer' },
+        { kind: 'at', textContent: '@我', atTargetUid: 'u_self' },
+        { kind: 'at', textContent: '@全体成员', atTargetUid: 'all' },
+        { kind: 'at', textContent: '@未发言成员', atTargetUid: 'u_silent' },
+      );
+      const session = Object.assign(makeSession(source === 'roaming' ? [] : msgs), {
+        selfUid: 'u_self',
+        profileInfo: { profilesByUids: vi.fn(async () => []) },
+        groupMembers: {
+          getMembersByUids: vi.fn(async () => {
+            if (source === 'missing-names') throw new Error('合成群资料读取失败');
+            return [
+              { uid: 'u_peer', uin: 22222n, card: '同名', nick: '' },
+              { uid: 'u_other', uin: 33333n, card: '同名', nick: '' },
+              { uid: 'u_silent', uin: 44444n, card: '未发言成员', nick: '' },
+            ];
+          }),
+          getMembersByUins: vi.fn(async () => []),
+        },
+      });
+      const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '{"replies":[{"text":"合成推荐"}]}' } }],
+        }),
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+      const svc = new IntentSenseService(session, dir, {
+        resolveEndpoint: (ref) => ({
+          baseUrl: 'http://fixture',
+          apiKey: 'fixture',
+          model: ref.model,
+        }),
+        ...(source === 'roaming'
+          ? {
+              gapHistory: {
+                cachedTimeline: vi.fn(async () =>
+                  msgs.map((m) => ({
+                    kind: 'group' as const,
+                    conv: '123',
+                    msgId: m.msgId.toString(),
+                    msgSeq: m.msgSeq.toString(),
+                    senderUid: m.senderUid,
+                    senderUin: m.senderUin.toString(),
+                    sendTime: m.sendTime.toString(),
+                    elements: m.elements.map(({ kind, ...data }) => ({ type: kind, data })),
+                  })),
+                ),
+              },
+            }
+          : {}),
+      });
+      await svc.setConfig({
+        suggestionsEnabled: true,
+        suggestionProviderRef: { providerId: 'fixture', model: 'fixture' },
+        suggestionContextMessages: 5,
+      });
+      await svc.getSuggestions('group', '123');
+      const payload = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+        messages: Array<{ content: string }>;
+      };
+      const context = JSON.parse(payload.messages[1]!.content);
+      expect(context.messages).toHaveLength(3);
+      expect(context.messages[0].sender).toMatchObject({ uid: 'u_self', isSelf: true });
+      const name = source === 'missing-names' ? null : '同名';
+      expect(context.messages[1].sender).toMatchObject({ uid: 'u_peer', name });
+      expect(context.messages[2].sender).toMatchObject({ uid: 'u_other', name });
+      expect(context.messages[2].sentAt).toBe('2026-10-24T12:00:20+08:00');
+      expect(context.messages[2].text).toContain('@同名');
+      expect(context.messages[2].mentions[0].target).toEqual(context.messages[1].sender);
+      expect(context.messages[2].mentions[1].target).toMatchObject({ uid: 'u_self', isSelf: true });
+      expect(context.messages[2].mentions[2].all).toBe(true);
+      expect(context.messages[2].mentions[3].target).toMatchObject({
+        uid: 'u_silent',
+        name: source === 'missing-names' ? null : '未发言成员',
+      });
+      expect(session.groupMembers.getMembersByUids).toHaveBeenCalledWith(
+        123n,
+        expect.arrayContaining(['u_self', 'u_peer', 'u_other', 'u_silent']),
+      );
+    },
+  );
 
   it('手动换一批绕过候选缓存和自己发送后自动推荐开关，但不覆盖功能及会话开关', async () => {
     const msgs = [textMsg(1n, 'u_peer', '合成对方消息', 1000)];
