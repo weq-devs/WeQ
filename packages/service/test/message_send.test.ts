@@ -61,17 +61,25 @@ function fakeSession(
     uidOf?: Record<string, string>;
     uinOf?: Record<string, bigint>;
     selfUid?: string;
+    fontSamples?: { senderUin: bigint; senderUid: string; decoration?: { fontId2Raw: number } }[];
   } = {},
 ): AccountSession {
   const uidOf = options.uidOf ?? { '10001': 'u_me', '20002': 'u_friend' };
   const uinOf = options.uinOf ?? { u_friend: 20002n, u_me: 10001n };
+  const fontSamples = options.fontSamples ?? [
+    { senderUin: 10001n, senderUid: 'u_me', decoration: { fontId2Raw: 72057 } },
+    { senderUin: 10001n, senderUid: 'u_me', decoration: { fontId2Raw: 66173 } },
+  ];
   return {
     context: { uin: options.uin ?? 10001 },
     uidMap: {
       uidByUin: (uin: bigint) => uidOf[uin.toString()],
       uinByUid: (uid: string) => uinOf[uid],
+      sortNoByUid: () => 1n,
     },
     selfUid: options.selfUid ?? 'u_me',
+    c2cMsgs: { listLatest: async () => fontSamples, listRecent: async () => fontSamples },
+    groupMsgs: { listLatest: async () => fontSamples, listRecent: async () => fontSamples },
   } as unknown as AccountSession;
 }
 
@@ -445,6 +453,231 @@ describe('toOutcome', () => {
 });
 
 describe('MessageSendService.sendText（离线集成）', () => {
+  it.each(['c2c', 'group'] as const)(
+    '%s 请求显式携带当前字体原值，并随当前选择更新，不增加联网查询',
+    async (peerType) => {
+      const native = fakeNative();
+      const saved: import('../src/account/gap_history').GapFetchedMessage[] = [];
+      let currentFont = 31001;
+      const svc = new MessageSendService(
+        native as never,
+        fakeSession(),
+        () => 1,
+        undefined,
+        async (row) => {
+          saved.push(row);
+        },
+        () => currentFont,
+      );
+      const targetId = peerType === 'group' ? '12345' : 'u_friend';
+      await svc.sendText({ peerType, targetId, text: '第一条' });
+      currentFont = 32002;
+      await svc.sendText({ peerType, targetId, text: '第二条' });
+      expect(saved.map((row) => row.decoration?.fontId)).toEqual([31001, 32002]);
+      expect(native.calls).toHaveLength(2);
+      for (const [index, call] of native.calls.entries()) {
+        expect(call.cmd).toBe('MessageSvc.PbSendMsg');
+        const body = decode(SEND_MESSAGE_REQUEST, call.body) as {
+          messageBody: { richText: { elems: Record<string, unknown>[] } };
+        };
+        expect(body.messageBody.richText.elems).toHaveLength(2);
+        expect(body.messageBody.richText.elems[0]).toEqual({
+          generalFlags: { font: { fontId2: [72057, 66173][index] } },
+        });
+      }
+    },
+  );
+
+  it.each([undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, 0x1_0000_0000])(
+    '当前字体快照无有效款式时正常发送，不伪造字体：%s',
+    async (fontId) => {
+      const saved: import('../src/account/gap_history').GapFetchedMessage[] = [];
+      const svc = new MessageSendService(
+        fakeNative() as never,
+        fakeSession(),
+        () => 1,
+        undefined,
+        async (row) => {
+          saved.push(row);
+        },
+        () => fontId,
+      );
+      const result = await svc.sendText({
+        peerType: 'c2c',
+        targetId: 'u_friend',
+        text: '照常发送',
+      });
+      expect(result.ok).toBe(true);
+      expect(saved).toHaveLength(1);
+      expect(saved[0]!.decoration).toBeUndefined();
+    },
+  );
+
+  it('字体快照读取失败不阻断发送或成功消息持久化', async () => {
+    const saved: import('../src/account/gap_history').GapFetchedMessage[] = [];
+    const svc = new MessageSendService(
+      fakeNative() as never,
+      fakeSession(),
+      () => 1,
+      undefined,
+      async (row) => {
+        saved.push(row);
+      },
+      () => {
+        throw new Error('字体快照暂不可用');
+      },
+    );
+    const result = await svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '照常发送' });
+    expect(result.ok).toBe(true);
+    expect(result.hint).toBeUndefined();
+    expect(saved).toHaveLength(1);
+  });
+
+  it('补本地字体回显时保留原有气泡和挂件信息', async () => {
+    const saved: import('../src/account/gap_history').GapFetchedMessage[] = [];
+    const svc = new MessageSendService(
+      fakeNative() as never,
+      fakeSession(),
+      () => 1,
+      undefined,
+      async (row) => {
+        saved.push(row);
+      },
+      () => 31001,
+    );
+    await svc.sendText({
+      peerType: 'c2c',
+      targetId: 'u_friend',
+      text: '保留其他装扮',
+      dress: { bubbleId: 11, widgetId: 22 },
+    });
+    expect(saved[0]!.decoration).toEqual({ bubbleId: 11, widgetId: 22, fontId: 31001 });
+  });
+
+  it('纯表情消息不读取或附加文本字体快照', async () => {
+    const saved: import('../src/account/gap_history').GapFetchedMessage[] = [];
+    let reads = 0;
+    const svc = new MessageSendService(
+      fakeNative() as never,
+      fakeSession(),
+      () => 1,
+      undefined,
+      async (row) => {
+        saved.push(row);
+      },
+      () => {
+        reads++;
+        return 31001;
+      },
+    );
+    await svc.sendElements({
+      peerType: 'c2c',
+      targetId: 'u_friend',
+      elements: [{ kind: 'face', faceId: 14 }],
+    });
+    expect(reads).toBe(0);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.decoration).toBeUndefined();
+  });
+
+  it('不保留本地回显时仍在真实请求中携带字体，保留类型和魔法字体高位', async () => {
+    const native = fakeNative();
+    const session = fakeSession({
+      fontSamples: [
+        { senderUin: 10001n, senderUid: 'u_me', decoration: { fontId2Raw: 0x01017684 } },
+      ],
+    });
+    const svc = new MessageSendService(
+      native as never,
+      session,
+      () => 1,
+      undefined,
+      undefined,
+      () => 33910,
+    );
+    await svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '带原始字体' });
+    const request = decode(SEND_MESSAGE_REQUEST, native.calls[0]!.body) as {
+      messageBody: { richText: { elems: Record<string, unknown>[] } };
+    };
+    expect(request.messageBody.richText.elems[0]).toEqual({
+      generalFlags: { font: { fontId2: 0x01017684 } },
+    });
+  });
+
+  it('不把其他人的同款字体或本人旧款作为当前字体；无原值时明确降级', async () => {
+    const native = fakeNative();
+    const saved: import('../src/account/gap_history').GapFetchedMessage[] = [];
+    const svc = new MessageSendService(
+      native as never,
+      fakeSession({
+        fontSamples: [
+          { senderUin: 20002n, senderUid: 'u_friend', decoration: { fontId2Raw: 72057 } },
+          { senderUin: 10001n, senderUid: 'u_me', decoration: { fontId2Raw: 66173 } },
+        ],
+      }),
+      () => 1,
+      undefined,
+      async (row) => {
+        saved.push(row);
+      },
+      () => 31001,
+    );
+    const outcome = await svc.sendText({
+      peerType: 'c2c',
+      targetId: 'u_friend',
+      text: '缺少当前原值',
+    });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.hint).toContain('本次按普通字体发送');
+    expect(saved[0]!.decoration).toBeUndefined();
+    const request = decode(SEND_MESSAGE_REQUEST, native.calls[0]!.body) as {
+      messageBody: { richText: { elems: Record<string, unknown>[] } };
+    };
+    expect(request.messageBody.richText.elems).toEqual([{ text: { str: '缺少当前原值' } }]);
+  });
+
+  it('同款并发发送合并历史原值查询', async () => {
+    const session = fakeSession();
+    let reads = 0;
+    const latest = session.c2cMsgs.listLatest.bind(session.c2cMsgs);
+    session.c2cMsgs.listLatest = async (...args) => {
+      reads++;
+      return latest(...args);
+    };
+    const native = fakeNative();
+    const svc = new MessageSendService(
+      native as never,
+      session,
+      () => 1,
+      undefined,
+      undefined,
+      () => 31001,
+    );
+    await Promise.all([
+      svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '并发一' }),
+      svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '并发二' }),
+    ]);
+    expect(reads).toBe(1);
+    expect(native.calls).toHaveLength(2);
+  });
+
+  it('字体读取期间会话 PID 改变时不发送到旧会话', async () => {
+    const native = fakeNative();
+    let reads = 0;
+    const svc = new MessageSendService(
+      native as never,
+      fakeSession(),
+      () => ++reads,
+      undefined,
+      undefined,
+      () => 31001,
+    );
+    await expect(
+      svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '不应发送' }),
+    ).rejects.toThrow('QQ 会话已变化');
+    expect(native.calls).toHaveLength(0);
+  });
+
   it('收侧尚不支持的混合互动消息不会覆盖成残缺的持久气泡', async () => {
     const saved: unknown[] = [];
     const svc = new MessageSendService(

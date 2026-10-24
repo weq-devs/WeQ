@@ -1921,7 +1921,10 @@ export function initAppContext(fileRoot?: string): AppContext {
         messageSend: new MessageSendService(
           platform.native.ntHelper,
           session,
-          resolveOnlinePid,
+          () => {
+            if (getAppContext().account !== session) throw new Error('账号已切换，请重新发送。');
+            return resolveOnlinePid();
+          },
           // 商城表情包的密钥解析：发 mface 时把空 encryptKey 补上（同 getMarketPackKey）。
           (packId) => emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
           async (message) => {
@@ -1934,6 +1937,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               messages: [message],
             } satisfies RoamingCacheChange);
           },
+          () => accountConfig.getRecord()?.homeDress?.fontId,
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, resolveOnlinePid),
@@ -2648,7 +2652,10 @@ export function initAppContext(fileRoot?: string): AppContext {
         messageSend: new MessageSendService(
           platform.native.ntHelper,
           session,
-          livePid,
+          () => {
+            if (getAppContext().account !== session) throw new Error('账号已切换，请重新发送。');
+            return livePid();
+          },
           (packId) => emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
           async (message) => {
             await gapHistory.retainForBatch([message]);
@@ -2660,6 +2667,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               messages: [message],
             } satisfies RoamingCacheChange);
           },
+          () => accountConfig.getRecord()?.homeDress?.fontId,
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, livePid),

@@ -79,10 +79,9 @@ export interface SendMessageParams {
   /** 发送场景覆盖（窗口抖动等场景受限元素会用到）；缺省按 routing 推导。 */
   scene?: SendScene;
   /**
-   * 随消息一起带出的装扮（气泡 / 字体 / 挂件）。缺省不带装扮。
-   *
-   * ⚠️ **实验结论：服务端不收**（真机实测 2026-09-25，请求 result=0 但落库装扮全 0）。
-   * 保留参数只为将来复现实验，见 `./send-elements` 的 {@link SendDress}。
+   * 装扮参数。业务层跟随当前字体时会提供 fontId2Raw，原样写入扩展 tag 15。
+   * 不带字段的消息历史也可能回填字体，但这不证明实时收端会渲染同一字体。
+   * 这些参数不是任意字体选择器，见 `./send-elements` 的 {@link SendDress}。
    */
   dress?: SendDress;
   /**
