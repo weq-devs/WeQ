@@ -24,12 +24,15 @@ import { RoamMsgCacheDb } from './roam_msg_cache';
 import type { DeletedMsgStore } from './deleted_msgs';
 import { mediaElementFromRenderElement, type MediaElement } from './media_url';
 import { withRoamingRequest } from '../common/roaming_request_queue';
+import { logErrorContext, getLogger } from '../common/logger';
 import { statfsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { decodeSsoHistoryWindow } from './sso_history_window';
 
 /** 单个物理请求的最大 seq 跨度，不是消息条数承诺。 */
 const SERVER_MAX_WINDOW = 30;
+
+const logger = getLogger().child({ scope: 'gap-history' });
 
 /** 一条拉取到的远端消息，形状与主时间线的 ChatMsgWire 对齐。 */
 export interface GapFetchedMessage {
@@ -422,6 +425,19 @@ export class GapHistoryService {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      // 这条路径以前完全不打日志：降级成功时前端/MCP 只会看到「这条缺口没补上」，
+      // 排查时没有任何线索。现在至少留下窗口与原因。
+      logger.warn('roaming gap window failed', {
+        event: 'gap-window-failed',
+        kind,
+        conv,
+        startSeq,
+        endSeq: windowEnd,
+        degraded: cached.length > 0 && !options.strictIdentity,
+        cachedRows: cached.length,
+        networkRequested,
+        ...logErrorContext(error),
+      });
       if (cached.length > 0 && !options.strictIdentity)
         return {
           ok: true,

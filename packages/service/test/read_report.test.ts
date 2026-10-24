@@ -22,6 +22,8 @@ function setup() {
   const listFrom = vi.fn(async () => [{ msgSeq: 50n, clientSeq: 999n, sendTime: 123n }]);
   const getUnreadInfos = vi.fn(async () => [{ latestSeq: '100' }]);
   const session = {
+    selfUid: 'u_self',
+    context: { uin: '10001' },
     unreadInfo: { markRead, getUnreadInfos },
     uidMap: { sortNoByUid: () => 7n },
     c2cMsgs: { listBySeqsInPartition: listFrom },

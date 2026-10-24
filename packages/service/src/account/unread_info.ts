@@ -128,11 +128,18 @@ export class UnreadInfoService {
   }
 
   async getUnreadInfos(targets: UnreadInfoTarget[]): Promise<ResolvedUnreadInfo[]> {
-    const snapshots = await this.session.unreadInfo.getUnreadInfos(targets);
+    const snapshots = await this.readSnapshots(targets);
     if (this.disposed) return snapshots.map((row) => ({ ...row, readError: true }));
     const rows = snapshots.map((row) => this.local.resolve(row));
     this.local.flush();
     return rows;
+  }
+
+  private readSnapshots(targets: UnreadInfoTarget[]): Promise<UnreadInfoSnapshot[]> {
+    return this.session.unreadInfo.getUnreadInfos(targets, {
+      selfUid: this.session.selfUid,
+      selfUin: this.session.context.uin,
+    });
   }
 
   async markLocalRead(chatType: number, uid: string, latestSeq?: string): Promise<boolean> {
@@ -153,9 +160,7 @@ export class UnreadInfoService {
     ];
     const snapshots: UnreadInfoSnapshot[] = [];
     for (let index = 0; index < unique.length; index += 256)
-      snapshots.push(
-        ...(await this.session.unreadInfo.getUnreadInfos(unique.slice(index, index + 256))),
-      );
+      snapshots.push(...(await this.readSnapshots(unique.slice(index, index + 256))));
     if (
       this.disposed ||
       snapshots.length !== unique.length ||
@@ -213,9 +218,7 @@ export class UnreadInfoService {
     // 先取快照；读取失败不消耗撤销机会，也不留下部分恢复。
     const snapshots: UnreadInfoSnapshot[] = [];
     for (let index = 0; index < changes.length; index += 256)
-      snapshots.push(
-        ...(await this.session.unreadInfo.getUnreadInfos(changes.slice(index, index + 256))),
-      );
+      snapshots.push(...(await this.readSnapshots(changes.slice(index, index + 256))));
     if (
       this.disposed ||
       snapshots.length !== changes.length ||

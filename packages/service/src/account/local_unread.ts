@@ -216,13 +216,18 @@ export class LocalUnreadStore {
     // 安静对齐不是已读，不能清掉实时消息或明确提醒；仅作为序号差的下限。
     const baseline = BigInt(row.baselineSeq ?? '0');
     const floor = read > baseline ? read : baseline;
+    const outgoing = new Set(snapshot.outgoingSeqs ?? []);
+    const sequenceGap = (after: bigint) => {
+      const end = BigInt(latest);
+      if (!countSequenceGap || end <= after) return 0;
+      const sent = [...outgoing].filter((seq) => BigInt(seq) > after && BigInt(seq) <= end);
+      return Math.max(0, Number(end - after) - sent.length);
+    };
     const firstRead = first !== null && first > 0n ? first - 1n : null;
     const resolved = {
       ...snapshot,
       highlights: highlights?.length ? highlights : undefined,
-      unreadCount: countSequenceGap
-        ? Math.max(Number(BigInt(latest) > floor ? BigInt(latest) - floor : 0n), pending.size)
-        : pending.size,
+      unreadCount: countSequenceGap ? Math.max(sequenceGap(floor), pending.size) : pending.size,
       readSeq: known
         ? (firstRead !== null && firstRead < floor ? firstRead : floor).toString()
         : first !== null
@@ -239,12 +244,7 @@ export class LocalUnreadStore {
     const manualHighlights = [...(manual.highlights ?? []), ...(newHighlights ?? [])];
     return {
       ...resolved,
-      unreadCount:
-        manual.unreadCount +
-        Math.max(
-          countSequenceGap && BigInt(latest) > newFloor ? Number(BigInt(latest) - newFloor) : 0,
-          newer.size,
-        ),
+      unreadCount: manual.unreadCount + Math.max(sequenceGap(newFloor), newer.size),
       readSeq: manual.readSeq,
       highlights: manualHighlights.length ? manualHighlights : undefined,
     };

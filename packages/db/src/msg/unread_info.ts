@@ -8,7 +8,7 @@
 
 import type { DatabaseAlgorithms, NtHelperBinding } from '@weq/native';
 import { QqDb } from '../qq_db';
-import { ProtoMsg } from '@weq/codec';
+import { classifyChatType, ProtoMsg } from '@weq/codec';
 import {
   appendNode,
   buildEditTree,
@@ -92,6 +92,8 @@ export interface UnreadInfoTarget {
 
 export interface UnreadInfoSnapshot extends UnreadInfoResult {
   latestSeq: string | null;
+  /** 原始已读水位至 latestSeq 之间，已确认由自己发送的去重序号。 */
+  outgoingSeqs?: string[];
   readError?: true;
 }
 
@@ -154,19 +156,24 @@ export class UnreadInfoDb {
   }
 
   /** 每批在同一条 SQL 内读取最新序号与已读水位，避免逐会话 IPC 和交错快照。 */
-  async getUnreadInfos(targets: UnreadInfoTarget[]): Promise<UnreadInfoSnapshot[]> {
+  async getUnreadInfos(
+    targets: UnreadInfoTarget[],
+    self?: { selfUid: string; selfUin: string },
+  ): Promise<UnreadInfoSnapshot[]> {
     const unique = [...new Map(targets.map((t) => [`${t.chatType}_${t.uid}`, t])).values()];
     const result: UnreadInfoSnapshot[] = [];
-    for (let offset = 0; offset < unique.length; offset += 256) {
-      const batch = unique.slice(offset, offset + 256);
+    const batchSize = self ? 128 : 256;
+    for (let offset = 0; offset < unique.length; offset += batchSize) {
+      const batch = unique.slice(offset, offset + batchSize);
       const rows = await this.qq.query(
         `WITH targets(chatType, uid, peer) AS (VALUES ${batch.map(() => '(?, ?, ?)').join(',')})
-         SELECT t.chatType, t.uid, t.peer, u."48902", r."40003"
+         SELECT t.chatType, t.uid, t.peer, u."48902", r."40003"${self ? ', r."40027"' : ''}
          FROM targets t
          LEFT JOIN msg_unread_info_table u ON u."48901" = t.peer
          LEFT JOIN recent_contact_v3_table r ON r."40021" = t.uid AND r."40010" = t.chatType`,
         batch.flatMap((t) => [t.chatType, t.uid, `${t.chatType}_${t.uid}`]),
       );
+      const candidates: Array<{ snapshot: UnreadInfoSnapshot; partition: string | null }> = [];
       for (const row of rows) {
         const bytes = row[3];
         const identity = {
@@ -178,17 +185,67 @@ export class UnreadInfoDb {
         try {
           const decoded = bytes instanceof Uint8Array ? this.proto.decode(bytes) : {};
           const highlights = extractHighlights(decoded.info?.ext);
-          result.push({
+          const snapshot: UnreadInfoSnapshot = {
             ...identity,
             msgSeq: decoded.info?.msgSeq,
             highlights: highlights.length ? highlights : undefined,
-          });
+          };
+          result.push(snapshot);
+          if (
+            self &&
+            snapshot.msgSeq !== undefined &&
+            snapshot.latestSeq !== null &&
+            BigInt(snapshot.latestSeq) > BigInt(snapshot.msgSeq)
+          )
+            candidates.push({ snapshot, partition: row[5] == null ? null : String(row[5]) });
         } catch {
           result.push({ ...identity, readError: true });
         }
       }
+      if (self) await this.loadOutgoingSequences(candidates, self);
     }
     return result;
+  }
+
+  /** 只查未读区间的轻量列；优先走 (40027,40003) 索引，不读取正文或逐会话 IPC。 */
+  private async loadOutgoingSequences(
+    candidates: Array<{ snapshot: UnreadInfoSnapshot; partition: string | null }>,
+    self: { selfUid: string; selfUin: string },
+  ): Promise<void> {
+    for (const kind of ['group', 'direct', 'direct-fallback'] as const) {
+      const targets = candidates.filter(({ snapshot, partition }) =>
+        kind === 'group'
+          ? classifyChatType(snapshot.chatType) === 'group'
+          : classifyChatType(snapshot.chatType) === 'direct' &&
+            (kind === 'direct' ? partition !== null : partition === null),
+      );
+      if (!targets.length) continue;
+      const group = kind === 'group';
+      const table = group ? 'group_msg_table' : 'c2c_msg_table';
+      const column = kind === 'direct-fallback' ? '40021' : '40027';
+      const direction = group
+        ? `((? != '' AND m."40020" = ?) OR (CAST(? AS INTEGER) > 0 AND m."40033" = CAST(? AS INTEGER)))`
+        : `m."40020" != '' AND m."40020" != m."40021"`;
+      const rows = await this.qq.query(
+        `WITH targets(idx, partition, afterSeq, latestSeq) AS (VALUES ${targets.map(() => '(?, ?, ?, ?)').join(',')})
+         SELECT DISTINCT t.idx, m."40003" FROM targets t
+         JOIN ${table} m ON m."${column}" = t.partition
+           AND m."40003" > CAST(t.afterSeq AS INTEGER)
+           AND m."40003" <= CAST(t.latestSeq AS INTEGER)
+         WHERE ${direction} ORDER BY t.idx, m."40003"`,
+        [
+          ...targets.flatMap(({ snapshot, partition }, index) => [
+            index,
+            group || kind === 'direct-fallback' ? snapshot.uid : partition!,
+            String(snapshot.msgSeq),
+            snapshot.latestSeq!,
+          ]),
+          ...(group ? [self.selfUid, self.selfUid, self.selfUin, self.selfUin] : []),
+        ],
+      );
+      for (const { snapshot } of targets) snapshot.outgoingSeqs = [];
+      for (const row of rows) targets[Number(row[0])]!.snapshot.outgoingSeqs!.push(String(row[1]));
+    }
   }
 
   /**
