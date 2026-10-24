@@ -27,6 +27,13 @@ import {
 import { trpc } from '../trpc/client';
 import { dressUrl, resourceUrl } from '../lib/resourceUrl';
 import { useToolWindow } from '../hooks/useCompositionWindow';
+import {
+  CALL_WAVE_BAR_COUNT,
+  callLevel,
+  callWaveBar,
+  callWaveShape,
+  smoothLevel,
+} from '../lib/callWave';
 import { RenderDocumentContext } from '../lib/renderDocument';
 import { HoverTooltip } from './HoverTooltip';
 import { useToast } from './Toast';
@@ -79,9 +86,9 @@ const MIC_BUFFER_SAMPLES = 256;
  * 预先算好而不是在渲染里 `Math.sin`，一是避免每帧重算，二是给每根柱子一个
  * 稳定的 key（用下标当 key 会让 lint 报错，且柱子的顺序本身不会变）。
  */
-const WAVE_BARS = Array.from({ length: 24 }, (_, i) => ({
-  id: `bar-${i}`,
-  shape: Math.abs(Math.sin((i / 23) * Math.PI)),
+const WAVE_BARS = Array.from({ length: CALL_WAVE_BAR_COUNT }, (_, index) => ({
+  id: `bar-${index}`,
+  shape: callWaveShape(index),
 }));
 
 /** 状态 → 文案。接通后显示时长，其余显示阶段。 */
@@ -253,19 +260,16 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
         if (frame && !speakerRef.current) {
           const buffer = context.createBuffer(1, frame.length, CALL_RATE);
           const channel = buffer.getChannelData(0);
-          let peak = 0;
-          for (let i = 0; i < frame.length; i++) {
-            const v = (frame[i] ?? 0) / 0x8000;
-            channel[i] = v;
-            peak = Math.max(peak, Math.abs(v));
-          }
-          setPeerLevel((prev) => prev * 0.6 + Math.min(1, peak * 2.5) * 0.4);
+          for (let i = 0; i < frame.length; i++) channel[i] = (frame[i] ?? 0) / 0x8000;
+          // 与上行同一套响度：两边柱子对同样大小的声音应该一样高。
+          const next = callLevel(channel);
+          setPeerLevel((prev) => smoothLevel(prev, next));
           const source = context.createBufferSource();
           source.buffer = buffer;
           source.connect(context.destination);
           source.start();
         } else {
-          setPeerLevel((prev) => prev * 0.75);
+          setPeerLevel((prev) => smoothLevel(prev, 0));
         }
         schedule();
       }, 20);
@@ -296,6 +300,13 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
         micStream.current = stream;
         const context = new AudioContext({ sampleRate: CALL_RATE });
         micContext.current = context;
+        // 采集是在「接通」之后才开始的，那时早就没有瞬时用户激活了。Electron
+        // 默认允许自动播放，但上下文万一以 suspended 状态建出来，音频线程不跑、
+        // `onaudioprocess` 一次都不回调 —— 表现就是没有波形、也没有上行声音。
+        if (context.state === 'suspended') await context.resume().catch(() => {});
+        if (context.state !== 'running') {
+          console.warn('[call] 麦克风音频上下文未运行', context.state);
+        }
         const source = context.createMediaStreamSource(stream);
         // 直接按 16 kHz 跑上下文：浏览器会在采集侧重采样，省掉自己插值。
         //
@@ -307,9 +318,10 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
         processor.onaudioprocess = (event) => {
           const input = event.inputBuffer.getChannelData(0);
           if (!mutedRef.current) {
-            let peak = 0;
-            for (let i = 0; i < input.length; i++) peak = Math.max(peak, Math.abs(input[i] ?? 0));
-            setLevel((prev) => prev * 0.5 + Math.min(1, peak * 3) * 0.5);
+            // 响度走 RMS + dBFS：回声消除 / 降噪下峰值只有 0.1 上下，按峰值线性
+            // 放大时柱子几乎不动，观感就是「本端没有波形」。
+            const next = callLevel(input);
+            setLevel((prev) => smoothLevel(prev, next));
             // 追加到待切缓冲末尾。
             micPending.current = concatFloat(micPending.current, input);
           }
@@ -330,9 +342,9 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
         source.connect(processor);
         processor.connect(context.destination);
 
-        // 静音时响度归零
+        // 静音时响度归零（采集本身不停，只是不再累计响度与帧）
         interval = window.setInterval(() => {
-          if (mutedRef.current) setLevel((prev) => prev * 0.5);
+          if (mutedRef.current) setLevel((prev) => smoothLevel(prev, 0));
         }, 100);
       } catch (error) {
         console.error('[call] 麦克风不可用', error);
@@ -455,18 +467,14 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
               <span
                 key={`self-${id}`}
                 className="weq-call-wave-bar"
-                style={{
-                  ['--bar' as string]: String(0.18 + shape * (0.25 + level * 0.9)),
-                }}
+                style={{ ['--bar' as string]: String(callWaveBar(shape, level)) }}
               />
             ))}
-            {WAVE_BARS.map(({ id, shape }) => (
+            {WAVE_BARS.map(({ id, shape }, index) => (
               <span
                 key={`peer-${id}`}
-                className="weq-call-wave-bar is-peer"
-                style={{
-                  ['--bar' as string]: String(0.18 + shape * (0.25 + peerLevel * 0.9)),
-                }}
+                className={`weq-call-wave-bar is-peer${index === 0 ? ' is-peer-start' : ''}`}
+                style={{ ['--bar' as string]: String(callWaveBar(shape, peerLevel)) }}
               />
             ))}
           </div>

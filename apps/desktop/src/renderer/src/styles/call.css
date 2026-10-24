@@ -222,9 +222,15 @@ html[data-theme='dark'] .weq-call-card.has-backdrop .weq-call-details summary {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  /* 柱子按比例分宽而不是写死 4px + 3px：48 根挤在 340px 的最小窗宽里会溢出，
+     两侧的柱子被 flex 收缩压成亚像素宽，看起来就是「少了两根」。 */
+  gap: 2px;
   height: 44px;
   width: 100%;
+  max-width: 100%;
+  padding: 0 2px;
+  box-sizing: border-box;
+  overflow: hidden;
   opacity: 0;
   transition: opacity 240ms ease;
 }
@@ -234,7 +240,9 @@ html[data-theme='dark'] .weq-call-card.has-backdrop .weq-call-details summary {
 }
 
 .weq-call-wave-bar {
-  width: 4px;
+  flex: 1 1 0;
+  min-width: 2px;
+  max-width: 4px;
   min-height: 4px;
   height: calc(var(--bar, 0.2) * 40px);
   border-radius: 999px;
@@ -246,8 +254,9 @@ html[data-theme='dark'] .weq-call-card.has-backdrop .weq-call-details summary {
   background: color-mix(in srgb, var(--weq-accent-effective) 85%, transparent);
 }
 
-/* 两半之间空出一道缝：区分「我方」与「对方」。 */
-.weq-call-wave-bar:nth-child(17) {
+/* 两半之间空出一道缝：区分「我方」与「对方」。
+   不能按 nth-child 数：柱子数量变了就对不上，由渲染侧给第一根对端柱子打标记。 */
+.weq-call-wave-bar.is-peer-start {
   margin-left: 10px;
 }
 
