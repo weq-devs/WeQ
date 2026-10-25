@@ -137,7 +137,7 @@ export function WorkspaceContent({ children }: { children: ReactNode }) {
         <div className="weq-workspace-primary">
           <div className="weq-workspace-page-host" ref={context?.setHost} hidden={!mainOpen} />
           <div id="workspace-base-page" className="weq-workspace-base" hidden={mainOpen}>
-            {children}
+            <TabActivity active={!mainOpen}>{children}</TabActivity>
           </div>
         </div>
         <aside

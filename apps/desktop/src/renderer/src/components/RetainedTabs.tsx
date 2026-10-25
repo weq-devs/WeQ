@@ -28,9 +28,11 @@ function RetainedPanel({
   children: ReactNode;
   scrollable: boolean;
 }) {
+  const parentActive = useTabActive();
+  const effectiveActive = parentActive && active;
   const scrolls = useRef(new Map<HTMLElement, { top: number; left: number }>());
   useLayoutEffect(() => {
-    if (!active) return;
+    if (!effectiveActive) return;
     for (const [element, position] of scrolls.current) {
       if (!element.isConnected) {
         scrolls.current.delete(element);
@@ -41,9 +43,9 @@ function RetainedPanel({
       element.scrollTop = position.top;
       element.scrollLeft = position.left;
     }
-  }, [active]);
+  }, [effectiveActive]);
   return (
-    <TabActivityContext.Provider value={active}>
+    <TabActivity active={active}>
       <div
         data-retained-panel=""
         hidden={!active}
@@ -59,7 +61,7 @@ function RetainedPanel({
           overflowX: scrollable ? 'hidden' : undefined,
         }}
         onScrollCapture={(event) => {
-          if (active && event.target instanceof HTMLElement)
+          if (effectiveActive && event.target instanceof HTMLElement)
             scrolls.current.set(event.target, {
               top: event.target.scrollTop,
               left: event.target.scrollLeft,
@@ -68,7 +70,7 @@ function RetainedPanel({
       >
         {children}
       </div>
-    </TabActivityContext.Provider>
+    </TabActivity>
   );
 }
 

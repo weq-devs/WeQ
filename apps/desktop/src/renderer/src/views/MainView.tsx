@@ -95,6 +95,7 @@ import { mergeRecentContactPages } from '../lib/recentContacts';
 import { useContentSelectionScope } from '../state/contentSelection';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { ConversationWindowCache, conversationWindowKey } from '../lib/conversationWindowCache';
+import { isConversationPagingVisible, observeConversationPaging } from '../lib/conversationPaging';
 import { loadConversationEntry } from '../lib/conversationEntry';
 import { mergeRefreshedWindow } from '../lib/conversationRefresh';
 import {
@@ -7176,6 +7177,7 @@ export function MainView(): ReactElement {
   const requestOlderMessages = useCallback(
     (scroll: HTMLElement): void => {
       if (
+        !isConversationPagingVisible(scroll) ||
         !selectedConversation ||
         !hasOlder ||
         loadingOlderRef.current ||
@@ -7201,6 +7203,7 @@ export function MainView(): ReactElement {
         .then((older) => {
           if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
           loadingOlderRef.current = false;
+          if (!isConversationPagingVisible(scroll)) return;
           if (windowRef.current.minSeq !== minSeq) {
             return;
           }
@@ -7244,92 +7247,70 @@ export function MainView(): ReactElement {
   // messages just newer than the window's tail. Appending below the viewport
   // doesn't move it, so no scroll-restore is needed. When the tail reaches the
   // latest, re-anchor so live messages flow in again.
-  const requestNewerMessages = useCallback((): void => {
-    if (
-      !selectedConversation ||
-      !hasNewer ||
-      loadingNewerRef.current ||
-      loadingOlderRef.current ||
-      pendingScrollRestoreRef.current ||
-      entryLoadingRef.current
-    )
-      return;
-    const maxSeq = loaded[loaded.length - 1]?.msgSeq;
-    if (!maxSeq) return;
+  const requestNewerMessages = useCallback(
+    (scroll: HTMLElement): void => {
+      if (
+        !isConversationPagingVisible(scroll) ||
+        !selectedConversation ||
+        !hasNewer ||
+        loadingNewerRef.current ||
+        loadingOlderRef.current ||
+        pendingScrollRestoreRef.current ||
+        entryLoadingRef.current
+      )
+        return;
+      const maxSeq = loaded[loaded.length - 1]?.msgSeq;
+      if (!maxSeq) return;
 
-    const kind = selectedConversation.type === 'group' ? 'group' : 'c2c';
-    const conv = selectedConversation.id;
-    const scope = messageScopeRef.current,
-      binding = messageBindingRef.current,
-      selection = selectionRef.current;
-    if (!scope || !binding || selection?.id !== conv) return;
-    loadingNewerRef.current = true;
-    setLoadingNewerMessages(true);
+      const kind = selectedConversation.type === 'group' ? 'group' : 'c2c';
+      const conv = selectedConversation.id;
+      const scope = messageScopeRef.current,
+        binding = messageBindingRef.current,
+        selection = selectionRef.current;
+      if (!scope || !binding || selection?.id !== conv) return;
+      loadingNewerRef.current = true;
+      setLoadingNewerMessages(true);
 
-    client.account.listAfter
-      .query({ ...binding, kind, conv, afterSeq: maxSeq, limit: PAGE_SIZE })
-      .then((newer) => {
-        if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
-        loadingNewerRef.current = false;
-        setLoadingNewerMessages(false);
-        if (loadedRef.current.at(-1)?.msgSeq !== maxSeq) return;
-        if (selectionRef.current?.id !== conv) return;
-        const known = new Set(loaded.map(timelineRowKey));
-        const fresh = newer.map(toMessageWire).filter((m) => !known.has(timelineRowKey(m))); // ASC, newer
-        if (fresh.length > 0) {
-          setLoaded((cur) => {
-            const seen = new Set(cur.map(timelineRowKey));
-            const merged = fresh.filter((m) => !seen.has(timelineRowKey(m)));
-            return merged.length ? [...cur, ...merged] : cur;
-          });
-        }
-        if (newer.length < PAGE_SIZE) {
-          // Reached the tail — fold this window back into the live "latest" view.
-          setHasNewer(false);
-          setAnchoredToLatest(true);
-        }
-      })
-      .catch((err) => {
-        if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
-        loadingNewerRef.current = false;
-        setLoadingNewerMessages(false);
-        console.error('[msgs] listAfter failed', err);
-      });
-  }, [selectedConversation, hasNewer, loaded]);
+      client.account.listAfter
+        .query({ ...binding, kind, conv, afterSeq: maxSeq, limit: PAGE_SIZE })
+        .then((newer) => {
+          if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
+          loadingNewerRef.current = false;
+          setLoadingNewerMessages(false);
+          if (!isConversationPagingVisible(scroll)) return;
+          if (loadedRef.current.at(-1)?.msgSeq !== maxSeq) return;
+          if (selectionRef.current?.id !== conv) return;
+          const known = new Set(loaded.map(timelineRowKey));
+          const fresh = newer.map(toMessageWire).filter((m) => !known.has(timelineRowKey(m))); // ASC, newer
+          if (fresh.length > 0) {
+            setLoaded((cur) => {
+              const seen = new Set(cur.map(timelineRowKey));
+              const merged = fresh.filter((m) => !seen.has(timelineRowKey(m)));
+              return merged.length ? [...cur, ...merged] : cur;
+            });
+          }
+          if (newer.length < PAGE_SIZE) {
+            // Reached the tail — fold this window back into the live "latest" view.
+            setHasNewer(false);
+            setAnchoredToLatest(true);
+          }
+        })
+        .catch((err) => {
+          if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
+          loadingNewerRef.current = false;
+          setLoadingNewerMessages(false);
+          console.error('[msgs] listAfter failed', err);
+        });
+    },
+    [selectedConversation, hasNewer, loaded],
+  );
 
   useEffect(() => {
     if (!messagesTabActive || !selectedConversation) return undefined;
 
     const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
     if (!scroll) return undefined;
-    const scrollElement = scroll;
-
-    function maybeLoadEdge(): void {
-      // Preload the previous page well before the user hits the very top — fire
-      // once the scroll position is within the last 1/5 of a viewport from each
-      // edge so new content streams in seamlessly instead of stalling at 0.
-      const threshold = Math.max(32, scrollElement.clientHeight / 5);
-      if (
-        scrollElement.scrollTop <= threshold ||
-        scrollElement.scrollHeight <= scrollElement.clientHeight + 32
-      ) {
-        requestOlderMessages(scrollElement);
-      }
-      if (
-        scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight <=
-        threshold
-      ) {
-        requestNewerMessages();
-      }
-    }
-
-    scrollElement.addEventListener('scroll', maybeLoadEdge, { passive: true });
-    const frame = window.requestAnimationFrame(maybeLoadEdge);
-
-    return () => {
-      scrollElement.removeEventListener('scroll', maybeLoadEdge);
-      window.cancelAnimationFrame(frame);
-    };
+    return observeConversationPaging(scroll, requestOlderMessages, requestNewerMessages);
   }, [
     messagesTabActive,
     requestOlderMessages,
@@ -7352,7 +7333,7 @@ export function MainView(): ReactElement {
     const frame = window.requestAnimationFrame(() => {
       if (pendingScrollRestoreRef.current !== restore) return;
       // 用户在首帧后继续滚动时，不用旧快照把他拉回。
-      if (Math.abs(scroll.scrollTop - appliedTop) <= 1)
+      if (isConversationPagingVisible(scroll) && Math.abs(scroll.scrollTop - appliedTop) <= 1)
         restoreReadingPosition(scroll, restore.position);
       pendingScrollRestoreRef.current = null;
     });
