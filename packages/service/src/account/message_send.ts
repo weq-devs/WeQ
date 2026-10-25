@@ -498,7 +498,25 @@ export class MessageSendService {
      */
     private readonly currentChatFontId?: () => number | undefined,
     private readonly sendWithQqFont: () => boolean = () => true,
+    private readonly currentChatBubbleId?: () => number | undefined,
   ) {}
+
+  /** 回读前按账号配置预览气泡，不把预览 ID 写入发送请求。 */
+  async prepareChatDecoration(
+    params: Pick<SendElementsParams, 'peerType' | 'targetId' | 'tempGroupCode'> & {
+      hasText: boolean;
+    },
+  ) {
+    const pid = this.resolvePid();
+    const font = params.hasText ? await this.prepareChatFont(params) : null;
+    if (this.resolvePid() !== pid) throw new Error('QQ 会话已变化，请重新发送。');
+    return { bubbleId: this.readCurrentBubbleId(), font };
+  }
+
+  private readCurrentBubbleId(): number {
+    const id = this.currentChatBubbleId?.();
+    return id !== undefined && Number.isSafeInteger(id) && id > 0 && id <= 0xffff_ffff ? id : 0;
+  }
 
   /** 只读准备阶段，供发送中的气泡与实际请求共用同一份字体原值。 */
   async prepareChatFont(
@@ -954,6 +972,7 @@ export class MessageSendService {
         }
       : this.resolveTarget(params.targetId, params.peerType, needUpload);
     const pid = this.resolvePid();
+    const previewBubbleId = this.readCurrentBubbleId();
     // 商城表情：把空 encryptKey 用包密钥补上（同包只查一次）。
     const elements = await this.fillMarketFaceKeys(params.elements);
 
@@ -1071,12 +1090,16 @@ export class MessageSendService {
         if (message.elements.length < elements.length) return outcome;
         await this.retainSent({
           ...message,
-          ...(currentFontId !== undefined && fontRaw !== undefined
+          ...(previewBubbleId || (currentFontId !== undefined && fontRaw !== undefined)
             ? {
                 decoration: {
-                  bubbleId: message.decoration?.bubbleId ?? 0,
+                  ...message.decoration,
+                  bubbleId: previewBubbleId || (message.decoration?.bubbleId ?? 0),
                   widgetId: message.decoration?.widgetId ?? 0,
-                  fontId: currentFontId,
+                  fontId:
+                    currentFontId !== undefined && fontRaw !== undefined
+                      ? currentFontId
+                      : (message.decoration?.fontId ?? 0),
                 },
               }
             : {}),

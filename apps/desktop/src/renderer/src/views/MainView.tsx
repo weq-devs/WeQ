@@ -72,6 +72,7 @@ import {
 } from '../lib/localOutgoing';
 import { useFailedOutgoingRemoval } from '../hooks/useFailedOutgoingRemoval';
 import { OutgoingQueue } from '../lib/outgoingQueue';
+import { prepareOutgoingDecoration } from '../lib/prepareOutgoingDecoration';
 import { useDismissUnsentOutgoing } from '../hooks/useDismissUnsentOutgoing';
 import { useOutgoingConversationPreviews } from '../hooks/useOutgoingConversationPreviews';
 import { applyOutgoingConversationPreview } from '../lib/outgoingConversationPreview';
@@ -2929,6 +2930,15 @@ export function MainView(): ReactElement {
   const [optimisticArks, setOptimisticArks] = useState<OptimisticArk[]>([]);
   // 同上，但发出去的是普通消息（文本 / @ / 表情 / 图片 / 视频 / 语音 / 文件…）。
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
+  const preparedOutgoingDecorations = useRef(
+    new Map<
+      string,
+      {
+        snapshot: { bubbleId: number; font: { fontId: number; fontId2Raw: number } | null };
+        release(): void;
+      }
+    >(),
+  );
   const outgoingConversationPreviews = useOutgoingConversationPreviews(
     messageScope,
     [optimisticMessages, optimisticArks, optimisticForwards],
@@ -2936,10 +2946,20 @@ export function MainView(): ReactElement {
   );
   const outgoingQueue = useRef(new OutgoingQueue());
   useEffect(() => {
-    return () => outgoingQueue.current.clear();
+    return () => {
+      outgoingQueue.current.clear();
+      for (const preparation of preparedOutgoingDecorations.current.values()) preparation.release();
+      preparedOutgoingDecorations.current.clear();
+    };
   }, [messageScope]);
   useEffect(() => {
     outgoingQueue.current.retain(new Set(optimisticMessages.map((item) => item.id)));
+    const retained = new Set(optimisticMessages.map((item) => item.id));
+    for (const [id, preparation] of preparedOutgoingDecorations.current) {
+      if (retained.has(id)) continue;
+      preparation.release();
+      preparedOutgoingDecorations.current.delete(id);
+    }
   }, [optimisticMessages]);
   /**
    * 当前通话的初始快照。非 null 就渲染通话窗口，窗口自己订阅后续状态并在
@@ -8035,6 +8055,20 @@ export function MainView(): ReactElement {
     } catch {
       // 原稿仍交给发送计划校验，失败时保留编辑和重试入口。
     }
+    const target = sendTargetOf(conversation);
+    const isCurrent = () =>
+      useViewState.getState().openedUin === account && messageScopeRef.current === scope;
+    const preparation = target
+      ? await prepareOutgoingChatDecoration(
+          target,
+          render.elements.some((element) => {
+            const type = (element as { type?: string }).type;
+            return type === 'text' || type === 'at';
+          }),
+          isCurrent,
+        )
+      : undefined;
+    if (preparation) preparedOutgoingDecorations.current.set(submission.id, preparation);
     setOptimisticMessages((current) => [
       ...current,
       {
@@ -8043,26 +8077,31 @@ export function MainView(): ReactElement {
         afterSeq: submission.afterSeq,
         ...render,
         composerDraft: submission.draft,
+        ...(preparation
+          ? {
+              decoration: {
+                bubbleId: preparation.snapshot.bubbleId,
+                fontId: preparation.snapshot.font?.fontId ?? 0,
+                widgetId: 0,
+              },
+            }
+          : {}),
         state: 'queued',
         at: submission.at ?? Date.now(),
       },
     ]);
     outgoingQueue.current.add(submission.id, conversation.id, async () => {
+      if (submission.started) {
+        preparedOutgoingDecorations.current.get(submission.id)?.release();
+        preparedOutgoingDecorations.current.delete(submission.id);
+      }
       setOptimisticMessages((current) =>
         current.map((item) =>
           item.id === submission.id ? { ...item, state: 'sending', error: undefined } : item,
         ),
       );
       try {
-        await sendMessage(
-          body,
-          locals,
-          undefined,
-          conversation,
-          () => useViewState.getState().openedUin === account && messageScopeRef.current === scope,
-          undefined,
-          submission,
-        );
+        await sendMessage(body, locals, undefined, conversation, isCurrent, undefined, submission);
       } catch (error) {
         setOptimisticMessages((current) =>
           current.map((item) =>
@@ -8078,6 +8117,35 @@ export function MainView(): ReactElement {
         throw error;
       }
     });
+  }
+
+  async function prepareOutgoingChatDecoration(
+    target: { peerType: 'c2c' | 'group'; targetId: string; tempGroupCode?: string },
+    hasText: boolean,
+    isCurrent: () => boolean,
+    expectedAccountConfigId?: string,
+  ) {
+    if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
+    const snapshot = await client.account.prepareChatDecoration.query({
+      ...target,
+      hasText,
+      expectedAccountUin: user.identityValue,
+      ...(expectedAccountConfigId ? { expectedAccountConfigId } : {}),
+    });
+    if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
+    const release = await prepareOutgoingDecoration(
+      {
+        bubbleId: displaySettings.data?.showMessageBubble === false ? 0 : snapshot.bubbleId,
+        fontId: displaySettings.data?.showMessageFont === false ? 0 : (snapshot.font?.fontId ?? 0),
+        widgetId: 0,
+      },
+      (ids) => utils.account.dressup.resolveMsgDecoration.fetch(ids, { staleTime: Infinity }),
+    );
+    if (!isCurrent()) {
+      release();
+      throw new Error('账号或会话已切换，未发送');
+    }
+    return { snapshot, release };
   }
 
   async function sendMessage(
@@ -8148,6 +8216,20 @@ export function MainView(): ReactElement {
     const fileExistingMsgIds =
       plan.kind === 'file' ? loadedRef.current.map((message) => message.msgId) : [];
     const optimisticId = submission?.id ?? `optimistic-${mfId('msg')}`;
+    let preparation = preparedOutgoingDecorations.current.get(optimisticId);
+    if (optimistic && !preparation) {
+      preparation = await prepareOutgoingChatDecoration(
+        target,
+        plan.kind === 'elements' &&
+          plan.elements.some((element) => {
+            const kind = (element as { kind?: string }).kind;
+            return kind === 'text' || kind === 'at';
+          }),
+        isCurrent,
+        expectedAccountConfigId,
+      );
+      preparedOutgoingDecorations.current.set(optimisticId, preparation);
+    }
     if (optimistic) {
       const render = repeated
         ? { body, elements: repeated.elements }
@@ -8196,22 +8278,12 @@ export function MainView(): ReactElement {
     try {
       if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
       // 预览和请求固定使用同一份快照；读回后整条消息由真实记录替换。
-      const preparedChatFont =
-        plan.kind === 'elements' &&
-        plan.elements.some((element) => {
-          const kind = (element as { kind?: string }).kind;
-          return kind === 'text' || kind === 'at';
-        })
-          ? await client.account.prepareChatFont.query({
-              ...target,
-              expectedAccountUin: user.identityValue,
-              ...(expectedAccountConfigId ? { expectedAccountConfigId } : {}),
-            })
-          : null;
+      const preparedDecoration = preparation?.snapshot ?? { bubbleId: 0, font: null };
+      const preparedChatFont = preparedDecoration.font;
       if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
       patchOptimistic({
         decoration: {
-          bubbleId: 0,
+          bubbleId: preparedDecoration.bubbleId,
           widgetId: 0,
           fontId: preparedChatFont?.fontId ?? 0,
         },

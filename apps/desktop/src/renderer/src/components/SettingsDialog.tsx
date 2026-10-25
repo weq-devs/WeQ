@@ -644,7 +644,8 @@ function AppearanceSection({
   const setRenderTextMarkdown = trpc.bootstrap.setRenderTextMarkdown.useMutation();
   const setShowAvatarPendant = trpc.bootstrap.setShowAvatarPendant.useMutation();
   const setLinkPreview = trpc.bootstrap.setLinkPreview.useMutation();
-  const setShowMsgDecoration = trpc.bootstrap.setShowMsgDecoration.useMutation();
+  const setShowMessageBubble = trpc.bootstrap.setShowMessageBubble.useMutation();
+  const setShowMessageFont = trpc.bootstrap.setShowMessageFont.useMutation();
   const setShowMessageSeq = trpc.bootstrap.setShowMessageSeq.useMutation();
   const setShowMessageTime = trpc.bootstrap.setShowMessageTime.useMutation();
   const setShowMessageUnreadBadge = trpc.bootstrap.setShowMessageUnreadBadge.useMutation();
@@ -658,8 +659,6 @@ function AppearanceSection({
   const [readingError, setReadingError] = useState<string | null>(null);
   const [seqError, setSeqError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(true);
-  const [pendant, setPendant] = useState(true);
-  const [msgDecoration, setMsgDecoration] = useState(true);
   const [linkCard, setLinkCard] = useState(true);
   const [linkShot, setLinkShot] = useState(false);
 
@@ -667,16 +666,6 @@ function AppearanceSection({
     const enabled = settings.data?.renderTextMarkdown;
     if (typeof enabled === 'boolean') setTextMarkdown(enabled);
   }, [settings.data?.renderTextMarkdown]);
-
-  useEffect(() => {
-    const enabled = settings.data?.showAvatarPendant;
-    if (typeof enabled === 'boolean') setPendant(enabled);
-  }, [settings.data?.showAvatarPendant]);
-
-  useEffect(() => {
-    const enabled = settings.data?.showMsgDecoration;
-    if (typeof enabled === 'boolean') setMsgDecoration(enabled);
-  }, [settings.data?.showMsgDecoration]);
 
   useEffect(() => {
     const cfg = settings.data?.linkPreview;
@@ -692,28 +681,6 @@ function AppearanceSection({
       await setRenderTextMarkdown.mutateAsync({ enabled: next });
     } catch {
       setTextMarkdown(prev);
-    }
-    await settings.refetch();
-  }
-
-  async function onSetPendant(next: boolean): Promise<void> {
-    const prev = pendant;
-    setPendant(next);
-    try {
-      await setShowAvatarPendant.mutateAsync({ enabled: next });
-    } catch {
-      setPendant(prev);
-    }
-    await settings.refetch();
-  }
-
-  async function onSetMsgDecoration(next: boolean): Promise<void> {
-    const prev = msgDecoration;
-    setMsgDecoration(next);
-    try {
-      await setShowMsgDecoration.mutateAsync({ enabled: next });
-    } catch {
-      setMsgDecoration(prev);
     }
     await settings.refetch();
   }
@@ -920,42 +887,54 @@ function AppearanceSection({
                 />
               }
             />
-            <Row
-              settingId="avatar-pendant"
-              label="聊天头像挂件"
-              desc={
-                <>
-                  把 QQ 里正在用的挂件叠在聊天页头像的外圈。只作用于自己的头像——别人的挂件
-                  要逐个联网查，想看请在资料卡里打开「个性主页」。
-                </>
-              }
-              control={
-                <Toggle
-                  checked={pendant}
-                  disabled={settings.isLoading || setShowAvatarPendant.isLoading}
-                  onChange={(next) => void onSetPendant(next)}
-                  label="聊天头像挂件"
-                />
-              }
-            />
-            <Row
-              settingId="message-decoration"
-              label="消息装扮（气泡/字体/挂件）"
-              desc={
-                <>
-                  渲染每条消息里的气泡皮肤、聊天字体与挂件（来自消息 DB 列 40801）。关掉后
-                  统一使用全局装扮设置，不做逐条渲染。
-                </>
-              }
-              control={
-                <Toggle
-                  checked={msgDecoration}
-                  disabled={settings.isLoading || setShowMsgDecoration.isLoading}
-                  onChange={(next) => void onSetMsgDecoration(next)}
-                  label="消息装扮"
-                />
-              }
-            />
+            {[
+              {
+                key: 'showAvatarPendant' as const,
+                settingId: 'avatar-pendant',
+                label: '聊天头像挂件',
+                mutation: setShowAvatarPendant,
+              },
+              {
+                key: 'showMessageBubble' as const,
+                settingId: 'message-bubble',
+                label: '消息气泡',
+                mutation: setShowMessageBubble,
+              },
+              {
+                key: 'showMessageFont' as const,
+                settingId: 'message-font',
+                label: '消息字体',
+                mutation: setShowMessageFont,
+              },
+            ].map(({ key, settingId, label, mutation }) => (
+              <Row
+                key={key}
+                settingId={settingId}
+                label={label}
+                control={
+                  <Toggle
+                    checked={
+                      settings.data?.[key] ??
+                      (key === 'showAvatarPendant'
+                        ? true
+                        : (settings.data?.showMsgDecoration ?? true))
+                    }
+                    disabled={!settings.data || mutation.isLoading}
+                    onChange={(enabled) => {
+                      setSeqError(null);
+                      mutation.mutate(
+                        { enabled },
+                        {
+                          onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
+                          onError: (error) => setSeqError(error.message),
+                        },
+                      );
+                    }}
+                    label={label}
+                  />
+                }
+              />
+            ))}
             <Row
               settingId="text-markdown"
               label="纯文本消息渲染 Markdown"

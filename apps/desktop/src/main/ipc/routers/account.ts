@@ -5156,6 +5156,32 @@ export const accountRouter = router({
       return font;
     }),
 
+  /** 回读前的装扮快照；字体与发送请求共用原值，气泡先使用账号配置。 */
+  prepareChatDecoration: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        tempGroupCode: z.string().min(1).optional(),
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1).optional(),
+        hasText: z.boolean(),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      const decoration = await services.messageSend.prepareChatDecoration(input);
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号数据源已切换，已停止发送');
+      return decoration;
+    }),
+
   sendElements: procedure
     .input(
       z.object({

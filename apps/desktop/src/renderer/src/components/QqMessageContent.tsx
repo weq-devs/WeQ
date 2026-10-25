@@ -142,10 +142,14 @@ export const TextMarkdownContext = createContext<boolean>(true);
 export const LinkPreviewContext = createContext<boolean>(true);
 
 /**
- * 「渲染消息里的每条装扮（气泡/字体/挂件）」开关（AppSettings.showMsgDecoration）。
+ * 消息气泡、字体与头像挂件的独立显示偏好。
  * 同上，走 context 是为了避免每条消息各自订阅 getSettings。默认 true。
  */
-export const MsgDecorationEnabledContext = createContext<boolean>(true);
+export const MsgDecorationEnabledContext = createContext({
+  bubble: true,
+  font: true,
+  widget: true,
+});
 
 /** Element kinds that render as standalone, borderless media (no bubble). */
 const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface', 'bubbleVideo']);

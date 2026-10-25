@@ -426,7 +426,7 @@ export type OptimisticRender = { elements: unknown[]; body: string };
 /** 开发时渲染层可能先热更新，新增主进程接口尚未加载；不降级成错误字体发送。 */
 export function composerSendError(error: unknown): string {
   const reason = error instanceof Error ? error.message : String(error);
-  return reason.includes('No "query"-procedure on path "account.prepareChatFont"')
+  return /No "query"-procedure on path "account\.prepareChat(?:Font|Decoration)"/.test(reason)
     ? '主进程尚未加载新的字体发送接口，请重启 WeQ 开发进程后重试；本条消息尚未发送。'
     : reason;
 }

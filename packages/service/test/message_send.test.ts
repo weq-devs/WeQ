@@ -454,6 +454,59 @@ describe('toOutcome', () => {
 
 describe('MessageSendService.sendText（离线集成）', () => {
   it.each(['c2c', 'group'] as const)(
+    '%s 回读前采用账号气泡，不把本地预览气泡写进请求',
+    async (peerType) => {
+      const native = fakeNative();
+      const saved: import('../src/account/gap_history').GapFetchedMessage[] = [];
+      const svc = new MessageSendService(
+        native as never,
+        fakeSession(),
+        () => 1,
+        undefined,
+        async (row) => {
+          saved.push(row);
+        },
+        () => 31001,
+        () => true,
+        () => 2116371,
+      );
+      const target = { peerType, targetId: peerType === 'group' ? '12345' : 'u_friend' };
+      const preview = await svc.prepareChatDecoration({ ...target, hasText: true });
+      expect(preview).toEqual({ bubbleId: 2116371, font: { fontId: 31001, fontId2Raw: 72057 } });
+      await svc.sendElements({
+        ...target,
+        elements: [{ kind: 'text', textContent: '账号气泡' }],
+        preparedChatFont: preview.font,
+      });
+      expect(elemsOf(native.calls[0]!.body).some((elem) => 'bubble' in elem)).toBe(false);
+      expect(saved[0]).toMatchObject({
+        localSent: true,
+        decoration: { bubbleId: 2116371, fontId: 31001 },
+      });
+      expect(await svc.prepareChatDecoration({ ...target, hasText: false })).toEqual({
+        bubbleId: 2116371,
+        font: null,
+      });
+    },
+  );
+
+  it('关闭字体发送或没有可靠字体原值时，气泡预览仍独立生效', async () => {
+    const svc = new MessageSendService(
+      fakeNative() as never,
+      fakeSession({ fontSamples: [] }),
+      () => 1,
+      undefined,
+      undefined,
+      () => 31001,
+      () => false,
+      () => 2116371,
+    );
+    expect(
+      await svc.prepareChatDecoration({ peerType: 'c2c', targetId: 'u_friend', hasText: true }),
+    ).toEqual({ bubbleId: 2116371, font: null });
+  });
+
+  it.each(['c2c', 'group'] as const)(
     '%s 关闭后不查字体、不带任何字体字段，保留其他装扮',
     async (peerType) => {
       const native = fakeNative();

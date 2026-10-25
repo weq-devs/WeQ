@@ -143,6 +143,9 @@ it.each([
   ['发送消息后定位到最新消息', 'jumpToLatestAfterSend', true],
   ['使用 QQ 账号设置的个性字体发送消息', 'sendWithQqFont', true],
   ['群助手显示总消息数', 'showGroupAssistantMessageCount', false],
+  ['消息气泡', 'showMessageBubble', true],
+  ['消息字体', 'showMessageFont', true],
+  ['聊天头像挂件', 'showAvatarPendant', true],
 ] as const)('%s 默认值正确，点击保存、重开恢复、失败不改变原值', (label, key, defaultValue) => {
   let f = mount();
   const toggle = () =>

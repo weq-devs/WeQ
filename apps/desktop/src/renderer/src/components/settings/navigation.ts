@@ -227,7 +227,14 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
       ['message-seq', '显示消息序号（seq）'],
       ['message-time', '显示发送时间（精确到秒）'],
       ['avatar-pendant', '聊天头像挂件'],
-      ['message-decoration', '消息装扮（气泡/字体/挂件）', '消息装扮'],
+      [
+        'message-bubble',
+        '消息气泡',
+        '消息装扮（气泡/字体/挂件）',
+        '消息装扮',
+        'message-decoration',
+      ],
+      ['message-font', '消息字体', '聊天字体'],
       ['text-markdown', '纯文本消息渲染 Markdown'],
       ['link-preview', '链接预览卡片'],
       ['link-screenshot', '无封面时网页截图'],
@@ -415,8 +422,9 @@ const SECTION_REDIRECTS: Partial<
 
 /** 页面和条目共用一个解析器；解析只定位，不打开工具或执行操作。 */
 export function resolveSettingsTarget(target: SettingsTarget): ResolvedSettingsTarget {
-  const redirect = target.settingId
-    ? ITEM_REDIRECTS.find((entry) => entry.id === target.settingId)
+  const targetId = target.settingId === 'message-decoration' ? 'message-bubble' : target.settingId;
+  const redirect = targetId
+    ? ITEM_REDIRECTS.find((entry) => entry.id === targetId)
     : ITEM_REDIRECTS.find(
         (entry) =>
           entry.from.includes(target.section) &&

@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { Bot, Check, LoaderCircle, RotateCcw, Sparkle, TriangleAlert, X } from 'lucide-react';
 import { renderMessageWithRegistry, type MessageRenderer } from './messageRenderers';
@@ -8,10 +8,11 @@ import type { Conversation, Message, MessageAction, User } from './types';
 import { cn } from './classNames';
 import { SetEmojiReactions, type ReactionInteraction } from '../../components/SetEmojiReactions';
 import { MessageIntentSense } from '../../components/intentSense/MessageIntentSense';
-import { useSelfPendant } from '../../hooks/useSelfPendant';
+import { useSelfBubble, useSelfPendant } from '../../hooks/useSelfPendant';
 import { useActiveFontFx, useActiveWidget } from '../../hooks/useActiveWidget';
 import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
+import { MsgDecorationEnabledContext } from '../../components/QqMessageContent';
 import { MessageProvenance } from '../../components/MessageProvenance';
 import '../../styles/message-deletion.css';
 import { useToast } from '../../components/Toast';
@@ -172,17 +173,28 @@ export function MessageBubble({
   const [reeditArmed, setReeditArmed] = useState(false);
   const [reeditBusy, setReeditBusy] = useState(false);
   const reeditPending = useRef(false);
-  // 自己头像的挂件（设置 → 个性显示可关）。他人的挂件要逐个走 SSR 页面查，
-  // 一条消息一次网络往返不现实，故只叠自己的。
+  const decorationEnabled = useContext(MsgDecorationEnabledContext);
+  // 自己账号的静态挂件，仅在消息与本地装扮都没有挂件时回退。
   const pendantUrl = useSelfPendant();
-  // 本地生效字体按作用范围覆盖消息字体；挂件仍按原优先级回退。
-  const { widget: activeWidget, scope: activeScope, fontActive } = useActiveWidget();
+  const selfBubbleId = useSelfBubble();
+  const decoration =
+    message.decoration ??
+    (mine && message.optimistic ? { bubbleId: selfBubbleId, fontId: 0, widgetId: 0 } : undefined);
+  // 本地生效装扮按作用范围覆盖消息记录，未覆盖的种类仍使用记录里的装扮。
+  const { widget: activeWidget, scope: activeScope, fontActive, bubbleActive } = useActiveWidget();
   const activeFontFx = useActiveFontFx();
   const localFontOverride = fontActive && (mine || activeScope === 'all');
+  const localBubbleOverride = bubbleActive && (mine || activeScope === 'all');
+  const localWidget = activeWidget && (mine || activeScope === 'all') ? activeWidget : null;
   const msgDec = useMsgDecoration(
-    localFontOverride && message.decoration
-      ? { ...message.decoration, fontId: 0 }
-      : message.decoration,
+    decoration
+      ? {
+          ...decoration,
+          fontId: localFontOverride ? 0 : decoration.fontId,
+          bubbleId: localBubbleOverride ? 0 : decoration.bubbleId,
+          widgetId: localWidget ? 0 : decoration.widgetId,
+        }
+      : decoration,
     bubbleRef,
   );
   const msgWidget = msgDec.widget;
@@ -194,10 +206,7 @@ export function MessageBubble({
     : (msgDec.fontFx ?? (mine || activeScope === 'all' ? activeFontFx : null));
   // 量完气泡尺寸才知道放不放、放哪一段（见 useBubbleFontFx）。
   const fontFxAttr = useBubbleFontFx(lineFontFx, bubbleRef);
-  // 渲染优先级:per-message 装饰（发送者自己的 QQ 挂件）> 生效挂件 > 自己的静态挂件。
-  // 生效挂件的作用范围:mine → 只叠自己的消息;all → 连对方的一起叠。
-  const lineWidget =
-    msgWidget ?? (activeWidget && (mine || activeScope === 'all') ? activeWidget : null);
+  const lineWidget = decorationEnabled.widget ? (localWidget ?? msgWidget) : null;
   // Deleted origin — prefer the explicit kind; fall back to the legacy boolean
   // (which always meant a WeQ delete). `qq` = QQ-native recall, not restorable.
   const resolvedKind: 'weq' | 'qq' | null = deletedKind ?? (deleted ? 'weq' : null);
@@ -395,7 +404,7 @@ export function MessageBubble({
       data-bubble={msgBubbleId || undefined}
       data-font={msgFontId || undefined}
       data-fontfx={fontFxAttr}
-      data-widget={msgWidget?.animated ? msgWidget.itemId : undefined}
+      data-widget={lineWidget?.animated ? lineWidget.itemId : undefined}
     >
       {selectionMode ? (
         <span className={cn('message-select-mark')} aria-hidden>
@@ -669,7 +678,7 @@ export function MessageBubble({
             avatarUrl={senderAvatarUrl}
             seed={senderSeed}
             widget={lineWidget}
-            fallbackUrl={pendantUrl}
+            fallbackUrl={decorationEnabled.widget ? pendantUrl : null}
           />
         </SelfAvatar>
       ) : null}

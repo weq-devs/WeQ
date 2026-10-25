@@ -518,9 +518,7 @@ export interface AppSettings {
    */
   renderTextMarkdown: boolean;
   /**
-   * 是否把 QQ 挂件叠在聊天页的头像外圈。只作用于**自己**的头像 —— 挂件素材取自
-   * bootstrap 存下的 homeDress.widgetUrl，他人的挂件要逐个走 SSR 页面查，
-   * 每条消息一次网络往返不现实。默认开启，没挂件时该开关无副作用。
+   * 是否显示聊天头像挂件，包括消息记录、本地个性装扮和自己账号的静态挂件。
    */
   showAvatarPendant: boolean;
   linkPreview: LinkPreviewConfig;
@@ -540,11 +538,12 @@ export interface AppSettings {
   home: HomeSettings;
   /** 私聊输入状态广播：全局默认值与显式设置的会话特例。 */
   typingStatus: TypingStatusSettings;
-  /**
-   * 是否渲染消息里的每条装扮（气泡/字体/挂件，来自 column 40801）。
-   * 关掉后所有消息统一走清单里的全局装扮，不做逐条渲染。默认开启。
-   */
+  /** 旧版合并开关，仅用于兼容旧配置和客户端。 */
   showMsgDecoration: boolean;
+  /** 按消息记录渲染气泡；本地个性装扮可覆盖。 */
+  showMessageBubble: boolean;
+  /** 按消息记录渲染字体；本地个性装扮可覆盖。 */
+  showMessageFont: boolean;
   /** Show the original conversation sequence beside each message. */
   showMessageSeq: boolean;
   /** 逐条显示精确到秒的北京时间，与序号开关独立。 */
@@ -838,6 +837,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   home: DEFAULT_HOME_SETTINGS,
   typingStatus: { defaultEnabled: false, overrides: [] },
   showMsgDecoration: true,
+  showMessageBubble: true,
+  showMessageFont: true,
   showMessageSeq: false,
   showMessageTime: false,
   showMessageUnreadBadge: true,
@@ -1362,6 +1363,8 @@ export class UserConfigService {
       home: normalizeHomeSettings(s?.home),
       typingStatus: normalizeTypingStatus(s?.typingStatus),
       showMsgDecoration: s?.showMsgDecoration ?? d.showMsgDecoration,
+      showMessageBubble: s?.showMessageBubble ?? s?.showMsgDecoration ?? d.showMessageBubble,
+      showMessageFont: s?.showMessageFont ?? s?.showMsgDecoration ?? d.showMessageFont,
       showMessageSeq: s?.showMessageSeq ?? d.showMessageSeq,
       showMessageTime: s?.showMessageTime ?? d.showMessageTime,
       showMessageUnreadBadge: s?.showMessageUnreadBadge ?? d.showMessageUnreadBadge,
@@ -1471,6 +1474,9 @@ export class UserConfigService {
       home: normalizeHomeSettings({ ...current.home, ...patch.home }),
       typingStatus: normalizeTypingStatus({ ...current.typingStatus, ...patch.typingStatus }),
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
+      showMessageBubble:
+        patch.showMessageBubble ?? patch.showMsgDecoration ?? current.showMessageBubble,
+      showMessageFont: patch.showMessageFont ?? patch.showMsgDecoration ?? current.showMessageFont,
       showMessageSeq: patch.showMessageSeq ?? current.showMessageSeq,
       showMessageTime: patch.showMessageTime ?? current.showMessageTime,
       showMessageUnreadBadge: patch.showMessageUnreadBadge ?? current.showMessageUnreadBadge,

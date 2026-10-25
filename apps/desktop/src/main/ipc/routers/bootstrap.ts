@@ -748,7 +748,7 @@ export const bootstrapRouter = router({
     }),
 
   /**
-   * 头像挂件是否叠在聊天页自己的头像上。渲染层通过 App.tsx 的 SelfPendantContext
+   * 头像挂件是否叠在聊天页头像上。渲染层通过 App.tsx 的共享 Context
    * 读取——纯持久化，无需主进程侧应用。
    */
   setShowAvatarPendant: procedure
@@ -880,7 +880,19 @@ export const bootstrapRouter = router({
       return true;
     }),
 
-  /** 是否渲染每条消息里的装扮（气泡/字体/挂件）。纯持久化。 */
+  setShowMessageBubble: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showMessageBubble: input.enabled });
+      return true;
+    }),
+
+  setShowMessageFont: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ showMessageFont: input.enabled });
+    return true;
+  }),
+
+  /** 兼容旧客户端的合并开关，同时更新气泡与字体。 */
   setShowMsgDecoration: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {
