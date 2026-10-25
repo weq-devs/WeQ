@@ -1,0 +1,37 @@
+.weq-settings-database {
+  min-width: 0;
+}
+.weq-settings-database-browser {
+  display: flex;
+  min-width: 0;
+  height: max(420px, calc(100dvh - 260px));
+  max-height: 900px;
+  overflow: hidden;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+}
+.weq-settings-database-browser > .weq-cache-db {
+  min-width: 0;
+}
+.weq-settings-database-browser .weq-cache-panel-head {
+  height: auto;
+  min-height: 44px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+html[data-theme='dark'] .weq-settings-database-browser {
+  border-color: var(--weq-border-subtle);
+}
+@media (max-width: 600px) {
+  .weq-settings-database-browser {
+    height: max(620px, calc(100dvh - 220px));
+  }
+  .weq-settings-database-browser .weq-cache-db:not(.is-tree-collapsed) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 160px minmax(0, 1fr);
+  }
+  .weq-settings-database-browser .weq-cache-tree {
+    border-right: 0;
+    border-bottom: 1px solid var(--weq-border-subtle);
+  }
+}

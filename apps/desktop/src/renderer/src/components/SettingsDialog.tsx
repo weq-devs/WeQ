@@ -71,6 +71,7 @@ import { AssistantSection } from './settings/AssistantSection';
 import { StartupSection } from './settings/StartupSection';
 import { DatabaseSettingsSection } from './settings/DatabaseSettingsSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
+import { DatabaseManagementSection } from './settings/DatabaseManagementSection';
 import { Card, Row, SectionHeader, SettingsScopeContext, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
 import { DEFAULT_ACCENT, normalizeHex } from '../../../shared/theme_colors';
@@ -203,13 +204,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'database-management',
     label: '数据库管理',
     icon: <HardDrive size={16} strokeWidth={1.8} />,
-    render: (onOpen) => (
-      <DataMaintenanceSection
-        title="数据库管理"
-        onOpen={onOpen}
-        tools={['database', 'db-decrypt']}
-      />
-    ),
+    render: () => <DatabaseManagementSection />,
   },
   {
     id: 'database-tolerance',

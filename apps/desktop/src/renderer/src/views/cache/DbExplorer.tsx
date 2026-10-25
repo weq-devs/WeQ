@@ -21,12 +21,14 @@ import {
   AlertTriangle,
   PanelLeftClose,
   PanelLeftOpen,
+  Download,
 } from 'lucide-react';
 import type { DbObject } from '@weq/service';
 import { trpc } from '../../trpc/client';
 import { DbDataGrid } from './DbDataGrid';
 import { SqlConsole } from './SqlConsole';
 import { InlineSkeleton, TreeSkeleton } from './CacheSkeleton';
+import { useTabActive } from '../../components/RetainedTabs';
 
 type SubTab = 'data' | 'sql';
 
@@ -48,8 +50,18 @@ function fmtBytes(bytes: number): string {
   return `${n.toFixed(n >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-export function DbExplorer(): ReactElement {
-  const databases = trpc.account.dbExplorer.listDatabases.useQuery();
+export function DbExplorer({
+  onExport,
+  exportDisabled = false,
+}: {
+  onExport?: (database: { name: string; path: string }) => void;
+  exportDisabled?: boolean;
+} = {}): ReactElement {
+  const active = useTabActive();
+  const databases = trpc.account.dbExplorer.listDatabases.useQuery(undefined, {
+    enabled: active,
+    refetchOnWindowFocus: false,
+  });
   const [dbPath, setDbPath] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
@@ -72,7 +84,7 @@ export function DbExplorer(): ReactElement {
 
   const objects = trpc.account.dbExplorer.listObjects.useQuery(
     { dbPath: dbPath ?? '' },
-    { enabled: Boolean(dbPath) },
+    { enabled: active && Boolean(dbPath), refetchOnWindowFocus: false },
   );
 
   // Reset object selection when the database changes.
@@ -168,7 +180,18 @@ export function DbExplorer(): ReactElement {
           </div>
 
           <div className="weq-cache-tree-body">
-            {objects.isLoading ? (
+            {databases.error || objects.error ? (
+              <div className="weq-cache-tree-state" role="alert">
+                {databases.error?.message ?? objects.error?.message}
+                <button
+                  type="button"
+                  className="weq-cache-btn"
+                  onClick={() => void (databases.error ? databases.refetch() : objects.refetch())}
+                >
+                  重试
+                </button>
+              </div>
+            ) : objects.isLoading ? (
               <TreeSkeleton />
             ) : objectList.length === 0 ? (
               <div className="weq-cache-tree-state">该库无表 / 视图</div>
@@ -221,6 +244,27 @@ export function DbExplorer(): ReactElement {
             />
             <span>编辑模式</span>
           </label>
+          {onExport ? (
+            <button
+              type="button"
+              className="weq-cache-btn"
+              data-setting-id="database-export"
+              title="导出当前数据库"
+              disabled={
+                !active ||
+                exportDisabled ||
+                !selectedDb ||
+                databases.isFetching ||
+                Boolean(databases.error)
+              }
+              onClick={() => {
+                if (selectedDb) onExport({ name: selectedDb.name, path: selectedDb.path });
+              }}
+            >
+              <Download size={14} />
+              导出
+            </button>
+          ) : null}
         </header>
 
         {editable ? (
@@ -235,6 +279,7 @@ export function DbExplorer(): ReactElement {
             <div className="weq-cache-grid-state">请选择数据库</div>
           ) : subTab === 'sql' ? (
             <SqlConsole
+              key={dbPath}
               dbPath={dbPath}
               editable={editable}
               tableName={selectedTable}

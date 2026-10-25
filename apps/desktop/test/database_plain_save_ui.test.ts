@@ -5,6 +5,10 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ExportOutputPlan, ExportSavePolicy } from '@weq/service';
 import { DatabasePlainExport } from '../src/renderer/src/views/export/DatabasePlainExport';
+import {
+  createDatabaseExportTarget,
+  type DatabaseExportTarget,
+} from '../src/shared/database_export_target';
 
 const state = vi.hoisted(() => ({
   uin: '10001',
@@ -71,14 +75,14 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
   vi.unstubAllGlobals();
 });
-async function mount() {
+async function mount(target?: DatabaseExportTarget) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   const started = vi.fn();
   const render = async () =>
     act(async () =>
-      root.render(h(DatabasePlainExport, { accountUin: '10001', onStarted: started })),
+      root.render(h(DatabasePlainExport, { accountUin: '10001', onStarted: started, target })),
     );
   cleanups.push(() => {
     act(() => root.unmount());
@@ -90,6 +94,44 @@ async function mount() {
 function select(host: HTMLElement, index = 0) {
   act(() => host.querySelectorAll<HTMLButtonElement>('.weq-db-card')[index]!.click());
 }
+it('浏览器带入精确当前库，仍可在同一来源显式扩选，不默认为全部', async () => {
+  const f = await mount(
+    createDatabaseExportTarget(
+      {
+        expectedAccountUin: '10001',
+        expectedAccountConfigId: 'fixture-source',
+      },
+      ['/synthetic/login.db'],
+    ),
+  );
+  expect(f.host.querySelectorAll('.weq-db-card.is-on')).toHaveLength(1);
+  expect(f.host.querySelector('.weq-db-card.is-on')?.textContent).toContain('login.db');
+  await act(async () => f.host.querySelector<HTMLButtonElement>('.is-safe')!.click());
+  expect(state.start).toHaveBeenCalledWith(
+    expect.objectContaining({ dbPaths: ['/synthetic/login.db'] }),
+  );
+  expect(f.host.querySelectorAll('.weq-db-card.is-on')).toHaveLength(0);
+  await f.render();
+  expect(f.host.querySelectorAll('.weq-db-card.is-on')).toHaveLength(0);
+});
+it.each(['other-source', 'fixture-source'])(
+  '失效来源或已不在清单的库不静默导出其他库：%s',
+  async (configId) => {
+    const f = await mount(
+      createDatabaseExportTarget(
+        {
+          expectedAccountUin: '10001',
+          expectedAccountConfigId: configId,
+        },
+        ['/synthetic/missing.db'],
+      ),
+    );
+    expect(f.host.querySelectorAll('.weq-db-card.is-on')).toHaveLength(0);
+    expect(f.host.querySelector<HTMLButtonElement>('.is-safe')!.disabled).toBe(true);
+    expect(f.host.querySelector('[role="alert"]')?.textContent).toMatch(/来源|不存在/);
+    expect(state.start).not.toHaveBeenCalled();
+  },
+);
 it.each([1, 2])('选择 %i 个库后由普通按钮准备文件／整包，不需要正文位置栏', async (count) => {
   const f = await mount();
   select(f.host);

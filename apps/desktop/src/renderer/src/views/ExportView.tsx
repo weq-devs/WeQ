@@ -81,6 +81,7 @@ import { IS_WEB } from '../lib/target';
 import type { ContentSelection } from '../../../shared/content_selection';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { DatabasePlainExport } from './export/DatabasePlainExport';
+import type { DatabaseExportTarget } from '../../../shared/database_export_target';
 import { useViewState } from '../state/view';
 import { useExportCollections } from '../hooks/useExportCollections';
 import {
@@ -340,12 +341,14 @@ export function ExportTool({
   taskLayout = 'inline',
   onTaskExpand,
   onNewSchedule,
+  databaseTarget,
 }: {
   surface?: 'export' | 'tasks';
   taskLayout?: 'inline' | 'compact' | 'split';
   onTaskExpand?: () => void;
   onNewSchedule?: () => void;
   initialSelection?: ContentSelection;
+  databaseTarget?: DatabaseExportTarget;
   initialMode?: ExportMode;
   initialBaselineDirectory?: string;
   onClose?: () => void;
@@ -362,6 +365,7 @@ export function ExportTool({
   const utils = trpc.useUtils();
   const accountUin = useViewState((state) => state.openedUin);
   const active = useTabActive();
+  const modeLocked = lockMode || Boolean(databaseTarget);
   const dialog = useAppDialog();
   const pushToast = useToast((s) => s.push);
   const mounted = useRef(true);
@@ -394,7 +398,11 @@ export function ExportTool({
   const schedules = trpc.account.listSchedules.useQuery();
 
   const [mode, setMode] = useState<ExportMode>(
-    initialMode === 'scheduled' ? 'full' : (initialMode ?? initialExportMode(initialSelection)),
+    databaseTarget
+      ? 'database'
+      : initialMode === 'scheduled'
+        ? 'full'
+        : (initialMode ?? initialExportMode(initialSelection)),
   );
   // 浮动工具子项带过来的默认对象：群相册 / 群文件要从当前界面的群直接落地，
   // 不必在面板里再选一遍群。
@@ -1736,7 +1744,7 @@ export function ExportTool({
                   <span>{activeMode.desc}</span>
                 </span>
               </div>
-              {lockMode ? (
+              {modeLocked ? (
                 <span className="weq-exp-pane-kind">
                   <Layers size={13} aria-hidden />
                   {activeMode.label}
@@ -1744,7 +1752,7 @@ export function ExportTool({
               ) : null}
             </header>
 
-            {!lockMode ? (
+            {!modeLocked ? (
               <div className="weq-exp-kinds" role="tablist" aria-label="内容种类">
                 {/* 隐藏的原生 select 只保留无障碍 / 自动化语义（沿用原来的 id 与标签）。 */}
                 <select
@@ -1823,6 +1831,7 @@ export function ExportTool({
                   <DatabasePlainExport
                     key={accountUin}
                     accountUin={accountUin}
+                    target={databaseTarget}
                     onStarted={refetchTasks}
                   />
                 ) : (

@@ -11,9 +11,12 @@ import { useDbRepairWindow } from '../src/renderer/src/state/dbRepairWindow';
 import { useCaptureWindow } from '../src/renderer/src/state/captureWindow';
 import { SettingsDialog } from '../src/renderer/src/components/SettingsDialog';
 import type { ToolPresentation } from '../src/renderer/src/components/ToolSurface';
+import { useViewState } from '../src/renderer/src/state/view';
 
 const state = vi.hoisted(() => ({
-  account: { static: false } as { static: boolean } | undefined,
+  account: { static: false, uin: '10001', configId: 'synthetic' } as
+    | { static: boolean; uin?: string; configId?: string }
+    | undefined,
   failed: false,
   refetch: vi.fn(),
   repairAccount: '',
@@ -28,7 +31,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                 ? {
                     data: state.account,
                     isError: state.failed,
-                    error: new Error('账号读取失败'),
+                    error: state.failed ? new Error('账号读取失败') : null,
                     refetch: state.refetch,
                   }
                 : { data: undefined, isLoading: false }
@@ -38,7 +41,31 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     });
   return { trpc: proxy(), client: proxy() };
 });
-vi.mock('../src/renderer/src/views/cache/DbExplorer', () => ({ DbExplorer: () => '数据库面板' }));
+vi.mock('../src/renderer/src/views/cache/DbExplorer', () => ({
+  DbExplorer: ({
+    onExport,
+    exportDisabled,
+  }: {
+    onExport?: (database: { name: string; path: string }) => void;
+    exportDisabled?: boolean;
+  }) =>
+    createElement(
+      'div',
+      null,
+      '数据库面板',
+      onExport
+        ? createElement(
+            'button',
+            {
+              'data-setting-id': 'database-export',
+              disabled: exportDisabled,
+              onClick: () => onExport({ name: 'synthetic.db', path: '/synthetic/synthetic.db' }),
+            },
+            '导出',
+          )
+        : null,
+    ),
+}));
 vi.mock('../src/renderer/src/views/cache/CacheView', () => ({
   CacheView: () => '本地缓存面板',
 }));
@@ -92,13 +119,15 @@ vi.mock('../src/renderer/src/views/cache/ResourceCleanupDialog', async () => {
 afterEach(() => {
   useCaptureWindow.getState().dismiss();
   vi.unstubAllGlobals();
-  state.account = { static: false };
+  state.account = { static: false, uin: '10001', configId: 'synthetic' };
+  useViewState.setState({ openedUin: null });
   state.failed = false;
   state.refetch.mockClear();
 });
 function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
+  useViewState.setState({ openedUin: '10001' });
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -259,7 +288,7 @@ describe('设置的数据与维护', () => {
     }
   });
   it.each(['cache', 'database', 'storage', 'cleanup', 'db-repair', 'db-decrypt'] as const)(
-    '%s 从设置打开保留原页，修复独立开窗，其他工具使用模态',
+    '%s 保留设置原页，数据库正文直接显示、导出模态、修复独立开窗',
     (tool) => {
       function Harness() {
         const [settings, setSettings] = useState(true);
@@ -294,6 +323,13 @@ describe('设置的数据与维护', () => {
       const f = mount(createElement(Harness));
       try {
         const settings = f.host.querySelector('.weq-settings-dialog');
+        if (tool === 'database') {
+          expect(f.host.textContent).toContain('数据库面板');
+          expect(f.host.querySelector('button[data-setting-id="database-manager"]')).toBeNull();
+          expect(document.querySelector('.weq-tool-modal')).toBeNull();
+          expect(f.host.querySelector('.weq-settings-dialog')).toBe(settings);
+          return;
+        }
         const entryId = {
           cache: 'resource-viewer',
           database: 'database-manager',
