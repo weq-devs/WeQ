@@ -6,11 +6,16 @@ import { QqImage } from '../src/renderer/src/components/QqMedia';
 const state = vi.hoisted(() => ({ open: vi.fn() }));
 vi.mock('../src/renderer/src/components/ImageLightbox', () => ({ openLightbox: state.open }));
 const roots: ReturnType<typeof createRoot>[] = [];
-beforeEach(() => vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true));
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('IntersectionObserver', undefined);
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+});
 afterEach(async () => {
   for (const root of roots.splice(0)) await act(async () => root.unmount());
   document.body.innerHTML = '';
   vi.clearAllMocks();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 async function render(data: Record<string, unknown>) {

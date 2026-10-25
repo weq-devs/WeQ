@@ -29,6 +29,8 @@ let root: Root;
 let host: HTMLDivElement;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('IntersectionObserver', undefined);
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
