@@ -60,12 +60,12 @@ import type { LoadSelectionMessages } from '../lib/messageSelection';
 import {
   mergeOptimisticInto,
   captureOutgoingAfterSeq,
-  needsFailedPreparation,
   matchForwardMessages,
   type ComposerSubmission,
   type OutgoingRemoval,
 } from '../lib/localOutgoing';
 import { useFailedOutgoingRemoval } from '../hooks/useFailedOutgoingRemoval';
+import { OutgoingQueue } from '../lib/outgoingQueue';
 import { useDismissUnsentOutgoing } from '../hooks/useDismissUnsentOutgoing';
 import { reconcileFileMessages, type FileSyncReceipt } from '../lib/fileSendReconcile';
 import {
@@ -1486,7 +1486,7 @@ type OptimisticMessage = {
   signatures?: string[];
   /** 文件发布没有普通消息序号，按文件 ID 与发送前的消息快照对账。 */
   fileSync?: FileSyncReceipt;
-  state: 'sending' | 'sent' | 'failed';
+  state: 'queued' | 'sending' | 'sent' | 'failed';
   afterSeq?: string;
   error?: string;
   /** 客户端 `random`（回执带回）—— 对账主键。 */
@@ -2872,6 +2872,13 @@ export function MainView(): ReactElement {
   const [optimisticArks, setOptimisticArks] = useState<OptimisticArk[]>([]);
   // 同上，但发出去的是普通消息（文本 / @ / 表情 / 图片 / 视频 / 语音 / 文件…）。
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
+  const outgoingQueue = useRef(new OutgoingQueue());
+  useEffect(() => {
+    return () => outgoingQueue.current.clear();
+  }, [messageScope]);
+  useEffect(() => {
+    outgoingQueue.current.retain(new Set(optimisticMessages.map((item) => item.id)));
+  }, [optimisticMessages]);
   /**
    * 当前通话的初始快照。非 null 就渲染通话窗口，窗口自己订阅后续状态并在
    * 结束后回调清空。只做主动发起 —— 来电由 QQ 本体处理，WeQ 收不到那条推送。
@@ -7775,6 +7782,9 @@ export function MainView(): ReactElement {
 
   async function sendComposerMessage(body: string, locals?: LocalMediaRef[]): Promise<void> {
     const conversation = selectedConversation;
+    if (!conversation) return;
+    const account = openedUin;
+    const scope = messageScopeRef.current;
     const submission: ComposerSubmission = {
       id: `optimistic-${mfId('msg')}`,
       draft: { body, locals },
@@ -7783,37 +7793,55 @@ export function MainView(): ReactElement {
       afterSeq: outgoingAfterSeq(conversation?.id),
       at: Date.now(),
     };
+    let render = { body: '消息未发送', elements: [] as unknown[] };
     try {
-      await sendMessage(body, locals, undefined, undefined, undefined, undefined, submission);
-    } catch (error) {
-      if (conversation && needsFailedPreparation(submission)) {
-        // 在线条件或准备阶段失败也必须留下原稿，不能只有 toast 而丢掉编辑入口。
-        let render = { body: '消息未发送', elements: [] as unknown[] };
-        try {
-          render = buildOptimisticRender({ body, locals: locals ?? [], superStickers: new Map() });
-        } catch {
-          // 无法渲染的草稿仍可通过失败标志重新编辑。
-        }
+      render = buildOptimisticRender({ body, locals: locals ?? [], superStickers: new Map() });
+    } catch {
+      // 原稿仍交给发送计划校验，失败时保留编辑和重试入口。
+    }
+    setOptimisticMessages((current) => [
+      ...current,
+      {
+        id: submission.id,
+        convId: conversation.id,
+        afterSeq: submission.afterSeq,
+        ...render,
+        composerDraft: submission.draft,
+        state: 'queued',
+        at: submission.at ?? Date.now(),
+      },
+    ]);
+    outgoingQueue.current.add(submission.id, conversation.id, async () => {
+      setOptimisticMessages((current) =>
+        current.map((item) =>
+          item.id === submission.id ? { ...item, state: 'sending', error: undefined } : item,
+        ),
+      );
+      try {
+        await sendMessage(
+          body,
+          locals,
+          undefined,
+          conversation,
+          () => useViewState.getState().openedUin === account && messageScopeRef.current === scope,
+          undefined,
+          submission,
+        );
+      } catch (error) {
         setOptimisticMessages((current) =>
-          current.some((item) => item.id === submission.id)
-            ? current
-            : [
-                ...current,
-                {
-                  id: submission.id,
-                  convId: conversation.id,
-                  afterSeq: submission.afterSeq,
-                  ...render,
-                  composerDraft: submission.draft,
+          current.map((item) =>
+            item.id === submission.id && !item.seqRejected
+              ? {
+                  ...item,
                   state: 'failed',
                   error: error instanceof Error ? error.message : String(error),
-                  at: submission.at ?? Date.now(),
-                },
-              ],
+                }
+              : item,
+          ),
         );
+        throw error;
       }
-      throw error;
-    }
+    });
   }
 
   async function sendMessage(
@@ -7825,6 +7853,7 @@ export function MainView(): ReactElement {
     expectedAccountConfigId?: string,
     submission?: ComposerSubmission,
   ): Promise<void> {
+    if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
     const conversation = destination ?? selectedConversation;
     if (!conversation) {
       pushToast({ tone: 'warning', message: '没有选中的会话' });
@@ -7878,6 +7907,7 @@ export function MainView(): ReactElement {
     // 画一条假气泡只会和真消息重影 / 排错位置。等 QQ 同步回来就是真气泡；失败靠 toast。
     // 注意「文字转语音」（本机合成 → `sendVoice`）走的是 `voice` 计划，是一条**真消息**，
     // 照常乐观渲染。
+    if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
     const optimistic = plan.kind !== 'aiVoice';
     const fileExistingMsgIds =
       plan.kind === 'file' ? loadedRef.current.map((message) => message.msgId) : [];
@@ -7887,22 +7917,24 @@ export function MainView(): ReactElement {
         ? { body, elements: repeated.elements }
         : buildOptimisticRender({ body, locals: locals ?? [], superStickers });
       if (submission) submission.started = true;
-      setOptimisticMessages((current) => [
-        ...current,
-        {
-          id: optimisticId,
-          convId: conversation.id,
-          afterSeq: submission ? submission.afterSeq : outgoingAfterSeq(conversation.id),
-          body: render.body,
-          elements: render.elements,
-          ...(plan.kind === 'file'
-            ? { fileSync: { fileId: '', existingMsgIds: fileExistingMsgIds } }
-            : {}),
-          composerDraft: submission?.draft,
-          state: 'sending',
-          at: submission?.at ?? Date.now(),
-        },
-      ]);
+      const pending: OptimisticMessage = {
+        id: optimisticId,
+        convId: conversation.id,
+        afterSeq: submission ? submission.afterSeq : outgoingAfterSeq(conversation.id),
+        body: render.body,
+        elements: render.elements,
+        ...(plan.kind === 'file'
+          ? { fileSync: { fileId: '', existingMsgIds: fileExistingMsgIds } }
+          : {}),
+        composerDraft: submission?.draft,
+        state: 'sending',
+        at: submission?.at ?? Date.now(),
+      };
+      setOptimisticMessages((current) =>
+        current.some((item) => item.id === optimisticId)
+          ? current.map((item) => (item.id === optimisticId ? pending : item))
+          : [...current, pending],
+      );
     }
     // 没有乐观条目（AI 声聊）时是个 no-op：下面失败 / 成功路径照旧调它，不必到处分叉。
     const patchOptimistic = (next: Partial<OptimisticMessage>): void => {
@@ -8024,6 +8056,8 @@ export function MainView(): ReactElement {
     }
     if (plan.kind === 'aiVoice') {
       // AI 声聊没有乐观条目可收（见上），回执也没有 random / seq 可对账 —— 到此为止。
+      if (submission)
+        setOptimisticMessages((current) => current.filter((item) => item.id !== optimisticId));
       return;
     }
     patchOptimistic({
@@ -9392,6 +9426,13 @@ export function MainView(): ReactElement {
                           profileLoading={groupDetail.isLoading}
                           sendAvailable={sendAvailable}
                           onSend={sendComposerMessage}
+                          onStartOutgoingMessage={(message) => {
+                            if (
+                              message.conversationId === selectedConversation?.id &&
+                              sendAvailable
+                            )
+                              outgoingQueue.current.start(message.id);
+                          }}
                           onRepeatMessage={repeatMessage}
                           onResolveMentions={resolveMentions}
                           onSearchMentionMembers={async (query, conversation) => {

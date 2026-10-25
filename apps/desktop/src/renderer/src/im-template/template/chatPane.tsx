@@ -453,6 +453,7 @@ export function ChatPane({
   onEditRaw,
   onDeleteMessage,
   onDismissUnsentMessage,
+  onStartOutgoingMessage,
   onOpenGroupAlbums,
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
@@ -573,6 +574,7 @@ export function ChatPane({
    * 末尾，气泡状态条旁给一枚一次点击的「移除」按钮（不影响对方是否收到）。
    */
   onDismissUnsentMessage?: (message: Message) => void;
+  onStartOutgoingMessage?: (message: Message) => void;
   onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupFiles?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
@@ -2952,6 +2954,9 @@ export function ChatPane({
     if (readAfterSend) requestReadAtBottom();
     readGestureUntil.current = 0;
     setSending(true);
+    void jumpAfterSuccessfulSend(conversation).catch((error) => {
+      console.error('[composer] jump to latest failed:', error);
+    });
     try {
       // 先捕获媒体句柄；清空后它们归本次发送所有，不能释放仍在读取的预览。
       const localMedia = planNeedsLocalMedia(payloadBody)
@@ -2977,17 +2982,11 @@ export function ChatPane({
       restoreSendFocus();
       window.requestAnimationFrame(restoreSendFocus);
       const locals = localMedia ? await localMedia : undefined;
-      await onSend(payloadBody, locals);
-      if (!isCurrentComposer()) return;
-      if (mediaSettings.data?.jumpToLatestAfterSend !== false)
-        await jumpAfterSuccessfulSend(conversation);
-      else if (readAfterSend) requestReadAtBottom();
-
-      // 独立卡片不带走正文；普通发送的正文已交接，回执不能清掉下一条草稿。
+      // 内容交接后即允许下一条输入；不能让迟到回执清掉下一张附件或下一条草稿。
       if (singleToken) {
+        if (mediaAttachment?.url) retainedSendUrlsRef.current.add(mediaAttachment.url);
         setMediaAttachment((current) => {
           if (current !== mediaAttachment) return current;
-          if (current) releaseAttachment(current);
           return null;
         });
         setPendingSuperEmoji((current) => (current === pendingSuperEmoji ? null : current));
@@ -2997,8 +2996,13 @@ export function ChatPane({
       setBounceOpen(false);
       setPokeOpen(false);
       if (singleToken || options.keepBody) window.requestAnimationFrame(restoreSendFocus);
+      const sent = onSend(payloadBody, locals);
+      composerSendRef.current = null;
+      setSending(false);
+      await sent;
+      if (isCurrentComposer() && readAfterSend) requestReadAtBottom();
     } catch (error) {
-      // 失败只保留消息上的重新编辑入口，不回填或覆盖下一条草稿。
+      // 失败通过原消息重试，不回填或覆盖下一条草稿。
       console.error('[composer] send failed:', error);
     } finally {
       // 回执不等于真实消息已接管；占位或灯箱仍引用的地址不能随发送结束撤销。
@@ -4893,6 +4897,11 @@ export function ChatPane({
                       onAction={onMessageAction}
                       onReedit={reeditMessage}
                       onDismissUnsent={onDismissUnsentMessage}
+                      onStartOutgoing={
+                        !sendAvailable || currentPreference.blocked
+                          ? undefined
+                          : onStartOutgoingMessage
+                      }
                       repeatAction={
                         !selectionMode &&
                         onRepeatMessage &&

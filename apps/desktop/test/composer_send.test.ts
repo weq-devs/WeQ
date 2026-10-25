@@ -116,6 +116,47 @@ function type(editor: HTMLElement, text: string) {
 }
 
 describe('输入区发送交接', () => {
+  it('上一条仍在等回执时可继续提交下一条', async () => {
+    const f = mount();
+    try {
+      await act(async () => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+      type(f.editor(), '第二条');
+      await act(async () => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+      expect(f.onSend.mock.calls.map(([body]) => body)).toEqual(['第一条', '第二条']);
+      expect(serializeComposer(f.editor())).toBe('');
+      await act(async () => f.finish());
+    } finally {
+      f.close();
+    }
+  });
+
+  it.each(['queued', 'failed'])('%s 悬停提示动作，单击立即发送而不改草稿', async (status) => {
+    const f = mount();
+    const start = vi.fn();
+    try {
+      const message = {
+        id: 'optimistic-test',
+        conversationId: f.props.conversation.id,
+        senderId: f.props.user.id,
+        body: '待发内容',
+        createdAt: '2026-10-25T01:00:00Z',
+        optimistic: status,
+      };
+      f.render({ messages: [message], onStartOutgoingMessage: start });
+      const action = status === 'queued' ? '立即发送' : '重试发送';
+      const marker = f.host.querySelector<HTMLButtonElement>(`button[aria-label="${action}"]`)!;
+      expect(marker.textContent).toContain(status === 'queued' ? '排队中' : '发送失败');
+      act(() => marker.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+      expect(marker.textContent).toContain(action);
+      act(() => marker.click());
+      expect(start).toHaveBeenCalledOnce();
+      expect(start).toHaveBeenCalledWith(message);
+      expect(serializeComposer(f.editor())).toBe('第一条');
+      expect(f.onSend).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
   it.each([true, false])(
     '已经加载最新窗口但在阅读上方历史时，发送后按设置滚到底部：%s',
     async (enabled) => {
@@ -145,7 +186,7 @@ describe('输入区发送交接', () => {
     try {
       f.render({ atLatest: false, onJumpToLatest: jump });
       await act(async () => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
-      expect(jump).not.toHaveBeenCalled();
+      expect(jump).toHaveBeenCalledTimes(enabled === false ? 0 : 1);
       await act(async () => f.finish());
       expect(jump).toHaveBeenCalledTimes(enabled === false ? 0 : 1);
     } finally {
@@ -153,7 +194,7 @@ describe('输入区发送交接', () => {
     }
   });
 
-  it('发送失败或回执前切走会话时不定位', async () => {
+  it('发送失败或回执前切走会话时不再次定位', async () => {
     for (const switchConversation of [false, true]) {
       const f = mount();
       const jump = vi.fn().mockResolvedValue(true);
@@ -164,7 +205,7 @@ describe('输入区发送交接', () => {
           f.render({ conversation: { ...f.props.conversation, id: 'other-conversation' } });
           await act(async () => f.finish());
         } else await act(async () => f.fail());
-        expect(jump).not.toHaveBeenCalled();
+        expect(jump).toHaveBeenCalledTimes(1);
       } finally {
         f.close();
       }
@@ -573,9 +614,6 @@ describe('输入区发送交接', () => {
         expect(f.editor().getAttribute('contenteditable')).toBe('true');
         expect(document.activeElement).toBe(f.editor());
         type(f.editor(), '第二条草稿');
-        act(() =>
-          f.editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
-        );
         expect(f.onSend).toHaveBeenCalledOnce();
         await act(async () => f.finish());
         expect(serializeComposer(f.editor())).toBe('第二条草稿');
@@ -599,8 +637,8 @@ describe('输入区发送交接', () => {
     }
   });
 
-  it.each(['failed', 'recalled', 'rejected'])(
-    '%s 标志分两次点击，空输入框直接重新编辑，不自动发送',
+  it.each(['recalled', 'deleted'])(
+    '%s 标志悬停显示重新编辑，单击恢复原文而不自动发送',
     async (status) => {
       const f = mount();
       try {
@@ -615,16 +653,13 @@ describe('输入区发送交接', () => {
               createdAt: '2026-10-18T12:00:00Z',
               ...(status === 'recalled'
                 ? { recall: { revokeUid: f.props.user.id, sameSender: true, recallTs: 1 } }
-                : {
-                    optimistic: status === 'failed' ? 'failed' : 'sent',
-                    optimisticRejected: status === 'rejected',
-                  }),
+                : { deletedKind: 'qq' }),
             },
           ],
         });
         const marker = f.host.querySelector<HTMLButtonElement>('button.weq-msg-reedit-trigger')!;
         expect(marker).not.toBeNull();
-        act(() => marker.click());
+        act(() => marker.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
         expect(marker.textContent).toContain('重新编辑');
         expect(serializeComposer(f.editor())).toBe('');
         await act(async () => marker.click());
@@ -647,20 +682,17 @@ describe('输入区发送交接', () => {
           senderId: f.props.user.id,
           body: '未发原文',
           createdAt: '2026-10-18T12:00:00Z',
-          optimistic: 'failed',
+          recall: { revokeUid: f.props.user.id, sameSender: true, recallTs: 1 },
         },
       ];
       f.render({ messages });
       const marker = f.host.querySelector<HTMLButtonElement>('button.weq-msg-reedit-trigger')!;
-      act(() => marker.click());
-      expect(confirm).not.toHaveBeenCalled();
       await act(async () => marker.click());
       expect(confirm).toHaveBeenCalledOnce();
       expect(serializeComposer(f.editor())).toBe('第一条');
       confirm.mockResolvedValueOnce(true);
       await act(async () => marker.click());
       expect(serializeComposer(f.editor())).toBe('未发原文');
-      act(() => marker.click());
       let answer!: (value: boolean) => void;
       confirm.mockImplementationOnce(
         () =>
@@ -703,13 +735,12 @@ describe('输入区发送交接', () => {
             senderId: f.props.user.id,
             body: '摘要不能重发',
             createdAt: '2026-10-18T12:00:00Z',
-            optimistic: 'failed',
+            recall: { revokeUid: f.props.user.id, sameSender: true, recallTs: 1 },
             composerDraft: { body: draft, locals },
           },
         ],
       });
       const marker = f.host.querySelector<HTMLButtonElement>('button.weq-msg-reedit-trigger')!;
-      act(() => marker.click());
       await act(async () => marker.click());
       const restored = serializeComposer(f.editor());
       const { composerTextToElements } = await import(

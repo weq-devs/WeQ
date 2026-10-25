@@ -93,6 +93,7 @@ export function MessageBubble({
   onAction,
   onReedit,
   onDismissUnsent,
+  onStartOutgoing,
   onAvatarClick,
   onAvatarContextMenu,
   selected,
@@ -149,6 +150,7 @@ export function MessageBubble({
    * 时间线末尾，所以给一个一次点击的移除按钮；内容不进原库，不需要二次确认。
    */
   onDismissUnsent?: (message: Message) => void;
+  onStartOutgoing?: (message: Message) => void;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
   /** 右键头像：弹出「@他 / 戳一戳」轻互动菜单。 */
   onAvatarContextMenu?: (event: ReactMouseEvent, sender: User) => void;
@@ -226,20 +228,16 @@ export function MessageBubble({
   const dismissable = Boolean(
     onDismissUnsent && mine && !selectionMode && optimistic === 'sent' && optimisticRejected,
   );
-  const StatusTag = mine && onReedit && !selectionMode ? 'button' : 'div';
+  const StatusTag = mine && onReedit && !selectionMode && (recall || isDeleted) ? 'button' : 'div';
   const reeditClass =
     StatusTag === 'button' ? cn('weq-msg-reedit-trigger', reeditArmed && 'is-armed') : undefined;
   async function activateReedit(event: ReactMouseEvent) {
     event.stopPropagation();
     if (reeditPending.current) return;
-    if (!reeditArmed) {
-      setReeditArmed(true);
-      return;
-    }
     reeditPending.current = true;
     setReeditBusy(true);
     try {
-      if (await onReedit?.(message)) setReeditArmed(false);
+      await onReedit?.(message);
     } finally {
       reeditPending.current = false;
       setReeditBusy(false);
@@ -249,7 +247,12 @@ export function MessageBubble({
     StatusTag === 'button'
       ? {
           type: 'button' as const,
+          'aria-label': '重新编辑',
           onClick: activateReedit,
+          onMouseEnter: () => setReeditArmed(true),
+          onMouseLeave: () => setReeditArmed(false),
+          onFocus: () => setReeditArmed(true),
+          onBlur: () => setReeditArmed(false),
           disabled: reeditBusy,
           'aria-busy': reeditBusy,
         }
@@ -433,6 +436,27 @@ export function MessageBubble({
           <LoaderCircle size={16} aria-hidden />
         </span>
       ) : null}
+      {mine && !selectionMode && optimistic === 'queued' ? (
+        <button
+          type="button"
+          className="weq-outgoing-start"
+          title="立即发送这条消息"
+          aria-label="立即发送"
+          disabled={!onStartOutgoing}
+          onMouseEnter={() => setReeditArmed(true)}
+          onMouseLeave={() => setReeditArmed(false)}
+          onFocus={() => setReeditArmed(true)}
+          onBlur={() => setReeditArmed(false)}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onStartOutgoing?.(message);
+          }}
+        >
+          <RotateCcw size={12} aria-hidden />
+          {reeditArmed ? '立即发送' : '排队中'}
+        </button>
+      ) : null}
       <div
         ref={bubbleRef}
         className={cn('message-bubble', active && 'context-active')}
@@ -495,25 +519,41 @@ export function MessageBubble({
           // 状态条与「移除」并排：未送达占位没有可信序号、只能挂在时间线末尾，
           // 一键移除比一路点开右键菜单短得多。
           <span className={cn('weq-msg-status-row')}>
-            <StatusTag
-              {...statusProps}
-              className={cn(
-                'weq-msg-optimistic-tag',
-                reeditClass,
-                `is-${optimistic}`,
-                optimisticRejected && 'is-rejected',
-              )}
-              title={
-                optimistic === 'failed'
-                  ? (message as { optimisticError?: string }).optimisticError || '发送失败'
-                  : optimisticRejected
-                    ? '服务端回了成功但没有分配消息序号，这条很可能被静默丢弃了 —— 请让对方确认是否收到'
-                    : '这条消息还没同步回来，先乐观显示'
-              }
-            >
-              {optimistic === 'failed' ? <X size={12} /> : <TriangleAlert size={12} />}
-              <span>{reeditArmed && reeditClass ? '重新编辑' : optimisticText}</span>
-            </StatusTag>
+            {optimistic === 'failed' ? (
+              <button
+                type="button"
+                className="weq-msg-optimistic-tag weq-msg-reedit-trigger is-failed"
+                aria-label="重试发送"
+                title={message.optimisticError || '重试发送'}
+                disabled={!onStartOutgoing || selectionMode || !mine}
+                onMouseEnter={() => setReeditArmed(true)}
+                onMouseLeave={() => setReeditArmed(false)}
+                onFocus={() => setReeditArmed(true)}
+                onBlur={() => setReeditArmed(false)}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onStartOutgoing?.(message);
+                }}
+              >
+                <RotateCcw size={12} aria-hidden />
+                <span>{reeditArmed ? '重试发送' : '发送失败'}</span>
+              </button>
+            ) : (
+              <div
+                className={cn(
+                  'weq-msg-optimistic-tag',
+                  `is-${optimistic}`,
+                  optimisticRejected && 'is-rejected',
+                )}
+                title={
+                  '服务端回了成功但没有分配消息序号，这条很可能被静默丢弃了 —— 请让对方确认是否收到'
+                }
+              >
+                <TriangleAlert size={12} />
+                <span>{optimisticText}</span>
+              </div>
+            )}
             {dismissable ? (
               <button
                 type="button"
@@ -544,7 +584,9 @@ export function MessageBubble({
             className={cn('weq-msg-deleted-veil')}
             aria-label={isQqDeleted ? 'QQ删除的消息' : '已删除的消息'}
           >
-            <span className={cn('weq-msg-deleted-badge')}>{isQqDeleted ? 'QQ删除' : '已删除'}</span>
+            <StatusTag {...statusProps} className={cn('weq-msg-deleted-badge', reeditClass)}>
+              {reeditArmed && reeditClass ? '重新编辑' : isQqDeleted ? 'QQ删除' : '已删除'}
+            </StatusTag>
             {!isQqDeleted && !selectionMode && onRestore ? (
               <button
                 type="button"

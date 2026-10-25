@@ -348,7 +348,7 @@ export type Message = {
   source?: 'roaming';
   sourceFormat?: 'native' | 'protocol';
   localSent?: boolean;
-  optimistic?: 'sending' | 'sent' | 'failed';
+  optimistic?: 'queued' | 'sending' | 'sent' | 'failed';
   optimisticError?: string;
   optimisticRejected?: boolean;
   /** 发起前的已知序号水位，仅用于失败占位定位，不是本条序号或发送确认。 */

@@ -11,6 +11,31 @@
 .weq-message-sending svg {
   animation: weq-message-send-spin 1s linear infinite;
 }
+.weq-outgoing-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: center;
+  flex-shrink: 0;
+  width: 84px;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.weq-outgoing-start:hover {
+  color: var(--weq-accent-effective);
+}
+.weq-outgoing-start:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+.weq-outgoing-start:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
 .weq-inline-interaction-pending {
   display: flex;
   justify-content: center;
