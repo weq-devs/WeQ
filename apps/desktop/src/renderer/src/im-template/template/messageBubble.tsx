@@ -436,27 +436,6 @@ export function MessageBubble({
           <LoaderCircle size={16} aria-hidden />
         </span>
       ) : null}
-      {mine && !selectionMode && optimistic === 'queued' ? (
-        <button
-          type="button"
-          className="weq-outgoing-start"
-          title="立即发送这条消息"
-          aria-label="立即发送"
-          disabled={!onStartOutgoing}
-          onMouseEnter={() => setReeditArmed(true)}
-          onMouseLeave={() => setReeditArmed(false)}
-          onFocus={() => setReeditArmed(true)}
-          onBlur={() => setReeditArmed(false)}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            onStartOutgoing?.(message);
-          }}
-        >
-          <RotateCcw size={12} aria-hidden />
-          {reeditArmed ? '立即发送' : '排队中'}
-        </button>
-      ) : null}
       <div
         ref={bubbleRef}
         className={cn('message-bubble', active && 'context-active')}
@@ -514,6 +493,30 @@ export function MessageBubble({
             <RotateCcw size={12} />
             <span>{reeditArmed && reeditClass ? '重新编辑' : recallText}</span>
           </StatusTag>
+        ) : null}
+        {mine && !selectionMode && optimistic === 'queued' ? (
+          <button
+            type="button"
+            className={cn(
+              'weq-msg-optimistic-tag weq-msg-reedit-trigger is-queued',
+              reeditArmed && 'is-armed',
+            )}
+            title="立即发送这条消息"
+            aria-label="立即发送"
+            disabled={!onStartOutgoing}
+            onMouseEnter={() => setReeditArmed(true)}
+            onMouseLeave={() => setReeditArmed(false)}
+            onFocus={() => setReeditArmed(true)}
+            onBlur={() => setReeditArmed(false)}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onStartOutgoing?.(message);
+            }}
+          >
+            <RotateCcw size={12} aria-hidden />
+            <span>{reeditArmed ? '立即发送' : '排队中'}</span>
+          </button>
         ) : null}
         {optimisticText ? (
           // 状态条与「移除」并排：未送达占位没有可信序号、只能挂在时间线末尾，

@@ -146,6 +146,9 @@ describe('输入区发送交接', () => {
       const action = status === 'queued' ? '立即发送' : '重试发送';
       const marker = f.host.querySelector<HTMLButtonElement>(`button[aria-label="${action}"]`)!;
       expect(marker.textContent).toContain(status === 'queued' ? '排队中' : '发送失败');
+      expect(marker.closest('.message-bubble')).not.toBeNull();
+      expect(marker.classList.contains('weq-msg-optimistic-tag')).toBe(true);
+      expect(f.host.querySelector('.message-line > .weq-outgoing-start')).toBeNull();
       act(() => marker.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
       expect(marker.textContent).toContain(action);
       act(() => marker.click());
