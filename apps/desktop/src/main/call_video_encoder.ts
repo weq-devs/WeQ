@@ -17,11 +17,28 @@
  * 队列只留 2 帧：视频是实时流，落后就丢旧的 —— 与音频那边同一个口径。
  */
 
+import { appendFileSync, writeFileSync } from 'node:fs';
 import type { NtHelperBinding } from '@weq/native';
 import type { CallVideoEncoder, VideoStreamInfo } from '@weq/service';
 import { getLogger } from '@weq/service';
 
 const logger = getLogger().child({ scope: 'call-video-encoder' });
+
+/**
+ * 调试开关：把送进编码器的 I420 和编码结果落盘。
+ *
+ * ```bash
+ * WEQ_CALL_VIDEO_DUMP=/tmp/vdump pnpm --filter @weq/desktop dev
+ * # 通话后：
+ * ffplay -f rawvideo -pix_fmt yuv420p -s 640x360 /tmp/vdump/i420-0.raw  # 输入
+ * ffplay /tmp/vdump/encoded.h265                                       # 输出
+ * ```
+ *
+ * 两份对照看就知道问题在采集/转换（I420 就不对）还是编码（I420 对但 h265 不对）。
+ * 2026-10-25 的「彩色竖纹」就是靠它定位的：I420 正常、编码输出行方差为 0。
+ */
+const DUMP_DIR = process.env.WEQ_CALL_VIDEO_DUMP ?? '';
+const DUMP_FRAMES = Number.parseInt(process.env.WEQ_CALL_VIDEO_DUMP_FRAMES ?? '5', 10);
 
 /** 队列上限：2 帧（约 130 ms @ 15 fps）。 */
 const MAX_QUEUED = 2;
@@ -87,7 +104,40 @@ export class NativeVideoEncoder implements CallVideoEncoder {
     }
     if (this.queue.length >= MAX_QUEUED) this.queue.shift();
     this.queue.push(frame);
+    this.dumpI420(frame);
   }
+
+  /** 调试用：把送进编码器的 I420 原样落盘。 */
+  private dumpI420(frame: I420Frame): void {
+    if (!DUMP_DIR || this.dumpedFrames >= DUMP_FRAMES) return;
+    const index = this.dumpedFrames++;
+    try {
+      const all = new Uint8Array(frame.y.length + frame.u.length + frame.v.length);
+      all.set(frame.y, 0);
+      all.set(frame.u, frame.y.length);
+      all.set(frame.v, frame.y.length + frame.u.length);
+      writeFileSync(`${DUMP_DIR}/i420-${index}.raw`, all);
+      logger.info('已写出 I420 帧', { index, bytes: all.length, dir: DUMP_DIR });
+    } catch (error) {
+      logger.warn('写出 I420 帧失败', { error });
+    }
+  }
+
+  private dumpedFrames = 0;
+
+  /** 调试用：把编码结果按帧追加进同一个 Annex B 文件。 */
+  private dumpAnnexB(data: Uint8Array): void {
+    if (!DUMP_DIR || this.dumpedEncoded >= DUMP_FRAMES) return;
+    const index = this.dumpedEncoded++;
+    try {
+      appendFileSync(`${DUMP_DIR}/encoded.h265`, data);
+      logger.info('已追加编码帧', { index, bytes: data.length });
+    } catch (error) {
+      logger.warn('写出编码帧失败', { error });
+    }
+  }
+
+  private dumpedEncoded = 0;
 
   async next(): Promise<Uint8Array | null> {
     if (!this.opened) return null;
@@ -100,6 +150,7 @@ export class NativeVideoEncoder implements CallVideoEncoder {
     );
     // 编码器还在 lookahead 里攒帧时是 null，下一拍再取。
     if (!result) return null;
+    this.dumpAnnexB(new Uint8Array(result.data));
     return new Uint8Array(result.data);
   }
 

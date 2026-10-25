@@ -90,21 +90,44 @@ enc = t265_encoder_open(p, &err);
 返回 -1 且会把 tune 指针指到无效位置，导致 `encoder_open` 失败。
 必须换成 `zerolatency`。
 
-## 6. `t265_inpic_tag` 布局（gdb 内存验证）
+## 6. `t265_inpic_tag` 布局
 
-| 偏移 | 字段 |
-| --- | --- |
-| 0x10 | pts / frameIndex |
-| 0x20 | plane0 指针 |
-| 0x28 | plane0 **stride**（不是长度！） |
-| 0x30 | plane1 指针 |
-| 0x38 | plane1 stride |
-| 0x40 | plane2 指针 |
-| 0x48 | plane2 stride |
-| 0x58 | frameType（1 = I 帧） |
+**以 frida 在真机 QQ 里 dump 的值为准**（2026-10-25，480×240 输入）：
 
-**`+0x28` 是 stride 不是长度** —— 填成 `width*height` 会让编码器按
-230400 字节的行宽去拷，直接越界崩溃。
+| 偏移 | 字段 | 真机值 | 说明 |
+| --- | --- | --- | --- |
+| 0x00 | sliceType | 0 | 1 = 强制 I 帧 |
+| 0x08 | pts | 0,1,2… | 帧序号（QWORD） |
+| 0x10 | **stride0** | 480 | Y 平面行距 |
+| 0x14 | **stride1** | 240 | U 平面行距 |
+| 0x18 | **stride2** | 240 | V 平面行距 |
+| 0x1C | 未知 | 0 | |
+| 0x20 | plane0 | — | Y 指针 |
+| 0x28 | plane1 | — | U 指针 |
+| 0x30 | plane2 | — | V 指针 |
+
+三个 stride 的用途由 `TEncLookahead::copyToPic` 的反编译确认：
+
+```c
+v9  = *(u8**)(a3 + 32);   // inpic+0x20  plane0
+v10 = *(u8**)(a3 + 40);   // inpic+0x28  plane1
+v28 = *(u8**)(a3 + 48);   // inpic+0x30  plane2
+v14 = *(_DWORD *)(a3 + 16);  // inpic+0x10
+v11 = *(_DWORD *)(a3 + 20);  // inpic+0x14
+v29 = *(_DWORD *)(a3 + 24);  // inpic+0x18
+copyAndExtend(planeY, v9,  v14, ...);
+copyAndExtend(planeU, v10, v11, ...);
+copyAndExtend(planeV, v28, v29, ...);
+```
+
+⚠️ **三个 stride 必须非 0。** 填 0 时编码器按 0 字节步进读 Y 平面，等于整幅
+图只读到一行，输出退化成「每行完全相同」的竖条 —— 对端看到的是彩色竖纹，
+而本端预览（不经编码）完全正常。这个 bug 藏了很久，因为「有画面、只是花纹
+不对」，很容易被当成解码或传输问题。
+
+> 早期用 gdb 读出的 `0x28 = plane0 stride / 0x30 = plane1 指针` 那套交替布局
+> 是**错的**（推测读错了基址）。实际 `0x20/0x28/0x30` 就是三个平面指针，
+> stride 集中在 `0x10/0x14/0x18`。
 
 ## 7. 可用自检输出
 
@@ -126,9 +149,9 @@ t265 : [2.12.1|d542e84|R]P[7]tune[0,-1]key[30]q[26,0/69]bit[400]rc[1]
 ```c
 // DoEncode 把 VideoFrame 逐字段搬到 this+0xE8（= t265_inpic_tag）
 this+0xF0  = frame+0x10   → inpic+0x08  pts
-this+0xF8  = frame+0x18   → inpic+0x10
-this+0xFC  = frame+0x1C   → inpic+0x14
-this+0x100 = frame+0x20   → inpic+0x18
+this+0xF8  = frame+0x18   → inpic+0x10  stride0（Y 行距）
+this+0xFC  = frame+0x1C   → inpic+0x14  stride1（U 行距）
+this+0x100 = frame+0x20   → inpic+0x18  stride2（V 行距）
 this+0x108 = frame+0x28   → inpic+0x20  plane0
 this+0x110 = frame+0x30   → inpic+0x28  plane1
 this+0x118 = frame+0x38   → inpic+0x30  plane2
