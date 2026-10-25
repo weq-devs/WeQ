@@ -25,6 +25,7 @@ import {
   CallEvent,
   GCS_STX,
   GcsBodyType,
+  type CallServer,
   VIDEO_CTRL_SUB_TYPE,
   VIDEO_EXT_LEN,
   VIDEO_EXT_TYPE,
@@ -207,7 +208,9 @@ class FakeVideoEncoder implements CallVideoEncoder {
   }
 }
 
-function fakeSignaling(): CallSignaling & { startedWith: unknown[] } {
+function fakeSignaling(
+  servers: CallServer[] = [{ ip: '113.250.57.28', port: 8000, type: 1 }],
+): CallSignaling & { startedWith: unknown[] } {
   const startedWith: unknown[] = [];
   return {
     startedWith,
@@ -219,7 +222,7 @@ function fakeSignaling(): CallSignaling & { startedWith: unknown[] } {
           sessionId: 88n,
           relationId: 15001,
           authKey: new Uint8Array(80).fill(1),
-          servers: [{ ip: '113.250.57.28', port: 8000, type: 1 }],
+          servers,
         },
         authToken: 1234,
       };
@@ -228,10 +231,16 @@ function fakeSignaling(): CallSignaling & { startedWith: unknown[] } {
   };
 }
 
-function makeSession(options: { media?: 'audio' | 'video'; videoEncoder?: CallVideoEncoder } = {}) {
+function makeSession(
+  options: {
+    media?: 'audio' | 'video';
+    videoEncoder?: CallVideoEncoder;
+    servers?: CallServer[];
+  } = {},
+) {
   const timers = new FakeTimers();
   const transport = new FakeTransport();
-  const signaling = fakeSignaling();
+  const signaling = fakeSignaling(options.servers);
   const session = new CallSession({
     selfUin: '1707889225',
     selfUid: 'u_self',
@@ -822,6 +831,34 @@ describe('媒体路径（中继 / 直连）', () => {
     expect(ctx.transport.mediaTo(SERVER_IP, VideoSubType.max).length).toBeGreaterThan(0);
   });
 
+  /**
+   * 回归：GCS 必须选 8000/8001 端口，不能选中继的 8800。
+   *
+   * 2026-10-26 抓包实测：服务端下发的 `type` 字段不可信 —— 16 通里有 5 通把
+   * `type=1` 的候选选到了 8800（中继）。中继只回中继地址、从不给对端的 f7
+   * （IPv6），媒体于是全程走中继，两端画面都极卡。
+   */
+  it('服务器表里 type=1 混进 8800 时，仍优先选 8000/8001', async () => {
+    const ctx = makeSession({
+      media: 'video',
+      videoEncoder: new FakeVideoEncoder(1000),
+      servers: [
+        { ip: '113.250.57.28', port: 8800, type: 1 }, // 中继端口，但标了 type=1
+        { ip: '113.250.58.160', port: 8000, type: 1 },
+        { ip: '113.250.57.28', port: 8000, type: 2 },
+      ],
+    });
+    await connect(ctx);
+    ctx.transport.reset();
+    await ctx.timers.advanceAsync(20);
+
+    // 认证 / 媒体都必须发往 8000 那台，一个包都不能发到 8800。
+    const to8800 = ctx.transport.sent.filter((s) => s.port === 8800);
+    expect(to8800).toHaveLength(0);
+    const to8000 = ctx.transport.sent.filter((s) => s.port === 8000);
+    expect(to8000.length).toBeGreaterThan(0);
+  });
+
   it('保活包每拍两条：0x02 与 0x03 变体', async () => {
     const ctx = makeSession({ media: 'video' });
     await connect(ctx);
@@ -833,5 +870,44 @@ describe('媒体路径（中继 / 直连）', () => {
     const bodies = keepalives.map((p) => p[17]);
     expect(bodies).toContain(0x02);
     expect(bodies).toContain(0x03);
+  });
+
+  /**
+   * 回归：服务器自己的回包不能被当成「对端直连地址」。
+   *
+   * socket 是 udp6 双栈，IPv4 来源在 `rinfo.address` 里是 `::ffff:a.b.c.d`，而
+   * 服务器表里是 `a.b.c.d`。早先直接字符串比较，两者永远不等 —— 服务器回包被
+   * 当成对端，媒体路径切到 direct 后其实仍发往同一台服务器（同 IP 同端口），
+   * 表现为「以为直连了，其实全程中继」，两端画面都极卡。
+   */
+  it('服务器回包（IPv4 映射形态）不会被学成对端直连地址', async () => {
+    const encoder = new FakeVideoEncoder(1000);
+    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
+    await connect(ctx);
+
+    const whole = new Uint8Array(26);
+    whole[0] = 20;
+    whole.set([0, 0, 0, 1, 0x40, 0x01], 20);
+    const packet = (gidx: number) => videoPacket({ gidx, pkgIdx: 0, totalPkg: 1, chunk: whole });
+
+    // ① 对端先从真实 P2P 地址发一包 —— 学到端口，peerDirect 才有 port，
+    //    否则 mediaTargets 的 wantPeer 恒为 false，测不出问题。
+    ctx.transport.deliverFrom(packet(0), { address: PEER_IP, port: 47708 });
+    // ② 服务器以 `::ffff:SERVER_IP` 形态回包（真实 udp6 socket 的行为）。
+    //    端口 8000 与服务器表一致，只有地址形态不同。**之后不再有对端包** ——
+    //    否则对端的下一包会把 peerDirect 改回去，掩盖问题。
+    ctx.transport.deliverFrom(packet(1), {
+      address: `::ffff:${SERVER_IP}`,
+      port: 8000,
+    });
+    ctx.transport.reset();
+    await ctx.timers.advanceAsync(1500);
+
+    // 服务器回包被误判成对端时，`peerDirect` 被改写成
+    // `::ffff:113.250.57.28:8000`，媒体随后只发这个「伪对端」。
+    const toFakePeer = ctx.transport.mediaTo(`::ffff:${SERVER_IP}`, VideoSubType.max);
+    expect(toFakePeer).toHaveLength(0);
+    // 真对端仍然收得到（直连没被服务器回包挤掉）。
+    expect(ctx.transport.mediaTo(PEER_IP, VideoSubType.max).length).toBeGreaterThan(0);
   });
 });

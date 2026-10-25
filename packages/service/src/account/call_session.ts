@@ -332,6 +332,27 @@ export type MediaPath = 'server' | 'probing' | 'direct';
 // ─────────────────────────── 会话 ───────────────────────────
 
 /**
+ * 两个地址是否指向同一台主机（忽略 IPv4 的 IPv6 映射前缀）。
+ *
+ * udp6 双栈 socket 上，IPv4 来源在 `rinfo.address` 里是 `::ffff:a.b.c.d`，而
+ * 服务器表里是 `a.b.c.d`。直接字符串比较会漏判 —— 见 `rememberPeerSource` 的
+ * 注释，这个漏判会让服务器回包被当成对端直连地址，媒体退化成全程中继。
+ */
+function sameHost(a: string, b: string): boolean {
+  if (a === b) return true;
+  return normalizeHost(a) === normalizeHost(b);
+}
+
+/** 去掉 IPv4-mapped IPv6 前缀并转小写（IPv6 十六进制大小写不敏感）。 */
+function normalizeHost(address: string): string {
+  const lower = address.toLowerCase();
+  const mapped = lower.startsWith('::ffff:') ? lower.slice('::ffff:'.length) : lower;
+  // `::ffff:1.2.3.4` 去掉前缀就是点分 IPv4；但 `::ffff:0102:0304` 形态要去前缀后
+  // 再按 IPv6 比较 —— 这里只处理点分那种（Node 在双栈 socket 上就给点分）。
+  return mapped;
+}
+
+/**
  * 16 字节 IPv6 → 标准文本形式。
  *
  * 通话服务端下发的是裸 16 字节（不是字符串），要转成 `dgram.send` 认的写法。
@@ -770,21 +791,36 @@ export class CallSession {
    * 分配的机器会变，但可达性通常一致，能省掉一次 3 秒的空等。
    */
   private pickServers(servers: CallServer[]): void {
-    const gcsCandidates = servers.filter((s) => s.type === 1);
+    // **端口比 type 可靠。** 实测服务端下发的 `type` 字段并不可信：2026-10-26
+    // 抓包那次 16 通里有 5 通把 `type=1` 的候选选到了 8800 端口（中继），
+    // 后果是认证、心跳、`bt=9` 全发给中继节点 —— 中继只回中继地址、**从不给
+    // 对端的 f7（IPv6）**，媒体于是全程走中继，两端画面都极卡。
+    //
+    // 真实客户端连的 GCS 是 8000 / 8001 端口，8800 是中继。所以按端口再分一次：
+    // 8000/8001 优先当 GCS，其余（含 8800）只作兜底。
+    const isGcsPort = (s: CallServer) => s.port === 8000 || s.port === 8001;
+    const typeOne = servers.filter((s) => s.type === 1);
     const relayCandidates = servers.filter((s) => s.type === 2);
-    this.gcsCandidates = [...gcsCandidates, ...relayCandidates];
-    // 记住的 IP 优先在 **type=1（真 GCS）** 里找：同一个 IP 也可能出现在中继表
-    // 里（不同端口），直接在整个候选表里 find 会选中 8800 那个中继端口 ——
-    // 音频还能通（服务端两个端口都收），但视频控制包发到中继就没人处理。
+    const gcsCandidates = typeOne.filter(isGcsPort);
+    // 按端口过滤后一台都不剩（服务端换了端口方案）时退回原列表，不要空手。
+    const preferred = gcsCandidates.length > 0 ? gcsCandidates : typeOne;
+    this.gcsCandidates = [
+      ...preferred,
+      ...typeOne.filter((s) => !preferred.includes(s)),
+      ...relayCandidates,
+    ];
+    // 记住的 IP 优先在 **真 GCS** 里找：同一个 IP 也可能出现在中继表里（不同
+    // 端口），直接在整个候选表里 find 会选中 8800 那个中继端口。
     this.gcs =
-      gcsCandidates.find((s) => s.ip === CallSession.goodGcsIp) ??
-      gcsCandidates[0] ??
+      preferred.find((s) => s.ip === CallSession.goodGcsIp) ??
+      preferred[0] ??
       this.gcsCandidates.find((s) => s.ip === CallSession.goodGcsIp) ??
       this.gcsCandidates[0] ??
       null;
     this.gcsIndex = Math.max(0, this.gcsCandidates.indexOf(this.gcs!));
     this.log?.debug('服务器表', {
       gcs: gcsCandidates.length,
+      typeOne: typeOne.length,
       relay: relayCandidates.length,
       picked: this.gcs ? `${this.gcs.ip}:${this.gcs.port}` : 'none',
     });
@@ -841,8 +877,10 @@ export class CallSession {
     const wantPeer = hasPeer && this.mediaPath !== 'server';
     if (wantServer) out.push({ address: this.gcs.ip, port: this.gcs.port });
     if (wantPeer && peer) {
-      // 同一台机器（回环 / 服务端与对端同址）会撞上，避免重复发。
-      if (peer.address !== this.gcs.ip || peer.port !== this.gcs.port) {
+      // 同一台机器（回环 / 服务端与对端同址）会撞上，避免重复发。地址比较要做
+      // IPv4 映射归一化，否则 `::ffff:1.2.3.4` 与 `1.2.3.4` 会被当成两台机器，
+      // 同一份媒体包连发两遍。
+      if (!sameHost(peer.address, this.gcs.ip) || peer.port !== this.gcs.port) {
         out.push({ address: peer.address, port: peer.port });
       }
     }
@@ -1227,7 +1265,15 @@ export class CallSession {
   private rememberPeerSource(from: { address: string; port: number }): void {
     // 判据是「来源 != 服务端」而不是「和 bt=9 一致」：bt=9 只给地址不给端口，
     // 而真正的回程端口只能从对端实际发包的来源学到。服务端地址要排除掉。
-    const isServer = this.gcs && this.gcs.ip === from.address && this.gcs.port === from.port;
+    //
+    // ⚠️ **必须做地址归一化再比**。socket 是 udp6 双栈（`ipv6Only: false`），
+    // IPv4 来源在 `rinfo.address` 里是 `::ffff:113.250.57.28` 形态，而服务器表里
+    // 是 `113.250.57.28` —— 直接字符串比较永远不相等。后果很严重：服务器自己的
+    // 回包被当成「对端直连地址」，媒体路径切到 direct，实际仍发往服务器（同 IP
+    // 同端口），于是全程走中继、`bt=9` 也永远拿不到对端的 f7（IPv6），表现为
+    // 两端画面都极卡。
+    const isServer =
+      this.gcs !== null && sameHost(this.gcs.ip, from.address) && this.gcs.port === from.port;
     // 只有绕过服务端的包才刷新「直连还活着」的时间戳 —— 被中继的包说明直连不通。
     if (!isServer) this.lastPeerMediaAt = this.timers.now();
     if (this.lastPeerFrom?.address === from.address && this.lastPeerFrom?.port === from.port)
