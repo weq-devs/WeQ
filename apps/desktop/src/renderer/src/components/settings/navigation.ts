@@ -140,6 +140,12 @@ interface ItemRedirect {
 }
 
 const ITEM_REDIRECTS: readonly ItemRedirect[] = [
+  {
+    id: 'send-with-qq-font',
+    section: 'chat-messages',
+    label: '使用 QQ 账号设置的个性字体发送消息',
+    from: ['message-display', 'chat-messages'],
+  },
   ...(
     [
       ['home-tags', '个性标签'],

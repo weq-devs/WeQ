@@ -17,17 +17,20 @@ it('阅读与群助手偏好兼容旧配置，独立保存并在重开后保留'
     const defaults = {
       readFromFirstUnread: false,
       jumpToLatestAfterSend: true,
+      sendWithQqFont: true,
       showGroupAssistantMessageCount: false,
     };
     expect(DEFAULT_APP_SETTINGS).toMatchObject(defaults);
     expect(config.getSettings()).toMatchObject({ ...defaults, showMessageTime: true });
     config.setSettings({ readFromFirstUnread: true });
     config.setSettings({ jumpToLatestAfterSend: false });
+    config.setSettings({ sendWithQqFont: false });
     config.setSettings({ showGroupAssistantMessageCount: true });
     config.setSettings({ showMessageTime: false });
     expect(new UserConfigService(platform).getSettings()).toMatchObject({
       readFromFirstUnread: true,
       jumpToLatestAfterSend: false,
+      sendWithQqFont: false,
       showGroupAssistantMessageCount: true,
       showMessageTime: false,
     });

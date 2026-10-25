@@ -348,6 +348,7 @@ export type Message = {
   source?: 'roaming';
   sourceFormat?: 'native' | 'protocol';
   localSent?: boolean;
+  decoration?: { bubbleId: number; fontId: number; widgetId: number };
   optimistic?: 'queued' | 'sending' | 'sent' | 'failed';
   optimisticError?: string;
   optimisticRejected?: boolean;

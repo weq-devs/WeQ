@@ -555,6 +555,8 @@ export interface AppSettings {
   readFromFirstUnread: boolean;
   /** 发送成功后定位到当前会话的最新消息。 */
   jumpToLatestAfterSend: boolean;
+  /** 发送文本时显式携带 QQ 账号当前的个性字体。 */
+  sendWithQqFont: boolean;
   /** 群助手入口显示汇总未读消息数，而不是仅显示圆点。 */
   showGroupAssistantMessageCount: boolean;
   /**
@@ -841,6 +843,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showMessageUnreadBadge: true,
   readFromFirstUnread: false,
   jumpToLatestAfterSend: true,
+  sendWithQqFont: true,
   showGroupAssistantMessageCount: false,
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
@@ -1347,6 +1350,7 @@ export class UserConfigService {
       showMessageUnreadBadge: s?.showMessageUnreadBadge ?? d.showMessageUnreadBadge,
       readFromFirstUnread: s?.readFromFirstUnread ?? d.readFromFirstUnread,
       jumpToLatestAfterSend: s?.jumpToLatestAfterSend ?? d.jumpToLatestAfterSend,
+      sendWithQqFont: s?.sendWithQqFont ?? d.sendWithQqFont,
       showGroupAssistantMessageCount:
         s?.showGroupAssistantMessageCount ?? d.showGroupAssistantMessageCount,
       externalChatpic: {
@@ -1455,6 +1459,7 @@ export class UserConfigService {
       showMessageUnreadBadge: patch.showMessageUnreadBadge ?? current.showMessageUnreadBadge,
       readFromFirstUnread: patch.readFromFirstUnread ?? current.readFromFirstUnread,
       jumpToLatestAfterSend: patch.jumpToLatestAfterSend ?? current.jumpToLatestAfterSend,
+      sendWithQqFont: patch.sendWithQqFont ?? current.sendWithQqFont,
       showGroupAssistantMessageCount:
         patch.showGroupAssistantMessageCount ?? current.showGroupAssistantMessageCount,
       externalChatpic: {

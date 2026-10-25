@@ -865,6 +865,11 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  setSendWithQqFont: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    requireBootstrap().userConfig.setSettings({ sendWithQqFont: input.enabled });
+    return true;
+  }),
+
   setShowGroupAssistantMessageCount: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {

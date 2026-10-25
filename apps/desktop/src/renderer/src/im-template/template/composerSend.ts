@@ -423,6 +423,14 @@ function encodePcmWav(samples: Float32Array, sampleRate: number): Uint8Array {
 /** 一条乐观消息的渲染内容：元素数组 + 纯文本预览。 */
 export type OptimisticRender = { elements: unknown[]; body: string };
 
+/** 开发时渲染层可能先热更新，新增主进程接口尚未加载；不降级成错误字体发送。 */
+export function composerSendError(error: unknown): string {
+  const reason = error instanceof Error ? error.message : String(error);
+  return reason.includes('No "query"-procedure on path "account.prepareChatFont"')
+    ? '主进程尚未加载新的字体发送接口，请重启 WeQ 开发进程后重试；本条消息尚未发送。'
+    : reason;
+}
+
 function previewOf(element: Record<string, unknown>, localByKey: Map<string, LocalMediaRef>) {
   const key = localKeyOf(element);
   return key ? localByKey.get(key) : undefined;

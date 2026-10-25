@@ -454,6 +454,112 @@ describe('toOutcome', () => {
 
 describe('MessageSendService.sendText（离线集成）', () => {
   it.each(['c2c', 'group'] as const)(
+    '%s 关闭后不查字体、不带任何字体字段，保留其他装扮',
+    async (peerType) => {
+      const native = fakeNative();
+      const saved: import('../src/account/gap_history').GapFetchedMessage[] = [];
+      let reads = 0;
+      const svc = new MessageSendService(
+        native as never,
+        fakeSession(),
+        () => 1,
+        undefined,
+        async (row) => {
+          saved.push(row);
+        },
+        () => {
+          reads++;
+          return 31001;
+        },
+        () => false,
+      );
+      const targetId = peerType === 'group' ? '12345' : 'u_friend';
+      expect(await svc.prepareChatFont({ peerType, targetId })).toBeNull();
+      await svc.sendText({
+        peerType,
+        targetId,
+        text: '普通字体',
+        dress: {
+          fontId: 12,
+          fontId2: 34,
+          fontId1Raw: 56,
+          fontId2Raw: 72057,
+          bubbleId: 11,
+          widgetId: 22,
+        },
+      });
+      expect(reads).toBe(0);
+      expect(elemsOf(native.calls[0]!.body)).toEqual([
+        { generalFlags: { widgetId: 22 } },
+        { bubble: { id: 11 } },
+        { text: { str: '普通字体' } },
+      ]);
+      expect(saved[0]!.decoration).toEqual({ fontId: 0, bubbleId: 11, widgetId: 22 });
+    },
+  );
+
+  it('准备后的同一字体原值用于请求与本地回显，不随账号字体快照变化漂移', async () => {
+    const native = fakeNative();
+    const saved: import('../src/account/gap_history').GapFetchedMessage[] = [];
+    let current = 31001;
+    const svc = new MessageSendService(
+      native as never,
+      fakeSession(),
+      () => 1,
+      undefined,
+      async (row) => {
+        saved.push(row);
+      },
+      () => current,
+    );
+    const target = { peerType: 'c2c' as const, targetId: 'u_friend' };
+    const preparedChatFont = await svc.prepareChatFont(target);
+    expect(preparedChatFont).toEqual({ fontId: 31001, fontId2Raw: 72057 });
+    current = 32002;
+    await svc.sendElements({
+      ...target,
+      elements: [{ kind: 'text', textContent: '固定本次字体' }],
+      preparedChatFont,
+    });
+    expect(elemsOf(native.calls[0]!.body)[0]).toEqual({
+      generalFlags: { font: { fontId2: 72057 } },
+    });
+    expect(saved[0]!.decoration?.fontId).toBe(31001);
+    await svc.sendElements({
+      ...target,
+      elements: [{ kind: 'text', textContent: '明确不带字体' }],
+      preparedChatFont: null,
+    });
+    expect(elemsOf(native.calls[1]!.body)).toEqual([{ text: { str: '明确不带字体' } }]);
+    expect(saved[1]!.decoration).toBeUndefined();
+  });
+
+  it('准备阶段缺少可靠字体原值返回 null，QQ 切换时中止', async () => {
+    let pid = 1;
+    const session = fakeSession({ fontSamples: [] });
+    const svc = new MessageSendService(
+      fakeNative() as never,
+      session,
+      () => pid,
+      undefined,
+      undefined,
+      () => 31001,
+    );
+    expect(await svc.prepareChatFont({ peerType: 'c2c', targetId: 'u_friend' })).toBeNull();
+    const other = new MessageSendService(
+      fakeNative() as never,
+      session,
+      () => pid++,
+      undefined,
+      undefined,
+      () => 31001,
+    );
+    await expect(other.prepareChatFont({ peerType: 'c2c', targetId: 'u_friend' })).rejects.toThrow(
+      'QQ 会话已变化',
+    );
+  });
+
+  it.each(['c2c', 'group'] as const)(
     '%s 请求显式携带当前字体原值，并随当前选择更新，不增加联网查询',
     async (peerType) => {
       const native = fakeNative();

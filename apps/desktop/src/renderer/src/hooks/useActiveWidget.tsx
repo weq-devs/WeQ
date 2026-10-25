@@ -28,6 +28,8 @@ import type { FontFxSkin } from '../lib/dressSkin';
 export interface ActiveWidgetInfo {
   widget: ResolvedWidget | null;
   scope: DressScope;
+  /** 本地使用中的字体（包括没有炫彩帧的普通款）优先于消息字体。 */
+  fontActive?: boolean;
 }
 
 export const ActiveWidgetContext = createContext<ActiveWidgetInfo>({
@@ -60,6 +62,7 @@ export function ActiveWidgetProvider({ children }: { children: ReactNode }): Rea
       value={{
         widget: manifest ? activeWidgetFromManifest(manifest) : null,
         scope: manifest?.scope ?? 'mine',
+        fontActive: Boolean(manifest?.fonts.some((font) => font.itemId === manifest.activeFont)),
       }}
     >
       <ActiveFontFxContext.Provider value={manifest ? activeFontFxFromManifest(manifest) : null}>

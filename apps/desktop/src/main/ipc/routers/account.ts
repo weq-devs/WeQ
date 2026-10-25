@@ -5127,6 +5127,30 @@ export const accountRouter = router({
    * `tempGroupCode` 只在「群里发起的临时会话」里给（会话行的 60001 来源群号）：给了
    * 就走 `routingHead.grpTmp` 而不是 c2c —— 见 `MessageSendService` 的 `GroupTempSource`。
    */
+  prepareChatFont: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        tempGroupCode: z.string().min(1).optional(),
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1).optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      const font = await services.messageSend.prepareChatFont(input);
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号数据源已切换，已停止发送');
+      return font;
+    }),
+
   sendElements: procedure
     .input(
       z.object({
@@ -5137,6 +5161,17 @@ export const accountRouter = router({
         tempGroupCode: z.string().min(1).optional(),
         elements: z.array(z.any()).min(1),
         dress: z.any().optional(),
+        preparedChatFont: z
+          .object({
+            fontId: z.number().int().positive().max(0xffff),
+            fontId2Raw: z.number().int().positive().max(0xffff_ffff),
+          })
+          .refine(
+            (font) =>
+              font.fontId === (((font.fontId2Raw & 0xff) << 8) | ((font.fontId2Raw >>> 8) & 0xff)),
+          )
+          .nullable()
+          .optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -5169,6 +5204,9 @@ export const accountRouter = router({
         targetId: input.targetId,
         ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
         elements: elements as never,
+        ...(input.preparedChatFont !== undefined
+          ? { preparedChatFont: input.preparedChatFont }
+          : {}),
         ...(input.dress ? { dress: input.dress as never } : {}),
       });
     }),
@@ -6815,6 +6853,7 @@ export const accountRouter = router({
           )
             throw new Error('账号数据源已切换，已取消保存。');
         },
+        getAppContext().bootstrap?.userConfig.getSettings(),
       );
     }),
 

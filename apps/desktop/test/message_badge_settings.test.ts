@@ -130,6 +130,7 @@ it('保存失败保留原值并提示，保存期间不能重复点击', () => {
 it.each([
   ['从第一条新消息开始阅读', 'readFromFirstUnread', false],
   ['发送消息后定位到最新消息', 'jumpToLatestAfterSend', true],
+  ['使用 QQ 账号设置的个性字体发送消息', 'sendWithQqFont', true],
   ['群助手显示总消息数', 'showGroupAssistantMessageCount', false],
 ] as const)('%s 默认值正确，点击保存、重开恢复、失败不改变原值', (label, key, defaultValue) => {
   let f = mount();

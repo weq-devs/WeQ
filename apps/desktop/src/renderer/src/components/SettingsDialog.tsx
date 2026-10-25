@@ -640,6 +640,7 @@ function AppearanceSection({
   const setShowMessageUnreadBadge = trpc.bootstrap.setShowMessageUnreadBadge.useMutation();
   const setReadFromFirstUnread = trpc.bootstrap.setReadFromFirstUnread.useMutation();
   const setJumpToLatestAfterSend = trpc.bootstrap.setJumpToLatestAfterSend.useMutation();
+  const setSendWithQqFont = trpc.bootstrap.setSendWithQqFont.useMutation();
   const setShowGroupAssistantMessageCount =
     trpc.bootstrap.setShowGroupAssistantMessageCount.useMutation();
   const utils = trpc.useUtils();
@@ -797,13 +798,23 @@ function AppearanceSection({
               mutation: setJumpToLatestAfterSend,
             },
             {
+              key: 'sendWithQqFont' as const,
+              label: '使用 QQ 账号设置的个性字体发送消息',
+              fallback: true,
+              mutation: setSendWithQqFont,
+            },
+            {
               key: 'showGroupAssistantMessageCount' as const,
               label: '群助手显示总消息数',
               fallback: false,
               mutation: setShowGroupAssistantMessageCount,
             },
           ].map(({ key, label, fallback, mutation }) => (
-            <div className="weq-settings-appearance-card" key={key}>
+            <div
+              className="weq-settings-appearance-card"
+              key={key}
+              data-setting-id={key === 'sendWithQqFont' ? 'send-with-qq-font' : undefined}
+            >
               <div className="weq-settings-appearance-head">
                 <strong>{label}</strong>
                 <Toggle

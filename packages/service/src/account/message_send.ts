@@ -236,6 +236,8 @@ export interface SendElementsParams {
   elements: SendElement[];
   /** 随这条消息一起带出的装扮；⚠️ 服务端不收，见 SendDress。缺省不带。 */
   dress?: SendDress;
+  /** 发送前已解析的字体快照；null 表示本次不带字体，避免预览与请求二次解析漂移。 */
+  preparedChatFont?: { fontId: number; fontId2Raw: number } | null;
 }
 
 // ───────────────────────────── Ark 卡片 ─────────────────────────────
@@ -495,7 +497,42 @@ export class MessageSendService {
      * 不猜字体类型高位，也不允许用历史中另一款字体覆盖当前选择。
      */
     private readonly currentChatFontId?: () => number | undefined,
+    private readonly sendWithQqFont: () => boolean = () => true,
   ) {}
+
+  /** 只读准备阶段，供发送中的气泡与实际请求共用同一份字体原值。 */
+  async prepareChatFont(
+    params: Pick<SendElementsParams, 'peerType' | 'targetId' | 'tempGroupCode'>,
+  ) {
+    const pid = this.resolvePid();
+    const temp =
+      params.tempGroupCode === undefined
+        ? null
+        : this.resolveGroupTempTarget(params.targetId, params.tempGroupCode);
+    const target: ResolvedSendTarget = temp
+      ? {
+          peerType: 'c2c',
+          scene: 'group-temp',
+          uin: temp.uin,
+          uid: temp.toUid,
+          targetId: temp.targetId,
+        }
+      : this.resolveTarget(params.targetId, params.peerType, false);
+    const fontId = this.sendWithQqFont() ? this.readCurrentFontId() : undefined;
+    const raw = fontId === undefined ? undefined : await this.currentFontWire(fontId, target);
+    if (this.resolvePid() !== pid) throw new Error('QQ 会话已变化，请重新发送。');
+    return fontId !== undefined && raw !== undefined ? { fontId, fontId2Raw: raw } : null;
+  }
+
+  private readCurrentFontId(): number | undefined {
+    try {
+      const id = this.currentChatFontId?.();
+      if (id !== undefined && Number.isSafeInteger(id) && id > 0 && id <= 0xffff_ffff) return id;
+    } catch {
+      logger.debug('current chat font unavailable', { event: 'send-font-current-unavailable' });
+    }
+    return undefined;
+  }
 
   /** 原值保留类型／魔法字体高位；只在当前账号内做有界读取，并合并同款的并发查询。 */
   private async currentFontWire(
@@ -920,31 +957,28 @@ export class MessageSendService {
     // 商城表情：把空 encryptKey 用包密钥补上（同包只查一次）。
     const elements = await this.fillMarketFaceKeys(params.elements);
 
-    let currentFontId: number | undefined;
-    if (elements.some((element) => element.kind === 'text' || element.kind === 'at')) {
-      try {
-        const fontId = this.currentChatFontId?.();
-        if (
-          fontId !== undefined &&
-          Number.isSafeInteger(fontId) &&
-          fontId > 0 &&
-          fontId <= 0xffff_ffff
-        ) {
-          currentFontId = fontId;
-        }
-      } catch {
-        logger.debug('current chat font unavailable', {
-          event: 'send-font-current-unavailable',
-        });
-      }
-    }
-
+    const useFont =
+      params.preparedChatFont !== undefined
+        ? params.preparedChatFont !== null
+        : this.sendWithQqFont();
+    const hasText = elements.some((element) => element.kind === 'text' || element.kind === 'at');
+    const prepared = params.preparedChatFont;
+    const currentFontId =
+      useFont && hasText
+        ? prepared !== undefined
+          ? prepared?.fontId
+          : this.readCurrentFontId()
+        : undefined;
     const fontRaw =
-      currentFontId === undefined ? undefined : await this.currentFontWire(currentFontId, target);
+      currentFontId === undefined
+        ? undefined
+        : prepared !== undefined
+          ? prepared?.fontId2Raw
+          : await this.currentFontWire(currentFontId, target);
     if (currentFontId !== undefined && this.resolvePid() !== pid)
       throw new Error('QQ 会话已变化，请重新发送。');
     const dress =
-      currentFontId === undefined
+      useFont && prepared === undefined && currentFontId === undefined
         ? params.dress
         : {
             ...(params.dress?.bubbleId !== undefined ? { bubbleId: params.dress.bubbleId } : {}),

@@ -290,6 +290,7 @@ import { buildUnreadDock } from '../im-template/template/unreadDock';
 import {
   buildComposerSendPlan,
   buildOptimisticRender,
+  composerSendError,
   decodeRecordingToWav,
   type LocalMediaRef,
   type ComposerSendPlan,
@@ -1482,6 +1483,7 @@ type OptimisticMessage = {
   /** 渲染元素（`{type,data}`，与真实消息的 `qqElements` 同形）。 */
   elements: unknown[];
   composerDraft?: Message['composerDraft'];
+  decoration?: Message['decoration'];
   /**
    * 内容签名（cid / seq 都拿不到时的对账兜底，如 AI 声聊 0x929b_0 回执、闪传
    * 0x93d7 回执）。**任意一个**命中就收掉；每个签名各自按出现次数消耗。
@@ -1527,6 +1529,7 @@ function optimisticMessageToTemplate(
     optimisticAfterSeq: item.afterSeq,
     optimisticError: item.error,
     composerDraft: item.composerDraft,
+    decoration: item.decoration,
     msgRandom: item.cid,
   } as Message & {
     qqElements: unknown[];
@@ -8051,6 +8054,27 @@ export function MainView(): ReactElement {
     };
     try {
       if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
+      // 预览和请求固定使用同一份快照；读回后整条消息由真实记录替换。
+      const preparedChatFont =
+        plan.kind === 'elements' &&
+        plan.elements.some((element) => {
+          const kind = (element as { kind?: string }).kind;
+          return kind === 'text' || kind === 'at';
+        })
+          ? await client.account.prepareChatFont.query({
+              ...target,
+              expectedAccountUin: user.identityValue,
+              ...(expectedAccountConfigId ? { expectedAccountConfigId } : {}),
+            })
+          : null;
+      if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
+      patchOptimistic({
+        decoration: {
+          bubbleId: 0,
+          widgetId: 0,
+          fontId: preparedChatFont?.fontId ?? 0,
+        },
+      });
       if (plan.kind === 'file') {
         if (target.tempGroupCode) {
           // 私聊文件走的是 trans0x211 路由（c2c 专用），临时会话还没验证过对应的文件
@@ -8104,10 +8128,11 @@ export function MainView(): ReactElement {
           targetId: target.targetId,
           ...(target.tempGroupCode ? { tempGroupCode: target.tempGroupCode } : {}),
           elements: toIpcElements(plan.elements),
+          preparedChatFont,
         });
       }
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = composerSendError(error);
       patchOptimistic({ state: 'failed', error: reason });
       pushToast({
         tone: 'error',

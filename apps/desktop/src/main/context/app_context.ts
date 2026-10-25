@@ -1929,6 +1929,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             } satisfies RoamingCacheChange);
           },
           () => accountConfig.getRecord()?.homeDress?.fontId,
+          () => userConfig.getSettings().sendWithQqFont,
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, resolveOnlinePid),
@@ -2665,6 +2666,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             } satisfies RoamingCacheChange);
           },
           () => accountConfig.getRecord()?.homeDress?.fontId,
+          () => userConfig.getSettings().sendWithQqFont,
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, livePid),

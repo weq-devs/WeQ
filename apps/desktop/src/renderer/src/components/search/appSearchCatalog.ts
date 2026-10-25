@@ -70,6 +70,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['appearance', '组件风格', '皮肤'],
   ['message-display', '从第一条新消息开始阅读', '第一条未读'],
   ['message-display', '发送消息后定位到最新消息', '发送后跳转'],
+  ['message-display', '使用 QQ 账号设置的个性字体发送消息', '发送字体'],
   ['message-display', '群助手显示总消息数'],
   ['message-display', '显示消息汇总红点', '未读红点'],
   ['message-display', '纯文本消息渲染 Markdown', '富文本'],
