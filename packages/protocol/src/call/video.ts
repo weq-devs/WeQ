@@ -26,8 +26,15 @@
  * 3. **sub-header `[2]` 是方向标识**（c2s=0x00 / s2c=0x03），且时间戳布局随之
  *    变化。恒写 0x03 等于把自己伪装成对端方向。
  *
- * 帧的归属靠 `(gidx, fidx)`：`fidx=1` 是基础层（可独立解码），`fidx>=2` 是时域
- * 增强层（依赖基础层，跳过可避免花屏）。同一个 GOP 内 `gidx` 递增。
+ * 帧的归属靠 `(gidx, fidx)`：它俩拼起来是**一个 16 位帧序号** ——
+ * `frameIndex = ((fidx - 1) << 8) | gidx`。`gidx` 是低字节，每帧 +1 并在 256 处
+ * 回绕；`fidx` 从 1 起，跟着 `gidx` 的回绕 +1（实测连续 600 帧：g=249/f=1 →
+ * g=43/f=2 → g=87/f=3，拼出来的序号 249→299→343 全程连续）。
+ *
+ * ⚠️ 早期把 `fidx` 当成「时域增强层」（fidx=1 基础层、fidx>=2 增强层），据此在
+ * 主进程过滤掉 `fidx>=2` 的帧。真机日志证明那是错的：第 256 帧之后 fidx 变成 2，
+ * 于是**从第 256 帧起所有画面都被丢掉**，表现为「视频播二十来秒就永久冻结」。
+ * 它也不是 SVC 的层号 —— 同一时刻只有一个 fidx 值在发。
  *
  * `[9:13]` 两侧都是**每方向恒定的会话时钟**（实测 c2s/s2c 各差 1），不是每包
  * 变化的时间戳。真正的帧时间戳在 sub-header 里。
@@ -94,7 +101,12 @@ export interface VideoRtpHeader {
   multiFrameFec: number;
   /** GOP 索引。 */
   gidx: number;
-  /** GOP 内的帧索引：1 = 基础层，>=2 = 增强层。 */
+  /**
+   * 帧序号高字节（`fidx`）。
+   *
+   * **不是 SVC 层号**：`((fidx - 1) << 8) | gidx` 才是真正的 16 位帧序号，
+   * 见 {@link VideoFrame.frameIndex}。接收侧只把它当帧身份的一部分用。
+   */
   fidx: number;
   /** 扩展段解析结果。 */
   extensions: VideoExtension[];
@@ -202,11 +214,16 @@ export function parseVideoRtpHeader(payload: Uint8Array): VideoRtpHeader | null 
 export interface VideoFrame {
   gidx: number;
   fidx: number;
+  /**
+   * 16 位帧序号：`((fidx - 1) << 8) | gidx`。
+   *
+   * 这是**帧的真正身份**（接收侧判连续性、丢弃迟到帧都用它），`gidx` 单独用会在
+   * 每 256 帧回绕一次。见文件头关于 `fidx` 语义的说明。
+   */
+  frameIndex: number;
   /** 同一帧的各个分片共用（视频里就是 ssrc 的位置）。 */
   tick: number;
   subType: number;
-  /** 基础层（`fidx === 1`）才能独立解码。 */
-  isBaseLayer: boolean;
   /**
    * 是否为关键帧（IRAP：IDR / CRA / BLA）。
    *
@@ -312,6 +329,23 @@ export class VideoFrameAssembler {
   }
 }
 
+/**
+ * `(gidx, fidx)` → 16 位帧序号。
+ *
+ * 实测 2026-10-25 真机抓包 + 日志（连续 600 帧）：`gidx` 是低字节、`fidx` 从 1 起
+ * 是**高字节 + 1**，即 `((fidx - 1) << 8) | gidx`。拼接后帧序号全程连续，
+ * 包含中途关 / 开摄像头也不重置。
+ */
+export function videoFrameIndex(gidx: number, fidx: number): number {
+  return (((fidx - 1) & 0xff) << 8) | (gidx & 0xff);
+}
+
+/** 16 位帧序号 → 包头里的 `{ gidx, fidx }`。 */
+export function videoFrameHeader(index: number): { gidx: number; fidx: number } {
+  const wrapped = index & 0xffff;
+  return { gidx: wrapped & 0xff, fidx: ((wrapped >> 8) & 0xff) + 1 };
+}
+
 function assemble(slot: PendingFrame): VideoFrame {
   let total = 0;
   for (let i = 0; i < slot.totalPkg; i++) total += slot.parts.get(i)?.length ?? 0;
@@ -333,9 +367,9 @@ function assemble(slot: PendingFrame): VideoFrame {
   return {
     gidx: slot.gidx,
     fidx: slot.fidx,
+    frameIndex: videoFrameIndex(slot.gidx, slot.fidx),
     tick: slot.tick,
     subType: slot.subType,
-    isBaseLayer: slot.fidx === 1,
     // 关键帧按 NAL 类型判，不能按 gidx —— 见 `VideoFrame.isKeyframe` 的注释。
     isKeyframe: containsIrap(frameData, subHeaderSize),
     subHeaderSize,
@@ -542,11 +576,15 @@ export function videoPacketCount(frameBytes: number, maxPayload = 1200): number 
  * **已含 sub-header** 的完整帧数据，与 `VideoFrame.frameData` 同形，这样收发
  * 两侧可以共用组帧逻辑做回归比对。
  *
- * `fidx` 固定 1（基础层）：实测 c2c 通话不启用时域增强层。
+ * `frameIndex` 是 16 位帧序号，包头里的 `(gidx, fidx)` 由它拆出来
+ * （{@link videoFrameHeader}）—— 只写 `gidx` 会在第 256 帧回绕、帧序号倒退。
+ * 调用方可以直接给 `gidx` / `fidx` 覆盖，供黄金样本比对用。
  */
 export function buildVideoPackets(params: {
   frameData: Uint8Array;
-  gidx: number;
+  /** 16 位帧序号；给了 `gidx`/`fidx` 时以它们为准。 */
+  frameIndex?: number;
+  gidx?: number;
   fidx?: number;
   sessionTs: number;
   /** 本帧所有分片共用的 tick。 */
@@ -558,7 +596,9 @@ export function buildVideoPackets(params: {
   /** 覆盖单片的 tick（调试用；默认所有分片相同）。 */
   tickForPacket?: (index: number) => number;
 }): Uint8Array[] {
-  const fidx = params.fidx ?? 1;
+  const header = videoFrameHeader(params.frameIndex ?? 0);
+  const gidx = params.gidx ?? header.gidx;
+  const fidx = params.fidx ?? header.fidx;
   const subType = params.subType ?? VideoSubType.max;
   const totalPkg = videoPacketCount(params.frameData.length, params.maxPayload);
   // 等分：末片自然短。真实客户端的末片不带 0 填充（填充语义未经证实，不补）。
@@ -584,7 +624,7 @@ export function buildVideoPackets(params: {
     out[AUDIO_HEADER_LEN + 1] = totalPkg;
     out[AUDIO_HEADER_LEN + 2] = 0;
     out[AUDIO_HEADER_LEN + 3] = 0x0b;
-    out[AUDIO_HEADER_LEN + 4] = params.gidx & 0xff;
+    out[AUDIO_HEADER_LEN + 4] = gidx & 0xff;
     out[AUDIO_HEADER_LEN + 5] = fidx & 0xff;
 
     // 那条扩展 `03 03 00`（len=3 含自身、type=3、data 1 字节）——必须完整写出来，
@@ -630,8 +670,13 @@ export const VIDEO_SUBHEADER_LEN = 20;
  * [6:8]    帧质量 + 码率档     = GetVideoFrameQuality() 的 16 位返回值
  * [8:12]   帧时间戳（见上表，随方向变）
  * [12:16]  会话基准 tick（c2s）/ 0（s2c）
- * [16:20]  帧内分片序号相关（实测 0–4 的小整数，不随发送方变化）
+ * [16:20]  未还原（实测 0–8 的小整数，**与分片数无关**）
  * ```
+ *
+ * `[16:20]` 逐帧实测（2026-10-25 抓包，52 帧全量）：`totalPkg` 分别是
+ * 4/4/4/3/6/5/6/6/7/9/8/10 时，该字段是 2/0/3/0/0/1/4/0/4/0/3/8 —— 既不是
+ * `totalPkg - 1`，也不是帧内分片计数。目前填 `totalPkg - 1` 只是占位，未证实
+ * 对端会读它。真要排查「对端不认我们的画面」时，这里是第一顺位可疑字段。
  *
  * `[6:8]` 来自 `VideoPacketWriter::PackRTPEx`：
  *

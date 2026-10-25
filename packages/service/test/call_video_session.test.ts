@@ -36,6 +36,7 @@ import {
   parseVideoPacket,
   pbBytes,
   pbVarint,
+  videoFrameIndex,
 } from '@weq/protocol';
 
 // ─────────────────────────── 测试替身 ───────────────────────────
@@ -298,6 +299,14 @@ function videoPacket(params: {
   return out;
 }
 
+/** 十六进制串 → 字节。 */
+function hexBytes(s: string): Uint8Array {
+  const clean = s.replace(/\s+/g, '');
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = Number.parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
 /** 把会话推进到 connected。 */
 async function connect(ctx: ReturnType<typeof makeSession>): Promise<void> {
   await ctx.session.start();
@@ -348,7 +357,7 @@ describe('接收视频', () => {
     expect(frames).toHaveLength(1);
     const frame = frames[0]!;
     expect(frame.gidx).toBe(0);
-    expect(frame.isBaseLayer).toBe(true);
+    expect(frame.frameIndex).toBe(0);
     expect(frame.isKeyframe).toBe(true);
     expect(frame.hevc).not.toBeNull();
     expect([...frame.hevc!]).toEqual([...body]);
@@ -397,6 +406,37 @@ describe('接收视频', () => {
       videoPacket({ gidx: 0, pkgIdx: 0, totalPkg: 1, chunk: whole, subType: VideoSubType.screen }),
     );
     expect(frames).toHaveLength(1);
+  });
+
+  /**
+   * 回归：关键帧要能读出分辨率。
+   *
+   * 真实 SPS 来自 2026-10-25 抓包（Windows QQ 发的 640×360 Main）。早先 RBSP
+   * 起点按 12 字节跳（少算了 `sps_video_parameter_set_id` 那 1 字节），读出来是
+   * `chroma=0 / w=0 / h=1`，`readHevcInfo` 永远返回 null —— 界面拿不到分辨率。
+   */
+  it('从真实关键帧的 SPS 读出 640×360', async () => {
+    const ctx = makeSession();
+    await connect(ctx);
+
+    // VPS + SPS + PPS + IDR_W_RADL，SPS 用的是抓包原文。
+    const annexb = hexBytes(
+      '0000000140010c01' +
+        '00000001420101016000000300900000030000030096a005020169659aa4932e4020' +
+        '000000014401c172b0' +
+        '000000012601afe0',
+    );
+    const whole = new Uint8Array(20 + annexb.length);
+    whole[0] = 20;
+    whole.set(annexb, 20);
+
+    ctx.transport.deliver(videoPacket({ gidx: 0, pkgIdx: 0, totalPkg: 1, chunk: whole }));
+    expect(ctx.session.snapshot().videoInfo).toEqual({
+      width: 640,
+      height: 360,
+      profile: 1,
+      codec: 'hevc',
+    });
   });
 
   it('控制包是周期公告，重复收到不翻转状态', async () => {
@@ -511,6 +551,37 @@ describe('发送视频', () => {
     expect(frame!.frameData[0]).toBe(20);
     expect([...frame!.frameData.subarray(20, 24)]).toEqual([0, 0, 0, 1]);
     expect([...frame!.frameData.subarray(24, 26)]).toEqual([0x40, 0x01]);
+  });
+
+  /**
+   * 回归：发送侧必须用 16 位帧序号。
+   *
+   * 早先 `gidx = videoFrameIndex & 0xff`、`fidx` 恒 1，第 256 帧包头从
+   * `g=255/f=1` 跳回 `g=0/f=1`，帧序号倒退 —— 对端按序号判连续性时会当成乱序。
+   */
+  it('跨 256 帧后 fidx 递增，帧序号不回退', async () => {
+    const encoder = new FakeVideoEncoder(300);
+    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
+    await connect(ctx);
+    ctx.session.setCamera(true);
+    await ctx.timers.advanceAsync(5000);
+
+    // 只看每个视频帧的首个分片（pkgIdx === 0），按发送顺序取帧序号。
+    const seen: Array<{ gidx: number; fidx: number }> = [];
+    for (const packet of ctx.transport.media(VideoSubType.max)) {
+      const parsed = parseVideoPacket(packet)!;
+      if (parsed.rtp.pkgIdx !== 0) continue;
+      seen.push({ gidx: parsed.rtp.gidx, fidx: parsed.rtp.fidx });
+    }
+    expect(seen.length).toBeGreaterThan(256);
+
+    const indexes = seen.map((s) => videoFrameIndex(s.gidx, s.fidx));
+    for (let i = 1; i < indexes.length; i++) {
+      expect(indexes[i]!).toBe(indexes[i - 1]! + 1);
+    }
+    // 第 256 帧必须已经换到 fidx=2，而不是把 gidx 绕回 0。
+    expect(seen[255]).toEqual({ gidx: 255, fidx: 1 });
+    expect(seen[256]).toEqual({ gidx: 0, fidx: 2 });
   });
 
   it('sub-header 按 c2s 方向填（[2]=0x00、[3]=0x06、PTS 递增）', async () => {

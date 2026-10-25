@@ -195,7 +195,7 @@ export interface StartCallParams {
 export type CallEvent =
   | { type: 'state'; call: ActiveCallInfo }
   | { type: 'audio'; pcm: Uint8Array }
-  /** 对端一帧视频（Annex B 裸流，只推基础层）。 */
+  /** 对端一帧视频（Annex B 裸流）。 */
   | {
       type: 'video';
       hevc: Uint8Array;
@@ -223,8 +223,6 @@ export class CallManager extends EventEmitter {
 
   /** 视频编码器（只有视频通话才非 null）。 */
   private videoEncoder: NativeVideoEncoder | null = null;
-  /** 上一帧是否基础层（用于「基础层优先」的取舍）。 */
-  private lastFrameWasBase = false;
   /** 最近收到的一个关键帧（新订阅者补发用）。 */
   private lastKeyframe: VideoFramePayload | null = null;
   /** 当前这通电话的录音设置（发起时取一次，通话中改设置不影响进行中的录音）。 */
@@ -328,16 +326,14 @@ export class CallManager extends EventEmitter {
       this.emit('event', { type: 'audio', pcm } satisfies CallEvent);
     });
     session.onVideo((frame) => {
-      // 只推基础层：增强层依赖基础层，单独解会花屏。
+      // **每一帧都推，不要按 fidx 过滤。**
       //
-      // 但实测对端会在基础层之外再发 fidx=2 的增强层，而**基础层不是每帧都有**——
-      // 一旦对端把画面切成纯增强层（长时间静止后重新编码），全丢就会永久黑屏。
-      // 所以：基础层优先，没有基础层时退回增强层（解码器能解多少算多少，
-      // 花屏好过没画面）。
+      // 早先这里按「fidx === 1 才是基础层」丢弃 fidx>=2 的帧，前提是错的：fidx
+      // 其实是**16 位帧序号的高字节**（每 256 帧 +1），不是 SVC 层号。于是通话
+      // 进行到第 256 帧（10 fps 下约 25 秒）之后，`isBaseLayer` 恒为 false，
+      // 而标记又停在 true 且不再更新 —— 后续每一帧都被静默丢掉，画面永久冻结。
+      // 真机日志里 `g=249/f=1 → g=43/f=2` 的序号连续性就是证据。
       if (!frame.hevc) return;
-      // 增强层只在没有基础层可用时才推 —— 见上面的注释。
-      if (!frame.isBaseLayer && this.lastFrameWasBase) return;
-      this.lastFrameWasBase = frame.isBaseLayer;
       // 缓存最近一个关键帧：渲染层的解码订阅是在「对端开始发视频」的状态推送
       // **之后**才建立的，而首个关键帧往往已经过去 —— 后面的 delta 帧没有
       // 关键帧起解，画面永远出不来。新订阅先用这份补一帧。

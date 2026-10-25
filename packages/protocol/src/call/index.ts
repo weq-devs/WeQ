@@ -68,6 +68,8 @@ export {
   buildVideoSubHeader,
   sampleVideoFrameQuality,
   videoPacketCount,
+  videoFrameIndex,
+  videoFrameHeader,
 } from './video';
 export type {
   VideoFrameQuality,

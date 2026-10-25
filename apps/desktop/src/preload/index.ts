@@ -16,6 +16,7 @@ import { createRequire } from 'node:module';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
 import { installRendererDiagnosticSampling } from './renderer_diagnostics';
 import type { EditMenuState } from '../shared/edit_menu';
+import { CALL_VIDEO_FRAME_CHANNEL, type CallVideoFrame } from '../shared/call_video_ipc';
 
 // Same CJS workaround as src/main/index.ts — electron-trpc 0.7's ESM
 // build statically imports `ipcMain` from 'electron', which is not
@@ -169,6 +170,18 @@ const weqBridge = {
     /** 导出专用入口开窗口时领走待渲染的载荷（只有导出窗口会调）。 */
     claimPayload: () =>
       ipcRenderer.invoke('analytics-shot:claim') as Promise<AnalyticsExportPayload | null>,
+  },
+  callVideo: {
+    /**
+     * 推一帧 I420（通话视频上行）。
+     *
+     * 走原生 IPC 而不是 tRPC：`Uint8Array` 在 `ipcRenderer.send` 里直接结构化
+     * 克隆（0.17 ms），经 tRPC + superjson 会被展开成十进制数组（一帧 1.2 MB
+     * 文本、30 ms）。视频帧本来就该 fire-and-forget，不等回执。
+     */
+    pushFrame(frame: CallVideoFrame): void {
+      ipcRenderer.send(CALL_VIDEO_FRAME_CHANNEL, frame);
+    },
   },
 };
 

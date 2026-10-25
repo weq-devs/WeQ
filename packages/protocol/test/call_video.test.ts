@@ -28,6 +28,8 @@ import {
   parseVideoPacket,
   parseVideoRtpHeader,
   splitHevcNals,
+  videoFrameHeader,
+  videoFrameIndex,
 } from '../src/call';
 
 function hex(s: string): Uint8Array {
@@ -241,7 +243,7 @@ describe('VideoFrameAssembler', () => {
     expect(frame).not.toBeNull();
     expect(frame!.gidx).toBe(0);
     expect(frame!.fidx).toBe(1);
-    expect(frame!.isBaseLayer).toBe(true);
+    expect(frame!.frameIndex).toBe(0);
     expect(frame!.isKeyframe).toBe(true);
     expect(frame!.subHeaderSize).toBe(0x14);
   });
@@ -280,11 +282,36 @@ describe('VideoFrameAssembler', () => {
     expect(assembler.pendingCount).toBe(1);
   });
 
-  it('增强层（fidx=2）标记为非基础层', () => {
+  /**
+   * 回归：`fidx` 是**帧序号高字节**，不是 SVC 层号。
+   *
+   * 2026-10-25 真机日志（连续 600 帧）实测：g=249/f=1 → g=43/f=2 → g=87/f=3，
+   * 拼出来的帧序号 249→299→599 全程连续（每 50 帧取样一次）。早先按
+   * `fidx === 1` 判「基础层」，主进程据此丢掉 fidx>=2 的帧 —— 第 256 帧
+   * （10 fps 下约 25 秒）之后画面永久冻结。
+   */
+  it('(gidx, fidx) 拼成 16 位帧序号，跨 256 帧连续', () => {
+    expect(videoFrameIndex(0, 1)).toBe(0);
+    expect(videoFrameIndex(249, 1)).toBe(249);
+    expect(videoFrameIndex(43, 2)).toBe(299);
+    expect(videoFrameIndex(37, 3)).toBe(549);
+    expect(videoFrameIndex(87, 3)).toBe(599);
+    // 回绕点前后必须连续，不能倒退。
+    expect(videoFrameIndex(255, 1) + 1).toBe(videoFrameIndex(0, 2));
+  });
+
+  it('videoFrameHeader 是 videoFrameIndex 的逆运算', () => {
+    for (const index of [0, 1, 249, 255, 256, 299, 65535]) {
+      const header = videoFrameHeader(index);
+      expect(videoFrameIndex(header.gidx, header.fidx)).toBe(index);
+    }
+  });
+
+  it('fidx=2 的帧照样是普通视频帧（不是增强层，不该被丢）', () => {
     const assembler = new VideoFrameAssembler();
     const packets = packetsFor(3, 2, ['1400']);
     const frame = assembler.push(parseVideoPacket(packets[0]!)!, 1000);
-    expect(frame!.isBaseLayer).toBe(false);
+    expect(frame!.frameIndex).toBe(259);
     expect(frame!.isKeyframe).toBe(false);
   });
 
@@ -527,6 +554,35 @@ describe('buildVideoPackets', () => {
     expect(parsed.map((p) => p.seq)).toEqual([42, 43, 44]);
     // 外层 tick 帧内恒定。
     expect(parsed.every((p) => p.tick === 100)).toBe(true);
+  });
+
+  /**
+   * 回归：帧序号必须用 16 位，`fidx` 要跟着 `gidx` 回绕 +1。
+   *
+   * 只写 `gidx`（fidx 恒 1）时，第 256 帧的包头会从 `g=255/f=1` 跳回 `g=0/f=1`，
+   * 对端按 `(fidx<<8)|gidx` 判连续性会看到序号从 255 倒退到 0。
+   */
+  it('第 256 帧起 fidx 递增，帧序号不回退', () => {
+    const send = (frameIndex: number) => {
+      const packets = buildVideoPackets({
+        frameData: new Uint8Array(8),
+        frameIndex,
+        sessionTs: 1,
+        tick: 100,
+        seq: 0,
+        maxPayload: 1000,
+      });
+      return parseVideoPacket(packets[0]!)!.rtp;
+    };
+
+    expect(send(255)).toMatchObject({ gidx: 255, fidx: 1 });
+    expect(send(256)).toMatchObject({ gidx: 0, fidx: 2 });
+    expect(send(299)).toMatchObject({ gidx: 43, fidx: 2 });
+    // 发出去的包头能被自己的解析器还原成同一个帧序号。
+    for (const index of [0, 255, 256, 299, 1000]) {
+      const rtp = send(index);
+      expect(videoFrameIndex(rtp.gidx, rtp.fidx)).toBe(index);
+    }
   });
 
   it('发出的包能被自己的解析器还原（收发同构）', () => {

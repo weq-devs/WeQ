@@ -125,7 +125,7 @@ export interface CallSnapshot {
   videoSending: boolean;
   /** 对端摄像头是否开着（收到对端视频流）。 */
   videoReceiving: boolean;
-  /** 收到的视频帧数（含增强层）。 */
+  /** 收到的视频帧数。 */
   receivedVideoFrames: number;
   /** 视频流的最近一次关键帧信息；没收到过为 null。 */
   videoInfo: VideoStreamInfo | null;
@@ -232,8 +232,13 @@ export type CallVideoListener = (frame: VideoFramePayload, at: number) => void;
 export interface VideoFramePayload {
   gidx: number;
   fidx: number;
-  /** 基础层才能独立解码。 */
-  isBaseLayer: boolean;
+  /**
+   * 16 位帧序号 `((fidx - 1) << 8) | gidx`。
+   *
+   * **不要再用 `fidx` 判层**：`fidx` 是帧序号高字节（每 256 帧 +1），不是 SVC
+   * 层号。早先按 `fidx === 1` 过滤「增强层」，导致第 256 帧之后画面永久冻结。
+   */
+  frameIndex: number;
   isKeyframe: boolean;
   /** 真实帧时间戳（毫秒）。 */
   timestamp: number;
@@ -360,18 +365,27 @@ function formatIpv6(raw: Uint8Array): string | null {
  * 只在关键帧上调：IDR 前面带 VPS + SPS + PPS，SPS 里有分辨率。实测视频流
  * 640×360 Main。解析失败返回 null —— 规格只是给界面显示的，读不到不影响解码。
  *
- * SPS 的字段顺序（HEVC）：`profile_tier_level`(12B) 之后是
- * `sps_seq_parameter_set_id`、`chroma_format_idc`（==3 时多一个
- * `separate_colour_plane_flag`）、`pic_width_in_luma_samples`、
- * `pic_height_in_luma_samples`，都是 Exp-Golomb。
+ * SPS 的字段顺序（HEVC）：NAL 头 2 字节之后是
+ * `sps_video_parameter_set_id`(4b) + `sps_max_sub_layers_minus1`(3b) +
+ * `sps_temporal_id_nesting_flag`(1b) = 1 字节，再往后是
+ * `profile_tier_level`(12B)，然后才是 `sps_seq_parameter_set_id`、
+ * `chroma_format_idc`（==3 时多一个 `separate_colour_plane_flag`）、
+ * `pic_width_in_luma_samples`、`pic_height_in_luma_samples`，都是 Exp-Golomb。
+ *
+ * ⚠️ 偏移是 **13 字节**不是 12：早先按 12 字节跳，等于把
+ * `temporal_id_nesting_flag` 当成了 `sps_seq_parameter_set_id` 的首位，读出来的
+ * 是 `chroma=0 / width=0 / height=1`，于是这个函数**永远返回 null**（界面拿不到
+ * 分辨率）。另外必须先剥掉 emulation prevention byte（`00 00 03` → `00 00`），
+ * 否则一旦载荷里出现该序列，位流整体错位。
  */
 function readHevcInfo(annexb: Uint8Array): VideoStreamInfo | null {
   for (const nal of splitHevcNals(annexb)) {
     // SPS = 33。NAL 头 2 字节，之后是 RBSP。
-    if (nal.type !== 33 || nal.data.length < 15) continue;
+    if (nal.type !== 33 || nal.data.length < 16) continue;
     const profile = nal.data[1]!; // profile_idc 在 NAL 头的第二个字节
-    const rbsp = nal.data.subarray(2 + 12);
-    const bits = new BitReader(rbsp);
+    const rbsp = removeEmulationPrevention(nal.data.subarray(2));
+    if (rbsp.length < 13) continue;
+    const bits = new BitReader(rbsp.subarray(13));
     try {
       bits.ue(); // sps_seq_parameter_set_id
       const chroma = bits.ue();
@@ -386,6 +400,36 @@ function readHevcInfo(annexb: Uint8Array): VideoStreamInfo | null {
     }
   }
   return null;
+}
+
+/**
+ * 剥掉 NAL 载荷里的 emulation prevention byte。
+ *
+ * H.264/H.265 规定 RBSP 里出现 `00 00 00/01/02/03` 时，编码端在第二个 `00`
+ * 之后插一个 `03` 防止与起始码混淆。解析位流前必须先把这些 `03` 去掉。
+ */
+function removeEmulationPrevention(data: Uint8Array): Uint8Array {
+  // 绝大多数 NAL 不含该序列，先扫一遍，没有就零拷贝返回。
+  let has = false;
+  for (let i = 0; i + 2 < data.length; i++) {
+    if (data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 3) {
+      has = true;
+      break;
+    }
+  }
+  if (!has) return data;
+  const out = new Uint8Array(data.length);
+  let n = 0;
+  for (let i = 0; i < data.length; i++) {
+    if (i + 2 < data.length && data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 3) {
+      out[n++] = 0;
+      out[n++] = 0;
+      i += 2; // 跳过被插入的 03
+      continue;
+    }
+    out[n++] = data[i]!;
+  }
+  return out.subarray(0, n);
 }
 
 /** 极简位读取器，只够解析 SPS 的前几个 Exp-Golomb 字段。 */
@@ -1430,7 +1474,7 @@ export class CallSession {
     const payload: VideoFramePayload = {
       gidx: frame.gidx,
       fidx: frame.fidx,
-      isBaseLayer: frame.isBaseLayer,
+      frameIndex: frame.frameIndex,
       isKeyframe: frame.isKeyframe,
       timestamp: frame.timestamp,
       info: this.videoInfo,
@@ -1641,7 +1685,9 @@ export class CallSession {
 
     const packets = buildVideoPackets({
       frameData,
-      gidx: this.videoFrameIndex & 0xff,
+      // 16 位帧序号：包头里的 gidx/fidx 由它拆出。只写 gidx 会在第 256 帧回绕、
+      // 帧序号倒退，对端按序号判连续性时会当成乱序而丢帧。
+      frameIndex: this.videoFrameIndex,
       sessionTs: this.sessionTs,
       // tick 帧内恒定；seq 由 buildVideoPackets 按片递增。
       tick: this.tick(),

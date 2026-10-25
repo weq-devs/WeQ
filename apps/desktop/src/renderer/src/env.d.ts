@@ -53,6 +53,13 @@ interface Window {
     capture: {
       window(): Promise<{ ok: boolean; error?: string }>;
     };
+    /**
+     * 通话视频上行（二进制 IPC）。
+     *
+     * 只用于 Electron；web 构建下为 undefined，调用方要回退到 tRPC 的
+     * `pushVideoFrame`。
+     */
+    callVideo?: import('../../shared/call_video_ipc').CallVideoBridge;
     analyticsShot: {
       /** 主进程在隐藏窗口里渲染同一张卡片、抓成长图、弹保存框（用户窗口全程不动）。 */
       render(

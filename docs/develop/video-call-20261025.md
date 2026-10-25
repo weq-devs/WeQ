@@ -61,10 +61,39 @@ H.265 Annex B    以 00 00 00 01 开头，**明文**
 **分片规则**（2026-10-25 21 秒真实通话，451 帧全量统计）：
 
 - 整帧**等分**，末片自然短。单片 payload 最大 1277 B，UDP 包最大 1303 B；
-- `total_fec` 恒 0，`fidx` 恒 1（c2c 不启用增强层）；
-- `pkg_idx` 帧内从 0 递增，`total_pkg` 实测 1–14；
+- `total_fec` 恒 0；`pkg_idx` 帧内从 0 递增，`total_pkg` 实测 1–14；
 - **`seq` 每片 +1**，整通连续（实测 0…717），不按帧重置；
 - **外层 `tick` 帧内恒定**，每帧换一次。
+
+### 3.2.0 `gidx` / `fidx`：16 位帧序号（2026-10-26 修正）
+
+**`fidx` 不是 SVC 层号，是帧序号的高字节。** `gidx` 是低字节，每帧 +1 并在
+256 处回绕；`fidx` 从 1 起，跟着回绕 +1：
+
+```
+frameIndex = ((fidx - 1) << 8) | gidx
+```
+
+真机日志（连续 600 帧，2026-10-25）逐段取样：
+
+| 日志 gidx / fidx | 拼出的帧序号 |
+| --- | --- |
+| g=0, f=1 | 0 |
+| g=249, f=1 | 249 |
+| g=43, f=2 | 299 |
+| g=243, f=2 | 499 |
+| g=37, f=3 | 549 |
+| g=87, f=3 | 599 |
+
+每 50 帧一档，全程连续；中途关 / 开摄像头也不重置。同一时刻只有一个 `fidx`
+值在发，**不存在「基础层 + 增强层」并行**。
+
+> 早期结论「fidx=1 基础层 / fidx>=2 时域增强层」是错的，代价是一个真 bug：主进程
+> 据此丢弃 `fidx>=2` 的帧，而 `lastFrameWasBase` 停在 true 后不再更新 —— 通话到
+> 第 256 帧（10 fps 下约 25 秒）之后画面**永久冻结**。发送侧同样踩了这个坑：
+> `gidx = frameIndex & 0xff` 且 `fidx` 恒 1，第 256 帧包头从 `g=255/f=1` 跳回
+> `g=0/f=1`，帧序号倒退。两侧都已改成 16 位帧序号（`videoFrameIndex` /
+> `videoFrameHeader`）。
 
 **sub-header 20 字节**（`pkg_idx=0` 的那片才有，后续分片是裸 Annex B 续）：
 
@@ -168,6 +197,7 @@ body：`[0]=0x02`，`[4:8]` 是 tick 的小端副本，其余为 0。
 | 信令档位 | `packages/protocol/src/call/signaling.ts`（`MEDIA_PROFILE`） |
 | 会话收发与状态 | `packages/service/src/account/call_session.ts` |
 | 本端采集与 t265 编码 | `apps/desktop/src/main/call_video_encoder.ts` |
+| 上行帧的二进制 IPC | `apps/desktop/src/shared/call_video_ipc.ts` + `main/call_video_ipc.ts` |
 | 渲染层解码（WebCodecs） | `apps/desktop/src/renderer/src/hooks/useCallVideo.ts` |
 | 解码的纯逻辑（可单测） | `apps/desktop/src/renderer/src/lib/callVideo.ts` |
 
@@ -176,6 +206,18 @@ body：`[0]=0x02`，`[4:8]` 是 tick 的小端副本，其余为 0。
 - `CallSession.onVideo(listener)` —— 收到完整帧时回调，给 Annex B 裸流；
 - `CallSession.setCamera(enabled)` —— 开 / 关本端摄像头（发控制包）；
 - `CallVideoEncoder` —— 主进程注入的编码器，`next()` 吐一帧裸流。
+
+### 5.1 上行帧走二进制 IPC，不走 tRPC（2026-10-26）
+
+采集在渲染层、编码在主进程，中间要传一帧 640×360 的 I420（345 KB）。**不要用
+tRPC 传它**：tRPC 的 superjson 会把 `Uint8Array` 展开成十进制数字数组，实测一帧
+序列化 15 ms + 结构化克隆 10 ms + 反序列化 5 ms = 30 ms，15 fps 下渲染层主线程被
+吃满，采集、解码、绘制一起卡（两端画面都卡）。
+
+现在走 `window.weq.callVideo.pushFrame()` → `ipcRenderer.send` 的原生通道，
+`Uint8Array` 直接结构化克隆（实测 0.17 ms，快两个数量级），且天然 fire-and-forget。
+web 构建（`apps/web` 复用同一份 renderer）没有这个桥，调用方回退到 tRPC 的
+`pushVideoFrame`。
 
 ## 6. 渲染层解码：参数集必须内联
 
@@ -233,10 +275,15 @@ Chromium 的 WebCodecs HEVC 解码器对 `VideoDecoderConfig.description` 的要
 
 | 字段 | 实测值 | 排查过的假设 |
 | --- | --- | --- |
-| `[6:8]` | 每帧变化（6948 / 8746 / 8233…） | CRC16-CCITT / CRC16-IBM / 字节和 / 16 位字和 / 帧长 / 分片数，**全部对不上** |
-| `[16:20]` | 小整数 0–5（偶尔更大） | 疑似分片数相关（`total_pkg-1` 只对上一部分），未确认 |
+| `[6:8]` | 码率档 + 帧质量（2026-10-26 确认） | 见 §3.2 下方 `buildVideoSubHeader` 的说明 |
+| `[16:20]` | 小整数 0–8，**与分片数无关** | `total_pkg-1` 只对上一部分，未确认 |
 
-当前实现两个字段都填 0。若对端仍不认我们发的画面，优先回头试这两个。
+`[16:20]` 逐帧实测（52 帧全量）：`totalPkg` 为 4/4/4/3/6/5/6/6/7/9/8/10 时该字段是
+2/0/3/0/0/1/4/0/4/0/3/8 —— 既不是 `totalPkg - 1` 也不是帧内分片计数。当前实现填
+`totalPkg - 1` 只是占位。若对端仍不认我们发的画面，这里是第一顺位可疑字段。
+
+`[6:8]` 已确认来自 `GetVideoFrameQuality()`（`[6]`=码率档 16–25、`[7]`=帧质量
+31–38，关键帧整体低一档），对端只拿它做统计，不参与解码，按真实分布抽样即可。
 
 ### 7.2 P2P 端口协商
 
