@@ -1,4 +1,4 @@
-import { formatConversationTimestamp } from '../../lib/conversationTime';
+import { formatConversationTime, formatConversationTimestamp } from '../../lib/conversationTime';
 import { conversationActivityTime } from '@weq/service/conversation-order';
 import {
   X,
@@ -645,7 +645,10 @@ export function MergedSessionPanel({
           {sortedThreads.map((conv) => {
             const preview = conv.lastMessage?.body ?? '';
             const unreadCount = conv.unreadCount ?? 0;
-            const time = formatConversationTimestamp(conv.updatedAt);
+            const time =
+              kind === 'groupAssistant'
+                ? formatConversationTime(conv.updatedAt)
+                : formatConversationTimestamp(conv.updatedAt);
             const name = conv.type === 'group' ? conv.group?.name : conv.otherUser?.displayName;
             const avatarUrl =
               conv.type === 'group' ? conv.group?.avatarUrl : conv.otherUser?.avatarUrl;

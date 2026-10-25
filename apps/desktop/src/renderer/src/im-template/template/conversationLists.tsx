@@ -40,6 +40,8 @@ import {
 } from 'react';
 import { conversationPinned } from '@weq/service/conversation-order';
 import { sortConversationRows } from '../../lib/conversationListOrder';
+import { formatConversationTime } from '../../lib/conversationTime';
+export { formatConversationTime } from '../../lib/conversationTime';
 import { useConversationClickTarget } from '../../hooks/useConversationClickTarget';
 import {
   ConversationDirectoryContext,
@@ -1862,36 +1864,6 @@ function PreviewNodes({ nodes }: { nodes: PreviewNode[] }) {
   );
 }
 
-/** 会话列表时间：今天显示时分，昨天显示"昨天"，一周内显示星期，更早显示年月日。 */
-export function formatConversationTime(value: string | undefined) {
-  if (!value) {
-    return '';
-  }
-
-  const date = new Date(value);
-  const now = new Date();
-  const todayStart = startOfDay(now).getTime();
-  const dateStart = startOfDay(date).getTime();
-  const dayDiff = Math.floor((todayStart - dateStart) / 86400000);
-
-  if (dayDiff <= 0) {
-    return new Intl.DateTimeFormat('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(date);
-  }
-
-  if (dayDiff === 1) {
-    return '昨天';
-  }
-
-  if (dayDiff < 7) {
-    return ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][date.getDay()];
-  }
-
-  return `${date.getFullYear()}/${padDatePart(date.getMonth() + 1)}/${padDatePart(date.getDate())}`;
-}
-
 function formatDraftPreview(value: string | undefined) {
   if (!value) {
     return '';
@@ -1902,14 +1874,6 @@ function formatDraftPreview(value: string | undefined) {
     .replace(/\[[^\]\n]{1,32}\]/g, '[表情]')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-function startOfDay(value: Date) {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
-}
-
-function padDatePart(value: number) {
-  return value.toString().padStart(2, '0');
 }
 
 function formatBadgeCount(value: number) {

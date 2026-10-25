@@ -1,13 +1,24 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { formatConversationTimestamp } from '../src/renderer/src/lib/conversationTime';
+import {
+  formatConversationTime,
+  formatConversationTimestamp,
+} from '../src/renderer/src/lib/conversationTime';
 import {
   virtualConversationRow,
   virtualConversationTime,
 } from '../src/renderer/src/lib/conversationDirectory';
 
 describe('conversation_time', () => {
-  it('群助手始终包含日期和时间，跨年带年份，显式按北京时间计算', () => {
+  it('相对时间按日历日判断跨年昨天，缺失或无效时间不显示', () => {
+    const now = new Date(2026, 0, 1, 0, 30);
+    expect(formatConversationTime(new Date(2025, 11, 31, 23, 59).toISOString(), now)).toBe('昨天');
+    expect(formatConversationTime(undefined, now)).toBe('');
+    expect(formatConversationTime('', now)).toBe('');
+    expect(formatConversationTime('invalid', now)).toBe('');
+  });
+
+  it('完整时间格式始终包含日期和时间，跨年带年份，显式按北京时间计算', () => {
     const now = new Date('2026-10-21T00:30:00+08:00');
     expect(formatConversationTimestamp('2026-10-20T16:01:00Z', now)).toBe('10-21 00:01');
     expect(formatConversationTimestamp('2026-10-20T15:59:00Z', now)).toBe('10-20 23:59');

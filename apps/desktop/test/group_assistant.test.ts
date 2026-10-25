@@ -54,6 +54,62 @@ function groups(): Conversation[] {
 }
 
 describe('群助手', () => {
+  it('会话时间与外层列表一致：今天、昨天、周内、更早和跨年', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 26, 12));
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const dates = [
+      new Date(2026, 9, 26, 9, 5),
+      new Date(2026, 9, 25, 23, 59),
+      new Date(2026, 9, 20, 9),
+      new Date(2026, 9, 19, 9),
+      new Date(2025, 11, 31, 9),
+    ];
+    const rows = dates.map((date, index) => ({
+      ...groups()[0],
+      id: `time-${index}`,
+      updatedAt: date.toISOString(),
+    }));
+    try {
+      act(() =>
+        root.render(
+          h(
+            ContentSelectionProvider,
+            null,
+            h(ConversationList, {
+              conversations: rows,
+              activeConversationId: null,
+              preferences: {},
+              drafts: {},
+              onSelect: vi.fn(),
+            }),
+            h(MergedSessionPanel, {
+              kind: 'groupAssistant',
+              conversations: rows,
+              groupAssistantIds: new Set(rows.map((row) => row.id)),
+              anchorX: 0,
+              anchorY: 0,
+              onBack: vi.fn(),
+              onSelectConversation: vi.fn(),
+            }),
+          ),
+        ),
+      );
+      const times = (selector: string) =>
+        Array.from(host.querySelectorAll(selector), (node) => node.textContent);
+      const expected = ['09:05', '昨天', '星期二', '2026/10/19', '2025/12/31'];
+      expect(times('.row-time-line')).toEqual(expected);
+      expect(times('.weq-merged-popover-item-time')).toEqual(expected);
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      vi.useRealTimers();
+    }
+  });
+
   it('主列表全选展开助手内会话并注明数量，两处共享选区且右键可进入多选', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
