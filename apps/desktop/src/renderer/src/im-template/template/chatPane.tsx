@@ -92,7 +92,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ReplyJumpContext } from '../../components/QqMessageContent';
+import { ReplyJumpContext, type ReplyJumpTarget } from '../../components/QqMessageContent';
 import { openLightbox } from '../../components/ImageLightbox';
 import { releaseObjectUrl } from '../../lib/objectUrl';
 import '../../styles/composer-image-preview.css';
@@ -661,7 +661,7 @@ export function ChatPane({
   const theme = useThemeStore((s) => s.resolved);
   const mediaSave = useMediaSave();
   // 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
-  const jumpToSeq = useContext(ReplyJumpContext);
+  const parentJumpToSeq = useContext(ReplyJumpContext);
   const backdrop = useChatBackdrop();
   const tabActive = useTabActive();
   const directory = useContext(ConversationDirectoryContext);
@@ -975,6 +975,15 @@ export function ChatPane({
   const atBottomRef = useRef(true);
   const readingPositionApplied = useRef(false);
   const readGestureUntil = useRef(0);
+  const jumpToSeq = useCallback(
+    (target: ReplyJumpTarget) => {
+      // 滚动事件晚于消息刷新提交；先退出贴底，避免原消息刚定位就被刷新拉回末尾。
+      atBottomRef.current = false;
+      readGestureUntil.current = 0;
+      return parentJumpToSeq(target);
+    },
+    [parentJumpToSeq],
+  );
   const lastReadSignal = useRef({ key: '', at: 0 });
   const readContextRef = useRef({
     tabActive,
@@ -4584,7 +4593,7 @@ export function ChatPane({
     void action.onClick?.(composerActionContext);
   }
 
-  return (
+  const pane = (
     <section
       {...multi.rootProps}
       className={cn(
@@ -6047,6 +6056,7 @@ export function ChatPane({
       ) : null}
     </section>
   );
+  return <ReplyJumpContext.Provider value={jumpToSeq}>{pane}</ReplyJumpContext.Provider>;
 }
 
 function ConfirmDialog({

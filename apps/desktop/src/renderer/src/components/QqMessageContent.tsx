@@ -727,6 +727,7 @@ function ReplyQuote({ data, sendTimeMs }: { data: Record<string, unknown>; sendT
   const canJump = isUsable(seq) || isUsable(index) || isUsable(clientSeq);
 
   function handleJump(event: ReactMouseEvent | ReactKeyboardEvent): void {
+    event.preventDefault();
     event.stopPropagation();
     if (canJump)
       jumpToSeq({
@@ -744,9 +745,23 @@ function ReplyQuote({ data, sendTimeMs }: { data: Record<string, unknown>; sendT
       role={canJump ? 'button' : undefined}
       tabIndex={canJump ? 0 : undefined}
       title={canJump ? '跳转到原消息' : undefined}
+      onClickCapture={(event) => {
+        // 引用缩略图只负责定位，不启动正文图片灯箱或视频播放器。
+        if (
+          canJump &&
+          event.target instanceof Element &&
+          event.target.closest('.qq-reply-preview-media')
+        )
+          handleJump(event);
+      }}
       onClick={canJump ? handleJump : undefined}
       onKeyDown={(event) => {
-        if (canJump && (event.key === 'Enter' || event.key === ' ')) handleJump(event);
+        if (
+          canJump &&
+          event.target === event.currentTarget &&
+          (event.key === 'Enter' || event.key === ' ')
+        )
+          handleJump(event);
       }}
     >
       <div className="qq-reply-quote-stack">
