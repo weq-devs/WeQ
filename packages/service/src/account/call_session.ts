@@ -278,6 +278,8 @@ const LOGOUT_REPEATS = 5;
 const FEC_GROUP = 4;
 /** 视频保活周期（实测 2 秒）。 */
 const VIDEO_KEEPALIVE_MS = 2000;
+/** 同一拍里第二条保活包相对第一条的延迟（实测 40–90 ms）。 */
+const VIDEO_KEEPALIVE_SECOND_MS = 60;
 /** 视频发送轮询间隔：比最慢的帧间隔（10 fps）小一个量级。 */
 const VIDEO_PUMP_MS = 10;
 /**
@@ -287,6 +289,20 @@ const VIDEO_PUMP_MS = 10;
  * 正常的卡顿误判，又能在控制包丢失时较快收敛。
  */
 const VIDEO_SILENCE_MS = 3000;
+
+/**
+ * 学到对端直连地址后，双发探测期长度。
+ *
+ * 真实客户端是「先纯中继约 8 秒 → 硬切 P2P」，我们没法确定对端此刻是否已经
+ * 打通，所以先两种路径同时发一小段，确认直连有回程再停掉服务端那份。
+ */
+const MEDIA_PROBE_MS = 1000;
+
+/** 直连模式下多久没收到对端媒体包就回落服务端。 */
+const MEDIA_DIRECT_TIMEOUT_MS = 2000;
+
+/** 媒体包的发送路径。 */
+export type MediaPath = 'server' | 'probing' | 'direct';
 
 // ─────────────────────────── 会话 ───────────────────────────
 
@@ -432,13 +448,26 @@ export class CallSession {
   /**
    * 对端的直连地址（P2P）。
    *
-   * 视频通话的媒体与控制包**主要走对等端直连**，服务端只负责牵线并转发一小部分。
-   * 地址由 GCS 的 `bt=9` 下发（body.f7 = 16 字节 IPv6），拿到之后媒体包要
-   * **同时**发服务端和这里 —— 只发服务端对端收不到。
+   * 地址由 GCS 的 `bt=9` 下发（body.f7 = 16 字节 IPv6），端口只能从对端实际
+   * 发包的来源学到（见 {@link rememberPeerSource}）。
    */
   private peerDirect: { address: string; port: number } | null = null;
   /** 最近一次收到对端包的来源（P2P 端口往往只能从实际流量里学到）。 */
   private lastPeerFrom: { address: string; port: number } | null = null;
+  /**
+   * 媒体走哪条路。
+   *
+   * 真实客户端不是双发，而是**先纯中继、后硬切 P2P**（实测 0–7.9 秒只发服务端，
+   * 之后只发对端直连，服务端一个包都收不到）。我们沿用这个顺序，但把切换点
+   * 放在「真的学到对端端口」之后，中间留一小段双发探测期兜底。
+   */
+  private mediaPath: MediaPath = 'server';
+  /** 进入 `probing` 的时刻（毫秒）。 */
+  private probeSince = 0;
+  /** 最近一次收到对端媒体包的时刻（毫秒），直连回落用。 */
+  private lastPeerMediaAt = 0;
+  /** 媒体路径看门狗。 */
+  private mediaWatchdogTimer: unknown = null;
   /** 已发出的视频帧数。 */
   private sentVideoFrames = 0;
   /** 连续取不到帧的轮数（用于只报一次警）。 */
@@ -446,7 +475,14 @@ export class CallSession {
   private videoInfo: VideoStreamInfo | null = null;
   /** 视频帧序号（写进 sub-header，每帧 +1）。 */
   private videoFrameIndex = 0;
+  /** 视频分片序号（每片 +1，整通不重置）。 */
   private videoSeq = 0;
+  /**
+   * 会话基准 tick，接通那一刻定下来，写进 sub-header 的 `[12:16]`。
+   *
+   * 实测 c2s 方向这个字段整通恒定，s2c 方向是 0 —— 我们只发 c2s，所以填它。
+   */
+  private mediaBaseTick = 0;
   /** 视频保活定时器。 */
   private videoKeepaliveTimer: unknown = null;
   /** 视频发送循环定时器。 */
@@ -704,23 +740,47 @@ export class CallSession {
     this.opts.transport.send(data, this.gcs.port, this.gcs.ip);
   }
 
+  /** 媒体包该发给谁（`sendMedia` 与延迟重发共用）。 */
+  private mediaTargets(): Array<{ address: string; port: number }> {
+    const out: Array<{ address: string; port: number }> = [];
+    if (!this.gcs) return out;
+    const peer = this.peerDirect;
+    const hasPeer = peer !== null && peer.port > 0;
+
+    // probing → direct 的推进放在这里惰性做：音频 20 ms 一帧、保活 2 秒一条都会
+    // 走到这条路径，摄像头关着也不会卡在 probing。
+    if (this.mediaPath === 'probing' && this.timers.now() - this.probeSince >= MEDIA_PROBE_MS) {
+      this.mediaPath = hasPeer ? 'direct' : 'server';
+      this.log?.info('媒体路径切换', { path: this.mediaPath });
+    }
+
+    const wantServer = this.mediaPath !== 'direct';
+    const wantPeer = hasPeer && this.mediaPath !== 'server';
+    if (wantServer) out.push({ address: this.gcs.ip, port: this.gcs.port });
+    if (wantPeer && peer) {
+      // 同一台机器（回环 / 服务端与对端同址）会撞上，避免重复发。
+      if (peer.address !== this.gcs.ip || peer.port !== this.gcs.port) {
+        out.push({ address: peer.address, port: peer.port });
+      }
+    }
+    return out;
+  }
+
   /**
-   * 发媒体包（`0x5b`）：**服务端与对端直连各发一份**。
+   * 发媒体包（`0x5b`），按 {@link mediaPath} 决定去向。
    *
-   * 实测视频通话的媒体主要走 P2P（对端直连），服务端只转发一小部分；只发服务端
-   * 时对端收不到画面。控制包（`sub=4`）同理 —— 它也要走 P2P。
+   * 真实客户端**不是双发**：0–7.9 秒只发服务端（中继），之后只发对端直连，
+   * 切换后服务端一个包都收不到。我们照这个顺序走：
    *
-   * P2P 地址来自 `bt=9`，端口从对端实际发包的来源学到（见
-   * {@link rememberPeerSource}）。还没学到端口时只发服务端。
+   * - `server`：只发 GCS。还没学到对端端口时就是这一档。
+   * - `probing`：两份都发，持续 {@link MEDIA_PROBE_MS}，确认直连有回程。
+   * - `direct`：只发对端直连。
+   *
+   * 直连静默超时后由 {@link startMediaWatchdog} 打回 `server`。
    */
   private sendMedia(data: Uint8Array): void {
-    this.send(data);
-    const peer = this.peerDirect;
-    if (peer && peer.port > 0 && this.gcs) {
-      // 同一台机器（回环场景）会和服务端地址撞上，避免重复发。
-      if (peer.address !== this.gcs.ip || peer.port !== this.gcs.port) {
-        this.opts.transport.send(data, peer.port, peer.address);
-      }
+    for (const target of this.mediaTargets()) {
+      this.opts.transport.send(data, target.port, target.address);
     }
   }
 
@@ -1083,15 +1143,23 @@ export class CallSession {
    * 对端发给我们的包天然带着它的源地址:端口，直接拿来当回程目标即可。
    */
   private rememberPeerSource(from: { address: string; port: number }): void {
-    if (this.lastPeerFrom?.address === from.address && this.lastPeerFrom?.port === from.port)
-      return;
-    this.lastPeerFrom = from;
     // 判据是「来源 != 服务端」而不是「和 bt=9 一致」：bt=9 只给地址不给端口，
     // 而真正的回程端口只能从对端实际发包的来源学到。服务端地址要排除掉。
     const isServer = this.gcs && this.gcs.ip === from.address && this.gcs.port === from.port;
+    // 只有绕过服务端的包才刷新「直连还活着」的时间戳 —— 被中继的包说明直连不通。
+    if (!isServer) this.lastPeerMediaAt = this.timers.now();
+    if (this.lastPeerFrom?.address === from.address && this.lastPeerFrom?.port === from.port)
+      return;
+    this.lastPeerFrom = from;
     if (isServer) return;
     this.peerDirect = { address: from.address, port: from.port };
     this.log?.info('学到对端直连地址', { address: from.address, port: from.port });
+    // 首次学到端口：进入双发探测期。已经是 direct 时不动（回落由看门狗管）。
+    if (this.mediaPath === 'server') {
+      this.mediaPath = 'probing';
+      this.probeSince = this.timers.now();
+      this.log?.info('媒体路径切换', { path: 'probing' });
+    }
   }
 
   private handleAuthRsp(): void {
@@ -1176,9 +1244,12 @@ export class CallSession {
     this.connectedAt = this.timers.now();
     // 样本计数器与 ssrc 基线在同一时刻定下来，二者必须同源。
     this.sampleBase = (this.tick() * 16) >>> 0;
+    // sub-header [12:16] 的会话基准 tick，整通不变。
+    this.mediaBaseTick = this.tick();
     this.startQfb();
     this.startAudioLoop();
     this.startVideoWatchdog();
+    this.startMediaWatchdog();
     // QQ 的默认行为：**视频通话接通时双方摄像头自动打开**（对方可以选择
     // 语音接听，但那不影响我们这边开摄像头）。语音通话则保持关闭。
     //
@@ -1367,9 +1438,32 @@ export class CallSession {
       sessionTs: this.sessionTs,
       hex: Array.from(packet, (b) => b.toString(16).padStart(2, '0')).join(''),
     });
-    // 控制包必须走 P2P：对端判断「你在开/关摄像头」靠的就是这条，只发服务端它收不到。
+    // 连发两次防丢包。去向跟随当前媒体路径：中继阶段只到服务端（真实客户端也是
+    // 这样 —— 7.9 秒切换前它的控制包同样只发服务端）。
     this.sendMedia(packet);
     this.sendMedia(packet);
+  }
+
+  /**
+   * 媒体路径看门狗。
+   *
+   * 直连模式下如果对端不再回包（地址学错、P2P 被网络掐断……），继续只发直连
+   * 就会彻底失联。这里每秒查一次：超过 {@link MEDIA_DIRECT_TIMEOUT_MS} 没收到
+   * 任何 `0x5b` 包就退回服务端中继，并把端口清零等下一次重新学习。
+   */
+  private startMediaWatchdog(): void {
+    if (this.mediaWatchdogTimer !== null) return;
+    this.mediaWatchdogTimer = this.timers.setInterval(() => {
+      if (this.mediaPath !== 'direct') return;
+      if (this.lastPeerMediaAt === 0) return;
+      const silent = this.timers.now() - this.lastPeerMediaAt;
+      if (silent < MEDIA_DIRECT_TIMEOUT_MS) return;
+      this.log?.warn('对端直连静默超时，回落服务端中继', { silentMs: silent });
+      this.mediaPath = 'server';
+      // 地址留着（bt=9 给的是对的），端口归零，等对端下次发包重新学。
+      if (this.peerDirect) this.peerDirect = { address: this.peerDirect.address, port: 0 };
+      this.lastPeerFrom = null;
+    }, 1000);
   }
 
   /**
@@ -1395,7 +1489,13 @@ export class CallSession {
     }, 1000);
   }
 
-  /** 视频保活：每 2 秒一条，视频停了也继续发到挂断。 */
+  /**
+   * 视频保活：每 2 秒**两条**，视频停了也继续发到挂断。
+   *
+   * 实测真实客户端的两条间隔 40–90 ms，body 首字节分别是 `0x02` 和 `0x03`：
+   * 前者报自己的 tick，后者附带「我收到你发到哪个 tick」的回执。只发前一种时
+   * 对端没有直连通断的判据。
+   */
   private startVideoKeepalive(): void {
     if (this.videoKeepaliveTimer !== null) return;
     const beat = () => {
@@ -1403,8 +1503,20 @@ export class CallSession {
         buildVideoKeepalive({
           sessionTs: this.sessionTs,
           tick: this.tick(),
+          variant: 0x02,
         }),
       );
+      // 第二条错开一点，别和第一条挤在同一毫秒。
+      this.timers.setTimeout(() => {
+        this.sendMedia(
+          buildVideoKeepalive({
+            sessionTs: this.sessionTs,
+            tick: this.tick(),
+            variant: 0x03,
+            peerTick: this.lastPeerTick,
+          }),
+        );
+      }, VIDEO_KEEPALIVE_SECOND_MS);
     };
     beat();
     this.videoKeepaliveTimer = this.timers.setInterval(beat, VIDEO_KEEPALIVE_MS);
@@ -1482,16 +1594,22 @@ export class CallSession {
   /**
    * 把一帧 Annex B 裸流切包发出去。
    *
-   * 20 字节 sub-header + 裸流按 `maxPayload` 切分，每片一个 `0x5b subType=2`
-   * 包。实测单个 UDP 载荷约 1200 字节（IPv6 路径下更大，但 1200 是安全值）。
+   * 20 字节 sub-header + 裸流等分切包，每片一个 `0x5b subType=2` 包。单个 UDP
+   * 载荷约 1200 字节（IPv6 路径下更大，但 1200 是安全值）。
+   *
+   * 三个字段按实测填（见 {@link buildVideoSubHeader}）：
+   * - `[2]=0x00`（c2s 方向，不是 0x03）；
+   * - `[8:12]` 帧 PTS = 距接通时刻的毫秒数（不是 `Date.now()`）；
+   * - `[12:16]` 接通时定下的会话基准 tick。
    */
   private sendVideoFrame(hevc: Uint8Array): void {
-    const timestampMs = this.tick();
+    const now = this.timers.now();
+    const ptsMs = this.connectedAt === null ? 0 : now - this.connectedAt;
     const subHeader = buildVideoSubHeader({
-      gidx: this.videoFrameIndex & 0xff,
+      direction: 'c2s',
       frameIndex: this.videoFrameIndex,
-      timestampMs,
-      variant: this.videoFrameIndex === 0 ? 1 : 0,
+      timestampMs: ptsMs,
+      baseTick: this.mediaBaseTick,
     });
     const frameData = new Uint8Array(subHeader.length + hevc.length);
     frameData.set(subHeader, 0);
@@ -1501,9 +1619,11 @@ export class CallSession {
       frameData,
       gidx: this.videoFrameIndex & 0xff,
       sessionTs: this.sessionTs,
+      // tick 帧内恒定；seq 由 buildVideoPackets 按片递增。
       tick: this.tick(),
-      seq: ++this.videoSeq,
+      seq: this.videoSeq,
     });
+    this.videoSeq += packets.length;
     for (const packet of packets) this.sendMedia(packet);
     this.videoFrameIndex++;
   }
@@ -1640,6 +1760,7 @@ export class CallSession {
       [this.videoKeepaliveTimer, 'clearInterval'],
       [this.videoTimer, 'clearTimeout'],
       [this.videoWatchdogTimer, 'clearInterval'],
+      [this.mediaWatchdogTimer, 'clearInterval'],
     ];
     for (const [handle, kind] of pairs) {
       if (handle !== null) this.timers[kind](handle);
@@ -1655,6 +1776,7 @@ export class CallSession {
     this.videoKeepaliveTimer = null;
     this.videoTimer = null;
     this.videoWatchdogTimer = null;
+    this.mediaWatchdogTimer = null;
   }
 
   private emit(): void {

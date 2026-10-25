@@ -25,6 +25,8 @@ import {
   CallEvent,
   GcsBodyType,
   VIDEO_CTRL_SUB_TYPE,
+  VIDEO_EXT_LEN,
+  VIDEO_EXT_TYPE,
   VideoFrameAssembler,
   VideoSubType,
   buildGcsHead,
@@ -145,11 +147,29 @@ class FakeTransport implements UdpTransport {
   deliver(data: Uint8Array): void {
     this.messageHandler?.(data, { address: '1.2.3.4', port: 8000 });
   }
+  /** 从指定来源投递（模拟对端直连发包）。 */
+  deliverFrom(data: Uint8Array, from: { address: string; port: number }): void {
+    this.messageHandler?.(data, from);
+  }
   /** 按子类型筛出已发出的媒体包。 */
   media(subType: number): Uint8Array[] {
     return this.sent
       .filter((s) => s.data[0] === AUDIO_STX && s.data[3] === subType)
       .map((s) => s.data);
+  }
+  /** 按目的地址筛出已发出的媒体包。 */
+  mediaTo(address: string, subType?: number): Uint8Array[] {
+    return this.sent
+      .filter(
+        (s) =>
+          s.data[0] === AUDIO_STX &&
+          (subType === undefined || s.data[3] === subType) &&
+          s.address === address,
+      )
+      .map((s) => s.data);
+  }
+  reset(): void {
+    this.sent.length = 0;
   }
 }
 
@@ -259,7 +279,7 @@ function videoPacket(params: {
   subType?: number;
 }): Uint8Array {
   const subType = params.subType ?? VideoSubType.max;
-  const out = new Uint8Array(AUDIO_HEADER_LEN + 6 + 2 + params.chunk.length);
+  const out = new Uint8Array(AUDIO_HEADER_LEN + 6 + VIDEO_EXT_LEN + params.chunk.length);
   out[0] = AUDIO_STX;
   out[1] = (out.length >> 8) & 0xff;
   out[2] = out.length & 0xff;
@@ -270,9 +290,11 @@ function videoPacket(params: {
   out[AUDIO_HEADER_LEN + 3] = 0x0b;
   out[AUDIO_HEADER_LEN + 4] = params.gidx;
   out[AUDIO_HEADER_LEN + 5] = 1;
-  out[AUDIO_HEADER_LEN + 6] = 0x02;
-  out[AUDIO_HEADER_LEN + 7] = 0x03;
-  out.set(params.chunk, AUDIO_HEADER_LEN + 8);
+  // 扩展 `03 03 00`（与真实客户端一致）。
+  out[AUDIO_HEADER_LEN + 6] = VIDEO_EXT_LEN;
+  out[AUDIO_HEADER_LEN + 7] = VIDEO_EXT_TYPE;
+  out[AUDIO_HEADER_LEN + 8] = 0x00;
+  out.set(params.chunk, AUDIO_HEADER_LEN + 6 + VIDEO_EXT_LEN);
   return out;
 }
 
@@ -477,6 +499,28 @@ describe('发送视频', () => {
     expect([...frame!.frameData.subarray(24, 26)]).toEqual([0x40, 0x01]);
   });
 
+  it('sub-header 按 c2s 方向填（[2]=0x00、[3]=0x06、PTS 递增）', async () => {
+    const encoder = new FakeVideoEncoder(2);
+    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
+    await connect(ctx);
+    ctx.session.setCamera(true);
+    await ctx.timers.advanceAsync(40);
+
+    const videos = ctx.transport.media(VideoSubType.max);
+    expect(videos.length).toBeGreaterThan(0);
+    const sh = parseVideoPacket(videos[0]!)!.payload;
+    // 首字节是 sub-header 长度 20，紧跟 [1] 帧序号、[2] 方向、[3] 常量。
+    expect(sh[0]).toBe(20);
+    expect(sh[2]).toBe(0x00); // c2s，不是 0x03
+    expect(sh[3]).toBe(0x06); // 首帧也是 06
+    // [8:12] 是距接通的毫秒数（首帧可能为 0，至少不能是 Date.now() 量级）。
+    const pts = new DataView(sh.buffer, sh.byteOffset + 8, 4).getUint32(0);
+    expect(pts).toBeLessThan(60_000);
+    // [12:16] 是接通时定下的会话基准 tick（非 0）。
+    const base = new DataView(sh.buffer, sh.byteOffset + 12, 4).getUint32(0);
+    expect(base).toBeGreaterThan(0);
+  });
+
   it('关摄像头后不再发视频包', async () => {
     const encoder = new FakeVideoEncoder(100);
     const ctx = makeSession({ media: 'video', videoEncoder: encoder });
@@ -509,5 +553,111 @@ describe('发送视频', () => {
     await ctx.session.hangup();
     expect(encoder.closed).toBe(true);
     expect(ctx.session.snapshot().videoSending).toBe(false);
+  });
+});
+
+describe('媒体路径（中继 / 直连）', () => {
+  const SERVER_IP = '113.250.57.28';
+  const PEER_IP = '240e:399:f9d:3f10:7167:3709:7894:4f2';
+
+  it('没学到对端端口时只发服务端', async () => {
+    const encoder = new FakeVideoEncoder(1000);
+    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
+    await connect(ctx);
+    ctx.transport.reset();
+    await ctx.timers.advanceAsync(20);
+
+    const videos = ctx.transport.media(VideoSubType.max);
+    expect(videos.length).toBeGreaterThan(0);
+    expect(ctx.transport.mediaTo(SERVER_IP, VideoSubType.max).length).toBe(videos.length);
+  });
+
+  it('学到对端地址后进入探测期：两份都发', async () => {
+    const encoder = new FakeVideoEncoder(1000);
+    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
+    await connect(ctx);
+    await ctx.timers.advanceAsync(20);
+
+    // 对端从直连地址发来一个媒体包 → 学到端口。
+    const whole = new Uint8Array(26);
+    whole[0] = 20;
+    whole.set([0, 0, 0, 1, 0x40, 0x01], 20);
+    ctx.transport.deliverFrom(videoPacket({ gidx: 0, pkgIdx: 0, totalPkg: 1, chunk: whole }), {
+      address: PEER_IP,
+      port: 47708,
+    });
+    ctx.transport.reset();
+    await ctx.timers.advanceAsync(20);
+
+    // 探测期内：服务端一份 + P2P 一份。
+    expect(ctx.transport.mediaTo(SERVER_IP, VideoSubType.max).length).toBeGreaterThan(0);
+    expect(ctx.transport.mediaTo(PEER_IP, VideoSubType.max).length).toBeGreaterThan(0);
+  });
+
+  it('探测期结束后只发 P2P', async () => {
+    const encoder = new FakeVideoEncoder(10000);
+    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
+    await connect(ctx);
+    const whole = new Uint8Array(26);
+    whole[0] = 20;
+    whole.set([0, 0, 0, 1, 0x40, 0x01], 20);
+    ctx.transport.deliverFrom(videoPacket({ gidx: 0, pkgIdx: 0, totalPkg: 1, chunk: whole }), {
+      address: PEER_IP,
+      port: 47708,
+    });
+    // 探测期 1 秒；期间对端持续有媒体包，避免被判定为直连静默。
+    for (let i = 0; i < 12; i++) {
+      await ctx.timers.advanceAsync(100);
+      ctx.transport.deliverFrom(
+        videoPacket({ gidx: i + 1, pkgIdx: 0, totalPkg: 1, chunk: whole }),
+        { address: PEER_IP, port: 47708 },
+      );
+    }
+    ctx.transport.reset();
+    await ctx.timers.advanceAsync(50);
+
+    expect(ctx.transport.mediaTo(SERVER_IP, VideoSubType.max)).toHaveLength(0);
+    expect(ctx.transport.mediaTo(PEER_IP, VideoSubType.max).length).toBeGreaterThan(0);
+  });
+
+  it('直连静默超时后回落服务端', async () => {
+    const encoder = new FakeVideoEncoder(10000);
+    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
+    await connect(ctx);
+    const whole = new Uint8Array(26);
+    whole[0] = 20;
+    whole.set([0, 0, 0, 1, 0x40, 0x01], 20);
+    ctx.transport.deliverFrom(videoPacket({ gidx: 0, pkgIdx: 0, totalPkg: 1, chunk: whole }), {
+      address: PEER_IP,
+      port: 47708,
+    });
+    // 撑过探测期。
+    for (let i = 0; i < 12; i++) {
+      await ctx.timers.advanceAsync(100);
+      ctx.transport.deliverFrom(
+        videoPacket({ gidx: i + 1, pkgIdx: 0, totalPkg: 1, chunk: whole }),
+        { address: PEER_IP, port: 47708 },
+      );
+    }
+    ctx.transport.reset();
+    // 之后对端彻底不再回包 → 看门狗应在 2 秒后回落。
+    await ctx.timers.advanceAsync(4000);
+    ctx.transport.reset();
+    await ctx.timers.advanceAsync(50);
+
+    expect(ctx.transport.mediaTo(SERVER_IP, VideoSubType.max).length).toBeGreaterThan(0);
+  });
+
+  it('保活包每拍两条：0x02 与 0x03 变体', async () => {
+    const ctx = makeSession({ media: 'video' });
+    await connect(ctx);
+    ctx.transport.reset();
+    await ctx.timers.advanceAsync(2100);
+
+    const keepalives = ctx.transport.media(0x05);
+    expect(keepalives.length).toBeGreaterThanOrEqual(2);
+    const bodies = keepalives.map((p) => p[17]);
+    expect(bodies).toContain(0x02);
+    expect(bodies).toContain(0x03);
   });
 });

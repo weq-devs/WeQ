@@ -4,26 +4,33 @@
  * 与音频共用 17 字节外层头（`0x5b`），但载荷是另一套结构：外层头之后是 6 字节
  * 视频 RTP 头 + 可选扩展段 + 加密无关的明文 H.265 Annex B。
  *
- * 实测（2026-10-25，两通真实视频通话，一收一发）确认的格式：
+ * 实测（2026-10-25，一次 21 秒的真实双向视频通话，21.4 万帧样本）确认的格式：
  *
  * ```text
  * 0x5b 头 17B        [3]=subType  [5:9]=seq  [9:13]=sessionTs  [13:17]=tick
  *   ↓
  * 视频 RTP 头 6B     pkg_idx | total_pkg | total_fec | ext_fec_byte | gidx | fidx
  *   ↓
- * 扩展段             ext_fec_byte 低 5 位 ∈ [11,20] 时有 (值-10) 条 [len][type][data]
+ * 扩展段 3B          03 03 00（len=3 含自身、type=3、data 1 字节）
  *   ↓ （同一帧的各分片按 pkg_idx 拼起来）
- * sub-header N B     首字节 = N（实测 20）；[8:12] = 真实帧时间戳（ms）
+ * sub-header 20B     [0]=20  [1]=帧序号  [2]=方向  [3]=06  [8:12]=时间戳
  *   ↓
  * H.265 Annex B      以 00 00 00 01 起始码开头，**明文**
  * ```
  *
+ * 三个容易写错的地方（都是对着抓包逐字节比对出来的）：
+ *
+ * 1. **扩展段是 3 字节**，不是 2 字节。少 1 字节接收端整体错位。
+ * 2. **`seq` 每片 +1**（整通连续递增、不按帧重置）；**外层 `tick` 帧内恒定**。
+ *    两者写反过 —— 那样对端的重排 / 去重判定会失效。
+ * 3. **sub-header `[2]` 是方向标识**（c2s=0x00 / s2c=0x03），且时间戳布局随之
+ *    变化。恒写 0x03 等于把自己伪装成对端方向。
+ *
  * 帧的归属靠 `(gidx, fidx)`：`fidx=1` 是基础层（可独立解码），`fidx>=2` 是时域
  * 增强层（依赖基础层，跳过可避免花屏）。同一个 GOP 内 `gidx` 递增。
  *
- * ⚠️ 与音频的差异：音频把 `[13:17]` 当 tick 用，视频这里也是每包递增的 tick；
- * 而 `[9:13]` 两侧都是**每方向恒定的会话时钟**（实测 c2s/s2c 各差 1），不是
- * 每包变化的时间戳。真正的帧时间戳在 sub-header 里。
+ * `[9:13]` 两侧都是**每方向恒定的会话时钟**（实测 c2s/s2c 各差 1），不是每包
+ * 变化的时间戳。真正的帧时间戳在 sub-header 里。
  */
 
 import { AUDIO_HEADER_LEN, AUDIO_STX, u32be, writeU16be, writeU32be } from './gcs';
@@ -53,13 +60,19 @@ export const VIDEO_RTP_HEADER_LEN = 6;
 const EXT_OFFSET = VIDEO_RTP_HEADER_LEN;
 
 /**
- * 我们发的包里那条扩展的长度（`[len][type][data]` 三个字节，data 空）。
+ * 每个视频包都带的那条扩展：`[len][type][data]`，len=3 含自身，type=3，data 1 字节 `0x00`。
  *
  * 实测真实客户端在 `ext_fec_byte` 低位写 `0x0b`（= 11 → 1 条扩展），扩展体是
- * `02 03`（len=2，type=3，无数据）。这 2 字节必须真的写进去，否则接收端按
- * `dataOffset` 取载荷会整体错位 2 字节。
+ * `03 03 00` —— **3 字节**，不是 2 字节。少写那 1 字节，接收端按 `dataOffset`
+ * 取载荷就会整体前移，sub-header 与后面的 Annex B 起始码全对不上。
  */
-const EXT_HEADER_LEN = 2;
+export const VIDEO_EXT_LEN = 3;
+
+/** 那条扩展的 type（实测恒为 3）。 */
+export const VIDEO_EXT_TYPE = 3;
+
+/** 扩展段的 data 部分（1 字节 0x00，实测恒定）。 */
+const VIDEO_EXT_DATA = 0x00;
 
 /** 组帧超时：超过这个时间还没凑齐的分片直接丢掉。 */
 export const VIDEO_FRAME_TIMEOUT_MS = 4000;
@@ -457,10 +470,25 @@ export function buildVideoControl(params: { sessionTs: number; tick: number }): 
 /**
  * 视频会话保活包（`subType=5`，29 字节）。
  *
- * body 前 4 字节是固定 `02 00 00 00`，后 4 字节是 tick 的**小端**副本（实测
- * 与外层 tick 一致，字节序相反）。中间 4 字节未还原，实测恒为 0，照抄。
+ * 实测真实客户端每 2 秒发**两条**，body 首字节区分变体，两条间隔 40–90 ms：
+ *
+ * ```text
+ * body[0] = 0x02   body[4:8] = 自己 tick 的小端    body[8:12] = 0
+ * body[0] = 0x03   body[4:8] = 对端最新 tick 的小端  body[8:12] = 自己 tick 的小端
+ * ```
+ *
+ * `0x03` 那条相当于「我收到你发到某个 tick 了」的回执，对端据此判断直连是否通。
+ * body[1:4] 实测恒为 0，照抄。
  */
-export function buildVideoKeepalive(params: { sessionTs: number; tick: number }): Uint8Array {
+export function buildVideoKeepalive(params: {
+  sessionTs: number;
+  tick: number;
+  /** 变体：0x02 = 只报自己；0x03 = 附带对端最新 tick。 */
+  variant?: 0x02 | 0x03;
+  /** 对端最近一个包的 tick（`variant=0x03` 时写进 body[4:8]）。 */
+  peerTick?: number;
+}): Uint8Array {
+  const variant = params.variant ?? 0x02;
   const out = new Uint8Array(AUDIO_HEADER_LEN + 12);
   out[0] = AUDIO_STX;
   writeU16be(out, 1, out.length);
@@ -470,24 +498,34 @@ export function buildVideoKeepalive(params: { sessionTs: number; tick: number })
   writeU32be(out, 13, params.tick);
 
   const body = out.subarray(AUDIO_HEADER_LEN);
-  body[0] = 0x02;
+  body[0] = variant;
   // [1:4] 实测恒为 0。
-  // [4:8] tick 的小端副本。
-  body[4] = params.tick & 0xff;
-  body[5] = (params.tick >>> 8) & 0xff;
-  body[6] = (params.tick >>> 16) & 0xff;
-  body[7] = (params.tick >>> 24) & 0xff;
-  // [8:12] 实测恒为 0。
+  writeU32le(body, 4, variant === 0x03 ? (params.peerTick ?? 0) : params.tick);
+  writeU32le(body, 8, variant === 0x03 ? params.tick : 0);
   return out;
+}
+
+/** 小端 32 位写入（保活包的 body 是反字节序的）。 */
+function writeU32le(buf: Uint8Array, off: number, value: number): void {
+  buf[off] = value & 0xff;
+  buf[off + 1] = (value >>> 8) & 0xff;
+  buf[off + 2] = (value >>> 16) & 0xff;
+  buf[off + 3] = (value >>> 24) & 0xff;
 }
 
 /**
  * 发一帧视频（把 Annex B 裸流切成 `0x5b subType=2` 分片）。
  *
- * 分片大小按实测：单个 UDP 载荷控制在 `maxPayload` 以内（默认 1200，留出
- * IPv6 / UDP 头余量）。调用方要自己把 `frameData` 前面拼上 20 字节 sub-header
- * —— 这里接收的是**已含 sub-header** 的完整帧数据，与 `VideoFrame.frameData`
- * 同形，这样收发两侧可以共用组帧逻辑做回归比对。
+ * 分片规则按实测：
+ *
+ * - 单个 UDP 包总长不超过 `maxPayload`（默认 1200，留出 IPv6 / UDP 头余量）；
+ * - **整帧等分**：`chunkSize = ceil(len / total)`，末片自然短；
+ * - **`seq` 每片 +1**（真实抓包里 21 秒连续 0…717，不分帧重置）；
+ * - **外层 `tick` 帧内恒定**，每帧换一次。
+ *
+ * 调用方要自己把 `frameData` 前面拼上 20 字节 sub-header —— 这里接收的是
+ * **已含 sub-header** 的完整帧数据，与 `VideoFrame.frameData` 同形，这样收发
+ * 两侧可以共用组帧逻辑做回归比对。
  *
  * `fidx` 固定 1（基础层）：实测 c2c 通话不启用时域增强层。
  */
@@ -496,36 +534,40 @@ export function buildVideoPackets(params: {
   gidx: number;
   fidx?: number;
   sessionTs: number;
+  /** 本帧所有分片共用的 tick。 */
   tick: number;
+  /** 本帧第一个分片的 seq，内部按片递增。 */
   seq: number;
   subType?: number;
   maxPayload?: number;
-  /** 每帧递增的 tick 偏移，调用方按包数累加。 */
+  /** 覆盖单片的 tick（调试用；默认所有分片相同）。 */
   tickForPacket?: (index: number) => number;
 }): Uint8Array[] {
   const fidx = params.fidx ?? 1;
   const subType = params.subType ?? VideoSubType.max;
   // `maxPayload` 是**单个 UDP 包的总长上限**，每片都要扣掉外层头 + RTP 头 + 扩展。
   const maxPacket = Math.max(64, params.maxPayload ?? 1200);
-  const maxChunk = maxPacket - AUDIO_HEADER_LEN - VIDEO_RTP_HEADER_LEN - EXT_HEADER_LEN;
+  const maxChunk = maxPacket - AUDIO_HEADER_LEN - VIDEO_RTP_HEADER_LEN - VIDEO_EXT_LEN;
   const total = Math.max(1, Math.ceil(params.frameData.length / maxChunk));
   // 单个 `pkg_idx` 是 1 字节，分片数不能超 255。
   const totalPkg = Math.min(total, 255);
+  // 等分：末片自然短。真实客户端的末片不带 0 填充（填充语义未经证实，不补）。
+  const chunkSize = Math.max(1, Math.ceil(params.frameData.length / totalPkg));
 
   const packets: Uint8Array[] = [];
   for (let i = 0; i < totalPkg; i++) {
-    const start = i * maxChunk;
-    const end = Math.min(start + maxChunk, params.frameData.length);
+    const start = i * chunkSize;
+    const end = Math.min(start + chunkSize, params.frameData.length);
     const chunk = params.frameData.subarray(start, end);
-    const bodyLen = VIDEO_RTP_HEADER_LEN + EXT_HEADER_LEN + chunk.length;
+    const bodyLen = VIDEO_RTP_HEADER_LEN + VIDEO_EXT_LEN + chunk.length;
     const out = new Uint8Array(AUDIO_HEADER_LEN + bodyLen);
 
     out[0] = AUDIO_STX;
     writeU16be(out, 1, out.length);
     out[3] = subType;
-    writeU32be(out, 5, params.seq);
+    writeU32be(out, 5, (params.seq + i) >>> 0);
     writeU32be(out, 9, params.sessionTs);
-    writeU32be(out, 13, params.tickForPacket ? params.tickForPacket(i) : (params.tick + i) >>> 0);
+    writeU32be(out, 13, params.tickForPacket ? params.tickForPacket(i) : params.tick >>> 0);
 
     // RTP 头。`ext_fec_byte=0x0b` 是实测值：无跨帧 FEC、1 条 type=3 扩展。
     out[AUDIO_HEADER_LEN] = i;
@@ -535,51 +577,73 @@ export function buildVideoPackets(params: {
     out[AUDIO_HEADER_LEN + 4] = params.gidx & 0xff;
     out[AUDIO_HEADER_LEN + 5] = fidx & 0xff;
 
-    // 那条 type=3 扩展（`len=2, type=3`，无数据）——必须真的写出来，
-    // 否则接收端按 ext 计数跳过时会把 sub-header 的前 2 字节吃掉。
-    out[AUDIO_HEADER_LEN + VIDEO_RTP_HEADER_LEN] = EXT_HEADER_LEN;
-    out[AUDIO_HEADER_LEN + VIDEO_RTP_HEADER_LEN + 1] = 0x03;
+    // 那条扩展 `03 03 00`（len=3 含自身、type=3、data 1 字节）——必须完整写出来，
+    // 少 1 字节接收端按 len 跳过时会把 sub-header 整体前移。
+    const extAt = AUDIO_HEADER_LEN + VIDEO_RTP_HEADER_LEN;
+    out[extAt] = VIDEO_EXT_LEN;
+    out[extAt + 1] = VIDEO_EXT_TYPE;
+    out[extAt + 2] = VIDEO_EXT_DATA;
 
-    out.set(chunk, AUDIO_HEADER_LEN + VIDEO_RTP_HEADER_LEN + EXT_HEADER_LEN);
+    out.set(chunk, extAt + VIDEO_EXT_LEN);
     packets.push(out);
   }
   return packets;
 }
 
 /**
+ * sub-header 的 `[2]` 字节：方向标识，两侧取值不同。
+ *
+ * | 方向 | `[2]` | `[8:12]` | `[12:16]` |
+ * | --- | --- | --- | --- |
+ * | c2s | `0x00` | 帧 PTS（相对会话起点 ms） | 会话基准 tick（恒定） |
+ * | s2c | `0x03` | 发送方 tick（每帧变） | 0 |
+ *
+ * 这个字节不能照抄对端那一侧的值 —— 早期实现恒写 `0x03`，等于把 s2c 的格式
+ * 用在了自己的上行里。
+ */
+export const VIDEO_SUBHEADER_DIRECTION = { c2s: 0x00, s2c: 0x03 } as const;
+
+/** sub-header 固定长度（首字节就是它）。 */
+export const VIDEO_SUBHEADER_LEN = 20;
+
+/**
  * 构造 20 字节 sub-header。
  *
- * 字段位置来自实测（两端一致）：
+ * 实测布局（2026-10-25 双向抓包）：
  *
  * ```text
- * [0]      20           sub-header 长度（自己）
- * [1]      gidx & 0xff
- * [2]      03           常量
- * [3]      06           常量
- * [4:6]    00 00        常量
- * [6:8]    帧序号（大端，每帧 +1）
- * [8:12]   帧时间戳 ms（大端）
- * [12:16]  0
- * [16:20]  0（首帧另见下）
+ * [0]      20                  sub-header 长度（自己）
+ * [1]      帧序号 & 0xff
+ * [2]      c2s=0x00 / s2c=0x03 方向标识
+ * [3]      0x06                常量（**首帧也是 06**，早期「首帧 03」是误判）
+ * [4:6]    00 00               常量
+ * [6:8]    未解（每帧变化，对不上 CRC16 / 校验和 / 长度）
+ * [8:12]   帧时间戳（见上表，随方向变）
+ * [12:16]  会话基准 tick（c2s）/ 0（s2c）
+ * [16:20]  未解（实测小整数 0–5）
  * ```
  *
- * 首帧（`gidx=0`）的 `[2]` 是 `03`、`[3]` 是 `03`（`14000306…`），后续帧
- * `[2]` 才从 0 递增 —— 这一点实测有出入，按 gidx=0 用 `03 03`、其余用
- * `03 06` 处理（调用方可用 `variant` 覆盖）。
+ * 两个未解字段按约定填 0。若对端仍不认我们的画面，优先回头试这两处。
  */
 export function buildVideoSubHeader(params: {
-  gidx: number;
+  /** 发送方向：决定 `[2]` 与时间戳布局。 */
+  direction: 'c2s' | 's2c';
+  /** 本会话内第几帧（从 0 起），只取低 8 位。 */
   frameIndex: number;
+  /** `[8:12]`：c2s 填帧 PTS（ms），s2c 填发送时的 tick。 */
   timestampMs: number;
-  /** 0 = 普通帧（`03 06`），1 = 首帧（`03 03`）。实测首帧就是 1。 */
-  variant?: number;
+  /** `[12:16]`：c2s 填会话基准 tick；s2c 恒 0。 */
+  baseTick?: number;
 }): Uint8Array {
-  const out = new Uint8Array(20);
-  out[0] = 20;
-  out[1] = params.gidx & 0xff;
-  out[2] = 0x03;
-  out[3] = params.variant === 1 ? 0x03 : 0x06;
-  writeU16be(out, 6, params.frameIndex & 0xffff);
+  const out = new Uint8Array(VIDEO_SUBHEADER_LEN);
+  out[0] = VIDEO_SUBHEADER_LEN;
+  out[1] = params.frameIndex & 0xff;
+  out[2] = VIDEO_SUBHEADER_DIRECTION[params.direction];
+  out[3] = 0x06;
+  // [4:6] 恒 0。
+  // [6:8] 未解 —— 抓包里每帧变化（实测 6948 / 8746 / 8233…），填 0。
   writeU32be(out, 8, params.timestampMs >>> 0);
+  if (params.direction === 'c2s') writeU32be(out, 12, (params.baseTick ?? 0) >>> 0);
+  // [16:20] 未解 —— 抓包里是 0–5 的小整数，填 0。
   return out;
 }
