@@ -12,6 +12,25 @@
   min-width: 0;
 }
 
+@media (min-width: 651px) {
+  .weq-settings-nav {
+    padding: 20px 12px;
+  }
+
+  .weq-settings-nav-title {
+    margin: 0 12px 18px;
+  }
+
+  .weq-settings-nav ul {
+    gap: 4px;
+  }
+
+  .weq-settings-nav-item {
+    gap: 10px;
+    padding: 9px 12px;
+  }
+}
+
 .weq-settings-subnav {
   display: flex;
   flex-wrap: wrap;
