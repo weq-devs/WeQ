@@ -13,6 +13,7 @@ import { clearStorageAfterExit, storageCleanupResult } from './storage_cleanup';
 import { DialogLocations } from './dialog_locations';
 import { AppAutostart } from './autostart';
 import { manualRestartArgs } from './startup_window';
+import { skipNextQuitConfirmation } from './app_quit_confirmation';
 
 let startup: AppAutostart | null = null;
 function appAutostart(): AppAutostart {
@@ -127,7 +128,10 @@ export const electronHost: HostBridge = {
   storageCleanupResult,
   restartApplication: async () => {
     app.relaunch({ args: manualRestartArgs(process.argv) });
-    setTimeout(() => app.quit(), 200);
+    setTimeout(() => {
+      skipNextQuitConfirmation();
+      app.quit();
+    }, 200);
   },
   fetchMedia: (url, opts) => net.fetch(url, { signal: opts?.signal }),
   async validateImageBuffer(bytes) {

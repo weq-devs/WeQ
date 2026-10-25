@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Activity, Check, Copy } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
@@ -11,22 +11,62 @@ export function AssistantSection() {
   const status = trpc.bootstrap.getWeqAssistantStatus.useQuery(undefined, refresh);
   const setEnabled = trpc.bootstrap.setWeqAssistantEnabled.useMutation();
   const setPort = trpc.bootstrap.setWeqAssistantPort.useMutation();
+  const startup = trpc.bootstrap.getAutostartStatus.useQuery(undefined, refresh);
+  const setStartup = trpc.bootstrap.setAutostart.useMutation();
+  const confirm = useDialog((state) => state.confirm);
   const showError = useDialog((state) => state.showError);
   const pushToast = useToast((state) => state.push);
   const [portDraft, setPortDraft] = useState('');
   const [copied, setCopied] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const linkingRef = useRef(false);
   const data = status.data;
-  const busy = setEnabled.isLoading || setPort.isLoading;
+  const busy = setEnabled.isLoading || setPort.isLoading || setStartup.isLoading || linking;
   useEffect(() => {
     if (data?.port != null) setPortDraft(String(data.port));
   }, [data?.port]);
   async function toggle(enabled: boolean) {
+    if (linkingRef.current) return;
+    linkingRef.current = true;
+    setLinking(true);
+    let applied = false;
     try {
       await setEnabled.mutateAsync({ enabled });
+      applied = true;
       await status.refetch();
+      if (enabled) {
+        const state = (await startup.refetch()).data;
+        if (state?.supported && state.requiresApproval) {
+          pushToast({
+            tone: 'info',
+            title: '登录自启仍需系统批准',
+            message: '助手已开启，自启是否生效请在开机启动设置中核对。',
+          });
+        } else if (state?.supported && !state.enabled) {
+          const linked = await confirm(
+            '同时开启 WeQ 登录自启？',
+            'WeQ 助手依赖应用运行。当前未开启登录自启，下次登录系统后需要手动打开 WeQ，QQ 中的助手卡片才能加载本机内容。',
+            { okLabel: '同时开启自启', cancelLabel: '仅开启助手', tone: 'info' },
+          );
+          if (linked) {
+            const result = await setStartup.mutateAsync({ enabled: true });
+            await startup.refetch();
+            pushToast({
+              tone: result.requiresApproval ? 'info' : 'success',
+              title: result.requiresApproval ? '登录自启需要系统批准' : '已同时开启登录自启',
+            });
+          }
+        }
+      }
     } catch (error) {
-      showError('切换 WeQ 助手失败', error instanceof Error ? error.message : '服务状态未知');
+      showError(
+        applied && enabled ? '助手已开启，自启设置未完成' : '切换 WeQ 助手失败',
+        error instanceof Error ? error.message : '服务状态未知',
+      );
       await status.refetch();
+    } finally {
+      linkingRef.current = false;
+      setLinking(false);
     }
   }
   async function savePort() {

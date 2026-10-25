@@ -49,7 +49,7 @@ import { getAppContext } from './context/app_context';
 import { handleGroupKeywordHit } from './group_keyword_notify';
 import { handleRecallNotification } from './recall_notify';
 import { handleMailNotification } from './mail_notify';
-import { checkForUpdate, installUpdateActions } from './update/updater';
+import { checkForUpdate, installUpdateActions, isInstallingUpdate } from './update/updater';
 import { stopMcpServer } from './mcp/server';
 import { remoteRuntime } from './remote/runtime';
 import { desktopWebRuntime } from './web/runtime';
@@ -70,6 +70,7 @@ import {
   shouldShowStartupWindow,
 } from './startup_window';
 import { registerAppQuitCleanup, registerAppQuitPreparation } from './app_quit_lifecycle';
+import { registerAppQuitConfirmation, type QuitChoice } from './app_quit_confirmation';
 import { createRendererRecovery } from './renderer_recovery';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
 import { macApplicationMenu, nativeMenuLabels } from './application_menu';
@@ -189,7 +190,6 @@ function buildTray(): void {
         {
           label: labels.quit,
           click: () => {
-            isQuitting = true;
             app.quit();
           },
         },
@@ -241,7 +241,6 @@ function registerWindowLayoutIpc(): void {
     if (action === 'tray') {
       getMainWindow()?.hide();
     } else if (action === 'quit') {
-      isQuitting = true;
       app.quit();
     }
   });
@@ -530,7 +529,6 @@ function createWindow(showInitially = true): BrowserWindow {
     },
     reload: () => win.webContents.reload(),
     quit: () => {
-      isQuitting = true;
       app.quit();
     },
     record: (event, details) =>
@@ -559,7 +557,7 @@ function createWindow(showInitially = true): BrowserWindow {
     }
     const behavior = resolveCloseBehavior();
     if (behavior === 'quit') {
-      isQuitting = true;
+      e.preventDefault();
       app.quit();
       return;
     }
@@ -844,6 +842,41 @@ registerAppQuitPreparation(app, autoUpdater, () => {
 
 // 助手资源随应用结束；次实例退出不能关闭主实例拥有的服务。
 if (hasSingleInstanceLock) {
+  registerAppQuitConfirmation(app, autoUpdater, {
+    needsConfirmation: () => {
+      try {
+        return getAppContext().bootstrap?.userConfig.getSettings().weqAssistant.enabled ?? false;
+      } catch {
+        return false;
+      }
+    },
+    bypass: () => isInstallingUpdate(),
+    showDialog: async (): Promise<QuitChoice> => {
+      const options: Electron.MessageBoxOptions = {
+        type: 'warning',
+        title: '确认退出 WeQ',
+        message: 'WeQ 助手已启用，仍要完全退出吗？',
+        detail:
+          '完全退出后，QQ 中的助手卡片将无法加载本机封面和页面。只关闭窗口会保留 WeQ 与助手服务运行。',
+        buttons: ['取消', '只关闭窗口', '确认退出'],
+        defaultId: 1,
+        cancelId: 0,
+        noLink: true,
+      };
+      const window = getMainWindow();
+      const result =
+        window && !window.isDestroyed() && window.isVisible()
+          ? await dialog.showMessageBox(window, options)
+          : await dialog.showMessageBox(options);
+      return result.response === 2 ? 'quit' : result.response === 1 ? 'window' : 'cancel';
+    },
+    hideWindow: () => getMainWindow()?.hide(),
+    failed: (error) =>
+      logger.warn('quit confirmation failed', {
+        event: 'quit-confirmation-failed',
+        error: String(error),
+      }),
+  });
   registerAppQuitCleanup(
     app,
     () => assistantResourceServer.shutdown(),

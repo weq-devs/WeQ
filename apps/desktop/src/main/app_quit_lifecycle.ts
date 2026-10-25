@@ -5,7 +5,10 @@ interface QuitEventSource<E extends string> {
 /** 暂缓真正退出，等后台清理结束后重走正常退出，不绕过更新安装的握手。 */
 export function registerAppQuitCleanup(
   app: {
-    on(event: 'before-quit', listener: (event: { preventDefault(): void }) => void): unknown;
+    on(
+      event: 'before-quit',
+      listener: (event: { readonly defaultPrevented?: boolean; preventDefault(): void }) => void,
+    ): unknown;
     quit(): void;
   },
   cleanup: () => Promise<void>,
@@ -20,7 +23,7 @@ export function registerAppQuitCleanup(
     updating = true;
   });
   app.on('before-quit', (event) => {
-    if (cleaned || updating) return;
+    if (event.defaultPrevented || cleaned || updating) return;
     event.preventDefault();
     if (cleaning) return;
     cleaning = true;
@@ -49,7 +52,9 @@ export function registerAppQuitPreparation(
     prepared = true;
     prepare();
   };
-  app.on('before-quit', run);
+  app.on('before-quit', (event?: { readonly defaultPrevented?: boolean }) => {
+    if (!event?.defaultPrevented) run();
+  });
   // 更新安装先关闭窗口，再发普通 before-quit；必须提前放行窗口 close。
   updater.on('before-quit-for-update', run);
 }

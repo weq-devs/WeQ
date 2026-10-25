@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { client, trpc } from '../../trpc/client';
 import { RemotePanel } from './RemotePanel';
 import { Row, SectionHeader, Toggle } from './controls';
@@ -36,6 +36,8 @@ function DesktopRemoteSection() {
   const [copyError, setCopyError] = useState<string | null>(null);
   const [copying, setCopying] = useState<'token' | 'pairing' | null>(null);
   const [copied, setCopied] = useState<'token' | 'pairing' | null>(null);
+  const [acting, setActing] = useState(false);
+  const actingRef = useRef(false);
   const busy =
     toggle.isLoading ||
     mode.isLoading ||
@@ -47,6 +49,7 @@ function DesktopRemoteSection() {
     revoke.isLoading ||
     webToggle.isLoading ||
     autoStart.isLoading ||
+    acting ||
     copying !== null;
   useEffect(() => {
     if (!copied) return;
@@ -83,6 +86,9 @@ function DesktopRemoteSection() {
     return () => window.clearTimeout(timer);
   }, [qr, status.data]);
   async function act(action: () => Promise<unknown>) {
+    if (actingRef.current) return;
+    actingRef.current = true;
+    setActing(true);
     setError(null);
     try {
       await action();
@@ -91,6 +97,8 @@ function DesktopRemoteSection() {
     } finally {
       await status.refetch();
       await web.refetch();
+      actingRef.current = false;
+      setActing(false);
     }
   }
   return (
@@ -105,7 +113,23 @@ function DesktopRemoteSection() {
                 label="启用 Web 服务"
                 checked={web.data?.enabled ?? false}
                 disabled={busy || !web.data?.assetsInstalled}
-                onChange={(enabled) => void act(() => webToggle.mutateAsync({ enabled }))}
+                onChange={(enabled) =>
+                  void act(async () => {
+                    const current = (await status.refetch())?.data ?? status.data;
+                    if (!enabled && current?.enabled) {
+                      const linked = await confirm(
+                        '关闭 Web 服务时同时关闭 Remote？',
+                        'Remote 仍在运行。关闭 Web 后，已配对手机将无法通过它查看 WeQ；可以同时关闭 Remote，或只关闭 Web。',
+                        { okLabel: '同时关闭 Remote', cancelLabel: '仅关闭 Web', tone: 'warning' },
+                      );
+                      if (linked) {
+                        setQr(null);
+                        await toggle.mutateAsync({ enabled: false });
+                      }
+                    }
+                    await webToggle.mutateAsync({ enabled });
+                  })
+                }
               />
             }
           />
@@ -116,7 +140,20 @@ function DesktopRemoteSection() {
                 label="启动 WeQ 时自动开启 Web 服务"
                 checked={web.data?.autoStart ?? false}
                 disabled={busy || !web.data?.available}
-                onChange={(enabled) => void act(() => autoStart.mutateAsync({ enabled }))}
+                onChange={(enabled) =>
+                  void act(async () => {
+                    const current = (await status.refetch())?.data ?? status.data;
+                    if (!enabled && current?.enabled) {
+                      const keep = await confirm(
+                        'Remote 仍处于启用状态',
+                        '取消 Web 自动启动后，下次启动 WeQ 时 Remote 可能恢复连接，但手机无法查看尚未开启的 Web 内容。是否保留 Web 自动启动？',
+                        { okLabel: '保留自动启动', cancelLabel: '仍关闭自动启动', tone: 'warning' },
+                      );
+                      if (keep) return;
+                    }
+                    await autoStart.mutateAsync({ enabled });
+                  })
+                }
               />
             }
           />
@@ -175,7 +212,8 @@ function DesktopRemoteSection() {
           void act(async () => {
             setQr(null);
             await toggle.mutateAsync({ enabled });
-            if (enabled && !web.data?.autoStart) {
+            const current = (await web.refetch())?.data ?? web.data;
+            if (enabled && (!current?.autoStart || !current.enabled)) {
               const recommended = await confirm(
                 '让手机连接更方便',
                 '建议启动 WeQ 时自动开启 Web 服务，手机配对后即可打开 WeQ。Web 服务仅监听本机，远程访问仍需设备授权。',

@@ -1,4 +1,5 @@
 import { Power } from 'lucide-react';
+import { useRef, useState } from 'react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useDialog } from '../Dialog';
@@ -11,6 +12,10 @@ export function StartupSection() {
   const update = trpc.bootstrap.setAutostart.useMutation();
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, refresh);
   const windowUpdate = trpc.bootstrap.setShowWindowOnAutostart.useMutation();
+  const assistant = trpc.bootstrap.getWeqAssistantStatus.useQuery(undefined, refresh);
+  const confirm = useDialog((state) => state.confirm);
+  const [changing, setChanging] = useState(false);
+  const changingRef = useRef(false);
   const showError = useDialog((state) => state.showError);
   const pushToast = useToast((state) => state.push);
   const data = status.data;
@@ -26,7 +31,18 @@ export function StartupSection() {
             ? '已开启'
             : '已关闭';
   async function change(enabled: boolean) {
+    if (changingRef.current) return;
+    changingRef.current = true;
+    setChanging(true);
     try {
+      if (!enabled && (await assistant.refetch())?.data?.enabled) {
+        const keep = await confirm(
+          'WeQ 助手仍处于启用状态',
+          '关闭登录自启后，下次登录系统不会自动打开 WeQ，助手卡片需要手动启动 WeQ 后才能加载。是否保留登录自启？',
+          { okLabel: '保留自启', cancelLabel: '仍关闭自启', tone: 'warning' },
+        );
+        if (keep) return;
+      }
       const result = await update.mutateAsync({ enabled });
       await status.refetch();
       pushToast({
@@ -40,6 +56,9 @@ export function StartupSection() {
     } catch (error) {
       showError('设置登录自启失败', error instanceof Error ? error.message : '系统未应用设置');
       await status.refetch();
+    } finally {
+      changingRef.current = false;
+      setChanging(false);
     }
   }
   async function changeWindow(enabled: boolean) {
@@ -67,7 +86,13 @@ export function StartupSection() {
             <Toggle
               label="开机自动启动 WeQ"
               checked={Boolean(data?.enabled || data?.requiresApproval)}
-              disabled={!data?.supported || status.isLoading || !!status.error || update.isLoading}
+              disabled={
+                !data?.supported ||
+                status.isLoading ||
+                !!status.error ||
+                update.isLoading ||
+                changing
+              }
               onChange={(enabled) => void change(enabled)}
             />
           }

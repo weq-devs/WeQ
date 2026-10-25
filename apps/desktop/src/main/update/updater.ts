@@ -239,6 +239,11 @@ async function downloadUpdate(): Promise<void> {
   }
 }
 
+/** 安装已获用户确认，退出时不再重复询问普通助手依赖。 */
+export function isInstallingUpdate(): boolean {
+  return installing;
+}
+
 /** 下载验证完成后退出、安装并重新打开应用。 */
 export function quitAndInstall(): void {
   if (isDev()) throw new Error('开发模式不支持自更新。');
