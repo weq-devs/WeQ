@@ -48,6 +48,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     }),
     bootstrap: {
       listAgentLabProviders: { useQuery: () => ({ data: [] }) },
+      getAgentLabDefaultModel: { useQuery: () => ({ data: { ref: null, available: false } }) },
       getLocalEngine: {
         useQuery: () => ({
           data: { available: false, modelDownloaded: false, engineReady: false, models: [] },
