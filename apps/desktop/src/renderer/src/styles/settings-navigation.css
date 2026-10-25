@@ -6,6 +6,12 @@
   overflow: hidden;
 }
 
+.weq-settings-nav-label {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
 .weq-settings-subnav {
   display: flex;
   flex-wrap: wrap;

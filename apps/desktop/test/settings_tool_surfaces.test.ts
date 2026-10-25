@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsDialog, type SectionId } from '../src/renderer/src/components/SettingsDialog';
 import { useSettingsMaintenance } from '../src/renderer/src/hooks/useSettingsMaintenance';
 import { useAppLock } from '../src/renderer/src/state/lock';
+import { useUpdateStore } from '../src/renderer/src/state/update';
 import {
   DataMaintenanceDialog,
   type MaintenanceTool,
@@ -57,6 +58,7 @@ vi.mock('../src/renderer/src/components/settings/LogViewerPanel', () => ({
 
 afterEach(() => {
   useAppLock.setState({ locked: false });
+  useUpdateStore.setState({ available: false });
   vi.unstubAllGlobals();
 });
 
@@ -103,6 +105,22 @@ function fixture(initialSection: SectionId = 'global') {
 }
 
 describe('设置来源工具不替换设置页面', () => {
+  it('更新红点与分类文字共用第二列，不成为下一行的独立网格项', () => {
+    useUpdateStore.setState({ available: true });
+    const f = fixture();
+    try {
+      const mark = f.host.querySelector('.weq-settings-nav .weq-settings-update-mark')!;
+      expect(mark).not.toBeNull();
+      expect(mark.parentElement?.className).toBe('weq-settings-nav-label');
+      expect(mark.parentElement?.textContent).toBe('关于 WeQ');
+      expect(mark.closest('button')?.children).toHaveLength(2);
+      act(() => useUpdateStore.setState({ available: false }));
+      expect(f.host.querySelector('.weq-settings-nav .weq-settings-update-mark')).toBeNull();
+    } finally {
+      f.close();
+    }
+  });
+
   it('数据库工具使用模态层，原设置、输入和滚动现场保持，关闭后归还焦点', () => {
     const f = fixture();
     try {

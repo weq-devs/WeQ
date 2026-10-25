@@ -520,10 +520,12 @@ export function SettingsDialog({
                   <span className="weq-settings-nav-icon">
                     {sections.find((section) => section.id === s.sections[0])!.icon}
                   </span>
-                  <span>{s.label}</span>
-                  {updateAvailable && s.sections.includes('version') ? (
-                    <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
-                  ) : null}
+                  <span className="weq-settings-nav-label">
+                    {s.label}
+                    {updateAvailable && s.sections.includes('version') ? (
+                      <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
+                    ) : null}
+                  </span>
                   {IS_WEB && <ChevronRight className="weq-mobile-settings-chevron" size={18} />}
                 </button>
               </li>
