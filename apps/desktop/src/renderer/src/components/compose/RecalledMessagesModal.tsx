@@ -77,6 +77,9 @@ export function RecalledMessagesModal({
   loading,
   onClose,
   onJumpToMessage,
+  embedded = false,
+  error,
+  onRetry,
 }: {
   conversation: Conversation;
   user: User;
@@ -87,6 +90,10 @@ export function RecalledMessagesModal({
   onClose: () => void;
   /** 跳转到指定 seq 的消息（参考精华消息的实现）*/
   onJumpToMessage?: (seq: number | string) => void;
+  /** 设置工具已有唯一模态容器，只复用内容，不再叠加第二个窗口。 */
+  embedded?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
   const isGroup = conversation.type === 'group';
@@ -191,9 +198,9 @@ export function RecalledMessagesModal({
     onJumpToMessage(msgSeq);
   };
 
-  return (
-    <Modal presentation="floating" onClose={onClose} width={560} labelledBy="weq-msglist-title">
-      <div className={cn('weq-deleted', 'weq-recalled')}>
+  const content = (
+    <div className={cn('weq-deleted', 'weq-recalled', embedded && 'is-embedded')}>
+      {!embedded ? (
         <header className="weq-compose-head" data-window-drag-handle>
           <div className="weq-compose-titlewrap">
             <strong id="weq-msglist-title" className="weq-compose-title">
@@ -205,147 +212,165 @@ export function RecalledMessagesModal({
             <X size={17} />
           </button>
         </header>
+      ) : (
+        <p className="weq-recalled-subtitle">{subtitle}</p>
+      )}
 
-        {/* 筛选 + 搜索：撤回者 / 被撤回者两个下拉，外加消息正文搜索。 */}
-        <div className="weq-msglist-toolbar">
-          <label className="weq-msglist-field">
-            <span className="weq-msglist-field-label">撤回者</span>
-            <select
-              className="weq-msglist-select"
-              value={revokerFilter}
-              onChange={(event) => setRevokerFilter(event.target.value)}
-              title="只看某个人撤回的消息"
-            >
-              <option value={ALL}>全部</option>
-              {revokerOptions.map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
+      {/* 筛选 + 搜索：撤回者 / 被撤回者两个下拉，外加消息正文搜索。 */}
+      <div className="weq-msglist-toolbar">
+        <label className="weq-msglist-field">
+          <span className="weq-msglist-field-label">撤回者</span>
+          <select
+            className="weq-msglist-select"
+            value={revokerFilter}
+            onChange={(event) => setRevokerFilter(event.target.value)}
+            title="只看某个人撤回的消息"
+          >
+            <option value={ALL}>全部</option>
+            {revokerOptions.map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
 
-          <label className="weq-msglist-field">
-            <span className="weq-msglist-field-label">被撤回者</span>
-            <select
-              className="weq-msglist-select"
-              value={senderFilter}
-              onChange={(event) => setSenderFilter(event.target.value)}
-              title="只看某个人的消息被撤回的记录"
-            >
-              <option value={ALL}>全部</option>
-              {senderOptions.map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
+        <label className="weq-msglist-field">
+          <span className="weq-msglist-field-label">被撤回者</span>
+          <select
+            className="weq-msglist-select"
+            value={senderFilter}
+            onChange={(event) => setSenderFilter(event.target.value)}
+            title="只看某个人的消息被撤回的记录"
+          >
+            <option value={ALL}>全部</option>
+            {senderOptions.map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
 
-          <div className="weq-msglist-search">
-            <Search size={14} />
-            <input
-              className="weq-msglist-search-input"
-              type="search"
-              value={query}
-              placeholder="搜索消息内容…"
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-
-          {filtering ? (
-            <button type="button" className="weq-msglist-reset" onClick={resetFilters}>
-              重置
-            </button>
-          ) : null}
-
-          <span className="weq-msglist-count">
-            {filtering ? `${filtered.length} / ${rows.length} 条` : `共 ${rows.length} 条`}
-          </span>
+        <div className="weq-msglist-search">
+          <Search size={14} />
+          <input
+            className="weq-msglist-search-input"
+            type="search"
+            value={query}
+            placeholder="搜索消息内容…"
+            onChange={(event) => setQuery(event.target.value)}
+          />
         </div>
 
-        <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
-          <ConvContext.Provider value={convKey}>
-            <div className={cn('message-scroll', 'weq-deleted-scroll')}>
-              {loading ? (
-                <div className="weq-deleted-empty">加载中…</div>
-              ) : rows.length === 0 ? (
-                <div className="weq-deleted-empty">
-                  <RotateCcw size={26} />
-                  <span>没有被撤回的消息</span>
-                  <small>
-                    开启防撤回后，对方撤回的消息会被拦截并保留在原位，也会出现在这里，标注撤回者与时间。
-                  </small>
-                </div>
-              ) : filtered.length === 0 ? (
-                <div className="weq-deleted-empty">
-                  <Search size={26} />
-                  <span>没有符合条件的消息</span>
-                  <button type="button" className="weq-msglist-reset" onClick={resetFilters}>
-                    清除筛选
-                  </button>
-                </div>
-              ) : (
-                <div className="weq-msglist-list">
-                  {filtered.map((row) => (
-                    <article
-                      key={row.message.id}
-                      className={cn(
-                        'weq-msglist-item',
-                        row.mine && 'is-mine',
-                        onJumpToMessage && 'is-clickable',
-                      )}
-                      onClick={() => onJumpToMessage && handleClickMessage(row.message)}
-                      role={onJumpToMessage ? 'button' : undefined}
-                      tabIndex={onJumpToMessage ? 0 : undefined}
-                      onKeyDown={(event) => {
-                        if (onJumpToMessage && (event.key === 'Enter' || event.key === ' ')) {
-                          event.preventDefault();
-                          handleClickMessage(row.message);
-                        }
-                      }}
-                      title={onJumpToMessage ? '点击跳转到该消息' : undefined}
-                    >
-                      <div className="weq-msglist-meta">
-                        <span className="weq-msglist-badge" aria-hidden>
-                          <RotateCcw size={12} />
-                        </span>
-                        <span className="weq-msglist-line">{row.recallLine}</span>
-                        {row.when ? <time className="weq-msglist-time">{row.when}</time> : null}
-                        {onJumpToMessage ? (
-                          <span className="weq-msglist-jump">
-                            <CornerUpRight size={12} />
-                            <span>跳转</span>
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="weq-deleted-bubble">
-                        <MessageBubble
-                          message={row.message}
-                          conversation={conversation}
-                          sender={row.sender}
-                          mine={row.mine}
-                          senderName={displayUserName(row.sender)}
-                          senderAvatarUrl={row.sender.avatarUrl}
-                          senderSeed={row.sender.identityValue}
-                          senderKind={row.sender.kind}
-                          showSenderName={showSenderNames}
-                          active={false}
-                          renderers={renderers}
-                          recallRevokerName={row.revokerLabel}
-                          hideRecallTag
-                          onContextMenu={noop}
-                          onLongPress={noop}
-                        />
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </div>
-          </ConvContext.Provider>
-        </ForwardKindContext.Provider>
+        {filtering ? (
+          <button type="button" className="weq-msglist-reset" onClick={resetFilters}>
+            重置
+          </button>
+        ) : null}
+
+        <span className="weq-msglist-count">
+          {filtering ? `${filtered.length} / ${rows.length} 条` : `共 ${rows.length} 条`}
+        </span>
       </div>
+
+      <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
+        <ConvContext.Provider value={convKey}>
+          <div className={cn('message-scroll', 'weq-deleted-scroll')}>
+            {error ? (
+              <div className="weq-deleted-empty" role="alert">
+                <span>{error}</span>
+                {onRetry ? (
+                  <button className="weq-set-btn" type="button" onClick={onRetry}>
+                    重试读取
+                  </button>
+                ) : null}
+              </div>
+            ) : loading ? (
+              <div className="weq-deleted-empty">加载中…</div>
+            ) : rows.length === 0 ? (
+              <div className="weq-deleted-empty">
+                <RotateCcw size={26} />
+                <span>没有被撤回的消息</span>
+                <small>
+                  开启防撤回后，对方撤回的消息会被拦截并保留在原位，也会出现在这里，标注撤回者与时间。
+                </small>
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="weq-deleted-empty">
+                <Search size={26} />
+                <span>没有符合条件的消息</span>
+                <button type="button" className="weq-msglist-reset" onClick={resetFilters}>
+                  清除筛选
+                </button>
+              </div>
+            ) : (
+              <div className="weq-msglist-list">
+                {filtered.map((row) => (
+                  <article
+                    key={row.message.id}
+                    className={cn(
+                      'weq-msglist-item',
+                      row.mine && 'is-mine',
+                      onJumpToMessage && 'is-clickable',
+                    )}
+                    onClick={() => onJumpToMessage && handleClickMessage(row.message)}
+                    role={onJumpToMessage ? 'button' : undefined}
+                    tabIndex={onJumpToMessage ? 0 : undefined}
+                    onKeyDown={(event) => {
+                      if (onJumpToMessage && (event.key === 'Enter' || event.key === ' ')) {
+                        event.preventDefault();
+                        handleClickMessage(row.message);
+                      }
+                    }}
+                    title={onJumpToMessage ? '点击跳转到该消息' : undefined}
+                  >
+                    <div className="weq-msglist-meta">
+                      <span className="weq-msglist-badge" aria-hidden>
+                        <RotateCcw size={12} />
+                      </span>
+                      <span className="weq-msglist-line">{row.recallLine}</span>
+                      {row.when ? <time className="weq-msglist-time">{row.when}</time> : null}
+                      {onJumpToMessage ? (
+                        <span className="weq-msglist-jump">
+                          <CornerUpRight size={12} />
+                          <span>跳转</span>
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="weq-deleted-bubble">
+                      <MessageBubble
+                        message={row.message}
+                        conversation={conversation}
+                        sender={row.sender}
+                        mine={row.mine}
+                        senderName={displayUserName(row.sender)}
+                        senderAvatarUrl={row.sender.avatarUrl}
+                        senderSeed={row.sender.identityValue}
+                        senderKind={row.sender.kind}
+                        showSenderName={showSenderNames}
+                        active={false}
+                        renderers={renderers}
+                        recallRevokerName={row.revokerLabel}
+                        hideRecallTag
+                        onContextMenu={noop}
+                        onLongPress={noop}
+                      />
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        </ConvContext.Provider>
+      </ForwardKindContext.Provider>
+    </div>
+  );
+  return embedded ? (
+    content
+  ) : (
+    <Modal presentation="floating" onClose={onClose} width={560} labelledBy="weq-msglist-title">
+      {content}
     </Modal>
   );
 }

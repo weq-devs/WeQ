@@ -121,6 +121,7 @@ import {
   type MaintenanceTool,
 } from '../components/settings/DataMaintenanceSection';
 import { useSettingsMaintenance } from '../hooks/useSettingsMaintenance';
+import { useRecalledMessages } from '../hooks/useRecalledMessages';
 import { CollectionDialog } from '../components/CollectionDialog';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { DressUpDialog } from '../components/DressUpDialog';
@@ -2937,12 +2938,6 @@ export function MainView(): ReactElement {
   const [deletedConv, setDeletedConv] = useState<Conversation | null>(null);
   const [deletedWires, setDeletedWires] = useState<MessageWire[]>([]);
   const [deletedLoading, setDeletedLoading] = useState(false);
-  // "撤回列表" panel: which conversation is open + its fetched recalled rows.
-  // Unlike deletes there's no restore — the anti-recall trigger already kept the
-  // original message; this panel just lists what was recalled + by whom.
-  const [recalledConv, setRecalledConv] = useState<Conversation | null>(null);
-  const [recalledWires, setRecalledWires] = useState<MessageWire[]>([]);
-  const [recalledLoading, setRecalledLoading] = useState(false);
   const gapFetchCursors = useRef(new Map<string, number>());
   const gapFetchLock = useRef(false);
   const [unplacedRoaming, setUnplacedRoaming] = useState<{
@@ -2991,6 +2986,20 @@ export function MainView(): ReactElement {
     if (c.type === 'direct') return { kind: 'c2c', conv: c.otherUser.id };
     return { kind: 'c2c', conv: c.id }; // merged — should never actually be called
   }, []);
+
+  const readRecalledMessages = useCallback(
+    async (conversation: Conversation) => {
+      const rows = await client.account.recalledMessages.query(convFetchKey(conversation));
+      return rows.map(toMessageWire);
+    },
+    [convFetchKey],
+  );
+  const recalls = useRecalledMessages(messageScope, messageScopeRef, readRecalledMessages);
+  const { conversation: recalledConv, rows: recalledWires, loading: recalledLoading } = recalls;
+  const closeSettingsRecalls = useCallback(() => recalls.close('settings'), [recalls.close]);
+  useEffect(() => {
+    if (!settingsOpen) closeSettingsRecalls();
+  }, [settingsOpen, closeSettingsRecalls]);
 
   // QQ 原库保留 QQ 式删除；漫游消息只改 WeQ 的可恢复缓存标记。
   const handleDeleteMessage = useCallback(
@@ -3244,30 +3253,11 @@ export function MainView(): ReactElement {
     [loadDeletedMessages],
   );
 
-  const loadRecalledMessages = useCallback(
-    async (c: Conversation): Promise<void> => {
-      const { kind, conv } = convFetchKey(c);
-      setRecalledLoading(true);
-      try {
-        const rows = await client.account.recalledMessages.query({ kind, conv });
-        setRecalledWires(rows.map(toMessageWire));
-      } catch (e) {
-        console.error('[MainView] Failed to load recalled messages:', e);
-        setRecalledWires([]);
-      } finally {
-        setRecalledLoading(false);
-      }
-    },
-    [convFetchKey],
-  );
-
   const handleViewRecalled = useCallback(
     (conversation: Conversation) => {
-      setRecalledWires([]);
-      setRecalledConv(conversation);
-      void loadRecalledMessages(conversation);
+      void recalls.open(conversation);
     },
-    [loadRecalledMessages],
+    [recalls.open],
   );
 
   const handleOpenGapMessages = useCallback(
@@ -8762,7 +8752,7 @@ export function MainView(): ReactElement {
       });
       return;
     }
-    handleViewRecalled(target);
+    void recalls.open(target, 'settings');
   }
 
   const openProfileChat = async (target: ProfileChatTarget): Promise<void> => {
@@ -9024,6 +9014,27 @@ export function MainView(): ReactElement {
         }}
       />
     ) : null;
+
+  const recalledView = recalledConv ? (
+    <RecalledMessagesModal
+      key={JSON.stringify([messageScope, recalledConv.type, recalledConv.id])}
+      embedded={recalls.origin === 'settings'}
+      conversation={recalledConv}
+      user={user}
+      messages={recalledTemplateMessages}
+      renderers={messageRenderers}
+      loading={recalledLoading}
+      error={recalls.error}
+      onRetry={() => void recalls.retry()}
+      onClose={() => recalls.close()}
+      onJumpToMessage={(seq) => {
+        const target = convFetchKey(recalledConv);
+        recalls.close();
+        if (recalls.origin === 'settings') setSettingsOpen(false);
+        jumpToConvSeq(target.kind, target.conv, String(seq), true);
+      }}
+    />
+  ) : null;
 
   const openAppSearchEntry = (entry: AppSearchEntry) => {
     setSearchDismissed(true);
@@ -9633,6 +9644,9 @@ export function MainView(): ReactElement {
             searchTarget={settingsSearchTarget}
             onOpenMaintenance={openMaintenance}
             onOpenRecalls={handleOpenRecallsAt}
+            recallDetails={recalls.origin === 'settings' ? recalledView : null}
+            onCloseRecalls={closeSettingsRecalls}
+            isCurrentSource={() => messageScopeRef.current === messageScope}
             onCreateClone={handleCreateClone}
           />
           <DataMaintenanceDialog
@@ -10011,28 +10025,7 @@ export function MainView(): ReactElement {
               }}
             />
           ) : null}
-          {recalledConv ? (
-            <RecalledMessagesModal
-              conversation={recalledConv}
-              user={user}
-              messages={recalledTemplateMessages}
-              renderers={messageRenderers}
-              loading={recalledLoading}
-              onJumpToMessage={(seq) => {
-                setRecalledConv(null);
-                setRecalledWires([]);
-                if (seq == null) {
-                  console.warn('[recall-jump] missing msgSeq, cannot jump', seq);
-                  return;
-                }
-                jumpToSeq({ seq });
-              }}
-              onClose={() => {
-                setRecalledConv(null);
-                setRecalledWires([]);
-              }}
-            />
-          ) : null}
+          {recalls.origin !== 'settings' ? recalledView : null}
           {privatePreview?.source === 'latest' ? conversationPreviewContent : null}
           {unplacedRoaming ? (
             <GapMessagesModal

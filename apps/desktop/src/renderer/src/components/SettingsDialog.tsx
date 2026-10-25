@@ -409,6 +409,9 @@ export function SettingsDialog({
   searchTarget,
   onOpenMaintenance,
   onOpenRecalls,
+  recallDetails,
+  onCloseRecalls,
+  isCurrentSource,
   onCreateClone,
 }: {
   open: boolean;
@@ -421,6 +424,9 @@ export function SettingsDialog({
   searchTarget?: SettingsSearchTarget | null;
   onOpenMaintenance: (tool: MaintenanceTool) => void;
   onOpenRecalls: (kind: 'c2c' | 'group', conv: string) => void;
+  recallDetails?: ReactNode;
+  onCloseRecalls?: () => void;
+  isCurrentSource?: () => boolean;
   onCreateClone?: () => void;
 }): ReactElement | null {
   const target = useMemo(
@@ -558,9 +564,16 @@ export function SettingsDialog({
                   </div>
                   <AccountBasicsSection page="read" heading={false} />
                   <TypingStatusSettingsCard />
-                  <div data-setting-id="anti-recall">
+                  <div>
                     <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
-                      <AntiRecallDialog embedded onClose={() => {}} onOpenRecalls={onOpenRecalls} />
+                      <AntiRecallDialog
+                        embedded
+                        onClose={() => {}}
+                        onOpenRecalls={onOpenRecalls}
+                        recallDetails={recallDetails}
+                        onCloseRecalls={onCloseRecalls}
+                        isCurrentSource={isCurrentSource}
+                      />
                     </SettingsScopeContext.Provider>
                   </div>
                   <AppearanceSection page="messages" heading={false} />
