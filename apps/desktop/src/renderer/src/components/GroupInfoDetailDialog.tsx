@@ -27,18 +27,20 @@ export function GroupInfoDetailDialog({
   onClose: () => void;
 }) {
   const group = conversation.group;
-  const profileRows = [
-    ['群名称', group.name],
-    [group.identityLabel, group.identityValue],
-    group.description ? ['群简介', group.description] : null,
-    group.remark ? ['群备注', group.remark] : null,
-    group.createTime ? ['创建时间', formatShortDate(group.createTime)] : null,
-    group.maxMemberCount ? ['群容量', `${group.memberCount}/${group.maxMemberCount}`] : null,
-    group.labels ? ['标签', group.labels] : null,
-    group.customLabels?.length ? ['自定义标签', group.customLabels.join('、')] : null,
-    group.addressName ? ['群地点', group.addressName] : null,
-    group.entranceQ ? ['入群问题', group.entranceQ] : null,
-  ].filter(Boolean) as string[][];
+  const profileRows = (
+    [
+      ['群名称', group.name],
+      [group.identityLabel, group.identityValue],
+      group.description ? ['群简介', group.description] : null,
+      group.remark ? ['群备注', group.remark] : null,
+      group.createTime ? ['创建时间', formatShortDate(group.createTime)] : null,
+      group.maxMemberCount ? ['群容量', `${group.memberCount}/${group.maxMemberCount}`] : null,
+      group.labels ? ['标签', group.labels] : null,
+      group.customLabels?.length ? ['自定义标签', group.customLabels.join('、')] : null,
+      group.addressName ? ['群地点', group.addressName] : null,
+      group.entranceQ ? ['入群问题', group.entranceQ] : null,
+    ] satisfies ([string, string] | null)[]
+  ).filter((row) => row !== null);
 
   return (
     <OverlayLayer

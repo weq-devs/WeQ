@@ -107,7 +107,7 @@ describe('未读 IPC', () => {
       targets: [{ chatType: 8 as const, uid: 'device-fixture' }],
     };
     await api.getUnreadInfos(input);
-    expect(fixture.getUnreadInfos).toHaveBeenCalledWith(input.targets);
+    expect(fixture.getUnreadInfos).toHaveBeenCalledWith(input.targets, undefined);
     fixture.getUnreadInfos.mockImplementationOnce(async () => {
       fixture.configId = 'source-b';
       return [];
@@ -169,7 +169,7 @@ describe('未读 IPC', () => {
         highlights: [{ msgSeq: '11', sendTime: '1' }],
       },
     ]);
-    expect(fixture.getUnreadInfos).toHaveBeenCalledWith(targets);
+    expect(fixture.getUnreadInfos).toHaveBeenCalledWith(targets, undefined);
     await expect(
       api.getUnreadInfos({
         expectedAccountUin: '10001',
@@ -177,6 +177,17 @@ describe('未读 IPC', () => {
       }),
     ).rejects.toThrow();
     expect(fixture.getUnreadInfos).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, false, true])('未读查询原样传递水位模式 %s', async (watermarksOnly) => {
+    const api = accountRouter.createCaller({});
+    await api.getUnreadInfos({
+      expectedAccountUin: '10001',
+      targets,
+      ...(watermarksOnly === undefined ? {} : { watermarksOnly }),
+    });
+    expect(fixture.getUnreadInfos).toHaveBeenCalledTimes(1);
+    expect(fixture.getUnreadInfos).toHaveBeenCalledWith(targets, watermarksOnly);
   });
 
   it('切号后的旧刷新和已读请求不得访问新账号', async () => {
