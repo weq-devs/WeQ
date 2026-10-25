@@ -17,10 +17,10 @@ describe('设置的两级导航', () => {
   it('模型保留单个一级分类，识别、克隆与画像分别归位', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',
+      '基础功能',
       '个性显示',
       '隐私与安全',
       '账号与消息',
-      '空间与邮箱',
       '存储与媒体',
       '备份与恢复',
       '数据维护',
@@ -47,8 +47,13 @@ describe('设置的两级导航', () => {
     expect(settingsGroupFor('credentials').id).toBe('advanced');
     expect(settingsGroupFor('startup').id).toBe('general');
     expect(settingsGroupFor('database').id).toBe('data');
-    expect(settingsGroupFor('mail').sections).toEqual(['qzone', 'mail']);
-    expect(settingsGroupFor('qzone').id).toBe('space-mail');
+    expect(settingsGroupFor('mail').sections).toEqual([
+      'message-display',
+      'call-recording',
+      'qzone',
+      'mail',
+    ]);
+    expect(settingsGroupFor('qzone').id).toBe('basic');
     expect(settingsGroupFor('account').sections).not.toContain('qzone');
   });
 

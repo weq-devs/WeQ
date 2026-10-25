@@ -166,7 +166,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: 'anti-recall', label: '防撤回', icon: <ShieldCheck size={16} />, render: () => null },
   {
     id: 'call-recording',
-    label: '通话与录音',
+    label: '通话录音',
     icon: <PhoneCall size={16} strokeWidth={1.8} />,
     render: () => <CallRecordingSection />,
   },
@@ -323,7 +323,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'message-display',
-    label: '消息显示',
+    label: '聊天消息',
     icon: <Monitor size={16} />,
     render: () => <AppearanceSection page="messages" />,
   },
@@ -669,7 +669,7 @@ function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactEleme
     <section className="weq-settings-section">
       <SectionHeader
         icon={<Palette size={16} strokeWidth={1.8} />}
-        title={page === 'theme' ? '主题与背景' : '消息显示'}
+        title={page === 'theme' ? '主题与背景' : '聊天消息'}
       />
 
       {page === 'theme' && (

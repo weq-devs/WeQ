@@ -485,6 +485,8 @@ export interface AppSettings {
   autoAttachQq: boolean;
   /** 仅桌面客户端启动时启用本机 Web 服务；默认关闭。 */
   webServiceAutoStart: boolean;
+  /** 系统登录自启时显示主窗口，默认关闭；手动打开不受影响。 */
+  showWindowOnAutostart: boolean;
   /** 向 QQ 服务端上报在 WeQ 中阅读的位置，默认关闭。 */
   reportReadEnabled: boolean;
   /** 手动标记及撤销推进已读水位时上报，独立于自动阅读，默认关闭。 */
@@ -804,6 +806,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
   autoAttachQq: false,
   webServiceAutoStart: false,
+  showWindowOnAutostart: false,
   reportReadEnabled: false,
   manualReadReportEnabled: false,
   autoLockMinutes: 0,
@@ -1317,6 +1320,7 @@ export class UserConfigService {
           : d.exportSaveMode,
       autoAttachQq,
       webServiceAutoStart: s?.webServiceAutoStart === true,
+      showWindowOnAutostart: s?.showWindowOnAutostart === true,
       reportReadEnabled: s?.reportReadEnabled === true,
       manualReadReportEnabled: s?.manualReadReportEnabled === true,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
@@ -1423,6 +1427,7 @@ export class UserConfigService {
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
       webServiceAutoStart: patch.webServiceAutoStart ?? current.webServiceAutoStart,
+      showWindowOnAutostart: patch.showWindowOnAutostart ?? current.showWindowOnAutostart,
       reportReadEnabled: patch.reportReadEnabled ?? current.reportReadEnabled,
       manualReadReportEnabled: patch.manualReadReportEnabled ?? current.manualReadReportEnabled,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,

@@ -12,21 +12,22 @@ export function createMainWindowLifecycle<W extends PrimaryWindow>(options: {
   canOpen(): boolean;
   getWindow(): W | null;
   setWindow(window: W | null): void;
-  createWindow(): W;
+  createWindow(showInitially: boolean): W;
   attachWindow(window: W): void;
-}): { open(): W | null } {
+}): { open(options?: { show?: boolean }): W | null } {
   return {
-    open() {
+    open({ show = true } = {}) {
       if (!options.canOpen()) return null;
       const current = options.getWindow();
       if (current && !current.isDestroyed()) {
+        if (!show) return current;
         if (current.isMinimized()) current.restore();
         current.show();
         current.focus();
         return current;
       }
 
-      const window = options.createWindow();
+      const window = options.createWindow(show);
       options.setWindow(window);
       window.once('closed', () => {
         // A late close from an old window must not erase its replacement.

@@ -29,12 +29,12 @@ export const SETTINGS_PAGE_LABELS = {
   startup: '开机启动',
   saving: '默认保存',
   appearance: '主题与背景',
-  'message-display': '消息显示',
+  'message-display': '聊天消息',
   applock: '隐私与应用锁',
   accounts: '账号管理',
   account: '接入与监听',
   'anti-recall': '防撤回',
-  'call-recording': '通话与录音',
+  'call-recording': '通话录音',
   qzone: 'QQ 空间',
   mail: 'QQ 邮箱',
   storage: '存储与网络',
@@ -75,6 +75,10 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['global', '失败通知停留时长', '通知时间'],
   ['global', '默认发送正在输入状态', '正在输入', '打字状态'],
   ['startup', '开机自动启动 WeQ', '自启动'],
+  ['startup', '自启时显示窗口', '启动显示窗口', '隐藏启动'],
+  ['call-recording', '录音来源', '录音模式', '双方混合', '仅本端', '仅对方'],
+  ['call-recording', '同时录电脑声音', '系统音频'],
+  ['call-recording', '保存位置', '录音目录'],
   ['saving', '默认保存方式', '导出保存方式'],
   ['saving', '保存位置', '默认导出目录', '默认保存目录'],
   ['appearance', '基础模式', '浅色模式', '深色模式', '暗色模式', '跟随系统'],
@@ -162,11 +166,18 @@ function settingEntry(
   keywords: string[] = [],
 ): AppSearchEntry {
   const page = SETTINGS_PAGE_LABELS[section];
+  const legacyNames = !item
+    ? section === 'call-recording'
+      ? ['通话与录音']
+      : section === 'message-display'
+        ? ['消息显示']
+        : []
+    : [];
   return {
     id: `setting:${section}:${item ?? ''}`,
     title: item ?? page,
     path: ['设置', settingsGroupFor(section).label, page].join(' / '),
-    keywords,
+    keywords: [...keywords, ...legacyNames],
     target: { kind: 'setting', section, ...(item ? { item } : {}) },
   };
 }

@@ -17,6 +17,10 @@ const fixture = vi.hoisted(() => ({
   error: null as Error | null,
   paths: [] as string[],
   update: vi.fn(),
+  windowUpdate: vi.fn(),
+  settings: { showWindowOnAutostart: false },
+  settingsLoading: false,
+  settingsError: null as Error | null,
 }));
 vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
   useQQAutoRefresh: () => ({ enabled: true }),
@@ -29,16 +33,23 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           return () => {
             fixture.paths.push(path);
             return {
-              data: fixture.data,
-              isLoading: fixture.loading,
-              error: fixture.error,
+              data: path === 'bootstrap.getSettings' ? fixture.settings : fixture.data,
+              isLoading:
+                path === 'bootstrap.getSettings' ? fixture.settingsLoading : fixture.loading,
+              error: path === 'bootstrap.getSettings' ? fixture.settingsError : fixture.error,
               refetch: vi.fn(),
             };
           };
         if (key === 'useMutation')
           return () => {
             fixture.paths.push(path);
-            return { isLoading: fixture.pending, mutateAsync: fixture.update };
+            return {
+              isLoading: fixture.pending,
+              mutateAsync:
+                path === 'bootstrap.setShowWindowOnAutostart'
+                  ? fixture.windowUpdate
+                  : fixture.update,
+            };
           };
         return proxy(path ? `${path}.${String(key)}` : String(key));
       },
@@ -59,6 +70,13 @@ beforeEach(() => {
   fixture.error = null;
   fixture.paths = [];
   fixture.update.mockReset().mockResolvedValue(fixture.data);
+  fixture.settings = { showWindowOnAutostart: false };
+  fixture.settingsLoading = false;
+  fixture.settingsError = null;
+  fixture.windowUpdate.mockReset().mockImplementation(async ({ enabled }: { enabled: boolean }) => {
+    fixture.settings = { showWindowOnAutostart: enabled };
+    return enabled;
+  });
   useToast.setState({ toasts: [], leaving: [], seq: 0 });
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -77,6 +95,43 @@ function mount() {
   };
 }
 describe('独立系统自启设置', () => {
+  it('自启下方显示默认关闭的窗口开关，不把窗口偏好写入自启注册接口', async () => {
+    fixture.data.enabled = true;
+    const view = mount();
+    try {
+      const toggle = view.host.querySelector<HTMLButtonElement>('[aria-label="自启时显示窗口"]');
+      expect(toggle).not.toBeNull();
+      expect(toggle!.getAttribute('aria-checked')).toBe('false');
+      expect(view.host.textContent!.indexOf('自启时显示窗口')).toBeGreaterThan(
+        view.host.textContent!.indexOf('开机自动启动 WeQ'),
+      );
+      expect(toggle!.disabled).toBe(false);
+      await act(async () => toggle!.click());
+      expect(fixture.windowUpdate).toHaveBeenCalledWith({ enabled: true });
+      expect(fixture.update).not.toHaveBeenCalled();
+    } finally {
+      view.close();
+    }
+  });
+  it.each(['disabled', 'unsupported', 'loading', 'failed', 'pending'] as const)(
+    '%s 时不误提交窗口偏好',
+    (state) => {
+      fixture.data.enabled = state !== 'disabled';
+      fixture.data.supported = state !== 'unsupported';
+      fixture.settingsLoading = state === 'loading';
+      fixture.settingsError = state === 'failed' ? new Error('合成偏好读取失败') : null;
+      fixture.pending = state === 'pending';
+      const view = mount();
+      try {
+        const toggle = view.host.querySelector<HTMLButtonElement>('[aria-label="自启时显示窗口"]')!;
+        expect(toggle.disabled).toBe(true);
+        act(() => toggle.click());
+        expect(fixture.windowUpdate).not.toHaveBeenCalled();
+      } finally {
+        view.close();
+      }
+    },
+  );
   it('只查询独立登录项，切换提交新接口，不读取 daemon 健康状态', async () => {
     const view = mount();
     try {

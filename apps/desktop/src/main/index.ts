@@ -63,6 +63,12 @@ import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
 import { createMainWindowLifecycle } from './main_window_lifecycle';
+import {
+  AUTOSTART_ARG,
+  installStartupWindowReveal,
+  isAutostartLaunch,
+  shouldShowStartupWindow,
+} from './startup_window';
 import { registerAppQuitCleanup, registerAppQuitPreparation } from './app_quit_lifecycle';
 import { createRendererRecovery } from './renderer_recovery';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
@@ -126,6 +132,7 @@ let tray: Tray | null = null;
  *  and lets the window actually close (托盘退出 / 确认框「完全退出」/ before-quit). */
 let isQuitting = false;
 let stopRendererDiagnostics: (() => void) | null = null;
+let mainWindowRequested = false;
 
 const mainWindowLifecycle = createMainWindowLifecycle({
   canOpen: () => mainIpcHandler !== null && !isQuitting,
@@ -136,6 +143,7 @@ const mainWindowLifecycle = createMainWindowLifecycle({
 });
 
 function openMainWindow(): void {
+  mainWindowRequested = true;
   mainWindowLifecycle.open();
 }
 
@@ -477,7 +485,7 @@ function resolveWindowIcon(): Electron.NativeImage | undefined {
   return img.isEmpty() ? undefined : img;
 }
 
-function createWindow(): BrowserWindow {
+function createWindow(showInitially = true): BrowserWindow {
   const icon = resolveWindowIcon();
   // On tiling Wayland WMs (Hyprland/sway) new toplevels tile by default. Ask
   // the WM to float us by advertising a non-'normal' window type — 'toolbar'
@@ -486,7 +494,7 @@ function createWindow(): BrowserWindow {
   // (or override to another value) so this can be disabled per-environment.
   const win = new BrowserWindow({
     ...WINDOW_LAYOUTS.home,
-    show: true,
+    show: showInitially,
     title: 'WeQ Desktop',
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
@@ -536,24 +544,7 @@ function createWindow(): BrowserWindow {
   win.webContents.on('did-finish-load', () => recovery.loaded());
   win.once('closed', () => recovery.dispose());
 
-  const reveal = () => {
-    if (win.isDestroyed()) return;
-    win.show();
-    win.restore();
-    win.focus();
-    try {
-      win.setAlwaysOnTop(true);
-      win.setAlwaysOnTop(false);
-    } catch {
-      /* ignore */
-    }
-  };
-
-  win.on('ready-to-show', reveal);
-  // Fallback: in some environments `ready-to-show` can be delayed or missed
-  // (e.g. compositor/driver quirks). Guarantee visibility once content loads.
-  win.webContents.on('did-finish-load', reveal);
-  setTimeout(reveal, 1000);
+  installStartupWindowReveal(win, showInitially);
 
   // Apply the user-configured close action (设置 → 全局设置 → 关闭按钮):
   //   'quit' → quit the app on every platform;
@@ -631,7 +622,13 @@ const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
-  app.on('second-instance', openMainWindow);
+  app.on('second-instance', (_event, argv) => {
+    if (
+      !argv.includes(AUTOSTART_ARG) ||
+      (mainIpcHandler && getAppContext().bootstrap?.userConfig.getSettings().showWindowOnAutostart)
+    )
+      openMainWindow();
+  });
 }
 
 void app.whenReady().then(async () => {
@@ -660,6 +657,13 @@ void app.whenReady().then(async () => {
         console.error('远程连接恢复失败', error instanceof Error ? error.message : '未知错误'),
       );
   if (!hasSingleInstanceLock) return;
+  const autostart =
+    app.isPackaged &&
+    isAutostartLaunch(
+      process.argv,
+      process.platform,
+      process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin,
+    );
   electronApp.setAppUserModelId('app.weq.desktop');
 
   // win32: resolve QQ's tencent:// handler (timwp.exe) before building the
@@ -774,9 +778,16 @@ void app.whenReady().then(async () => {
       return {};
     },
   });
-  openMainWindow();
-  logger.info('main window created', { event: 'create-window' });
   buildTray();
+  mainWindowLifecycle.open({
+    show: shouldShowStartupWindow({
+      autostart,
+      showWindowOnAutostart: userConfig?.getSettings().showWindowOnAutostart ?? false,
+      trayAvailable: tray !== null,
+      manualRequested: mainWindowRequested,
+    }),
+  });
+  logger.info('main window created', { event: 'create-window', autostart });
   if (process.platform === 'darwin') {
     Menu.setApplicationMenu(
       Menu.buildFromTemplate(

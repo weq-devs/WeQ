@@ -1304,6 +1304,13 @@ export const bootstrapRouter = router({
     return host.setAutostart(input.enabled);
   }),
 
+  setShowWindowOnAutostart: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showWindowOnAutostart: input.enabled });
+      return input.enabled;
+    }),
+
   // ---- first-run onboarding (欢迎使用) ----
 
   /** True once the user confirmed the first-run 欢迎使用 dialog. */

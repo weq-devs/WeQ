@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppAutostart } from '../src/main/autostart';
+import { AUTOSTART_ARG } from '../src/main/startup_window';
 
 let root: string;
 let nativeEnabled = false;
@@ -61,12 +62,12 @@ describe('不依赖 daemon 的系统登录项', () => {
     expect(native.set).toHaveBeenCalledWith({
       openAtLogin: true,
       path: '/Applications/WeQ.app/Contents/MacOS/WeQ',
-      args: [],
+      args: [AUTOSTART_ARG],
       name: 'app.weq.desktop',
     });
     expect(native.get).toHaveBeenCalledWith({
       path: '/Applications/WeQ.app/Contents/MacOS/WeQ',
-      args: [],
+      args: [AUTOSTART_ARG],
     });
     native.get.mockReturnValue({ openAtLogin: true, executableWillLaunchAtLogin: false });
     expect((await startup.status()).enabled).toBe(false);
@@ -86,11 +87,48 @@ describe('不依赖 daemon 的系统登录项', () => {
     await startup.set(true);
     const text = await readFile(join(root, 'xdg', 'autostart', 'app.weq.desktop.desktop'), 'utf8');
     expect(text).toContain('Exec="/opt/We Q/100%%.AppImage"');
+    expect(text).toContain(`--no-sandbox ${AUTOSTART_ARG}`);
     expect(text).not.toContain('Restart=');
     expect((await startup.status()).enabled).toBe(true);
     await startup.set(false);
     expect((await startup.status()).enabled).toBe(false);
     expect(run).not.toHaveBeenCalled();
+  });
+  it('Windows 升级无标记的已启用登录项，但不重新启用任务管理器禁用项', async () => {
+    let marked = false;
+    native.get.mockImplementation((options: { args?: string[] }) => ({
+      openAtLogin: options?.args?.includes(AUTOSTART_ARG) ? marked : !marked,
+      executableWillLaunchAtLogin: true,
+    }));
+    native.set.mockImplementation(({ args }: { args: string[] }) => {
+      marked = args.includes(AUTOSTART_ARG);
+    });
+    const startup = controller('win32');
+    expect((await startup.status()).enabled).toBe(true);
+    await startup.migrateLegacy();
+    expect(marked).toBe(true);
+    expect(native.set).toHaveBeenCalledWith(expect.objectContaining({ args: [AUTOSTART_ARG] }));
+    native.set.mockClear();
+    native.get.mockImplementation((options: { args?: string[] }) => ({
+      openAtLogin: !options?.args?.includes(AUTOSTART_ARG),
+      executableWillLaunchAtLogin: false,
+    }));
+    await startup.migrateLegacy();
+    expect(native.set).not.toHaveBeenCalled();
+    expect((await startup.status()).enabled).toBe(false);
+  });
+  it('Linux 已有无标记自启项升级后带标记，隐藏禁用项不被重新启用', async () => {
+    const startup = controller('linux');
+    await startup.set(true);
+    const path = join(root, '.config', 'autostart', 'app.weq.desktop.desktop');
+    const text = (await readFile(path, 'utf8')).replace(` ${AUTOSTART_ARG}`, '');
+    await writeFile(path, text);
+    await startup.migrateLegacy();
+    expect(await readFile(path, 'utf8')).toContain(` ${AUTOSTART_ARG}`);
+    await writeFile(path, `${text}Hidden=true\n`);
+    await startup.migrateLegacy();
+    expect(await readFile(path, 'utf8')).toBe(`${text}Hidden=true\n`);
+    expect((await startup.status()).enabled).toBe(false);
   });
   it('开发态不注册登录项，也不迁移或停止日常 daemon', async () => {
     const startup = controller('darwin', false);

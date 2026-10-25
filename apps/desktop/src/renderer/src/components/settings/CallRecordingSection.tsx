@@ -1,5 +1,5 @@
 /**
- * 设置 → 通话与录音。
+ * 设置 → 基础功能 → 通话录音。
  *
  * 与通话窗口里的「通话与录音设置」抽屉读的是**同一份**全局配置
  * （`AppSettings.callRecording`），改哪边都一样。
@@ -55,7 +55,7 @@ export function CallRecordingSection(): ReactElement {
   return (
     <div className="weq-set">
       <SectionHeader
-        title="通话与录音"
+        title="通话录音"
         desc="通话接通后，在通话窗口里手动开始录音。这里配置录制内容和文件位置。"
         icon={<PhoneCall size={16} strokeWidth={1.8} />}
       />

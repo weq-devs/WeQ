@@ -12,6 +12,7 @@ import type { HostBridge, SaveTarget, StorageRoot } from '@weq/service';
 import { clearStorageAfterExit, storageCleanupResult } from './storage_cleanup';
 import { DialogLocations } from './dialog_locations';
 import { AppAutostart } from './autostart';
+import { manualRestartArgs } from './startup_window';
 
 let startup: AppAutostart | null = null;
 function appAutostart(): AppAutostart {
@@ -125,7 +126,7 @@ export const electronHost: HostBridge = {
   clearStorageAfterExit,
   storageCleanupResult,
   restartApplication: async () => {
-    app.relaunch();
+    app.relaunch({ args: manualRestartArgs(process.argv) });
     setTimeout(() => app.quit(), 200);
   },
   fetchMedia: (url, opts) => net.fetch(url, { signal: opts?.signal }),

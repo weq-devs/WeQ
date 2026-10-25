@@ -193,17 +193,22 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('空间与邮箱有独立一级入口，空间标题不再带设置后缀', () => {
+  it('聊天、通话录音、空间与邮箱归入基础功能，通话录音位于第二项', () => {
     const f = mount('qzone');
     try {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-        '空间与邮箱',
+        '基础功能',
       );
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((item) => item.textContent),
-      ).toEqual(['QQ 空间', 'QQ 邮箱']);
+      ).toEqual(['聊天消息', '通话录音', 'QQ 空间', 'QQ 邮箱']);
       expect(f.body().querySelector('h3')?.textContent).toBe('QQ 空间');
       expect(f.host.textContent).not.toContain('QQ 空间设置');
+      f.render('call-recording');
+      expect(f.body().querySelector('h3')?.textContent).toBe('通话录音');
+      expect(f.body().textContent).toContain('录音来源');
+      expect(f.body().textContent).toContain('同时录电脑声音');
+      expect(f.body().querySelector('.weq-settings-scope')).toBeNull();
       f.render('mail');
       expect(f.body().querySelector('[aria-label="显示未读邮件数"]')).not.toBeNull();
       expect(f.body().querySelector('[aria-label="新邮件提醒"]')).not.toBeNull();

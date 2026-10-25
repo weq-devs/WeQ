@@ -9,6 +9,8 @@ export function StartupSection() {
   const refresh = useQQAutoRefresh(true);
   const status = trpc.bootstrap.getAutostartStatus.useQuery(undefined, refresh);
   const update = trpc.bootstrap.setAutostart.useMutation();
+  const settings = trpc.bootstrap.getSettings.useQuery(undefined, refresh);
+  const windowUpdate = trpc.bootstrap.setShowWindowOnAutostart.useMutation();
   const showError = useDialog((state) => state.showError);
   const pushToast = useToast((state) => state.push);
   const data = status.data;
@@ -40,6 +42,16 @@ export function StartupSection() {
       await status.refetch();
     }
   }
+  async function changeWindow(enabled: boolean) {
+    try {
+      await windowUpdate.mutateAsync({ enabled });
+      await settings.refetch();
+      pushToast({ tone: 'success', title: enabled ? '自启时显示窗口' : '自启时保持后台运行' });
+    } catch (error) {
+      showError('保存自启窗口设置失败', error instanceof Error ? error.message : '设置未保存');
+      await settings.refetch();
+    }
+  }
   return (
     <div className="weq-set">
       <SectionHeader icon={<Power size={16} />} title="开机启动" />
@@ -60,8 +72,33 @@ export function StartupSection() {
             />
           }
         />
+        <Row
+          label="自启时显示窗口"
+          desc="默认关闭，自启后在托盘中运行；手动打开 WeQ 时仍显示窗口。"
+          indent
+          control={
+            <Toggle
+              label="自启时显示窗口"
+              checked={settings.data?.showWindowOnAutostart ?? false}
+              disabled={
+                !data?.supported ||
+                !(data.enabled || data.requiresApproval) ||
+                status.isLoading ||
+                !!status.error ||
+                settings.isLoading ||
+                !!settings.error ||
+                update.isLoading ||
+                windowUpdate.isLoading
+              }
+              onChange={(enabled) => void changeWindow(enabled)}
+            />
+          }
+        />
         <Row label="系统登录项" desc={label} control={<Power size={14} aria-hidden />} />
         {status.error && <p className="weq-set-note weq-set-note-warn">{status.error.message}</p>}
+        {settings.error && (
+          <p className="weq-set-note weq-set-note-warn">{settings.error.message}</p>
+        )}
         {data?.migrationError && (
           <p className="weq-set-note weq-set-note-warn">旧后台迁移未完成：{data.migrationError}</p>
         )}

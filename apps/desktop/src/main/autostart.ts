@@ -4,6 +4,7 @@ import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import type { AppAutostartStatus } from '@weq/service';
 import { legacyDaemonStateDir, retireLegacyDaemon, type RunCommand } from './legacy_daemon';
+import { AUTOSTART_ARG } from './startup_window';
 
 const APP_ID = 'app.weq.desktop';
 const legacyPreference = z.object({
@@ -67,7 +68,7 @@ export class AppAutostart {
     );
   }
   private get loginOptions(): LoginOptions {
-    return { path: this.options.exePath, args: [] };
+    return { path: this.options.exePath, args: [AUTOSTART_ARG] };
   }
   private async readStatus(): Promise<AppAutostartStatus> {
     const base = {
@@ -83,9 +84,13 @@ export class AppAutostart {
       const enabled = text !== null && !/^Hidden\s*=\s*true\s*$/m.test(text);
       return { ...base, enabled, registered: text !== null };
     }
-    const current = this.options.native.get(
+    let current = this.options.native.get(
       this.options.platform === 'win32' ? this.loginOptions : undefined,
     );
+    if (this.options.platform === 'win32' && !current.openAtLogin) {
+      const legacy = this.options.native.get({ path: this.options.exePath, args: [] });
+      if (legacy.openAtLogin) current = legacy;
+    }
     return {
       ...base,
       enabled: current.openAtLogin && current.executableWillLaunchAtLogin !== false,
@@ -118,7 +123,7 @@ export class AppAutostart {
         );
         await writeFile(
           this.desktopEntry,
-          `[Desktop Entry]\nType=Application\nName=WeQ\nExec="${quoted}" --ozone-platform=x11 --no-sandbox\nTerminal=false\n`,
+          `[Desktop Entry]\nType=Application\nName=WeQ\nExec="${quoted}" --ozone-platform=x11 --no-sandbox ${AUTOSTART_ARG}\nTerminal=false\n`,
           { mode: 0o600 },
         );
       } else await rm(this.desktopEntry, { force: true });
@@ -137,6 +142,20 @@ export class AppAutostart {
     return this.serialize(() => this.apply(enabled));
   }
 
+  private async ensureLaunchMarker(): Promise<void> {
+    if (this.options.platform === 'win32') {
+      if (this.options.native.get(this.loginOptions).openAtLogin) return;
+      const legacy = this.options.native.get({ path: this.options.exePath, args: [] });
+      if (legacy.openAtLogin && legacy.executableWillLaunchAtLogin !== false)
+        await this.apply(true);
+    } else if (this.options.platform === 'linux') {
+      const text = await readOptional(this.desktopEntry);
+      if (text === null || /^Hidden\s*=\s*true\s*$/m.test(text)) return;
+      const exec = text.match(/^Exec=(.*)$/m)?.[1];
+      if (exec && !exec.trimEnd().endsWith(` ${AUTOSTART_ARG}`)) await this.apply(true);
+    }
+  }
+
   migrateLegacy(): Promise<void> {
     return this.serialize(async () => {
       if (!this.options.supported) return;
@@ -147,6 +166,7 @@ export class AppAutostart {
           raw === null
             ? { version: 1 as const, autostartMigrated: false, retired: false }
             : migrationState.parse(JSON.parse(raw));
+        await this.ensureLaunchMarker();
         // 旧版本回滚或手动启动可能重新注册旧服务；只迁一次偏好，启动时仍复核退役。
         if (!state.autostartMigrated) {
           const legacy = await readOptional(

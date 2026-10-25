@@ -45,14 +45,18 @@ export type SectionId =
 
 export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: SectionId[] }> = [
   { id: 'general', label: '常规', sections: ['global', 'startup', 'saving'] },
-  { id: 'appearance', label: '个性显示', sections: ['appearance', 'message-display'] },
+  {
+    id: 'basic',
+    label: '基础功能',
+    sections: ['message-display', 'call-recording', 'qzone', 'mail'],
+  },
+  { id: 'appearance', label: '个性显示', sections: ['appearance'] },
   { id: 'privacy', label: '隐私与安全', sections: ['applock'] },
   {
     id: 'account',
     label: '账号与消息',
-    sections: ['accounts', 'account', 'anti-recall', 'call-recording'],
+    sections: ['accounts', 'account', 'anti-recall'],
   },
-  { id: 'space-mail', label: '空间与邮箱', sections: ['qzone', 'mail'] },
   {
     id: 'storage',
     label: '存储与媒体',
