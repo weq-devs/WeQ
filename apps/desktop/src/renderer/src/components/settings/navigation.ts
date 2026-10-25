@@ -32,6 +32,7 @@ export type SectionId =
   | 'rkey'
   | 'sse'
   | 'daemon'
+  | 'assistant'
   | 'credentials'
   | 'diagnostics'
   | 'help'
@@ -72,7 +73,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Secti
       'ocr',
     ],
   },
-  { id: 'services', label: '服务与集成', sections: ['remote', 'mcp', 'sse', 'rkey', 'daemon'] },
+  { id: 'services', label: '服务与集成', sections: ['remote', 'mcp', 'sse', 'rkey', 'assistant'] },
   { id: 'advanced', label: '高级与诊断', sections: ['credentials', 'diagnostics'] },
   { id: 'help', label: '帮助与关于', sections: ['version', 'faq', 'logs', 'feedback'] },
 ];
@@ -110,6 +111,7 @@ export function settingsSectionFor(section: SectionId): SectionId {
   if (section === 'tts') return 'agentlab';
   if (section === 'help') return 'faq';
   if (section === 'updates') return 'version';
+  if (section === 'daemon') return 'assistant';
   return section;
 }
 

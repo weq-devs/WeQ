@@ -2,7 +2,7 @@
  * Electron-only IPC surface for the WeQ 助手. The renderer's `applyTheme` calls
  * the handler whenever accent / 深浅 changes (and once on hydrate).
  *
- * Theme is **baked into the published docroot files** (the daemon serves static
+ * Theme is **baked into the published docroot files** (the app serves static
  * HTML/PNG only), so a theme change re-publishes them — trailing-debounced:
  * hydrate + a quick accent sweep emits several calls in a row, and each render
  * pass (satori → PNG) is too expensive to run per keystroke. The publish step

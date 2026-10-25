@@ -541,8 +541,6 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.20)(happy-dom@21.0.1)(jsdom@26.1.0(supports-color@7.2.0))(lightningcss@1.32.0)(supports-color@7.2.0)
 
-  packages/daemon: {}
-
   packages/db:
     dependencies:
       '@weq/codec':

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QzonePaginationSettings } from '../src/renderer/src/components/settings/QzonePaginationSettings';
 import { McpServerSection } from '../src/renderer/src/components/settings/McpServerSection';
-import { DaemonSection } from '../src/renderer/src/components/settings/DaemonSection';
+import { AssistantSection } from '../src/renderer/src/components/settings/AssistantSection';
 import { SsePushSection } from '../src/renderer/src/components/settings/SsePushSection';
 import { ExternalRkeySection } from '../src/renderer/src/components/settings/ExternalRkeySection';
 import { useToast } from '../src/renderer/src/components/Toast';
@@ -66,7 +66,6 @@ beforeEach(() => {
     },
     'bootstrap.listMcpAgentTargets': [],
     'bootstrap.getWeqAssistantStatus': { enabled: false, port: 27182, url: '' },
-    'bootstrap.getDaemonHealth': {},
     'account.intentSense.getStatus': { ...DEFAULT_INTENT_TUNING },
   };
   state.mutate.mockReset().mockResolvedValue({ port: 48765 });
@@ -178,7 +177,7 @@ describe('显式保存设置不以未变化禁用', () => {
     },
     {
       label: '助手端口',
-      view: () => createElement(DaemonSection, { panel: 'assistant' }),
+      view: () => createElement(AssistantSection),
       route: 'bootstrap.setWeqAssistantPort',
       input: { port: 27182 },
     },

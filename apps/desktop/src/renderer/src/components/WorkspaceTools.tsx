@@ -31,7 +31,7 @@ import {
 import '../styles/workspace-tools.css';
 import '../styles/workspace-menu.css';
 import { RoamingBackfillPanel } from './RoamingBackfillPanel';
-import { DaemonSection } from './settings/DaemonSection';
+import { AssistantSection } from './settings/AssistantSection';
 import { useViewState } from '../state/view';
 import { createToolDraft, type ToolDraft } from '../../../shared/content_selection';
 import { AnalysisTool } from '../views/analysis/AnalysisTool';
@@ -483,7 +483,7 @@ export function WorkspaceTools({
                   </div>
                   {assistantSettings && expanded ? (
                     <div className="weq-assistant-service-settings">
-                      <DaemonSection panel="assistant" />
+                      <AssistantSection />
                     </div>
                   ) : null}
                 </>

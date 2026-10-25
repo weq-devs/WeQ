@@ -13,7 +13,6 @@ WeQ 是 QQ NT 本地聊天记录的解密 / 导出 / 查看 / 年度报告工具
 | `apps/desktop` | Electron 桌面端（主进程 / 渲染进程 / 预加载） |
 | `apps/web` | 机器人 WebUI |
 | `packages/*` | protocol、db、codec、service、bot、native、testkit 等库 |
-| `packages/daemon` | Rust 守护进程 |
 | `native` | nt_helper 原生产物与 pinned 清单（二进制不入库） |
 | `docs/` | 文档中心：`guide` 用户向、`develop` 开发向、`principles` 原理、`database` 表结构 |
 
@@ -41,19 +40,17 @@ git checkout -b feat/your-feature
 
 ## 2. 提交前必须跑 `pnpm ci:local`
 
-**硬门禁：没跑绿就不要说「改完了」。** 它把 `.github/workflows/ci.yml` 的门禁在本地按同样顺序复刻一遍（lint / format / typecheck / 单测 / Rust 三项）。
+**硬门禁：没跑绿就不要说「改完了」。** 它把 `.github/workflows/ci.yml` 的门禁在本地按同样顺序复刻一遍（lint / format / typecheck / 单测）。
 
 ```bash
 pnpm ci:local             # 默认快检查；不 fail-fast，跑完给一张汇总表
 pnpm ci:local --fix       # 先 pnpm format + lint:fix 刷平格式再跑门禁（改完懒得管格式时用这个）
 pnpm ci:local --full      # 额外跑 web 打包冒烟（≈ CI 的 build-web）
-pnpm ci:local --no-daemon # 本机没 Rust 时跳过 cargo 三项
 ```
 
-- 脚本会自己探测 `cargo`，没装就跳过 Rust 三项并提示；其余四项任何一项红都不算通过。
+- 四项任何一项红都不算通过；独立 daemon 已移除，不再需要 Rust 工具链。
 - 修不绿的检查就如实报告失败项和报错。**不要**为了让门禁变绿去放宽规则、加 `// biome-ignore`、塞 `any` / `@ts-ignore`、跳过或删除测试。
 - 需要单独跑某一步时，等价命令：`pnpm lint`、`pnpm format:check`、`pnpm typecheck`、`pnpm -r test`；
-  daemon 的三项在 `packages/daemon` 下跑 `cargo fmt --check`、`cargo clippy --all-targets --all-features -- -D warnings`、`cargo test`。
 - 打包链路（electron-builder）不在 PR 门禁里。改到它时用 `pnpm --filter @weq/desktop build:unpack` 本地验一遍。
 
 ## 3. Changelog：新功能 / bug 修复必须写

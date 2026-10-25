@@ -112,7 +112,7 @@ describe('设置归位后的实际页面', () => {
         ['message-display', '显示消息序号（seq）'],
         ['storage', '缓存目录'],
         ['global', '成功通知停留时长'],
-        ['version', '监控新版本发布'],
+        ['version', '内置组件'],
       ] as const) {
         f.render(section, { section, item, revision: Date.now() });
         const highlighted = f.body().querySelector<HTMLElement>('[data-search-highlight="true"]');
@@ -151,7 +151,7 @@ describe('设置归位后的实际页面', () => {
       ).toEqual(['版本与更新', '常见问题', '日志', '反馈']);
       expect(f.body().querySelector('h3')?.textContent).toBe('版本与更新');
       expect(f.body().textContent).toContain('内置组件');
-      expect(f.body().textContent).toContain('监控新版本发布');
+      expect(f.body().textContent).not.toContain('监控新版本发布');
       f.render('help');
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
         '常见问题',
@@ -172,7 +172,7 @@ describe('设置归位后的实际页面', () => {
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
         '版本与更新',
       );
-      expect(f.body().textContent).toContain('监控新版本发布');
+      expect(f.body().textContent).not.toContain('监控新版本发布');
     } finally {
       f.close();
     }
@@ -256,16 +256,17 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('开机启动、后台服务和更新提醒各自独立，不混入助手推送', () => {
+  it('自启独立于助手服务，旧后台入口转到助手，版本页不再包含后台轮询', () => {
     const f = mount('startup');
     try {
       expect(f.body().textContent).toContain('开机自动启动 WeQ');
       expect(f.body().textContent).not.toContain('启用 WeQ 助手');
       f.render('daemon');
-      expect(f.body().textContent).toContain('静态文件服务');
+      expect(f.body().textContent).toContain('启用 WeQ 助手');
+      expect(f.host.textContent).not.toContain('后台服务');
       expect(f.body().textContent).not.toContain('开机自动启动 WeQ');
       f.render('updates');
-      expect(f.body().textContent).toContain('监控新版本发布');
+      expect(f.body().textContent).not.toContain('监控新版本发布');
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
         '帮助与关于',
       );

@@ -20,7 +20,6 @@
     "format:check": "biome format .",
     "check": "biome check .",
     "ci:local": "node scripts/ci-local.mjs",
-    "build:daemon": "node packages/daemon/scripts/build.mjs",
     "native:fetch": "node scripts/fetch-native.mjs",
     "native:check": "node scripts/fetch-native.mjs --check",
     "native:check-streaming": "node scripts/check-native-streaming.mjs",

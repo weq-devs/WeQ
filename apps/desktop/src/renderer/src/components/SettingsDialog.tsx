@@ -64,7 +64,8 @@ import { RemoteSection } from './settings/RemoteSection';
 import { BackupSection } from './settings/BackupSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
-import { DaemonSection } from './settings/DaemonSection';
+import { AssistantSection } from './settings/AssistantSection';
+import { StartupSection } from './settings/StartupSection';
 import { DatabaseToleranceSection } from './settings/DatabaseToleranceSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
 import { SectionHeader, SettingsScopeContext, Toggle } from './settings/controls';
@@ -295,10 +296,10 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <SsePushSection />,
   },
   {
-    id: 'daemon',
-    label: '后台服务',
+    id: 'assistant',
+    label: 'QQ 公众号推送',
     icon: <Activity size={16} strokeWidth={1.8} />,
-    render: () => <DaemonSection />,
+    render: () => <AssistantSection />,
   },
   {
     id: 'faq',
@@ -322,7 +323,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'startup',
     label: '开机启动',
     icon: <Monitor size={16} />,
-    render: () => <DaemonSection panel="startup" />,
+    render: () => <StartupSection />,
   },
   {
     id: 'saving',

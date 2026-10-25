@@ -21,6 +21,9 @@
   ; 推文卡片的服务记忆也会一起没。这个判断与 electron-builder 的 uninstaller.nsh
   ; 模板在 un.install 段里的用法完全一致。
   ${ifNot} ${isUpdated}
+    ; 当前版本由系统直接启动 WeQ，不再借助独立后台。
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "app.weq.desktop"
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "app.weq.desktop"
     ; 1) 停掉正在跑的守护进程：它是常驻进程，不主动停就活到重启（而且是它把
     ;    数据目录里的二进制占着，导致下面删不掉）。本来就不在时这条命令会失败，
     ;    忽略即可。

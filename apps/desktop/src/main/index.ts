@@ -53,12 +53,7 @@ import { stopMcpServer } from './mcp/server';
 import { remoteRuntime } from './remote/runtime';
 import { desktopWebRuntime } from './web/runtime';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
-import { startReleaseMonitor, stopReleaseMonitor } from './daemon/release_monitor';
-import {
-  ensureDaemonRunning,
-  stopDaemonForAppQuit,
-  syncGuiAutostartIntent,
-} from './daemon/runtime';
+import { assistantResourceServer } from './weq_assistant/server';
 import { disposeExternalMcp } from './mcp/external';
 import { disposeElevatedCaptures } from './ipc/routers/wonderful_tools';
 import { registerAnalyticsExportIpc } from './analytics_export';
@@ -81,7 +76,7 @@ import {
   type ExportSavePolicy,
   type WindowCloseBehavior,
 } from '@weq/service';
-import { electronHost } from './host';
+import { electronHost, migrateLegacyAutostart } from './host';
 import { mediaSaveRouter } from './ipc/routers/media_save';
 import { systemAuthService } from './system_auth';
 import { totpAuthService } from './totp_auth';
@@ -418,13 +413,6 @@ function registerLogIpc(): void {
     await electronHost.revealPath(dir);
     return true;
   });
-
-  // 守护进程设置页「打开 docroot」——只在路径确实指向磁盘上已存在的目录时放行。
-  ipcMain.handle('daemon:reveal-path', async (_event, path?: string) => {
-    if (typeof path !== 'string' || !path || !fs.existsSync(path)) return false;
-    await electronHost.revealPath(path);
-    return true;
-  });
 }
 
 function registerSystemAuthIpc(): void {
@@ -684,9 +672,26 @@ void app.whenReady().then(async () => {
   // Order matters: AppContext (loads native + platform) before IPC handler.
   // The host bridge must be installed before any router runs.
   setHost(electronHost);
+  await migrateLegacyAutostart().catch((error: unknown) => {
+    logger.warn('legacy daemon migration failed', {
+      event: 'legacy-daemon-migration-failed',
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+  if (isQuitting) return;
   installUpdateActions();
   initAppContext();
   const userConfig = getAppContext().bootstrap?.userConfig;
+  if (userConfig?.getSettings().weqAssistant.enabled) {
+    void getAppContext()
+      .applyWeqAssistant(userConfig.getSettings().weqAssistant)
+      .catch((error: unknown) => {
+        logger.warn('assistant resource startup failed', {
+          event: 'assistant-resource-startup-failed',
+          error: String(error),
+        });
+      });
+  }
   if (userConfig) {
     desktopWebRuntime.configure({
       publicDir: app.isPackaged
@@ -788,25 +793,6 @@ void app.whenReady().then(async () => {
     setTimeout(() => void checkForUpdate(true).catch(() => {}), 3000);
   }
 
-  // 守护进程 release 提醒循环（发现新版本弹系统通知）：始终挂着，每 30s 读一次
-  // 守护进程状态；守护进程侧轮询未开启 / 不在时自然为 no-op。推文由打包版
-  // 应用内更新检查（update_tweet）统一负责，不在这里重复写。
-  startReleaseMonitor();
-
-  // 守护进程默认拉起：应用启动即检查 / 拉起 weq-daemon（含版本对齐与稳定落位），
-  // 不再等「WeQ 助手」开关。best-effort：二进制缺失 / 拉起失败只记日志，不阻塞
-  // 启动；设置页展示实时状态。
-  void ensureDaemonRunning()
-    // 起来之后，再把「开机拉起 WeQ」的意图 + 当前 exe 路径刷进守护进程记忆。
-    // GUI 自己不注册任何原生自启 —— 全机唯一的自启注册是守护进程那一份。
-    .then(() => syncGuiAutostartIntent())
-    .catch((error) => {
-      logger.warn('failed to ensure weq-daemon on startup', {
-        event: 'daemon-startup-failed',
-        errorMessage: error instanceof Error ? error.message : String(error),
-      });
-    });
-
   app.on('activate', openMainWindow);
 });
 
@@ -841,14 +827,14 @@ registerAppQuitPreparation(app, autoUpdater, () => {
   }
 });
 
-// Cmd+Q / 托盘退出 / 完全退出均停止 macOS 本轮后台。次实例退出不能停掉主实例的服务。
-if (hasSingleInstanceLock && process.platform === 'darwin') {
+// 助手资源随应用结束；次实例退出不能关闭主实例拥有的服务。
+if (hasSingleInstanceLock) {
   registerAppQuitCleanup(
     app,
-    stopDaemonForAppQuit,
+    () => assistantResourceServer.shutdown(),
     (error) => {
-      logger.warn('failed to stop daemon on quit', {
-        event: 'daemon-quit-failed',
+      logger.warn('failed to stop assistant resources on quit', {
+        event: 'assistant-resource-quit-failed',
         error: String(error),
       });
     },
@@ -858,7 +844,7 @@ if (hasSingleInstanceLock && process.platform === 'darwin') {
 
 // 账号没有显式关闭时，也释放本轮 Web、Remote、MCP 与提权辅助进程。
 app.on('will-quit', () => {
-  stopReleaseMonitor();
+  void assistantResourceServer.shutdown();
   remoteRuntime.stop();
   desktopWebRuntime.stop();
   void stopMcpServer();

@@ -11,6 +11,28 @@ import { homedir } from 'node:os';
 import type { HostBridge, SaveTarget, StorageRoot } from '@weq/service';
 import { clearStorageAfterExit, storageCleanupResult } from './storage_cleanup';
 import { DialogLocations } from './dialog_locations';
+import { AppAutostart } from './autostart';
+
+let startup: AppAutostart | null = null;
+function appAutostart(): AppAutostart {
+  startup ??= new AppAutostart({
+    platform: process.platform,
+    home: homedir(),
+    env: process.env,
+    configDir: app.getPath('userData'),
+    exePath: process.env.APPIMAGE || app.getPath('exe'),
+    supported: app.isPackaged,
+    native: {
+      get: (options) => app.getLoginItemSettings(options),
+      set: (options) => app.setLoginItemSettings(options),
+    },
+  });
+  return startup;
+}
+
+export function migrateLegacyAutostart(): Promise<void> {
+  return appAutostart().migrateLegacy();
+}
 
 export function dialogLocations(): DialogLocations {
   return new DialogLocations(join(app.getPath('userData'), 'dialog-locations.json'));
@@ -195,10 +217,10 @@ export const electronHost: HostBridge = {
 
   appVersion: () => app.getVersion(),
   isPackaged: () => app.isPackaged,
-  // 「开机拉起 WeQ」的意图交给守护进程记着（GUI 自己不注册任何原生自启）：
-  // pnpm dev 拉起的 electron 没有安装、没有固定路径语义，让它开机起是错的 ——
-  // 只允许打包版开启。
+  // 系统直接启动安装版 WeQ；开发态没有稳定的安装路径。
   canAutostart: app.isPackaged,
+  getAutostart: () => appAutostart().status(),
+  setAutostart: (enabled) => appAutostart().set(enabled),
   currentExePath: () => {
     // AppImage 下 `app.getPath('exe')` 是本次运行的临时挂载点
     // （`/tmp/.mount_<name>.<rand>/…`），重启后必然不存在 —— 必须用 $APPIMAGE

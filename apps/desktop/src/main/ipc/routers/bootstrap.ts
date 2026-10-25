@@ -22,6 +22,7 @@ import {
   describeExportOutput,
   selectStorageCleanupTargets,
   type StorageRoot,
+  type AppAutostartStatus,
   createOtherDeviceKeyContext,
 } from '@weq/service';
 import {
@@ -35,20 +36,11 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { isMcpRunning } from '../../mcp/server';
-import { getDaemonHealth } from '../../daemon/health';
-import { resolveDaemonBinary } from '../../daemon/runtime';
-import {
-  daemonReleaseWatchStart,
-  daemonReleaseWatchStop,
-  daemonReleaseWatchStatus,
-  daemonAutostartSet,
-  daemonAutostartStatus,
-} from '@weq/service';
+import { assistantResourceServer } from '../../weq_assistant/server';
 import {
   installMcpAgents as installMcpAgentConfigs,
   listMcpAgentTargets,
 } from '../../mcp/agent_installer';
-import { daemonHttpStatus } from '@weq/service';
 import {
   accountEventBus,
   getAppContext,
@@ -1226,16 +1218,16 @@ export const bootstrapRouter = router({
 
   // ---- WeQ 助手 (account-bound; renders inside QQ itself) ----
 
-  /** Current WeQ 助手 config + live state (from the weq-daemon control pipe). */
+  /** 助手配置与当前宿主进程中的资源服务状态。 */
   getWeqAssistantStatus: procedure.query(async () => {
     const weq = requireBootstrap().userConfig.getSettings().weqAssistant;
-    const status = await daemonHttpStatus();
+    const status = assistantResourceServer.status();
     return {
       enabled: weq.enabled,
       port: weq.port,
       host: '127.0.0.1',
       url: `http://127.0.0.1:${weq.port}`,
-      running: status?.running ?? false,
+      running: status.running,
     };
   }),
 
@@ -1268,74 +1260,26 @@ export const bootstrapRouter = router({
       return userConfig.getSettings().weqAssistant;
     }),
 
-  // ---- 守护进程（weq-daemon）：健康 / release 监控 / 开机自启 ----
-  // 设置 → 守护进程 页的数据面。守护进程本体（Rust）负责 GitHub 轮询与
-  // **自身**的开机自启注册；这里只是把查询与下发暴露给渲染层。
-
-  /** 聚合健康快照：探活 + 版本 + HTTP + release 轮询 + 自启动注册。 */
-  getDaemonHealth: procedure.query(() => {
-    return getDaemonHealth();
+  // ---- 系统直接启动 WeQ，不依赖后台服务 ----
+  getAutostartStatus: procedure.query(async (): Promise<AppAutostartStatus> => {
+    const host = getHost();
+    return (
+      host.getAutostart?.() ?? {
+        supported: false,
+        enabled: false,
+        registered: false,
+        requiresApproval: false,
+      }
+    );
   }),
 
-  /**
-   * 守护进程二进制是否随包就位（缺失提示先 pnpm build:daemon）。
-   * 启动时会被 stage 到数据目录的稳定路径（原生自启注册只能指向那里）。
-   */
-  getDaemonBinaryStatus: procedure.query(() => {
-    return { available: resolveDaemonBinary() !== null };
+  setAutostart: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    const host = getHost();
+    if (!host.canAutostart || !host.setAutostart) {
+      throw new Error('当前环境不支持登录自启，请使用打包安装版；Web 服务由部署方管理。');
+    }
+    return host.setAutostart(input.enabled);
   }),
-
-  /**
-   * 开启 / 关闭 release 轮询（守护进程侧 Rust 轮询器）。开启时以当前应用
-   * 版本当 current_version，轮询间隔固定 1 小时（大陆网络差也够用）。
-   * GUI 提醒循环（系统通知）始终随应用启动挂着 —— 它只读守护进程的
-   * 状态，watching=false 时不会产生任何提醒。
-   */
-  setDaemonReleaseWatch: procedure
-    .input(z.object({ enabled: z.boolean() }))
-    .mutation(async ({ input }) => {
-      if (!input.enabled) {
-        await daemonReleaseWatchStop();
-      } else {
-        const started = await daemonReleaseWatchStart({
-          api_base: 'https://api.github.com',
-          repo: 'weq-devs/WeQ',
-          interval_secs: 3600,
-          current_version: getHost().appVersion(),
-        });
-        if (started === null) {
-          throw new Error(
-            '守护进程未运行，无法开启 Release 监控。WeQ 启动时会自动拉起，请稍后重试。',
-          );
-        }
-      }
-      return daemonReleaseWatchStatus();
-    }),
-
-  /**
-   * 开关「开机自动启动 WeQ」—— 按约定 **GUI 不注册任何原生自启**：这里只把
-   * 意图 + 当前 exe 路径交给守护进程落记忆，开机后由守护进程读记忆拉起 WeQ。
-   * 需要守护进程在跑，不在则抛错由前端提示。
-   */
-  setDaemonAutostart: procedure
-    .input(z.object({ enabled: z.boolean() }))
-    .mutation(async ({ input }) => {
-      // 浏览器版 / pnpm dev：守护进程开机时要拉起一个裸可执行文件，而 web 的
-      // node server.mjs（需要参数 + 工作目录）和开发态 Electron 都不具备
-      // 「被裸拉起就能工作」的形态 —— 直接拒绝。
-      if (!getHost().canAutostart) {
-        throw new Error(
-          '当前环境不支持开机自启：请使用打包安装版（浏览器版请用 systemd / 计划任务管理）。',
-        );
-      }
-      const guiExe = getHost().currentExePath();
-      const result = await daemonAutostartSet({ enabled: input.enabled, gui_exe: guiExe });
-      if (result === null) {
-        throw new Error('守护进程未运行，无法设置开机自启。WeQ 启动时会自动拉起，请稍后重试。');
-      }
-      if (!result.ok) throw new Error(result.message);
-      return daemonAutostartStatus();
-    }),
 
   // ---- first-run onboarding (欢迎使用) ----
 

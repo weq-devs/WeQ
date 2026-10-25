@@ -3,10 +3,8 @@
  *
  * Web packaging is no longer a single "universal" archive: every platform/arch
  * gets its own tarball, built on its own runner, carrying only that platform's
- * native addons, daemon binary and resvg binding. The tag below (`win32-x64`,
- * `linux-arm64`, …) is the same one `packages/daemon/scripts/build.mjs` stages
- * binaries under (`resources/daemon/<tag>/`) and that `native/` mirrors as
- * `native/<platform>/<arch>/`.
+ * native addons and resvg binding. The tag below (`win32-x64`, `linux-arm64`, …)
+ * mirrors `native/<platform>/<arch>/`.
  */
 
 export const LABELS = {
@@ -38,9 +36,4 @@ export function currentTarget() {
 /** `win32-x64` → `win32/x64` (the `native/` layout under a target root). */
 export function nativeRel(target) {
   return target.replace('-', '/');
-}
-
-/** The daemon binary file name for a target (`weq-daemon.exe` on win32). */
-export function daemonExe(target) {
-  return target.startsWith('win32') ? 'weq-daemon.exe' : 'weq-daemon';
 }

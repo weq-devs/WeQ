@@ -44,19 +44,13 @@ sudo ./start.sh
 
 浏览器打开该地址，粘贴令牌即可进入。之后的流程和桌面版一致：取密钥 → 打开账号 → 看消息。
 
-每个压缩包只包含自己平台的原生模块（`native/`）和守护进程二进制
-（`resources/daemon/`），启动时由本机平台直接选用，因此不要跨平台解压使用。
+每个压缩包只包含自己平台的原生模块（`native/`），因此不要跨平台解压使用。
 
-### 守护进程
+### 助手资源服务
 
-Web 服务启动时会顺手拉起 `weq-daemon`（推送卡片的静态 HTTP 服务）；失败只写日志，
-不影响 Web 本身。守护进程是**单例**：桌面版、网页版、`pnpm dev` 连的是同一条控制
-管道（Windows `\\.\pipe\weq-daemon`，Unix `$TMPDIR/weq-daemon.sock`），一台机器上
-多开几个入口也不会多出几份实例。
-
-每次启动都会把「磁盘上二进制的版本」和「正在运行的实例版本」比一次：一致就什么都不
-做；不一致（换了安装包 / 重新 `build:daemon`）才让旧实例退出再拉起新的。旧实例退出
-前会保留状态文件，新实例启动时按记忆自动恢复原来的静态服务（同端口、同 docroot）。
+启用 WeQ 助手时，在当前 Web 进程内启动回环静态文件服务；停用助手或结束 Web
+进程时关闭，不启动独立 daemon，不注册系统自启。多宿主同时运行时各自拥有服务，
+端口占用会向后回落。Web 的登录／开机启动仍由部署方的进程管理器控制。
 
 ### Linux 为什么建议 root
 
@@ -163,11 +157,9 @@ pnpm --filter @weq/web check       # 确认没有 Electron 代码泄漏进 web �
 pnpm --filter @weq/web test:dist   # 启动打包产物跑一遍完整流程
 ```
 
-`test:dist` 校验随包的 native 与 daemon 都是**当前平台**的产物，所以要先为当前
-机器构建守护进程再打包：
+`test:dist` 校验 native 是当前平台产物，且包内不包含独立 daemon：
 
 ```bash
-pnpm run build:daemon              # 产出 resources/daemon/<platform>-<arch>/
 pnpm --filter @weq/web build       # 构建 + 两个守卫
 pnpm --filter @weq/web deps        # 预装当前平台的 ws / resvg binding
 pnpm --filter @weq/web test:dist   # 冒烟

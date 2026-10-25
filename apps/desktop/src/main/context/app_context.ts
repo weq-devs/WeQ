@@ -37,7 +37,7 @@ import {
 } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
 import { startLogRetention } from '../log_retention';
-import { ensureDaemonRunning, startDaemonHttp } from '../daemon/runtime';
+import { assistantResourceServer } from '../weq_assistant/server';
 import { publishWeqAssistantDocroot } from '../weq_assistant/publish';
 import { createReportQzoneCapability } from '../report_qzone';
 import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
@@ -145,7 +145,6 @@ import {
   createNtMsgDbHook,
   formatDbHealthFailures,
   writeDbHealthReport,
-  daemonHttpStop,
   initLogger,
   getLogger,
   getLogDir,
@@ -978,13 +977,8 @@ export interface AppContext {
    */
   applyMcp(config: McpServerConfig): Promise<void>;
   /**
-   * Apply the WeQ 助手 config: when enabled, publish the tweet pages / covers
-   * into the daemon docroot, make sure the weq-daemon companion process is up
-   * (only replaced when the on-disk binary's version changes), start its static
-   * HTTP server and — with an account open — sync the ARK cards into the QQ db.
-   * When disabled, stop the daemon's HTTP only (the daemon process itself is
-   * left running); the fabricated conversation rows are removed best-effort.
-   * Returns the port the daemon actually bound to (or 0).
+   * 启用时发布推文并在当前宿主内提供资源；有账号时同步既有 QQ 卡片。
+   * 停用时关闭本轮资源服务，退出后不保留任何独立后台。返回实际端口或 0。
    */
   applyWeqAssistant(config: WeqAssistantConfig): Promise<number>;
   /**
@@ -2930,13 +2924,9 @@ export function initAppContext(fileRoot?: string): AppContext {
         port: config.port,
       });
 
-      // 关闭：只关守护进程上的 HTTP（守护进程本体绝不动 —— 它的生命周期属于
-      // 开机自启 / 用户）。会话行的删除仍需要开着账号，best-effort。
+      // 停用本进程的资源服务；会话行的删除仍需要开着账号，best-effort。
       if (!config.enabled) {
-        const stopped = await daemonHttpStop();
-        if (!stopped) {
-          logger.warn('failed to stop weq daemon http', { event: 'weq-http-stop-failed' });
-        }
+        await assistantResourceServer.stop();
         if (this.account && this.platform) {
           // 静态账号禁止往原生 nt_data 写助手头像（见下方开启路径的说明）。
           const svc = new WeqAssistantService(
@@ -2960,26 +2950,23 @@ export function initAppContext(fileRoot?: string): AppContext {
       // 1) 发布静态产物到 docroot（推文页 / 封面 / 头像；主题此刻烘焙进文件）。
       //    docroot 放在 weq-assistant 缓存目录下：清理缓存时自然一并回收。
       const docroot = join(userConfig.cacheDir('weq-assistant'), 'docroot');
-      try {
-        await publishWeqAssistantDocroot({ docroot });
-      } catch (error) {
-        logger.error('failed to publish weq assistant docroot', {
-          event: 'weq-publish-failed',
-          ...logErrorContext(error),
-        });
-      }
-
-      // 2) 确保守护进程在（不在则 detached 拉起；只有磁盘上的二进制换了版本才替换）；
-      //    3) 开 HTTP，端口被占自动向后回落试探。HTTP 与账号无关：没开账号也能开。
-      const ready = await ensureDaemonRunning();
-      if (!ready) {
-        throw new Error('weq-daemon 未能启动或控制管道连接超时');
-      }
-      const start = await startDaemonHttp(config.port, docroot);
-      if (!start.ok) {
-        throw new Error(start.message ?? 'weq-daemon http_start failed');
-      }
-      const boundPort = start.port ?? config.port;
+      const boundPort = await assistantResourceServer.publishAndStart(
+        config.port,
+        docroot,
+        async () => {
+          try {
+            await publishWeqAssistantDocroot({ docroot });
+          } catch (error) {
+            logger.error('failed to publish weq assistant docroot', {
+              event: 'weq-publish-failed',
+              ...logErrorContext(error),
+            });
+          }
+        },
+      );
+      // 发布期间停用或退出时，旧请求不能重新开启服务或写回端口。
+      if (boundPort === null) return 0;
+      if (boundPort !== config.port) userConfig.setSettings({ weqAssistant: { port: boundPort } });
 
       // 4) 注入/刷新 QQ 库里的卡片：ensureMapping + 逐条补卡 + rewriteArkPort
       //    （存量卡片端口刷成当前实际端口）+ 会话列表预览。需要开着账号，
@@ -2998,9 +2985,6 @@ export function initAppContext(fileRoot?: string): AppContext {
           const tweets = ensureDefaultTweets(storePath);
           const logo = resolveResource('brand', 'logo.png') ?? undefined;
           await svc.syncTweets(boundPort, tweets, logo);
-          if (boundPort !== config.port) {
-            userConfig.setSettings({ weqAssistant: { port: boundPort } });
-          }
         } catch (error) {
           logger.error('failed to sync weq assistant tweets', {
             event: 'weq-ensure-failed',

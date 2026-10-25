@@ -62,6 +62,7 @@ extraResources:
       - "**/*"
       - "!assistant/fonts/**"
       - "!brand/banner.png"
+      - "!daemon/**"
 
   - from: node_modules/sherpa-onnx-node
     to: node_modules/sherpa-onnx-node
@@ -134,8 +135,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   artifactName: ${productName}-${version}-setup.${ext}
   # 卸载钩子在 buildResources/installer.nsh（electron-builder 按约定自动 include，
-  # 不要同时用 nsis.include 指一遍 —— 那样宏会重复定义）。那里负责停掉 weq-daemon、
-  # 删掉它的开机自启任务与数据目录：electron 的卸载器不认识 %LOCALAPPDATA%\weq-daemon。
+  # 不要同时用 nsis.include 指一遍 —— 那样宏会重复定义）。它清理当前登录项及旧后台残留。
 
 # Linux 目标：AppImage（单文件免安装，最通用）+ tar.gz（解压即用）。
 # 架构由命令行决定：CI 里每个 runner 只打自己那一种（linux-x64 → --x64，
@@ -145,8 +145,7 @@ nsis:
 # ⚠️ 不要给 target 加 `arch: [x64, arm64]`：electron-builder 的 target.arch 会
 # 覆盖 CLI 的 --x64 / --arm64（app-builder-lib computeArchToTargetNamesMap），
 # 一次构建就会把两种架构都打出来；而 pnpm 装的 native binding
-# （@resvg/resvg-js-linux-*-gnu、sherpa-onnx-linux-*）和 cargo 编出来的
-# resources/daemon/<platform>-<arch> 全是**构建机架构**的，于是非构建机架构的
+# （@resvg/resvg-js-linux-*-gnu、sherpa-onnx-linux-*）全是**构建机架构**的，于是非构建机架构的
 # 包会带着错误架构的原生模块出厂：v1.0.0 的 weQ-1.0.0-linux-x86_64.AppImage
 # 就是这么坏的 —— 在 arm64 runner 上打出来，包里是 aarch64 binding，启动即
 # Cannot find module '@resvg/resvg-js-linux-x64-gnu'。
