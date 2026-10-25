@@ -4,7 +4,6 @@ import type { ExportOutputPlan, ExportSavePolicy } from '@weq/service';
 import type { MailSummary } from '@weq/service/mail';
 import type { ContentSelection } from '../../../../shared/content_selection';
 import { client, trpc } from '../../trpc/client';
-import { ExportSaveActions } from '../../components/ExportSaveActions';
 import { useToast } from '../../components/Toast';
 import { WindowedList } from '../../components/WindowedList';
 import { formatMailTime } from '../mail/content';
@@ -245,7 +244,6 @@ export function MailExportPane({
             <Download size={15} />
             {busy ? '准备中…' : '导出邮件'}
           </button>
-          <ExportSaveActions disabled={!canExport} onSelect={(intent) => void submit(intent)} />
         </div>
       </footer>
     </section>

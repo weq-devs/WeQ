@@ -55,7 +55,11 @@ export interface HostBridge {
    * server-side directory (no dialog). `null` means the user cancelled —
    * web never cancels.
    */
-  pickDirectory(opts?: { title?: string }): Promise<string | null>;
+  pickDirectory(opts?: {
+    title?: string;
+    locationKey?: string;
+    defaultDirectory?: string;
+  }): Promise<string | null>;
   /**
    * Pick a single file. Electron opens a file dialog; web has no way to browse
    * the server's disk, so it returns `null` (callers surface "unsupported").
@@ -69,6 +73,8 @@ export interface HostBridge {
     defaultName: string;
     /** 相同扩展名的不同导出功能可分别记忆位置。 */
     locationKey?: string;
+    /** 无同类历史位置时使用的默认目录。 */
+    defaultDirectory?: string;
     /** Extension for the dialog filter (no leading dot). */
     extension?: string;
   }): Promise<SaveTarget | null>;

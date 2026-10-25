@@ -136,7 +136,7 @@ async function mount(artifact = report) {
 async function save(host: HTMLElement) {
   await act(async () =>
     [...host.querySelectorAll<HTMLButtonElement>('button')]
-      .find((node) => node.textContent === ' 保存')!
+      .find((node) => node.textContent?.trim() === (state.web ? '保存到服务器' : '保存'))!
       .click(),
   );
 }
@@ -219,20 +219,14 @@ it('已有导出卡片只另存既有任务，保留自动避让标记，不创�
   });
   expect(state.start).not.toHaveBeenCalled();
 });
-it('菜单另存取消不创建任务；重试只保存已有包而不重建任务', async () => {
+it('保存选择取消不创建任务；单按钮重试只保存已有包而不重建任务', async () => {
   const artifact = { ...report, id: 'export-task', kind: 'export' as const };
   state.receipts.set('export-task', receipt('export-task', { kind: 'directory' }));
   const f = await mount(artifact);
   state.prepare.mockResolvedValueOnce(null);
-  act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.click());
-  const choose = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
-    (node) => node.textContent === '另存到…',
-  )!;
-  await act(async () => choose.click());
-  expect(state.prepare).toHaveBeenCalledWith(
-    { mode: 'before' },
-    { kind: 'bundle', name: '合成结果' },
-  );
+  expect(f.host.querySelector('[aria-haspopup="menu"]')).toBeNull();
+  await save(f.host);
+  expect(state.prepare).toHaveBeenCalledWith(undefined, { kind: 'bundle', name: '合成结果' });
   expect(state.save).not.toHaveBeenCalled();
   expect(state.start).not.toHaveBeenCalled();
   await save(f.host);
@@ -275,26 +269,24 @@ it('保存任务被用户删除后报告可重新登记，不把缓存丢失变�
   expect(state.save).not.toHaveBeenCalled();
 });
 it.each(['markdown', 'export'] as const)(
-  'Web %s 区分服务器保存与浏览器下载，下载不准备服务器位置或重新生成',
+  'Web %s 卡片只提供服务器保存动作，按设置准备位置而不启动浏览器下载',
   async (kind) => {
     state.web = true;
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     try {
       const artifact = { ...report, kind, id: kind === 'export' ? 'export-task' : report.id };
+      if (kind === 'export')
+        state.receipts.set('export-task', receipt('export-task', { kind: 'directory' }));
       const f = await mount(artifact);
       expect(f.host.textContent).toContain('保存到服务器');
       capture(f.host, `artifact-web-${kind}`);
-      await act(async () =>
-        f.host.querySelector<HTMLButtonElement>('[aria-label="下载到浏览器"]')!.click(),
-      );
-      expect(state.download).toHaveBeenCalledWith(
-        kind === 'export'
-          ? { ...expected, taskId: 'export-task' }
-          : { ...expected, id: 'report.md', name: '合成报告.md' },
-      );
-      expect(click).toHaveBeenCalledOnce();
-      expect(state.prepare).not.toHaveBeenCalled();
-      expect(state.start).not.toHaveBeenCalled();
+      expect(f.host.querySelector('[aria-label="下载到浏览器"]')).toBeNull();
+      expect(f.host.querySelector('.weq-save-options')).toBeNull();
+      await save(f.host);
+      expect(state.download).not.toHaveBeenCalled();
+      expect(click).not.toHaveBeenCalled();
+      expect(state.prepare).toHaveBeenCalledOnce();
+      if (kind === 'export') expect(state.start).not.toHaveBeenCalled();
     } finally {
       click.mockRestore();
     }

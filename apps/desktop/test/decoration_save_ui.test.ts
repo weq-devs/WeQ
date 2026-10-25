@@ -57,6 +57,13 @@ function Harness() {
     onSave: (intent, browser) => void save.run(ids, 'font:11', intent, browser),
   });
 }
+function BrowserHarness() {
+  const save = useDecorationSave();
+  return h('button', {
+    'aria-label': '下载到浏览器',
+    onClick: () => void save.run(ids, 'font:11', undefined, true),
+  });
+}
 const cleanup: Array<() => void> = [];
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -70,13 +77,13 @@ afterEach(() => {
   for (const fn of cleanup.splice(0)) fn();
   vi.unstubAllGlobals();
 });
-async function mount() {
+async function mount(browser = false) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(h(Harness)));
+  await act(async () => root.render(h(browser ? BrowserHarness : Harness)));
   const layout = process.env.WEQ_DECORATION_LAYOUT;
-  if (layout) {
+  if (layout && !browser) {
     mkdirSync(layout, { recursive: true });
     const styles = ['index.css', 'dressup.css', 'export-save-actions.css', 'decoration-save.css']
       .map(
@@ -109,16 +116,14 @@ it('桌面偏好传给后端，由真实产物决定原生选择器格式', asyn
   expect(state.prepare).not.toHaveBeenCalled();
   expect(state.toast.mock.calls[0]![0].tone).toBe('info');
 });
-it('本次另存使用 before，不修改默认偏好；取消不冒称成功', async () => {
+it('只保留一个保存按钮，不覆盖默认偏好；取消不冒称成功', async () => {
   const host = await mount();
   state.mutate.mockResolvedValueOnce({ mode: 'cancelled' });
-  act(() => host.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.click());
-  await act(async () =>
-    [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-      .find((item) => item.textContent === '另存到…')!
-      .click(),
-  );
-  expect(state.mutate.mock.calls[0]![0]).toMatchObject({ savePolicy: { mode: 'before' } });
+  expect(host.querySelectorAll('button')).toHaveLength(1);
+  await act(async () => host.querySelector<HTMLButtonElement>('button')!.click());
+  expect(state.mutate.mock.calls[0]![0]).toMatchObject({
+    savePolicy: { mode: 'preset', directory: '/saved' },
+  });
   expect(state.toast).not.toHaveBeenCalled();
 });
 it('Web 服务器保存选择公共目录，浏览器下载不准备服务器路径', async () => {
@@ -139,8 +144,10 @@ it('Web 服务器保存选择公共目录，浏览器下载不准备服务器路
   });
   const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
   try {
+    expect(host.querySelectorAll('button')).toHaveLength(1);
+    const browser = await mount(true);
     await act(async () =>
-      host.querySelector<HTMLButtonElement>('[aria-label="下载到浏览器"]')!.click(),
+      browser.querySelector<HTMLButtonElement>('[aria-label="下载到浏览器"]')!.click(),
     );
     expect(click).toHaveBeenCalledOnce();
     expect(state.prepare).not.toHaveBeenCalled();

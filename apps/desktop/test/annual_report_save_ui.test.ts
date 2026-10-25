@@ -163,20 +163,12 @@ it.each([
     title: '报告保存任务已创建',
   });
 });
-it('本次菜单留在报告浮层宿主内，取消选择不创建任务', async () => {
+it('报告只保留保存按钮，取消位置选择不创建任务', async () => {
   const view = await mount();
   state.prepare.mockResolvedValueOnce(null);
-  act(() =>
-    view.host.querySelector<HTMLButtonElement>('[aria-label="HTML 本次保存选项"]')!.click(),
-  );
-  const menu = view.portal.querySelector('[role="menu"]');
-  expect(menu).not.toBeNull();
-  await act(async () =>
-    [...menu!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-      .find((node) => node.textContent === '另存到…')!
-      .click(),
-  );
-  expect(state.prepare.mock.calls[0]![0]).toEqual({ mode: 'before' });
+  expect(view.host.querySelector('.weq-save-options')).toBeNull();
+  await exportClick(view.host, 'HTML');
+  expect(state.prepare.mock.calls[0]![0]).toBeUndefined();
   expect(state.html).not.toHaveBeenCalled();
   expect(state.toast).not.toHaveBeenCalled();
 });
@@ -189,9 +181,7 @@ it('准备位置期间切换来源，不提交旧报告，也不把晚到结果�
   await exportClick(view.host, 'HTML');
   expect(state.html).not.toHaveBeenCalled();
   await view.render();
-  expect(
-    view.host.querySelector<HTMLButtonElement>('[aria-label="HTML 本次保存选项"]')!.disabled,
-  ).toBe(true);
+  expect(view.host.querySelector<HTMLButtonElement>('.weq-end-take-btn')!.disabled).toBe(true);
 });
 it('年份变化后不复用上一个年份的 HTML 缓存', async () => {
   const view = await mount();
@@ -210,12 +200,13 @@ it('年份变化后不复用上一个年份的 HTML 缓存', async () => {
   );
   await act(async () => release());
 });
-it('Web 导出标明服务器保存，菜单仍使用本次服务器位置', async () => {
+it('Web 导出标明服务器保存，单按钮跟随全局偏好', async () => {
   state.web = true;
   const view = await mount();
   expect(view.host.querySelectorAll('.weq-end-take-hint')[0]?.textContent).toBe('保存到服务器');
-  act(() => view.host.querySelector<HTMLButtonElement>('[aria-label="PDF 本次保存选项"]')!.click());
-  expect(view.portal.textContent).toContain('另存到服务器…');
+  expect(view.host.querySelector('.weq-save-options')).toBeNull();
+  await exportClick(view.host, 'PDF');
+  expect(state.prepare.mock.calls[0]![0]).toBeUndefined();
 });
 it('末页内容过高时优先保留原生滚动，到边缘后再交给报告翻页', async () => {
   const view = await mount();

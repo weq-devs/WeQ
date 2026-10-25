@@ -30,7 +30,6 @@ import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import type { ExportSavePolicy } from '@weq/service';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
-import { ExportSaveActions } from './ExportSaveActions';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { IS_WEB } from '../lib/target';
 import { QZONE_ALBUM_PAGE_SIZE as PAGE_NUM } from '../../../shared/qzone_album_export';
@@ -757,10 +756,6 @@ export function AlbumGridView({
           {exporting ? <Loader2 size={13} className="weq-spin" /> : <Download size={13} />}
           {exporting ? '准备中…' : '导出选中相册'}
         </button>
-        <ExportSaveActions
-          disabled={exporting || !checked.size || !save.binding || save.settings.isLoading}
-          onSelect={(intent) => void exportAlbums(intent)}
-        />
       </div>
       <div className="weq-qzal-album-grid" {...rootProps}>
         {albums.map((album) => (
@@ -1003,7 +998,7 @@ export function MediaView({
     try {
       const policy = IS_WEB
         ? await save.prepareSave(intent, { kind: 'bundle', name: albumName })
-        : (intent ?? save.policy);
+        : save.policy;
       if (!policy || !save.isCurrent()) return;
       const taskId = await client.account.startQzoneAlbumMediaExport.mutate({
         ...binding,
@@ -1077,12 +1072,6 @@ export function MediaView({
             )}
             {downloading ? '准备中…' : IS_WEB ? '保存选中到服务器' : '下载选中'}
           </button>
-          <ExportSaveActions
-            disabled={
-              selected.size === 0 || downloading || !save.binding || save.settings.isLoading
-            }
-            onSelect={(intent) => void downloadSelected(intent)}
-          />
         </div>
       ) : null}
       {loading ? (

@@ -98,7 +98,7 @@ it('资源任务不伪装为 JSON 消息导出，部分下载失败仍展示保�
     expect(host.textContent).toContain('已完成 · 资源缺失');
     expect(host.textContent).toContain('个文件');
     expect(host.textContent).not.toContain('JSON');
-    expect(host.querySelector('[title="保存到…"]')).not.toBeNull();
+    expect(host.querySelector('[title="保存"]')).not.toBeNull();
   } finally {
     act(() => root.unmount());
     host.remove();

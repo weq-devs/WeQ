@@ -577,7 +577,9 @@ export function DressUpDialog({
   ): ReactElement {
     const isActive = item.itemId === activeId;
     const busy = busyId === item.itemId;
-    const backgroundUrl = isCallBg(mallKind) ? item.videoUrl || item.previewUrl : '';
+    const backgroundUrl = isCallBg(mallKind)
+      ? item.videoUrl || item.previewLargeUrl || item.previewUrl
+      : '';
     const backgroundSource = {
       kind: 'url' as const,
       url: backgroundUrl,

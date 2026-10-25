@@ -130,21 +130,17 @@ it.each([1, 2])('选择 %i 个库后由普通按钮准备文件／整包，不�
   });
   expect(f.started).toHaveBeenCalledOnce();
 });
-it('单次菜单不改变默认，取消保存保留选择且不建任务', async () => {
+it('保存只提供主按钮，取消位置选择保留勾选且不建任务', async () => {
   const f = await mount();
   select(f.host);
   state.prepare.mockResolvedValueOnce(null);
-  act(() =>
-    f.host.querySelector<HTMLButtonElement>('[aria-label="安全保存的本次保存选项"]')!.click(),
-  );
-  const menu = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
-    (node) => node.textContent === '另存到…',
-  )!;
-  await act(async () => menu.click());
-  expect(state.prepare).toHaveBeenCalledWith(
-    { mode: 'before' },
-    { kind: 'file', name: 'msg', format: 'db' },
-  );
+  expect(f.host.querySelector('.weq-save-options')).toBeNull();
+  await act(async () => f.host.querySelector<HTMLButtonElement>('.is-safe')!.click());
+  expect(state.prepare).toHaveBeenCalledWith(undefined, {
+    kind: 'file',
+    name: 'msg',
+    format: 'db',
+  });
   expect(state.start).not.toHaveBeenCalled();
   expect(f.host.querySelector('.weq-db-card.is-on')).not.toBeNull();
 });

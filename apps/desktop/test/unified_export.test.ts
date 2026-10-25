@@ -184,7 +184,7 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => {
     const configId = fixture.configId;
     return {
-      settings: {},
+      settings: { data: { exportSaveMode: 'before' }, isLoading: false },
       policy: { mode: 'before', directory: '/fixture/export' },
       binding: { expectedAccountUin: '10002', expectedAccountConfigId: configId },
       setOverride: vi.fn(),
@@ -369,22 +369,19 @@ it.each(['album', 'groupfile'] as const)(
       captureLayout(f.host, `resource-${mode}`);
       await act(async () => {
         const modal = f.host.querySelector<HTMLElement>('.weq-exp-album-dialog')!;
-        modal.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.click();
+        expect(modal.querySelector('.weq-save-options')).toBeNull();
+        modal.querySelector<HTMLButtonElement>('.is-primary')!.click();
       });
-      const later = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
-        (node) => node.textContent === '另存到…',
-      )!;
-      await act(async () => later.click());
-      expect(fixture.prepare).toHaveBeenCalledWith(
-        { mode: 'before' },
-        { kind: 'bundle', name: `合成群甲 ${mode === 'album' ? '群相册' : '群文件'}` },
-      );
+      expect(fixture.prepare).toHaveBeenCalledWith(undefined, {
+        kind: 'bundle',
+        name: `合成群甲 ${mode === 'album' ? '群相册' : '群文件'}`,
+      });
       expect(fixture.startResource).toHaveBeenCalledWith(
         expect.objectContaining({
           expectedAccountUin: '10002',
           expectedAccountConfigId: 'fixture-config',
           groupCode: '10001',
-          savePolicy: { mode: 'before' },
+          savePolicy: { mode: 'before', directory: '/fixture/export' },
           ...(mode === 'album'
             ? { albums: [{ id: 'album-a', title: '合成相册' }] }
             : { files: [{ fileId: 'file-a', fileName: '合成文件.txt', busId: 102, path: [] }] }),
@@ -534,7 +531,7 @@ describe('统一导出实际界面', () => {
       f.close();
     }
   });
-  it('正文不再单列保存配置，本次另存经确认后执行且下次主按钮恢复默认', async () => {
+  it('正文只提供主按钮，每次确认均沿用全局保存偏好', async () => {
     const f = mount({
       initialSelection: {
         owner: { kind: 'contacts', container: 'friends' },
@@ -543,18 +540,12 @@ describe('统一导出实际界面', () => {
     });
     try {
       expect(f.host.querySelector('.weq-export-save-control')).toBeNull();
-      await act(async () =>
-        f.host.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.click(),
-      );
-      const choose = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
-        (node) => node.textContent === '另存到…',
-      )!;
-      expect(choose).toBeDefined();
-      act(() => choose.click());
+      expect(f.host.querySelector('.weq-save-options')).toBeNull();
+      await act(async () => click(f.host, '导出联系人'));
       expect(fixture.prepare).not.toHaveBeenCalled();
       await act(async () => click(f.host, '夹具确认导出'));
       expect(fixture.prepare).toHaveBeenLastCalledWith(
-        { mode: 'before' },
+        undefined,
         expect.objectContaining({
           kind: 'contacts',
           contactScope: 'friends',
@@ -564,7 +555,7 @@ describe('统一导出实际界面', () => {
         }),
       );
       expect(fixture.startContacts).toHaveBeenLastCalledWith(
-        expect.objectContaining({ savePolicy: { mode: 'before' } }),
+        expect.objectContaining({ savePolicy: { mode: 'before', directory: '/fixture/export' } }),
       );
       await act(async () => click(f.host, '导出联系人'));
       await act(async () => click(f.host, '夹具确认导出'));

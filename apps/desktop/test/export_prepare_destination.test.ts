@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   exportSavePolicyInput,
   prepareExportDestination,
+  saveCompletedExportTask,
 } from '../src/main/ipc/routers/export_save';
+import type { ExportTask } from '@weq/service';
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -26,13 +28,41 @@ function fixture() {
 }
 const file = { kind: 'file' as const, name: '合成结果', extension: 'json' };
 describe('生成前的位置准备', () => {
+  it('已完成结果同样遵循自动保存设置，不被历史位置或旧保存状态改成询问', async () => {
+    const f = fixture();
+    const task = { id: 'done', name: '已完成', format: 'json', status: 'completed' } as ExportTask;
+    const manager = {
+      getTask: () => task,
+      saveTaskOutput: vi.fn(async () => '/saved/result.json'),
+    };
+    await saveCompletedExportTask(
+      manager,
+      task.id,
+      () => f.host,
+      {},
+      () => {},
+      {
+        exportSaveMode: 'preset',
+        defaultExportDir: f.directory,
+      },
+    );
+    expect(manager.saveTaskOutput).toHaveBeenCalledWith(
+      task.id,
+      undefined,
+      join(f.directory, '已完成.json'),
+      true,
+    );
+    expect(f.host.pickSaveTarget).not.toHaveBeenCalled();
+    expect(f.host.pickDirectory).not.toHaveBeenCalled();
+  });
   it('单文件走另存为，整包走目录；明确位置优先于长期默认', async () => {
     const f = fixture();
     expect(
       await prepareExportDestination({ mode: 'before' }, '/unused/default', f.host, file),
     ).toEqual({ mode: 'before', filePath: join(f.directory, '用户选择.json') });
     expect(f.host.pickSaveTarget).toHaveBeenCalledWith({
-      locationKey: 'export-before',
+      locationKey: 'export:file:json',
+      defaultDirectory: '/unused/default',
       defaultName: '合成结果.json',
       extension: 'json',
     });
@@ -55,12 +85,12 @@ describe('生成前的位置准备', () => {
     });
     expect(f.host.pickSaveTarget).not.toHaveBeenCalled();
   });
-  it('默认文件夹未配置时询问本次位置，但失效的已配置位置不静默回落', async () => {
+  it('自动保存缺少或失效的默认文件夹时明确失败，不弹选择器或静默回落', async () => {
     const f = fixture();
-    expect((await prepareExportDestination({ mode: 'preset' }, null, f.host, file))?.mode).toBe(
-      'before',
+    await expect(prepareExportDestination({ mode: 'preset' }, null, f.host, file)).rejects.toThrow(
+      '默认保存文件夹',
     );
-    expect(f.host.pickSaveTarget).toHaveBeenCalledOnce();
+    expect(f.host.pickSaveTarget).not.toHaveBeenCalled();
     f.host.pickSaveTarget.mockClear();
     const missing = join(f.root, 'missing');
     await expect(

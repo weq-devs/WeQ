@@ -4,7 +4,6 @@ import type { ExportSavePolicy } from '@weq/service';
 import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { client } from '../../trpc/client';
-import { ExportSaveActions } from '../ExportSaveActions';
 import { ServerSavePrompt } from '../ServerSavePrompt';
 import { useToast } from '../Toast';
 import { ActionIcon } from './shared';
@@ -60,7 +59,6 @@ export function FavoriteBundleExport({
       >
         {pending ? <Loader2 size={16} /> : <Download size={16} />}
       </ActionIcon>
-      <ExportSaveActions disabled={unavailable} onSelect={(policy) => void run(policy)} />
       {save.serverLocation && (
         <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
       )}

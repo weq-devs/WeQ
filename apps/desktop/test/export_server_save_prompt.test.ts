@@ -131,8 +131,7 @@ it('关闭工具时取消尚未确认的服务器位置选择', async () => {
   expect(await pending).toBeNull();
   expect(state.prepare).not.toHaveBeenCalled();
 });
-it('Web 缺省默认文件夹仍询问本次位置，输出描述在等待前固定且不改全局模式', async () => {
-  state.mode = 'preset';
+it('Web 每次询问在等待前固定输出描述，选址不改全局模式', async () => {
   const f = mount();
   const output = { kind: 'file' as const, name: '单文件导出', format: 'json' };
   let pending!: Promise<ExportSavePolicy | null>;
@@ -154,7 +153,7 @@ it('Web 缺省默认文件夹仍询问本次位置，输出描述在等待前固
         output: { kind: 'file', name: '单文件导出', format: 'json' },
       }),
     );
-    expect(f.result.policy).toEqual({ mode: 'preset' });
+    expect(f.result.policy).toEqual({ mode: 'before' });
   } finally {
     f.close();
   }
@@ -168,7 +167,9 @@ it('同号切换数据源关闭旧服务器位置弹窗且不提交位置', asyn
     });
     state.configId = 'source-b';
     f.render();
-    expect(await pending).toBeNull();
+    await act(async () => {
+      expect(await pending).toBeNull();
+    });
     expect(state.prepare).not.toHaveBeenCalled();
     expect(f.result.serverLocation).toBeNull();
   } finally {

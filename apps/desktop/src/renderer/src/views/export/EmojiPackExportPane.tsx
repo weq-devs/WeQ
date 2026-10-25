@@ -22,7 +22,6 @@ import { useAppDialog } from '../../lib/dialogUtils';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
-import { ExportSaveActions } from '../../components/ExportSaveActions';
 import '../../styles/emoji-pack-formats.css';
 
 type EmojiPackExportFormat = EmojiPackFormat | 'favorite-zip';
@@ -202,17 +201,6 @@ export function EmojiPackExportPane({
             {submitting ? <Loader2 size={15} className="is-spin" /> : <Download size={15} />}
             导出
           </button>
-          {prepareSave && (
-            <ExportSaveActions
-              disabled={
-                disabled ||
-                (!favoriteBackup && (selected.size === 0 || summary.isLoading)) ||
-                (favoriteBackup && !binding) ||
-                submitting
-              }
-              onSelect={(intent) => void start(intent)}
-            />
-          )}
         </div>
       </div>
     </div>

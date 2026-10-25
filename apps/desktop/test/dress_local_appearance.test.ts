@@ -1,4 +1,6 @@
 import { act, createElement } from 'react';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { DressUpDialog } from '../src/renderer/src/components/DressUpDialog';
@@ -25,6 +27,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                 fontName: 'QQ 同款字体',
                 widgetId: 33,
                 widgetName: 'QQ 同款挂件',
+                callBgId: 44,
+                callBgName: 'QQ 同款通话背景',
+                callBgUrl: 'https://example.test/call-background.jpg',
+                callBgVideoUrl: 'https://example.test/call-background.mp4',
               },
               manifest: { bubbles: [], fonts: [], widgets: [] },
             },
@@ -64,6 +70,36 @@ vi.mock('../src/renderer/src/views/export/MarketEmojiBrowserLightbox', () => ({
 
 afterEach(() => vi.unstubAllGlobals());
 
+it('通话背景的单个下载按钮保存原视频，不把背景 ID 当作气泡或字体资源', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  fixture.mediaDownload.mockClear();
+  fixture.download.mockClear();
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(createElement(DressUpDialog, { initialKind: 'callbg', onClose: () => {} })),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('.weq-dress-chip')!.click());
+    expect(host.querySelector('.weq-dress-card-actions')?.querySelectorAll('button')).toHaveLength(
+      2,
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('.weq-dress-save')!.click());
+    expect(fixture.mediaDownload).toHaveBeenCalledWith(
+      {
+        kind: 'url',
+        url: 'https://example.test/call-background.mp4',
+        name: 'QQ 同款通话背景',
+      },
+      undefined,
+      false,
+    );
+    expect(fixture.download).not.toHaveBeenCalled();
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
 it.each([
   ['bubble', 'QQ 同款气泡'],
   ['font', 'QQ 同款字体'],
@@ -94,6 +130,20 @@ it.each([
       expect(
         Array.from(actions.querySelectorAll('button'), (button) => button.textContent),
       ).toEqual(['使用', '下载']);
+      const layout = process.env.WEQ_DRESS_LAYOUT;
+      if (layout) {
+        mkdirSync(layout, { recursive: true });
+        const styles = ['index.css', 'dressup.css']
+          .map(
+            (file) =>
+              `<link rel="stylesheet" href="/@fs${resolve('src/renderer/src/styles', file)}">`,
+          )
+          .join('');
+        writeFileSync(
+          resolve(layout, `dress-${kind}.html`),
+          `<!doctype html><html lang="zh-CN"><meta charset="utf-8">${styles}<style>html,body{margin:0;background:var(--background);color:var(--foreground);font-family:system-ui}*,*::before,*::after{box-sizing:border-box}.weq-dress-card{width:220px;max-width:calc(100% - 32px);margin:16px}</style><body>${host.querySelector('.weq-dress-card')!.outerHTML}</body></html>`,
+        );
+      }
       fixture.download.mockClear();
       await act(async () => host.querySelector<HTMLButtonElement>('.weq-dress-save')!.click());
       expect(fixture.download).toHaveBeenCalledWith(

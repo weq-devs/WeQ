@@ -6,7 +6,6 @@ import { client } from '../trpc/client';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { IS_WEB } from '../lib/target';
 import { RenderDocumentContext, useRenderDocument } from '../lib/renderDocument';
-import { ExportSaveActions } from './ExportSaveActions';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { useToast } from './Toast';
 import '../styles/media-save.css';
@@ -109,7 +108,7 @@ export function useMediaSave() {
         ? { mode: 'before' as const, directory: '.' }
         : IS_WEB
           ? await save.prepareSave(intent, { kind: 'bundle', name: sourceName(source) })
-          : (intent ?? save.policy);
+          : save.policy;
       if (!policy || !current()) return { taskId: null, cancelled: true };
       op.taskId = await client.account.mediaSave.save.mutate({
         ...op.expected,
@@ -212,23 +211,6 @@ export function MediaSaveControls({
         {save.isBusy(source) ? <Loader2 size={15} className="weq-spin" /> : <Download size={15} />}
         {iconOnly ? null : <span>{IS_WEB ? '保存到服务器' : '保存'}</span>}
       </button>
-      <ExportSaveActions
-        disabled={save.disabled}
-        onSelect={(intent) => void save.run(source, intent)}
-        label={`${label}的本次保存选项`}
-      />
-      {IS_WEB && (
-        <button
-          type="button"
-          className={className}
-          title="下载到浏览器"
-          aria-label={`${label}到浏览器`}
-          disabled={save.disabled}
-          onClick={() => void save.run(source, undefined, true)}
-        >
-          <Download size={15} />
-        </button>
-      )}
       {save.downloading && save.isBusy(source) && (
         <button
           type="button"

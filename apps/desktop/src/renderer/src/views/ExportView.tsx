@@ -75,7 +75,6 @@ import {
 } from './export/types';
 import '../styles/export.css';
 import { MessageScopePicker } from './export/MessageScopePicker';
-import { ExportSaveActions } from '../components/ExportSaveActions';
 import { ServerSavePrompt } from '../components/ServerSavePrompt';
 import { SaveResultLocation } from './export/SaveResultLocation';
 import { IS_WEB } from '../lib/target';
@@ -829,7 +828,7 @@ export function ExportTool({
     }
   };
 
-  /** 把单个已完成任务保存到用户选择的位置（不再使用默认目录记忆，每次都弹路径）。 */
+  /** 完成结果与新任务共用全局保存方式。 */
   async function saveTask(
     t: UiTask,
   ): Promise<{ status: 'saved'; path: string } | { status: 'cancelled' | 'failed' }> {
@@ -843,9 +842,11 @@ export function ExportTool({
         : null;
     try {
       if (!binding) throw new Error('账号资料尚未就绪，请稍后重试。');
+      if (!globalSettings.data || globalSettings.isLoading)
+        throw new Error('保存偏好尚未就绪，请稍后重试。');
       let selected: string | null | undefined;
       let directory: string | undefined;
-      if (IS_WEB) {
+      if (IS_WEB && globalSettings.data.exportSaveMode !== 'preset') {
         selected = await new Promise<string | null>((resolve) => {
           saveLocationPending.current?.(null);
           saveLocationPending.current = resolve;
@@ -904,7 +905,7 @@ export function ExportTool({
     }
   }
 
-  /** 一键把全部已完成任务逐个保存（每个都弹选择路径，不再记忆默认目录）。 */
+  /** 一键按全局保存方式处理全部已完成任务，询问模式可逐个取消。 */
   const onSaveAll = async (): Promise<void> => {
     const completed = uiTasks.filter((t) => t.status === 'completed');
     if (completed.length === 0) return;
@@ -2203,17 +2204,6 @@ export function ExportTool({
                   >
                     {primaryLabel}
                   </button>
-                  {mode !== 'album' && mode !== 'groupfile' && (
-                    <ExportSaveActions
-                      disabled={
-                        primaryDisabled ||
-                        submitting ||
-                        globalSettings.isLoading ||
-                        pickingSaveDirectory
-                      }
-                      onSelect={(intent) => onPrimary(intent)}
-                    />
-                  )}
                 </div>
               </footer>
             ) : null}

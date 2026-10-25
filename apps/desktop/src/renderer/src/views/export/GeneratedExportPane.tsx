@@ -11,7 +11,6 @@ import { WindowedList } from '../../components/WindowedList';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useTabActive } from '../../components/RetainedTabs';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
-import { ExportSaveActions } from '../../components/ExportSaveActions';
 import { QqAvatar } from '../../components/QqAvatar';
 import { GroupMosaicAvatar } from '../../components/GroupMosaicAvatar';
 import { ChatBubble } from '../agentlab/ChatBubble';
@@ -424,7 +423,6 @@ export function GeneratedExportPane({
             <Download size={15} />
             {busy ? '准备中…' : '导出生成对话'}
           </button>
-          <ExportSaveActions disabled={!canExport} onSelect={(intent) => void submit(intent)} />
         </div>
       </footer>
     </section>

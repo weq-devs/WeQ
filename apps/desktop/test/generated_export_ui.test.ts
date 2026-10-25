@@ -131,16 +131,14 @@ it('会话列表与对话气泡都显示克隆体源好友头像，不再回落�
     f.close();
   }
 });
-it('生成对话的本次另存沿用同一提交管线，不写全局偏好', async () => {
+it('生成对话只提供单个保存动作，遵循全局偏好', async () => {
   const prepare = vi.fn(async () => ({ mode: 'before' as const, directory: '/fixture/export' }));
   const f = mount(['a'], prepare);
   try {
-    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.click());
-    const button = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
-      (node) => node.textContent === '另存到…',
-    )!;
+    expect(f.host.querySelector('.weq-save-options')).toBeNull();
+    const button = f.host.querySelector<HTMLButtonElement>('.weq-exp-primary')!;
     await act(async () => button.click());
-    expect(prepare).toHaveBeenCalledWith({ mode: 'before' }, { kind: 'bundle', name: '生成对话' });
+    expect(prepare).toHaveBeenCalledWith(undefined, { kind: 'bundle', name: '生成对话' });
     expect(fixture.start).toHaveBeenCalledWith(
       expect.objectContaining({
         savePolicy: { mode: 'before', directory: '/fixture/export' },

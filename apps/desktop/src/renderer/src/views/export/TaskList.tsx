@@ -569,13 +569,7 @@ function TaskDetail({
           (t.status === 'paused' && t.partialReady && t.canResume && t.filePath) ? (
             <button
               type="button"
-              title={
-                t.status !== 'completed'
-                  ? '保存现有进度'
-                  : t.save?.path
-                    ? '另存到其他位置'
-                    : '保存到…'
-              }
+              title={t.status !== 'completed' ? '保存现有进度' : '保存'}
               disabled={t.save?.status === 'saving'}
               onClick={() => onDownload(t)}
             >

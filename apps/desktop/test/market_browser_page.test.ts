@@ -133,7 +133,7 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   }),
 }));
 
-it('商城详情的下载菜单只覆盖本次保存方式，多选不展开保存栏', async () => {
+it('商城详情只保留下载主按钮，按全局偏好保存，不展开保存栏', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -145,18 +145,18 @@ it('商城详情的下载菜单只覆盖本次保存方式，多选不展开保�
       root.render(h(MarketEmojiBrowserLightbox, { embedded: true, initialPackId: 'test-pack' })),
     );
     expect(host.querySelector('.weq-export-save-control')).toBeNull();
-    act(() => host.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.click());
-    const choose = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
-      (node) => node.textContent === '另存到…',
+    expect(host.querySelector('.weq-save-options')).toBeNull();
+    const choose = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (node) => node.textContent === '一键下载',
     )!;
     await act(async () => choose.click());
     expect(saveState.prepare).toHaveBeenLastCalledWith(
-      { mode: 'before' },
+      undefined,
       expect.objectContaining({ kind: 'bundle', targetCount: 1 }),
     );
     expect(saveState.download).toHaveBeenCalledWith(
       expect.objectContaining({
-        savePolicy: { mode: 'before' },
+        savePolicy: { mode: 'before', directory: '/fixture/export' },
         expectedAccountConfigId: 'source-a',
       }),
     );

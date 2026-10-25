@@ -76,7 +76,8 @@ it.each(['ttf', 'png', 'zip'])('根据实际 %s 产物打开公共单文件选�
   expect(state.pick).toHaveBeenCalledWith({
     defaultName: `真实产物.${extension}`,
     extension,
-    locationKey: 'export-before',
+    locationKey: 'dressup:font',
+    defaultDirectory: undefined,
   });
   await vi.waitFor(() => expect(manager.getTask(result.taskId)?.save?.status).toBe('saved'));
   expect(readFileSync(state.selected!, 'utf8')).toBe('fixture-resource');

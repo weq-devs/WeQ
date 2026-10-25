@@ -287,7 +287,7 @@ it('连续预览只挂载当前媒体操作和公共保存，视频传本体而�
     source: { url: albumMediaUrl('https://example.invalid/video-b.mp4'), name: 'video-b.mp4' },
   });
 });
-it('评论输入方向键不切换媒体，保存菜单 Escape 不关闭底层预览', async () => {
+it('评论输入方向键不切换媒体，保存只提供一个按钮且不打开菜单', async () => {
   await mount();
   await openFirst();
   await act(async () => button('预览 photo-a.jpg').click());
@@ -299,10 +299,7 @@ it('评论输入方向键不切换媒体，保存菜单 Escape 不关闭底层�
   expect(document.querySelector('.group-album-preview-meta strong')?.textContent).toBe(
     'photo-a.jpg',
   );
-  act(() => button('保存图片的本次保存选项').click());
-  const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
-  expect(menu).not.toBeNull();
-  act(() => menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  expect(button('保存图片')).toBeDefined();
   expect(document.querySelector('[role="menu"]')).toBeNull();
   expect(document.querySelector('[aria-label="群相册媒体预览"]')).not.toBeNull();
 });
@@ -484,13 +481,14 @@ it('原空间预览不传操作区时保持原布局、方向键与关闭行为'
   act(() => preview.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
   expect(close).toHaveBeenCalledOnce();
 });
-it('Web 群相册预览明确区分服务器保存和浏览器下载', async () => {
+it('Web 群相册预览只提供一个服务器保存动作', async () => {
   state.web = true;
   await mount();
   await openFirst();
   await act(async () => button('预览 photo-a.jpg').click());
   expect(button('保存图片')?.textContent).toContain('保存到服务器');
-  expect(button('保存图片到浏览器')).not.toBeNull();
+  expect(button('保存图片到浏览器')).toBeNull();
+  expect(document.querySelector('.weq-save-options')).toBeNull();
   capture('preview-web');
   await act(async () => button('保存图片').click());
   expect(state.save).toHaveBeenCalledOnce();

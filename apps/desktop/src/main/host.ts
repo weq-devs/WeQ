@@ -6,7 +6,7 @@
 
 import { app, dialog, shell, nativeImage, net } from 'electron';
 import { spawn } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { HostBridge, SaveTarget, StorageRoot } from '@weq/service';
 import { clearStorageAfterExit, storageCleanupResult } from './storage_cleanup';
@@ -38,6 +38,14 @@ export function migrateLegacyAutostart(): Promise<void> {
 
 export function dialogLocations(): DialogLocations {
   return new DialogLocations(join(app.getPath('userData'), 'dialog-locations.json'));
+}
+
+async function defaultSaveDirectory(selected?: string): Promise<string> {
+  if (selected) return selected;
+  const { getAppContext } = await import('./context/app_context');
+  return (
+    getAppContext().bootstrap?.userConfig.getSettings().defaultExportDir || app.getPath('desktop')
+  );
 }
 
 /**
@@ -144,10 +152,12 @@ export const electronHost: HostBridge = {
   canReveal: true,
 
   async pickDirectory(opts) {
-    const key = `directory:${opts?.title ?? 'default'}`;
+    const key = `directory:${opts?.locationKey ?? opts?.title ?? 'default'}`;
     const result = await dialog.showOpenDialog({
       title: opts?.title,
-      defaultPath: dialogLocations().directory(key),
+      defaultPath:
+        dialogLocations().directory(key) ??
+        (opts?.locationKey ? await defaultSaveDirectory(opts.defaultDirectory) : undefined),
       properties: ['openDirectory', 'createDirectory'],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
@@ -170,10 +180,18 @@ export const electronHost: HostBridge = {
     return result.filePaths[0] ?? null;
   },
 
-  async pickSaveTarget({ defaultName, extension, locationKey }): Promise<SaveTarget | null> {
+  async pickSaveTarget({
+    defaultName,
+    extension,
+    locationKey,
+    defaultDirectory,
+  }): Promise<SaveTarget | null> {
     const key = `save:${locationKey ?? extension ?? 'default'}`;
     const result = await dialog.showSaveDialog({
-      defaultPath: dialogLocations().savePath(key, defaultName),
+      defaultPath: join(
+        dialogLocations().directory(key) ?? (await defaultSaveDirectory(defaultDirectory)),
+        basename(defaultName),
+      ),
       filters: extension ? [{ name: 'File', extensions: [extension] }] : undefined,
     });
     if (result.canceled || !result.filePath) return null;

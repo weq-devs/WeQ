@@ -53,7 +53,6 @@ import {
 import '../../styles/mail.css';
 import type { ExportSavePolicy } from '@weq/service';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
-import { ExportSaveActions } from '../../components/ExportSaveActions';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { IS_WEB } from '../../lib/target';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
@@ -1013,27 +1012,6 @@ export function MailPage({
                               <X size={14} />
                             </button>
                           ) : null}
-                          <ExportSaveActions
-                            disabled={
-                              !item.available ||
-                              Boolean(downloading) ||
-                              !save.binding ||
-                              save.settings.isLoading
-                            }
-                            onSelect={(intent) => void saveAttachment(item.id, intent)}
-                            label={`附件 ${item.name} 的本次保存选项`}
-                          />
-                          {IS_WEB && (
-                            <button
-                              type="button"
-                              title="下载到浏览器"
-                              aria-label={`下载附件 ${item.name} 到浏览器`}
-                              disabled={!item.available || Boolean(downloading) || !save.binding}
-                              onClick={() => void saveAttachment(item.id, undefined, true)}
-                            >
-                              <Download size={16} />
-                            </button>
-                          )}
                         </div>
                       ))}
                     </div>
