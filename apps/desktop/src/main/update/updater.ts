@@ -7,8 +7,8 @@
  *     the running version. Works in dev too (no Electron packaging needed).
  *   - DOWNLOAD + INSTALL — electron-updater's `autoUpdater` (generic provider),
  *     pointed at the winning mirror, for proven sha512-verified download +
- *     silent NSIS install + relaunch. On a mirror error we fall back down the
- *     ranked list before giving up.
+ *     silent install + relaunch. macOS ad-hoc 构建另核官方包并由退出后助手替换，
+ *     不使用绑定旧 cdhash 的 Squirrel。镜像下载错误仍按排名回退。
  *
  * State + events flow to the renderer through the `update` tRPC router:
  *   - `updateBus.emit('progress', UpdateProgress)`  → settings progress bar
@@ -20,6 +20,8 @@ import semver from 'semver';
 import electronUpdater from 'electron-updater';
 import { FILE_MIRRORS, resolveBestMirror } from './mirrors';
 import { announceUpdateAvailableSafe } from '../weq_assistant/update_tweet';
+import { finishMacUpdate, installMacUpdate, prepareMacUpdate, usesMacAdhocUpdater } from './mac';
+import type { MacUpdatePlan } from './mac_install';
 import {
   getUpdateState,
   setUpdateActions,
@@ -92,6 +94,18 @@ export async function checkForUpdate(force = false): Promise<UpdateState> {
 let wired = false;
 let downloaded = false;
 let installing = false;
+let downloading = false;
+let macAdhoc = false;
+let macDownload: { file: string; version: string } | null = null;
+let macPlan: MacUpdatePlan | null = null;
+
+function installFailed(error: unknown): void {
+  installing = false;
+  updateBus.emit('event', {
+    kind: 'error',
+    message: error instanceof Error ? error.message : String(error),
+  } satisfies UpdateEvent);
+}
 
 /** Attach the persistent autoUpdater listeners once (progress + downloaded). */
 function wireAutoUpdater(): void {
@@ -116,6 +130,10 @@ function wireAutoUpdater(): void {
   });
 
   autoUpdater.on('update-downloaded', (info) => {
+    if (macAdhoc) {
+      macDownload = { file: info.downloadedFile, version: info.version };
+      return;
+    }
     downloaded = true;
     updateBus.emit('event', { kind: 'downloaded', latest: info.version } satisfies UpdateEvent);
   });
@@ -123,8 +141,7 @@ function wireAutoUpdater(): void {
   // macOS 的系统准备／安装发生在下载 Promise 结束之后，仍需把错误送回界面。
   autoUpdater.on('error', (error) => {
     if (!installing) return;
-    installing = false;
-    updateBus.emit('event', { kind: 'error', message: error.message } satisfies UpdateEvent);
+    installFailed(error);
   });
 }
 
@@ -161,7 +178,21 @@ function attemptDownload(base: string): Promise<void> {
  */
 export async function startDownload(): Promise<void> {
   if (isDev()) throw new Error('开发模式不支持自更新，请使用打包后的安装版。');
+  if (downloading || installing) return;
+  downloading = true;
+  downloaded = false;
+  try {
+    await downloadUpdate();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    updateBus.emit('event', { kind: 'error', message } satisfies UpdateEvent);
+    throw error;
+  } finally {
+    downloading = false;
+  }
+}
 
+async function downloadUpdate(): Promise<void> {
   if (!getUpdateState()?.hasUpdate) {
     await checkForUpdate(true);
   }
@@ -171,9 +202,13 @@ export async function startDownload(): Promise<void> {
     throw new Error('当前已是最新版本或没有可用的更新源。');
   }
 
+  macAdhoc = await usesMacAdhocUpdater();
+  macDownload = null;
+  macPlan = null;
   wireAutoUpdater();
 
   let lastErr: Error | null = null;
+  let success = false;
   for (const base of ranked) {
     try {
       // Let the UI name the mirror that's actually serving this attempt — the
@@ -186,18 +221,25 @@ export async function startDownload(): Promise<void> {
         hasUpdate: true,
       } satisfies UpdateEvent);
       await attemptDownload(base);
-      return; // success — 'update-downloaded' already notified the renderer
+      success = true;
+      break;
     } catch (e) {
       lastErr = e instanceof Error ? e : new Error(String(e));
     }
   }
 
-  const message = lastErr?.message ?? '更新下载失败';
-  updateBus.emit('event', { kind: 'error', message } satisfies UpdateEvent);
-  throw new Error(message);
+  if (!success) throw lastErr ?? new Error('更新下载失败');
+  if (macAdhoc) {
+    // MacUpdater 的应用层事件早于 Squirrel 验证；ad-hoc 必须另核官方包后才就绪。
+    const update = macDownload as { file: string; version: string } | null;
+    if (!update?.file) throw new Error('未取得 macOS 更新包路径');
+    macPlan = await prepareMacUpdate(update.file, update.version);
+    downloaded = true;
+    updateBus.emit('event', { kind: 'downloaded', latest: update.version } satisfies UpdateEvent);
+  }
 }
 
-/** Quit, run the downloaded NSIS installer silently, and relaunch. */
+/** 下载验证完成后退出、安装并重新打开应用。 */
 export function quitAndInstall(): void {
   if (isDev()) throw new Error('开发模式不支持自更新。');
   if (!downloaded) throw new Error('更新尚未下载完成，请先下载更新。');
@@ -206,19 +248,24 @@ export function quitAndInstall(): void {
   updateBus.emit('event', { kind: 'installing' } satisfies UpdateEvent);
   // (isSilent, isForceRunAfter): silent install in place, then relaunch.
   try {
-    autoUpdater.quitAndInstall(true, true);
+    if (macPlan) void installMacUpdate(macPlan).catch(installFailed);
+    else autoUpdater.quitAndInstall(true, true);
   } catch (error) {
-    installing = false;
-    updateBus.emit('event', {
-      kind: 'error',
-      message: error instanceof Error ? error.message : String(error),
-    } satisfies UpdateEvent);
+    installFailed(error);
     throw error;
   }
 }
 
 /** Wire this Electron implementation into the shell-agnostic update router. */
 export function installUpdateActions(): void {
+  if (process.platform === 'darwin' && app.isPackaged) {
+    // 等新版本真正完成首个页面加载，不能在原生初始化前就删除回退副本。
+    app.once('browser-window-created', (_event, window) => {
+      window.webContents.once('did-finish-load', () => {
+        void finishMacUpdate();
+      });
+    });
+  }
   setUpdateActions({
     supported: true,
     check: checkForUpdate,

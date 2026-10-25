@@ -203,11 +203,14 @@ linux:
 # 扫码走纯协议，不再需要任何注入或沙箱容器文件。
 # 未配置证书时补完整的 ad-hoc 签名并验证资源封装；它不是 Developer ID 或公证，
 # 首次仍需按「隐私与安全性 → 仍要打开」放行。配置证书时保留真实签名身份。
+# ad-hoc 构建的跨版本更新使用官方 Release 哈希验证和退出后安装助手，不交给 Squirrel。
 mac:
   icon: ../../resources/brand/logo.png
   sign: ../../scripts/sign-macos.mjs
   # 打包字体（见顶部 extraResources 的说明）：macOS 的候选全是 .ttc，satori 读不了。
   extraResources:
+    - from: out/main/macUpdateWorker.mjs
+      to: out/main/macUpdateWorker.mjs
     - from: ../../LICENSE
       to: LICENSE
     - from: ../../native/darwin/${arch}
