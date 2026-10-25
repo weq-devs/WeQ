@@ -6,8 +6,14 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置的两级导航', () => {
-  it('帮助与关于只有四个目标页，旧帮助和更新提醒深链归到新页面', () => {
-    expect(settingsGroupFor('version').sections).toEqual(['version', 'faq', 'logs', 'feedback']);
+  it('关于包含版本后的配置备份，旧帮助和更新提醒深链归到新页面', () => {
+    expect(settingsGroupFor('version').sections).toEqual([
+      'version',
+      'backup',
+      'faq',
+      'logs',
+      'feedback',
+    ]);
     expect(settingsSectionFor('help')).toBe('faq');
     expect(settingsSectionFor('updates')).toBe('version');
     for (const id of ['version', 'faq', 'logs', 'feedback', 'help', 'updates'] as const) {
@@ -22,8 +28,6 @@ describe('设置的两级导航', () => {
       '凭据与账号',
       '数据库与资源',
       'WeQ 服务',
-      '隐私',
-      '配置备份与恢复',
       '关于 WeQ',
     ]);
     expect(settingsGroupFor('model-usage').sections).toEqual([
@@ -58,9 +62,9 @@ describe('设置的两级导航', () => {
     expect(settingsGroupFor('storage').sections).toContain('weq-storage');
     expect(settingsGroupFor('media').sections).toContain('accounts');
     expect(settingsGroupFor('backup')).toEqual({
-      id: 'backup',
-      label: '配置备份与恢复',
-      sections: ['backup'],
+      id: 'help',
+      label: '关于 WeQ',
+      sections: ['version', 'backup', 'faq', 'logs', 'feedback'],
     });
     for (const id of ['database', 'database-status', 'maintenance'] as const) {
       expect(settingsGroupFor(id)).toEqual({
@@ -79,6 +83,10 @@ describe('设置的两级导航', () => {
 
   it('保留原分区深链，每个二级页只归属一个分类', () => {
     const ids = SETTINGS_GROUPS.flatMap((group) => group.sections);
+    expect(SETTINGS_GROUPS).toHaveLength(7);
+    expect(ids).toHaveLength(37);
+    expect(settingsSectionFor('applock')).toBe('privacy');
+    expect(settingsGroupFor('privacy').id).toBe('general');
     expect(new Set(ids).size).toBe(ids.length);
     for (const id of [
       'maintenance',

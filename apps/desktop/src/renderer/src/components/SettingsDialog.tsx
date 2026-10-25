@@ -53,7 +53,6 @@ import { VersionSection } from './settings/VersionSection';
 import { QzoneSettingsSection } from './settings/QzoneSettingsSection';
 import { CallRecordingSection } from './settings/CallRecordingSection';
 import { MailSettingsSection } from './settings/MailSettingsSection';
-import { AppLockSection } from './settings/AppLockSection';
 import { PrivacySection } from './settings/PrivacySection';
 import { TypingStatusSettingsCard } from './settings/TypingStatusSettingsCard';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
@@ -120,7 +119,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: 'home', label: '主页', icon: <House size={16} />, render: () => <HomeSettingsSection /> },
   {
     id: 'backup',
-    label: '备份与恢复',
+    label: '配置备份与恢复',
     icon: <HardDrive size={16} />,
     render: () => <BackupSection />,
   },
@@ -143,12 +142,11 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <AppearanceSection page="theme" />,
   },
   {
-    id: 'applock',
-    label: '应用锁',
+    id: 'privacy',
+    label: '隐私',
     icon: <LockKeyhole size={16} strokeWidth={1.8} />,
-    render: () => <AppLockSection />,
+    render: () => <PrivacySection />,
   },
-  { id: 'privacy', label: '隐私模式', icon: <Lock size={16} />, render: () => <PrivacySection /> },
   {
     id: 'account',
     label: '监听与读取',

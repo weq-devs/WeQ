@@ -8,7 +8,7 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置重构的规范目标与旧入口分流', () => {
-  it('九组页面各归其位，主页位于常规第二页，通话录音仍是基础功能第二页', () => {
+  it('七组页面各归其位，主页位于常规第二页，通话录音仍是基础功能第二页', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',
       '基础功能',
@@ -16,8 +16,6 @@ describe('设置重构的规范目标与旧入口分流', () => {
       '凭据与账号',
       '数据库与资源',
       'WeQ 服务',
-      '隐私',
-      '配置备份与恢复',
       '关于 WeQ',
     ]);
     const sections = SETTINGS_GROUPS.flatMap((group) => group.sections);
@@ -39,6 +37,10 @@ describe('设置重构的规范目标与旧入口分流', () => {
     target: string;
     settingId?: string;
   }>([
+    { section: 'applock', target: 'privacy', settingId: 'app-lock' },
+    { section: 'applock', item: '启用应用锁', target: 'privacy', settingId: 'app-lock' },
+    { section: 'applock', item: '解锁方式', target: 'privacy', settingId: 'unlock-method' },
+    { section: 'applock', item: '空闲自动锁定', target: 'privacy', settingId: 'auto-lock' },
     { section: 'saving', target: 'weq-storage', settingId: 'default-save' },
     { section: 'storage', target: 'weq-storage' },
     {

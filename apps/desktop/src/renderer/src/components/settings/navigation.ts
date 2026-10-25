@@ -31,9 +31,8 @@ export const SETTINGS_PAGE_LABELS = {
   mcp: 'MCP 服务器',
   sse: 'SSE 推送',
   assistant: 'QQ 公众号推送',
-  applock: '应用锁',
-  privacy: '隐私模式',
-  backup: '备份与恢复',
+  privacy: '隐私',
+  backup: '配置备份与恢复',
   version: '版本与更新',
   faq: '常见问题',
   logs: '日志',
@@ -43,6 +42,7 @@ export const SETTINGS_PAGE_LABELS = {
 export type SettingsPageId = keyof typeof SETTINGS_PAGE_LABELS;
 export type SectionId =
   | SettingsPageId
+  | 'applock'
   | 'saving'
   | 'storage'
   | 'message-display'
@@ -63,7 +63,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'general',
     label: '常规',
-    sections: ['appearance', 'home', 'global', 'startup', 'weq-storage'],
+    sections: ['appearance', 'home', 'global', 'startup', 'weq-storage', 'privacy'],
   },
   {
     id: 'basic',
@@ -101,9 +101,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     ],
   },
   { id: 'services', label: 'WeQ 服务', sections: ['remote', 'mcp', 'sse', 'assistant'] },
-  { id: 'privacy', label: '隐私', sections: ['applock', 'privacy'] },
-  { id: 'backup', label: '配置备份与恢复', sections: ['backup'] },
-  { id: 'help', label: '关于 WeQ', sections: ['version', 'faq', 'logs', 'feedback'] },
+  { id: 'help', label: '关于 WeQ', sections: ['version', 'backup', 'faq', 'logs', 'feedback'] },
 ];
 
 export interface SettingsScope {
@@ -199,11 +197,24 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
     from: ['account'],
   },
   {
+    id: 'app-lock',
+    section: 'privacy',
+    label: '启用应用锁',
+    aliases: ['应用锁'],
+    from: ['applock', 'privacy'],
+  },
+  {
+    id: 'unlock-method',
+    section: 'privacy',
+    label: '解锁方式',
+    from: ['applock', 'privacy'],
+  },
+  {
     id: 'auto-lock',
-    section: 'applock',
+    section: 'privacy',
     label: '空闲自动锁定',
     aliases: ['无操作自动上锁'],
-    from: ['applock'],
+    from: ['applock', 'privacy'],
   },
   ...(
     [
@@ -384,6 +395,7 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
 const SECTION_REDIRECTS: Partial<
   Record<SectionId, { section: SettingsPageId; settingId?: string }>
 > = {
+  applock: { section: 'privacy', settingId: 'app-lock' },
   saving: { section: 'weq-storage', settingId: 'default-save' },
   storage: { section: 'weq-storage' },
   'message-display': { section: 'chat-messages' },

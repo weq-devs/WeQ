@@ -1,5 +1,6 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsDialog, type SectionId } from '../src/renderer/src/components/SettingsDialog';
@@ -55,19 +56,24 @@ function mount(initialSection?: SectionId, onCreateClone?: () => void) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onOpenMaintenance = vi.fn();
   const render = (section: SectionId | undefined, searchTarget?: SettingsSearchTarget) =>
     act(() =>
       root.render(
-        createElement(SettingsDialog, {
-          open: true,
-          initialSection: section,
-          searchTarget,
-          onClose: vi.fn(),
-          onOpenMaintenance,
-          onOpenRecalls: vi.fn(),
-          onCreateClone,
-        }),
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(SettingsDialog, {
+            open: true,
+            initialSection: section,
+            searchTarget,
+            onClose: vi.fn(),
+            onOpenMaintenance,
+            onOpenRecalls: vi.fn(),
+            onCreateClone,
+          }),
+        ),
       ),
     );
   render(initialSection);
@@ -78,12 +84,33 @@ function mount(initialSection?: SectionId, onCreateClone?: () => void) {
     body: () => host.querySelector('.weq-settings-body')!,
     close: () => {
       act(() => root.unmount());
+      queryClient.clear();
       host.remove();
     },
   };
 }
 
 describe('设置归位后的实际页面', () => {
+  it('旧应用锁入口与隐私同页，备份紧跟关于中的版本页且不打开工具', () => {
+    const f = mount('applock');
+    try {
+      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe('常规');
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe('隐私');
+      for (const id of ['app-lock', 'unlock-method', 'auto-lock', 'privacy-mode']) {
+        expect(f.body().querySelector(`[data-setting-id="${id}"]`)).not.toBeNull();
+      }
+      f.render('backup');
+      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
+        '关于 WeQ',
+      );
+      expect(
+        [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
+      ).toEqual(['版本与更新', '配置备份与恢复', '常见问题', '日志', '反馈']);
+      expect(f.onOpenMaintenance).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
   it('资源加载独立归数据分类，公众号独立页，Remote 开关位于连接方式前', () => {
     const f = mount('remote');
     try {
@@ -182,7 +209,10 @@ describe('设置归位后的实际页面', () => {
     ['media', '关联本机媒体目录', 'linked-resources', 'WeQ 账号管理'],
     ['media', '允许使用外部安卓图片缓存', 'external-chatpic', 'WeQ 账号管理'],
     ['rkey', '外部 RKEY', 'external-rkey', '凭据管理'],
-    ['applock', '隐私模式', 'privacy-mode', '隐私模式'],
+    ['applock', '隐私模式', 'privacy-mode', '隐私'],
+    ['applock', '启用应用锁', 'app-lock', '隐私'],
+    ['applock', '解锁方式', 'unlock-method', '隐私'],
+    ['applock', '无操作自动上锁', 'auto-lock', '隐私'],
     ['anti-recall', '防撤回', 'anti-recall', '聊天消息'],
     ['maintenance', '本地缓存', 'resource-viewer', '资源目录管理'],
     ['maintenance', '存储占用', 'qq-storage-analysis', '资源目录管理'],
@@ -306,12 +336,12 @@ describe('设置归位后的实际页面', () => {
       host.remove();
     }
   });
-  it('帮助与关于按四页展示，版本更新及日志能力各自合并，旧入口仍可达', () => {
+  it('关于按五页展示，版本更新及日志能力各自合并，旧入口仍可达', () => {
     const f = mount('version');
     try {
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((item) => item.textContent),
-      ).toEqual(['版本与更新', '常见问题', '日志', '反馈']);
+      ).toEqual(['版本与更新', '配置备份与恢复', '常见问题', '日志', '反馈']);
       expect(f.body().querySelector('h3')?.textContent).toBe('版本与更新');
       expect(f.body().textContent).toContain('内置组件');
       expect(f.body().textContent).not.toContain('监控新版本发布');
@@ -382,7 +412,7 @@ describe('设置归位后的实际页面', () => {
   it('常规不再混入账号、缓存、日志；二级页仅呈现对应配置', () => {
     const f = mount('global');
     try {
-      expect(f.host.querySelectorAll('.weq-settings-nav-item')).toHaveLength(9);
+      expect(f.host.querySelectorAll('.weq-settings-nav-item')).toHaveLength(7);
       for (const title of ['现有配置', '缓存目录', '日志保留时长', '导出保存目录'])
         expect(f.body().textContent).not.toContain(title);
       expect(f.host.querySelector('.weq-settings-scope')).toBeNull();

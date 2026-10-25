@@ -45,7 +45,7 @@ const AUTO_LOCK_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
   { value: 30, label: '30 分钟' },
 ];
 
-export function AppLockSection(): ReactElement {
+export function AppLockSection({ heading = true }: { heading?: boolean }): ReactElement {
   const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
@@ -168,13 +168,15 @@ export function AppLockSection(): ReactElement {
 
   return (
     <div className="weq-set">
-      <SectionHeader
-        title="应用锁"
-        desc="上锁后需要验证才能继续访问当前账号数据。"
-        icon={<LockKeyhole size={16} strokeWidth={1.8} />}
-      />
+      {heading && (
+        <SectionHeader
+          title="应用锁"
+          desc="上锁后需要验证才能继续访问当前账号数据。"
+          icon={<LockKeyhole size={16} strokeWidth={1.8} />}
+        />
+      )}
 
-      <Card title="应用锁">
+      <Card title="应用锁" settingId="app-lock">
         <Row
           label="启用应用锁"
           desc={
@@ -199,7 +201,7 @@ export function AppLockSection(): ReactElement {
         ) : null}
       </Card>
 
-      <Card title="解锁方式">
+      <Card title="解锁方式" settingId="unlock-method">
         <div className="weq-applock-methods" role="radiogroup" aria-label="解锁方式">
           <button
             type="button"

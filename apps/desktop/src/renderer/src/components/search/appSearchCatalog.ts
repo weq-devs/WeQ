@@ -44,10 +44,10 @@ const PAGE_ALIASES: Partial<Record<SettingsPageId, string[]>> = {
   'database-tolerance': ['损坏处理与容错', '容错记录', 'database-status'],
   'database-management': ['维护工具', 'maintenance'],
   'qq-storage': ['QQ 存储管理', '资源管理', '本地缓存'],
-  applock: ['隐私与应用锁'],
+  privacy: ['隐私与应用锁', '应用锁', '隐私模式', 'applock'],
   'resource-loading': ['资源下载网络', '网络', 'CDN'],
   assistant: ['公众号推送', 'QQ 公众号'],
-  backup: ['设置备份'],
+  backup: ['设置备份', '备份与恢复'],
 };
 
 type SettingDefinition = readonly [section: SectionId, item: string, ...aliases: string[]];
