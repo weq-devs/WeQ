@@ -1,4 +1,105 @@
-/* 内容入口展开后，小窗口滚动导航，底部账号与快捷控制保持独立。 */
+/* 内容入口和底部菜单共用按钮样式，数字角标不参与入口尺寸规则。 */
+html .weq-rail-button,
+html .app-shell .app-rail :is(.rail-nav, .rail-footer) .weq-rail-button {
+  position: relative;
+  box-sizing: border-box;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  box-shadow: none;
+  -webkit-app-region: no-drag;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+html .weq-rail-button {
+  display: grid;
+  place-items: center;
+}
+
+html .weq-rail-button:hover:not(:disabled):not([aria-current='page']):not([aria-expanded='true']),
+html
+  .app-shell
+  .app-rail
+  :is(.rail-nav, .rail-footer)
+  .weq-rail-button:hover:not(:disabled):not([aria-current='page']):not([aria-expanded='true']) {
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+html .weq-rail-button:is([aria-current='page'], [aria-expanded='true']),
+html
+  .app-shell
+  .app-rail
+  :is(.rail-nav, .rail-footer)
+  .weq-rail-button:is([aria-current='page'], [aria-expanded='true']) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
+}
+
+html .weq-rail-button:focus-visible,
+html .app-shell .app-rail :is(.rail-nav, .rail-footer) .weq-rail-button:focus-visible {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-fg-primary));
+  outline-offset: -2px;
+}
+
+html .app-shell .app-rail :is(.rail-nav, .rail-footer) .weq-rail-button .rail-tab-icon {
+  width: 22px;
+  height: 22px;
+  overflow: visible;
+  border-radius: 0;
+}
+
+html .weq-rail-button > svg,
+html .app-shell .app-rail :is(.rail-nav, .rail-footer) .weq-rail-button .rail-tab-icon > svg {
+  width: 22px;
+  height: 22px;
+}
+
+html .weq-rail-button svg.lucide,
+html .app-shell .app-rail .weq-rail-button .rail-tab-icon svg.lucide {
+  stroke-width: 1.75px;
+}
+
+html .app-shell .app-rail .weq-rail-button .rail-tab-icon svg.lucide * {
+  fill: none;
+}
+
+html .app-shell .app-rail .weq-rail-button .rail-tab-icon::before,
+html .app-shell .app-rail .weq-rail-button .rail-tab-icon::after {
+  display: none;
+}
+
+html .app-shell .app-rail .weq-rail-button > .rail-badge-dot {
+  top: 4px;
+  right: 4px;
+}
+
+html[data-theme='dark']
+  .weq-rail-button:hover:not(:disabled):not([aria-current='page']):not([aria-expanded='true']),
+html[data-theme='dark']
+  .app-shell
+  .app-rail
+  :is(.rail-nav, .rail-footer)
+  .weq-rail-button:hover:not(:disabled):not([aria-current='page']):not([aria-expanded='true']) {
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+}
+
+html[data-theme='dark'] .weq-rail-button:is([aria-current='page'], [aria-expanded='true']),
+html[data-theme='dark']
+  .app-shell
+  .app-rail
+  :is(.rail-nav, .rail-footer)
+  .weq-rail-button:is([aria-current='page'], [aria-expanded='true']) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+
 .app-shell .rail-nav .rail-mobile-settings {
   display: none;
 }
@@ -17,8 +118,8 @@
 .app-shell .rail-nav .rail-message-entry > .rail-message-badge {
   position: absolute;
   z-index: 1;
-  top: 5px;
-  right: 3px;
+  top: 0;
+  right: -2px;
 }
 
 html .app-shell .rail-nav :is(.rail-message-badge, .rail-badge-mail),
@@ -76,16 +177,6 @@ html .app-shell .rail-nav .rail-badge-dot {
   scrollbar-width: thin;
 }
 
-.app-shell .rail-nav .rail-tab[aria-current='page'] {
-  color: var(--weq-accent-ink, var(--weq-fg-primary));
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-}
-
-.app-shell .rail-tab-messages[aria-current='page'] .rail-tab-icon::before,
-.app-shell .rail-tab-messages[aria-current='page'] .rail-tab-icon::after {
-  background: var(--weq-bg-surface);
-}
-
 @media (max-width: 760px) {
   .app-shell .rail-nav .rail-mobile-settings {
     display: grid;
@@ -125,9 +216,26 @@ html .app-shell .rail-nav .rail-badge-dot {
     height: 100%;
   }
 
+  html .app-shell .app-rail .rail-nav .weq-rail-button {
+    width: 100%;
+    height: 100%;
+  }
+
+  html .app-shell .app-rail .rail-nav .weq-rail-button > .rail-badge-dot {
+    top: 2px;
+    right: calc(50% - 20px);
+  }
+
   .app-shell .rail-label {
     max-width: 100%;
     white-space: nowrap;
     font-size: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html .weq-rail-button,
+  html .app-shell .app-rail :is(.rail-nav, .rail-footer) .weq-rail-button {
+    transition: none;
   }
 }
