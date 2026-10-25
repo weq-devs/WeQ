@@ -1,0 +1,111 @@
+body.weq-capture-window-body {
+  margin: 0;
+  overflow: hidden;
+  color: var(--weq-fg-primary);
+  background: var(--weq-chat-bg, var(--weq-bg-surface));
+}
+.weq-capture-window-surface,
+.weq-capture-native {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100dvh;
+}
+.weq-capture-window-surface[hidden] {
+  display: none;
+}
+.weq-capture-window-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  background: var(--weq-bg-surface);
+}
+.weq-capture-window-head h1 {
+  flex: 1;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.weq-capture-window-status {
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+}
+.weq-capture-window-content {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.weq-capture-window-content > .weq-cap {
+  flex: 1;
+  min-width: 0;
+}
+.weq-capture-native .weq-cap-bar {
+  height: auto;
+  min-height: 34px;
+  flex-wrap: wrap;
+  padding-block: 5px;
+}
+.weq-cap-split.is-stacked {
+  overflow-y: auto;
+}
+.weq-cap-split.is-stacked > .weq-cap-grip {
+  cursor: row-resize;
+  border: 0;
+  border-block: 3px solid transparent;
+}
+.weq-cap .weq-cap-tabs {
+  height: auto;
+  min-height: 30px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+}
+.weq-cap .weq-cap-tab {
+  flex-shrink: 0;
+  height: 30px;
+  white-space: nowrap;
+}
+.weq-cap .weq-cap-tabs-meta {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.weq-cap .weq-cap-hexdump-foot {
+  flex-wrap: wrap;
+}
+.weq-cap-grip:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+.weq-capture-window-locked {
+  display: flex;
+  height: 100dvh;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  color: var(--weq-fg-secondary);
+}
+.weq-capture-window-error {
+  padding: 16px;
+}
+.weq-capture-install-guide {
+  padding: 16px;
+  color: var(--weq-fg-primary);
+}
+.weq-capture-install-guide h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+.weq-capture-install-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+html[data-theme='dark'] .weq-capture-window-head {
+  background: var(--weq-bg-elevated);
+}

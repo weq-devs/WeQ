@@ -31,6 +31,7 @@ import {
   type CaptureStatsWire,
 } from './capture_protocol';
 import { startElevatedCaptureWorker, type ElevatedCaptureWorker } from './capture_elevation';
+import { CaptureOwnership } from './capture_ownership';
 
 const logger = getLogger().child({ scope: 'capture-session' });
 
@@ -194,6 +195,7 @@ export async function prepareCaptureSession(
  * pid 记的，而取帧 / 停会话只带 pid，所以只能按 pid 找回子进程。
  */
 const elevatedCaptures = new Map<number, ElevatedCaptureWorker>();
+const captureOwnership = new CaptureOwnership();
 
 /** 取（或起）某 pid 的提权抓包子进程；需要密码时由它自己弹框。 */
 export async function acquireElevatedCaptureWorker(pid: number): Promise<ElevatedCaptureWorker> {
@@ -206,6 +208,7 @@ export async function acquireElevatedCaptureWorker(pid: number): Promise<Elevate
 
 /** 关掉所有提权抓包子进程（退出 / 卸载会话时调用）。幂等。 */
 export function disposeElevatedCaptures(): void {
+  captureOwnership.reset();
   for (const [, worker] of elevatedCaptures) worker.dispose();
   elevatedCaptures.clear();
 }
@@ -213,11 +216,16 @@ export function disposeElevatedCaptures(): void {
 /** 一次已 armed 的账号抓包会话。 */
 export interface AccountCaptureHandle {
   pid: number;
+  sessionId: string;
   /** true = 跑在提权子进程里；false = 主进程直接抓（Windows / 本来就是 root）。 */
   elevated: boolean;
   /** 是否拿到了 d2key（false 时只能看密文）。 */
   hasD2Key: boolean;
   session: CaptureSessionWire;
+}
+
+export function isAccountCaptureCurrent(handle: AccountCaptureHandle): boolean {
+  return captureOwnership.owns(handle.pid, handle.sessionId);
 }
 
 /**
@@ -228,63 +236,84 @@ export async function startAccountCapture(
   uin: string,
   opts: { iface?: string; port?: string } = {},
 ): Promise<AccountCaptureHandle> {
-  const platform = requirePlatform();
-  const support = probeCaptureBackend();
-  if (!support.available) {
-    throw new Error(support.hint || '抓包后端不可用');
-  }
-  const { pid, d2Key } = await prepareCaptureSession(uin);
+  const request = captureOwnership.begin(uin);
+  try {
+    const platform = requirePlatform();
+    const support = probeCaptureBackend();
+    if (!support.available) {
+      throw new Error(support.hint || '抓包后端不可用');
+    }
+    const { pid, d2Key } = await prepareCaptureSession(uin);
+    return await captureOwnership.start(
+      request,
+      pid,
+      async () => {
+        if (support.elevated || process.platform === 'win32') {
+          const session = await platform.native.ntHelper.startCapture(pid, {
+            iface: opts.iface,
+            port: opts.port,
+            // ⚠️ native 的字段名是 `d2Key`（napi 从 Rust `d2key` 转来）；写成小写
+            // `d2key` 会被静默忽略 → 密文全部解不开。
+            d2Key,
+          });
+          return { pid, sessionId: request.id, elevated: false, hasD2Key: Boolean(d2Key), session };
+        }
 
-  if (support.elevated || process.platform === 'win32') {
-    const session = await platform.native.ntHelper.startCapture(pid, {
-      iface: opts.iface,
-      port: opts.port,
-      // ⚠️ native 的字段名是 `d2Key`（napi 从 Rust `d2key` 转来）；写成小写
-      // `d2key` 会被静默忽略 → 密文全部解不开。
-      d2Key,
-    });
-    return { pid, elevated: false, hasD2Key: Boolean(d2Key), session };
+        const worker = await acquireElevatedCaptureWorker(pid);
+        const session = await worker.request<CaptureSessionWire>({
+          op: 'start',
+          pid,
+          iface: opts.iface,
+          port: opts.port,
+          d2key: d2Key,
+        });
+        return { pid, sessionId: request.id, elevated: true, hasD2Key: Boolean(d2Key), session };
+      },
+      () => stopCaptureBackend(pid),
+    );
+  } catch (error) {
+    captureOwnership.cancel(request);
+    throw error;
   }
-
-  const worker = await acquireElevatedCaptureWorker(pid);
-  const session = await worker.request<CaptureSessionWire>({
-    op: 'start',
-    pid,
-    iface: opts.iface,
-    port: opts.port,
-    d2key: d2Key,
-  });
-  return { pid, elevated: true, hasD2Key: Boolean(d2Key), session };
 }
 
 /** 拉一批新增帧（自动路由到提权子进程 / 本进程），hex 形态。 */
 export async function takeAccountFrames(
   pid: number,
-  opts: { cursor?: number; waitMs?: number } = {},
+  opts: { cursor?: number; waitMs?: number; sessionId?: string } = {},
 ): Promise<CaptureBatchWire> {
-  const elevated = elevatedCaptures.get(pid);
-  if (elevated) {
-    return await elevated.request<CaptureBatchWire>({
-      op: 'take',
-      pid,
+  return captureOwnership.take(pid, opts.sessionId, async () => {
+    const elevated = elevatedCaptures.get(pid);
+    if (elevated) {
+      return await elevated.request<CaptureBatchWire>({
+        op: 'take',
+        pid,
+        cursor: opts.cursor,
+        waitMs: opts.waitMs,
+      });
+    }
+    const platform = requirePlatform();
+    const batch = await platform.native.ntHelper.takeFrames(pid, {
       cursor: opts.cursor,
       waitMs: opts.waitMs,
     });
-  }
-  const platform = requirePlatform();
-  const batch = await platform.native.ntHelper.takeFrames(pid, {
-    cursor: opts.cursor,
-    waitMs: opts.waitMs,
+    return {
+      frames: batch.frames.map(toCaptureFrameWire),
+      nextCursor: batch.nextCursor,
+      dropped: batch.dropped,
+    };
   });
-  return {
-    frames: batch.frames.map(toCaptureFrameWire),
-    nextCursor: batch.nextCursor,
-    dropped: batch.dropped,
-  };
 }
 
 /** 停止抓包并释放会话（幂等：会话已不存在时返回 null）。 */
-export async function stopAccountCapture(pid: number): Promise<CaptureStatsWire | null> {
+export async function stopAccountCapture(
+  pid: number,
+  sessionId?: string,
+): Promise<CaptureStatsWire | null> {
+  return captureOwnership.stop(pid, sessionId, () => stopCaptureBackend(pid));
+}
+
+async function stopCaptureBackend(pid: number): Promise<CaptureStatsWire | null> {
   const elevated = elevatedCaptures.get(pid);
   if (elevated) {
     elevatedCaptures.delete(pid);

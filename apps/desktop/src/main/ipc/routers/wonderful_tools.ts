@@ -388,6 +388,7 @@ export const wonderfulToolsRouter = router({
         pid: handle.pid,
         elevated: handle.elevated,
         hasD2Key: handle.hasD2Key,
+        sessionId: handle.sessionId,
       };
     }),
 
@@ -399,6 +400,7 @@ export const wonderfulToolsRouter = router({
     .input(
       z.object({
         pid: z.number().int().positive(),
+        sessionId: z.string().min(1).max(128).optional(),
         cursor: z.number().int().nonnegative().optional(),
         waitMs: z.number().int().min(0).max(10_000).optional(),
       }),
@@ -407,14 +409,20 @@ export const wonderfulToolsRouter = router({
       return await takeAccountFrames(input.pid, {
         cursor: input.cursor,
         waitMs: input.waitMs ?? 1200,
+        sessionId: input.sessionId,
       });
     }),
 
   /** 停止抓包并释放网卡会话。会话已不存在时返回 null（前端幂等停止）。 */
   captureStop: procedure
-    .input(z.object({ pid: z.number().int().positive() }))
+    .input(
+      z.object({
+        pid: z.number().int().positive(),
+        sessionId: z.string().min(1).max(128).optional(),
+      }),
+    )
     .mutation(async ({ input }): Promise<CaptureStatsWire | null> => {
-      return await stopAccountCapture(input.pid);
+      return await stopAccountCapture(input.pid, input.sessionId);
     }),
 
   /**

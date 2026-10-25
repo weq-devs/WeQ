@@ -8,6 +8,7 @@ import {
   type MaintenanceTool,
 } from '../src/renderer/src/components/settings/DataMaintenanceSection';
 import { useDbRepairWindow } from '../src/renderer/src/state/dbRepairWindow';
+import { useCaptureWindow } from '../src/renderer/src/state/captureWindow';
 import { SettingsDialog } from '../src/renderer/src/components/SettingsDialog';
 import type { ToolPresentation } from '../src/renderer/src/components/ToolSurface';
 
@@ -89,6 +90,7 @@ vi.mock('../src/renderer/src/views/cache/ResourceCleanupDialog', async () => {
   };
 });
 afterEach(() => {
+  useCaptureWindow.getState().dismiss();
   vi.unstubAllGlobals();
   state.account = { static: false };
   state.failed = false;
@@ -280,6 +282,7 @@ describe('设置的数据与维护', () => {
             onOpenRecalls: vi.fn(),
           }),
           createElement(DataMaintenanceDialog, {
+            source: 'synthetic:maintenance',
             tool: active,
             account: { uin: '10001', name: '测试账号', avatarUrl: '' },
             onClose: () => {

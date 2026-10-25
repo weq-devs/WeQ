@@ -14,6 +14,7 @@ import { RemoteRequests } from './components/RemoteRequests';
 import { HoverTooltip } from './components/HoverTooltip';
 import { ToastHost, useToast } from './components/Toast';
 import { DbRepairWindowHost } from './components/DbRepairWindow';
+import { CaptureWindowHost } from './components/CaptureWindow';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { JoinGroupDialog } from './components/JoinGroupDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
@@ -203,6 +204,7 @@ export default function App(): ReactElement {
             {IS_WEB && <WebConnectionStatus />}
             <HoverTooltip />
             <DbRepairWindowHost />
+            <CaptureWindowHost />
             <DesktopOnly>
               <CloseConfirmDialog />
             </DesktopOnly>

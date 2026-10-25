@@ -157,6 +157,7 @@ import {
 import { GroupSignDialog } from '../components/GroupSignDialog';
 import { GroupTodos } from '../components/qq-actions/GroupActions';
 import { useDbRepairWindow } from '../state/dbRepairWindow';
+import { useCaptureWindow } from '../state/captureWindow';
 import {
   essenceSequences,
   essenceRefreshInterval,
@@ -2850,7 +2851,18 @@ export function MainView(): ReactElement {
   );
   const { tool: maintenanceTool, setTool: setMaintenanceTool } =
     useSettingsMaintenance(messageScope);
+  useEffect(() => () => useCaptureWindow.getState().dismiss(messageScope), [messageScope]);
   function openMaintenance(tool: MaintenanceTool) {
+    if (messageScopeRef.current !== messageScope) return;
+    if (tool === 'capture') {
+      if (!messageScope) {
+        pushToast({ tone: 'warning', title: '当前账号与数据源尚未就绪' });
+        return;
+      }
+      setMaintenanceTool(null);
+      useCaptureWindow.getState().open(messageScope, openedUin ?? '');
+      return;
+    }
     if (tool === 'db-repair') {
       setMaintenanceTool(null);
       useDbRepairWindow
@@ -10055,6 +10067,7 @@ export function MainView(): ReactElement {
           />
           <DataMaintenanceDialog
             key={`maintenance:${messageScope}`}
+            source={messageScope}
             tool={maintenanceTool}
             account={{
               uin: openedUin ?? '',

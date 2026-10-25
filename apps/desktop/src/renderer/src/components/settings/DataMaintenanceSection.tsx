@@ -12,6 +12,7 @@ import { ToolSurface } from '../ToolSurface';
 import { PageShell } from '../PageShell';
 import type { DbRepairAccountOption } from '../DbRepairPanel';
 import { DbRepairWindowRequest } from '../DbRepairWindow';
+import { CaptureWindowRequest } from '../CaptureWindow';
 import { CacheView } from '../../views/cache/CacheView';
 import { DbExplorer } from '../../views/cache/DbExplorer';
 import { ResourceAnalyticsDialog } from '../../views/cache/ResourceAnalyticsDialog';
@@ -171,20 +172,25 @@ export function DataMaintenanceSection({
 /** 设置来源在原页面之上打开，不替换设置工作区。 */
 export function DataMaintenanceDialog({
   tool,
+  source,
   account,
   onClose,
 }: {
   tool: MaintenanceTool | null;
+  source: string;
   account: DbRepairAccountOption;
   onClose: () => void;
 }): ReactElement | null {
   if (!tool) return null;
   if (tool === 'db-repair') return <DbRepairWindowRequest key={account.uin} account={account} />;
+  if (tool === 'capture')
+    return (
+      <CaptureWindowRequest key={source} source={source} uin={account.uin} onRequested={onClose} />
+    );
   if (
     tool === 'key-scan' ||
     tool === 'other-device-key' ||
     tool === 'login-accounts' ||
-    tool === 'capture' ||
     tool === 'reverse'
   )
     return (
