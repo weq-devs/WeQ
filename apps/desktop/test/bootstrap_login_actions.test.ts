@@ -13,9 +13,19 @@ const f = vi.hoisted(() => ({
   clearAuto: vi.fn(),
   unsubscribe: vi.fn(),
   qr: vi.fn(),
+  setAttach: vi.fn(),
+  invalidate: vi.fn(),
+  settings: { autoAttachQq: false },
   event: (_event: KeyEvent) => {},
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: {
+    useUtils: () => ({ bootstrap: { getSettings: { invalidate: f.invalidate } } }),
+    bootstrap: {
+      getSettings: { useQuery: () => ({ data: f.settings }) },
+      setAutoAttachQq: { useMutation: () => ({ mutate: f.setAttach, isLoading: false }) },
+    },
+  },
   client: {
     bootstrap: {
       testDatabaseKey: { mutate: f.test },
@@ -84,12 +94,6 @@ async function click(label: string) {
   if (!button) throw new Error(`missing ${label}`);
   await act(async () => button.click());
 }
-function keyValue() {
-  act(() => host.querySelector<HTMLButtonElement>('[aria-label="密钥与恢复"]')!.click());
-  const value = document.querySelector<HTMLInputElement>('.weq-keyfield-text')?.value;
-  act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭密钥详情"]')!.click());
-  return value;
-}
 function qrSuccess(uin: string, key = 'abcdefghijklmnop') {
   act(() => {
     f.event({ kind: 'qrcode-state', state: 'confirmed', uin });
@@ -107,12 +111,15 @@ it('已保存账号一键打开，仍先验证密钥，密钥详情默认折叠'
   expect(f.test.mock.invocationCallOrder[0]).toBeLessThan(f.open.mock.invocationCallOrder[0]!);
   expect(entered).toHaveBeenCalledWith('10001');
 });
-it('密钥失败留在当前账号并提供恢复，不打开数据库', async () => {
+it('密钥失败先自动获取，只有获取失败才显示可编辑输入窗口', async () => {
   f.test.mockResolvedValueOnce({ success: false, error: '合成失效密钥' });
   await mount('existing');
   await click('打开账号');
-  expect(host.querySelector('[role=alert]')?.textContent).toContain('合成失效密钥');
-  expect(host.querySelector('[role=alert]')?.textContent).toContain('重新获取密钥');
+  expect(f.qr).toHaveBeenCalledWith({ uin: '10001' });
+  expect(document.querySelector('.weq-key-recovery')).toBeNull();
+  act(() => f.event({ kind: 'result', result: { success: false, error: '合成获取失败' } }));
+  expect(document.querySelector('.weq-key-recovery')?.textContent).toContain('合成获取失败');
+  expect(document.querySelector<HTMLInputElement>('.weq-keyfield-text')?.readOnly).toBe(false);
   expect(f.open).not.toHaveBeenCalled();
   expect(busy).toHaveBeenLastCalledWith(false);
 });
@@ -130,7 +137,6 @@ it('扫码选中另一个已发现账号时保留该账号的新密钥，不能�
   await click('扫码登录其他账号');
   qrSuccess('10002');
   expect(host.querySelector('.weq-open-identity h2')?.textContent).toBe('合成账号10002');
-  expect(keyValue()).toBe('abcdefghijklmnop');
   await click('打开账号');
   expect(f.test).toHaveBeenCalledWith({ uin: '10002', dbKey: 'abcdefghijklmnop' });
   expect(entered).toHaveBeenCalledWith('10002');
@@ -141,7 +147,60 @@ it('取消扫码释放忙碌状态，旧订阅晚到回执不能改变密钥', a
   await click('取消扫码');
   qrSuccess('10002');
   expect(host.querySelector('.weq-open-identity h2')?.textContent).toBe('合成账号10001');
-  expect(keyValue()).toBe('');
+  expect(document.querySelector('.weq-key-recovery')).toBeNull();
   expect(f.open).not.toHaveBeenCalled();
   expect(busy).toHaveBeenLastCalledWith(false);
+});
+it('失效密钥自动获取成功后继续验证并打开，不弹出密钥窗口', async () => {
+  f.test.mockResolvedValueOnce({ success: false });
+  await mount('existing');
+  await click('打开账号');
+  await act(async () => qrSuccess('10001'));
+  expect(f.test).toHaveBeenLastCalledWith({ uin: '10001', dbKey: 'abcdefghijklmnop' });
+  expect(entered).toHaveBeenCalledWith('10001');
+  expect(document.querySelector('.weq-key-recovery')).toBeNull();
+});
+it('未保存密钥也能打开并自动获取，没有独立密钥按钮', async () => {
+  await mount('new');
+  expect(host.querySelector('[aria-label="密钥与恢复"]')).toBeNull();
+  await click('打开账号');
+  expect(f.qr).toHaveBeenCalledWith({ uin: '10001' });
+});
+it('自动启用完整功能与自动进入同一行，复用账号内设置', async () => {
+  f.settings.autoAttachQq = true;
+  await mount('existing');
+  const options = host.querySelectorAll<HTMLInputElement>('.weq-login-options input');
+  expect(options).toHaveLength(2);
+  expect(options[1]!.checked).toBe(true);
+  await act(async () => options[1]!.click());
+  expect(f.setAttach).toHaveBeenCalledWith({ enabled: false });
+  f.settings.autoAttachQq = false;
+});
+it('自动获取失败后手动输入新密钥可验证打开，无须修改已保存账号', async () => {
+  f.test.mockResolvedValueOnce({ success: false });
+  await mount('existing');
+  await click('打开账号');
+  act(() => f.event({ kind: 'result', result: { success: false } }));
+  const input = document.querySelector<HTMLInputElement>('.weq-keyfield-text')!;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      input,
+      'abcdefghijklmnop',
+    );
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('.weq-key-recovery .weq-action-primary')!.click(),
+  );
+  expect(f.open).toHaveBeenCalledWith(expect.objectContaining({ dbKey: 'abcdefghijklmnop' }));
+  expect(document.querySelector('.weq-key-recovery')).toBeNull();
+});
+it('密钥验证异常也自动获取，获取的新密钥无效才显示输入窗口', async () => {
+  f.test.mockRejectedValueOnce(Error('合成验证异常'));
+  await mount('existing');
+  await click('打开账号');
+  f.test.mockResolvedValueOnce({ success: false, error: '合成新密钥无效' });
+  await act(async () => qrSuccess('10001'));
+  expect(document.querySelector('.weq-key-recovery')?.textContent).toContain('合成新密钥无效');
+  expect(f.open).not.toHaveBeenCalled();
 });

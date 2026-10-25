@@ -37,6 +37,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             refetch: api.retry,
           });
         if (key === 'subscribe') return () => ({ unsubscribe() {} });
+        if (key === 'useMutation') return () => ({ mutate() {}, isLoading: false });
         return proxy(`${path}.${String(key)}`);
       },
     });
@@ -126,14 +127,20 @@ it('账号查询进行中仍显示加载态，不冒充空或失败', () => {
   expect(host.querySelector('[role="alert"]')).toBeNull();
 });
 
-it('重新读取失败时仍保留已有账号，不隐藏密钥入口', () => {
+it('重新读取失败时仍保留已有账号，账号主页没有密钥或诊断按钮', () => {
   api.mode = 'stale';
   useViewState.getState().enterSelect('existing');
   render();
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('合成账号读取失败');
   expect(host.querySelector('.weq-open-identity h2')?.textContent).toBe('合成缓存账号');
-  act(() => host.querySelector<HTMLButtonElement>('[aria-label="密钥与恢复"]')!.click());
-  expect(document.querySelector<HTMLInputElement>('.weq-keyfield-text')?.value).toBe(
-    '0123456789abcdef',
-  );
+  expect(host.querySelector('[aria-label="密钥与恢复"]')).toBeNull();
+  expect(host.querySelector('[aria-label="环境诊断"]')).toBeNull();
+});
+it('环境诊断仅在添加页提供，点击后在弹窗挂载而非撑长登录页', () => {
+  render();
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="环境诊断"]')!.click());
+  expect(document.querySelector('[role="dialog"] .weq-stats')).not.toBeNull();
+  expect(host.querySelector('.weq-stats')).toBeNull();
+  act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭环境诊断"]')!.click());
+  expect(document.querySelector('.weq-stats')).toBeNull();
 });

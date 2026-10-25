@@ -15,8 +15,8 @@
  */
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { ArrowRight, KeyRound, Loader2, QrCode, X } from 'lucide-react';
-import { client } from '../../trpc/client';
+import { ArrowRight, KeyRound, Loader2, QrCode, Settings2, X } from 'lucide-react';
+import { client, trpc } from '../../trpc/client';
 import { Modal, useDialog } from '../../components/Dialog';
 import type { AutoEnterTarget } from '@weq/service';
 import { accountSource } from './AccountSelector';
@@ -45,6 +45,7 @@ export function LoginPanel({
   autoTarget,
   onEntered,
   onBusyChange,
+  onDiagnostics,
   disabled = false,
 }: {
   mode: 'new' | 'existing';
@@ -54,9 +55,16 @@ export function LoginPanel({
   autoTarget: AutoEnterTarget | null;
   onEntered: (uin: string) => void;
   onBusyChange?: (busy: boolean) => void;
+  onDiagnostics?: () => void;
   disabled?: boolean;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
+  const settings = trpc.bootstrap.getSettings.useQuery();
+  const utils = trpc.useUtils();
+  const autoAttach = trpc.bootstrap.setAutoAttachQq.useMutation({
+    onSuccess: () => utils.bootstrap.getSettings.invalidate(),
+    onError: (e) => showError('设置失败', e.message),
+  });
 
   const [key, setKey] = useState('');
   /**
@@ -71,9 +79,10 @@ export function LoginPanel({
   const choiceKey = `${mode}:${selected?.key ?? ''}`;
   const autoEnter =
     autoChoice?.key === choiceKey ? autoChoice.value : sameTarget(autoTarget, selected);
-  const working = busy || disabled;
+  const working = busy || disabled || autoAttach.isLoading;
   const [error, setError] = useState('');
   const [keyDetails, setKeyDetails] = useState(false);
+  const autoOpening = useRef(false);
   const pendingKey = useRef<{
     accountKey: string;
     key: string;
@@ -110,6 +119,7 @@ export function LoginPanel({
     pendingKey.current = null;
     setStatus(pending ? '密钥已就绪' : '');
     setError('');
+    setKeyDetails(false);
   }, [selected?.key, mode, selected?.dbKey]);
 
   // Tear down any live subscription on unmount.
@@ -130,9 +140,11 @@ export function LoginPanel({
 
   // ---- key acquisition (new mode) ----
 
-  function acquire(): void {
-    if (!selected || working) return;
+  function acquire(automatic = false): void {
+    if (!selected || (working && !automatic)) return;
+    autoOpening.current = automatic;
     setError('');
+    setKeyDetails(false);
     setBusy(true);
     // Pick the flow off the one thing that matters: does the account have a
     // cached a1? (No online check, no platform branch.)
@@ -162,6 +174,7 @@ export function LoginPanel({
               setKey(event.result.dbkey);
               setStatus('已获取密钥');
               setBusy(false);
+              if (autoOpening.current) void enter(acc, event.result.dbkey, false);
             } else {
               // Quick login failed → fall back to QR.
               setStatus('快速登录失败，转二维码…');
@@ -231,10 +244,13 @@ export function LoginPanel({
             setKey(event.result.dbkey);
             setStatus('已获取密钥');
             setBusy(false);
+            if (autoOpening.current) void enter(match, event.result.dbkey, false);
           } else {
             setBusy(false);
             setStatus('');
-            showError('扫码登录失败', event.result.error ?? '请重试或更换登录方式。');
+            const message = event.result.error ?? '扫码登录失败，请填入数据库密钥。';
+            if (autoOpening.current) recoveryFailed(message);
+            else showError('扫码登录失败', message);
           }
         }
       },
@@ -244,7 +260,8 @@ export function LoginPanel({
         setQr(null);
         setBusy(false);
         setStatus('');
-        showError('扫码登录失败', errMsg(e));
+        if (autoOpening.current) recoveryFailed(errMsg(e));
+        else showError('扫码登录失败', errMsg(e));
       },
     });
   }
@@ -254,6 +271,7 @@ export function LoginPanel({
     if (working) return;
     setError('');
     setBusy(true);
+    autoOpening.current = false;
     startQrLogin(selected, true);
   }
 
@@ -262,12 +280,20 @@ export function LoginPanel({
     setQr(null);
     setBusy(false);
     setStatus('');
+    if (autoOpening.current) recoveryFailed('自动获取已取消，请填入数据库密钥。');
+  }
+
+  function recoveryFailed(message: string): void {
+    setError(message);
+    setKeyDetails(true);
+    autoOpening.current = false;
   }
 
   // ---- enter (test then open) ----
 
-  async function enter(): Promise<void> {
-    if (!selected || working) return;
+  async function enter(acc = selected, candidate = key, recover = true): Promise<void> {
+    if (!acc) return;
+    const selected = acc;
     setError('');
 
     // Static (offline) accounts have no live key gate — re-open them directly
@@ -310,13 +336,15 @@ export function LoginPanel({
       return;
     }
 
-    const k = key.trim();
-    if (mode === 'new' && !isCompleteKey(k)) {
-      showError('密钥不完整', '请先获取或填入 16 位数据库密钥。');
+    const k = candidate.trim();
+    if (!isCompleteKey(k)) {
+      if (recover) acquire(true);
+      else recoveryFailed('获取的密钥不完整，请手动填入数据库密钥。');
       return;
     }
     setBusy(true);
     setStatus('正在验证密钥…');
+    let keyValidated = false;
     try {
       const test = await client.bootstrap.testDatabaseKey.mutate({ uin: selected.uin, dbKey: k });
       if (!alive.current) return;
@@ -324,8 +352,11 @@ export function LoginPanel({
         setBusy(false);
         setStatus('');
         setError(test.error ?? '数据库密钥不正确，请重新获取密钥。');
+        if (recover) acquire(true);
+        else recoveryFailed(test.error ?? '获取的密钥无法打开数据库，请手动填入。');
         return;
       }
+      keyValidated = true;
       await client.bootstrap.openAccount.mutate({
         uin: selected.uin,
         dbKey: k,
@@ -347,21 +378,21 @@ export function LoginPanel({
       }
 
       onEntered(selected.uin);
+      setKeyDetails(false);
     } catch (e) {
       if (!alive.current) return;
       setBusy(false);
       setStatus('');
       setError(errMsg(e));
+      if (!keyValidated) {
+        if (recover) acquire(true);
+        else recoveryFailed(errMsg(e));
+      }
     }
   }
 
   function onAction(): void {
-    const k = key.trim();
-    if (mode === 'existing' || isCompleteKey(k)) {
-      void enter();
-    } else {
-      acquire();
-    }
+    if (!working) void enter();
   }
 
   return (
@@ -376,15 +407,15 @@ export function LoginPanel({
                 {selected.uin} · {accountSource(selected)}
               </span>
             </div>
-            {!selected.static && (
+            {mode === 'new' && onDiagnostics && (
               <button
                 type="button"
                 className="weq-icon-button weq-open-key-button"
-                title="密钥与恢复"
-                aria-label="密钥与恢复"
-                onClick={() => setKeyDetails(true)}
+                title="环境诊断"
+                aria-label="环境诊断"
+                onClick={onDiagnostics}
               >
-                <KeyRound size={16} aria-hidden />
+                <Settings2 size={16} aria-hidden />
               </button>
             )}
           </div>
@@ -401,20 +432,9 @@ export function LoginPanel({
             </div>
           )}
 
-          {error && (
+          {error && !keyDetails && (
             <div className="weq-open-error" role="alert">
               {error}
-              {!selected.static && (
-                <button
-                  type="button"
-                  className="weq-action-soft"
-                  disabled={working}
-                  onClick={acquire}
-                >
-                  <KeyRound size={15} aria-hidden />
-                  重新获取密钥
-                </button>
-              )}
             </div>
           )}
 
@@ -422,18 +442,14 @@ export function LoginPanel({
             type="button"
             className="weq-action-primary weq-open-primary"
             onClick={selected.static ? () => void enter() : onAction}
-            disabled={working || (mode === 'existing' && !selected.static && !key)}
+            disabled={working}
           >
             {busy ? (
               <Loader2 className="weq-spin" size={17} aria-hidden />
             ) : (
               <ArrowRight size={17} aria-hidden />
             )}
-            {busy
-              ? '正在处理…'
-              : selected.static || mode === 'existing' || isCompleteKey(key)
-                ? '打开账号'
-                : '获取密钥'}
+            {busy ? '正在处理…' : '打开账号'}
           </button>
 
           {!selected.static && keyDetails && (
@@ -447,7 +463,7 @@ export function LoginPanel({
             >
               <div className="weq-dialog-head">
                 <h3 className="weq-dialog-title" id="account-key-title">
-                  密钥与恢复
+                  输入数据库密钥
                 </h3>
                 <button
                   type="button"
@@ -463,37 +479,60 @@ export function LoginPanel({
                 {selected.sourceDir && <div className="weq-open-path">{selected.sourceDir}</div>}
                 <KeyField
                   key={choiceKey}
-                  mode={mode}
+                  mode="new"
                   value={key}
                   onChange={setKey}
-                  onAction={onAction}
+                  onAction={() => void enter(selected, key, false)}
                   busy={working}
                   showAction={false}
                 />
-                {mode === 'existing' && (
-                  <button
-                    type="button"
-                    className="weq-action-soft"
-                    disabled={working}
-                    onClick={acquire}
-                  >
-                    <KeyRound size={14} aria-hidden />
-                    重新获取密钥
-                  </button>
+                {error && (
+                  <div className="weq-open-error" role="alert">
+                    {error}
+                  </div>
                 )}
+                <button
+                  type="button"
+                  className="weq-action-primary"
+                  disabled={working || !isCompleteKey(key)}
+                  onClick={() => void enter(selected, key, false)}
+                >
+                  <ArrowRight size={14} aria-hidden />
+                  打开账号
+                </button>
+                <button
+                  type="button"
+                  className="weq-action-soft"
+                  disabled={working}
+                  onClick={() => acquire(true)}
+                >
+                  <KeyRound size={14} aria-hidden />
+                  重新获取密钥
+                </button>
               </div>
             </Modal>
           )}
 
-          <label className="weq-auto-enter">
-            <input
-              type="checkbox"
-              checked={autoEnter}
-              disabled={working}
-              onChange={(e) => setAutoChoice({ key: choiceKey, value: e.target.checked })}
-            />
-            <span>下次打开自动进入该账号</span>
-          </label>
+          <div className="weq-login-options">
+            <label className="weq-auto-enter">
+              <input
+                type="checkbox"
+                checked={autoEnter}
+                disabled={working}
+                onChange={(e) => setAutoChoice({ key: choiceKey, value: e.target.checked })}
+              />
+              <span>下次打开自动进入该账号</span>
+            </label>
+            <label className="weq-auto-enter">
+              <input
+                type="checkbox"
+                checked={settings.data?.autoAttachQq ?? false}
+                disabled={working || !settings.data || autoAttach.isLoading}
+                onChange={(e) => autoAttach.mutate({ enabled: e.target.checked })}
+              />
+              <span>自动启用完整功能</span>
+            </label>
+          </div>
         </>
       ) : null}
       {mode === 'new' && (
@@ -505,6 +544,17 @@ export function LoginPanel({
         >
           <QrCode size={16} aria-hidden />
           扫码登录其他账号
+        </button>
+      )}
+      {mode === 'new' && !selected && onDiagnostics && (
+        <button
+          type="button"
+          className="weq-icon-button"
+          title="环境诊断"
+          aria-label="环境诊断"
+          onClick={onDiagnostics}
+        >
+          <Settings2 size={16} aria-hidden />
         </button>
       )}
       {!selected && error && (

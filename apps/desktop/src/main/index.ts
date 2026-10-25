@@ -895,6 +895,17 @@ if (hasSingleInstanceLock) {
 // 账号没有显式关闭时，也释放本轮 Web、Remote、MCP 与提权辅助进程。
 app.on('will-quit', (event) => {
   if (event.defaultPrevented) return;
+  if (hasSingleInstanceLock) {
+    try {
+      const ctx = getAppContext();
+      ctx.bootstrap?.userConfig.setSkipAutoEnterOnce(!ctx.account);
+    } catch (error) {
+      logger.warn('failed to save login exit state', {
+        event: 'login-exit-state-failed',
+        error: String(error),
+      });
+    }
+  }
   stopRendererDiagnostics?.();
   stopRendererDiagnostics = null;
   try {

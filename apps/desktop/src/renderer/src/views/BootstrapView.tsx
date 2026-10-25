@@ -69,10 +69,13 @@ export function BootstrapView(): ReactElement {
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  const autoTarget = trpc.bootstrap.getAutoEnter.useQuery(undefined, {
-    enabled: needsStartup,
-    refetchOnWindowFocus: false,
-  });
+  const autoTarget = trpc.bootstrap.getAutoEnter.useQuery(
+    { startup: !IS_WEB },
+    {
+      enabled: needsStartup,
+      refetchOnWindowFocus: false,
+    },
+  );
 
   // 过期弹窗要显示构建/过期时间。注意这个 query 不看 nativeOk：构建过期时它照样能
   // 读出来（`readNativeBuildInfo` 绕过了初始化校验）。

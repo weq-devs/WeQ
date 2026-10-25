@@ -394,6 +394,7 @@ html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
   min-height: 0;
   padding: 0;
   letter-spacing: 0;
+  overflow: hidden;
 }
 .weq-account-workspace .weq-account-head {
   gap: 18px;
@@ -522,6 +523,7 @@ html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
   width: min(100%, 1040px);
   margin: 0 auto;
   padding: 20px 32px 24px;
+  min-height: 0;
 }
 .weq-account-tabs {
   display: flex;
@@ -784,8 +786,56 @@ html[data-theme] .weq-select.weq-account-workspace .weq-action-primary:disabled 
   border-radius: 6px;
 }
 .weq-account-diagnostics {
-  margin-top: auto;
-  border-top: 1px solid var(--weq-border-subtle);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+}
+.weq-select.weq-account-diagnostics {
+  padding: 0;
+}
+.weq-account-diagnostics .weq-dialog-head,
+.weq-key-recovery .weq-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+}
+.weq-login-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.weq-account-workspace .weq-login-options .weq-auto-enter {
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.weq-account-workspace .weq-login-options input {
+  flex-shrink: 0;
+}
+.weq-account-workspace .weq-account-grid {
+  flex: 1;
+  min-height: 0;
+}
+.weq-account-workspace .weq-account-detail {
+  flex-shrink: 0;
+}
+.weq-account-workspace .weq-account-accounts {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.weq-account-workspace .weq-account-section-head,
+.weq-account-workspace .weq-account-actions {
+  flex-shrink: 0;
+}
+.weq-account-workspace .weq-account-list {
+  min-height: 0;
+}
+.weq-account-workspace .weq-account-import {
+  min-height: 0;
+  overflow-y: auto;
 }
 .weq-diagnostics-trigger {
   display: flex;
@@ -807,7 +857,7 @@ html[data-theme] .weq-select.weq-account-workspace .weq-action-primary:disabled 
 .weq-account-diagnostics .weq-stats {
   height: auto;
   overflow: visible;
-  padding: 12px 0 0;
+  padding: 0 20px 20px;
 }
 .weq-account-diagnostics .weq-stats-head {
   border: none;
@@ -962,5 +1012,21 @@ html[data-theme='dark'] .weq-account-workspace .weq-account-diagnostics .weq-sta
   }
   .weq-account-workspace .weq-login-panel {
     flex: 1;
+  }
+}
+
+@media (max-height: 560px) {
+  .weq-account-workspace .weq-open-identity > :is(img, .weq-avatar-fallback) {
+    width: 48px !important;
+    height: 48px !important;
+  }
+  .weq-account-workspace .weq-open-identity {
+    gap: 6px;
+  }
+  .weq-account-workspace .weq-open-identity h2 {
+    font-size: 17px;
+  }
+  .weq-account-workspace .weq-login-panel {
+    gap: 8px;
   }
 }

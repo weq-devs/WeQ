@@ -276,15 +276,15 @@ describe('非阻塞提权入口', () => {
         expect(f.host.querySelectorAll('.weq-toast-warning')).toHaveLength(1);
         act(() => useRestrictedMode.getState().setOpen(true));
         submitAuthorization(f.host.querySelector('form')!);
-        expect(f.host.querySelector('.weq-toast-title')?.textContent).toBe('正在进入完整模式');
+        expect(f.host.querySelector('.weq-toast-title')?.textContent).toBe('正在启用完整功能');
         mock.access = { ...ready };
         mock.updatedAt = Date.now() + 1;
         f.render();
         await act(async () => vi.advanceTimersByTimeAsync(500));
         expect(f.host.querySelector('.weq-toast-warning')).toBeNull();
         expect(f.host.textContent).not.toContain('待提权');
-        expect(f.host.textContent).not.toContain('正在进入完整模式');
-        expect(f.host.textContent).toContain('已恢复完整模式');
+        expect(f.host.textContent).not.toContain('正在启用完整功能');
+        expect(f.host.textContent).toContain('已启用完整功能');
         expect(useToast.getState().leaving).not.toContain(unrelated);
         await act(async () => vi.advanceTimersByTimeAsync(3500));
         expect(f.host.querySelectorAll('.weq-toast')).toHaveLength(1);
@@ -300,7 +300,7 @@ describe('非阻塞提权入口', () => {
       mock.access = { ...ready, hasD2Key: false, ssoReady: false, credentialsPending: true };
       const f = fixture();
       const notice = useToast.getState().toasts.at(-1)!.id;
-      expect(f.host.textContent).toContain('正在进入完整模式');
+      expect(f.host.textContent).toContain('正在启用完整功能');
       event(channel, { token: 41, title: '读取 QQ 内存' });
       act(() => useRestrictedMode.getState().setOpen(true));
       expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('待提权');
@@ -309,7 +309,7 @@ describe('非阻塞提权入口', () => {
       );
       expect(f.host.querySelector('[role="dialog"] h2')?.textContent).toBe('待提权');
       expect(f.host.textContent).toContain('管理员密码');
-      expect(f.host.textContent).not.toContain('正在进入完整模式');
+      expect(f.host.textContent).not.toContain('正在启用完整功能');
       expect(f.host.querySelector('[role="status"]')).toBeNull();
       expect(f.host.querySelector('.weq-restricted-progress-icon')).toBeNull();
       expect(f.host.querySelector('.weq-restricted-reason')).toBeNull();
@@ -336,18 +336,18 @@ describe('非阻塞提权入口', () => {
       password: 'test-password',
     });
     expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('待提权');
-    expect(f.host.textContent).not.toContain('正在进入完整模式');
+    expect(f.host.textContent).not.toContain('正在启用完整功能');
     submitAuthorization(f.host.querySelector('form')!);
     expect(mock.send).toHaveBeenCalledWith('elev:respond-password', {
       token: 8,
       password: 'test-password',
     });
-    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('正在进入完整模式');
+    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('正在启用完整功能');
     expect(f.host.querySelector('form')).toBeNull();
     expect(useToast.getState().toasts.at(-1)!.loading).toBe(true);
     event('elev:request-password', { token: 9 });
     expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('待提权');
-    expect(f.host.textContent).not.toContain('正在进入完整模式');
+    expect(f.host.textContent).not.toContain('正在启用完整功能');
     expect(useToast.getState().toasts.at(-1)!.loading).toBe(false);
   });
   it('已关闭的进入中横幅在退场时也切换为待授权，不留下相反的进度文案', () => {
@@ -356,7 +356,7 @@ describe('非阻塞提权入口', () => {
     const notice = useToast.getState().toasts.at(-1)!.id;
     act(() => useToast.getState().dismiss(notice));
     event('elev:request-password', { token: 41 });
-    expect(useToast.getState().toasts.some((item) => item.title === '正在进入完整模式')).toBe(
+    expect(useToast.getState().toasts.some((item) => item.title === '正在启用完整功能')).toBe(
       false,
     );
     expect(useToast.getState().toasts.every((item) => item.loading === false)).toBe(true);
@@ -365,19 +365,19 @@ describe('非阻塞提权入口', () => {
   it('部分凭据和原生登记等待期间始终保留进入中状态，真正就绪后才结束', async () => {
     mock.access = { ...ready, ssoReady: false, credentialsPending: true };
     const f = fixture();
-    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('正在进入完整模式');
+    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('正在启用完整功能');
     expect(f.host.querySelector('.weq-restricted-indicator')?.getAttribute('aria-busy')).toBe(
       'true',
     );
     expect(useToast.getState().toasts.at(-1)).toMatchObject({
-      title: '正在进入完整模式',
+      title: '正在启用完整功能',
       loading: true,
       ttl: 0,
     });
     mock.access = { ...ready, hasD2Key: false, ssoReady: false, credentialsPending: true };
     mock.updatedAt = Date.now() + 1;
     f.render();
-    expect(f.host.textContent).toContain('正在进入完整模式');
+    expect(f.host.textContent).toContain('正在启用完整功能');
     expect(useToast.getState().toasts.some((t) => t.tone === 'success')).toBe(false);
     mock.access = { ...ready, ssoReady: true, credentialsPending: false };
     mock.updatedAt += 1;
@@ -388,7 +388,7 @@ describe('非阻塞提权入口', () => {
   it('进入中不能被旧的完整模式缓存提前清掉，失败或取消后可重新检查', () => {
     const f = fixture();
     act(() => useRestrictedMode.getState().beginEntering());
-    expect(f.host.textContent).toContain('正在进入完整模式');
+    expect(f.host.textContent).toContain('正在启用完整功能');
     expect(useToast.getState().toasts.some((t) => t.tone === 'success')).toBe(false);
     mock.access = { ...ready, ssoReady: false, credentialsPending: false };
     mock.updatedAt = Date.now() + 1;
@@ -463,7 +463,7 @@ describe('非阻塞提权入口', () => {
     expect(f.host.querySelector('[role="dialog"]')).toBeNull();
     expect(useToast.getState().toasts.at(-1)).toMatchObject({
       tone: 'success',
-      title: '已恢复完整模式',
+      title: '已启用完整功能',
       durationKind: 'success',
     });
     f.render();
@@ -533,7 +533,7 @@ describe('非阻塞提权入口', () => {
     });
     expect(f.host.querySelector('input')).toBeNull();
     expect(useRestrictedMode.getState().requests).toHaveLength(0);
-    expect(f.host.textContent).toContain('正在进入完整模式');
+    expect(f.host.textContent).toContain('正在启用完整功能');
     mock.access = { ...ready, ssoReady: true };
     mock.updatedAt = Date.now() + 1;
     f.render();

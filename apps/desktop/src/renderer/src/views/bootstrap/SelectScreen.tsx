@@ -2,18 +2,17 @@
 
 import { useMemo, useState, type ReactElement } from 'react';
 import {
-  ChevronDown,
   FolderOpen,
   FolderInput,
   History,
   Loader2,
   RefreshCw,
-  Settings2,
   UserPlus,
   ArrowLeft,
+  X,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
-import { useDialog } from '../../components/Dialog';
+import { Modal, useDialog } from '../../components/Dialog';
 import { useViewState } from '../../state/view';
 import type { GlobalInstallInfo } from '@weq/service';
 import { AccountSelector } from './AccountSelector';
@@ -170,6 +169,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                     onEntered={onEntered}
                     onBusyChange={setBusy}
                     disabled={busy}
+                    onDiagnostics={mode === 'new' ? () => setDiagnostics(true) : undefined}
                   />
                 ) : (
                   <div className="weq-account-detail-empty">
@@ -275,31 +275,37 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
           </nav>
         )}
 
-        <section className="weq-account-diagnostics">
-          <button
-            type="button"
-            className="weq-diagnostics-trigger"
-            aria-expanded={diagnostics}
-            aria-controls="account-diagnostics"
-            onClick={() => setDiagnostics((value) => !value)}
+        {mode === 'new' && diagnostics && (
+          <Modal
+            open
+            centered
+            labelledBy="account-diagnostics-title"
+            onClose={() => setDiagnostics(false)}
+            width={400}
+            className="weq-select weq-account-diagnostics"
           >
-            <Settings2 size={15} aria-hidden />
-            <span>环境诊断</span>
-            <ChevronDown size={15} aria-hidden />
-          </button>
-          {diagnostics && (
-            <div id="account-diagnostics">
-              <Diagnostics
-                install={install}
-                selectedUin={
-                  mode !== 'backup' && !selected?.static ? (selected?.uin ?? null) : null
-                }
-                busy={busy}
-                onPickRoot={() => void pickRoot()}
-              />
+            <div className="weq-dialog-head">
+              <h3 id="account-diagnostics-title" className="weq-dialog-title">
+                环境诊断
+              </h3>
+              <button
+                type="button"
+                className="weq-dialog-x"
+                aria-label="关闭环境诊断"
+                title="关闭"
+                onClick={() => setDiagnostics(false)}
+              >
+                <X size={16} aria-hidden />
+              </button>
             </div>
-          )}
-        </section>
+            <Diagnostics
+              install={install}
+              selectedUin={!selected?.static ? (selected?.uin ?? null) : null}
+              busy={busy}
+              onPickRoot={() => void pickRoot()}
+            />
+          </Modal>
+        )}
       </div>
     </div>
   );

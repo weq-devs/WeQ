@@ -68,7 +68,7 @@ export function RestrictedModeIndicator({
   const open = useRestrictedMode((s) => s.open);
   const entering = useRestrictedMode((s) => s.enteringSince !== null && s.requests.length === 0);
   const awaitingAuthorization = requests.length > 0;
-  const title = awaitingAuthorization ? '待提权' : entering ? '正在进入完整模式' : '受限模式';
+  const title = awaitingAuthorization ? '待提权' : entering ? '正在启用完整功能' : '受限模式';
   const visible = Boolean(reasons.length || requests.length || entering);
   if (!visible && !persistent) return null;
   return (
@@ -276,7 +276,7 @@ export function RestrictedModeHost() {
         title: awaitingAuthorization
           ? '待提权：请完成管理员授权'
           : entering
-            ? '正在进入完整模式'
+            ? '正在启用完整功能'
             : `已进入受限模式：${reasons.map((r) => r.title).join('、')}`,
         loading: entering,
         durationKind: entering ? 'long' : 'failure',
@@ -299,7 +299,7 @@ export function RestrictedModeHost() {
       useRestrictedMode.getState().setOpen(false);
       useToast.getState().resolve(NOTICE_KEY);
       if (recoveryPending.current && fullModeConfirmed) {
-        useToast.getState().push({ tone: 'success', title: '已恢复完整模式' });
+        useToast.getState().push({ tone: 'success', title: '已启用完整功能' });
         recoveryPending.current = false;
       }
     }
@@ -386,7 +386,7 @@ export function RestrictedModeHost() {
               ) : (
                 <ShieldAlert size={18} />
               )}
-              {awaitingAuthorization ? '待提权' : entering ? '正在进入完整模式' : '受限模式'}
+              {awaitingAuthorization ? '待提权' : entering ? '正在启用完整功能' : '受限模式'}
             </h2>
             <button
               type="button"

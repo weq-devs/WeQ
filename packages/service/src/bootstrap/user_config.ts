@@ -859,6 +859,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
 
 export interface UserConfig {
   autoEnter?: AutoEnterTarget | null;
+  /** 登录页退出后仅跳过下一次启动，不改变自动进入偏好。 */
+  skipAutoEnterOnce?: boolean;
   tencentFilesRootOverride?: string | null;
   settings?: DeepPartial<AppSettings>;
   cacheDirOverride?: string | null;
@@ -925,6 +927,7 @@ export class UserConfigService {
   private readonly root: string;
   private readonly configPath: string;
   private cached: UserConfig | undefined;
+  private skipAutoEnterThisStartup: boolean | undefined;
   private readonly logger = getLogger().child({ scope: 'user-config' });
 
   constructor(platform: Pick<Platform, 'appDataRoot'>) {
@@ -1223,6 +1226,20 @@ export class UserConfigService {
 
   getAutoEnter(): AutoEnterTarget | null {
     return this.read().autoEnter ?? null;
+  }
+
+  getStartupAutoEnter(): AutoEnterTarget | null {
+    if (this.skipAutoEnterThisStartup === undefined) {
+      this.skipAutoEnterThisStartup = this.read().skipAutoEnterOnce === true;
+      if (this.skipAutoEnterThisStartup) this.write({ skipAutoEnterOnce: false });
+    }
+    return this.skipAutoEnterThisStartup ? null : this.getAutoEnter();
+  }
+
+  setSkipAutoEnterOnce(skip: boolean): void {
+    if ((this.read().skipAutoEnterOnce === true) !== skip) {
+      this.write({ skipAutoEnterOnce: skip });
+    }
   }
 
   setAutoEnter(target: AutoEnterTarget): void {

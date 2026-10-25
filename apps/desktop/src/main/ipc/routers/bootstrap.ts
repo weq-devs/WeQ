@@ -444,9 +444,12 @@ export const bootstrapRouter = router({
 
   // ---- auto-enter target ----
 
-  getAutoEnter: procedure.query(() => {
-    return requireBootstrap().userConfig.getAutoEnter();
-  }),
+  getAutoEnter: procedure
+    .input(z.object({ startup: z.boolean() }).optional())
+    .query(({ input }) => {
+      const config = requireBootstrap().userConfig;
+      return input?.startup ? config.getStartupAutoEnter() : config.getAutoEnter();
+    }),
 
   setAutoEnter: procedure
     .input(z.object({ uin: z.string(), dataDir: z.string().optional() }))
