@@ -179,7 +179,13 @@ export function SearchResultCard({
       title = hit.title;
       subtitle = (
         <span className="weq-search-muted">
-          {hit.sourceName} · {highlightText(hit.content, keyword)}
+          <span data-privacy-sensitive={hit.category !== 'marketEmoji' || undefined}>
+            {hit.sourceName}
+          </span>
+          {' · '}
+          <span data-privacy-sensitive={hit.category !== 'marketEmoji' || undefined}>
+            {highlightText(hit.content, keyword)}
+          </span>
         </span>
       );
       break;
@@ -193,8 +199,15 @@ export function SearchResultCard({
       title = hit.title;
       subtitle = (
         <span className="weq-search-muted">
-          {hit.sourceName ? `${hit.sourceName} · ` : '本地收藏 · '}
-          {highlightText(hit.content, keyword)}
+          {hit.sourceName ? (
+            <>
+              <span data-privacy-sensitive>{hit.sourceName}</span>
+              {' · '}
+            </>
+          ) : (
+            '本地收藏 · '
+          )}
+          <span data-privacy-sensitive>{highlightText(hit.content, keyword)}</span>
         </span>
       );
       break;
@@ -210,7 +223,7 @@ export function SearchResultCard({
       subtitle = (
         <span className="weq-search-muted">
           {hit.category === 'cloneMessage' ? '本地克隆对话' : '本地助手对话'} ·{' '}
-          {highlightText(hit.content, keyword)}
+          <span data-privacy-sensitive>{highlightText(hit.content, keyword)}</span>
         </span>
       );
       break;
@@ -235,7 +248,11 @@ export function SearchResultCard({
         />
       );
       title = hit.nick || hit.remark || hit.uin;
-      subtitle = <span className="weq-search-mono">{hit.uin || hit.uid}</span>;
+      subtitle = (
+        <span className="weq-search-mono" data-privacy-sensitive>
+          {hit.uin || hit.uid}
+        </span>
+      );
       break;
     }
     case 'groupMember': {
@@ -247,7 +264,9 @@ export function SearchResultCard({
       );
       title = hit.groupName;
       subtitle = (
-        <span className="weq-search-muted">包含{highlightText(hit.memberDisplay, keyword)}</span>
+        <span className="weq-search-muted">
+          包含<span data-privacy-sensitive>{highlightText(hit.memberDisplay, keyword)}</span>
+        </span>
       );
       break;
     }
@@ -263,7 +282,7 @@ export function SearchResultCard({
       subtitle = (
         <span className="weq-search-muted">
           查到<strong className="weq-search-strong">{hit.count}</strong>条包含
-          {highlightText(keyword, keyword)}的聊天记录
+          <span data-privacy-sensitive>{highlightText(keyword, keyword)}</span>的聊天记录
         </span>
       );
       break;
@@ -273,7 +292,11 @@ export function SearchResultCard({
         <img className="weq-search-file-icon" src={fileIconUrl(fileExtIcon(hit.fileName))} alt="" />
       );
       title = hit.fileName;
-      subtitle = <span className="weq-search-muted">来自{hit.convName}</span>;
+      subtitle = (
+        <span className="weq-search-muted">
+          来自<span data-privacy-sensitive>{hit.convName}</span>
+        </span>
+      );
       break;
     }
   }
@@ -282,6 +305,7 @@ export function SearchResultCard({
     <button
       type="button"
       className="weq-search-row"
+      data-search-category={hit.category}
       role="option"
       data-search-hit-key={searchHitKey(hit)}
       onClick={() => onSelect?.(hit)}

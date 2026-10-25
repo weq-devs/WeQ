@@ -56,7 +56,7 @@ export function GroupInfoDetailDialog({
         <header>
           <div>
             <strong>{groupInfoDetailTitle(detail)}</strong>
-            <span>{group.name}</span>
+            <span data-privacy-sensitive>{group.name}</span>
           </div>
           <button className={cn('icon-button')} type="button" title="关闭" onClick={onClose}>
             <X size={18} />
@@ -69,7 +69,13 @@ export function GroupInfoDetailDialog({
               {profileRows.map(([label, value]) => (
                 <div className={cn('group-info-detail-row')} key={label}>
                   <span>{label}</span>
-                  <strong>{value}</strong>
+                  <strong
+                    data-privacy-sensitive={
+                      !['创建时间', '群容量', '标签'].includes(label) || undefined
+                    }
+                  >
+                    {value}
+                  </strong>
                 </div>
               ))}
             </div>

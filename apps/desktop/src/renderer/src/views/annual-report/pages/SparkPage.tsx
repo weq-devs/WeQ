@@ -68,7 +68,7 @@ export function SparkPage({ page, data, active }: ReportPageProps<SparkPageData>
         {top ? (
           <section className="weq-sp-hero weq-report-line" style={{ '--i': 2 } as CSSProperties}>
             <p className="weq-sp-hero-say">
-              你和 <em>{top.peerName}</em>
+              你和 <em data-privacy-sensitive>{top.peerName}</em>
             </p>
             <div className="weq-sp-hero-row">
               <Odometer value={top.total} active={active} className="weq-sp-hero-num" />
@@ -142,7 +142,11 @@ function BandCell({
         <span className="weq-number">{value}</span>
         <i>{unit}</i>
       </dd>
-      {note ? <p className="weq-sp-band-note">{note}</p> : null}
+      {note ? (
+        <p className="weq-sp-band-note" data-privacy-sensitive>
+          {note}
+        </p>
+      ) : null}
     </div>
   );
 }

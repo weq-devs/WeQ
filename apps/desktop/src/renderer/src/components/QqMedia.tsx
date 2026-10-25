@@ -805,7 +805,9 @@ export function QqVoice({
               ))}
             </div>
           ) : null}
-          {transcribeError ?? (shownTranscript ? shownTranscript : '（未识别到内容）')}
+          <span data-privacy-sensitive={Boolean(shownTranscript) || undefined}>
+            {transcribeError ?? (shownTranscript ? shownTranscript : '（未识别到内容）')}
+          </span>
         </div>
       ) : null}
     </div>

@@ -237,7 +237,7 @@ import type {
   User,
 } from './types';
 import { dockStopLabel, dockStopTone } from './unreadDock';
-import { displayUserName } from './user';
+import { displayGroupName, displayUserName } from './user';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { MessageDecorationCard } from '../../components/MessageDecorationCard';
 import { trpc } from '../../trpc/client';
@@ -4647,10 +4647,19 @@ export function ChatPane({
                   }
                 }}
               >
-                {chatHeaderTitle(conversation)}
+                {conversation.type === 'group' ? (
+                  <>
+                    <span data-privacy-sensitive>{displayGroupName(conversation.group)}</span>
+                    {` (${conversation.group.memberCount})`}
+                  </>
+                ) : (
+                  <span data-privacy-sensitive>{chatHeaderTitle(conversation)}</span>
+                )}
               </button>
             ) : (
-              <span className={cn('chat-title-text')}>{chatHeaderTitle(conversation)}</span>
+              <span className={cn('chat-title-text')}>
+                <span data-privacy-sensitive>{chatHeaderTitle(conversation)}</span>
+              </span>
             )}
             {isBotConversation(conversation) ? (
               <small className={cn('bot-badge')} aria-label="机器人" title="机器人">

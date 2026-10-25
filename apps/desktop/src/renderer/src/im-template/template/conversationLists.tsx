@@ -1464,7 +1464,14 @@ export function ContactList({
               }
             >
               <ChevronRight className={cn('contact-cat-caret', open && 'is-open')} size={15} />
-              <span className={cn('contact-cat-name')}>{category.name}</span>
+              <span
+                className={cn('contact-cat-name')}
+                data-privacy-sensitive={
+                  (typeof category.id === 'number' && category.id !== 0) || undefined
+                }
+              >
+                {category.name}
+              </span>
               <span className={cn('contact-cat-count')}>
                 {category.count === null ? '-' : (category.count ?? category.items.length)}
               </span>

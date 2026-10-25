@@ -47,9 +47,13 @@ function Part({
         ))}
       </details>
     );
-  if (part.type === 'text') return <span>{part.text}</span>;
+  if (part.type === 'text') return <span data-privacy-sensitive>{part.text}</span>;
   if (!part.path || failed)
-    return <span className="weq-ev-unavailable">{part.text} · 媒体不可用</span>;
+    return (
+      <span className="weq-ev-unavailable">
+        <span data-privacy-sensitive>{part.text}</span> · 媒体不可用
+      </span>
+    );
   const src = mediaUrl('exportviewer', { id, path: part.path });
   if (part.type === 'image')
     return (
@@ -60,7 +64,13 @@ function Part({
         aria-label="查看原图"
         onClick={() => openLightbox(src, part.text)}
       >
-        <img src={src} alt={part.text} loading="lazy" onError={() => setFailed(true)} />
+        <img
+          data-privacy-sensitive
+          src={src}
+          alt={part.text}
+          loading="lazy"
+          onError={() => setFailed(true)}
+        />
       </button>
     );
   if (part.type === 'audio')
@@ -71,7 +81,13 @@ function Part({
     );
   if (part.type === 'video')
     return (
-      <video controls preload="none" src={src} onError={() => setFailed(true)}>
+      <video
+        data-privacy-sensitive
+        controls
+        preload="none"
+        src={src}
+        onError={() => setFailed(true)}
+      >
         <track kind="captions" />
       </video>
     );
@@ -85,7 +101,7 @@ function Part({
       }}
     >
       <FolderOpen size={15} />
-      {part.text}
+      <span data-privacy-sensitive>{part.text}</span>
     </button>
   );
 }

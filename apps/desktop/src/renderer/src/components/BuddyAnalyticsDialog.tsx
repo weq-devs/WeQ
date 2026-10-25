@@ -518,7 +518,7 @@ export function BuddyAnalyticsDialog({
       <header>
         <div>
           <strong>私聊分析</strong>
-          <span>{peerName}</span>
+          <span data-privacy-sensitive>{peerName}</span>
         </div>
         {exportMode ? null : (
           <div className="ga-head-actions">

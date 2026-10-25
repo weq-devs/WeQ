@@ -493,7 +493,7 @@ export function GlobalSettingsSection({
                     <QqAvatar uin={acc.uin} size={40} className="weq-set-account-avatar" />
                     <div className="weq-set-account-info">
                       <span className="weq-set-account-name">
-                        {acc.displayName || acc.uin}
+                        <span data-privacy-sensitive>{acc.displayName || acc.uin}</span>
                         {acc.static ? (
                           <span className="weq-set-badge">
                             {acc.mobile ? '手机备份' : '静态账号'}

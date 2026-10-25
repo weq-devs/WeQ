@@ -796,6 +796,7 @@ html[data-privacy] .weq-mail-sensitive,
 html[data-privacy] .weq-mail-address-fields input,
 html[data-privacy] .weq-mail-rich-editor,
 html[data-privacy] .weq-mail-text-editor {
+  --weq-privacy-sensitive: 1;
   filter: blur(7px);
   user-select: none;
 }

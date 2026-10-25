@@ -51,6 +51,7 @@ export function QrImage({ url, size = 192 }: { url: string; size?: number }): Re
     );
   return (
     <img
+      data-privacy-sensitive
       src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(current.svg)}`}
       alt="二维码"
       style={{ width: size, height: size }}

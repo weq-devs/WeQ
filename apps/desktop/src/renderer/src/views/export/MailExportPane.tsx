@@ -219,8 +219,10 @@ export function MailExportPane({
               label="待导出邮件列表"
               renderItem={(item) => (
                 <article className="weq-mail-export-row">
-                  <strong title={item.subject}>{item.subject || '无主题'}</strong>
-                  <span title={`${item.sender.name} ${item.sender.email}`}>
+                  <strong data-privacy-sensitive title={item.subject}>
+                    {item.subject || '无主题'}
+                  </strong>
+                  <span data-privacy-sensitive title={`${item.sender.name} ${item.sender.email}`}>
                     {item.sender.name || item.sender.email}
                   </span>
                   <time>{formatMailTime(item.time)}</time>

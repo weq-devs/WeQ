@@ -798,7 +798,13 @@ export function AlbumGridView({
               <span className="weq-qzal-album-meta">
                 <strong>{album.name || '未命名相册'}</strong>
                 <small>
-                  {album.mediaCount ?? 0} 个媒体{album.desc ? ` · ${album.desc}` : ''}
+                  {album.mediaCount ?? 0} 个媒体
+                  {album.desc ? (
+                    <>
+                      {' · '}
+                      <span data-privacy-sensitive>{album.desc}</span>
+                    </>
+                  ) : null}
                 </small>
               </span>
             </button>

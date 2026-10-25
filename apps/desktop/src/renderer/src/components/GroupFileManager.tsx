@@ -999,6 +999,7 @@ function GroupFileManagerBody({
                       <button
                         type="button"
                         title={row.name}
+                        data-privacy-sensitive
                         disabled={loading}
                         onClick={() =>
                           row.kind === 'folder' ? void openFolder(row.folder) : selectOne(row.key)
@@ -1013,16 +1014,15 @@ function GroupFileManagerBody({
                             : formatSize(row.file.fileSize)}{' '}
                           ·{' '}
                         </span>
-                        {[
-                          row.kind === 'folder' ? row.folder.creatorName : row.file.uploaderName,
-                          formatFileTime(
-                            row.kind === 'folder'
-                              ? row.folder.modifiedTime || row.folder.createTime
-                              : row.file.modifiedTime || row.file.uploadedTime,
-                          ),
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
+                        <span data-privacy-sensitive>
+                          {row.kind === 'folder' ? row.folder.creatorName : row.file.uploaderName}
+                        </span>
+                        {' · '}
+                        {formatFileTime(
+                          row.kind === 'folder'
+                            ? row.folder.modifiedTime || row.folder.createTime
+                            : row.file.modifiedTime || row.file.uploadedTime,
+                        )}
                       </small>
                     </span>
                   </div>
@@ -1032,7 +1032,11 @@ function GroupFileManagerBody({
                     ? `${row.folder.totalFileCount} 个文件`
                     : formatSize(row.file.fileSize)}
                 </td>
-                <td>{row.kind === 'folder' ? row.folder.creatorName : row.file.uploaderName}</td>
+                <td>
+                  <span data-privacy-sensitive>
+                    {row.kind === 'folder' ? row.folder.creatorName : row.file.uploaderName}
+                  </span>
+                </td>
                 <td>
                   {formatFileTime(
                     row.kind === 'folder'

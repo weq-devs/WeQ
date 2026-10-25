@@ -348,7 +348,7 @@ export function GroupAnalyticsDialog({
       <div className="ga-ov-hero">
         <Avatar name={groupName} avatarUrl={avatarUrl ?? null} seed={groupCode} />
         <div className="ga-ov-hero-info">
-          <strong>{groupName}</strong>
+          <strong data-privacy-sensitive>{groupName}</strong>
           <span>
             {dateRange ? `${dateRange.from} — ${dateRange.to}` : '暂无聊天记录'}
             {overview ? ` · 共 ${formatNumber(overview.total)} 条消息` : ''}
@@ -593,7 +593,7 @@ export function GroupAnalyticsDialog({
       <header>
         <div>
           <strong>群聊分析</strong>
-          <span>{groupName}</span>
+          <span data-privacy-sensitive>{groupName}</span>
         </div>
         {exportMode ? null : (
           <div className="ga-head-actions">

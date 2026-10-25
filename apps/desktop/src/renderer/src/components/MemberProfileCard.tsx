@@ -355,7 +355,7 @@ export function MemberProfileCard({
                 <ProfileRow icon={<Award size={13} />} label="群等级" value={levelText} />
               ) : null}
               {birthday ? (
-                <ProfileRow icon={<Cake size={13} />} label="生日" value={birthday} />
+                <ProfileRow sensitive icon={<Cake size={13} />} label="生日" value={birthday} />
               ) : null}
               {intimacy ? (
                 <ProfileRow
@@ -379,14 +379,26 @@ export function MemberProfileCard({
                 <ProfileRow icon={<Clock size={13} />} label="最后发言" value={lastSpeak} />
               ) : null}
               {profile?.remark ? (
-                <ProfileRow icon={<UserIcon size={13} />} label="备注" value={profile.remark} />
+                <ProfileRow
+                  sensitive
+                  icon={<UserIcon size={13} />}
+                  label="备注"
+                  value={profile.remark}
+                />
               ) : null}
               {profile?.qid ? (
-                <ProfileRow icon={<Fingerprint size={13} />} label="QID" value={profile.qid} mono />
+                <ProfileRow
+                  sensitive
+                  icon={<Fingerprint size={13} />}
+                  label="QID"
+                  value={profile.qid}
+                  mono
+                />
               ) : null}
               <ProfileRow
                 icon={<Hash size={13} />}
                 label="UID"
+                sensitive
                 value={uid}
                 mono
                 action={

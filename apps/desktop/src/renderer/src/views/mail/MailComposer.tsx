@@ -460,7 +460,9 @@ export function MailComposer({
           {draft.attachments.map((item) => (
             <div className="weq-mail-file" key={item.id}>
               <Paperclip size={15} />
-              <span title={item.name}>{item.name}</span>
+              <span data-privacy-sensitive title={item.name}>
+                {item.name}
+              </span>
               <small>{formatMailSize(item.size)}</small>
               <button
                 type="button"

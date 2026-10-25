@@ -622,7 +622,7 @@ export function CompositionWorkspace({
                             timeStyle: 'short',
                           }).format(new Date(entry.updatedAt * 1000))}
                         </span>
-                        <p>{compositionText(entry)}</p>
+                        <p data-privacy-sensitive>{compositionText(entry)}</p>
                         <div className="weq-composition-entry-actions">
                           <CompositionButton
                             type="button"

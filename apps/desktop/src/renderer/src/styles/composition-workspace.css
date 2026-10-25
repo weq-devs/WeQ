@@ -281,24 +281,6 @@ html[data-theme='dark'] .weq-composition-entry {
 html[data-theme='dark'] .weq-composition-entry.is-selected {
   background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
 }
-html[data-privacy]
-  :is(
-    .weq-composition-entry-title,
-    .weq-composition-entry > span,
-    .weq-composition-entry > p,
-    .weq-composition-title,
-    .weq-composition-canvas,
-    .weq-composition-status,
-    .weq-mf-person-name,
-    .weq-mf-person-uin,
-    .weq-mf-target-name,
-    .weq-mf-target-uin,
-    .weq-mf-search-input,
-    .weq-forward-status
-  ) {
-  filter: blur(12px);
-  user-select: none;
-}
 @media (max-width: 680px) {
   .weq-composition-columns {
     grid-template-columns: minmax(0, 1fr);

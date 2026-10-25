@@ -466,7 +466,7 @@ export function MessageBubble({
           {showSenderName ? (
             <span className={cn('message-name')}>
               {conversation.type === 'group' ? <GroupMessageBadge member={sender} /> : null}
-              {senderName}
+              <span data-privacy-sensitive>{senderName}</span>
               {senderKind === 'bot' ? (
                 <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
                   <Bot size={12} strokeWidth={2.4} />

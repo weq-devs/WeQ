@@ -48,7 +48,12 @@ export function EchoPage({ page, data, active }: ReportPageProps<EchoPageData>):
     if (mineFeatured) {
       return `${era}，有一句话你跟着接了 ${fmt(featured.count)} 次——`;
     }
-    return `${era}，${featured.groupName}里有一句话被接了 ${fmt(featured.count)} 次——`;
+    return (
+      <>
+        {era}，<span data-privacy-sensitive>{featured.groupName}</span>里有一句话被接了{' '}
+        {fmt(featured.count)} 次：
+      </>
+    );
   }, [era, featured, mineFeatured]);
 
   const mood = featured
@@ -148,7 +153,7 @@ function EchoStack({
       data-reduce={reduce ? 'yes' : 'no'}
     >
       <p className="weq-echo-stack-where">
-        在「<em>{groupName}</em>」里
+        在「<em data-privacy-sensitive>{groupName}</em>」里
         {mine ? <>，你在的那一轮，</> : <>，</>}
       </p>
       <div className="weq-echo-lines" aria-hidden>

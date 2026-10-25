@@ -306,7 +306,8 @@ function RedBagDetailDialog({
                 </span>
                 {detail?.totalAmount ? (
                   <span>
-                    {detail.lucky ? '总金额' : '金额'} ¥{formatAmount(detail.totalAmount)}
+                    {detail.lucky ? '总金额' : '金额'}{' '}
+                    <span data-privacy-sensitive>¥{formatAmount(detail.totalAmount)}</span>
                   </span>
                 ) : null}
               </div>
