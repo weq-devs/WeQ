@@ -672,6 +672,17 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  setReadSyncEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }).strict())
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({
+        reportReadEnabled: input.enabled,
+        manualReadReportEnabled: input.enabled,
+      });
+      if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
+      return true;
+    }),
+
   setManualReadReportEnabled: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {

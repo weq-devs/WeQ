@@ -16,6 +16,8 @@ const fixture = vi.hoisted(() => ({
   mutate: vi.fn(),
   refetch: vi.fn(),
   error: vi.fn(),
+  confirm: vi.fn(),
+  mutations: [] as string[],
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (path: string[] = []): unknown =>
@@ -37,14 +39,21 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               };
             }
           : key === 'useMutation'
-            ? () => ({ mutateAsync: fixture.mutate, isPending: false })
+            ? () => {
+                fixture.mutations.push(path.join('.'));
+                return { mutateAsync: fixture.mutate, isPending: false };
+              }
             : proxy([...path, String(key)]),
     });
   return { trpc: proxy() };
 });
 vi.mock('../src/renderer/src/components/Dialog', () => ({
-  useDialog: (select: (value: { showError: typeof fixture.error }) => unknown) =>
-    select({ showError: fixture.error }),
+  useDialog: (
+    select: (value: {
+      showError: typeof fixture.error;
+      confirm: typeof fixture.confirm;
+    }) => unknown,
+  ) => select({ showError: fixture.error, confirm: fixture.confirm }),
 }));
 vi.mock('../src/renderer/src/components/QqAvatar', () => ({ QqAvatar: () => null }));
 
@@ -59,8 +68,14 @@ beforeEach(() => {
     externalChatpic: { dir: '', enabled: false },
   };
   fixture.state = 'disabled';
+  fixture.mutations = [];
+  fixture.confirm.mockResolvedValue(true);
   fixture.mutate.mockImplementation(async ({ enabled }: { enabled: boolean }) => {
-    fixture.settings = { ...fixture.settings, reportReadEnabled: enabled };
+    fixture.settings = {
+      ...fixture.settings,
+      reportReadEnabled: enabled,
+      manualReadReportEnabled: enabled,
+    };
   });
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -93,6 +108,10 @@ describe('设置中的已读上报开关', () => {
         f.toggle().click();
       });
       expect(fixture.mutate).toHaveBeenCalledWith({ enabled: true });
+      expect(fixture.confirm).toHaveBeenCalledOnce();
+      expect(fixture.mutations).toContain('bootstrap.setReadSyncEnabled');
+      expect(fixture.mutations).not.toContain('bootstrap.setReportReadEnabled');
+      expect(fixture.mutations).not.toContain('bootstrap.setManualReadReportEnabled');
       expect(f.toggle().getAttribute('aria-checked')).toBe('true');
       f.close();
       f = mount();
@@ -139,8 +158,65 @@ describe('设置中的已读上报开关', () => {
       const card = f.toggle().closest('.weq-set-card');
       expect(card).not.toBeNull();
       expect(card?.querySelector('[role="status"]')).toBeNull();
-      expect(card?.textContent).toContain('向 QQ 上报在 WeQ 阅读的位置');
+      expect(card?.textContent).toContain('向 QQ 上报在 WeQ 阅读和手动标记的位置');
       expect(fixture.readReportQuery).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+
+  it.each([
+    [false, false],
+    [true, true],
+    [true, false],
+    [false, true],
+  ])('旧自动/手动组合 %s/%s 只展示，不自动改写', (automatic, manual) => {
+    fixture.settings = {
+      ...fixture.settings,
+      reportReadEnabled: automatic,
+      manualReadReportEnabled: manual,
+    };
+    const f = mount();
+    try {
+      expect(f.toggle().getAttribute('aria-checked')).toBe(String(automatic || manual));
+      expect(f.host.textContent?.includes('沿用原设置')).toBe(automatic !== manual);
+      expect(f.host.querySelectorAll('[aria-label="手动标记时上报已读位置"]')).toHaveLength(0);
+      expect(fixture.mutate).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+  it('取消开启不写入，重复点击只确认和提交一次', async () => {
+    const f = mount();
+    try {
+      fixture.confirm.mockResolvedValueOnce(false);
+      await act(async () => f.toggle().click());
+      expect(fixture.mutate).not.toHaveBeenCalled();
+      fixture.confirm.mockResolvedValueOnce(true);
+      await act(async () => {
+        f.toggle().click();
+        f.toggle().click();
+      });
+      expect(fixture.mutate).toHaveBeenCalledOnce();
+    } finally {
+      f.close();
+    }
+  });
+  it('混合状态关闭一次提交两个字段；失败重新读取实际状态', async () => {
+    fixture.settings = { ...fixture.settings, manualReadReportEnabled: true };
+    const f = mount();
+    try {
+      fixture.mutate.mockRejectedValueOnce(new Error('合成写入失败'));
+      fixture.refetch.mockResolvedValueOnce({
+        data: { ...fixture.settings, reportReadEnabled: true },
+      });
+      await act(async () => f.toggle().click());
+      expect(fixture.refetch).toHaveBeenCalledOnce();
+      expect(fixture.confirm).not.toHaveBeenCalled();
+      expect(f.toggle().getAttribute('aria-checked')).toBe('true');
+      expect(fixture.error).toHaveBeenCalled();
+      await act(async () => f.toggle().click());
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ enabled: false });
     } finally {
       f.close();
     }

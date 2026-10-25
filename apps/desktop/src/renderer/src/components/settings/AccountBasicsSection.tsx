@@ -17,7 +17,7 @@
  * stored avatarUrl — that URL can be a stale/expired signed link that 502s.
  */
 
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import {
   Check,
   CheckCheck,
@@ -158,6 +158,7 @@ export function AccountBasicsSection({
 }): ReactElement {
   const active = useTabActive();
   const showError = useDialog((s) => s.showError);
+  const confirm = useDialog((s) => s.confirm);
   const autoRefresh = useQQAutoRefresh(true);
 
   const profile = trpc.account.getSelfProfile.useQuery(undefined, {
@@ -182,8 +183,7 @@ export function AccountBasicsSection({
 
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
   const setAutoAttachQq = trpc.bootstrap.setAutoAttachQq.useMutation();
-  const setReportReadEnabled = trpc.bootstrap.setReportReadEnabled.useMutation();
-  const setManualReadReportEnabled = trpc.bootstrap.setManualReadReportEnabled.useMutation();
+  const setReadSyncEnabled = trpc.bootstrap.setReadSyncEnabled.useMutation();
   const setNativeMediaEnabled = trpc.account.setNativeMediaEnabled.useMutation();
   const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
   const pickExternalChatpicDir = trpc.bootstrap.pickExternalChatpicDir.useMutation();
@@ -202,6 +202,16 @@ export function AccountBasicsSection({
   const [autoAttach, setAutoAttach] = useState(true);
   const [reportRead, setReportRead] = useState(false);
   const [manualReadReport, setManualReadReport] = useState(false);
+  const [savingReadSync, setSavingReadSync] = useState(false);
+  const readSyncPending = useRef(false);
+  const readSyncActive = useRef(active);
+  readSyncActive.current = active;
+  useEffect(() => {
+    readSyncActive.current = active;
+    return () => {
+      readSyncActive.current = false;
+    };
+  }, [active]);
   // 静态账号的原生媒体绑定存在**账号**配置里（不是全局设置），所以单独镜像一份。
   const [nativeMedia, setNativeMedia] = useState(true);
   const [savingNativeMedia, setSavingNativeMedia] = useState(false);
@@ -274,29 +284,41 @@ export function AccountBasicsSection({
   }
 
   async function toggleReportRead(enabled: boolean): Promise<void> {
-    const previous = reportRead;
-    setReportRead(enabled);
+    if (readSyncPending.current || !active || !settings.data || settings.error) return;
+    readSyncPending.current = true;
+    setSavingReadSync(true);
     try {
-      await setReportReadEnabled.mutateAsync({ enabled });
+      if (
+        enabled &&
+        !(await confirm(
+          '同步已读状态到 QQ',
+          '开启后，自动阅读与手动标记已读都会同步到 QQ，可能清除其他客户端的未读提醒。标为未读不能恢复已清除的提醒。',
+          { okLabel: '开启同步' },
+        ))
+      )
+        return;
+      if (!readSyncActive.current) return;
+      await setReadSyncEnabled.mutateAsync({ enabled });
+      if (!readSyncActive.current) return;
+      setReportRead(enabled);
+      setManualReadReport(enabled);
+      await settings.refetch();
     } catch (error) {
-      setReportRead(previous);
-      showError('保存失败', errMsg(error));
-      return;
+      try {
+        const actual = await settings.refetch();
+        if (actual?.data && readSyncActive.current) {
+          setReportRead(actual.data.reportReadEnabled);
+          setManualReadReport(actual.data.manualReadReportEnabled);
+        }
+      } catch {
+        // 回读也失败时保留最后已知组合，不将保存失败误报为成功。
+      } finally {
+        if (readSyncActive.current) showError('保存失败', errMsg(error));
+      }
+    } finally {
+      readSyncPending.current = false;
+      setSavingReadSync(false);
     }
-    void settings.refetch();
-  }
-
-  async function toggleManualReadReport(enabled: boolean): Promise<void> {
-    const previous = manualReadReport;
-    setManualReadReport(enabled);
-    try {
-      await setManualReadReportEnabled.mutateAsync({ enabled });
-    } catch (error) {
-      setManualReadReport(previous);
-      showError('保存失败', errMsg(error));
-      return;
-    }
-    void settings.refetch();
   }
 
   // 原生媒体绑定存在账号配置里，所以刷的是 config 而不是 settings。主进程侧
@@ -645,28 +667,27 @@ export function AccountBasicsSection({
                 同步已读状态到 QQ
               </span>
             }
-            desc="向 QQ 上报在 WeQ 阅读的位置，可能清除其他端的未读提醒。默认关闭，仅在线模式生效；手动标记使用下方独立开关。"
+            desc="向 QQ 上报在 WeQ 阅读和手动标记的位置，可能清除其他端的未读提醒。默认关闭，仅在线完整模式生效；标为未读只在本地生效，不能恢复其他端已清除的提醒。"
             control={
               <Toggle
-                checked={reportRead}
-                disabled={settingsLoading || setReportReadEnabled.isPending}
+                checked={reportRead || manualReadReport}
+                disabled={
+                  settingsLoading ||
+                  !settings.data ||
+                  Boolean(settings.error) ||
+                  savingReadSync ||
+                  setReadSyncEnabled.isPending
+                }
                 onChange={(v) => void toggleReportRead(v)}
                 label="同步已读状态到 QQ"
               />
             }
           />
-          <Row
-            label="手动标记时上报已读位置"
-            desc="默认关闭。开启后，手动标为已读及撤销中推进已读的位置会同步到 QQ；标为未读只写本地库，不能恢复其他端已清除的提醒。"
-            control={
-              <Toggle
-                checked={manualReadReport}
-                disabled={settingsLoading || setManualReadReportEnabled.isPending}
-                onChange={(v) => void toggleManualReadReport(v)}
-                label="手动标记时上报已读位置"
-              />
-            }
-          />
+          {reportRead !== manualReadReport ? (
+            <p className="weq-set-note">
+              {reportRead ? '仅自动阅读同步，沿用原设置' : '仅手动标记同步，沿用原设置'}
+            </p>
+          ) : null}
         </Card>
       )}
       {page === 'account' && (
