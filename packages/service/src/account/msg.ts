@@ -14,6 +14,7 @@
  */
 
 import type { AccountSession } from '@weq/account';
+import { recordMessagePartition, recordMessageWork } from '@weq/db';
 import type {
   C2cMsg,
   GroupMsg,
@@ -1147,6 +1148,7 @@ export class MsgService {
   private async enrichReplyMedia(msgs: ReplyBearer[], kind: 'c2c' | 'group'): Promise<void> {
     const pending = msgs.filter((m) => m.elements.some(isMediaLessReply));
     if (pending.length === 0) return;
+    const began = performance.now();
 
     try {
       const caches = await this.session.forwardMsgs.listForMessages(
@@ -1164,12 +1166,15 @@ export class MsgService {
       }
     } catch {
       /* keep the "[图片]" placeholder on any cache miss / decode error */
+    } finally {
+      recordMessageWork(this.session.msgDbPath, 'replyCache', performance.now() - began);
     }
   }
 
   /** Resolve a peer uid to its indexed partition (sortNo), else fall back to uid. */
   private c2cPartition(targetUid: string): C2cPartition {
     const sortNo = this.session.uidMap.sortNoByUid(targetUid);
+    recordMessagePartition(this.session.msgDbPath, sortNo !== undefined);
     return sortNo !== undefined ? { sortNo } : { uid: targetUid };
   }
 

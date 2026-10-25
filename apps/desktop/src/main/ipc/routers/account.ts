@@ -52,6 +52,7 @@ import {
 import { onlineTranscriber } from '../../online_transcribe';
 import type { QuarantinedTable } from '@weq/native';
 import type { SalvageLedgerEntry } from '@weq/db';
+import { databasePerformance } from '@weq/db';
 import { classifyChatType, ProtoMsg } from '@weq/codec';
 import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
 import { detectThumbType, type OcrBlock } from '@weq/protocol';
@@ -1651,6 +1652,22 @@ function unreadInfoToWire(
 }
 
 export const accountRouter = router({
+  /** 固定字段的性能快照：不包含消息正文、会话 ID、SQL、路径或凭据。 */
+  messagePerformance: procedure.input(exportAccountBindingInput).query(({ input }) => {
+    requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+    const session = getAppContext().account!;
+    return {
+      runtime: {
+        implementation: 'message-scheduler-v1',
+        pid: process.pid,
+        node: process.versions.node,
+        electron: process.versions.electron ?? null,
+        nativeBuild: null,
+        nativeQueueObservable: false,
+      },
+      database: databasePerformance(session.msgDbPath),
+    };
+  }),
   qqActions: createQQActionsRouter(
     (input) => {
       const services = requireExpectedAccount(

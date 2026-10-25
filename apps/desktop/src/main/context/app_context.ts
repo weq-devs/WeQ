@@ -26,7 +26,7 @@ import { VipBadgeService } from '../vip_badge';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
-import { AnnualReportIndexDb } from '@weq/db';
+import { AnnualReportIndexDb, withDatabasePriority, waitForDatabaseQuiet } from '@weq/db';
 import { QQMailService, type MailNotice } from '@weq/service/mail';
 import {
   createWin32Platform,
@@ -364,8 +364,15 @@ const dbHealthFailureAt = new WeakMap<AccountSession, number>();
  * 再在后台把索引补上。已经建好的库上这个调用是 ~9ms 的 no-op。
  */
 let annualIndexWarmup: ReturnType<typeof setTimeout> | null = null;
+let annualIndexController: AbortController | null = null;
 /** 延迟多久开始建索引 —— 避开开账号瞬间那一批首屏查询。 */
 const ANNUAL_INDEX_WARMUP_DELAY_MS = 3000;
+function cancelAnnualReportWarmup(): void {
+  if (annualIndexWarmup) clearTimeout(annualIndexWarmup);
+  annualIndexWarmup = null;
+  annualIndexController?.abort();
+  annualIndexController = null;
+}
 
 /**
  * Mount the nt_msg.db watcher for `session` (idempotent — no-op if already
@@ -549,19 +556,18 @@ export function closeSalvageConnections(ctx: AppContext): number {
  * 的后台，用户还没走到报告页，这次建索引就是「白捡」的。
  *
  * 三个刻意的选择：
- *   • **延迟 {@link ANNUAL_INDEX_WARMUP_DELAY_MS}**：避开开账号瞬间那一批首屏查询
- *     （会话列表 / 未读 / 联系人），别让建索引跟它们抢连接。
+ *   • 延迟仅是首次检查；缺失索引逐个等待数据库队列为空且交互安静五秒，
+ *     再以后台优先级创建，不能将定时器到点当作空闲。已执行的 DDL 不可抢占。
  *   • **best-effort**：静态快照、只读目录、无写权限都会抛错，一律只记日志 ——
  *     报告不该因为装不上索引就打不开，只是慢一点。
- *   • **幂等**：已建好的库上是 ~9ms 的 no-op，所以每次开账号都可以无脑跑一次。
+ *   • **幂等**：先检查已有索引，不重复提交 DDL；两个缺失索引之间再次让出。
  *
  * 返回前会核对 session 仍是当前账号 —— 期间用户切了账号就整个丢弃。
  */
 function warmAnnualReportIndex(ctx: AppContext, session: AccountSession, platform: Platform): void {
-  if (annualIndexWarmup) {
-    clearTimeout(annualIndexWarmup);
-    annualIndexWarmup = null;
-  }
+  cancelAnnualReportWarmup();
+  const controller = new AbortController();
+  annualIndexController = controller;
   const logger = getLogger().child({ scope: 'annual-report-index' });
   annualIndexWarmup = setTimeout(() => {
     annualIndexWarmup = null;
@@ -573,23 +579,37 @@ function warmAnnualReportIndex(ctx: AppContext, session: AccountSession, platfor
         key: session.context.dbKey,
         algo: algoFor(session.context, session.msgDbPath),
       });
-      try {
-        const installed = await db.ensure();
-        logger.info('annual report indexes ready', {
-          event: 'annual-index-ready',
-          accountUin: session.context.uin,
-          indexes: installed.map((index) => index.name),
-        });
-      } finally {
-        db.close();
-      }
-    })().catch((error) => {
-      logger.warn('failed to build annual report indexes (report still works, just slower)', {
-        event: 'annual-index-failed',
+      const installed = await withDatabasePriority(
+        'background',
+        () =>
+          db.ensure({
+            beforeCreate: () =>
+              waitForDatabaseQuiet(
+                session.msgDbPath,
+                () => ctx.account === session && !controller.signal.aborted,
+              ),
+          }),
+        controller.signal,
+      );
+      if (ctx.account !== session) return;
+      logger.info('annual report indexes ready', {
+        event: 'annual-index-ready',
         accountUin: session.context.uin,
-        ...logErrorContext(error),
+        indexes: installed.map((index) => index.name),
       });
-    });
+      // 读侧复用账号连接；写侧 QqDb.write 已在每条 DDL 结束后释放锁。
+    })()
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        logger.warn('failed to build annual report indexes (report still works, just slower)', {
+          event: 'annual-index-failed',
+          accountUin: session.context.uin,
+          ...logErrorContext(error),
+        });
+      })
+      .finally(() => {
+        if (annualIndexController === controller) annualIndexController = null;
+      });
   }, ANNUAL_INDEX_WARMUP_DELAY_MS);
 }
 
@@ -1234,6 +1254,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       const base = this.platform;
       if (!base) throw new Error('原生组件尚未就绪');
       const platform = base;
+      cancelAnnualReportWarmup();
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
       this.scheduler?.stop();
@@ -1254,6 +1275,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.roamingBackfill.dispose();
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
+      this.services?.annualReport.dispose();
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
       this.account?.dispose();
@@ -2124,6 +2146,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       const backup = await resolveBackupLocation(dirPath);
       if (!backup) throw new Error('未找到 QQ 账号数据库目录');
       dirPath = backup.dbDir;
+      cancelAnnualReportWarmup();
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
       logger.info('opening static account session', {
@@ -2142,6 +2165,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.roamingBackfill.dispose();
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
+      this.services?.annualReport.dispose();
       await this.services?.unreadInfo.dispose();
       await waitForUnreadWrites();
       this.account?.dispose();
@@ -2826,10 +2850,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // 取消还没触发的索引预热：索引属于刚关掉的那个会话，别在关账号后
       // 还去写它的库（此刻 this.account 已改成 null，定时器里的守卫也会兜住，
       // 这里显式清掉只是不留悬挂的定时器）。
-      if (annualIndexWarmup) {
-        clearTimeout(annualIndexWarmup);
-        annualIndexWarmup = null;
-      }
+      cancelAnnualReportWarmup();
       unmountDbWatch();
       ssePush?.stop();
       ssePush = null;
@@ -2838,6 +2859,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.roamingBackfill.dispose();
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
+      this.services?.annualReport.dispose();
       void this.services?.unreadInfo.dispose().catch((error) => {
         console.error('[unread] 关闭账号时保存本地阅读状态失败', error);
       });

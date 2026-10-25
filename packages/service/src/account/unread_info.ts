@@ -1,4 +1,5 @@
 import type { AccountSession } from '@weq/account';
+import { recordMessageWork } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
 import { ReportRead, type ReadReportParams } from '@weq/protocol';
 import { queueSsoWork, ssoWorkState } from './sso_lifecycle';
@@ -132,9 +133,11 @@ export class UnreadInfoService {
     targets: UnreadInfoTarget[],
     watermarksOnly = false,
   ): Promise<ResolvedUnreadInfo[]> {
+    const began = performance.now();
     const snapshots = watermarksOnly
       ? await this.session.unreadInfo.getUnreadInfos(targets)
       : await this.readSnapshots(targets);
+    recordMessageWork(this.session.msgDbPath, 'watermarks', performance.now() - began);
     if (this.disposed) return snapshots.map((row) => ({ ...row, readError: true }));
     const rows = snapshots.map((row): ResolvedUnreadInfo => {
       if (
@@ -149,7 +152,9 @@ export class UnreadInfoService {
         return { ...row, countPending: true };
       return this.local.resolve(row);
     });
+    const saving = performance.now();
     await this.local.flush();
+    recordMessageWork(this.session.msgDbPath, 'unreadPersistence', performance.now() - saving);
     return rows;
   }
 

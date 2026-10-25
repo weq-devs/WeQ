@@ -18,6 +18,8 @@
  */
 
 import type { ReactElement, ReactNode, MouseEvent as ReactMouseEvent } from 'react';
+import { memo, useMemo } from 'react';
+import { recordMessageCounter } from '../../lib/messagePerformance';
 import { Check } from 'lucide-react';
 import type { Conversation, Message, MessageAction, User } from './types';
 import { MessageBubble } from './messageBubble';
@@ -169,7 +171,7 @@ export function GrayTipLine({
  * 宿主差异全部走 props（右键菜单 / 多选 / 删除恢复 / 头像点击），所以聊天区传全套，
  * 转发窗口只传消息本身也能得到和主面板一致的画法。
  */
-export function MessageRow({
+export const MessageRow = memo(function MessageRow({
   message,
   conversation,
   user,
@@ -193,6 +195,9 @@ export function MessageRow({
   selected = false,
   onToggleSelect,
   reactionInteraction,
+  onReactionChange,
+  reactionBlockedReason,
+  reactionBusy,
   repeatAction,
   pendingAction,
   /** 灰条外层的 class（聊天区靠它对齐，转发窗口用窄一点的边距）。 */
@@ -224,10 +229,25 @@ export function MessageRow({
   selected?: boolean;
   onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;
   reactionInteraction?: ReactionInteraction;
+  onReactionChange?: (message: Message, code: string, isSet: boolean) => void;
+  reactionBlockedReason?: string | null;
+  reactionBusy?: boolean;
   repeatAction?: ReactNode;
   pendingAction?: ReactNode;
   grayTipClassName?: string;
 }): ReactElement {
+  recordMessageCounter('rowRenders');
+  const reactions = useMemo(
+    () =>
+      onReactionChange
+        ? {
+            onChange: (code: string, isSet: boolean) => onReactionChange(message, code, isSet),
+            blockedReason: reactionBlockedReason,
+            busy: reactionBusy,
+          }
+        : reactionInteraction,
+    [onReactionChange, message, reactionBlockedReason, reactionBusy, reactionInteraction],
+  );
   const gt = grayTipOf(message);
   if (gt) {
     return (
@@ -300,12 +320,12 @@ export function MessageRow({
       selectionMode={selectionMode}
       selected={selected}
       onToggleSelect={onToggleSelect}
-      reactionInteraction={reactionInteraction}
+      reactionInteraction={reactions}
       repeatAction={repeatAction}
       pendingAction={pendingAction}
     />
   );
-}
+});
 
 function displayNameOf(user: User): string {
   return user.displayName || user.username || '';

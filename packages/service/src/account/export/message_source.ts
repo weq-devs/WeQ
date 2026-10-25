@@ -43,7 +43,7 @@
  * 这里退化成原来的严格分页。
  */
 
-import { type SalvageBindingOptions, isLikelyCorruptionError } from '@weq/db';
+import { type SalvageBindingOptions, isLikelyCorruptionError, withDatabasePriority } from '@weq/db';
 import type { SalvageSkippedRange } from '@weq/native';
 import type { MsgSalvageSource, MsgService, RenderGroupMsg, RenderC2cMsg } from '../msg';
 import type { GapFetchedMessage } from '../gap_history';
@@ -295,15 +295,22 @@ async function* pageGroupBySeq(
   for (;;) {
     let page: RenderGroupMsg[];
     try {
-      page = await msgs.getGroupAfter(groupCode, cursor, pageSize);
+      page = await withDatabasePriority(
+        'background',
+        () => msgs.getGroupAfter(groupCode, cursor, pageSize),
+        msgs.exportSignal,
+      );
     } catch (error) {
       if (!canSalvage(salvage, error)) throw error;
       // 严格读坏了：从**当前游标**接着读（不是从头重来 —— 已经 yield 出去的那部分
       // 不该重复写进文件）。续读是分批交出来的，所以这里再拆一层，保住"逐条产出"的契约。
-      for await (const batch of msgs.streamSalvageGroupAfter(
-        groupCode,
-        cursor,
-        salvageStreamOptions(salvage!, groupCode, 'group'),
+      for await (const batch of backgroundBatches(
+        msgs.streamSalvageGroupAfter(
+          groupCode,
+          cursor,
+          salvageStreamOptions(salvage!, groupCode, 'group'),
+        ),
+        msgs.exportSignal,
       )) {
         yield* batch;
       }
@@ -328,13 +335,20 @@ async function* pageGroupBySeqlessRowId(
   for (;;) {
     let page: Array<RenderGroupMsg & { rowId: bigint }>;
     try {
-      page = await msgs.getGroupSeqlessAfterRowId(groupCode, cursor, pageSize);
+      page = await withDatabasePriority(
+        'background',
+        () => msgs.getGroupSeqlessAfterRowId(groupCode, cursor, pageSize),
+        msgs.exportSignal,
+      );
     } catch (error) {
       if (!canSalvage(salvage, error)) throw error;
-      for await (const batch of msgs.streamSalvageGroupSeqlessAfterRowId(
-        groupCode,
-        cursor,
-        salvageStreamOptions(salvage!, groupCode, 'group'),
+      for await (const batch of backgroundBatches(
+        msgs.streamSalvageGroupSeqlessAfterRowId(
+          groupCode,
+          cursor,
+          salvageStreamOptions(salvage!, groupCode, 'group'),
+        ),
+        msgs.exportSignal,
       )) {
         yield* batch;
       }
@@ -390,13 +404,16 @@ async function* pageC2cBySeq(
   for (;;) {
     let page: RenderC2cMsg[];
     try {
-      page = await msgs.getC2cAfter(peerUid, cursor, pageSize);
+      page = await withDatabasePriority(
+        'background',
+        () => msgs.getC2cAfter(peerUid, cursor, pageSize),
+        msgs.exportSignal,
+      );
     } catch (error) {
       if (!canSalvage(salvage, error)) throw error;
-      for await (const batch of msgs.streamSalvageC2cAfter(
-        peerUid,
-        cursor,
-        salvageStreamOptions(salvage!, peerUid, 'c2c'),
+      for await (const batch of backgroundBatches(
+        msgs.streamSalvageC2cAfter(peerUid, cursor, salvageStreamOptions(salvage!, peerUid, 'c2c')),
+        msgs.exportSignal,
       )) {
         yield* batch;
       }
@@ -420,13 +437,20 @@ async function* pageC2cBySeqlessRowId(
   for (;;) {
     let page: Array<RenderC2cMsg & { rowId: bigint }>;
     try {
-      page = await msgs.getC2cSeqlessAfterRowId(peerUid, cursor, pageSize);
+      page = await withDatabasePriority(
+        'background',
+        () => msgs.getC2cSeqlessAfterRowId(peerUid, cursor, pageSize),
+        msgs.exportSignal,
+      );
     } catch (error) {
       if (!canSalvage(salvage, error)) throw error;
-      for await (const batch of msgs.streamSalvageC2cSeqlessAfterRowId(
-        peerUid,
-        cursor,
-        salvageStreamOptions(salvage!, peerUid, 'c2c'),
+      for await (const batch of backgroundBatches(
+        msgs.streamSalvageC2cSeqlessAfterRowId(
+          peerUid,
+          cursor,
+          salvageStreamOptions(salvage!, peerUid, 'c2c'),
+        ),
+        msgs.exportSignal,
       )) {
         yield* batch;
       }
@@ -489,7 +513,11 @@ async function* pageServiceBySeq(
 ): AsyncGenerator<RenderC2cMsg> {
   let cursor = 0n;
   for (;;) {
-    const page = await msgs.getServiceAfter(appId, cursor, pageSize);
+    const page = await withDatabasePriority(
+      'background',
+      () => msgs.getServiceAfter(appId, cursor, pageSize),
+      msgs.exportSignal,
+    );
     if (page.length === 0) break;
     for (const m of page) yield m;
     cursor = page[page.length - 1]!.msgSeq;
@@ -505,7 +533,11 @@ async function* pageServiceBySeqlessRowId(
 ): AsyncGenerator<RenderC2cMsg> {
   let cursor = 0n;
   for (;;) {
-    const page = await msgs.getServiceSeqlessAfterRowId(appId, cursor, pageSize);
+    const page = await withDatabasePriority(
+      'background',
+      () => msgs.getServiceSeqlessAfterRowId(appId, cursor, pageSize),
+      msgs.exportSignal,
+    );
     if (page.length === 0) break;
     for (const m of page) yield m;
     cursor = page[page.length - 1]!.rowId;
@@ -528,4 +560,19 @@ export function toExportedMessage(m: RenderGroupMsg | RenderC2cMsg): ExportedMes
     senderUid: m.senderUid,
     elements: m.elements,
   };
+}
+/** 生成器的 .next 才执行读取；创建时设置上下文不能覆盖后续窗口。 */
+async function* backgroundBatches<T>(
+  source: AsyncGenerator<T>,
+  signal?: AbortSignal,
+): AsyncGenerator<T> {
+  try {
+    for (;;) {
+      const next = await withDatabasePriority('background', () => source.next(), signal);
+      if (next.done) return;
+      yield next.value;
+    }
+  } finally {
+    await source.return(undefined);
+  }
 }

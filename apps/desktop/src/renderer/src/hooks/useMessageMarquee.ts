@@ -8,6 +8,7 @@ import {
 } from 'react';
 import '../styles/message-marquee.css';
 import { selectMessageIds, type SelectionModifiers } from '../lib/messageSelection';
+import { timelineViewport } from '../lib/timelineViewport';
 
 export function marqueeMessageIds(
   rows: readonly { id: string; top: number; bottom: number }[],
@@ -117,6 +118,7 @@ export function useMessageMarquee({
       Math.max(0, Math.min(drag.element.clientHeight, drag.clientY - bounds.top)) +
       drag.element.scrollTop;
     drag.endY = y;
+    for (const row of timelineViewport(drag.element)?.geometry() ?? []) drag.rows.set(row.id, row);
     for (const row of drag.element.querySelectorAll<HTMLElement>('[data-message-id]')) {
       const rect = row.getBoundingClientRect();
       if (rect.height <= 0) continue;

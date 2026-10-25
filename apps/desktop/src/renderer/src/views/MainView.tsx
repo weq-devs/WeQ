@@ -24,6 +24,13 @@ import {
   type ReplyPreviewIndex,
 } from '../lib/replyPreview';
 import { createCoalescedRefresh } from '../lib/coalescedRefresh';
+import { revealTimelineMessage } from '../lib/timelineViewport';
+import {
+  installMessagePerformanceProbe,
+  measureMessagePhase,
+  recordMessageCounter,
+  recordMessagePhase,
+} from '../lib/messagePerformance';
 import { intimateRelationOf } from '../lib/profileRelations';
 import {
   loadGroupAssistantPins,
@@ -2534,6 +2541,18 @@ export function MainView(): ReactElement {
   // conversation, plus whether it still reaches the latest message and whether
   // older history remains. `loaded[0].msgSeq` is the window's lower cursor.
   const [loaded, setLoaded] = useState<MessageWire[]>([]);
+  const pendingMessageCommit = useRef<number | null>(null);
+  useEffect(() => installMessagePerformanceProbe(), [messageScope]);
+  useLayoutEffect(() => {
+    if (pendingMessageCommit.current === null) return;
+    recordMessagePhase('stateToCommit', performance.now() - pendingMessageCommit.current);
+    pendingMessageCommit.current = null;
+    const committed = performance.now();
+    const frame = requestAnimationFrame(() =>
+      recordMessagePhase('commitToFrame', performance.now() - committed),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [loaded]);
   const [anchoredToLatest, setAnchoredToLatest] = useState(true);
 
   // Latest active-conversation identity, read by the once-mounted live
@@ -2562,8 +2581,9 @@ export function MainView(): ReactElement {
         if (!sel || !win.anchored) return;
         const kind = sel.kind === 'group' ? 'group' : 'c2c';
         const conv = sel.id;
+        recordMessageCounter('windowStarted');
         try {
-          const page =
+          const page = await measureMessagePhase('windowQuery', async () =>
             win.minSeq === null
               ? await client.account.listLatest.query({ ...binding, kind, conv, limit: PAGE_SIZE })
               : await client.account.listFrom.query({
@@ -2572,7 +2592,8 @@ export function MainView(): ReactElement {
                   sinceSeq: win.minSeq,
                   limit: REFRESH_CAP,
                   ...binding,
-                });
+                }),
+          );
           // Reject results after a conversation switch or a history-window change,
           // including switching away and back to the same conversation.
           if (
@@ -2581,8 +2602,10 @@ export function MainView(): ReactElement {
             selectionRef.current !== sel ||
             windowRef.current !== win ||
             !windowRef.current.anchored
-          )
+          ) {
+            recordMessageCounter('windowDiscarded');
             return;
+          }
           loadedRevisionRef.current = revision;
           windowVerifiedAtRef.current = Date.now();
           const rows = mergeRefreshedWindow(
@@ -2595,6 +2618,7 @@ export function MainView(): ReactElement {
             cachedScrollRef.current = { id: conv, position: captureReadingPosition(scroll) };
           }
           verifiedWindowRowsRef.current = rows;
+          if (rows !== loadedRef.current) pendingMessageCommit.current = performance.now();
           setLoaded(rows);
         } catch (err) {
           console.error('[live] refreshWindow failed', err);
@@ -2667,8 +2691,9 @@ export function MainView(): ReactElement {
       return true;
     }, 1000);
     const sub = client.account.onDbChanged.subscribe(binding, {
-      onData() {
+      onData(notice) {
         if (messageScopeRef.current !== messageScope) return;
+        if (!IS_WEB && notice?.at) recordMessagePhase('observedToRenderer', Date.now() - notice.at);
         dbRevisionRef.current += 1;
         conversationWindows.markDirty();
         // Read watermarks can change while recent contacts remain identical.
@@ -5993,6 +6018,7 @@ export function MainView(): ReactElement {
   );
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
+    const mappingStarted = performance.now();
 
     // Create a fast lookup map for member info
     const memberMap = new Map(currentGroupMembers.map((m) => [m.id, m]));
@@ -6030,7 +6056,9 @@ export function MainView(): ReactElement {
       .filter((item) => item.convId === selectedConversation.id)
       .map((item) => optimisticMessageToTemplate(item, selectedConversation, user));
     // 确认过的序号按原规则插入；失败按创建时间定位，其余无可靠位置的占位仍留在末尾。
-    return mergeOptimisticInto(real, [...pending, ...pendingArks, ...pendingMessages]);
+    const mapped = mergeOptimisticInto(real, [...pending, ...pendingArks, ...pendingMessages]);
+    recordMessagePhase('mapping', performance.now() - mappingStarted);
+    return mapped;
   }, [
     loadedMessageWires,
     selectedConversation,
@@ -6807,14 +6835,8 @@ export function MainView(): ReactElement {
     `${messageScope}:${shell.view}:${selectedUid ?? ''}`,
   );
   const scrollToMsgId = useCallback((msgId: string): boolean => {
-    const line = document.querySelector<HTMLElement>(
-      `.weq-readonly-chat .message-scroll [data-message-id="${msgId}"]`,
-    );
-    if (!line) return false;
-    line.scrollIntoView({ block: 'center' });
-    line.classList.add('weq-reply-target-flash');
-    window.setTimeout(() => line.classList.remove('weq-reply-target-flash'), 1600);
-    return true;
+    const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
+    return scroll ? revealTimelineMessage(scroll, msgId, true) : false;
   }, []);
 
   // Rebuild the loaded window centred on `targetSeq` straight from the DB,
@@ -7387,9 +7409,11 @@ export function MainView(): ReactElement {
               })
             ).map(toMessageWire),
           latest: async (size) =>
-            (await client.account.listLatest.query({ ...binding, kind, conv, limit: size })).map(
-              toMessageWire,
-            ),
+            (
+              await measureMessagePhase('entryQuery', () =>
+                client.account.listLatest.query({ ...binding, kind, conv, limit: size }),
+              )
+            ).map(toMessageWire),
           show: (next, first) => {
             if (!valid()) return;
             if (first && readSeq) {
@@ -7419,6 +7443,7 @@ export function MainView(): ReactElement {
               anchored: next.anchored,
             };
             loadedRef.current = rows;
+            pendingMessageCommit.current = performance.now();
             setLoaded(rows);
             setHasOlder(next.hasOlder);
             setHasNewer(next.hasNewer);

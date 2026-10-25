@@ -11,6 +11,9 @@ import {
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { useMediaSave } from '../../components/MediaSaveControls';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
+import { useVirtualTimeline } from '../../hooks/useVirtualTimeline';
+import { useStableCallback } from '../../hooks/useStableCallback';
+import { timelineViewport } from '../../lib/timelineViewport';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
 import { GroupProfileDialog } from './profilePanes';
@@ -1029,6 +1032,14 @@ export function ChatPane({
       ),
     [messages, hiddenMessageIds, hiddenDeletedKeys],
   );
+  const gapPredecessors = useMemo(() => {
+    let previous: Message | undefined;
+    return visibleMessages.map((message) => {
+      const before = previous;
+      if (!isUnpositionedFailure(message)) previous = message;
+      return before;
+    });
+  }, [visibleMessages]);
   const hasHiddenDeletionBetween = useMemo(
     () => hiddenDeletionLookup(messages, hiddenDeletedIds ?? new Set()),
     [messages, hiddenDeletedIds],
@@ -1075,6 +1086,29 @@ export function ChatPane({
   });
   selectionCancelRef.current = selectionFlow.cancel;
   const selectionOrder = selectionFlow.order;
+  const timelineIds = useMemo(
+    () => visibleMessages.map((message) => message.id),
+    [visibleMessages],
+  );
+  const timeline = useVirtualTimeline({
+    ids: timelineIds,
+    orderedIds: selectionOrder,
+    scrollRef: messageScrollRef,
+    // 数据源切换由宿主 ChatMainContent 的 messageScope key 重新挂载；不绑定按需加载的撤回资料。
+    scope: `${user.id}:${conversation?.id}`,
+    active: tabActive,
+  });
+  const rowRestore = useStableCallback(onRestoreMessage);
+  const rowContext = useStableCallback(openMessageMenu);
+  const rowLongPress = useStableCallback(openMobileMessageMenu);
+  const rowAction = useStableCallback(onMessageAction);
+  const rowReedit = useStableCallback(reeditMessage);
+  const rowDismiss = useStableCallback(onDismissUnsentMessage);
+  const rowStart = useStableCallback(onStartOutgoingMessage);
+  const rowToggle = useStableCallback(toggleSelectMessage);
+  const rowReaction = useStableCallback(changeMessageReaction);
+  const rowAvatar = useStableCallback(onOpenGroupMember);
+  const rowAvatarMenu = useStableCallback(openAvatarMenu);
   const actionScope = useMemo(() => ({}), [conversation?.id, user.id, tabActive]);
   const actionScopeRef = useRef<object | null>(actionScope);
   actionScopeRef.current = actionScope;
@@ -1213,6 +1247,13 @@ export function ChatPane({
     anchorRef: selectionAnchor,
     beforeSelect: selectionFlow.beforeSelect,
   });
+  useLayoutEffect(() => {
+    if (multi.focusRequest && messageScrollRef.current)
+      timelineViewport(messageScrollRef.current)?.scrollTo(multi.focusRequest.id, {
+        align: 'center',
+        focus: true,
+      });
+  }, [multi.focusRequest]);
   const marquee = useMessageMarquee({
     conversationKey: conversation?.id,
     enabled:
@@ -1625,7 +1666,7 @@ export function ChatPane({
           const idSelector = current.message.id.replace(/["\\]/g, '\\$&');
           const el = container.querySelector<HTMLElement>(`[data-message-id="${idSelector}"]`);
           if (!el) {
-            return current;
+            return null;
           }
           const rect = el.getBoundingClientRect();
           const bounds = container.getBoundingClientRect();
@@ -4128,7 +4169,9 @@ export function ChatPane({
       return;
     }
     readGestureUntil.current = 0;
-    scroll.scrollTop = scroll.scrollHeight;
+    const viewport = timelineViewport(scroll);
+    if (viewport) viewport.bottom();
+    else scroll.scrollTop = scroll.scrollHeight;
     atBottomRef.current = true;
     setNewMessagePill(0);
   }
@@ -4211,6 +4254,7 @@ export function ChatPane({
   }
 
   function handleMessageScroll() {
+    if (!readContextRef.current.tabActive || document.visibilityState === 'hidden') return;
     const bottom = isScrolledToBottom();
     if (!bottom || !initialReadingPosition || readGestureUntil.current > performance.now()) {
       atBottomRef.current = bottom;
@@ -4237,13 +4281,18 @@ export function ChatPane({
     }
 
     const firstUnread = unreadMessageElements(unreadJump)[0];
-    if (!firstUnread) {
+    const unreadId = visibleMessages[Math.max(0, visibleMessages.length - unreadJump.total)]?.id;
+    const virtualOffset = unreadId ? timelineViewport(scroll)?.offset(unreadId) : undefined;
+    if (!firstUnread && virtualOffset === undefined) {
       setUnreadJump(null);
       return;
     }
 
     const scrollRect = scroll.getBoundingClientRect();
-    const firstUnreadTop = firstUnread.getBoundingClientRect().top;
+    const firstUnreadTop =
+      virtualOffset !== undefined
+        ? scrollRect.top + virtualOffset - scroll.scrollTop
+        : firstUnread.getBoundingClientRect().top;
     const targetScrollTop =
       unreadJump.targetScrollTop ??
       Math.max(0, scroll.scrollTop + firstUnreadTop - scrollRect.top - 12);
@@ -4289,6 +4338,13 @@ export function ChatPane({
   }
 
   function jumpToFirstUnreadMessage() {
+    const scroll = messageScrollRef.current;
+    const id =
+      unreadJump && visibleMessages[Math.max(0, visibleMessages.length - unreadJump.total)]?.id;
+    if (scroll && id && timelineViewport(scroll)?.scrollTo(id, { align: 'start' })) {
+      setUnreadJump(null);
+      return;
+    }
     const firstUnread = unreadMessageElements()[0];
     if (!firstUnread) {
       setUnreadJump(null);
@@ -4777,7 +4833,11 @@ export function ChatPane({
         roamingMessageKey={roamingMessageKey}
       >
         <div
-          className={cn('message-scroll', marquee.dragging && 'is-marquee-selecting')}
+          className={cn(
+            'message-scroll',
+            timeline.enabled && 'is-virtualized',
+            marquee.dragging && 'is-marquee-selecting',
+          )}
           ref={messageScrollRef}
           onScroll={handleMessageScroll}
           {...marquee.handlers}
@@ -4794,14 +4854,16 @@ export function ChatPane({
               // 灰条分流 + 气泡组装统一走 messageRow 的 MessageRow —— 转发窗口与合成转发
               // 预览用的是同一份实现，所以三处的画法不会再各写一套。
               const out = [];
-              let previousForGap: Message | undefined;
-              visibleMessages.forEach((message, index) => {
+              timeline.items.forEach((virtualRow) => {
+                const index = virtualRow.index;
+                const message = visibleMessages[index];
+                const blockStart = out.length;
                 // A hole in the seq run means QQ has messages here that were
                 // never synced locally. Checked for every row (gray tips
                 // included — they occupy a seq too) and emitted before the row
                 // that follows the hole.
                 const previous = visibleMessages[index - 1];
-                const gapPrevious = previousForGap;
+                const gapPrevious = gapPredecessors[index];
                 const deletedGap =
                   gapPrevious && hasHiddenDeletionBetween(gapPrevious.msgSeq, message.msgSeq);
                 const gap = messageGapCount(
@@ -4809,7 +4871,6 @@ export function ChatPane({
                   message,
                   selectionMode || Boolean(deletedGap),
                 );
-                if (!isUnpositionedFailure(message)) previousForGap = message;
                 // 跳转落空的目标落在 previous 与 message 之间、且恰好只缺这 1 条时，
                 // 默认的缺口条（只在跳空 >1 时出现）不会渲染。补一条，保证「跳到空消息」
                 // 永远有可点击的拉取入口。跳空 >1 时交给上面的自然缺口条，不重复。
@@ -4916,16 +4977,14 @@ export function ChatPane({
                       deleted={deletedKeys.has(deletionIdentity(message.id))}
                       deletedKind={message.deletedKind}
                       recallRevokerName={message.recallRevokerName}
-                      onRestore={onRestoreMessage}
-                      onContextMenu={openMessageMenu}
-                      onLongPress={openMobileMessageMenu}
-                      onAction={onMessageAction}
-                      onReedit={reeditMessage}
-                      onDismissUnsent={onDismissUnsentMessage}
+                      onRestore={rowRestore}
+                      onContextMenu={rowContext}
+                      onLongPress={rowLongPress}
+                      onAction={rowAction}
+                      onReedit={rowReedit}
+                      onDismissUnsent={rowDismiss}
                       onStartOutgoing={
-                        !sendAvailable || currentPreference.blocked
-                          ? undefined
-                          : onStartOutgoingMessage
+                        !sendAvailable || currentPreference.blocked ? undefined : rowStart
                       }
                       repeatAction={
                         !selectionMode &&
@@ -4957,12 +5016,10 @@ export function ChatPane({
                         (selectionMode || Boolean(marquee.previewIds)) &&
                         displayedSelectedIds.has(message.id)
                       }
-                      onToggleSelect={toggleSelectMessage}
-                      reactionInteraction={{
-                        onChange: (code, isSet) => changeMessageReaction(message, code, isSet),
-                        blockedReason: messageReactionBlockedReason(message),
-                        busy: setMessageReaction.isLoading,
-                      }}
+                      onToggleSelect={rowToggle}
+                      onReactionChange={rowReaction}
+                      reactionBlockedReason={messageReactionBlockedReason(message)}
+                      reactionBusy={setMessageReaction.isLoading}
                       pendingAction={
                         pendingActions[message.id] ? (
                           <span
@@ -4979,15 +5036,44 @@ export function ChatPane({
                         !selectionMode &&
                         (conversation.type === 'group' || conversation.type === 'direct') &&
                         onOpenGroupMember
-                          ? onOpenGroupMember
+                          ? rowAvatar
                           : undefined
                       }
-                      onAvatarContextMenu={!selectionMode ? openAvatarMenu : undefined}
+                      onAvatarContextMenu={!selectionMode ? rowAvatarMenu : undefined}
                     />
                   </Fragment>,
                 );
+                {
+                  const children = out.splice(blockStart);
+                  out.push(
+                    <div
+                      className="weq-virtual-timeline-row"
+                      role="listitem"
+                      aria-posinset={index + 1}
+                      aria-setsize={visibleMessages.length}
+                      key={message.id}
+                      data-index={index}
+                      ref={timeline.measure}
+                      style={
+                        timeline.enabled ? { top: virtualRow.start - timeline.margin } : undefined
+                      }
+                    >
+                      {children}
+                    </div>,
+                  );
+                }
               });
-              return out;
+              return (
+                <div
+                  className={cn('weq-virtual-timeline', timeline.enabled && 'is-windowed')}
+                  role="list"
+                  aria-label="聊天消息"
+                  data-total-items={visibleMessages.length}
+                  style={timeline.enabled ? { height: timeline.totalSize } : undefined}
+                >
+                  {out}
+                </div>
+              );
             })()
           )}
           {loadingNewer ? (

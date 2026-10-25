@@ -61,6 +61,7 @@
     "@electron/osx-sign": "1.3.1",
     "@tailwindcss/vite": "^4.0.0",
     "@tanstack/react-query": "^4.44.0",
+    "@tanstack/react-virtual": "3.14.22",
     "@trpc/react-query": "^10.45.4",
     "@types/archiver": "5.3.4",
     "@types/d3": "^7.4.3",
