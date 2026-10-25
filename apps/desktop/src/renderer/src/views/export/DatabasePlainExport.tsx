@@ -36,6 +36,7 @@ export function DatabasePlainExport({
   const [error, setError] = useState('');
   const active = useRef(true);
   const pending = useRef(false);
+  const refreshOnResume = useRef(false);
   const { binding, prepareSave, isCurrent, serverLocation, chooseServerLocation } =
     useExportSavePolicy();
   const matchesSource = !target || databaseExportTargetMatches(target, binding);
@@ -46,6 +47,7 @@ export function DatabasePlainExport({
   });
   const appliedTarget = useRef<DatabaseExportTarget | null>(null);
   useEffect(() => {
+    refreshOnResume.current = false;
     setSelected(new Set());
     setError('');
     setBusy(null);
@@ -63,6 +65,17 @@ export function DatabasePlainExport({
     matchesSource &&
     isCurrent();
   const current = () => tabActiveRef.current && sameSource();
+  useEffect(() => {
+    if (!tabActive || !refreshOnResume.current) return;
+    refreshOnResume.current = false;
+    if (
+      active.current &&
+      matchesSource &&
+      useViewState.getState().openedUin === accountUin &&
+      isCurrent()
+    )
+      onStarted?.();
+  }, [tabActive, matchesSource, accountUin, isCurrent, onStarted]);
   const items = useMemo(
     () =>
       (databases.data ?? []).map((database) => ({
@@ -123,9 +136,10 @@ export function DatabasePlainExport({
         savePolicy,
         dbPaths: targets.map((item) => item.path),
       });
-      if (!current()) return;
+      if (!sameSource()) return;
       setSelected(new Set());
-      onStarted?.();
+      if (tabActiveRef.current) onStarted?.();
+      else refreshOnResume.current = true;
     } catch (cause) {
       if (current()) setError(cause instanceof Error ? cause.message : String(cause));
     } finally {

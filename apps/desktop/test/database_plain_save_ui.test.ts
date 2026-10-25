@@ -9,6 +9,7 @@ import {
   createDatabaseExportTarget,
   type DatabaseExportTarget,
 } from '../src/shared/database_export_target';
+import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 
 const state = vi.hoisted(() => ({
   uin: '10001',
@@ -80,21 +81,34 @@ async function mount(target?: DatabaseExportTarget) {
   document.body.append(host);
   const root = createRoot(host);
   const started = vi.fn();
-  const render = async () =>
-    act(async () =>
-      root.render(h(DatabasePlainExport, { accountUin: '10001', onStarted: started, target })),
+  let visible = true,
+    closed = false;
+  const render = async (active = visible) => {
+    visible = active;
+    return await act(async () =>
+      root.render(
+        h(
+          TabActivity,
+          { active },
+          h(DatabasePlainExport, { accountUin: '10001', onStarted: started, target }),
+        ),
+      ),
     );
-  cleanups.push(() => {
+  };
+  const close = () => {
+    if (closed) return;
+    closed = true;
     act(() => root.unmount());
     host.remove();
-  });
+  };
+  cleanups.push(close);
   await render();
-  return { host, render, started };
+  return { host, render, started, close };
 }
 function select(host: HTMLElement, index = 0) {
   act(() => host.querySelectorAll<HTMLButtonElement>('.weq-db-card')[index]!.click());
 }
-it('浏览器带入精确当前库，仍可在同一来源显式扩选，不默认为全部', async () => {
+it('浏览器带入精确当前库，不默认为全部，提交后不因重渲自动重新勾选', async () => {
   const f = await mount(
     createDatabaseExportTarget(
       {
@@ -114,6 +128,157 @@ it('浏览器带入精确当前库，仍可在同一来源显式扩选，不默�
   await f.render();
   expect(f.host.querySelectorAll('.weq-db-card.is-on')).toHaveLength(0);
 });
+
+function scopedTarget() {
+  return createDatabaseExportTarget(
+    { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture-source' },
+    ['/synthetic/login.db'],
+  );
+}
+it('同源扩选使用完整选择快照，多库沿用公共整包保存，不修改初始目标', async () => {
+  const target = scopedTarget(),
+    f = await mount(target);
+  select(f.host, 0);
+  await act(async () => f.host.querySelector<HTMLButtonElement>('.is-safe')!.click());
+  expect(state.prepare).toHaveBeenCalledWith(undefined, { kind: 'bundle', name: '数据库明文' });
+  expect(state.start).toHaveBeenCalledWith(
+    expect.objectContaining({ dbPaths: ['/synthetic/msg.db', '/synthetic/login.db'] }),
+  );
+  expect(target.dbPaths).toEqual(['/synthetic/login.db']);
+});
+it('精确当前库取消保存后保留选择，重试仍只提交该库', async () => {
+  const f = await mount(scopedTarget());
+  state.prepare.mockResolvedValueOnce(null);
+  await act(async () => f.host.querySelector<HTMLButtonElement>('.is-safe')!.click());
+  expect(state.start).not.toHaveBeenCalled();
+  expect(f.host.querySelectorAll('.weq-db-card.is-on')).toHaveLength(1);
+  await f.render();
+  await act(async () => f.host.querySelector<HTMLButtonElement>('.is-safe')!.click());
+  expect(state.start).toHaveBeenCalledOnce();
+  expect(state.start).toHaveBeenCalledWith(
+    expect.objectContaining({ dbPaths: ['/synthetic/login.db'] }),
+  );
+});
+it('同一事件循环连续开始只准备一次位置、只提交一次任务', async () => {
+  const f = await mount(scopedTarget());
+  let finish!: (policy: ExportSavePolicy) => void;
+  state.prepare.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const button = f.host.querySelector<HTMLButtonElement>('.is-safe')!;
+  act(() => {
+    button.click();
+    button.click();
+  });
+  expect(state.prepare).toHaveBeenCalledOnce();
+  expect(f.host.querySelector<HTMLButtonElement>('.weq-db-card')!.disabled).toBe(true);
+  await act(async () => finish({ mode: 'before', directory: '/fixture/export' }));
+  expect(state.start).toHaveBeenCalledOnce();
+});
+it('失败保留所选库及错误，重试成功后才清空选择并通知公共任务', async () => {
+  const f = await mount(scopedTarget());
+  state.start.mockRejectedValueOnce(new Error('合成建任务失败'));
+  await act(async () => f.host.querySelector<HTMLButtonElement>('.is-safe')!.click());
+  expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('合成建任务失败');
+  expect(f.host.querySelectorAll('.weq-db-card.is-on')).toHaveLength(1);
+  expect(f.started).not.toHaveBeenCalled();
+  await act(async () => f.host.querySelector<HTMLButtonElement>('.is-safe')!.click());
+  expect(state.start).toHaveBeenCalledTimes(2);
+  expect(state.start).toHaveBeenLastCalledWith(
+    expect.objectContaining({ dbPaths: ['/synthetic/login.db'] }),
+  );
+  expect(f.started).toHaveBeenCalledOnce();
+  expect(f.host.querySelectorAll('.weq-db-card.is-on')).toHaveLength(0);
+});
+it.each(['source', 'account', 'hidden', 'closed'] as const)(
+  '保存准备迟到后不跨越原作用域提交：%s',
+  async (change) => {
+    const f = await mount(scopedTarget());
+    let finish!: (policy: ExportSavePolicy) => void;
+    state.prepare.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    act(() => f.host.querySelector<HTMLButtonElement>('.is-safe')!.click());
+    if (change === 'source') {
+      state.configId = 'other-source';
+      await f.render();
+    }
+    if (change === 'account') {
+      state.uin = '10002';
+      await f.render();
+    }
+    if (change === 'hidden') await f.render(false);
+    if (change === 'closed') f.close();
+    await act(async () => finish({ mode: 'before', directory: '/fixture/export' }));
+    expect(state.start).not.toHaveBeenCalled();
+    expect(f.started).not.toHaveBeenCalled();
+    if (change === 'hidden') {
+      await f.render(true);
+      expect(f.host.querySelector<HTMLButtonElement>('.is-safe')!.disabled).toBe(false);
+    }
+  },
+);
+it('快速风险确认期间换同号来源，不准备保存位置或创建旧来源任务', async () => {
+  const f = await mount(scopedTarget());
+  state.online = true;
+  let finish!: (confirmed: boolean) => void;
+  state.confirm.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  await act(async () => f.host.querySelector<HTMLButtonElement>('.is-fast')!.click());
+  state.configId = 'other-source';
+  await f.render();
+  await act(async () => finish(true));
+  expect(state.prepare).not.toHaveBeenCalled();
+  expect(state.start).not.toHaveBeenCalled();
+});
+it.each(['source', 'account', 'hidden', 'closed'] as const)(
+  '提交后的迟到任务回执不作用于新来源，原来源恢复时不重复保留已提交选择：%s',
+  async (change) => {
+    const f = await mount(scopedTarget());
+    let finish!: (taskId: string) => void;
+    state.start.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    await act(async () => f.host.querySelector<HTMLButtonElement>('.is-safe')!.click());
+    expect(state.start).toHaveBeenCalledOnce();
+    expect(state.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedAccountUin: '10001',
+        expectedAccountConfigId: 'fixture-source',
+        dbPaths: ['/synthetic/login.db'],
+      }),
+    );
+    if (change === 'source') {
+      state.configId = 'other-source';
+      await f.render();
+    }
+    if (change === 'account') {
+      state.uin = '10002';
+      await f.render();
+    }
+    if (change === 'hidden') await f.render(false);
+    if (change === 'closed') f.close();
+    await act(async () => finish('synthetic-task'));
+    expect(f.started).not.toHaveBeenCalled();
+    expect(state.start).toHaveBeenCalledOnce();
+    if (change === 'hidden') {
+      await f.render(true);
+      expect(f.host.querySelectorAll('.weq-db-card.is-on')).toHaveLength(0);
+      expect(f.started).toHaveBeenCalledOnce();
+      await f.render(true);
+      expect(f.started).toHaveBeenCalledOnce();
+    }
+  },
+);
 it.each(['other-source', 'fixture-source'])(
   '失效来源或已不在清单的库不静默导出其他库：%s',
   async (configId) => {

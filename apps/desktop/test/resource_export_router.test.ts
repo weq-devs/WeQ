@@ -63,6 +63,7 @@ const roots: string[] = [];
 const artifacts = new Map<string, string>();
 let manager: ExportTaskManager;
 let databaseFiles: AccountDbFile[] = [];
+const listDatabases = vi.fn(async () => databaseFiles);
 const decrypt = vi.fn(async (opts: DbDecryptOptions): Promise<DbDecryptResult[]> => {
   opts.signal?.throwIfAborted();
   return opts.items.map((item, index) => {
@@ -109,6 +110,7 @@ const qzonePhotos = vi.fn(
   }> => ({ photos: [], totalInAlbum: 0 }),
 );
 beforeEach(() => {
+  listDatabases.mockReset().mockImplementation(async () => databaseFiles);
   qzoneVideo.mockReset().mockResolvedValue('https://synthetic.invalid/movie.mp4');
   qzonePhotos.mockReset().mockResolvedValue({ photos: [], totalInAlbum: 0 });
   artifacts.clear();
@@ -146,7 +148,7 @@ beforeEach(() => {
     groupAlbumMedia: { getMediaList: albums },
     webQuery: { getQzoneAlbumVideoUrl: qzoneVideo, getQzoneAlbumPhotos: qzonePhotos },
     dbDecrypt: {
-      listDatabases: async () => databaseFiles,
+      listDatabases,
       decryptDatabases: decrypt,
       isQqLoggedIn: () => true,
     },
@@ -370,6 +372,62 @@ it('明文任务与在线检查拒绝同号配置切换，范围外库不建任�
   await expect(api.isQqLoggedIn(binding)).rejects.toThrow('账号数据源已切换');
   expect(manager.listTasks()).toEqual([]);
   expect(decrypt).not.toHaveBeenCalled();
+});
+it.each(['account', 'source'] as const)(
+  '异步读取库清单期间切换 %s，不创建或解密旧目标',
+  async (change) => {
+    listDatabases.mockImplementationOnce(async () => {
+      if (change === 'account') state.uin = '10002';
+      else state.configId = 'other-source';
+      return databaseFiles;
+    });
+    await expect(
+      accountRouter.createCaller({}).startDatabasePlainExport({
+        ...binding,
+        dbPaths: [databaseFiles[0]!.path],
+        mode: 'safe',
+      }),
+    ).rejects.toThrow(/切换/);
+    expect(manager.listTasks()).toEqual([]);
+    expect(decrypt).not.toHaveBeenCalled();
+  },
+);
+it('明确空数据库目标被拒绝，不能解释成导出全部库', async () => {
+  await expect(
+    accountRouter.createCaller({}).startDatabasePlainExport({
+      ...binding,
+      dbPaths: [],
+      mode: 'safe',
+    }),
+  ).rejects.toThrow();
+  expect(manager.listTasks()).toEqual([]);
+  expect(decrypt).not.toHaveBeenCalled();
+});
+it('重复库路径只执行一次，失败重试仍生成独立单库任务而不发布失败残留', async () => {
+  const api = accountRouter.createCaller({}),
+    database = databaseFiles[0]!;
+  state.failedDatabasePath = database.path;
+  const failed = await api.startDatabasePlainExport({
+    ...binding,
+    dbPaths: [database.path, database.path],
+    mode: 'safe',
+    savePolicy: { mode: 'before', directory: roots[0]! },
+  });
+  await vi.waitFor(() => expect(manager.getTask(failed)?.status).toBe('failed'));
+  expect(decrypt.mock.calls[0]![0].items).toHaveLength(1);
+  expect(manager.getTask(failed)?.filePath).toBeUndefined();
+  state.failedDatabasePath = '';
+  const output = join(roots[0]!, 'retry-result.db');
+  const retry = await api.startDatabasePlainExport({
+    ...binding,
+    dbPaths: [database.path],
+    mode: 'safe',
+    savePolicy: { mode: 'before', filePath: output },
+  });
+  expect(retry).not.toBe(failed);
+  await vi.waitFor(() => expect(manager.getTask(retry)?.save?.status).toBe('saved'));
+  expect(readFileSync(output, 'utf8')).toBe('synthetic-plain-database');
+  expect(readFileSync(database.path, 'utf8')).toBe('synthetic-encrypted');
 });
 it('群文件入口固定精确选择，在任务私有缓存下载并保留部分失败，不递归扩大范围', async () => {
   const files = [

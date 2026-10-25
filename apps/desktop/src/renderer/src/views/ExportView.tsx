@@ -96,6 +96,7 @@ import { ContactScopePicker } from './export/ContactScopePicker';
 import { GeneratedExportPane } from './export/GeneratedExportPane';
 import { MailExportPane } from './export/MailExportPane';
 import { QzoneScopePicker } from './export/QzoneScopePicker';
+import '../styles/workspace-tools.css';
 import '../styles/unified-export.css';
 import { RetainedTabs, useTabActive } from '../components/RetainedTabs';
 import { ScheduleSettings } from '../components/tasks/ScheduleSettings';
