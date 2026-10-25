@@ -64,6 +64,7 @@ export class QQMailService {
   private reconnectAttempt = 0;
   private cursor = new MailNoticeCursor();
   private noticeQueryPrimed = false;
+  private noticeSyncVersion = 0;
   private sending = false;
   private readonly totals = new Map<string, number>();
   private readonly transfers = new Set<AbortController>();
@@ -191,9 +192,13 @@ export class QQMailService {
   }
 
   async folders(signal?: AbortSignal): Promise<MailFolder[]> {
-    return this.scoped(async (auth) => {
+    const folders = await this.scoped(async (auth) => {
       const body = await auth.cgi('/list/folderlist', {}, { signal });
       return mailFolders(body.list);
+    });
+    return this.scoped(async () => {
+      await this.refreshUnread(signal);
+      return folders;
     });
   }
 
@@ -427,7 +432,10 @@ export class QQMailService {
   }
 
   private async syncNotice(prime: boolean, signal?: AbortSignal): Promise<void> {
+    const version = ++this.noticeSyncVersion;
     const body = await this.scoped((auth) => auth.notificationQuery(signal));
+    // 页面刷新、推送和后台轮询可能重叠，旧响应不能覆盖较新的已读状态。
+    if (version !== this.noticeSyncVersion) return;
     const notices = items(body.newmaillist).map((value) => {
       const entry = object(value);
       const sender = object(entry.senderinfo ?? entry.sender_info);
@@ -445,7 +453,10 @@ export class QQMailService {
     this.update({ state: 'ready', error: null, unread: count(body.unread), lastSync: Date.now() });
     if (this.backgroundEnabled) {
       if (this.pollTimer) clearTimeout(this.pollTimer);
-      const seconds = Math.min(3600, Math.max(60, count(body.next_sync_time_interval_sec) || 900));
+      const seconds =
+        this.state.unread > 0
+          ? 60
+          : Math.min(3600, Math.max(60, count(body.next_sync_time_interval_sec) || 900));
       this.pollTimer = setTimeout(() => {
         this.pollTimer = null;
         void this.syncNotice(false).catch(() => this.scheduleNoticeRecovery());
@@ -495,7 +506,11 @@ export class QQMailService {
           }
           this.cursor.sequence = event.sequence;
           if (!this.cursor.primed) this.cursor.prime([]);
-        } else if (event.sequence === 0 || event.sequence > this.cursor.sequence) {
+        } else if (
+          event.kind === 'changed' ||
+          event.sequence === 0 ||
+          event.sequence > this.cursor.sequence
+        ) {
           this.cursor.sequence = Math.max(this.cursor.sequence, event.sequence);
           if (event.kind === 'mail' && this.cursor.accept(event.notice.id))
             this.announce(event.notice);
