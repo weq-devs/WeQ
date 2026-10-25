@@ -23,12 +23,12 @@ describe('功能与设置目录搜索', () => {
     });
     expect(searchAppEntries('消息序号')[0]?.target).toEqual({
       kind: 'setting',
-      section: 'message-display',
+      section: 'chat-messages',
       item: '显示消息序号（seq）',
     });
     expect(searchAppEntries('缓存目录')[0]?.target).toEqual({
       kind: 'setting',
-      section: 'storage',
+      section: 'weq-storage',
       item: '缓存目录',
     });
   });

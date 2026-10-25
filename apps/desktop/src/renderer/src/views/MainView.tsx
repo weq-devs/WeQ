@@ -9035,10 +9035,11 @@ export function MainView(): ReactElement {
     const target = entry.target;
     if (target.kind === 'setting') {
       setSettingsSection(target.section);
-      if (target.item)
+      if (target.item || target.settingId)
         setSettingsSearchTarget({
           section: target.section,
           item: target.item,
+          settingId: target.settingId,
           revision: Date.now(),
         });
       setSettingsOpen(true);
@@ -9625,6 +9626,7 @@ export function MainView(): ReactElement {
           ) : null}
 
           <SettingsDialog
+            key={messageScope}
             open={settingsOpen}
             onClose={() => setSettingsOpen(false)}
             initialSection={settingsSection}

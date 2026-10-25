@@ -18,16 +18,13 @@ describe('设置的两级导航', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',
       '基础功能',
-      '个性显示',
-      '隐私与安全',
-      '账号与消息',
-      '存储与媒体',
-      '备份与恢复',
-      '数据维护',
-      '模型与识别',
-      '服务与集成',
-      '高级与诊断',
-      '帮助与关于',
+      'AI 功能',
+      '凭据与账号',
+      '数据库与资源',
+      'WeQ 服务',
+      '隐私',
+      '设置备份',
+      '关于 WeQ',
     ]);
     expect(settingsGroupFor('model-usage').sections).toEqual([
       'agentlab',
@@ -44,11 +41,11 @@ describe('设置的两级导航', () => {
     expect(settingsSectionFor('local-models')).toBe('voice');
     expect(settingsSectionFor('intent-models')).toBe('intent-sense');
     expect(settingsSectionFor('tts')).toBe('agentlab');
-    expect(settingsGroupFor('credentials').id).toBe('advanced');
+    expect(settingsGroupFor('credentials').id).toBe('account');
     expect(settingsGroupFor('startup').id).toBe('general');
     expect(settingsGroupFor('database').id).toBe('data');
     expect(settingsGroupFor('mail').sections).toEqual([
-      'message-display',
+      'chat-messages',
       'call-recording',
       'qzone',
       'mail',
@@ -58,23 +55,18 @@ describe('设置的两级导航', () => {
   });
 
   it('存储、备份和维护按用途拆分，原页面入口定位到各自分类', () => {
-    for (const id of ['storage', 'media'] as const) {
-      expect(settingsGroupFor(id)).toEqual({
-        id: 'storage',
-        label: '存储与媒体',
-        sections: ['storage', 'media'],
-      });
-    }
+    expect(settingsGroupFor('storage').sections).toContain('weq-storage');
+    expect(settingsGroupFor('media').sections).toContain('accounts');
     expect(settingsGroupFor('backup')).toEqual({
       id: 'backup',
-      label: '备份与恢复',
+      label: '设置备份',
       sections: ['backup'],
     });
     for (const id of ['database', 'database-status', 'maintenance'] as const) {
       expect(settingsGroupFor(id)).toEqual({
         id: 'data',
-        label: '数据维护',
-        sections: ['database', 'database-status', 'maintenance'],
+        label: '数据库与资源',
+        sections: ['database-repair', 'database-tolerance', 'database-management', 'qq-storage'],
       });
     }
   });

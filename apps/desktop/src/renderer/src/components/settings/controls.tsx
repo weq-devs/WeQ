@@ -85,11 +85,13 @@ export function SectionHeader({
 
 /** A bordered card grouping related rows, with an optional title + action. */
 export function Card({
+  settingId,
   title,
   icon,
   action,
   children,
 }: {
+  settingId?: string;
   title?: string;
   /** 标题前的图标（lucide 组件或资源图），与设置页各分区的视觉语言保持一致。 */
   icon?: ReactNode;
@@ -97,7 +99,7 @@ export function Card({
   children: ReactNode;
 }): ReactElement {
   return (
-    <section className="weq-set-card">
+    <section className="weq-set-card" data-setting-id={settingId}>
       {title || action ? (
         <div className="weq-set-card-head">
           {title ? (
@@ -125,18 +127,20 @@ export function Card({
  * `indent` nudges the row right to read as a child of the one above it.
  */
 export function Row({
+  settingId,
   label,
   desc,
   control,
   indent,
 }: {
+  settingId?: string;
   label: ReactNode;
   desc?: ReactNode;
   control: ReactNode;
   indent?: boolean;
 }): ReactElement {
   return (
-    <div className={`weq-set-row${indent ? ' is-indent' : ''}`}>
+    <div className={`weq-set-row${indent ? ' is-indent' : ''}`} data-setting-id={settingId}>
       <div className="weq-set-row-main">
         <span className="weq-set-row-label">{label}</span>
         {desc ? <span className="weq-set-row-desc">{desc}</span> : null}

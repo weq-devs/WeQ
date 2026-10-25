@@ -30,7 +30,6 @@ import {
   TOTP_STATUS_QUERY_KEY,
 } from '../../lib/appLockStatus';
 import { TotpBindDialog } from './TotpBindDialog';
-import { usePrivacyStore } from '../../state/privacy';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -46,8 +45,6 @@ const AUTO_LOCK_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
 ];
 
 export function AppLockSection(): ReactElement {
-  const privacyEnabled = usePrivacyStore((state) => state.enabled);
-  const setPrivacy = usePrivacyStore((state) => state.set);
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
   const pushToast = useToast((s) => s.push);
@@ -164,17 +161,10 @@ export function AppLockSection(): ReactElement {
   return (
     <div className="weq-set">
       <SectionHeader
-        title="隐私与应用锁"
+        title="应用锁"
         desc="上锁后需要验证才能继续访问当前账号数据。"
         icon={<LockKeyhole size={16} strokeWidth={1.8} />}
       />
-
-      <Card title="隐私模式">
-        <Row
-          label="隐私模式"
-          control={<Toggle label="隐私模式" checked={privacyEnabled} onChange={setPrivacy} />}
-        />
-      </Card>
 
       <Card title="应用锁">
         <Row

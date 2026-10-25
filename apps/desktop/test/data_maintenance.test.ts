@@ -126,7 +126,7 @@ describe('设置的数据与维护', () => {
     );
     try {
       const help = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')].find(
-        (button) => button.textContent === '帮助与关于',
+        (button) => button.textContent === '关于 WeQ',
       );
       expect(help).toBeDefined();
       act(() => help!.click());
@@ -202,14 +202,14 @@ describe('设置的数据与维护', () => {
     const f = mount(createElement(DataMaintenanceSection, { onOpen: open }));
     try {
       expect(entries(f.host).map((button) => button.textContent)).toEqual([
-        '本地缓存',
+        '资源查看',
         '数据库管理',
-        '存储占用',
-        '清理缓存',
+        '占用分析',
+        '缓存清理',
         '数据库修复',
         '导出明文数据库',
         '密钥扫描',
-        '其它设备密钥',
+        '其他设备密钥',
       ]);
       for (const button of entries(f.host)) act(() => button.click());
       expect(open.mock.calls.map(([tool]) => tool)).toEqual([
@@ -269,7 +269,12 @@ describe('设置的数据与维护', () => {
           null,
           createElement(SettingsDialog, {
             open: settings,
-            initialSection: 'maintenance',
+            initialSection:
+              tool === 'cache' || tool === 'storage' || tool === 'cleanup'
+                ? 'qq-storage'
+                : tool === 'db-repair'
+                  ? 'database-repair'
+                  : 'database-management',
             onClose: () => setSettings(false),
             onOpenMaintenance: (next) => {
               setActive(next);
@@ -288,15 +293,17 @@ describe('设置的数据与维护', () => {
       const f = mount(createElement(Harness));
       try {
         const settings = f.host.querySelector('.weq-settings-dialog');
-        const index = [
-          'cache',
-          'database',
-          'storage',
-          'cleanup',
-          'db-repair',
-          'db-decrypt',
-        ].indexOf(tool);
-        act(() => entries(f.host)[index]!.click());
+        const entryId = {
+          cache: 'resource-viewer',
+          database: 'database-manager',
+          storage: 'qq-storage-analysis',
+          cleanup: 'qq-storage-cleanup',
+          'db-repair': 'database-repair',
+          'db-decrypt': 'database-export',
+        }[tool];
+        act(() =>
+          f.host.querySelector<HTMLButtonElement>(`button[data-setting-id="${entryId}"]`)!.click(),
+        );
         expect(f.host.querySelector('.weq-settings-dialog')).toBe(settings);
         expect(settings?.closest('[hidden]')).toBeNull();
         if (tool === 'db-repair') {
@@ -322,7 +329,7 @@ describe('设置的数据与维护', () => {
         ].find((button) => button.getAttribute('aria-label') === '关闭')!;
         act(() => back.click());
         expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-          '数据维护',
+          '数据库与资源',
         );
         expect(document.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
         expect(document.querySelectorAll('[role="dialog"], [aria-modal="true"]')).toHaveLength(0);

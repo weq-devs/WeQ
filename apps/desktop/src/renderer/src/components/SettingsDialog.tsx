@@ -1,12 +1,12 @@
 /**
  * 设置整页。
  *
- * 左侧是分类导航，右侧是分类内容。外观能力单独收敛到“个性显示”页：
- * 基础模式、主题色（色相条 + 预设 + Hex）、界面背景、组件风格（占位）。
+ * 左侧一级分类，右侧二级页；旧页面与条目入口统一解析到规范位置。
  */
 
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -22,7 +22,6 @@ import {
   BrainCircuit,
   Check,
   ChevronRight,
-  CloudDownload,
   DatabaseZap,
   Globe,
   HardDrive,
@@ -41,7 +40,6 @@ import {
   Settings2,
   ScanSearch,
   ScrollText,
-  ShieldCheck,
   Sun,
   User,
   Users,
@@ -54,6 +52,8 @@ import { QzoneSettingsSection } from './settings/QzoneSettingsSection';
 import { CallRecordingSection } from './settings/CallRecordingSection';
 import { MailSettingsSection } from './settings/MailSettingsSection';
 import { AppLockSection } from './settings/AppLockSection';
+import { PrivacySection } from './settings/PrivacySection';
+import { TypingStatusSettingsCard } from './settings/TypingStatusSettingsCard';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
@@ -68,7 +68,7 @@ import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
 import { AssistantSection } from './settings/AssistantSection';
 import { StartupSection } from './settings/StartupSection';
-import { DatabaseToleranceSection } from './settings/DatabaseToleranceSection';
+import { DatabaseSettingsSection } from './settings/DatabaseSettingsSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
 import { SectionHeader, SettingsScopeContext, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
@@ -83,10 +83,11 @@ import '../styles/app-search.css';
 import { revealSetting, type SettingsSearchTarget } from './settings/searchTarget';
 import {
   SETTINGS_GROUPS,
+  resolveSettingsTarget,
   settingsGroupFor,
   settingsScopeFor,
-  settingsSectionFor,
   type SectionId,
+  type SettingsPageId,
 } from './settings/navigation';
 export type { SectionId } from './settings/navigation';
 import {
@@ -99,7 +100,7 @@ import { useUpdateStore } from '../state/update';
 
 /** 左侧导航的分区 id。导出出去是为了让别的界面能"直接打开某一屏"（例如损坏弹窗 → 数据库宽容）。 */
 interface SettingsSection {
-  id: SectionId;
+  id: SettingsPageId;
   label: string;
   icon: ReactElement;
   render: (
@@ -117,7 +118,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'global',
-    label: '窗口行为',
+    label: '提醒与窗口',
     icon: <Settings2 size={16} strokeWidth={1.8} />,
     render: () => <GlobalSettingsSection />,
   },
@@ -135,35 +136,36 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'applock',
-    label: '隐私与应用锁',
+    label: '应用锁',
     icon: <LockKeyhole size={16} strokeWidth={1.8} />,
     render: () => <AppLockSection />,
   },
+  { id: 'privacy', label: '隐私模式', icon: <Lock size={16} />, render: () => <PrivacySection /> },
   {
     id: 'account',
-    label: '接入与监听',
+    label: '监听与读取',
     icon: <User size={16} strokeWidth={1.8} />,
     render: () => <AccountBasicsSection />,
   },
   {
     id: 'accounts',
-    label: '账号管理',
+    label: 'WeQ 账号管理',
     icon: <User size={16} />,
-    render: (onOpen) => (
+    render: () => (
       <>
         <GlobalSettingsSection section="accounts" />
-        <button
-          type="button"
-          className="weq-maintenance-entry"
-          onClick={() => onOpen('login-accounts')}
-        >
-          <User size={18} />
-          <span>QQ 登录账号管理</span>
-        </button>
+        <AccountBasicsSection page="media" heading={false} />
       </>
     ),
   },
-  { id: 'anti-recall', label: '防撤回', icon: <ShieldCheck size={16} />, render: () => null },
+  {
+    id: 'qq-accounts',
+    label: 'QQ 账号管理',
+    icon: <Users size={16} />,
+    render: (onOpen) => (
+      <DataMaintenanceSection title="QQ 账号管理" onOpen={onOpen} tools={['login-accounts']} />
+    ),
+  },
   {
     id: 'call-recording',
     label: '通话录音',
@@ -183,22 +185,40 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <MailSettingsSection />,
   },
   {
-    id: 'database',
-    label: '损坏处理与容错',
+    id: 'database-repair',
+    label: '损坏与修复',
     icon: <DatabaseZap size={16} strokeWidth={1.8} />,
-    render: () => <DatabaseToleranceSection />,
+    render: (onOpen) => <DatabaseSettingsSection page="repair" onOpen={onOpen} />,
   },
   {
-    id: 'maintenance',
-    label: '维护工具',
+    id: 'database-management',
+    label: '数据库管理',
     icon: <HardDrive size={16} strokeWidth={1.8} />,
-    render: (onOpen) => <DataMaintenanceSection onOpen={onOpen} />,
+    render: (onOpen) => (
+      <DataMaintenanceSection
+        title="数据库管理"
+        onOpen={onOpen}
+        tools={['database', 'db-decrypt']}
+      />
+    ),
   },
   {
-    id: 'database-status',
-    label: '容错记录',
+    id: 'database-tolerance',
+    label: '数据库宽容',
     icon: <DatabaseZap size={16} />,
-    render: () => <DatabaseToleranceSection page="status" />,
+    render: (onOpen) => <DatabaseSettingsSection page="tolerance" onOpen={onOpen} />,
+  },
+  {
+    id: 'qq-storage',
+    label: 'QQ 存储管理',
+    icon: <HardDrive size={16} />,
+    render: (onOpen) => (
+      <DataMaintenanceSection
+        title="QQ 存储管理"
+        onOpen={onOpen}
+        tools={['storage', 'cleanup', 'cache']}
+      />
+    ),
   },
   {
     id: 'voice',
@@ -208,11 +228,11 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'diagnostics',
-    label: '高级诊断',
+    label: '诊断工具',
     icon: <ScanSearch size={16} />,
     render: (onOpen) => (
       <div className="weq-set">
-        <SectionHeader title="高级诊断" />
+        <SectionHeader title="诊断工具" />
         <div className="weq-maintenance-list">
           <button type="button" className="weq-maintenance-entry" onClick={() => onOpen('capture')}>
             <Radio size={18} aria-hidden />
@@ -289,25 +309,21 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'remote',
     label: 'Web 与 Remote',
     icon: <Monitor size={16} strokeWidth={1.8} />,
-    render: () => <RemoteSection />,
-  },
-  {
-    id: 'rkey',
-    label: '外部 RKEY',
-    icon: <CloudDownload size={16} strokeWidth={1.8} />,
-    render: () => <ExternalRkeySection />,
+    render: () => (
+      <>
+        <RemoteSection />
+        <GlobalSettingsSection section="network" />
+        <div data-setting-id="assistant-service">
+          <AssistantSection />
+        </div>
+      </>
+    ),
   },
   {
     id: 'sse',
     label: 'SSE 推送',
     icon: <Radio size={16} strokeWidth={1.8} />,
     render: () => <SsePushSection />,
-  },
-  {
-    id: 'assistant',
-    label: 'QQ 公众号推送',
-    icon: <Activity size={16} strokeWidth={1.8} />,
-    render: () => <AssistantSection />,
   },
   {
     id: 'faq',
@@ -322,7 +338,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <HelpSection page="feedback" />,
   },
   {
-    id: 'message-display',
+    id: 'chat-messages',
     label: '聊天消息',
     icon: <Monitor size={16} />,
     render: () => <AppearanceSection page="messages" />,
@@ -334,28 +350,36 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <StartupSection />,
   },
   {
-    id: 'saving',
-    label: '默认保存',
+    id: 'weq-storage',
+    label: 'WeQ 存储管理',
     icon: <HardDrive size={16} />,
-    render: () => <GlobalSettingsSection section="saving" />,
-  },
-  {
-    id: 'storage',
-    label: '存储与网络',
-    icon: <HardDrive size={16} />,
-    render: () => <GlobalSettingsSection section="storage" />,
-  },
-  {
-    id: 'media',
-    label: '媒体来源',
-    icon: <HardDrive size={16} />,
-    render: () => <AccountBasicsSection page="media" />,
+    render: () => (
+      <>
+        <div className="weq-set">
+          <SectionHeader title="WeQ 存储管理" />
+        </div>
+        <GlobalSettingsSection section="saving" heading={false} />
+        <GlobalSettingsSection section="storage" heading={false} />
+      </>
+    ),
   },
   {
     id: 'credentials',
-    label: '账号凭据',
+    label: '凭据管理',
     icon: <Lock size={16} />,
-    render: () => <AccountBasicsSection page="credentials" />,
+    render: (onOpen) => (
+      <>
+        <AccountBasicsSection page="credentials" />
+        <DataMaintenanceSection
+          title={null}
+          onOpen={onOpen}
+          tools={['key-scan', 'other-device-key']}
+        />
+        <div data-setting-id="external-rkey">
+          <ExternalRkeySection />
+        </div>
+      </>
+    ),
   },
   {
     id: 'logs',
@@ -399,12 +423,16 @@ export function SettingsDialog({
   onOpenRecalls: (kind: 'c2c' | 'group', conv: string) => void;
   onCreateClone?: () => void;
 }): ReactElement | null {
-  const [activeId, setActiveId] = useState<SectionId>(() =>
-    settingsSectionFor(initialSection ?? 'global'),
+  const target = useMemo(
+    () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'appearance' }),
+    [initialSection, searchTarget],
   );
+  const [activeId, setActiveId] = useState<SettingsPageId>(() => target.section);
   const updateAvailable = useUpdateStore((state) => state.available);
   const navRef = useRef<HTMLElement | null>(null);
-  const [mobileCategoryOpen, setMobileCategoryOpen] = useState(Boolean(initialSection));
+  const [mobileCategoryOpen, setMobileCategoryOpen] = useState(
+    Boolean(initialSection || searchTarget),
+  );
   const subnavRef = useRef<HTMLElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const sections = SETTINGS_SECTIONS;
@@ -412,9 +440,9 @@ export function SettingsDialog({
   const groupSections = group.sections.map((id) => sections.find((section) => section.id === id)!);
 
   useEffect(() => {
-    if (open && initialSection) setActiveId(settingsSectionFor(initialSection));
-    if (open) setMobileCategoryOpen(Boolean(initialSection));
-  }, [open, initialSection]);
+    if (open) setActiveId(target.section);
+    if (open) setMobileCategoryOpen(Boolean(initialSection || searchTarget));
+  }, [open, initialSection, searchTarget, target]);
 
   useEffect(() => {
     if (open) {
@@ -428,9 +456,15 @@ export function SettingsDialog({
   }, [open, activeId]);
 
   useEffect(() => {
-    if (!open || !searchTarget || searchTarget.section !== activeId || !bodyRef.current) return;
-    return revealSetting(bodyRef.current, searchTarget.item);
-  }, [open, activeId, searchTarget]);
+    if (
+      !open ||
+      target.section !== activeId ||
+      !bodyRef.current ||
+      (!target.item && !target.settingId)
+    )
+      return;
+    return revealSetting(bodyRef.current, target);
+  }, [open, activeId, target]);
 
   if (!open) return null;
 
@@ -515,15 +549,20 @@ export function SettingsDialog({
           </nav>
           <div className="weq-settings-body" key={active.id} ref={bodyRef}>
             <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
-              {active.id === 'anti-recall' ? (
-                <AntiRecallDialog
-                  embedded
-                  onClose={onClose}
-                  onOpenRecalls={(kind, conv) => {
-                    onClose();
-                    onOpenRecalls(kind, conv);
-                  }}
-                />
+              {active.id === 'chat-messages' ? (
+                <>
+                  <div className="weq-set">
+                    <SectionHeader title="聊天消息" />
+                  </div>
+                  <AccountBasicsSection page="read" heading={false} />
+                  <TypingStatusSettingsCard />
+                  <div data-setting-id="anti-recall">
+                    <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
+                      <AntiRecallDialog embedded onClose={() => {}} onOpenRecalls={onOpenRecalls} />
+                    </SettingsScopeContext.Provider>
+                  </div>
+                  <AppearanceSection page="messages" heading={false} />
+                </>
               ) : (
                 active.render(onOpenMaintenance, onCreateClone)
               )}
@@ -550,7 +589,13 @@ function ModelUsageSection(): ReactElement {
   );
 }
 
-function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactElement {
+function AppearanceSection({
+  page,
+  heading = true,
+}: {
+  page: 'theme' | 'messages';
+  heading?: boolean;
+}): ReactElement {
   const preference = useThemeStore((state) => state.preference);
   const accent = useThemeStore((state) => state.accent);
   const background = useThemeStore((state) => state.background);
@@ -667,10 +712,12 @@ function AppearanceSection({ page }: { page: 'theme' | 'messages' }): ReactEleme
 
   return (
     <section className="weq-settings-section">
-      <SectionHeader
-        icon={<Palette size={16} strokeWidth={1.8} />}
-        title={page === 'theme' ? '主题与背景' : '聊天消息'}
-      />
+      {heading && (
+        <SectionHeader
+          icon={<Palette size={16} strokeWidth={1.8} />}
+          title={page === 'theme' ? '主题与背景' : '聊天消息'}
+        />
+      )}
 
       {page === 'theme' && (
         <>

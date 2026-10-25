@@ -36,7 +36,6 @@ import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { ToastSettingsCard } from './ToastSettingsCard';
-import { TypingStatusSettingsCard } from './TypingStatusSettingsCard';
 import { DesktopOnly, IS_WEB } from '../../lib/target';
 import { groupRetainedStorage } from '../../lib/storage-groups';
 import '../../styles/save-preferences.css';
@@ -79,8 +78,10 @@ const LOG_RETENTION_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
 
 export function GlobalSettingsSection({
   section = 'general',
+  heading = true,
 }: {
-  section?: 'general' | 'accounts' | 'storage' | 'saving' | 'logs';
+  section?: 'general' | 'accounts' | 'storage' | 'saving' | 'logs' | 'network';
+  heading?: boolean;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
@@ -405,24 +406,26 @@ export function GlobalSettingsSection({
 
   return (
     <div className={`weq-set${section === 'storage' ? ' weq-storage-settings' : ''}`}>
-      <SectionHeader
-        icon={<Settings2 size={16} strokeWidth={1.8} />}
-        title={
-          {
-            general: '窗口行为',
-            accounts: '账号管理',
-            storage: '存储与网络',
-            saving: '默认保存',
-            logs: '日志',
-          }[section]
-        }
-      />
+      {heading && (
+        <SectionHeader
+          icon={<Settings2 size={16} strokeWidth={1.8} />}
+          title={
+            {
+              general: '提醒与窗口',
+              accounts: 'WeQ 账号管理',
+              storage: 'WeQ 存储管理',
+              saving: '默认保存目录',
+              logs: '日志',
+              network: '资源下载网络',
+            }[section]
+          }
+        />
+      )}
 
       {/* Window close behavior */}
       {section === 'general' && (
         <>
           <ToastSettingsCard />
-          <TypingStatusSettingsCard />
           <DesktopOnly>
             <Card title="窗口">
               <Row
@@ -567,33 +570,33 @@ export function GlobalSettingsSection({
         </Card>
       )}
 
+      {section === 'network' && (
+        <Card title="资源下载网络" settingId="prefer-cdn">
+          <Row
+            label={
+              <span className="weq-set-row-icon">
+                <Cloud size={15} strokeWidth={1.8} aria-hidden />
+                优先使用 CDN
+              </span>
+            }
+            desc={
+              preferCdn
+                ? '头像与聊天图片、视频封面由界面直接向 QQ 服务器获取，不经 WeQ 中转。本地已存的头像和媒体缓存会被绕过（离线时看不到），获取失败会自动回退到原来的方式。'
+                : '默认由 WeQ 读取本地文件、缺失时代取并缓存——离线可用，但浏览器访问模式下所有图片都要占用服务器带宽。开启后改由界面直连，服务器零流量。语音、视频原片与文件不受影响。'
+            }
+            control={
+              <Toggle
+                checked={preferCdn}
+                disabled={settings.isLoading || setPreferCdnMut.isLoading}
+                onChange={(next) => void onSetPreferCdn(next)}
+                label="优先使用 CDN"
+              />
+            }
+          />
+        </Card>
+      )}
       {section === 'storage' && (
         <>
-          {/* Prefer CDN */}
-          <Card title="网络">
-            <Row
-              label={
-                <span className="weq-set-row-icon">
-                  <Cloud size={15} strokeWidth={1.8} aria-hidden />
-                  优先使用 CDN
-                </span>
-              }
-              desc={
-                preferCdn
-                  ? '头像与聊天图片、视频封面由界面直接向 QQ 服务器获取，不经 WeQ 中转。本地已存的头像和媒体缓存会被绕过（离线时看不到），获取失败会自动回退到原来的方式。'
-                  : '默认由 WeQ 读取本地文件、缺失时代取并缓存——离线可用，但浏览器访问模式下所有图片都要占用服务器带宽。开启后改由界面直连，服务器零流量。语音、视频原片与文件不受影响。'
-              }
-              control={
-                <Toggle
-                  checked={preferCdn}
-                  disabled={settings.isLoading || setPreferCdnMut.isLoading}
-                  onChange={(next) => void onSetPreferCdn(next)}
-                  label="优先使用 CDN"
-                />
-              }
-            />
-          </Card>
-
           {/* Cache directory */}
           <Card title="缓存目录">
             <Row
@@ -639,7 +642,7 @@ export function GlobalSettingsSection({
       {/* Default export save directory */}
       {section === 'saving' && (
         <div className="weq-save-preferences">
-          <Card title="保存位置">
+          <Card title="默认保存目录" settingId="default-save">
             <Row
               label="默认保存方式"
               control={

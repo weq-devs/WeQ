@@ -37,29 +37,96 @@ export type MaintenanceTool =
   | 'reverse';
 
 const TOOLS = [
-  { id: 'cache', label: '本地缓存', icon: FolderOpen, needsResources: true },
-  { id: 'database', label: '数据库管理', icon: Database, needsResources: false },
-  { id: 'storage', label: '存储占用', icon: HardDrive, needsResources: true },
-  { id: 'cleanup', label: '清理缓存', icon: Trash2, needsResources: true },
-  { id: 'db-repair', label: '数据库修复', icon: DatabaseZap, needsResources: false },
-  { id: 'db-decrypt', label: '导出明文数据库', icon: Database, needsResources: false },
-  { id: 'key-scan', label: '密钥扫描', icon: KeyRound, needsResources: false },
-  { id: 'other-device-key', label: '其它设备密钥', icon: KeyRound, needsResources: false },
+  {
+    id: 'cache',
+    label: '资源查看',
+    settingId: 'resource-viewer',
+    icon: FolderOpen,
+    needsResources: true,
+  },
+  {
+    id: 'database',
+    label: '数据库管理',
+    settingId: 'database-manager',
+    icon: Database,
+    needsResources: false,
+  },
+  {
+    id: 'storage',
+    label: '占用分析',
+    settingId: 'qq-storage-analysis',
+    icon: HardDrive,
+    needsResources: true,
+  },
+  {
+    id: 'cleanup',
+    label: '缓存清理',
+    settingId: 'qq-storage-cleanup',
+    icon: Trash2,
+    needsResources: true,
+  },
+  {
+    id: 'db-repair',
+    label: '数据库修复',
+    settingId: 'database-repair',
+    icon: DatabaseZap,
+    needsResources: false,
+  },
+  {
+    id: 'db-decrypt',
+    label: '导出明文数据库',
+    settingId: 'database-export',
+    icon: Database,
+    needsResources: false,
+  },
+  {
+    id: 'key-scan',
+    label: '密钥扫描',
+    settingId: 'key-scan',
+    icon: KeyRound,
+    needsResources: false,
+  },
+  {
+    id: 'other-device-key',
+    label: '其他设备密钥',
+    settingId: 'other-device-key',
+    icon: KeyRound,
+    needsResources: false,
+  },
+  {
+    id: 'login-accounts',
+    label: 'QQ 登录账号管理',
+    settingId: 'qq-accounts',
+    icon: KeyRound,
+    needsResources: false,
+  },
 ] as const;
 
 export function DataMaintenanceSection({
   onOpen,
+  tools,
+  title = '维护工具',
 }: {
   onOpen: (tool: MaintenanceTool) => void;
+  tools?: readonly MaintenanceTool[];
+  title?: string | null;
 }): ReactElement {
   const account = trpc.account.getAccountConfig.useQuery(undefined, {
     refetchOnMount: 'always',
     refetchOnWindowFocus: false,
     staleTime: 0,
   });
+  const visibleTools = tools
+    ? tools.flatMap((id) => TOOLS.filter((tool) => tool.id === id))
+    : TOOLS.filter((tool) => tool.id !== 'login-accounts');
   return (
     <div className="weq-set weq-data-maintenance">
-      <SectionHeader title="维护工具" desc="当前账号；各项在独立工具中打开。" />
+      {title ? (
+        <SectionHeader
+          title={title}
+          desc={tools?.includes('login-accounts') ? undefined : '当前账号'}
+        />
+      ) : null}
       {account.isError ? (
         <div role="alert" className="weq-maintenance-status">
           {account.error.message}
@@ -69,13 +136,14 @@ export function DataMaintenanceSection({
         </div>
       ) : null}
       <div className="weq-maintenance-list">
-        {TOOLS.map(({ id, label, icon: Icon, needsResources }) => {
+        {visibleTools.map(({ id, label, settingId, icon: Icon, needsResources }) => {
           const unavailable = needsResources && account.data?.static;
           return (
             <button
               type="button"
               className="weq-maintenance-entry"
               key={id}
+              data-setting-id={settingId}
               onClick={() => onOpen(id)}
               disabled={!account.data || account.isFetching || account.isError || unavailable}
               title={unavailable ? '静态账号暂不支持本地资源维护' : label}

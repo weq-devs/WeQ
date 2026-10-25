@@ -19,7 +19,7 @@ export function ToastSettingsCard() {
   const utils = trpc.useUtils();
   const saved = settings.data?.toastDurations ?? DEFAULT_TOAST_DURATIONS;
   return (
-    <Card title="通知" icon={<Bell size={15} />}>
+    <Card title="应用内横幅提醒" icon={<Bell size={15} />}>
       <DurationRow
         key="success"
         kind="success"

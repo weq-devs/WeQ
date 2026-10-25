@@ -1,6 +1,13 @@
 import { searchNameRank } from '@weq/service/search-policy';
 import type { MainView } from '../../im-template/template/types';
-import { settingsGroupFor, type SectionId } from '../settings/navigation';
+import {
+  SETTINGS_PAGE_LABELS,
+  resolveSettingsTarget,
+  settingsGroupFor,
+  type SectionId,
+  type SettingsPageId,
+} from '../settings/navigation';
+export { SETTINGS_PAGE_LABELS } from '../settings/navigation';
 
 export type SearchableTool = 'export' | 'viewer' | 'analysis' | 'tasks' | 'assistant';
 export interface ToolSearchRequest {
@@ -11,7 +18,7 @@ export interface ToolSearchRequest {
 export type AppSearchTarget =
   | { kind: 'view'; view: MainView }
   | { kind: 'tool'; tool: SearchableTool }
-  | { kind: 'setting'; section: SectionId; item?: string }
+  | { kind: 'setting'; section: SectionId; item?: string; settingId?: string }
   | { kind: 'composition' }
   | { kind: 'dressup' };
 
@@ -24,51 +31,23 @@ export interface AppSearchEntry {
 }
 
 // 这里只保存公开的界面名称与入口，不读取设置值、账号资料或凭据。
-export const SETTINGS_PAGE_LABELS = {
-  global: '窗口行为',
-  startup: '开机启动',
-  saving: '默认保存',
-  appearance: '主题与背景',
-  'message-display': '聊天消息',
-  applock: '隐私与应用锁',
-  accounts: '账号管理',
-  account: '接入与监听',
-  'anti-recall': '防撤回',
-  'call-recording': '通话录音',
-  qzone: 'QQ 空间',
-  mail: 'QQ 邮箱',
-  storage: '存储与网络',
-  backup: '备份与恢复',
-  media: '媒体来源',
-  database: '损坏处理与容错',
-  'database-status': '容错记录',
-  maintenance: '维护工具',
-  agentlab: 'API 配置',
-  'intent-sense': '意图感知',
-  'reply-suggestions': '推荐回复',
-  'clone-settings': '好友克隆',
-  'interaction-profile': '互动画像',
-  voice: '语音识别',
-  ocr: '图片识别',
-  'model-usage': 'API 用量',
-  mcp: 'MCP 服务器',
-  remote: 'Web 与 Remote',
-  rkey: '外部 RKEY',
-  sse: 'SSE 推送',
-  assistant: 'QQ 公众号推送',
-  credentials: '账号凭据',
-  diagnostics: '高级诊断',
-  faq: '常见问题',
-  feedback: '反馈',
-  logs: '日志',
-  version: '版本与更新',
-} satisfies Partial<Record<SectionId, string>>;
+const PAGE_ALIASES: Partial<Record<SettingsPageId, string[]>> = {
+  global: ['窗口行为', '通知'],
+  'weq-storage': ['默认保存', '存储与网络', 'storage', 'saving'],
+  'chat-messages': ['消息显示', 'message-display'],
+  'call-recording': ['通话与录音'],
+  account: ['接入与监听', '账号接入与消息'],
+  accounts: ['账号管理', '媒体来源', 'media'],
+  credentials: ['账号凭据'],
+  diagnostics: ['高级诊断'],
+  'database-repair': ['损坏处理'],
+  'database-tolerance': ['损坏处理与容错', '容错记录', 'database-status'],
+  'database-management': ['维护工具', 'maintenance'],
+  applock: ['隐私与应用锁'],
+  remote: ['QQ 公众号推送', 'assistant'],
+};
 
-type SettingDefinition = readonly [
-  section: keyof typeof SETTINGS_PAGE_LABELS,
-  item: string,
-  ...aliases: string[],
-];
+type SettingDefinition = readonly [section: SectionId, item: string, ...aliases: string[]];
 const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['global', '关闭按钮行为', '关闭窗口', '最小化到托盘', '退出应用'],
   ['global', '成功通知停留时长', '通知时间'],
@@ -105,6 +84,8 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['account', '同步已读状态到 QQ'],
   ['account', '手动标记时上报已读位置'],
   ['account', '自动读取 QQ 内存（完整功能）', '完整模式'],
+  ['anti-recall', '防撤回', 'anti-recall'],
+  ['rkey', '外部 RKEY', '外部 rKey 服务器'],
   ['qzone', '在线翻页限速', '空间翻页频率'],
   ['mail', '显示未读邮件数'],
   ['mail', '新邮件提醒'],
@@ -160,25 +141,15 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['diagnostics', 'Protobuf / JCE 逆向'],
 ];
 
-function settingEntry(
-  section: keyof typeof SETTINGS_PAGE_LABELS,
-  item?: string,
-  keywords: string[] = [],
-): AppSearchEntry {
-  const page = SETTINGS_PAGE_LABELS[section];
-  const legacyNames = !item
-    ? section === 'call-recording'
-      ? ['通话与录音']
-      : section === 'message-display'
-        ? ['消息显示']
-        : []
-    : [];
+function settingEntry(section: SectionId, item?: string, keywords: string[] = []): AppSearchEntry {
+  const resolved = resolveSettingsTarget({ section, item });
+  const page = SETTINGS_PAGE_LABELS[resolved.section];
   return {
-    id: `setting:${section}:${item ?? ''}`,
-    title: item ?? page,
-    path: ['设置', settingsGroupFor(section).label, page].join(' / '),
-    keywords: [...keywords, ...legacyNames],
-    target: { kind: 'setting', section, ...(item ? { item } : {}) },
+    id: `setting:${resolved.section}:${resolved.settingId ?? item ?? ''}`,
+    title: item ? (resolved.item ?? item) : page,
+    path: ['设置', settingsGroupFor(resolved.section).label, page].join(' / '),
+    keywords: [...keywords, ...(item ? [item] : (PAGE_ALIASES[resolved.section] ?? []))],
+    target: { kind: 'setting', ...resolved },
   };
 }
 
@@ -194,7 +165,19 @@ const feature = (
   keywords,
 });
 
-export const APP_SEARCH_ENTRIES: readonly AppSearchEntry[] = [
+function uniqueEntries(entries: AppSearchEntry[]): AppSearchEntry[] {
+  const unique = new Map<string, AppSearchEntry>();
+  for (const entry of entries) {
+    const previous = unique.get(entry.id);
+    unique.set(
+      entry.id,
+      previous ? { ...previous, keywords: [...previous.keywords, ...entry.keywords] } : entry,
+    );
+  }
+  return [...unique.values()];
+}
+
+export const APP_SEARCH_ENTRIES: readonly AppSearchEntry[] = uniqueEntries([
   feature('首页', { kind: 'view', view: 'home' }),
   feature('消息', { kind: 'view', view: 'messages' }, '聊天', '会话'),
   feature('联系人', { kind: 'view', view: 'contacts' }, '好友', '群聊'),
@@ -215,7 +198,7 @@ export const APP_SEARCH_ENTRIES: readonly AppSearchEntry[] = [
     settingEntry(section as keyof typeof SETTINGS_PAGE_LABELS, undefined, [section]),
   ),
   ...SETTING_ITEMS.map(([section, item, ...aliases]) => settingEntry(section, item, aliases)),
-];
+]);
 
 export function searchAppEntries(keyword: string): AppSearchEntry[] {
   const query = keyword.trim();
