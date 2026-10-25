@@ -82,7 +82,7 @@ func runLAN(ctx context.Context, dir string, port int, handler http.Handler, rea
 	}
 	for _, address := range interfaces {
 		ip, _, err := net.ParseCIDR(address.String())
-		if err == nil && ip.To4() != nil && !ip.IsLoopback() && (ip.IsPrivate() || (ip.To4()[0] == 100 && ip.To4()[1] >= 64 && ip.To4()[1] <= 127)) {
+		if err == nil && ip.To4() != nil && !ip.IsLoopback() && ip.IsPrivate() {
 			addresses = append(addresses, "https://"+ip.String()+":"+boundPort)
 		}
 	}

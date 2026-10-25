@@ -54,6 +54,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         setWebAutoStart: mutation(f.autoStart),
         openLogin: mutation(),
         setMode: mutation(),
+        setTailscaleEnabled: mutation(),
         changeNetwork: mutation(),
         refreshNetwork: mutation(),
         decide: mutation(),

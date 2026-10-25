@@ -24,6 +24,12 @@ describe('远程原型的最小 HTTP 面', () => {
   });
 
   it('完成申请、确认、轮询、状态读取和撤销的真实 HTTP 往返', async () => {
+    const invitationBeforeProbe = pairing.invite();
+    const hello = await fetch(`${base}/v1/hello`);
+    expect(hello.status).toBe(200);
+    expect(await hello.json()).toEqual({ product: 'WeQ Remote', protocol: 1 });
+    expect(pairing.snapshot().invitationExpiresAt).toBe(invitationBeforeProbe.expiresAt);
+    expect(pairing.snapshot().pending).toEqual([]);
     expect((await fetch(`${base}/v1/status`, { headers })).status).toBe(401);
     const invitation = pairing.invite().secret;
     const response = await fetch(`${base}/v1/pair`, {

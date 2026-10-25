@@ -4,27 +4,32 @@ import { z } from 'zod';
 import type { Claim } from './pairing';
 import { remoteConnectionMode } from '../../shared/remote_bootstrap';
 
-const savedSchema = z.object({
-  enabled: z.boolean(),
-  mode: remoteConnectionMode,
-  tailscaleEnabled: z.boolean().default(false),
-  networkIdentity: z
-    .string()
-    .regex(/^network-[0-9]+$/)
-    .optional(),
-  claims: z
-    .array(
-      z.object({
-        id: z.string().uuid(),
-        name: z.string().min(1).max(64),
-        tokenHash: z.string().regex(/^[a-f0-9]{64}$/),
-        approvedAt: z.number().finite(),
-        lastSeenAt: z.number().finite().nullable(),
-        scope: z.enum(['status:read', 'web:access']),
-      }),
-    )
-    .max(16),
-});
+const savedSchema = z
+  .object({
+    enabled: z.boolean(),
+    mode: remoteConnectionMode,
+    tailscaleEnabled: z.boolean().optional(),
+    networkIdentity: z
+      .string()
+      .regex(/^network-[0-9]+$/)
+      .optional(),
+    claims: z
+      .array(
+        z.object({
+          id: z.string().uuid(),
+          name: z.string().min(1).max(64),
+          tokenHash: z.string().regex(/^[a-f0-9]{64}$/),
+          approvedAt: z.number().finite(),
+          lastSeenAt: z.number().finite().nullable(),
+          scope: z.enum(['status:read', 'web:access']),
+        }),
+      )
+      .max(16),
+  })
+  .transform((saved) => ({
+    ...saved,
+    tailscaleEnabled: saved.tailscaleEnabled ?? saved.mode !== 'lan',
+  }));
 
 export class RemoteStore {
   private data: z.infer<typeof savedSchema>;
