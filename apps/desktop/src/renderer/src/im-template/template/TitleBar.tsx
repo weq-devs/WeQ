@@ -6,6 +6,7 @@ import { OnlineStatus } from '../../components/OnlineStatus';
 import { VipBadge } from '../../components/VipBadge';
 import { RestrictedModeIndicator } from '../../components/RestrictedMode';
 import '../../styles/self-profile.css';
+import '../../styles/titlebar-search.css';
 import { Avatar } from './primitives';
 import type { User } from './types';
 import { displayUserName } from './user';
@@ -91,7 +92,6 @@ export function TitleBar({
       >
         <img src={logoUrl} className="app-title-bar-logo" alt="主页" />
       </button>
-      {search}
       <div className="app-title-bar-user">
         <ProfileAvatar key={`${user.id}:${user.identityValue}`} user={user} />
         <span className="app-title-bar-nick">{displayUserName(user)}</span>
@@ -105,10 +105,19 @@ export function TitleBar({
             refetchInterval={15_000}
           />
         )}
-        {user.signature && <span className="app-title-bar-signature">{user.signature}</span>}
+        {user.signature && (
+          <span className="app-title-bar-signature" title={user.signature}>
+            {user.signature}
+          </span>
+        )}
       </div>
       <div className="app-title-bar-drag" />
-      <RestrictedModeIndicator />
+      {search}
+      <div className="weq-titlebar-restriction">
+        <div>
+          <RestrictedModeIndicator persistent />
+        </div>
+      </div>
       {/* macOS 有原生红黄绿三键，自绘的 最小化/最大化/关闭 会重复，隐藏掉。 */}
       {!IS_MAC && (
         <DesktopOnly>

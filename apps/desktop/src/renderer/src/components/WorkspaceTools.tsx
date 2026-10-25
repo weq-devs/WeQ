@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { getCloneTasks, subscribeCloneTasks } from '../views/agentlab/cloneTaskStore';
 import type { GeneratedSearchHit } from './search/types';
+import type { ToolSearchRequest } from './search/appSearchCatalog';
 import {
   BarChart3,
   Bot,
@@ -65,6 +66,7 @@ export function WorkspaceTools({
   onOpenAnalysis,
   onOpenComposition,
   assistantSearchTarget,
+  searchRequest,
   hidden = false,
   currentConversation,
   workspace,
@@ -75,6 +77,7 @@ export function WorkspaceTools({
   onOpenAnalysis: (report: AnalysisReportRequest) => void;
   onOpenComposition?: () => void;
   assistantSearchTarget?: GeneratedSearchHit | null;
+  searchRequest?: ToolSearchRequest | null;
   hidden?: boolean;
   currentConversation?: Conversation | null;
   /** 当前界面上下文：主按钮据此决定进入哪个工具、带哪份内容。 */
@@ -264,6 +267,25 @@ export function WorkspaceTools({
     close();
     action();
   };
+  const selectRef = useRef(select);
+  selectRef.current = select;
+  const handledSearchRequest = useRef<typeof searchRequest>(null);
+  useEffect(() => {
+    if (
+      !searchRequest ||
+      searchRequest.scope !== accountScope ||
+      handledSearchRequest.current === searchRequest
+    )
+      return;
+    handledSearchRequest.current = searchRequest;
+    if (searchRequest.tool === 'tasks' || searchRequest.tool === 'assistant') {
+      setOpen(false);
+      closeMenu();
+      setPanel(searchRequest.tool);
+      setExpanded(true);
+      setAssistantSettings(false);
+    } else selectRef.current(searchRequest.tool);
+  }, [searchRequest, closeMenu, accountScope]);
   const fixedExportScope =
     exportFixedScope &&
     (exportDraft?.draft.selection.owner.kind === 'messages' ||

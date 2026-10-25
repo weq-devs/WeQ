@@ -76,6 +76,8 @@ import { IS_WEB } from '../lib/target';
 import { UsagePanel } from '../views/agentlab/UsagePanel';
 import '../styles/settings-responsive.css';
 import '../styles/settings-navigation.css';
+import '../styles/app-search.css';
+import { revealSetting, type SettingsSearchTarget } from './settings/searchTarget';
 import {
   SETTINGS_GROUPS,
   settingsGroupFor,
@@ -370,6 +372,7 @@ export function SettingsDialog({
   open,
   onClose,
   initialSection,
+  searchTarget,
   onOpenMaintenance,
   onOpenRecalls,
   onCreateClone,
@@ -381,6 +384,7 @@ export function SettingsDialog({
    * 否则"先关掉、再从损坏弹窗点进来"会停在用户上次看的那个分区上。
    */
   initialSection?: SectionId;
+  searchTarget?: SettingsSearchTarget | null;
   onOpenMaintenance: (tool: MaintenanceTool) => void;
   onOpenRecalls: (kind: 'c2c' | 'group', conv: string) => void;
   onCreateClone?: () => void;
@@ -391,6 +395,7 @@ export function SettingsDialog({
   const navRef = useRef<HTMLElement | null>(null);
   const [mobileCategoryOpen, setMobileCategoryOpen] = useState(Boolean(initialSection));
   const subnavRef = useRef<HTMLElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   const sections = SETTINGS_SECTIONS;
   const group = settingsGroupFor(activeId);
   const groupSections = group.sections.map((id) => sections.find((section) => section.id === id)!);
@@ -410,6 +415,11 @@ export function SettingsDialog({
         ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     }
   }, [open, activeId]);
+
+  useEffect(() => {
+    if (!open || !searchTarget || searchTarget.section !== activeId || !bodyRef.current) return;
+    return revealSetting(bodyRef.current, searchTarget.item);
+  }, [open, activeId, searchTarget]);
 
   if (!open) return null;
 
@@ -486,7 +496,7 @@ export function SettingsDialog({
               </button>
             ))}
           </nav>
-          <div className="weq-settings-body" key={active.id}>
+          <div className="weq-settings-body" key={active.id} ref={bodyRef}>
             <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
               {active.id === 'anti-recall' ? (
                 <AntiRecallDialog

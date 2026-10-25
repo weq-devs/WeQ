@@ -4,6 +4,7 @@ import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsDialog, type SectionId } from '../src/renderer/src/components/SettingsDialog';
 import { HelpSection } from '../src/renderer/src/components/settings/HelpSection';
+import type { SettingsSearchTarget } from '../src/renderer/src/components/settings/searchTarget';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const queryData = (name: string) => {
@@ -53,12 +54,13 @@ function mount(initialSection: SectionId, onCreateClone?: () => void) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = (section: SectionId) =>
+  const render = (section: SectionId, searchTarget?: SettingsSearchTarget) =>
     act(() =>
       root.render(
         createElement(SettingsDialog, {
           open: true,
           initialSection: section,
+          searchTarget,
           onClose: vi.fn(),
           onOpenMaintenance: vi.fn(),
           onOpenRecalls: vi.fn(),
@@ -79,6 +81,27 @@ function mount(initialSection: SectionId, onCreateClone?: () => void) {
 }
 
 describe('设置归位后的实际页面', () => {
+  it('从搜索打开设置时切换分区并定位真实项目，离开分区撤销高亮', () => {
+    const f = mount('qzone');
+    try {
+      for (const [section, item] of [
+        ['appearance', '基础模式'],
+        ['message-display', '显示消息序号（seq）'],
+        ['storage', '缓存目录'],
+        ['global', '成功通知停留时长'],
+        ['version', '监控新版本发布'],
+      ] as const) {
+        f.render(section, { section, item, revision: Date.now() });
+        const highlighted = f.body().querySelector<HTMLElement>('[data-search-highlight="true"]');
+        expect(highlighted, `${section}: ${item}`).not.toBeNull();
+        expect(document.activeElement).toBe(highlighted);
+      }
+      f.render('qzone');
+      expect(f.host.querySelector('[data-search-highlight]')).toBeNull();
+    } finally {
+      f.close();
+    }
+  });
   it('旧独立帮助内容仍能切换日志、常见问题和反馈', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');

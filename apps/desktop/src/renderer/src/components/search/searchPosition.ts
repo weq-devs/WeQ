@@ -4,6 +4,7 @@ import { useTabActive } from '../RetainedTabs';
 export interface SearchPosition {
   scrollTop: number;
   focusKey: string | null;
+  appResultsExpanded?: boolean;
 }
 
 export function restoreSearchPosition(node: HTMLElement, position: SearchPosition): void {

@@ -225,6 +225,8 @@ import {
 import { displayUserName } from '../im-template/template/user';
 import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
 import { WorkspaceTools } from '../components/WorkspaceTools';
+import type { AppSearchEntry, ToolSearchRequest } from '../components/search/appSearchCatalog';
+import type { SettingsSearchTarget } from '../components/settings/searchTarget';
 import { WorkspaceContent, WorkspacePages } from '../components/WorkspacePages';
 import { displayGroupMemberName } from '../im-template/template/user';
 import { ChatNavigationContext, type ProfileChatTarget } from '../lib/chatNavigation';
@@ -2720,6 +2722,18 @@ export function MainView(): ReactElement {
    */
   const flushDraftRef = useRef<(conversationId: string) => void>(() => {});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSearchTarget, setSettingsSearchTarget] = useState<SettingsSearchTarget | null>(
+    null,
+  );
+  const [toolSearchRequest, setToolSearchRequest] = useState<ToolSearchRequest | null>(null);
+  const [appSearchEnabled, setAppSearchEnabled] = useState(true);
+  useEffect(() => {
+    if (!settingsOpen) setSettingsSearchTarget(null);
+  }, [settingsOpen]);
+  useEffect(() => {
+    setToolSearchRequest(null);
+    setSettingsSearchTarget(null);
+  }, [messageScope]);
   const [surfaceNavigation, setSurfaceNavigation] = useState(0);
   /** 打开设置时要先落到哪一屏（损坏弹窗 → 数据库宽容）。 */
   const [settingsSection, setSettingsSection] = useState<SettingsDialogSectionId | undefined>(
@@ -8975,6 +8989,39 @@ export function MainView(): ReactElement {
       />
     ) : null;
 
+  const openAppSearchEntry = (entry: AppSearchEntry) => {
+    setSearchDismissed(true);
+    setSearchFocused(false);
+    setSettingsOpen(false);
+    setSettingsSearchTarget(null);
+    setMaintenanceTool(null);
+    setDressUpOpen(false);
+    const target = entry.target;
+    if (target.kind === 'setting') {
+      setSettingsSection(target.section);
+      if (target.item)
+        setSettingsSearchTarget({
+          section: target.section,
+          item: target.item,
+          revision: Date.now(),
+        });
+      setSettingsOpen(true);
+    } else if (target.kind === 'tool') {
+      setToolSearchRequest((previous) => ({
+        scope: messageScope,
+        tool: target.tool,
+        revision: (previous?.revision ?? 0) + 1,
+      }));
+    } else if (target.kind === 'composition') compositionWindow.open();
+    else if (target.kind === 'dressup') {
+      setDressUpEmojiTarget(null);
+      setDressUpOpen(true);
+    } else {
+      if (shell.view === 'messages' && target.view !== 'messages') flushAllDirtyDrafts();
+      shell.switchView(target.view);
+    }
+  };
+
   const chatContent = (
     <ReplyJumpContext.Provider value={jumpToSeq}>
       <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
@@ -9112,6 +9159,12 @@ export function MainView(): ReactElement {
                   onCategoriesChange={setSearchCategories}
                   onRetry={globalSearch.retry}
                   onSelect={openSearchHit}
+                  appSearchEnabled={appSearchEnabled}
+                  onAppSearchEnabledChange={(enabled) => {
+                    searchReturn.clear();
+                    setAppSearchEnabled(enabled);
+                  }}
+                  onSelectAppEntry={openAppSearchEntry}
                   initialPosition={
                     searchReturn.target?.kind === 'dropdown'
                       ? searchReturn.target.position
@@ -9540,6 +9593,7 @@ export function MainView(): ReactElement {
             open={settingsOpen}
             onClose={() => setSettingsOpen(false)}
             initialSection={settingsSection}
+            searchTarget={settingsSearchTarget}
             onOpenMaintenance={openMaintenance}
             onOpenRecalls={handleOpenRecallsAt}
             onCreateClone={handleCreateClone}
@@ -9597,6 +9651,7 @@ export function MainView(): ReactElement {
             roamingRequest={roamingRequest}
             onOpenComposition={compositionWindow.open}
             assistantSearchTarget={assistantSearchTarget}
+            searchRequest={toolSearchRequest}
             onOpenAnalysis={(request) => setAnalysisReports((previous) => [...previous, request])}
           />
           <QzoneAlbumDialog

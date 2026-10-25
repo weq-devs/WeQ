@@ -54,14 +54,21 @@ function useAuthorizationBridge() {
   }, []);
 }
 
-export function RestrictedModeIndicator({ startup = false }: { startup?: boolean }) {
+export function RestrictedModeIndicator({
+  startup = false,
+  persistent = false,
+}: {
+  startup?: boolean;
+  persistent?: boolean;
+}) {
   const reasons = useRestrictedMode((s) => s.reasons);
   const requests = useRestrictedMode((s) => s.requests);
   const open = useRestrictedMode((s) => s.open);
   const entering = useRestrictedMode((s) => s.enteringSince !== null && s.requests.length === 0);
   const awaitingAuthorization = requests.length > 0;
   const title = awaitingAuthorization ? '待提权' : entering ? '正在进入完整模式' : '受限模式';
-  if (!reasons.length && !requests.length && !entering) return null;
+  const visible = Boolean(reasons.length || requests.length || entering);
+  if (!visible && !persistent) return null;
   return (
     <button
       type="button"
@@ -70,6 +77,9 @@ export function RestrictedModeIndicator({ startup = false }: { startup?: boolean
       aria-haspopup="dialog"
       aria-expanded={open}
       aria-busy={entering}
+      aria-hidden={!visible || undefined}
+      disabled={!visible}
+      tabIndex={visible ? undefined : -1}
       onClick={() => useRestrictedMode.getState().setOpen(!open)}
     >
       {awaitingAuthorization ? (

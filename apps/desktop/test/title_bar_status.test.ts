@@ -3,6 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TitleBar } from '../src/renderer/src/im-template/template/TitleBar';
 import type { User } from '../src/renderer/src/im-template/template/types';
+import { useRestrictedMode } from '../src/renderer/src/state/restrictedMode';
+import { TitleBarSearch } from '../src/renderer/src/components/TitleBarSearch';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const state = vi.hoisted(() => ({
   status: { uid: 'u_self', type: 10, typeName: '在线', subType: 0, displayStatus: '在线' } as {
@@ -51,7 +55,15 @@ function fixture() {
     avatarUrl: null,
     signature: '个性签名',
   };
-  const render = () => act(() => root.render(h(TitleBar, { user: { ...user } })));
+  const render = () =>
+    act(() =>
+      root.render(
+        h(TitleBar, {
+          user: { ...user },
+          search: h(TitleBarSearch, { persistent: true, query: '', onQueryChange: vi.fn() }),
+        }),
+      ),
+    );
   cleanup = () => {
     act(() => root.unmount());
     host.remove();
@@ -63,6 +75,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.status = { uid: 'u_self', type: 10, typeName: '在线', subType: 0, displayStatus: '在线' };
   state.query.mockClear();
+  useRestrictedMode.setState({ reasons: [], requests: [], enteringSince: null });
 });
 afterEach(() => {
   cleanup();
@@ -70,6 +83,48 @@ afterEach(() => {
 });
 
 describe('标题栏在线状态', () => {
+  it('搜索在签名右侧、受限提示左侧，签名保留全文提示且受限状态可收拢', () => {
+    const f = fixture();
+    const signature = f.host.querySelector('.app-title-bar-signature')!;
+    const search = f.host.querySelector('.weq-titlebar-search')!;
+    const restriction = f.host.querySelector('.weq-titlebar-restriction')!;
+    expect(signature.getAttribute('title')).toBe(f.user.signature);
+    expect(
+      signature.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(search.nextElementSibling).toBe(restriction);
+    const indicator = restriction.querySelector('button')!;
+    expect(indicator.getAttribute('aria-hidden')).toBe('true');
+    expect(indicator.disabled).toBe(true);
+    act(() => useRestrictedMode.setState({ enteringSince: Date.now() }));
+    expect(indicator.getAttribute('aria-hidden')).toBeNull();
+    expect(indicator.textContent).toContain('正在进入完整模式');
+    act(() => useRestrictedMode.setState({ enteringSince: null }));
+    expect(indicator.getAttribute('aria-hidden')).toBe('true');
+    expect(restriction.querySelector('button')).toBe(indicator);
+    const output = process.env.WEQ_FEATURE_SEARCH_LAYOUT_DIR;
+    if (output) {
+      f.user.signature =
+        '这是一段很长的合成个性签名，用来检查搜索栏常驻时省略和悬停全文是否正确。'.repeat(3);
+      f.render();
+      const logo = f.host.querySelector<HTMLImageElement>('.app-title-bar-logo')!;
+      logo.src = `data:image/png;base64,${readFileSync(resolve('../../resources/brand/logo.png')).toString('base64')}`;
+      mkdirSync(output, { recursive: true });
+      const styles = [
+        'index.css',
+        'workspace-tools.css',
+        'self-profile.css',
+        'restricted-mode.css',
+        'titlebar-search.css',
+      ]
+        .map((name) => readFileSync(resolve('src/renderer/src/styles', name), 'utf8'))
+        .join('\n');
+      writeFileSync(
+        resolve(output, 'titlebar.html'),
+        `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${styles}</style><style>body{margin:0;background:var(--background);color:var(--foreground);font-family:system-ui}.app-title-bar{box-sizing:border-box;width:100%;}</style><body>${f.host.innerHTML}</body></html>`,
+      );
+    }
+  });
   it('在昵称与签名之间显示本人状态，并定期刷新本地记录', () => {
     const f = fixture();
     const nick = f.host.querySelector('.app-title-bar-nick')!;
