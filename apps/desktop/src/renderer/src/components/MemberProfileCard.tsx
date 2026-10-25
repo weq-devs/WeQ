@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { User } from '../im-template/template/types';
+import { resolveAvatar } from '../lib/avatarResolver';
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { PersonalityHomeDialog } from './PersonalityHomeDialog';
@@ -223,6 +224,9 @@ export function MemberProfileCard({
       : member.identityLabel === 'QQ'
         ? member.identityValue
         : null;
+  // @、灰条等入口可能只有 UID；资料补全后统一补齐头像，也供下级灯箱复用。
+  const avatarUrl =
+    member.avatarUrl || resolveAvatar({ uin, profileAvatarUrl: profile?.avatarUrl });
   const nickDiffers = profile?.nick && profile.nick !== name && profile.nick !== member.remark;
   const gender = genderLabel(profile?.gender);
   const genderAge = [gender, profile?.age ? `${profile.age} 岁` : null].filter(Boolean).join(' · ');
@@ -300,7 +304,7 @@ export function MemberProfileCard({
           <>
             <div className="weq-profile-hero">
               <span className="weq-profile-avatar">
-                <Avatar name={name} avatarUrl={member.avatarUrl} seed={uid} />
+                <Avatar name={name} avatarUrl={avatarUrl} seed={uid} />
               </span>
               <strong className="weq-profile-name">{name}</strong>
               {nickDiffers ? <span className="weq-profile-nick">昵称 {profile.nick}</span> : null}
@@ -575,7 +579,7 @@ export function MemberProfileCard({
           profile={toPersonalityProfile(
             {
               name,
-              avatarUrl: member.avatarUrl,
+              avatarUrl,
               signature: profile?.signature,
             },
             profile?.extInfo,
@@ -610,7 +614,7 @@ export function MemberProfileCard({
         <MemberAnalyticsDialog
           groupCode={groupCode}
           groupName={groupName || ''}
-          member={{ uid, name, uin, avatarUrl: member.avatarUrl }}
+          member={{ uid, name, uin, avatarUrl }}
           onClose={() => {
             setAnalyticsOpen(false);
             onClose();
