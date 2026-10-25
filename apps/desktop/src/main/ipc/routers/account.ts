@@ -689,22 +689,25 @@ async function withRoamingHistory(
   services: AccountServices,
   kind: ChatKind,
   conv: string,
-  rows: ChatMsgWire[],
+  rows: ChatMsgWire[] | Promise<ChatMsgWire[]>,
   limit: number,
   min = 1n,
   max = 0xffffffffn,
   descending = true,
 ): Promise<ChatMsgWire[]> {
   try {
-    const cached = await services.gapHistory.cachedTimeline(
-      kind,
-      conv,
-      Number(min < 1n ? 1n : min),
-      Number(max > 0xffffffffn ? 0xffffffffn : max),
-      limit,
-      descending,
-    );
-    return mergeRoamingTimeline<ChatMsgWire>(kind, rows, cached.map(roamingMsgToWire), {
+    const [local, cached] = await Promise.all([
+      rows,
+      services.gapHistory.cachedTimeline(
+        kind,
+        conv,
+        Number(min < 1n ? 1n : min),
+        Number(max > 0xffffffffn ? 0xffffffffn : max),
+        limit,
+        descending,
+      ),
+    ]);
+    return mergeRoamingTimeline<ChatMsgWire>(kind, local, cached.map(roamingMsgToWire), {
       min,
       max,
       limit,
@@ -721,8 +724,8 @@ async function fetchLatest(kind: ChatKind, conv: string, limit: number): Promise
   const msgs = services.msgs;
   const rows =
     kind === 'group'
-      ? (await msgs.getGroupLatest(conv, limit)).map(groupMsgToWire)
-      : (await msgs.getC2cLatest(conv, limit)).map(c2cMsgToWire);
+      ? msgs.getGroupLatest(conv, limit).then((rows) => rows.map(groupMsgToWire))
+      : msgs.getC2cLatest(conv, limit).then((rows) => rows.map(c2cMsgToWire));
   return withRoamingHistory(services, kind, conv, rows, limit);
 }
 
@@ -736,8 +739,8 @@ async function fetchBefore(
   const msgs = services.msgs;
   const rows =
     kind === 'group'
-      ? (await msgs.getGroupBefore(conv, beforeSeq, limit)).map(groupMsgToWire)
-      : (await msgs.getC2cBefore(conv, beforeSeq, limit)).map(c2cMsgToWire);
+      ? msgs.getGroupBefore(conv, beforeSeq, limit).then((rows) => rows.map(groupMsgToWire))
+      : msgs.getC2cBefore(conv, beforeSeq, limit).then((rows) => rows.map(c2cMsgToWire));
   return withRoamingHistory(services, kind, conv, rows, limit, 1n, beforeSeq - 1n);
 }
 
@@ -751,8 +754,8 @@ async function fetchAfter(
   const msgs = services.msgs;
   const rows =
     kind === 'group'
-      ? (await msgs.getGroupAfter(conv, afterSeq, limit)).map(groupMsgToWire)
-      : (await msgs.getC2cAfter(conv, afterSeq, limit)).map(c2cMsgToWire);
+      ? msgs.getGroupAfter(conv, afterSeq, limit).then((rows) => rows.map(groupMsgToWire))
+      : msgs.getC2cAfter(conv, afterSeq, limit).then((rows) => rows.map(c2cMsgToWire));
   return withRoamingHistory(services, kind, conv, rows, limit, afterSeq + 1n, 0xffffffffn, false);
 }
 
@@ -766,8 +769,8 @@ async function fetchFrom(
   const msgs = services.msgs;
   const rows =
     kind === 'group'
-      ? (await msgs.getGroupFrom(conv, sinceSeq, limit)).map(groupMsgToWire)
-      : (await msgs.getC2cFrom(conv, sinceSeq, limit)).map(c2cMsgToWire);
+      ? msgs.getGroupFrom(conv, sinceSeq, limit).then((rows) => rows.map(groupMsgToWire))
+      : msgs.getC2cFrom(conv, sinceSeq, limit).then((rows) => rows.map(c2cMsgToWire));
   return withRoamingHistory(services, kind, conv, rows, limit, sinceSeq);
 }
 
@@ -1632,6 +1635,7 @@ function unreadInfoToWire(
     unreadCount: row.unreadCount,
     readSeq: row.readSeq,
     readError: row.readError ?? false,
+    countPending: row.countPending ?? false,
     msgSeq: row.msgSeq?.toString(),
     highlights: row.highlights?.map((h) => ({
       kind: h.kind,
@@ -2714,6 +2718,7 @@ export const accountRouter = router({
       z.object({
         expectedAccountUin: z.string().min(1),
         expectedAccountConfigId: z.string().min(1).optional(),
+        watermarksOnly: z.boolean().optional(),
         targets: z
           .array(
             z.object({
@@ -2729,7 +2734,7 @@ export const accountRouter = router({
         input.expectedAccountUin,
         input.expectedAccountConfigId,
       );
-      const rows = await services.unreadInfo.getUnreadInfos(input.targets);
+      const rows = await services.unreadInfo.getUnreadInfos(input.targets, input.watermarksOnly);
       if (
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
       )

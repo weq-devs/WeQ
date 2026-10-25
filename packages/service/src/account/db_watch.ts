@@ -78,6 +78,8 @@ export interface DbWatchTask {
   dbPath: string;
   /** Runs whenever the rolled-up size of `dbPath`'s sibling files changes. */
   onDbFileChangeHook: DbChangeHook;
+  /** 取消任务自己安排的补齐／重试，不影响其他账号或监听器。 */
+  dispose?(): void;
 }
 
 /** Returned by `mount`. Call `unmount()` to stop watching. */
@@ -139,6 +141,7 @@ export class DbWatchService {
       });
       entry.watcher.on('error', () => {
         entry.watcher?.close();
+        entry.task.dispose?.();
         entry.watcher = undefined;
       });
     } catch {
@@ -166,7 +169,10 @@ export class DbWatchService {
   /** Stop the loop and forget every watch. Idempotent. */
   dispose(): void {
     this.stopLoop();
-    for (const entry of this.entries) entry.watcher?.close();
+    for (const entry of this.entries) {
+      entry.watcher?.close();
+      entry.task.dispose?.();
+    }
     this.entries.clear();
   }
 

@@ -41,8 +41,16 @@ export async function loadConversationEntry<T extends { msgSeq: string }>({
   try {
     if (!current()) return;
     if (!readFromFirstUnread) {
-      cached = undefined;
-      readSeq = undefined;
+      // 普通模式只恢复尾部缓存，历史窗口不冒充最新页。
+      if (cached?.anchored && cached.rows.length) show(cached, true);
+      else cached = undefined;
+      const rows = await latest(limit);
+      if (current())
+        show(
+          { rows: rows.reverse(), anchored: true, hasOlder: rows.length >= limit, hasNewer: false },
+          !cached,
+        );
+      return;
     }
     if (cached?.rows.length === 0) cached = undefined;
     if (readFromFirstUnread && !cached && !readSeq && resolveReadSeq) {

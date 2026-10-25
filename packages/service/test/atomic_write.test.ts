@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { writeFileAtomicSync } from '../src/common/atomic_write';
+import { writeFileAtomic, writeFileAtomicSync } from '../src/common/atomic_write';
 
 let roots: string[] = [];
 afterEach(() => {
@@ -11,6 +11,18 @@ afterEach(() => {
 });
 
 describe('writeFileAtomicSync', () => {
+  it('异步发布只留下完整 JSON，路径创建失败不破坏已有文件', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'weq-atomic-async-'));
+    roots.push(root);
+    const target = join(root, 'state.json');
+    await writeFileAtomic(target, '{"version":1}');
+    await writeFileAtomic(target, '{"version":2}');
+    expect(readFileSync(target, 'utf8')).toBe('{"version":2}');
+    expect(readdirSync(root)).toEqual(['state.json']);
+    await expect(writeFileAtomic(join(target, 'invalid'), 'broken')).rejects.toThrow();
+    expect(readFileSync(target, 'utf8')).toBe('{"version":2}');
+    expect(readdirSync(root)).toEqual(['state.json']);
+  });
   it('replaces a complete file without leaving temporary files', () => {
     const root = mkdtempSync(join(tmpdir(), 'weq-atomic-'));
     roots.push(root);

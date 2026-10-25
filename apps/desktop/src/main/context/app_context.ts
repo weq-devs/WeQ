@@ -144,6 +144,7 @@ import {
   DbWatchService,
   checkAccountDatabaseHealth,
   createNtMsgDbHook,
+  waitForUnreadWrites,
   formatDbHealthFailures,
   writeDbHealthReport,
   initLogger,
@@ -383,16 +384,18 @@ function mountDbWatch(session: AccountSession): void {
   dbWatchHandle = dbWatch.mount(
     createNtMsgDbHook(session, {
       onDbChanged: notification.request,
-      onNewMessages: (change: NewMessages) => {
+      onNewMessages: async (change: NewMessages) => {
         const ctx = getAppContext();
         if (ctx.account !== session) return;
         if (ctx.account === session) {
           try {
-            ctx.services?.unreadInfo.observeNewMessages(change);
+            await ctx.services?.unreadInfo.observeNewMessages(change);
           } catch (error) {
             console.error('[unread] 保存本地未读状态失败', error);
+            throw error;
           }
         }
+        if (ctx.account !== session) return;
         dbEventBus.emit('new', change);
         notification.request(change.file);
       },
@@ -1251,7 +1254,8 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.roamingBackfill.dispose();
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
-      this.services?.unreadInfo.dispose();
+      await this.services?.unreadInfo.dispose();
+      await waitForUnreadWrites();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -2134,7 +2138,8 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.roamingBackfill.dispose();
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
-      this.services?.unreadInfo.dispose();
+      await this.services?.unreadInfo.dispose();
+      await waitForUnreadWrites();
       this.account?.dispose();
       dbWatchHandle?.unmount();
       dbWatchHandle = null;
@@ -2825,7 +2830,9 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.roamingBackfill.dispose();
       void this.services?.favoriteEmojiImport.dispose();
       this.services?.mail.dispose();
-      this.services?.unreadInfo.dispose();
+      void this.services?.unreadInfo.dispose().catch((error) => {
+        console.error('[unread] 关闭账号时保存本地阅读状态失败', error);
+      });
       this.services?.contentSearch.close();
       this.services?.guildDirect.cancelSearch();
       this.account?.dispose();

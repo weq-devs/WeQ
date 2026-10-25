@@ -881,7 +881,12 @@ if (hasSingleInstanceLock) {
   });
   registerAppQuitCleanup(
     app,
-    () => assistantResourceServer.shutdown(),
+    async () => {
+      await Promise.all([
+        assistantResourceServer.shutdown(),
+        getAppContext().services?.unreadInfo.dispose(),
+      ]);
+    },
     (error) => {
       logger.warn('failed to stop assistant resources on quit', {
         event: 'assistant-resource-quit-failed',

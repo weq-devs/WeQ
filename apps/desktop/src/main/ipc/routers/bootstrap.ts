@@ -2217,8 +2217,9 @@ export const bootstrapRouter = router({
       return ctx.account!.context;
     }),
 
-  closeAccount: procedure.mutation(() => {
+  closeAccount: procedure.mutation(async () => {
     logger.info('router closing account', { event: 'router-close-account' });
+    await getAppContext().services?.unreadInfo.dispose();
     getAppContext().clearAccount();
     return true;
   }),

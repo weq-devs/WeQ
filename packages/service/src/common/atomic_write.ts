@@ -18,6 +18,37 @@ import {
 } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { mkdir, open, rename, unlink } from 'node:fs/promises';
+
+/** 异步版本保持同样的 fsync + 同目录原子发布契约，不阻塞主进程事件循环。 */
+export async function writeFileAtomic(path: string, data: string | Uint8Array): Promise<void> {
+  const parent = dirname(path);
+  await mkdir(parent, { recursive: true });
+  const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  let file: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    file = await open(tmp, 'wx', 0o600);
+    await file.writeFile(data);
+    await file.sync();
+    await file.close();
+    file = undefined;
+    await rename(tmp, path);
+    try {
+      const dir = await open(parent, 'r');
+      try {
+        await dir.sync();
+      } finally {
+        await dir.close();
+      }
+    } catch {
+      /* 部分平台不支持目录 fsync，与同步写入保持一致。 */
+    }
+  } catch (error) {
+    await file?.close().catch(() => {});
+    await unlink(tmp).catch(() => {});
+    throw error;
+  }
+}
 
 /**
  * 原子地把 `data` 写到 `path`（UTF-8）。父目录不存在会先递归创建。

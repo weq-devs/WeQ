@@ -63,41 +63,98 @@ export function createUnreadRefresh(load: () => Promise<boolean>, delayMs = 100)
 
 /** 实时变更只读受影响的会话，不排在全量扫描或首屏消息加载后面。 */
 export function createUnreadTargetRefresh<T extends { chatType: number; uid: string }>(
-  load: (targets: T[]) => Promise<boolean>,
+  load: (targets: T[]) => Promise<boolean | T[]>,
+  onOverflow?: () => void,
 ) {
   let disposed = false;
-  const queued = new Map<string, T>();
+  let running = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const queued = new Map<string, { target: T; failures: number; at: number }>();
   const key = (target: T) => `${target.chatType}:${target.uid}`;
-  const refresh = createUnreadRefresh(async () => {
-    const batch = [...queued.values()].slice(0, 256);
-    if (!batch.length) return true;
-    for (const target of batch) queued.delete(key(target));
-    let succeeded = false;
-    try {
-      succeeded = await load(batch);
-      return succeeded;
-    } finally {
-      if (!succeeded && !disposed) {
-        // 失败目标先重试；期间新到的同会话通知仍保留。
-        const pending = [...queued.values()];
-        queued.clear();
-        for (const target of [...batch, ...pending]) queued.set(key(target), target);
-      }
-      if (queued.size) refresh.request();
+  const arm = () => {
+    if (disposed || running || !queued.size) return;
+    if (timer !== undefined) clearTimeout(timer);
+    const due = Math.min(...[...queued.values()].map((entry) => entry.at));
+    timer = setTimeout(
+      () => {
+        timer = undefined;
+        void run();
+      },
+      Math.max(0, due - Date.now()),
+    );
+  };
+  async function run() {
+    if (disposed) return;
+    const batch = [...queued.values()].filter((entry) => entry.at <= Date.now()).slice(0, 256);
+    if (!batch.length) {
+      arm();
+      return;
     }
-  }, 0);
+    running = true;
+    for (const entry of batch) queued.delete(key(entry.target));
+    let failed = new Set(batch.map((entry) => key(entry.target)));
+    try {
+      const result = await load(batch.map((entry) => entry.target));
+      if (result === true) failed.clear();
+      else if (Array.isArray(result)) failed = new Set(result.map(key));
+    } catch {
+      // 只退避本批目标，期间排队的健康目标仍立即执行。
+    } finally {
+      running = false;
+      if (!disposed) {
+        for (const entry of batch) {
+          if (!failed.has(key(entry.target))) continue;
+          const failures = Math.min(6, entry.failures + 1);
+          queued.set(key(entry.target), {
+            target: queued.get(key(entry.target))?.target ?? entry.target,
+            failures,
+            at: Date.now() + Math.min(1000 * 2 ** (failures - 1), 30000),
+          });
+        }
+        arm();
+      }
+    }
+  }
   return {
     request(targets: T[]) {
       if (disposed) return;
-      for (const target of targets) queued.set(key(target), target);
-      if (queued.size) refresh.request();
+      for (const target of targets) {
+        const existing = queued.get(key(target));
+        if (!existing && queued.size >= 8192) {
+          if (!onOverflow) throw new Error('未读目标队列已满，需要全量校准');
+          onOverflow();
+          continue;
+        }
+        queued.set(
+          key(target),
+          existing ? { ...existing, target } : { target, failures: 0, at: 0 },
+        );
+      }
+      arm();
     },
     dispose() {
       disposed = true;
-      refresh.dispose();
+      if (timer !== undefined) clearTimeout(timer);
       queued.clear();
     },
   };
+}
+
+/** 只比较当前行的提醒字段，不序列化整个会话目录。 */
+export function sameUnreadHighlights<T extends object>(
+  left: readonly T[] | undefined,
+  right: readonly T[] | undefined,
+): boolean {
+  if (left === right) return true;
+  if ((left?.length ?? 0) !== (right?.length ?? 0)) return false;
+  return (left ?? []).every((value, index) => {
+    const other = right?.[index];
+    return (
+      other !== undefined &&
+      Object.keys(value).length === Object.keys(other).length &&
+      (Object.keys(value) as Array<keyof T>).every((key) => value[key] === other[key])
+    );
+  });
 }
 
 /** 重试固定水位的已读请求；换号、换会话或隐藏后不再发出下一次请求。 */

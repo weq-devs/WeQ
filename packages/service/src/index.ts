@@ -455,6 +455,7 @@ export type {
   MoreSearchResult,
 } from './account/unified_search';
 export { UnreadInfoService } from './account/unread_info';
+export { waitForUnreadWrites } from './account/local_unread';
 export { DbDecryptService, isLoginDb, LOGIN_DB_KEY } from './account/db_decrypt';
 export { LoginAccountToolService, resolveLoginAccountDir } from './account/login_account_tool';
 export type {

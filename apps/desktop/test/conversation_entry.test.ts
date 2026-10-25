@@ -25,6 +25,36 @@ function fixture() {
 }
 
 describe('会话分阶段打开', () => {
+  it('普通模式立即显示最新窗口缓存，校准只读最新页，不等待未读水位', async () => {
+    const f = fixture();
+    let release!: (rows: Row[]) => void;
+    f.latest.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    const resolveReadSeq = vi.fn(async () => '10');
+    const window = cached([row('9'), row('10')]);
+    const task = loadConversationEntry({
+      ...f,
+      cached: window,
+      dirty: true,
+      readFromFirstUnread: false,
+      resolveReadSeq,
+    });
+    expect(f.show).toHaveBeenCalledWith(window, true);
+    expect(resolveReadSeq).not.toHaveBeenCalled();
+    release([row('12'), row('11')]);
+    await task;
+    expect(f.show).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        rows: [row('11'), row('12')],
+        anchored: true,
+      }),
+      false,
+    );
+    expect(f.after).not.toHaveBeenCalled();
+  });
   it.each([false, undefined])('关闭或缺省阅读偏好时忽略旧位置和历史缓存：%s', async (enabled) => {
     const f = fixture();
     await loadConversationEntry({

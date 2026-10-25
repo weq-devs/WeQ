@@ -11,6 +11,20 @@ import {
 afterEach(() => vi.useRealTimers());
 
 describe('未读刷新调度', () => {
+  it('五千会话分批完成，超容量明确请求补扫，不静默丢失', async () => {
+    vi.useFakeTimers();
+    const load = vi.fn(async (_targets: Array<{ chatType: number; uid: string }>) => true);
+    const fallback = vi.fn();
+    const queue = createUnreadTargetRefresh(load, fallback);
+    const targets = Array.from({ length: 5000 }, (_, i) => ({ chatType: 2, uid: String(i) }));
+    queue.request(targets);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(load.mock.calls.flatMap(([batch]) => batch)).toEqual(targets);
+    expect(load.mock.calls.every(([batch]) => batch.length <= 256)).toBe(true);
+    queue.request(Array.from({ length: 8193 }, (_, i) => ({ chatType: 2, uid: String(i) })));
+    expect(fallback).toHaveBeenCalledOnce();
+    queue.dispose();
+  });
   it('QQ 仅推进已读水位时优先校准现有红点，不等待全量扫描或新消息', async () => {
     vi.useFakeTimers();
     const background = createUnreadRefresh(() => new Promise<boolean>(() => {}));
@@ -93,11 +107,30 @@ describe('未读刷新调度', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(load.mock.calls[0]![0]).toEqual(targets.slice(0, 256));
     await vi.advanceTimersByTimeAsync(1001);
-    expect(load.mock.calls.slice(1).flatMap(([batch]) => batch)).toEqual(targets);
+    expect(load.mock.calls[1]![0]).toEqual(targets.slice(256));
+    expect(load.mock.calls[2]![0]).toEqual(targets.slice(0, 256));
     live.dispose();
     live.request(targets);
     await vi.advanceTimersByTimeAsync(5000);
     expect(load).toHaveBeenCalledTimes(3);
+  });
+
+  it('坏目标单独退避，新到健康目标不等待它，遗漏目标可作为失败返回', async () => {
+    vi.useFakeTimers();
+    const bad = { chatType: 2, uid: 'bad' },
+      good = { chatType: 1, uid: 'good' };
+    const load = vi.fn(async (targets: (typeof bad)[]) =>
+      targets.filter((target) => target.uid === 'bad'),
+    );
+    const queue = createUnreadTargetRefresh(load);
+    queue.request([bad]);
+    await vi.advanceTimersByTimeAsync(0);
+    queue.request([good]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load.mock.calls[1]![0]).toEqual([good]);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(load.mock.calls[2]![0]).toEqual([bad]);
+    queue.dispose();
   });
 
   it('当前会话直接更新，旧扫描及写入期间的扫描不能覆盖，无关会话仍刷新', () => {

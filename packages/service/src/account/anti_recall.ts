@@ -261,8 +261,12 @@ export class AntiRecallService {
   async getRecallMap(
     kind: 'c2c' | 'group',
     conv: string,
+    msgIds?: readonly bigint[],
   ): Promise<Map<string, { revokeUid: string; senderUid: string; recallTs: number }>> {
-    const rows = await this.listRecalls(kind, conv);
+    // 页面读取复用账号的同库连接；不在每页结束时关闭整个 native 连接缓存。
+    const db = this.openDb();
+    const rows = await db.listRecalls(kind, conv, msgIds);
+    if (kind === 'c2c') rows.push(...(await db.listRecalls('dataline', conv, msgIds)));
     const map = new Map<string, { revokeUid: string; senderUid: string; recallTs: number }>();
     for (const r of rows) {
       map.set(r.msgid, { revokeUid: r.revokeUid, senderUid: r.senderUid, recallTs: r.recallTs });

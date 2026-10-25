@@ -3,7 +3,8 @@
  * using timestamps and filenames.
  */
 
-import { readdirSync, statSync, existsSync } from 'node:fs';
+import { readdir, stat } from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
 import { join, extname } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
@@ -28,6 +29,17 @@ function stripExt(filename: string): string {
 }
 
 export class FileSearchService {
+  private readonly directories = new Map<
+    string,
+    {
+      signature: string;
+      entries: Dirent[];
+      exact: Map<string, string>;
+      variants: Map<string, string>;
+    }
+  >();
+  private readonly reading = new Map<string, Promise<Dirent[]>>();
+  private readonly searches = new Map<string, Promise<SearchResult>>();
   constructor(
     private readonly session: AccountSession,
     private readonly platform: Platform,
@@ -37,6 +49,25 @@ export class FileSearchService {
    * Search for a file by timestamp, name, and type.
    */
   async findFile(
+    timestamp: number,
+    filename: string,
+    type: FileType,
+    md5?: string,
+  ): Promise<SearchResult> {
+    const key = JSON.stringify([timestamp, filename, type, md5]);
+    const pending = this.searches.get(key);
+    if (pending) return pending;
+    const task = this.search(timestamp, filename, type, md5);
+    // 只合并在途查找，不缓存最终缺图结果；新下载由目录元数据立即失效。
+    if (this.searches.size < 256) this.searches.set(key, task);
+    try {
+      return await task;
+    } finally {
+      if (this.searches.get(key) === task) this.searches.delete(key);
+    }
+  }
+
+  private async search(
     timestamp: number,
     filename: string,
     type: FileType,
@@ -68,7 +99,7 @@ export class FileSearchService {
     ];
 
     for (const m of monthsToTry) {
-      const result = this.searchInMonthDir(uin, type, m, identity);
+      const result = await this.searchInMonthDir(uin, type, m, identity);
       if (result.source || result.thumb) return result;
     }
 
@@ -77,10 +108,10 @@ export class FileSearchService {
     // miss entirely). Fall back to scanning every month folder.
     if (type === 'emoji') {
       const baseDir = this.getTypeDir(uin, type);
-      if (baseDir && existsSync(baseDir)) {
-        for (const m of this.listMonths(baseDir)) {
+      if (baseDir) {
+        for (const m of await this.listMonths(baseDir)) {
           if (monthsToTry.includes(m)) continue;
-          const result = this.searchInMonthDir(uin, type, m, identity);
+          const result = await this.searchInMonthDir(uin, type, m, identity);
           if (result.thumb || result.source) return result;
         }
       }
@@ -90,33 +121,23 @@ export class FileSearchService {
   }
 
   /** Sub-directory names under a media base dir (the `<YYYY-MM>` buckets), newest first. */
-  private listMonths(baseDir: string): string[] {
-    try {
-      return readdirSync(baseDir)
-        .filter((e) => {
-          try {
-            return statSync(join(baseDir, e)).isDirectory();
-          } catch {
-            return false;
-          }
-        })
-        .sort((a, b) => b.localeCompare(a));
-    } catch {
-      return [];
-    }
+  private async listMonths(baseDir: string): Promise<string[]> {
+    return (await this.readDirectory(baseDir))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort((a, b) => b.localeCompare(a));
   }
 
-  private searchInMonthDir(
+  private async searchInMonthDir(
     uin: string,
     type: Exclude<FileType, 'file'>,
     month: string,
     filename: string,
-  ): SearchResult {
+  ): Promise<SearchResult> {
     const baseDir = this.getTypeDir(uin, type);
     if (!baseDir) return { source: null, thumb: null };
 
     const monthDir = join(baseDir, month);
-    if (!existsSync(monthDir)) return { source: null, thumb: null };
 
     const oriDir = join(monthDir, 'Ori');
     const thumbDir = join(monthDir, 'Thumb');
@@ -125,7 +146,7 @@ export class FileSearchService {
     // is `<stem>.<ext>`, so we match by stem (no extension). ptt has no separate
     // thumbnail, so we match the full filename and skip the Thumb dir.
     if (type === 'ptt') {
-      return { source: this.findFirstMatch(oriDir, filename, false), thumb: null };
+      return { source: await this.findFirstMatch(oriDir, filename, false), thumb: null };
     }
 
     const stem = stripExt(filename);
@@ -133,17 +154,19 @@ export class FileSearchService {
     // Animated emoji (pic subType 1) has no "original" — the displayable image
     // lives in Ori (preferred) or Thumb. Return it as `thumb`, source = null.
     if (type === 'emoji') {
-      const display = this.findFirstMatch(oriDir, stem) ?? this.findFirstMatch(thumbDir, stem);
+      const display =
+        (await this.findFirstMatch(oriDir, stem)) ?? (await this.findFirstMatch(thumbDir, stem));
       return { source: null, thumb: display };
     }
 
-    return {
-      source: this.findFirstMatch(oriDir, stem),
-      thumb: this.findFirstMatch(thumbDir, stem),
-    };
+    const [source, thumb] = await Promise.all([
+      this.findFirstMatch(oriDir, stem),
+      this.findFirstMatch(thumbDir, stem),
+    ]);
+    return { source, thumb };
   }
 
-  private searchFile(uin: string, filename: string): SearchResult {
+  private async searchFile(uin: string, filename: string): Promise<SearchResult> {
     // Files have no separate thumbnail — the icon is derived from the extension
     // and is ALWAYS returned, even when the source isn't on disk (the user's QQ
     // download dir, not Ori, is the real location; resolving it is future work).
@@ -155,54 +178,95 @@ export class FileSearchService {
 
     // Files keep their full name (with extension) on disk.
     const oriDir = join(baseDir, 'Ori');
-    const source = this.findRecursiveMatch(oriDir, filename);
+    const source = await this.findRecursiveMatch(oriDir, filename);
     return { source, thumb };
   }
 
-  private findFirstMatch(dir: string, needle: string, variants = true): string | null {
-    if (!needle || !existsSync(dir)) return null;
-    // Match case-insensitively — QQ stores hex names that may differ in case
-    // between the DB field and the on-disk filename.
-    const lcNeedle = needle.toLowerCase();
-    try {
-      const entries = readdirSync(dir, { withFileTypes: true });
-      // Prefer the entry whose stem equals the needle exactly (the real source,
-      // e.g. `<stem>.mp4`) over a substring hit (e.g. the `<stem>_0.jpg` cover
-      // sitting in the same dir) so a stem search returns the right file.
-      let fallback: string | null = null;
-      for (const entry of entries) {
-        if (!entry.isFile()) continue;
-        const lcEntry = entry.name.toLowerCase();
-        const stem = stripExt(lcEntry);
-        if (lcEntry === lcNeedle || stem === lcNeedle) return join(dir, entry.name);
-        if (
-          !fallback &&
-          variants &&
-          stem.startsWith(lcNeedle) &&
-          /^_\d+$/.test(stem.slice(lcNeedle.length))
-        ) {
-          fallback = join(dir, entry.name);
-        }
-      }
-      return fallback;
-    } catch {
-      // Unreadable dir.
+  private async findFirstMatch(
+    dir: string,
+    needle: string,
+    variants = true,
+  ): Promise<string | null> {
+    if (!needle) return null;
+    const entries = await this.readDirectory(dir);
+    const cached = this.directories.get(dir);
+    if (cached?.entries === entries) {
+      const name =
+        cached.exact.get(needle.toLowerCase()) ??
+        (variants ? cached.variants.get(needle.toLowerCase()) : undefined);
+      return name ? join(dir, name) : null;
     }
-    return null;
+    // 超大目录不常驻缓存，仍保留完全匹配优先于数字变体的规则。
+    let fallback: string | null = null;
+    const key = needle.toLowerCase();
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const name = entry.name.toLowerCase(),
+        stem = stripExt(name);
+      if (name === key || stem === key) return join(dir, entry.name);
+      if (!fallback && variants && stem.startsWith(key) && /^_\d+$/.test(stem.slice(key.length)))
+        fallback = join(dir, entry.name);
+    }
+    return fallback;
   }
 
-  private findRecursiveMatch(dir: string, filename: string): string | null {
-    if (!existsSync(dir)) return null;
+  private async readDirectory(dir: string): Promise<Dirent[]> {
+    const pending = this.reading.get(dir);
+    if (pending) return pending;
+    const task = (async () => {
+      try {
+        const info = await stat(dir, { bigint: true });
+        const signature = `${info.ino}:${info.mtimeNs}:${info.ctimeNs}`;
+        const cached = this.directories.get(dir);
+        if (cached?.signature === signature) return cached.entries;
+        this.directories.delete(dir);
+        const entries = await readdir(dir, { withFileTypes: true });
+        if (entries.length <= 8000) {
+          const exact = new Map<string, string>(),
+            variants = new Map<string, string>();
+          for (const entry of entries) {
+            if (!entry.isFile()) continue;
+            const name = entry.name.toLowerCase(),
+              stem = stripExt(name);
+            if (!exact.has(name)) exact.set(name, entry.name);
+            if (!exact.has(stem)) exact.set(stem, entry.name);
+            const variant = /^(.*)_\d+$/.exec(stem)?.[1];
+            if (variant && !variants.has(variant)) variants.set(variant, entry.name);
+          }
+          this.directories.set(dir, { signature, entries, exact, variants });
+          // 文件数和目录数双重限额，避免长时间切会话累积媒体目录。
+          let count = 0;
+          for (const value of this.directories.values()) count += value.entries.length;
+          while (this.directories.size > 128 || count > 32000) {
+            const key = this.directories.keys().next().value!;
+            count -= this.directories.get(key)!.entries.length;
+            this.directories.delete(key);
+          }
+        }
+        return entries;
+      } catch {
+        this.directories.delete(dir);
+        return [];
+      }
+    })();
+    this.reading.set(dir, task);
+    try {
+      return await task;
+    } finally {
+      this.reading.delete(dir);
+    }
+  }
+
+  private async findRecursiveMatch(dir: string, filename: string): Promise<string | null> {
     const lcFilename = filename.toLowerCase();
     try {
-      const entries = readdirSync(dir);
+      const entries = await this.readDirectory(dir);
       for (const entry of entries) {
-        const fullPath = join(dir, entry);
-        const stat = statSync(fullPath);
-        if (stat.isDirectory()) {
-          const found = this.findRecursiveMatch(fullPath, filename);
+        const fullPath = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          const found = await this.findRecursiveMatch(fullPath, filename);
           if (found) return found;
-        } else if (entry.toLowerCase().includes(lcFilename)) {
+        } else if (entry.isFile() && entry.name.toLowerCase().includes(lcFilename)) {
           return fullPath;
         }
       }
@@ -227,6 +291,7 @@ export class FileSearchService {
 
   private getRelativeMonth(baseDate: Date, delta: number): string {
     const d = new Date(baseDate);
+    d.setDate(1);
     d.setMonth(d.getMonth() + delta);
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');

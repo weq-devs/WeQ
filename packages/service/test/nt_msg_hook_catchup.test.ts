@@ -1,8 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
 import type { C2cMsg, GroupMsg } from '@weq/db';
 import { createNtMsgDbHook } from '../src/account/nt_msg_hook';
 import type { DbChange } from '../src/account/db_watch';
+import type { DbWatchTask } from '../src/account/db_watch';
+
+const mounted: DbWatchTask[] = [];
+afterEach(() => {
+  for (const hook of mounted.splice(0)) hook.dispose?.();
+});
 
 const DB_CHANGE = {
   dbPath: 'nt_msg.db',
@@ -61,6 +67,7 @@ function fixture(kind: 'group' | 'c2c' | 'dataline', total: number) {
     onDbChanged: () => {},
     onNewMessages,
   });
+  mounted.push(hook);
   return {
     hook,
     listAfter,
@@ -100,6 +107,7 @@ describe('nt_msg watcher batch catch-up', () => {
       },
     } as unknown as AccountSession;
     const hook = createNtMsgDbHook(session, { onDbChanged: () => {}, onNewMessages });
+    mounted.push(hook);
     await hook.onDbFileChangeHook(DB_CHANGE);
     watermark = 1n;
     const pending = hook.onDbFileChangeHook(DB_CHANGE);
@@ -124,8 +132,9 @@ describe('nt_msg watcher batch catch-up', () => {
     f.listAfter.mockResolvedValueOnce([]);
     await f.hook.onDbFileChangeHook(DB_CHANGE);
     expect(f.onNewMessages).not.toHaveBeenCalled();
-    await f.hook.onDbFileChangeHook(DB_CHANGE);
-    expect(f.onNewMessages.mock.calls[0]?.[0].c2c).toHaveLength(2);
+    await vi.waitFor(() => expect(f.onNewMessages.mock.calls[0]?.[0].c2c).toHaveLength(2), {
+      timeout: 3000,
+    });
   });
   it('同秒机器人连续消息按会话序号，不按随机消息 ID 反转', async () => {
     const f = fixture('c2c', 2);
@@ -147,17 +156,22 @@ describe('nt_msg watcher batch catch-up', () => {
       await f.hook.onDbFileChangeHook(DB_CHANGE); // Startup establishes the baseline.
       f.setWatermark(1201n);
       await f.hook.onDbFileChangeHook(DB_CHANGE);
-
+      expect(
+        f.onNewMessages.mock.calls[0]![0][
+          kind === 'group' ? 'group' : kind === 'dataline' ? 'dataline' : 'c2c'
+        ],
+      ).toHaveLength(500);
+      await vi.waitFor(() => expect(f.onNewMessages).toHaveBeenCalledTimes(3));
       expect(f.listAfter.mock.calls.map((args) => args[1])).toEqual([0n, 500n, 1000n]);
-      expect(f.onNewMessages).toHaveBeenCalledTimes(1);
       const event = f.onNewMessages.mock.calls[0]![0];
-      const emitted =
-        kind === 'group' ? event.group : kind === 'dataline' ? event.dataline : event.c2c;
+      const emitted = f.onNewMessages.mock.calls.flatMap(([event]) =>
+        kind === 'group' ? event.group : kind === 'dataline' ? event.dataline : event.c2c,
+      );
       if (kind === 'dataline') expect(event.c2c).toEqual([]);
       expect(emitted.map((m: C2cMsg | GroupMsg) => m.msgSeq)).toEqual(f.rows.map((m) => m.msgSeq));
 
       await f.hook.onDbFileChangeHook(DB_CHANGE);
-      expect(f.onNewMessages).toHaveBeenCalledTimes(1);
+      expect(f.onNewMessages).toHaveBeenCalledTimes(3);
     },
   );
 
@@ -171,23 +185,62 @@ describe('nt_msg watcher batch catch-up', () => {
       f.setWatermark(1001n);
       await f.hook.onDbFileChangeHook(DB_CHANGE);
 
-      expect(f.onNewMessages).toHaveBeenCalledTimes(1);
-      const change = f.onNewMessages.mock.calls[0]![0];
-      const emitted = kind === 'group' ? change.group : change.c2c;
+      await vi.waitFor(() => expect(f.onNewMessages).toHaveBeenCalledTimes(2));
+      const emitted = f.onNewMessages.mock.calls.flatMap(([change]) =>
+        kind === 'group' ? change.group : change.c2c,
+      );
       expect(emitted.map((m: C2cMsg | GroupMsg) => m.msgId)).toEqual(f.rows.map((m) => m.msgId));
     },
   );
 
-  it('retries the complete delta after a later page fails', async () => {
+  it('后续页失败独立重试，不重复已交付页，不依赖下一次文件变化', async () => {
     const f = fixture('group', 1100);
     await f.hook.onDbFileChangeHook(DB_CHANGE);
     f.setWatermark(1100n);
     f.failSecondPageOnce();
     await f.hook.onDbFileChangeHook(DB_CHANGE);
 
-    expect(f.onNewMessages).not.toHaveBeenCalled();
-    await f.hook.onDbFileChangeHook(DB_CHANGE);
-    expect(f.onNewMessages).toHaveBeenCalledTimes(1);
-    expect(f.onNewMessages.mock.calls[0]![0].group).toHaveLength(1100);
+    expect(f.onNewMessages.mock.calls[0]![0].group).toHaveLength(500);
+    await vi.waitFor(() => expect(f.onNewMessages).toHaveBeenCalledTimes(3), { timeout: 3000 });
+    const emitted = f.onNewMessages.mock.calls.flatMap(([change]) => change.group);
+    expect(emitted.map((m: GroupMsg) => m.msgId)).toEqual(f.rows.map((m) => m.msgId));
+    expect(f.listAfter.mock.calls.map((args) => args[1])).toEqual([0n, 500n, 500n, 1000n]);
+  });
+
+  it('积压群只读一页就轮到健康会话，卸载取消后续补齐', async () => {
+    let seq = 0n;
+    const calls: string[] = [];
+    const session = {
+      msgDbPath: 'nt_msg.db',
+      recentContacts: {
+        listSeqWatermarks: async () =>
+          ['heavy', 'healthy'].map((targetUid) => ({
+            targetUid,
+            chatType: 2,
+            msgSeq: seq,
+            sendTime: targetUid === 'heavy' ? 2n : 1n,
+          })),
+      },
+      groupMsgs: {
+        listAfter: async (uid: string, after: bigint) => {
+          calls.push(uid);
+          return uid === 'heavy'
+            ? Array.from({ length: 500 }, (_, i) => message(Number(after) + i + 1))
+            : [message(1)];
+        },
+        listBySeqsInPartition: async () => [],
+      },
+    } as unknown as AccountSession;
+    const events = vi.fn();
+    const hook = createNtMsgDbHook(session, { onDbChanged: () => {}, onNewMessages: events });
+    mounted.push(hook);
+    await hook.onDbFileChangeHook(DB_CHANGE);
+    seq = 1200n;
+    await hook.onDbFileChangeHook(DB_CHANGE);
+    expect(calls.slice(0, 2)).toEqual(['heavy', 'healthy']);
+    hook.dispose?.();
+    const count = calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(calls).toHaveLength(count);
   });
 });

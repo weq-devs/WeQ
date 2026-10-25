@@ -55,6 +55,7 @@ pnpm dev
 
 ### 基础能力与贡献
 
+- [消息同步与性能修复方案](./message-sync-performance-plan-20261025.md)及[阶段实施记录](./message-sync-performance-implementation-20261025.md)：消息到达、QQ 已读消点、会话首屏与媒体的已实施范围，以及时间线虚拟化和真实性能验收待办。
 - [桌面包体积优化](./desktop-package-size-20261025.md)：生产依赖分层、原生架构裁剪、真实打包匹配器和产物冒烟。
 - [QQ 数据库布局：按文件设置保留页](./db-layout-split-20261018.md) — per-Pager pending byte、锁字节与布局自动识别
 - [nt_helper.node 接口文档](./nt-helper-interface.md) — 原生模块能力总览，**写代码前先看，别重复造轮子**

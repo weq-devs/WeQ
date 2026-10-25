@@ -1,14 +1,45 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import * as fs from 'node:fs/promises';
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>();
+  return { ...actual, readdir: vi.fn(actual.readdir) };
+});
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import { FileSearchService } from '../src/account/file_search';
 
 const roots: string[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+it('同目录并发定位只扫描一次，缺图后下载及文件删除立即失效', async () => {
+  const { service, put } = fixture();
+  put('other.png', 'Ori');
+  const readdir = vi.mocked(fs.readdir).mockClear();
+  const results = await Promise.all(
+    Array.from({ length: 20 }, () => service.findFile(time, 'missing.png', 'pic')),
+  );
+  expect(results.every((row) => row.source === null)).toBe(true);
+  const scans = readdir.mock.calls.length;
+  await service.findFile(time, 'another.png', 'pic');
+  expect(readdir).toHaveBeenCalledTimes(scans);
+  const source = put('missing.png', 'Ori');
+  expect((await service.findFile(time, 'missing.png', 'pic')).source).toBe(source);
+  rmSync(source);
+  expect((await service.findFile(time, 'missing.png', 'pic')).source).toBeNull();
+});
+
+it('月末回退不被日期溢出跳回本月', async () => {
+  const { service, put } = fixture();
+  const source = put('target.png', 'Ori', '2023-02');
+  expect(
+    (await service.findFile(new Date(2023, 2, 31).getTime(), 'target.png', 'pic')).source,
+  ).toBe(source);
 });
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'weq-file-search-'));
