@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AUDIO_HEADER_LEN,
   CallEvent,
+  DEFAULT_CAPABILITIES,
   FEC_DATA_FRAMES,
   FEC_PARITY_ROWS,
   GcsBodyType,
@@ -92,6 +93,27 @@ describe('GCS 控制面', () => {
     const parsed = parseGcsPacket(pkt)!;
     expect(parsed.bodyType).toBe(GcsBodyType.authReq);
     expect(parsed.body.length).toBeGreaterThan(100);
+  });
+
+  /**
+   * 回归：能力集必须与 QQ 本体逐字节一致。
+   *
+   * 旧模板是从语音通话抓的，`f3=5 / f6=10058 / f11=26847424`，内层分辨率硬编码
+   * 2560×1440、前两条能力是 `f1=2`。视频通话实测是 `f3=15 / f6=10063 /
+   * f11=1812048064`、内层 0/0、前两条为空 —— 两者差异可能让服务端不把本端当
+   * 视频/P2P 候选（拿不到 `bt=9` 的 `f7`，媒体只能全程中继）。
+   *
+   * 黄金样本：2026-10-26 QQ 本体直接视频抓包的认证 body（618 字节）。
+   */
+  it('能力集与 QQ 本体逐字节一致（618 字节）', () => {
+    expect(DEFAULT_CAPABILITIES).toHaveLength(618);
+    // 顶层 f3 = 15（视频档位）、f6 = 10063（与 MEDIA_PROFILE.video.inviteF4 一致）。
+    expect(pbGetVarint(DEFAULT_CAPABILITIES, 3)).toBe(15);
+    expect(pbGetVarint(DEFAULT_CAPABILITIES, 6)).toBe(10063);
+    // 开头是 f1 能力列表：`0a d3 03`（field 1, len 467），之后两条空能力
+    // `0a 00 0a 00` —— 不是旧模板的 `f1=2`（`08 02 10 01`）。
+    expect([...DEFAULT_CAPABILITIES.subarray(0, 3)]).toEqual([0x0a, 0xd3, 0x03]);
+    expect([...DEFAULT_CAPABILITIES.subarray(3, 7)]).toEqual([0x0a, 0x00, 0x0a, 0x00]);
   });
 
   it('登出包的 body 是 reason=2', () => {
