@@ -12,6 +12,7 @@
  */
 
 import { elementToToken } from './draftElements';
+import { releaseObjectUrl } from '../../lib/objectUrl';
 
 export type ComposerAttachmentKind = 'image' | 'video' | 'file';
 
@@ -178,11 +179,11 @@ export async function createAttachments(files: Iterable<File>): Promise<Composer
 
 /** 释放一个附件的预览地址。 */
 export function releaseAttachment(attachment: ComposerAttachment): void {
-  if (attachment.url) URL.revokeObjectURL(attachment.url);
+  if (attachment.url) releaseObjectUrl(attachment.url);
 }
 
 export function releaseVoiceClip(clip: VoiceClip | null): void {
-  if (clip?.url?.startsWith('blob:')) URL.revokeObjectURL(clip.url);
+  if (clip?.url?.startsWith('blob:')) releaseObjectUrl(clip.url);
 }
 
 /** `DataTransfer` 里有没有文件（拖拽高亮判断，别把普通文本拖拽也点亮）。 */

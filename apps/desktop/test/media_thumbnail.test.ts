@@ -47,7 +47,7 @@ it('动画表情不切换成静态缩略图，也不打开原图灯箱', async (
 });
 it('编辑器本地预览仍优先使用本地资源', async () => {
   const host = await render({ localPath: '/synthetic/image.png', localPreviewUrl: 'blob:fixture' });
-  expect(host.querySelector('img')!.src).toContain('localfile');
+  expect(host.querySelector('img')!.src).toBe('blob:fixture');
 });
 
 it('缩略图损坏时回退原图，不直接显示缺图', async () => {

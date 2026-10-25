@@ -35,6 +35,7 @@ import { useToast } from './Toast';
 import { useZoomPan } from './useZoomPan';
 import { resourceForRenderDocument } from '../lib/renderDocument';
 import { MediaSourceSave } from './MediaSaveControls';
+import { retainObjectUrl } from '../lib/objectUrl';
 
 /**
  * 图片的「可 OCR」上下文 —— 只有聊天消息里的图片拿得到（元素里带 `fileToken`）。
@@ -60,6 +61,8 @@ interface LightboxStore {
   alt: string;
   ocr: LightboxOcrContext | null;
   ownerDocument: Document | null;
+  fallbackSources: string[];
+  releaseSources?: () => void;
   onClosed?: () => void;
   open(
     src: string,
@@ -67,7 +70,9 @@ interface LightboxStore {
     ocr?: LightboxOcrContext | null,
     ownerDocument?: Document,
     onClosed?: () => void,
+    fallbackSources?: string[],
   ): void;
+  nextSource(failed: string): void;
   close(): void;
 }
 
@@ -76,13 +81,41 @@ const useLightbox = create<LightboxStore>((set, get) => ({
   alt: '',
   ocr: null,
   ownerDocument: null,
-  open(src, alt = '', ocr = null, ownerDocument = document, onClosed) {
+  fallbackSources: [],
+  open(src, alt = '', ocr = null, ownerDocument = document, onClosed, fallbacks = []) {
     if (!src || (get().src === src && get().ownerDocument === ownerDocument)) return;
-    set({ src, alt, ocr, ownerDocument, onClosed });
+    const sources = [...new Set([src, ...fallbacks].filter(Boolean))];
+    const releases = sources.map(retainObjectUrl);
+    get().releaseSources?.();
+    set({
+      src,
+      alt,
+      ocr,
+      ownerDocument,
+      onClosed,
+      fallbackSources: sources.slice(1),
+      releaseSources: () => {
+        for (const release of releases) release();
+      },
+    });
+  },
+  nextSource(failed) {
+    const { src, fallbackSources } = get();
+    if (src !== failed || !fallbackSources.length) return;
+    set({ src: fallbackSources[0], fallbackSources: fallbackSources.slice(1) });
   },
   close() {
-    const onClosed = get().onClosed;
-    set({ src: null, alt: '', ocr: null, ownerDocument: null, onClosed: undefined });
+    const { onClosed, releaseSources } = get();
+    set({
+      src: null,
+      alt: '',
+      ocr: null,
+      ownerDocument: null,
+      onClosed: undefined,
+      fallbackSources: [],
+      releaseSources: undefined,
+    });
+    releaseSources?.();
     onClosed?.();
   },
 }));
@@ -94,9 +127,17 @@ export function openLightbox(
   ocr?: LightboxOcrContext | null,
   ownerDocument?: Document,
   onClosed?: () => void,
+  fallbackSources: string[] = [],
 ): void {
   const target = ownerDocument ?? document;
-  useLightbox.getState().open(resourceForRenderDocument(src, target), alt, ocr, target, onClosed);
+  useLightbox.getState().open(
+    resourceForRenderDocument(src, target),
+    alt,
+    ocr,
+    target,
+    onClosed,
+    fallbackSources.map((source) => resourceForRenderDocument(source, target)),
+  );
 }
 
 /** Mount once. Renders the active large-image overlay, if any. */
@@ -107,6 +148,7 @@ export function ImageLightbox(): ReactElement | null {
   const alt = useLightbox((s) => s.alt);
   const ocrContext = useLightbox((s) => s.ocr);
   const close = useLightbox((s) => s.close);
+  const nextSource = useLightbox((s) => s.nextSource);
   const zoom = useZoomPan(src);
   const layer = useOverlayLayer(src !== null);
 
@@ -129,6 +171,8 @@ export function ImageLightbox(): ReactElement | null {
   /** 纯文本面板是否展开（识别成功后自动展开）。 */
   const [panelOpen, setPanelOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => () => useLightbox.getState().close(), []);
 
   useEffect(() => {
     if (src) layerRef.current?.focus({ preventScroll: true });
@@ -341,12 +385,14 @@ export function ImageLightbox(): ReactElement | null {
             onMouseDown={zoom.onMouseDown}
           >
             <img
+              key={src}
               ref={imageRef}
               className="weq-lightbox-image"
               src={src}
               alt={alt}
               draggable={false}
               onLoad={measure}
+              onError={() => nextSource(src)}
             />
             {overlayVisible ? (
               <div className="weq-ocr-overlay">

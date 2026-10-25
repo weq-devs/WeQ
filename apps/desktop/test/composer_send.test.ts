@@ -216,6 +216,57 @@ describe('输入区发送交接', () => {
       f.close();
     }
   });
+
+  it('成功回执先于消息同步时保留图片预览，真实消息接管后再释放', async () => {
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:pending-sync');
+    vi.stubGlobal(
+      'Image',
+      class {
+        naturalWidth = 1;
+        naturalHeight = 1;
+        onload: (() => void) | null = null;
+        set src(_value: string) {
+          queueMicrotask(() => this.onload?.());
+        }
+      },
+    );
+    const f = mount();
+    try {
+      type(f.editor(), '');
+      const input = f.host.querySelector<HTMLInputElement>('input[type="file"][accept="image/*"]')!;
+      await act(async () => {
+        Object.defineProperty(input, 'files', {
+          configurable: true,
+          value: [new File(['fixture'], 'image.png', { type: 'image/png' })],
+        });
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await act(async () => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+      const [body, locals] = f.onSend.mock.calls[0]!;
+      f.render({
+        messages: [
+          {
+            id: 'optimistic-pending-image',
+            conversationId: f.props.conversation.id,
+            senderId: f.props.user.id,
+            body: '[图片]',
+            createdAt: '2026-10-25T01:00:00Z',
+            optimistic: 'sent',
+            composerDraft: { body, locals },
+            qqElements: buildOptimisticRender({ body, locals: locals!, superStickers: new Map() })
+              .elements,
+          },
+        ],
+      });
+      await act(async () => f.finish());
+      expect(revoke).not.toHaveBeenCalledWith('blob:pending-sync');
+      f.render({ messages: [] });
+      expect(revoke.mock.calls).toEqual([['blob:pending-sync']]);
+    } finally {
+      f.close();
+    }
+  });
   it('撤回的图文消息恢复图片资源和前后顺序，可再次生成图片发送计划', async () => {
     vi.stubGlobal(
       'fetch',
