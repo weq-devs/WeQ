@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import type { MarketEmoticonPackage, MarketPackFeeType } from '@weq/service';
 import { trpc } from '../../trpc/client';
+import { useTabActive } from '../../components/RetainedTabs';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { MarketKeyDialog } from './MarketKeyDialog';
@@ -46,9 +47,10 @@ function packImageUrl(packId: string, hash: string): string {
 }
 
 export function MarketPackExplorer(): ReactElement {
+  const visible = useTabActive();
   const [openPackId, setOpenPackId] = useState<string | null>(null);
   const [showKeyTool, setShowKeyTool] = useState(false);
-  const packages = trpc.account.marketEmoji.listPackages.useQuery();
+  const packages = trpc.account.marketEmoji.listPackages.useQuery(undefined, { enabled: visible });
 
   const keyDialog = showKeyTool ? (
     <MarketKeyDialog
@@ -148,7 +150,11 @@ function PackCard({
   pkg: MarketEmoticonPackage;
   onOpen: () => void;
 }): ReactElement {
-  const detail = trpc.account.marketEmoji.getPackDetail.useQuery({ packId: pkg.packId });
+  const visible = useTabActive();
+  const detail = trpc.account.marketEmoji.getPackDetail.useQuery(
+    { packId: pkg.packId },
+    { enabled: visible },
+  );
   const [broken, setBroken] = useState(false);
 
   const fee = FEE_META[detail.data?.feeType ?? 'unknown'];
@@ -197,8 +203,9 @@ function PackDetail({
   onBack: () => void;
   onOpenKeyTool: () => void;
 }): ReactElement {
-  const detail = trpc.account.marketEmoji.getPackDetail.useQuery({ packId });
-  const keyInfo = trpc.account.marketEmoji.getPackKey.useQuery({ packId });
+  const visible = useTabActive();
+  const detail = trpc.account.marketEmoji.getPackDetail.useQuery({ packId }, { enabled: visible });
+  const keyInfo = trpc.account.marketEmoji.getPackKey.useQuery({ packId }, { enabled: visible });
   const [showPrinciple, setShowPrinciple] = useState(false);
 
   const fee = FEE_META[detail.data?.feeType ?? 'unknown'];

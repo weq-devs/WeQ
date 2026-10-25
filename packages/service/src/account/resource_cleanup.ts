@@ -54,6 +54,8 @@ export interface CleanupBucket {
 /** One target enriched with its on-disk size (from {@link ResourceCleanupService.listTargets}). */
 export interface CleanupTargetStat {
   id: string;
+  /** 已通过白名单和真实路径边界检查的目录，仅作确认展示，不接受它作为删除输入。 */
+  path?: string;
   label: string;
   desc: string;
   tier: CleanupTier;
@@ -259,6 +261,7 @@ export class ResourceCleanupService {
         const dir = this.safeDir(def);
         const empty: CleanupTargetStat = {
           id: def.id,
+          path: dir ?? undefined,
           label: def.label,
           desc: def.desc,
           tier: def.tier,

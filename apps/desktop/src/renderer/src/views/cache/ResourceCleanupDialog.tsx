@@ -49,6 +49,9 @@ import type { CleanupTargetStat, CleanupVariant, CleanupResult } from '@weq/serv
 import { client, trpc } from '../../trpc/client';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
 import { fmtBytes } from './CacheShared';
+import { useTabActive } from '../../components/RetainedTabs';
+import { useDraftProtection } from '../../lib/draftClose';
+import type { ResourceManagementSnapshot } from './resourceManagement';
 
 /** One deletion instruction (target + how much). */
 interface Instruction {
@@ -86,7 +89,7 @@ const PRESETS: Preset[] = [
     id: 'ori',
     label: '清理原图',
     icon: <ImageIcon size={20} />,
-    desc: '删除图片 / 视频 / 表情的原始文件，保留缩略图预览。释放空间最多，但原图过期后可能无法恢复。',
+    desc: '删除图片 / 视频 / 表情的原始文件，保留缩略图预览。可减少原始文件占用，但原图过期后可能无法恢复。',
     danger: true,
     build: (targets) =>
       targets
@@ -175,15 +178,31 @@ export function ResourceCleanupDialog({
   open,
   onClose,
   presentation = 'page',
+  embedded = false,
+  snapshot,
+  onBusyChange,
 }: {
   open: boolean;
   onClose: () => void;
   presentation?: ToolPresentation;
+  embedded?: boolean;
+  snapshot?: ResourceManagementSnapshot;
+  onBusyChange?: (busy: boolean) => void;
 }): ReactElement | null {
   const utils = trpc.useUtils();
-  const [targets, setTargets] = useState<CleanupTargetStat[]>([]);
-  const [loading, setLoading] = useState(false);
+  const active = useTabActive();
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const [localTargets, setTargets] = useState<CleanupTargetStat[]>([]);
+  const [localLoading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const targets = snapshot?.targets ?? localTargets;
+  const loading = snapshot
+    ? snapshot.scanningKey !== null || (!snapshot.complete && !snapshot.error)
+    : localLoading;
+  const canAct =
+    active && (!snapshot || (snapshot.complete && !snapshot.scanningKey && !snapshot.error));
+  const refresh = snapshot?.refresh;
 
   // pick → confirm → running → done
   const [stage, setStage] = useState<'pick' | 'confirm' | 'running' | 'done'>('pick');
@@ -193,9 +212,28 @@ export function ResourceCleanupDialog({
   const [customMode, setCustomMode] = useState(false);
   const [customSel, setCustomSel] = useState<Record<string, CleanupVariant>>({});
   const [phrase, setPhrase] = useState('');
-  const [result, setResult] = useState<CleanupResult | null>(null);
+  const [result, setResult] = useState<{
+    receipt: CleanupResult;
+    targets: CleanupTargetStat[];
+  } | null>(null);
 
   const runRef = useRef(0);
+  const pending = useRef(false);
+  useEffect(() => {
+    onBusyChange?.(stage === 'running');
+  }, [stage, onBusyChange]);
+  useEffect(() => {
+    if (!active) setPhrase('');
+  }, [active]);
+  const draft =
+    stage === 'pick' || stage === 'confirm'
+      ? chosen
+        ? { preset: chosen.preset.id, instructions: chosen.instructions }
+        : Object.keys(customSel).length
+          ? customSel
+          : null
+      : null;
+  useDraftProtection(embedded ? draft : null, embedded && stage === 'running');
 
   useEffect(
     () => () => {
@@ -205,6 +243,7 @@ export function ResourceCleanupDialog({
   );
 
   const resetState = useCallback((): void => {
+    setError(null);
     setStage('pick');
     setChosen(null);
     setCustomMode(false);
@@ -214,6 +253,7 @@ export function ResourceCleanupDialog({
   }, []);
 
   const scan = useCallback(async (): Promise<void> => {
+    if (refresh) return refresh();
     const run = ++runRef.current;
     setLoading(true);
     setError(null);
@@ -226,17 +266,17 @@ export function ResourceCleanupDialog({
     } finally {
       if (run === runRef.current) setLoading(false);
     }
-  }, []);
+  }, [refresh]);
 
   // Fresh scan + reset every time the dialog opens.
   useEffect(() => {
     if (open) {
       resetState();
-      void scan();
+      if (!refresh) void scan();
     } else {
       runRef.current += 1;
     }
-  }, [open, scan, resetState]);
+  }, [open, scan, resetState, refresh]);
 
   const totalBytes = useMemo(() => targets.reduce((s, t) => s + t.bytes, 0), [targets]);
 
@@ -249,7 +289,7 @@ export function ResourceCleanupDialog({
     ids: targets.filter((target) => target.present && target.files > 0).map((target) => target.id),
     selected: new Set(Object.keys(customSel)),
     enabled: customMode,
-    disabled: !open || !customMode || stage !== 'pick' || loading,
+    disabled: !open || !customMode || stage !== 'pick' || loading || !canAct,
     onChange: (next) => {
       const updated: Record<string, CleanupVariant> = {};
       for (const id of next) updated[id] = customSel[id] ?? 'all';
@@ -261,6 +301,7 @@ export function ResourceCleanupDialog({
   if (!open || typeof document === 'undefined') return null;
 
   const pickPreset = (preset: Preset): void => {
+    if (!canAct || loading) return;
     const instructions = preset.build(targets).filter((ins) => {
       const t = targets.find((x) => x.id === ins.id);
       return t?.present && instructionBytes(t, ins.variant) >= 0 && t.files > 0;
@@ -271,6 +312,7 @@ export function ResourceCleanupDialog({
   };
 
   const pickCustom = (): void => {
+    if (!canAct || loading) return;
     const anyCaution = customInstructions.some(
       (ins) => targets.find((t) => t.id === ins.id)?.tier === 'caution',
     );
@@ -288,22 +330,30 @@ export function ResourceCleanupDialog({
   };
 
   const runCleanup = async (): Promise<void> => {
-    if (!chosen) return;
+    if (!chosen || pending.current || !activeRef.current || !canAct || loading) return;
+    if (chosen.preset.extreme && phrase.trim() !== CONFIRM_PHRASE) return;
+    pending.current = true;
     const run = ++runRef.current;
+    const source = snapshot?.source;
+    setError(null);
     setStage('running');
     try {
       const res = await client.account.resourceCleanup.cleanup.mutate({
+        ...source,
         instructions: chosen.instructions,
       });
       if (run !== runRef.current) return;
-      setResult(res);
+      setResult({ receipt: res, targets: [...targets] });
       setStage('done');
       // Every browser + 整体分析 reads these trees — force a rescan on next open.
       void utils.account.invalidate();
+      if (refresh) void refresh();
     } catch (e) {
       if (run !== runRef.current) return;
       setError(e instanceof Error ? e.message : String(e));
       setStage('confirm');
+    } finally {
+      pending.current = false;
     }
   };
 
@@ -311,116 +361,122 @@ export function ResourceCleanupDialog({
     setCustomSel((prev) => ({ ...prev, [id]: variant }));
   };
 
-  return (
+  const content = (onClose: () => void) => (
+    <div
+      className="weq-ra-dialog weq-clean-dialog weq-anim-pop"
+      role={embedded ? 'region' : 'dialog'}
+      aria-label="清理本地资源"
+      {...multi.rootProps}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <header className="weq-ra-head">
+        <div className="weq-ra-head-title">
+          <Trash2 size={18} />
+          <div>
+            <strong>{embedded ? 'QQ 资源清理' : '清理释放本地资源'}</strong>
+            {!embedded ? (
+              <small>删除 QQ 本地缓存以释放磁盘空间，可再生资源会自动重新下载</small>
+            ) : null}
+          </div>
+        </div>
+        <div className="weq-ra-head-actions">
+          {loading ? <Loader2 size={14} className="weq-spin" /> : null}
+          <span className="weq-clean-total">共 {fmtBytes(totalBytes)}</span>
+          {!embedded ? (
+            <button
+              type="button"
+              className="weq-ra-close"
+              onClick={onClose}
+              disabled={stage === 'running'}
+              aria-label="关闭"
+            >
+              <X size={18} />
+            </button>
+          ) : null}
+        </div>
+      </header>
+
+      {error || snapshot?.error ? (
+        <div className="weq-ra-error" role="alert">
+          <AlertTriangle size={14} /> {error ?? snapshot?.error}
+          {snapshot?.error ? (
+            <button type="button" className="weq-set-btn" onClick={() => void scan()}>
+              重新扫描
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="weq-ra-body weq-clean-body">
+        {stage === 'pick' ? (
+          <PickStage
+            targets={targets}
+            loading={loading || !canAct}
+            customMode={customMode}
+            customSel={customSel}
+            customInstructions={customInstructions}
+            onEnterCustom={() => setCustomMode(true)}
+            onLeaveCustom={() => {
+              setCustomMode(false);
+              setCustomSel({});
+            }}
+            selectionBindings={multi.itemProps}
+            onSetVariant={setCustomVariant}
+            onPickPreset={pickPreset}
+            onConfirmCustom={pickCustom}
+          />
+        ) : null}
+
+        {stage === 'confirm' && chosen ? (
+          <ConfirmStage
+            targets={targets}
+            chosen={chosen}
+            phrase={phrase}
+            onPhrase={setPhrase}
+            onBack={() => {
+              setStage('pick');
+              setError(null);
+            }}
+            onRun={() => void runCleanup()}
+            disabled={!canAct || loading}
+          />
+        ) : null}
+
+        {stage === 'running' ? (
+          <div className="weq-clean-running">
+            <Loader2 size={26} className="weq-spin" />
+            <strong>正在清理…</strong>
+            <span>正在删除文件并释放空间，请稍候</span>
+          </div>
+        ) : null}
+
+        {stage === 'done' && result ? (
+          <DoneStage
+            result={result.receipt}
+            targets={result.targets}
+            onClose={onClose}
+            onAgain={() => {
+              resetState();
+              void scan();
+            }}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+  return embedded ? (
+    content(onClose)
+  ) : (
     <ToolSurface
       title="清理缓存"
       presentation={presentation}
       busy={stage === 'running'}
-      draft={
-        stage === 'pick' || stage === 'confirm'
-          ? chosen
-            ? { preset: chosen.preset.id, instructions: chosen.instructions }
-            : Object.keys(customSel).length
-              ? customSel
-              : null
-          : null
-      }
+      draft={draft}
       onClose={() => {
         if (stage !== 'running') onClose();
       }}
     >
-      {(onClose) => (
-        <div
-          className="weq-ra-dialog weq-clean-dialog weq-anim-pop"
-          role="dialog"
-          aria-label="清理本地资源"
-          {...multi.rootProps}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <header className="weq-ra-head">
-            <div className="weq-ra-head-title">
-              <Trash2 size={18} />
-              <div>
-                <strong>清理释放本地资源</strong>
-                <small>删除 QQ 本地缓存以释放磁盘空间，可再生资源会自动重新下载</small>
-              </div>
-            </div>
-            <div className="weq-ra-head-actions">
-              {loading ? <Loader2 size={14} className="weq-spin" /> : null}
-              <span className="weq-clean-total">共 {fmtBytes(totalBytes)}</span>
-              <button
-                type="button"
-                className="weq-ra-close"
-                onClick={onClose}
-                disabled={stage === 'running'}
-                aria-label="关闭"
-              >
-                <X size={18} />
-              </button>
-            </div>
-          </header>
-
-          {error ? (
-            <div className="weq-ra-error">
-              <AlertTriangle size={14} /> {error}
-            </div>
-          ) : null}
-
-          <div className="weq-ra-body weq-clean-body">
-            {stage === 'pick' ? (
-              <PickStage
-                targets={targets}
-                loading={loading}
-                customMode={customMode}
-                customSel={customSel}
-                customInstructions={customInstructions}
-                onEnterCustom={() => setCustomMode(true)}
-                onLeaveCustom={() => {
-                  setCustomMode(false);
-                  setCustomSel({});
-                }}
-                selectionBindings={multi.itemProps}
-                onSetVariant={setCustomVariant}
-                onPickPreset={pickPreset}
-                onConfirmCustom={pickCustom}
-              />
-            ) : null}
-
-            {stage === 'confirm' && chosen ? (
-              <ConfirmStage
-                targets={targets}
-                chosen={chosen}
-                phrase={phrase}
-                onPhrase={setPhrase}
-                onBack={() => {
-                  setStage('pick');
-                  setError(null);
-                }}
-                onRun={() => void runCleanup()}
-              />
-            ) : null}
-
-            {stage === 'running' ? (
-              <div className="weq-clean-running">
-                <Loader2 size={26} className="weq-spin" />
-                <strong>正在清理…</strong>
-                <span>正在删除文件并释放空间，请稍候</span>
-              </div>
-            ) : null}
-
-            {stage === 'done' && result ? (
-              <DoneStage
-                result={result}
-                onClose={onClose}
-                onAgain={() => {
-                  resetState();
-                  void scan();
-                }}
-              />
-            ) : null}
-          </div>
-        </div>
-      )}
+      {content}
     </ToolSurface>
   );
 }
@@ -520,7 +576,7 @@ function PickStage({
         </div>
         <div className="weq-clean-custom-foot">
           <span>
-            已选 <strong>{customInstructions.length}</strong> 项 · 预计释放{' '}
+            已选 <strong>{customInstructions.length}</strong> 项 · 预计清理{' '}
             <strong>{fmtBytes(selBytes)}</strong>
           </span>
           <button
@@ -548,7 +604,7 @@ function PickStage({
             type="button"
             className={`weq-clean-mode${p.danger ? ' is-danger' : ''}${p.extreme ? ' is-extreme' : ''}`}
             onClick={() => onPickPreset(p)}
-            disabled={empty}
+            disabled={empty || loading}
           >
             <span className="weq-clean-mode-icon">{p.icon}</span>
             <span className="weq-clean-mode-body">
@@ -567,7 +623,12 @@ function PickStage({
           </button>
         );
       })}
-      <button type="button" className="weq-clean-mode is-custom" onClick={onEnterCustom}>
+      <button
+        type="button"
+        className="weq-clean-mode is-custom"
+        disabled={loading}
+        onClick={onEnterCustom}
+      >
         <span className="weq-clean-mode-icon">
           <Sparkles size={20} />
         </span>
@@ -592,6 +653,7 @@ function ConfirmStage({
   onPhrase,
   onBack,
   onRun,
+  disabled = false,
 }: {
   targets: CleanupTargetStat[];
   chosen: { preset: Preset; instructions: Instruction[] };
@@ -599,6 +661,7 @@ function ConfirmStage({
   onPhrase: (v: string) => void;
   onBack: () => void;
   onRun: () => void;
+  disabled?: boolean;
 }): ReactElement {
   const { preset, instructions } = chosen;
   const bytes = estimateBytes(targets, instructions);
@@ -631,7 +694,7 @@ function ConfirmStage({
         </div>
         <span className="weq-clean-summary-size">
           <b>{fmtBytes(bytes)}</b>
-          <small>预计释放</small>
+          <small>逻辑清理量</small>
         </span>
       </div>
 
@@ -642,7 +705,10 @@ function ConfirmStage({
           {rows.map(({ t, variant, bytes: b }) => (
             <div className="weq-clean-review-row" key={`${t.id}:${variant}`}>
               <span className="weq-clean-target-icon">{TARGET_ICONS[t.id]}</span>
-              <span className="weq-clean-review-label">{t.label}</span>
+              <span className="weq-clean-review-label">
+                {t.label}
+                <small>{t.path ?? t.desc}</small>
+              </span>
               {t.hasVariants ? (
                 <em className="weq-clean-review-variant">{VARIANT_LABEL[variant]}</em>
               ) : null}
@@ -675,7 +741,7 @@ function ConfirmStage({
         <button
           type="button"
           className={`weq-clean-go${preset.danger ? ' is-danger' : ''}`}
-          disabled={nothing || !phraseOk}
+          disabled={nothing || !phraseOk || disabled}
           onClick={onRun}
         >
           <Trash2 size={15} /> 确认清理 {fmtBytes(bytes)}
@@ -689,10 +755,12 @@ function ConfirmStage({
 
 function DoneStage({
   result,
+  targets,
   onClose,
   onAgain,
 }: {
   result: CleanupResult;
+  targets: CleanupTargetStat[];
   onClose: () => void;
   onAgain: () => void;
 }): ReactElement {
@@ -702,11 +770,26 @@ function DoneStage({
       <span className="weq-clean-done-icon">
         <CheckCircle2 size={40} strokeWidth={1.5} />
       </span>
-      <strong className="weq-clean-done-title">已释放 {fmtBytes(result.freedBytes)}</strong>
+      <strong className="weq-clean-done-title">
+        已删除逻辑文件量 {fmtBytes(result.freedBytes)}
+      </strong>
       <p className="weq-clean-done-desc">
         清理完成，共处理 {result.perTarget.length} 项资源。
-        {failed > 0 ? `有 ${failed} 个文件因被占用未能删除（可关闭 QQ 后重试）。` : ''}
+        {failed > 0 ? `部分目标未完全清理，失败计数 ${failed}，详见逐项结果。` : ''}
       </p>
+      <div className="weq-clean-review">
+        {result.perTarget.map((item) => (
+          <div className="weq-clean-review-row" key={`${item.id}:${item.variant}`}>
+            <span className="weq-clean-review-label">
+              {targets.find((target) => target.id === item.id)?.label ?? item.id}
+            </span>
+            <em className="weq-clean-review-variant">{VARIANT_LABEL[item.variant]}</em>
+            <span className="weq-clean-review-size">
+              {fmtBytes(item.freedBytes)} · 失败 {item.failed}
+            </span>
+          </div>
+        ))}
+      </div>
       <div className="weq-clean-done-actions">
         <button type="button" className="weq-clean-cancel" onClick={onAgain}>
           <Layers size={15} /> 继续清理

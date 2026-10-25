@@ -72,6 +72,7 @@ import { StartupSection } from './settings/StartupSection';
 import { DatabaseSettingsSection } from './settings/DatabaseSettingsSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
 import { DatabaseManagementSection } from './settings/DatabaseManagementSection';
+import { ResourceManagementSection } from './settings/ResourceManagementSection';
 import { Card, Row, SectionHeader, SettingsScopeContext, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
 import { DEFAULT_ACCENT, normalizeHex } from '../../../shared/theme_colors';
@@ -216,13 +217,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'qq-storage',
     label: '资源目录管理',
     icon: <HardDrive size={16} />,
-    render: (onOpen) => (
-      <DataMaintenanceSection
-        title="资源目录管理"
-        onOpen={onOpen}
-        tools={['storage', 'cleanup', 'cache']}
-      />
-    ),
+    render: () => <ResourceManagementSection />,
   },
   {
     id: 'voice',

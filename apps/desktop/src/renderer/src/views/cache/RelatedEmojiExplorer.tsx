@@ -19,6 +19,7 @@ import { mediaUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { BlobDialog, CURSOR_PAGE, GridFooter, useCursorPaged } from './CacheShared';
 import { GridSkeleton } from './CacheSkeleton';
+import { useTabActive } from '../../components/RetainedTabs';
 
 /** weq-media URL for one related-emoji gif. */
 function relemojiUrl(hash: string, file: string): string {
@@ -110,7 +111,11 @@ function RelatedEmojiLightbox({
   entry: RelatedEmojiKeyword;
   onClose: () => void;
 }): ReactElement {
-  const gifs = trpc.account.relatedEmoji.listGifs.useQuery({ hash: entry.hash });
+  const visible = useTabActive();
+  const gifs = trpc.account.relatedEmoji.listGifs.useQuery(
+    { hash: entry.hash },
+    { enabled: visible },
+  );
   const files = gifs.data ?? [];
 
   return (
