@@ -347,6 +347,10 @@ export function injectBubbleCss(skin: BubbleSkin): () => void {
   });
 }
 
+export function messageFontFamily(fontId: number, deriveVersion: number): string {
+  return `weq-message-dress-${fontId}-${deriveVersion}`;
+}
+
 /**
  * 逐条消息字体的 CSS（字体 + 它的炫彩帧）。已注入过的（同款同派生版本）直接返回。
  *
@@ -357,7 +361,7 @@ export function injectFontCss(fontId: number, font: FontDerived | null): () => v
   const key = `${fontId}:${deriveVersion}`;
   return acquireDecorationStyle(`font:${key}`, (resource) => {
     const url = dressFontUrl(fontId, deriveVersion);
-    const family = `weq-message-dress-${fontId}-${deriveVersion}`;
+    const family = messageFontFamily(fontId, deriveVersion);
 
     // Preload the font via FontFace API so the browser doesn't swap mid-render.
     // Some QQ dress fonts fail Chromium's OTS sanitizer ("Failed to decode

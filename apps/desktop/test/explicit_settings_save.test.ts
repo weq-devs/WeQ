@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QzonePaginationSettings } from '../src/renderer/src/components/settings/QzonePaginationSettings';
 import { McpServerSection } from '../src/renderer/src/components/settings/McpServerSection';
-import { DaemonSection } from '../src/renderer/src/components/settings/DaemonSection';
+import { AssistantSection } from '../src/renderer/src/components/settings/AssistantSection';
 import { SsePushSection } from '../src/renderer/src/components/settings/SsePushSection';
 import { ExternalRkeySection } from '../src/renderer/src/components/settings/ExternalRkeySection';
 import { useToast } from '../src/renderer/src/components/Toast';
@@ -66,7 +66,6 @@ beforeEach(() => {
     },
     'bootstrap.listMcpAgentTargets': [],
     'bootstrap.getWeqAssistantStatus': { enabled: false, port: 27182, url: '' },
-    'bootstrap.getDaemonHealth': {},
     'account.intentSense.getStatus': { ...DEFAULT_INTENT_TUNING },
   };
   state.mutate.mockReset().mockResolvedValue({ port: 48765 });
@@ -93,6 +92,61 @@ function mount(element: ReactElement) {
   return { host, save, render };
 }
 describe('显式保存设置不以未变化禁用', () => {
+  it('公众号推送端口重读不覆盖草稿，未编辑时跟随实际端口，保存仍提交输入值', async () => {
+    const f = mount(createElement(AssistantSection));
+    const input = f.host.querySelector<HTMLInputElement>('[aria-label="QQ 公众号推送端口"]')!;
+    expect(input.value).toBe('27182');
+    state.data['bootstrap.getWeqAssistantStatus'] = { enabled: false, port: 28000, url: '' };
+    f.render();
+    expect(input.value).toBe('28000');
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        '28001',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    state.data['bootstrap.getWeqAssistantStatus'] = { enabled: false, port: 29000, url: '' };
+    f.render();
+    expect(input.value).toBe('28001');
+    await act(async () => f.save().click());
+    expect(state.mutate).toHaveBeenCalledWith('bootstrap.setWeqAssistantPort', { port: 28001 });
+  });
+  it('空间限速是两个填空的单行表单，重读不覆盖草稿且仍按原范围校验', async () => {
+    const f = mount(createElement(QzonePaginationSettings));
+    const form = f.host.querySelector<HTMLFormElement>('form[aria-label="在线翻页限速"]')!;
+    expect([...form.children].map((node) => node.tagName)).toEqual([
+      'SPAN',
+      'INPUT',
+      'SPAN',
+      'INPUT',
+      'SPAN',
+      'BUTTON',
+    ]);
+    const inputs = [...form.querySelectorAll('input')];
+    const edit = (index: number, value: string) =>
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+          inputs[index],
+          value,
+        );
+        inputs[index]!.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    edit(0, '12');
+    edit(1, '6');
+    state.data['bootstrap.getSettings'] = { qzonePagination: { windowSeconds: 20, maxPages: 8 } };
+    f.render();
+    expect(inputs.map((node) => node.value)).toEqual(['12', '6']);
+    edit(0, '0');
+    expect(f.save().disabled).toBe(true);
+    edit(0, '12');
+    expect(f.save().disabled).toBe(false);
+    await act(async () => f.save().click());
+    expect(state.mutate).toHaveBeenCalledWith('bootstrap.setQzonePagination', {
+      windowSeconds: 12,
+      maxPages: 6,
+    });
+  });
   it.each(['rkey', 'sse'] as const)(
     '%s 连接测试只更新原横幅，不阻止切换编辑目标或以失败弹窗干扰新表单',
     async (kind) => {
@@ -178,7 +232,7 @@ describe('显式保存设置不以未变化禁用', () => {
     },
     {
       label: '助手端口',
-      view: () => createElement(DaemonSection, { panel: 'assistant' }),
+      view: () => createElement(AssistantSection),
       route: 'bootstrap.setWeqAssistantPort',
       input: { port: 27182 },
     },

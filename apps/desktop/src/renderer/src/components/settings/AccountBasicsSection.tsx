@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
+import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
@@ -72,15 +73,22 @@ function KeyValueRow({
   value: string | null | undefined;
   secret?: boolean;
 }): ReactElement {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!active) {
+      setRevealed(false);
+      setCopied(false);
+    }
+  }, [active]);
 
   useEffect(() => {
-    if (!copied) return undefined;
+    if (!active || !copied) return undefined;
     const t = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(t);
-  }, [copied]);
+  }, [copied, active]);
 
   const hasValue = Boolean(value);
   const shown = !value ? '未获取' : secret && !revealed ? maskSecret(value) : value;
@@ -143,9 +151,12 @@ function formatExpiry(createTime: number, ttlSeconds: number): { text: string; e
 
 export function AccountBasicsSection({
   page = 'account',
+  heading = true,
 }: {
-  page?: 'account' | 'credentials' | 'media';
+  page?: 'account' | 'credentials' | 'media' | 'read';
+  heading?: boolean;
 }): ReactElement {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const autoRefresh = useQQAutoRefresh(true);
 
@@ -155,6 +166,7 @@ export function AccountBasicsSection({
   });
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
     ...autoRefresh,
+    enabled: autoRefresh.enabled && page !== 'read',
     // rkeys/clientkey are harvested in the background by the monitor; poll so a
     // fresh one shows up (and the expiry countdown re-renders) without reopening.
     refetchInterval: autoRefresh.enabled && page === 'credentials' ? 10_000 : false,
@@ -178,6 +190,12 @@ export function AccountBasicsSection({
 
   const [revealKey, setRevealKey] = useState(false);
   const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!active) {
+      setRevealKey(false);
+      setCopied(false);
+    }
+  }, [active]);
 
   // Local mirror for snappy toggles; re-seeded whenever server data changes.
   const [realtime, setRealtimeLocal] = useState(true);
@@ -209,16 +227,16 @@ export function AccountBasicsSection({
 
   useEffect(() => {
     const d = settings.data;
-    if (!d) return;
+    if (page !== 'media' || !d) return;
     setExternalChatpicDir(d.externalChatpic.dir);
     setExternalChatpicEnabled(d.externalChatpic.enabled);
-  }, [settings.data]);
+  }, [settings.data, page]);
 
   useEffect(() => {
-    if (!copied) return undefined;
+    if (!active || !copied) return undefined;
     const t = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(t);
-  }, [copied]);
+  }, [copied, active]);
 
   const p = profile.data;
   const cfg = config.data;
@@ -329,17 +347,23 @@ export function AccountBasicsSection({
 
   return (
     <div className="weq-set">
-      <SectionHeader
-        icon={<User size={16} strokeWidth={1.8} />}
-        title={{ account: '账号接入与消息', credentials: '账号凭据', media: '媒体来源' }[page]}
-        desc={
-          page === 'account'
-            ? '当前账号资料；数据库监听与 QQ 内存读取开关为全局设置。'
-            : page === 'credentials'
-              ? '当前账号的敏感凭据，默认隐藏。'
-              : '本机媒体关联仅影响当前账号；外部安卓缓存为全局配置。'
-        }
-      />
+      {heading && (
+        <SectionHeader
+          icon={<User size={16} strokeWidth={1.8} />}
+          title={
+            { account: '监听与读取', credentials: '凭据管理', media: '资源目录', read: '已读同步' }[
+              page
+            ]
+          }
+          desc={
+            page === 'account'
+              ? '当前账号资料；数据库监听与 QQ 内存读取开关为全局设置。'
+              : page === 'credentials'
+                ? '当前账号的敏感凭据，默认隐藏。'
+                : '本机媒体关联仅影响当前账号；外部安卓缓存为全局配置。'
+          }
+        />
+      )}
 
       {/* Self profile hero */}
       {page === 'account' && (
@@ -549,12 +573,12 @@ export function AccountBasicsSection({
       )}
       {/* 静态账号：关联本机原生目录读媒体 */}
       {page === 'media' && isStatic && (
-        <Card>
+        <Card title="关联资源目录" settingId="linked-resources">
           <Row
             label={
               <span className="weq-set-row-icon">
                 <FolderSearch size={15} strokeWidth={1.8} aria-hidden />
-                关联本机媒体目录
+                关联资源目录
               </span>
             }
             desc={
@@ -567,81 +591,94 @@ export function AccountBasicsSection({
                 checked={Boolean(nativeMediaDir) && nativeMedia}
                 disabled={!nativeMediaDir || savingNativeMedia}
                 onChange={(v) => void toggleNativeMedia(v)}
-                label="关联本机媒体目录"
+                label="关联资源目录"
               />
             }
           />
         </Card>
       )}
+      {page === 'media' && (!cfg || !isStatic) && (
+        <Card title="关联资源目录" settingId="linked-resources">
+          <p className="weq-set-desc" role="status">
+            {!cfg
+              ? config.error
+                ? '暂时无法读取当前账号的资源关联状态，请重试。'
+                : '正在读取资源关联状态…'
+              : '仅静态账号需要关联本机资源目录，当前账号使用自己的 QQ 资源目录。'}
+          </p>
+        </Card>
+      )}
 
       {/* Realtime / db watch */}
       {page === 'account' && (
+        <Card>
+          <Row
+            label={
+              <span className="weq-set-row-icon">
+                <Database size={15} strokeWidth={1.8} aria-hidden />
+                启用数据库监听
+              </span>
+            }
+            desc="监听 QQ 数据库变化以实时显示新消息、撤回与表情回应。"
+            control={
+              <Toggle
+                checked={realtime}
+                disabled={settingsLoading}
+                onChange={(v) =>
+                  void persist(
+                    () => setRealtimeLocal(v),
+                    () => setRealtime.mutateAsync({ enabled: v }),
+                  )
+                }
+                label="启用数据库监听"
+              />
+            }
+          />
+        </Card>
+      )}
+      {page === 'read' && (
+        <Card settingId="read-sync">
+          <Row
+            label={
+              <span className="weq-set-row-icon">
+                <CheckCheck size={15} strokeWidth={1.8} aria-hidden />
+                同步已读状态到 QQ
+              </span>
+            }
+            desc="向 QQ 上报在 WeQ 阅读的位置，可能清除其他端的未读提醒。默认关闭，仅在线模式生效；手动标记使用下方独立开关。"
+            control={
+              <Toggle
+                checked={reportRead}
+                disabled={settingsLoading || setReportReadEnabled.isPending}
+                onChange={(v) => void toggleReportRead(v)}
+                label="同步已读状态到 QQ"
+              />
+            }
+          />
+          <Row
+            label="手动标记时上报已读位置"
+            desc="默认关闭。开启后，手动标为已读及撤销中推进已读的位置会同步到 QQ；标为未读只写本地库，不能恢复其他端已清除的提醒。"
+            control={
+              <Toggle
+                checked={manualReadReport}
+                disabled={settingsLoading || setManualReadReportEnabled.isPending}
+                onChange={(v) => void toggleManualReadReport(v)}
+                label="手动标记时上报已读位置"
+              />
+            }
+          />
+        </Card>
+      )}
+      {page === 'account' && (
         <>
-          <Card>
-            <Row
-              label={
-                <span className="weq-set-row-icon">
-                  <Database size={15} strokeWidth={1.8} aria-hidden />
-                  启用数据库监听
-                </span>
-              }
-              desc="监听 QQ 数据库变化以实时显示新消息、撤回与表情回应。"
-              control={
-                <Toggle
-                  checked={realtime}
-                  disabled={settingsLoading}
-                  onChange={(v) =>
-                    void persist(
-                      () => setRealtimeLocal(v),
-                      () => setRealtime.mutateAsync({ enabled: v }),
-                    )
-                  }
-                  label="启用数据库监听"
-                />
-              }
-            />
-          </Card>
-
           {/* 完全离线总闸：自动读取 QQ 内存（完整功能） */}
           <Card>
             <Row
-              label={
-                <span className="weq-set-row-icon">
-                  <CheckCheck size={15} strokeWidth={1.8} aria-hidden />
-                  同步已读状态到 QQ
-                </span>
-              }
-              desc="向 QQ 上报在 WeQ 阅读的位置，可能清除其他端的未读提醒。默认关闭，仅在线模式生效；手动标记使用下方独立开关。"
-              control={
-                <Toggle
-                  checked={reportRead}
-                  disabled={settingsLoading || setReportReadEnabled.isPending}
-                  onChange={(v) => void toggleReportRead(v)}
-                  label="同步已读状态到 QQ"
-                />
-              }
-            />
-            <Row
-              label="手动标记时上报已读位置"
-              desc="默认关闭。开启后，手动标为已读及撤销中推进已读的位置会同步到 QQ；标为未读只写本地库，不能恢复其他端已清除的提醒。"
-              control={
-                <Toggle
-                  checked={manualReadReport}
-                  disabled={settingsLoading || setManualReadReportEnabled.isPending}
-                  onChange={(v) => void toggleManualReadReport(v)}
-                  label="手动标记时上报已读位置"
-                />
-              }
-            />
-          </Card>
-
-          {/* 完全离线总闸：自动读取 QQ 内存（完整功能） */}
-          <Card>
-            <Row
+              settingId="auto-full-mode"
               label={
                 <span className="weq-set-row-icon">
                   <Plug size={15} strokeWidth={1.8} aria-hidden />
-                  自动读取 QQ 内存（完整功能）
+                  自动启用完整功能
                 </span>
               }
               desc={
@@ -659,7 +696,7 @@ export function AccountBasicsSection({
                       () => setAutoAttachQq.mutateAsync({ enabled: v }),
                     )
                   }
-                  label="自动读取 QQ 内存（完整功能）"
+                  label="自动启用完整功能"
                 />
               }
             />
@@ -668,7 +705,7 @@ export function AccountBasicsSection({
       )}
       {/* 外部安卓图片缓存（放最下面，带引导文案） */}
       {page === 'media' && (
-        <Card title="外部安卓图片缓存">
+        <Card title="外部安卓图片缓存" settingId="external-chatpic">
           <Row
             label={
               <span className="weq-set-row-icon">

@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * 群成员重合模型（和弦图 / 重叠矩阵共用）的回归测试。
  *

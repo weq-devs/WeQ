@@ -92,6 +92,7 @@ export function ChatMainContent({
   onEditRaw,
   onDeleteMessage,
   onDismissUnsentMessage,
+  onStartOutgoingMessage,
   onOpenGroupAlbums,
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
@@ -205,6 +206,7 @@ export function ChatMainContent({
   ) => void | Promise<void>;
   /** 「可能未送达」占位的一键移除（见 MessageBubble 的同名 prop）。 */
   onDismissUnsentMessage?: (message: Message) => void;
+  onStartOutgoingMessage?: (message: Message) => void;
   onOpenGroupAlbums?: (conversation: GroupConversation) => void;
   onOpenGroupFiles?: (conversation: GroupConversation) => void;
   onOpenGroupAnnouncements?: (conversation: GroupConversation) => void;
@@ -332,6 +334,7 @@ export function ChatMainContent({
       onEditRaw={onEditRaw}
       onDeleteMessage={onDeleteMessage}
       onDismissUnsentMessage={onDismissUnsentMessage}
+      onStartOutgoingMessage={onStartOutgoingMessage}
       onOpenGroupAlbums={onOpenGroupAlbums}
       onOpenGroupFiles={onOpenGroupFiles}
       onOpenGroupAnnouncements={onOpenGroupAnnouncements}

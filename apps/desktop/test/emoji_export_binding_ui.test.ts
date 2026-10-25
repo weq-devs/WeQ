@@ -63,15 +63,15 @@ it.each(['zip', 'favorite-zip'] as const)(
     document.body.append(host);
     const root = createRoot(host);
     const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
-    const prepare = vi.fn(async () => ({ mode: 'after' as const }));
+    const prepare = vi.fn(async () => ({ mode: 'before' as const, directory: '/fixture/export' }));
     try {
       act(() =>
         root.render(h(EmojiPackExportPane, { binding, prepareSave: prepare, onStarted: vi.fn() })),
       );
       act(() => {
-        const select = host.querySelector<HTMLSelectElement>('[aria-label="表情包导出格式"]')!;
-        select.value = format;
-        select.dispatchEvent(new Event('change', { bubbles: true }));
+        host
+          .querySelectorAll<HTMLButtonElement>('[aria-label="表情包导出格式"] button')
+          [format === 'zip' ? 1 : 2]!.click();
       });
       await act(async () => host.querySelector<HTMLButtonElement>('.weq-epk-start')!.click());
       expect(prepare).toHaveBeenCalledWith(
@@ -79,7 +79,10 @@ it.each(['zip', 'favorite-zip'] as const)(
         expect.objectContaining({ kind: 'file', format: 'zip' }),
       );
       if (format === 'favorite-zip') {
-        expect(state.favorite).toHaveBeenCalledWith({ ...binding, savePolicy: { mode: 'after' } });
+        expect(state.favorite).toHaveBeenCalledWith({
+          ...binding,
+          savePolicy: { mode: 'before', directory: '/fixture/export' },
+        });
         expect(state.start).not.toHaveBeenCalled();
         expect(host.querySelector('[aria-label="收藏备份来源"]')).not.toBeNull();
       } else {
@@ -123,7 +126,7 @@ it.each([false, true])('表情导出固定点击时的来源，准备后来源�
     expect(prepare).toHaveBeenCalledOnce();
     binding.expectedAccountConfigId = 'source-b';
     current = !changed;
-    await act(async () => finish({ mode: 'after' }));
+    await act(async () => finish({ mode: 'before', directory: '/fixture/export' }));
     if (changed) expect(state.start).not.toHaveBeenCalled();
     else
       expect(state.start).toHaveBeenCalledWith(

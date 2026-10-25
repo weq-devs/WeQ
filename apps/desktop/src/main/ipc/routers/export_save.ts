@@ -28,7 +28,7 @@ export function exportDownloadName(
 }
 
 export const exportSavePolicyInput = z.object({
-  mode: z.enum(['preset', 'before', 'after']),
+  mode: z.enum(['preset', 'before']),
   directory: z.string().min(1).optional(),
   filePath: z.string().min(1).optional(),
   uniqueFileName: z.boolean().optional(),
@@ -68,33 +68,41 @@ export async function prepareExportDestination(
   host: Pick<HostBridge, 'exportRoot' | 'pickDirectory' | 'pickSaveTarget'>,
   output?: ExportOutputShape,
   current: () => void = () => {},
+  locationKey = output?.kind === 'file' ? `export:file:${output.extension}` : 'export:directory',
 ): Promise<ExportSavePolicy | null> {
   current();
-  if (input.mode === 'after') return { mode: 'after' };
+  if (input.mode !== 'preset' && input.mode !== 'before')
+    throw new Error('不支持此保存方式，请在开始前选择保存位置。');
   if (input.directory && input.filePath) throw new Error('保存位置只能选择文件或目录之一。');
   if (input.uniqueFileName && !input.filePath && output?.kind !== 'file')
     throw new Error('自动文件命名仅支持单文件位置。');
-  let mode = input.mode;
+  const mode = input.mode;
   let filePath = input.filePath;
   let directory = input.directory ?? (mode === 'preset' ? defaultDirectory : undefined);
   let uniqueFileName = input.uniqueFileName;
   if (filePath && output?.kind === 'directory')
     throw new Error('结果包含多个文件，请选择保存文件夹。');
-  if (!filePath && !directory && !host.exportRoot) {
-    mode = 'before';
+  if (!filePath && !directory && !host.exportRoot && mode === 'before') {
     if (output?.kind === 'file') {
       const selected = await host.pickSaveTarget({
-        locationKey: 'export-before',
+        locationKey,
+        defaultDirectory: defaultDirectory ?? undefined,
         defaultName: exportOutputFileName(output),
         extension: output.extension,
       });
       if (!selected) return null;
       filePath = selected.path;
     } else {
-      directory = await host.pickDirectory({ title: '选择本次导出保存位置' });
+      directory = await host.pickDirectory({
+        title: '选择本次导出保存位置',
+        locationKey,
+        defaultDirectory: defaultDirectory ?? undefined,
+      });
       if (!directory) return null;
     }
   }
+  if (!filePath && !directory && !host.exportRoot)
+    throw new Error('自动保存需要默认保存文件夹，请先在设置中选择。');
   current();
   if (!filePath) {
     directory = host.exportRoot
@@ -179,6 +187,7 @@ export async function saveCompletedExportTask(
   host: () => Pick<HostBridge, 'exportRoot' | 'pickDirectory' | 'pickSaveTarget'>,
   selected: Pick<ExportSavePolicy, 'directory' | 'filePath' | 'uniqueFileName'> = {},
   check: () => void = () => {},
+  preferences?: { exportSaveMode: ExportSavePolicy['mode']; defaultExportDir: string | null },
 ): Promise<string | null> {
   check();
   const task = manager.getTask(taskId);
@@ -187,9 +196,24 @@ export async function saveCompletedExportTask(
   const explicit = selected.directory || selected.filePath;
   if (selected.uniqueFileName && !selected.filePath)
     throw new Error('自动文件命名仅支持单文件位置。');
+  const output: ExportOutputShape = task.bundleDir
+    ? { kind: 'directory' }
+    : (task.resource?.output ?? {
+        kind: 'file',
+        name: task.name,
+        extension: task.format === 'vcard' ? 'vcf' : task.format,
+      });
   const policy = explicit
     ? copyExportSavePolicy({ mode: 'before', ...selected })
-    : await pickExportOutputDestination(task, host());
+    : preferences
+      ? await prepareExportDestination(
+          { mode: preferences.exportSaveMode },
+          preferences.defaultExportDir,
+          host(),
+          output,
+          check,
+        )
+      : await pickExportOutputDestination(task, host());
   if (!policy) return null;
   check();
   return manager.saveTaskOutput(taskId, policy.directory, policy.filePath, policy.uniqueFileName);

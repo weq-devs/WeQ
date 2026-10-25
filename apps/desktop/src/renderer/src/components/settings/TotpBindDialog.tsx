@@ -58,20 +58,19 @@ export function TotpBindDialog({
   const [genKey, setGenKey] = useState(0);
   const [shakeSignal, setShakeSignal] = useState(0);
   const [resetSignal, setResetSignal] = useState(0);
-
-  const setupRef = useRef<TotpSetupState | null>(null);
-  useEffect(() => {
-    setupRef.current = setup;
-  }, [setup]);
+  const mounted = useRef(true);
+  const closeTimer = useRef<number | null>(null);
 
   // 卸载即丢弃尚未确认的待绑定密钥（verify 成功后 pendingSecret 已清空，调用无副作用）。
   useEffect(() => {
+    mounted.current = true;
     return () => {
-      if (setupRef.current) {
-        void shellBridge()
-          ?.totp.cancelSetup()
-          .catch(() => {});
-      }
+      mounted.current = false;
+      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+      // 宿主同步建立待绑定密钥，不必等待二维码绘制完毕再取消。
+      void shellBridge()
+        ?.totp.cancelSetup()
+        .catch(() => {});
     };
   }, []);
 
@@ -120,7 +119,7 @@ export function TotpBindDialog({
         setResetSignal((s) => s + 1);
         const status = await b.totp.getStatus().catch(() => null);
         if (status) onBound?.(status);
-        window.setTimeout(() => onClose(), 1200);
+        if (mounted.current) closeTimer.current = window.setTimeout(() => onClose(), 1200);
       } else {
         setError(res.error ?? '验证码错误，请重试。');
         setShakeSignal((s) => s + 1);

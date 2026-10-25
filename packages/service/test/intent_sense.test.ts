@@ -84,6 +84,239 @@ describe('IntentSenseService', () => {
     vi.unstubAllGlobals();
   });
 
+  it('画像不受意图分析缓存、开关和会话覆盖影响', async () => {
+    const svc = new IntentSenseService(
+      makeSession([textMsg(1n, 'u_peer', '合成消息', Math.floor(Date.now() / 1000))]),
+      dir,
+      {
+        localEngine: makeLocalPort(async () => ({
+          intent: 'chat',
+          emotion: 'joy',
+          intensity: 100,
+          sentiment: 100,
+          confidence: 1,
+        })),
+      },
+    );
+    await svc.setConfig({
+      enabled: true,
+      engine: 'local',
+      profileEnabled: true,
+      profileEngine: 'heuristic',
+    });
+    const before = await svc.getProfile('u_peer');
+    await svc.ensureAnalysis('c2c', 'u_peer');
+    expect(await svc.getProfile('u_peer')).toMatchObject({
+      affinity: before?.affinity,
+      analyzedSamples: 0,
+      trend: [],
+    });
+    svc.clearCache();
+    await svc.setConfig({ enabled: false });
+    await svc.setConversationOverride('c2c', 'u_peer', false);
+    expect(await svc.getProfile('u_peer')).toMatchObject({
+      affinity: before?.affinity,
+      analyzedSamples: 0,
+    });
+  });
+
+  it('旧跟随配置只迁移一次，画像模型不再跟随意图模型变化', async () => {
+    writeFileSync(
+      join(dir, 'config.json'),
+      JSON.stringify({
+        featureSettingsVersion: 1,
+        enabled: true,
+        profileEnabled: true,
+        engine: 'api',
+        providerRef: { providerId: 'old', model: 'old-model' },
+        profileEngine: 'follow',
+      }),
+    );
+    const svc = new IntentSenseService(makeSession([]), dir);
+    expect(svc.getStatus()).toMatchObject({
+      profileEngine: 'api',
+      profileProviderRef: { providerId: 'old', model: 'old-model' },
+    });
+    await svc.setConfig({
+      providerRef: { providerId: 'new', model: 'new-model' },
+      engine: 'local',
+    });
+    expect(new IntentSenseService(makeSession([]), dir).getStatus()).toMatchObject({
+      profileEngine: 'api',
+      profileProviderRef: { providerId: 'old', model: 'old-model' },
+    });
+  });
+
+  it('画像使用自己的 API、温度和样本，不依赖分析开关或分析 API', async () => {
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      expect(JSON.parse(String(init.body))).toMatchObject({
+        model: 'profile-model',
+        temperature: 0.6,
+      });
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  emotions: [
+                    { index: 0, sentiment: 80, intensity: 60 },
+                    { index: 0, sentiment: 80, intensity: 60 },
+                    { index: 99, sentiment: -100, intensity: 100 },
+                    { index: 1, sentiment: 'bad', intensity: 50 },
+                  ],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal('fetch', fetch);
+    const resolveEndpoint = vi.fn((ref) => ({
+      baseUrl: 'https://synthetic.invalid',
+      apiKey: 'synthetic',
+      model: ref.model,
+    }));
+    const svc = new IntentSenseService(
+      makeSession([textMsg(1n, 'u_peer', '合成样本', Math.floor(Date.now() / 1000))]),
+      dir,
+      { resolveEndpoint },
+    );
+    await svc.setConfig({
+      enabled: false,
+      providerRef: { providerId: 'analysis', model: 'analysis-model' },
+      profileEnabled: true,
+      profileEngine: 'api',
+      profileProviderRef: { providerId: 'profile', model: 'profile-model' },
+      profileMinSamples: 1,
+      profileTemperature: 0.6,
+    });
+    expect(await svc.getProfile('u_peer')).toMatchObject({
+      engine: 'api',
+      analyzedSamples: 1,
+      affinity: expect.any(Number),
+    });
+    expect(resolveEndpoint).toHaveBeenCalledWith({ providerId: 'profile', model: 'profile-model' });
+    expect(svc.listMessageAnalyses('c2c', 'u_peer')).toEqual([]);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('本地画像选择独立资源，不调用意图分析端口', async () => {
+    const analyze = vi.fn(async () => ({
+      intent: 'chat' as const,
+      emotion: 'joy' as const,
+      intensity: 70,
+      sentiment: 80,
+      confidence: 1,
+    }));
+    const analysisPort = makeLocalPort(vi.fn(async () => null));
+    const forModel = vi.fn(() => makeLocalPort(analyze));
+    const svc = new IntentSenseService(
+      makeSession([textMsg(1n, 'u_peer', '本地合成样本', Math.floor(Date.now() / 1000))]),
+      dir,
+      { localEngine: { ...analysisPort, forModel } },
+    );
+    await svc.setConfig({
+      profileEnabled: true,
+      profileEngine: 'local',
+      profileLocalModelId: 'laya-multilingual',
+      profileMinSamples: 1,
+    });
+    expect(await svc.getProfile('u_peer')).toMatchObject({ engine: 'local', analyzedSamples: 1 });
+    expect(forModel).toHaveBeenCalledWith('laya-multilingual');
+    expect(analyze).toHaveBeenCalledOnce();
+    expect(analysisPort.analyze).not.toHaveBeenCalled();
+  });
+
+  it('同一对方并发读取画像只运行一次推断', async () => {
+    const analyze = vi.fn(async () => ({
+      intent: 'chat' as const,
+      emotion: 'neutral' as const,
+      intensity: 40,
+      sentiment: 0,
+      confidence: 1,
+    }));
+    const svc = new IntentSenseService(
+      makeSession([textMsg(1n, 'u_peer', '并发合成样本', 1000)]),
+      dir,
+      { localEngine: makeLocalPort(analyze) },
+    );
+    await svc.setConfig({ profileEnabled: true, profileEngine: 'local', profileMinSamples: 1 });
+    const [a, b] = await Promise.all([svc.getProfile('u_peer'), svc.getProfile('u_peer')]);
+    expect(a).toEqual(b);
+    expect(analyze).toHaveBeenCalledOnce();
+  });
+
+  it('旧本地画像固化原资源与超时，保留关闭状态', async () => {
+    writeFileSync(
+      join(dir, 'config.json'),
+      JSON.stringify({
+        featureSettingsVersion: 1,
+        enabled: false,
+        profileEnabled: false,
+        engine: 'local',
+        profileEngine: 'local',
+        apiTimeoutSeconds: 55,
+        apiCooldownSeconds: 66,
+      }),
+    );
+    const svc = new IntentSenseService(makeSession([]), dir, {
+      legacyLocalModelId: 'laya-multilingual',
+    });
+    expect(svc.getStatus()).toMatchObject({
+      profileEngine: 'local',
+      profileEnabled: false,
+      profileLocalModelId: 'laya-multilingual',
+      profileApiTimeoutSeconds: 55,
+      profileApiCooldownSeconds: 66,
+    });
+    expect(await svc.getProfile('u_peer')).toBeNull();
+  });
+
+  it('意图设置和清缓存不废弃在途画像，画像设置变化会废弃旧结果', async () => {
+    const svc = new IntentSenseService(makeSession([textMsg(1n, 'u_peer', '合成样本', 1000)]), dir);
+    await svc.setConfig({ profileEnabled: true, profileEngine: 'heuristic' });
+    const revision = svc.getStatus().profileRevision;
+    const pending = svc.getProfile('u_peer');
+    await svc.setConfig({ enabled: true, analysisTemperature: 0.8 });
+    svc.clearCache();
+    expect(svc.getStatus().profileRevision).toBe(revision);
+    expect(await pending).not.toBeNull();
+    const stale = svc.getProfile('u_peer');
+    const rejected = expect(stale).rejects.toThrow('互动画像设置已更改');
+    await svc.setConfig({ profileTopicLimit: 3 });
+    await rejected;
+    expect(svc.getStatus().profileRevision).toBe(revision + 1);
+  });
+
+  it('画像 API 失败冷却不会被保存意图设置清除，也不转用意图 API', async () => {
+    const fetch = vi.fn(async () => new Response('synthetic failure', { status: 500 }));
+    vi.stubGlobal('fetch', fetch);
+    const svc = new IntentSenseService(
+      makeSession([textMsg(1n, 'u_peer', '合成样本', 1000)]),
+      dir,
+      {
+        resolveEndpoint: () => ({
+          baseUrl: 'https://synthetic.invalid',
+          apiKey: 'synthetic',
+          model: 'profile',
+        }),
+      },
+    );
+    await svc.setConfig({
+      profileEnabled: true,
+      profileEngine: 'api',
+      profileProviderRef: { providerId: 'synthetic', model: 'profile' },
+      profileMinSamples: 1,
+    });
+    expect(await svc.getProfile('u_peer')).toMatchObject({ affinity: null, analyzedSamples: 0 });
+    await svc.setConfig({ enabled: true, analysisTemperature: 0.8 });
+    await svc.getProfile('u_peer');
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it.each([
     { name: '没有消息', messages: [] },
     { name: '只有自己的消息', messages: [textMsg(1n, 'u_self', '自己发出的消息', 1000)] },
@@ -104,7 +337,7 @@ describe('IntentSenseService', () => {
         model: 'synthetic',
       }),
     });
-    for (const profileEngine of ['heuristic', 'local', 'api', 'follow'] as const) {
+    for (const profileEngine of ['heuristic', 'local', 'api'] as const) {
       await svc.setConfig({
         enabled: true,
         engine: 'api',
@@ -131,9 +364,18 @@ describe('IntentSenseService', () => {
         confidence: 0.9,
       })),
     });
-    await svc.setConfig({ enabled: true, engine: 'local', profileEngine: 'heuristic' });
+    await svc.setConfig({
+      enabled: true,
+      engine: 'local',
+      profileEnabled: true,
+      profileEngine: 'heuristic',
+    });
     await svc.ensureAnalysis('c2c', 'u_peer');
-    expect(await svc.getProfile('u_peer')).toMatchObject({ sampled: 1, analyzedSamples: 1 });
+    expect(await svc.getProfile('u_peer')).toMatchObject({
+      sampled: 1,
+      analyzedSamples: 0,
+      affinity: null,
+    });
     messages.length = 0;
     expect(await svc.getProfile('u_peer')).toBeNull();
     messages.push(textMsg(2n, 'u_self', '自己的新消息', 1020));
@@ -146,6 +388,7 @@ describe('IntentSenseService', () => {
     const session = makeSession([]);
     vi.mocked(session.c2cMsgs.listLatest).mockRejectedValue(new Error('合成数据库读取失败'));
     const svc = new IntentSenseService(session, dir);
+    await svc.setConfig({ profileEnabled: true, profileEngine: 'heuristic' });
     await expect(svc.getProfile('u_peer')).rejects.toThrow('合成数据库读取失败');
   });
 

@@ -2,12 +2,26 @@ import { randomUUID } from 'node:crypto';
 import { discoverViewerSources, resolveViewerMedia, type ExportViewerSource } from '@weq/service';
 import { scanDirectories } from './directory_scan';
 
-export async function discoverExportDirectories(path: string, recursive = false) {
+export async function discoverExportDirectories(
+  path: string,
+  recursive = false,
+  options: { onSource?: (source: ExportViewerSource) => void; signal?: AbortSignal } = {},
+) {
   let partial = false;
+  const emitted = new Set<string>();
   const result = await scanDirectories(
     path,
     async (directory) => {
-      const catalog = await discoverViewerSources(directory, true);
+      const catalog = await discoverViewerSources(directory, true, {
+        signal: options.signal,
+        onSource: (source) => {
+          if (source.root !== directory && source.baselineDirectory !== directory) return;
+          if (emitted.has(source.path) || emitted.size >= 64) return;
+          options.signal?.throwIfAborted();
+          emitted.add(source.path);
+          options.onSource?.(source);
+        },
+      });
       partial ||= catalog.truncated;
       // 旧基线目录索引也会列出子目录；这里按当前层过滤，避免漏掉同层的旧 JSON 导出。
       return catalog.sources.filter(
@@ -15,6 +29,7 @@ export async function discoverExportDirectories(path: string, recursive = false)
       );
     },
     recursive,
+    options.signal,
   );
   return {
     sources: result.items,
@@ -27,7 +42,8 @@ export async function discoverExportDirectories(path: string, recursive = false)
 const sources = new Map<string, ExportViewerSource>();
 const controllers = new Map<string, AbortController>();
 export function registerViewerSource(source: ExportViewerSource) {
-  if (sources.size >= 64) throw new Error('打开的导出过多，请关闭部分导出后重试。');
+  // 一批最多 64 项，替换列表时短暂保留上一批，避免满列表无法打开新目录。
+  if (sources.size >= 128) throw new Error('打开的导出过多，请关闭部分导出后重试。');
   const id = randomUUID();
   sources.set(id, source);
   controllers.set(id, new AbortController());

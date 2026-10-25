@@ -39,12 +39,14 @@ function load(): HitokotoEntry[] {
  * 随机抽 n 条一言（去重、去空、句长适中——太长的做不了大字标题）。
  * 资源缺失时返回空数组，调用方（系统提示）自动跳过该小节。
  */
-export function sampleHitokoto(n: number): HitokotoVerse[] {
+export function sampleHitokoto(n: number, blockedWords: readonly string[] = []): HitokotoVerse[] {
   const all = load();
   if (!all.length) return [];
+  const blocked = blockedWords.map((word) => word.trim().toLowerCase()).filter(Boolean);
   const pool = all.filter((e) => {
     const t = e.hitokoto?.trim();
-    return t && t.length >= 4 && t.length <= 40;
+    const content = `${t ?? ''}\n${e.from ?? ''}`.toLowerCase();
+    return t && t.length >= 4 && t.length <= 40 && !blocked.some((word) => content.includes(word));
   });
   if (!pool.length) return [];
 

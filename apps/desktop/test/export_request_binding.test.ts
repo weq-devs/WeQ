@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 import { marketEmojiRouter } from '../src/main/ipc/routers/market_emoji';
@@ -74,9 +75,13 @@ describe('导出创建请求的数据源绑定', () => {
       ...binding,
       scopes: ['received'],
       format: 'zip',
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: '/fixture/export' },
     });
-    expect(state.emoji).toHaveBeenLastCalledWith(['received'], { mode: 'after' }, 'zip');
+    expect(state.emoji).toHaveBeenLastCalledWith(
+      ['received'],
+      { mode: 'before', directory: '/fixture/export' },
+      'zip',
+    );
     await expect(
       api.startExport({ ...binding, scopes: ['own'], format: 'tar' as 'zip' }),
     ).rejects.toThrow();

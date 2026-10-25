@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { expect, it, vi } from 'vitest';
 import { MAX_INTENT_CONTEXT_MESSAGES } from '@weq/service/intent-context';
 const service = vi.hoisted(() => ({

@@ -17,6 +17,7 @@ import type { AppidInfo, NtHelperBinding, SessionMaterial } from '@weq/native';
 import type { Platform } from '@weq/platform';
 import type { AttachHook } from '../bootstrap/attach';
 import { getLogger } from '../common/logger';
+import { isCompleteSessionMaterial } from '../common/session_material';
 import { queueSsoWork, ssoWorkState } from './sso_lifecycle';
 
 /**
@@ -195,10 +196,7 @@ export function resolveDeviceGuid(
 function materialToBuffers(
   material: SessionMaterial,
 ): { a2: Buffer; d2: Buffer; d2Key: Buffer } | null {
-  const validHex = (value: string | undefined): value is string =>
-    typeof value === 'string' && /^(?:[0-9a-fA-F]{2})+$/.test(value);
-  if (!validHex(material.a2) || !validHex(material.d2) || !validHex(material.d2Key)) return null;
-  if (material.d2Key.length !== 32) return null;
+  if (!isCompleteSessionMaterial(material)) return null;
   return {
     a2: Buffer.from(material.a2, 'hex'),
     d2: Buffer.from(material.d2, 'hex'),
@@ -340,7 +338,7 @@ export async function registerSsoSessionFromStored(
   stored: StoredSsoMaterial,
 ): Promise<boolean> {
   const { material } = stored;
-  if (!material?.a2 || !material.d2 || !material.d2Key) return false;
+  if (!isCompleteSessionMaterial(material)) return false;
   // session.pid 是权威判据；老记录没有它时退到调用方给的 pid（见 StoredSsoMaterial.pid）。
   if ((material.pid ?? stored.pid ?? null) !== pid) return false;
   const uid = stored.uid ?? '';

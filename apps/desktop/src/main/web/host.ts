@@ -57,10 +57,7 @@ export function createWebHost({ exportDir, version }: WebHostOptions): HostBridg
       return { url: `/_download/${registerDownload(path, name, kind)}` };
     },
     canReveal: false,
-    // 浏览器版：整个服务由部署方用 systemd / 计划任务托管，自启动一律不参与
-    // —— 既不注册 GUI（web 入口是 `node server.mjs`，需要参数 + 工作目录），
-    // 也让守护进程跳过自身注册，避免和部署方的 unit 抢同一份生命周期
-    // （见 apps/web/README）。
+    // Web 的进程生命周期由部署方管理，不注册桌面登录项。
     canAutostart: false,
 
     async pickDirectory() {

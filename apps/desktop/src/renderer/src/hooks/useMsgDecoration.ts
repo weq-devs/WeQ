@@ -7,7 +7,7 @@
  * for inline rendering.
  */
 
-import { useContext, useEffect, useState, type RefObject } from 'react';
+import { useContext, useLayoutEffect, useState, type RefObject } from 'react';
 import type { ResolvedWidget } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { MsgDecorationEnabledContext } from '../components/QqMessageContent';
@@ -44,9 +44,13 @@ export function useMsgDecoration(
   const enabled = useContext(MsgDecorationEnabledContext);
   const tabActive = useTabActive();
   const [visible, setVisible] = useState(!element || typeof IntersectionObserver === 'undefined');
-  useEffect(() => {
+  useLayoutEffect(() => {
     const node = element?.current;
     if (!node || typeof IntersectionObserver === 'undefined') return;
+    // 新记录接替发送预览时，不能等异步可见性回调才恢复已缓存的字体与气泡。
+    const rect = node.getBoundingClientRect();
+    if (rect.width || rect.height)
+      setVisible(rect.bottom >= -200 && rect.top <= window.innerHeight + 200);
     const observer = new IntersectionObserver(
       ([entry]) => setVisible(entry?.isIntersecting ?? false),
       {
@@ -56,41 +60,40 @@ export function useMsgDecoration(
     observer.observe(node);
     return () => observer.disconnect();
   }, [element]);
-  const hasDec = Boolean(
-    decoration && (decoration.bubbleId || decoration.fontId || decoration.widgetId),
+  const bubbleId = enabled.bubble ? (decoration?.bubbleId ?? 0) : 0;
+  const fontId = enabled.font ? (decoration?.fontId ?? 0) : 0;
+  const widgetId = enabled.widget ? (decoration?.widgetId ?? 0) : 0;
+  // 按种类缓存：补齐字体或挂件时，不让已经显示的气泡退回加载态。
+  const bubbleQuery = trpc.account.dressup.resolveMsgDecoration.useQuery(
+    { bubbleId, fontId: 0, widgetId: 0 },
+    { enabled: Boolean(bubbleId && visible && tabActive), staleTime: Infinity },
   );
-
-  const result = trpc.account.dressup.resolveMsgDecoration.useQuery(
-    {
-      bubbleId: decoration?.bubbleId ?? 0,
-      fontId: decoration?.fontId ?? 0,
-      widgetId: decoration?.widgetId ?? 0,
-    },
-    {
-      enabled: enabled && hasDec && visible && tabActive,
-      staleTime: Infinity,
-    },
+  const fontQuery = trpc.account.dressup.resolveMsgDecoration.useQuery(
+    { bubbleId: 0, fontId, widgetId: 0 },
+    { enabled: Boolean(fontId && visible && tabActive), staleTime: Infinity },
   );
+  const widgetQuery = trpc.account.dressup.resolveMsgDecoration.useQuery(
+    { bubbleId: 0, fontId: 0, widgetId },
+    { enabled: Boolean(widgetId && visible && tabActive), staleTime: Infinity },
+  );
+  const bubble = bubbleId ? (bubbleQuery.data?.bubble ?? null) : null;
+  const font = fontId ? (fontQuery.data?.font ?? null) : null;
+  const widget = widgetId ? (widgetQuery.data?.widget ?? null) : null;
 
-  useEffect(() => {
-    if (!enabled || !visible || !tabActive || !result.data) return;
-    const release: (() => void)[] = [];
-    if (result.data.bubble) release.push(injectBubbleCss(result.data.bubble));
-    if (result.data.font && decoration?.fontId) {
-      release.push(injectFontCss(decoration.fontId, result.data.font));
-    }
-    if (result.data.widget) release.push(injectWidgetCss(result.data.widget));
-    return () => {
-      for (const dispose of release) dispose();
-    };
-  }, [result.data, decoration?.fontId, enabled, visible, tabActive]);
+  useLayoutEffect(() => {
+    if (visible && tabActive && bubble) return injectBubbleCss(bubble);
+  }, [bubble, visible, tabActive]);
+  useLayoutEffect(() => {
+    if (visible && tabActive && font) return injectFontCss(fontId, font);
+  }, [font, fontId, visible, tabActive]);
+  useLayoutEffect(() => {
+    if (visible && tabActive && widget) return injectWidgetCss(widget);
+  }, [widget, visible, tabActive]);
 
-  if (!enabled || !hasDec) return { widget: null, bubbleId: 0, fontId: 0, fontFx: null };
-  const font = result.data?.font ?? null;
   return {
-    widget: result.data?.widget ?? null,
-    bubbleId: result.data?.bubble ? (decoration?.bubbleId ?? 0) : 0,
-    fontId: font ? (decoration?.fontId ?? 0) : 0,
+    widget,
+    bubbleId: bubble ? bubbleId : 0,
+    fontId: font ? fontId : 0,
     fontFx: toFontFxSkin(font),
   };
 }

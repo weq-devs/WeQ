@@ -15,7 +15,7 @@
  *   - testSsePushServer    发一条 ping 事件探测连通性
  */
 
-import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactElement } from 'react';
 import {
   Check,
   ChevronRight,
@@ -31,6 +31,7 @@ import {
   X,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
@@ -55,10 +56,12 @@ function errMsg(e: unknown): string {
 }
 
 export function SsePushSection(): ReactElement {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const pushToast = useToast((s) => s.push);
 
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -70,11 +73,16 @@ export function SsePushSection(): ReactElement {
 
   const [form, setForm] = useState<PushForm | null>(null);
   const [revealToken, setRevealToken] = useState(false);
+  useEffect(() => {
+    if (!active) setRevealToken(false);
+  }, [active]);
   const [draftId, setDraftId] = useState(() => crypto.randomUUID());
   const testKey = connectionTestKey('sse', form?.id || draftId);
   const testing = useConnectionTestTasks((state) => state.running.has(testKey));
   const [debounceDraft, setDebounceDraft] = useState('2000');
   const [thresholdDraft, setThresholdDraft] = useState('50');
+  const previousDebounce = useRef('2000');
+  const previousThreshold = useRef('50');
 
   const sse = settings.data?.ssePush;
   const servers = sse?.servers ?? [];
@@ -83,10 +91,18 @@ export function SsePushSection(): ReactElement {
 
   // 普通重读不清空草稿，只同步发生变化的服务端数值。
   useEffect(() => {
-    if (sse?.debounceMs != null) setDebounceDraft(String(sse.debounceMs));
+    if (sse?.debounceMs == null) return;
+    const previous = previousDebounce.current;
+    const next = String(sse.debounceMs);
+    setDebounceDraft((draft) => (draft === previous ? next : draft));
+    previousDebounce.current = next;
   }, [sse?.debounceMs]);
   useEffect(() => {
-    if (sse?.massThreshold != null) setThresholdDraft(String(sse.massThreshold));
+    if (sse?.massThreshold == null) return;
+    const previous = previousThreshold.current;
+    const next = String(sse.massThreshold);
+    setThresholdDraft((draft) => (draft === previous ? next : draft));
+    previousThreshold.current = next;
   }, [sse?.massThreshold]);
 
   async function refetch(): Promise<void> {

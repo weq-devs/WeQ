@@ -55,7 +55,7 @@ test('独立手机仓库通过稳定夹具契约完成实际桌面配对、Web �
     });
     const base = `http://127.0.0.1:${port}`;
     const contract = await (await fetch(`${base}/test/contract`)).json();
-    assert.deepEqual(contract, { fixture: 1, protocol: 1, invitationVersions: [1, 2, 3] });
+    assert.deepEqual(contract, { fixture: 1, protocol: 1, invitationVersions: [1, 2, 3, 4] });
     assert.equal((await fetch(`${base}/v1/status`)).status, 401);
     const { url } = await (await fetch(`${base}/test/invitation`)).json();
     const invitation = new URL(url).searchParams.get('invitation');

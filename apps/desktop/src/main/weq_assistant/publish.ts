@@ -1,8 +1,7 @@
 /**
  * WeQ 助手推文「发布」—— 把每条推物化成 docroot 下的静态文件。
  *
- * 守护进程（weq-daemon）只是个「端口 + 目录」的静态文件服务器，路由 1:1 对应
- * 推文的 `coverPath` / `pagePath`（见 daemon httpd.rs）：
+ * 当前宿主的资源服务（server.ts）按推文 `coverPath` / `pagePath` 提供静态文件：
  *
  *   /p/daily        → <docroot>/p/daily.html
  *   /cover/daily    → <docroot>/cover/daily.png   （无扩展名请求由 httpd 补 .png/.html）
@@ -11,7 +10,7 @@
  *   /avatar.png     → <docroot>/avatar.png
  *
  * 渲染函数全部来自原 server.ts 时代的纯函数（satori/resvg + HTML 字符串拼接，
- * 零 Electron 依赖），主题在渲染时烘焙进产物 —— 守护进程不读任何配置。
+ * 零 Electron 依赖），主题在渲染时烘焙进产物。
  * 主题变更 / 统计快照刷新后重新调用 {@link publishWeqAssistantDocroot} 即可。
  */
 
@@ -34,7 +33,7 @@ function todayLabel(): string {
 }
 
 // ── 页面渲染（自 server.ts 原样迁移） ─────────────────────────────────────
-// 原实现内联在 HTTP handler 里；守护进程模式下没有 handler，这里改成纯函数。
+// 页面生成与资源请求分开，HTTP 请求不重复渲染。
 
 /**
  * Inline lucide icons (paths copied verbatim from `lucide-react@0.469`). The push

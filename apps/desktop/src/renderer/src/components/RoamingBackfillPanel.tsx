@@ -461,7 +461,8 @@ export function RoamingBackfillPanel({
                             <span className="weq-roaming-target-text">
                               <strong title={target.name}>{target.name}</strong>
                               <small>
-                                {target.kind === 'group' ? '群聊' : '私聊'} · {target.conv}
+                                {target.kind === 'group' ? '群聊' : '私聊'} ·{' '}
+                                <span data-privacy-sensitive>{target.conv}</span>
                                 {info?.messageCount ? ` · ${format(info.messageCount)} 条` : ''}
                               </small>
                             </span>
@@ -886,10 +887,12 @@ export function RoamingBackfillPanel({
                       {[...job.attempts].reverse().map((attempt) => (
                         <div key={attempt.id} className="weq-roaming-receipt">
                           <span className="weq-roaming-receipt-target">
-                            {targetNames.get(attempt.target) ??
-                              job.targets.find((target) => targetKey(target) === attempt.target)
-                                ?.name ??
-                              attempt.target}
+                            <span data-privacy-sensitive>
+                              {targetNames.get(attempt.target) ??
+                                job.targets.find((target) => targetKey(target) === attempt.target)
+                                  ?.name ??
+                                attempt.target}
+                            </span>
                             <small>
                               seq {attempt.start}–{attempt.end}
                             </small>

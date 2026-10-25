@@ -388,7 +388,11 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
             <span className="weq-col-media-title">
               语音{humanSeconds(a.duration / 1000) ? ` · ${humanSeconds(a.duration / 1000)}` : ''}
             </span>
-            {a.stt ? <span className="weq-col-media-sub">{a.stt}</span> : null}
+            {a.stt ? (
+              <span className="weq-col-media-sub" data-privacy-sensitive>
+                {a.stt}
+              </span>
+            ) : null}
           </span>
         </div>
       );
@@ -419,7 +423,9 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
             ) : null}
           </button>
           <span className="weq-col-media-sub">
-            {v.title || v.fileName || '视频'}
+            <span data-privacy-sensitive={Boolean(v.title || v.fileName) || undefined}>
+              {v.title || v.fileName || '视频'}
+            </span>
             {humanSize(v.fileSize) ? ` · ${humanSize(v.fileSize)}` : ''}
           </span>
         </div>
@@ -439,7 +445,12 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
             )}
           </span>
           <span className="weq-col-media-meta">
-            <span className="weq-col-media-title">{f.name || '文件'}</span>
+            <span
+              className="weq-col-media-title"
+              data-privacy-sensitive={Boolean(f.name) || undefined}
+            >
+              {f.name || '文件'}
+            </span>
             {humanSize(f.size) ? (
               <span className="weq-col-media-sub">{humanSize(f.size)}</span>
             ) : null}

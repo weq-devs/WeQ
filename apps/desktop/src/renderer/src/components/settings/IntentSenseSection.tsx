@@ -8,6 +8,7 @@
 import { useState, type ReactElement } from 'react';
 import { BrainCircuit, RotateCcw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { IntentModelsSection } from './IntentModelsSection';
@@ -50,16 +51,19 @@ export function IntentSenseSection({
 }: {
   page?: 'intent' | 'suggestions';
 }): ReactElement {
+  const active = useTabActive();
   const suggestionsPage = page === 'suggestions';
   const showError = useDialog((s) => s.showError);
   const utils = trpc.useUtils();
 
   const status = trpc.account.intentSense.getStatus.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const localEngine = trpc.bootstrap.getLocalEngine.useQuery(undefined, {
+    enabled: active && !suggestionsPage,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -107,21 +111,16 @@ export function IntentSenseSection({
         <Row
           label="运行方式"
           control={
-            <select
-              className="weq-set-input"
-              aria-label="意图感知运行方式"
+            <SegmentedControl
+              label="意图感知运行方式"
               value={s?.engine ?? 'api'}
               disabled={status.isLoading || setConfig.isLoading}
-              onChange={(event) => {
-                const engine = event.target.value;
-                if (engine === 'api' || engine === 'local') void patch({ engine });
-              }}
-            >
-              <option value="api">API 模型</option>
-              <option value="local" disabled={!local?.available}>
-                本地离线模型
-              </option>
-            </select>
+              onChange={(engine) => void patch({ engine })}
+              options={[
+                { value: 'api', label: 'API 模型' },
+                { value: 'local', label: '本地离线模型', disabled: !local?.available },
+              ]}
+            />
           }
         />
         {s?.engine === 'api' ? (
@@ -197,11 +196,17 @@ export function IntentSenseSection({
       </Card>
 
       {modelControls}
+      {!suggestionsPage && !s ? (
+        <p className="weq-set-note" data-setting-id="intent-model-resources">
+          尚未取得运行方式，本地模型资源状态待确认。
+        </p>
+      ) : null}
       <details className="weq-model-advanced">
         <summary>高级设置</summary>
         {!suggestionsPage ? (
           <Card title="显示方式">
             <Row
+              settingId="intent-persistent-display"
               label="常驻显示"
               control={
                 <Toggle
@@ -213,6 +218,7 @@ export function IntentSenseSection({
               }
             />
             <Row
+              settingId="intent-hover-display"
               label="悬停显示"
               control={
                 <Toggle
@@ -278,3 +284,4 @@ export function IntentSenseSection({
     </div>
   );
 }
+import { SegmentedControl } from '../SegmentedControl';

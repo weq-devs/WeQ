@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -104,7 +105,11 @@ async function completed(id: string | null) {
 it('图片复用原协议，按真实 PNG 类型保存，不把所有图片当 JPEG', async () => {
   state.response = () =>
     new Response(new Uint8Array(png), { headers: { 'content-type': 'image/jpeg' } });
-  const id = await api().save({ ...binding, source: image, savePolicy: { mode: 'after' } });
+  const id = await api().save({
+    ...binding,
+    source: image,
+    savePolicy: { mode: 'before', directory: root },
+  });
   const task = await completed(id);
   expect(task.resource?.output).toEqual({ kind: 'file', name: '合成图片', extension: 'png' });
   expect(readFileSync(task.filePath!)).toEqual(Buffer.from(png));
@@ -117,7 +122,7 @@ it('语音沿用播放协议返回的 WAV，不给解码后的字节套 AMR 后�
     await api().save({
       ...binding,
       source: { kind: 'url', url: '/_media/ptt?name=voice.amr', name: 'voice.amr' },
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: root },
     }),
   );
   expect(task.resource?.output?.extension).toBe('wav');
@@ -155,7 +160,7 @@ it('视频按流复制，元数据探测不读完整视频，不调用 arrayBuff
     await api().save({
       ...binding,
       source: { kind: 'url', url: 'weq-media://video?t=1&name=video.mp4' },
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: root },
     }),
   );
   expect(cancelled[0]).toBe(true);
@@ -175,7 +180,7 @@ it('群文件取消位置不换链或建任务，实际下载固定 fileId 与 b
   expect(state.groupUrl).not.toHaveBeenCalled();
   state.response = () => new Response('raw-file', { headers: { 'content-type': 'text/plain' } });
   const task = await completed(
-    await api().save({ ...binding, source, savePolicy: { mode: 'after' } }),
+    await api().save({ ...binding, source, savePolicy: { mode: 'before', directory: root } }),
   );
   expect(state.groupUrl).toHaveBeenCalledWith(123, 'selected-id', 7, 'report.txt');
   expect(readFileSync(task.filePath!, 'utf8')).toBe('raw-file');
@@ -188,7 +193,7 @@ it('本地文件只复制既有缓存，保留无后缀文件和原件，不要�
     await api().save({
       ...binding,
       source: { kind: 'chat-file', msgId: '42', name: 'README' },
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: root },
     }),
   );
   expect(task.resource?.output).toEqual({ kind: 'file', name: 'README', extension: '' });
@@ -213,7 +218,7 @@ it('转发文件沿用携带消息／子消息与未知场景换链，不误用�
         conv: '123',
         name: 'report.txt',
       },
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: root },
     }),
   );
   expect(state.fileInfo).toHaveBeenCalledWith(42n);
@@ -234,7 +239,7 @@ it('找不到所选 token 时不回退成另一个文件，也不因同名本地
     api().save({
       ...binding,
       source: { kind: 'chat-file', msgId: '41', token: 'wanted', name: 'report.txt' },
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: root },
     }),
   ).rejects.toThrow('未找到所选文件');
   expect(manager.listTasks()).toEqual([]);
@@ -265,7 +270,11 @@ it('探测后资源类型变化，不把 GIF 当作原先选择的 PNG 发布', 
       : new Response(Buffer.from('GIF89a\x01\0\x01\0synthetic'), {
           headers: { 'content-type': 'image/gif' },
         });
-  const id = await api().save({ ...binding, source: image, savePolicy: { mode: 'after' } });
+  const id = await api().save({
+    ...binding,
+    source: image,
+    savePolicy: { mode: 'before', directory: root },
+  });
   await vi.waitFor(() => expect(manager.getTask(id!)?.status).toBe('failed'));
   expect(manager.getTask(id!)?.error).toContain('媒体类型');
   expect(manager.getTask(id!)?.filePath).toBeUndefined();
@@ -273,13 +282,17 @@ it('探测后资源类型变化，不把 GIF 当作原先选择的 PNG 发布', 
 it.each([404, 206])('不可用或部分资源 HTTP %s 不建有效任务', async (status) => {
   state.response = () => new Response('partial-or-missing', { status });
   await expect(
-    api().save({ ...binding, source: image, savePolicy: { mode: 'after' } }),
+    api().save({ ...binding, source: image, savePolicy: { mode: 'before', directory: root } }),
   ).rejects.toThrow('媒体不可用');
   expect(manager.listTasks()).toEqual([]);
 });
 it('已完成媒体不被停止操作改成取消，完整结果保持可保存', async () => {
   const task = await completed(
-    await api().save({ ...binding, source: image, savePolicy: { mode: 'after' } }),
+    await api().save({
+      ...binding,
+      source: image,
+      savePolicy: { mode: 'before', directory: root },
+    }),
   );
   expect(await api().cancel({ ...binding, taskId: task.id })).toBe(false);
   expect(manager.cancelTask(task.id)).toBe(false);

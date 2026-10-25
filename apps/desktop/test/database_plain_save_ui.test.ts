@@ -14,7 +14,7 @@ const state = vi.hoisted(() => ({
     async (
       _intent?: ExportSavePolicy,
       _output?: ExportOutputPlan,
-    ): Promise<ExportSavePolicy | null> => ({ mode: 'after' }),
+    ): Promise<ExportSavePolicy | null> => ({ mode: 'before', directory: '/fixture/export' }),
   ),
   start: vi.fn(async (_input: unknown) => 'db-task'),
   confirm: vi.fn(async () => true),
@@ -63,7 +63,7 @@ beforeEach(() => {
   state.uin = '10001';
   state.configId = 'fixture-source';
   state.online = false;
-  state.prepare.mockReset().mockResolvedValue({ mode: 'after' });
+  state.prepare.mockReset().mockResolvedValue({ mode: 'before', directory: '/fixture/export' });
   state.start.mockClear();
   state.confirm.mockReset().mockResolvedValue(true);
 });
@@ -125,26 +125,22 @@ it.each([1, 2])('选择 %i 个库后由普通按钮准备文件／整包，不�
     expectedAccountUin: '10001',
     expectedAccountConfigId: 'fixture-source',
     mode: 'safe',
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: '/fixture/export' },
     dbPaths: count === 1 ? ['/synthetic/msg.db'] : ['/synthetic/msg.db', '/synthetic/login.db'],
   });
   expect(f.started).toHaveBeenCalledOnce();
 });
-it('单次菜单不改变默认，取消保存保留选择且不建任务', async () => {
+it('保存只提供主按钮，取消位置选择保留勾选且不建任务', async () => {
   const f = await mount();
   select(f.host);
   state.prepare.mockResolvedValueOnce(null);
-  act(() =>
-    f.host.querySelector<HTMLButtonElement>('[aria-label="安全保存的本次保存选项"]')!.click(),
-  );
-  const menu = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
-    (node) => node.textContent === '先生成，稍后保存',
-  )!;
-  await act(async () => menu.click());
-  expect(state.prepare).toHaveBeenCalledWith(
-    { mode: 'after' },
-    { kind: 'file', name: 'msg', format: 'db' },
-  );
+  expect(f.host.querySelector('.weq-save-options')).toBeNull();
+  await act(async () => f.host.querySelector<HTMLButtonElement>('.is-safe')!.click());
+  expect(state.prepare).toHaveBeenCalledWith(undefined, {
+    kind: 'file',
+    name: 'msg',
+    format: 'db',
+  });
   expect(state.start).not.toHaveBeenCalled();
   expect(f.host.querySelector('.weq-db-card.is-on')).not.toBeNull();
 });
@@ -170,7 +166,7 @@ it('准备期间切换同号来源停止旧任务创建并清空旧选择', asyn
   act(() => f.host.querySelector<HTMLButtonElement>('.is-safe')!.click());
   state.configId = 'other-source';
   await f.render();
-  await act(async () => finish({ mode: 'after' }));
+  await act(async () => finish({ mode: 'before', directory: '/fixture/export' }));
   expect(state.start).not.toHaveBeenCalled();
   expect(f.host.querySelector('.weq-db-card.is-on')).toBeNull();
 });

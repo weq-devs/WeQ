@@ -40,6 +40,32 @@ export class ForwardMsgDb {
     return this.queryForward('group_msg_table', msgId);
   }
 
+  /** 单页引用缓存批量读取；坏 BLOB 仅影响该条引用。 */
+  async listForMessages(
+    kind: 'c2c' | 'group',
+    msgIds: readonly bigint[],
+  ): Promise<Map<bigint, MsgCacheRecord[]>> {
+    const table = kind === 'group' ? 'group_msg_table' : 'c2c_msg_table';
+    const ids = [...new Set(msgIds)];
+    const result = new Map<bigint, MsgCacheRecord[]>();
+    for (let offset = 0; offset < ids.length; offset += 256) {
+      const batch = ids.slice(offset, offset + 256);
+      const rows = await this.qq.query(
+        `SELECT "40001", "40900" FROM ${table} WHERE "40001" IN (${batch.map(() => '?').join(',')})`,
+        batch,
+      );
+      for (const row of rows) {
+        if (!(row[1] instanceof Uint8Array)) continue;
+        try {
+          result.set(BigInt(String(row[0])), decodeMsgCacheColumn(row[1]));
+        } catch {
+          /* 仅保留原有引用占位，不让坏缓存拖垮整页。 */
+        }
+      }
+    }
+    return result;
+  }
+
   // `table` is an internal constant (never user input) so interpolating it
   // into the SQL is safe; msgId is bound as a parameter.
   private async queryForward(table: string, msgId: bigint): Promise<MsgCacheRecord[]> {

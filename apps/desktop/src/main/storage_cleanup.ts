@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import type { StorageUsageItem } from '@weq/service';
 import { readStorageCleanupResult } from '@weq/service/storage-cleanup';
 import { resolveChildWorkerPath } from './worker_path';
+import { skipNextQuitConfirmation } from './app_quit_confirmation';
 
 const reportPath = () => join(app.getPath('userData'), 'storage-maintenance', 'last-result.json');
 const lockPath = () => join(app.getPath('userData'), 'storage-maintenance', 'running.json');
@@ -118,7 +119,7 @@ export async function clearStorageAfterExit(targets: StorageUsageItem[]): Promis
   if (!helper) throw new Error('清除助手未启动');
   let committed = false;
   const commit = (event: Electron.Event) => {
-    if (committed) return;
+    if (committed || event.defaultPrevented) return;
     event.preventDefault();
     helper.send({ type: 'commit' }, (error) => {
       if (error) {
@@ -138,5 +139,8 @@ export async function clearStorageAfterExit(targets: StorageUsageItem[]): Promis
     pending = false;
     app.removeListener('will-quit', commit);
   });
-  setTimeout(() => app.quit(), 200);
+  setTimeout(() => {
+    skipNextQuitConfirmation();
+    app.quit();
+  }, 200);
 }

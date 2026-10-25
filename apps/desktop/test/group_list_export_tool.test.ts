@@ -17,14 +17,14 @@ const state = vi.hoisted(() => ({
     async (
       _intent?: ExportSavePolicy,
       _output?: ExportOutputPlan,
-    ): Promise<ExportSavePolicy | null> => ({ mode: 'after' }),
+    ): Promise<ExportSavePolicy | null> => ({ mode: 'before', directory: '/fixture/export' }),
   ),
   data: {} as Record<string, unknown>,
 }));
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => ({
     settings: { data: {} },
-    policy: { mode: 'after' },
+    policy: { mode: 'before', directory: '/fixture/export' },
     prepareSave: state.prepare,
     isCurrent: () => true,
   }),
@@ -82,7 +82,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   useViewState.setState({ openedUin: '10001' });
   state.start.mockClear();
-  state.prepare.mockReset().mockResolvedValue({ mode: 'after' });
+  state.prepare.mockReset().mockResolvedValue({ mode: 'before', directory: '/fixture/export' });
   state.data = {
     'account.getAccountConfig': { uin: '10001', configId: 'source-a' },
     'account.exportGroupDirectory': [
@@ -147,11 +147,8 @@ describe('群聊名单导出工具', () => {
           multiple ? ['123', '456'] : undefined,
           multiple ? 'groups' : 'group-list',
         );
-        act(() => host.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.click());
-        const choose = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
-          (node) => node.textContent === '另存到…',
-        )!;
-        act(() => choose.click());
+        expect(host.querySelector('.weq-save-options')).toBeNull();
+        act(() => host.querySelector<HTMLButtonElement>('.weq-exp-primary')!.click());
         await act(async () => {
           host.querySelector<HTMLButtonElement>('[aria-label="确认名单导出"]')!.click();
           await vi.waitFor(() => expect(state.start).toHaveBeenCalledTimes(multiple ? 2 : 1));
@@ -166,7 +163,8 @@ describe('群聊名单导出工具', () => {
           expect(hostPicker.pickSaveTarget).toHaveBeenCalledWith({
             defaultName: '全部群聊名单.json',
             extension: 'json',
-            locationKey: 'export-before',
+            locationKey: 'export:file:json',
+            defaultDirectory: undefined,
           });
           expect(hostPicker.pickDirectory).not.toHaveBeenCalled();
           expect(state.start).toHaveBeenCalledWith(

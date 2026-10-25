@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
+import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import {
   AlertTriangle,
   ArrowDownToLine,
@@ -221,10 +222,17 @@ function chunkToLines(
 }
 
 export function LogViewerPanel(): ReactElement {
+  const { enabled: active } = useQQReadActivity(true, { onlineOnly: false });
+  const activity = useRef(active);
+  activity.current = active;
+  const generation = useRef(0);
+  const loadedPath = useRef('');
+  const scrollFrame = useRef<number | null>(null);
   const pushToast = useToast((s) => s.push);
   const dialog = useDialog();
   const utils = trpc.useUtils();
   const debugState = trpc.help.getNativeDebugLog.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     // 调试开关是运行时状态，唯一真相源在主进程（nt_helper 的 AtomicBool）。
@@ -237,6 +245,7 @@ export function LogViewerPanel(): ReactElement {
   // 否则重新打开弹窗时会与真实状态不同步。
   const debugOn = debugState.data?.enabled ?? false;
   const list = trpc.help.listLogFiles.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -266,6 +275,21 @@ export function LogViewerPanel(): ReactElement {
   const seqRef = useRef({ n: 0 });
   const busyRef = useRef(false);
   const selectedRef = useRef('');
+  selectedRef.current = selectedPath;
+
+  useEffect(() => {
+    activity.current = active;
+    generation.current++;
+    busyRef.current = false;
+    setLoading(false);
+    setLoadingOlder(false);
+    return () => {
+      activity.current = false;
+      generation.current++;
+      busyRef.current = false;
+      if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
+    };
+  }, [active, selectedPath]);
 
   // 首次列出后默认选最新一份 WeQ 日志
   useEffect(() => {
@@ -275,26 +299,32 @@ export function LogViewerPanel(): ReactElement {
     if (fallback) setSelectedPath(fallback.path);
   }, [files, selectedPath]);
 
-  // 记录当前文件，供轮询使用（避免闭包过期）
-  useEffect(() => {
-    selectedRef.current = selectedPath;
-  }, [selectedPath]);
-
   /** 载入文件尾部（初始 / 切换文件）。 */
   const loadTail = useCallback(
-    async (path: string): Promise<void> => {
-      if (busyRef.current) return;
+    async (path: string, resetFollow = true): Promise<void> => {
+      if (!activity.current || selectedRef.current !== path || busyRef.current) return;
+      const request = ++generation.current;
+      const current = () =>
+        activity.current && selectedRef.current === path && generation.current === request;
       busyRef.current = true;
       setLoading(true);
+      if (loadedPath.current !== path) {
+        loadedPath.current = '';
+        setBuffer({ startOffset: 0, endOffset: 0, lines: [], partial: '' });
+        setSize(0);
+        setLastUpdated(null);
+      }
       try {
         const info = await client.help.logFileInfo.query({ path });
+        if (!current()) return;
         const start = Math.max(0, info.size - TAIL_BYTES);
         const chunk = await client.help.readLogChunk.query({
           path,
           offset: start,
           bytes: info.size - start,
         });
-        const { lines, nextPartial, consumed } = chunkToLines(
+        if (!current()) return;
+        const { lines, nextPartial } = chunkToLines(
           chunk.text,
           start,
           '',
@@ -303,23 +333,28 @@ export function LogViewerPanel(): ReactElement {
           seqRef.current,
         );
         setSize(info.size);
+        loadedPath.current = path;
+        // 历史游标取首行的真实字节位置，不能用分块末尾的位置。
         setBuffer({
-          startOffset: start + consumed,
+          startOffset: lines[0]?.byteStart ?? start,
           endOffset: chunk.nextOffset,
           lines,
           partial: nextPartial,
         });
         setLastUpdated(Date.now());
-        setFollowTail(true);
+        if (resetFollow) setFollowTail(true);
       } catch (e) {
+        if (!current()) return;
         pushToast({
           tone: 'error',
           title: '读取日志失败',
           detail: e instanceof Error ? e.message : String(e),
         });
       } finally {
-        busyRef.current = false;
-        setLoading(false);
+        if (generation.current === request) {
+          busyRef.current = false;
+          setLoading(false);
+        }
       }
     },
     [pushToast],
@@ -327,28 +362,39 @@ export function LogViewerPanel(): ReactElement {
 
   // 切换文件
   useEffect(() => {
-    if (!selectedPath) return;
+    if (!active || !selectedPath || loadedPath.current === selectedPath) return;
     seqRef.current.n = 0;
     void loadTail(selectedPath);
-  }, [selectedPath, loadTail]);
+  }, [active, selectedPath, loadTail]);
 
   /** 轮询追加尾部（跟随模式）。 */
   useEffect(() => {
+    if (!active || !selectedPath) return;
     let timer: number | undefined;
     const tick = async (): Promise<void> => {
       const path = selectedRef.current;
-      if (!path || busyRef.current) return;
+      if (!activity.current || !path || loadedPath.current !== path || busyRef.current) return;
+      const request = ++generation.current;
+      const current = () =>
+        activity.current && selectedRef.current === path && generation.current === request;
       busyRef.current = true;
       try {
         const info = await client.help.logFileInfo.query({ path });
+        if (!current()) return;
         setSize(info.size);
         const cur = bufferRef.current;
+        if (info.size < cur.endOffset) {
+          busyRef.current = false;
+          void loadTail(path, false);
+          return;
+        }
         if (info.size > cur.endOffset) {
           const chunk = await client.help.readLogChunk.query({
             path,
             offset: cur.endOffset,
             bytes: Math.min(CHUNK_BYTES, info.size - cur.endOffset),
           });
+          if (!current()) return;
           const baseOffset = cur.endOffset;
           const { lines, nextPartial, consumed } = chunkToLines(
             chunk.text,
@@ -359,6 +405,7 @@ export function LogViewerPanel(): ReactElement {
             seqRef.current,
           );
           setBuffer((prev) => {
+            if (!current()) return prev;
             let merged = [...prev.lines, ...lines];
             // 防止无限增长：从头部裁掉最旧的
             const excess = merged.length - MAX_LINES;
@@ -386,34 +433,36 @@ export function LogViewerPanel(): ReactElement {
       } catch {
         // 轮询失败静默，下个周期再试
       } finally {
-        busyRef.current = false;
+        if (generation.current === request) busyRef.current = false;
       }
     };
+    void tick();
     timer = window.setInterval(() => void tick(), 1200);
     return () => {
       if (timer) window.clearInterval(timer);
     };
-  }, []);
+  }, [active, selectedPath, loadTail]);
 
   // 让轮询回调能读到最新 buffer（ref 镜像）
   const bufferRef = useRef(buffer);
-  useEffect(() => {
-    bufferRef.current = buffer;
-  }, [buffer]);
+  bufferRef.current = buffer;
 
   // 跟随模式：追加后滚动到底部
   useEffect(() => {
-    if (!followTail) return;
+    if (!active || !followTail) return;
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [buffer.lines.length, followTail]);
+  }, [active, buffer.lines.length, followTail]);
 
   /** 向上翻页：加载更早的分块。 */
   const loadOlder = useCallback(async (): Promise<void> => {
     const path = selectedRef.current;
-    if (!path || busyRef.current || loadingOlder) return;
+    if (!activity.current || !path || busyRef.current || loadingOlder) return;
     const cur = bufferRef.current;
     if (cur.startOffset <= 0) return;
+    const request = ++generation.current;
+    const current = () =>
+      activity.current && selectedRef.current === path && generation.current === request;
     busyRef.current = true;
     setLoadingOlder(true);
     try {
@@ -423,7 +472,8 @@ export function LogViewerPanel(): ReactElement {
         offset: readStart,
         bytes: cur.startOffset - readStart,
       });
-      const { lines, consumed } = chunkToLines(
+      if (!current()) return;
+      const { lines } = chunkToLines(
         chunk.text,
         readStart,
         '',
@@ -438,29 +488,35 @@ export function LogViewerPanel(): ReactElement {
       const el = scrollRef.current;
       const prevHeight = el?.scrollHeight ?? 0;
       setBuffer((prev) => {
+        if (!current()) return prev;
         // 丢弃新分块末尾的残缺行（续接进现有首行）
         const keep = lines.slice();
         const merged = [...keep, ...prev.lines];
         return {
           ...prev,
-          startOffset: readStart + consumed,
+          startOffset: lines[0]?.byteStart ?? readStart,
           lines: merged,
         };
       });
-      requestAnimationFrame(() => {
+      scrollFrame.current = requestAnimationFrame(() => {
+        scrollFrame.current = null;
+        if (!current()) return;
         const node = scrollRef.current;
         if (node) node.scrollTop = node.scrollHeight - prevHeight;
       });
       setLastUpdated(Date.now());
     } catch (e) {
+      if (!current()) return;
       pushToast({
         tone: 'error',
         title: '加载历史日志失败',
         detail: e instanceof Error ? e.message : String(e),
       });
     } finally {
-      busyRef.current = false;
-      setLoadingOlder(false);
+      if (generation.current === request) {
+        busyRef.current = false;
+        setLoadingOlder(false);
+      }
     }
   }, [loadingOlder, pushToast]);
 
@@ -710,7 +766,7 @@ export function LogViewerPanel(): ReactElement {
         ) : null}
         {visibleLines.length === 0 ? (
           <div className="weq-help-log-empty">
-            {allOff ? '已关闭全部等级筛选' : '（无日志内容）'}
+            {loading ? '正在读取日志…' : allOff ? '已关闭全部等级筛选' : '（无日志内容）'}
           </div>
         ) : (
           visibleLines.map((line) => (

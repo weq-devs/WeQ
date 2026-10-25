@@ -1,5 +1,5 @@
 /**
- * 左栏底部：当前账号大头像 + 右侧弹层（其他账号 / 退出）。
+ * 菜单底部应用控制，以及账号切换与退出弹层。
  *
  * 切换/退出都走 closeAccount → 后端 clearAccount 显式停掉
  * accountMonitor（QQ 登录实例监听）和 dbWatchHandle（数据库监听），
@@ -22,8 +22,6 @@ import {
   Moon,
   Sun,
   Trash2,
-  Eye,
-  EyeOff,
   Camera,
   Database,
   Smartphone,
@@ -34,7 +32,6 @@ import { useViewState } from '../state/view';
 import { leaveAccountForBootstrap, purgeAccountQueries } from '../lib/leaveAccount';
 import { useAppLock } from '../state/lock';
 import { useThemeStore } from '../state/theme';
-import { usePrivacyStore } from '../state/privacy';
 import { useAccountSwitch } from '../state/accountSwitch';
 import { confirmMailAccountLeave } from '../state/mailDraft';
 import { runAccountWarmup } from '../lib/accountWarmup';
@@ -48,8 +45,8 @@ import { useDialog } from './Dialog';
 import { useToast } from './Toast';
 import { QqAvatar } from './QqAvatar';
 import { DesktopOnly, shellBridge } from '../lib/target';
-import { RailUtilityDock } from './RailUtilityDock';
 import '../styles/rail-account.css';
+import { useWorkspaceMenu } from '../state/workspaceMenu';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -59,24 +56,22 @@ export function RailAccountFooter({
   currentUin,
   currentName,
   currentAvatarUrl,
+  settingsButton,
   children,
 }: {
   currentUin: string;
   currentName: string;
   currentAvatarUrl?: string | null;
-  children?: ReactNode;
+  settingsButton?: ReactNode;
+  children?: ReactNode | ((controls: ReactNode) => ReactNode);
 }): ReactElement {
   const setOpenedUin = useViewState((s) => s.setOpenedUin);
   const goTo = useViewState((s) => s.goTo);
   const showError = useDialog((s) => s.showError);
   const lock = useAppLock((s) => s.lock);
-  // Manual 深/浅 toggle sitting above the lock button. Reuses the global theme
-  // store — flipping here also updates the settings page (跟随系统 can still be
-  // chosen there; a click just pins one concrete mode).
+  // 菜单与设置共用主题状态；快捷切换固定为浅/深色，跟随系统仍在设置里选择。
   const resolvedTheme = useThemeStore((s) => s.resolved);
   const setThemePreference = useThemeStore((s) => s.setPreference);
-  const privacyEnabled = usePrivacyStore((s) => s.enabled);
-  const togglePrivacy = usePrivacyStore((s) => s.toggle);
   const pushToast = useToast((s) => s.push);
   const queryClient = useQueryClient();
   const utils = trpc.useUtils();
@@ -158,6 +153,7 @@ export function RailAccountFooter({
       // 读取失败时照常上锁，解锁弹窗会自己校验当前配置。
     }
     setOpen(false);
+    useWorkspaceMenu.getState().close();
     lock();
   }
 
@@ -334,61 +330,22 @@ export function RailAccountFooter({
     currentConfigId ? c.configId !== currentConfigId : c.uin !== currentUin,
   );
 
-  return (
-    <>
-      <RailUtilityDock>
-        <DesktopOnly>
-          <button
-            type="button"
-            className="weq-rail-capture-btn"
-            title="截图当前窗口（复制到剪贴板）"
-            aria-label="截图当前窗口"
-            onClick={() => void captureNow()}
-          >
-            <Camera size={18} strokeWidth={1.8} aria-hidden />
-          </button>
-        </DesktopOnly>
+  const controls = (
+    <div className="weq-workspace-controls" aria-label="应用控制">
+      {settingsButton}
+      {typeof children === 'function' ? null : children}
+      <DesktopOnly>
         <button
           type="button"
-          className={`weq-rail-privacy-btn${privacyEnabled ? ' is-on' : ''}`}
-          title={privacyEnabled ? '关闭隐私模式' : '开启隐私模式'}
-          aria-label={privacyEnabled ? '关闭隐私模式' : '开启隐私模式'}
-          aria-pressed={privacyEnabled}
-          onClick={togglePrivacy}
+          className="weq-workspace-control"
+          title={lockBlockReason() ?? '锁定 WeQ'}
+          aria-label="锁定 WeQ"
+          onClick={() => void lockNow()}
+          disabled={busy || lockBlockReason() !== null}
         >
-          {privacyEnabled ? (
-            <EyeOff size={18} strokeWidth={1.8} aria-hidden />
-          ) : (
-            <Eye size={18} strokeWidth={1.8} aria-hidden />
-          )}
+          <LockKeyhole size={18} strokeWidth={1.8} aria-hidden />
         </button>
-        <button
-          type="button"
-          className="weq-rail-theme-btn"
-          title={resolvedTheme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
-          aria-label={resolvedTheme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
-          onClick={toggleTheme}
-        >
-          {resolvedTheme === 'dark' ? (
-            <Sun size={18} strokeWidth={1.8} aria-hidden />
-          ) : (
-            <Moon size={18} strokeWidth={1.8} aria-hidden />
-          )}
-        </button>
-        <DesktopOnly>
-          <button
-            type="button"
-            className="weq-rail-lock-btn"
-            title={lockBlockReason() ?? '锁定 WeQ'}
-            aria-label="锁定 WeQ"
-            onClick={() => void lockNow()}
-            disabled={busy || lockBlockReason() !== null}
-          >
-            <LockKeyhole size={18} strokeWidth={1.8} aria-hidden />
-          </button>
-        </DesktopOnly>
-      </RailUtilityDock>
-      {children}
+      </DesktopOnly>
       <div ref={wrapRef} className="weq-rail-account-footer">
         <button
           type="button"
@@ -400,123 +357,149 @@ export function RailAccountFooter({
           onClick={() => setOpen((v) => !v)}
           disabled={busy}
         >
-          <QqAvatar uin={currentUin} url={currentAvatarUrl ?? null} size={44} />
+          <QqAvatar uin={currentUin} url={currentAvatarUrl ?? null} size={36} />
         </button>
-        {open ? (
-          <OverlayLayer
-            presentation="popover"
-            anchor={wrapRef.current}
-            className="weq-rail-account-layer"
-            onClose={() => setOpen(false)}
-          >
-            <section className="weq-rail-account-popover" role="menu" aria-label="切换账号">
-              <div className="weq-rail-account-popover-head">
-                <span className="weq-rail-account-popover-title">切换账号</span>
-              </div>
-              {configs.error ? (
-                <div className="weq-rail-account-error" role="alert">
-                  <span>账号列表读取失败：{configs.error.message}</span>
-                  <button
-                    type="button"
-                    title="重新读取账号列表"
-                    aria-label="重新读取账号列表"
-                    disabled={configs.isFetching}
-                    onClick={() => void configs.refetch()}
-                  >
-                    <RefreshCw size={14} className={configs.isFetching ? 'weq-spin' : undefined} />
-                  </button>
-                  {configs.data?.length ? <small>以下为上次读取的记录。</small> : null}
-                </div>
-              ) : null}
-              {configs.isLoading ? (
-                <div className="weq-rail-account-empty">加载中…</div>
-              ) : others.length === 0 ? (
-                configs.error ? null : (
-                  <div className="weq-rail-account-empty">暂无其它账号</div>
-                )
-              ) : (
-                <ul className="weq-rail-account-list">
-                  {others.map((cfg) => (
-                    <li key={cfg.configId}>
-                      <button
-                        type="button"
-                        className="weq-rail-account-item"
-                        title={cfg.displayName || cfg.uin}
-                        onClick={() => void switchTo(cfg)}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setCtxMenu({
-                            configId: cfg.configId,
-                            displayName: cfg.displayName || cfg.uin,
-                            anchor: e.currentTarget,
-                          });
-                        }}
-                        disabled={busy}
-                      >
-                        <span className="weq-acct-row-avatar-wrap">
-                          <QqAvatar uin={cfg.uin} url={cfg.avatarUrl} size={40} />
-                          {cfg.static && (
-                            <span
-                              className="weq-static-badge"
-                              title={cfg.mobile ? 'Android 手机备份账号' : '静态离线账号'}
-                              aria-label={cfg.mobile ? 'Android 手机备份账号' : '静态离线账号'}
-                            >
-                              {cfg.mobile ? (
-                                <Smartphone size={9} strokeWidth={2.2} aria-hidden />
-                              ) : (
-                                <Database size={9} strokeWidth={2.2} aria-hidden />
-                              )}
-                            </span>
-                          )}
-                        </span>
-                        <span className="weq-rail-account-item-text">
-                          <span className="weq-rail-account-item-name">
-                            {cfg.displayName || cfg.uin}
-                          </span>
-                          <span className="weq-rail-account-item-uin">{cfg.uin}</span>
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <button
-                type="button"
-                className="weq-rail-account-signout"
-                onClick={() => void signOut()}
-                disabled={busy}
-              >
-                <span>退出登录</span>
-                <LogOut size={18} strokeWidth={1.8} aria-hidden />
-              </button>
-            </section>
-          </OverlayLayer>
-        ) : null}
-        {ctxMenu && (
-          <OverlayLayer
-            presentation="popover"
-            anchor={ctxMenu.anchor}
-            className="weq-rail-account-context-layer"
-            onClose={closeCtxMenu}
-          >
-            <div
-              className="weq-rail-account-ctx-menu"
-              role="menu"
-              aria-label="账号操作"
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              <button
-                type="button"
-                onClick={() => void deleteAccount(ctxMenu.configId)}
-                disabled={busy}
-              >
-                <Trash2 size={15} />
-                <span>删除账号</span>
-              </button>
-            </div>
-          </OverlayLayer>
-        )}
       </div>
+      <DesktopOnly>
+        <button
+          type="button"
+          className="weq-workspace-control"
+          title="截图当前窗口（复制到剪贴板）"
+          aria-label="截图当前窗口"
+          onClick={() => void captureNow()}
+        >
+          <Camera size={18} aria-hidden />
+        </button>
+      </DesktopOnly>
+      <button
+        type="button"
+        className="weq-workspace-control"
+        title={resolvedTheme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+        aria-label={resolvedTheme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+        onClick={toggleTheme}
+      >
+        {resolvedTheme === 'dark' ? <Sun size={18} aria-hidden /> : <Moon size={18} aria-hidden />}
+      </button>
+    </div>
+  );
+
+  return (
+    <>
+      {typeof children === 'function' ? children(controls) : controls}
+      {open ? (
+        <OverlayLayer
+          presentation="popover"
+          anchor={wrapRef.current}
+          className="weq-rail-account-layer"
+          onClose={() => setOpen(false)}
+        >
+          <section className="weq-rail-account-popover" role="menu" aria-label="切换账号">
+            <div className="weq-rail-account-popover-head">
+              <span className="weq-rail-account-popover-title">切换账号</span>
+            </div>
+            {configs.error ? (
+              <div className="weq-rail-account-error" role="alert">
+                <span>账号列表读取失败：{configs.error.message}</span>
+                <button
+                  type="button"
+                  title="重新读取账号列表"
+                  aria-label="重新读取账号列表"
+                  disabled={configs.isFetching}
+                  onClick={() => void configs.refetch()}
+                >
+                  <RefreshCw size={14} className={configs.isFetching ? 'weq-spin' : undefined} />
+                </button>
+                {configs.data?.length ? <small>以下为上次读取的记录。</small> : null}
+              </div>
+            ) : null}
+            {configs.isLoading ? (
+              <div className="weq-rail-account-empty">加载中…</div>
+            ) : others.length === 0 ? (
+              configs.error ? null : (
+                <div className="weq-rail-account-empty">暂无其它账号</div>
+              )
+            ) : (
+              <ul className="weq-rail-account-list">
+                {others.map((cfg) => (
+                  <li key={cfg.configId}>
+                    <button
+                      type="button"
+                      className="weq-rail-account-item"
+                      title={cfg.displayName || cfg.uin}
+                      onClick={() => void switchTo(cfg)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setCtxMenu({
+                          configId: cfg.configId,
+                          displayName: cfg.displayName || cfg.uin,
+                          anchor: e.currentTarget,
+                        });
+                      }}
+                      disabled={busy}
+                    >
+                      <span className="weq-acct-row-avatar-wrap">
+                        <QqAvatar uin={cfg.uin} url={cfg.avatarUrl} size={40} />
+                        {cfg.static && (
+                          <span
+                            className="weq-static-badge"
+                            title={cfg.mobile ? 'Android 手机备份账号' : '静态离线账号'}
+                            aria-label={cfg.mobile ? 'Android 手机备份账号' : '静态离线账号'}
+                          >
+                            {cfg.mobile ? (
+                              <Smartphone size={9} strokeWidth={2.2} aria-hidden />
+                            ) : (
+                              <Database size={9} strokeWidth={2.2} aria-hidden />
+                            )}
+                          </span>
+                        )}
+                      </span>
+                      <span className="weq-rail-account-item-text">
+                        <span className="weq-rail-account-item-name">
+                          {cfg.displayName || cfg.uin}
+                        </span>
+                        <span className="weq-rail-account-item-uin">{cfg.uin}</span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <button
+              type="button"
+              className="weq-rail-account-signout"
+              onClick={() => void signOut()}
+              disabled={busy}
+            >
+              <span>退出登录</span>
+              <LogOut size={18} strokeWidth={1.8} aria-hidden />
+            </button>
+          </section>
+        </OverlayLayer>
+      ) : null}
+      {ctxMenu && (
+        <OverlayLayer
+          presentation="popover"
+          anchor={ctxMenu.anchor}
+          className="weq-rail-account-context-layer"
+          onClose={closeCtxMenu}
+        >
+          <div
+            className="weq-rail-account-ctx-menu"
+            role="menu"
+            aria-label="账号操作"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => void deleteAccount(ctxMenu.configId)}
+              disabled={busy}
+            >
+              <Trash2 size={15} />
+              <span>删除账号</span>
+            </button>
+          </div>
+        </OverlayLayer>
+      )}
     </>
   );
 }

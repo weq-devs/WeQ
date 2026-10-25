@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { expect, it, vi } from 'vitest';
 const fixture = vi.hoisted(() => ({
   on: vi.fn(),

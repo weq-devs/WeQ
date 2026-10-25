@@ -150,7 +150,7 @@ export function ChatBubble({
       <div className="message-bubble">
         {!mine ? (
           <span className="message-name">
-            {name}
+            <span data-privacy-sensitive>{name}</span>
             {bot ? (
               <small className="bot-badge" aria-label="AI">
                 <Bot size={12} strokeWidth={2.4} />
@@ -173,9 +173,9 @@ export function ChatBubble({
           ) : voiceMatch ? (
             <VoiceBubble personaId={personaId!} voiceId={voiceMatch[1] ?? ''} />
           ) : faces ? (
-            renderWithFaces(text, faces)
+            <span data-privacy-sensitive>{renderWithFaces(text, faces)}</span>
           ) : (
-            text
+            <span data-privacy-sensitive>{text}</span>
           )}
         </div>
       </div>

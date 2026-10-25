@@ -7,6 +7,8 @@ test('编译本机架构并保留带空格路径，不启动节点或读取身�
     ['darwin', 'arm64', 'darwin', 'arm64', 'weq-remote-network'],
     ['darwin', 'x64', 'darwin', 'amd64', 'weq-remote-network'],
     ['win32', 'x64', 'windows', 'amd64', 'weq-remote-network.exe'],
+    ['linux', 'x64', 'linux', 'amd64', 'weq-remote-network'],
+    ['linux', 'arm64', 'linux', 'arm64', 'weq-remote-network'],
   ]) {
     let calls = 0;
     const helper = prepareRemoteNetwork({
@@ -21,6 +23,7 @@ test('编译本机架构并保留带空格路径，不启动节点或读取身�
           '-p',
           '2',
           '-trimpath',
+          '-ldflags=-s -w',
           '-o',
           `/fixture/repo with spaces/tools/remote-network/${binary}`,
           '.',

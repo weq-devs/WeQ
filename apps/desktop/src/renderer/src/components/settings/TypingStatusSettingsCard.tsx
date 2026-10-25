@@ -8,7 +8,7 @@ export function TypingStatusSettingsCard() {
   const { query, disabled } = preferences;
   return (
     <div className="weq-typing-settings">
-      <Card title="发送正在输入状态" icon={<Keyboard size={15} />}>
+      <Card title="向对方展示输入状态" settingId="typing-status" icon={<Keyboard size={15} />}>
         <Row
           label="默认开启"
           control={

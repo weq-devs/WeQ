@@ -1,8 +1,10 @@
-import { act, createElement, useEffect, useState } from 'react';
+import { act, createElement, useEffect, useState, type ComponentProps } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceTools } from '../src/renderer/src/components/WorkspaceTools';
+import { WorkspaceMenuButton } from '../src/renderer/src/components/WorkspaceMenuButton';
+import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 import type { ContentSelection } from '../src/shared/content_selection';
 import { useViewState } from '../src/renderer/src/state/view';
 import { hasActiveModal } from '../src/renderer/src/lib/overlayStack';
@@ -71,8 +73,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     });
   return { trpc: proxy(), client: proxy() };
 });
-vi.mock('../src/renderer/src/views/AgentLabView', () => ({
-  AgentLabView: () => createElement('div', null, '合成助手夹具'),
+vi.mock('../src/renderer/src/views/agentlab/AssistantMenuWorkspace', () => ({
+  AssistantMenuWorkspace: () => createElement('div', null, '合成助手夹具'),
 }));
 vi.mock('../src/renderer/src/components/RoamingBackfillPanel', () => ({
   RoamingBackfillPanel: ({
@@ -92,7 +94,53 @@ vi.mock('../src/renderer/src/components/RoamingBackfillPanel', () => ({
     ),
 }));
 
-describe('全局工具条范围', () => {
+function workspaceTools(props: Partial<ComponentProps<typeof WorkspaceTools>> = {}) {
+  return createElement(
+    'div',
+    null,
+    createElement(WorkspaceMenuButton),
+    createElement(WorkspaceTools, {
+      accountScope: 'fixture/config',
+      footerControls: null,
+      onOpenAnalysis: vi.fn(),
+      ...props,
+    }),
+  );
+}
+
+function activeMenu() {
+  return [...document.querySelectorAll<HTMLElement>('.weq-workspace-menu')].find(
+    (element) => !element.closest('[hidden], [inert]'),
+  );
+}
+
+function menuTrigger() {
+  const trigger = document.querySelector<HTMLButtonElement>('.weq-workspace-menu-trigger');
+  expect(trigger).not.toBeNull();
+  return trigger!;
+}
+
+function openMenu() {
+  if (!activeMenu()) act(() => menuTrigger().click());
+  expect(activeMenu()).toBeDefined();
+  return activeMenu()!;
+}
+
+function openTool(label: string) {
+  const button = openMenu().querySelector<HTMLButtonElement>(
+    `[aria-label="内容工具"] [aria-label="${label}"]`,
+  );
+  expect(button).not.toBeNull();
+  act(() => button!.click());
+}
+
+beforeEach(() => {
+  useWorkspaceMenu.setState({ anchor: null, running: 0, failed: 0 });
+  fixture.selection = null;
+  fixture.exportRequest = null;
+});
+
+describe('工作菜单与内容工具范围', () => {
   it('会话入口固定范围后，全局图标恢复完整选择界面且保留当前位置预选', () => {
     const previousAccount = useViewState.getState().openedUin;
     useViewState.setState({ openedUin: '10002' });
@@ -119,15 +167,6 @@ describe('全局工具条范围', () => {
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
-    const open = (label: string) => {
-      if (!document.querySelector('[role="toolbar"]'))
-        act(() => document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
-      act(() =>
-        document
-          .querySelector<HTMLButtonElement>(`[role="toolbar"] [aria-label="${label}"]`)!
-          .click(),
-      );
-    };
     try {
       fixture.exportRequest = {
         selection: {
@@ -138,7 +177,7 @@ describe('全局工具条范围', () => {
       };
       act(() =>
         root.render(
-          createElement(WorkspaceTools, {
+          workspaceTools({
             currentConversation: conversation,
             analysisRequest: { target: { kind: 'group', groupCode: '777' }, revision: 1 },
             onOpenAnalysis: vi.fn(),
@@ -146,9 +185,10 @@ describe('全局工具条范围', () => {
         ),
       );
       expect(document.querySelector('[data-fixed-scope="true"]')).not.toBeNull();
-      open('导出');
+      openTool('导出');
       expect(document.querySelector('[data-fixed-scope="false"]')).not.toBeNull();
-      open('分析与报告');
+      act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
+      openTool('分析与报告');
       const types = document.querySelector<HTMLSelectElement>('[aria-label="报告类型"]');
       expect(types?.value).toBe('group');
       // 年度报告已挪到侧栏独立入口，工具里只剩群聊 / 好友 / 群成员。
@@ -174,23 +214,27 @@ describe('全局工具条范围', () => {
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
-    const render = () =>
-      act(() => root.render(createElement(WorkspaceTools, { onOpenAnalysis: vi.fn() })));
+    const render = () => act(() => root.render(workspaceTools()));
     try {
       fixture.selection = null;
       render();
       fixture.selection = { owner, scope: { type: 'items', ids: [] } };
       render();
-      expect(document.querySelector('.weq-tools-trigger')?.getAttribute('aria-expanded')).toBe(
-        'false',
-      );
+      expect(menuTrigger().getAttribute('aria-expanded')).toBe('false');
       fixture.selection = { owner, scope: { type: 'items', ids: ['fixture'] } };
       render();
-      expect(document.querySelector('[aria-label="全局工具"]')).toBeNull();
-      act(() => document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
-      expect(document.querySelector('[aria-label="全局工具"]')).not.toBeNull();
-      act(() => document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })));
-      expect(document.querySelector('[aria-label="全局工具"]')).toBeNull();
+      expect(activeMenu()).toBeUndefined();
+      act(() => menuTrigger().click());
+      expect(menuTrigger().getAttribute('aria-expanded')).toBe('true');
+      expect(activeMenu()?.querySelector('[aria-label="内容工具"]')).toBeTruthy();
+      act(() => {
+        document.body.dispatchEvent(
+          new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }),
+        );
+        // 点外关闭会吞掉同次手势的 click；补齐事件，避免它误吞下一用例的菜单点击。
+        document.body.click();
+      });
+      expect(activeMenu()).toBeUndefined();
     } finally {
       fixture.selection = null;
       act(() => root.unmount());
@@ -208,7 +252,7 @@ describe('全局工具条范围', () => {
     try {
       act(() =>
         root.render(
-          createElement(WorkspaceTools, {
+          workspaceTools({
             onOpenAnalysis: vi.fn(),
             roamingRequest: {
               targets: [{ kind: 'c2c', conv: 'u_fixture', name: '合成好友' }],
@@ -220,7 +264,7 @@ describe('全局工具条范围', () => {
       const dialog = document.querySelector('[data-roaming-mode="fixed"]')!;
       expect(dialog.getAttribute('data-roaming-targets')).toBe('u_fixture');
       expect(dialog.closest('.weq-tools-modal')?.getAttribute('aria-modal')).not.toBe('true');
-      expect(document.querySelector('[aria-label="全局工具"]')).toBeNull();
+      expect(activeMenu()).toBeUndefined();
     } finally {
       act(() => root.unmount());
       host.remove();
@@ -245,22 +289,23 @@ describe('全局工具条范围', () => {
         revision: 1,
       };
       fixture.selection = fixture.exportRequest.selection;
-      act(() => root.render(createElement(WorkspaceTools, { onOpenAnalysis: vi.fn() })));
-      expect(document.querySelector('[data-export-ids]')?.getAttribute('data-export-ids')).toBe(
-        'a,c',
-      );
+      act(() => root.render(workspaceTools()));
+      expect(
+        document
+          .querySelector('.weq-tools-modal [data-export-ids]')
+          ?.getAttribute('data-export-ids'),
+      ).toBe('a,c');
       expect(document.querySelector('#weq-tools-title')?.textContent).toBe('导出');
-      const draft = document.querySelector<HTMLInputElement>('[aria-label="合成导出草稿"]')!;
+      const draft = document.querySelector<HTMLInputElement>(
+        '.weq-tools-modal [aria-label="合成导出草稿"]',
+      )!;
       draft.value = '工具内调整后的范围';
       act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
-      if (!document.querySelector('[role="toolbar"]'))
-        act(() => document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
-      act(() =>
-        document.querySelector<HTMLButtonElement>('[role="toolbar"] [aria-label="导出"]')!.click(),
-      );
-      expect(document.querySelector<HTMLInputElement>('[aria-label="合成导出草稿"]')!.value).toBe(
-        '工具内调整后的范围',
-      );
+      openTool('导出');
+      expect(
+        document.querySelector<HTMLInputElement>('.weq-tools-modal [aria-label="合成导出草稿"]')!
+          .value,
+      ).toBe('工具内调整后的范围');
     } finally {
       fixture.exportRequest = null;
       fixture.selection = null;
@@ -278,35 +323,33 @@ describe('全局工具条范围', () => {
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
-    const render = () =>
-      act(() => root.render(createElement(WorkspaceTools, { onOpenAnalysis: vi.fn() })));
-    const open = () => {
-      if (!document.querySelector('[role="toolbar"]'))
-        act(() => document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
-      act(() =>
-        document.querySelector<HTMLButtonElement>('[role="toolbar"] [aria-label="导出"]')!.click(),
-      );
-    };
+    const render = () => act(() => root.render(workspaceTools()));
     try {
       fixture.selection = {
         owner: { kind: 'conversations', container: 'recent' },
         scope: { type: 'items', ids: ['1'] },
       };
       render();
-      open();
-      expect(document.querySelector('[data-export-ids]')?.getAttribute('data-export-ids')).toBe(
-        '1',
-      );
+      openTool('导出');
+      expect(
+        document
+          .querySelector('.weq-tools-modal [data-export-ids]')
+          ?.getAttribute('data-export-ids'),
+      ).toBe('1');
       act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
       fixture.selection = { ...fixture.selection, scope: { type: 'items', ids: ['3', '7'] } };
       render();
-      open();
-      expect(document.querySelector('[data-export-ids]')?.getAttribute('data-export-ids')).toBe(
-        '3,7',
-      );
-      expect(document.querySelector('[data-fixed-scope]')?.getAttribute('data-fixed-scope')).toBe(
-        'false',
-      );
+      openTool('导出');
+      expect(
+        document
+          .querySelector('.weq-tools-modal [data-export-ids]')
+          ?.getAttribute('data-export-ids'),
+      ).toBe('3,7');
+      expect(
+        document
+          .querySelector('.weq-tools-modal [data-fixed-scope]')
+          ?.getAttribute('data-fixed-scope'),
+      ).toBe('false');
       expect(fixture.selection.scope).toEqual({ type: 'items', ids: ['3', '7'] });
     } finally {
       fixture.selection = null;
@@ -323,15 +366,18 @@ describe('全局工具条范围', () => {
     document.body.append(host);
     const root = createRoot(host);
     try {
-      act(() => root.render(createElement(WorkspaceTools, { onOpenAnalysis: vi.fn() })));
-      act(() => document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
-      act(() =>
-        document
-          .querySelector<HTMLButtonElement>(`[role="toolbar"] [aria-label="${label}"]`)!
-          .click(),
-      );
-      const dialog = document.querySelector('.weq-tools-modal')!;
+      act(() => root.render(workspaceTools()));
+      if (label === 'WeQ 助手') {
+        const menu = openMenu();
+        act(() => menu.querySelector<HTMLButtonElement>('[aria-label="切换到 WeQ 助手"]')!.click());
+        act(() =>
+          menu.querySelector<HTMLButtonElement>('[aria-label="打开完整助手面板"]')!.click(),
+        );
+      } else openTool(label);
+      const dialog =
+        label === 'WeQ 助手' ? activeMenu()! : document.querySelector('.weq-tools-modal')!;
       expect(dialog.getAttribute('aria-modal')).toBe('true');
+      expect(dialog.closest('[hidden], [inert]')).toBeNull();
       expect(dialog.parentElement!.classList.contains('weq-nonmodal-layer')).toBe(false);
     } finally {
       act(() => root.unmount());
@@ -339,39 +385,32 @@ describe('全局工具条范围', () => {
       vi.unstubAllGlobals();
     }
   });
-  it('任务使用无模态锚定面板，关闭与切换工具仍保留任务现场', () => {
+  it('任务使用无模态菜单，关闭与切换工具仍保留任务现场', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     fixture.taskUnmounted.mockClear();
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
-    const select = (label: string) => {
-      if (!document.querySelector('[role="toolbar"]'))
-        act(() => document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
-      act(() =>
-        document
-          .querySelector<HTMLButtonElement>(`[role="toolbar"] [aria-label="${label}"]`)!
-          .click(),
-      );
-    };
     try {
-      act(() => root.render(createElement(WorkspaceTools, { onOpenAnalysis: vi.fn() })));
-      select('任务');
+      act(() => root.render(workspaceTools()));
+      openMenu();
       const progress = document.querySelector<HTMLButtonElement>('[data-task-progress]')!;
-      const dialog = progress.closest<HTMLElement>('.weq-tools-modal')!;
+      const dialog = progress.closest<HTMLElement>('.weq-workspace-menu')!;
       expect(dialog.getAttribute('aria-modal')).not.toBe('true');
-      expect(dialog.classList.contains('is-anchored')).toBe(true);
+      expect(dialog.classList.contains('is-compact')).toBe(true);
       expect(hasActiveModal()).toBe(false);
       act(() => progress.click());
       expect(progress.dataset.taskProgress).toBe('1');
       expect(dialog.closest('[hidden]')).toBeNull();
-      act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭任务"]')!.click());
+      act(() => menuTrigger().click());
       expect(document.querySelector('[data-task-progress]')).toBe(progress);
       expect(fixture.taskUnmounted).not.toHaveBeenCalled();
-      select('导出');
+      expect(progress.closest('[hidden]')).not.toBeNull();
+      openTool('导出');
       expect(hasActiveModal()).toBe(true);
-      select('任务');
+      act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
+      openMenu();
       expect(hasActiveModal()).toBe(false);
       expect(document.querySelector('[data-task-progress]')).toBe(progress);
       expect(progress.dataset.taskProgress).toBe('1');
@@ -393,38 +432,29 @@ describe('全局工具条范围', () => {
     try {
       act(() =>
         root.render(
-          createElement(WorkspaceTools, {
+          workspaceTools({
             onOpenAnalysis: analysis,
             onOpenComposition: composition,
           }),
         ),
       );
-      act(() => document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
-      const buttons = [...document.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')];
+      const menu = openMenu();
+      const buttons = [
+        ...menu.querySelectorAll<HTMLButtonElement>('[aria-label="内容工具"] button'),
+      ];
       expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+        '分析与报告',
         '导出',
         '导出查看器',
-        '任务',
-        '分析与报告',
-        'WeQ 助手',
         '合成聊天记录',
       ]);
-      act(() =>
-        document
-          .querySelector<HTMLButtonElement>('[role="toolbar"] [aria-label="分析与报告"]')!
-          .click(),
-      );
+      openTool('分析与报告');
       expect(analysis).not.toHaveBeenCalled();
       expect(document.querySelector('#weq-tools-title')?.textContent).toBe('分析与报告');
       expect(document.querySelector('[aria-label="报告类型"]')).not.toBeNull();
-      expect(document.querySelector('[role="toolbar"]')).toBeNull();
+      expect(activeMenu()).toBeUndefined();
       act(() => document.querySelector<HTMLButtonElement>('[aria-label="关闭工具"]')!.click());
-      act(() => document.querySelector<HTMLButtonElement>('.weq-tools-trigger')!.click());
-      act(() =>
-        document
-          .querySelector<HTMLButtonElement>('[role="toolbar"] [aria-label="合成聊天记录"]')!
-          .click(),
-      );
+      openTool('合成聊天记录');
       expect(composition).toHaveBeenCalledOnce();
       expect(
         [...document.querySelectorAll('[aria-modal="true"]')].every((element) =>

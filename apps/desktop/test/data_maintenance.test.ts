@@ -9,6 +9,7 @@ import {
 } from '../src/renderer/src/components/settings/DataMaintenanceSection';
 import { useDbRepairWindow } from '../src/renderer/src/state/dbRepairWindow';
 import { SettingsDialog } from '../src/renderer/src/components/SettingsDialog';
+import type { ToolPresentation } from '../src/renderer/src/components/ToolSurface';
 
 const state = vi.hoisted(() => ({
   account: { static: false } as { static: boolean } | undefined,
@@ -51,12 +52,18 @@ vi.mock('../src/renderer/src/components/DbRepairPanel', () => ({
 }));
 vi.mock('../src/renderer/src/views/cache/ResourceAnalyticsDialog', async () => {
   const { createElement } = await import('react');
-  const { WorkspacePage } = await import('../src/renderer/src/components/WorkspacePages');
+  const { ToolSurface } = await import('../src/renderer/src/components/ToolSurface');
   return {
-    ResourceAnalyticsDialog: ({ onClose }: { onClose: () => void }) =>
+    ResourceAnalyticsDialog: ({
+      onClose,
+      presentation,
+    }: {
+      onClose: () => void;
+      presentation?: ToolPresentation;
+    }) =>
       createElement(
-        WorkspacePage,
-        { title: '存储占用', onClose },
+        ToolSurface,
+        { title: '存储占用', onClose, presentation },
         '存储面板',
         createElement('button', { onClick: onClose, 'aria-label': '关闭' }, '关闭'),
       ),
@@ -64,12 +71,18 @@ vi.mock('../src/renderer/src/views/cache/ResourceAnalyticsDialog', async () => {
 });
 vi.mock('../src/renderer/src/views/cache/ResourceCleanupDialog', async () => {
   const { createElement } = await import('react');
-  const { WorkspacePage } = await import('../src/renderer/src/components/WorkspacePages');
+  const { ToolSurface } = await import('../src/renderer/src/components/ToolSurface');
   return {
-    ResourceCleanupDialog: ({ onClose }: { onClose: () => void }) =>
+    ResourceCleanupDialog: ({
+      onClose,
+      presentation,
+    }: {
+      onClose: () => void;
+      presentation?: ToolPresentation;
+    }) =>
       createElement(
-        WorkspacePage,
-        { title: '清理缓存', onClose },
+        ToolSurface,
+        { title: '清理缓存', onClose, presentation },
         '清理面板',
         createElement('button', { onClick: onClose, 'aria-label': '关闭' }, '关闭'),
       ),
@@ -113,7 +126,7 @@ describe('设置的数据与维护', () => {
     );
     try {
       const help = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')].find(
-        (button) => button.textContent === '帮助与关于',
+        (button) => button.textContent === '关于 WeQ',
       );
       expect(help).toBeDefined();
       act(() => help!.click());
@@ -126,7 +139,7 @@ describe('设置的数据与维护', () => {
       f.dispose();
     }
   });
-  it('高级诊断入口归设置，分别打开抓包与解析，不启动诊断动作', () => {
+  it('高级诊断页直接显示逆向内容，抓包仍保留独立工具启动入口', () => {
     const open = vi.fn();
     const f = mount(
       createElement(SettingsDialog, {
@@ -138,12 +151,10 @@ describe('设置的数据与维护', () => {
       }),
     );
     try {
-      expect(entries(f.host).map((button) => button.textContent)).toEqual([
-        'ntqq 抓包',
-        'Protobuf / JCE 逆向',
-      ]);
+      expect(entries(f.host).map((button) => button.textContent)).toEqual(['QQNT 抓包']);
+      expect(f.host.querySelector('[data-setting-id="reverse-tool"] textarea')).not.toBeNull();
       for (const button of entries(f.host)) act(() => button.click());
-      expect(open.mock.calls.map(([tool]) => tool)).toEqual(['capture', 'reverse']);
+      expect(open.mock.calls.map(([tool]) => tool)).toEqual(['capture']);
     } finally {
       f.dispose();
     }
@@ -189,14 +200,14 @@ describe('设置的数据与维护', () => {
     const f = mount(createElement(DataMaintenanceSection, { onOpen: open }));
     try {
       expect(entries(f.host).map((button) => button.textContent)).toEqual([
-        '本地缓存',
+        '资源查看',
         '数据库管理',
-        '存储占用',
-        '清理缓存',
+        '占用分析',
+        '缓存清理',
         '数据库修复',
         '导出明文数据库',
         '密钥扫描',
-        '其它设备密钥',
+        '其他设备密钥',
       ]);
       for (const button of entries(f.host)) act(() => button.click());
       expect(open.mock.calls.map(([tool]) => tool)).toEqual([
@@ -246,7 +257,7 @@ describe('设置的数据与维护', () => {
     }
   });
   it.each(['cache', 'database', 'storage', 'cleanup', 'db-repair', 'db-decrypt'] as const)(
-    '%s 从设置进入相应工具呈现，不叠加模态遮罩',
+    '%s 从设置打开保留原页，修复独立开窗，其他工具使用模态',
     (tool) => {
       function Harness() {
         const [settings, setSettings] = useState(true);
@@ -256,10 +267,14 @@ describe('设置的数据与维护', () => {
           null,
           createElement(SettingsDialog, {
             open: settings,
-            initialSection: 'maintenance',
+            initialSection:
+              tool === 'cache' || tool === 'storage' || tool === 'cleanup'
+                ? 'qq-storage'
+                : tool === 'db-repair'
+                  ? 'database-repair'
+                  : 'database-management',
             onClose: () => setSettings(false),
             onOpenMaintenance: (next) => {
-              setSettings(false);
               setActive(next);
             },
             onOpenRecalls: vi.fn(),
@@ -269,48 +284,50 @@ describe('设置的数据与维护', () => {
             account: { uin: '10001', name: '测试账号', avatarUrl: '' },
             onClose: () => {
               setActive(null);
-              setSettings(true);
             },
           }),
         );
       }
       const f = mount(createElement(Harness));
       try {
-        const index = [
-          'cache',
-          'database',
-          'storage',
-          'cleanup',
-          'db-repair',
-          'db-decrypt',
-        ].indexOf(tool);
-        act(() => entries(f.host)[index]!.click());
-        expect(f.host.querySelector('.weq-settings-dialog')).toBeNull();
+        const settings = f.host.querySelector('.weq-settings-dialog');
+        const entryId = {
+          cache: 'resource-viewer',
+          database: 'database-manager',
+          storage: 'qq-storage-analysis',
+          cleanup: 'qq-storage-cleanup',
+          'db-repair': 'database-repair',
+          'db-decrypt': 'database-export',
+        }[tool];
+        act(() =>
+          f.host.querySelector<HTMLButtonElement>(`button[data-setting-id="${entryId}"]`)!.click(),
+        );
+        expect(f.host.querySelector('.weq-settings-dialog')).toBe(settings);
+        expect(settings?.closest('[hidden]')).toBeNull();
         if (tool === 'db-repair') {
           expect(useDbRepairWindow.getState().request?.uin).toBe('10001');
-          expect(document.querySelectorAll('.weq-workspace-page')).toHaveLength(0);
+          expect(document.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
+          expect(document.querySelector('.weq-tool-modal')).toBeNull();
           useDbRepairWindow.getState().dismiss();
           return;
         }
-        if (tool === 'storage' || tool === 'cleanup') {
-          expect(document.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
-        } else {
-          expect(
-            document.querySelectorAll('.weq-workspace-page .weq-maintenance-dialog'),
-          ).toHaveLength(1);
-          expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(0);
+        expect(document.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
+        if (tool !== 'storage' && tool !== 'cleanup') {
+          expect(document.querySelectorAll('.weq-tool-modal .weq-maintenance-dialog')).toHaveLength(
+            1,
+          );
         }
-        expect(document.querySelectorAll('[aria-modal="true"]')).toHaveLength(0);
+        expect(document.querySelectorAll('[aria-modal="true"]')).toHaveLength(1);
         // 所有维护子页统一右上角关闭按钮，不再有左上角返回箭头。
         expect(document.querySelector('.weq-page-head')?.textContent ?? '').not.toContain(
           '返回数据与维护',
         );
-        const back = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
-          (button) => button.getAttribute('aria-label') === '关闭',
-        )!;
+        const back = [
+          ...document.querySelectorAll<HTMLButtonElement>('.weq-tool-modal button'),
+        ].find((button) => button.getAttribute('aria-label') === '关闭')!;
         act(() => back.click());
         expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-          '数据维护',
+          '数据库与资源',
         );
         expect(document.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
         expect(document.querySelectorAll('[role="dialog"], [aria-modal="true"]')).toHaveLength(0);

@@ -4,7 +4,6 @@ import type { ExportOutputPlan, ExportSavePolicy } from '@weq/service';
 import type { MailSummary } from '@weq/service/mail';
 import type { ContentSelection } from '../../../../shared/content_selection';
 import { client, trpc } from '../../trpc/client';
-import { ExportSaveActions } from '../../components/ExportSaveActions';
 import { useToast } from '../../components/Toast';
 import { WindowedList } from '../../components/WindowedList';
 import { formatMailTime } from '../mail/content';
@@ -130,18 +129,18 @@ export function MailExportPane({
   }
   return (
     <section className="weq-mail-export" aria-label="邮件导出范围">
-      <div className="weq-exp-cats-list" role="radiogroup" aria-label="邮件范围">
-        <label className="weq-message-scope-mode">
-          <input type="radio" checked={all} disabled={busy} onChange={() => setAll(true)} />
-          所有邮件
-        </label>
-        {selectedIds !== null ? (
-          <label className="weq-message-scope-mode">
-            <input type="radio" checked={!all} disabled={busy} onChange={() => setAll(false)} />
-            已选 {selectedIds.length} 封邮件
-          </label>
-        ) : null}
-      </div>
+      <SegmentedControl
+        label="邮件范围"
+        value={all ? 'all' : 'selected'}
+        disabled={busy}
+        onChange={(mode) => setAll(mode === 'all')}
+        options={[
+          { value: 'all', label: '所有邮件' },
+          ...(selectedIds !== null
+            ? [{ value: 'selected', label: `已选 ${selectedIds.length} 封邮件` }]
+            : []),
+        ]}
+      />
       <div className="weq-mail-export-filters">
         <label>
           开始日期（北京时间）
@@ -220,8 +219,10 @@ export function MailExportPane({
               label="待导出邮件列表"
               renderItem={(item) => (
                 <article className="weq-mail-export-row">
-                  <strong title={item.subject}>{item.subject || '无主题'}</strong>
-                  <span title={`${item.sender.name} ${item.sender.email}`}>
+                  <strong data-privacy-sensitive title={item.subject}>
+                    {item.subject || '无主题'}
+                  </strong>
+                  <span data-privacy-sensitive title={`${item.sender.name} ${item.sender.email}`}>
                     {item.sender.name || item.sender.email}
                   </span>
                   <time>{formatMailTime(item.time)}</time>
@@ -245,9 +246,9 @@ export function MailExportPane({
             <Download size={15} />
             {busy ? '准备中…' : '导出邮件'}
           </button>
-          <ExportSaveActions disabled={!canExport} onSelect={(intent) => void submit(intent)} />
         </div>
       </footer>
     </section>
   );
 }
+import { SegmentedControl } from '../../components/SegmentedControl';

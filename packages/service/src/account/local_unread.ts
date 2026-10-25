@@ -1,6 +1,6 @@
 import type { UnreadInfoSnapshot } from '@weq/db';
 import { readJsonFile } from '../common/json_store';
-import { writeFileAtomicSync } from '../common/atomic_write';
+import { writeFileAtomic } from '../common/atomic_write';
 import { classifyChatType } from '@weq/codec';
 
 interface ReadPosition {
@@ -26,6 +26,8 @@ export interface ManualReadChange {
 }
 
 export interface ResolvedUnreadInfo extends UnreadInfoSnapshot {
+  /** 基础水位已返回，仍需精确排除自己发送；调用方不得据此清零。 */
+  countPending?: true;
   unreadCount?: number;
   /** WeQ 的有效阅读位置；不替代原始 QQ msgSeq，也不用于协议上报。 */
   readSeq?: string;
@@ -35,10 +37,18 @@ function sequence(value: unknown): value is string {
   return typeof value === 'string' && /^\d{1,20}$/.test(value);
 }
 
+const pendingWrites = new Set<Promise<void>>();
+/** 新账号读取本地状态前，等待旧账号已开始的发布完成。 */
+export async function waitForUnreadWrites(): Promise<void> {
+  while (pendingWrites.size) await Promise.all([...pendingWrites]);
+}
+
 /** 缺少 QQ 水位时只计明确的实时消息；历史快照只更新基线，不产生未读。 */
 export class LocalUnreadStore {
   private readonly positions = new Map<string, ReadPosition>();
-  private dirty = false;
+  private revision = 0;
+  private savedRevision = 0;
+  private writing?: Promise<void>;
 
   constructor(private readonly path?: string) {
     const raw = path ? readJsonFile(path) : null;
@@ -88,7 +98,7 @@ export class LocalUnreadStore {
     if (!row) {
       row = { latestSeq, pending: [] };
       this.positions.set(key, row);
-      this.dirty = true;
+      this.revision++;
     }
     return row;
   }
@@ -98,7 +108,7 @@ export class LocalUnreadStore {
     const row = this.position(chatType, uid);
     if (BigInt(seq) <= BigInt(row.readSeq ?? '0') || row.pending.includes(seq)) return;
     row.pending.push(seq);
-    this.dirty = true;
+    this.revision++;
   }
 
   markRead(chatType: number, uid: string, seq: string): boolean {
@@ -107,12 +117,12 @@ export class LocalUnreadStore {
     const cleared = row.manual !== undefined && BigInt(seq) >= BigInt(row.manual.latestSeq);
     if (cleared) {
       delete row.manual;
-      this.dirty = true;
+      this.revision++;
     }
     if (row.readSeq !== undefined && BigInt(row.readSeq) >= BigInt(seq)) return cleared;
     row.readSeq = seq;
     row.pending = row.pending.filter((pending) => BigInt(pending) > BigInt(seq));
-    this.dirty = true;
+    this.revision++;
     return true;
   }
 
@@ -143,7 +153,7 @@ export class LocalUnreadStore {
       },
     };
     row.manual = applied;
-    this.dirty = true;
+    this.revision++;
     return change;
   }
 
@@ -169,7 +179,7 @@ export class LocalUnreadStore {
       row.pending = [...new Set([...position.pending, ...newer])];
     }
     row.manual = reverse ? change.applied : change.previous;
-    this.dirty = true;
+    this.revision++;
     return true;
   }
 
@@ -183,14 +193,14 @@ export class LocalUnreadStore {
     const row = this.position(snapshot.chatType, snapshot.uid, latest);
     if (BigInt(latest) > BigInt(row.latestSeq)) {
       row.latestSeq = latest;
-      this.dirty = true;
+      this.revision++;
     }
     if (
       snapshot.msgSeq === undefined &&
       (row.baselineSeq === undefined || BigInt(latest) > BigInt(row.baselineSeq))
     ) {
       row.baselineSeq = latest;
-      this.dirty = true;
+      this.revision++;
     }
     // 保存可信 QQ 阅读进度，之后旧快照回流也不能让提醒复活。
     if (
@@ -199,7 +209,7 @@ export class LocalUnreadStore {
     ) {
       row.readSeq = String(snapshot.msgSeq);
       row.pending = row.pending.filter((seq) => BigInt(seq) > BigInt(snapshot.msgSeq!));
-      this.dirty = true;
+      this.revision++;
     }
     const read = BigInt(row.readSeq ?? '0');
     const highlights = snapshot.highlights?.filter(
@@ -250,9 +260,28 @@ export class LocalUnreadStore {
     };
   }
 
-  flush(): void {
-    if (!this.dirty || !this.path) return;
-    writeFileAtomicSync(this.path, JSON.stringify(Object.fromEntries(this.positions)));
-    this.dirty = false;
+  async flush(): Promise<void> {
+    if (!this.path) return;
+    const requested = this.revision;
+    while (this.savedRevision < requested) {
+      if (!this.writing) {
+        const path = this.path;
+        const write = Promise.resolve()
+          .then(async () => {
+            const version = this.revision;
+            const data = JSON.stringify(Object.fromEntries(this.positions));
+            await writeFileAtomic(path, data);
+            this.savedRevision = version;
+          })
+          .finally(() => {
+            this.writing = undefined;
+            pendingWrites.delete(write);
+          });
+        this.writing = write;
+        pendingWrites.add(write);
+      }
+      // 自己的版本发布才确认；失败保留未保存版本，后续调用仍可重试。
+      await this.writing;
+    }
   }
 }

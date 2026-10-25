@@ -184,6 +184,8 @@ describe('offline roaming timeline cache pages', () => {
         undefined,
         (row) => cache.store([row]),
         () => 31001,
+        () => true,
+        () => 2116371,
       );
       const conv = kind === 'c2c' ? 'u_friend' : '12345';
       const outcome = await service.sendText({
@@ -196,6 +198,7 @@ describe('offline roaming timeline cache pages', () => {
       expect(before).toHaveLength(1);
       expect(before[0]).toMatchObject({ localSent: true, msgRandom: String(outcome.random) });
       expect(before[0]!.decoration?.fontId).toBe(31001);
+      expect(before[0]!.decoration?.bubbleId).toBe(2116371);
       if (kind === 'c2c')
         expect(
           await reopened.resolveReplySeq(conv, before[0]!.clientSeq!, '10001', '1700000000'),
@@ -212,6 +215,7 @@ describe('offline roaming timeline cache pages', () => {
       expect(after).toHaveLength(1);
       expect(after[0]!.msgId).toBe('90000000001');
       expect(after[0]!.decoration?.fontId).toBe(32002);
+      expect(after[0]!.decoration?.bubbleId).toBe(0);
     },
   );
   it('reads group cache pages in either direction, including cache-only history', async () => {

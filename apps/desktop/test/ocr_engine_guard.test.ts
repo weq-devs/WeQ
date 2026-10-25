@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * 本地 OCR 引擎的平台闸（`src/main/ocr/engine.ts`）。
  *

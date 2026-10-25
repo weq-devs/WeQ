@@ -119,13 +119,7 @@ export function MemberProfileCard({
   const [portraitOpen, setPortraitOpen] = useState(false);
   const intentStatus = useIntentSenseStatus();
   const intentData = intentStatus.data;
-  const intentOverride = intentData?.conversationOverrides?.[`c2c:${member.id}`];
-  const intentEngineOk =
-    intentData?.engine === 'local' ? !!intentData.localReady : !!intentData?.apiConfigured;
-  const canPortrait =
-    !!(intentData?.profileEnabled ?? intentData?.enabled) &&
-    intentOverride !== false &&
-    (intentData?.profileAvailable ?? intentEngineOk);
+  const canPortrait = !!intentData?.profileEnabled;
   // 打开个性主页 / 互动标识后，卡片本体要自动收起，只留新的弹层。
   const [dismissed, setDismissed] = useState(false);
   // 机器人档案（profile_info_adelie）。QQ 只在客户端打开过该机器人资料卡后才
@@ -361,7 +355,7 @@ export function MemberProfileCard({
                 <ProfileRow icon={<Award size={13} />} label="群等级" value={levelText} />
               ) : null}
               {birthday ? (
-                <ProfileRow icon={<Cake size={13} />} label="生日" value={birthday} />
+                <ProfileRow sensitive icon={<Cake size={13} />} label="生日" value={birthday} />
               ) : null}
               {intimacy ? (
                 <ProfileRow
@@ -385,14 +379,26 @@ export function MemberProfileCard({
                 <ProfileRow icon={<Clock size={13} />} label="最后发言" value={lastSpeak} />
               ) : null}
               {profile?.remark ? (
-                <ProfileRow icon={<UserIcon size={13} />} label="备注" value={profile.remark} />
+                <ProfileRow
+                  sensitive
+                  icon={<UserIcon size={13} />}
+                  label="备注"
+                  value={profile.remark}
+                />
               ) : null}
               {profile?.qid ? (
-                <ProfileRow icon={<Fingerprint size={13} />} label="QID" value={profile.qid} mono />
+                <ProfileRow
+                  sensitive
+                  icon={<Fingerprint size={13} />}
+                  label="QID"
+                  value={profile.qid}
+                  mono
+                />
               ) : null}
               <ProfileRow
                 icon={<Hash size={13} />}
                 label="UID"
+                sensitive
                 value={uid}
                 mono
                 action={

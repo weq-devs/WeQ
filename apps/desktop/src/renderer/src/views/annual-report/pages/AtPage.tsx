@@ -46,13 +46,23 @@ export function AtPage({ page, data, active }: ReportPageProps<AtPageData>): Rea
   const heroCount = mineFirst ? data.atTotal : data.atMeTotal;
   const heroUnit = '次';
   const heroLabel = mineFirst ? '我 @ 过别人' : '我被人点名过';
-  const heroNote = mineFirst
-    ? data.atTop
-      ? `喊得最响的是 ${data.atTop.name}——名字被念出来，才不算淹没在人群里。`
-      : '你喊得不多，但每一声都有人听见。'
-    : data.atMeTop
-      ? `最多发生在「${data.atMeTop.groupName}」——被点名，是被人想起的最短路径。`
-      : '名字被念起的次数不多，可每一次都有人记得你。';
+  const heroNote = mineFirst ? (
+    data.atTop ? (
+      <>
+        喊得最响的是 <span data-privacy-sensitive>{data.atTop.name}</span>
+        ——名字被念出来，才不算淹没在人群里。
+      </>
+    ) : (
+      '你喊得不多，但每一声都有人听见。'
+    )
+  ) : data.atMeTop ? (
+    <>
+      最多发生在「<span data-privacy-sensitive>{data.atMeTop.groupName}</span>
+      」——被点名，是被人想起的最短路径。
+    </>
+  ) : (
+    '名字被念起的次数不多，可每一次都有人记得你。'
+  );
 
   return (
     <PageFrame page={page} active={active} ghost="@" tone="#3d5a99">
@@ -110,7 +120,7 @@ export function AtPage({ page, data, active }: ReportPageProps<AtPageData>): Rea
             sub={
               data.atTop ? (
                 <>
-                  最常被点到：<em>{data.atTop.name}</em>
+                  最常被点到：<em data-privacy-sensitive>{data.atTop.name}</em>
                   <i aria-hidden> · </i>
                   <b className="weq-number">{fmt(data.atTop.count)}</b> 次
                 </>
@@ -130,7 +140,7 @@ export function AtPage({ page, data, active }: ReportPageProps<AtPageData>): Rea
             sub={
               data.atMeTop ? (
                 <>
-                  最多的一声在 <em>{data.atMeTop.groupName}</em>
+                  最多的一声在 <em data-privacy-sensitive>{data.atMeTop.groupName}</em>
                   <i aria-hidden> · </i>
                   <b className="weq-number">{fmt(data.atMeTop.count)}</b> 次
                 </>
@@ -318,7 +328,7 @@ function CallArcs({
           {mineHidden > 0 ? `，另有 ${fmt(mineHidden)} 个` : ''}
           {mineName ? (
             <>
-              <i aria-hidden> · </i>最常喊 <em>{mineName}</em>
+              <i aria-hidden> · </i>最常喊 <em data-privacy-sensitive>{mineName}</em>
             </>
           ) : null}
         </span>

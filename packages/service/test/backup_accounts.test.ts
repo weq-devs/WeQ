@@ -212,6 +212,28 @@ it('缺失偏好也作为默认值备份，覆盖时可恢复真正的默认账�
   for (const file of snapshot.files) expect(JSON.parse(file.data.toString())).toEqual({});
 });
 
+it.each([undefined, 1, 2])('意图配置版本 %s 可备份，保留独立画像和推荐回复配置', (version) => {
+  const f = fixture();
+  const config = {
+    ...(version === undefined ? {} : { featureSettingsVersion: version }),
+    enabled: false,
+    profileEnabled: true,
+    suggestionsEnabled: true,
+    profileEngine: version === 2 ? 'api' : 'follow',
+    profileProviderRef: { providerId: 'synthetic-profile', model: 'synthetic-model' },
+  };
+  write(weqAccountSettingPath(f.root, f.cache, f.source, 'intent.json'), config);
+  const snapshot = snapshotWeqAccountPreferences(f.root, f.cache, f.source);
+  const intent = snapshot.files.find((file) => file.path.endsWith('/intent.json'))!;
+  expect(JSON.parse(intent.data.toString())).toEqual(config);
+});
+
+it.each([0, 3, '2', null])('未知或非法意图配置版本 %s 仍在备份前拒绝', (version) => {
+  expect(() =>
+    validateWeqAccountPreference('intent.json', { featureSettingsVersion: version }),
+  ).toThrow('intent.json');
+});
+
 it('克隆数据域映射后实际本机账号能读取导入 persona，原域与 QQ 原件不动', () => {
   const f = fixture(),
     persona = makeBackupPersona();
@@ -298,7 +320,7 @@ it('普通导入默认保留本机保存位置和图片目录，明确选择后�
         data: Buffer.from(
           JSON.stringify({
             defaultExportDir: '/synthetic/source-exports',
-            exportSaveMode: 'after',
+            exportSaveMode: 'before',
             externalChatpic: { dir: '/synthetic/source-pictures', enabled: true },
           }),
         ),
@@ -314,7 +336,7 @@ it('普通导入默认保留本机保存位置和图片目录，明确选择后�
       new UserConfigService({ appDataRoot: () => f.root } as Platform).getSettings(),
     ).toMatchObject({
       defaultExportDir: keepLocalPaths ? '/synthetic/local-exports' : '/synthetic/source-exports',
-      exportSaveMode: keepLocalPaths ? 'preset' : 'after',
+      exportSaveMode: keepLocalPaths ? 'preset' : 'before',
       externalChatpic: {
         dir: keepLocalPaths ? '/synthetic/local-pictures' : '/synthetic/source-pictures',
         enabled: true,

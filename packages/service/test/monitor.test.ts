@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import type { AccountConfigService } from '../src/account/user_config';
-import type { AttachHook } from '../src/bootstrap/attach';
+import { createCachedAttachHook, type AttachHook } from '../src/bootstrap/attach';
 import { AccountMonitorService } from '../src/account/monitor';
 import { registerSsoSession } from '../src/account/sso_session';
 
@@ -66,8 +66,8 @@ function fixture(stored = false, onCredentialsReady?: () => void) {
     setHomeDress: vi.fn(),
   };
   const hook = {
-    attach: vi.fn(async () => ({ ...material })),
-    ensure: vi.fn(async () => ({ ...material })),
+    attach: vi.fn<AttachHook['attach']>(async () => ({ ...material })),
+    ensure: vi.fn<AttachHook['ensure']>(async () => ({ ...material })),
     reset: vi.fn(),
   };
   const platform = {
@@ -127,6 +127,7 @@ describe('account monitor authorization and SSO readiness', () => {
     tickets.rkeys.mockReturnValueOnce(rkeys.promise);
     f.monitor.start();
     await vi.advanceTimersByTimeAsync(0);
+    expect(f.monitor.credentialsPending).toBe(true);
     expect(ready).not.toHaveBeenCalled();
     expect(f.record.session).toBeNull();
     scan.resolve(material);
@@ -136,6 +137,7 @@ describe('account monitor authorization and SSO readiness', () => {
     registration.resolve();
     await flushPromises();
     expect(ready).toHaveBeenCalledOnce();
+    expect(f.monitor.credentialsPending).toBe(false);
     expect(tickets.rkeys).toHaveBeenCalledOnce();
     expect(f.config.setRkeys).not.toHaveBeenCalled();
     rkeys.resolve([]);
@@ -155,6 +157,18 @@ describe('account monitor authorization and SSO readiness', () => {
     f.monitor.stop();
     await vi.advanceTimersByTimeAsync(60_000);
     expect(ready).toHaveBeenCalledOnce();
+  });
+  it('登记完成后的网络取票失败不继续冒充正在准备凭据', async () => {
+    const ready = vi.fn();
+    const f = fixture(true, ready);
+    tickets.rkeys.mockRejectedValue(new Error('合成取票失败'));
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ready).toHaveBeenCalledOnce();
+    expect(f.monitor.credentialsPending).toBe(false);
+    expect(await f.monitor.harvestRkeysNow()).toBe(false);
+    expect(f.monitor.credentialsPending).toBe(false);
+    f.monitor.stop();
   });
   it('uses the asynchronous account probe instead of the blocking native probe', async () => {
     const f = fixture();
@@ -214,6 +228,7 @@ describe('account monitor authorization and SSO readiness', () => {
     f.monitor.start();
     await vi.advanceTimersByTimeAsync(3_600_000);
     expect(f.hook.ensure).toHaveBeenCalledTimes(1);
+    expect(f.monitor.credentialsPending).toBe(false);
     expect(await f.monitor.harvestRkeysNow()).toBe(true);
     expect(f.hook.ensure).toHaveBeenCalledTimes(2);
     f.monitor.stop();
@@ -238,6 +253,62 @@ describe('account monitor authorization and SSO readiness', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(await f.monitor.harvestRkeysNow()).toBe(true);
     expect(f.hook.ensure).toHaveBeenCalledTimes(2);
+    f.monitor.stop();
+  });
+
+  it('首次扫描不完整时自动重读并通知恢复，不被仍有效的在线票据阻止', async () => {
+    const ready = vi.fn();
+    const f = fixture(false, ready);
+    f.record.rkeys = [{ type: 10, expiresAt: Date.now() + 3_600_000 }];
+    f.record.clientKey = { expiresAt: Date.now() + 3_600_000 };
+    const scan = vi
+      .fn()
+      .mockResolvedValueOnce({ a2: material.a2, d2: material.d2 })
+      .mockResolvedValue(material);
+    const cached = createCachedAttachHook(scan);
+    f.hook.ensure.mockImplementation(cached.ensure);
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(scan).toHaveBeenCalledOnce();
+    expect(f.monitor.credentialsPending).toBe(true);
+    expect(ready).not.toHaveBeenCalled();
+    expect(tickets.rkeys).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(scan).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(scan).toHaveBeenCalledTimes(2);
+    expect(f.record.session).toMatchObject({ ...material, pid: 42 });
+    expect(f.nt.setSsoSession).toHaveBeenCalledOnce();
+    expect(ready).toHaveBeenCalledOnce();
+    expect(f.monitor.credentialsPending).toBe(false);
+    f.monitor.stop();
+    expect(f.monitor.credentialsPending).toBe(false);
+  });
+
+  it('已有三项非空但无效的凭据时重新扫描，而不是永久重试登记旧值', async () => {
+    const ready = vi.fn();
+    const f = fixture(true, ready);
+    f.record.session!.d2Key = 'zz'.repeat(16);
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.hook.ensure).toHaveBeenCalledOnce();
+    expect(f.record.session).toMatchObject(material);
+    expect(ready).toHaveBeenCalledOnce();
+    f.monitor.stop();
+  });
+
+  it('重新启用自动读取后补齐凭据，不等旧票据过期', async () => {
+    const f = fixture();
+    f.record.rkeys = [{ type: 10, expiresAt: Date.now() + 3_600_000 }];
+    f.record.clientKey = { expiresAt: Date.now() + 3_600_000 };
+    f.setEnabled(false);
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.hook.ensure).not.toHaveBeenCalled();
+    f.setEnabled(true);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(f.hook.ensure).toHaveBeenCalledOnce();
+    expect(f.nt.setSsoSession).toHaveBeenCalledOnce();
     f.monitor.stop();
   });
 
@@ -269,21 +340,53 @@ describe('account monitor authorization and SSO readiness', () => {
     expect(tickets.rkeys).not.toHaveBeenCalled();
   });
 
-  it('stops background retries when the device guid is missing (non-recoverable)', async () => {
+  it('设备 guid 持续缺失时有界退避检查，不反复提权或发包', async () => {
     const f = fixture();
-    // 缺 guid（例如全新装机上三条路都读不到）不会靠重试自愈：起一轮后台 poll
-    // 之后应当停手，而不是每 5s 刷一次 harvest。
     f.record.guid = '';
     f.monitor.start();
     await vi.advanceTimersByTimeAsync(0);
     expect(f.hook.ensure).not.toHaveBeenCalled();
-    // 之后的轮询也不该再尝试（不读内存、不发包）。
     await vi.advanceTimersByTimeAsync(3_600_000);
     expect(f.hook.ensure).not.toHaveBeenCalled();
     expect(tickets.rkeys).not.toHaveBeenCalled();
-    // 显式重试（用户手动「立即重新获取」）仍要放行一次。
+    expect(f.nt.readDeviceGuid.mock.calls.length).toBeGreaterThan(1);
+    expect(f.nt.readDeviceGuid.mock.calls.length).toBeLessThan(20);
     expect(await f.monitor.harvestRkeysNow()).toBe(false);
     expect(f.hook.ensure).not.toHaveBeenCalled();
+    f.monitor.stop();
+  });
+
+  it('设备身份启动时暂不可读，恢复后自动补齐并复用完整凭据，无需重开账号', async () => {
+    const ready = vi.fn();
+    const f = fixture(true, ready);
+    f.record.guid = '';
+    let guid = '';
+    f.nt.readDeviceGuid.mockImplementation(() => guid);
+    f.record.rkeys = [{ type: 10, expiresAt: Date.now() + 3_600_000 }];
+    f.record.clientKey = { expiresAt: Date.now() + 3_600_000 };
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.nt.setSsoSession).not.toHaveBeenCalled();
+    guid = 'ab'.repeat(16);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(f.record.guid).toBe(guid);
+    expect(f.hook.ensure).not.toHaveBeenCalled();
+    expect(f.nt.setSsoSession).toHaveBeenCalledOnce();
+    expect(ready).toHaveBeenCalledOnce();
+    f.monitor.stop();
+  });
+
+  it('缺失的账号身份补齐后自动恢复，不把身份暂缺当作用户取消授权', async () => {
+    const ready = vi.fn();
+    const f = fixture(false, ready);
+    f.record.uid = '';
+    f.monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.hook.ensure).not.toHaveBeenCalled();
+    f.record.uid = 'u_fixture';
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(f.hook.ensure).toHaveBeenCalledOnce();
+    expect(ready).toHaveBeenCalledOnce();
     f.monitor.stop();
   });
 

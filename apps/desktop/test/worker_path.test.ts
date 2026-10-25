@@ -1,3 +1,4 @@
+// @vitest-environment node
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,7 +18,7 @@ function fixture(run: (root: string, add: (path: string) => void) => void): void
   }
 }
 
-test.each(['attachWorker.mjs', 'backupProbeWorker.mjs'])(
+test.each(['attachWorker.mjs', 'backupProbeWorker.mjs', 'transcribeWorker.mjs'])(
   'packaged %s resolves the physical extraResource rather than asar',
   (name) => {
     fixture((root, add) => {

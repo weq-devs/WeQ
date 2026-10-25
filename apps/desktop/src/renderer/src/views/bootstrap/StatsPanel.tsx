@@ -1,5 +1,5 @@
 /**
- * Right-pane diagnostics + stats. Card-based layout:
+ * 按需挂载的环境诊断与存储统计：
  *
  *   - hero card: QQ logo + version + data-dir path (or pick button)
  *   - three stat cards: 本地账号 / 目录大小 / 在线实例
@@ -42,11 +42,13 @@ export function StatsPanel({
   selectedUin,
   counts,
   onPickRoot,
+  disabled,
 }: {
   install: GlobalInstallInfo;
   selectedUin: string | null;
-  counts: { userData: number; online: number };
+  counts: { userData: number | null; online: number | null };
   onPickRoot: () => void;
+  disabled?: boolean;
 }): ReactElement {
   const dbSizes = trpc.bootstrap.dbFileSizes.useQuery(
     { uin: selectedUin ?? '' },
@@ -68,13 +70,18 @@ export function StatsPanel({
               type="button"
               className="weq-stats-path weq-stats-path-btn"
               onClick={onPickRoot}
+              disabled={disabled}
               title={`${install.userDataPath ?? ''}\n点击更改 QQ 数据目录`}
             >
               <FolderOpen size={12} strokeWidth={1.9} aria-hidden />
               <span className="weq-stats-path-txt">{install.userDataPath ?? '—'}</span>
             </button>
           ) : (
-            <button className="weq-action-soft weq-stats-pick" onClick={onPickRoot}>
+            <button
+              className="weq-action-soft weq-stats-pick"
+              onClick={onPickRoot}
+              disabled={disabled}
+            >
               <FolderOpen size={14} strokeWidth={1.8} aria-hidden />
               选择数据目录
             </button>
@@ -84,9 +91,9 @@ export function StatsPanel({
 
       {/* Stat cards */}
       <section className="weq-bignums">
-        <BigNumber value={counts.userData} label="本地账号" />
+        <BigNumber value={counts.userData ?? '—'} label="本地账号" />
         <DirSizeCard uin={selectedUin} />
-        <BigNumber value={counts.online} label="在线实例" accent />
+        <BigNumber value={counts.online ?? '—'} label="在线实例" accent />
       </section>
 
       {/* Language-style database bar */}
@@ -144,9 +151,11 @@ function useAnimatedNumber(target: number, durationMs = 320): number {
  */
 function DirSizeCard({ uin }: { uin: string | null }): ReactElement {
   const [progress, setProgress] = useState<DirSizeProgress | null>(null);
+  const [failed, setFailed] = useState(false);
   const bytes = useAnimatedNumber(progress?.bytes ?? 0);
 
   useEffect(() => {
+    setFailed(false);
     if (!uin) {
       setProgress(null);
       return;
@@ -158,17 +167,23 @@ function DirSizeCard({ uin }: { uin: string | null }): ReactElement {
         onData: setProgress,
         onError: (err) => {
           console.error('[stats] account dir size progress error', err);
-          setProgress({ bytes: 0, done: true });
+          setFailed(true);
         },
       },
     );
     return () => sub.unsubscribe();
   }, [uin]);
 
-  const scanning = progress === null || !progress.done;
-  const value = uin === null ? '—' : progress === null ? '…' : formatBytes(bytes);
+  const scanning = uin !== null && !failed && (progress === null || !progress.done);
+  const value = uin === null || failed ? '—' : progress === null ? '…' : formatBytes(bytes);
 
-  return <BigNumber value={value} label="目录大小" scanning={scanning} />;
+  return (
+    <BigNumber
+      value={value}
+      label={failed ? '目录大小（读取失败）' : '目录大小'}
+      scanning={scanning}
+    />
+  );
 }
 
 function BigNumber({

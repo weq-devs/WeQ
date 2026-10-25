@@ -37,13 +37,23 @@ export function PokePage({ page, data, active }: ReportPageProps<PokePageData>):
 
   const hero = data.pokeTotal >= data.pokeMeTotal ? ('out' as const) : ('in' as const);
   const mood =
-    hero === 'out'
-      ? data.pokeTop
-        ? `最常被你戳到的是 ${data.pokeTop.name}——戳一戳什么都不用说，只是告诉对方「我在」。`
-        : '你伸出去的手不多，但每一下都先越过了屏幕。'
-      : data.pokeMeTop
-        ? `最常戳你的是 ${data.pokeMeTop.name}——有人想你了，就先轻轻碰你一下。`
-        : '被戳的次数不多，可每一次都是有人先想起你。';
+    hero === 'out' ? (
+      data.pokeTop ? (
+        <>
+          最常被你戳到的是 <span data-privacy-sensitive>{data.pokeTop.name}</span>
+          ——戳一戳什么都不用说，只是告诉对方「我在」。
+        </>
+      ) : (
+        '你伸出去的手不多，但每一下都先越过了屏幕。'
+      )
+    ) : data.pokeMeTop ? (
+      <>
+        最常戳你的是 <span data-privacy-sensitive>{data.pokeMeTop.name}</span>
+        ——有人想你了，就先轻轻碰你一下。
+      </>
+    ) : (
+      '被戳的次数不多，可每一次都是有人先想起你。'
+    );
 
   return (
     <PageFrame page={page} active={active} ghost="戳" tone="#a8503c">
@@ -72,7 +82,7 @@ export function PokePage({ page, data, active }: ReportPageProps<PokePageData>):
               <span className="weq-poke-side-sub">
                 {data.pokeTop ? (
                   <>
-                    最常戳 <em>{data.pokeTop.name}</em>
+                    最常戳 <em data-privacy-sensitive>{data.pokeTop.name}</em>
                     <i aria-hidden> · </i>
                     <b className="weq-number">{fmt(data.pokeTop.count)}</b> 次
                   </>
@@ -99,7 +109,7 @@ export function PokePage({ page, data, active }: ReportPageProps<PokePageData>):
               <span className="weq-poke-side-sub">
                 {data.pokeMeTop ? (
                   <>
-                    最常戳我 <em>{data.pokeMeTop.name}</em>
+                    最常戳我 <em data-privacy-sensitive>{data.pokeMeTop.name}</em>
                     <i aria-hidden> · </i>
                     <b className="weq-number">{fmt(data.pokeMeTop.count)}</b> 次
                   </>

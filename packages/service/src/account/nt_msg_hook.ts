@@ -62,7 +62,7 @@ export interface NtMsgHooks {
   /** Every nt_msg.db change, regardless of whether new rows landed. */
   onDbChanged: (file: DbChange) => void;
   /** Only when newly-inserted rows were found. */
-  onNewMessages: (change: NewMessages) => void;
+  onNewMessages: (change: NewMessages) => void | Promise<void>;
 }
 
 /** Per-conversation seq watermark, keyed by targetUid (40021). */
@@ -89,6 +89,22 @@ type Fetched =
 export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): DbWatchTask {
   /** targetUid -> watermark. `null` until the first-run alignment. */
   let prev: Map<string, ConvWatermark> | null = null;
+  const queue = new Map<string, ConvWatermark>();
+  const freshTargets = new Set<string>();
+  const retries = new Map<string, { failures: number; at: number }>();
+  let disposed = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let running: Promise<void> | undefined;
+  let pending = false;
+  let latestFile: DbChange | undefined;
+  const arm = (delay: number) => {
+    if (disposed || timer) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      void request();
+    }, delay);
+    timer.unref();
+  };
   // 挂载即取基线，不能等第一条新消息触发文件变化后才把它当历史吞掉。
   const initial = session.recentContacts
     .listSeqWatermarks()
@@ -109,115 +125,212 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
     })
     .catch(() => {});
 
-  return {
-    dbPath: session.msgDbPath,
-    onDbFileChangeHook: async (file: DbChange): Promise<void> => {
-      // 1. Always: tell the open conversation to re-read its window.
-      hooks.onDbChanged(file);
-      await initial;
+  async function pass(file: DbChange): Promise<void> {
+    await initial;
+    if (disposed) return;
 
-      // 2. Diff the recent-contact seq watermarks.
-      const rows = await session.recentContacts.listSeqWatermarks();
-      const current = new Map<string, ConvWatermark>();
-      for (const r of rows) {
-        if (!r.targetUid) continue;
-        current.set(`${r.chatType}:${r.targetUid}`, {
-          uid: r.targetUid,
-          chatType: r.chatType,
-          msgSeq: r.msgSeq,
-          sendTime: r.sendTime,
-        });
+    // 2. Diff the recent-contact seq watermarks.
+    const rows = await session.recentContacts.listSeqWatermarks();
+    if (disposed) return;
+    const current = new Map<string, ConvWatermark>();
+    for (const r of rows) {
+      if (!r.targetUid) continue;
+      current.set(`${r.chatType}:${r.targetUid}`, {
+        uid: r.targetUid,
+        chatType: r.chatType,
+        msgSeq: r.msgSeq,
+        sendTime: r.sendTime,
+      });
+    }
+
+    // First run: align to the current watermarks, emit nothing.
+    if (prev === null) {
+      prev = current;
+      return;
+    }
+
+    const previous = prev;
+    for (const key of previous.keys()) if (!current.has(key)) previous.delete(key);
+
+    // 优先当前新消息，不让旧会话补齐排在它前面。
+    const prioritized = [...current]
+      .filter(([key, cur]) => {
+        const old = previous.get(key);
+        return !old || cur.msgSeq > old.msgSeq;
+      })
+      .sort(([, a], [, b]) => (a.sendTime > b.sendTime ? -1 : a.sendTime < b.sendTime ? 1 : 0));
+    for (const [key, cur] of prioritized) {
+      if (!previous.has(key) && Date.now() / 1000 - Number(cur.sendTime) <= NEW_CONV_FRESH_SEC)
+        freshTargets.add(key);
+      queue.set(key, cur);
+    }
+    for (const key of queue.keys()) {
+      if (!current.has(key)) {
+        queue.delete(key);
+        retries.delete(key);
+        freshTargets.delete(key);
       }
-
-      // First run: align to the current watermarks, emit nothing.
-      if (prev === null) {
-        prev = current;
-        return;
-      }
-
+    }
+    // 每个会话每轮一页，最多八页；积压会话排到队尾，健康目标不等失败退避。
+    let budget = 8;
+    for (const [key, cur] of [...queue]) {
+      if (disposed || budget <= 0) break;
+      if ((retries.get(key)?.at ?? 0) > Date.now()) continue;
+      budget--;
+      queue.delete(key);
       const c2c: C2cMsg[] = [];
       const group: GroupMsg[] = [];
       const dataline: NonNullable<NewMessages['dataline']> = [];
-      // Everything we saw this poll is the next baseline; failed fetches are
-      // reverted below so their rows are not lost.
-      const next = new Map(current);
-
-      for (const [key, cur] of current) {
-        const uid = cur.uid;
-        const old = prev.get(key);
-
-        // Conversation first seen after mount: only a fresh row is a live
-        // message; cap the push so a revived old conversation can't dump history.
-        if (!old) {
-          const isFresh = Date.now() / 1000 - Number(cur.sendTime) <= NEW_CONV_FRESH_SEC;
-          if (isFresh) {
-            let fetched: Fetched | null;
-            try {
-              fetched = await fetchLatest(session, uid, cur.chatType);
-            } catch {
-              next.delete(key);
-              continue;
-            }
-            if (fetched) {
-              const observed = fetched.msgs.reduce(
-                (max, msg) => (msg.msgSeq > max ? msg.msgSeq : max),
-                0n,
-              );
-              if (observed === 0n) next.delete(key);
-              else if (observed < cur.msgSeq) next.set(key, { ...cur, msgSeq: observed });
-              for (const m of fetched.msgs) {
-                if (Number(m.sendTime) < Number(cur.sendTime) - 1) continue;
-                if (fetched.kind === 'dataline')
-                  dataline.push({ ...(m as C2cMsg), chatType: fetched.chatType });
-                else push(fetched.kind, m, c2c, group);
-              }
-            }
-          }
-          continue;
-        }
-
-        // Seq didn't grow (or rewound) — nothing new in this conversation.
-        if (cur.msgSeq <= old.msgSeq) continue;
-
-        try {
-          const fetched = await fetchAfter(session, uid, cur.chatType, old.msgSeq);
-          if (fetched) {
-            const observed = fetched.msgs.reduce(
-              (max, msg) => (msg.msgSeq > max ? msg.msgSeq : max),
-              old.msgSeq,
-            );
-            if (observed < cur.msgSeq) next.set(key, { ...cur, msgSeq: observed });
-          }
-          if (fetched)
-            for (const m of fetched.msgs) {
-              if (fetched.kind === 'dataline')
-                dataline.push({ ...(m as C2cMsg), chatType: fetched.chatType });
-              else push(fetched.kind, m, c2c, group);
-            }
-        } catch {
-          // Keep the old watermark so the rows are retried next change.
-          next.set(key, old);
-        }
-      }
-
-      prev = next;
-
-      // guild: no table wired yet — skipped via classifyChatType returning null.
-
-      if (c2c.length > 0 || group.length > 0 || dataline.length > 0) {
-        hooks.onNewMessages({
+      const emit = async () => {
+        if (disposed) return;
+        if (!c2c.length && !group.length && !dataline.length) return;
+        await hooks.onNewMessages({
           file,
           c2c: c2c.sort(compareMessageOrder),
           group: group.sort(compareMessageOrder),
           ...(dataline.length ? { dataline: dataline.sort(compareMessageOrder) } : {}),
         });
+      };
+      const uid = cur.uid;
+      const old = previous.get(key);
+
+      const retry = () => {
+        const failures = Math.min(6, (retries.get(key)?.failures ?? 0) + 1);
+        retries.set(key, {
+          failures,
+          at: Date.now() + Math.min(1000 * 2 ** (failures - 1), 30000),
+        });
+        queue.set(key, cur);
+      };
+
+      // Conversation first seen after mount: only a fresh row is a live
+      // message; cap the push so a revived old conversation can't dump history.
+      if (!old) {
+        const isFresh = freshTargets.has(key);
+        if (isFresh) {
+          let fetched: Fetched | null;
+          try {
+            fetched = await fetchLatest(session, uid, cur.chatType);
+          } catch {
+            retry();
+            continue;
+          }
+          if (fetched) {
+            const observed = fetched.msgs.reduce(
+              (max, msg) => (msg.msgSeq > max ? msg.msgSeq : max),
+              0n,
+            );
+            for (const m of fetched.msgs) {
+              if (Number(m.sendTime) < Number(cur.sendTime) - 1) continue;
+              if (fetched.kind === 'dataline')
+                dataline.push({ ...(m as C2cMsg), chatType: fetched.chatType });
+              else push(fetched.kind, m, c2c, group);
+            }
+            try {
+              await emit();
+            } catch {
+              retry();
+              continue;
+            }
+            if (disposed) return;
+            if (observed === 0n) {
+              retry();
+              continue;
+            }
+            previous.set(key, { ...cur, msgSeq: observed });
+            freshTargets.delete(key);
+            if (observed < cur.msgSeq) queue.set(key, cur);
+            retries.delete(key);
+            continue;
+          }
+        }
+        previous.set(key, cur);
+        freshTargets.delete(key);
+        retries.delete(key);
+        continue;
       }
+
+      try {
+        const fetched = await fetchAfter(session, uid, cur.chatType, old.msgSeq);
+        if (fetched) {
+          const observed = fetched.msgs.reduce(
+            (max, msg) => (msg.msgSeq > max ? msg.msgSeq : max),
+            old.msgSeq,
+          );
+          for (const m of fetched.msgs) {
+            if (fetched.kind === 'dataline')
+              dataline.push({ ...(m as C2cMsg), chatType: fetched.chatType });
+            else push(fetched.kind, m, c2c, group);
+          }
+          await emit();
+          if (disposed) return;
+          previous.set(key, { ...cur, msgSeq: observed });
+          if (observed < cur.msgSeq) {
+            if (observed === old.msgSeq) retry();
+            else {
+              retries.delete(key);
+              queue.set(key, cur);
+            }
+          } else retries.delete(key);
+        } else previous.set(key, cur);
+      } catch {
+        retry();
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+    if (queue.size)
+      arm(
+        Math.max(
+          0,
+          Math.min(...[...queue.keys()].map((key) => retries.get(key)?.at ?? 0)) - Date.now(),
+        ),
+      );
+  }
+
+  function request(): Promise<void> {
+    if (disposed) return Promise.resolve();
+    pending = true;
+    if (running) return running;
+    running = Promise.resolve().then(async () => {
+      try {
+        do {
+          pending = false;
+          if (latestFile) await pass(latestFile);
+        } while (pending && !disposed);
+      } catch {
+        // 水位读取失败也独立重试，不等待下一次文件签名变化。
+        arm(1000);
+      } finally {
+        running = undefined;
+      }
+    });
+    return running;
+  }
+
+  return {
+    dbPath: session.msgDbPath,
+    onDbFileChangeHook(file) {
+      if (disposed) return;
+      hooks.onDbChanged(file);
+      latestFile = file;
+      if (timer) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      return request();
+    },
+    dispose() {
+      disposed = true;
+      if (timer) clearTimeout(timer);
+      queue.clear();
+      retries.clear();
+      freshTargets.clear();
     },
   };
 }
 
 /**
- * Drain every row newer than the previous watermark in indexed pages.
+ * 读取单页并补齐边界同序号记录；下一页由公平队列续作。
  * A full page may end inside a repeated msgSeq (e.g. a gray-tip sharing the
  * seq of a real message), so include any remaining rows of that boundary seq
  * before advancing the exclusive seq cursor.
@@ -228,23 +341,19 @@ async function drainAfter<T extends { msgSeq: bigint; msgId: bigint }>(
   listBoundary: (seq: bigint) => Promise<T[]>,
 ): Promise<T[]> {
   const collected: T[] = [];
-  let cursor = afterSeq;
-  for (;;) {
-    const page = await listPage(cursor);
-    if (page.length === 0) break;
-    collected.push(...page);
-    if (page.length < MAX_DELTA) break;
+  const page = await listPage(afterSeq);
+  if (page.length === 0) return collected;
+  collected.push(...page);
+  if (page.length < MAX_DELTA) return collected;
 
-    const boundarySeq = page[page.length - 1]!.msgSeq;
-    if (boundarySeq <= cursor) throw new Error('新消息分页游标未前进');
+  const boundarySeq = page[page.length - 1]!.msgSeq;
+  if (boundarySeq <= afterSeq) throw new Error('新消息分页游标未前进');
 
-    const seen = new Set(page.filter((m) => m.msgSeq === boundarySeq).map((m) => m.msgId));
-    for (const m of await listBoundary(boundarySeq)) {
-      if (m.msgSeq !== boundarySeq || seen.has(m.msgId)) continue;
-      seen.add(m.msgId);
-      collected.push(m);
-    }
-    cursor = boundarySeq;
+  const seen = new Set(page.filter((m) => m.msgSeq === boundarySeq).map((m) => m.msgId));
+  for (const m of await listBoundary(boundarySeq)) {
+    if (m.msgSeq !== boundarySeq || seen.has(m.msgId)) continue;
+    seen.add(m.msgId);
+    collected.push(m);
   }
   return collected;
 }

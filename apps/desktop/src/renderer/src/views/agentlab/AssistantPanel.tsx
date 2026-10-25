@@ -32,6 +32,7 @@ import {
   Settings,
   Sparkles,
   Square,
+  Trash2,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -52,6 +53,7 @@ import type { FlatModels } from './NewCloneModal';
 import type { GeneratedSearchHit } from '../../components/search/types';
 import { GeneratedSearchNotice, useGeneratedSearchJump } from './messageSearch';
 import { useGeneratedSelection } from './useGeneratedSelection';
+import { readAssistantDraft, rememberAssistantDraft } from '../../lib/assistantWorkspace';
 
 interface Turn {
   id?: string;
@@ -466,6 +468,9 @@ export function AssistantPanel({
   chatModels,
   onBack,
   onSessionCreated,
+  compact = false,
+  draftAccount,
+  workspaceTitle,
 }: {
   /** 真实会话 id；`null` 表示草稿会话——用户真正发第一条消息时才落库。 */
   sessionId: string | null;
@@ -474,18 +479,22 @@ export function AssistantPanel({
   onBack: () => void;
   /** 草稿会话首次发送、后端建好真会话后回调（父组件据此刷新列表 + 更新选中态）。 */
   onSessionCreated: (sessionId: string) => void;
+  compact?: boolean;
+  draftAccount?: string;
+  workspaceTitle?: string;
 }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   // 挂载时快照初始 id：草稿(null) 与既有会话在本组件生命周期内身份固定，
   // 后续父组件把草稿升级成真会话（sessionId 由 null 变真）不重新拉历史，避免闪断。
   const initialSessionId = useRef(sessionId).current;
+  const conversationSessionId = searchTarget?.sessionId ?? initialSessionId;
   // 可变的当前会话 id：草稿首次发送时被写成真 id，之后所有读写都走它。
   const sessionIdRef = useRef<string | null>(sessionId);
   const conversation = trpc.account.getAssistantConversation.useQuery(
-    { sessionId: initialSessionId ?? '' },
+    { sessionId: conversationSessionId ?? '' },
     {
-      enabled: !!initialSessionId,
+      enabled: !!conversationSessionId,
       ...(searchTarget ? { staleTime: 0, refetchOnMount: 'always' as const } : {}),
     },
   );
@@ -499,12 +508,17 @@ export function AssistantPanel({
   const saveConfig = trpc.account.setAssistantConfig.useMutation();
 
   const [turns, setTurns] = useState<Turn[]>([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(() =>
+    draftAccount ? readAssistantDraft(draftAccount, sessionId) : '',
+  );
   const [settingsOpen, setSettingsOpen] = useState(false);
   // 已请求停止、正在等后端收尾（在途 LLM 请求要等它返回/被 signal 掐断才 emit aborted）。
   const [stopping, setStopping] = useState(false);
   // 当前真实会话 id（草稿升级后跟随更新；resume 查询依赖它，不能用挂载时的快照）。
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId);
+  useEffect(() => {
+    if (draftAccount) rememberAssistantDraft(draftAccount, currentSessionId, input);
+  }, [draftAccount, currentSessionId, input]);
   const seeded = useRef(false);
   const lastPersisted = useRef(conversation.data);
   const runIdRef = useRef<string | null>(null);
@@ -513,6 +527,12 @@ export function AssistantPanel({
   /** 是否贴底跟随：用户往上翻阅历史时不抢滚动条，回到底部附近才恢复。 */
   const stickRef = useRef(true);
   const [searchMessageId, setSearchMessageId] = useState(searchTarget?.messageId ?? null);
+  useEffect(() => {
+    if (!searchTarget) return;
+    setSearchMessageId(searchTarget.messageId);
+    if (conversationSessionId)
+      void utils.account.getAssistantConversation.invalidate({ sessionId: conversationSessionId });
+  }, [searchTarget, conversationSessionId, utils]);
   const missingSearch = useGeneratedSearchJump(
     transcriptRef,
     searchMessageId,
@@ -543,6 +563,12 @@ export function AssistantPanel({
     : '';
   const effort: EffortValue = assistantConfig.data?.reasoningEffort ?? 'medium';
   const modelGroups = buildModelGroups(chatModels);
+  const currentModel = chatModels.find((model) => model.key === modelSel);
+  const modelTitle = currentModel?.label ?? assistantConfig.data?.model?.model ?? '未选择模型';
+  const modelName =
+    currentModel?.label.split(' · ').slice(1).join(' · ') ||
+    assistantConfig.data?.model?.model ||
+    '未选择模型';
 
   /** 让当前会话的持久化对话缓存失效（会话 id 走 ref，草稿升级后仍指向真会话）。 */
   function invalidateConversation(): void {
@@ -552,6 +578,9 @@ export function AssistantPanel({
   // 事件订阅只该建一次，所以通过 ref 拿最新实现，而不是把它当依赖。
   const invalidateConversationRef = useRef(invalidateConversation);
   invalidateConversationRef.current = invalidateConversation;
+  // useAppDialog 每次渲染返回新对象；订阅若依赖它，重渲会取消尚未 flush 的增量。
+  const reportErrorRef = useRef(dialog.error);
+  reportErrorRef.current = dialog.error;
 
   /** 输入框旁的快捷设置：改了立即落库（与设置弹窗共用同一份配置）。 */
   async function onQuickConfig(patch: { modelKey?: string; effort?: EffortValue }): Promise<void> {
@@ -613,7 +642,7 @@ export function AssistantPanel({
       );
       if (failed) {
         runIdRef.current = null;
-        dialog.error('助手出错', failed.message);
+        reportErrorRef.current('助手出错', failed.message);
         return;
       }
       if (batch.some((s) => s.kind === 'final' || s.kind === 'aborted')) {
@@ -641,7 +670,7 @@ export function AssistantPanel({
       sub.unsubscribe();
     };
     // 订阅只按 runIdRef 匹配，会话 id 走 ref，不必因 id 变化重订阅。
-  }, [utils, dialog]);
+  }, [utils]);
 
   // 新内容时滚到底部（仅当用户本就贴着底部）。
   useEffect(() => {
@@ -653,6 +682,16 @@ export function AssistantPanel({
     const el = transcriptRef.current;
     if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
   }
+  useLayoutEffect(() => {
+    const element = transcriptRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => {
+      if (element.clientHeight > 0 && stickRef.current && !searchMessageId)
+        element.scrollTop = element.scrollHeight;
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [searchMessageId]);
 
   async function onSend(preset?: string): Promise<void> {
     setSearchMessageId(null);
@@ -663,9 +702,11 @@ export function AssistantPanel({
     if (!assistantConfig.data?.model) {
       await dialog.confirm(
         '还没配置聊天模型',
-        chatModels.length === 0
-          ? '请先在 AgentLab 里添加一个带「聊天」能力的模型，再回到助手这里选择它。'
-          : '请先在输入框上方选择一个聊天模型。',
+        compact
+          ? '请先展开助手面板配置并选择聊天模型。'
+          : chatModels.length === 0
+            ? '请先在 AgentLab 里添加一个带「聊天」能力的模型，再回到助手这里选择它。'
+            : '请先在输入框上方选择一个聊天模型。',
         { okLabel: '知道了', tone: 'warning' },
       );
       return;
@@ -783,40 +824,62 @@ export function AssistantPanel({
   }
 
   return (
-    <div className="weq-agentlab-chat">
+    <div className={`weq-agentlab-chat${compact ? ' is-menu-compact' : ''}`}>
       <header className="weq-agentlab-head">
         <div className="weq-agentlab-head-left">
-          <button
-            type="button"
-            className="weq-set-iconbtn"
-            onClick={onBack}
-            aria-label="返回主页"
-            title="返回"
-          >
-            <ArrowLeft size={16} />
-          </button>
-          <div>
-            <strong>WeQ 助手</strong>
-            <span>把问题交给它：会自己查聊天记录、找联系人、多轮推进直到给出结论。</span>
-          </div>
+          {draftAccount ? (
+            <strong>{workspaceTitle ?? '新会话'}</strong>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="weq-set-iconbtn"
+                onClick={onBack}
+                aria-label="返回主页"
+                title="返回"
+              >
+                <ArrowLeft size={16} />
+              </button>
+              <div>
+                <strong>WeQ 助手</strong>
+                <span>把问题交给它：会自己查聊天记录、找联系人、多轮推进直到给出结论。</span>
+              </div>
+            </>
+          )}
         </div>
         <div className="weq-agentlab-head-actions">
           {selection.control}
           <button
-            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            className={
+              draftAccount ? 'weq-set-iconbtn' : 'weq-set-btn weq-set-btn-soft weq-set-btn-sm'
+            }
+            title="助手设置"
+            aria-label="助手设置"
             onClick={() => setSettingsOpen(true)}
           >
-            <Settings size={12} /> 设置
+            <Settings size={draftAccount ? 16 : 12} /> {draftAccount ? null : '设置'}
           </button>
           <button
-            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+            className={
+              draftAccount ? 'weq-set-iconbtn' : 'weq-set-btn weq-set-btn-soft weq-set-btn-sm'
+            }
+            title="清空当前对话"
+            aria-label="清空当前对话"
             disabled={busy}
             onClick={() => void onClear()}
           >
-            清空
+            {draftAccount ? <Trash2 size={16} /> : '清空'}
           </button>
         </div>
       </header>
+
+      {compact ? (
+        <div className="weq-asst-menu-meta" aria-label="当前助手会话信息">
+          <span title={workspaceTitle ?? '新会话'}>{workspaceTitle ?? '新会话'}</span>
+          <span title={modelTitle}>{modelName}</span>
+          <span>{EFFORT_OPTIONS.find((option) => option.value === effort)?.label ?? effort}</span>
+        </div>
+      ) : null}
 
       {resumable ? (
         <div className="weq-asst-resume-bar">
@@ -852,26 +915,28 @@ export function AssistantPanel({
         {searchMessageId && conversation.isFetching ? (
           <div className="weq-agentlab-empty">加载记录中…</div>
         ) : turns.length === 0 ? (
-          <div className="weq-agentlab-empty weq-asst-empty">
-            <span className="weq-asst-empty-icon">
-              <Sparkles size={26} strokeWidth={1.6} />
-            </span>
-            <strong>把任务交给 WeQ 助手</strong>
-            <span>它会自己查聊天记录、找联系人、多轮推进直到给出结论。试试：</span>
-            <div className="weq-asst-presets">
-              {PRESET_QUESTIONS.map((q) => (
-                <button
-                  key={q}
-                  type="button"
-                  className="weq-asst-preset"
-                  disabled={busy}
-                  onClick={() => void onSend(q)}
-                >
-                  {q}
-                </button>
-              ))}
+          compact ? null : (
+            <div className="weq-agentlab-empty weq-asst-empty">
+              <span className="weq-asst-empty-icon">
+                <Sparkles size={26} strokeWidth={1.6} />
+              </span>
+              <strong>把任务交给 WeQ 助手</strong>
+              <span>它会自己查聊天记录、找联系人、多轮推进直到给出结论。试试：</span>
+              <div className="weq-asst-presets">
+                {PRESET_QUESTIONS.map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    className="weq-asst-preset"
+                    disabled={busy}
+                    onClick={() => void onSend(q)}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )
         ) : (
           turns.map((t, i) => (
             <div
@@ -891,31 +956,33 @@ export function AssistantPanel({
       </div>
 
       <div className="weq-asst-composer">
-        <div className="weq-asst-composer-tools">
-          <ComposerSelect
-            icon={<Cpu size={13} />}
-            title="聊天模型"
-            placeholder="选择模型…"
-            value={modelSel}
-            groups={modelGroups}
-            disabled={busy || saveConfig.isLoading}
-            onChange={(v) => void onQuickConfig({ modelKey: v })}
-          />
-          <ComposerSelect
-            icon={<Brain size={13} />}
-            title="思考等级"
-            placeholder="思考等级"
-            value={effort}
-            groups={[
-              {
-                label: '',
-                options: EFFORT_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
-              },
-            ]}
-            disabled={busy || saveConfig.isLoading}
-            onChange={(v) => void onQuickConfig({ effort: v as EffortValue })}
-          />
-        </div>
+        {!compact ? (
+          <div className="weq-asst-composer-tools">
+            <ComposerSelect
+              icon={<Cpu size={13} />}
+              title="聊天模型"
+              placeholder="选择模型…"
+              value={modelSel}
+              groups={modelGroups}
+              disabled={busy || saveConfig.isLoading}
+              onChange={(v) => void onQuickConfig({ modelKey: v })}
+            />
+            <ComposerSelect
+              icon={<Brain size={13} />}
+              title="思考等级"
+              placeholder="思考等级"
+              value={effort}
+              groups={[
+                {
+                  label: '',
+                  options: EFFORT_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+                },
+              ]}
+              disabled={busy || saveConfig.isLoading}
+              onChange={(v) => void onQuickConfig({ effort: v as EffortValue })}
+            />
+          </div>
+        ) : null}
         <div className="weq-agentlab-composer weq-asst-composer-row">
           <textarea
             ref={inputRef}
@@ -931,7 +998,9 @@ export function AssistantPanel({
                 void onSend();
               }
             }}
-            placeholder="把任务交给 WeQ 助手（Enter 发送，Shift+Enter 换行）"
+            placeholder={
+              compact ? '发送消息…' : '把任务交给 WeQ 助手（Enter 发送，Shift+Enter 换行）'
+            }
             disabled={busy}
           />
           {busy ? (
@@ -953,8 +1022,14 @@ export function AssistantPanel({
               )}
             </button>
           ) : (
-            <button className="weq-set-btn" onClick={() => void onSend()} disabled={!input.trim()}>
-              <Send size={14} /> 发送
+            <button
+              className="weq-set-btn"
+              title="发送消息"
+              aria-label="发送消息"
+              onClick={() => void onSend()}
+              disabled={!input.trim()}
+            >
+              <Send size={14} /> {compact ? null : '发送'}
             </button>
           )}
         </div>

@@ -23,6 +23,8 @@ export interface UiAccount {
   dbKey?: string;
   algos?: Record<string, DatabaseAlgorithms>;
   dataDir?: string;
+  /** 展示备份根目录，不替代打开账号时使用的数据库目录。 */
+  sourceDir?: string;
   lastLoginAt?: number;
   /** True for static / offline (decrypted-db directory) accounts. */
   static?: boolean;

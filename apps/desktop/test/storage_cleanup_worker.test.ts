@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { fork, type ChildProcess } from 'node:child_process';
 import {
   mkdtempSync,

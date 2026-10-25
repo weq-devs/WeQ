@@ -607,7 +607,12 @@ export function ChatRecordsModal({
                             />
                             <span className="weq-chatrecords-msg-text">
                               <span className="weq-chatrecords-msg-meta">
-                                {msg.senderName ? `${msg.senderName} · ` : ''}
+                                {msg.senderName ? (
+                                  <>
+                                    <span data-privacy-sensitive>{msg.senderName}</span>
+                                    {' · '}
+                                  </>
+                                ) : null}
                                 {formatTime(msg.sendTime)} · seq {msg.msgSeq}
                               </span>
                               <span className="weq-chatrecords-msg-content">

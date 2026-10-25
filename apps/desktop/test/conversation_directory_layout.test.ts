@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * 会话列表容器布局的回归测试（纯 CSS 断言）。
  *

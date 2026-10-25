@@ -33,6 +33,9 @@ export function createRemoteServer(pairing: RemotePairing, webPort?: () => numbe
     if (++requests > 120) return send(429, { error: '请求过于频繁。' });
     const path = req.url ?? '';
     try {
+      if (req.method === 'GET' && path === '/v1/hello') {
+        return send(200, { product: 'WeQ Remote', protocol: 1 });
+      }
       if (req.method === 'POST' && path === '/v1/pair') {
         if (Number(req.headers['content-length']) > 4096) {
           req.resume();

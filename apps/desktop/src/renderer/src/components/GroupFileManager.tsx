@@ -686,15 +686,16 @@ function GroupFileManagerBody({
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-        <select
-          aria-label="群文件排序"
+        <SegmentedControl<GroupFileSort>
+          label="群文件排序"
           value={sort}
-          onChange={(event) => setSort(event.target.value as GroupFileSort)}
-        >
-          <option value="name">名称</option>
-          <option value="time">最近修改</option>
-          <option value="size">文件大小</option>
-        </select>
+          onChange={setSort}
+          options={[
+            { value: 'name', label: '名称' },
+            { value: 'time', label: '最近修改' },
+            { value: 'size', label: '文件大小' },
+          ]}
+        />
       </div>
       <div className="weq-file-manager-status">
         <span>
@@ -998,6 +999,7 @@ function GroupFileManagerBody({
                       <button
                         type="button"
                         title={row.name}
+                        data-privacy-sensitive
                         disabled={loading}
                         onClick={() =>
                           row.kind === 'folder' ? void openFolder(row.folder) : selectOne(row.key)
@@ -1012,16 +1014,15 @@ function GroupFileManagerBody({
                             : formatSize(row.file.fileSize)}{' '}
                           ·{' '}
                         </span>
-                        {[
-                          row.kind === 'folder' ? row.folder.creatorName : row.file.uploaderName,
-                          formatFileTime(
-                            row.kind === 'folder'
-                              ? row.folder.modifiedTime || row.folder.createTime
-                              : row.file.modifiedTime || row.file.uploadedTime,
-                          ),
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
+                        <span data-privacy-sensitive>
+                          {row.kind === 'folder' ? row.folder.creatorName : row.file.uploaderName}
+                        </span>
+                        {' · '}
+                        {formatFileTime(
+                          row.kind === 'folder'
+                            ? row.folder.modifiedTime || row.folder.createTime
+                            : row.file.modifiedTime || row.file.uploadedTime,
+                        )}
                       </small>
                     </span>
                   </div>
@@ -1031,7 +1032,11 @@ function GroupFileManagerBody({
                     ? `${row.folder.totalFileCount} 个文件`
                     : formatSize(row.file.fileSize)}
                 </td>
-                <td>{row.kind === 'folder' ? row.folder.creatorName : row.file.uploaderName}</td>
+                <td>
+                  <span data-privacy-sensitive>
+                    {row.kind === 'folder' ? row.folder.creatorName : row.file.uploaderName}
+                  </span>
+                </td>
                 <td>
                   {formatFileTime(
                     row.kind === 'folder'
@@ -1150,3 +1155,4 @@ const Scoped = withQQAccountScope(GroupFileManagerBody);
 export function GroupFileManager(props: Props) {
   return <Scoped key={`${props.groupId}:${props.directory}`} {...props} />;
 }
+import { SegmentedControl } from './SegmentedControl';

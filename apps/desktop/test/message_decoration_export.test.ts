@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * 消息装扮卡「另存为 / 另存全部」的打包单测。
  *

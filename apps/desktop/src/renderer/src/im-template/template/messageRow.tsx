@@ -186,6 +186,7 @@ export function MessageRow({
   onAction,
   onReedit,
   onDismissUnsent,
+  onStartOutgoing,
   onAvatarClick,
   onAvatarContextMenu,
   selectionMode = false,
@@ -216,6 +217,7 @@ export function MessageRow({
   onReedit?: (message: Message) => Promise<boolean>;
   /** 「可能未送达」占位的移除（见 MessageBubble 的同名 prop）。 */
   onDismissUnsent?: (message: Message) => void;
+  onStartOutgoing?: (message: Message) => void;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
   onAvatarContextMenu?: (event: unknown, sender: User) => void;
   selectionMode?: boolean;
@@ -292,6 +294,7 @@ export function MessageRow({
       onAction={onAction}
       onReedit={onReedit}
       onDismissUnsent={onDismissUnsent}
+      onStartOutgoing={onStartOutgoing}
       onAvatarClick={onAvatarClick}
       onAvatarContextMenu={onAvatarContextMenu}
       selectionMode={selectionMode}

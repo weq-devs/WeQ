@@ -1,3 +1,4 @@
+import { withExportSaveDirectory } from './support/export_save_fixture';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -112,7 +113,11 @@ it('实际空间多格式任务保存 tid 快照，不导出未选历史，按�
     termination: 'stable-tail',
   });
   const source = deps();
-  const manager = new ExportTaskManager({} as MsgService, root, { qzone: source });
+  const manager = new ExportTaskManager(
+    {} as MsgService,
+    root,
+    withExportSaveDirectory(root, { qzone: source }),
+  );
   const tids = ['a', 'c'];
   const id = await manager.startTask({
     kind: 'c2c',
@@ -140,14 +145,21 @@ it('实际空间多格式任务保存 tid 快照，不导出未选历史，按�
   ).toEqual(['a', 'c']);
   expect(readdirSync(task.bundleDir!)).not.toContain('qzone-history.json');
   expect(readFileSync(join(task.bundleDir!, '合成空间.html'), 'utf8')).not.toContain('unselected');
-  expect(new ExportTaskManager({} as MsgService, root).getTask(id)?.qzoneTids).toEqual(['a', 'c']);
+  expect(
+    new ExportTaskManager({} as MsgService, root, withExportSaveDirectory(root)).getTask(id)
+      ?.qzoneTids,
+  ).toEqual(['a', 'c']);
 });
 
 it('空间暂停保持原 tid，在新管理器中按原范围重新执行', async () => {
   const root = mkdtempSync(join(tmpdir(), 'weq-qzone-exact-resume-'));
   roots.push(root);
   const source = deps();
-  const manager = new ExportTaskManager({} as MsgService, root, { qzone: source });
+  const manager = new ExportTaskManager(
+    {} as MsgService,
+    root,
+    withExportSaveDirectory(root, { qzone: source }),
+  );
   let paused = false;
   manager.on('progress', (event) => {
     if (!paused && event.status === 'running') {
@@ -169,7 +181,11 @@ it('空间暂停保持原 tid，在新管理器中按原范围重新执行', asy
   expect(manager.getTask(id)?.status).toBe('paused');
   expect(manager.listTasks()[0]?.resumeMode).toBe('restart');
   expect(source.fetchPostDetail).not.toHaveBeenCalled();
-  const restored = new ExportTaskManager({} as MsgService, root, { qzone: source });
+  const restored = new ExportTaskManager(
+    {} as MsgService,
+    root,
+    withExportSaveDirectory(root, { qzone: source }),
+  );
   expect(restored.resumeTask(id)).toBe(true);
   for (let i = 0; i < 400 && !['completed', 'failed'].includes(restored.getTask(id)!.status); i++)
     await new Promise((resolve) => setTimeout(resolve, 10));

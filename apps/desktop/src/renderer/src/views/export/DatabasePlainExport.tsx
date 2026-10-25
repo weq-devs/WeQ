@@ -5,7 +5,6 @@ import { client, trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { useViewState } from '../../state/view';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
-import { ExportSaveActions } from '../../components/ExportSaveActions';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { DatabasePicker } from './DatabasePicker';
 import { fmtBytes } from './types';
@@ -152,11 +151,6 @@ export function DatabasePlainExport({
               )}
               {busy === 'safe' ? '正在安全保存' : '安全保存'}
             </button>
-            <ExportSaveActions
-              label="安全保存的本次保存选项"
-              disabled={!ready}
-              onSelect={(intent) => void run('safe', intent)}
-            />
           </div>
           <div className="weq-db-export-group">
             <button
@@ -169,11 +163,6 @@ export function DatabasePlainExport({
               {busy === 'fast' ? <Loader2 size={16} className="weq-exp-spin" /> : <Zap size={16} />}
               {busy === 'fast' ? '正在快速解密' : '快速解密'}
             </button>
-            <ExportSaveActions
-              label="快速解密的本次保存选项"
-              disabled={!ready}
-              onSelect={(intent) => void run('fast', intent)}
-            />
           </div>
         </div>
         {error ? (

@@ -88,7 +88,11 @@ export function validateWeqAccountPreference(name: WeqAccountSettingFile, value:
       !['follow', 'api', 'local', 'heuristic'].includes(String(input.profileEngine))
     )
       fail(name);
-    if (input.featureSettingsVersion !== undefined && input.featureSettingsVersion !== 1)
+    if (
+      input.featureSettingsVersion !== undefined &&
+      input.featureSettingsVersion !== 1 &&
+      input.featureSettingsVersion !== 2
+    )
       fail(name);
     for (const key of INTENT_TUNING_KEYS)
       if (input[key] !== undefined && !isIntentTuningValue(key, input[key])) fail(`${name}.${key}`);

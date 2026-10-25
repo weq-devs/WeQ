@@ -9,6 +9,7 @@ import {
   type AgentLabGenerationConfig,
 } from '@weq/agentlab/generation';
 import { trpc } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { ApiModelSelect } from './ApiModelSelect';
 import { PersonaSettingsModal } from '../../views/agentlab/PersonaSettingsModal';
@@ -163,8 +164,10 @@ function CloneGenerationPanel({
 }
 
 export function CloneSettingsSection({ onCreate }: { onCreate?: () => void }) {
+  const active = useTabActive();
   const utils = trpc.useUtils();
   const personas = trpc.account.listAgentLabPersonas.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',

@@ -18,7 +18,6 @@ import { useContentMultiSelect } from '../../state/contentSelection';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
 import { WorkspacePage } from '../../components/WorkspacePages';
-import { ExportSaveActions } from '../../components/ExportSaveActions';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { MARKET_DOWNLOAD_MAX_PACKS } from '../../../../shared/market_emoji';
 import '../../styles/export.css';
@@ -129,10 +128,6 @@ function PackDetailPane({
           {saving ? <Loader2 size={14} className="weq-emb-spin" /> : <Download size={14} />}
           一键下载
         </button>
-        <ExportSaveActions
-          disabled={saving || busy || !detail.data}
-          onSelect={(intent) => void download(intent)}
-        />
       </div>
       {description ? <p className="weq-market-description">{description}</p> : null}
       {detail.isLoading ? (
@@ -631,16 +626,6 @@ export function MarketEmojiBrowserLightbox({
                   )}
                   下载选中
                 </button>
-                <ExportSaveActions
-                  disabled={
-                    downloading ||
-                    save.picking ||
-                    save.settings.isLoading ||
-                    !selection.selectedIds.size ||
-                    selection.selectedIds.size > MARKET_DOWNLOAD_MAX_PACKS
-                  }
-                  onSelect={downloadSelected}
-                />
               </div>
             </div>
           ) : null}

@@ -11,6 +11,75 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 describe('远程服务的故障关闭', () => {
+  it('WeQ 专用 Tailscale 独立启停，局域网入口与已配对设备不被重启', async () => {
+    const children: ChildProcessWithoutNullStreams[] = [];
+    const launch = vi.fn(() => {
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        stdin: new PassThrough(),
+        exitCode: null,
+        kill: vi.fn(function (this: EventEmitter) {
+          this.emit('exit', 0);
+          return true;
+        }),
+      }) as unknown as ChildProcessWithoutNullStreams;
+      children.push(child);
+      return child;
+    });
+    const runtime = new RemoteRuntime(launch as typeof spawn);
+    const dir = mkdtempSync(join(tmpdir(), 'weq-dual-runtime-'));
+    runtime.configure({ helper: process.execPath, stateDir: dir });
+    const send = async (child: ChildProcessWithoutNullStreams, event: object) => {
+      child.stdout.emit('data', Buffer.from(`${JSON.stringify(event)}\n`));
+      await setImmediate();
+    };
+    try {
+      await runtime.start();
+      await send(children[0], {
+        state: 'online',
+        addresses: ['https://192.168.1.8:7691', 'https://100.64.0.99:7691'],
+        fingerprint: 'f'.repeat(64),
+      });
+      expect(runtime.status().network.addresses).toEqual(['https://192.168.1.8:7691']);
+      await runtime.setTailscaleEnabled(true);
+      expect(launch).toHaveBeenCalledTimes(2);
+      expect(children[0].kill).not.toHaveBeenCalled();
+      await send(children[1], { state: 'online', address: 'http://100.64.0.10:7691' });
+      expect(runtime.status().network.addresses).toEqual([
+        'https://192.168.1.8:7691',
+        'https://100.64.0.10:7692',
+      ]);
+      const multi = new URL((await runtime.invite()).pairingURL);
+      expect(multi.searchParams.get('v')).toBe('4');
+      expect(multi.searchParams.getAll('endpoint')).toEqual([
+        'https://192.168.1.8:7691',
+        'http://100.64.0.10:7691',
+        'https://100.64.0.10:7692',
+      ]);
+      expect(
+        new URL(
+          (await runtime.invite({ authKey: `tskey-auth-${'k'.repeat(40)}` })).pairingURL,
+        ).searchParams.get('v'),
+      ).toBe('4');
+      await runtime.setTailscaleEnabled(false);
+      expect(children[1].kill).toHaveBeenCalledOnce();
+      expect(children[0].kill).not.toHaveBeenCalled();
+      expect(runtime.status().enabled).toBe(true);
+      expect(runtime.status().network.addresses).toEqual(['https://192.168.1.8:7691']);
+      await expect(runtime.invite({ authKey: `tskey-auth-${'k'.repeat(40)}` })).rejects.toThrow(
+        'Tailscale',
+      );
+    } finally {
+      runtime.stop();
+      for (const child of children) {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        child.stdin.destroy();
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
   it('没有辅助程序时拒绝启动，不生成邀请或假报在线', async () => {
     const runtime = new RemoteRuntime();
     expect(runtime.status().available).toBe(false);
@@ -31,7 +100,14 @@ describe('远程服务的故障关闭', () => {
       stdin: new PassThrough(),
       kill: () => true,
     }) as unknown as ChildProcessWithoutNullStreams;
-    const launch = (() => child) as typeof spawn;
+    const tailscaleChild = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: new PassThrough(),
+      kill: () => true,
+    }) as unknown as ChildProcessWithoutNullStreams;
+    let launches = 0;
+    const launch = (() => (launches++ === 0 ? child : tailscaleChild)) as typeof spawn;
     const runtime = new RemoteRuntime(launch);
     const dir = mkdtempSync(join(tmpdir(), 'weq-runtime-'));
     runtime.configure({ helper: process.execPath, stateDir: dir });
@@ -46,6 +122,11 @@ describe('远程服务的故障关闭', () => {
         ),
       );
       await setImmediate();
+      tailscaleChild.stdout.emit(
+        'data',
+        Buffer.from(`${JSON.stringify({ state: 'online', address: 'http://100.64.0.10:7691' })}\n`),
+      );
+      await setImmediate();
       expect(runtime.status().network.state).toBe('online');
       const invite = await runtime.invite({
         authKey: `tskey-auth-${'j'.repeat(40)}`,
@@ -53,7 +134,7 @@ describe('远程服务的故障关闭', () => {
       });
       const pairingURL = new URL(invite.pairingURL);
       expect(pairingURL.protocol).toBe('weq-remote:');
-      expect(pairingURL.searchParams.get('endpoint')).toBe('http://100.64.0.10:7691');
+      expect(pairingURL.searchParams.getAll('endpoint')).toContain('http://100.64.0.10:7691');
       expect(invite.qr).toMatch(/^data:image\/png;base64,/);
       const authKey = `tskey-auth-${'k'.repeat(40)}`;
       await expect(
@@ -61,7 +142,7 @@ describe('远程服务的故障关闭', () => {
       ).rejects.toThrow();
       const bootstrap = await runtime.invite({ authKey, singleUseConfirmed: true });
       const bootstrapURL = new URL(bootstrap.pairingURL);
-      expect(bootstrapURL.searchParams.get('v')).toBe('2');
+      expect(bootstrapURL.searchParams.get('v')).toBe('4');
       expect(bootstrapURL.searchParams.get('authKey')).toBe(authKey);
       expect(bootstrapURL.searchParams.get('expiresAt')).toBe(String(bootstrap.expiresAt));
       expect(JSON.stringify(runtime.status())).not.toContain(authKey);
@@ -99,6 +180,9 @@ describe('远程服务的故障关闭', () => {
       child.stdout.destroy();
       child.stderr.destroy();
       child.stdin.destroy();
+      tailscaleChild.stdout.destroy();
+      tailscaleChild.stderr.destroy();
+      tailscaleChild.stdin.destroy();
       rmSync(dir, { recursive: true, force: true });
     }
   });

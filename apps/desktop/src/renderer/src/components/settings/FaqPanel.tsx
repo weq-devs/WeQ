@@ -9,13 +9,16 @@ import { BookOpen, FileText, Loader2 } from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import remarkGfm from 'remark-gfm';
 import { trpc } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { shikiCodeHighlighter } from '../../views/agentlab/shikiHighlighter';
 
 const REMARK_PLUGINS = [remarkGfm];
 const PLUGINS = { code: shikiCodeHighlighter };
 
 export function FaqPanel(): ReactElement {
+  const active = useTabActive();
   const faq = trpc.help.getFaqMarkdown.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',

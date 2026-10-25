@@ -53,3 +53,25 @@
   overflow-wrap: anywhere;
   line-height: 1.4;
 }
+
+.weq-message-modal .weq-dialog-foot .weq-action-soft {
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}
+
+.weq-message-modal .weq-dialog-foot .weq-action-soft:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-surface));
+  border-color: var(--weq-accent-effective);
+}
+
+html[data-theme='dark'] .weq-message-modal .weq-dialog-foot .weq-action-soft {
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-elevated);
+  border-color: var(--weq-border-strong);
+}
+
+html[data-theme='dark'] .weq-message-modal .weq-dialog-foot .weq-action-soft:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-elevated));
+  border-color: var(--weq-accent-effective);
+}

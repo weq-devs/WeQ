@@ -496,6 +496,7 @@ export const dressupRouter = router({
         host,
         output,
         current,
+        `dressup:${input.kind ?? 'bundle'}`,
       );
       if (!policy) return { mode: 'cancelled' as const };
       current();

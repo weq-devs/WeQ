@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { Check, Image, Loader2, X } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
-import { ExportSaveActions } from '../../components/ExportSaveActions';
 import '../../styles/resource-export.css';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
 import { client } from '../../trpc/client';
@@ -172,12 +171,6 @@ export function AlbumExportLightbox({
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}
             开始导出
           </button>
-          <ExportSaveActions
-            disabled={
-              submitting || loadingAlbums || Boolean(albumError) || selectedAlbums.length === 0
-            }
-            onSelect={(saveIntent) => onConfirm({ selectedAlbums, saveIntent })}
-          />
         </footer>
       </section>
     </div>

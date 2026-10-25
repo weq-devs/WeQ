@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { getCloneTasks, subscribeCloneTasks } from '../views/agentlab/cloneTaskStore';
 import type { GeneratedSearchHit } from './search/types';
+import type { ToolSearchRequest } from './search/appSearchCatalog';
 import {
   BarChart3,
-  Bot,
   Download,
   FileStack,
   FolderOpen,
@@ -11,14 +11,17 @@ import {
   Settings,
   ShieldAlert,
   X,
+  Bot as AssistantIcon,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import type { ExportAuthorizationIndicatorState } from '../views/export/authorization';
 import { Modal } from './Dialog';
-import { FloatingToolsBar, type FloatingToolItem } from './FloatingToolsBar';
 import { RetainedTabs } from './RetainedTabs';
 import { ExportTool } from '../views/ExportView';
 import { ExportViewer } from '../views/ExportViewer';
-import { AgentLabView } from '../views/AgentLabView';
+import { AssistantMenuWorkspace } from '../views/agentlab/AssistantMenuWorkspace';
+import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { trpc } from '../trpc/client';
 import {
   useContentExportRequest,
@@ -26,8 +29,9 @@ import {
   useCurrentContentSelection,
 } from '../state/contentSelection';
 import '../styles/workspace-tools.css';
+import '../styles/workspace-menu.css';
 import { RoamingBackfillPanel } from './RoamingBackfillPanel';
-import { DaemonSection } from './settings/DaemonSection';
+import { AssistantSection } from './settings/AssistantSection';
 import { useViewState } from '../state/view';
 import { createToolDraft, type ToolDraft } from '../../../shared/content_selection';
 import { AnalysisTool } from '../views/analysis/AnalysisTool';
@@ -51,20 +55,27 @@ import {
   type WorkspaceContext,
 } from '../lib/toolTargets';
 
-type Tool = 'export' | 'viewer' | 'tasks' | 'assistant' | 'backfill' | 'analysis';
+type Tool = 'export' | 'viewer' | 'backfill' | 'analysis';
 const TITLES: Record<Tool, string> = {
   export: '导出',
   viewer: '导出查看器',
-  tasks: '任务',
-  assistant: 'WeQ 助手',
   backfill: '拉取漫游消息',
   analysis: '分析与报告',
 };
+const ACTION_LABELS: Record<string, string> = {
+  analysis: '分析',
+  export: '导出',
+  viewer: '查看',
+  composition: '合成',
+};
 
 export function WorkspaceTools({
+  accountScope,
+  footerControls,
   onOpenAnalysis,
   onOpenComposition,
   assistantSearchTarget,
+  searchRequest,
   hidden = false,
   currentConversation,
   workspace,
@@ -72,9 +83,12 @@ export function WorkspaceTools({
   roamingRequest,
   onOpenClone,
 }: {
+  accountScope: string;
+  footerControls: ReactNode;
   onOpenAnalysis: (report: AnalysisReportRequest) => void;
   onOpenComposition?: () => void;
   assistantSearchTarget?: GeneratedSearchHit | null;
+  searchRequest?: ToolSearchRequest | null;
   hidden?: boolean;
   currentConversation?: Conversation | null;
   /** 当前界面上下文：主按钮据此决定进入哪个工具、带哪份内容。 */
@@ -84,6 +98,21 @@ export function WorkspaceTools({
   onOpenClone?: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const anchor = useWorkspaceMenu((state) => state.anchor);
+  const closeMenu = useWorkspaceMenu((state) => state.close);
+  const setTaskSummary = useWorkspaceMenu((state) => state.setTasks);
+  const [expanded, setExpanded] = useState(false);
+  const lastAnchor = useRef<HTMLElement | null>(null);
+  if (anchor) lastAnchor.current = anchor;
+  const [panel, setPanel] = useState<'tasks' | 'assistant'>(() => {
+    try {
+      return window.localStorage.getItem(`weq:workspace-panel:${accountScope}`) === 'assistant'
+        ? 'assistant'
+        : 'tasks';
+    } catch {
+      return 'tasks';
+    }
+  });
   const [exportAuthorization, setExportAuthorization] =
     useState<ExportAuthorizationIndicatorState | null>(null);
   const [tool, setTool] = useState<Tool>('export');
@@ -98,7 +127,6 @@ export function WorkspaceTools({
   const [roamingTargets, setRoamingTargets] = useState<RoamingTarget[]>([]);
   const [analysisSeed, setAnalysisSeed] = useState(0);
   const [roamingSeed, setRoamingSeed] = useState(0);
-  const [taskAnchor, setTaskAnchor] = useState<HTMLElement | null>(null);
   const accountKey = useViewState((state) => state.openedUin);
   const [exportDraft, setExportDraft] = useState<{ key: string; draft: ToolDraft } | null>(null);
   const exportRequest = useContentExportRequest();
@@ -116,6 +144,8 @@ export function WorkspaceTools({
     )
       return;
     handledContentAnalysis.current = contentAnalysisRequest;
+    closeMenu();
+    setExpanded(false);
     setAnalysisFixedTarget(true);
     setAnalysisTarget({ ...contentAnalysisRequest.target });
     setAnalysisMessageIds(
@@ -124,12 +154,14 @@ export function WorkspaceTools({
     setAnalysisSeed((previous) => previous + 1);
     setTool('analysis');
     setOpen(true);
-  }, [accountKey, contentAnalysisRequest]);
+  }, [accountKey, contentAnalysisRequest, closeMenu]);
   const handledRoamingRequest = useRef<typeof roamingRequest>(null);
   useEffect(() => {
     if (!accountKey || !analysisRequest || handledAnalysisRequest.current === analysisRequest)
       return;
     handledAnalysisRequest.current = analysisRequest;
+    closeMenu();
+    setExpanded(false);
     setAnalysisFixedTarget(true);
     setAnalysisTarget({ ...analysisRequest.target });
     setAnalysisMessageIds(undefined);
@@ -137,19 +169,23 @@ export function WorkspaceTools({
     setTool('analysis');
     setAssistantSettings(false);
     setOpen(true);
-  }, [accountKey, analysisRequest]);
+  }, [accountKey, analysisRequest, closeMenu]);
   useEffect(() => {
     if (!accountKey || !roamingRequest || handledRoamingRequest.current === roamingRequest) return;
     handledRoamingRequest.current = roamingRequest;
+    closeMenu();
+    setExpanded(false);
     setRoamingTargets(roamingRequest.targets.map((target) => ({ ...target })));
     setRoamingSeed((previous) => previous + 1);
     setTool('backfill');
     setAssistantSettings(false);
     setOpen(true);
-  }, [accountKey, roamingRequest]);
+  }, [accountKey, roamingRequest, closeMenu]);
   useEffect(() => {
     if (!accountKey || !exportRequest || handledExportRequest.current === exportRequest) return;
     handledExportRequest.current = exportRequest;
+    closeMenu();
+    setExpanded(false);
     // 记录这次显式请求的来源选择，供「关闭后再点主按钮」复用同一面板现场。
     requestedSelection.current = exportRequest.selection;
     setExportFixedScope(true);
@@ -162,14 +198,16 @@ export function WorkspaceTools({
     setTool('export');
     setAssistantSettings(false);
     setOpen(true);
-  }, [accountKey, exportRequest]);
+  }, [accountKey, exportRequest, closeMenu]);
   useEffect(() => {
     if (assistantSearchTarget) {
-      setTool('assistant');
+      setOpen(false);
+      setPanel('assistant');
+      closeMenu();
+      setExpanded(true);
       setAssistantSettings(false);
-      setOpen(true);
     }
-  }, [assistantSearchTarget]);
+  }, [assistantSearchTarget, closeMenu]);
   const selection = useCurrentContentSelection();
   const { enabled: readTasks } = useQQReadActivity(!hidden, { onlineOnly: false });
   const taskQueryOptions = {
@@ -190,6 +228,35 @@ export function WorkspaceTools({
     (roamingTasks.data?.scanning ? 1 : 0) +
     (flashTasks.data?.filter((task) => task.status === 'resolving' || task.status === 'downloading')
       .length ?? 0);
+  const failed =
+    (tasks.data?.filter(
+      (task) =>
+        task.status === 'failed' ||
+        task.save?.status === 'failed' ||
+        task.save?.status === 'interrupted',
+    ).length ?? 0) +
+    cloneTasks.filter((task) => task.accountId === accountKey && task.status === 'error').length +
+    (roamingTasks.data?.jobs?.filter((task) => task.status === 'failed').length ?? 0) +
+    (flashTasks.data?.filter((task) => task.status === 'failed').length ?? 0);
+  useEffect(() => {
+    setTaskSummary(running, failed);
+  }, [running, failed, setTaskSummary]);
+  useEffect(
+    () => () => {
+      closeMenu();
+      setTaskSummary(0, 0);
+    },
+    [closeMenu, setTaskSummary],
+  );
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(`weq:workspace-panel:${accountScope}`, panel);
+    } catch {}
+  }, [accountScope, panel]);
+  const closeWorkspace = () => {
+    closeMenu();
+    setExpanded(false);
+  };
   const close = () => setOpen(false);
   const ctx: WorkspaceContext = workspace ?? {
     view: 'messages',
@@ -202,6 +269,7 @@ export function WorkspaceTools({
     nextSelection: ContentSelection | null | undefined,
     options: { fixed?: boolean; mode?: ExportMode; baselineDirectory?: string } = {},
   ) => {
+    closeWorkspace();
     setExportBaseline(options.baselineDirectory);
     const key = nextSelection && accountKey ? JSON.stringify([accountKey, nextSelection]) : null;
     // 同一份选择重新打开工具时保留面板现场（输入过的草稿、已选格式都还在）。
@@ -230,8 +298,8 @@ export function WorkspaceTools({
   };
 
   /** 主按钮：按当前界面直接进入对应工具。 */
-  const select = (next: Tool, anchor?: HTMLElement) => {
-    if (next === 'tasks') setTaskAnchor(anchor ?? null);
+  const select = (next: Tool) => {
+    closeWorkspace();
     if (next === 'export') {
       // 主按钮＝按当前界面直接进入。注意不能把 `entry.selection`（带 selected 的对象）
       // 直接放进 React 依赖里：每次渲染都是新引用，会触发导出面板反复重建。
@@ -262,8 +330,28 @@ export function WorkspaceTools({
   };
   const leave = (action: () => void) => {
     close();
+    closeWorkspace();
     action();
   };
+  const selectRef = useRef(select);
+  selectRef.current = select;
+  const handledSearchRequest = useRef<typeof searchRequest>(null);
+  useEffect(() => {
+    if (
+      !searchRequest ||
+      searchRequest.scope !== accountScope ||
+      handledSearchRequest.current === searchRequest
+    )
+      return;
+    handledSearchRequest.current = searchRequest;
+    if (searchRequest.tool === 'tasks' || searchRequest.tool === 'assistant') {
+      setOpen(false);
+      closeMenu();
+      setPanel(searchRequest.tool);
+      setExpanded(true);
+      setAssistantSettings(false);
+    } else selectRef.current(searchRequest.tool);
+  }, [searchRequest, closeMenu, accountScope]);
   const fixedExportScope =
     exportFixedScope &&
     (exportDraft?.draft.selection.owner.kind === 'messages' ||
@@ -271,25 +359,12 @@ export function WorkspaceTools({
         exportDraft.draft.selection.scope.type === 'items' &&
         exportDraft.draft.selection.scope.ids.length > 0));
 
-  const items: FloatingToolItem[] = [
+  const items = [
     {
       id: 'export',
       label: '导出',
-      hint: entry.label,
       icon: <Download size={20} />,
       action: () => select('export'),
-    },
-    {
-      id: 'viewer',
-      label: '导出查看器',
-      icon: <FolderOpen size={20} />,
-      action: () => select('viewer'),
-    },
-    {
-      id: 'tasks',
-      label: '任务',
-      icon: <ListTodo size={20} />,
-      action: (anchor) => select('tasks', anchor),
     },
     {
       id: 'analysis',
@@ -298,10 +373,10 @@ export function WorkspaceTools({
       action: () => select('analysis'),
     },
     {
-      id: 'assistant',
-      label: 'WeQ 助手',
-      icon: <Bot size={20} />,
-      action: () => select('assistant'),
+      id: 'viewer',
+      label: '导出查看器',
+      icon: <FolderOpen size={20} />,
+      action: () => select('viewer'),
     },
   ];
   if (onOpenComposition)
@@ -313,11 +388,139 @@ export function WorkspaceTools({
     });
   return (
     <>
-      <FloatingToolsBar items={items} running={running} hidden={hidden} />
+      <Modal
+        open={!hidden && (Boolean(anchor) || expanded)}
+        presentation={expanded ? 'modal' : 'popover'}
+        centered={expanded}
+        anchor={anchor}
+        onClose={closeWorkspace}
+        width={expanded ? 1100 : 392}
+        className={`weq-workspace-menu${expanded ? ' is-expanded' : ' is-compact'}`}
+        labelledBy="weq-workspace-menu-title"
+      >
+        <header className="weq-workspace-menu-head">
+          <h2 id="weq-workspace-menu-title">{panel === 'tasks' ? '任务' : 'WeQ 助手'}</h2>
+          <button
+            type="button"
+            title={expanded ? '收起到菜单' : '打开完整面板'}
+            aria-label={
+              expanded ? '收起到菜单' : `打开完整${panel === 'tasks' ? '任务' : '助手'}面板`
+            }
+            onClick={() => {
+              if (expanded) {
+                if (!anchor) {
+                  const trigger =
+                    lastAnchor.current ??
+                    [...document.querySelectorAll<HTMLElement>('.weq-workspace-menu-trigger')].find(
+                      (element) => element.getClientRects().length > 0,
+                    );
+                  if (trigger) useWorkspaceMenu.getState().toggle(trigger);
+                }
+                setExpanded(false);
+              } else {
+                setExpanded(true);
+              }
+            }}
+          >
+            {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+          {panel === 'tasks' && running ? <small>{running} 项进行中</small> : null}
+          <div className="weq-workspace-menu-head-actions">
+            {panel === 'assistant' && expanded ? (
+              <button
+                type="button"
+                title="QQ 公众号推送设置"
+                aria-label="QQ 公众号推送设置"
+                aria-pressed={assistantSettings}
+                onClick={() => setAssistantSettings((value) => !value)}
+              >
+                <Settings size={17} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              title={
+                panel === 'tasks'
+                  ? '切换到 WeQ 助手'
+                  : `切换到任务列表${failed ? ` · ${failed} 项失败` : ''}`
+              }
+              aria-label={panel === 'tasks' ? '切换到 WeQ 助手' : '切换到任务列表'}
+              onClick={() => {
+                setPanel(panel === 'tasks' ? 'assistant' : 'tasks');
+                setAssistantSettings(false);
+              }}
+            >
+              {panel === 'tasks' ? <AssistantIcon size={18} /> : <ListTodo size={18} />}
+              {panel === 'assistant' && running ? <small>{running}</small> : null}
+              {panel === 'assistant' && failed ? <span className="weq-workspace-dot" /> : null}
+            </button>
+            {expanded ? (
+              <button type="button" title="关闭" aria-label="关闭完整面板" onClick={closeWorkspace}>
+                <X size={18} />
+              </button>
+            ) : null}
+          </div>
+        </header>
+        <div className="weq-workspace-menu-body">
+          <RetainedTabs activeKey={!hidden && (anchor || expanded) ? panel : 'closed'}>
+            {!hidden && (anchor || expanded) ? (
+              panel === 'tasks' ? (
+                <ExportTool
+                  surface="tasks"
+                  taskLayout={expanded ? 'split' : 'compact'}
+                  onTaskExpand={() => setExpanded(true)}
+                  onNewSchedule={() => openExport(null, { mode: 'scheduled' })}
+                  onOpenClone={(id) => leave(() => onOpenClone?.(id))}
+                />
+              ) : (
+                <>
+                  <div className="weq-menu-assistant" hidden={assistantSettings && expanded}>
+                    <AssistantMenuWorkspace
+                      accountScope={accountScope}
+                      compact={!expanded}
+                      searchTarget={assistantSearchTarget}
+                    />
+                  </div>
+                  {assistantSettings && expanded ? (
+                    <div className="weq-assistant-service-settings">
+                      <AssistantSection />
+                    </div>
+                  ) : null}
+                </>
+              )
+            ) : null}
+          </RetainedTabs>
+        </div>
+        {!expanded ? (
+          <>
+            <nav className="weq-workspace-actions" aria-label="内容工具">
+              {[...items]
+                .sort(
+                  (a, b) =>
+                    ['analysis', 'export', 'viewer', 'composition'].indexOf(a.id) -
+                    ['analysis', 'export', 'viewer', 'composition'].indexOf(b.id),
+                )
+                .map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    title={item.id === 'export' ? entry.label : item.label}
+                    aria-label={item.label}
+                    onClick={item.action}
+                  >
+                    {item.icon}
+                    <span>{ACTION_LABELS[item.id]}</span>
+                  </button>
+                ))}
+            </nav>
+            {footerControls}
+          </>
+        ) : null}
+      </Modal>
       <Modal
         presentation="modal"
         dismissOnOutside={false}
-        open={open && tool !== 'tasks' && tool !== 'backfill'}
+        open={open && tool !== 'backfill'}
         onClose={close}
         width={1000}
         className="weq-tools-modal"
@@ -335,26 +538,15 @@ export function WorkspaceTools({
               需要提权
             </button>
           ) : null}
-          {tool === 'assistant' && (
-            <button
-              type="button"
-              aria-label="QQ 公众号推送设置"
-              title="QQ 公众号推送设置"
-              aria-pressed={assistantSettings}
-              onClick={() => setAssistantSettings((value) => !value)}
-            >
-              <Settings size={18} />
-            </button>
-          )}
           <button type="button" onClick={close} title="关闭工具" aria-label="关闭工具">
             <X size={18} />
           </button>
         </header>
         <RetainedTabs
           key={accountKey ?? 'no-account'}
-          activeKey={open && tool !== 'tasks' && tool !== 'backfill' ? tool : 'closed'}
+          activeKey={open && tool !== 'backfill' ? tool : 'closed'}
         >
-          {open && tool !== 'tasks' && tool !== 'backfill' ? (
+          {open && tool !== 'backfill' ? (
             tool === 'export' ? (
               <ExportTool
                 onAuthorizationChange={setExportAuthorization}
@@ -392,19 +584,6 @@ export function WorkspaceTools({
                   );
                 }}
               />
-            ) : tool === 'assistant' ? (
-              <>
-                {/* 助手面板自己要撑满高度：模态体是 flex 列，缺 min-height:0 时
-                    输入框会被顶到可视区外（高度溢出被裁掉）。 */}
-                <div className="weq-assistant-panel" hidden={assistantSettings}>
-                  <AgentLabView mode="assistant" searchTarget={assistantSearchTarget} />
-                </div>
-                {assistantSettings && (
-                  <div className="weq-assistant-service-settings">
-                    <DaemonSection panel="assistant" />
-                  </div>
-                )}
-              </>
             ) : tool === 'analysis' ? (
               <AnalysisTool
                 key={JSON.stringify([accountKey, analysisSeed])}
@@ -414,36 +593,6 @@ export function WorkspaceTools({
                 onGenerate={(report) => leave(() => onOpenAnalysis(report))}
               />
             ) : null
-          ) : null}
-        </RetainedTabs>
-      </Modal>
-      <Modal
-        presentation="anchored"
-        anchor={taskAnchor}
-        open={open && tool === 'tasks'}
-        onClose={close}
-        width={560}
-        className="weq-tools-modal"
-        labelledBy="weq-task-pane-title"
-      >
-        <header className="weq-tools-header">
-          <h2 id="weq-task-pane-title">任务</h2>
-          <button type="button" onClick={close} title="关闭任务" aria-label="关闭任务">
-            <X size={18} />
-          </button>
-        </header>
-        <RetainedTabs
-          key={accountKey ?? 'no-account'}
-          activeKey={open && tool === 'tasks' ? 'tasks' : 'closed'}
-        >
-          {open && tool === 'tasks' ? (
-            <ExportTool
-              surface="tasks"
-              onOpenClone={(id) => {
-                close();
-                onOpenClone?.(id);
-              }}
-            />
           ) : null}
         </RetainedTabs>
       </Modal>

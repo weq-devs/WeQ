@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { expect, it } from 'vitest';
 import type { GroupAlbumFeedPage } from '@weq/service';
 import { mergeGroupAlbumFeedPages } from '../src/renderer/src/lib/groupAlbumFeedState';

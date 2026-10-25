@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -57,14 +58,19 @@ it('只获取所选单张 GIF，使用公共任务保存且不覆盖同名原件
   expect(readFileSync(target, 'utf8')).toBe('personal');
   expect(readFileSync(source, 'utf8')).toBe('GIF89a-synthetic');
 });
-it('稍后保存保留单文件结果，资源不可用则明确失败', async () => {
+it('选定位置后保存单文件结果，资源不可用则明确失败', async () => {
   const api = marketEmojiRouter.createCaller({});
-  const id = await api.startImageSave({ ...input, savePolicy: { mode: 'after' } });
-  await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
-  expect(manager.getTask(id)?.save?.status).toBe('pending');
+  const id = await api.startImageSave({
+    ...input,
+    savePolicy: { mode: 'before', directory: root },
+  });
+  await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
   expect(manager.getTask(id)?.bundleDir).toBeUndefined();
   state.image.mockResolvedValueOnce(null);
-  const missing = await api.startImageSave({ ...input, savePolicy: { mode: 'after' } });
+  const missing = await api.startImageSave({
+    ...input,
+    savePolicy: { mode: 'before', directory: root },
+  });
   await vi.waitFor(() => expect(manager.getTask(missing)?.status).toBe('failed'));
   expect(manager.getTask(missing)?.error).toContain('不可用');
 });
@@ -85,7 +91,9 @@ it('取图期间切换来源不发布迟到结果，旧来源也不能创建任�
   );
   expect(state.register).not.toHaveBeenCalled();
   await expect(
-    marketEmojiRouter.createCaller({}).startImageSave({ ...input, savePolicy: { mode: 'after' } }),
+    marketEmojiRouter
+      .createCaller({})
+      .startImageSave({ ...input, savePolicy: { mode: 'before', directory: root } }),
   ).rejects.toThrow('数据源已切换');
   expect(manager.listTasks()).toEqual([]);
 });

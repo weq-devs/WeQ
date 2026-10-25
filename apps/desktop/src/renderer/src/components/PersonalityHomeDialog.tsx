@@ -256,7 +256,7 @@ export function PersonalityHomeDialog({
               {profile.region ? (
                 <span className="weq-perhome-chip">
                   <MapPin size={12} />
-                  {profile.region}
+                  <span data-privacy-sensitive>{profile.region}</span>
                 </span>
               ) : null}
               {dress.data?.isSvip ? (

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -76,22 +77,25 @@ it.each(['ttf', 'png', 'zip'])('根据实际 %s 产物打开公共单文件选�
   expect(state.pick).toHaveBeenCalledWith({
     defaultName: `真实产物.${extension}`,
     extension,
-    locationKey: 'export-before',
+    locationKey: 'dressup:font',
+    defaultDirectory: undefined,
   });
   await vi.waitFor(() => expect(manager.getTask(result.taskId)?.save?.status).toBe('saved'));
   expect(readFileSync(state.selected!, 'utf8')).toBe('fixture-resource');
 });
-it('取消公共选择器不创建任务，稍后保存不弹选择器', async () => {
+it('取消公共选择器不创建任务，旧稍后保存参数直接拒绝', async () => {
   state.selected = null;
   const api = dressupRouter.createCaller({});
   expect(await api.saveMsgDecoration({ ...input, savePolicy: { mode: 'before' } })).toEqual({
     mode: 'cancelled',
   });
   expect(manager.listTasks()).toEqual([]);
-  const result = await api.saveMsgDecoration({ ...input, savePolicy: { mode: 'after' } });
-  if (result.mode !== 'task') throw new Error('应创建任务');
-  await vi.waitFor(() => expect(manager.getTask(result.taskId)?.status).toBe('completed'));
-  expect(manager.getTask(result.taskId)?.save?.status).toBe('pending');
+  await expect(
+    api.saveMsgDecoration({ ...input, savePolicy: { mode: 'after' } } as unknown as Parameters<
+      typeof api.saveMsgDecoration
+    >[0]),
+  ).rejects.toThrow();
+  expect(manager.listTasks()).toEqual([]);
 });
 it('保存失败保留完整缓存，不覆盖已有文件', async () => {
   writeFileSync(state.selected!, 'personal');

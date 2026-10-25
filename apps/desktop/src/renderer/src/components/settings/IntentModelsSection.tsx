@@ -1,15 +1,20 @@
-import { useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { BrainCircuit, Download, Play } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { Card, Row, SectionHeader } from './controls';
 
 /** 全局资源管理与按账号的意图功能开关分开，未打开账号也可以下载。 */
 export function IntentModelsSection({ embedded = false }: { embedded?: boolean }): ReactElement {
+  const active = useTabActive();
+  const activity = useRef(active);
+  activity.current = active;
   const utils = trpc.useUtils();
   const showError = useDialog((s) => s.showError);
-  const resources = trpc.bootstrap.localModelResources.useQuery();
+  const resources = trpc.bootstrap.localModelResources.useQuery(undefined, { enabled: active });
   const engine = trpc.bootstrap.getLocalEngine.useQuery(undefined, {
+    enabled: active,
     staleTime: 0,
     refetchOnMount: 'always',
   });
@@ -18,8 +23,13 @@ export function IntentModelsSection({ embedded = false }: { embedded?: boolean }
   const start = trpc.bootstrap.startLocalEngine.useMutation();
   const [mirror, setMirror] = useState(true);
   const [progress, setProgress] = useState<string | null>(null);
+  useEffect(() => {
+    if (!active) setProgress(null);
+  }, [active]);
   trpc.bootstrap.onModelDownloadProgress.useSubscription(undefined, {
+    enabled: active,
     onData: (p) => {
+      if (!activity.current) return;
       setProgress(
         p.done
           ? null
@@ -28,7 +38,12 @@ export function IntentModelsSection({ embedded = false }: { embedded?: boolean }
       if (p.done) void utils.bootstrap.getLocalEngine.invalidate();
     },
   });
-  const busy = select.isLoading || download.isLoading || engine.data?.downloading || !!progress;
+  const busy =
+    select.isLoading ||
+    download.isLoading ||
+    engine.isFetching ||
+    engine.data?.downloading ||
+    !!progress;
   const selected = resources.data?.selected.intent ?? 'auto';
   const downloadable = engine.data?.models.find((m) => m.id === selected)?.downloadable;
 
@@ -65,7 +80,7 @@ export function IntentModelsSection({ embedded = false }: { embedded?: boolean }
   return (
     <div className={embedded ? undefined : 'weq-set'}>
       {!embedded ? <SectionHeader icon={<BrainCircuit size={18} />} title="意图模型" /> : null}
-      <Card title="意图模型资源（全局）">
+      <Card title="意图模型资源（全局）" settingId="intent-model-resources">
         <Row
           label="当前模型"
           control={

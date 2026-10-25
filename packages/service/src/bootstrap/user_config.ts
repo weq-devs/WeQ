@@ -27,9 +27,14 @@ import {
 import { mkdir, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
-import type { AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
+import type { AgentLabModelRef, AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
 import type { AccountConfig } from '../account/user_config';
 import { normalizeAccountConfig } from '../account/user_config';
+import {
+  DEFAULT_HOME_SETTINGS,
+  normalizeHomeSettings,
+  type HomeSettings,
+} from '../common/home_settings';
 import type { ExportFormat } from '../account/export/types';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { getLogger, logErrorContext } from '../common/logger';
@@ -110,6 +115,17 @@ function isAgentLabProviderConfig(value: unknown): value is AgentLabProviderConf
 function normalizeAgentLabProviders(value: unknown): AgentLabProviderConfig[] {
   if (!Array.isArray(value)) return [];
   return value.filter(isAgentLabProviderConfig);
+}
+
+function normalizeAgentLabDefaultModel(value: unknown): AgentLabModelRef | null {
+  if (!value || typeof value !== 'object') return null;
+  const ref = value as Partial<AgentLabModelRef>;
+  if (typeof ref.providerId !== 'string' || typeof ref.model !== 'string') return null;
+  const providerId = ref.providerId.trim(),
+    model = ref.model.trim();
+  return providerId && model && !providerId.includes('\0') && !model.includes('\0')
+    ? { providerId, model }
+    : null;
 }
 
 /** Coerce a persisted / patched close-behavior value to the known union, or
@@ -433,6 +449,7 @@ export interface WeqAssistantConfig {
 
 export interface AgentLabSettings {
   providers: AgentLabProviderConfig[];
+  defaultModel: AgentLabModelRef | null;
 }
 
 /**
@@ -485,6 +502,8 @@ export interface AppSettings {
   autoAttachQq: boolean;
   /** 仅桌面客户端启动时启用本机 Web 服务；默认关闭。 */
   webServiceAutoStart: boolean;
+  /** 系统登录自启时显示主窗口，默认关闭；手动打开不受影响。 */
+  showWindowOnAutostart: boolean;
   /** 向 QQ 服务端上报在 WeQ 中阅读的位置，默认关闭。 */
   reportReadEnabled: boolean;
   /** 手动标记及撤销推进已读水位时上报，独立于自动阅读，默认关闭。 */
@@ -511,9 +530,7 @@ export interface AppSettings {
    */
   renderTextMarkdown: boolean;
   /**
-   * 是否把 QQ 挂件叠在聊天页的头像外圈。只作用于**自己**的头像 —— 挂件素材取自
-   * bootstrap 存下的 homeDress.widgetUrl，他人的挂件要逐个走 SSR 页面查，
-   * 每条消息一次网络往返不现实。默认开启，没挂件时该开关无副作用。
+   * 是否显示聊天头像挂件，包括消息记录、本地个性装扮和自己账号的静态挂件。
    */
   showAvatarPendant: boolean;
   linkPreview: LinkPreviewConfig;
@@ -529,13 +546,16 @@ export interface AppSettings {
    * 自动回退到原来的 `weq-media://` 代理路径。
    */
   preferCdn: boolean;
+  /** 聊天首页展示与一言屏蔽词，全局偏好。 */
+  home: HomeSettings;
   /** 私聊输入状态广播：全局默认值与显式设置的会话特例。 */
   typingStatus: TypingStatusSettings;
-  /**
-   * 是否渲染消息里的每条装扮（气泡/字体/挂件，来自 column 40801）。
-   * 关掉后所有消息统一走清单里的全局装扮，不做逐条渲染。默认开启。
-   */
+  /** 旧版合并开关，仅用于兼容旧配置和客户端。 */
   showMsgDecoration: boolean;
+  /** 按消息记录渲染气泡；本地个性装扮可覆盖。 */
+  showMessageBubble: boolean;
+  /** 按消息记录渲染字体；本地个性装扮可覆盖。 */
+  showMessageFont: boolean;
   /** Show the original conversation sequence beside each message. */
   showMessageSeq: boolean;
   /** 逐条显示精确到秒的北京时间，与序号开关独立。 */
@@ -546,6 +566,8 @@ export interface AppSettings {
   readFromFirstUnread: boolean;
   /** 发送成功后定位到当前会话的最新消息。 */
   jumpToLatestAfterSend: boolean;
+  /** 发送文本时显式携带 QQ 账号当前的个性字体。 */
+  sendWithQqFont: boolean;
   /** 群助手入口显示汇总未读消息数，而不是仅显示圆点。 */
   showGroupAssistantMessageCount: boolean;
   /**
@@ -804,6 +826,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
   autoAttachQq: false,
   webServiceAutoStart: false,
+  showWindowOnAutostart: false,
   reportReadEnabled: false,
   manualReadReportEnabled: false,
   autoLockMinutes: 0,
@@ -815,21 +838,25 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // 8765 在 Windows 上常被百度输入法等占用，默认改用不常冲突的高端口；
   // 即便仍冲突，启动时也会自动向上探测可用端口（见 mcp/server.ts）。
   mcp: { enabled: false, port: 48765, token: '' },
-  // 20000+ 不常用端口；若被占用，开启时自动向上探测（weq-daemon http_start 的回落试探）。
+  // 20000+ 不常用端口；若被占用，宿主内的助手资源服务自动向上探测。
   weqAssistant: { enabled: false, port: 27182 },
-  agentLab: { providers: [] },
+  agentLab: { providers: [], defaultModel: null },
   windowCloseBehavior: 'ask',
   renderTextMarkdown: true,
   showAvatarPendant: true,
   linkPreview: { enabled: true, screenshot: false },
   preferCdn: false,
+  home: DEFAULT_HOME_SETTINGS,
   typingStatus: { defaultEnabled: false, overrides: [] },
   showMsgDecoration: true,
+  showMessageBubble: true,
+  showMessageFont: true,
   showMessageSeq: false,
   showMessageTime: false,
   showMessageUnreadBadge: true,
   readFromFirstUnread: false,
   jumpToLatestAfterSend: true,
+  sendWithQqFont: true,
   showGroupAssistantMessageCount: false,
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
@@ -845,6 +872,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
 
 export interface UserConfig {
   autoEnter?: AutoEnterTarget | null;
+  /** 登录页退出后仅跳过下一次启动，不改变自动进入偏好。 */
+  skipAutoEnterOnce?: boolean;
   tencentFilesRootOverride?: string | null;
   settings?: DeepPartial<AppSettings>;
   cacheDirOverride?: string | null;
@@ -911,6 +940,7 @@ export class UserConfigService {
   private readonly root: string;
   private readonly configPath: string;
   private cached: UserConfig | undefined;
+  private skipAutoEnterThisStartup: boolean | undefined;
   private readonly logger = getLogger().child({ scope: 'user-config' });
 
   constructor(platform: Pick<Platform, 'appDataRoot'>) {
@@ -1211,6 +1241,20 @@ export class UserConfigService {
     return this.read().autoEnter ?? null;
   }
 
+  getStartupAutoEnter(): AutoEnterTarget | null {
+    if (this.skipAutoEnterThisStartup === undefined) {
+      this.skipAutoEnterThisStartup = this.read().skipAutoEnterOnce === true;
+      if (this.skipAutoEnterThisStartup) this.write({ skipAutoEnterOnce: false });
+    }
+    return this.skipAutoEnterThisStartup ? null : this.getAutoEnter();
+  }
+
+  setSkipAutoEnterOnce(skip: boolean): void {
+    if ((this.read().skipAutoEnterOnce === true) !== skip) {
+      this.write({ skipAutoEnterOnce: skip });
+    }
+  }
+
   setAutoEnter(target: AutoEnterTarget): void {
     this.write({ autoEnter: target });
     this.logger.info('updated auto-enter target', {
@@ -1310,13 +1354,12 @@ export class UserConfigService {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
       toastDurations: normalizeToastDurations(s?.toastDurations),
       exportSaveMode:
-        s?.exportSaveMode === 'before' ||
-        s?.exportSaveMode === 'preset' ||
-        s?.exportSaveMode === 'after'
+        s?.exportSaveMode === 'before' || s?.exportSaveMode === 'preset'
           ? s.exportSaveMode
           : d.exportSaveMode,
       autoAttachQq,
       webServiceAutoStart: s?.webServiceAutoStart === true,
+      showWindowOnAutostart: s?.showWindowOnAutostart === true,
       reportReadEnabled: s?.reportReadEnabled === true,
       manualReadReportEnabled: s?.manualReadReportEnabled === true,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
@@ -1329,13 +1372,17 @@ export class UserConfigService {
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       preferCdn: s?.preferCdn ?? d.preferCdn,
+      home: normalizeHomeSettings(s?.home),
       typingStatus: normalizeTypingStatus(s?.typingStatus),
       showMsgDecoration: s?.showMsgDecoration ?? d.showMsgDecoration,
+      showMessageBubble: s?.showMessageBubble ?? s?.showMsgDecoration ?? d.showMessageBubble,
+      showMessageFont: s?.showMessageFont ?? s?.showMsgDecoration ?? d.showMessageFont,
       showMessageSeq: s?.showMessageSeq ?? d.showMessageSeq,
       showMessageTime: s?.showMessageTime ?? d.showMessageTime,
       showMessageUnreadBadge: s?.showMessageUnreadBadge ?? d.showMessageUnreadBadge,
       readFromFirstUnread: s?.readFromFirstUnread ?? d.readFromFirstUnread,
       jumpToLatestAfterSend: s?.jumpToLatestAfterSend ?? d.jumpToLatestAfterSend,
+      sendWithQqFont: s?.sendWithQqFont ?? d.sendWithQqFont,
       showGroupAssistantMessageCount:
         s?.showGroupAssistantMessageCount ?? d.showGroupAssistantMessageCount,
       externalChatpic: {
@@ -1389,6 +1436,7 @@ export class UserConfigService {
       },
       agentLab: {
         providers: normalizeAgentLabProviders(s?.agentLab?.providers) ?? d.agentLab.providers,
+        defaultModel: normalizeAgentLabDefaultModel(s?.agentLab?.defaultModel),
       },
     };
   }
@@ -1423,6 +1471,7 @@ export class UserConfigService {
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
       webServiceAutoStart: patch.webServiceAutoStart ?? current.webServiceAutoStart,
+      showWindowOnAutostart: patch.showWindowOnAutostart ?? current.showWindowOnAutostart,
       reportReadEnabled: patch.reportReadEnabled ?? current.reportReadEnabled,
       manualReadReportEnabled: patch.manualReadReportEnabled ?? current.manualReadReportEnabled,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
@@ -1435,13 +1484,18 @@ export class UserConfigService {
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       preferCdn: patch.preferCdn ?? current.preferCdn,
+      home: normalizeHomeSettings({ ...current.home, ...patch.home }),
       typingStatus: normalizeTypingStatus({ ...current.typingStatus, ...patch.typingStatus }),
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
+      showMessageBubble:
+        patch.showMessageBubble ?? patch.showMsgDecoration ?? current.showMessageBubble,
+      showMessageFont: patch.showMessageFont ?? patch.showMsgDecoration ?? current.showMessageFont,
       showMessageSeq: patch.showMessageSeq ?? current.showMessageSeq,
       showMessageTime: patch.showMessageTime ?? current.showMessageTime,
       showMessageUnreadBadge: patch.showMessageUnreadBadge ?? current.showMessageUnreadBadge,
       readFromFirstUnread: patch.readFromFirstUnread ?? current.readFromFirstUnread,
       jumpToLatestAfterSend: patch.jumpToLatestAfterSend ?? current.jumpToLatestAfterSend,
+      sendWithQqFont: patch.sendWithQqFont ?? current.sendWithQqFont,
       showGroupAssistantMessageCount:
         patch.showGroupAssistantMessageCount ?? current.showGroupAssistantMessageCount,
       externalChatpic: {
@@ -1517,6 +1571,10 @@ export class UserConfigService {
           patch.agentLab?.providers !== undefined
             ? normalizeAgentLabProviders(patch.agentLab.providers)
             : current.agentLab.providers,
+        defaultModel:
+          patch.agentLab?.defaultModel !== undefined
+            ? normalizeAgentLabDefaultModel(patch.agentLab.defaultModel)
+            : current.agentLab.defaultModel,
       },
     };
     this.write({ settings: next });

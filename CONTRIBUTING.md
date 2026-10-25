@@ -35,7 +35,7 @@ pnpm dev           # 启动桌面端开发
 提交 PR 前，请跑通本地 CI 门禁，确保没有引入回归：
 
 ```bash
-pnpm ci:local   # 一键跑 CI 的 lint / format / typecheck / test / daemon 门禁
+pnpm ci:local   # 一键跑 CI 的 lint / format / typecheck / test 门禁
 ```
 
 `pnpm ci:local` 把 `.github/workflows/ci.yml` 的门禁在本地按同样顺序复刻一遍，
@@ -44,10 +44,9 @@ pnpm ci:local   # 一键跑 CI 的 lint / format / typecheck / test / daemon 门
 - `pnpm ci:local --fix` —— 先 `pnpm format` + `pnpm lint:fix` 刷平，再跑门禁。
   改完代码懒得管格式时用这个，省得再来一轮。
 - `pnpm ci:local --full` —— 额外跑 web 打包冒烟（≈ CI 的 `build-web` job）。
-- `pnpm ci:local --no-daemon` —— 跳过 Rust 三项（本机没装 Rust 时用）。
 - `pnpm ci:local --fail-fast` / `--list` —— 失败即停 / 只打印将跑的步骤。
 
-脚本会自己判断本机有没有 `cargo`，没有就自动跳过 Rust 三项并给出提示。
+独立 daemon 已移除，本工程不再需要 Rust 工具链。
 
 需要单独跑某一步时，等价命令是：
 
@@ -55,14 +54,12 @@ pnpm ci:local   # 一键跑 CI 的 lint / format / typecheck / test / daemon 门
 pnpm lint         # Biome 代码规范检查
 pnpm format:check # Biome 格式检查
 pnpm typecheck    # 类型检查（CI 强制，不通过会被拦截）
-pnpm -r test      # 全量单测（含 @weq/web 与 daemon）
+pnpm test         # 有界并发的全量单测（含 @weq/web），汇总所有失败
+pnpm test:fail-fast # 全量范围，首个失败后尽早停止（CI 使用）
+pnpm test:changed # 日常只跑改动相关的 Vitest 测试；Web 仍跑完整服务端断言
 pnpm check        # Biome 的 lint + format 汇总检查
 pnpm --filter @weq/web build
 
-# daemon 包的三项，cd 到 packages/daemon 再跑
-cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test
 ```
 
 > 桌面端打包（`electron-vite build` + `electron-builder`）不在 PR 门禁里，

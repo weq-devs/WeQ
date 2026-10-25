@@ -13,7 +13,6 @@ WeQ 是 QQ NT 本地聊天记录的解密 / 导出 / 查看 / 年度报告工具
 | `apps/desktop` | Electron 桌面端（主进程 / 渲染进程 / 预加载） |
 | `apps/web` | 机器人 WebUI |
 | `packages/*` | protocol、db、codec、service、bot、native、testkit 等库 |
-| `packages/daemon` | Rust 守护进程 |
 | `native` | nt_helper 原生产物与 pinned 清单（二进制不入库） |
 | `docs/` | 文档中心：`guide` 用户向、`develop` 开发向、`principles` 原理、`database` 表结构 |
 
@@ -41,21 +40,21 @@ git checkout -b feat/your-feature
 
 ## 2. 本地检查：按需跑，别每次都跑全量
 
-**为了省时间，push 之前不用跑全量 `pnpm ci:local`。** 它把 `.github/workflows/ci.yml` 的门禁在本地按同样顺序复刻一遍（lint / format / typecheck / 单测 / Rust 三项），整轮很慢；日常改动跑一下**和改动相关的那一两项**就够，最终以 CI 结果为准。
+**为了省时间，push 之前不用跑全量 `pnpm ci:local`。** 它把 `.github/workflows/ci.yml` 的门禁在本地按同样顺序复刻一遍（lint / format / typecheck / 单测），整轮很慢；日常改动跑一下**和改动相关的那一两项**就够，最终以 CI 结果为准。
 
 - **CI 跑在 Linux 上**，Windows 本地跑红**不一定**是真问题（路径、换行、大小写、原生模块等平台差异都可能误报）。Windows 本地红的项，先判断是不是平台差异，别急着改代码。
 - 改了 TS / 前端：`pnpm lint`、`pnpm typecheck` 通常就够；只动了某个包可以 `pnpm --filter @weq/<pkg> test`。
 - 改了格式就 `pnpm format`（或 `pnpm lint:fix`）刷一遍，别手写对齐。
-- 动了 `packages/daemon`：在 `packages/daemon` 下跑 `cargo fmt --check`、`cargo clippy --all-targets --all-features -- -D warnings`、`cargo test`。
 - 发版前 / 大改动 / 心里没底时，再跑全量：
 
 ```bash
 pnpm ci:local             # 全量门禁；不 fail-fast，跑完给一张汇总表
 pnpm ci:local --fix       # 先 pnpm format + lint:fix 刷平格式再跑门禁
 pnpm ci:local --full      # 额外跑 web 打包冒烟（≈ CI 的 build-web）
-pnpm ci:local --no-daemon # 本机没 Rust 时跳过 cargo 三项
 ```
 
+- 独立 daemon 已移除，不再需要 Rust 工具链。
+- 需要单独跑某一步时，等价命令：`pnpm lint`、`pnpm format:check`、`pnpm typecheck`、`pnpm -r test`；
 - 真跑红的检查就如实报告失败项和报错。**不要**为了让门禁变绿去放宽规则、加 `// biome-ignore`、塞 `any` / `@ts-ignore`、跳过或删除测试。
 - 打包链路（electron-builder）不在 PR 门禁里。改到它时用 `pnpm --filter @weq/desktop build:unpack` 本地验一遍。
 

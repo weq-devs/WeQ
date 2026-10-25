@@ -71,10 +71,8 @@ it('读取文件不直接写入，明确预览并确认后才暂存；改选使�
   expect(f.api.stage).not.toHaveBeenCalled();
   await ui.click('预览恢复');
   expect(ui.host.textContent).toContain('确认恢复范围');
-  const select = ui.host.querySelector<HTMLSelectElement>('[aria-label="同名数据处理"]')!;
   await act(async () => {
-    select.value = 'overwrite';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
+    ui.host.querySelectorAll<HTMLButtonElement>('[aria-label="同名数据处理"] button')[1]!.click();
   });
   expect(ui.host.textContent).not.toContain('确认恢复范围');
   await ui.click('预览恢复');

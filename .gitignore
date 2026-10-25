@@ -42,8 +42,7 @@ logs/
 # electron-builder
 release/
 
-# Rust daemon build output (staged into resources/daemon/ by build:daemon,
-# packaged at release time — never committed)
+# 旧 daemon 的本机可再生产物仍不入库，也不再随新版本打包。
 packages/daemon/target/
 resources/daemon/
 

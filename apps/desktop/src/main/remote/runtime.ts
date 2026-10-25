@@ -42,7 +42,9 @@ export class RemoteRuntime {
   private store: RemoteStore | null = null;
   private mode: RemoteConnectionMode = 'lan';
   private closing: Promise<void> = Promise.resolve();
-  private helperMode: 'lan' | 'both' = 'lan';
+  private tailscaleChild: ChildProcessWithoutNullStreams | null = null;
+  private tailscaleState: z.infer<typeof networkEvent> = { state: 'offline' };
+  private tailscaleClosing: Promise<void> = Promise.resolve();
 
   configure(config: {
     helper: string;
@@ -72,14 +74,102 @@ export class RemoteRuntime {
   }
 
   async setMode(mode: RemoteConnectionMode): Promise<void> {
-    const enabled = this.server !== null;
     this.mode = mode;
+    this.store?.save({ mode });
+    await this.setTailscaleEnabled(mode !== 'lan');
+  }
+
+  async setTailscaleEnabled(enabled: boolean): Promise<void> {
+    this.store?.save({ tailscaleEnabled: enabled });
+    if (!enabled) this.stopTailscale();
+    else if (this.server) await this.startTailscale();
+  }
+
+  private stopTailscale(): void {
+    const child = this.tailscaleChild;
+    this.tailscaleChild = null;
+    this.tailscaleState = { state: 'offline' };
     this.pairing.cancelInvitation();
-    this.store?.save({ mode, ...(mode !== 'lan' ? { tailscaleEnabled: true } : {}) });
-    if (mode !== 'lan' && this.helperMode === 'lan' && enabled) {
-      this.stop();
-      await this.start();
+    if (!child) return;
+    if (child.exitCode === null) {
+      this.tailscaleClosing = new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 3000);
+        child.once('exit', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
     }
+    child.stdin.end();
+    child.kill();
+  }
+
+  private async startTailscale(): Promise<void> {
+    await this.tailscaleClosing;
+    if (
+      this.tailscaleChild ||
+      !this.server ||
+      !this.config ||
+      !this.state.fingerprint ||
+      !this.store?.read().tailscaleEnabled
+    )
+      return;
+    const bound = this.server.address();
+    if (!bound || typeof bound === 'string') return;
+    this.tailscaleState = { state: 'starting' };
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = this.launch(
+        this.config.helper,
+        [
+          '--backend',
+          `http://127.0.0.1:${bound.port}`,
+          '--state',
+          this.store.read().networkIdentity
+            ? join(this.config.stateDir, this.store.read().networkIdentity!)
+            : this.config.stateDir,
+          '--lan-state',
+          this.config.stateDir,
+          '--mode',
+          'tailscale',
+        ],
+        { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
+      );
+    } catch {
+      this.tailscaleState = { state: 'error', error: 'WeQ 专用 Tailscale 服务启动失败。' };
+      return;
+    }
+    this.tailscaleChild = child;
+    child.stderr.resume();
+    const lines = createInterface({ input: child.stdout });
+    lines.on('line', (line) => {
+      if (this.tailscaleChild !== child || line.length > 8192) return;
+      try {
+        const event = networkEvent.parse(JSON.parse(line));
+        if (event.authUrl && new URL(event.authUrl).protocol !== 'https:') return;
+        if (
+          event.state === 'online' &&
+          (!/^http:\/\/100\.(?:\d{1,3}\.){2}\d{1,3}:7691$/.test(event.address ?? '') ||
+            remoteDirectAddresses([(event.address ?? '').replace('http:', 'https:')], 'existing')
+              .length !== 1)
+        )
+          return;
+        this.tailscaleState = event;
+      } catch {
+        /* 只接受专用辅助进程的结构化状态。 */
+      }
+    });
+    const failed = () => {
+      lines.close();
+      if (this.tailscaleChild !== child) return;
+      this.stopTailscale();
+      this.tailscaleState = {
+        state: 'error',
+        error: 'WeQ 专用 Tailscale 服务已停止，可重新启动。',
+      };
+    };
+    child.once('error', failed);
+    child.once('exit', failed);
   }
 
   async refreshNetwork(): Promise<void> {
@@ -89,25 +179,31 @@ export class RemoteRuntime {
   }
 
   async changeNetwork(): Promise<void> {
-    this.stop();
-    const mode = this.mode === 'lan' ? 'tailscale' : this.mode;
+    this.stopTailscale();
     // 更换身份而不删除原节点；旧节点可在 Tailscale 管理台移除。
     this.store?.save({
-      mode,
       tailscaleEnabled: true,
       networkIdentity: `network-${Date.now()}`,
     });
-    this.mode = mode;
-    await this.start();
+    await this.startTailscale();
   }
 
   status() {
+    const tailscaleEnabled = this.store?.read().tailscaleEnabled ?? false;
+    const network =
+      this.server && tailscaleEnabled && this.state.fingerprint ? this.tailscaleState : this.state;
+    const addresses = remoteDirectAddresses(this.state.addresses ?? [], 'lan');
+    if (this.tailscaleState.state === 'online' && this.tailscaleState.address) {
+      const ip = new URL(this.tailscaleState.address).hostname;
+      addresses.push(`https://${ip}:7692`);
+    }
     return {
       available: this.config !== null,
       helperInstalled: !!this.config && existsSync(this.config.helper),
       enabled: this.server !== null,
       mode: this.mode,
-      network: { ...this.state },
+      tailscaleEnabled,
+      network: { ...network, addresses, fingerprint: this.state.fingerprint },
       ...this.pairing.snapshot(),
     };
   }
@@ -119,7 +215,6 @@ export class RemoteRuntime {
     }
     this.starting = true;
     await this.closing;
-    this.helperMode = this.store?.read().tailscaleEnabled || this.mode !== 'lan' ? 'both' : 'lan';
     const server = createRemoteServer(this.pairing, this.config.webPort);
     this.server = server;
     this.state = { state: 'starting' };
@@ -144,7 +239,7 @@ export class RemoteRuntime {
             ? join(this.config.stateDir, this.store.read().networkIdentity!)
             : this.config.stateDir,
           '--mode',
-          this.helperMode,
+          'lan',
           '--lan-state',
           this.config.stateDir,
           ...(this.config.lanPort === undefined ? [] : ['--lan-port', String(this.config.lanPort)]),
@@ -161,13 +256,6 @@ export class RemoteRuntime {
           const event = networkEvent.parse(JSON.parse(line));
           if (event.authUrl && new URL(event.authUrl).protocol !== 'https:') return;
           if (
-            this.helperMode === 'both' &&
-            event.state === 'online' &&
-            !/^http:\/\/100\.(?:\d{1,3}\.){2}\d{1,3}:\d+$/.test(event.address ?? '')
-          )
-            return;
-          if (
-            this.helperMode === 'lan' &&
             event.state === 'online' &&
             (!event.fingerprint ||
               !event.addresses?.every((value) =>
@@ -176,6 +264,8 @@ export class RemoteRuntime {
           )
             return;
           this.state = event;
+          if (event.state === 'online' && this.store?.read().tailscaleEnabled)
+            void this.startTailscale();
         } catch {
           /* 只接受辅助程序的结构化事件。 */
         }
@@ -192,6 +282,7 @@ export class RemoteRuntime {
         this.state = { state: 'error', error: '网络辅助程序已退出。' };
       });
       this.store?.save({ enabled: true });
+      if (this.store?.read().tailscaleEnabled) await this.startTailscale();
     } catch (error) {
       this.stop();
       this.state = { state: 'error', error: '远程服务启动失败。' };
@@ -202,6 +293,7 @@ export class RemoteRuntime {
   }
 
   stop(disable = false): void {
+    this.stopTailscale();
     if (disable) this.store?.save({ enabled: false });
     const child = this.child;
     this.child = null;
@@ -225,34 +317,30 @@ export class RemoteRuntime {
 
   async invite(input?: z.infer<typeof remoteInviteInput>) {
     const bootstrap = remoteInviteInput.parse(input);
-    const direct = this.mode !== 'tailscale';
-    if (
-      (this.mode === 'tailscale' && this.state.state !== 'online') ||
-      (direct && !this.state.fingerprint)
-    )
-      throw new Error('请先完成网络登录。');
+    const direct = !bootstrap || !('authKey' in bootstrap);
+    const state = this.status().network;
+    if ((!direct && this.tailscaleState.state !== 'online') || !state.fingerprint)
+      throw new Error(direct ? '请先完成网络登录。' : '请先启动并登录 WeQ 专用 Tailscale 服务。');
     const selected = bootstrap && 'endpoint' in bootstrap ? bootstrap.endpoint : undefined;
-    const addresses = remoteDirectAddresses(
-      this.state.addresses ?? [],
-      this.mode === 'existing' ? 'existing' : 'lan',
-    );
+    const addresses = state.addresses ?? [];
     if (selected && !addresses.includes(selected)) throw new Error('所选网络地址已不可用。');
-    const endpoint = direct ? (selected ?? addresses[0]) : this.state.address;
+    const endpoint = direct ? (selected ?? addresses[0]) : this.tailscaleState.address;
     if (!endpoint)
-      throw new Error(
-        this.mode === 'existing'
-          ? '未检测到 Tailscale 地址，请连接电脑的 Tailscale 后刷新地址。'
-          : '没有可用的局域网地址，请检查网络连接。',
-      );
-    if (this.mode === 'tailscale' && (!bootstrap || !('authKey' in bootstrap)))
-      throw new Error('请先填写手机入网 Key。');
+      throw new Error('没有可用的连接地址，请检查网络或启动 WeQ 专用 Tailscale 服务。');
     const invite = this.pairing.invite();
     const url = new URL('weq-remote://pair');
-    url.searchParams.set('v', direct ? '3' : bootstrap ? '2' : '1');
-    url.searchParams.set('endpoint', endpoint);
+    url.searchParams.set('v', selected ? '3' : '4');
+    if (selected) url.searchParams.set('endpoint', selected);
+    else {
+      const lan = remoteDirectAddresses(addresses, 'lan').slice(0, 6);
+      const own = this.tailscaleState.state === 'online' ? this.tailscaleState.address : undefined;
+      const tls = remoteDirectAddresses(addresses, 'existing');
+      const endpoints = [...new Set([...lan, ...(own ? [own] : []), ...tls])].slice(0, 8);
+      for (const address of endpoints) url.searchParams.append('endpoint', address);
+    }
     url.searchParams.set('invitation', invite.secret);
-    if (direct) url.searchParams.set('fingerprint', this.state.fingerprint!);
-    if (bootstrap && 'authKey' in bootstrap && this.mode === 'tailscale') {
+    url.searchParams.set('fingerprint', state.fingerprint!);
+    if (bootstrap && 'authKey' in bootstrap) {
       url.searchParams.set('authKey', bootstrap.authKey);
       url.searchParams.set('expiresAt', String(invite.expiresAt));
     }

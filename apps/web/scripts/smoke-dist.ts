@@ -14,7 +14,7 @@ import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { currentTarget, daemonExe, RESVG_BINDINGS } from './platform.mjs';
+import { currentTarget, RESVG_BINDINGS } from './platform.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = resolve(here, '../dist');
@@ -53,12 +53,7 @@ const target = currentTarget();
 const [platform, arch] = target.split('-');
 check(existsSync(join(dist, 'native', platform!, arch!)), `native/${platform}/${arch} shipped`);
 
-// The Rust daemon binary ships alongside (built by pnpm build:daemon before
-// packaging). Win32 needs the .exe suffix.
-check(
-  existsSync(join(dist, 'resources', 'daemon', target, daemonExe(target))),
-  `resources/daemon/${target}/${daemonExe(target)} shipped`,
-);
+check(!existsSync(join(dist, 'resources', 'daemon')), 'no independent daemon shipped');
 
 // The release ships node_modules pre-installed. If a local build skipped that
 // step, run it here — the server won't start without it.

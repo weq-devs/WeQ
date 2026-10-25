@@ -1,0 +1,88 @@
+.app-title-bar:has(.weq-titlebar-search.is-persistent) {
+  padding-right: 16px;
+}
+
+.app-title-bar-user {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.app-title-bar-signature {
+  flex: 0 1 auto;
+  min-width: 0;
+  letter-spacing: 0;
+}
+
+.app-title-bar-drag {
+  min-width: 8px;
+}
+
+.app-title-bar .weq-titlebar-search.is-persistent {
+  flex: 0 1 240px;
+  width: 240px;
+  min-width: 140px;
+  max-width: 280px;
+  margin-right: 0;
+}
+
+.weq-titlebar-restriction {
+  display: grid;
+  flex: none;
+  grid-template-columns: 0fr;
+  margin-left: 0;
+  opacity: 0;
+  transition:
+    grid-template-columns 180ms ease,
+    margin-left 180ms ease,
+    opacity 180ms ease;
+}
+
+.weq-titlebar-restriction > div {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.weq-titlebar-restriction .weq-restricted-indicator {
+  width: max-content;
+  margin: 0;
+}
+
+.weq-titlebar-restriction:has(.weq-restricted-indicator:not([aria-hidden='true'])) {
+  grid-template-columns: 1fr;
+  margin-left: 8px;
+  opacity: 1;
+}
+
+@media (max-width: 600px) {
+  .app-title-bar .weq-titlebar-search.is-persistent {
+    flex-basis: 160px;
+    width: 160px;
+    min-width: 120px;
+  }
+
+  .app-title-bar:has(.weq-titlebar-search.is-persistent) .app-title-bar-user {
+    padding-inline: 4px;
+    gap: 4px;
+  }
+
+  .app-title-bar:has(.weq-titlebar-search.is-persistent) .app-title-bar-signature {
+    display: block;
+    margin-left: 0;
+  }
+
+  .app-title-bar:has(.weq-titlebar-search.is-persistent) .weq-title-online-status {
+    display: none;
+  }
+
+  .app-title-bar:has(.weq-titlebar-search.is-persistent) .app-title-bar-nick,
+  .app-title-bar:has(.weq-titlebar-search.is-persistent) .app-title-bar-vip-badge,
+  .weq-titlebar-restriction .weq-restricted-indicator span {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-titlebar-restriction {
+    transition: none;
+  }
+}

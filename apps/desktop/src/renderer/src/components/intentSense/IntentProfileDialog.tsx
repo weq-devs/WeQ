@@ -107,7 +107,7 @@ export function IntentProfileDialog({
   const [refreshing, setRefreshing] = useState(false);
   const status = useIntentSenseStatus();
   const profile = trpc.account.intentSense.getProfile.useQuery(
-    { peerUid },
+    { peerUid, revision: status.data?.profileRevision },
     {
       refetchOnWindowFocus: false,
       staleTime: (status.data?.profileCacheSeconds ?? 60) * 1000,
@@ -195,8 +195,11 @@ export function IntentProfileDialog({
             <div className="weq-int-profile">
               <section>
                 <h4>
-                  好感度 <strong className="weq-int-affinity-num">{data.affinity}</strong>
-                  <span className="weq-int-topic">{TIER_LABELS[Math.min(4, data.tier)]}</span>
+                  好感度{' '}
+                  <strong className="weq-int-affinity-num">{data.affinity ?? '未分析'}</strong>
+                  {data.tier !== null ? (
+                    <span className="weq-int-topic">{TIER_LABELS[Math.min(4, data.tier)]}</span>
+                  ) : null}
                 </h4>
                 {data.trend.length > 1 ? (
                   <div
@@ -212,7 +215,11 @@ export function IntentProfileDialog({
                     ))}
                   </div>
                 ) : (
-                  <p className="weq-int-note">样本不足，暂无走势。</p>
+                  <p className="weq-int-note">
+                    {data.affinity === null
+                      ? '暂无情绪分析依据，仅展示互动统计。'
+                      : '样本不足，暂无走势。'}
+                  </p>
                 )}
               </section>
 

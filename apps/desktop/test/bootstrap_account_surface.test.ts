@@ -1,26 +1,23 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AccountSelector } from '../src/renderer/src/views/bootstrap/AccountSelector';
 
 const accounts = Array.from({ length: 24 }, (_, i) => ({
   key: `synthetic-${i}`,
   configId: `synthetic-${i}`,
-  uin: String(10000 + i),
+  uin: '10001',
   name: `合成账号${i + 1}的较长显示名称`,
   hasName: true,
   avatarUrl: null,
+  sourceDir: `/synthetic/snapshot-${i}`,
+  static: true,
+  lastLoginAt: Date.parse('2026-10-25T02:00:00Z'),
 }));
 let host: HTMLDivElement, root: Root;
 const select = vi.fn(),
   remove = vi.fn();
-beforeEach(() => {
-  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  select.mockClear();
-  remove.mockClear();
-  host = document.createElement('div');
-  document.body.append(host);
-  root = createRoot(host);
+function render(disabled = false) {
   act(() =>
     root.render(
       createElement(AccountSelector, {
@@ -28,108 +25,77 @@ beforeEach(() => {
         selected: accounts[0]!,
         onSelect: select,
         onDeleteAccount: remove,
-        footer: createElement('button', { type: 'button' }, '登录新的账号'),
+        disabled,
       }),
     ),
   );
+}
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.clearAllMocks();
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  render();
 });
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
   vi.unstubAllGlobals();
 });
-function trigger() {
-  return host.querySelector<HTMLButtonElement>('.weq-acct-switch')!;
-}
-function open() {
+function openMenu() {
+  const trigger = host.querySelector<HTMLButtonElement>('.weq-account-more')!;
   act(() => {
-    trigger().focus();
-    trigger().click();
+    trigger.focus();
+    trigger.click();
   });
+  return trigger;
 }
-function popup() {
-  return document.querySelector<HTMLElement>('.weq-acct-pop')!;
-}
-function context() {
-  act(() =>
-    popup()
-      .querySelector('.weq-acct-row')!
-      .dispatchEvent(
-        new MouseEvent('contextmenu', {
-          bubbles: true,
-          cancelable: true,
-          clientX: 1000,
-          clientY: 1000,
-        }),
-      ),
+it('所有账号直接显示，同 QQ 的备份以目录区分并显示北京时间', () => {
+  expect(host.querySelectorAll('.weq-account-select')).toHaveLength(accounts.length);
+  expect(host.textContent).toContain('/synthetic/snapshot-23');
+  expect(host.textContent).toContain('本地备份');
+  expect(host.textContent).toContain('10-25 10:00');
+  expect(host.querySelector<HTMLButtonElement>('.weq-account-select')!.title).toContain(
+    accounts[0]!.sourceDir,
   );
-}
-
-describe('启动账号选择器浮层', () => {
-  it('离开滚动裁切树，保留所有账号、完整名称提示和底部入口', () => {
-    open();
-    expect(host.contains(popup())).toBe(false);
-    expect(popup().closest('.is-anchored-popover')).not.toBeNull();
-    expect(popup().querySelectorAll('.weq-acct-row')).toHaveLength(accounts.length);
-    expect(popup().querySelector<HTMLButtonElement>('.weq-acct-row')!.title).toBe(
-      accounts[0]!.name,
-    );
-    expect(popup().querySelector('.weq-acct-foot')!.textContent).toBe('登录新的账号');
-    expect(trigger().getAttribute('aria-haspopup')).toBe('menu');
-  });
-  it('非关闭按键不关闭右键菜单，Escape逐层关闭并归还焦点', () => {
-    open();
-    context();
-    const menu = () => document.querySelector('.weq-acct-ctx-menu');
-    expect(menu()!.closest('.is-anchored-popover')).not.toBeNull();
-    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' })));
-    expect(menu()).not.toBeNull();
-    act(() =>
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
-    );
-    expect(menu()).toBeNull();
-    expect(popup()).not.toBeNull();
-    expect(popup().contains(document.activeElement)).toBe(true);
-    act(() =>
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
-    );
-    expect(popup()).toBeNull();
-    expect(document.activeElement).toBe(trigger());
-    expect(select).not.toHaveBeenCalled();
-    expect(remove).not.toHaveBeenCalled();
-  });
-  it('再次点击触发按钮只关闭菜单，不误开', () => {
-    open();
-    act(() => {
-      trigger().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-      trigger().click();
-    });
-    expect(popup()).toBeNull();
-  });
-  it('选择账号只回传对应对象并关闭', () => {
-    open();
-    act(() => popup().querySelectorAll<HTMLButtonElement>('.weq-acct-row')[3]!.click());
-    expect(select).toHaveBeenCalledOnce();
-    expect(select).toHaveBeenCalledWith(accounts[3]);
-    expect(popup()).toBeNull();
-  });
-  it('明确删除才回传原账号并关闭两层菜单', () => {
-    open();
-    context();
-    act(() => document.querySelector<HTMLButtonElement>('.weq-acct-ctx-menu button')!.click());
-    expect(remove).toHaveBeenCalledOnce();
-    expect(remove).toHaveBeenCalledWith(accounts[0]);
-    expect(select).not.toHaveBeenCalled();
-    expect(document.querySelector('.weq-acct-ctx-menu')).toBeNull();
-    expect(popup()).toBeNull();
-  });
-  it('窗口失焦同时关闭两层，不触发账号操作', () => {
-    open();
-    context();
-    act(() => window.dispatchEvent(new Event('blur')));
-    expect(popup()).toBeNull();
-    expect(document.querySelector('.weq-acct-ctx-menu')).toBeNull();
-    expect(remove).not.toHaveBeenCalled();
-    expect(select).not.toHaveBeenCalled();
-  });
+});
+it('选择账号只回传对应来源，不因同 QQ 号误选', () => {
+  act(() => host.querySelectorAll<HTMLButtonElement>('.weq-account-select')[3]!.click());
+  expect(select).toHaveBeenCalledWith(accounts[3]);
+  expect(remove).not.toHaveBeenCalled();
+});
+it('配置操作可直接点按，Escape 收起菜单并归还焦点', () => {
+  const trigger = openMenu();
+  expect(
+    document.querySelector('.weq-acct-ctx-menu')?.closest('.is-anchored-popover'),
+  ).not.toBeNull();
+  act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' })));
+  expect(document.querySelector('.weq-acct-ctx-menu')).not.toBeNull();
+  act(() =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })),
+  );
+  expect(document.querySelector('.weq-acct-ctx-menu')).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+  expect(remove).not.toHaveBeenCalled();
+});
+it('明确移除才回传原配置，保留右键入口', () => {
+  act(() =>
+    host
+      .querySelectorAll('.weq-account-select')[2]!
+      .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+  );
+  act(() => document.querySelector<HTMLButtonElement>('.weq-acct-ctx-menu button')!.click());
+  expect(remove).toHaveBeenCalledWith(accounts[2]);
+  expect(select).not.toHaveBeenCalled();
+  expect(document.querySelector('.weq-acct-ctx-menu')).toBeNull();
+});
+it('失焦收起菜单，在途禁用账号和配置操作', () => {
+  openMenu();
+  act(() => window.dispatchEvent(new Event('blur')));
+  expect(document.querySelector('.weq-acct-ctx-menu')).toBeNull();
+  openMenu();
+  render(true);
+  expect(document.querySelector('.weq-acct-ctx-menu')).toBeNull();
+  expect([...host.querySelectorAll('button')].every((button) => button.disabled)).toBe(true);
 });

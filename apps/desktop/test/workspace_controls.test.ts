@@ -38,6 +38,34 @@ function pointer(target: Element, type: string, options: PointerEventInit = {}) 
 }
 
 describe('标题栏全局搜索', () => {
+  it('常驻模式无需悬停即可输入，Escape 只关闭结果而不收起搜索栏', () => {
+    const view = mount(
+      createElement(TitleBarSearch, {
+        persistent: true,
+        query: '主题色',
+        onQueryChange: vi.fn(),
+        results: createElement('div', { id: 'persistent-result' }, '结果'),
+      }),
+    );
+    try {
+      const input = view.host.querySelector('input')!;
+      expect(input.disabled).toBe(false);
+      expect(input.tabIndex).toBe(0);
+      expect(view.host.firstElementChild?.classList.contains('is-expanded')).toBe(true);
+      expect(document.getElementById('persistent-result')).toBeNull();
+      act(() => input.focus());
+      expect(document.getElementById('persistent-result')).not.toBeNull();
+      act(() =>
+        input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' })),
+      );
+      expect(document.getElementById('persistent-result')).toBeNull();
+      expect(input.value).toBe('主题色');
+      expect(input.disabled).toBe(false);
+      expect(view.host.firstElementChild?.classList.contains('is-expanded')).toBe(true);
+    } finally {
+      view.dispose();
+    }
+  });
   it('返回更多页后再次打开搜索仍正常聚焦输入框', () => {
     const view = mount(
       createElement(TitleBarSearch, {
@@ -126,6 +154,28 @@ describe('标题栏全局搜索', () => {
       pointer(document.body, 'pointerdown');
       expect(button.getAttribute('aria-expanded')).toBe('false');
       expect(document.getElementById('test-search-result')).toBeNull();
+    } finally {
+      view.dispose();
+    }
+  });
+
+  it('点击功能命中后关闭浮层，常驻搜索框和关键词仍保留', () => {
+    const select = vi.fn();
+    const view = mount(
+      createElement(TitleBarSearch, {
+        persistent: true,
+        query: '导出',
+        onQueryChange: vi.fn(),
+        results: createElement('button', { role: 'option', onClick: select }, '导出'),
+      }),
+    );
+    try {
+      act(() => view.host.querySelector('input')!.focus());
+      act(() => document.querySelector<HTMLButtonElement>('[role="option"]')!.click());
+      expect(select).toHaveBeenCalledOnce();
+      expect(document.querySelector('.weq-titlebar-search-results')).toBeNull();
+      expect(view.host.querySelector('input')!.value).toBe('导出');
+      expect(view.host.querySelector('input')!.disabled).toBe(false);
     } finally {
       view.dispose();
     }

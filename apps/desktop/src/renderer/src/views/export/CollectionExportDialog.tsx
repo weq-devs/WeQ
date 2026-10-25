@@ -48,16 +48,18 @@ export function CollectionExportDialog({
         <p>{cids ? `已选 ${cids.length} 条收藏` : '全部收藏'}</p>
         <label>
           文件格式{' '}
-          <select
-            aria-label="收藏导出格式"
+          <SegmentedControl
+            label="收藏导出格式"
             value={format}
-            onChange={(e) => setFormat(e.target.value as typeof format)}
-          >
-            <option value="json">JSON</option>
-            <option value="csv">CSV</option>
-            <option value="xlsx">Excel</option>
-            <option value="txt">TXT</option>
-          </select>
+            disabled={busy}
+            onChange={setFormat}
+            options={[
+              { value: 'json', label: 'JSON' },
+              { value: 'csv', label: 'CSV' },
+              { value: 'xlsx', label: 'Excel' },
+              { value: 'txt', label: 'TXT' },
+            ]}
+          />
         </label>
         {error ? <p role="alert">{error}</p> : null}
         <div className="weq-dialog-actions">
@@ -75,3 +77,4 @@ export function CollectionExportDialog({
     </Modal>
   );
 }
+import { SegmentedControl } from '../../components/SegmentedControl';

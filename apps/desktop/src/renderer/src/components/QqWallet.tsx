@@ -225,7 +225,9 @@ export function QqWallet({
       {isDesignated ? (
         <div className="weq-redbag-tag weq-redbag-tag--designated">
           <QqAvatar uin={uin} size={22} className="weq-redbag-tag-avatar" />
-          <span>给{nick || uin}的专属红包</span>
+          <span>
+            给<span data-privacy-sensitive>{nick || uin}</span>的专属红包
+          </span>
         </div>
       ) : label ? (
         <div className="weq-redbag-tag">{label}</div>

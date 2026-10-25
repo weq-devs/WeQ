@@ -3,15 +3,14 @@
  * charts the totals. The scan is the slow part (each file is `stat`-ed for its
  * size), so it runs ONE tree at a time via `mediaResource.analyzeTree`, showing a
  * progress banner + per-category cards that fill in as each tree finishes. The
- * cross-category charts (the ranked category bars, the by-month bars, the
- * 源文件/缩略图 split) render once the whole sweep completes.
+ * 跨分类图表随已完成目录持续更新，扫描提示保留到整个遍历结束。
  *
  * Visuals are dependency-free inline bar charts whose colours all come from
  * {@link ACCENT_SERIES}, so everything follows 设置里的主题色.
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import { WorkspacePage } from '../../components/WorkspacePages';
+import { ToolSurface, type ToolPresentation } from '../../components/ToolSurface';
 import {
   X,
   Loader2,
@@ -98,9 +97,11 @@ function accumulate(stats: ResourceStat[]): Totals {
 export function ResourceAnalyticsDialog({
   open,
   onClose,
+  presentation = 'page',
 }: {
   open: boolean;
   onClose: () => void;
+  presentation?: ToolPresentation;
 }): ReactElement | null {
   const [stats, setStats] = useState<ResourceStat[]>([]);
   const [scanningKey, setScanningKey] = useState<ResourceTreeKey | null>(null);
@@ -108,6 +109,12 @@ export function ResourceAnalyticsDialog({
   const [error, setError] = useState<string | null>(null);
   // Guards against a stale scan (dialog closed + reopened) writing late results.
   const runRef = useRef(0);
+  useEffect(
+    () => () => {
+      runRef.current += 1;
+    },
+    [],
+  );
 
   const runScan = useCallback(async (): Promise<void> => {
     const run = ++runRef.current;
@@ -145,179 +152,183 @@ export function ResourceAnalyticsDialog({
   const progress = scanningKey ? stats.length : done ? TREES.length : stats.length;
 
   return (
-    <WorkspacePage title="存储占用" onClose={onClose}>
-      <div className="weq-ra-dialog weq-anim-pop" onMouseDown={(e) => e.stopPropagation()}>
-        <header className="weq-ra-head">
-          <div className="weq-ra-head-title">
-            <Layers size={18} />
-            <div>
-              <strong>本地资源整体分析</strong>
-              <small>遍历全部缓存目录，统计数量、大小与分布</small>
+    <ToolSurface title="存储占用" onClose={onClose} presentation={presentation}>
+      {(onClose) => (
+        <div className="weq-ra-dialog weq-anim-pop" onMouseDown={(e) => e.stopPropagation()}>
+          <header className="weq-ra-head">
+            <div className="weq-ra-head-title">
+              <Layers size={18} />
+              <div>
+                <strong>本地资源整体分析</strong>
+                <small>遍历全部缓存目录，统计数量、大小与分布</small>
+              </div>
             </div>
-          </div>
-          <div className="weq-ra-head-actions">
-            <button
-              type="button"
-              className="weq-ra-rescan"
-              onClick={() => void runScan()}
-              disabled={scanningKey !== null}
-              title="重新扫描"
-            >
-              <RefreshCw size={14} className={scanningKey !== null ? 'is-spin' : ''} />
-              <span>重新扫描</span>
-            </button>
-            <button type="button" className="weq-ra-close" onClick={onClose} aria-label="关闭">
-              <X size={18} />
-            </button>
-          </div>
-        </header>
+            <div className="weq-ra-head-actions">
+              <button
+                type="button"
+                className="weq-ra-rescan"
+                onClick={() => void runScan()}
+                disabled={scanningKey !== null}
+                title="重新扫描"
+              >
+                <RefreshCw size={14} className={scanningKey !== null ? 'is-spin' : ''} />
+                <span>重新扫描</span>
+              </button>
+              <button type="button" className="weq-ra-close" onClick={onClose} aria-label="关闭">
+                <X size={18} />
+              </button>
+            </div>
+          </header>
 
-        {/* Progress banner while scanning. */}
-        {scanningKey !== null ? (
-          <div className="weq-ra-progress">
-            <div className="weq-ra-progress-row">
-              <Loader2 size={15} className="weq-spin" />
-              <span>
-                正在扫描 <strong>{labelOf(scanningKey)}</strong>… 计算大小可能较慢，请稍候
-              </span>
-              <span className="weq-ra-progress-count">
-                {progress} / {TREES.length}
-              </span>
+          {/* Progress banner while scanning. */}
+          {scanningKey !== null ? (
+            <div className="weq-ra-progress">
+              <div className="weq-ra-progress-row">
+                <Loader2 size={15} className="weq-spin" />
+                <span>
+                  正在扫描 <strong>{labelOf(scanningKey)}</strong>… 计算大小可能较慢，请稍候
+                </span>
+                <span className="weq-ra-progress-count">
+                  {progress} / {TREES.length}
+                </span>
+              </div>
+              <div className="weq-ra-progress-track">
+                <div
+                  className="weq-ra-progress-fill"
+                  style={{ width: `${(progress / TREES.length) * 100}%` }}
+                />
+              </div>
             </div>
-            <div className="weq-ra-progress-track">
-              <div
-                className="weq-ra-progress-fill"
-                style={{ width: `${(progress / TREES.length) * 100}%` }}
+          ) : null}
+
+          {error ? <div className="weq-ra-error">扫描失败：{error}</div> : null}
+
+          <div className="weq-ra-body">
+            {/* Overview stat tiles. */}
+            <div className="weq-ra-tiles">
+              <StatTile
+                icon={<HardDrive size={18} />}
+                value={stats.length || done ? fmtBytes(totals.bytes) : '—'}
+                label={done ? '总占用空间' : '已统计占用空间'}
+              />
+              <StatTile
+                icon={<Layers size={18} />}
+                value={stats.length || done ? formatNumber(totals.files) : '—'}
+                label={done ? '资源文件总数' : '已统计文件数'}
+              />
+              <StatTile
+                icon={<ImageIcon size={18} />}
+                value={String(present.length)}
+                label="有内容的分类"
+              />
+              <StatTile
+                icon={<CalendarRange size={18} />}
+                value={String(Object.keys(totals.byMonth).length)}
+                label="覆盖月份数"
               />
             </div>
-          </div>
-        ) : null}
 
-        {error ? <div className="weq-ra-error">扫描失败：{error}</div> : null}
-
-        <div className="weq-ra-body">
-          {/* Overview stat tiles. */}
-          <div className="weq-ra-tiles">
-            <StatTile
-              icon={<HardDrive size={18} />}
-              value={fmtBytes(totals.bytes)}
-              label="总占用空间"
-            />
-            <StatTile
-              icon={<Layers size={18} />}
-              value={formatNumber(totals.files)}
-              label="资源文件总数"
-            />
-            <StatTile
-              icon={<ImageIcon size={18} />}
-              value={String(present.length)}
-              label="有内容的分类"
-            />
-            <StatTile
-              icon={<CalendarRange size={18} />}
-              value={String(Object.keys(totals.byMonth).length)}
-              label="覆盖月份数"
-            />
-          </div>
-
-          {/* Cross-category ranking — one bar chart covers both 大小 and 数量
+            {/* Cross-category ranking — one bar chart covers both 大小 and 数量
               (toggle), so every category name shows in full without the cramped
               legend the old donuts had. */}
-          <ChartCard title="各分类分布" wide>
-            {done && present.length > 0 ? (
-              <CategoryBars stats={present} totals={totals} />
-            ) : (
-              <ChartWaiting scanning={scanningKey !== null} />
-            )}
-          </ChartCard>
+            <ChartCard title="各分类分布" wide>
+              {present.length > 0 ? (
+                <CategoryBars stats={present} totals={totals} />
+              ) : (
+                <ChartWaiting scanning={scanningKey !== null} />
+              )}
+            </ChartCard>
 
-          {/* 源文件 / 缩略图 占比 as a slim 100% stacked bar. */}
-          <ChartCard title="源文件 / 缩略图 占比" wide>
-            {done && totals.files > 0 ? (
-              <ShareBar
-                segments={[
-                  {
-                    label: '源文件',
-                    bytes: totals.ori.bytes,
-                    files: totals.ori.files,
-                    color: ACCENT_SERIES[0],
-                  },
-                  {
-                    label: '缩略图',
-                    bytes: totals.thumb.bytes,
-                    files: totals.thumb.files,
-                    color: ACCENT_SERIES[3],
-                  },
-                  {
-                    label: '其它',
-                    bytes: totals.other.bytes,
-                    files: totals.other.files,
-                    color: ACCENT_MUTED,
-                  },
-                ]}
-              />
-            ) : (
-              <ChartWaiting scanning={scanningKey !== null} />
-            )}
-          </ChartCard>
+            {/* 源文件 / 缩略图 占比 as a slim 100% stacked bar. */}
+            <ChartCard title="源文件 / 缩略图 占比" wide>
+              {totals.files > 0 ? (
+                <ShareBar
+                  segments={[
+                    {
+                      label: '源文件',
+                      bytes: totals.ori.bytes,
+                      files: totals.ori.files,
+                      color: ACCENT_SERIES[0],
+                    },
+                    {
+                      label: '缩略图',
+                      bytes: totals.thumb.bytes,
+                      files: totals.thumb.files,
+                      color: ACCENT_SERIES[3],
+                    },
+                    {
+                      label: '其它',
+                      bytes: totals.other.bytes,
+                      files: totals.other.files,
+                      color: ACCENT_MUTED,
+                    },
+                  ]}
+                />
+              ) : (
+                <ChartWaiting scanning={scanningKey !== null} />
+              )}
+            </ChartCard>
 
-          {/* By-month bars. */}
-          <ChartCard title="按时间分布（文件修改月份）" wide>
-            {done && Object.keys(totals.byMonth).length > 0 ? (
-              <MonthlyBars data={totals.byMonth} />
-            ) : (
-              <ChartWaiting scanning={scanningKey !== null} />
-            )}
-          </ChartCard>
+            {/* By-month bars. */}
+            <ChartCard title="按时间分布（文件修改月份）" wide>
+              {Object.keys(totals.byMonth).length > 0 ? (
+                <MonthlyBars data={totals.byMonth} />
+              ) : (
+                <ChartWaiting scanning={scanningKey !== null} />
+              )}
+            </ChartCard>
 
-          {/* Per-category detail table — fills in live as each tree finishes. */}
-          <ChartCard title="分类明细" wide>
-            <div className="weq-ra-table">
-              <div className="weq-ra-tr weq-ra-th">
-                <span>分类</span>
-                <span>文件数</span>
-                <span>占用大小</span>
-                <span>平均大小</span>
-                <span>源/缩略图</span>
-              </div>
-              {TREES.map((tree) => {
-                const s = stats.find((x) => x.key === tree.key);
-                const scanning = scanningKey === tree.key;
-                return (
-                  <div className="weq-ra-tr" key={tree.key}>
-                    <span className="weq-ra-cat">
-                      <i style={{ background: tree.color }} />
-                      {tree.icon}
-                      {tree.label}
-                    </span>
-                    {s ? (
-                      <>
-                        <span>{s.files > 0 ? formatNumber(s.files) : s.present ? '0' : '—'}</span>
-                        <span>{s.files > 0 ? fmtBytes(s.bytes) : '—'}</span>
-                        <span>{s.files > 0 ? fmtBytes(Math.round(s.bytes / s.files)) : '—'}</span>
-                        <span className="weq-ra-oritm">
-                          {s.ori.files || s.thumb.files ? `${s.ori.files} / ${s.thumb.files}` : '—'}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="weq-ra-pending" style={{ gridColumn: 'span 4' }}>
-                        {scanning ? (
-                          <>
-                            <Loader2 size={12} className="weq-spin" /> 扫描中…
-                          </>
-                        ) : (
-                          '等待扫描'
-                        )}
+            {/* Per-category detail table — fills in live as each tree finishes. */}
+            <ChartCard title="分类明细" wide>
+              <div className="weq-ra-table">
+                <div className="weq-ra-tr weq-ra-th">
+                  <span>分类</span>
+                  <span>文件数</span>
+                  <span>占用大小</span>
+                  <span>平均大小</span>
+                  <span>源/缩略图</span>
+                </div>
+                {TREES.map((tree) => {
+                  const s = stats.find((x) => x.key === tree.key);
+                  const scanning = scanningKey === tree.key;
+                  return (
+                    <div className="weq-ra-tr" key={tree.key}>
+                      <span className="weq-ra-cat">
+                        <i style={{ background: tree.color }} />
+                        {tree.icon}
+                        {tree.label}
                       </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </ChartCard>
+                      {s ? (
+                        <>
+                          <span>{s.files > 0 ? formatNumber(s.files) : s.present ? '0' : '—'}</span>
+                          <span>{s.files > 0 ? fmtBytes(s.bytes) : '—'}</span>
+                          <span>{s.files > 0 ? fmtBytes(Math.round(s.bytes / s.files)) : '—'}</span>
+                          <span className="weq-ra-oritm">
+                            {s.ori.files || s.thumb.files
+                              ? `${s.ori.files} / ${s.thumb.files}`
+                              : '—'}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="weq-ra-pending" style={{ gridColumn: 'span 4' }}>
+                          {scanning ? (
+                            <>
+                              <Loader2 size={12} className="weq-spin" /> 扫描中…
+                            </>
+                          ) : (
+                            '等待扫描'
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </ChartCard>
+          </div>
         </div>
-      </div>
-    </WorkspacePage>
+      )}
+    </ToolSurface>
   );
 }
 

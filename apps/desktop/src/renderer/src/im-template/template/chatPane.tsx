@@ -94,6 +94,7 @@ import {
 } from 'react';
 import { ReplyJumpContext } from '../../components/QqMessageContent';
 import { openLightbox } from '../../components/ImageLightbox';
+import { releaseObjectUrl } from '../../lib/objectUrl';
 import '../../styles/composer-image-preview.css';
 import { ChatBackdrop } from '../../components/ChatBackdrop';
 import { useChatBackdrop } from '../../hooks/useDressSkin';
@@ -236,7 +237,7 @@ import type {
   User,
 } from './types';
 import { dockStopLabel, dockStopTone } from './unreadDock';
-import { displayUserName } from './user';
+import { displayGroupName, displayUserName } from './user';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { MessageDecorationCard } from '../../components/MessageDecorationCard';
 import { trpc } from '../../trpc/client';
@@ -453,6 +454,7 @@ export function ChatPane({
   onEditRaw,
   onDeleteMessage,
   onDismissUnsentMessage,
+  onStartOutgoingMessage,
   onOpenGroupAlbums,
   onOpenGroupFiles,
   onOpenGroupAnnouncements,
@@ -576,6 +578,7 @@ export function ChatPane({
    * 末尾，气泡状态条旁给一枚一次点击的「移除」按钮（不影响对方是否收到）。
    */
   onDismissUnsentMessage?: (message: Message) => void;
+  onStartOutgoingMessage?: (message: Message) => void;
   onOpenGroupAlbums?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupFiles?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
   onOpenGroupAnnouncements?: (conversation: Extract<Conversation, { type: 'group' }>) => void;
@@ -1967,7 +1970,7 @@ export function ChatPane({
   const releaseInlineImages = useCallback(() => {
     for (const item of inlineImagesRef.current) releaseAttachment(item);
     inlineImagesRef.current = [];
-    for (const url of reeditObjectUrlsRef.current) URL.revokeObjectURL(url);
+    for (const url of reeditObjectUrlsRef.current) releaseObjectUrl(url);
     reeditObjectUrlsRef.current = [];
   }, []);
   useEffect(() => {
@@ -1979,7 +1982,7 @@ export function ChatPane({
     );
     for (const url of retainedSendUrlsRef.current) {
       if (referenced.has(url)) continue;
-      URL.revokeObjectURL(url);
+      releaseObjectUrl(url);
       retainedSendUrlsRef.current.delete(url);
     }
   }, [messages, sending]);
@@ -2010,7 +2013,7 @@ export function ChatPane({
   useLayoutEffect(
     () => () => {
       releaseInlineImages();
-      for (const url of retainedSendUrlsRef.current) URL.revokeObjectURL(url);
+      for (const url of retainedSendUrlsRef.current) releaseObjectUrl(url);
       retainedSendUrlsRef.current.clear();
       if (mediaAttachmentRef.current) releaseAttachment(mediaAttachmentRef.current);
     },
@@ -2936,7 +2939,6 @@ export function ChatPane({
     const clearsBody = !singleToken && !options.keepBody;
     const sentImages = clearsBody ? [...inlineImagesRef.current] : [];
     const sentReeditUrls = clearsBody ? [...reeditObjectUrlsRef.current] : [];
-    let failed = false;
     const initialFocus = document.activeElement;
     const isCurrentComposer = () =>
       mentionConversation.current === request.conversationId &&
@@ -2959,6 +2961,9 @@ export function ChatPane({
     if (readAfterSend) requestReadAtBottom();
     readGestureUntil.current = 0;
     setSending(true);
+    void jumpAfterSuccessfulSend(conversation).catch((error) => {
+      console.error('[composer] jump to latest failed:', error);
+    });
     try {
       // 先捕获媒体句柄；清空后它们归本次发送所有，不能释放仍在读取的预览。
       const localMedia = planNeedsLocalMedia(payloadBody)
@@ -2984,17 +2989,11 @@ export function ChatPane({
       restoreSendFocus();
       window.requestAnimationFrame(restoreSendFocus);
       const locals = localMedia ? await localMedia : undefined;
-      await onSend(payloadBody, locals);
-      if (!isCurrentComposer()) return;
-      if (mediaSettings.data?.jumpToLatestAfterSend !== false)
-        await jumpAfterSuccessfulSend(conversation);
-      else if (readAfterSend) requestReadAtBottom();
-
-      // 独立卡片不带走正文；普通发送的正文已交接，回执不能清掉下一条草稿。
+      // 内容交接后即允许下一条输入；不能让迟到回执清掉下一张附件或下一条草稿。
       if (singleToken) {
+        if (mediaAttachment?.url) retainedSendUrlsRef.current.add(mediaAttachment.url);
         setMediaAttachment((current) => {
           if (current !== mediaAttachment) return current;
-          if (current) releaseAttachment(current);
           return null;
         });
         setPendingSuperEmoji((current) => (current === pendingSuperEmoji ? null : current));
@@ -3004,18 +3003,21 @@ export function ChatPane({
       setBounceOpen(false);
       setPokeOpen(false);
       if (singleToken || options.keepBody) window.requestAnimationFrame(restoreSendFocus);
+      const sent = onSend(payloadBody, locals);
+      composerSendRef.current = null;
+      setSending(false);
+      await sent;
+      if (isCurrentComposer() && readAfterSend) requestReadAtBottom();
     } catch (error) {
-      failed = true;
-      // 失败只保留消息上的重新编辑入口，不回填或覆盖下一条草稿。
+      // 失败通过原消息重试，不回填或覆盖下一条草稿。
+      console.error('[composer] send failed:', error);
+    } finally {
+      // 回执不等于真实消息已接管；占位或灯箱仍引用的地址不能随发送结束撤销。
       for (const url of [...sentImages.map((image) => image.url), ...sentReeditUrls]) {
         if (!url) continue;
         if (composerEditorRef.current) retainedSendUrlsRef.current.add(url);
-        else URL.revokeObjectURL(url);
+        else releaseObjectUrl(url);
       }
-      console.error('[composer] send failed:', error);
-    } finally {
-      if (!failed) for (const image of sentImages) releaseAttachment(image);
-      if (!failed) for (const url of sentReeditUrls) URL.revokeObjectURL(url);
       if (composerSendRef.current === request) {
         composerSendRef.current = null;
         setSending(false);
@@ -3069,7 +3071,7 @@ export function ChatPane({
       await sendVoiceClip(clip);
     } finally {
       // 乐观预览的 blob 要留到发送完成后再释放。
-      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      window.setTimeout(() => releaseObjectUrl(url), 30_000);
     }
   }
 
@@ -3873,12 +3875,12 @@ export function ChatPane({
       return false;
     }
     if (controller.signal.aborted || !unchanged()) {
-      for (const url of prepared.objectUrls) URL.revokeObjectURL(url);
+      for (const url of prepared.objectUrls) releaseObjectUrl(url);
       return false;
     }
     const text = prepared.body;
     if (!text) {
-      for (const url of prepared.objectUrls) URL.revokeObjectURL(url);
+      for (const url of prepared.objectUrls) releaseObjectUrl(url);
       return false;
     }
     releaseInlineImages();
@@ -4645,10 +4647,19 @@ export function ChatPane({
                   }
                 }}
               >
-                {chatHeaderTitle(conversation)}
+                {conversation.type === 'group' ? (
+                  <>
+                    <span data-privacy-sensitive>{displayGroupName(conversation.group)}</span>
+                    {` (${conversation.group.memberCount})`}
+                  </>
+                ) : (
+                  <span data-privacy-sensitive>{chatHeaderTitle(conversation)}</span>
+                )}
               </button>
             ) : (
-              <span className={cn('chat-title-text')}>{chatHeaderTitle(conversation)}</span>
+              <span className={cn('chat-title-text')}>
+                <span data-privacy-sensitive>{chatHeaderTitle(conversation)}</span>
+              </span>
             )}
             {isBotConversation(conversation) ? (
               <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
@@ -4902,6 +4913,11 @@ export function ChatPane({
                       onAction={onMessageAction}
                       onReedit={reeditMessage}
                       onDismissUnsent={onDismissUnsentMessage}
+                      onStartOutgoing={
+                        !sendAvailable || currentPreference.blocked
+                          ? undefined
+                          : onStartOutgoingMessage
+                      }
                       repeatAction={
                         !selectionMode &&
                         onRepeatMessage &&

@@ -1,11 +1,13 @@
 /** The unified search dropdown under the sidebar search box. */
 
-import { useCallback, useRef, type ReactElement } from 'react';
+import { useCallback, useRef, useState, type ReactElement } from 'react';
 import { RotateCw } from 'lucide-react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import '../../styles/search-scope.css';
 import { SearchResultCard } from './SearchResultCard';
 import { SearchSectionSkeleton } from './SearchSkeleton';
+import { AppSearchResults } from './AppSearchResults';
+import type { AppSearchEntry } from './appSearchCatalog';
 import { restoreSearchPosition, type SearchPosition } from './searchPosition';
 import {
   CATEGORY_META,
@@ -58,6 +60,9 @@ export function SearchDropdown({
   onMore,
   initialPosition,
   onNavigate,
+  appSearchEnabled = false,
+  onAppSearchEnabledChange,
+  onSelectAppEntry,
 }: {
   keyword: string;
   quick: QuickSearchResult | null;
@@ -73,9 +78,22 @@ export function SearchDropdown({
   onMore: (category: SearchCategory) => void;
   initialPosition?: SearchPosition;
   onNavigate?: (position: SearchPosition) => void;
+  appSearchEnabled?: boolean;
+  onAppSearchEnabledChange?: (enabled: boolean) => void;
+  onSelectAppEntry?: (entry: AppSearchEntry) => void;
 }): ReactElement {
   const root = useRef<HTMLDivElement | null>(null);
   const position = useRef(initialPosition);
+  const [expandedAppKeyword, setExpandedAppKeyword] = useState(
+    initialPosition?.appResultsExpanded ? keyword : null,
+  );
+  const appResultsExpanded = expandedAppKeyword === keyword;
+  const rememberPosition = (focusKey: string) =>
+    onNavigate?.({
+      scrollTop: root.current?.scrollTop ?? 0,
+      focusKey,
+      ...(appResultsExpanded ? { appResultsExpanded: true } : {}),
+    });
   const attachRoot = useCallback((node: HTMLDivElement | null) => {
     root.current = node;
     if (node && position.current) {
@@ -172,18 +190,36 @@ export function SearchDropdown({
           <input
             type="checkbox"
             aria-label="全部范围"
-            checked={categories.length === SEARCH_CATEGORY_ORDER.length}
+            checked={
+              categories.length === SEARCH_CATEGORY_ORDER.length &&
+              (!onSelectAppEntry || appSearchEnabled)
+            }
             ref={(node) => {
               if (node)
                 node.indeterminate =
-                  categories.length > 0 && categories.length < SEARCH_CATEGORY_ORDER.length;
+                  (categories.length > 0 || appSearchEnabled) &&
+                  !(
+                    categories.length === SEARCH_CATEGORY_ORDER.length &&
+                    (!onSelectAppEntry || appSearchEnabled)
+                  );
             }}
-            onChange={(event) =>
-              onCategoriesChange(event.target.checked ? [...SEARCH_CATEGORY_ORDER] : [])
-            }
+            onChange={(event) => {
+              onCategoriesChange(event.target.checked ? [...SEARCH_CATEGORY_ORDER] : []);
+              onAppSearchEnabledChange?.(event.target.checked);
+            }}
           />
           全部
         </label>
+        {onSelectAppEntry ? (
+          <label>
+            <input
+              type="checkbox"
+              checked={appSearchEnabled}
+              onChange={(event) => onAppSearchEnabledChange?.(event.target.checked)}
+            />
+            功能与设置
+          </label>
+        ) : null}
         {scopeOptions.map((option) => (
           <label key={option.id} {...scopeSelection.itemProps(option.id)}>
             <input
@@ -195,14 +231,29 @@ export function SearchDropdown({
           </label>
         ))}
       </div>
-      <div className="weq-search-index-hint">来源：当前账号 · 本地可检索记录</div>
+      <div className="weq-search-index-hint">
+        来源：{appSearchEnabled ? '应用功能与设置 · ' : ''}当前账号 · 本地可检索记录
+      </div>
       {indexBuilding ? (
         <div className="weq-search-index-hint">
           正在建立本地搜索索引，聊天记录/文件首次查询较慢…
         </div>
       ) : null}
       <div role="listbox" aria-label="搜索结果" aria-busy={quickLoading || slowLoading}>
-        {categories.length === 0 ? <div className="weq-search-empty">未选择搜索范围</div> : null}
+        {categories.length === 0 && !appSearchEnabled ? (
+          <div className="weq-search-empty">未选择搜索范围</div>
+        ) : null}
+        {appSearchEnabled && onSelectAppEntry ? (
+          <AppSearchResults
+            keyword={keyword}
+            expanded={appResultsExpanded}
+            onExpand={() => setExpandedAppKeyword(keyword)}
+            onSelect={(entry) => {
+              rememberPosition(`app:${entry.id}`);
+              onSelectAppEntry(entry);
+            }}
+          />
+        ) : null}
         {orderedCategories.map((category) => {
           const section = sections.get(category)!;
           const hits = section.hits;
@@ -220,10 +271,7 @@ export function SearchDropdown({
                     className="weq-search-more"
                     data-search-hit-key={`more:${category}`}
                     onClick={() => {
-                      onNavigate?.({
-                        scrollTop: root.current?.scrollTop ?? 0,
-                        focusKey: `more:${category}`,
-                      });
+                      rememberPosition(`more:${category}`);
                       onMore(category);
                     }}
                   >
@@ -257,10 +305,7 @@ export function SearchDropdown({
                     hit={hit}
                     keyword={keyword}
                     onSelect={(selected) => {
-                      onNavigate?.({
-                        scrollTop: root.current?.scrollTop ?? 0,
-                        focusKey: searchHitKey(selected),
-                      });
+                      rememberPosition(searchHitKey(selected));
                       onSelect(selected);
                     }}
                   />

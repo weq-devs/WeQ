@@ -17,6 +17,7 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { AlertTriangle, Check, Download, Loader2, ScanText, Trash2 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { Card, Row, SectionHeader } from './controls';
 
@@ -57,6 +58,7 @@ interface ModelRow {
   sizeLabel: string;
   sizeOnDisk: number;
   downloaded: boolean;
+  downloading?: boolean;
   recommended: boolean;
 }
 
@@ -111,8 +113,9 @@ function ModelKindCard({
         <div className="weq-models">
           {models.map((m) => {
             const isSelected = selectedId === m.id;
-            const isDownloading = progress?.id === m.id;
-            const pct = isDownloading ? Math.round(progress.percent) : 0;
+            const hasProgress = progress?.id === m.id;
+            const isDownloading = hasProgress || m.downloading;
+            const pct = hasProgress ? Math.round(progress.percent) : 0;
             return (
               <div key={m.id} className={`weq-model${isSelected ? ' is-selected' : ''}`}>
                 <div className="weq-model-icon">
@@ -134,7 +137,7 @@ function ModelKindCard({
                     {m.downloaded ? `占用 ${fmtBytes(m.sizeOnDisk)}` : `约 ${m.sizeLabel}`}
                   </span>
 
-                  {isDownloading ? (
+                  {hasProgress ? (
                     <div className="weq-set-progress">
                       <div className="weq-set-progress-track">
                         <div className="weq-set-progress-fill" style={{ width: `${pct}%` }} />
@@ -201,10 +204,12 @@ function ModelKindCard({
 }
 
 export function OcrModelsSection(): ReactElement {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const utils = trpc.useUtils();
 
   const models = trpc.bootstrap.localModelResources.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -223,8 +228,14 @@ export function OcrModelsSection(): ReactElement {
   showErrorRef.current = showError;
 
   useEffect(() => {
+    if (!active) {
+      setProgress(null);
+      return;
+    }
+    let current = true;
     const sub = client.bootstrap.onOcrModelProgress.subscribe(undefined, {
       onData: (p) => {
+        if (!current) return;
         if (p.error) {
           setProgress(null);
           void refetchModelsRef.current();
@@ -246,8 +257,11 @@ export function OcrModelsSection(): ReactElement {
       },
       onError: (err) => console.error('[ocr] progress subscription error', err),
     });
-    return () => sub.unsubscribe();
-  }, []);
+    return () => {
+      current = false;
+      sub.unsubscribe();
+    };
+  }, [active]);
 
   const selectedOcr = models.data?.selected.ocr ?? '';
   const selectedFilter = models.data?.selected.filter ?? '';
@@ -290,7 +304,7 @@ export function OcrModelsSection(): ReactElement {
   const engineBlocker = models.data?.engineBlocker ?? null;
   const ocrModels = all.filter((m) => m.kind === 'ocr');
   const filterModels = all.filter((m) => m.kind === 'filter');
-  const busy = remove.isLoading || setModel.isLoading;
+  const busy = remove.isLoading || setModel.isLoading || models.isFetching;
 
   return (
     <div className="weq-set">

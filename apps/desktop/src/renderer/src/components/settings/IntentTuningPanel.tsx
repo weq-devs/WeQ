@@ -8,6 +8,7 @@ import {
   type IntentTuningKey,
 } from '@weq/service/intent-context';
 import { trpc } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { Card, Row } from './controls';
 import { useDialog } from '../Dialog';
 
@@ -19,11 +20,13 @@ const TITLES = {
 };
 
 export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
+  const active = useTabActive();
   const keys = useMemo(
     () => INTENT_TUNING_KEYS.filter((key) => INTENT_TUNING[key].group === group),
     [group],
   );
   const status = trpc.account.intentSense.getStatus.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
   });
   const save = trpc.account.intentSense.setConfig.useMutation();

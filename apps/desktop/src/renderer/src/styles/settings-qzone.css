@@ -1,0 +1,29 @@
+.weq-qzone-pagination-form {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.weq-qzone-pagination-form .weq-set-input {
+  flex: 0 0 48px;
+  width: 48px;
+  min-width: 0;
+  padding-inline: 6px;
+  text-align: center;
+  appearance: textfield;
+}
+
+.weq-qzone-pagination-form input::-webkit-inner-spin-button,
+.weq-qzone-pagination-form input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.weq-qzone-pagination-form .weq-set-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+}

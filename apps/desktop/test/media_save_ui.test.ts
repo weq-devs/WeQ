@@ -2,7 +2,7 @@ import { act, createElement as h, useEffect, useState, type ReactNode } from 're
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ExportSavePolicy } from '@weq/service';
-import { MediaSourceSave } from '../src/renderer/src/components/MediaSaveControls';
+import { MediaSourceSave, useMediaSave } from '../src/renderer/src/components/MediaSaveControls';
 import { QqFile, QqVoice } from '../src/renderer/src/components/QqMedia';
 import { GroupFileDialog } from '../src/renderer/src/components/GroupFileDialog';
 import { ImageLightbox, openLightbox } from '../src/renderer/src/components/ImageLightbox';
@@ -206,6 +206,24 @@ async function mount(
 async function click(host: HTMLElement, label: string) {
   await act(async () => host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!.click());
 }
+// 个性装扮的「下载」仍复用此 hook；通用保存控件不再额外展示浏览器下载按钮。
+function BrowserDownloadHarness() {
+  const save = useMediaSave();
+  return h(
+    'div',
+    null,
+    h('button', {
+      'aria-label': '保存图片到浏览器',
+      onClick: () =>
+        void save.run(
+          { kind: 'url', url: 'weq-media://pic?name=photo.jpg', name: 'photo.jpg' },
+          undefined,
+          true,
+        ),
+    }),
+    h('button', { 'aria-label': '停止本次下载', onClick: () => void save.cancel() }),
+  );
+}
 function capture(node: HTMLElement, name: string) {
   const directory = process.env.WEQ_MEDIA_SAVE_LAYOUT;
   if (!directory) return;
@@ -252,33 +270,33 @@ it('主动作沿用公共偏好，排队只提示受理，不直接写盘或打�
     title: '媒体保存任务已创建',
   });
 });
-it('菜单本次另存取消，不修改偏好、不退出控件或清理原资源', async () => {
+it('单按钮保存取消，不修改偏好、不退出控件或清理原资源', async () => {
   const view = await mount();
   state.save.mockResolvedValueOnce(null);
-  act(() =>
-    view.host.querySelector<HTMLButtonElement>('[aria-label="保存图片的本次保存选项"]')!.click(),
-  );
-  await act(async () =>
-    [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-      .find((button) => button.textContent === '另存到…')!
-      .click(),
-  );
-  expect(state.save.mock.calls[0]![0]).toMatchObject({ savePolicy: { mode: 'before' } });
+  expect(view.host.querySelectorAll('button')).toHaveLength(1);
+  await click(view.host, '保存图片');
+  expect(state.save.mock.calls[0]![0]).toMatchObject({
+    savePolicy: { mode: 'preset', directory: '/saved' },
+  });
   expect(view.host.querySelector('[aria-label="保存图片"]')).not.toBeNull();
   expect(state.toast).not.toHaveBeenCalled();
 });
-it('Web 区分服务器保存和浏览器下载，后者只下载完整任务且不准备服务器位置', async () => {
+it('Web 通用保存只提供一个按钮，专用下载 hook 仍等待完整任务', async () => {
   state.web = true;
   const view = await mount();
   await click(view.host, '保存图片');
+  expect(view.host.querySelectorAll('button')).toHaveLength(1);
   expect(state.prepare).toHaveBeenCalledWith(undefined, { kind: 'bundle', name: 'photo.jpg' });
   state.prepare.mockClear();
   state.save.mockClear();
   state.toast.mockClear();
   const anchor = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-  await click(view.host, '保存图片到浏览器');
+  const browser = await mount(h(BrowserDownloadHarness));
+  await click(browser.host, '保存图片到浏览器');
   await vi.waitFor(() => expect(anchor).toHaveBeenCalledOnce());
-  expect(state.save.mock.calls[0]![0]).toMatchObject({ savePolicy: { mode: 'after' } });
+  expect(state.save.mock.calls[0]![0]).toMatchObject({
+    savePolicy: { mode: 'before', directory: '.' },
+  });
   expect(state.prepare).not.toHaveBeenCalled();
   expect(state.download).toHaveBeenCalledWith({
     expectedAccountUin: '10001',
@@ -289,7 +307,7 @@ it('Web 区分服务器保存和浏览器下载，后者只下载完整任务且
 it('浏览器下载等待可停止，不再触发下载链接，已生成结果不删除', async () => {
   state.web = true;
   state.receipt.mockResolvedValueOnce({ status: 'running', error: undefined });
-  const view = await mount();
+  const view = await mount(h(BrowserDownloadHarness));
   await click(view.host, '保存图片到浏览器');
   await vi.waitFor(() => expect(state.receipt).toHaveBeenCalledOnce());
   await click(view.host, '停止本次下载');
@@ -308,7 +326,7 @@ it('任务创建期间关闭界面，不让迟到回执触发浏览器下载，�
       release = resolve;
     }),
   );
-  const view = await mount();
+  const view = await mount(h(BrowserDownloadHarness));
   await click(view.host, '保存图片到浏览器');
   view.close();
   await act(async () => release('late-task'));
@@ -401,7 +419,7 @@ it('独立 Web 窗口的同源绝对媒体地址还原成已有挂载路径', as
     source: { kind: 'url', url: '/_media/pic?name=photo.jpg' },
   });
 });
-it('图片右键下载菜单分别传递默认、本次另存与稍后保存，不改变消息身份', async () => {
+it('图片右键只保留一个下载动作并保留消息身份', async () => {
   const message = createTemplateDemoData().messages[0]!,
     download = vi.fn();
   const view = await mount(
@@ -416,13 +434,9 @@ it('图片右键下载菜单分别传递默认、本次另存与稍后保存，�
       (button) => button.textContent === name,
     )!;
   act(() => action('下载').click());
-  act(() => action('另存到…').click());
-  act(() => action('先生成，稍后保存').click());
-  expect(download.mock.calls).toEqual([
-    ['weq-media://pic?name=photo.jpg', message],
-    ['weq-media://pic?name=photo.jpg', message, { mode: 'before' }],
-    ['weq-media://pic?name=photo.jpg', message, { mode: 'after' }],
-  ]);
+  expect(action('另存到…')).toBeUndefined();
+  expect(action('先生成，稍后保存')).toBeUndefined();
+  expect(download.mock.calls).toEqual([['weq-media://pic?name=photo.jpg', message]]);
 });
 it('图片灯箱选择器取消后仍保留原图和缩放状态，不关闭浏览', async () => {
   state.save.mockResolvedValueOnce(null);

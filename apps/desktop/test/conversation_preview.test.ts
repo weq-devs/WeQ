@@ -1,3 +1,4 @@
+// @vitest-environment node
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { TipGroupElementType } from '@weq/codec';

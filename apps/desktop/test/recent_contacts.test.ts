@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { expect, it } from 'vitest';
 import { mergeRecentContactPages } from '../src/renderer/src/lib/recentContacts';
 

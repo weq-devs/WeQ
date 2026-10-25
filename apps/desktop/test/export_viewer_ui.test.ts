@@ -3,10 +3,12 @@ import { createRoot } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { ExportViewer } from '../src/renderer/src/views/ExportViewer';
 import { useDialog } from '../src/renderer/src/components/Dialog';
+import type { ViewerScanEvent } from '../src/main/ipc/routers/export_viewer';
 
 const f = vi.hoisted(() => ({
   pick: vi.fn(),
   scan: vi.fn(),
+  event: (_event: ViewerScanEvent) => {},
   close: vi.fn(async () => true),
   jump: vi.fn(async () => true),
   local: { kind: 'group', conv: '777', uin: '10001', configId: 'source-a' } as object | null,
@@ -46,6 +48,30 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     exportViewer: {
       pick: { mutate: f.pick },
       scan: { mutate: f.scan },
+      scanProgress: {
+        subscribe: (
+          input: unknown,
+          handlers: { onData(event: ViewerScanEvent): void; onError(error: Error): void },
+        ) => {
+          let active = true;
+          f.event = handlers.onData;
+          void f.scan(input).then((result) => {
+            if (!active) return;
+            for (const source of result.sources ?? []) handlers.onData({ kind: 'source', source });
+            handlers.onData({
+              kind: 'done',
+              truncated: result.truncated ?? false,
+              unreadable: result.unreadable ?? 0,
+              scanToken: result.scanToken ?? null,
+            });
+          }, handlers.onError);
+          return {
+            unsubscribe() {
+              active = false;
+            },
+          };
+        },
+      },
       close: { mutate: f.close },
       jump: { mutate: f.jump },
     },
@@ -108,7 +134,7 @@ async function click(label: string) {
 it('只提供文件夹与 JSON/JSONL 打开入口，显示嵌套正文且不执行文本 HTML', async () => {
   await mount();
   await click('打开文件夹');
-  expect(f.pick).toHaveBeenCalledWith({ directory: true });
+  expect(f.pick).toHaveBeenCalledWith({ directory: true, deferScan: true });
   expect(host.textContent).toContain('合成归档');
   expect(host.textContent).toContain('嵌套正文');
   expect(host.querySelector('script')).toBeNull();
@@ -173,19 +199,22 @@ it('关闭撤销已打开来源', async () => {
 it('浅层空目录提示递归，确认后使用选择授权继续扫描', async () => {
   const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(true);
   f.pick.mockResolvedValueOnce({ sources: [], scanToken: 'synthetic-token', truncated: false });
+  f.scan.mockResolvedValueOnce({ sources: [], scanToken: 'recursive-token', truncated: false });
   await mount();
   await click('打开文件夹');
   expect(confirm).toHaveBeenCalledOnce();
-  expect(f.scan).toHaveBeenCalledWith({ token: 'synthetic-token', recursive: true });
+  expect(f.scan).toHaveBeenCalledWith({ token: 'recursive-token', recursive: true });
   expect(host.textContent).toContain('合成归档');
 });
 it('取消递归会释放选择授权而不替换原列表', async () => {
   vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(false);
   f.pick.mockResolvedValueOnce({ sources: [], scanToken: 'synthetic-token', truncated: false });
-  f.scan.mockResolvedValueOnce(null);
+  f.scan
+    .mockResolvedValueOnce({ sources: [], scanToken: 'recursive-token', truncated: false })
+    .mockResolvedValueOnce(null);
   await mount();
   await click('打开文件夹');
-  expect(f.scan).toHaveBeenCalledWith({ token: 'synthetic-token', recursive: false });
+  expect(f.scan).toHaveBeenCalledWith({ token: 'recursive-token', recursive: false });
   expect(host.textContent).toContain('尚未打开导出');
 });
 it('卸载后迟到的文件选择结果也会释放，不保留后台媒体能力', async () => {
@@ -201,4 +230,36 @@ it('卸载后迟到的文件选择结果也会释放，不保留后台媒体能�
   await act(async () => root.unmount());
   await act(async () => finish(result));
   expect(f.close).toHaveBeenCalledWith({ ids: [source.id] });
+});
+it('目录尚未扫完即显示来源和消息，继续显示扫描动画；追加结果不抢当前选择', async () => {
+  f.pick.mockResolvedValueOnce({ sources: [], scanToken: 'synthetic-token' });
+  f.scan.mockImplementationOnce(() => new Promise(() => {}));
+  await mount();
+  await click('打开文件夹');
+  await act(async () => f.event({ kind: 'source', source } as ViewerScanEvent));
+  expect(host.textContent).toContain('合成归档');
+  expect(host.textContent).toContain('嵌套正文');
+  expect(host.querySelector('[role=status]')?.textContent).toContain('扫描中');
+  expect(host.querySelector('[role=status] svg.weq-spin')).not.toBeNull();
+  await act(async () =>
+    f.event({
+      kind: 'source',
+      source: { ...source, id: 'second', name: '第二个导出' },
+    } as ViewerScanEvent),
+  );
+  const second = host.querySelectorAll<HTMLButtonElement>('.weq-ev-sources button')[1]!;
+  await act(async () => second.click());
+  await act(async () =>
+    f.event({
+      kind: 'source',
+      source: { ...source, id: 'third', name: '第三个导出' },
+    } as ViewerScanEvent),
+  );
+  expect(host.querySelectorAll('.weq-ev-sources button')[1]?.getAttribute('aria-pressed')).toBe(
+    'true',
+  );
+  await act(async () =>
+    f.event({ kind: 'done', truncated: false, unreadable: 0, scanToken: null }),
+  );
+  expect(host.querySelector('[role=status]')).toBeNull();
 });

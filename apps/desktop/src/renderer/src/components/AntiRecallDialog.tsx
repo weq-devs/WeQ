@@ -1,7 +1,7 @@
 /**
- * 防撤回面板 —— 「更多 → 防撤回」打开。
+ * 防撤回：设置来源展示页内摘要，选择与记录按需打开工具。
  *
- * 三页：
+ * 非设置来源保留原独立面板的三页：
  *   • 保护：总开关、保护范围（按会话勾选 / 永久全选）、受保护会话选择。
  *   • 通知：撤回通知总开关 + 按会话通知集。通知由主进程发系统原生通知，点通知
  *     会唤起窗口并跳到那条消息。
@@ -13,12 +13,12 @@
  * 也不需要 QQ 在线。
  */
 
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { BellRing, ChevronRight, RotateCcw, ShieldCheck, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { ArrowLeft, BellRing, ChevronRight, RotateCcw, ShieldCheck, X } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { useToast } from './Toast';
-import { Card, Row, SettingsScopeBadge, Toggle } from './settings/controls';
+import { Card, Row, QueryError, SettingsScopeBadge, Toggle } from './settings/controls';
 import { ConversationPicker } from '../views/export/ConversationPicker';
 import { convAvatarUrl, fmtCount, type PickItem } from '../views/export/types';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
@@ -26,6 +26,11 @@ import { classifyChatType, datalineName } from '@weq/codec';
 import { Avatar } from '../im-template/template/primitives';
 import { OverlayLayer } from './OverlayLayer';
 import { cn } from '../im-template/template/classNames';
+import { ToolSurface } from './ToolSurface';
+import { PageShell } from './PageShell';
+import { useTabActive } from './RetainedTabs';
+import { useAppLock } from '../state/lock';
+import '../styles/anti-recall-settings.css';
 
 /** 触发器过滤所用的会话类型（与后端 AntiRecallKind 对齐）。 */
 type AntiRecallKind = 'c2c' | 'group' | 'dataline';
@@ -84,6 +89,10 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+function sameIds(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  return left.size === right.size && [...left].every((id) => right.has(id));
+}
+
 /** 时间戳（unix 秒）→ 「今天 12:30」/「8/12 12:30」。 */
 function formatWhen(ts: number): string {
   if (!ts) return '';
@@ -102,28 +111,86 @@ export function AntiRecallDialog({
   onClose,
   onOpenRecalls,
   embedded = false,
+  recallDetails,
+  onCloseRecalls,
+  isCurrentSource,
 }: {
   onClose: () => void;
   /** 打开某个会话的撤回列表（由 MainView 渲染，复用聊天区气泡与筛选）。 */
   onOpenRecalls: (kind: 'c2c' | 'group', conv: string) => void;
   embedded?: boolean;
+  recallDetails?: ReactNode;
+  onCloseRecalls?: () => void;
+  isCurrentSource?: () => boolean;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
   const pushToast = useToast((s) => s.push);
   const utils = trpc.useUtils();
 
   const [tab, setTab] = useState<Tab>('protect');
+  const [editor, setEditor] = useState<Tab | null>(null);
+  const active = useTabActive();
+  const currentActivity = useRef(active);
+  currentActivity.current = active;
+  const locked = useAppLock((state) => state.locked);
+  const mounted = useRef(true);
+  const epoch = useRef(0);
+  const closeRecalls = useRef(onCloseRecalls);
+  closeRecalls.current = onCloseRecalls;
+  const directoryEntry = useRef<HTMLButtonElement | null>(null);
+  const directoryRoot = useRef<HTMLDivElement | null>(null);
+  const directoryScroll = useRef(0);
+  const detailsRoot = useRef<HTMLDivElement | null>(null);
+  const showingDetails = editor === 'records' && !!recallDetails;
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      epoch.current++;
+      closeRecalls.current?.();
+    };
+  }, []);
+  useEffect(() => {
+    if (locked || !active) {
+      epoch.current++;
+      setEditor(null);
+      closeRecalls.current?.();
+    }
+  }, [locked, active]);
+  useEffect(() => {
+    if (editor !== 'records') return;
+    if (showingDetails)
+      detailsRoot.current
+        ?.querySelector<HTMLElement>('select, input, button, [tabindex]')
+        ?.focus({ preventScroll: true });
+    else {
+      if (directoryRoot.current) directoryRoot.current.scrollTop = directoryScroll.current;
+      directoryEntry.current?.focus({ preventScroll: true });
+    }
+  }, [editor, showingDetails]);
+  const mutationGuard = () => {
+    const started = epoch.current;
+    return () =>
+      mounted.current &&
+      currentActivity.current &&
+      epoch.current === started &&
+      !useAppLock.getState().locked &&
+      (isCurrentSource?.() ?? true);
+  };
 
   const status = trpc.account.antiRecall.getStatus.useQuery(undefined, {
+    enabled: active && !locked,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const conversations = trpc.account.listConversationsWithCount.useQuery(undefined, {
+    enabled: active && !locked && (!embedded || editor !== null),
     refetchOnWindowFocus: false,
   });
   // PC 快照静态账号的库 QQ 不会往里写 —— 触发器拦不到任何东西。
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
+    enabled: active && !locked,
     refetchOnWindowFocus: false,
   });
   const isStaticPcOnly = (config.data?.static ?? false) && !(config.data?.mobile ?? false);
@@ -174,32 +241,40 @@ export function AntiRecallDialog({
   // id → kind 映射：选择器只回传 id 集合，保存时据此还原每个会话的 kind。
   const kindById = useMemo(() => {
     const m = new Map<string, AntiRecallKind>();
+    for (const target of status.data?.targets ?? []) m.set(target.id, target.kind);
+    for (const key of status.data?.notifyTargets ?? []) {
+      const [kind, ...parts] = key.split(':');
+      if ((kind === 'c2c' || kind === 'group' || kind === 'dataline') && parts.length)
+        m.set(parts.join(':'), kind);
+    }
     for (const c of (conversations.data ?? []) as ConvWire[]) {
       if (c.targetUid) m.set(c.targetUid, kindOf(c.chatType, c.targetUid));
     }
     return m;
-  }, [conversations.data]);
+  }, [conversations.data, status.data?.targets, status.data?.notifyTargets]);
 
   // ── 保护 ────────────────────────────────────────────────────────────────
   const [selected, setSelected] = useState<Set<string>>(new Set());
   useEffect(() => {
     const t = status.data?.targets;
-    if (t) setSelected(new Set(t.map((x) => x.id)));
-  }, [status.data?.targets]);
+    if (t && (!embedded || editor !== 'protect')) {
+      const next = new Set(t.map((target) => target.id));
+      setSelected((current) => (sameIds(current, next) ? current : next));
+    }
+  }, [status.data?.targets, embedded, editor]);
 
   const savedIds = useMemo(
     () => new Set((status.data?.targets ?? []).map((t) => t.id)),
     [status.data?.targets],
   );
-  const dirty = useMemo(() => {
-    if (selected.size !== savedIds.size) return true;
-    for (const id of selected) if (!savedIds.has(id)) return true;
-    return false;
-  }, [selected, savedIds]);
+  const dirty = useMemo(() => !sameIds(selected, savedIds), [selected, savedIds]);
 
   async function onToggleEnabled(next: boolean): Promise<void> {
+    const current = mutationGuard();
+    if (!current()) return;
     try {
       const res = await setEnabled.mutateAsync({ enabled: next });
+      if (!current()) return;
       applyStatus(res);
       pushToast({
         tone: next ? 'success' : 'info',
@@ -213,6 +288,7 @@ export function AntiRecallDialog({
             : '触发器已卸下。',
       });
     } catch (e) {
+      if (!current()) return;
       void status.refetch();
       showError(next ? '开启防撤回失败' : '关闭防撤回失败', errMsg(e));
     }
@@ -220,23 +296,32 @@ export function AntiRecallDialog({
 
   async function onSetMode(next: AntiRecallMode): Promise<void> {
     if (next === mode) return;
+    const current = mutationGuard();
+    if (!current()) return;
     try {
-      applyStatus(await setMode.mutateAsync({ mode: next }));
+      const result = await setMode.mutateAsync({ mode: next });
+      if (current()) applyStatus(result);
     } catch (e) {
+      if (!current()) return;
       void status.refetch();
       showError('切换保护范围失败', errMsg(e));
     }
   }
 
   async function onSaveTargets(): Promise<void> {
+    const current = mutationGuard();
+    if (!current()) return;
     const targets: Target[] = [...selected].map((id) => ({
       kind: kindById.get(id) ?? 'c2c',
       id,
     }));
     try {
-      applyStatus(await setTargets.mutateAsync({ targets }));
+      const result = await setTargets.mutateAsync({ targets });
+      if (!current()) return;
+      applyStatus(result);
       pushToast({ tone: 'success', title: '已保存受保护会话' });
     } catch (e) {
+      if (!current()) return;
       void status.refetch();
       showError('保存失败', errMsg(e));
     }
@@ -255,14 +340,14 @@ export function AntiRecallDialog({
   );
   const [notifySelected, setNotifySelected] = useState<Set<string>>(new Set());
   useEffect(() => {
-    setNotifySelected(new Set(notifyIds));
-  }, [notifyIds]);
+    if (!embedded || editor !== 'notify')
+      setNotifySelected((current) => (sameIds(current, notifyIds) ? current : new Set(notifyIds)));
+  }, [notifyIds, embedded, editor]);
 
-  const notifyDirty = useMemo(() => {
-    if (notifySelected.size !== notifyIds.size) return true;
-    for (const id of notifySelected) if (!notifyIds.has(id)) return true;
-    return false;
-  }, [notifySelected, notifyIds]);
+  const notifyDirty = useMemo(
+    () => !sameIds(notifySelected, notifyIds),
+    [notifySelected, notifyIds],
+  );
 
   // 只有被保护的会话才可能记录下撤回 —— 按会话勾选模式下，通知列表也只列这些。
   const notifyItems = useMemo(
@@ -271,20 +356,29 @@ export function AntiRecallDialog({
   );
 
   async function onToggleNotify(next: boolean): Promise<void> {
+    const current = mutationGuard();
+    if (!current()) return;
     try {
-      applyStatus(await setNotify.mutateAsync({ enabled: next }));
+      const result = await setNotify.mutateAsync({ enabled: next });
+      if (current()) applyStatus(result);
     } catch (e) {
+      if (!current()) return;
       void status.refetch();
       showError('通知设置失败', errMsg(e));
     }
   }
 
   async function onSaveNotify(): Promise<void> {
+    const current = mutationGuard();
+    if (!current()) return;
     const targets = [...notifySelected].map((id) => notifyKeyOf(kindById.get(id) ?? 'c2c', id));
     try {
-      applyStatus(await setNotify.mutateAsync({ targets }));
+      const result = await setNotify.mutateAsync({ targets });
+      if (!current()) return;
+      applyStatus(result);
       pushToast({ tone: 'success', title: '已保存通知会话' });
     } catch (e) {
+      if (!current()) return;
       void status.refetch();
       showError('保存失败', errMsg(e));
     }
@@ -295,7 +389,8 @@ export function AntiRecallDialog({
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
-    enabled: tab === 'records',
+    enabled:
+      active && !locked && (embedded ? editor === 'records' && !recallDetails : tab === 'records'),
   });
 
   const nameById = useMemo(() => {
@@ -310,8 +405,329 @@ export function AntiRecallDialog({
   }, [summaries.data]);
 
   function openRecords(kind: AntiRecallKind, conv: string): void {
-    onClose();
+    if (!embedded) onClose();
     onOpenRecalls(kind === 'group' ? 'group' : 'c2c', conv);
+  }
+
+  const recordsContent = (
+    <div className="weq-ar-records">
+      {summaries.error ? (
+        <QueryError
+          message={summaries.error.message}
+          retryLabel="重试读取撤回目录"
+          retrying={summaries.isFetching}
+          onRetry={() => void summaries.refetch()}
+        />
+      ) : summaries.isLoading ? (
+        <div className="weq-ar-empty">加载中…</div>
+      ) : recordRows.length === 0 ? (
+        <div className="weq-ar-empty">
+          <RotateCcw size={26} />
+          <span>还没有撤回记录</span>
+          <small>开启防撤回后，被撤回的消息会保留在原位，并在这里按会话汇总。</small>
+        </div>
+      ) : (
+        recordRows.map((row) => {
+          const meta = nameById.get(row.conv);
+          const name = meta?.name ?? row.conv;
+          const isGroup = row.kind === 'group';
+          return (
+            <button
+              key={`${row.kind}:${row.conv}`}
+              type="button"
+              className="weq-ar-record"
+              onClick={(event) => {
+                directoryEntry.current = event.currentTarget;
+                openRecords(row.kind, row.conv);
+              }}
+            >
+              <Avatar
+                name={name}
+                avatarUrl={
+                  meta?.avatarUrl ?? convAvatarUrl(isGroup ? 'group' : 'c2c', row.conv, meta?.uin)
+                }
+                seed={row.conv}
+              />
+              <span className="weq-ar-record-meta">
+                <strong title={name}>{name}</strong>
+                <small>
+                  {fmtCount(row.count)} 条 · {formatWhen(row.lastTs) || (isGroup ? '群聊' : '私聊')}
+                </small>
+              </span>
+              <ChevronRight size={16} />
+            </button>
+          );
+        })
+      )}
+    </div>
+  );
+
+  if (embedded) {
+    const unavailable = !status.data || !config.data || busy || locked || !active;
+    const openEditor = (next: Tab) => {
+      if (unavailable || !(isCurrentSource?.() ?? true)) return;
+      epoch.current++;
+      directoryEntry.current = null;
+      directoryScroll.current = 0;
+      setSelected(new Set(savedIds));
+      setNotifySelected(new Set(notifyIds));
+      setEditor(next);
+    };
+    const closeEditor = () => {
+      epoch.current++;
+      setEditor(null);
+      onCloseRecalls?.();
+    };
+    const choosingProtection = editor === 'protect';
+    const draft = choosingProtection
+      ? dirty
+        ? [...selected].sort()
+        : null
+      : editor === 'notify' && notifyDirty
+        ? [...notifySelected].sort()
+        : null;
+    const title =
+      editor === 'records' ? '撤回记录' : choosingProtection ? '受保护的会话' : '通知哪些会话';
+    return (
+      <section
+        className="weq-set weq-ar-settings"
+        aria-label="防撤回设置"
+        data-setting-id="anti-recall"
+      >
+        <Card title="防撤回" action={<SettingsScopeBadge />}>
+          {status.error ? (
+            <QueryError
+              message={status.error.message}
+              retryLabel="重试读取防撤回状态"
+              retrying={status.isFetching}
+              onRetry={() => void status.refetch()}
+            />
+          ) : null}
+          {config.error ? (
+            <QueryError
+              message={config.error.message}
+              retryLabel="重试读取账号状态"
+              retrying={config.isFetching}
+              onRetry={() => void config.refetch()}
+            />
+          ) : null}
+          <Row
+            label="启用防撤回"
+            desc={
+              isStaticPcOnly
+                ? '静态账号的数据库是导入的离线快照，QQ 不会往里写入，触发器拦不到任何撤回。'
+                : '在本地数据库上拦下撤回写入，仅影响本机记录，不向对方发送任何内容。'
+            }
+            control={
+              <Toggle
+                checked={enabled && !isStaticPcOnly}
+                disabled={unavailable || isStaticPcOnly}
+                onChange={(next) => void onToggleEnabled(next)}
+                label="启用防撤回"
+              />
+            }
+          />
+          <Row
+            label="保护范围"
+            desc={mode === 'all' ? '所有会话（含以后新增的）都受保护。' : '仅保护已选择的会话。'}
+            control={
+              <div className="weq-set-seg" role="radiogroup" aria-label="防撤回保护范围">
+                {MODE_OPTIONS.map((option) => (
+                  <button
+                    type="button"
+                    role="radio"
+                    key={option.value}
+                    aria-checked={mode === option.value}
+                    className={cn('weq-set-seg-item', mode === option.value && 'is-on')}
+                    disabled={unavailable}
+                    onClick={() => void onSetMode(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            }
+          />
+          <Row
+            label="触发器状态"
+            desc={
+              qqRunning
+                ? 'QQ 正在运行，改动可能要重启 QQ 才真正生效。'
+                : 'QQ 下次启动会加载最新拦截规则。'
+            }
+            control={
+              <span>
+                {!status.data
+                  ? '尚未读取'
+                  : installedCount
+                    ? `已安装（${installedCount} 张触发器）`
+                    : '未安装'}
+              </span>
+            }
+          />
+          <Row
+            label="受保护的会话"
+            desc={
+              !status.data
+                ? '保护会话尚未读取。'
+                : mode === 'all'
+                  ? `保护全部会话；保留 ${savedIds.size} 个按会话选择。`
+                  : `已选择 ${savedIds.size} 个会话。`
+            }
+            control={
+              <button
+                type="button"
+                className="weq-set-btn"
+                disabled={unavailable}
+                onClick={() => openEditor('protect')}
+              >
+                编辑保护会话
+              </button>
+            }
+          />
+          <Row
+            label="撤回时通知我"
+            desc="被拦下的撤回会弹系统通知，点击通知可定位消息。"
+            control={
+              <Toggle
+                checked={notifyEnabled}
+                disabled={unavailable || !enabled}
+                onChange={(next) => void onToggleNotify(next)}
+                label="撤回时通知我"
+              />
+            }
+          />
+          <Row
+            label="通知会话"
+            desc={
+              !status.data
+                ? '通知会话尚未读取。'
+                : `已选择 ${notifyIds.size} 个会话${notifyEnabled ? '。' : '；通知尚未开启。'}`
+            }
+            control={
+              <button
+                type="button"
+                className="weq-set-btn"
+                disabled={unavailable}
+                onClick={() => openEditor('notify')}
+              >
+                编辑通知会话
+              </button>
+            }
+          />
+          {!enabled ? (
+            <p className="weq-set-note">先开启防撤回，没有拦下的撤回就没有记录可通知。</p>
+          ) : null}
+          <Row
+            label="撤回记录"
+            desc="按会话查看已保留的撤回消息。"
+            control={
+              <button
+                type="button"
+                className="weq-set-btn"
+                disabled={unavailable}
+                onClick={() => openEditor('records')}
+              >
+                查看撤回记录
+              </button>
+            }
+          />
+        </Card>
+        {editor && active && !locked ? (
+          <ToolSurface
+            key={editor}
+            title={title}
+            presentation="modal"
+            draft={draft}
+            busy={busy}
+            onClose={closeEditor}
+          >
+            {(requestClose) => (
+              <div className="weq-ar-tool">
+                <PageShell
+                  title={title}
+                  onClose={requestClose}
+                  leading={
+                    editor === 'records' && recallDetails ? (
+                      <button
+                        type="button"
+                        className="weq-set-iconbtn"
+                        title="返回会话目录"
+                        aria-label="返回会话目录"
+                        onClick={onCloseRecalls}
+                      >
+                        <ArrowLeft size={18} />
+                      </button>
+                    ) : undefined
+                  }
+                  actions={
+                    editor !== 'records' ? (
+                      <button
+                        className="weq-set-btn"
+                        type="button"
+                        disabled={busy || conversations.isLoading || !!conversations.error}
+                        onClick={() => void (choosingProtection ? onSaveTargets() : onSaveNotify())}
+                      >
+                        保存选择
+                      </button>
+                    ) : undefined
+                  }
+                >
+                  <div className={`weq-ar-tool-body${editor === 'records' ? ' is-records' : ''}`}>
+                    {editor === 'records' ? (
+                      <>
+                        <div
+                          className="weq-ar-directory"
+                          ref={directoryRoot}
+                          hidden={showingDetails}
+                          onScroll={(event) => {
+                            if (!showingDetails)
+                              directoryScroll.current = event.currentTarget.scrollTop;
+                          }}
+                        >
+                          {recordsContent}
+                        </div>
+                        {showingDetails ? (
+                          <div className="weq-ar-details" ref={detailsRoot}>
+                            {recallDetails}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        {conversations.error ? (
+                          <QueryError
+                            message={conversations.error.message}
+                            retryLabel="重试读取会话"
+                            retrying={conversations.isFetching}
+                            onRetry={() => void conversations.refetch()}
+                          />
+                        ) : null}
+                        <fieldset disabled={busy} className="weq-ar-picker">
+                          <ConversationPicker
+                            items={choosingProtection ? items : notifyItems}
+                            loading={conversations.isLoading}
+                            selected={choosingProtection ? selected : notifySelected}
+                            onChange={choosingProtection ? setSelected : setNotifySelected}
+                            emptyText={
+                              choosingProtection
+                                ? '暂无可保护的会话'
+                                : mode === 'selected'
+                                  ? '还没有受保护的会话'
+                                  : '暂无可通知的会话'
+                            }
+                          />
+                        </fieldset>
+                      </>
+                    )}
+                  </div>
+                </PageShell>
+              </div>
+            )}
+          </ToolSurface>
+        ) : null}
+      </section>
+    );
   }
 
   const content = (
@@ -497,45 +913,7 @@ export function AntiRecallDialog({
           </>
         ) : null}
 
-        {tab === 'records' ? (
-          <div className="weq-ar-records">
-            {summaries.isLoading ? (
-              <div className="weq-ar-empty">加载中…</div>
-            ) : recordRows.length === 0 ? (
-              <div className="weq-ar-empty">
-                <RotateCcw size={26} />
-                <span>还没有撤回记录</span>
-                <small>开启防撤回后，被撤回的消息会保留在原位，并在这里按会话汇总。</small>
-              </div>
-            ) : (
-              recordRows.map((row) => {
-                const meta = nameById.get(row.conv);
-                const name = meta?.name ?? row.conv;
-                const isGroup = row.kind === 'group';
-                const avatarUrl =
-                  meta?.avatarUrl ?? convAvatarUrl(isGroup ? 'group' : 'c2c', row.conv, meta?.uin);
-                return (
-                  <button
-                    key={`${row.kind}:${row.conv}`}
-                    type="button"
-                    className="weq-ar-record"
-                    onClick={() => openRecords(row.kind, row.conv)}
-                  >
-                    <Avatar name={name} avatarUrl={avatarUrl} seed={row.conv} />
-                    <span className="weq-ar-record-meta">
-                      <strong title={name}>{name}</strong>
-                      <small>
-                        {fmtCount(row.count)} 条 ·{' '}
-                        {formatWhen(row.lastTs) || (isGroup ? '群聊' : '私聊')}
-                      </small>
-                    </span>
-                    <ChevronRight size={16} />
-                  </button>
-                );
-              })
-            )}
-          </div>
-        ) : null}
+        {tab === 'records' ? recordsContent : null}
       </div>
 
       {!embedded ? (

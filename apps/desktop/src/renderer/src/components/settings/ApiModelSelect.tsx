@@ -1,5 +1,6 @@
 import type { AgentLabModelRef } from '@weq/agentlab';
 import { trpc } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { providerDisplayLabels } from '../../lib/providerDisplayLabels';
 import { QueryError } from './controls';
 
@@ -20,7 +21,9 @@ export function ApiModelSelect({
   emptyLabel?: string;
   required?: boolean;
 }) {
+  const active = useTabActive();
   const providers = trpc.bootstrap.listAgentLabProviders.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
   });
   const groups = (providers.data ?? [])

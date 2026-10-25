@@ -18,6 +18,7 @@ import {
   exportOutputFileName,
   describeExportOutput,
   resolveVipBadge,
+  isCompleteSessionMaterial,
 } from '@weq/service';
 import {
   exportDownloadName,
@@ -688,22 +689,25 @@ async function withRoamingHistory(
   services: AccountServices,
   kind: ChatKind,
   conv: string,
-  rows: ChatMsgWire[],
+  rows: ChatMsgWire[] | Promise<ChatMsgWire[]>,
   limit: number,
   min = 1n,
   max = 0xffffffffn,
   descending = true,
 ): Promise<ChatMsgWire[]> {
   try {
-    const cached = await services.gapHistory.cachedTimeline(
-      kind,
-      conv,
-      Number(min < 1n ? 1n : min),
-      Number(max > 0xffffffffn ? 0xffffffffn : max),
-      limit,
-      descending,
-    );
-    return mergeRoamingTimeline<ChatMsgWire>(kind, rows, cached.map(roamingMsgToWire), {
+    const [local, cached] = await Promise.all([
+      rows,
+      services.gapHistory.cachedTimeline(
+        kind,
+        conv,
+        Number(min < 1n ? 1n : min),
+        Number(max > 0xffffffffn ? 0xffffffffn : max),
+        limit,
+        descending,
+      ),
+    ]);
+    return mergeRoamingTimeline<ChatMsgWire>(kind, local, cached.map(roamingMsgToWire), {
       min,
       max,
       limit,
@@ -720,8 +724,8 @@ async function fetchLatest(kind: ChatKind, conv: string, limit: number): Promise
   const msgs = services.msgs;
   const rows =
     kind === 'group'
-      ? (await msgs.getGroupLatest(conv, limit)).map(groupMsgToWire)
-      : (await msgs.getC2cLatest(conv, limit)).map(c2cMsgToWire);
+      ? msgs.getGroupLatest(conv, limit).then((rows) => rows.map(groupMsgToWire))
+      : msgs.getC2cLatest(conv, limit).then((rows) => rows.map(c2cMsgToWire));
   return withRoamingHistory(services, kind, conv, rows, limit);
 }
 
@@ -735,8 +739,8 @@ async function fetchBefore(
   const msgs = services.msgs;
   const rows =
     kind === 'group'
-      ? (await msgs.getGroupBefore(conv, beforeSeq, limit)).map(groupMsgToWire)
-      : (await msgs.getC2cBefore(conv, beforeSeq, limit)).map(c2cMsgToWire);
+      ? msgs.getGroupBefore(conv, beforeSeq, limit).then((rows) => rows.map(groupMsgToWire))
+      : msgs.getC2cBefore(conv, beforeSeq, limit).then((rows) => rows.map(c2cMsgToWire));
   return withRoamingHistory(services, kind, conv, rows, limit, 1n, beforeSeq - 1n);
 }
 
@@ -750,8 +754,8 @@ async function fetchAfter(
   const msgs = services.msgs;
   const rows =
     kind === 'group'
-      ? (await msgs.getGroupAfter(conv, afterSeq, limit)).map(groupMsgToWire)
-      : (await msgs.getC2cAfter(conv, afterSeq, limit)).map(c2cMsgToWire);
+      ? msgs.getGroupAfter(conv, afterSeq, limit).then((rows) => rows.map(groupMsgToWire))
+      : msgs.getC2cAfter(conv, afterSeq, limit).then((rows) => rows.map(c2cMsgToWire));
   return withRoamingHistory(services, kind, conv, rows, limit, afterSeq + 1n, 0xffffffffn, false);
 }
 
@@ -765,8 +769,8 @@ async function fetchFrom(
   const msgs = services.msgs;
   const rows =
     kind === 'group'
-      ? (await msgs.getGroupFrom(conv, sinceSeq, limit)).map(groupMsgToWire)
-      : (await msgs.getC2cFrom(conv, sinceSeq, limit)).map(c2cMsgToWire);
+      ? msgs.getGroupFrom(conv, sinceSeq, limit).then((rows) => rows.map(groupMsgToWire))
+      : msgs.getC2cFrom(conv, sinceSeq, limit).then((rows) => rows.map(c2cMsgToWire));
   return withRoamingHistory(services, kind, conv, rows, limit, sinceSeq);
 }
 
@@ -1631,6 +1635,7 @@ function unreadInfoToWire(
     unreadCount: row.unreadCount,
     readSeq: row.readSeq,
     readError: row.readError ?? false,
+    countPending: row.countPending ?? false,
     msgSeq: row.msgSeq?.toString(),
     highlights: row.highlights?.map((h) => ({
       kind: h.kind,
@@ -2691,7 +2696,12 @@ export const accountRouter = router({
   /** 首页门面：随机一言若干（打字机轮播用；已按句长筛过）。 */
   sampleHitokoto: procedure
     .input(z.object({ count: z.number().int().min(1).max(80).default(30) }).optional())
-    .query(({ input }) => sampleHitokoto(input?.count ?? 30)),
+    .query(({ input }) =>
+      sampleHitokoto(
+        input?.count ?? 30,
+        getAppContext().bootstrap?.userConfig.getSettings().home.blockedWords,
+      ),
+    ),
 
   /** 首页个性装扮快照（从账号 config 读，bootstrap 阶段在线注入后写入）。 */
   getHomeDress: procedure.query(() => {
@@ -2708,6 +2718,7 @@ export const accountRouter = router({
       z.object({
         expectedAccountUin: z.string().min(1),
         expectedAccountConfigId: z.string().min(1).optional(),
+        watermarksOnly: z.boolean().optional(),
         targets: z
           .array(
             z.object({
@@ -2723,7 +2734,7 @@ export const accountRouter = router({
         input.expectedAccountUin,
         input.expectedAccountConfigId,
       );
-      const rows = await services.unreadInfo.getUnreadInfos(input.targets);
+      const rows = await services.unreadInfo.getUnreadInfos(input.targets, input.watermarksOnly);
       if (
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
       )
@@ -4191,11 +4202,17 @@ export const accountRouter = router({
   recalledMessages: procedure
     .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
     .query(async ({ input }): Promise<ChatMsgWire[]> => {
-      const msgs = requireServices().msgs;
+      const services = requireServices();
+      const msgs = services.msgs;
       const rows = await msgs.getRecalledMessages(input.kind, input.conv);
-      return input.kind === 'group'
-        ? (rows as RenderGroupMsg[]).map(groupMsgToWire)
-        : (rows as RenderC2cMsg[]).map(c2cMsgToWire);
+      const wire =
+        input.kind === 'group'
+          ? (rows as RenderGroupMsg[]).map(groupMsgToWire)
+          : (rows as RenderC2cMsg[]).map(c2cMsgToWire);
+      const cached = await services.gapHistory.cachedRecalls(input.kind, input.conv);
+      return mergeRoamingTimeline(input.kind, wire, cached.map(roamingMsgToWire)).sort(
+        (a, b) => (b.recall?.recallTs ?? 0) - (a.recall?.recallTs ?? 0),
+      );
     }),
 
   /**
@@ -4501,7 +4518,7 @@ export const accountRouter = router({
    * 撤回一条消息（SsoGroupRecallMsg / SsoC2CRecallMsg）。
    *
    * 权限（2 分钟窗口 / 群主管理员越级）由服务端判定，这里只要求在线已注入的 QQ。
-   * **不做任何本地写库** —— 防撤回触发器等 QQ 同步回来自证，前端只看 toast。
+   * 不修改 QQ 原库；受保护的 WeQ 发送缓存等服务端确认成功后单独保留原文。
    */
   recallMessage: procedure
     .input(
@@ -4522,14 +4539,39 @@ export const accountRouter = router({
         input.expectedAccountConfigId,
       );
       requireQqOnlineForAlbum(services);
-      await services.groupModeration.recallMessage({
+      const params = {
         kind: input.kind,
         conv: input.conv,
         sequence: input.sequence,
         ...(input.random !== undefined ? { random: input.random } : {}),
         ...(input.timestamp !== undefined ? { timestamp: input.timestamp } : {}),
         ...(input.clientSequence !== undefined ? { clientSequence: input.clientSequence } : {}),
-      });
+      };
+      const session = getAppContext().account;
+      const send = () => {
+        if (getAppContext().services !== services || getAppContext().account !== session) {
+          throw new Error('账号或数据源已切换，已停止撤回');
+        }
+        return services.groupModeration.recallMessage(params);
+      };
+      if (services.antiRecall.protects(input.kind, input.conv)) {
+        const recalled = await services.gapHistory.withSelfRecallProtection(params, send);
+        if (
+          recalled &&
+          session &&
+          getAppContext().services === services &&
+          getAppContext().account === session
+        ) {
+          dbEventBus.emit('roaming', {
+            session,
+            kind: input.kind,
+            conv: input.conv,
+            messages: [recalled],
+          } satisfies RoamingCacheChange);
+        }
+      } else {
+        await send();
+      }
       return { ok: true };
     }),
 
@@ -4695,6 +4737,39 @@ export const accountRouter = router({
     });
   }),
 
+  /** 本地未读差分已落地后立即通知目标，避免红点依赖全会话扫描。 */
+  onUnreadChanged: procedure.input(exportAccountBindingInput).subscription(({ input }) => {
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    const uin = String(getAppContext().account?.context.uin ?? '');
+    const configId = services.accountConfig.getRecord()?.configId;
+    return observable<Array<{ chatType: number; uid: string }>>((emit) => {
+      const handler = (change: NewMessages): void => {
+        const ctx = getAppContext();
+        if (
+          ctx.services !== services ||
+          String(ctx.account?.context.uin ?? '') !== uin ||
+          services.accountConfig.getRecord()?.configId !== configId
+        )
+          return;
+        const targets = [
+          ...change.c2c.map((msg) => ({ chatType: 1, uid: msg.targetUid })),
+          ...change.group.map((msg) => ({ chatType: 2, uid: msg.targetGroupCode })),
+          ...(change.dataline ?? []).map((msg) => ({ chatType: msg.chatType, uid: msg.targetUid })),
+        ];
+        emit.next([
+          ...new Map(
+            targets.map((target) => [`${target.chatType}:${target.uid}`, target]),
+          ).values(),
+        ]);
+      };
+      dbEventBus.on('new', handler);
+      return () => dbEventBus.off('new', handler);
+    });
+  }),
+
   /**
    * Live push of newly-inserted messages (rowid-delta). Reserved for unread /
    * popup notifications — the open conversation is kept fresh by `onDbChanged`,
@@ -4719,15 +4794,31 @@ export const accountRouter = router({
   }),
 
   /** Live prerequisites for group album list/media/export. */
-  getGroupAlbumAccessState: procedure.query(() => {
-    const record = requireServices().accountConfig.getRecord();
+  getGroupAlbumAccessState: procedure.query(async () => {
+    const services = requireServices();
+    const record = services.accountConfig.getRecord();
     const session = record?.session;
-    return {
-      ...albumAccessState(),
-      needsMemoryRead: Boolean(
+    const access = albumAccessState(services);
+    const needsMemoryRead = Boolean(
+      record?.qqPid && (session?.pid !== record.qqPid || !isCompleteSessionMaterial(session)),
+    );
+    // 只查询原生登记表，不读内存或发包；配置写盘可能早于原生登记完成。
+    const ssoReady = Boolean(
+      access.qqOnline &&
+        access.attachEnabled &&
+        !needsMemoryRead &&
         record?.qqPid &&
-          (session?.pid !== record.qqPid || !session?.a2 || !session?.d2 || !session?.d2Key),
-      ),
+        record.uid &&
+        record.guid &&
+        (await getAppContext().platform?.native.ntHelper.hasSsoSession(record.qqPid)),
+    );
+    if (getAppContext().services !== services) throw new Error('账号已切换，请重新检查在线状态。');
+    return {
+      ...access,
+      hasUid: Boolean(record?.uid),
+      needsMemoryRead,
+      ssoReady,
+      credentialsPending: getAppContext().onlineCredentialsPending(),
     };
   }),
 
@@ -5041,6 +5132,56 @@ export const accountRouter = router({
    * `tempGroupCode` 只在「群里发起的临时会话」里给（会话行的 60001 来源群号）：给了
    * 就走 `routingHead.grpTmp` 而不是 c2c —— 见 `MessageSendService` 的 `GroupTempSource`。
    */
+  prepareChatFont: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        tempGroupCode: z.string().min(1).optional(),
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1).optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      const font = await services.messageSend.prepareChatFont(input);
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号数据源已切换，已停止发送');
+      return font;
+    }),
+
+  /** 回读前的装扮快照；字体与发送请求共用原值，气泡先使用账号配置。 */
+  prepareChatDecoration: procedure
+    .input(
+      z.object({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        tempGroupCode: z.string().min(1).optional(),
+        expectedAccountUin: z.string().min(1),
+        expectedAccountConfigId: z.string().min(1).optional(),
+        hasText: z.boolean(),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      const decoration = await services.messageSend.prepareChatDecoration(input);
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号数据源已切换，已停止发送');
+      return decoration;
+    }),
+
   sendElements: procedure
     .input(
       z.object({
@@ -5051,6 +5192,17 @@ export const accountRouter = router({
         tempGroupCode: z.string().min(1).optional(),
         elements: z.array(z.any()).min(1),
         dress: z.any().optional(),
+        preparedChatFont: z
+          .object({
+            fontId: z.number().int().positive().max(0xffff),
+            fontId2Raw: z.number().int().positive().max(0xffff_ffff),
+          })
+          .refine(
+            (font) =>
+              font.fontId === (((font.fontId2Raw & 0xff) << 8) | ((font.fontId2Raw >>> 8) & 0xff)),
+          )
+          .nullable()
+          .optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -5083,6 +5235,9 @@ export const accountRouter = router({
         targetId: input.targetId,
         ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
         elements: elements as never,
+        ...(input.preparedChatFont !== undefined
+          ? { preparedChatFont: input.preparedChatFont }
+          : {}),
         ...(input.dress ? { dress: input.dress as never } : {}),
       });
     }),
@@ -6729,6 +6884,7 @@ export const accountRouter = router({
           )
             throw new Error('账号数据源已切换，已取消保存。');
         },
+        getAppContext().bootstrap?.userConfig.getSettings(),
       );
     }),
 

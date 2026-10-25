@@ -190,7 +190,14 @@ export function GroupInfoPanel({
                 onClick={() => onOpenDetail?.('profile')}
               >
                 <span>{label}</span>
-                <strong>{value}</strong>
+                <strong
+                  data-privacy-sensitive={
+                    ['群名称', '群号', '群简介', '群备注', '群地点', '入群问题'].includes(label) ||
+                    undefined
+                  }
+                >
+                  {value}
+                </strong>
               </button>
             ))
           ) : profileLoading ? (
@@ -209,7 +216,11 @@ export function GroupInfoPanel({
               <ChevronRight size={14} />
             </span>
           </button>
-          <p tabIndex={0} aria-label="公告内容">
+          <p
+            tabIndex={0}
+            aria-label="公告内容"
+            data-privacy-sensitive={Boolean(announcement) || undefined}
+          >
             {announcement || '暂无群公告'}
           </p>
         </section>

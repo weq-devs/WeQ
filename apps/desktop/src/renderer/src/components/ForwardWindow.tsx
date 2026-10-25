@@ -39,6 +39,7 @@ import {
   ForwardCarrierContext,
   ForwardKindContext,
   ForwardSubRecordsContext,
+  MsgDecorationEnabledContext,
 } from './QqMessageContent';
 import { GrayTipLine, grayTipOf } from '../im-template/template/messageRow';
 import { useMsgDecoration } from '../hooks/useMsgDecoration';
@@ -575,9 +576,14 @@ function ForwardRow({
   kind: 'c2c' | 'group';
 }): ReactElement {
   const rowRef = useRef<HTMLDivElement | null>(null);
-  const msgDec = useMsgDecoration(record.decoration, rowRef);
+  const decorationEnabled = useContext(MsgDecorationEnabledContext);
   // 转发行都是「对方」样式,生效挂件只在作用范围 all 时叠上来。
   const { widget: activeWidget, scope: activeScope } = useActiveWidget();
+  const localWidget = activeScope === 'all' ? activeWidget : null;
+  const msgDec = useMsgDecoration(
+    localWidget && record.decoration ? { ...record.decoration, widgetId: 0 } : record.decoration,
+    rowRef,
+  );
   // 炫彩只跟逐条消息字体走:生效字体的 font-family 规则只选中 .message-line（见
   // lib/dressSkin 的 fontRules），转发行根本没换上那款字，只有光效没字会很怪。
   const fontFxAttr = useBubbleFontFx(msgDec.fontFx, rowRef);
@@ -586,7 +592,7 @@ function ForwardRow({
   const displayName = record.sendNick || record.senderUin || record.senderUid || 'Unknown';
   const time = formatForwardTime(record.sendTime);
   const sendTimeMs = (Number(record.sendTime) || 0) * 1000;
-  const widget = msgDec.widget ?? (activeScope === 'all' ? activeWidget : null);
+  const widget = decorationEnabled.widget ? (localWidget ?? msgDec.widget) : null;
 
   // 灰条判定：放在所有 hook 之后（规则要求 hook 顺序稳定），命中就直接画成**居中
   // 一行** —— 与主面板一样没有头像 / 昵称 / 气泡，而不是把这些消息硬套进转发行。

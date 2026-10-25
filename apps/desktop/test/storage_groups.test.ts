@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { groupRetainedStorage } from '../src/renderer/src/lib/storage-groups';
 

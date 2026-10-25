@@ -13,10 +13,6 @@
 .weq-remote-web .weq-set-row {
   min-height: 36px;
 }
-.weq-remote-settings > .weq-remote {
-  padding-top: 20px;
-  border-top: 1px solid var(--weq-border-subtle);
-}
 .weq-remote {
   color: var(--weq-fg-primary);
   min-width: 0;
@@ -24,6 +20,34 @@
 .weq-remote-band {
   padding: 18px 0;
   border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-remote-address-band {
+  display: grid;
+  gap: 14px;
+}
+.weq-remote-addresses,
+.weq-remote-network-controls,
+.weq-remote-pair-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.weq-remote-addresses code,
+.weq-remote-network-controls code {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+.weq-remote-key-form {
+  padding: 20px;
+  min-width: 0;
+  color: var(--weq-fg-primary);
+}
+.weq-remote-key-form h3 {
+  font-size: 16px;
+  margin: 0;
 }
 .weq-remote-modes {
   display: grid;

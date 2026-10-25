@@ -69,7 +69,8 @@ function mount() {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = () => act(() => root.render(createElement(AccountBasicsSection)));
+  const render = () =>
+    act(() => root.render(createElement(AccountBasicsSection, { page: 'read' })));
   render();
   return {
     host,

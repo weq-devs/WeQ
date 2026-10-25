@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * 本地 OCR 管线的单测（`src/main/ocr/pipeline.ts`）。
  *

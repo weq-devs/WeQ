@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { mkdtemp, rm, writeFile, readFile, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -338,26 +339,32 @@ describe('收藏包导入路由', () => {
 });
 
 describe('收藏包导出任务', () => {
-  it('保存位置未准备时不入队，稍后保存沿用单文件 ZIP 任务', async () => {
+  it('保存位置未准备时不入队，明确位置沿用单文件 ZIP 任务', async () => {
     const f = fixture();
     await expect(
       f.caller.favoriteExport({ ...binding, savePolicy: { mode: 'before' } }),
     ).rejects.toThrow('位置');
     expect(f.s.exportManager.startResourceExport).not.toHaveBeenCalled();
-    expect(await f.caller.favoriteExport({ ...binding, savePolicy: { mode: 'after' } })).toBe(
-      'resource-favorite',
-    );
+    expect(
+      await f.caller.favoriteExport({
+        ...binding,
+        savePolicy: { mode: 'before', directory: '/fixture/export' },
+      }),
+    ).toBe('resource-favorite');
     expect(f.s.exportManager.startResourceExport.mock.calls[0]?.[0]).toMatchObject({
       kind: 'favorite-emoji',
       output: { kind: 'file', extension: 'zip' },
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: '/fixture/export' },
     });
   });
   it('缺原图仍写出可核对的包，失败数量供公共任务列表展示', async () => {
     const f = fixture();
     const emojiId = (await f.s.emoji.fetchOnlineFavoriteIds())[0]!;
     f.s.emoji.fetchOnlineFavoriteDetails.mockResolvedValue([{ emojiId, desc: '合成备注' }]);
-    await f.caller.favoriteExport({ ...binding, savePolicy: { mode: 'after' } });
+    await f.caller.favoriteExport({
+      ...binding,
+      savePolicy: { mode: 'before', directory: '/fixture/export' },
+    });
     const run = f.s.exportManager.startResourceExport.mock.calls[0]![0].run;
     const directory = await mkdtemp(join(tmpdir(), 'weq-favorite-export-'));
     try {
@@ -383,7 +390,10 @@ describe('收藏包导出任务', () => {
   });
   it('排队后 QQ PID 改变时不再导出旧账号资源', async () => {
     const f = fixture();
-    await f.caller.favoriteExport({ ...binding, savePolicy: { mode: 'after' } });
+    await f.caller.favoriteExport({
+      ...binding,
+      savePolicy: { mode: 'before', directory: '/fixture/export' },
+    });
     f.record.qqPid++;
     const run = f.s.exportManager.startResourceExport.mock.calls[0]![0].run;
     await expect(

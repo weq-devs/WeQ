@@ -2,12 +2,11 @@
  * 隐私模式（全局视觉开关，持久化）。
  *
  * 开启后由一个 `html[data-privacy]` 根属性驱动 styles/privacy.css：把头像 /
- * 昵称 / 会话预览 / 消息气泡等敏感元素整屏 blur，不在悬停时自动揭示。主要用途是
+ * 昵称 / 会话预览 / 私人正文等字段 blur，保留装扮、统计和操作，不在悬停时揭示。主要用途是
  * 截图 / 录屏时遮挡隐私——遮罩是 DOM 上的 filter，webContents.capturePage()
  * 会如实截到糊后的效果，故截图天然与本开关联动。
  *
- * 约定：所有「跨 im-template 的全局视觉开关」只写在 WeQ 侧（一个根属性 + 一段
- * 桥接 CSS 挂钩模板的稳定 class），模板文件零改动。隐私是这个约定的第一个试点。
+ * 通用字段复用稳定 class；混排身份与元数据时，用 data-privacy-sensitive 精确标记。
  */
 
 import { create } from 'zustand';

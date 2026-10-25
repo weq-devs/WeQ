@@ -153,6 +153,7 @@ export function ChatShell({
         onGoHome={onGoHome}
         search={
           <TitleBarSearch
+            persistent
             query={query}
             onQueryChange={onQueryChange}
             onSearchFocus={onSearchFocus}

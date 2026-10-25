@@ -11,6 +11,7 @@ const f = vi.hoisted(() => ({
   autoStart: vi.fn(),
   remembered: false,
   webRunning: false,
+  remoteRunning: false,
   webToken: vi.fn(),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {
@@ -28,7 +29,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             data: {
               available: true,
               helperInstalled: true,
-              enabled: false,
+              enabled: f.remoteRunning,
               network: { state: 'offline' },
               pending: [],
               devices: [],
@@ -53,6 +54,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         setWebAutoStart: mutation(f.autoStart),
         openLogin: mutation(),
         setMode: mutation(),
+        setTailscaleEnabled: mutation(),
         changeNetwork: mutation(),
         refreshNetwork: mutation(),
         decide: mutation(),
@@ -69,6 +71,7 @@ const originalToastPush = useToast.getState().push;
 beforeEach(async () => {
   f.remembered = false;
   f.webRunning = false;
+  f.remoteRunning = false;
   vi.clearAllMocks();
   f.webToken.mockResolvedValue('synthetic-web-access-token');
   useDialog.getState().close();
@@ -110,8 +113,53 @@ it('暂不开启不改偏好，已经开启自动启动时不重复推荐', asyn
   expect(f.autoStart).not.toHaveBeenCalled();
   useDialog.getState().close();
   f.remembered = true;
+  f.webRunning = true;
   await enable();
   expect(useDialog.getState().current).toBeNull();
+});
+
+it('Web 自动启动已记住但当前关闭时，开启 Remote 仍会推荐启动 Web', async () => {
+  f.remembered = true;
+  await enable();
+  expect(useDialog.getState().current?.confirm).toBeDefined();
+  await act(async () => useDialog.getState().current!.confirm!.resolve(true));
+  expect(f.webEnabled).toHaveBeenCalledWith({ enabled: true });
+});
+
+it.each([true, false])('Remote 运行时关闭 Web，用户选择是否同时关闭 Remote：%s', async (agree) => {
+  f.remoteRunning = true;
+  f.webRunning = true;
+  await act(async () => root.render(createElement(RemoteSection)));
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>('[aria-label="启用 Web 服务"]')!.click(),
+  );
+  const dialog = useDialog.getState().current!;
+  expect(dialog.message).toContain('Remote');
+  expect(f.webEnabled).not.toHaveBeenCalled();
+  await act(async () => dialog.confirm!.resolve(agree));
+  expect(f.webEnabled).toHaveBeenCalledWith({ enabled: false });
+  expect(f.enabled).toHaveBeenCalledTimes(agree ? 1 : 0);
+  if (agree) expect(f.enabled).toHaveBeenCalledWith({ enabled: false });
+});
+
+it.each([true, false])('Remote 运行时取消 Web 自动启动，可选择保留自动启动：%s', async (keep) => {
+  f.remoteRunning = true;
+  f.remembered = true;
+  f.webRunning = true;
+  await act(async () => root.render(createElement(RemoteSection)));
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>('[aria-label="启动 WeQ 时自动开启 Web 服务"]')!
+      .click(),
+  );
+  expect(f.autoStart).not.toHaveBeenCalled();
+  const dialog = useDialog.getState().current!;
+  expect(dialog.message).toContain('Remote');
+  await act(async () => dialog.confirm!.resolve(keep));
+  expect(f.autoStart).toHaveBeenCalledTimes(keep ? 0 : 1);
+  if (!keep) expect(f.autoStart).toHaveBeenCalledWith({ enabled: false });
+  expect(f.webEnabled).not.toHaveBeenCalled();
+  expect(f.enabled).not.toHaveBeenCalled();
 });
 
 it('访问令牌复制成功后提供明确反馈，不显示令牌内容', async () => {

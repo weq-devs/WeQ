@@ -28,6 +28,8 @@ import { logErrorContext, getLogger } from '../common/logger';
 import { statfsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { decodeSsoHistoryWindow } from './sso_history_window';
+import type { RecallInfo } from './msg';
+import type { RecallMessageParams } from './group_moderation';
 
 /** 单个物理请求的最大 seq 跨度，不是消息条数承诺。 */
 const SERVER_MAX_WINDOW = 30;
@@ -45,6 +47,7 @@ export interface GapFetchedMessage {
   msgRandom?: string;
   clientSeq?: string;
   localSent?: boolean;
+  recall?: RecallInfo;
   /** True only when this row was indexed using a server NT conversation sequence. */
   ntSeqVerified?: boolean;
   /** 会话 key：私聊为对方 uid，群聊为群号。 */
@@ -217,6 +220,46 @@ export class GapHistoryService {
 
   async latestSent(): Promise<GapFetchedMessage[]> {
     return (await this.cache.latestSent()).filter((row) => !this.deleted?.isHiddenCached(row));
+  }
+
+  /** 原文可能仅在 WeQ 发送缓存里；先读快照，只有服务端确认撤回后才落标记。 */
+  async withSelfRecallProtection(
+    params: RecallMessageParams,
+    send: () => Promise<void>,
+  ): Promise<GapFetchedMessage | undefined> {
+    const sent = (await this.cache.sentMessages(params.kind, params.conv, params.sequence)).find(
+      (row) =>
+        row.senderUid === this.session.selfUid &&
+        row.elements.length > 0 &&
+        row.msgRandom === String(params.random) &&
+        (params.kind === 'group' ||
+          (row.clientSeq === String(params.clientSequence) &&
+            row.sendTime === String(params.timestamp))),
+    );
+    await send();
+    if (!sent) return;
+    const recalled = {
+      ...sent,
+      recall: sent.recall ?? {
+        revokeUid: sent.senderUid,
+        sameSender: true,
+        recallTs: Math.floor(Date.now() / 1000),
+      },
+    };
+    try {
+      await this.cache.store([recalled]);
+      return recalled;
+    } catch (error) {
+      // 服务端已接受撤回，不能把本地存储故障冒充请求失败、诱导重复发送。
+      logger.warn('撤回已成功，但发送缓存的防撤回标记保存失败', logErrorContext(error));
+      return undefined;
+    }
+  }
+
+  async cachedRecalls(kind?: 'c2c' | 'group', conv?: string): Promise<GapFetchedMessage[]> {
+    return (await this.cache.sentMessages(kind, conv, undefined, true)).filter(
+      (row) => row.recall && !this.deleted?.isHiddenCached(row),
+    );
   }
 
   /** Batch coverage is committed only after this durable cache write succeeds. */

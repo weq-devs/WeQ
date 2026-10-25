@@ -40,6 +40,7 @@ import {
 } from 'react';
 import { conversationPinned } from '@weq/service/conversation-order';
 import { sortConversationRows } from '../../lib/conversationListOrder';
+import { useConversationClickTarget } from '../../hooks/useConversationClickTarget';
 import {
   ConversationDirectoryContext,
   ContactDirectoryContext,
@@ -241,6 +242,18 @@ export function ConversationList({
     keyword,
     scope,
   ]);
+  const selectConversation = (id: string, event: React.MouseEvent) => {
+    if (!filtered.some((row) => row.id === id)) return;
+    const virtual = directory?.virtual.find((item) => item.id === id);
+    if (virtual) directory.onVirtual(virtual);
+    else onSelect(id, event);
+  };
+  const clickTargetProps = useConversationClickTarget({
+    rows: filtered,
+    enabled: !selectionMode,
+    resetKey: `${scope}:${keyword}`,
+    onSelect: selectConversation,
+  });
   const assistantIds = useMemo(
     () =>
       (directory?.real ?? conversations)
@@ -556,7 +569,7 @@ export function ConversationList({
       {!loading && !filtered.length ? (
         <EmptyState title="暂无会话" body="" icon={<MessageSquare />} />
       ) : null}
-      <div className="weq-conversation-viewport" ref={viewportRef}>
+      <div className="weq-conversation-viewport" ref={viewportRef} {...clickTargetProps}>
         <WindowedList
           items={filtered}
           rowHeight={rowHeight}
@@ -658,11 +671,7 @@ export function ConversationList({
                     y: rect.top + 20,
                   });
                 }}
-                onClick={(e) => {
-                  const virtual = directory?.virtual.find((item) => item.id === conversation.id);
-                  if (virtual) directory.onVirtual(virtual);
-                  else onSelect(conversation.id, e);
-                }}
+                onClick={(e) => selectConversation(conversation.id, e)}
               >
                 {conversation.type === 'merged' ? (
                   <span className={cn('avatar', 'has-default', 'merged-avatar')}>
@@ -1455,7 +1464,14 @@ export function ContactList({
               }
             >
               <ChevronRight className={cn('contact-cat-caret', open && 'is-open')} size={15} />
-              <span className={cn('contact-cat-name')}>{category.name}</span>
+              <span
+                className={cn('contact-cat-name')}
+                data-privacy-sensitive={
+                  (typeof category.id === 'number' && category.id !== 0) || undefined
+                }
+              >
+                {category.name}
+              </span>
               <span className={cn('contact-cat-count')}>
                 {category.count === null ? '-' : (category.count ?? category.items.length)}
               </span>

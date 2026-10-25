@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
 import { createImagePreviewer, PREVIEW_MAX_SIDE } from '../src/main/image_preview';

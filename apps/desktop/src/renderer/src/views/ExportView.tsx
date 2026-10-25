@@ -75,7 +75,6 @@ import {
 } from './export/types';
 import '../styles/export.css';
 import { MessageScopePicker } from './export/MessageScopePicker';
-import { ExportSaveActions } from '../components/ExportSaveActions';
 import { ServerSavePrompt } from '../components/ServerSavePrompt';
 import { SaveResultLocation } from './export/SaveResultLocation';
 import { IS_WEB } from '../lib/target';
@@ -97,7 +96,8 @@ import { GeneratedExportPane } from './export/GeneratedExportPane';
 import { MailExportPane } from './export/MailExportPane';
 import { QzoneScopePicker } from './export/QzoneScopePicker';
 import '../styles/unified-export.css';
-import { useTabActive } from '../components/RetainedTabs';
+import { RetainedTabs, useTabActive } from '../components/RetainedTabs';
+import { ScheduleSettings } from '../components/tasks/ScheduleSettings';
 
 interface ModeDef {
   id: ExportMode;
@@ -337,8 +337,14 @@ export function ExportTool({
   contentListRevision,
   onOpenClone,
   onAuthorizationChange,
+  taskLayout = 'inline',
+  onTaskExpand,
+  onNewSchedule,
 }: {
   surface?: 'export' | 'tasks';
+  taskLayout?: 'inline' | 'compact' | 'split';
+  onTaskExpand?: () => void;
+  onNewSchedule?: () => void;
   initialSelection?: ContentSelection;
   initialMode?: ExportMode;
   initialBaselineDirectory?: string;
@@ -406,6 +412,9 @@ export function ExportTool({
     initialMode === 'scheduled' ? 'scheduled' : 'now',
   );
   const [taskTab, setTaskTab] = useState<'tasks' | 'schedules'>('tasks');
+  const [selectedSchedule, setSelectedSchedule] = useState<string | null>(null);
+  const activeScheduleId =
+    schedules.data?.find((item) => item.id === selectedSchedule)?.id ?? schedules.data?.[0]?.id;
   // 频道私聊会话列表（guild_msg.db；只在该模式下加载）。
   const guildSessions = trpc.account.guildDirectListSessions.useQuery(undefined, {
     enabled: active && surface === 'export' && mode === 'guild',
@@ -819,7 +828,7 @@ export function ExportTool({
     }
   };
 
-  /** 把单个已完成任务保存到用户选择的位置（不再使用默认目录记忆，每次都弹路径）。 */
+  /** 完成结果与新任务共用全局保存方式。 */
   async function saveTask(
     t: UiTask,
   ): Promise<{ status: 'saved'; path: string } | { status: 'cancelled' | 'failed' }> {
@@ -833,9 +842,11 @@ export function ExportTool({
         : null;
     try {
       if (!binding) throw new Error('账号资料尚未就绪，请稍后重试。');
+      if (!globalSettings.data || globalSettings.isLoading)
+        throw new Error('保存偏好尚未就绪，请稍后重试。');
       let selected: string | null | undefined;
       let directory: string | undefined;
-      if (IS_WEB) {
+      if (IS_WEB && globalSettings.data.exportSaveMode !== 'preset') {
         selected = await new Promise<string | null>((resolve) => {
           saveLocationPending.current?.(null);
           saveLocationPending.current = resolve;
@@ -894,7 +905,7 @@ export function ExportTool({
     }
   }
 
-  /** 一键把全部已完成任务逐个保存（每个都弹选择路径，不再记忆默认目录）。 */
+  /** 一键按全局保存方式处理全部已完成任务，询问模式可逐个取消。 */
   const onSaveAll = async (): Promise<void> => {
     const completed = uiTasks.filter((t) => t.status === 'completed');
     if (completed.length === 0) return;
@@ -2193,17 +2204,6 @@ export function ExportTool({
                   >
                     {primaryLabel}
                   </button>
-                  {mode !== 'album' && mode !== 'groupfile' && (
-                    <ExportSaveActions
-                      disabled={
-                        primaryDisabled ||
-                        submitting ||
-                        globalSettings.isLoading ||
-                        pickingSaveDirectory
-                      }
-                      onSelect={(intent) => onPrimary(intent)}
-                    />
-                  )}
                 </div>
               </footer>
             ) : null}
@@ -2213,140 +2213,182 @@ export function ExportTool({
 
       {/* 聚合任务与定时计划，共用原有任务操作。 */}
       {surface === 'tasks' && !saveLocationTask ? (
-        <>
-          <Segmented<'tasks' | 'schedules'>
-            value={taskTab}
-            onChange={setTaskTab}
-            options={[
-              { value: 'tasks', label: '当前任务' },
-              { value: 'schedules', label: '定时任务' },
-            ]}
-          />
-          {taskTab === 'schedules' ? (
-            <div className="weq-exp-sched-list">
-              {schedules.isLoading ? (
-                <ScheduleListSkeleton />
-              ) : schedules.isError ? (
-                <div role="status">
-                  定时任务加载失败
-                  <button
-                    type="button"
-                    title="重试加载计划"
-                    aria-label="重试加载计划"
-                    onClick={() => void schedules.refetch()}
-                  >
-                    <RotateCw size={14} />
-                  </button>
-                </div>
-              ) : (schedules.data ?? []).length === 0 ? (
-                <div className="weq-exp-sched-empty">
-                  <strong>暂无定时任务</strong>
-                </div>
-              ) : (
-                (schedules.data as ScheduledTask[]).map((s) => (
-                  <ScheduleRow
-                    key={s.id}
-                    schedule={s}
-                    onToggle={() => void onToggleSchedule(s)}
-                    onDelete={() => void onDeleteSchedule(s)}
-                    onRunNow={() => void onRunScheduleNow(s)}
-                  />
-                ))
-              )}
+        <div className={`weq-task-workspace is-${taskLayout}`}>
+          {taskLayout !== 'compact' ? (
+            <div className="weq-task-workspace-tabs">
+              <Segmented<'tasks' | 'schedules'>
+                value={taskTab}
+                onChange={setTaskTab}
+                options={[
+                  { value: 'tasks', label: '当前任务' },
+                  { value: 'schedules', label: '定时任务' },
+                ]}
+              />
             </div>
-          ) : (
-            <CurrentTaskList
-              exports={uiTasks}
-              exportError={tasks.error?.message}
-              loadingExports={tasks.isLoading}
-              onOpenClone={onOpenClone}
-              onSaveAll={() => void onSaveAll()}
-              autoSelectId={autoSelectTaskId}
-              renderExport={(task) => (
-                <TaskList
-                  detailOnly
-                  tasks={[task]}
-                  onPause={onPause}
-                  onFinalize={(t) => {
-                    void client.account.finalizeExportTask
-                      .mutate({ taskId: t.id })
-                      .then((ok) => {
-                        if (!ok)
-                          dialog.error('收尾未完成', '任务仍在暂停或收尾失败，请查看任务日志。');
-                        refetchTasks();
-                      })
-                      .catch((e) => dialog.error('收尾失败', String(e)));
-                    refetchTasks();
-                  }}
-                  onIncremental={(t) => {
-                    void client.account.resumeExportTask
-                      .mutate({ taskId: t.id, incremental: true })
-                      .then((ok) => {
-                        if (!ok) dialog.error('无法增量导出', '任务仍在收尾，请稍后重试。');
-                        refetchTasks();
-                      })
-                      .catch((e) => dialog.error('增量导出失败', String(e)));
-                  }}
-                  onSkipStage={(t, stage) => {
-                    void client.account.skipExportTaskStage
-                      .mutate({ taskId: t.id, stage })
-                      .then((ok) => {
-                        if (!ok) dialog.error('无法跳过', '此项已完成或任务状态已变化。');
-                        refetchTasks();
-                      })
-                      .catch((e) => dialog.error('跳过失败', String(e)));
-                  }}
-                  onResume={(t) => {
-                    void client.account.resumeExportTask
-                      .mutate({ taskId: t.id })
-                      .then((ok) => {
-                        if (!ok)
-                          dialog.error(
-                            t.resumeMode === 'restart' ? '无法重新执行' : '无法继续',
-                            t.resumeMode === 'restart'
-                              ? '任务仍在收尾，请稍后重试。'
-                              : '任务仍在收尾，或没有可验证的断点。',
-                          );
-                        refetchTasks();
-                      })
-                      .catch((e) => dialog.error('续作失败', String(e)));
-                  }}
-                  onReport={(t) => {
-                    void client.account.revealExportReport
-                      .mutate({ taskId: t.id })
-                      .catch((e) => dialog.error('打开报告失败', String(e)));
-                  }}
-                  onCancel={onCancel}
-                  onDownload={(t) => void onDownload(t)}
-                  onOpenSaved={
-                    !IS_WEB
-                      ? (t, reveal) => {
-                          const account = exportAccount.data;
-                          if (!account?.uin || !account.configId) return;
-                          void client.account.openSavedExportOutput
-                            .mutate({
-                              taskId: t.id,
-                              reveal,
-                              expectedAccountUin: account.uin,
-                              expectedAccountConfigId: account.configId,
-                            })
-                            .catch((error) =>
-                              dialog.error(
-                                '打开保存结果失败',
-                                error instanceof Error ? error.message : String(error),
-                              ),
+          ) : null}
+          <RetainedTabs
+            activeKey={taskTab === 'schedules' && taskLayout !== 'compact' ? 'schedules' : 'tasks'}
+          >
+            {taskTab === 'schedules' && taskLayout !== 'compact' ? (
+              <div className="weq-schedule-workspace">
+                <div className="weq-exp-sched-list">
+                  {onNewSchedule ? (
+                    <button type="button" className="weq-set-btn" onClick={onNewSchedule}>
+                      <CalendarClock size={15} />
+                      新建定时任务
+                    </button>
+                  ) : null}
+                  {schedules.isLoading ? (
+                    <ScheduleListSkeleton />
+                  ) : schedules.isError ? (
+                    <div role="status">
+                      定时任务加载失败
+                      <button
+                        type="button"
+                        title="重试加载计划"
+                        aria-label="重试加载计划"
+                        onClick={() => void schedules.refetch()}
+                      >
+                        <RotateCw size={14} />
+                      </button>
+                    </div>
+                  ) : (schedules.data ?? []).length === 0 ? (
+                    <div className="weq-exp-sched-empty">
+                      <strong>暂无定时任务</strong>
+                    </div>
+                  ) : (
+                    (schedules.data as ScheduledTask[]).map((s) => (
+                      <button
+                        type="button"
+                        key={s.id}
+                        className={`weq-schedule-select${activeScheduleId === s.id ? ' is-selected' : ''}`}
+                        onClick={() => setSelectedSchedule(s.id)}
+                      >
+                        <strong>{s.name}</strong>
+                        <span>{scheduleSummary(s)}</span>
+                        <small>{s.enabled ? `下次 ${fmtRunAt(s.nextRunAt)}` : '已暂停'}</small>
+                      </button>
+                    ))
+                  )}
+                </div>
+                <div className="weq-schedule-details">
+                  <RetainedTabs activeKey={activeScheduleId ?? 'empty'}>
+                    {(schedules.data as ScheduledTask[] | undefined)
+                      ?.filter((s) => s.id === activeScheduleId)
+                      .map((s) => (
+                        <div key={s.id}>
+                          <ScheduleRow
+                            key={s.id}
+                            schedule={s}
+                            onToggle={() => void onToggleSchedule(s)}
+                            onDelete={() => void onDeleteSchedule(s)}
+                            onRunNow={() => void onRunScheduleNow(s)}
+                          />
+                          <ScheduleSettings schedule={s} />
+                        </div>
+                      ))}
+                  </RetainedTabs>
+                </div>
+              </div>
+            ) : (
+              <CurrentTaskList
+                layout={taskLayout}
+                onOpenDetail={() => {
+                  setTaskTab('tasks');
+                  onTaskExpand?.();
+                }}
+                exports={uiTasks}
+                exportError={tasks.error?.message}
+                loadingExports={tasks.isLoading}
+                onOpenClone={onOpenClone}
+                onSaveAll={() => void onSaveAll()}
+                autoSelectId={autoSelectTaskId}
+                renderExport={(task) => (
+                  <TaskList
+                    detailOnly
+                    tasks={[task]}
+                    onPause={onPause}
+                    onFinalize={(t) => {
+                      void client.account.finalizeExportTask
+                        .mutate({ taskId: t.id })
+                        .then((ok) => {
+                          if (!ok)
+                            dialog.error('收尾未完成', '任务仍在暂停或收尾失败，请查看任务日志。');
+                          refetchTasks();
+                        })
+                        .catch((e) => dialog.error('收尾失败', String(e)));
+                      refetchTasks();
+                    }}
+                    onIncremental={(t) => {
+                      void client.account.resumeExportTask
+                        .mutate({ taskId: t.id, incremental: true })
+                        .then((ok) => {
+                          if (!ok) dialog.error('无法增量导出', '任务仍在收尾，请稍后重试。');
+                          refetchTasks();
+                        })
+                        .catch((e) => dialog.error('增量导出失败', String(e)));
+                    }}
+                    onSkipStage={(t, stage) => {
+                      void client.account.skipExportTaskStage
+                        .mutate({ taskId: t.id, stage })
+                        .then((ok) => {
+                          if (!ok) dialog.error('无法跳过', '此项已完成或任务状态已变化。');
+                          refetchTasks();
+                        })
+                        .catch((e) => dialog.error('跳过失败', String(e)));
+                    }}
+                    onResume={(t) => {
+                      void client.account.resumeExportTask
+                        .mutate({ taskId: t.id })
+                        .then((ok) => {
+                          if (!ok)
+                            dialog.error(
+                              t.resumeMode === 'restart' ? '无法重新执行' : '无法继续',
+                              t.resumeMode === 'restart'
+                                ? '任务仍在收尾，请稍后重试。'
+                                : '任务仍在收尾，或没有可验证的断点。',
                             );
-                        }
-                      : undefined
-                  }
-                  onBrowserDownload={IS_WEB ? (t) => void downloadInBrowser(t) : undefined}
-                  onDelete={onDelete}
-                  onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}
-                />
-              )}
-            />
-          )}
-        </>
+                          refetchTasks();
+                        })
+                        .catch((e) => dialog.error('续作失败', String(e)));
+                    }}
+                    onReport={(t) => {
+                      void client.account.revealExportReport
+                        .mutate({ taskId: t.id })
+                        .catch((e) => dialog.error('打开报告失败', String(e)));
+                    }}
+                    onCancel={onCancel}
+                    onDownload={(t) => void onDownload(t)}
+                    onOpenSaved={
+                      !IS_WEB
+                        ? (t, reveal) => {
+                            const account = exportAccount.data;
+                            if (!account?.uin || !account.configId) return;
+                            void client.account.openSavedExportOutput
+                              .mutate({
+                                taskId: t.id,
+                                reveal,
+                                expectedAccountUin: account.uin,
+                                expectedAccountConfigId: account.configId,
+                              })
+                              .catch((error) =>
+                                dialog.error(
+                                  '打开保存结果失败',
+                                  error instanceof Error ? error.message : String(error),
+                                ),
+                              );
+                          }
+                        : undefined
+                    }
+                    onBrowserDownload={IS_WEB ? (t) => void downloadInBrowser(t) : undefined}
+                    onDelete={onDelete}
+                    onShowFailures={(t, failures) => setFailureView({ name: t.name, failures })}
+                  />
+                )}
+              />
+            )}
+          </RetainedTabs>
+        </div>
       ) : null}
 
       {failureView ? (
@@ -2746,8 +2788,14 @@ function CollectionScope({
 function fmtRunAt(sec: number | null): string {
   if (sec == null) return '—';
   const d = new Date(sec * 1000);
-  const pad = (n: number): string => n.toString().padStart(2, '0');
-  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d);
 }
 
 /** Compact relative-time hint for the "下次运行" label. */

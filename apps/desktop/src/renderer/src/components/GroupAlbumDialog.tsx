@@ -336,11 +336,16 @@ function AlbumListView({
             onChange={(event) => onSearch(event.target.value)}
           />
         </label>
-        <select aria-label="相册排序" value={sort} onChange={(event) => onSort(event.target.value)}>
-          <option value="source">原有顺序</option>
-          <option value="name">名称</option>
-          <option value="count">媒体数量</option>
-        </select>
+        <SegmentedControl
+          label="相册排序"
+          value={sort}
+          onChange={onSort}
+          options={[
+            { value: 'source', label: '原有顺序' },
+            { value: 'name', label: '名称' },
+            { value: 'count', label: '媒体数量' },
+          ]}
+        />
       </div>
       {!paused || albums.length ? (
         <p className="group-album-count" role="status">
@@ -731,3 +736,4 @@ function MediaThumbnail({
     </button>
   );
 }
+import { SegmentedControl } from './SegmentedControl';

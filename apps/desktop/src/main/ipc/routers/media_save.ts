@@ -373,6 +373,7 @@ export const mediaSaveRouter = router({
       getHost(),
       output,
       check,
+      `media:${selected.source.kind}:${output.extension}`,
     );
     if (!policy) return null;
     const fileName = exportOutputFileName(output);

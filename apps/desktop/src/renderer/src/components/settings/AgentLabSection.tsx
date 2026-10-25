@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   Boxes,
   DownloadCloud,
@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Modal } from '../../components/Dialog';
 import { Card, CheckPillGroup, QueryError, Row, SectionHeader } from './controls';
@@ -23,6 +24,7 @@ import {
   useConnectionTestTasks,
 } from '../../lib/connectionTestTask';
 import { useToast } from '../Toast';
+import { DefaultApiModelRow } from './DefaultApiModelRow';
 import '../../styles/provider-settings.css';
 
 type Capability = 'chat' | 'embedding' | 'vision';
@@ -62,15 +64,18 @@ function templateDisplayName(label: string | undefined): string {
 }
 
 export function AgentLabSection(): ReactElement {
+  const active = useTabActive();
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const catalog = trpc.bootstrap.getAgentLabCatalog.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   });
   const catalogRef = useRef(catalog.data);
   catalogRef.current = catalog.data;
   const providers = trpc.bootstrap.listAgentLabProviders.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -139,11 +144,6 @@ export function AgentLabSection(): ReactElement {
     // 模板查询迟到只更新模板来源，不重新灌入并覆盖正在编辑的草稿。
     [guard.reset],
   );
-
-  useEffect(() => {
-    const current = providers.data?.find((item) => item.id === selectedId);
-    if (current) fillFormFrom(current);
-  }, [providers.data, selectedId, fillFormFrom]);
 
   const vendorEntry = useMemo(
     () => catalog.data?.find((item) => item.vendor === form.vendor),
@@ -335,6 +335,7 @@ export function AgentLabSection(): ReactElement {
       setSelectedId(id);
       setOpen(true);
       await utils.bootstrap.listAgentLabProviders.invalidate();
+      await utils.bootstrap.getAgentLabDefaultModel.invalidate();
       dialog.success('已保存', `provider「${form.name.trim() || id}」配置已更新`);
     } catch (error) {
       dialog.error('保存 provider 失败', error instanceof Error ? error.message : String(error));
@@ -388,6 +389,7 @@ export function AgentLabSection(): ReactElement {
       setForm(emptyForm());
       setOpen(false);
       await utils.bootstrap.listAgentLabProviders.invalidate();
+      await utils.bootstrap.getAgentLabDefaultModel.invalidate();
       dialog.success('已删除', `provider「${removed}」已移除`);
     } catch (error) {
       dialog.error('删除 provider 失败', error instanceof Error ? error.message : String(error));
@@ -399,7 +401,8 @@ export function AgentLabSection(): ReactElement {
       <SectionHeader icon={<Boxes size={18} strokeWidth={1.8} />} title="API 配置" />
 
       <Card
-        title="已保存的 provider"
+        title="LLM"
+        settingId="llm-providers"
         action={
           <button
             type="button"
@@ -411,6 +414,8 @@ export function AgentLabSection(): ReactElement {
           </button>
         }
       >
+        <DefaultApiModelRow />
+        <div className="weq-set-card-title">已保存的 provider</div>
         {providers.error ? (
           <QueryError
             message={`API 配置读取失败：${providers.error.message}`}

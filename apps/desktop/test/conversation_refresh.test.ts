@@ -8,6 +8,18 @@ const rows = (start: number, end: number) =>
     body: 'before',
   }));
 
+it('未变行及整个未变窗口保留引用，修改只替换对应行且删除仍生效', () => {
+  const current = rows(1, 3).map((row) => ({ ...row, elements: [{ text: 'body' }] }));
+  const fresh = structuredClone(current);
+  expect(mergeRefreshedWindow(current, fresh, 50)).toBe(current);
+  fresh[1]!.elements[0]!.text = 'edited';
+  const changed = mergeRefreshedWindow(current, fresh, 50);
+  expect(changed[0]).toBe(current[0]);
+  expect(changed[1]).not.toBe(current[1]);
+  expect(changed[2]).toBe(current[2]);
+  expect(mergeRefreshedWindow(current, fresh.slice(1), 50)).toHaveLength(2);
+});
+
 it('刷新达到上限时保留此前已加载的历史，不能被最新 500 条裁走', () => {
   const current = rows(1, 1000);
   const fresh = rows(502, 1001);

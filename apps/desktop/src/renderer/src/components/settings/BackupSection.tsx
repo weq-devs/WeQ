@@ -13,7 +13,8 @@ import { snapshotWeqClientSettings } from '@weq/service/backup-client';
 import { client } from '../../trpc/client';
 import { backupClientId } from '../../lib/backupClientRestore';
 import { useToast } from '../Toast';
-import { SectionHeader } from './controls';
+import { Card, SectionHeader } from './controls';
+import { useTabActive } from '../RetainedTabs';
 import '../../styles/backup.css';
 
 const PARTS: WeqBackupPart[] = ['settings', 'accounts', 'api', 'clones'];
@@ -98,6 +99,11 @@ function Summary({ value }: { value: WeqBackupSummary }) {
 }
 
 export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
+  const active = useTabActive();
+  const activity = useRef(active);
+  activity.current = active;
+  const initialized = useRef(false);
+  const readSequence = useRef(0);
   const [inventory, setInventory] = useState<Inventory | null>(null);
   const [parts, setParts] = useState<WeqBackupPart[]>(['settings']);
   const [accounts, setAccounts] = useState<string[]>([]);
@@ -122,31 +128,43 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   const toast = useToast((s) => s.push);
   const refresh = useCallback(
     async (initial = false) => {
+      if (!activity.current) return;
+      const request = ++readSequence.current;
       const result = await api.inventory();
-      if (!alive.current) return;
+      if (!alive.current || !activity.current || readSequence.current !== request) return;
       setInventory(result);
       if (initial) {
         setAccounts(result.accounts.map((a) => a.configId));
         setClones(result.cloneScopes);
       }
+      initialized.current = true;
     },
     [api],
   );
   useEffect(() => {
     alive.current = true;
-    void refresh(true)
-      .catch((e: unknown) => {
-        if (alive.current) setError(String(e));
-      })
-      .finally(() => {
-        if (alive.current) setBusy(null);
-      });
     return () => {
       alive.current = false;
+      readSequence.current++;
       generation.current++;
       if (sourceId.current) void api.dispose(sourceId.current).catch(() => {});
     };
-  }, [api, refresh]);
+  }, [api]);
+  useEffect(() => {
+    if (!active) return;
+    let current = true;
+    void refresh(!initialized.current)
+      .catch((e: unknown) => {
+        if (current && alive.current) setError(String(e));
+      })
+      .finally(() => {
+        if (current && alive.current) setBusy((value) => (value === '正在读取' ? null : value));
+      });
+    return () => {
+      current = false;
+      readSequence.current++;
+    };
+  }, [active, refresh]);
   async function act(label: string, run: () => Promise<void>) {
     setBusy(label);
     setError(null);
@@ -242,7 +260,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   ];
   return (
     <div className="weq-set weq-backup" aria-busy={Boolean(busy)}>
-      <SectionHeader icon={<ArchiveRestore size={17} />} title="备份与恢复" />
+      <SectionHeader icon={<ArchiveRestore size={17} />} title="配置备份与恢复" />
       <p className="weq-set-note">
         备份不加密，可能包含 API 密钥、账号数据库密钥、克隆对话和记忆。请妥善保管；不包含 QQ
         原始数据库、漫游缓存或本机应用锁密钥。
@@ -269,8 +287,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
         </button>
       </div>
       {result ? (
-        <section className="weq-backup-band">
-          <h4>{result.status === 'applied' ? '最近一次恢复已应用' : '最近一次恢复失败'}</h4>
+        <Card title={result.status === 'applied' ? '最近一次恢复已应用' : '最近一次恢复失败'}>
           <p>
             {result.error ||
               `已应用 ${result.applied.length} 项，跳过 ${result.skipped.length} 项。`}
@@ -305,10 +322,9 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               </div>
             </>
           ) : null}
-        </section>
+        </Card>
       ) : null}
-      <section className="weq-backup-band">
-        <h4>导出备份</h4>
+      <Card title="导出备份">
         <fieldset disabled={Boolean(busy) || !inventory}>
           <legend>备份范围</legend>
           <div className="weq-backup-choices">
@@ -421,9 +437,8 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
             <Summary value={exported.summary} />
           </>
         ) : null}
-      </section>
-      <section className="weq-backup-band">
-        <h4>导入备份</h4>
+      </Card>
+      <Card title="导入备份">
         <div className="weq-backup-actions">
           <input
             ref={input}
@@ -547,16 +562,15 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                   </div>
                 ))}
               <legend>同名数据处理</legend>
-              <select
-                aria-label="同名数据处理"
+              <SegmentedControl
+                label="同名数据处理"
                 value={choice.conflict}
-                onChange={(e) =>
-                  change({ conflict: e.target.value === 'skip' ? 'skip' : 'overwrite' })
-                }
-              >
-                <option value="skip">跳过已有账号、克隆和 API 项</option>
-                <option value="overwrite">覆盖所选数据域</option>
-              </select>
+                onChange={(conflict) => change({ conflict })}
+                options={[
+                  { value: 'skip', label: '跳过已有', title: '跳过已有账号、克隆和 API 项' },
+                  { value: 'overwrite', label: '覆盖所选', title: '覆盖所选数据域' },
+                ]}
+              />
               <p>
                 通用设置总会应用。覆盖不合并克隆对话；显式映射到另一份本机账号配置时，保留该账号的接入信息与运行凭据。
               </p>
@@ -636,9 +650,8 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
             </div>
           </div>
         ) : null}
-      </section>
-      <section className="weq-backup-band">
-        <h4>恢复默认设置</h4>
+      </Card>
+      <Card title="恢复默认设置">
         <p>仅重置通用设置、导出预设与此设备界面偏好；不会删除账号、API 配置或克隆数据。</p>
         <button
           type="button"
@@ -651,10 +664,9 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           <RotateCcw size={14} />
           恢复默认设置
         </button>
-      </section>
+      </Card>
       {pending ? (
-        <section className="weq-backup-band">
-          <h4>{pending.phase === 'ready' ? '已暂存，等待重启' : '恢复暂存未完成'}</h4>
+        <Card title={pending.phase === 'ready' ? '已暂存，等待重启' : '恢复暂存未完成'}>
           <Summary value={pending.summary} />
           <p>
             正在运行的服务尚未使用这份备份。
@@ -689,7 +701,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               </button>
             ) : null}
           </div>
-        </section>
+        </Card>
       ) : null}
       {confirm ? (
         <div className="weq-backup-review" role="region" aria-label="确认操作">
@@ -757,3 +769,4 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
     </div>
   );
 }
+import { SegmentedControl } from '../SegmentedControl';

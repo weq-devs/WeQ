@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { access, readFile } from 'node:fs/promises';
 import { AlbumVideoStaging } from '../src/main/ipc/routers/album_video_staging';

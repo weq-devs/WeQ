@@ -99,6 +99,20 @@ describe('AntiRecallDb recall log (offline fixture)', () => {
     });
   });
 
+  it('消息页只查询当前页 ID，保留 64 位精度、缺表和跨表隔离', async () => {
+    createFixture(true);
+    const large = 7695126900078041334n;
+    insertRow(10, 'group', '777', 10);
+    insertRow(11, 'group', '777', 11);
+    insertRow(large, 'group', '777', 12);
+    insertRow(12, 'group', '888', 13);
+    insertRow(13, 'dataline', '777', 14);
+    expect(
+      (await db.listRecalls('group', '777', [10n, large, 12n, 13n])).map((row) => row.msgid),
+    ).toEqual([String(large), '10']);
+    expect(await db.listRecalls('group', '777', [])).toEqual([]);
+  });
+
   it('recallSummaries 按会话汇总计数 + 最近一次时间，最新活动在前', async () => {
     createFixture(true);
     insertRow(10, 'group', '777', 1700000010);

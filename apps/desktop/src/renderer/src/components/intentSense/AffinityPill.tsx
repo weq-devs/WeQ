@@ -32,15 +32,9 @@ export function AffinityPill({
 }) {
   const status = useIntentSenseStatus();
   const statusData = status.data;
-  const overridden = statusData?.conversationOverrides?.[`c2c:${peerUid}`];
-  const engineOk =
-    statusData?.engine === 'local' ? !!statusData.localReady : !!statusData?.apiConfigured;
-  const active =
-    !!(statusData?.profileEnabled ?? statusData?.enabled) &&
-    overridden !== false &&
-    (statusData?.profileAvailable ?? engineOk);
+  const active = !!statusData?.profileEnabled;
   const profile = trpc.account.intentSense.getProfile.useQuery(
-    { peerUid },
+    { peerUid, revision: statusData?.profileRevision },
     {
       enabled: active,
       refetchOnWindowFocus: false,
@@ -52,7 +46,7 @@ export function AffinityPill({
   const [profileOpen, setProfileOpen] = useState(false);
   const prevTier = useRef<number | null>(null);
 
-  const tier = profile.data ? Math.max(0, Math.min(4, profile.data.tier)) : null;
+  const tier = profile.data?.tier == null ? null : Math.max(0, Math.min(4, profile.data.tier));
   const meta = TIERS[tier ?? 0]!;
   const Icon = meta.icon;
 
@@ -81,8 +75,8 @@ export function AffinityPill({
       <button
         type="button"
         className="weq-affinity-pill tier-0 weq-int-pill-loading"
-        title="意图感知"
-        aria-label="意图感知加载中"
+        title="互动画像"
+        aria-label="互动画像加载中"
       >
         <Heart size={13} />
         <span>…</span>
@@ -98,14 +92,18 @@ export function AffinityPill({
         type="button"
         key={tier}
         className={`weq-affinity-pill tier-${tier}${bumped ? ' is-bumped' : ''}`}
-        title={`好感度 ${profile.data.affinity} · ${meta.label}（仅供娱乐参考）`}
-        aria-label={`对方互动画像：好感度 ${profile.data.affinity}`}
+        title={
+          tier === null
+            ? '互动画像（情绪未分析）'
+            : `好感度 ${profile.data.affinity} · ${meta.label}（仅供娱乐参考）`
+        }
+        aria-label={
+          tier === null ? '对方互动画像' : `对方互动画像：好感度 ${profile.data.affinity}`
+        }
         onClick={() => setProfileOpen(true)}
       >
         <Icon size={13} strokeWidth={2.2} />
-        <span>
-          {meta.label} {profile.data.affinity}
-        </span>
+        <span>{tier === null ? '互动画像' : `${meta.label} ${profile.data.affinity}`}</span>
       </button>
       {dialog}
     </>

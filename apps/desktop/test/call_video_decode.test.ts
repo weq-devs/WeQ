@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * 通话视频解码的纯逻辑：**参数集必须内联，不能走 `description`**。
  *

@@ -24,7 +24,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
-import { WorkspacePage } from '../../components/WorkspacePages';
+import { ToolSurface, type ToolPresentation } from '../../components/ToolSurface';
 import {
   X,
   Loader2,
@@ -174,9 +174,11 @@ const VARIANT_LABEL: Record<CleanupVariant, string> = {
 export function ResourceCleanupDialog({
   open,
   onClose,
+  presentation = 'page',
 }: {
   open: boolean;
   onClose: () => void;
+  presentation?: ToolPresentation;
 }): ReactElement | null {
   const utils = trpc.useUtils();
   const [targets, setTargets] = useState<CleanupTargetStat[]>([]);
@@ -194,6 +196,13 @@ export function ResourceCleanupDialog({
   const [result, setResult] = useState<CleanupResult | null>(null);
 
   const runRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      runRef.current += 1;
+    },
+    [],
+  );
 
   const resetState = useCallback((): void => {
     setStage('pick');
@@ -280,16 +289,19 @@ export function ResourceCleanupDialog({
 
   const runCleanup = async (): Promise<void> => {
     if (!chosen) return;
+    const run = ++runRef.current;
     setStage('running');
     try {
       const res = await client.account.resourceCleanup.cleanup.mutate({
         instructions: chosen.instructions,
       });
+      if (run !== runRef.current) return;
       setResult(res);
       setStage('done');
       // Every browser + 整体分析 reads these trees — force a rescan on next open.
       void utils.account.invalidate();
     } catch (e) {
+      if (run !== runRef.current) return;
       setError(e instanceof Error ? e.message : String(e));
       setStage('confirm');
     }
@@ -300,103 +312,116 @@ export function ResourceCleanupDialog({
   };
 
   return (
-    <WorkspacePage
+    <ToolSurface
       title="清理缓存"
+      presentation={presentation}
+      busy={stage === 'running'}
+      draft={
+        stage === 'pick' || stage === 'confirm'
+          ? chosen
+            ? { preset: chosen.preset.id, instructions: chosen.instructions }
+            : Object.keys(customSel).length
+              ? customSel
+              : null
+          : null
+      }
       onClose={() => {
         if (stage !== 'running') onClose();
       }}
     >
-      <div
-        className="weq-ra-dialog weq-clean-dialog weq-anim-pop"
-        role="dialog"
-        aria-label="清理本地资源"
-        {...multi.rootProps}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <header className="weq-ra-head">
-          <div className="weq-ra-head-title">
-            <Trash2 size={18} />
-            <div>
-              <strong>清理释放本地资源</strong>
-              <small>删除 QQ 本地缓存以释放磁盘空间，可再生资源会自动重新下载</small>
+      {(onClose) => (
+        <div
+          className="weq-ra-dialog weq-clean-dialog weq-anim-pop"
+          role="dialog"
+          aria-label="清理本地资源"
+          {...multi.rootProps}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <header className="weq-ra-head">
+            <div className="weq-ra-head-title">
+              <Trash2 size={18} />
+              <div>
+                <strong>清理释放本地资源</strong>
+                <small>删除 QQ 本地缓存以释放磁盘空间，可再生资源会自动重新下载</small>
+              </div>
             </div>
-          </div>
-          <div className="weq-ra-head-actions">
-            {loading ? <Loader2 size={14} className="weq-spin" /> : null}
-            <span className="weq-clean-total">共 {fmtBytes(totalBytes)}</span>
-            <button
-              type="button"
-              className="weq-ra-close"
-              onClick={onClose}
-              disabled={stage === 'running'}
-              aria-label="关闭"
-            >
-              <X size={18} />
-            </button>
-          </div>
-        </header>
+            <div className="weq-ra-head-actions">
+              {loading ? <Loader2 size={14} className="weq-spin" /> : null}
+              <span className="weq-clean-total">共 {fmtBytes(totalBytes)}</span>
+              <button
+                type="button"
+                className="weq-ra-close"
+                onClick={onClose}
+                disabled={stage === 'running'}
+                aria-label="关闭"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </header>
 
-        {error ? (
-          <div className="weq-ra-error">
-            <AlertTriangle size={14} /> {error}
-          </div>
-        ) : null}
-
-        <div className="weq-ra-body weq-clean-body">
-          {stage === 'pick' ? (
-            <PickStage
-              targets={targets}
-              loading={loading}
-              customMode={customMode}
-              customSel={customSel}
-              customInstructions={customInstructions}
-              onEnterCustom={() => setCustomMode(true)}
-              onLeaveCustom={() => {
-                setCustomMode(false);
-                setCustomSel({});
-              }}
-              selectionBindings={multi.itemProps}
-              onSetVariant={setCustomVariant}
-              onPickPreset={pickPreset}
-              onConfirmCustom={pickCustom}
-            />
-          ) : null}
-
-          {stage === 'confirm' && chosen ? (
-            <ConfirmStage
-              targets={targets}
-              chosen={chosen}
-              phrase={phrase}
-              onPhrase={setPhrase}
-              onBack={() => {
-                setStage('pick');
-                setError(null);
-              }}
-              onRun={() => void runCleanup()}
-            />
-          ) : null}
-
-          {stage === 'running' ? (
-            <div className="weq-clean-running">
-              <Loader2 size={26} className="weq-spin" />
-              <strong>正在清理…</strong>
-              <span>正在删除文件并释放空间，请稍候</span>
+          {error ? (
+            <div className="weq-ra-error">
+              <AlertTriangle size={14} /> {error}
             </div>
           ) : null}
 
-          {stage === 'done' && result ? (
-            <DoneStage
-              result={result}
-              onClose={onClose}
-              onAgain={() => {
-                resetState();
-                void scan();
-              }}
-            />
-          ) : null}
+          <div className="weq-ra-body weq-clean-body">
+            {stage === 'pick' ? (
+              <PickStage
+                targets={targets}
+                loading={loading}
+                customMode={customMode}
+                customSel={customSel}
+                customInstructions={customInstructions}
+                onEnterCustom={() => setCustomMode(true)}
+                onLeaveCustom={() => {
+                  setCustomMode(false);
+                  setCustomSel({});
+                }}
+                selectionBindings={multi.itemProps}
+                onSetVariant={setCustomVariant}
+                onPickPreset={pickPreset}
+                onConfirmCustom={pickCustom}
+              />
+            ) : null}
+
+            {stage === 'confirm' && chosen ? (
+              <ConfirmStage
+                targets={targets}
+                chosen={chosen}
+                phrase={phrase}
+                onPhrase={setPhrase}
+                onBack={() => {
+                  setStage('pick');
+                  setError(null);
+                }}
+                onRun={() => void runCleanup()}
+              />
+            ) : null}
+
+            {stage === 'running' ? (
+              <div className="weq-clean-running">
+                <Loader2 size={26} className="weq-spin" />
+                <strong>正在清理…</strong>
+                <span>正在删除文件并释放空间，请稍候</span>
+              </div>
+            ) : null}
+
+            {stage === 'done' && result ? (
+              <DoneStage
+                result={result}
+                onClose={onClose}
+                onAgain={() => {
+                  resetState();
+                  void scan();
+                }}
+              />
+            ) : null}
+          </div>
         </div>
-      </div>
-    </WorkspacePage>
+      )}
+    </ToolSurface>
   );
 }
 

@@ -4,6 +4,11 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useQQAutoRefresh, useQQReadActivity } from '../src/renderer/src/hooks/useQQAutoRefresh';
+import {
+  RetainedTabs,
+  TabActivity,
+  useTabActive,
+} from '../src/renderer/src/components/RetainedTabs';
 
 const cleanups: Array<() => void> = [];
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -32,6 +37,84 @@ function fixture(read: () => Promise<string>) {
 }
 
 describe('QQ 自动读取', () => {
+  it('真实 QueryClient 在保留页失活后停止轮询，不影响当前页读取', async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const readers = { a: vi.fn(async () => 'a'), b: vi.fn(async () => 'b') };
+    function Reader({ name }: { name: 'a' | 'b' }) {
+      const active = useTabActive();
+      useQuery(['retained-settings', name], readers[name], {
+        enabled: active,
+        refetchInterval: 1000,
+        refetchIntervalInBackground: true,
+        staleTime: 0,
+      });
+      return null;
+    }
+    const root = createRoot(document.createElement('div'));
+    cleanups.push(() => {
+      act(() => root.unmount());
+      client.clear();
+    });
+    const render = (name: 'a' | 'b') =>
+      act(() =>
+        root.render(
+          h(
+            QueryClientProvider,
+            { client },
+            h(RetainedTabs, { activeKey: name }, h(Reader, { name })),
+          ),
+        ),
+      );
+    render('a');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2100);
+    });
+    expect(readers.a.mock.calls.length).toBeGreaterThan(1);
+    const previous = readers.a.mock.calls.length;
+    render('b');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3100);
+    });
+    expect(readers.a).toHaveBeenCalledTimes(previous);
+    expect(readers.b.mock.calls.length).toBeGreaterThan(1);
+    const other = readers.b.mock.calls.length;
+    render('a');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    expect(readers.a.mock.calls.length).toBeGreaterThan(previous);
+    expect(readers.b).toHaveBeenCalledTimes(other);
+  });
+  it('保留但失活的页面释放宿主监听，恢复时只重新读取一次', () => {
+    const add = vi.spyOn(window, 'addEventListener'),
+      remove = vi.spyOn(window, 'removeEventListener');
+    const read = vi.fn();
+    function Reader() {
+      const activity = useQQReadActivity(true);
+      useEffect(() => {
+        if (activity.enabled) read();
+      }, [activity.enabled, activity.revision]);
+      return null;
+    }
+    const root = createRoot(document.createElement('div'));
+    cleanups.push(() => act(() => root.unmount()));
+    const render = (active: boolean) =>
+      act(() => root.render(h(TabActivity, { active }, h(Reader))));
+    render(true);
+    const added = add.mock.calls.filter(([event]) =>
+      ['focus', 'online', 'offline'].includes(event),
+    );
+    expect(added).toHaveLength(3);
+    render(false);
+    for (const [event, listener] of added) expect(remove).toHaveBeenCalledWith(event, listener);
+    act(() => window.dispatchEvent(new Event('focus')));
+    expect(read).toHaveBeenCalledTimes(1);
+    render(true);
+    expect(read).toHaveBeenCalledTimes(2);
+  });
   it('手写页面合并连续恢复事件，隐藏、离线和非活动页均不读取', () => {
     let now = 0;
     vi.spyOn(Date, 'now').mockImplementation(() => now);

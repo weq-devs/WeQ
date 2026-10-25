@@ -2,7 +2,7 @@
  * Bundle the server into `dist/server.mjs` (plus its two sidecar workers).
  *
  * Per-platform by design: each release runner builds its own archive, so
- * `native/` and `resources/daemon/` only carry the platform/arch this machine
+ * `native/` only carries the platform/arch this machine
  * is packaging for. `@weq/native`'s loader picks
  * `native/<process.platform>/<process.arch>` at runtime.
  *
@@ -15,7 +15,7 @@ import { build } from 'esbuild';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { currentTarget, daemonExe, LABELS, nativeRel } from './platform.mjs';
+import { currentTarget, LABELS, nativeRel } from './platform.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(here, '..');
@@ -116,20 +116,10 @@ cpSync(nativeSrc, join(dist, 'native', nativeRelPath), { recursive: true });
 // resources/ — brand assets etc. read at runtime.
 if (existsSync(RESOURCES_SRC)) {
   rmSync(join(dist, 'resources'), { recursive: true, force: true });
-  cpSync(RESOURCES_SRC, join(dist, 'resources'), { recursive: true });
-}
-
-// Rust 守护进程二进制随包发布，只拷当前平台那份（运行时按平台选）。
-// 构建机上没有对应产物时跳过 —— build:daemon 在 release workflow 里先行执行。
-const DAEMON_SRC = join(repoRoot, 'resources', 'daemon', target);
-if (existsSync(DAEMON_SRC)) {
-  mkdirSync(join(dist, 'resources', 'daemon', target), { recursive: true });
-  cpSync(DAEMON_SRC, join(dist, 'resources', 'daemon', target), { recursive: true });
-  console.log(`[build-server] daemon binary copied into resources/daemon/${target}/`);
-} else {
-  console.warn(
-    `[build-server] resources/daemon/${target}/${daemonExe(target)} not found — daemon not bundled (run pnpm run build:daemon)`,
-  );
+  cpSync(RESOURCES_SRC, join(dist, 'resources'), {
+    recursive: true,
+    filter: (source) => source !== join(RESOURCES_SRC, 'daemon'),
+  });
 }
 
 // A manifest so `node server.mjs` resolves `ws` without a full install.
@@ -170,7 +160,7 @@ writeFileSync(
     '改走 pkexec 提权，而无图形界面的服务器弹不出授权框。',
     '',
     `本压缩包为单平台包：${LABELS[target]}。`,
-    `native/ 与 resources/daemon/ 只含该平台的原生模块和守护进程二进制。`,
+    `native/ 只含该平台的原生模块；助手资源服务随当前 Web 进程运行。`,
     '其它平台请下载对应的 weq-web-<版本>-<平台>.tar.gz。',
     '',
     '完整说明： https://github.com/weq-devs/WeQ/blob/main/apps/web/README.md',

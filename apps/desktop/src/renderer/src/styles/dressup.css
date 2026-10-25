@@ -396,10 +396,10 @@
   white-space: nowrap;
 }
 
-/* 卡片底部两个动作并排：主操作「使用」占满，次操作「另存为」按内容宽。
- * 窄卡片时仍能放下，所以两枚按钮都允许收缩文字。 */
+/* 卡片底部固定为同一行的「使用」与「下载」。 */
 .weq-dress-card-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: stretch;
   gap: 6px;
   margin: 0 10px 10px;
@@ -437,7 +437,7 @@
   cursor: not-allowed;
 }
 
-/* 另存为：描边弱一档，避免和「使用」抢主次。 */
+/* 下载：描边弱一档，避免和「使用」抢主次。 */
 .weq-dress-save {
   flex: 0 0 auto;
   border-color: var(--weq-border, rgba(0, 0, 0, 0.12));

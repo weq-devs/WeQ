@@ -17,7 +17,6 @@ import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { Card, SectionHeader } from './controls';
 import { UpdateCard } from './UpdateCard';
-import { DaemonSection } from './DaemonSection';
 import { DesktopOnly } from '../../lib/target';
 import logoUrl from '@resources/brand/logo.png';
 
@@ -153,7 +152,6 @@ export function VersionSection(): ReactElement {
       <DesktopOnly>
         <UpdateCard />
       </DesktopOnly>
-      <DaemonSection panel="updates" />
     </div>
   );
 }

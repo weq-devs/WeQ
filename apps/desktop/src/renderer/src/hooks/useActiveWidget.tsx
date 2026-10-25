@@ -6,7 +6,8 @@
  * 共用同一份 query 缓存，不重复请求），把生效挂件 + 作用范围广播给所有气泡。
  *
  * 渲染优先级（见 messageBubble 的 PendantOverlay）：
- *   per-message 装饰（40801，发送者自己的 QQ 挂件）> 生效挂件 > 自己的 QQ 静态挂件。
+ *   本地生效挂件（按作用范围）> 消息挂件（40801）> 自己的 QQ 静态挂件。
+ *   三种来源均遵循聊天头像挂件开关。
  *
  * 生效挂件永远是「已装」的逐帧动画（frameCount 等时间轴在清单条目里），所以这里
  * 不需要发 resolveMsgDecoration 查询 —— 直接拼 dressPendantFrameUrl 就能播。
@@ -28,6 +29,10 @@ import type { FontFxSkin } from '../lib/dressSkin';
 export interface ActiveWidgetInfo {
   widget: ResolvedWidget | null;
   scope: DressScope;
+  /** 本地使用中的字体（包括没有炫彩帧的普通款）优先于消息字体。 */
+  fontActive?: boolean;
+  /** 本地使用中的气泡优先于消息气泡。 */
+  bubbleActive?: boolean;
 }
 
 export const ActiveWidgetContext = createContext<ActiveWidgetInfo>({
@@ -60,6 +65,10 @@ export function ActiveWidgetProvider({ children }: { children: ReactNode }): Rea
       value={{
         widget: manifest ? activeWidgetFromManifest(manifest) : null,
         scope: manifest?.scope ?? 'mine',
+        fontActive: Boolean(manifest?.fonts.some((font) => font.itemId === manifest.activeFont)),
+        bubbleActive: Boolean(
+          manifest?.bubbles.some((bubble) => bubble.itemId === manifest.activeBubble),
+        ),
       }}
     >
       <ActiveFontFxContext.Provider value={manifest ? activeFontFxFromManifest(manifest) : null}>

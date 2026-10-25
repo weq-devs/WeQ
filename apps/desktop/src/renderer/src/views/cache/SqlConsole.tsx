@@ -16,6 +16,7 @@
  */
 
 import { useState, type ReactElement, type KeyboardEvent } from 'react';
+import { useDraftProtection } from '../../lib/draftClose';
 import { Play, AlertTriangle, KeyRound } from 'lucide-react';
 import type { DbObject, QueryResult } from '@weq/service';
 import { client } from '../../trpc/client';
@@ -39,6 +40,7 @@ export function SqlConsole({
 }): ReactElement {
   const [sql, setSql] = useState('');
   const [running, setRunning] = useState(false);
+  useDraftProtection(sql, running);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);

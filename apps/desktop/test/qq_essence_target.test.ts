@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { qqEssenceTarget } from '../src/renderer/src/lib/qqEssenceTarget';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';

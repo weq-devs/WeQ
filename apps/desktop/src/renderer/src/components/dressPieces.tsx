@@ -171,15 +171,24 @@ interface TagNode extends d3.SimulationNodeDatum {
   r: number;
 }
 
+/** 首页限制视觉边界，避免力导入场或窗口缩小时的过冲遮挡正文。 */
+export function boundTagPosition(x: number, y: number, radius?: number) {
+  const distance = Math.hypot(x, y);
+  const scale = radius !== undefined && distance > radius ? radius / distance : 1;
+  return { x: x * scale, y: y * scale };
+}
+
 export function TagRing({
   tags,
   max = 10,
   /** 环半径的常数项（px）。与 CSS 的 `--weq-tag-radius` 公式必须同值。 */
   radiusPad = 78,
+  contained = false,
 }: {
   tags: string[];
   max?: number;
   radiusPad?: number;
+  contained?: boolean;
 }) {
   const items = useMemo(() => tags.slice(0, max), [tags, max]);
   const key = items.join(' ');
@@ -200,12 +209,16 @@ export function TagRing({
       return { label, r: 37, x: Math.cos(a) * 0.5, y: Math.sin(a) * 0.5 };
     });
     nodesRef.current = nodes;
+    let ringRadius = 0;
 
     function render(): void {
       for (let i = 0; i < nodes.length; i += 1) {
         const el = elsRef.current[i];
         const n = nodes[i];
-        if (el && n) el.style.translate = `${(n.x ?? 0).toFixed(1)}px ${(n.y ?? 0).toFixed(1)}px`;
+        if (el && n) {
+          const position = boundTagPosition(n.x ?? 0, n.y ?? 0, contained ? ringRadius : undefined);
+          el.style.translate = `${position.x.toFixed(1)}px ${position.y.toFixed(1)}px`;
+        }
       }
     }
 
@@ -220,11 +233,12 @@ export function TagRing({
     function layout(): void {
       const box = host!.getBoundingClientRect();
       // 舞台是正方形，边长即 --weq-orb-size；环半径沿用 CSS 里 --weq-tag-radius 的公式。
-      const ringRadius = box.width * 0.52 + radiusPad;
+      ringRadius = box.width * 0.52 + radiusPad;
       const half = (elsRef.current[0]?.offsetWidth ?? 74) / 2;
       for (const n of nodes) n.r = half;
       // 坐标系原点取容器中心（CSS 已把每片的中心对到中心），故 radial 圆心是 (0, 0)。
       centerRef.current = { x: box.width / 2, y: box.height / 2 };
+      if (contained) render();
       sim
         .force('radial', d3.forceRadial<TagNode>(ringRadius, 0, 0).strength(0.09))
         .force('collide', d3.forceCollide<TagNode>((d) => d.r + 4).iterations(2))
@@ -241,7 +255,7 @@ export function TagRing({
       sim.stop();
       simRef.current = null;
     };
-  }, [key, items.length, radiusPad]);
+  }, [key, items.length, radiusPad, contained]);
 
   function startDrag(index: number, event: ReactPointerEvent<HTMLSpanElement>): void {
     const node = nodesRef.current[index];

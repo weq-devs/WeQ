@@ -16,7 +16,6 @@ import {
 } from '../../lib/groupFileSelection';
 import { ArrowLeft, Check, ChevronRight, Loader2, Minus, X } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
-import { ExportSaveActions } from '../../components/ExportSaveActions';
 import '../../styles/resource-export.css';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
 import { client } from '../../trpc/client';
@@ -451,12 +450,6 @@ export function GroupFileExportLightbox({
             {submitting ? <Loader2 size={15} className="weq-exp-spin" /> : null}
             开始导出
           </button>
-          <ExportSaveActions
-            disabled={
-              submitting || selecting || loading || Boolean(error) || selectedFiles.length === 0
-            }
-            onSelect={(saveIntent) => onConfirm({ selectedFiles, saveIntent })}
-          />
         </footer>
       </section>
     </div>

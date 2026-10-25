@@ -414,25 +414,52 @@ export function ContactProfileDialog({
           {profile.identityLabel === 'QQ' && profile.kind !== 'bot' && (
             <CommonRelationships uin={profile.identityValue} />
           )}
-          <ProfileRow icon={<User size={13} />} label="用户名" value={profile.username} mono />
+          <ProfileRow
+            sensitive
+            icon={<User size={13} />}
+            label="用户名"
+            value={profile.username}
+            mono
+          />
           {profile.qid ? (
-            <ProfileRow icon={<Fingerprint size={13} />} label="QID" value={profile.qid} mono />
+            <ProfileRow
+              sensitive
+              icon={<Fingerprint size={13} />}
+              label="QID"
+              value={profile.qid}
+              mono
+            />
           ) : null}
           {profile.categoryName ? (
             <ProfileRow
               icon={<FolderClosed size={13} />}
               label="分组"
+              sensitive
               value={profile.categoryName}
             />
           ) : null}
           {statusText ? (
-            <ProfileRow icon={<Activity size={13} />} label="状态" value={statusText} />
+            <ProfileRow
+              sensitive={Boolean(profile.customStatus)}
+              icon={<Activity size={13} />}
+              label="状态"
+              value={statusText}
+            />
           ) : null}
-          {region ? <ProfileRow icon={<MapPin size={13} />} label="所在地" value={region} /> : null}
+          {region ? (
+            <ProfileRow sensitive icon={<MapPin size={13} />} label="所在地" value={region} />
+          ) : null}
           {education ? (
-            <ProfileRow icon={<GraduationCap size={13} />} label="教育经历" value={education} />
+            <ProfileRow
+              sensitive
+              icon={<GraduationCap size={13} />}
+              label="教育经历"
+              value={education}
+            />
           ) : null}
-          {birthday ? <ProfileRow icon={<Cake size={13} />} label="生日" value={birthday} /> : null}
+          {birthday ? (
+            <ProfileRow sensitive icon={<Cake size={13} />} label="生日" value={birthday} />
+          ) : null}
           {intimacy ? (
             <ProfileRow icon={<Heart size={13} />} label="亲密度" value={intimacy} mono accent />
           ) : null}
@@ -636,6 +663,7 @@ export function GroupProfileDialog({
             <ProfileRow
               icon={<Megaphone size={13} />}
               label="群公告"
+              sensitive
               value={group.announcement?.trim() || '未设置'}
               multiline
             />
@@ -643,6 +671,7 @@ export function GroupProfileDialog({
               <ProfileRow
                 icon={<Info size={13} />}
                 label="群简介"
+                sensitive
                 value={group.description}
                 multiline
               />
@@ -651,6 +680,7 @@ export function GroupProfileDialog({
               <ProfileRow
                 icon={<Bookmark size={13} />}
                 label="群备注"
+                sensitive
                 value={group.remark}
                 multiline
               />
@@ -674,6 +704,7 @@ export function GroupProfileDialog({
               <ProfileRow
                 icon={<HelpCircle size={13} />}
                 label="入群问题"
+                sensitive
                 value={group.entranceQ}
                 multiline
               />
@@ -693,6 +724,7 @@ export function ProfileRow({
   accent,
   multiline,
   action,
+  sensitive = false,
 }: {
   icon?: React.ReactNode;
   label: string;
@@ -702,6 +734,7 @@ export function ProfileRow({
   multiline?: boolean;
   /** 行尾追加的操作（例如复制按钮），自动与 value 归为一行右侧。 */
   action?: React.ReactNode;
+  sensitive?: boolean;
 }) {
   if (multiline) {
     return (
@@ -710,7 +743,9 @@ export function ProfileRow({
           {icon}
           {label}
         </span>
-        <p className="weq-profile-row-text">{value}</p>
+        <p className="weq-profile-row-text" data-privacy-sensitive={sensitive || undefined}>
+          {value}
+        </p>
       </div>
     );
   }
@@ -722,11 +757,21 @@ export function ProfileRow({
       </span>
       {action ? (
         <span className="weq-profile-row-value">
-          <strong className={cn(mono && 'weq-number', accent && 'is-accent')}>{value}</strong>
+          <strong
+            data-privacy-sensitive={sensitive || undefined}
+            className={cn(mono && 'weq-number', accent && 'is-accent')}
+          >
+            {value}
+          </strong>
           {action}
         </span>
       ) : (
-        <strong className={cn(mono && 'weq-number', accent && 'is-accent')}>{value}</strong>
+        <strong
+          data-privacy-sensitive={sensitive || undefined}
+          className={cn(mono && 'weq-number', accent && 'is-accent')}
+        >
+          {value}
+        </strong>
       )}
     </div>
   );

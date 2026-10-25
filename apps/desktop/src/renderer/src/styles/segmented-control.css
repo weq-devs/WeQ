@@ -1,0 +1,72 @@
+.weq-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  max-width: 100%;
+  min-width: 0;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 24%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
+}
+
+.weq-set-row:has(.weq-segmented) {
+  flex-wrap: wrap;
+}
+
+.weq-set-row-ctrl:has(.weq-segmented) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.weq-qq-write-field:has(.weq-segmented) {
+  flex-wrap: wrap;
+}
+
+.weq-segmented > button {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 30px;
+  margin: 0;
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.weq-segmented > button[aria-checked='true'] {
+  background: var(--weq-accent-effective);
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-on, var(--primary-foreground));
+}
+
+.weq-segmented > button:hover:not(:disabled):not([aria-checked='true']) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-segmented > button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+
+.weq-segmented > button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+html[data-theme='dark'] .weq-segmented {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+html[data-theme='dark'] .weq-segmented > button[aria-checked='true'] {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 75%, var(--foreground));
+}

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';

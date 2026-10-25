@@ -16,7 +16,8 @@ const saveState = vi.hoisted(() => ({
   requestExport: vi.fn(),
   prepare: vi.fn(
     async (_intent?: ExportSavePolicy, _output?: unknown): Promise<ExportSavePolicy | null> => ({
-      mode: 'after',
+      mode: 'before',
+      directory: '/fixture/export',
     }),
   ),
 }));
@@ -100,7 +101,7 @@ beforeEach(() => {
   saveState.current = true;
   saveState.web = false;
   saveState.requestExport.mockReset();
-  saveState.prepare.mockReset().mockResolvedValue({ mode: 'after' });
+  saveState.prepare.mockReset().mockResolvedValue({ mode: 'before', directory: '/fixture/export' });
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -503,28 +504,26 @@ describe('附件公共保存入口', () => {
         name: 'README',
         fileName: 'README',
       });
-      expect(view.api.save).toHaveBeenCalledWith('attachment-token', { mode: 'after' }, 'source-a');
+      expect(view.api.save).toHaveBeenCalledWith(
+        'attachment-token',
+        { mode: 'before', directory: '/fixture/export' },
+        'source-a',
+      );
       expect(view.api.download).not.toHaveBeenCalled();
       expect(view.host.textContent).toContain('README');
     } finally {
       view.close();
     }
   });
-  it('本次另存取消不发起下载，保留邮件正文和附件列表', async () => {
+  it('保存取消不发起下载，单按钮保留邮件正文和附件列表', async () => {
     const view = await attachmentView();
     saveState.prepare.mockResolvedValueOnce(null);
     try {
-      act(() =>
-        view.host
-          .querySelector<HTMLButtonElement>('[aria-label="附件 README 的本次保存选项"]')!
-          .click(),
-      );
+      expect(view.host.querySelector('.weq-save-options')).toBeNull();
       await act(async () =>
-        [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-          .find((item) => item.textContent === '另存到…')!
-          .click(),
+        view.host.querySelector<HTMLButtonElement>('[aria-label="保存附件 README"]')!.click(),
       );
-      expect(saveState.prepare.mock.calls[0]![0]).toEqual({ mode: 'before' });
+      expect(saveState.prepare.mock.calls[0]![0]).toBeUndefined();
       expect(view.api.save).not.toHaveBeenCalled();
       expect(view.api.download).not.toHaveBeenCalled();
       expect(view.host.textContent).toContain('README');
@@ -536,7 +535,7 @@ describe('附件公共保存入口', () => {
     const view = await attachmentView();
     saveState.prepare.mockImplementationOnce(async () => {
       saveState.current = false;
-      return { mode: 'after' };
+      return { mode: 'before', directory: '/fixture/export' };
     });
     try {
       await act(async () =>
@@ -547,19 +546,18 @@ describe('附件公共保存入口', () => {
       view.close();
     }
   });
-  it('Web 浏览器下载与服务器保存分开，不准备服务器路径', async () => {
+  it('Web 附件只保留一个服务器保存按钮，遵循全局偏好', async () => {
     saveState.web = true;
     const view = await attachmentView();
     try {
       expect(view.host.querySelector('[title="保存附件到服务器"]')).not.toBeNull();
       await act(async () =>
-        view.host
-          .querySelector<HTMLButtonElement>('[aria-label="下载附件 README 到浏览器"]')!
-          .click(),
+        view.host.querySelector<HTMLButtonElement>('[aria-label="保存附件 README"]')!.click(),
       );
-      expect(view.api.download).toHaveBeenCalledWith('attachment-token', expect.any(AbortSignal));
-      expect(saveState.prepare).not.toHaveBeenCalled();
-      expect(view.api.save).not.toHaveBeenCalled();
+      expect(view.host.querySelector('[aria-label="下载附件 README 到浏览器"]')).toBeNull();
+      expect(view.api.download).not.toHaveBeenCalled();
+      expect(saveState.prepare).toHaveBeenCalledOnce();
+      expect(view.api.save).toHaveBeenCalledOnce();
     } finally {
       view.close();
     }

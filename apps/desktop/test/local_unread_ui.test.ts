@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { buildUnreadDock } from '../src/renderer/src/im-template/template/unreadDock';

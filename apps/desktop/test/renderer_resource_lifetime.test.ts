@@ -118,6 +118,8 @@ it('不同消息装扮卸载后释放 pin 和规则，预热完成前卸载不�
     for (let i = 0; i < 100; i++) await Promise.resolve();
     expect(decorationImageCache.stats().pinnedImages).toBe(20);
     release();
+    // 同轮消息交接在微任务边界结算；无接手者时仍完整释放。
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
     expect(decorationImageCache.stats().pinnedImages).toBe(0);
     expect(document.querySelectorAll('[data-weq-msg-decoration]')).toHaveLength(0);
   }
@@ -172,6 +174,7 @@ it('同款样式共享，最后一个使用者离开才移除；失败的预热�
   expect(decorationImageCache.stats().pinnedImages).toBe(20);
   expect(document.querySelectorAll('[data-weq-msg-decoration]')).toHaveLength(1);
   second();
+  await new Promise<void>((resolve) => queueMicrotask(resolve));
   expect(decorationImageCache.stats().retainedBytes).toBe(0);
   broken = true;
   const stop = injectWidgetCss({ ...widget, itemId: 90201 });
@@ -181,6 +184,7 @@ it('同款样式共享，最后一个使用者离开才移除；失败的预热�
   );
   expect(decorationImageCache.stats().pinnedImages).toBe(0);
   stop();
+  await new Promise<void>((resolve) => queueMicrotask(resolve));
   decorationImageCache.dispose();
 });
 

@@ -88,6 +88,37 @@ afterEach(() => {
 });
 
 describe('统一当前任务', () => {
+  it('菜单只显示列表，点击任务展开同一个选中项，完整面板右侧呈现详情', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const expand = vi.fn();
+    const render = (layout: 'compact' | 'split') =>
+      root.render(
+        h(CurrentTaskList, {
+          layout,
+          exports: [],
+          onSaveAll: vi.fn(),
+          renderExport: () => null,
+          onOpenDetail: expand,
+        }),
+      );
+    try {
+      act(() => render('compact'));
+      expect(host.querySelector('.weq-long-task-detail')).toBeNull();
+      act(() =>
+        [...host.querySelectorAll<HTMLButtonElement>('.weq-long-task')]
+          .find((button) => button.textContent?.includes('合成漫游'))!
+          .click(),
+      );
+      expect(expand).toHaveBeenCalledOnce();
+      act(() => render('split'));
+      expect(host.querySelector('.weq-current-task-details')?.textContent).toBe('漫游详情 same-id');
+      expect(host.querySelector('.weq-long-task.is-selected')?.textContent).toContain('合成漫游');
+    } finally {
+      act(() => root.unmount());
+    }
+  });
   it('跨来源相同 ID 不冲突，按运行状态聚合且详情不串任务', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');

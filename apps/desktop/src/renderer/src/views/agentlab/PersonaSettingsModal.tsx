@@ -7,7 +7,8 @@
  *   ⑤ 导出好友（占位，依赖 AI tool 导出能力）
  */
 
-import { useState, useMemo, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useState, useMemo, type ReactElement, type ReactNode } from 'react';
+import { TabActivity, useTabActive } from '../../components/RetainedTabs';
 import { DraftCloseContext, useDraftClose, useDraftProtection } from '../../lib/draftClose';
 import {
   BarChart3,
@@ -39,9 +40,10 @@ import { useAppDialog } from '../../lib/dialogUtils';
 
 /** ④ 记忆 / 画像：克隆体「对你」记住的事（来自聊天蒸馏），可单条遗忘 / 全部清空。 */
 function MemoryTab({ personaId }: { personaId: string }): ReactElement {
+  const active = useTabActive();
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
-  const memories = trpc.account.getAgentLabMemories.useQuery({ personaId });
+  const memories = trpc.account.getAgentLabMemories.useQuery({ personaId }, { enabled: active });
   const forget = trpc.account.forgetAgentLabMemory.useMutation();
   const clearAll = trpc.account.clearAgentLabMemories.useMutation();
 
@@ -248,14 +250,17 @@ function VoiceTab({
   };
   onSaved: () => void;
 }): ReactElement {
+  const active = useTabActive();
   const dialog = useAppDialog();
   const update = trpc.account.updateAgentLabPersona.useMutation();
   const providers = trpc.bootstrap.listTtsProviders.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const catalog = trpc.bootstrap.getTtsCatalog.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   });
@@ -360,16 +365,21 @@ function VoiceTab({
           </label>
           <label className="weq-agentlab-field">
             <span>音色方式</span>
-            <select
-              className="weq-set-input"
+            <SegmentedControl
+              label="音色方式"
               value={effMode}
-              onChange={(e) => setMode(e.target.value as 'clone' | 'preset')}
-            >
-              <option value="clone" disabled={!cloneOk}>
-                用 TA 的声音（复刻）{cloneOk ? '' : '（不支持 / 无参考音频）'}
-              </option>
-              <option value="preset">预置音色</option>
-            </select>
+              onChange={setMode}
+              options={[
+                {
+                  value: 'clone',
+                  label: '声音复刻',
+                  disabled: !cloneOk,
+                  title: cloneOk ? '用 TA 的声音' : '不支持或无参考音频',
+                },
+                { value: 'preset', label: '预置音色' },
+              ]}
+            />
+            {!cloneOk && <small>声音复刻不可用：服务商不支持或没有可用的参考音频。</small>}
           </label>
           {effMode === 'preset' ? (
             <label className="weq-agentlab-field">
@@ -395,11 +405,15 @@ function VoiceTab({
 
 /** 已导出记录卡片：查看 WebUI 密钥 + 一键打开控制台（连不上时提示输地址）。 */
 function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement | null {
+  const active = useTabActive();
   const dialog = useAppDialog();
-  const info = trpc.account.getAgentLabExportInfo.useQuery({ personaId });
+  const info = trpc.account.getAgentLabExportInfo.useQuery({ personaId }, { enabled: active });
   const openMut = trpc.account.openBotWebUi.useMutation();
   const [showKey, setShowKey] = useState(false);
   const [urlInput, setUrlInput] = useState<string | null>(null);
+  useEffect(() => {
+    if (!active) setShowKey(false);
+  }, [active]);
 
   const data = info.data;
   if (!data) return null;
@@ -497,10 +511,11 @@ function ExportTab({
 }: {
   persona: { id: string; name: string; voiceCloneEnabled?: boolean };
 }): ReactElement {
+  const active = useTabActive();
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const exportMut = trpc.account.exportAgentLabPersona.useMutation();
-  const providers = trpc.bootstrap.listAgentLabProviders.useQuery();
+  const providers = trpc.bootstrap.listAgentLabProviders.useQuery(undefined, { enabled: active });
   const canVoice = !!persona.voiceCloneEnabled;
   const [introOpen, setIntroOpen] = useState(false);
   const [adapterType, setAdapterType] = useState<'napcat' | 'snowluma'>('napcat');
@@ -699,15 +714,20 @@ function ExportTab({
       {groupChat && (
         <label className="weq-agentlab-field">
           <span>群聊回复方式</span>
-          <select
+          <SegmentedControl
+            label="群聊回复方式"
             value={groupReplyMode}
-            onChange={(e) => setGroupReplyMode(e.target.value as 'llm' | 'heuristic')}
-          >
-            <option value="llm">
-              拟人判断（默认 · 像桌面群聊，更自然，每条消息多一次 LLM 调用）
-            </option>
-            <option value="heuristic">启发式（快 · 省 token，按 @ / 点名 / 关系打分）</option>
-          </select>
+            onChange={setGroupReplyMode}
+            options={[
+              { value: 'llm', label: '拟人判断' },
+              { value: 'heuristic', label: '启发式' },
+            ]}
+          />
+          <small>
+            {groupReplyMode === 'llm'
+              ? '更自然，每条消息多一次 LLM 调用。'
+              : '按 @、点名和关系打分，响应快、更省 token。'}
+          </small>
         </label>
       )}
 
@@ -792,40 +812,42 @@ export function PersonaSettingsModal({
             </nav>
             <div className="weq-persona-tabpane">
               {visited.map((page) => (
-                <div key={page} hidden={tab !== page}>
-                  {page === 'params' ? (
-                    paramsContent
-                  ) : page === 'prompt' ? (
-                    <div className="weq-persona-form">
-                      <label className="weq-agentlab-field">
-                        <span>额外提示（拼进 system prompt，优先遵守）</span>
-                        <textarea
-                          value={prompt}
-                          onChange={(e) => setPrompt(e.target.value)}
-                          rows={6}
-                          placeholder="例如：这个克隆体说话更毒舌一点；少用句号"
-                        />
-                      </label>
-                      <div className="weq-clone-actions">
-                        <button
-                          className="weq-set-btn"
-                          disabled={update.isLoading}
-                          onClick={() => void savePrompt()}
-                        >
-                          保存
-                        </button>
+                <TabActivity key={page} active={tab === page}>
+                  <div hidden={tab !== page} inert={tab !== page}>
+                    {page === 'params' ? (
+                      paramsContent
+                    ) : page === 'prompt' ? (
+                      <div className="weq-persona-form">
+                        <label className="weq-agentlab-field">
+                          <span>额外提示（拼进 system prompt，优先遵守）</span>
+                          <textarea
+                            value={prompt}
+                            onChange={(e) => setPrompt(e.target.value)}
+                            rows={6}
+                            placeholder="例如：这个克隆体说话更毒舌一点；少用句号"
+                          />
+                        </label>
+                        <div className="weq-clone-actions">
+                          <button
+                            className="weq-set-btn"
+                            disabled={update.isLoading}
+                            onClick={() => void savePrompt()}
+                          >
+                            保存
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ) : page === 'willing' ? (
-                    <WillingTab persona={persona} onSaved={onSaved} />
-                  ) : page === 'voice' ? (
-                    <VoiceTab persona={persona} onSaved={onSaved} />
-                  ) : page === 'memory' ? (
-                    <MemoryTab personaId={persona.id} />
-                  ) : (
-                    <ExportTab persona={persona} />
-                  )}
-                </div>
+                    ) : page === 'willing' ? (
+                      <WillingTab persona={persona} onSaved={onSaved} />
+                    ) : page === 'voice' ? (
+                      <VoiceTab persona={persona} onSaved={onSaved} />
+                    ) : page === 'memory' ? (
+                      <MemoryTab personaId={persona.id} />
+                    ) : (
+                      <ExportTab persona={persona} />
+                    )}
+                  </div>
+                </TabActivity>
               ))}
             </div>
           </div>
@@ -834,3 +856,4 @@ export function PersonaSettingsModal({
     </Modal>
   );
 }
+import { SegmentedControl } from '../../components/SegmentedControl';

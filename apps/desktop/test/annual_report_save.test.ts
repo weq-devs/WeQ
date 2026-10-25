@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -70,14 +71,17 @@ function exporter(format: (typeof formats)[number]) {
       ? api.exportPdf
       : api.exportLongImage;
 }
-it.each(formats)('%s 复用现成 HTML／捕获方法，作为真实单文件结果稍后保存', async (format) => {
-  const id = await exporter(format)({ ...input, savePolicy: { mode: 'after' } });
-  await vi.waitFor(() => expect(manager.getTask(id!)?.status).toBe('completed'));
+it.each(formats)('%s 复用现成 HTML／捕获方法，按已选位置保存真实单文件', async (format) => {
+  const id = await exporter(format)({
+    ...input,
+    savePolicy: { mode: 'before', directory: state.root },
+  });
+  await vi.waitFor(() => expect(manager.getTask(id!)?.save?.status).toBe('saved'));
   const task = manager.getTask(id!)!;
   expect(task.resource?.output).toEqual(annualReportExportOutput(input.year, format));
   expect(task.stages[0]?.label).toBe('保存报告');
   expect(task.bundleDir).toBeUndefined();
-  expect(task.save?.status).toBe('pending');
+  expect(task.save?.status).toBe('saved');
   expect(readFileSync(task.filePath!, 'utf8')).toBe(
     format === 'html' ? input.html : `synthetic-${format}`,
   );
@@ -106,12 +110,15 @@ it('捕获期间切换来源，不发布旧报告；旧来源也不能创建新�
     state.configId = 'source-b';
     return Buffer.from('synthetic-pdf');
   });
-  const id = await exporter('pdf')({ ...input, savePolicy: { mode: 'after' } });
+  const id = await exporter('pdf')({
+    ...input,
+    savePolicy: { mode: 'before', directory: state.root },
+  });
   await vi.waitFor(() => expect(manager.getTask(id!)?.status).toBe('failed'));
   expect(manager.getTask(id!)?.filePath).toBeUndefined();
-  await expect(exporter('html')({ ...input, savePolicy: { mode: 'after' } })).rejects.toThrow(
-    '数据源已切换',
-  );
+  await expect(
+    exporter('html')({ ...input, savePolicy: { mode: 'before', directory: state.root } }),
+  ).rejects.toThrow('数据源已切换');
 });
 it('选择期间切换来源，不启动 PDF 捕获', async () => {
   state.path = join(state.root, 'target.pdf');
@@ -126,7 +133,10 @@ it('选择期间切换来源，不启动 PDF 捕获', async () => {
 });
 it('宿主不支持捕获时保留真实失败，不另换引擎或冒称成功', async () => {
   state.png.mockRejectedValueOnce(new Error('当前平台不支持长图'));
-  const id = await exporter('png')({ ...input, savePolicy: { mode: 'after' } });
+  const id = await exporter('png')({
+    ...input,
+    savePolicy: { mode: 'before', directory: state.root },
+  });
   await vi.waitFor(() => expect(manager.getTask(id!)?.status).toBe('failed'));
   expect(manager.getTask(id!)?.error).toContain('当前平台不支持长图');
   expect(state.pdf).not.toHaveBeenCalled();
@@ -139,7 +149,10 @@ it('捕获在途取消等待宿主收尾，不发布半成品或重复捕获', a
         release = resolve;
       }),
   );
-  const id = await exporter('pdf')({ ...input, savePolicy: { mode: 'after' } });
+  const id = await exporter('pdf')({
+    ...input,
+    savePolicy: { mode: 'before', directory: state.root },
+  });
   await vi.waitFor(() => expect(release).toBeDefined());
   manager.cancelTask(id!);
   release(Buffer.from('synthetic-pdf'));

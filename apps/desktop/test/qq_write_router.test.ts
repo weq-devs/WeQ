@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import type { GroupMember, GroupDetail, UserProfile } from '@weq/db';
 import {

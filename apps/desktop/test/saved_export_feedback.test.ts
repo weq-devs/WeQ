@@ -78,7 +78,7 @@ it('资源任务不伪装为 JSON 消息导出，部分下载失败仍展示保�
         failures: [{ stage: 'file', fileName: 'missing.bin', error: 'synthetic' }],
       },
     ],
-    save: { policy: { mode: 'after' }, status: 'pending' },
+    save: { policy: { mode: 'before', directory: '/fixture/export' }, status: 'pending' },
   };
   try {
     act(() =>
@@ -98,7 +98,7 @@ it('资源任务不伪装为 JSON 消息导出，部分下载失败仍展示保�
     expect(host.textContent).toContain('已完成 · 资源缺失');
     expect(host.textContent).toContain('个文件');
     expect(host.textContent).not.toContain('JSON');
-    expect(host.querySelector('[title="保存到…"]')).not.toBeNull();
+    expect(host.querySelector('[title="保存"]')).not.toBeNull();
   } finally {
     act(() => root.unmount());
     host.remove();
@@ -118,7 +118,11 @@ it('保存位置存在时提供打开与文件夹定位，另存失败仍能打�
     progress: 100,
     current: 1,
     total: 1,
-    save: { policy: { mode: 'after' }, status: 'saved', path: '/saved/fixture.json' },
+    save: {
+      policy: { mode: 'before', directory: '/fixture/export' },
+      status: 'saved',
+      path: '/saved/fixture.json',
+    },
   };
   const open = vi.fn(),
     noop = vi.fn();
@@ -150,7 +154,7 @@ it('保存位置存在时提供打开与文件夹定位，另存失败仍能打�
     expect(host.querySelector('[aria-label="打开保存结果"]')).not.toBeNull();
     expect(host.textContent).toContain('上次保存：/saved/fixture.json');
     expect(host.textContent).not.toContain('尚未保存');
-    task.save = { policy: { mode: 'after' }, status: 'pending' };
+    task.save = { policy: { mode: 'before', directory: '/fixture/export' }, status: 'pending' };
     render();
     expect(host.querySelector('[aria-label="打开保存结果"]')).toBeNull();
   } finally {

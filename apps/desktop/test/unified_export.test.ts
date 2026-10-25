@@ -27,7 +27,7 @@ const fixture = vi.hoisted(() => ({
   dialogInfo: vi.fn(),
   prepare: vi.fn(
     async (intent?: ExportSavePolicy): Promise<ExportSavePolicy | null> =>
-      intent ?? { mode: 'after' },
+      intent ?? { mode: 'before', directory: '/fixture/export' },
   ),
   startContacts: vi.fn(
     async (_input: {
@@ -124,6 +124,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
       listExportTasks: { useQuery: () => ({ ...emptyQuery, data: fixture.tasks }) },
       listSchedules: { useQuery: () => ({ data: fixture.schedules }) },
+      updateSchedule: { useMutation: () => ({ mutate: vi.fn(), isLoading: false }) },
       guildDirectListSessions: {
         useQuery: () => ({
           ...emptyQuery,
@@ -183,8 +184,8 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => {
     const configId = fixture.configId;
     return {
-      settings: {},
-      policy: { mode: 'after' },
+      settings: { data: { exportSaveMode: 'before' }, isLoading: false },
+      policy: { mode: 'before', directory: '/fixture/export' },
       binding: { expectedAccountUin: '10002', expectedAccountConfigId: configId },
       setOverride: vi.fn(),
       prepareSave: fixture.prepare,
@@ -223,7 +224,7 @@ vi.mock('../src/renderer/src/components/tasks/CurrentTaskList', () => ({
   }) =>
     createElement(
       'div',
-      null,
+      { 'data-fixture-current-tasks': '' },
       '合成当前任务',
       ...exports.map((task) => createElement('div', { key: task.id }, renderExport(task))),
       createElement('button', { onClick: onSaveAll }, '保存全部合成任务'),
@@ -331,7 +332,11 @@ afterEach(() => {
   fixture.saveOutput.mockReset().mockResolvedValue('/saved/result.json');
   fixture.dialogError.mockClear();
   fixture.dialogInfo.mockClear();
-  fixture.prepare.mockReset().mockImplementation(async (intent) => intent ?? { mode: 'after' });
+  fixture.prepare
+    .mockReset()
+    .mockImplementation(
+      async (intent) => intent ?? { mode: 'before', directory: '/fixture/export' },
+    );
   fixture.startContacts.mockReset().mockResolvedValue('contact-task');
   fixture.contactPreview.mockClear();
   fixture.nativeReads.mockClear();
@@ -364,22 +369,19 @@ it.each(['album', 'groupfile'] as const)(
       captureLayout(f.host, `resource-${mode}`);
       await act(async () => {
         const modal = f.host.querySelector<HTMLElement>('.weq-exp-album-dialog')!;
-        modal.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.click();
+        expect(modal.querySelector('.weq-save-options')).toBeNull();
+        modal.querySelector<HTMLButtonElement>('.is-primary')!.click();
       });
-      const later = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
-        (node) => node.textContent === '先生成，稍后保存',
-      )!;
-      await act(async () => later.click());
-      expect(fixture.prepare).toHaveBeenCalledWith(
-        { mode: 'after' },
-        { kind: 'bundle', name: `合成群甲 ${mode === 'album' ? '群相册' : '群文件'}` },
-      );
+      expect(fixture.prepare).toHaveBeenCalledWith(undefined, {
+        kind: 'bundle',
+        name: `合成群甲 ${mode === 'album' ? '群相册' : '群文件'}`,
+      });
       expect(fixture.startResource).toHaveBeenCalledWith(
         expect.objectContaining({
           expectedAccountUin: '10002',
           expectedAccountConfigId: 'fixture-config',
           groupCode: '10001',
-          savePolicy: { mode: 'after' },
+          savePolicy: { mode: 'before', directory: '/fixture/export' },
           ...(mode === 'album'
             ? { albums: [{ id: 'album-a', title: '合成相册' }] }
             : { files: [{ fileId: 'file-a', fileName: '合成文件.txt', busId: 102, path: [] }] }),
@@ -523,13 +525,13 @@ describe('统一导出实际界面', () => {
       await act(async () => click(f.host, '夹具确认导出'));
       expect(fixture.prepare).toHaveBeenCalledOnce();
       fixture.configId = 'other-source';
-      await act(async () => finish({ mode: 'after' }));
+      await act(async () => finish({ mode: 'before', directory: '/fixture/export' }));
       expect(fixture.startGuild).not.toHaveBeenCalled();
     } finally {
       f.close();
     }
   });
-  it('正文不再单列保存配置，本次另存经确认后执行且下次主按钮恢复默认', async () => {
+  it('正文只提供主按钮，每次确认均沿用全局保存偏好', async () => {
     const f = mount({
       initialSelection: {
         owner: { kind: 'contacts', container: 'friends' },
@@ -538,18 +540,12 @@ describe('统一导出实际界面', () => {
     });
     try {
       expect(f.host.querySelector('.weq-export-save-control')).toBeNull();
-      await act(async () =>
-        f.host.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.click(),
-      );
-      const choose = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
-        (node) => node.textContent === '另存到…',
-      )!;
-      expect(choose).toBeDefined();
-      act(() => choose.click());
+      expect(f.host.querySelector('.weq-save-options')).toBeNull();
+      await act(async () => click(f.host, '导出联系人'));
       expect(fixture.prepare).not.toHaveBeenCalled();
       await act(async () => click(f.host, '夹具确认导出'));
       expect(fixture.prepare).toHaveBeenLastCalledWith(
-        { mode: 'before' },
+        undefined,
         expect.objectContaining({
           kind: 'contacts',
           contactScope: 'friends',
@@ -559,7 +555,7 @@ describe('统一导出实际界面', () => {
         }),
       );
       expect(fixture.startContacts).toHaveBeenLastCalledWith(
-        expect.objectContaining({ savePolicy: { mode: 'before' } }),
+        expect.objectContaining({ savePolicy: { mode: 'before', directory: '/fixture/export' } }),
       );
       await act(async () => click(f.host, '导出联系人'));
       await act(async () => click(f.host, '夹具确认导出'));
@@ -568,7 +564,7 @@ describe('统一导出实际界面', () => {
         expect.objectContaining({ kind: 'contacts', contactScope: 'friends', targetCount: 1 }),
       );
       expect(fixture.startContacts).toHaveBeenLastCalledWith(
-        expect.objectContaining({ savePolicy: { mode: 'after' } }),
+        expect.objectContaining({ savePolicy: { mode: 'before', directory: '/fixture/export' } }),
       );
     } finally {
       f.close();
@@ -755,7 +751,7 @@ describe('统一导出实际界面', () => {
     }
   });
   it('非好友空间精确集合按 UIN 带入，保存准备期间修改草稿不改写确认目标', async () => {
-    let release!: (policy: { mode: 'after' }) => void;
+    let release!: (policy: { mode: 'before'; directory: '/fixture/export' }) => void;
     fixture.prepare.mockReturnValueOnce(
       new Promise((resolve) => {
         release = resolve;
@@ -780,7 +776,7 @@ describe('统一导出实际界面', () => {
       click(f.host, '夹具关闭配置');
       click(f.host, '夹具改说说选择');
       expect(fixture.startQzone).not.toHaveBeenCalled();
-      await act(async () => release({ mode: 'after' }));
+      await act(async () => release({ mode: 'before', directory: '/fixture/export' }));
       expect(fixture.startQzone).toHaveBeenCalledWith(
         expect.objectContaining({
           targetUin: '19999',
@@ -810,7 +806,7 @@ describe('统一导出实际界面', () => {
     }
   });
   it('频道离散选择进入独立导出草稿，确认后改动不影响待创建任务', async () => {
-    let release!: (policy: { mode: 'after' }) => void;
+    let release!: (policy: { mode: 'before'; directory: '/fixture/export' }) => void;
     fixture.prepare.mockReturnValueOnce(
       new Promise((resolve) => {
         release = resolve;
@@ -835,7 +831,7 @@ describe('统一导出实际界面', () => {
       click(f.host, '夹具关闭配置');
       click(f.host, '夹具改消息选择');
       expect(fixture.startGuild).not.toHaveBeenCalled();
-      await act(async () => release({ mode: 'after' }));
+      await act(async () => release({ mode: 'before', directory: '/fixture/export' }));
       expect(fixture.startGuild).toHaveBeenCalledWith(
         expect.objectContaining({
           nodeId: '100',
@@ -969,9 +965,9 @@ describe('统一导出实际界面', () => {
     }
   });
   it('等待保存位置时修改工具草稿，不会改写已经确认的联系人目标', async () => {
-    let resolve!: (policy: { mode: 'after' }) => void;
+    let resolve!: (policy: { mode: 'before'; directory: '/fixture/export' }) => void;
     fixture.prepare.mockReturnValueOnce(
-      new Promise<{ mode: 'after' }>((done) => {
+      new Promise<{ mode: 'before'; directory: '/fixture/export' }>((done) => {
         resolve = done;
       }),
     );
@@ -992,7 +988,7 @@ describe('统一导出实际界面', () => {
       expect(fixture.startContacts).not.toHaveBeenCalled();
       f.setActive(false);
       await act(async () => {
-        resolve({ mode: 'after' });
+        resolve({ mode: 'before', directory: '/fixture/export' });
       });
       expect(fixture.startContacts).toHaveBeenCalledWith(
         expect.objectContaining({ uids: ['friend-b'] }),
@@ -1197,7 +1193,11 @@ describe('统一导出实际界面', () => {
       expect(f.host.querySelector('#weq-export-content-kind')).toBeNull();
       click(f.host, '定时任务');
       expect(f.host.textContent).toContain('合成计划');
-      expect(f.host.textContent).not.toContain('合成当前任务');
+      const currentTasks = f.host.querySelector('[data-fixture-current-tasks]')!;
+      expect(currentTasks.closest('[hidden]')).not.toBeNull();
+      click(f.host, '当前任务');
+      expect(f.host.querySelector('[data-fixture-current-tasks]')).toBe(currentTasks);
+      expect(currentTasks.closest('[hidden]')).toBeNull();
     } finally {
       f.close();
     }

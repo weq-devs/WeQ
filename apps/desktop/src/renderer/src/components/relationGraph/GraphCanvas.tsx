@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
+import { usePrivacyStore } from '../../state/privacy';
 import { communityColor, SELF_ID } from './graphModel';
 import type { BuiltGraph, GNode } from './types';
 
@@ -22,6 +23,7 @@ export function GraphCanvas({
   /** 双击人节点：交给应用层打开资料卡。 */
   onOpenPerson?: (node: GNode, anchor: { x: number; y: number }) => void;
 }) {
+  const privacy = usePrivacyStore((state) => state.enabled);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
@@ -55,7 +57,7 @@ export function GraphCanvas({
     if (drawRafRef.current) return;
     drawRafRef.current = requestAnimationFrame(() => {
       drawRafRef.current = 0;
-      draw();
+      drawRef.current();
     });
   }
 
@@ -275,7 +277,7 @@ export function GraphCanvas({
       ctx.fillStyle = color;
       ctx.fill();
 
-      const img = n.avatarUrl ? getImage(n.avatarUrl) : null;
+      const img = !privacy && n.avatarUrl ? getImage(n.avatarUrl) : null;
       if (img) {
         ctx.save();
         ctx.beginPath();
@@ -286,7 +288,7 @@ export function GraphCanvas({
       } else {
         ctx.fillStyle = '#ffffff';
         ctx.font = `600 ${Math.round(r)}px var(--font-sans, sans-serif)`;
-        ctx.fillText((n.label || '?').slice(0, 1), n.x, n.y + 1);
+        ctx.fillText(privacy ? '•' : (n.label || '?').slice(0, 1), n.x, n.y + 1);
       }
 
       const isFocus = n.id === focus;
@@ -298,6 +300,7 @@ export function GraphCanvas({
       ctx.stroke();
 
       if (
+        !privacy &&
         !dim &&
         (isSelfNode || isFocus || focusNeighbours.has(n.id) || r >= 22 || v.scale >= 1.1)
       ) {
@@ -315,6 +318,10 @@ export function GraphCanvas({
     ctx.globalAlpha = 1;
   }
   drawRef.current = draw;
+
+  useEffect(() => {
+    drawRef.current();
+  }, [privacy]);
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     const rect = wrapRef.current!.getBoundingClientRect();
@@ -431,7 +438,7 @@ export function GraphCanvas({
       >
         {hoverNode ? (
           <>
-            <strong>{hoverNode.label}</strong>
+            <strong data-privacy-sensitive>{hoverNode.label}</strong>
             {hoverNode.kind === 'person' ? (
               <span>
                 {hoverNode.isFriend ? '好友' : '群友'} · 共 {hoverNode.groupCount} 群

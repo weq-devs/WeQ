@@ -150,19 +150,23 @@ export function QqImage({
   // 乐观渲染的图片还会带 `localPreviewUrl`（blob: 地址，剪贴板截图没有落盘路径）。
   // 真实消息的渲染元素不带这两个字段，所以主时间线行为不变。
   //
-  // 源按优先级排队，加载失败换下一个：渲染层 `<input type=file>` 选进来的路径不会
-  // 被主进程 `trustPath` 登记，`localfile` 会 404 —— 这时必须回退到乐观渲染的 blob
-  // `localPreviewUrl`，否则明明有本地预览却画成「未找到」。
+  // 已有 Blob 预览优先：文件选择器拿到的路径可能尚未被主进程信任，上传也可能未完成。
+  // 本地路径、CDN 与缓存依次兜底；灯箱沿用这条回退链，不依赖气泡先加载成功。
   const localPath = str(data, 'localPath');
   const localPreviewUrl = str(data, 'localPreviewUrl');
   const candidates: string[] = [];
+  if (localPreviewUrl) candidates.push(localPreviewUrl);
   if (localPath) candidates.push(localFileUrl(localPath));
-  if (localPreviewUrl && !candidates.includes(localPreviewUrl)) candidates.push(localPreviewUrl);
   if (cdnSrc) candidates.push(cdnSrc);
   if (!candidates.includes(proxySrc)) candidates.push(proxySrc);
   if (!isAnimatedEmoji && !candidates.includes(originalProxySrc)) candidates.push(originalProxySrc);
   const [srcIndex, setSrcIndex] = useState(0);
   const src = candidates[Math.min(srcIndex, candidates.length - 1)] ?? proxySrc;
+
+  useEffect(() => {
+    setSrcIndex(0);
+    setBroken(false);
+  }, [localPath, localPreviewUrl, originalProxySrc, cdnSrc]);
 
   if (broken) {
     return <QqMediaMissing label={isAnimatedEmoji ? '该表情' : '该图片'} style={style} />;
@@ -205,6 +209,13 @@ export function QqImage({
                 name || '[图片]',
                 ocrContext,
                 event.currentTarget.ownerDocument,
+                undefined,
+                [
+                  ...candidates
+                    .slice(srcIndex + 1)
+                    .map((candidate) => (candidate === proxySrc ? originalProxySrc : candidate)),
+                  proxySrc,
+                ],
               )
           : undefined
       }
@@ -794,7 +805,9 @@ export function QqVoice({
               ))}
             </div>
           ) : null}
-          {transcribeError ?? (shownTranscript ? shownTranscript : '（未识别到内容）')}
+          <span data-privacy-sensitive={Boolean(shownTranscript) || undefined}>
+            {transcribeError ?? (shownTranscript ? shownTranscript : '（未识别到内容）')}
+          </span>
         </div>
       ) : null}
     </div>

@@ -17,12 +17,14 @@ export function TitleBarSearch({
   onSearchFocus,
   results,
   onReturn,
+  persistent = false,
 }: {
   query: string;
   onQueryChange: (query: string) => void;
   onSearchFocus?: () => void;
   results?: ReactNode;
   onReturn?: () => boolean;
+  persistent?: boolean;
 }) {
   const [pinned, setPinned] = useState(false);
   const [lookupOpen, setLookupOpen] = useState<QQExactLookupKind | null>(null);
@@ -34,7 +36,7 @@ export function TitleBarSearch({
   const input = useRef<HTMLInputElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const returning = useRef(false);
-  const expanded = pinned || (hovered && !suppressHover);
+  const expanded = pinned || (!persistent && hovered && !suppressHover);
   const hasPanel = Boolean(results) || pinned;
   const layer = useOverlayLayer(expanded && hasPanel);
 
@@ -94,7 +96,7 @@ export function TitleBarSearch({
   return (
     <div
       ref={root}
-      className={`weq-titlebar-search${expanded ? ' is-expanded' : ''}${onReturn ? ' has-return' : ''}`}
+      className={`weq-titlebar-search${persistent || expanded ? ' is-expanded' : ''}${persistent ? ' is-persistent' : ''}${onReturn ? ' has-return' : ''}`}
       onPointerEnter={() => {
         setHovered(true);
         setSuppressHover(false);
@@ -153,10 +155,10 @@ export function TitleBarSearch({
         ref={input}
         type="search"
         aria-label="搜索全部内容"
-        tabIndex={expanded ? 0 : -1}
-        disabled={!expanded}
+        tabIndex={persistent || expanded ? 0 : -1}
+        disabled={!persistent && !expanded}
         value={query}
-        placeholder="搜索全部内容"
+        placeholder={persistent ? '搜索内容、功能与设置' : '搜索全部内容'}
         onChange={(event) => onQueryChange(event.target.value)}
         onFocus={() => {
           setPinned(true);
@@ -179,6 +181,13 @@ export function TitleBarSearch({
               style={{ ...position, zIndex: layer }}
               onPointerEnter={() => setHovered(true)}
               onPointerLeave={() => setHovered(false)}
+              onClick={(event) => {
+                if (!(event.target instanceof Element) || !event.target.closest('[role="option"]'))
+                  return;
+                setPinned(false);
+                setHovered(false);
+                setSuppressHover(true);
+              }}
             >
               {results}
               {pinned &&

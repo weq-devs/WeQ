@@ -111,7 +111,11 @@ export function acquireDecorationStyle(
     if (released) return;
     released = true;
     if (--held.users) return;
-    held.dispose();
-    if (entries.get(key) === held) entries.delete(key);
+    // 乐观消息、发送缓存、真实记录可能在同一轮提交中交接，允许新行接走同款资源。
+    queueMicrotask(() => {
+      if (held.users || entries.get(key) !== held) return;
+      held.dispose();
+      entries.delete(key);
+    });
   };
 }

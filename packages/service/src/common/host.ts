@@ -26,6 +26,14 @@ export interface SaveTarget {
   downloadId: string | null;
 }
 
+export interface AppAutostartStatus {
+  supported: boolean;
+  enabled: boolean;
+  registered: boolean;
+  requiresApproval: boolean;
+  migrationError?: string;
+}
+
 export interface HostBridge {
   /** 宿主额外拥有的目录，显式标记运行数据或受保护的安装资源。 */
   storageRoots?(): StorageRoot[];
@@ -47,7 +55,11 @@ export interface HostBridge {
    * server-side directory (no dialog). `null` means the user cancelled —
    * web never cancels.
    */
-  pickDirectory(opts?: { title?: string }): Promise<string | null>;
+  pickDirectory(opts?: {
+    title?: string;
+    locationKey?: string;
+    defaultDirectory?: string;
+  }): Promise<string | null>;
   /**
    * Pick a single file. Electron opens a file dialog; web has no way to browse
    * the server's disk, so it returns `null` (callers surface "unsupported").
@@ -61,6 +73,8 @@ export interface HostBridge {
     defaultName: string;
     /** 相同扩展名的不同导出功能可分别记忆位置。 */
     locationKey?: string;
+    /** 无同类历史位置时使用的默认目录。 */
+    defaultDirectory?: string;
     /** Extension for the dialog filter (no leading dot). */
     extension?: string;
   }): Promise<SaveTarget | null>;
@@ -120,22 +134,21 @@ export interface HostBridge {
    * Whether this host participates in OS-level autostart at all. False on the
    * web/server host (the deployer's process manager owns it — a bare
    * `node server.mjs` needs args + cwd, so registering either the GUI or the
-   * daemon would fight that) and false on unpackaged desktop dev builds (no
+   * helper would fight that) and false on unpackaged desktop dev builds (no
    * stable executable path).
    *
-   * False means: the router refuses `setDaemonAutostart`, the settings toggle
-   * is disabled, and the daemon is spawned with `WEQ_DAEMON_NO_AUTOSTART` so it
-   * skips its own idempotent self-registration.
+   * False means the router refuses login-item changes and disables the toggle.
    */
   readonly canAutostart: boolean;
+  getAutostart?(): Promise<AppAutostartStatus>;
+  setAutostart?(enabled: boolean): Promise<AppAutostartStatus>;
   /** False in dev builds. */
   isPackaged(): boolean;
   /**
-   * Absolute path of the GUI binary the daemon should launch on boot:
+   * Absolute path of the GUI binary for a direct OS login item:
    * `$APPIMAGE` when running from an AppImage (its mount path changes every
    * run), else `app.getPath('exe')`; `process.execPath` on web/server. WeQ
-   * never registers an autostart task of its own — the daemon remembers this
-   * path and spawns it.
+   * registers the installed application directly, without a companion process.
    */
   currentExePath(): string;
 }

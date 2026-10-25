@@ -53,7 +53,6 @@ import {
 import '../../styles/mail.css';
 import type { ExportSavePolicy } from '@weq/service';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
-import { ExportSaveActions } from '../../components/ExportSaveActions';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { IS_WEB } from '../../lib/target';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
@@ -761,20 +760,22 @@ export function MailPage({
                     <button
                       {...multi.itemProps(item.id)}
                       type="button"
-                      className="weq-mail-row-main weq-mail-sensitive"
+                      className="weq-mail-row-main"
                       onClick={() => void openMail(item)}
                       aria-pressed={item.id === selectedId}
                     >
                       <div>
-                        <strong>{item.sender.name || item.sender.email || '发件人'}</strong>
+                        <strong data-privacy-sensitive>
+                          {item.sender.name || item.sender.email || '发件人'}
+                        </strong>
                         <time>{formatMailTime(item.time, true)}</time>
                       </div>
                       <span className="weq-mail-row-subject">
                         {item.draft ? <FilePenLine size={13} /> : null}
                         {item.hasAttachments ? <Paperclip size={13} /> : null}
-                        <span>{item.subject || '无主题'}</span>
+                        <span data-privacy-sensitive>{item.subject || '无主题'}</span>
                       </span>
-                      <p>{snippets.get(item.id) || ' '}</p>
+                      <p data-privacy-sensitive>{snippets.get(item.id) || ' '}</p>
                     </button>
                     <button
                       type="button"
@@ -933,13 +934,13 @@ export function MailPage({
                 </div>
               ) : detail ? (
                 <>
-                  <header className="weq-mail-message-heading weq-mail-sensitive">
-                    <h2>{detail.subject || '无主题'}</h2>
-                    <div>
+                  <header className="weq-mail-message-heading">
+                    <h2 data-privacy-sensitive>{detail.subject || '无主题'}</h2>
+                    <div data-privacy-sensitive>
                       <strong>{detail.sender.name || detail.sender.email}</strong>
                       <span>{detail.sender.name ? detail.sender.email : ''}</span>
                     </div>
-                    <details>
+                    <details data-privacy-sensitive>
                       <summary>收件人：{addressText(detail.to) || selfEmail}</summary>
                       <p>收件人：{addressText(detail.to) || selfEmail}</p>
                       {detail.cc.length ? <p>抄送：{addressText(detail.cc)}</p> : null}
@@ -948,7 +949,7 @@ export function MailPage({
                     <time>{formatMailTime(detail.time)}</time>
                   </header>
                   {detail.thread ? (
-                    <div className="weq-mail-thread weq-mail-sensitive">
+                    <div className="weq-mail-thread">
                       <h3>{detail.thread.length} 封邮件</h3>
                       {detail.thread.map((item) => (
                         <button
@@ -959,8 +960,10 @@ export function MailPage({
                             setSelectedId(item.id);
                           }}
                         >
-                          <strong>{item.sender.name || item.sender.email || '发件人'}</strong>
-                          <span>{item.subject || '无主题'}</span>
+                          <strong data-privacy-sensitive>
+                            {item.sender.name || item.sender.email || '发件人'}
+                          </strong>
+                          <span data-privacy-sensitive>{item.subject || '无主题'}</span>
                           <time>{formatMailTime(item.time)}</time>
                         </button>
                       ))}
@@ -1013,27 +1016,6 @@ export function MailPage({
                               <X size={14} />
                             </button>
                           ) : null}
-                          <ExportSaveActions
-                            disabled={
-                              !item.available ||
-                              Boolean(downloading) ||
-                              !save.binding ||
-                              save.settings.isLoading
-                            }
-                            onSelect={(intent) => void saveAttachment(item.id, intent)}
-                            label={`附件 ${item.name} 的本次保存选项`}
-                          />
-                          {IS_WEB && (
-                            <button
-                              type="button"
-                              title="下载到浏览器"
-                              aria-label={`下载附件 ${item.name} 到浏览器`}
-                              disabled={!item.available || Boolean(downloading) || !save.binding}
-                              onClick={() => void saveAttachment(item.id, undefined, true)}
-                            >
-                              <Download size={16} />
-                            </button>
-                          )}
                         </div>
                       ))}
                     </div>

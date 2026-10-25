@@ -19,7 +19,6 @@ import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
-import { ExportSaveActions } from '../../components/ExportSaveActions';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { useToast } from '../../components/Toast';
 import { IS_WEB } from '../../lib/target';
@@ -85,9 +84,7 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
         (data.status === 'pending' ||
           data.status === 'running' ||
           data.save?.status === 'saving' ||
-          (data.status === 'completed' &&
-            data.save?.status === 'pending' &&
-            data.save.policy.mode !== 'after'))
+          (data.status === 'completed' && data.save?.status === 'pending'))
           ? 1000
           : false,
     },
@@ -148,17 +145,15 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
       let id: string;
       if (existing) {
         id = existing.id;
-        if (savePolicy.mode !== 'after') {
-          const path = await client.account.saveExportTaskOutput.mutate({
-            ...expected,
-            taskId: id,
-            ...(savePolicy.directory ? { directory: savePolicy.directory } : {}),
-            ...(savePolicy.filePath
-              ? { filePath: savePolicy.filePath, uniqueFileName: savePolicy.uniqueFileName }
-              : {}),
-          });
-          if (path === null || !current()) return;
-        }
+        const path = await client.account.saveExportTaskOutput.mutate({
+          ...expected,
+          taskId: id,
+          ...(savePolicy.directory ? { directory: savePolicy.directory } : {}),
+          ...(savePolicy.filePath
+            ? { filePath: savePolicy.filePath, uniqueFileName: savePolicy.uniqueFileName }
+            : {}),
+        });
+        if (path === null || !current()) return;
       } else {
         id = await client.account.startAssistantArtifactSave.mutate({
           ...expected,
@@ -170,11 +165,10 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
       if (!current()) return;
       setMonitor({ identity, taskId: id });
       await utils.account.getExportOutputReceipt.invalidate({ ...expected, taskId: id });
-      if (current() && (savePolicy.mode === 'after' || !existing))
+      if (current() && !existing)
         pushToast({
           tone: 'info',
-          title:
-            savePolicy.mode === 'after' ? '结果将保留在任务列表，等待保存' : '报告保存任务已创建',
+          title: '报告保存任务已创建',
         });
     } catch (e) {
       if (current()) setFailure({ identity, message: e instanceof Error ? e.message : String(e) });
@@ -191,42 +185,6 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
     } catch (error) {
       if (current())
         dialog.error('打开保存结果失败', error instanceof Error ? error.message : String(error));
-    }
-  }
-  async function downloadInBrowser() {
-    if (!binding || pending.current === identity || !current()) return;
-    pending.current = identity;
-    setOperation({ identity, kind: 'download' });
-    setFailure(null);
-    const expected = { ...binding },
-      selected = { ...artifact },
-      cached = taskId;
-    try {
-      const download =
-        isExport || (cached && receipt.data?.status === 'completed')
-          ? await client.account.exportTaskDownload.mutate({
-              ...expected,
-              taskId: isExport ? selected.id : cached!,
-            })
-          : await client.account.assistantArtifactDownload.mutate({
-              ...expected,
-              id: selected.id,
-              name: selected.name,
-            });
-      if (!current()) return;
-      if (!download) throw new Error('当前环境不能提供浏览器下载。');
-      const anchor = document.createElement('a');
-      anchor.href = download.url;
-      anchor.download = '';
-      document.body.append(anchor);
-      anchor.click();
-      anchor.remove();
-    } catch (error) {
-      if (current())
-        setFailure({ identity, message: error instanceof Error ? error.message : String(error) });
-    } finally {
-      if (pending.current === identity) pending.current = null;
-      setOperation((previous) => (previous?.identity === identity ? null : previous));
     }
   }
   const saved = receipt.data?.save;
@@ -300,22 +258,6 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
         >
           <Download size={13} /> {IS_WEB ? '保存到服务器' : '保存'}
         </button>
-        <ExportSaveActions
-          disabled={busy !== null || !binding}
-          onSelect={(intent) => void onSave(intent)}
-        />
-        {IS_WEB && (
-          <button
-            type="button"
-            className="weq-artifact-saved-icon"
-            disabled={busy !== null || !binding}
-            title="下载到浏览器"
-            aria-label="下载到浏览器"
-            onClick={() => void downloadInBrowser()}
-          >
-            <Download size={14} />
-          </button>
-        )}
         {saved?.path && !IS_WEB && (
           <>
             <button

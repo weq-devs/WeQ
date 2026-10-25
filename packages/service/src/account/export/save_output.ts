@@ -7,7 +7,7 @@ import { createAtomicExportBundle } from './atomic_bundle';
 import { fileSha256 } from './resume';
 import { assertDestinationCapacity } from './storage_preflight';
 
-export type ExportSaveMode = 'preset' | 'before' | 'after';
+export type ExportSaveMode = 'preset' | 'before';
 
 export interface ExportSavePolicy {
   mode: ExportSaveMode;
@@ -24,12 +24,13 @@ export interface ExportSaveState {
 }
 
 export function normalizeExportSaveMode(value: unknown): ExportSaveMode {
-  return value === 'preset' || value === 'before' ? value : 'after';
+  return value === 'preset' ? 'preset' : 'before';
 }
 
 export function copyExportSavePolicy(policy: ExportSavePolicy): ExportSavePolicy {
-  const mode = normalizeExportSaveMode(policy.mode);
-  if (mode === 'after') return { mode };
+  if (policy.mode !== 'preset' && policy.mode !== 'before')
+    throw new Error('不支持此保存方式，请在开始前选择保存位置。');
+  const mode = policy.mode;
   if (policy.filePath) {
     if (policy.directory) throw new Error('保存位置只能选择文件或目录之一。');
     if (!isAbsolute(policy.filePath)) throw new Error('保存文件必须是绝对路径。');

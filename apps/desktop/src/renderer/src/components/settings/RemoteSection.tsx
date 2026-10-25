@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { client, trpc } from '../../trpc/client';
 import { RemotePanel } from './RemotePanel';
-import { Row, SectionHeader, Toggle } from './controls';
+import { useTabActive } from '../RetainedTabs';
+import { Card, Row, Toggle } from './controls';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { Check, Copy, ExternalLink, Globe } from 'lucide-react';
@@ -17,17 +18,27 @@ export function RemoteSection() {
 }
 
 function DesktopRemoteSection() {
-  const status = trpc.remote.status.useQuery(undefined, { refetchInterval: 1500, retry: false });
-  const web = trpc.remote.webStatus.useQuery(undefined, { refetchInterval: 1500, retry: false });
+  const active = useTabActive();
+  const activity = useRef(active);
+  activity.current = active;
+  const status = trpc.remote.status.useQuery(undefined, {
+    enabled: active,
+    refetchInterval: active ? 1500 : false,
+    retry: false,
+  });
+  const web = trpc.remote.webStatus.useQuery(undefined, {
+    enabled: active,
+    refetchInterval: active ? 1500 : false,
+    retry: false,
+  });
   const webToggle = trpc.remote.setWebEnabled.useMutation();
   const autoStart = trpc.remote.setWebAutoStart.useMutation();
   const confirm = useDialog((state) => state.confirm);
   const pushToast = useToast((state) => state.push);
   const toggle = trpc.remote.setEnabled.useMutation();
   const login = trpc.remote.openLogin.useMutation();
-  const mode = trpc.remote.setMode.useMutation();
+  const tailscale = trpc.remote.setTailscaleEnabled.useMutation();
   const changeNetwork = trpc.remote.changeNetwork.useMutation();
-  const refreshNetwork = trpc.remote.refreshNetwork.useMutation();
   const [inviting, setInviting] = useState(false);
   const decide = trpc.remote.decide.useMutation();
   const revoke = trpc.remote.revoke.useMutation();
@@ -36,23 +47,29 @@ function DesktopRemoteSection() {
   const [copyError, setCopyError] = useState<string | null>(null);
   const [copying, setCopying] = useState<'token' | 'pairing' | null>(null);
   const [copied, setCopied] = useState<'token' | 'pairing' | null>(null);
+  const [acting, setActing] = useState(false);
+  const actingRef = useRef(false);
   const busy =
     toggle.isLoading ||
-    mode.isLoading ||
+    tailscale.isLoading ||
     changeNetwork.isLoading ||
-    refreshNetwork.isLoading ||
     login.isLoading ||
     inviting ||
     decide.isLoading ||
     revoke.isLoading ||
     webToggle.isLoading ||
     autoStart.isLoading ||
+    acting ||
     copying !== null;
   useEffect(() => {
+    if (!active) {
+      setCopied(null);
+      return;
+    }
     if (!copied) return;
     const timer = window.setTimeout(() => setCopied(null), 2000);
     return () => window.clearTimeout(timer);
-  }, [copied]);
+  }, [copied, active]);
 
   async function copySecret(kind: 'token' | 'pairing', read: () => Promise<string>) {
     if (copying) return;
@@ -62,7 +79,7 @@ function DesktopRemoteSection() {
     try {
       const value = await read();
       if (!(await copyTextToClipboard(value))) throw new Error('clipboard unavailable');
-      setCopied(kind);
+      if (activity.current) setCopied(kind);
       pushToast({ tone: 'success', title: kind === 'token' ? '访问令牌已复制' : '配对链接已复制' });
     } catch {
       const message = '复制失败，请确认服务仍在运行，并保持窗口处于前台后重试。';
@@ -75,96 +92,141 @@ function DesktopRemoteSection() {
   }
   useEffect(() => {
     if (!qr) return;
-    if (!status.data?.enabled || status.data.invitationExpiresAt !== qr.expiresAt) {
+    if (!active || !status.data?.enabled || status.data.invitationExpiresAt !== qr.expiresAt) {
       setQr(null);
       return;
     }
     const timer = window.setTimeout(() => setQr(null), Math.max(0, qr.expiresAt - Date.now()));
     return () => window.clearTimeout(timer);
-  }, [qr, status.data]);
+  }, [qr, status.data, active]);
   async function act(action: () => Promise<unknown>) {
+    if (actingRef.current) return;
+    actingRef.current = true;
+    setActing(true);
     setError(null);
     try {
       await action();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      await status.refetch();
-      await web.refetch();
+      if (activity.current) {
+        await status.refetch();
+        await web.refetch();
+      }
+      actingRef.current = false;
+      setActing(false);
     }
   }
   return (
     <div className="weq-set weq-remote-settings">
       <section className="weq-remote-web" aria-label="WeQ Web 服务">
-        <SectionHeader icon={<Globe size={17} />} title="WeQ Web 服务" />
-        <div className="weq-remote-web-controls">
-          <Row
-            label="启用 Web 服务"
-            control={
-              <Toggle
-                label="启用 Web 服务"
-                checked={web.data?.enabled ?? false}
-                disabled={busy || !web.data?.assetsInstalled}
-                onChange={(enabled) => void act(() => webToggle.mutateAsync({ enabled }))}
-              />
-            }
-          />
-          <Row
-            label="启动 WeQ 时自动开启 Web 服务"
-            control={
-              <Toggle
-                label="启动 WeQ 时自动开启 Web 服务"
-                checked={web.data?.autoStart ?? false}
-                disabled={busy || !web.data?.available}
-                onChange={(enabled) => void act(() => autoStart.mutateAsync({ enabled }))}
-              />
-            }
-          />
-        </div>
-        {web.data?.url ? (
-          <div className="weq-remote-web-actions">
-            <code className="weq-remote-web-address">{web.data.url}</code>
-            <div className="weq-remote-web-buttons">
-              <a
-                className="weq-set-btn weq-set-btn-soft"
-                href={web.data.url}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <ExternalLink size={14} />
-                打开 Web
-              </a>
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-soft weq-remote-copy-token"
-                disabled={busy}
-                onClick={() => void copySecret('token', () => client.remote.webToken.mutate())}
-              >
-                {copied === 'token' ? <Check size={14} /> : <Copy size={14} />}
-                <span role="status">
-                  {copying === 'token'
-                    ? '正在复制…'
-                    : copied === 'token'
-                      ? '已复制令牌'
-                      : '复制访问令牌'}
-                </span>
-              </button>
-            </div>
+        <Card icon={<Globe size={17} />} title="WeQ Web 服务">
+          <div className="weq-remote-web-controls">
+            <Row
+              label="启用 Web 服务"
+              control={
+                <Toggle
+                  label="启用 Web 服务"
+                  checked={web.data?.enabled ?? false}
+                  disabled={busy || !web.data?.assetsInstalled}
+                  onChange={(enabled) =>
+                    void act(async () => {
+                      const current = (await status.refetch())?.data ?? status.data;
+                      if (!enabled && current?.enabled) {
+                        const linked = await confirm(
+                          '关闭 Web 服务时同时关闭 Remote？',
+                          'Remote 仍在运行。关闭 Web 后，已配对手机将无法通过它查看 WeQ；可以同时关闭 Remote，或只关闭 Web。',
+                          {
+                            okLabel: '同时关闭 Remote',
+                            cancelLabel: '仅关闭 Web',
+                            tone: 'warning',
+                          },
+                        );
+                        if (linked) {
+                          setQr(null);
+                          await toggle.mutateAsync({ enabled: false });
+                        }
+                      }
+                      await webToggle.mutateAsync({ enabled });
+                    })
+                  }
+                />
+              }
+            />
+            <Row
+              label="启动 WeQ 时自动开启 Web 服务"
+              control={
+                <Toggle
+                  label="启动 WeQ 时自动开启 Web 服务"
+                  checked={web.data?.autoStart ?? false}
+                  disabled={busy || !web.data?.available}
+                  onChange={(enabled) =>
+                    void act(async () => {
+                      const current = (await status.refetch())?.data ?? status.data;
+                      if (!enabled && current?.enabled) {
+                        const keep = await confirm(
+                          'Remote 仍处于启用状态',
+                          '取消 Web 自动启动后，下次启动 WeQ 时 Remote 可能恢复连接，但手机无法查看尚未开启的 Web 内容。是否保留 Web 自动启动？',
+                          {
+                            okLabel: '保留自动启动',
+                            cancelLabel: '仍关闭自动启动',
+                            tone: 'warning',
+                          },
+                        );
+                        if (keep) return;
+                      }
+                      await autoStart.mutateAsync({ enabled });
+                    })
+                  }
+                />
+              }
+            />
           </div>
-        ) : null}
-        {copyError ? (
-          <p className="weq-remote-error" role="alert">
-            {copyError}
-          </p>
-        ) : null}
-        {web.data && !web.data.assetsInstalled ? (
-          <p className="weq-remote-error">Web 页面尚未构建</p>
-        ) : null}
-        {web.data?.error ? (
-          <p className="weq-remote-error" role="alert">
-            {web.data.error}
-          </p>
-        ) : null}
+          {web.data?.url ? (
+            <div className="weq-remote-web-actions">
+              <code className="weq-remote-web-address">{web.data.url}</code>
+              <div className="weq-remote-web-buttons">
+                <a
+                  className="weq-set-btn weq-set-btn-soft"
+                  href={web.data.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <ExternalLink size={14} />
+                  打开 Web
+                </a>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft weq-remote-copy-token"
+                  disabled={busy}
+                  onClick={() => void copySecret('token', () => client.remote.webToken.mutate())}
+                >
+                  {copied === 'token' ? <Check size={14} /> : <Copy size={14} />}
+                  <span role="status">
+                    {copying === 'token'
+                      ? '正在复制…'
+                      : copied === 'token'
+                        ? '已复制令牌'
+                        : '复制访问令牌'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {copyError ? (
+            <p className="weq-remote-error" role="alert">
+              {copyError}
+            </p>
+          ) : null}
+          {web.data && !web.data.assetsInstalled ? (
+            <p className="weq-remote-error">Web 页面尚未构建</p>
+          ) : null}
+          {web.data?.error ? (
+            <p className="weq-remote-error" role="alert">
+              {web.data.error}
+            </p>
+          ) : null}
+        </Card>
       </section>
       <RemotePanel
         data={status.data}
@@ -175,7 +237,8 @@ function DesktopRemoteSection() {
           void act(async () => {
             setQr(null);
             await toggle.mutateAsync({ enabled });
-            if (enabled && !web.data?.autoStart) {
+            const current = (await web.refetch())?.data ?? web.data;
+            if (enabled && (!current?.autoStart || !current.enabled)) {
               const recommended = await confirm(
                 '让手机连接更方便',
                 '建议启动 WeQ 时自动开启 Web 服务，手机配对后即可打开 WeQ。Web 服务仅监听本机，远程访问仍需设备授权。',
@@ -189,16 +252,10 @@ function DesktopRemoteSection() {
           })
         }
         onLogin={() => void act(() => login.mutateAsync())}
-        onRefresh={() =>
+        onTailscale={(enabled) =>
           void act(async () => {
             setQr(null);
-            await refreshNetwork.mutateAsync();
-          })
-        }
-        onMode={(value) =>
-          void act(async () => {
-            setQr(null);
-            await mode.mutateAsync({ mode: value });
+            await tailscale.mutateAsync({ enabled });
           })
         }
         onChangeNetwork={() =>

@@ -34,6 +34,46 @@ export class AgentLabConfigService {
     return this.listProviders().find((item) => item.id === providerId) ?? null;
   }
 
+  getDefaultModel(): AgentLabModelRef | null {
+    return this.userConfig.getSettings().agentLab.defaultModel;
+  }
+
+  getDefaultModelStatus() {
+    const ref = this.getDefaultModel();
+    if (!ref) return { ref: null, available: false, error: null };
+    try {
+      this.resolveDefaultEndpoint(ref);
+      return { ref, available: true, error: null };
+    } catch (error) {
+      return {
+        ref,
+        available: false,
+        error: error instanceof Error ? error.message : '默认模型不可用',
+      };
+    }
+  }
+
+  setDefaultModel(ref: AgentLabModelRef | null) {
+    const next = ref ? { providerId: ref.providerId.trim(), model: ref.model.trim() } : null;
+    if (next && (next.providerId.includes('\0') || next.model.includes('\0')))
+      throw new Error('默认模型引用无效');
+    if (next) this.resolveDefaultEndpoint(next);
+    this.userConfig.setSettings({ agentLab: { defaultModel: next } });
+    return this.getDefaultModelStatus();
+  }
+
+  resolveDefaultEndpoint(ref = this.getDefaultModel()): AgentLabEndpoint {
+    if (!ref) throw new Error('未设置默认模型');
+    const provider = this.getProvider(ref.providerId);
+    if (!provider) throw new Error(`默认模型的 provider 不可用：${ref.providerId}`);
+    const model = provider.models.find(
+      (item) => item.id === ref.model && item.capabilities?.includes('chat') !== false,
+    );
+    if (!model) throw new Error(`默认模型不存在或不支持聊天：${ref.model}`);
+    validateProviderConfig(provider);
+    return this.resolveEndpoint(ref);
+  }
+
   /** 按 id 取 TTS provider 配置（供导出 bot 打包语音配置）。 */
   getTtsProvider(providerId: string): TtsProviderConfig | null {
     return (

@@ -14,6 +14,8 @@ pnpm dev
 
 ## 章节
 
+- [应用内服务与独立自启（2026-10-25）](./app-owned-services-20261025.md)
+
 ### 内容与工具
 
 - [界面与工具设计约定](./ux-discussion-20261017.md)：内容优先、选择草稿、任务身份和平台边界。
@@ -32,6 +34,7 @@ pnpm dev
 - [分析与报告](./analysis-report-20261018.md)：统计口径、历史身份、结果生命周期和恢复限制。
 - [推荐回复上下文](./intent-suggestion-context-20261024.md)：时间与近期优先、成员和 @ 身份、自己发言后的接续模式。
 - [窗口与浮层](./nonmodal-surfaces-20261018.md)：页面、侧栏、浮窗、锚定窗格与模态层的职责。
+- [设置重构执行方案](./settings-restructure-plan-20261025.md)：执行中的九组目录、工具不替换设置、页内日志及分阶段验证记录。
 - [页面现场保留](./tab-state-retention-20261015.md)：活动性、隐藏页监听与内存状态边界。
 - [原生 QQ 邮箱](./qqmail-native-20261017.md)：账号级认证、邮件协议、附件、正文隔离与提醒生命周期。
 - [手机连接与重连](./remote-two-paths-20261022.md)：局域网、已有/内嵌 TS、持久设备凭据和 iOS WebView 会话身份。
@@ -52,9 +55,12 @@ pnpm dev
 
 ### 基础能力与贡献
 
+- [消息同步与性能修复方案](./message-sync-performance-plan-20261025.md)及[阶段实施记录](./message-sync-performance-implementation-20261025.md)：消息到达、QQ 已读消点、会话首屏与媒体的已实施范围，以及时间线虚拟化和真实性能验收待办。
+- [桌面包体积优化](./desktop-package-size-20261025.md)：生产依赖分层、原生架构裁剪、真实打包匹配器和产物冒烟。
 - [QQ 数据库布局：按文件设置保留页](./db-layout-split-20261018.md) — per-Pager pending byte、锁字节与布局自动识别
 - [nt_helper.node 接口文档](./nt-helper-interface.md) — 原生模块能力总览，**写代码前先看，别重复造轮子**
 - [原生二进制与装扮资源的分发](./native-artifacts.md) — `pnpm native:fetch`、发布链路、历史清洗记录
+- [大库密钥扫描修复](./key-scan-bounded-read-20261025.md)：固定读取验证前缀、合成稀疏文件检查与本地产物边界。
 - [测试约定](./testing.md) — `@weq/testkit`
 - [WeQ 存储管理](./storage-management.md)：统计范围、嵌套目录去重、只读数据与缓存清理白名单。
 - [macOS QQ 进程探测](./macos-startup-probe-20261015.md)：异步归属判断与子进程生命周期。
@@ -71,6 +77,7 @@ pnpm dev
 - [主动操作界面接入](./qq-actions-ui-20261019.md) — 原始候选与新增协议的入口、账号隔离、结果边界、通用加群及针对性验证。
 - [QQ 交互修复记录](./qq-actions-fixes-20261020.md) — 免打扰未知态、画像雷达与在线状态 EOF 的字段证据和验证边界。
 - [更新安装退出顺序](./update-install-lifecycle-20261022.md) — 更新专用退出事件、窗口关闭偏好与安装错误恢复。
+- [macOS ad-hoc 更新安装](./macos-adhoc-update-20261025.md)：旧 cdhash 身份断点、官方资产校验、退出后替换与一次手动迁移。
 - [外观优化进行中](./appearance-optimization-20261022.md) — 主题可读色、公共控件与全应用验收矩阵；不代表整项已完成。
 - [Web 竖屏布局](./mobile-web-layout-20261022.md)：手机主导航、整屏聊天、设置返回层级与可视视口适配。
 - [群文件管理器](./group-file-manager-20261021.md) — 统一列表、来源绑定、拖拽、冲突检查与批次结果的实现边界。

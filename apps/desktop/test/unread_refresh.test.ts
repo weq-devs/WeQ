@@ -1,13 +1,138 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   createUnreadRefresh,
+  createUnreadTargetRefresh,
   createUnreadUpdateGuard,
   retryConversationRead,
+  unreadBadgeTargets,
 } from '../src/renderer/src/lib/unreadRefresh';
 
 afterEach(() => vi.useRealTimers());
 
 describe('未读刷新调度', () => {
+  it('五千会话分批完成，超容量明确请求补扫，不静默丢失', async () => {
+    vi.useFakeTimers();
+    const load = vi.fn(async (_targets: Array<{ chatType: number; uid: string }>) => true);
+    const fallback = vi.fn();
+    const queue = createUnreadTargetRefresh(load, fallback);
+    const targets = Array.from({ length: 5000 }, (_, i) => ({ chatType: 2, uid: String(i) }));
+    queue.request(targets);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(load.mock.calls.flatMap(([batch]) => batch)).toEqual(targets);
+    expect(load.mock.calls.every(([batch]) => batch.length <= 256)).toBe(true);
+    queue.request(Array.from({ length: 8193 }, (_, i) => ({ chatType: 2, uid: String(i) })));
+    expect(fallback).toHaveBeenCalledOnce();
+    queue.dispose();
+  });
+  it('QQ 仅推进已读水位时优先校准现有红点，不等待全量扫描或新消息', async () => {
+    vi.useFakeTimers();
+    const background = createUnreadRefresh(() => new Promise<boolean>(() => {}));
+    background.request();
+    await vi.advanceTimersByTimeAsync(100);
+    const contacts = [
+      { chatType: 1, targetUid: 'u_friend' },
+      { chatType: 2, targetUid: '777' },
+      { chatType: 2, targetUid: '888' },
+      { chatType: 8, targetUid: 'device' },
+      { chatType: 999, targetUid: 'unsupported' },
+    ];
+    const counts: Record<string, number> = { u_friend: 3, device: 1, unsupported: 1 };
+    const highlights = { '777': [{}] };
+    const load = vi.fn(async (targets: Array<{ chatType: number; uid: string }>) => {
+      for (const target of targets) counts[target.uid] = 0;
+      return true;
+    });
+    const live = createUnreadTargetRefresh(load);
+    live.request(unreadBadgeTargets(contacts, counts, highlights));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(load).toHaveBeenCalledWith([
+      { chatType: 1, uid: 'u_friend' },
+      { chatType: 2, uid: '777' },
+      { chatType: 8, uid: 'device' },
+    ]);
+    expect(counts.u_friend).toBe(0);
+    expect(counts.device).toBe(0);
+    expect(unreadBadgeTargets(contacts, counts, {})).toEqual([]);
+    live.dispose();
+    background.dispose();
+  });
+
+  it('数据库通知与焦点恢复同时触发红点快速校准，卸载清理入口', () => {
+    const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
+    expect(source.includes('requestUnreadReadSyncRef.current?.();\n  }, [unreadRevision]);')).toBe(
+      true,
+    );
+    expect(/const onVisible = \(\) => \{.*?requestReadSync\(\);/s.test(source)).toBe(true);
+    expect(source.includes('requestUnreadReadSyncRef.current = null;')).toBe(true);
+  });
+
+  it('实时目标独立于慢速全量扫描刷新，合并去重且执行中收到的事件不丢失', async () => {
+    vi.useFakeTimers();
+    const backgroundLoad = vi.fn(() => new Promise<boolean>(() => {}));
+    const background = createUnreadRefresh(backgroundLoad);
+    background.request();
+    await vi.advanceTimersByTimeAsync(100);
+    let release: (ok: boolean) => void = () => {};
+    const load = vi.fn(
+      (_targets: Array<{ chatType: number; uid: string }>) =>
+        new Promise<boolean>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const live = createUnreadTargetRefresh(load);
+    const target = { chatType: 2, uid: '777' };
+    live.request([target, target]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledWith([target]);
+    live.request([target, { chatType: 1, uid: 'u_other' }]);
+    release(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load).toHaveBeenLastCalledWith([target, { chatType: 1, uid: 'u_other' }]);
+    expect(load).toHaveBeenCalledTimes(2);
+    live.dispose();
+    background.dispose();
+    release(true);
+  });
+
+  it('实时读取失败自动保留目标重试，分批不超过 IPC 上限，销毁后停止', async () => {
+    vi.useFakeTimers();
+    const load = vi
+      .fn(async (_targets: Array<{ chatType: number; uid: string }>) => true)
+      .mockRejectedValueOnce(new Error('锁库'));
+    const live = createUnreadTargetRefresh(load);
+    const targets = Array.from({ length: 257 }, (_, i) => ({ chatType: 2, uid: String(i) }));
+    live.request(targets);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(load.mock.calls[0]![0]).toEqual(targets.slice(0, 256));
+    await vi.advanceTimersByTimeAsync(1001);
+    expect(load.mock.calls[1]![0]).toEqual(targets.slice(256));
+    expect(load.mock.calls[2]![0]).toEqual(targets.slice(0, 256));
+    live.dispose();
+    live.request(targets);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(load).toHaveBeenCalledTimes(3);
+  });
+
+  it('坏目标单独退避，新到健康目标不等待它，遗漏目标可作为失败返回', async () => {
+    vi.useFakeTimers();
+    const bad = { chatType: 2, uid: 'bad' },
+      good = { chatType: 1, uid: 'good' };
+    const load = vi.fn(async (targets: (typeof bad)[]) =>
+      targets.filter((target) => target.uid === 'bad'),
+    );
+    const queue = createUnreadTargetRefresh(load);
+    queue.request([bad]);
+    await vi.advanceTimersByTimeAsync(0);
+    queue.request([good]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load.mock.calls[1]![0]).toEqual([good]);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(load.mock.calls[2]![0]).toEqual([bad]);
+    queue.dispose();
+  });
+
   it('当前会话直接更新，旧扫描及写入期间的扫描不能覆盖，无关会话仍刷新', () => {
     const guard = createUnreadUpdateGuard();
     const before = guard.revision();
@@ -19,6 +144,21 @@ describe('未读刷新调度', () => {
     finish();
     expect(guard.accepts('u_one', during)).toBe(false);
     expect(guard.accepts('u_one', guard.revision())).toBe(true);
+  });
+
+  it('实时未读先回显后旧全量扫描不能清掉红点，后续已读仍优先', () => {
+    const guard = createUnreadUpdateGuard();
+    const scan = guard.revision();
+    const live = guard.revision();
+    expect(guard.accepts('u_new', live)).toBe(true);
+    guard.begin(['u_new'])();
+    expect(guard.accepts('u_new', scan)).toBe(false);
+    expect(guard.accepts('u_other', scan)).toBe(true);
+    const nextLive = guard.revision();
+    const read = guard.begin(['u_new']);
+    expect(guard.accepts('u_new', nextLive)).toBe(false);
+    read();
+    expect(guard.accepts('u_new', nextLive)).toBe(false);
   });
 
   it('已读失败有限重试，切走后停止，成功的幂等结果不重试', async () => {
