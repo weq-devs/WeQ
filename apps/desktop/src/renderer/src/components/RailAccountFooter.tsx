@@ -47,9 +47,26 @@ import { QqAvatar } from './QqAvatar';
 import { DesktopOnly, shellBridge } from '../lib/target';
 import '../styles/rail-account.css';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
+import { useMenuCapture } from '../hooks/useMenuCapture';
+import '../styles/menu-capture.css';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+function MenuCaptureButton({ onCapture }: { onCapture: () => Promise<void> }): ReactElement {
+  const menuCapture = useMenuCapture(onCapture);
+  return (
+    <button
+      type="button"
+      className="weq-workspace-control weq-menu-capture-button"
+      title="截图当前窗口（复制到剪贴板）"
+      aria-label="截图当前窗口"
+      {...menuCapture}
+    >
+      <Camera size={18} aria-hidden />
+    </button>
+  );
 }
 
 export function RailAccountFooter({
@@ -361,15 +378,7 @@ export function RailAccountFooter({
         </button>
       </div>
       <DesktopOnly>
-        <button
-          type="button"
-          className="weq-workspace-control"
-          title="截图当前窗口（复制到剪贴板）"
-          aria-label="截图当前窗口"
-          onClick={() => void captureNow()}
-        >
-          <Camera size={18} aria-hidden />
-        </button>
+        <MenuCaptureButton onCapture={captureNow} />
       </DesktopOnly>
       <button
         type="button"
