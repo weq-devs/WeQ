@@ -14,6 +14,7 @@ import { client } from '../../trpc/client';
 import { backupClientId } from '../../lib/backupClientRestore';
 import { useToast } from '../Toast';
 import { SectionHeader } from './controls';
+import { useTabActive } from '../RetainedTabs';
 import '../../styles/backup.css';
 
 const PARTS: WeqBackupPart[] = ['settings', 'accounts', 'api', 'clones'];
@@ -98,6 +99,11 @@ function Summary({ value }: { value: WeqBackupSummary }) {
 }
 
 export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
+  const active = useTabActive();
+  const activity = useRef(active);
+  activity.current = active;
+  const initialized = useRef(false);
+  const readSequence = useRef(0);
   const [inventory, setInventory] = useState<Inventory | null>(null);
   const [parts, setParts] = useState<WeqBackupPart[]>(['settings']);
   const [accounts, setAccounts] = useState<string[]>([]);
@@ -122,31 +128,43 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   const toast = useToast((s) => s.push);
   const refresh = useCallback(
     async (initial = false) => {
+      if (!activity.current) return;
+      const request = ++readSequence.current;
       const result = await api.inventory();
-      if (!alive.current) return;
+      if (!alive.current || !activity.current || readSequence.current !== request) return;
       setInventory(result);
       if (initial) {
         setAccounts(result.accounts.map((a) => a.configId));
         setClones(result.cloneScopes);
       }
+      initialized.current = true;
     },
     [api],
   );
   useEffect(() => {
     alive.current = true;
-    void refresh(true)
-      .catch((e: unknown) => {
-        if (alive.current) setError(String(e));
-      })
-      .finally(() => {
-        if (alive.current) setBusy(null);
-      });
     return () => {
       alive.current = false;
+      readSequence.current++;
       generation.current++;
       if (sourceId.current) void api.dispose(sourceId.current).catch(() => {});
     };
-  }, [api, refresh]);
+  }, [api]);
+  useEffect(() => {
+    if (!active) return;
+    let current = true;
+    void refresh(!initialized.current)
+      .catch((e: unknown) => {
+        if (current && alive.current) setError(String(e));
+      })
+      .finally(() => {
+        if (current && alive.current) setBusy((value) => (value === '正在读取' ? null : value));
+      });
+    return () => {
+      current = false;
+      readSequence.current++;
+    };
+  }, [active, refresh]);
   async function act(label: string, run: () => Promise<void>) {
     setBusy(label);
     setError(null);

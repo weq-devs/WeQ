@@ -27,6 +27,7 @@ import {
   X,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { Modal, useDialog } from '../Dialog';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Card, QueryError, Row, SectionHeader } from './controls';
@@ -70,10 +71,12 @@ interface LiveProgress {
 }
 
 export function VoiceTranscribeSection(): ReactElement {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const utils = trpc.useUtils();
 
   const models = trpc.bootstrap.localModelResources.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -94,8 +97,14 @@ export function VoiceTranscribeSection(): ReactElement {
   showErrorRef.current = showError;
 
   useEffect(() => {
+    if (!active) {
+      setProgress(null);
+      return;
+    }
+    let current = true;
     const sub = client.bootstrap.onVoiceModelProgress.subscribe(undefined, {
       onData: (p) => {
+        if (!current) return;
         if (p.error) {
           setProgress(null);
           void refetchModelsRef.current();
@@ -117,8 +126,11 @@ export function VoiceTranscribeSection(): ReactElement {
       },
       onError: (err) => console.error('[voice] progress subscription error', err),
     });
-    return () => sub.unsubscribe();
-  }, []);
+    return () => {
+      current = false;
+      sub.unsubscribe();
+    };
+  }, [active]);
 
   const selectedId = models.data?.selected.voice ?? '';
 
@@ -168,8 +180,9 @@ export function VoiceTranscribeSection(): ReactElement {
           <div className="weq-models">
             {modelList.map((m) => {
               const isSelected = selectedId === m.id;
-              const isDownloading = progress?.id === m.id;
-              const pct = isDownloading ? Math.round(progress!.percent) : 0;
+              const hasProgress = progress?.id === m.id;
+              const isDownloading = hasProgress || m.downloading;
+              const pct = hasProgress ? Math.round(progress!.percent) : 0;
               return (
                 <div key={m.id} className={`weq-model${isSelected ? ' is-selected' : ''}`}>
                   <div className="weq-model-icon">
@@ -191,7 +204,7 @@ export function VoiceTranscribeSection(): ReactElement {
                       {m.downloaded ? `占用 ${fmtBytes(m.sizeOnDisk)}` : `约 ${m.sizeLabel}`}
                     </span>
 
-                    {isDownloading ? (
+                    {hasProgress ? (
                       <div className="weq-set-progress">
                         <div className="weq-set-progress-track">
                           <div className="weq-set-progress-fill" style={{ width: `${pct}%` }} />
@@ -214,7 +227,7 @@ export function VoiceTranscribeSection(): ReactElement {
                           type="button"
                           className={`weq-set-btn weq-set-btn-sm${isSelected ? ' weq-set-btn-soft' : ''}`}
                           onClick={() => void onSelect(m.id)}
-                          disabled={setModel.isLoading}
+                          disabled={setModel.isLoading || models.isFetching || isDownloading}
                         >
                           <Check size={12} strokeWidth={2} aria-hidden />
                           {isSelected ? '取消选用' : '设为当前'}
@@ -240,7 +253,11 @@ export function VoiceTranscribeSection(): ReactElement {
                         type="button"
                         className="weq-set-btn weq-set-btn-sm"
                         onClick={() => void onDownload(m.id)}
-                        disabled={Boolean(progress)}
+                        disabled={
+                          Boolean(progress) ||
+                          models.isFetching ||
+                          modelList.some((model) => model.downloading)
+                        }
                       >
                         <Download size={12} strokeWidth={1.8} aria-hidden />
                         下载
@@ -304,13 +321,16 @@ function emptyTtsForm(): TtsForm {
 }
 
 export function TtsProvidersCard(): ReactElement {
+  const active = useTabActive();
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const catalog = trpc.bootstrap.getTtsCatalog.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   });
   const providers = trpc.bootstrap.listTtsProviders.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -365,11 +385,6 @@ export function TtsProvidersCard(): ReactElement {
     },
     [guard.reset],
   );
-
-  useEffect(() => {
-    const current = providers.data?.find((item) => item.id === selectedId);
-    if (current) fillFormFrom(current);
-  }, [providers.data, selectedId, fillFormFrom]);
 
   const vendorEntry = useMemo(
     () => catalog.data?.find((item) => item.vendor === form.vendor),

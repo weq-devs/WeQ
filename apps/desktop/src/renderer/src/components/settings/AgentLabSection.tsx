@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   Boxes,
   DownloadCloud,
@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { Modal } from '../../components/Dialog';
 import { Card, CheckPillGroup, QueryError, Row, SectionHeader } from './controls';
@@ -62,15 +63,18 @@ function templateDisplayName(label: string | undefined): string {
 }
 
 export function AgentLabSection(): ReactElement {
+  const active = useTabActive();
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const catalog = trpc.bootstrap.getAgentLabCatalog.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   });
   const catalogRef = useRef(catalog.data);
   catalogRef.current = catalog.data;
   const providers = trpc.bootstrap.listAgentLabProviders.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -139,11 +143,6 @@ export function AgentLabSection(): ReactElement {
     // 模板查询迟到只更新模板来源，不重新灌入并覆盖正在编辑的草稿。
     [guard.reset],
   );
-
-  useEffect(() => {
-    const current = providers.data?.find((item) => item.id === selectedId);
-    if (current) fillFormFrom(current);
-  }, [providers.data, selectedId, fillFormFrom]);
 
   const vendorEntry = useMemo(
     () => catalog.data?.find((item) => item.vendor === form.vendor),

@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Loader2, Save } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { Card, Row } from './controls';
 
 export function QzonePaginationSettings() {
+  const active = useTabActive();
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',

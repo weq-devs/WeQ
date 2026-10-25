@@ -8,10 +8,13 @@ import {
 import { trpc } from '../../trpc/client';
 import { useToast } from '../Toast';
 import { Card, Row } from './controls';
+import { useTabActive } from '../RetainedTabs';
 import '../../styles/notification-settings.css';
 
 export function ToastSettingsCard() {
+  const active = useTabActive();
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active,
     staleTime: 0,
     refetchOnMount: 'always',
   });

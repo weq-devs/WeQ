@@ -5,7 +5,7 @@
  * 验证器绑定（二维码 + 密钥 + 6 位码确认，在独立弹窗中完成）、空闲自动锁定。
  */
 
-import { useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
@@ -22,6 +22,7 @@ import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { Card, Row, SectionHeader, Toggle } from './controls';
+import { useTabActive } from '../RetainedTabs';
 import { shellBridge } from '../../lib/target';
 import {
   fetchSystemAuthStatus,
@@ -45,12 +46,14 @@ const AUTO_LOCK_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
 ];
 
 export function AppLockSection(): ReactElement {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
   const pushToast = useToast((s) => s.push);
   const queryClient = useQueryClient();
 
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -61,6 +64,7 @@ export function AppLockSection(): ReactElement {
 
   // 与左栏上锁按钮、锁屏遮罩共用同一查询；绑定 / 解绑后 invalidate 即时同步。
   const systemAuthQuery = useQuery({
+    enabled: active,
     queryKey: SYSTEM_AUTH_STATUS_QUERY_KEY,
     queryFn: fetchSystemAuthStatus,
     staleTime: 0,
@@ -68,6 +72,7 @@ export function AppLockSection(): ReactElement {
     refetchOnWindowFocus: false,
   });
   const totpQuery = useQuery({
+    enabled: active,
     queryKey: TOTP_STATUS_QUERY_KEY,
     queryFn: fetchTotpStatus,
     staleTime: 0,
@@ -75,6 +80,9 @@ export function AppLockSection(): ReactElement {
     refetchOnWindowFocus: false,
   });
   const [bindOpen, setBindOpen] = useState(false);
+  useEffect(() => {
+    if (!active) setBindOpen(false);
+  }, [active]);
 
   const appLock = settings.data?.appLock;
   const enabled = appLock?.enabled ?? true;

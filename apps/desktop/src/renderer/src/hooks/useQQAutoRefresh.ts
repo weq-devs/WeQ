@@ -16,6 +16,7 @@ export function useQQReadActivity(
   }));
   const lastResume = useRef(Date.now());
   useEffect(() => {
+    if (!available || !tabActive) return;
     const update = (event?: Event) => {
       const active =
         document.visibilityState !== 'hidden' && (!onlineOnly || owner.navigator.onLine);
@@ -43,8 +44,16 @@ export function useQQReadActivity(
       owner.removeEventListener('offline', update);
       owner.removeEventListener('focus', update);
     };
-  }, [onlineOnly, document, owner]);
-  return { enabled: available && tabActive && state.active, revision: state.revision };
+  }, [available, tabActive, onlineOnly, document, owner]);
+  return {
+    enabled:
+      available &&
+      tabActive &&
+      state.active &&
+      document.visibilityState !== 'hidden' &&
+      (!onlineOnly || owner.navigator.onLine),
+    revision: state.revision,
+  };
 }
 
 /** 只重试读取；隐藏或离线时停读，不添加后台轮询。 */

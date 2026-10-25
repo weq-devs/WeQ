@@ -1,11 +1,14 @@
 import { useRef } from 'react';
 import { trpc } from '../trpc/client';
+import { useTabActive } from '../components/RetainedTabs';
 import { useToast } from '../components/Toast';
 import type { TypingStatusOverride, TypingStatusSettings } from '@weq/service';
 
 /** 设置页与输入框共用缓存，保存成功后立即同步所有已挂载的开关。 */
 export function useTypingStatusSettings() {
+  const active = useTabActive();
   const query = trpc.bootstrap.getTypingStatusSettings.useQuery(undefined, {
+    enabled: active,
     staleTime: 0,
     refetchOnMount: 'always',
   });

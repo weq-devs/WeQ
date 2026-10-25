@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useTabActive } from '../RetainedTabs';
 import { ToolSurface } from '../ToolSurface';
 import { PageShell } from '../PageShell';
 import { DatabaseToleranceSection } from './DatabaseToleranceSection';
@@ -11,7 +12,11 @@ export function DatabaseSettingsSection({
   page: 'repair' | 'tolerance';
   onOpen: (tool: MaintenanceTool) => void;
 }) {
+  const active = useTabActive();
   const [recordsOpen, setRecordsOpen] = useState(false);
+  useEffect(() => {
+    if (!active) setRecordsOpen(false);
+  }, [active]);
   return (
     <>
       <DatabaseToleranceSection

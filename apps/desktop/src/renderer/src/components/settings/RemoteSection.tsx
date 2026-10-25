@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { client, trpc } from '../../trpc/client';
 import { RemotePanel } from './RemotePanel';
+import { useTabActive } from '../RetainedTabs';
 import { Row, SectionHeader, Toggle } from './controls';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
@@ -17,8 +18,19 @@ export function RemoteSection() {
 }
 
 function DesktopRemoteSection() {
-  const status = trpc.remote.status.useQuery(undefined, { refetchInterval: 1500, retry: false });
-  const web = trpc.remote.webStatus.useQuery(undefined, { refetchInterval: 1500, retry: false });
+  const active = useTabActive();
+  const activity = useRef(active);
+  activity.current = active;
+  const status = trpc.remote.status.useQuery(undefined, {
+    enabled: active,
+    refetchInterval: active ? 1500 : false,
+    retry: false,
+  });
+  const web = trpc.remote.webStatus.useQuery(undefined, {
+    enabled: active,
+    refetchInterval: active ? 1500 : false,
+    retry: false,
+  });
   const webToggle = trpc.remote.setWebEnabled.useMutation();
   const autoStart = trpc.remote.setWebAutoStart.useMutation();
   const confirm = useDialog((state) => state.confirm);
@@ -52,10 +64,14 @@ function DesktopRemoteSection() {
     acting ||
     copying !== null;
   useEffect(() => {
+    if (!active) {
+      setCopied(null);
+      return;
+    }
     if (!copied) return;
     const timer = window.setTimeout(() => setCopied(null), 2000);
     return () => window.clearTimeout(timer);
-  }, [copied]);
+  }, [copied, active]);
 
   async function copySecret(kind: 'token' | 'pairing', read: () => Promise<string>) {
     if (copying) return;
@@ -65,7 +81,7 @@ function DesktopRemoteSection() {
     try {
       const value = await read();
       if (!(await copyTextToClipboard(value))) throw new Error('clipboard unavailable');
-      setCopied(kind);
+      if (activity.current) setCopied(kind);
       pushToast({ tone: 'success', title: kind === 'token' ? '访问令牌已复制' : '配对链接已复制' });
     } catch {
       const message = '复制失败，请确认服务仍在运行，并保持窗口处于前台后重试。';
@@ -78,13 +94,13 @@ function DesktopRemoteSection() {
   }
   useEffect(() => {
     if (!qr) return;
-    if (!status.data?.enabled || status.data.invitationExpiresAt !== qr.expiresAt) {
+    if (!active || !status.data?.enabled || status.data.invitationExpiresAt !== qr.expiresAt) {
       setQr(null);
       return;
     }
     const timer = window.setTimeout(() => setQr(null), Math.max(0, qr.expiresAt - Date.now()));
     return () => window.clearTimeout(timer);
-  }, [qr, status.data]);
+  }, [qr, status.data, active]);
   async function act(action: () => Promise<unknown>) {
     if (actingRef.current) return;
     actingRef.current = true;
@@ -95,8 +111,10 @@ function DesktopRemoteSection() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      await status.refetch();
-      await web.refetch();
+      if (activity.current) {
+        await status.refetch();
+        await web.refetch();
+      }
       actingRef.current = false;
       setActing(false);
     }

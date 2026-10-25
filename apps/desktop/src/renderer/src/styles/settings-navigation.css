@@ -49,9 +49,15 @@ html[data-theme='dark'] .weq-settings-dialog .weq-settings-nav-item.is-active {
   color: var(--weq-accent-ink, var(--weq-fg-primary));
 }
 
-.weq-settings-content > .weq-settings-body {
+.weq-settings-pages,
+.weq-settings-page {
   flex: 1;
+  min-width: 0;
   min-height: 0;
+}
+
+.weq-settings-pages {
+  overflow: hidden;
 }
 
 .weq-settings-body > :not(:first-child) {

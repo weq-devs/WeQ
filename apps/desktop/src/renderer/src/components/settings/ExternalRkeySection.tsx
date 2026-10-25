@@ -16,7 +16,7 @@
  *   - testExternalRkeyServer    — 只探测连通性，不写缓存
  */
 
-import { useState, type FormEvent, type ReactElement } from 'react';
+import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
 import {
   CheckCircle2,
   ChevronDown,
@@ -33,6 +33,7 @@ import {
   X,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
@@ -69,10 +70,12 @@ function formatCacheExpiry(expiredTime: number | undefined): { text: string; exp
 }
 
 export function ExternalRkeySection(): ReactElement {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const pushToast = useToast((s) => s.push);
 
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -83,6 +86,9 @@ export function ExternalRkeySection(): ReactElement {
 
   const [form, setForm] = useState<ServerForm | null>(null);
   const [revealToken, setRevealToken] = useState(false);
+  useEffect(() => {
+    if (!active) setRevealToken(false);
+  }, [active]);
   const [draftId, setDraftId] = useState(() => crypto.randomUUID());
   const runningTests = useConnectionTestTasks((state) => state.running);
   const testKey = connectionTestKey('rkey', form?.id || draftId);

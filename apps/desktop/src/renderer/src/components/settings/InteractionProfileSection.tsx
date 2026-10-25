@@ -1,5 +1,6 @@
 import { BrainCircuit } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { ApiModelSelect } from './ApiModelSelect';
 import { IntentTuningPanel } from './IntentTuningPanel';
@@ -7,7 +8,9 @@ import { useDialog } from '../Dialog';
 import '../../styles/model-settings.css';
 
 export function InteractionProfileSection() {
+  const active = useTabActive();
   const status = trpc.account.intentSense.getStatus.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
   });
   const save = trpc.account.intentSense.setConfig.useMutation();

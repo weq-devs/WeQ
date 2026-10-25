@@ -3,13 +3,15 @@ import { Mail } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
 import { Card, Row, SectionHeader, Toggle } from './controls';
+import { useTabActive } from '../RetainedTabs';
 
 export function MailSettingsSection() {
+  const active = useTabActive();
   const selfUin = useViewState((state) => state.openedUin);
   const input = { selfUin: selfUin ?? '' };
   const utils = trpc.useUtils();
   const preferences = trpc.mail.preferences.useQuery(input, {
-    enabled: Boolean(selfUin),
+    enabled: active && Boolean(selfUin),
     staleTime: 0,
     refetchOnMount: 'always',
   });

@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { trpc, client } from '../trpc/client';
 import { useDialog } from '../components/Dialog';
+import { useTabActive } from '../components/RetainedTabs';
 
 export type UpdatePhase =
   | 'idle'
@@ -64,13 +65,16 @@ function errMsg(e: unknown): string {
 }
 
 export function useAppUpdate(): AppUpdate {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
 
   const version = trpc.bootstrap.getVersionInfo.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   });
   const state = trpc.update.getState.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -102,13 +106,20 @@ export function useAppUpdate(): AppUpdate {
   }, [state.data]);
 
   // Live progress + lifecycle.
+  const observe =
+    active || phase === 'checking' || phase === 'downloading' || phase === 'installing';
   useEffect(() => {
+    if (!observe) return;
+    let current = true;
     const ps = client.update.onProgress.subscribe(undefined, {
-      onData: (p) => setProgress(p),
+      onData: (p) => {
+        if (current) setProgress(p);
+      },
       onError: (err) => console.error('[update] progress subscription error', err),
     });
     const es = client.update.onEvent.subscribe(undefined, {
       onData: (e) => {
+        if (!current) return;
         if (e.kind === 'checking') {
           setMirrorCount(e.mirrors);
           setPhase((p) => (p === 'idle' ? 'checking' : p));
@@ -140,10 +151,11 @@ export function useAppUpdate(): AppUpdate {
       onError: (err) => console.error('[update] event subscription error', err),
     });
     return () => {
+      current = false;
       ps.unsubscribe();
       es.unsubscribe();
     };
-  }, [showError]);
+  }, [showError, observe]);
 
   const check = useCallback(async (): Promise<void> => {
     setPhase('checking');

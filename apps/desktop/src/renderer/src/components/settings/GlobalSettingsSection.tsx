@@ -35,6 +35,7 @@ import { useToast } from '../Toast';
 import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
+import { useTabActive } from '../RetainedTabs';
 import { ToastSettingsCard } from './ToastSettingsCard';
 import { DesktopOnly, IS_WEB } from '../../lib/target';
 import { groupRetainedStorage } from '../../lib/storage-groups';
@@ -83,6 +84,7 @@ export function GlobalSettingsSection({
   section?: 'general' | 'accounts' | 'storage' | 'saving' | 'logs' | 'network';
   heading?: boolean;
 }): ReactElement {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
   const pushToast = useToast((s) => s.push);
@@ -93,12 +95,13 @@ export function GlobalSettingsSection({
   const [logRetentionDays, setLogRetentionDays] = useState(7);
 
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const accounts = trpc.bootstrap.listAccountConfigs.useQuery(undefined, {
-    enabled: section === 'accounts',
+    enabled: active && section === 'accounts',
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -106,18 +109,18 @@ export function GlobalSettingsSection({
   // 「当前账号」要按 configId 认：同一个 QQ 号可能同时有在线账号和静态账号，
   // 只比 uin 会给两条记录都打上「当前账号」。
   const currentConfig = trpc.account.getAccountConfig.useQuery(undefined, {
-    enabled: section === 'accounts',
+    enabled: active && section === 'accounts',
     refetchOnWindowFocus: false,
     staleTime: 0,
   });
   const autoEnter = trpc.bootstrap.getAutoEnter.useQuery(undefined, {
-    enabled: section === 'accounts',
+    enabled: active && section === 'accounts',
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const cacheDir = trpc.bootstrap.getCacheDir.useQuery(undefined, {
-    enabled: section === 'storage',
+    enabled: active && section === 'storage',
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -138,7 +141,7 @@ export function GlobalSettingsSection({
 
   // 存储统计包含持久数据，选择与清理只针对后端明确标记的可清理项。
   const cacheUsage = trpc.bootstrap.listStorageUsage.useQuery(undefined, {
-    enabled: section === 'storage',
+    enabled: active && section === 'storage',
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -146,7 +149,7 @@ export function GlobalSettingsSection({
   const clearWeqCache = trpc.bootstrap.clearWeqCache.useMutation();
   const clearStorageData = trpc.bootstrap.clearStorageData.useMutation();
   const cleanupResult = trpc.bootstrap.storageCleanupResult.useQuery(undefined, {
-    enabled: section === 'storage',
+    enabled: active && section === 'storage',
   });
   const cleanupBusy = clearWeqCache.isLoading || clearStorageData.isLoading;
   const [pickedCats, setPickedCats] = useState<Set<string>>(new Set());

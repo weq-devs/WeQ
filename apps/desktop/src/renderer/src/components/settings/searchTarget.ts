@@ -34,6 +34,7 @@ export function findSettingElement(
 export function revealSetting(
   root: HTMLElement,
   target: string | Pick<SettingsTarget, 'item' | 'settingId'>,
+  { navigate = true, onLocated }: { navigate?: boolean; onLocated?: () => void } = {},
 ): () => void {
   let highlighted: HTMLElement | null = null;
   let previousTabIndex: string | null = null;
@@ -42,7 +43,7 @@ export function revealSetting(
     if (!element) return;
     for (
       let parent = element.parentElement;
-      parent && parent !== root;
+      navigate && parent && parent !== root;
       parent = parent.parentElement
     ) {
       if (parent instanceof HTMLDetailsElement) parent.open = true;
@@ -51,8 +52,11 @@ export function revealSetting(
     previousTabIndex = element.getAttribute('tabindex');
     element.setAttribute('data-search-highlight', 'true');
     element.setAttribute('tabindex', '-1');
-    element.scrollIntoView?.({ block: 'center', behavior: 'instant' });
-    element.focus({ preventScroll: true });
+    if (navigate) {
+      element.scrollIntoView?.({ block: 'center', behavior: 'instant' });
+      element.focus({ preventScroll: true });
+    }
+    onLocated?.();
     observer.disconnect();
   };
   const observer = new MutationObserver(locate);

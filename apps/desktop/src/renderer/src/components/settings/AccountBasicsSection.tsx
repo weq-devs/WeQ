@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
+import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
@@ -72,15 +73,22 @@ function KeyValueRow({
   value: string | null | undefined;
   secret?: boolean;
 }): ReactElement {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!active) {
+      setRevealed(false);
+      setCopied(false);
+    }
+  }, [active]);
 
   useEffect(() => {
-    if (!copied) return undefined;
+    if (!active || !copied) return undefined;
     const t = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(t);
-  }, [copied]);
+  }, [copied, active]);
 
   const hasValue = Boolean(value);
   const shown = !value ? '未获取' : secret && !revealed ? maskSecret(value) : value;
@@ -148,6 +156,7 @@ export function AccountBasicsSection({
   page?: 'account' | 'credentials' | 'media' | 'read';
   heading?: boolean;
 }): ReactElement {
+  const active = useTabActive();
   const showError = useDialog((s) => s.showError);
   const autoRefresh = useQQAutoRefresh(true);
 
@@ -181,6 +190,12 @@ export function AccountBasicsSection({
 
   const [revealKey, setRevealKey] = useState(false);
   const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!active) {
+      setRevealKey(false);
+      setCopied(false);
+    }
+  }, [active]);
 
   // Local mirror for snappy toggles; re-seeded whenever server data changes.
   const [realtime, setRealtimeLocal] = useState(true);
@@ -218,10 +233,10 @@ export function AccountBasicsSection({
   }, [settings.data, page]);
 
   useEffect(() => {
-    if (!copied) return undefined;
+    if (!active || !copied) return undefined;
     const t = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(t);
-  }, [copied]);
+  }, [copied, active]);
 
   const p = profile.data;
   const cfg = config.data;

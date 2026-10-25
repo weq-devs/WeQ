@@ -80,7 +80,10 @@ import { UsagePanel } from '../views/agentlab/UsagePanel';
 import '../styles/settings-responsive.css';
 import '../styles/settings-navigation.css';
 import '../styles/app-search.css';
-import { revealSetting, type SettingsSearchTarget } from './settings/searchTarget';
+import type { SettingsSearchTarget } from './settings/searchTarget';
+import { RetainedTabs, TabActivity, useTabActive } from './RetainedTabs';
+import { RetainedSettingsPage } from './settings/RetainedSettingsPage';
+import { useAppLock } from '../state/lock';
 import {
   SETTINGS_GROUPS,
   resolveSettingsTarget,
@@ -435,12 +438,12 @@ export function SettingsDialog({
   );
   const [activeId, setActiveId] = useState<SettingsPageId>(() => target.section);
   const updateAvailable = useUpdateStore((state) => state.available);
+  const locked = useAppLock((state) => state.locked);
   const navRef = useRef<HTMLElement | null>(null);
   const [mobileCategoryOpen, setMobileCategoryOpen] = useState(
     Boolean(initialSection || searchTarget),
   );
   const subnavRef = useRef<HTMLElement | null>(null);
-  const bodyRef = useRef<HTMLDivElement | null>(null);
   const sections = SETTINGS_SECTIONS;
   const group = settingsGroupFor(activeId);
   const groupSections = group.sections.map((id) => sections.find((section) => section.id === id)!);
@@ -460,17 +463,6 @@ export function SettingsDialog({
         ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     }
   }, [open, activeId]);
-
-  useEffect(() => {
-    if (
-      !open ||
-      target.section !== activeId ||
-      !bodyRef.current ||
-      (!target.item && !target.settingId)
-    )
-      return;
-    return revealSetting(bodyRef.current, target);
-  }, [open, activeId, target]);
 
   if (!open) return null;
 
@@ -555,33 +547,39 @@ export function SettingsDialog({
               </button>
             ))}
           </nav>
-          <div className="weq-settings-body" key={active.id} ref={bodyRef}>
-            <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
-              {active.id === 'chat-messages' ? (
-                <>
-                  <div className="weq-set">
-                    <SectionHeader title="聊天消息" />
-                  </div>
-                  <AccountBasicsSection page="read" heading={false} />
-                  <TypingStatusSettingsCard />
-                  <div>
-                    <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
-                      <AntiRecallDialog
-                        embedded
-                        onClose={() => {}}
-                        onOpenRecalls={onOpenRecalls}
-                        recallDetails={recallDetails}
-                        onCloseRecalls={onCloseRecalls}
-                        isCurrentSource={isCurrentSource}
-                      />
-                    </SettingsScopeContext.Provider>
-                  </div>
-                  <AppearanceSection page="messages" heading={false} />
-                </>
-              ) : (
-                active.render(onOpenMaintenance, onCreateClone)
-              )}
-            </SettingsScopeContext.Provider>
+          <div className="weq-settings-pages">
+            <TabActivity active={!locked}>
+              <RetainedTabs activeKey={active.id}>
+                <RetainedSettingsPage pageId={active.id} target={target}>
+                  <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
+                    {active.id === 'chat-messages' ? (
+                      <>
+                        <div className="weq-set">
+                          <SectionHeader title="聊天消息" />
+                        </div>
+                        <AccountBasicsSection page="read" heading={false} />
+                        <TypingStatusSettingsCard />
+                        <div>
+                          <SettingsScopeContext.Provider value={{ label: '当前账号' }}>
+                            <AntiRecallDialog
+                              embedded
+                              onClose={() => {}}
+                              onOpenRecalls={onOpenRecalls}
+                              recallDetails={recallDetails}
+                              onCloseRecalls={onCloseRecalls}
+                              isCurrentSource={isCurrentSource}
+                            />
+                          </SettingsScopeContext.Provider>
+                        </div>
+                        <AppearanceSection page="messages" heading={false} />
+                      </>
+                    ) : (
+                      active.render(onOpenMaintenance, onCreateClone)
+                    )}
+                  </SettingsScopeContext.Provider>
+                </RetainedSettingsPage>
+              </RetainedTabs>
+            </TabActivity>
           </div>
         </div>
       </section>
@@ -590,7 +588,8 @@ export function SettingsDialog({
 }
 
 function ModelUsageSection(): ReactElement {
-  const personas = trpc.account.listAgentLabPersonas.useQuery();
+  const active = useTabActive();
+  const personas = trpc.account.listAgentLabPersonas.useQuery(undefined, { enabled: active });
   const names = new Map((personas.data ?? []).map((persona) => [persona.id, persona.name]));
   return (
     <div className="weq-settings-model-usage">
@@ -611,6 +610,7 @@ function AppearanceSection({
   page: 'theme' | 'messages';
   heading?: boolean;
 }): ReactElement {
+  const active = useTabActive();
   const preference = useThemeStore((state) => state.preference);
   const accent = useThemeStore((state) => state.accent);
   const background = useThemeStore((state) => state.background);
@@ -623,6 +623,7 @@ function AppearanceSection({
   // 「纯文本消息渲染 Markdown」——不像主题那样存 localStorage，而是走 AppSettings
   // （config.json）：渲染层要通过 App.tsx 的 TextMarkdownContext 广播给每条气泡。
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',

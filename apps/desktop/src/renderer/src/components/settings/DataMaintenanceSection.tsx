@@ -17,6 +17,7 @@ import { DbExplorer } from '../../views/cache/DbExplorer';
 import { ResourceAnalyticsDialog } from '../../views/cache/ResourceAnalyticsDialog';
 import { ResourceCleanupDialog } from '../../views/cache/ResourceCleanupDialog';
 import { SectionHeader } from './controls';
+import { useTabActive } from '../RetainedTabs';
 import { trpc } from '../../trpc/client';
 import '../../styles/cache.css';
 import '../../styles/data-maintenance.css';
@@ -111,7 +112,9 @@ export function DataMaintenanceSection({
   tools?: readonly MaintenanceTool[];
   title?: string | null;
 }): ReactElement {
+  const active = useTabActive();
   const account = trpc.account.getAccountConfig.useQuery(undefined, {
+    enabled: active,
     refetchOnMount: 'always',
     refetchOnWindowFocus: false,
     staleTime: 0,

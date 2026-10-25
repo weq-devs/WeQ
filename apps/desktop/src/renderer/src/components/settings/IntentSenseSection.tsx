@@ -8,6 +8,7 @@
 import { useState, type ReactElement } from 'react';
 import { BrainCircuit, RotateCcw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { IntentModelsSection } from './IntentModelsSection';
@@ -50,16 +51,19 @@ export function IntentSenseSection({
 }: {
   page?: 'intent' | 'suggestions';
 }): ReactElement {
+  const active = useTabActive();
   const suggestionsPage = page === 'suggestions';
   const showError = useDialog((s) => s.showError);
   const utils = trpc.useUtils();
 
   const status = trpc.account.intentSense.getStatus.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const localEngine = trpc.bootstrap.getLocalEngine.useQuery(undefined, {
+    enabled: active && !suggestionsPage,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',

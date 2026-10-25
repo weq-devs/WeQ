@@ -152,7 +152,7 @@ export function DatabaseToleranceSection({
   const [pendingLossy, setPendingLossy] = useState<number | null>(null);
   // 弹窗提醒开关。它存在 AppSettings 里（不是宽容级别那一套），所以单独查一次。
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
-    enabled: page === 'damage',
+    enabled: autoRefresh.enabled && page === 'damage',
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',

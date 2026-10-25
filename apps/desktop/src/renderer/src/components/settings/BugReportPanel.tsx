@@ -32,6 +32,7 @@ import {
 import { Streamdown } from 'streamdown';
 import remarkGfm from 'remark-gfm';
 import { trpc, client } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { useToast } from '../Toast';
 import { shikiCodeHighlighter } from '../../views/agentlab/shikiHighlighter';
@@ -101,25 +102,33 @@ function toggleCheckboxInBody(body: string, label: string, checked: boolean): st
 }
 
 export function BugReportPanel(): ReactElement {
+  const active = useTabActive();
+  const activity = useRef(active);
+  activity.current = active;
+  const copyTimer = useRef<number | null>(null);
   const pushToast = useToast((s) => s.push);
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
   const resolvedTheme = useThemeStore((s) => s.resolved);
 
   const version = trpc.bootstrap.getVersionInfo.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   });
   const system = trpc.bootstrap.systemInfo.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   });
   const ghStatus = trpc.help.ghStatus.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const databases = trpc.account.dbExplorer.listDatabases.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -132,6 +141,12 @@ export function BugReportPanel(): ReactElement {
   const [hexdump, setHexdump] = useState<HexdumpView | null>(null);
   const [hexBusy, setHexBusy] = useState(false);
   const [copiedHex, setCopiedHex] = useState(false);
+  useEffect(() => {
+    if (!active) setCopiedHex(false);
+    return () => {
+      if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
+    };
+  }, [active]);
   const [submitting, setSubmitting] = useState<'gh' | 'qq' | null>(null);
   const templateFilledRef = useRef(false);
 
@@ -228,9 +243,14 @@ export function BugReportPanel(): ReactElement {
     if (!hexdump) return;
     try {
       await navigator.clipboard.writeText(hexdump.raw);
+      if (!activity.current) return;
       setCopiedHex(true);
       pushToast({ tone: 'success', title: 'hexdump 已复制到剪贴板' });
-      window.setTimeout(() => setCopiedHex(false), 1500);
+      if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
+      copyTimer.current = window.setTimeout(() => {
+        setCopiedHex(false);
+        copyTimer.current = null;
+      }, 1500);
     } catch (e) {
       showError('复制失败', errMsg(e));
     }

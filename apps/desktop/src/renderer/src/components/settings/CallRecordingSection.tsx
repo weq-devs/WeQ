@@ -11,6 +11,7 @@
 import type { ReactElement } from 'react';
 import { FolderOpen, Info, PhoneCall, RotateCcw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
+import { useTabActive } from '../RetainedTabs';
 import { useToast } from '../Toast';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import type { CallRecordingMode } from '@weq/service';
@@ -22,13 +23,16 @@ const MODE_OPTIONS: ReadonlyArray<{ value: CallRecordingMode; label: string; hin
 ];
 
 export function CallRecordingSection(): ReactElement {
+  const active = useTabActive();
   const pushToast = useToast((state) => state.push);
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const capabilities = trpc.call.recordingCapabilities.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });

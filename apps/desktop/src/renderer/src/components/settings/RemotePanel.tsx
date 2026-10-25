@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTabActive } from '../RetainedTabs';
 import {
   Check,
   Copy,
@@ -71,6 +72,7 @@ export function RemotePanel({
   onRevoke: (id: string) => void;
   onCopy?: () => void;
 }) {
+  const active = useTabActive();
   const [now, setNow] = useState(Date.now());
   const [authKey, setAuthKey] = useState('');
   const [endpoint, setEndpoint] = useState('');
@@ -92,9 +94,11 @@ export function RemotePanel({
     setEndpoint('');
   }, [data?.enabled, data?.mode]);
   useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [active]);
   const online =
     data?.enabled &&
     (tailscale

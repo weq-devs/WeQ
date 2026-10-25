@@ -7,7 +7,8 @@
  *   ⑤ 导出好友（占位，依赖 AI tool 导出能力）
  */
 
-import { useState, useMemo, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useState, useMemo, type ReactElement, type ReactNode } from 'react';
+import { TabActivity, useTabActive } from '../../components/RetainedTabs';
 import { DraftCloseContext, useDraftClose, useDraftProtection } from '../../lib/draftClose';
 import {
   BarChart3,
@@ -39,9 +40,10 @@ import { useAppDialog } from '../../lib/dialogUtils';
 
 /** ④ 记忆 / 画像：克隆体「对你」记住的事（来自聊天蒸馏），可单条遗忘 / 全部清空。 */
 function MemoryTab({ personaId }: { personaId: string }): ReactElement {
+  const active = useTabActive();
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
-  const memories = trpc.account.getAgentLabMemories.useQuery({ personaId });
+  const memories = trpc.account.getAgentLabMemories.useQuery({ personaId }, { enabled: active });
   const forget = trpc.account.forgetAgentLabMemory.useMutation();
   const clearAll = trpc.account.clearAgentLabMemories.useMutation();
 
@@ -248,14 +250,17 @@ function VoiceTab({
   };
   onSaved: () => void;
 }): ReactElement {
+  const active = useTabActive();
   const dialog = useAppDialog();
   const update = trpc.account.updateAgentLabPersona.useMutation();
   const providers = trpc.bootstrap.listTtsProviders.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const catalog = trpc.bootstrap.getTtsCatalog.useQuery(undefined, {
+    enabled: active,
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   });
@@ -395,11 +400,15 @@ function VoiceTab({
 
 /** 已导出记录卡片：查看 WebUI 密钥 + 一键打开控制台（连不上时提示输地址）。 */
 function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement | null {
+  const active = useTabActive();
   const dialog = useAppDialog();
-  const info = trpc.account.getAgentLabExportInfo.useQuery({ personaId });
+  const info = trpc.account.getAgentLabExportInfo.useQuery({ personaId }, { enabled: active });
   const openMut = trpc.account.openBotWebUi.useMutation();
   const [showKey, setShowKey] = useState(false);
   const [urlInput, setUrlInput] = useState<string | null>(null);
+  useEffect(() => {
+    if (!active) setShowKey(false);
+  }, [active]);
 
   const data = info.data;
   if (!data) return null;
@@ -497,10 +506,11 @@ function ExportTab({
 }: {
   persona: { id: string; name: string; voiceCloneEnabled?: boolean };
 }): ReactElement {
+  const active = useTabActive();
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const exportMut = trpc.account.exportAgentLabPersona.useMutation();
-  const providers = trpc.bootstrap.listAgentLabProviders.useQuery();
+  const providers = trpc.bootstrap.listAgentLabProviders.useQuery(undefined, { enabled: active });
   const canVoice = !!persona.voiceCloneEnabled;
   const [introOpen, setIntroOpen] = useState(false);
   const [adapterType, setAdapterType] = useState<'napcat' | 'snowluma'>('napcat');
@@ -792,40 +802,42 @@ export function PersonaSettingsModal({
             </nav>
             <div className="weq-persona-tabpane">
               {visited.map((page) => (
-                <div key={page} hidden={tab !== page}>
-                  {page === 'params' ? (
-                    paramsContent
-                  ) : page === 'prompt' ? (
-                    <div className="weq-persona-form">
-                      <label className="weq-agentlab-field">
-                        <span>额外提示（拼进 system prompt，优先遵守）</span>
-                        <textarea
-                          value={prompt}
-                          onChange={(e) => setPrompt(e.target.value)}
-                          rows={6}
-                          placeholder="例如：这个克隆体说话更毒舌一点；少用句号"
-                        />
-                      </label>
-                      <div className="weq-clone-actions">
-                        <button
-                          className="weq-set-btn"
-                          disabled={update.isLoading}
-                          onClick={() => void savePrompt()}
-                        >
-                          保存
-                        </button>
+                <TabActivity key={page} active={tab === page}>
+                  <div hidden={tab !== page} inert={tab !== page}>
+                    {page === 'params' ? (
+                      paramsContent
+                    ) : page === 'prompt' ? (
+                      <div className="weq-persona-form">
+                        <label className="weq-agentlab-field">
+                          <span>额外提示（拼进 system prompt，优先遵守）</span>
+                          <textarea
+                            value={prompt}
+                            onChange={(e) => setPrompt(e.target.value)}
+                            rows={6}
+                            placeholder="例如：这个克隆体说话更毒舌一点；少用句号"
+                          />
+                        </label>
+                        <div className="weq-clone-actions">
+                          <button
+                            className="weq-set-btn"
+                            disabled={update.isLoading}
+                            onClick={() => void savePrompt()}
+                          >
+                            保存
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ) : page === 'willing' ? (
-                    <WillingTab persona={persona} onSaved={onSaved} />
-                  ) : page === 'voice' ? (
-                    <VoiceTab persona={persona} onSaved={onSaved} />
-                  ) : page === 'memory' ? (
-                    <MemoryTab personaId={persona.id} />
-                  ) : (
-                    <ExportTab persona={persona} />
-                  )}
-                </div>
+                    ) : page === 'willing' ? (
+                      <WillingTab persona={persona} onSaved={onSaved} />
+                    ) : page === 'voice' ? (
+                      <VoiceTab persona={persona} onSaved={onSaved} />
+                    ) : page === 'memory' ? (
+                      <MemoryTab personaId={persona.id} />
+                    ) : (
+                      <ExportTab persona={persona} />
+                    )}
+                  </div>
+                </TabActivity>
               ))}
             </div>
           </div>
