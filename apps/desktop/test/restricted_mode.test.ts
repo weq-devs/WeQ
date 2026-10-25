@@ -147,8 +147,87 @@ function fixture() {
 function event(channel: string, payload: unknown) {
   act(() => mock.listeners.get(channel)?.({}, payload));
 }
+function submitAuthorization(form: HTMLFormElement) {
+  act(() => {
+    const input = form.querySelector('input')!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      input,
+      'test-password',
+    );
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  act(() => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+}
 
 describe('非阻塞提权入口', () => {
+  it.each(['elev:request-password', 'attach:confirm-hint'])(
+    '未完成授权优先于后台准备状态，所有状态入口均不同时显示进入中：%s',
+    (channel) => {
+      mock.access = { ...ready, hasD2Key: false, ssoReady: false, credentialsPending: true };
+      const f = fixture();
+      const notice = useToast.getState().toasts.at(-1)!.id;
+      expect(f.host.textContent).toContain('正在进入完整模式');
+      event(channel, { token: 41, title: '读取 QQ 内存' });
+      act(() => useRestrictedMode.getState().setOpen(true));
+      expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('待提权');
+      expect(f.host.querySelector('.weq-restricted-indicator')?.getAttribute('aria-busy')).toBe(
+        'false',
+      );
+      expect(f.host.querySelector('[role="dialog"] h2')?.textContent).toBe('待提权');
+      expect(f.host.textContent).toContain('管理员密码');
+      expect(f.host.textContent).not.toContain('正在进入完整模式');
+      expect(f.host.querySelector('[role="status"]')).toBeNull();
+      expect(f.host.querySelector('.weq-restricted-progress-icon')).toBeNull();
+      expect(f.host.querySelector('.weq-restricted-reason')).toBeNull();
+      expect(useToast.getState().toasts).toHaveLength(1);
+      expect(useToast.getState().toasts[0]).toMatchObject({
+        id: notice,
+        tone: 'warning',
+        loading: false,
+      });
+      expect(useToast.getState().toasts[0]!.title).toContain('待提权');
+      expect(useToast.getState().leaving).not.toContain(notice);
+    },
+  );
+  it('提交最后一项授权后才恢复进入中，新的授权请求到来时再次暂停进度', () => {
+    mock.access = { ...ready, ssoReady: false, credentialsPending: true };
+    const f = fixture();
+    event('attach:confirm-hint', { token: 4 });
+    event('elev:request-password', { token: 8 });
+    act(() => useRestrictedMode.getState().setOpen(true));
+    submitAuthorization(f.host.querySelector('form')!);
+    expect(mock.send).toHaveBeenCalledWith('attach:respond-hint', {
+      token: 4,
+      choice: 'skip',
+      password: 'test-password',
+    });
+    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('待提权');
+    expect(f.host.textContent).not.toContain('正在进入完整模式');
+    submitAuthorization(f.host.querySelector('form')!);
+    expect(mock.send).toHaveBeenCalledWith('elev:respond-password', {
+      token: 8,
+      password: 'test-password',
+    });
+    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('正在进入完整模式');
+    expect(f.host.querySelector('form')).toBeNull();
+    expect(useToast.getState().toasts.at(-1)!.loading).toBe(true);
+    event('elev:request-password', { token: 9 });
+    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('待提权');
+    expect(f.host.textContent).not.toContain('正在进入完整模式');
+    expect(useToast.getState().toasts.at(-1)!.loading).toBe(false);
+  });
+  it('已关闭的进入中横幅在退场时也切换为待授权，不留下相反的进度文案', () => {
+    mock.access = { ...ready, ssoReady: false, credentialsPending: true };
+    fixture();
+    const notice = useToast.getState().toasts.at(-1)!.id;
+    act(() => useToast.getState().dismiss(notice));
+    event('elev:request-password', { token: 41 });
+    expect(useToast.getState().toasts.some((item) => item.title === '正在进入完整模式')).toBe(
+      false,
+    );
+    expect(useToast.getState().toasts.every((item) => item.loading === false)).toBe(true);
+    expect(useToast.getState().toasts.at(-1)!.title).toContain('待提权');
+  });
   it('部分凭据和原生登记等待期间始终保留进入中状态，真正就绪后才结束', async () => {
     mock.access = { ...ready, ssoReady: false, credentialsPending: true };
     const f = fixture();
@@ -215,7 +294,7 @@ describe('非阻塞提权入口', () => {
     mock.access = { ...ready };
     f.render();
     await act(async () => mock.credentialsReady?.());
-    expect(f.host.textContent).toContain('受限模式');
+    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('待提权');
     expect(useToast.getState().toasts.some((t) => t.tone === 'success')).toBe(false);
   });
   it('退出账号时清理就绪订阅，启动页不订阅账号凭据', () => {

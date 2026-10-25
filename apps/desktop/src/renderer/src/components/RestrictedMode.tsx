@@ -58,24 +58,28 @@ export function RestrictedModeIndicator({ startup = false }: { startup?: boolean
   const reasons = useRestrictedMode((s) => s.reasons);
   const requests = useRestrictedMode((s) => s.requests);
   const open = useRestrictedMode((s) => s.open);
-  const entering = useRestrictedMode((s) => s.enteringSince !== null);
+  const entering = useRestrictedMode((s) => s.enteringSince !== null && s.requests.length === 0);
+  const awaitingAuthorization = requests.length > 0;
+  const title = awaitingAuthorization ? '待提权' : entering ? '正在进入完整模式' : '受限模式';
   if (!reasons.length && !requests.length && !entering) return null;
   return (
     <button
       type="button"
       className={`weq-restricted-indicator${startup ? ' is-startup' : ''}${entering ? ' is-entering' : ''}`}
-      title={entering ? '正在进入完整模式' : '受限模式'}
+      title={title}
       aria-haspopup="dialog"
       aria-expanded={open}
       aria-busy={entering}
       onClick={() => useRestrictedMode.getState().setOpen(!open)}
     >
-      {entering ? (
+      {awaitingAuthorization ? (
+        <KeyRound size={15} aria-hidden />
+      ) : entering ? (
         <LoaderCircle size={15} className="weq-restricted-progress-icon" aria-hidden />
       ) : (
         <ShieldAlert size={15} aria-hidden />
       )}
-      <span>{entering ? '正在进入完整模式' : '受限模式'}</span>
+      <span>{title}</span>
     </button>
   );
 }
@@ -154,7 +158,8 @@ export function RestrictedModeHost() {
   const requests = useRestrictedMode((s) => s.requests);
   const open = useRestrictedMode((s) => s.open);
   const enteringSince = useRestrictedMode((s) => s.enteringSince);
-  const entering = enteringSince !== null;
+  const awaitingAuthorization = requests.length > 0;
+  const entering = enteringSince !== null && !awaitingAuthorization;
   const previousUin = useRef(uin);
   const panel = useRef<HTMLElement>(null);
   const previous = useRef('');
@@ -222,7 +227,7 @@ export function RestrictedModeHost() {
         (reason) => reason.code === 'sip',
       );
     if (access.data?.credentialsPending && !fullModeConfirmed && !blocked) {
-      if (enteringSince === null) useRestrictedMode.getState().beginEntering();
+      if (enteringSince === null && !requests.length) useRestrictedMode.getState().beginEntering();
       return;
     }
     // 提交授权后必须拿到新查询结果，不能用之前缓存的完整状态提前结束。
@@ -253,13 +258,16 @@ export function RestrictedModeHost() {
     if (signature) recoveryPending.current = true;
     if (signature && signature !== previous.current) {
       const toast = useToast.getState();
-      if (notice.current !== undefined) toast.dismiss(notice.current);
-      notice.current = toast.push({
+      const message: Parameters<typeof toast.push>[0] = {
         tone: entering ? 'info' : 'warning',
-        title: entering
-          ? '正在进入完整模式'
-          : `已进入受限模式：${requests.length ? '待提权' : reasons.map((r) => r.title).join('、')}`,
-        ...(entering ? { loading: true, ttl: 0 } : {}),
+        title: awaitingAuthorization
+          ? '待提权：请完成管理员授权'
+          : entering
+            ? '正在进入完整模式'
+            : `已进入受限模式：${reasons.map((r) => r.title).join('、')}`,
+        loading: entering,
+        durationKind: entering ? 'long' : 'failure',
+        ...(entering ? { ttl: 0 } : {}),
         action: {
           label: entering ? '查看进入进度' : '查看受限模式详情',
           run: () => {
@@ -271,7 +279,12 @@ export function RestrictedModeHost() {
               useRestrictedMode.getState().setOpen(true);
           },
         },
-      });
+      };
+      // 原地切换状态，避免旧的进入中横幅在退场动画里与待授权提示并存。
+      const currentNotice = toast.toasts.find((item) => item.id === notice.current);
+      if (currentNotice) toast.update(currentNotice.id, message);
+      if (!currentNotice || toast.leaving.includes(currentNotice.id))
+        notice.current = toast.push(message);
     }
     if (!signature) {
       useRestrictedMode.getState().setOpen(false);
@@ -283,7 +296,7 @@ export function RestrictedModeHost() {
       }
     }
     previous.current = signature;
-  }, [signature, reasons, requests, fullModeConfirmed, entering]);
+  }, [signature, reasons, requests, fullModeConfirmed, entering, awaitingAuthorization]);
   useEffect(() => {
     if (previousUin.current !== uin) {
       previousUin.current = uin;
@@ -346,12 +359,14 @@ export function RestrictedModeHost() {
         >
           <header>
             <h2 id={titleId}>
-              {entering ? (
+              {awaitingAuthorization ? (
+                <KeyRound size={18} />
+              ) : entering ? (
                 <LoaderCircle size={18} className="weq-restricted-progress-icon" />
               ) : (
                 <ShieldAlert size={18} />
               )}
-              {entering ? '正在进入完整模式' : '受限模式'}
+              {awaitingAuthorization ? '待提权' : entering ? '正在进入完整模式' : '受限模式'}
             </h2>
             <button
               type="button"
@@ -365,12 +380,14 @@ export function RestrictedModeHost() {
           </header>
           <div className="weq-restricted-body">
             {entering && <p role="status">正在准备在线会话，请稍候。</p>}
-            {reasons.map((reason) => (
-              <div className="weq-restricted-reason" key={reason.code}>
-                <h3>{reason.title}</h3>
-                <p>{reason.guidance}</p>
-              </div>
-            ))}
+            {reasons
+              .filter((reason) => !awaitingAuthorization || reason.code !== 'credentials')
+              .map((reason) => (
+                <div className="weq-restricted-reason" key={reason.code}>
+                  <h3>{reason.title}</h3>
+                  <p>{reason.guidance}</p>
+                </div>
+              ))}
             {requests.map((request) => (
               <AuthorizationForm key={`${request.kind}:${request.token}`} request={request} />
             ))}
