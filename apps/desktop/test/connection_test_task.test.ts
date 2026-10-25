@@ -112,3 +112,24 @@ it('失败不自动关闭时沿用失败偏好，成功任务保留结果操作'
   });
   expect(useToast.getState().toasts[1]).toMatchObject({ tone: 'error', ttl: 0, dismissible: true });
 });
+
+it('同一目标重试通过后不残留旧失败横幅，其他目标的错误仍保留', async () => {
+  useToast.getState().setDurations({ successSeconds: 3, failureSeconds: -1 });
+  const key = connectionTestKey('llm', 'a');
+  const fail = async () => {
+    throw Error('合成失败');
+  };
+  await runConnectionTest(key, '合成模型', fail);
+  const failed = useToast.getState().toasts[0]!;
+  await runConnectionTest(connectionTestKey('llm', 'b'), '合成模型', fail);
+  await runConnectionTest(key, '合成模型', async () => ({}));
+  expect(useToast.getState().toasts).toHaveLength(2);
+  expect(useToast.getState().toasts[0]).toMatchObject({
+    id: failed.id,
+    tone: 'success',
+    title: '测试通过 · 合成模型',
+    detail: undefined,
+    ttl: 3000,
+  });
+  expect(useToast.getState().toasts[1]).toMatchObject({ tone: 'error', ttl: 0 });
+});

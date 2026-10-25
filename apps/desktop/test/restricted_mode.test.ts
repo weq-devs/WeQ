@@ -8,7 +8,7 @@ import {
   RestrictedModeIndicator,
 } from '../src/renderer/src/components/RestrictedMode';
 import { useViewState } from '../src/renderer/src/state/view';
-import { useToast } from '../src/renderer/src/components/Toast';
+import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
 
 const ready: OnlineAccess = {
   qqOnline: true,
@@ -143,18 +143,36 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-function fixture() {
+function fixture(showToasts = false) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
+  let revision = 0;
   const render = () =>
-    act(() => root.render(h('div', null, h(RestrictedModeIndicator), h(RestrictedModeHost))));
+    act(() =>
+      root.render(
+        h(
+          'div',
+          null,
+          h(RestrictedModeIndicator),
+          h(RestrictedModeHost, { key: revision }),
+          showToasts ? h(ToastHost) : null,
+        ),
+      ),
+    );
   cleanup = () => {
     act(() => root.unmount());
     host.remove();
   };
   render();
-  return { host, render };
+  return {
+    host,
+    render,
+    remount: () => {
+      revision += 1;
+      render();
+    },
+  };
 }
 function event(channel: string, payload: unknown) {
   act(() => mock.listeners.get(channel)?.({}, payload));
@@ -241,6 +259,41 @@ describe('受限模式启动 QQ', () => {
 });
 
 describe('非阻塞提权入口', () => {
+  it.each(['elev:request-password', 'attach:confirm-hint'])(
+    '右下角已解决横幅在宿主重建后也自动消失，不清理其他错误：%s',
+    async (channel) => {
+      vi.useFakeTimers();
+      try {
+        useToast.getState().setDurations({ successSeconds: 3, failureSeconds: -1 });
+        mock.access = { ...ready, hasD2Key: false };
+        const f = fixture(true);
+        event(channel, { token: 41 });
+        let unrelated = 0;
+        act(() => {
+          unrelated = useToast.getState().push({ tone: 'error', title: '另一个未解决错误' });
+        });
+        f.remount();
+        expect(f.host.querySelectorAll('.weq-toast-warning')).toHaveLength(1);
+        act(() => useRestrictedMode.getState().setOpen(true));
+        submitAuthorization(f.host.querySelector('form')!);
+        expect(f.host.querySelector('.weq-toast-title')?.textContent).toBe('正在进入完整模式');
+        mock.access = { ...ready };
+        mock.updatedAt = Date.now() + 1;
+        f.render();
+        await act(async () => vi.advanceTimersByTimeAsync(500));
+        expect(f.host.querySelector('.weq-toast-warning')).toBeNull();
+        expect(f.host.textContent).not.toContain('待提权');
+        expect(f.host.textContent).not.toContain('正在进入完整模式');
+        expect(f.host.textContent).toContain('已恢复完整模式');
+        expect(useToast.getState().leaving).not.toContain(unrelated);
+        await act(async () => vi.advanceTimersByTimeAsync(3500));
+        expect(f.host.querySelectorAll('.weq-toast')).toHaveLength(1);
+        expect(f.host.textContent).toContain('另一个未解决错误');
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
   it.each(['elev:request-password', 'attach:confirm-hint'])(
     '未完成授权优先于后台准备状态，所有状态入口均不同时显示进入中：%s',
     (channel) => {
@@ -417,7 +470,9 @@ describe('非阻塞提权入口', () => {
     expect(useToast.getState().toasts).toHaveLength(2);
     mock.access = { ...ready, qqOnline: false };
     f.render();
-    expect(useToast.getState().toasts).toHaveLength(3);
+    expect(useToast.getState().toasts).toHaveLength(2);
+    expect(useToast.getState().toasts[0]!.title).toContain('QQ 不在线');
+    expect(useToast.getState().leaving).not.toContain(useToast.getState().toasts[0]!.id);
     mock.access = { ...ready };
     f.render();
     expect(useToast.getState().toasts.filter((toast) => toast.tone === 'success')).toHaveLength(2);

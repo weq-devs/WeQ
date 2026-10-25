@@ -7,6 +7,8 @@ import { useViewState } from '../state/view';
 import { useToast } from './Toast';
 import '../styles/restricted-mode.css';
 
+const NOTICE_KEY = 'restricted-mode';
+
 function ipc() {
   return window.electron?.ipcRenderer;
 }
@@ -174,7 +176,6 @@ export function RestrictedModeHost() {
   const panel = useRef<HTMLElement>(null);
   const previous = useRef('');
   const recoveryPending = useRef(false);
-  const notice = useRef<number | undefined>(undefined);
   const titleId = useId();
   const [busy, setBusy] = useState(false);
   const [launching, setLaunching] = useState(false);
@@ -270,6 +271,7 @@ export function RestrictedModeHost() {
     if (signature && signature !== previous.current) {
       const toast = useToast.getState();
       const message: Parameters<typeof toast.push>[0] = {
+        key: NOTICE_KEY,
         tone: entering ? 'info' : 'warning',
         title: awaitingAuthorization
           ? '待提权：请完成管理员授权'
@@ -291,16 +293,11 @@ export function RestrictedModeHost() {
           },
         },
       };
-      // 原地切换状态，避免旧的进入中横幅在退场动画里与待授权提示并存。
-      const currentNotice = toast.toasts.find((item) => item.id === notice.current);
-      if (currentNotice) toast.update(currentNotice.id, message);
-      if (!currentNotice || toast.leaving.includes(currentNotice.id))
-        notice.current = toast.push(message);
+      toast.push(message);
     }
     if (!signature) {
       useRestrictedMode.getState().setOpen(false);
-      if (notice.current !== undefined) useToast.getState().dismiss(notice.current);
-      notice.current = undefined;
+      useToast.getState().resolve(NOTICE_KEY);
       if (recoveryPending.current && fullModeConfirmed) {
         useToast.getState().push({ tone: 'success', title: '已恢复完整模式' });
         recoveryPending.current = false;

@@ -25,6 +25,7 @@ export async function runConnectionTest(
   useConnectionTestTasks.setState((state) => ({ running: new Set(state.running).add(key) }));
   const toast = useToast.getState();
   const id = toast.push({
+    key: `connection-test:${key}`,
     tone: 'info',
     loading: true,
     title: `正在测试连接 · ${label}`,
