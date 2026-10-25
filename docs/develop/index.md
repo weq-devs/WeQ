@@ -59,6 +59,7 @@ pnpm dev
 - [QQ 数据库布局：按文件设置保留页](./db-layout-split-20261018.md) — per-Pager pending byte、锁字节与布局自动识别
 - [nt_helper.node 接口文档](./nt-helper-interface.md) — 原生模块能力总览，**写代码前先看，别重复造轮子**
 - [原生二进制与装扮资源的分发](./native-artifacts.md) — `pnpm native:fetch`、发布链路、历史清洗记录
+- [大库密钥扫描修复](./key-scan-bounded-read-20261025.md)：固定读取验证前缀、合成稀疏文件检查与本地产物边界。
 - [测试约定](./testing.md) — `@weq/testkit`
 - [WeQ 存储管理](./storage-management.md)：统计范围、嵌套目录去重、只读数据与缓存清理白名单。
 - [macOS QQ 进程探测](./macos-startup-probe-20261015.md)：异步归属判断与子进程生命周期。

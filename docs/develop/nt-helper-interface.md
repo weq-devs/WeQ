@@ -164,6 +164,11 @@ OIDB `0x102a_1` 复用的是同机 QQ 已在维持的会话，更稳定、更普
 | `decryptLoginDb(loginDbPath, algo)` | 路径 + `CipherAlgo` | `Promise<LoginAccount[]>` | 走 offset VFS 解密 `login.db` 拿缓存登录账号，不落临时明文文件。`algo` 可先用 `testDatabaseKey` 探测。 |
 | `getGuildDbKey(dbPath, uin)` | 路径 + `uin` | `Promise<string>` | 计算 QQ 频道（gpro）库的密钥：扫描库内 salt + 特定 md5 公式。 |
 
+本地原生修复版本 2.2.3 的两种 `scanKeyFromDatabase*` 接口仅读取数据库前
+5120 字节（QQ 包装头 + 首个加密页）用于候选校验，短文件或读取错误返回失败，
+不再整库分配。正式 pin 尚未更新，使用前须核验实际加载的产物；复现、检查脚本及
+交付边界见[大库密钥扫描修复](./key-scan-bounded-read-20261025.md)。
+
 **返回类型**
 
 - `KeyScanResult = { success: boolean; key?: string; keyContextHex?: string; error?: string }`
