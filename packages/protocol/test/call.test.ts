@@ -54,29 +54,38 @@ describe('通话信令', () => {
     expect(Buffer.from(bytes).toString('latin1')).toContain('u_self');
   });
 
-  it('开房回包解析出房间、密钥与服务器（ip 缺失时用 altIp 兜底）', () => {
-    // 真实回包（发往 2863253201 那次），原样粘过来当黄金样本。
+  /**
+   * 黄金样本：2026-10-26 同一次通话的 OIDB 回包（QQ 本体，P2P 正常）。
+   *
+   * 服务器表前三条带**字段 5（16 字节裸 IPv6）**，服务端下发的原始顺序即优先级；
+   * QQ 实际连的就是第一条 `240e:930:c200:88::17:8000`（UDP 抓包证实）。
+   *
+   * 旧 schema 没有字段 5，这三条会退化成 `altIp` 的 IPv4（`29.237.*`，不可达），
+   * 导致 GCS 握手只能退到后面的 IPv4 条目、`bt=9` 拿不到对端 `f7`、媒体全程走
+   * 中继 —— 这就是「两端都卡」的根因。
+   */
+  it('开房回包解析出房间、密钥与服务器（IPv6 优先）', () => {
     const hex = readFileSync(
       new URL('./fixtures/call-create-room-rsp.hex', import.meta.url),
       'utf8',
     ).trim();
     const room = decodeCreateRoomRsp(new Uint8Array(Buffer.from(hex, 'hex')));
-    expect(room.roomId).toBe(6748173487929717840n);
+    expect(room.roomId).toBe(5697919981127284148n);
     expect(room.sessionId).toBe(1707889225n);
-    expect(room.relationId).toBe(15000);
+    expect(room.relationId).toBe(26136);
     expect(room.authKey).toHaveLength(80);
-    // 9 台：3 台只有 altIp（IPv6 记录的 IPv4 备用地址）+ 3 台 relay + 3 台 GCS
+    // 9 台：3 台 IPv6（字段 5）+ 3 台 IPv4 relay + 3 台 IPv4 GCS，顺序原样保留。
     expect(room.servers).toHaveLength(9);
     expect(room.servers.map((s) => `${s.ip}:${s.port}/t${s.type}`)).toEqual([
-      '29.237.193.13:8800/t2',
-      '29.237.234.22:8800/t2',
-      '29.237.209.13:8000/t2',
+      '240e:930:c200:88::17:8000/t2',
+      '240e:930:c200:86::1c:8000/t2',
+      '240e:930:c200:81::13:8800/t2',
+      '113.250.57.133:8000/t2',
+      '113.250.57.110:8000/t2',
       '113.250.57.28:8800/t2',
-      '113.250.57.166:8800/t2',
-      '113.250.58.106:8000/t2',
-      '113.250.57.28:8000/t1',
-      '113.250.57.166:8001/t1',
-      '113.250.58.106:8000/t1',
+      '113.250.57.133:8001/t1',
+      '113.250.57.110:8000/t1',
+      '113.250.57.28:8001/t1',
     ]);
   });
 });

@@ -282,6 +282,23 @@ function authRspPacket(sessionTs = 999): Uint8Array {
   return buildGcsPacket(head, new Uint8Array([0x08, 0x01]));
 }
 
+/**
+ * `bt=9`（ctrlPush）——对端直连地址 + 端口。
+ *
+ * 默认值取自 2026-10-26 同一次通话的抓包：`f7` = 对端 IPv6，`f8` = 56082。
+ */
+function ctrlPushPacket(peerIpv6: Uint8Array, port: number): Uint8Array {
+  const head = buildGcsHead({
+    roomId: 777n,
+    selfUin: 1707889225,
+    sessionTs: 555,
+    typeId: 0x6242,
+    bodyType: GcsBodyType.ctrlPush,
+  });
+  const body = new Uint8Array([...pbBytes(7, peerIpv6), ...pbVarint(8, port)]);
+  return buildGcsPacket(head, body);
+}
+
 /** 拼一个视频分片（带 20 字节 sub-header + Annex B）。 */
 function videoPacket(params: {
   gidx: number;
@@ -832,31 +849,57 @@ describe('媒体路径（中继 / 直连）', () => {
   });
 
   /**
-   * 回归：GCS 必须选 8000/8001 端口，不能选中继的 8800。
+   * 回归：`bt=9` 的 `f8` 必须被当成对端端口，拿到就主动发包。
    *
-   * 2026-10-26 抓包实测：服务端下发的 `type` 字段不可信 —— 16 通里有 5 通把
-   * `type=1` 的候选选到了 8800（中继）。中继只回中继地址、从不给对端的 f7
-   * （IPv6），媒体于是全程走中继，两端画面都极卡。
+   * 2026-10-26 抓包：QQ 收到 `bt=9`（f7=对端 IPv6，f8=56082）后**立即**向
+   * `240e:...:60c5:56089` 发 0x02 relay 探测包，对端回包后 P2P 建立。
+   *
+   * 旧实现把端口硬编码 0，而 `mediaTargets` 要求 `port > 0` 才发对端 ——
+   * 不发就收不到回包，永远学不到端口，死锁在中继路径。
    */
-  it('服务器表里 type=1 混进 8800 时，仍优先选 8000/8001', async () => {
+  it('收到 bt=9 后按 f8 端口主动发往对端', async () => {
+    const encoder = new FakeVideoEncoder(1000);
+    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
+    await connect(ctx);
+
+    const peerIpv6 = new Uint8Array([
+      0x24, 0x0e, 0x03, 0x99, 0x0f, 0x9d, 0x3f, 0x10, 0x78, 0x73, 0xe7, 0x0f, 0x57, 0x7e, 0x60, 0xc5,
+    ]);
+    ctx.transport.deliver(ctrlPushPacket(peerIpv6, 56082));
+    ctx.transport.reset();
+    await ctx.timers.advanceAsync(20);
+
+    const peer = '240e:399:f9d:3f10:7873:e70f:577e:60c5';
+    const toPeer = ctx.transport.sent.filter((s) => s.address === peer);
+    expect(toPeer.length).toBeGreaterThan(0);
+    expect(toPeer.every((s) => s.port === 56082)).toBe(true);
+  });
+
+  /**
+   * 回归：GCS 按服务端下发的**原始顺序**取第一台，不看 `type`。
+   *
+   * 2026-10-26 同一次通话的 OIDB + UDP 抓包（QQ 本体，P2P 正常）：服务器表第一条
+   * 是 `240e:930:c200:88::17:8000 type=2`，QQ 连的就是它。旧实现按 `type === 1`
+   * 过滤，把前面的 IPv6 条目全滤掉，只能退到第 6 条的 IPv4。
+   */
+  it('按原始顺序取第一台，不按 type 过滤', async () => {
     const ctx = makeSession({
       media: 'video',
       videoEncoder: new FakeVideoEncoder(1000),
       servers: [
-        { ip: '113.250.57.28', port: 8800, type: 1 }, // 中继端口，但标了 type=1
-        { ip: '113.250.58.160', port: 8000, type: 1 },
-        { ip: '113.250.57.28', port: 8000, type: 2 },
+        { ip: '240e:930:c200:88::17', port: 8000, type: 2 },
+        { ip: '240e:930:c200:86::1c', port: 8000, type: 2 },
+        { ip: '113.250.57.133', port: 8001, type: 1 },
       ],
     });
     await connect(ctx);
     ctx.transport.reset();
     await ctx.timers.advanceAsync(20);
 
-    // 认证 / 媒体都必须发往 8000 那台，一个包都不能发到 8800。
-    const to8800 = ctx.transport.sent.filter((s) => s.port === 8800);
-    expect(to8800).toHaveLength(0);
-    const to8000 = ctx.transport.sent.filter((s) => s.port === 8000);
-    expect(to8000.length).toBeGreaterThan(0);
+    const toFirst = ctx.transport.sent.filter((s) => s.address === '240e:930:c200:88::17');
+    expect(toFirst.length).toBeGreaterThan(0);
+    // 后面的条目一个包都不该收到。
+    expect(ctx.transport.sent.filter((s) => s.address === '113.250.57.133')).toHaveLength(0);
   });
 
   it('保活包每拍两条：0x02 与 0x03 变体', async () => {

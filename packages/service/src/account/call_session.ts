@@ -59,6 +59,7 @@ import {
   parseGcsPacket,
   parseQfb,
   pbGetBytes,
+  pbGetVarint,
   parseVideoPacket,
   rsEncode,
   sampleVideoFrameQuality,
@@ -778,56 +779,43 @@ export class CallSession {
   // ── 服务器选择 ──
 
   /**
-   * 服务端给两张表：type=1 是 GCS（控制面 + 音频），type=2 是中继。
+   * 选 GCS：**按服务端下发的原始顺序，取第一台**。
    *
-   * 两张表里是**同一批机器**，只是端口不同（GCS 8000/8001，中继 8800）。
-   * 所以「选哪个」不是查表的事 —— 得挑一个真的能收发的。这里的策略：
+   * 2026-10-26 同一次通话的 OIDB + UDP 抓包对照（QQ 本体，P2P 正常）：
    *
-   *   1. 首次认证从 type=1 的第一台开始，失败（3 秒内没有认证回包）就换下一台；
-   *   2. 全部失败再退到 type=2；
-   *   3. 中继列表也去重，同一对 ip:port 只注册一次。
+   * ```text
+   * 服务端下发的服务器表（顺序即优先级）：
+   *   0: 240e:930:c200:88::17:8000  type=2   ← QQ 实际连的就是这条
+   *   1: 240e:930:c200:86::1c:8000  type=2
+   *   2: 240e:930:c200:81::13:8800  type=2
+   *   3: 113.250.57.133:8000        type=2
+   *   ...
+   *   6: 113.250.57.133:8001        type=1
+   * ```
    *
-   * 试错结果记在 {@link goodGcs}，同一进程内的后续通话直接复用 —— 服务端每次
-   * 分配的机器会变，但可达性通常一致，能省掉一次 3 秒的空等。
+   * 也就是说 **`type` 与「能不能当 GCS」无关**：QQ 连的第一条是 `type=2`，
+   * 端口 8000。旧实现按 `type === 1` 过滤，把前三条 IPv6 全滤掉，只能退到
+   * 第 6 条的 IPv4 —— 于是 GCS 握手走 IPv4、`bt=9` 拿不到对端 `f7`、媒体全程
+   * 走中继。
+   *
+   * 失败（3 秒内没有认证回包）就按原顺序换下一台；试错结果记在
+   * {@link goodGcs}，同一进程内的后续通话直接复用。
    */
   private pickServers(servers: CallServer[]): void {
-    // **端口比 type 可靠。** 实测服务端下发的 `type` 字段并不可信：2026-10-26
-    // 抓包那次 16 通里有 5 通把 `type=1` 的候选选到了 8800 端口（中继），
-    // 后果是认证、心跳、`bt=9` 全发给中继节点 —— 中继只回中继地址、**从不给
-    // 对端的 f7（IPv6）**，媒体于是全程走中继，两端画面都极卡。
-    //
-    // 真实客户端连的 GCS 是 8000 / 8001 端口，8800 是中继。所以按端口再分一次：
-    // 8000/8001 优先当 GCS，其余（含 8800）只作兜底。
-    const isGcsPort = (s: CallServer) => s.port === 8000 || s.port === 8001;
-    const typeOne = servers.filter((s) => s.type === 1);
-    const relayCandidates = servers.filter((s) => s.type === 2);
-    const gcsCandidates = typeOne.filter(isGcsPort);
-    // 按端口过滤后一台都不剩（服务端换了端口方案）时退回原列表，不要空手。
-    const preferred = gcsCandidates.length > 0 ? gcsCandidates : typeOne;
-    this.gcsCandidates = [
-      ...preferred,
-      ...typeOne.filter((s) => !preferred.includes(s)),
-      ...relayCandidates,
-    ];
-    // 记住的 IP 优先在 **真 GCS** 里找：同一个 IP 也可能出现在中继表里（不同
-    // 端口），直接在整个候选表里 find 会选中 8800 那个中继端口。
-    this.gcs =
-      preferred.find((s) => s.ip === CallSession.goodGcsIp) ??
-      preferred[0] ??
-      this.gcsCandidates.find((s) => s.ip === CallSession.goodGcsIp) ??
-      this.gcsCandidates[0] ??
-      null;
+    this.gcsCandidates = servers;
+    // 记住的 IP 只用来在**同序列表里**挑，不能越过原始顺序太多。
+    this.gcs = servers.find((s) => s.ip === CallSession.goodGcsIp) ?? servers[0] ?? null;
     this.gcsIndex = Math.max(0, this.gcsCandidates.indexOf(this.gcs!));
     this.log?.debug('服务器表', {
-      gcs: gcsCandidates.length,
-      typeOne: typeOne.length,
-      relay: relayCandidates.length,
+      total: servers.length,
+      ipv6: servers.filter((s) => s.ip.includes(':')).length,
       picked: this.gcs ? `${this.gcs.ip}:${this.gcs.port}` : 'none',
     });
 
+    // 中继通道注册用前两台（按原始顺序，去重）。
     const seen = new Set<string>();
     this.relays = [];
-    for (const server of [...relayCandidates, ...gcsCandidates]) {
+    for (const server of servers) {
       const key = `${server.ip}:${server.port}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -1229,31 +1217,52 @@ export class CallSession {
   }
 
   /**
-   * 解析 `bt=9` 里的对端直连地址。
+   * 解析 `bt=9` 里的对端直连地址与端口。
    *
-   * body 结构（实测）：
+   * body 结构（2026-10-26 同一次通话的 OIDB + UDP 抓包对照，QQ 本体 P2P 正常）：
    *
    * ```text
-   * f1 bytes   固定 8 字节描述（链路类型等）
-   * f2 varint  对端 QQ 号
-   * f3 varint  端口相关（含义未定，实测不是监听端口）
-   * f7 bytes   16 字节 —— 对端 IPv6 地址 ★
-   * f8 varint  端口相关
+   * f1 bytes(10) 链路描述
+   * f2 varint    对端 QQ 号
+   * f3 varint    会话相关
+   * f7 bytes(16) 对端 IPv6 地址          ★
+   * f8 varint    对端 P2P 端口            ★
    * ```
    *
-   * 端口不在 `f3` / `f8` 里（实测对端 P2P 端口是 47652 / 38965，两者都对不上），
-   * 所以这里只取地址；端口用**实际收到对端包时的来源端口**（见
-   * {@link rememberPeerSource}）—— 对端一旦开始发，来源就是可用的回程地址。
+   * 实测（同一次通话）：
+   *
+   * ```text
+   * bt=9: f7 = 240e:399:f9d:3f10:7873:e70f:577e:60c5
+   *       f8 = 56082
+   * 随后 QQ 直接向 240e:...:60c5:56089 发 0x02 relay 探测包（1696 个），
+   * 对端回包后 P2P 建立，媒体走 2493+1666 个包直连。
+   * ```
+   *
+   * **端口必须用 `f8` 初始化。** 早先这里把端口留 0、指望「收到对端包时从来源
+   * 学到」，但 `mediaTargets` 要求 `port > 0` 才发对端 —— 不发就收不到回包，
+   * 永远学不到端口，形成死锁：媒体只能全程走服务器中继，两端画面都极卡。
+   *
+   * `f8` 与实际监听端口可能差几个（实测 56082 vs 56089，同批临时端口），
+   * 但足以让第一包打过去；对端回包后 {@link rememberPeerSource} 会用真实来源
+   * 端口纠正。
    */
   private handlePeerAddress(body: Uint8Array): void {
     const raw = pbGetBytes(body, 7);
     if (raw?.length !== 16) return;
     const address = formatIpv6(raw);
     if (!address) return;
-    if (this.peerDirect?.address === address) return;
-    // 端口先留 0：真正可用的是对端发包时的来源端口。
-    this.peerDirect = { address, port: this.peerDirect?.port ?? 0 };
-    this.log?.info('拿到对端直连地址', { address, port: this.peerDirect.port });
+    // f8 是对端 P2P 端口；缺省时才退回已学到的端口。
+    const announced = Number(pbGetVarint(body, 8) ?? 0);
+    const port = announced > 0 && announced < 65536 ? announced : (this.peerDirect?.port ?? 0);
+    if (this.peerDirect?.address === address && this.peerDirect.port === port) return;
+    this.peerDirect = { address, port };
+    this.log?.info('拿到对端直连地址', { address, port, announced });
+    // 学到端口即可开始双发探测：真实客户端也是拿到地址就主动打过去。
+    if (port > 0 && this.mediaPath === 'server') {
+      this.mediaPath = 'probing';
+      this.probeSince = this.timers.now();
+      this.log?.info('媒体路径切换', { path: 'probing' });
+    }
   }
 
   /**
