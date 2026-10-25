@@ -514,6 +514,21 @@ function writeU32le(buf: Uint8Array, off: number, value: number): void {
 }
 
 /**
+ * 一帧会被切成几片。
+ *
+ * 发送侧要提前把片数写进 sub-header `[16:20]`，所以单独抽出来；`buildVideoPackets`
+ * 内部也用它，两边不会漂移。
+ */
+export function videoPacketCount(frameBytes: number, maxPayload = 1200): number {
+  // `maxPayload` 是**单个 UDP 包的总长上限**，每片都要扣掉外层头 + RTP 头 + 扩展。
+  const maxPacket = Math.max(64, maxPayload);
+  const maxChunk = maxPacket - AUDIO_HEADER_LEN - VIDEO_RTP_HEADER_LEN - VIDEO_EXT_LEN;
+  const total = Math.max(1, Math.ceil(frameBytes / maxChunk));
+  // 单个 `pkg_idx` 是 1 字节，分片数不能超 255。
+  return Math.min(total, 255);
+}
+
+/**
  * 发一帧视频（把 Annex B 裸流切成 `0x5b subType=2` 分片）。
  *
  * 分片规则按实测：
@@ -545,12 +560,7 @@ export function buildVideoPackets(params: {
 }): Uint8Array[] {
   const fidx = params.fidx ?? 1;
   const subType = params.subType ?? VideoSubType.max;
-  // `maxPayload` 是**单个 UDP 包的总长上限**，每片都要扣掉外层头 + RTP 头 + 扩展。
-  const maxPacket = Math.max(64, params.maxPayload ?? 1200);
-  const maxChunk = maxPacket - AUDIO_HEADER_LEN - VIDEO_RTP_HEADER_LEN - VIDEO_EXT_LEN;
-  const total = Math.max(1, Math.ceil(params.frameData.length / maxChunk));
-  // 单个 `pkg_idx` 是 1 字节，分片数不能超 255。
-  const totalPkg = Math.min(total, 255);
+  const totalPkg = videoPacketCount(params.frameData.length, params.maxPayload);
   // 等分：末片自然短。真实客户端的末片不带 0 填充（填充语义未经证实，不补）。
   const chunkSize = Math.max(1, Math.ceil(params.frameData.length / totalPkg));
 
@@ -617,13 +627,21 @@ export const VIDEO_SUBHEADER_LEN = 20;
  * [2]      c2s=0x00 / s2c=0x03 方向标识
  * [3]      0x06                常量（**首帧也是 06**，早期「首帧 03」是误判）
  * [4:6]    00 00               常量
- * [6:8]    未解（每帧变化，对不上 CRC16 / 校验和 / 长度）
+ * [6:8]    帧质量 + 码率档     = GetVideoFrameQuality() 的 16 位返回值
  * [8:12]   帧时间戳（见上表，随方向变）
  * [12:16]  会话基准 tick（c2s）/ 0（s2c）
- * [16:20]  未解（实测小整数 0–5）
+ * [16:20]  帧内分片序号相关（实测 0–4 的小整数，不随发送方变化）
  * ```
  *
- * 两个未解字段按约定填 0。若对端仍不认我们的画面，优先回头试这两处。
+ * `[6:8]` 来自 `VideoPacketWriter::PackRTPEx`：
+ *
+ * ```c
+ * *((DWORD *)v41 + 1) = bswap(a15 & (v54 ? 0xFFFF : 0xFF));
+ * ```
+ *
+ * `a15` 是 `GetVideoFrameQuality()` 的返回值 —— **高字节 = 估算码率档，低字节 =
+ * 帧质量**。抓包实测：`[6]` 落在 16–25（集中在 22–24），`[7]` 落在 31–38
+ * （集中在 36）。关键帧因为量化更粗，两个值都会掉一档。
  */
 export function buildVideoSubHeader(params: {
   /** 发送方向：决定 `[2]` 与时间戳布局。 */
@@ -634,6 +652,10 @@ export function buildVideoSubHeader(params: {
   timestampMs: number;
   /** `[12:16]`：c2s 填会话基准 tick；s2c 恒 0。 */
   baseTick?: number;
+  /** `[6:8]`：`{ hi, lo }` 分别写进 `[6]` 和 `[7]`。缺省时填 0。 */
+  quality?: VideoFrameQuality;
+  /** `[16:20]`：帧内分片序号（实测上限很小），缺省 0。 */
+  fragment?: number;
 }): Uint8Array {
   const out = new Uint8Array(VIDEO_SUBHEADER_LEN);
   out[0] = VIDEO_SUBHEADER_LEN;
@@ -641,9 +663,78 @@ export function buildVideoSubHeader(params: {
   out[2] = VIDEO_SUBHEADER_DIRECTION[params.direction];
   out[3] = 0x06;
   // [4:6] 恒 0。
-  // [6:8] 未解 —— 抓包里每帧变化（实测 6948 / 8746 / 8233…），填 0。
+  out[6] = (params.quality?.rateTier ?? 0) & 0xff;
+  out[7] = (params.quality?.frameQuality ?? 0) & 0xff;
   writeU32be(out, 8, params.timestampMs >>> 0);
   if (params.direction === 'c2s') writeU32be(out, 12, (params.baseTick ?? 0) >>> 0);
-  // [16:20] 未解 —— 抓包里是 0–5 的小整数，填 0。
+  // [16:20] 小端。
+  const frag = (params.fragment ?? 0) >>> 0;
+  out[16] = frag & 0xff;
+  out[17] = (frag >>> 8) & 0xff;
+  out[18] = (frag >>> 16) & 0xff;
+  out[19] = (frag >>> 24) & 0xff;
   return out;
+}
+
+/**
+ * `[6:8]` 那两个字节：码率档 + 帧质量。
+ *
+ * 真实值由 QQ 的 `GetVideoFrameQuality()` 按帧计算（入参是 QP、帧大小、分辨率、
+ * 帧类型）。我们拿不到编码器的 QP，改用**按真实分布抽样**生成 —— 对端只拿它做
+ * 统计，不参与解码，所以分布对得上就够了。
+ */
+export interface VideoFrameQuality {
+  /** `[6]`：估算码率档。实测 16–25，集中 22–24。 */
+  rateTier: number;
+  /** `[7]`：帧质量。实测 31–38，集中 36。 */
+  frameQuality: number;
+}
+
+/** `[6]` 的实测分布（加权抽样用）。 */
+const RATE_TIER_SAMPLES: ReadonlyArray<readonly [number, number]> = [
+  [19, 5],
+  [21, 6],
+  [22, 20],
+  [23, 36],
+  [24, 22],
+  [25, 7],
+  [17, 2],
+  [18, 2],
+];
+
+/** `[7]` 的实测分布。关键帧整体低一档。 */
+const FRAME_QUALITY_SAMPLES: ReadonlyArray<readonly [number, number]> = [
+  [34, 5],
+  [35, 6],
+  [36, 55],
+  [37, 16],
+  [38, 13],
+  [32, 2],
+  [31, 1],
+];
+
+function pickWeighted(samples: ReadonlyArray<readonly [number, number]>): number {
+  const total = samples.reduce((sum, [, w]) => sum + w, 0);
+  let roll = Math.random() * total;
+  for (const [value, weight] of samples) {
+    roll -= weight;
+    if (roll <= 0) return value;
+  }
+  return samples[0]![0];
+}
+
+/**
+ * 抽一组 `[6:8]`。
+ *
+ * `keyframe` 时整体降一档 —— 实测关键帧是 `17/32`，普通帧是 `25/38`。
+ */
+export function sampleVideoFrameQuality(keyframe = false): VideoFrameQuality {
+  const rateTier = pickWeighted(RATE_TIER_SAMPLES);
+  const frameQuality = pickWeighted(FRAME_QUALITY_SAMPLES);
+  if (!keyframe) return { rateTier, frameQuality };
+  // I 帧量化更粗：两个值都往下压 7~8。
+  return {
+    rateTier: Math.max(16, rateTier - 8),
+    frameQuality: Math.max(28, frameQuality - 6),
+  };
 }

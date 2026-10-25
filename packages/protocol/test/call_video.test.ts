@@ -20,6 +20,7 @@ import {
   buildVideoKeepalive,
   buildVideoPackets,
   buildVideoSubHeader,
+  sampleVideoFrameQuality,
   extractHevc,
   hasAnnexBStartCode,
   hevcNalName,
@@ -441,7 +442,29 @@ describe('buildVideoSubHeader', () => {
     expect([...header.subarray(8, 12)]).toEqual([0x6f, 0x2f, 0x1b, 0xee]);
   });
 
-  it('未解字段 [6:8] / [16:20] 填 0（抓包实测值未还原）', () => {
+  it('[6:8] 写帧质量与码率档（来自 GetVideoFrameQuality 的 16 位值）', () => {
+    const header = buildVideoSubHeader({
+      direction: 'c2s',
+      frameIndex: 3,
+      timestampMs: 300,
+      baseTick: 9,
+      quality: { rateTier: 0x19, frameQuality: 0x26 },
+    });
+    expect([...header.subarray(6, 8)]).toEqual([0x19, 0x26]);
+  });
+
+  it('[16:20] 写帧内分片号（小端）', () => {
+    const header = buildVideoSubHeader({
+      direction: 'c2s',
+      frameIndex: 3,
+      timestampMs: 300,
+      baseTick: 9,
+      fragment: 3,
+    });
+    expect([...header.subarray(16, 20)]).toEqual([3, 0, 0, 0]);
+  });
+
+  it('不传 quality / fragment 时退化为全零', () => {
     const header = buildVideoSubHeader({
       direction: 'c2s',
       frameIndex: 3,
@@ -450,6 +473,36 @@ describe('buildVideoSubHeader', () => {
     });
     expect([...header.subarray(6, 8)]).toEqual([0, 0]);
     expect([...header.subarray(16, 20)]).toEqual([0, 0, 0, 0]);
+  });
+});
+
+describe('sampleVideoFrameQuality', () => {
+  it('抽样落在真实抓包的取值区间内', () => {
+    for (let i = 0; i < 200; i++) {
+      const q = sampleVideoFrameQuality(false);
+      // 实测 [6] 16–25（偶发 53）、[7] 31–38（偶发 198），我们只覆盖主体区间。
+      expect(q.rateTier).toBeGreaterThanOrEqual(16);
+      expect(q.rateTier).toBeLessThanOrEqual(25);
+      expect(q.frameQuality).toBeGreaterThanOrEqual(31);
+      expect(q.frameQuality).toBeLessThanOrEqual(38);
+    }
+  });
+
+  it('关键帧整体低一档（实测 17/32 vs 普通帧 25/38）', () => {
+    for (let i = 0; i < 100; i++) {
+      const q = sampleVideoFrameQuality(true);
+      expect(q.rateTier).toBeLessThanOrEqual(25);
+      expect(q.rateTier).toBeGreaterThanOrEqual(16);
+    }
+  });
+
+  it('不是恒定值（否则对端统计会看出异常）', () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 100; i++) {
+      const q = sampleVideoFrameQuality(false);
+      seen.add(`${q.rateTier}/${q.frameQuality}`);
+    }
+    expect(seen.size).toBeGreaterThan(3);
   });
 });
 

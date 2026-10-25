@@ -399,17 +399,31 @@ describe('接收视频', () => {
     expect(frames).toHaveLength(1);
   });
 
-  it('收到对端控制包就切换接收状态（协议里没有开关位）', async () => {
+  it('控制包是周期公告，重复收到不翻转状态', async () => {
+    // 2026-10-25 真机抓包：一方 14 秒内发了 316 个控制包（每秒 20+）。
+    // 早先按「收到即取反」实现，界面会每秒闪 20 次。
     const ctx = makeSession();
     await connect(ctx);
     expect(ctx.session.snapshot().videoReceiving).toBe(false);
 
-    // 第一条：对端开摄像头。
     ctx.transport.deliver(buildVideoControl({ sessionTs: 1, tick: 2 }));
     expect(ctx.session.snapshot().videoReceiving).toBe(true);
 
-    // 第二条：对端关摄像头 —— 同一个包，靠「又收到一条」取反。
-    ctx.transport.deliver(buildVideoControl({ sessionTs: 1, tick: 3 }));
+    // 再来 30 条，状态必须稳住。
+    for (let i = 0; i < 30; i++) {
+      ctx.transport.deliver(buildVideoControl({ sessionTs: 1, tick: 3 + i }));
+      expect(ctx.session.snapshot().videoReceiving).toBe(true);
+    }
+  });
+
+  it('控制包彻底停了之后由看门狗收敛为已关闭', async () => {
+    const ctx = makeSession();
+    await connect(ctx);
+    ctx.transport.deliver(buildVideoControl({ sessionTs: 1, tick: 2 }));
+    expect(ctx.session.snapshot().videoReceiving).toBe(true);
+
+    // 超过 VIDEO_SILENCE_MS（3 秒）没有任何控制包 / 视频包。
+    await ctx.timers.advanceAsync(4000);
     expect(ctx.session.snapshot().videoReceiving).toBe(false);
   });
 

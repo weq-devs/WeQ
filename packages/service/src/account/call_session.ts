@@ -60,8 +60,12 @@ import {
   pbGetBytes,
   parseVideoPacket,
   rsEncode,
+  sampleVideoFrameQuality,
   splitHevcNals,
+  isIrapNalType,
+  VIDEO_SUBHEADER_LEN,
   VIDEO_CTRL_SUB_TYPE,
+  videoPacketCount,
   VIDEO_KEEPALIVE_SUB_TYPE,
   VideoFrameAssembler,
   isVideoSubType,
@@ -445,6 +449,8 @@ export class CallSession {
   private receivedVideoFrames = 0;
   /** 最后一帧视频到达的时刻（毫秒），用于「对端静默停流」的兜底判断。 */
   private lastVideoPacketAt = 0;
+  /** 最后一个控制包到达的时刻（毫秒）。控制包是周期公告，不是开关边沿。 */
+  private lastVideoControlAt = 0;
   /**
    * 对端的直连地址（P2P）。
    *
@@ -477,6 +483,13 @@ export class CallSession {
   private videoFrameIndex = 0;
   /** 视频分片序号（每片 +1，整通不重置）。 */
   private videoSeq = 0;
+  /**
+   * 写进 sub-header `[16:20]` 的小整数。
+   *
+   * 实测真机取 0–4，且和 `total_pkg` 没有固定关系（对不上 `total_pkg-1`）。
+   * 目前按 `帧内分片数 - 1` 生成 —— 落点与实测分布一致，对端也不解析它。
+   */
+  private videoFrameFragment = 0;
   /**
    * 会话基准 tick，接通那一刻定下来，写进 sub-header 的 `[12:16]`。
    *
@@ -1352,24 +1365,23 @@ export class CallSession {
   // ── 视频 ──
 
   /**
-   * 收到对端的摄像头开关控制包（`subType=4`，空体）。
+   * 收到对端的摄像头控制包（`subType=4`，空体）。
    *
-   * 协议里**没有**开关位：收到一条就说明对端的摄像头状态**取反**。真正的画面
-   * 会在随后几十毫秒内到（开）或停止（关）。
+   * **不是「开启一次」的信号，而是周期性的状态公告。** 2026-10-25 真机抓包里，
+   * 一方在 14 秒内发了 **316 个**（每秒 20+），成对出现，`tick` 每对递增。
+   * 也就是说它更像「我还在发视频」的心跳，而不是「开 / 关」的边沿。
    *
-   * **以控制包为准**切换 `videoReceiving`。早先这里只打日志不动作，界面会
-   * 永远停在「等待对方画面」，对端关了也退不出去。
+   * 早先实现按「收到即取反」处理 —— 在真机这种高频流下会每秒翻转 20 次，
+   * 界面表现为在「等待画面」和「画面」之间频闪，Linux 侧则一直转圈。
    *
-   * 画面本身由 {@link handleVideoPacket} 兜底：万一控制包丢了，收到真画面
-   * 也会把状态点亮。
+   * 现在改成**幂等**：收到就置为「在接收」，关闭交给两条兜底 ——
+   * {@link startVideoWatchdog}（视频静默超时）和会话挂断。
    */
   private handleVideoControl(): void {
-    this.videoReceiving = !this.videoReceiving;
-    this.log?.info('对端摄像头切换', { receiving: this.videoReceiving });
-    if (!this.videoReceiving) {
-      // 关掉时清空半帧，避免下一轮把旧的残片拼进来。
-      this.videoAssembler.reset();
-    }
+    this.lastVideoControlAt = this.timers.now();
+    if (this.videoReceiving) return;
+    this.videoReceiving = true;
+    this.log?.info('对端控制包：对端在发视频');
     this.emit();
   }
 
@@ -1479,11 +1491,15 @@ export class CallSession {
     if (this.videoWatchdogTimer !== null) return;
     this.videoWatchdogTimer = this.timers.setInterval(() => {
       if (!this.videoReceiving) return;
-      if (this.lastVideoPacketAt === 0) return;
-      const silent = this.timers.now() - this.lastVideoPacketAt;
+      // 取「视频包」和「控制包」里更近的那个：控制包是周期公告，停了同样说明
+      // 对端不再发视频。两者都没有过就还没开始，不判定。
+      const last = Math.max(this.lastVideoPacketAt, this.lastVideoControlAt);
+      if (last === 0) return;
+      const silent = this.timers.now() - last;
       if (silent < VIDEO_SILENCE_MS) return;
       this.log?.info('对端视频静默超时，按已关闭处理', { silentMs: silent });
       this.videoReceiving = false;
+      this.lastVideoControlAt = 0;
       this.videoAssembler.reset();
       this.emit();
     }, 1000);
@@ -1605,11 +1621,17 @@ export class CallSession {
   private sendVideoFrame(hevc: Uint8Array): void {
     const now = this.timers.now();
     const ptsMs = this.connectedAt === null ? 0 : now - this.connectedAt;
+    // `[16:20]` 要提前知道片数，所以先按「sub-header + 裸流」的总长估一次。
+    const packetCount = videoPacketCount(VIDEO_SUBHEADER_LEN + hevc.length);
+    this.videoFrameFragment = Math.max(0, packetCount - 1);
     const subHeader = buildVideoSubHeader({
       direction: 'c2s',
       frameIndex: this.videoFrameIndex,
       timestampMs: ptsMs,
       baseTick: this.mediaBaseTick,
+      // `[6:8]`：对端只拿它做统计，按真实分布抽样即可（见 sampleVideoFrameQuality）。
+      quality: sampleVideoFrameQuality(splitHevcNals(hevc).some((nal) => isIrapNalType(nal.type))),
+      fragment: this.videoFrameFragment,
     });
     const frameData = new Uint8Array(subHeader.length + hevc.length);
     frameData.set(subHeader, 0);

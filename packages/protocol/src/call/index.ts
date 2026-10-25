@@ -66,8 +66,11 @@ export {
   buildVideoKeepalive,
   buildVideoPackets,
   buildVideoSubHeader,
+  sampleVideoFrameQuality,
+  videoPacketCount,
 } from './video';
 export type {
+  VideoFrameQuality,
   VideoRtpHeader,
   VideoExtension,
   VideoPacket,
