@@ -49,6 +49,7 @@ import {
   type AccountServices,
   type RoamingCacheChange,
 } from '../../context/app_context';
+import { fullModeAllowed, requestFullMode } from '../../context/full_mode';
 import { onlineTranscriber } from '../../online_transcribe';
 import type { QuarantinedTable } from '@weq/native';
 import type { SalvageLedgerEntry } from '@weq/db';
@@ -542,9 +543,10 @@ export interface GroupJoinResult {
 }
 
 export interface GroupAlbumAccessState {
+  source?: { expectedAccountUin: string; expectedAccountConfigId: string };
   qqOnline: boolean;
   qqPid: number | null;
-  /** 「自动读取 QQ 内存（完整功能）」总闸——关闭即完全离线模式，在线功能不可用。 */
+  /** 宿主内有效的自动策略或本来源手动请求，不表示凭据已经就绪。 */
   attachEnabled: boolean;
   /**
    * 本地账号配置里的会话物料是否齐全（a2 / d2 / d2key）。发包要拿它做 TEA 加密，
@@ -783,9 +785,12 @@ function albumAccessState(services = requireServices()): GroupAlbumAccessState {
   const expiresAt = record?.clientKey ? clientKeyExpiryMs(record.clientKey) : null;
   const secondsLeft = expiresAt ? Math.max(0, Math.floor((expiresAt - Date.now()) / 1000)) : 0;
   return {
+    source: record?.configId
+      ? { expectedAccountUin: String(record.uin), expectedAccountConfigId: record.configId }
+      : undefined,
     qqOnline: Boolean(record?.qqOnline && record.qqPid),
     qqPid: record?.qqPid ?? null,
-    attachEnabled: getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq ?? true,
+    attachEnabled: fullModeAllowed(getAppContext()),
     hasA2: Boolean(session?.a2),
     hasD2: Boolean(session?.d2),
     hasD2Key: Boolean(session?.d2Key),
@@ -6843,6 +6848,23 @@ export const accountRouter = router({
    * explicit "立即重新获取 rkey" before a media-completing export. Returns true
    * when fresh rkeys were stored. 完全离线模式（自动读取 QQ 内存 关闭）下直接返回 false。
    */
+  requestFullMode: procedure
+    .input(
+      z
+        .object({
+          expectedAccountUin: z.string().min(1),
+          expectedAccountConfigId: z.string().min(1),
+        })
+        .strict(),
+    )
+    .mutation(({ input }) => {
+      requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      const host = getAppContext();
+      if (!host.account) throw new Error('当前未打开账号');
+      requestFullMode(host, host.account);
+      return { requested: true };
+    }),
+
   refreshRkeys: procedure.mutation(() => {
     return getAppContext().refreshRkeysNow();
   }),

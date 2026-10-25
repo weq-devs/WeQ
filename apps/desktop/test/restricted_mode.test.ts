@@ -26,6 +26,8 @@ const mock = vi.hoisted(() => ({
   onlineCount: 1,
   onlineFailed: false,
   launchQq: vi.fn(async () => true),
+  requestFull: vi.fn(),
+  refreshRkeys: vi.fn(),
   refetch: vi.fn(async () => ({})),
   send: vi.fn(),
   listeners: new Map<string, (...args: unknown[]) => void>(),
@@ -37,6 +39,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     bootstrap: { launchQq: { mutate: mock.launchQq } },
     account: {
+      requestFullMode: { mutate: mock.requestFull },
+      refreshRkeys: { mutate: mock.refreshRkeys },
       onOnlineCredentialsReady: {
         subscribe: (_input: undefined, handlers: { onData: () => void }) => {
           mock.credentialsReady = handlers.onData;
@@ -129,6 +133,8 @@ beforeEach(() => {
   mock.onlineCount = 1;
   mock.onlineFailed = false;
   mock.launchQq.mockReset().mockResolvedValue(true);
+  mock.requestFull.mockReset().mockResolvedValue({ requested: true });
+  mock.refreshRkeys.mockReset().mockResolvedValue(false);
   mock.refetch.mockClear();
   mock.send.mockClear();
   mock.listeners.clear();
@@ -177,6 +183,56 @@ function fixture(showToasts = false) {
 function event(channel: string, payload: unknown) {
   act(() => mock.listeners.get(channel)?.({}, payload));
 }
+
+it('手动启用提交完整来源，不修改自动偏好；普通重新检查不升级为手动请求', async () => {
+  const source = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-live' };
+  mock.access = { ...ready, attachEnabled: false, source };
+  const f = fixture();
+  act(() => useRestrictedMode.getState().setOpen(true));
+  await act(async () =>
+    [...f.host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === '重新检查')!
+      .click(),
+  );
+  expect(mock.requestFull).not.toHaveBeenCalled();
+  expect(mock.refreshRkeys).not.toHaveBeenCalled();
+  await act(async () =>
+    [...f.host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === '启用完整功能')!
+      .click(),
+  );
+  expect(mock.requestFull).toHaveBeenCalledOnce();
+  expect(mock.requestFull).toHaveBeenCalledWith(source);
+  expect(mock.refreshRkeys).toHaveBeenCalledOnce();
+  expect(f.host.textContent).toContain('尚未恢复完整功能');
+  expect(useToast.getState().toasts.some((toast) => toast.title === '已启用完整功能')).toBe(false);
+});
+it('同号切源丢弃手动请求的迟到结果，不在新来源继续采集', async () => {
+  const source = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-live' };
+  mock.access = { ...ready, attachEnabled: false, source };
+  let finish!: (value: { requested: boolean }) => void;
+  mock.requestFull.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const f = fixture();
+  act(() => useRestrictedMode.getState().setOpen(true));
+  act(() =>
+    [...f.host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === '启用完整功能')!
+      .click(),
+  );
+  mock.access = {
+    ...mock.access,
+    source: { ...source, expectedAccountConfigId: 'synthetic-backup' },
+  };
+  f.render();
+  await act(async () => finish({ requested: true }));
+  expect(mock.refreshRkeys).not.toHaveBeenCalled();
+  expect(f.host.textContent).not.toContain('尚未恢复完整功能');
+});
 function submitAuthorization(form: HTMLFormElement) {
   act(() => {
     const input = form.querySelector('input')!;
@@ -254,7 +310,7 @@ describe('受限模式启动 QQ', () => {
     mock.access = { ...ready, attachEnabled: false };
     f.render();
     expect(launchButton(f.host)).toBeUndefined();
-    expect(f.host.textContent).toContain('完全离线模式');
+    expect(f.host.textContent).toContain('本次运行未启用完整功能');
   });
 });
 

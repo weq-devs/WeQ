@@ -21,6 +21,7 @@
 import { EventEmitter } from 'node:events';
 import { createDbChangeNotification } from '../db_change_notification';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
+import { clearFullMode, fullModeAllowed } from './full_mode';
 import { resolveBackupLocation, backupMediaRoots } from '../static_backup';
 import { VipBadgeService } from '../vip_badge';
 import { existsSync, readdirSync } from 'node:fs';
@@ -1251,6 +1252,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountCtx: AccountContext,
       metadata: AccountConfigMetadata = {},
     ): Promise<void> {
+      clearFullMode(this);
       const base = this.platform;
       if (!base) throw new Error('原生组件尚未就绪');
       const platform = base;
@@ -2022,7 +2024,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         session,
         platform,
         accountConfig,
-        () => userConfig.getSettings().autoAttachQq,
+        () => fullModeAllowed(this, session),
         bootstrap.attachHook,
         // 首次抓到快照时准备 QQ 同款装扮资源，只加入已装，不自动使用。
         async (dress) => {
@@ -2145,6 +2147,7 @@ export function initAppContext(fileRoot?: string): AppContext {
     ): Promise<void> {
       const backup = await resolveBackupLocation(dirPath);
       if (!backup) throw new Error('未找到 QQ 账号数据库目录');
+      clearFullMode(this);
       dirPath = backup.dbDir;
       cancelAnnualReportWarmup();
       invalidateAccountTools(this.account);
@@ -2774,7 +2777,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         session,
         platform,
         accountConfig,
-        () => userConfig.getSettings().autoAttachQq,
+        () => fullModeAllowed(this, session),
         bootstrap.attachHook,
         undefined,
         () => {
@@ -2828,6 +2831,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Still no anti-recall triggers, no health check and no scheduler.
     },
     clearAccount(): void {
+      clearFullMode(this);
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
       logger.info('clearing account session', {
@@ -3077,8 +3081,8 @@ export function getAppContext(): AppContext {
  */
 export function requireAttachEnabled(): void {
   const ctx = getAppContext();
-  if (ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false) {
-    throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），该功能需要在线 QQ 实例。');
+  if (!fullModeAllowed(ctx)) {
+    throw new Error('本次运行尚未启用完整功能，请在受限模式详情中启用后重试。');
   }
 }
 

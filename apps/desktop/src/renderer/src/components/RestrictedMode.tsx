@@ -180,6 +180,8 @@ export function RestrictedModeHost() {
   const [busy, setBusy] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState('');
+  const operation = useRef(0);
+  const operationBusy = useRef(false);
   const utils = trpc.useUtils();
   useEffect(() => {
     if (!active) return;
@@ -197,6 +199,25 @@ export function RestrictedModeHost() {
     staleTime: 4000,
     refetchOnWindowFocus: true,
   });
+  const sourceKey = JSON.stringify([uin, access.data?.source]);
+  const currentSource = useRef(sourceKey);
+  const previousSource = useRef(sourceKey);
+  currentSource.current = sourceKey;
+  useEffect(() => {
+    if (previousSource.current === sourceKey) return;
+    previousSource.current = sourceKey;
+    operation.current += 1;
+    operationBusy.current = false;
+    setBusy(false);
+    setError('');
+    useRestrictedMode.getState().endEntering();
+  }, [sourceKey]);
+  useEffect(
+    () => () => {
+      operation.current += 1;
+    },
+    [],
+  );
   // 由运行 QQ 的宿主判断系统；Web 客户端的操作系统不能代表宿主。
   const sip = trpc.bootstrap.sipEnabled.useQuery(undefined, { staleTime: 60_000 });
   const online = trpc.bootstrap.probeOnline.useQuery(undefined, {
@@ -349,21 +370,37 @@ export function RestrictedModeHost() {
     }
   }
   async function refresh(enable = false) {
+    if (operationBusy.current) return;
+    const source = access.data?.source;
+    if (enable && (!active || !source || source.expectedAccountUin !== uin)) {
+      setError('当前来源尚未确认，请重新检查后再启用完整功能。');
+      return;
+    }
+    operationBusy.current = true;
+    const id = ++operation.current;
+    const binding = sourceKey;
+    const current = () => operation.current === id && currentSource.current === binding;
     setBusy(true);
     setError('');
     if (active) useRestrictedMode.getState().beginEntering();
     try {
-      if (enable) await client.bootstrap.setAutoAttachQq.mutate({ enabled: true });
+      if (enable && source) await client.account.requestFullMode.mutate(source);
+      if (!current()) return;
       if (active && (enable || (access.data?.qqOnline && access.data.attachEnabled))) {
         const refreshed = await client.account.refreshRkeys.mutate();
+        if (!current()) return;
         if (!refreshed) setError('尚未恢复完整功能，请检查 QQ 登录状态及授权请求后重试。');
       }
       await Promise.all([active ? access.refetch() : online.refetch(), sip.refetch()]);
     } catch (e) {
+      if (!current()) return;
       setError(e instanceof Error ? e.message : String(e));
       useRestrictedMode.getState().endEntering();
     } finally {
-      setBusy(false);
+      if (current()) {
+        operationBusy.current = false;
+        setBusy(false);
+      }
     }
   }
   return (

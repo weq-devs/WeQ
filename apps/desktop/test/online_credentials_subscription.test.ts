@@ -11,6 +11,9 @@ vi.mock('../src/main/context/app_context', async () => {
   const { EventEmitter } = await import('node:events');
   return {
     getAppContext: () => ({
+      bootstrap: {
+        userConfig: { getSettings: () => ({ autoAttachQq: true }), getLocalModelId: () => null },
+      },
       services: fixture.services,
       platform: { native: { ntHelper: { hasSsoSession: fixture.hasSsoSession } } },
       onlineCredentialsPending: () => false,
