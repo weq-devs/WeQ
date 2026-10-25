@@ -21,7 +21,13 @@ const server = await createServer({
       { find: '@transport', replacement: resolve(root, 'test/support/transport.stub.ts') },
     ],
   },
-  server: { host: '127.0.0.1', port: 0, fs: { allow: [resolve(root, '../..')] } },
+  server: {
+    host: '127.0.0.1',
+    port: 0,
+    hmr: false,
+    watch: null,
+    fs: { allow: [resolve(root, '../..')] },
+  },
 });
 const assert = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -66,7 +72,9 @@ try {
       },
       { theme, background, accent },
     );
+    await page.waitForTimeout(250);
     await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelector('.weq-dialog-layer')?.hidden);
     await page.waitForTimeout(200);
     await page.evaluate(() => document.activeElement?.blur());
     const baseline = await page.screenshot();
@@ -110,7 +118,40 @@ try {
     await page.mouse.move(width - 4, height - 4);
     await page.waitForFunction(() => !document.querySelector('[data-menu-capture]'));
     assert(await page.locator('.weq-workspace-menu-head').isVisible(), 'Menu not restored');
-    results.push({ theme, width, background, pixelsMatch: true });
+
+    // 不满 1 秒时直接截图，菜单和按钮均与点击前一致。
+    await button.hover();
+    const menuBaseline = await page.screenshot();
+    await button.click();
+    await page.waitForFunction(() => window.menuCaptureTest.finish);
+    assert(
+      await button.evaluate((el) => getComputedStyle(el).opacity === '1'),
+      'Direct capture hid the button',
+    );
+    assert(
+      (await page.locator('[data-menu-capture]').count()) === 0,
+      'Direct capture changed menu state',
+    );
+    assert(
+      await page.locator('.weq-workspace-menu-head').isVisible(),
+      'Direct capture hid the menu',
+    );
+    const withMenu = await page.screenshot(
+      output ? { path: resolve(output, `${theme}-${width}-capture-menu.png`) } : {},
+    );
+    const expectedMenu = await sharp(menuBaseline).raw().toBuffer();
+    const actualMenu = await sharp(withMenu).raw().toBuffer();
+    assert(
+      expectedMenu.equals(actualMenu),
+      `Direct capture differs from visible-menu baseline: ${theme}/${width}`,
+    );
+    await page.evaluate(() => {
+      window.menuCaptureTest.finish();
+      window.menuCaptureTest.finish = undefined;
+    });
+    await page.mouse.move(width - 4, height - 4);
+    await page.waitForFunction(() => !document.querySelector('[data-menu-capture]'));
+    results.push({ theme, width, background, pixelsMatch: true, directCaptureKeepsMenu: true });
   }
   assert(!errors.length, errors.join('\n'));
   console.log(JSON.stringify({ results, errors }));

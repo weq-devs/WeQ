@@ -69,6 +69,10 @@ export function useMenuCapture(capture: () => Promise<void>) {
     onPointerLeave: restoreMenu,
     onPointerCancel: restoreMenu,
     onClick: async () => {
+      if (!preview.current) {
+        await capture();
+        return;
+      }
       if (capturing.current) return;
       layer.current = findLayer();
       capturing.current = true;

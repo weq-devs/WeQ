@@ -80,18 +80,35 @@ describe('菜单截图', () => {
     expect(layer().dataset.menuCapture).toBe('preview');
   });
 
-  it.each([false, true])('截图 IPC 前隐藏菜单和按钮，不要求先悬停：%s', async (hover) => {
+  it.each([false, true])('截图保留点击时的菜单显隐状态：已隐藏=%s', async (hover) => {
     if (hover) {
       pointer('pointerover');
       act(() => vi.advanceTimersByTime(MENU_CAPTURE_HOVER_MS));
     }
+    let capturedMode: string | undefined;
     capture.mockImplementation(async () => {
-      expect(layer().dataset.menuCapture).toBe('capturing');
+      capturedMode = layer().dataset.menuCapture;
     });
     await click();
     expect(capture).toHaveBeenCalledOnce();
+    expect(capturedMode).toBe(hover ? 'capturing' : undefined);
     expect(layer().dataset.menuCapture).toBe(hover ? 'preview' : undefined);
   });
+
+  it.each([0, 500, MENU_CAPTURE_HOVER_MS - 1])(
+    '停留 %s 毫秒时立即沿用原截图流程，不等待绘制或隐藏任何内容',
+    async (elapsed) => {
+      const raf = vi.spyOn(window, 'requestAnimationFrame');
+      pointer('pointerover');
+      act(() => vi.advanceTimersByTime(elapsed));
+      const result = runCapture();
+      expect(capture).toHaveBeenCalledOnce();
+      expect(layer().dataset.menuCapture).toBeUndefined();
+      expect(raf).not.toHaveBeenCalled();
+      await result;
+      raf.mockRestore();
+    },
+  );
 
   it('截图期间离开不会提前露出菜单，结束后恢复且不重复截图', async () => {
     let finish!: () => void;
@@ -106,13 +123,18 @@ describe('菜单截图', () => {
     await click();
     pointer('pointerout');
     expect(layer().dataset.menuCapture).toBe('capturing');
+    pointer('pointerover');
+    act(() => vi.advanceTimersByTime(MENU_CAPTURE_HOVER_MS));
     await click();
     expect(capture).toHaveBeenCalledOnce();
+    pointer('pointerout');
     await act(async () => finish());
     expect(layer().dataset.menuCapture).toBeUndefined();
   });
 
   it('截图失败也恢复界面', async () => {
+    pointer('pointerover');
+    act(() => vi.advanceTimersByTime(MENU_CAPTURE_HOVER_MS));
     capture.mockRejectedValue(new Error('合成截图失败'));
     const result = runCapture();
     const rejected = expect(result).rejects.toThrow('合成截图失败');
@@ -121,6 +143,8 @@ describe('菜单截图', () => {
     });
     await rejected;
     expect(capture).toHaveBeenCalledOnce();
+    expect(layer().dataset.menuCapture).toBe('preview');
+    pointer('pointerout');
     expect(layer().dataset.menuCapture).toBeUndefined();
   });
 
