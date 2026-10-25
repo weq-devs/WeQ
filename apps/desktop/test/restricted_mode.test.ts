@@ -20,6 +20,7 @@ const ready: OnlineAccess = {
 };
 const mock = vi.hoisted(() => ({
   access: undefined as OnlineAccess | undefined,
+  updatedAt: 0,
   failed: false,
   sip: null as boolean | null,
   refetch: vi.fn(async () => ({})),
@@ -44,7 +45,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     useUtils: () => utils,
     account: {
       getGroupAlbumAccessState: {
-        useQuery: () => ({ data: mock.access, isError: mock.failed, refetch: mock.refetch }),
+        useQuery: () => ({
+          data: mock.access,
+          dataUpdatedAt: mock.updatedAt,
+          isError: mock.failed,
+          refetch: mock.refetch,
+        }),
       },
     },
     bootstrap: {
@@ -81,6 +87,16 @@ describe('受限原因按实际能力判定', () => {
     expect(restrictionReasons({ failed: true })[0]?.code).toBe('checking');
     expect(restrictionReasons({ access: ready, failed: true })[0]?.code).toBe('checking');
   });
+  it.each([{ hasUid: false }, { needsMemoryRead: true }, { ssoReady: false }])(
+    '三项旧凭据非空也不冒充完整模式，仍需当前会话与账号身份可用：%j',
+    (state) => {
+      expect(
+        restrictionReasons({ access: { ...ready, ...state }, sipEnabled: false }).map(
+          (r) => r.code,
+        ),
+      ).toEqual(['credentials']);
+    },
+  );
 });
 
 let cleanup = () => {};
@@ -99,6 +115,7 @@ beforeEach(() => {
     },
   });
   mock.access = { ...ready };
+  mock.updatedAt = Date.now();
   mock.failed = false;
   mock.sip = null;
   mock.send.mockClear();
@@ -107,7 +124,7 @@ beforeEach(() => {
   mock.unsubscribe.mockClear();
   mock.invalidateAccess.mockReset();
   useViewState.setState({ view: 'main', openedUin: '10001' });
-  useRestrictedMode.setState({ reasons: [], requests: [], open: false });
+  useRestrictedMode.setState({ reasons: [], requests: [], open: false, enteringSince: null });
   useToast.setState({ toasts: [], leaving: [], seq: 0 });
 });
 afterEach(() => {
@@ -132,23 +149,61 @@ function event(channel: string, payload: unknown) {
 }
 
 describe('非阻塞提权入口', () => {
-  it('提交授权不冒充成功，凭据就绪后立即刷新共享状态并恢复，无需手动刷新', async () => {
-    mock.access = { ...ready, hasD2Key: false };
+  it('部分凭据和原生登记等待期间始终保留进入中状态，真正就绪后才结束', async () => {
+    mock.access = { ...ready, ssoReady: false, credentialsPending: true };
     const f = fixture();
-    event('elev:request-password', { token: 41 });
-    event('elev:cancel-password', { token: 41 });
-    expect(f.host.textContent).toContain('受限模式');
-    expect(mock.invalidateAccess).not.toHaveBeenCalled();
-    expect(useToast.getState().toasts.some((t) => t.tone === 'success')).toBe(false);
-    mock.invalidateAccess.mockImplementation(async () => {
-      mock.access = { ...ready };
-      f.render();
+    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('正在进入完整模式');
+    expect(f.host.querySelector('.weq-restricted-indicator')?.getAttribute('aria-busy')).toBe(
+      'true',
+    );
+    expect(useToast.getState().toasts.at(-1)).toMatchObject({
+      title: '正在进入完整模式',
+      loading: true,
+      ttl: 0,
     });
-    await act(async () => mock.credentialsReady?.());
-    expect(mock.invalidateAccess).toHaveBeenCalledOnce();
+    mock.access = { ...ready, hasD2Key: false, ssoReady: false, credentialsPending: true };
+    mock.updatedAt = Date.now() + 1;
+    f.render();
+    expect(f.host.textContent).toContain('正在进入完整模式');
+    expect(useToast.getState().toasts.some((t) => t.tone === 'success')).toBe(false);
+    mock.access = { ...ready, ssoReady: true, credentialsPending: false };
+    mock.updatedAt += 1;
+    f.render();
     expect(f.host.querySelector('.weq-restricted-indicator')).toBeNull();
     expect(useToast.getState().toasts.filter((t) => t.tone === 'success')).toHaveLength(1);
   });
+  it('进入中不能被旧的完整模式缓存提前清掉，失败或取消后可重新检查', () => {
+    const f = fixture();
+    act(() => useRestrictedMode.getState().beginEntering());
+    expect(f.host.textContent).toContain('正在进入完整模式');
+    expect(useToast.getState().toasts.some((t) => t.tone === 'success')).toBe(false);
+    mock.access = { ...ready, ssoReady: false, credentialsPending: false };
+    mock.updatedAt = Date.now() + 1;
+    f.render();
+    expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('受限模式');
+    expect(useRestrictedMode.getState().enteringSince).toBeNull();
+    expect(useToast.getState().toasts.some((t) => t.tone === 'success')).toBe(false);
+  });
+  it.each([{ hasD2Key: false }, { ssoReady: false }])(
+    '提交授权不冒充成功，凭据就绪后立即刷新共享状态并恢复：%j',
+    async (pending) => {
+      mock.access = { ...ready, ...pending };
+      const f = fixture();
+      event('elev:request-password', { token: 41 });
+      event('elev:cancel-password', { token: 41 });
+      expect(f.host.textContent).toContain('受限模式');
+      expect(mock.invalidateAccess).not.toHaveBeenCalled();
+      expect(useToast.getState().toasts.some((t) => t.tone === 'success')).toBe(false);
+      mock.invalidateAccess.mockImplementation(async () => {
+        mock.access = { ...ready };
+        f.render();
+      });
+      await act(async () => mock.credentialsReady?.());
+      expect(mock.invalidateAccess).toHaveBeenCalledOnce();
+      expect(f.host.querySelector('.weq-restricted-indicator')).toBeNull();
+      expect(useToast.getState().toasts.filter((t) => t.tone === 'success')).toHaveLength(1);
+    },
+  );
   it('就绪信号只触发实际状态重查，不掩盖凭据缺失或未结束的授权', async () => {
     mock.access = { ...ready, hasD2Key: false };
     const f = fixture();
@@ -263,6 +318,11 @@ describe('非阻塞提权入口', () => {
     });
     expect(f.host.querySelector('input')).toBeNull();
     expect(useRestrictedMode.getState().requests).toHaveLength(0);
+    expect(f.host.textContent).toContain('正在进入完整模式');
+    mock.access = { ...ready, ssoReady: true };
+    mock.updatedAt = Date.now() + 1;
+    f.render();
+    expect(f.host.querySelector('.weq-restricted-indicator')).toBeNull();
   });
   it('Linux ptrace 请求提供免密重试；超时与取消只移除对应请求且清理密码', () => {
     const f = fixture();

@@ -993,6 +993,7 @@ export interface AppContext {
    * no account is open / QQ is offline / harvest failed.
    */
   refreshRkeysNow(): Promise<boolean>;
+  onlineCredentialsPending(): boolean;
   /**
    * Transcribe a SILK file on disk with the globally selected model. Account
    * independent (the model is a global setting), so callers that already have a
@@ -1045,6 +1046,9 @@ function unavailableContext(nativeError: NativeInitError | null, reason: string)
     },
     refreshRkeysNow(): Promise<boolean> {
       return Promise.resolve(false);
+    },
+    onlineCredentialsPending(): boolean {
+      return false;
     },
     transcribeSilk(): Promise<TranscribeSilkResult> {
       return Promise.resolve({ ok: false, error: reason });
@@ -3030,6 +3034,9 @@ export function initAppContext(fileRoot?: string): AppContext {
         accountUin: this.account?.context.uin ?? null,
       });
       return accountMonitor?.harvestRkeysNow() ?? Promise.resolve(false);
+    },
+    onlineCredentialsPending(): boolean {
+      return accountMonitor?.credentialsPending ?? false;
     },
   };
 

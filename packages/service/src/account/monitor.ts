@@ -33,6 +33,7 @@ import { queueSsoWork, ssoWorkState, type SsoWorkState } from './sso_lifecycle';
 import { fetchHomeDress, type HomeDressSnapshot } from './home_dress';
 import { fetchClientKey, fetchDownloadRkeys } from './online_ticket';
 import { getLogger, logErrorContext } from '../common/logger';
+import { isCompleteSessionMaterial } from '../common/session_material';
 
 /** How often to poll for the account becoming logged in. */
 const LOGIN_POLL_MS = 5000;
@@ -45,9 +46,8 @@ const CLIENTKEY_REFRESH_SKEW_MS = 5 * 60 * 1000;
 const HARVEST_RETRY_MS = 30_000;
 const HARVEST_MAX_RETRY_MS = 5 * 60 * 1000;
 /**
- * 「身份不完整」（缺 uid / 设备 guid）是**不会靠重试自愈**的终态：再读几次进程
- * 内存也变不出 guid，逐轮重试只会刷屏。命中这条就停掉自动重试，等显式触发
- * （用户重开会话 / 手动「立即重新获取」）或下次 `start()`。
+ * 身份暂缺时仅退避重查配置及离线设备身份，不读内存、不请求密码。
+ * 与用户明确取消授权区分，避免身份稍晚就绪后永远无法自动恢复。
  */
 const IDENTITY_INCOMPLETE_SENTINEL = 'SSO 会话身份不完整';
 
@@ -92,6 +92,7 @@ export class AccountMonitorService {
     failures: number;
     nextAt: number;
     cancelled: boolean;
+    credentialsPending: boolean;
   } | null = null;
   private readonly ssoRegistrations = new Map<number, string>();
   private readonly ssoInflight = new Map<number, Promise<void>>();
@@ -126,6 +127,16 @@ export class AccountMonitorService {
     });
   }
 
+  /** 包含等待授权、登记和自动重试；取票等网络请求不延长进入完整模式的状态。 */
+  get credentialsPending(): boolean {
+    return (
+      !this.stopped &&
+      this.shouldAutoAttach() &&
+      (this.ssoInflight.size > 0 ||
+        Boolean(this.harvestRetry?.credentialsPending && !this.harvestRetry.cancelled))
+    );
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
@@ -147,8 +158,7 @@ export class AccountMonitorService {
         ...logErrorContext(error),
       });
     }
-    // 设备 guid 每次开会话读一次就够：它从 QQ 数据根路径离线算/读（不需权限、
-    // 不碰进程），且大概率不变 —— 但网络上偶尔会变，所以每次启动都刷新一次。
+    // 设备 guid 从数据根路径离线读，不需权限；启动刷新，暂缺时在恢复流程里补读。
     this.refreshDeviceGuid();
     // 老版本存下的会话物料没有 pid，补一个（见方法说明）。
     this.backfillStoredSessionPid();
@@ -188,9 +198,11 @@ export class AccountMonitorService {
     if (pid === null || !this.isCurrent(generation)) return false;
     // An explicit refresh is the user's request to retry, including after cancellation.
     this.harvestRetry = null;
+    let credentialsReady = false;
     try {
       await this.ensureAttached(pid, generation);
       this.assertCurrent(generation, pid);
+      credentialsReady = true;
       const rkeys = imageRkeys(await fetchDownloadRkeys(this.nt, pid));
       this.assertCurrent(generation, pid);
       if (rkeys.length === 0) return false;
@@ -204,7 +216,7 @@ export class AccountMonitorService {
       return true;
     } catch (error) {
       if (!this.isCurrent(generation, pid)) return false;
-      this.deferHarvest(pid, error);
+      this.deferHarvest(pid, error, !credentialsReady);
       this.logger.warn('failed to harvest rkeys on demand', {
         event: 'harvest-rkeys-now-failed',
         pid,
@@ -407,13 +419,17 @@ export class AccountMonitorService {
   }
 
   private async ensureSsoSession(pid: number, generation: number): Promise<void> {
-    const record = this.accountConfig.getRecord();
-    // Missing identity cannot be fixed by asking for a password again.
+    let record = this.accountConfig.getRecord();
+    if (!record?.guid) {
+      this.refreshDeviceGuid();
+      record = this.accountConfig.getRecord();
+    }
+    // 身份仍缺失时不请求密码，等下一轮退避检查。
     if (!record?.uid || !record.guid) {
       throw new Error('SSO 会话身份不完整（缺少账号 uid 或设备 guid）。');
     }
     const stored = record.session;
-    if (stored?.pid === pid && stored.a2 && stored.d2 && stored.d2Key) {
+    if (stored?.pid === pid && isCompleteSessionMaterial(stored)) {
       await this.storeSsoSession(pid, stored, generation);
       this.logger.info('registered the native sso session from stored material', {
         event: 'sso-session-reused',
@@ -430,6 +446,8 @@ export class AccountMonitorService {
       d2Key: material.d2Key,
       pid,
     });
+    if (!isCompleteSessionMaterial(material))
+      throw new Error('SSO 会话凭据不完整（缺少有效的 a2 / d2 / d2key），稍后将自动重试。');
     await this.storeSsoSession(pid, material, generation);
   }
 
@@ -555,9 +573,11 @@ export class AccountMonitorService {
     if (!this.isCurrent(generation, pid) || !this.shouldAutoAttach()) return;
     const retry = this.harvestRetry;
     if (retry?.pid === pid && (retry.cancelled || Date.now() < retry.nextAt)) return;
+    let credentialsReady = false;
     try {
       await this.ensureAttached(pid, generation);
       this.assertCurrent(generation, pid);
+      credentialsReady = true;
       const rkeys = imageRkeys(await fetchDownloadRkeys(this.nt, pid));
       this.assertCurrent(generation, pid);
       if (rkeys.length > 0) this.accountConfig.setRkeys(rkeys);
@@ -605,10 +625,8 @@ export class AccountMonitorService {
         });
     } catch (error) {
       if (!this.isCurrent(generation, pid)) return;
-      this.deferHarvest(pid, error);
+      this.deferHarvest(pid, error, !credentialsReady);
       if (error instanceof Error && error.message.startsWith(IDENTITY_INCOMPLETE_SENTINEL)) {
-        // 身份不完整（缺 uid / guid）不是可重试错误：material 齐了也没用，
-        // 停下来等显式重试，避免每 5s 刷一轮 harvest-failed。
         this.logger.warn('background harvest skipped: session identity incomplete', {
           event: 'harvest-identity-incomplete',
           pid,
@@ -625,17 +643,21 @@ export class AccountMonitorService {
     }
   }
 
-  private deferHarvest(pid: number, error: unknown): void {
+  private deferHarvest(pid: number, error: unknown, credentialsPending = true): void {
     const failures = (this.harvestRetry?.pid === pid ? this.harvestRetry.failures : 0) + 1;
     const cancelled =
-      error instanceof Error &&
-      (error.message === '已取消授权，未读取 QQ 进程内存。' ||
-        error.message.startsWith(IDENTITY_INCOMPLETE_SENTINEL));
+      error instanceof Error && error.message === '已取消授权，未读取 QQ 进程内存。';
     const delayMs = Math.min(
       HARVEST_RETRY_MS * 2 ** Math.min(failures - 1, 4),
       HARVEST_MAX_RETRY_MS,
     );
-    this.harvestRetry = { pid, failures, nextAt: Date.now() + delayMs, cancelled };
+    this.harvestRetry = {
+      pid,
+      failures,
+      nextAt: Date.now() + delayMs,
+      cancelled,
+      credentialsPending,
+    };
     this.logger.warn('background harvest deferred', {
       event: cancelled ? 'harvest-cancelled-until-explicit-retry' : 'harvest-retry-deferred',
       pid,
@@ -651,18 +673,21 @@ export class AccountMonitorService {
     const retry = this.harvestRetry;
     if (retry?.pid === pid && (retry.cancelled || Date.now() < retry.nextAt)) return;
     const stored = rec?.session;
+    // 在线票据尚未过期，也不代表当前 QQ 进程的 SSO 凭据与身份已经可用。
+    if (!rec?.uid || !rec.guid || stored?.pid !== pid || !isCompleteSessionMaterial(stored)) {
+      await this.harvest(pid, generation);
+      return;
+    }
     // Check the owning monitor's metadata even while HTTP tickets remain fresh.
     // Repair a lost native registration using saved material without another attach.
-    if (stored?.pid === pid && stored.a2 && stored.d2 && stored.d2Key) {
-      try {
-        const owner = this.ssoOwners.get(pid);
-        if ((owner && this.ssoState(pid).owner === owner) || !(await this.nt.hasSsoSession(pid)))
-          await this.storeSsoSession(pid, stored, generation);
-        this.assertCurrent(generation, pid);
-      } catch (error) {
-        if (this.isCurrent(generation, pid)) this.deferHarvest(pid, error);
-        return;
-      }
+    try {
+      const owner = this.ssoOwners.get(pid);
+      if ((owner && this.ssoState(pid).owner === owner) || !(await this.nt.hasSsoSession(pid)))
+        await this.storeSsoSession(pid, stored, generation);
+      this.assertCurrent(generation, pid);
+    } catch (error) {
+      if (this.isCurrent(generation, pid)) this.deferHarvest(pid, error);
+      return;
     }
     const now = Date.now();
     const rkeys = rec?.rkeys ?? [];

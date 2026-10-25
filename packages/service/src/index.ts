@@ -179,6 +179,7 @@ export {
 } from './account/web/dress_mall';
 export type { DressMallItem } from './account/web/dress_mall';
 export { AccountMonitorService } from './account/monitor';
+export { isCompleteSessionMaterial } from './common/session_material';
 export {
   attachAndRegisterSsoSession,
   registerSsoSession,

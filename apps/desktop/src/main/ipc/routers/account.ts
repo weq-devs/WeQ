@@ -18,6 +18,7 @@ import {
   exportOutputFileName,
   describeExportOutput,
   resolveVipBadge,
+  isCompleteSessionMaterial,
 } from '@weq/service';
 import {
   exportDownloadName,
@@ -4719,15 +4720,31 @@ export const accountRouter = router({
   }),
 
   /** Live prerequisites for group album list/media/export. */
-  getGroupAlbumAccessState: procedure.query(() => {
-    const record = requireServices().accountConfig.getRecord();
+  getGroupAlbumAccessState: procedure.query(async () => {
+    const services = requireServices();
+    const record = services.accountConfig.getRecord();
     const session = record?.session;
-    return {
-      ...albumAccessState(),
-      needsMemoryRead: Boolean(
+    const access = albumAccessState(services);
+    const needsMemoryRead = Boolean(
+      record?.qqPid && (session?.pid !== record.qqPid || !isCompleteSessionMaterial(session)),
+    );
+    // 只查询原生登记表，不读内存或发包；配置写盘可能早于原生登记完成。
+    const ssoReady = Boolean(
+      access.qqOnline &&
+        access.attachEnabled &&
+        !needsMemoryRead &&
         record?.qqPid &&
-          (session?.pid !== record.qqPid || !session?.a2 || !session?.d2 || !session?.d2Key),
-      ),
+        record.uid &&
+        record.guid &&
+        (await getAppContext().platform?.native.ntHelper.hasSsoSession(record.qqPid)),
+    );
+    if (getAppContext().services !== services) throw new Error('账号已切换，请重新检查在线状态。');
+    return {
+      ...access,
+      hasUid: Boolean(record?.uid),
+      needsMemoryRead,
+      ssoReady,
+      credentialsPending: getAppContext().onlineCredentialsPending(),
     };
   }),
 
