@@ -14,10 +14,12 @@ import {
   net,
   protocol,
   shell,
+  screen,
   Tray,
   type IpcMainEvent,
 } from 'electron';
 import fs from 'node:fs';
+import { WINDOW_LAYOUTS, applyWindowLayout, type WindowLayout } from './window_layout';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -113,18 +115,6 @@ const { createIPCHandler } = requireFromHere(
   'electron-trpc/main',
 ) as typeof import('electron-trpc/main');
 
-/**
- * Per-view window sizes. The home/bootstrap screen is compact; the chat view
- * gets a bit more room. Switching views resizes the window (see the
- * `window:set-layout` IPC), keeping the top-left corner fixed.
- */
-const WINDOW_LAYOUTS = {
-  home: { width: 1120, height: 580 },
-  chat: { width: 1180, height: 760 },
-} as const;
-
-type WindowLayout = keyof typeof WINDOW_LAYOUTS;
-
 const logger = getLogger().child({ scope: 'desktop-main' });
 
 /** Created once; reopening attaches a window without registering IPC again. */
@@ -215,12 +205,8 @@ function registerWindowLayoutIpc(): void {
   });
   ipcMain.handle('window:set-layout', (event, layout: WindowLayout) => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    const size = WINDOW_LAYOUTS[layout] ?? WINDOW_LAYOUTS.home;
-    // Don't fight a user who maximized/fullscreened the window.
-    if (!win || win.isMaximized() || win.isFullScreen()) return;
-    const [w, h] = win.getContentSize();
-    if (w === size.width && h === size.height) return;
-    win.setContentSize(size.width, size.height, true);
+    if (!win) return;
+    applyWindowLayout(win, layout, screen.getDisplayMatching(win.getBounds()).workArea);
   });
 
   ipcMain.on('window-minimize', (event) => {
@@ -506,10 +492,7 @@ function createWindow(): BrowserWindow {
   // 'splash', it keeps the taskbar entry). Opt-out with WEQ_WINDOW_TYPE=normal
   // (or override to another value) so this can be disabled per-environment.
   const win = new BrowserWindow({
-    width: 1120,
-    height: 580,
-    minWidth: 940,
-    minHeight: 520,
+    ...WINDOW_LAYOUTS.home,
     show: true,
     title: 'WeQ Desktop',
     autoHideMenuBar: true,

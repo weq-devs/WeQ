@@ -1,0 +1,19 @@
+html .weq-chathome {
+  justify-content: safe center;
+  overflow-y: auto;
+}
+html .weq-chathome-inner {
+  flex-shrink: 0;
+}
+@media (max-height: 560px) {
+  html .weq-chathome {
+    --weq-orb-size: clamp(160px, 30vh, 220px);
+    padding-block: 20px;
+  }
+  html .weq-chathome-inner {
+    gap: 20px;
+  }
+  html .weq-chathome.is-notags .weq-chathome-hero {
+    gap: 18px;
+  }
+}

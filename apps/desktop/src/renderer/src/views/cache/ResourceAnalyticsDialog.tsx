@@ -3,8 +3,7 @@
  * charts the totals. The scan is the slow part (each file is `stat`-ed for its
  * size), so it runs ONE tree at a time via `mediaResource.analyzeTree`, showing a
  * progress banner + per-category cards that fill in as each tree finishes. The
- * cross-category charts (the ranked category bars, the by-month bars, the
- * 源文件/缩略图 split) render once the whole sweep completes.
+ * 跨分类图表随已完成目录持续更新，扫描提示保留到整个遍历结束。
  *
  * Visuals are dependency-free inline bar charts whose colours all come from
  * {@link ACCENT_SERIES}, so everything follows 设置里的主题色.
@@ -108,6 +107,12 @@ export function ResourceAnalyticsDialog({
   const [error, setError] = useState<string | null>(null);
   // Guards against a stale scan (dialog closed + reopened) writing late results.
   const runRef = useRef(0);
+  useEffect(
+    () => () => {
+      runRef.current += 1;
+    },
+    [],
+  );
 
   const runScan = useCallback(async (): Promise<void> => {
     const run = ++runRef.current;
@@ -200,13 +205,13 @@ export function ResourceAnalyticsDialog({
           <div className="weq-ra-tiles">
             <StatTile
               icon={<HardDrive size={18} />}
-              value={fmtBytes(totals.bytes)}
-              label="总占用空间"
+              value={stats.length || done ? fmtBytes(totals.bytes) : '—'}
+              label={done ? '总占用空间' : '已统计占用空间'}
             />
             <StatTile
               icon={<Layers size={18} />}
-              value={formatNumber(totals.files)}
-              label="资源文件总数"
+              value={stats.length || done ? formatNumber(totals.files) : '—'}
+              label={done ? '资源文件总数' : '已统计文件数'}
             />
             <StatTile
               icon={<ImageIcon size={18} />}
@@ -224,7 +229,7 @@ export function ResourceAnalyticsDialog({
               (toggle), so every category name shows in full without the cramped
               legend the old donuts had. */}
           <ChartCard title="各分类分布" wide>
-            {done && present.length > 0 ? (
+            {present.length > 0 ? (
               <CategoryBars stats={present} totals={totals} />
             ) : (
               <ChartWaiting scanning={scanningKey !== null} />
@@ -233,7 +238,7 @@ export function ResourceAnalyticsDialog({
 
           {/* 源文件 / 缩略图 占比 as a slim 100% stacked bar. */}
           <ChartCard title="源文件 / 缩略图 占比" wide>
-            {done && totals.files > 0 ? (
+            {totals.files > 0 ? (
               <ShareBar
                 segments={[
                   {
@@ -263,7 +268,7 @@ export function ResourceAnalyticsDialog({
 
           {/* By-month bars. */}
           <ChartCard title="按时间分布（文件修改月份）" wide>
-            {done && Object.keys(totals.byMonth).length > 0 ? (
+            {Object.keys(totals.byMonth).length > 0 ? (
               <MonthlyBars data={totals.byMonth} />
             ) : (
               <ChartWaiting scanning={scanningKey !== null} />

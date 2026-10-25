@@ -1,196 +1,130 @@
-/**
- * Centered big-avatar account header with a click-to-open dropdown selector.
- *
- * Header (vertical, centered): large avatar on top, bold nickname (or bold uin
- * fallback) below, thin uin under it. A "切换账号" pill is the ONLY clickable
- * trigger; clicking opens a scrollable list (avatar + nickname/uin rows). The
- * 菜单复用公共锚定浮层，列表可滚动，底部「登录新的账号」始终可达。
- */
+/** 常驻账号列表；配置操作既能点按，也保留右键入口。 */
 
-import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { ChevronDown, Database, Smartphone, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useState, type ReactElement } from 'react';
+import { Check, Database, Laptop, MoreHorizontal, Smartphone, Trash2 } from 'lucide-react';
 import { OverlayLayer } from '../../components/OverlayLayer';
 import { QqAvatar } from '../../components/QqAvatar';
+import { formatConversationTimestamp } from '../../lib/conversationTime';
 import type { UiAccount } from './types';
 import '../../styles/startup-account.css';
+
+export function accountSource(account: UiAccount): string {
+  return account.mobile ? '手机备份' : account.static ? '本地备份' : '本机 QQ';
+}
 
 export function AccountSelector({
   accounts,
   selected,
   onSelect,
   onDeleteAccount,
-  footer,
+  disabled = false,
 }: {
   accounts: UiAccount[];
   selected: UiAccount | null;
   onSelect: (acc: UiAccount) => void;
   onDeleteAccount?: (acc: UiAccount) => void;
-  footer?: ReactNode;
+  disabled?: boolean;
 }): ReactElement {
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const multiple = accounts.length > 1 || !!footer;
-
-  // Right-click context menu
-  const [ctxMenu, setCtxMenu] = useState<{ acc: UiAccount; anchor: HTMLElement } | null>(null);
-  const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
-  const close = useCallback(() => {
-    setCtxMenu(null);
-    setOpen(false);
-  }, []);
-
+  const [menu, setMenu] = useState<{ acc: UiAccount; anchor: HTMLElement } | null>(null);
+  const close = useCallback(() => setMenu(null), []);
   useEffect(() => {
-    if (!open) return;
-    // 保留窗口失焦关闭，避免 Electron 拖拽区吞掉指针事件后菜单滞留。
+    if (!menu) return;
     window.addEventListener('blur', close);
-    return () => {
-      window.removeEventListener('blur', close);
-    };
-  }, [open, close]);
+    return () => window.removeEventListener('blur', close);
+  }, [menu, close]);
+  useEffect(() => {
+    if (disabled) close();
+  }, [disabled, close]);
 
   return (
-    <div className="weq-acct">
-      <span className="weq-static-backup-avatar-wrap">
-        <QqAvatar
-          uin={selected?.uin}
-          url={selected?.avatarUrl}
-          size={140}
-          className="weq-acct-avatar"
-        />
-        {selected?.static && (
-          <span
-            className="weq-static-badge is-lg"
-            title={selected.mobile ? 'Android 手机备份账号' : '静态离线账号'}
-            aria-label={selected.mobile ? 'Android 手机备份账号' : '静态离线账号'}
-          >
-            {selected.mobile ? (
-              <Smartphone size={13} strokeWidth={2.2} aria-hidden />
-            ) : (
-              <Database size={13} strokeWidth={2.2} aria-hidden />
-            )}
-          </span>
-        )}
-      </span>
-
-      <div className="weq-acct-id">
-        <div
-          className={selected?.hasName ? 'weq-acct-name' : 'weq-acct-name weq-acct-name-strong'}
-          title={selected?.name}
-        >
-          {selected?.name ?? '未选择账号'}
-        </div>
-        {selected?.hasName && <div className="weq-acct-uin">{selected.uin}</div>}
-      </div>
-
-      {multiple && (
-        <div className="weq-acct-switchwrap">
-          <button
-            ref={triggerRef}
-            type="button"
-            className={`weq-acct-switch ${open ? 'is-open' : ''}`}
-            onClick={() => setOpen((o) => !o)}
-            aria-haspopup="menu"
-            aria-expanded={open}
-          >
-            切换账号
-            <ChevronDown size={14} strokeWidth={2} aria-hidden />
-          </button>
-
-          {open && (
-            <OverlayLayer
-              presentation="popover"
-              anchor={triggerRef.current}
-              className="weq-startup-account-layer"
-              onClose={close}
+    <>
+      <ul className="weq-account-list" aria-label="账号列表">
+        {accounts.map((acc) => {
+          const Icon = acc.mobile ? Smartphone : acc.static ? Database : Laptop;
+          const openedAt = new Date(acc.lastLoginAt ?? 0);
+          const lastOpened = Number.isFinite(openedAt.getTime())
+            ? formatConversationTimestamp(openedAt.toISOString())
+            : '';
+          return (
+            <li
+              key={acc.key}
+              className={`weq-account-item${selected?.key === acc.key ? ' is-selected' : ''}`}
             >
-              <div className="weq-acct-pop" role="menu" aria-label="切换账号">
-                <div className="weq-acct-list">
-                  {accounts.map((acc) => {
-                    const active = acc.key === selected?.key;
-                    const canDelete = onDeleteAccount && acc.configId;
-                    return (
-                      <button
-                        type="button"
-                        key={acc.key}
-                        title={acc.name}
-                        className={`weq-acct-row ${active ? 'is-active' : ''}`}
-                        onClick={() => {
-                          onSelect(acc);
-                          close();
-                        }}
-                        onContextMenu={
-                          canDelete
-                            ? (e) => {
-                                e.preventDefault();
-                                setCtxMenu({ acc, anchor: e.currentTarget });
-                              }
-                            : undefined
-                        }
-                      >
-                        <span className="weq-acct-row-avatar-wrap">
-                          <QqAvatar uin={acc.uin} url={acc.avatarUrl} size={38} />
-                          {acc.static && (
-                            <span
-                              className="weq-static-badge"
-                              title={acc.mobile ? 'Android 手机备份账号' : '静态离线账号'}
-                              aria-label={acc.mobile ? 'Android 手机备份账号' : '静态离线账号'}
-                            >
-                              {acc.mobile ? (
-                                <Smartphone size={9} strokeWidth={2.2} aria-hidden />
-                              ) : (
-                                <Database size={9} strokeWidth={2.2} aria-hidden />
-                              )}
-                            </span>
-                          )}
-                        </span>
-                        <div className="weq-acct-row-id">
-                          <div
-                            className={
-                              acc.hasName
-                                ? 'weq-acct-row-name'
-                                : 'weq-acct-row-name weq-acct-name-strong'
-                            }
-                          >
-                            {acc.name}
-                          </div>
-                          <div className="weq-acct-row-uin">{acc.uin}</div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-                {footer && <div className="weq-acct-foot">{footer}</div>}
-              </div>
-            </OverlayLayer>
-          )}
-        </div>
-      )}
-      {ctxMenu && (
+              <button
+                type="button"
+                className="weq-account-select"
+                disabled={disabled}
+                aria-pressed={selected?.key === acc.key}
+                title={`${acc.name} · ${acc.uin}${acc.sourceDir ? `\n${acc.sourceDir}` : ''}`}
+                onClick={() => onSelect(acc)}
+                onContextMenu={
+                  onDeleteAccount && acc.configId && !disabled
+                    ? (event) => {
+                        event.preventDefault();
+                        setMenu({ acc, anchor: event.currentTarget });
+                      }
+                    : undefined
+                }
+              >
+                <QqAvatar uin={acc.uin} url={acc.avatarUrl} size={40} />
+                <span className="weq-account-info">
+                  <strong>{acc.name}</strong>
+                  <span className="weq-account-identity">
+                    {acc.uin}
+                    <span>
+                      <Icon size={12} aria-hidden />
+                      {accountSource(acc)}
+                    </span>
+                  </span>
+                  {acc.sourceDir && <span className="weq-account-path">{acc.sourceDir}</span>}
+                  {lastOpened && <span className="weq-account-time">上次打开 {lastOpened}</span>}
+                </span>
+                {selected?.key === acc.key && (
+                  <Check className="weq-account-check" size={16} aria-hidden />
+                )}
+              </button>
+              {onDeleteAccount && acc.configId && (
+                <button
+                  type="button"
+                  className="weq-account-more weq-icon-button"
+                  title={`账号操作：${acc.name}`}
+                  aria-label={`账号操作：${acc.name}`}
+                  aria-haspopup="menu"
+                  aria-expanded={menu?.acc.key === acc.key}
+                  disabled={disabled}
+                  onClick={(event) =>
+                    setMenu(menu?.acc.key === acc.key ? null : { acc, anchor: event.currentTarget })
+                  }
+                >
+                  <MoreHorizontal size={17} aria-hidden />
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {menu && (
         <OverlayLayer
           presentation="popover"
-          anchor={ctxMenu.anchor}
+          anchor={menu.anchor}
           className="weq-startup-account-context-layer"
-          onClose={closeCtxMenu}
+          onClose={close}
         >
-          <div
-            className="weq-acct-ctx-menu"
-            role="menu"
-            aria-label="账号操作"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
+          <div className="weq-acct-ctx-menu" role="menu" aria-label="账号操作">
             <button
               type="button"
+              role="menuitem"
               onClick={() => {
-                onDeleteAccount?.(ctxMenu.acc);
+                onDeleteAccount?.(menu.acc);
                 close();
               }}
             >
-              <Trash2 size={15} />
-              <span>删除账号</span>
+              <Trash2 size={15} aria-hidden />
+              <span>移除已保存配置</span>
             </button>
           </div>
         </OverlayLayer>
       )}
-    </div>
+    </>
   );
 }

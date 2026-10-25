@@ -75,25 +75,48 @@ function render() {
 it('未发现在线账号时仍能切到已有的本地备份入口，不显示无效的密钥操作', () => {
   render();
   expect(host.querySelector('.weq-keyfield-action')).toBeNull();
-  const backup = host.querySelector<HTMLButtonElement>('[role="tab"]:last-child');
+  const back = host.querySelector<HTMLButtonElement>('[aria-label="返回账号主页"]');
+  act(() => back!.click());
+  const backup = host.querySelector<HTMLButtonElement>('[data-mode="backup"]');
   expect(backup).not.toBeNull();
   act(() => backup!.click());
   expect(host.querySelector('.weq-static-backup')).not.toBeNull();
   expect(host.textContent).toContain('导入本地数据库');
+});
+it('最近账号和添加、导入入口直接可见，诊断默认不扫描账号目录', () => {
+  api.mode = 'stale';
+  useViewState.getState().enterSelect('existing');
+  render();
+  expect(host.querySelector('.weq-account-list')?.textContent).toContain('合成缓存账号');
+  expect(host.querySelector('[data-mode="new"]')?.textContent).toContain('添加账号');
+  expect(host.querySelector('[data-mode="backup"]')?.textContent).toContain('导入备份');
+  expect(host.querySelector('.weq-stats')).toBeNull();
+  expect(host.querySelector('[role="tablist"]')).toBeNull();
+  expect(document.querySelector('.weq-key-recovery')).toBeNull();
+});
+it('添加与导入是独立子页面，可返回主页且不丢失账号选择', () => {
+  api.mode = 'stale';
+  useViewState.getState().enterSelect('existing');
+  render();
+  act(() => host.querySelector<HTMLButtonElement>('[data-mode="new"]')!.click());
+  expect(host.querySelector('h1')?.textContent).toBe('添加账号');
+  expect(host.querySelector('.weq-account-actions')).toBeNull();
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="返回账号主页"]')!.click());
+  expect(host.querySelector('.weq-open-identity h2')?.textContent).toBe('合成缓存账号');
 });
 it.each(['new', 'existing'] as const)('%s 读取失败不冒充空配置，并能重试', (mode) => {
   api.mode = 'error';
   useViewState.getState().enterSelect(mode);
   render();
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('合成账号读取失败');
-  expect(host.textContent).not.toContain('暂无保存的账号配置');
+  expect(host.textContent).not.toContain('还没有保存的账号');
   act(() => host.querySelector<HTMLButtonElement>('[aria-label="重新读取账号"]')!.click());
   expect(api.retry).toHaveBeenCalledOnce();
 });
 it('已有配置确实为空时保留空提示，没有错误提示', () => {
   useViewState.getState().enterSelect('existing');
   render();
-  expect(host.textContent).toContain('暂无保存的账号配置');
+  expect(host.textContent).toContain('还没有保存的账号');
   expect(host.querySelector('[role="alert"]')).toBeNull();
 });
 it('账号查询进行中仍显示加载态，不冒充空或失败', () => {
@@ -108,8 +131,9 @@ it('重新读取失败时仍保留已有账号，不隐藏密钥入口', () => {
   useViewState.getState().enterSelect('existing');
   render();
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('合成账号读取失败');
-  expect(host.querySelector('.weq-acct-name')?.textContent).toBe('合成缓存账号');
-  expect(host.querySelector<HTMLInputElement>('.weq-keyfield-text')?.value).toBe(
+  expect(host.querySelector('.weq-open-identity h2')?.textContent).toBe('合成缓存账号');
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="密钥与恢复"]')!.click());
+  expect(document.querySelector<HTMLInputElement>('.weq-keyfield-text')?.value).toBe(
     '0123456789abcdef',
   );
 });

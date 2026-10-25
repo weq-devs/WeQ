@@ -20,6 +20,7 @@ import { AvatarOrb, CardBackdrop, ScreenRain, TagRing } from '../components/dres
 import { dressUrl } from '../lib/resourceUrl';
 import { useThemeStore } from '../state/theme';
 import { trpc } from '../trpc/client';
+import '../styles/home-layout.css';
 
 interface Verse {
   text: string;

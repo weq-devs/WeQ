@@ -26,7 +26,6 @@ vi.mock('../src/renderer/src/components/Dialog', () => ({
 }));
 vi.mock('../src/renderer/src/lib/windowLayout', () => ({ setWindowLayout: vi.fn() }));
 vi.mock('../src/renderer/src/lib/accountWarmup', () => ({ runAccountWarmup: api.warmup }));
-vi.mock('../src/renderer/src/views/bootstrap/HomeScreen', () => ({ HomeScreen: () => null }));
 vi.mock('../src/renderer/src/views/bootstrap/SelectScreen', () => ({ SelectScreen: () => null }));
 vi.mock('../src/renderer/src/components/settings/BackupSection', () => ({
   BackupSection: () => null,

@@ -477,14 +477,20 @@ export async function describeViewerFile(path: string): Promise<ExportViewerSour
   }
   return source;
 }
-export async function discoverViewerSources(directory: string, allowEmpty = false) {
+export async function discoverViewerSources(
+  directory: string,
+  allowEmpty = false,
+  options: { onSource?: (source: ExportViewerSource) => void; signal?: AbortSignal } = {},
+) {
+  options.signal?.throwIfAborted();
   const root = await realpath(directory);
   const catalog = listExportBaselines(root);
   const sources: ExportViewerSource[] = [];
   for (const entry of catalog.items) {
+    options.signal?.throwIfAborted();
     if (entry.kind !== 'group' && entry.kind !== 'c2c') continue;
     const info = await stat(entry.journalPath);
-    sources.push({
+    const source: ExportViewerSource = {
       path: entry.journalPath,
       root: basename(entry.directory).startsWith('.weq-export')
         ? dirname(entry.directory)
@@ -499,13 +505,16 @@ export async function discoverViewerSources(directory: string, allowEmpty = fals
       conversation: { kind: entry.kind, conv: entry.conv },
       baselineDirectory: entry.directory,
       committedOnly: true,
-    });
+    };
+    sources.push(source);
+    options.onSource?.(source);
   }
   // 老导出可能没有基线；只探索当前目录，不递归读取未知文件树。
   const files = (await readdir(root, { withFileTypes: true })).filter(
     (entry) => entry.isFile() && /\.jsonl?$/i.test(entry.name),
   );
   for (const entry of files.slice(0, 64)) {
+    options.signal?.throwIfAborted();
     if (sources.some((source) => source.path === join(root, entry.name))) continue;
     const source = await describeViewerFile(join(root, entry.name)).catch(() => null);
     if (!source) continue;
@@ -520,9 +529,11 @@ export async function discoverViewerSources(directory: string, allowEmpty = fals
     )
       continue;
     sources.push(source);
+    options.onSource?.(source);
   }
   const journals = await hiddenViewerJournals(root);
   for (const path of journals.paths) {
+    options.signal?.throwIfAborted();
     if (sources.some((source) => source.path === path)) continue;
     const inspected = await inspectViewerFile(path, true).catch(() => null);
     if (!inspected) continue;
@@ -538,6 +549,7 @@ export async function discoverViewerSources(directory: string, allowEmpty = fals
       continue;
     source.root = dirname(path) === join(root, '.weq-export') ? root : source.root;
     sources.push(source);
+    options.onSource?.(source);
   }
   if (!sources.length && !allowEmpty)
     throw new Error('没有找到可查看的 WeQ 消息基线或聊天 JSON/JSONL 文件。');

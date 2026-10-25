@@ -6,7 +6,9 @@ export async function scanDirectories<T>(
   directory: string,
   inspect: (path: string) => Promise<T[]>,
   recursive = false,
+  signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted();
   const root = await realpath(directory);
   const queue = [{ path: root, depth: 0 }];
   const items: T[] = [];
@@ -14,6 +16,7 @@ export async function scanDirectories<T>(
   let truncated = false;
   let unreadable = 0;
   for (let index = 0; index < queue.length; index++) {
+    signal?.throwIfAborted();
     const current = queue[index]!;
     if (++visited > 4096) {
       truncated = true;
@@ -23,6 +26,7 @@ export async function scanDirectories<T>(
     try {
       found = await inspect(current.path);
     } catch (error) {
+      if (signal?.aborted) throw error;
       if (current.depth === 0) throw error;
       unreadable++;
       continue;
@@ -38,6 +42,7 @@ export async function scanDirectories<T>(
     try {
       const dir = await opendir(current.path);
       for await (const entry of dir) {
+        signal?.throwIfAborted();
         if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
         if (queue.length >= 4096) {
           truncated = true;
@@ -46,6 +51,7 @@ export async function scanDirectories<T>(
         queue.push({ path: join(current.path, entry.name), depth: current.depth + 1 });
       }
     } catch (error) {
+      if (signal?.aborted) throw error;
       if (current.depth === 0) throw error;
       unreadable++;
     }

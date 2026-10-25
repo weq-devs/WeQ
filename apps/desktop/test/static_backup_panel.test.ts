@@ -3,13 +3,43 @@ import { createRoot } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { StaticBackupPanel } from '../src/renderer/src/views/bootstrap/StaticBackupPanel';
 import { useDialog } from '../src/renderer/src/components/Dialog';
+import type { BackupScanEvent } from '../src/main/static_backup';
 
-const f = vi.hoisted(() => ({ pick: vi.fn(), scan: vi.fn(), test: vi.fn(), open: vi.fn() }));
+const f = vi.hoisted(() => ({
+  pick: vi.fn(),
+  scan: vi.fn(),
+  test: vi.fn(),
+  open: vi.fn(),
+  event: (_event: BackupScanEvent) => {},
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     bootstrap: {
       pickStaticDbDir: { mutate: f.pick },
-      scanStaticDirs: { mutate: f.scan },
+      scanStaticDirsProgress: {
+        subscribe: (
+          input: unknown,
+          handlers: { onData(event: BackupScanEvent): void; onError(error: Error): void },
+        ) => {
+          let active = true;
+          f.event = handlers.onData;
+          void f.scan(input).then((result) => {
+            if (!active) return;
+            for (const candidate of result.candidates)
+              handlers.onData({ kind: 'candidate', candidate });
+            handlers.onData({
+              kind: 'done',
+              truncated: result.truncated,
+              unreadable: result.unreadable,
+            });
+          }, handlers.onError);
+          return {
+            unsubscribe: () => {
+              active = false;
+            },
+          };
+        },
+      },
       testStaticDir: { mutate: f.test },
       openStaticAccount: { mutate: f.open },
     },
@@ -20,6 +50,7 @@ const candidate = (uin: string) => ({
   dbDir: `/synthetic/${uin}/nt_db`,
   databaseCount: 3,
   databaseBytes: 1048576,
+  sizePending: false,
   mediaDir: `/synthetic/${uin}/nt_data`,
   probe: {
     ok: true,
@@ -154,4 +185,57 @@ it('弹窗切换是草稿，取消和 Escape 保留原目录；重新打开不�
   );
   expect(document.querySelector('[role=dialog]')).toBeNull();
   expect(f.scan).toHaveBeenCalledOnce();
+});
+it('扫描未结束即展示已发现目录，未知大小不显示为零，后续更新不重置选择', async () => {
+  f.scan.mockImplementationOnce(() => new Promise(() => {}));
+  await mount();
+  await click('浏览…');
+  await act(async () =>
+    f.event({
+      kind: 'candidate',
+      candidate: {
+        ...candidate('12345'),
+        databaseCount: null,
+        databaseBytes: null,
+        sizePending: true,
+        probe: null,
+      },
+    }),
+  );
+  expect(document.querySelector('[role=dialog]')?.textContent).toContain('扫描中');
+  expect(document.querySelector('[role=dialog]')?.textContent).toContain('大小统计中');
+  expect(document.querySelector('[role=dialog]')?.textContent).not.toContain('0.0 MB');
+  expect(
+    [...document.querySelectorAll('button')].find((button) => button.textContent === '使用此目录')
+      ?.disabled,
+  ).toBe(true);
+  await act(async () => f.event({ kind: 'candidate', candidate: candidate('12345') }));
+  expect(document.querySelector('[role=dialog]')?.textContent).toContain('合成账号12345');
+  expect(document.querySelector<HTMLInputElement>('input[type=radio]')?.checked).toBe(true);
+  await click('使用此目录');
+  await click('进入');
+  expect(entered).toHaveBeenCalledWith('12345');
+  await act(async () => f.event({ kind: 'candidate', candidate: candidate('67890') }));
+  expect(document.querySelector('[role=dialog]')).toBeNull();
+  expect(host.querySelector<HTMLInputElement>('.weq-static-input')?.value).toBe(
+    candidate('12345').dirPath,
+  );
+});
+it('已有目录重新浏览其他文件夹后取消，原目录、身份和已验证密钥仍可打开', async () => {
+  await mount();
+  await click('浏览…');
+  await click('使用此目录');
+  f.scan.mockResolvedValueOnce({
+    candidates: [candidate('11111'), candidate('22222')],
+    truncated: false,
+    unreadable: 0,
+  });
+  await click('浏览…');
+  await click('取消');
+  await click('进入');
+  expect(f.open).toHaveBeenCalledWith({
+    dirPath: candidate('12345').dirPath,
+    dbKey: 'key-12345',
+    preview: candidate('12345').probe.preview,
+  });
 });

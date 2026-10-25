@@ -48,40 +48,140 @@ export async function resolveBackupDirectory(path: string): Promise<string | nul
   return (await resolveBackupLocation(path))?.dbDir ?? null;
 }
 
-export async function backupInfo(dbDir: string) {
+export interface BackupScanInfo {
+  dirPath: string;
+  dbDir: string;
+  mediaDir: string | null;
+  databaseCount: number | null;
+  databaseBytes: number | null;
+  sizePending: boolean;
+  sizeError?: string;
+}
+
+export async function backupInfo(
+  dbDir: string,
+  onProgress?: (info: BackupScanInfo) => void,
+  signal?: AbortSignal,
+) {
   const location = await resolveBackupLocation(dbDir);
   if (!location) throw new Error('未找到 QQ 账号数据库目录');
   dbDir = location.dbDir;
   const files = (await readdir(dbDir)).filter((name) => name.endsWith('.db'));
-  const sizes = await Promise.all(
-    files.map((name) =>
-      stat(join(dbDir, name))
-        .then((s) => s.size)
-        .catch(() => 0),
-    ),
-  );
-  return {
+  const info = {
     dirPath: location.accountDir,
     dbDir,
     databaseCount: files.length,
-    databaseBytes: sizes.reduce((a, b) => a + b, 0),
+    databaseBytes: 0,
     mediaDir: location.mediaDir,
   };
+  let unreadable = 0;
+  let measured = 0;
+  onProgress?.({ ...info, databaseBytes: null, sizePending: true });
+  for (const name of files) {
+    signal?.throwIfAborted();
+    try {
+      info.databaseBytes += (await stat(join(dbDir, name))).size;
+      measured++;
+    } catch {
+      unreadable++;
+    }
+    onProgress?.({
+      ...info,
+      databaseBytes: measured ? info.databaseBytes : null,
+      sizePending: true,
+    });
+  }
+  const result = {
+    ...info,
+    databaseBytes: unreadable === files.length && files.length > 0 ? null : info.databaseBytes,
+    sizePending: false,
+    ...(unreadable ? { sizeError: `${unreadable} 个数据库大小未能读取` } : {}),
+  };
+  onProgress?.(result);
+  return result;
 }
 
-export async function discoverBackups(path: string, recursive = false) {
+export async function discoverBackups(
+  path: string,
+  recursive = false,
+  options: { onCandidate?: (info: BackupScanInfo) => void; signal?: AbortSignal } = {},
+) {
   const seen = new Set<string>();
-  const result = await scanDirectories(
+  const result = await scanDirectories<BackupScanInfo>(
     path,
     async (directory) => {
-      const dbDir = await resolveBackupDirectory(directory);
-      if (!dbDir || seen.has(dbDir)) return [];
-      seen.add(dbDir);
-      return [await backupInfo(dbDir)];
+      options.signal?.throwIfAborted();
+      const location = await resolveBackupLocation(directory);
+      if (!location || seen.has(location.dbDir)) return [];
+      seen.add(location.dbDir);
+      options.onCandidate?.({
+        dirPath: location.accountDir,
+        dbDir: location.dbDir,
+        mediaDir: location.mediaDir,
+        databaseCount: null,
+        databaseBytes: null,
+        sizePending: true,
+      });
+      try {
+        return [await backupInfo(location.dbDir, options.onCandidate, options.signal)];
+      } catch (error) {
+        if (options.signal?.aborted) throw error;
+        const failed = {
+          dirPath: location.accountDir,
+          dbDir: location.dbDir,
+          mediaDir: location.mediaDir,
+          databaseCount: null,
+          databaseBytes: null,
+          sizePending: false,
+          sizeError: error instanceof Error ? error.message : String(error),
+        };
+        options.onCandidate?.(failed);
+        return [failed];
+      }
     },
     recursive,
+    options.signal,
   );
   return { candidates: result.items, truncated: result.truncated, unreadable: result.unreadable };
+}
+
+export type BackupScanCandidate = BackupScanInfo & {
+  probe: Awaited<ReturnType<typeof probeBackup>> | null;
+};
+export type BackupScanEvent =
+  | { kind: 'candidate'; candidate: BackupScanCandidate }
+  | { kind: 'done'; truncated: boolean; unreadable: number };
+
+/** 目录、文件体积和逐项身份验证分批回传，不等待整批原生探测。 */
+export async function scanBackupCandidates(
+  platform: Platform,
+  configs: AccountConfig[],
+  path: string,
+  recursive: boolean,
+  options: Parameters<typeof probeBackup>[3],
+  emit?: (event: BackupScanEvent) => void,
+  signal?: AbortSignal,
+) {
+  const result = await discoverBackups(path, recursive, {
+    signal,
+    onCandidate: (info) => emit?.({ kind: 'candidate', candidate: { ...info, probe: null } }),
+  });
+  const candidates = [];
+  for (const info of result.candidates) {
+    signal?.throwIfAborted();
+    let probe: Awaited<ReturnType<typeof probeBackup>>;
+    try {
+      probe = await probeBackup(platform, configs, info.dirPath, options);
+    } catch (error) {
+      probe = { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    signal?.throwIfAborted();
+    const candidate = { ...info, probe };
+    candidates.push(candidate);
+    emit?.({ kind: 'candidate', candidate });
+  }
+  emit?.({ kind: 'done', truncated: result.truncated, unreadable: result.unreadable });
+  return { ...result, candidates };
 }
 
 export function matchingBackupConfigs(dbDir: string, configs: AccountConfig[]) {

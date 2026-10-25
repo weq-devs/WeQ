@@ -35,6 +35,7 @@ export function KeyField({
   onAction,
   busy,
   online,
+  showAction = true,
 }: {
   mode: 'new' | 'existing';
   value: string;
@@ -43,6 +44,7 @@ export function KeyField({
   busy: boolean;
   /** new mode only: whether the selected account appears online (affects label). */
   online?: boolean;
+  showAction?: boolean;
 }): ReactElement {
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -77,6 +79,8 @@ export function KeyField({
           readOnly={mode === 'existing'}
           spellCheck={false}
           autoComplete="off"
+          aria-label="数据库密钥"
+          disabled={busy}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value.trim())}
           onKeyDown={(e) => {
@@ -116,21 +120,23 @@ export function KeyField({
         )}
       </div>
 
-      <button
-        type="button"
-        className="weq-action-primary weq-keyfield-action"
-        onClick={onAction}
-        disabled={busy || (isEnter && empty)}
-      >
-        {busy ? (
-          <Loader2 className="animate-spin" size={15} strokeWidth={1.8} aria-hidden />
-        ) : isEnter ? (
-          <ArrowRight size={15} strokeWidth={1.85} aria-hidden />
-        ) : (
-          <KeyRound size={15} strokeWidth={1.8} aria-hidden />
-        )}
-        {isEnter ? '进入' : '获取密钥'}
-      </button>
+      {showAction && (
+        <button
+          type="button"
+          className="weq-action-primary weq-keyfield-action"
+          onClick={onAction}
+          disabled={busy || (isEnter && empty)}
+        >
+          {busy ? (
+            <Loader2 className="animate-spin" size={15} strokeWidth={1.8} aria-hidden />
+          ) : isEnter ? (
+            <ArrowRight size={15} strokeWidth={1.85} aria-hidden />
+          ) : (
+            <KeyRound size={15} strokeWidth={1.8} aria-hidden />
+          )}
+          {isEnter ? '进入' : '获取密钥'}
+        </button>
+      )}
 
       {mode === 'new' && !empty && !complete && (
         <p className="weq-keyfield-hint">

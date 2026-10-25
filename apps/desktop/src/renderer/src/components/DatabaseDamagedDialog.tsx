@@ -229,7 +229,7 @@ export function DatabaseDamagedDialog({
                   </pre>
                 </li>
                 <li>
-                  修复完成后，用 WeQ 的「静态目录」方案（首页 → 新的开始 → 静态目录）打开
+                  修复完成后，用 WeQ 的「导入备份」（账号主页 → 导入备份）打开
                   修复后的数据库目录继续使用。
                 </li>
               </ol>

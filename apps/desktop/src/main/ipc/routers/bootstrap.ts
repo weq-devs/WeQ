@@ -84,7 +84,12 @@ import {
   localOcrBlocker,
 } from '@weq/service';
 import { runBackupProbe } from '../../backup_probe';
-import { discoverBackups, probeBackup, resolveBackupDirectory } from '../../static_backup';
+import {
+  scanBackupCandidates,
+  probeBackup,
+  resolveBackupDirectory,
+  type BackupScanEvent,
+} from '../../static_backup';
 import { normalizeQqDataRoot } from '@weq/platform';
 import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
 import { isDbRepairBusy } from './db_repair';
@@ -103,6 +108,25 @@ const algoSchema = z.object({
   pageHmacAlgorithm: z.string(),
   kdfHmacAlgorithm: z.string(),
 });
+
+function backupScanContext() {
+  const boot = requireBootstrap();
+  const configs = boot.userConfig.listAccountConfigs();
+  for (const config of configs) if (config.uid) rememberAccountUid(config.uin, config.uid);
+  let online: ReturnType<typeof import('../../capture_session').resolveOnlineInstances> | undefined;
+  return {
+    configs,
+    options: {
+      allowOnline: boot.userConfig.getSettings().autoAttachQq !== false,
+      attachHook: boot.attachHook,
+      keyContext: createOtherDeviceKeyContext(),
+      resolveOnline: () =>
+        (online ??= import('../../capture_session').then(({ resolveOnlineInstances }) =>
+          resolveOnlineInstances(boot, requirePlatform()),
+        )),
+    },
+  };
+}
 
 /** 导出灯箱选项快照（与渲染层 ExportOptions 一一对应）。 */
 const exportPresetOptionsSchema = z.object({
@@ -1767,30 +1791,40 @@ export const bootstrapRouter = router({
   scanStaticDirs: procedure
     .input(z.object({ dirPath: z.string().min(1), recursive: z.boolean().default(false) }))
     .mutation(async ({ input }) => {
-      const boot = requireBootstrap();
-      const configs = boot.userConfig.listAccountConfigs();
-      for (const config of configs) if (config.uid) rememberAccountUid(config.uin, config.uid);
-      const result = await discoverBackups(input.dirPath, input.recursive);
-      const candidates = [];
-      const keyContext = createOtherDeviceKeyContext();
-      let online:
-        | ReturnType<typeof import('../../capture_session').resolveOnlineInstances>
-        | undefined;
-      const resolveOnline = () =>
-        (online ??= import('../../capture_session').then(({ resolveOnlineInstances }) =>
-          resolveOnlineInstances(boot, requirePlatform()),
-        ));
-      for (const info of result.candidates) {
-        const probe = await probeBackup(requirePlatform(), configs, info.dirPath, {
-          allowOnline: boot.userConfig.getSettings().autoAttachQq !== false,
-          attachHook: boot.attachHook,
-          keyContext,
-          resolveOnline,
-        });
-        candidates.push({ ...info, probe });
-      }
-      return { ...result, candidates };
+      const { configs, options } = backupScanContext();
+      return scanBackupCandidates(
+        requirePlatform(),
+        configs,
+        input.dirPath,
+        input.recursive,
+        options,
+      );
     }),
+  scanStaticDirsProgress: procedure
+    .input(z.object({ dirPath: z.string().min(1), recursive: z.boolean().default(false) }))
+    .subscription(({ input }) =>
+      observable<BackupScanEvent>((emit) => {
+        const controller = new AbortController();
+        void (async () => {
+          const { configs, options } = backupScanContext();
+          await scanBackupCandidates(
+            requirePlatform(),
+            configs,
+            input.dirPath,
+            input.recursive,
+            options,
+            (event) => {
+              if (!controller.signal.aborted) emit.next(event);
+            },
+            controller.signal,
+          );
+          if (!controller.signal.aborted) emit.complete();
+        })().catch((error: unknown) => {
+          if (!controller.signal.aborted) emit.error(error);
+        });
+        return () => controller.abort();
+      }),
+    ),
 
   // ---- key correctness probe ----
 

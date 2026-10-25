@@ -11,6 +11,8 @@ import {
   discoverBackups,
   matchingBackupConfigs,
   probeBackup,
+  scanBackupCandidates,
+  type BackupScanEvent,
 } from '../src/main/static_backup';
 import { inspectBackupDatabases } from '../src/main/backup_probe_core';
 
@@ -101,6 +103,101 @@ it('深层账号需要手动递归，同路径不重复列出', async () => {
   db(join(root, 'archive', 'snapshot', 'nt_db'));
   expect((await discoverBackups(root)).candidates).toHaveLength(0);
   expect((await discoverBackups(root, true)).candidates).toHaveLength(1);
+});
+it('目录发现后文件被移走时保留已发现项与失败状态，不把未知大小冒充零', async () => {
+  const root = db(fixture());
+  let removed = false;
+  const result = await discoverBackups(root, false, {
+    onCandidate(info) {
+      if (info.databaseCount === 3 && info.databaseBytes === null && !removed) {
+        removed = true;
+        for (const name of ['nt_msg.db', 'profile_info.db', 'group_info.db'])
+          rmSync(join(root, name));
+      }
+    },
+  });
+  expect(result.candidates[0]).toMatchObject({
+    databaseCount: 3,
+    databaseBytes: null,
+    sizePending: false,
+    sizeError: '3 个数据库大小未能读取',
+  });
+});
+it('先回传目录，再逐步补齐大小；原生识别未结束时结果已可见', async () => {
+  const root = db(fixture());
+  const events: BackupScanEvent[] = [];
+  let release!: () => void;
+  f.derive.mockImplementationOnce(
+    () =>
+      new Promise<undefined>((resolve) => {
+        release = () => resolve(undefined);
+      }),
+  );
+  let done = false;
+  const task = scanBackupCandidates(platform, [], root, false, { allowOnline: false }, (event) =>
+    events.push(event),
+  ).then((result) => {
+    done = true;
+    return result;
+  });
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  expect(done).toBe(false);
+  expect(events[0]).toMatchObject({
+    kind: 'candidate',
+    candidate: {
+      dirPath: root,
+      databaseCount: null,
+      databaseBytes: null,
+      sizePending: true,
+      probe: null,
+    },
+  });
+  const updates = events.filter((event) => event.kind === 'candidate');
+  expect(
+    updates.some((event) => event.candidate.databaseCount === 3 && event.candidate.sizePending),
+  ).toBe(true);
+  expect(updates.at(-1)?.candidate).toMatchObject({
+    databaseCount: 3,
+    databaseBytes: 27,
+    sizePending: false,
+    probe: null,
+  });
+  release();
+  await task;
+  expect(events.at(-1)).toMatchObject({ kind: 'done' });
+  expect(events.at(-2)).toMatchObject({
+    kind: 'candidate',
+    candidate: { probe: { ok: true, needKey: true } },
+  });
+});
+it('取消扫描后不再探测下一个目录或发送完成回执', async () => {
+  const root = fixture();
+  db(join(root, 'first'));
+  db(join(root, 'second'));
+  const events: BackupScanEvent[] = [],
+    controller = new AbortController();
+  let release!: () => void;
+  f.derive.mockImplementationOnce(
+    () =>
+      new Promise<undefined>((resolve) => {
+        release = () => resolve(undefined);
+      }),
+  );
+  const task = scanBackupCandidates(
+    platform,
+    [],
+    root,
+    false,
+    { allowOnline: false },
+    (event) => events.push(event),
+    controller.signal,
+  );
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  controller.abort();
+  release();
+  await expect(task).rejects.toThrow();
+  expect(f.derive).toHaveBeenCalledOnce();
+  expect(events.some((event) => event.kind === 'done')).toBe(false);
 });
 it.each([
   { system: 'Windows', root: ['Documents', 'Tencent Files'], account: ['12345', 'nt_qq'] },
