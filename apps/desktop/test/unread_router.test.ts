@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
+import { dbEventBus } from '../src/main/context/app_context';
 
 const fixture = vi.hoisted(() => ({
   uin: '10001',
@@ -11,7 +12,8 @@ const fixture = vi.hoisted(() => ({
   setReadState: vi.fn(),
   undoReadState: vi.fn(),
 }));
-vi.mock('../src/main/context/app_context', () => {
+vi.mock('../src/main/context/app_context', async () => {
+  const { EventEmitter } = await import('node:events');
   const services = {
     accountConfig: { getRecord: () => ({ configId: fixture.configId }) },
     unreadInfo: {
@@ -23,6 +25,7 @@ vi.mock('../src/main/context/app_context', () => {
     },
   };
   return {
+    dbEventBus: new EventEmitter(),
     getAppContext: () => ({
       account: { context: { uin: fixture.uin } },
       accountIsStatic: fixture.staticAccount,
@@ -32,6 +35,7 @@ vi.mock('../src/main/context/app_context', () => {
 });
 const targets = [{ chatType: 2 as const, uid: '777' }];
 beforeEach(() => {
+  dbEventBus.removeAllListeners();
   vi.resetAllMocks();
   fixture.uin = '10001';
   fixture.staticAccount = false;
@@ -53,6 +57,47 @@ beforeEach(() => {
 });
 
 describe('未读 IPC', () => {
+  it('未指定绑定字段时仍锁定订阅建立时的账号，切号不再推送', async () => {
+    const stream = await accountRouter.createCaller({}).onUnreadChanged({});
+    const next = vi.fn();
+    const subscription = stream.subscribe({ next });
+    const change = { c2c: [], group: [{ targetGroupCode: '777' }] };
+    dbEventBus.emit('new', change);
+    expect(next).toHaveBeenCalledWith([{ chatType: 2, uid: '777' }]);
+    fixture.uin = '10002';
+    dbEventBus.emit('new', change);
+    expect(next).toHaveBeenCalledTimes(1);
+    subscription.unsubscribe();
+  });
+
+  it('新消息差分通知直接携带去重未读目标，不依赖全量扫描或发送正文', async () => {
+    const api = accountRouter.createCaller({});
+    const stream = await api.onUnreadChanged({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+    });
+    const next = vi.fn();
+    const subscription = stream.subscribe({ next });
+    const change = {
+      c2c: [{ targetUid: 'u_other' }, { targetUid: 'u_other' }],
+      group: [{ targetGroupCode: '777' }],
+      dataline: [{ targetUid: 'device', chatType: 8 }],
+    };
+    dbEventBus.emit('new', change);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(next).toHaveBeenCalledWith([
+      { chatType: 1, uid: 'u_other' },
+      { chatType: 2, uid: '777' },
+      { chatType: 8, uid: 'device' },
+    ]);
+    fixture.configId = 'source-b';
+    dbEventBus.emit('new', change);
+    fixture.uin = '10002';
+    dbEventBus.emit('new', change);
+    expect(next).toHaveBeenCalledTimes(1);
+    subscription.unsubscribe();
+    expect(dbEventBus.listenerCount('new')).toBe(0);
+  });
   it('设备保留真实类型，同号切来源后拒绝旧查询和标已读', async () => {
     const api = accountRouter.createCaller({});
     const input = {

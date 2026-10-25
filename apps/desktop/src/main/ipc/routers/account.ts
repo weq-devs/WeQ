@@ -4696,6 +4696,39 @@ export const accountRouter = router({
     });
   }),
 
+  /** 本地未读差分已落地后立即通知目标，避免红点依赖全会话扫描。 */
+  onUnreadChanged: procedure.input(exportAccountBindingInput).subscription(({ input }) => {
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    const uin = String(getAppContext().account?.context.uin ?? '');
+    const configId = services.accountConfig.getRecord()?.configId;
+    return observable<Array<{ chatType: number; uid: string }>>((emit) => {
+      const handler = (change: NewMessages): void => {
+        const ctx = getAppContext();
+        if (
+          ctx.services !== services ||
+          String(ctx.account?.context.uin ?? '') !== uin ||
+          services.accountConfig.getRecord()?.configId !== configId
+        )
+          return;
+        const targets = [
+          ...change.c2c.map((msg) => ({ chatType: 1, uid: msg.targetUid })),
+          ...change.group.map((msg) => ({ chatType: 2, uid: msg.targetGroupCode })),
+          ...(change.dataline ?? []).map((msg) => ({ chatType: msg.chatType, uid: msg.targetUid })),
+        ];
+        emit.next([
+          ...new Map(
+            targets.map((target) => [`${target.chatType}:${target.uid}`, target]),
+          ).values(),
+        ]);
+      };
+      dbEventBus.on('new', handler);
+      return () => dbEventBus.off('new', handler);
+    });
+  }),
+
   /**
    * Live push of newly-inserted messages (rowid-delta). Reserved for unread /
    * popup notifications — the open conversation is kept fresh by `onDbChanged`,

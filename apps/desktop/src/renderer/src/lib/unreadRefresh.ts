@@ -45,6 +45,45 @@ export function createUnreadRefresh(load: () => Promise<boolean>, delayMs = 100)
   };
 }
 
+/** 实时变更只读受影响的会话，不排在全量扫描或首屏消息加载后面。 */
+export function createUnreadTargetRefresh<T extends { chatType: number; uid: string }>(
+  load: (targets: T[]) => Promise<boolean>,
+) {
+  let disposed = false;
+  const queued = new Map<string, T>();
+  const key = (target: T) => `${target.chatType}:${target.uid}`;
+  const refresh = createUnreadRefresh(async () => {
+    const batch = [...queued.values()].slice(0, 256);
+    if (!batch.length) return true;
+    for (const target of batch) queued.delete(key(target));
+    let succeeded = false;
+    try {
+      succeeded = await load(batch);
+      return succeeded;
+    } finally {
+      if (!succeeded && !disposed) {
+        // 失败目标先重试；期间新到的同会话通知仍保留。
+        const pending = [...queued.values()];
+        queued.clear();
+        for (const target of [...batch, ...pending]) queued.set(key(target), target);
+      }
+      if (queued.size) refresh.request();
+    }
+  }, 0);
+  return {
+    request(targets: T[]) {
+      if (disposed) return;
+      for (const target of targets) queued.set(key(target), target);
+      if (queued.size) refresh.request();
+    },
+    dispose() {
+      disposed = true;
+      refresh.dispose();
+      queued.clear();
+    },
+  };
+}
+
 /** 重试固定水位的已读请求；换号、换会话或隐藏后不再发出下一次请求。 */
 export async function retryConversationRead<T>(
   write: () => Promise<T>,

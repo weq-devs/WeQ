@@ -71,6 +71,7 @@ import { useDismissUnsentOutgoing } from '../hooks/useDismissUnsentOutgoing';
 import { reconcileFileMessages, type FileSyncReceipt } from '../lib/fileSendReconcile';
 import {
   createUnreadRefresh,
+  createUnreadTargetRefresh,
   createUnreadUpdateGuard,
   retryConversationRead,
 } from '../lib/unreadRefresh';
@@ -4995,10 +4996,14 @@ export function MainView(): ReactElement {
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
       if (!isCurrent()) return true;
-      const ids = new Set(list.map((contact) => contact.targetUid));
+      const ids = new Set(unreadContactsRef.current.map((contact) => contact.targetUid));
       setUnreadByConv((current) => {
         const next: Record<string, number> = {};
-        for (const id of ids) {
+        const keep = new Set([
+          ...ids,
+          ...Object.keys(current).filter((id) => !guard.accepts(id, startedAt)),
+        ]);
+        for (const id of keep) {
           const value =
             succeeded.has(id) && guard.accepts(id, startedAt) ? counts[id] : current[id];
           if (value !== undefined) next[id] = value;
@@ -5010,7 +5015,11 @@ export function MainView(): ReactElement {
       });
       setHighlightsByConv((current) => {
         const next: Record<string, ConversationHighlight[]> = {};
-        for (const id of ids) {
+        const keep = new Set([
+          ...ids,
+          ...Object.keys(current).filter((id) => !guard.accepts(id, startedAt)),
+        ]);
+        for (const id of keep) {
           const value =
             succeeded.has(id) && guard.accepts(id, startedAt) ? highlights[id] : current[id];
           if (value?.length) next[id] = value;
@@ -5021,6 +5030,48 @@ export function MainView(): ReactElement {
     }
 
     const refresh = createUnreadRefresh(loadUnread);
+    const liveRefresh = createUnreadTargetRefresh<
+      Parameters<typeof client.account.getUnreadInfos.query>[0]['targets'][number]
+    >(async (targets) => {
+      if (!isCurrent() || !binding) return true;
+      const startedAt = guard.revision();
+      const rows = await client.account.getUnreadInfos.query({ ...binding, targets });
+      if (!isCurrent()) return true;
+      const accepted = rows.filter((row) => !row.readError && guard.accepts(row.uid, startedAt));
+      // 实时结果也推进版本，不能被更早启动的全量扫描回灌。
+      const finish = guard.begin(accepted.map((row) => row.uid));
+      finish();
+      setUnreadByConv((current) => {
+        const next = { ...current };
+        for (const row of accepted) next[row.uid] = row.unreadCount ?? 0;
+        return next;
+      });
+      setHighlightsByConv((current) => {
+        const next = { ...current };
+        for (const row of accepted) {
+          if (row.highlights?.length) next[row.uid] = row.highlights as ConversationHighlight[];
+          else delete next[row.uid];
+        }
+        return next;
+      });
+      return !rows.some((row) => row.readError);
+    });
+    const liveSub = binding
+      ? client.account.onUnreadChanged.subscribe(binding, {
+          onData(targets) {
+            if (!isCurrent()) return;
+            liveRefresh.request(
+              targets.flatMap((target) => {
+                const chatType = unreadChatType(target.chatType);
+                return chatType === null ? [] : [{ ...target, chatType }];
+              }),
+            );
+          },
+          onError(error) {
+            console.error('[unread] 实时未读订阅失败', error);
+          },
+        })
+      : null;
     requestUnreadRefreshRef.current = refresh.request;
     const onVisible = () => {
       if (document.visibilityState !== 'hidden') refresh.request();
@@ -5030,6 +5081,8 @@ export function MainView(): ReactElement {
     refresh.request();
     return () => {
       disposed = true;
+      liveSub?.unsubscribe();
+      liveRefresh.dispose();
       refresh.dispose();
       window.removeEventListener('focus', onVisible);
       document.removeEventListener('visibilitychange', onVisible);
