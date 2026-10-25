@@ -93,6 +93,7 @@ import {
 import { normalizeQqDataRoot } from '@weq/platform';
 import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
 import { isDbRepairBusy } from './db_repair';
+import { launchQq } from '../../qq_launch';
 
 /** Result of the QQ data-directory picker. */
 export interface PickRootResult {
@@ -337,6 +338,12 @@ export const bootstrapRouter = router({
   /** Force a fresh install probe (e.g. after the user changes the data dir). */
   refreshInstall: procedure.mutation(() => {
     return requireBootstrap().globalConfig.refresh();
+  }),
+
+  /** 启动宿主上已安装的 QQ，不自动登录或更改在线功能设置。 */
+  launchQq: procedure.mutation(async () => {
+    await launchQq(requirePlatform());
+    return true;
   }),
 
   listAccounts: procedure.query(() => {

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { KeyRound, LoaderCircle, RefreshCw, ShieldAlert, X } from 'lucide-react';
+import { KeyRound, LoaderCircle, Play, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { restrictionReasons } from '../lib/restrictedMode';
 import { useRestrictedMode, type AuthorizationRequest } from '../state/restrictedMode';
@@ -177,6 +177,7 @@ export function RestrictedModeHost() {
   const notice = useRef<number | undefined>(undefined);
   const titleId = useId();
   const [busy, setBusy] = useState(false);
+  const [launching, setLaunching] = useState(false);
   const [error, setError] = useState('');
   const utils = trpc.useUtils();
   useEffect(() => {
@@ -338,6 +339,18 @@ export function RestrictedModeHost() {
       if (before instanceof HTMLElement && before.isConnected) before.focus();
     };
   }, [open]);
+  async function startQq() {
+    setLaunching(true);
+    setError('');
+    try {
+      await client.bootstrap.launchQq.mutate();
+      await (active ? access.refetch() : online.refetch());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLaunching(false);
+    }
+  }
   async function refresh(enable = false) {
     setBusy(true);
     setError('');
@@ -403,10 +416,26 @@ export function RestrictedModeHost() {
             ))}
             {error && <p role="alert">{error}</p>}
             <div className="weq-restricted-actions">
+              {reasons.some((reason) => reason.code === 'offline') && (
+                <button
+                  type="button"
+                  className="weq-set-btn"
+                  disabled={busy || launching}
+                  aria-busy={launching}
+                  onClick={() => void startQq()}
+                >
+                  {launching ? (
+                    <LoaderCircle size={14} className="weq-restricted-progress-icon" />
+                  ) : (
+                    <Play size={14} />
+                  )}
+                  {launching ? '正在启动 QQ' : '启动 QQ'}
+                </button>
+              )}
               <button
                 type="button"
                 className="weq-set-btn"
-                disabled={busy}
+                disabled={busy || launching}
                 onClick={() => void refresh()}
               >
                 <RefreshCw size={14} />
@@ -416,7 +445,7 @@ export function RestrictedModeHost() {
                 <button
                   type="button"
                   className="weq-set-btn"
-                  disabled={busy}
+                  disabled={busy || launching}
                   onClick={() => void refresh(true)}
                 >
                   <KeyRound size={14} />

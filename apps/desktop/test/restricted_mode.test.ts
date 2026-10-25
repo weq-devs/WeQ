@@ -23,6 +23,9 @@ const mock = vi.hoisted(() => ({
   updatedAt: 0,
   failed: false,
   sip: null as boolean | null,
+  onlineCount: 1,
+  onlineFailed: false,
+  launchQq: vi.fn(async () => true),
   refetch: vi.fn(async () => ({})),
   send: vi.fn(),
   listeners: new Map<string, (...args: unknown[]) => void>(),
@@ -32,6 +35,7 @@ const mock = vi.hoisted(() => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
+    bootstrap: { launchQq: { mutate: mock.launchQq } },
     account: {
       onOnlineCredentialsReady: {
         subscribe: (_input: undefined, handlers: { onData: () => void }) => {
@@ -56,7 +60,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     bootstrap: {
       sipEnabled: { useQuery: () => ({ data: mock.sip, refetch: mock.refetch }) },
       probeOnline: {
-        useQuery: () => ({ data: { count: 1 }, isError: false, refetch: mock.refetch }),
+        useQuery: () => ({
+          data: { count: mock.onlineCount },
+          isError: mock.onlineFailed,
+          refetch: mock.refetch,
+        }),
       },
     },
   },
@@ -118,6 +126,10 @@ beforeEach(() => {
   mock.updatedAt = Date.now();
   mock.failed = false;
   mock.sip = null;
+  mock.onlineCount = 1;
+  mock.onlineFailed = false;
+  mock.launchQq.mockReset().mockResolvedValue(true);
+  mock.refetch.mockClear();
   mock.send.mockClear();
   mock.listeners.clear();
   mock.credentialsReady = undefined;
@@ -158,6 +170,75 @@ function submitAuthorization(form: HTMLFormElement) {
   });
   act(() => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
 }
+
+describe('受限模式启动 QQ', () => {
+  function launchButton(host: HTMLElement) {
+    return [...host.querySelectorAll('button')].find((button) => button.textContent === '启动 QQ');
+  }
+  it.each(['main', 'startup'] as const)(
+    '%s 页确认 QQ 离线时可启动，启动不冒充登录成功',
+    async (view) => {
+      mock.access = { ...ready, qqOnline: false };
+      mock.onlineCount = 0;
+      useViewState.setState({ view, openedUin: view === 'main' ? '10001' : null });
+      const f = fixture();
+      act(() => useRestrictedMode.getState().setOpen(true));
+      expect(launchButton(f.host)).toBeDefined();
+      await act(async () => launchButton(f.host)!.click());
+      expect(mock.launchQq).toHaveBeenCalledOnce();
+      expect(mock.launchQq).toHaveBeenCalledWith();
+      expect(mock.refetch).toHaveBeenCalled();
+      expect(f.host.textContent).toContain('QQ 不在线');
+      expect(useRestrictedMode.getState().enteringSince).toBeNull();
+      expect(useToast.getState().toasts.some((toast) => toast.tone === 'success')).toBe(false);
+    },
+  );
+  it.each([{ ...ready, attachEnabled: false }, { ...ready, hasD2: false }, undefined])(
+    '其他限制或状态未知不显示启动按钮：%j',
+    (access) => {
+      mock.access = access;
+      mock.failed = access === undefined;
+      const f = fixture();
+      act(() => useRestrictedMode.getState().setOpen(true));
+      expect(launchButton(f.host)).toBeUndefined();
+      expect(mock.launchQq).not.toHaveBeenCalled();
+    },
+  );
+  it('启动期间禁用操作，失败后显示原因并允许重试', async () => {
+    mock.access = { ...ready, qqOnline: false, attachEnabled: false };
+    let fail = (_error: Error) => {};
+    mock.launchQq.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = reject;
+        }),
+    );
+    const f = fixture();
+    act(() => useRestrictedMode.getState().setOpen(true));
+    act(() => launchButton(f.host)!.click());
+    const launching = [...f.host.querySelectorAll('button')].find(
+      (button) => button.textContent === '正在启动 QQ',
+    );
+    expect(launching?.disabled).toBe(true);
+    expect(
+      [...f.host.querySelectorAll('.weq-restricted-actions button')].every(
+        (button) => (button as HTMLButtonElement).disabled,
+      ),
+    ).toBe(true);
+    act(() => launching!.click());
+    expect(mock.launchQq).toHaveBeenCalledOnce();
+    await act(async () => fail(new Error('未检测到 QQ 安装，请先安装 QQ。')));
+    expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('未检测到 QQ 安装');
+    expect(launchButton(f.host)?.disabled).toBe(false);
+    await act(async () => launchButton(f.host)!.click());
+    expect(mock.launchQq).toHaveBeenCalledTimes(2);
+    expect(f.host.querySelector('[role="alert"]')).toBeNull();
+    mock.access = { ...ready, attachEnabled: false };
+    f.render();
+    expect(launchButton(f.host)).toBeUndefined();
+    expect(f.host.textContent).toContain('完全离线模式');
+  });
+});
 
 describe('非阻塞提权入口', () => {
   it.each(['elev:request-password', 'attach:confirm-hint'])(
