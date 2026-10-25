@@ -20,6 +20,7 @@
 
 import { EventEmitter } from 'node:events';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
+import { resolveBackupLocation, backupMediaRoots } from '../static_backup';
 import { VipBadgeService } from '../vip_badge';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -1856,6 +1857,13 @@ export function initAppContext(fileRoot?: string): AppContext {
             marketFace: (pack, hash) => emojiService.getMarketFace(pack, hash),
             // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
             messageBackfill: gapHistory,
+            exportAccountUin: session.context.uin,
+            fetchForward: (resId) =>
+              new ForwardMsgService(
+                session,
+                platform.native.ntHelper,
+                resolveOnlinePid,
+              ).fetchRemote(resId),
             // 漫游缓存元素回退：补全消息不在本地 msg 表，导出下载按 msgId 定位媒体元素。
             gapHistory,
           },
@@ -1914,7 +1922,10 @@ export function initAppContext(fileRoot?: string): AppContext {
         messageSend: new MessageSendService(
           platform.native.ntHelper,
           session,
-          resolveOnlinePid,
+          () => {
+            if (getAppContext().account !== session) throw new Error('账号已切换，请重新发送。');
+            return resolveOnlinePid();
+          },
           // 商城表情包的密钥解析：发 mface 时把空 encryptKey 补上（同 getMarketPackKey）。
           (packId) => emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
           async (message) => {
@@ -1927,6 +1938,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               messages: [message],
             } satisfies RoamingCacheChange);
           },
+          () => accountConfig.getRecord()?.homeDress?.fontId,
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, resolveOnlinePid),
@@ -1974,6 +1986,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Persist credentials + metadata, keyed by data directory. Must run
       // before the monitor starts so its patches land on an existing record.
       accountConfig.save(metadata);
+      await accountConfig.refreshDisplayName();
       const mail = this.services.mail;
       mail.startBackground({
         notifications: accountConfig.getRecord()?.mailNotifications ?? false,
@@ -2110,6 +2123,9 @@ export function initAppContext(fileRoot?: string): AppContext {
         mobile?: boolean;
       } = {},
     ): Promise<void> {
+      const backup = await resolveBackupLocation(dirPath);
+      if (!backup) throw new Error('未找到 QQ 账号数据库目录');
+      dirPath = backup.dbDir;
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
       logger.info('opening static account session', {
@@ -2180,17 +2196,19 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Re-probed on every open: the user may have changed the global data-dir
       // override since last time, so the persisted path is display-only.
       const nativeDir = platform.accountDir(session.context.uin);
+      const importedMedia = backup.mediaDir;
       const nativeMediaOn = (): boolean =>
         nativeDir !== null && (accountConfig.getRecord()?.nativeMediaEnabled ?? true);
 
-      // Every service below resolves its resources through this wrapper instead
-      // of the bare platform. Databases point at the imported folder (otherwise
-      // the db browser and emoji.db reads would silently target the local
-      // install), and media resolves to the native dir only while bound — else
-      // null, which makes the media pipeline fall through to CDN completion.
+      // 数据库始终指向导入目录；媒体优先取备份自带的 nt_data，缺失时才使用
+      // 用户允许关联的本机同账号目录，否则由原有管线回退在线补全。
       const staticPlatform = withResourceRoots(platform, () => ({
         dbDir: dirPath,
-        media: nativeMediaOn() ? 'passthrough' : 'none',
+        media: importedMedia
+          ? backupMediaRoots(importedMedia, backup.accountDir)
+          : nativeMediaOn()
+            ? 'passthrough'
+            : 'none',
       }));
       this.resourcePlatform = staticPlatform;
       this.accountIsStatic = true;
@@ -2587,6 +2605,9 @@ export function initAppContext(fileRoot?: string): AppContext {
             },
             // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
             messageBackfill: gapHistory,
+            exportAccountUin: session.context.uin,
+            fetchForward: (resId) =>
+              new ForwardMsgService(session, platform.native.ntHelper, livePid).fetchRemote(resId),
             // 漫游缓存元素回退：补全消息不在本地 msg 表，导出下载按 msgId 定位媒体元素。
             gapHistory,
           },
@@ -2638,7 +2659,10 @@ export function initAppContext(fileRoot?: string): AppContext {
         messageSend: new MessageSendService(
           platform.native.ntHelper,
           session,
-          livePid,
+          () => {
+            if (getAppContext().account !== session) throw new Error('账号已切换，请重新发送。');
+            return livePid();
+          },
           (packId) => emojiService.getMarketPackKey(packId).then((key) => key?.key ?? null),
           async (message) => {
             await gapHistory.retainForBatch([message]);
@@ -2650,6 +2674,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               messages: [message],
             } satisfies RoamingCacheChange);
           },
+          () => accountConfig.getRecord()?.homeDress?.fontId,
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, livePid),
@@ -2684,12 +2709,14 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountConfig.save({
         dataDir: dirPath,
         static: true,
+        backupAccountDir: backup.accountDir,
         ...(options.mobile ? { mobile: true } : {}),
         ...(selfUid ? { uid: selfUid } : {}),
         ...(nativeDir ? { nativeMediaDir: nativeDir } : {}),
         ...(selfPreview.displayName ? { displayName: selfPreview.displayName } : {}),
         ...(selfPreview.avatarUrl ? { avatarUrl: selfPreview.avatarUrl } : {}),
       });
+      await accountConfig.refreshDisplayName();
       const mail = this.services.mail;
       mail.startBackground({
         notifications: accountConfig.getRecord()?.mailNotifications ?? false,

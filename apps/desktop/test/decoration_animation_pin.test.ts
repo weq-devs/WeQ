@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.resetModules();
-  document.head.querySelector('#weq-msg-decoration')?.remove();
+  for (const node of document.head.querySelectorAll('[data-weq-msg-decoration]')) node.remove();
 });
 
 /**
@@ -65,7 +65,7 @@ it('挂件开播后，后续大量预热不会把在播的帧挤出缓存', asyn
   const { decorationImageCache } = await import('../src/renderer/src/lib/decodedImageCache');
 
   const frameCount = 20;
-  injectWidgetCss({
+  const release = injectWidgetCss({
     animated: true,
     itemId: 90002,
     frameCount,
@@ -86,5 +86,6 @@ it('挂件开播后，后续大量预热不会把在播的帧挤出缓存', asyn
   );
 
   expect(playing.filter((image) => image.src === '').length).toBe(0);
+  release();
   decorationImageCache.dispose();
 });

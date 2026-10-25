@@ -42,6 +42,7 @@ import { openLightbox } from './ImageLightbox';
 import { collectionImageUrl } from '../lib/resourceUrl';
 import { closeFromScrim, useEscapeToClose } from '../im-template/template/modalUtils';
 import { CollectionContent, collectionContentText } from './CollectionContent';
+import { CollectionImage } from './CollectionImage';
 import { IS_WEB } from '../lib/target';
 import { CollectionExportDialog } from '../views/export/CollectionExportDialog';
 import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
@@ -304,8 +305,8 @@ function Thumb({ pic, alt }: { pic: PicWire; alt: string }): ReactElement {
       onClick={() => openLightbox(src, alt)}
       title="查看大图"
     >
-      <img
-        src={src}
+      <CollectionImage
+        originalSrc={pic.uri}
         alt={alt}
         loading="lazy"
         onError={(e) => {
@@ -349,9 +350,9 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
           title={l.url}
         >
           {cover ? (
-            <img
+            <CollectionImage
               className="weq-col-link-thumb"
-              src={collectionImageUrl(cover.uri)}
+              originalSrc={cover.uri}
               alt=""
               loading="lazy"
             />
@@ -405,7 +406,11 @@ function CardBody({ it }: { it: CollectionItemWire }): ReactElement {
             onClick={() => src && openLightbox(src, v.title || '视频封面')}
             disabled={!src}
           >
-            {src ? <img src={src} alt="" loading="lazy" /> : <Film size={26} strokeWidth={1.4} />}
+            {src && v.cover ? (
+              <CollectionImage originalSrc={v.cover.uri} alt="" />
+            ) : (
+              <Film size={26} strokeWidth={1.4} />
+            )}
             <span className="weq-col-video-play">
               <Play size={18} strokeWidth={1.8} fill="currentColor" />
             </span>

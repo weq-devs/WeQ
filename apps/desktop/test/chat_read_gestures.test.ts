@@ -23,6 +23,52 @@ afterEach(() => {
 });
 
 describe('新消息按钮已读行为', () => {
+  it('已排队的贴底补偿不能覆盖用户刚刚向上滚动的位置', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const demo = createTemplateDemoData();
+    const conversation = demo.conversations.find((item) => item.type === 'group')!;
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          createElement(ChatPane, {
+            user: demo.user,
+            conversation,
+            messages: [{ ...demo.messages[0]!, conversationId: conversation.id }],
+            loading: false,
+            atLatest: true,
+            draft: '',
+            onSend: vi.fn(),
+            onDraftChange: vi.fn(),
+            onDraftClear: vi.fn(),
+            onBack: vi.fn(),
+          }),
+        ),
+      );
+      const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+      Object.defineProperties(scroll, {
+        scrollHeight: { configurable: true, value: 2000 },
+        clientHeight: { configurable: true, value: 400 },
+      });
+      act(() => {
+        scroll.scrollTop = 200;
+        scroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+        for (const callback of frames.splice(0)) callback(0);
+      });
+      expect(scroll.scrollTop).toBe(200);
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
   it('恢复会话阅读位置后，下方加载与追加新消息均不自动滚动', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());

@@ -17,15 +17,18 @@ function fixture(run: (root: string, add: (path: string) => void) => void): void
   }
 }
 
-test('packaged worker resolves the physical extraResource rather than asar', () => {
-  fixture((root, add) => {
-    const physical = join(root, 'out/main/attachWorker.mjs');
-    const virtualDir = join(root, 'app.asar/out/main');
-    add(physical);
-    add(join(virtualDir, 'attachWorker.mjs'));
-    assert.equal(resolveChildWorkerPath('attachWorker.mjs', virtualDir, root), physical);
-  });
-});
+test.each(['attachWorker.mjs', 'backupProbeWorker.mjs'])(
+  'packaged %s resolves the physical extraResource rather than asar',
+  (name) => {
+    fixture((root, add) => {
+      const physical = join(root, 'out/main', name);
+      const virtualDir = join(root, 'app.asar/out/main');
+      add(physical);
+      add(join(virtualDir, name));
+      assert.equal(resolveChildWorkerPath(name, virtualDir, root), physical);
+    });
+  },
+);
 
 test('development and chunked entry resolve sibling and parent workers', () => {
   fixture((root, add) => {

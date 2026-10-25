@@ -21,7 +21,12 @@ import type { Element } from '@weq/codec';
 import type { MsgService } from '../msg';
 import type { GapHistoryService } from '../gap_history';
 import type { MediaDownloadService } from '../media_download';
-import { downloadUrlToFile, type MediaUrlService, type MediaElement } from '../media_url';
+import {
+  downloadUrlToFile,
+  mediaElementFromRenderElement,
+  type MediaUrlService,
+  type MediaElement,
+} from '../media_url';
 import type { ConvKind } from './types';
 import type { MediaRef, MediaScanResult } from './media_scan';
 
@@ -499,6 +504,7 @@ export async function downloadMissingImages(
   onProgress?: StageProgress,
   concurrency = 6,
   onLog?: StageLog,
+  signal?: AbortSignal,
 ): Promise<MediaStageResult> {
   const items = scan.downloadList.filter(
     (ref) => (ref.kind === 'pic' || ref.kind === 'emoji') && ref.fileToken,
@@ -511,12 +517,14 @@ export async function downloadMissingImages(
 
   let done = 0;
   await runWithConcurrency(items, concurrency, async (ref) => {
+    if (signal?.aborted) return;
     try {
       const ext = extname(ref.fileName) || '.jpg';
       const cached = await mediaDownload.download(ref.fileToken, {
         ext,
         originalUrl: ref.originalUrl,
       });
+      if (signal?.aborted) return;
       if (cached) {
         await copyFile(cached, join(imageDir, ref.fileName));
         result.ok += 1;
@@ -565,6 +573,23 @@ async function findRawElement(
   ref: MediaRef,
   kind: 'video' | 'file' | 'ptt',
 ): Promise<Element | null> {
+  ctx.msgs.exportSignal?.throwIfAborted();
+  if (
+    ref.forwardMsgId &&
+    ctx.msgs.findForwardedMediaElement &&
+    (ctx.kind === 'group' || ctx.kind === 'c2c')
+  ) {
+    const forwarded = await ctx.msgs.findForwardedMediaElement(
+      ctx.kind,
+      BigInt(ref.msgId),
+      BigInt(ref.forwardMsgId),
+      kind,
+      ref.fileToken,
+    );
+    if (forwarded) return forwarded;
+  }
+  if (ref.forwardElement)
+    return mediaElementFromRenderElement(ref.forwardElement) as unknown as Element;
   let raw: Awaited<ReturnType<MsgService['getRawElements']>>;
   try {
     raw = await ctx.msgs.getRawElements(BigInt(ref.msgId));
@@ -589,7 +614,8 @@ async function findRawElement(
 /** Shared context for the OIDB-backed video / file / ptt download stages. */
 export interface UrlDownloadCtx {
   mediaUrl: MediaUrlService;
-  msgs: Pick<MsgService, 'getRawElements'>;
+  msgs: Pick<MsgService, 'getRawElements'> &
+    Partial<Pick<MsgService, 'findForwardedMediaElement' | 'exportSignal'>>;
   kind: ConvKind;
   /** Group code (群号) for group conversations; unused for c2c. */
   conv: string;
@@ -658,7 +684,9 @@ export async function downloadMissingVideos(
         onLog?.(`补全视频失败 ${ref.fileName}：OIDB 返回空地址`, 'warn');
         return;
       }
-      const outcome = await downloadUrlToFile(url, join(videoDir, ref.fileName));
+      const outcome = await downloadUrlToFile(url, join(videoDir, ref.fileName), {
+        signal: ctx.msgs.exportSignal,
+      });
       if (outcome.ok) {
         result.ok += 1;
         onLog?.(`已补全视频 ${ref.fileName}（${done + 1}/${items.length}）`);
@@ -754,7 +782,9 @@ export async function downloadMissingFiles(
         onLog?.(`补全文件失败 ${ref.fileName}：OIDB 返回空地址`, 'warn');
         return;
       }
-      const outcome = await downloadUrlToFile(url, join(fileDir, ref.fileName));
+      const outcome = await downloadUrlToFile(url, join(fileDir, ref.fileName), {
+        signal: ctx.msgs.exportSignal,
+      });
       if (outcome.ok) {
         result.ok += 1;
         onLog?.(`已补全文件 ${ref.fileName}（${done + 1}/${items.length}）`);
@@ -851,7 +881,7 @@ export async function downloadMissingVoices(
         onLog?.(`补全语音失败 ${ref.fileName}：OIDB 返回空地址`, 'warn');
         return;
       }
-      const outcome = await downloadUrlToFile(url, tmpSilk);
+      const outcome = await downloadUrlToFile(url, tmpSilk, { signal: ctx.msgs.exportSignal });
       if (!outcome.ok) {
         result.failed += 1;
         result.failures = pushFailure(result.failures, {

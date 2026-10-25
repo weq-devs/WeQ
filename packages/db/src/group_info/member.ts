@@ -52,7 +52,20 @@ export interface GroupMemberDbOptions {
   algo?: DatabaseAlgorithms;
 }
 
-const SELECT_COLUMNS = `"60001","1000","1002","64003","20002","64007","64008","64009","64010","64016","64023","64035"`;
+const MEMBER_COLUMNS = [
+  '60001',
+  '1000',
+  '1002',
+  '64003',
+  '20002',
+  '64007',
+  '64008',
+  '64009',
+  '64010',
+  '64016',
+  '64023',
+  '64035',
+];
 
 export class GroupMemberDb {
   private readonly qq: QqDb;
@@ -61,13 +74,30 @@ export class GroupMemberDb {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
+  private getColumns(): Promise<ReadonlySet<string>> {
+    return this.qq.tableColumns('group_member3');
+  }
+
+  private async selectColumns(alias = 'group_member3'): Promise<string> {
+    const columns = await this.getColumns();
+    return MEMBER_COLUMNS.map((column) =>
+      (column === '64023' || column === '64035') && !columns.has(column)
+        ? 'NULL'
+        : `${alias}."${column}"`,
+    ).join(',');
+  }
+
+  private async levelColumn(): Promise<string> {
+    return (await this.getColumns()).has('64035') ? '"64035"' : 'NULL';
+  }
+
   /**
    * List all members of a specific group.
    * Filters by active members (64016 = 0) by default.
    */
   async listMembersInGroup(groupCode: bigint, limit = 100, offset = 0): Promise<GroupMember[]> {
     const rows = await this.qq.query(
-      `SELECT m."60001", m."1000", m."1002", m."64003", m."20002", m."64007", m."64008", m."64009", m."64010", m."64016", m."64023", m."64035"
+      `SELECT ${await this.selectColumns('m')}
        FROM group_member3 m
        LEFT JOIN group_detail_info_ver1 d ON m."60001" = d."60001"
        WHERE m."60001" = ? AND ("64016" = 0 OR "64016" IS NULL)
@@ -88,7 +118,7 @@ export class GroupMemberDb {
    */
   async listLeftMembersInGroup(groupCode: bigint, limit = 100, offset = 0): Promise<GroupMember[]> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_member3
+      `SELECT ${await this.selectColumns()} FROM group_member3
        WHERE "60001" = ? AND "64016" = 1
          AND "1000" IS NOT NULL AND "1000" <> ''
          AND "1002" IS NOT NULL AND "1002" <> 0
@@ -107,9 +137,9 @@ export class GroupMemberDb {
    */
   async listMembersByLevel(groupCode: bigint, limit = 100, offset = 0): Promise<GroupMember[]> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_member3
+      `SELECT ${await this.selectColumns()} FROM group_member3
        WHERE "60001" = ? AND ("64016" = 0 OR "64016" IS NULL)
-       ORDER BY "64035" DESC, "64007" ASC
+       ORDER BY ${await this.levelColumn()} DESC, "64007" ASC
        LIMIT ? OFFSET ?`,
       [groupCode, limit, offset],
     );
@@ -121,7 +151,7 @@ export class GroupMemberDb {
    */
   async listUserGroups(uid: string, limit = 100, offset = 0): Promise<GroupMember[]> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_member3 WHERE "1000" = ? AND ("64016" = 0 OR "64016" IS NULL) LIMIT ? OFFSET ?`,
+      `SELECT ${await this.selectColumns()} FROM group_member3 WHERE "1000" = ? AND ("64016" = 0 OR "64016" IS NULL) LIMIT ? OFFSET ?`,
       [uid, limit, offset],
     );
     return rows.map(rowToMember);
@@ -138,7 +168,7 @@ export class GroupMemberDb {
     limit = 5000,
   ): Promise<Array<{ uid: string; uin: string; nick: string; card: string; memberLevel: number }>> {
     const rows = await this.qq.query(
-      `SELECT "1000","1002","20002","64003","64035" FROM group_member3 WHERE "60001" = ? AND ("64016" = 0 OR "64016" IS NULL) LIMIT ?`,
+      `SELECT "1000","1002","20002","64003",${await this.levelColumn()} FROM group_member3 WHERE "60001" = ? AND ("64016" = 0 OR "64016" IS NULL) LIMIT ?`,
       [groupCode, limit],
     );
     return rows.map((row) => ({
@@ -188,7 +218,7 @@ export class GroupMemberDb {
     }>
   > {
     const rows = await this.qq.query(
-      `SELECT "1000","1002","20002","64003","64007","64008","64035"
+      `SELECT "1000","1002","20002","64003","64007","64008",${await this.levelColumn()}
        FROM group_member3
        WHERE "60001" = ? AND ("64016" = 0 OR "64016" IS NULL)
        LIMIT ?`,
@@ -321,7 +351,7 @@ export class GroupMemberDb {
         like,
       ]),
       this.qq.query(
-        `SELECT ${SELECT_COLUMNS} FROM group_member3
+        `SELECT ${await this.selectColumns()} FROM group_member3
          WHERE ${where}
          ORDER BY "64003" ASC, "20002" ASC, "1000" ASC
          LIMIT ? OFFSET ?`,
@@ -339,7 +369,7 @@ export class GroupMemberDb {
    */
   async getMember(groupCode: bigint, uid: string): Promise<GroupMember | null> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_member3 WHERE "60001" = ? AND "1000" = ? LIMIT 1`,
+      `SELECT ${await this.selectColumns()} FROM group_member3 WHERE "60001" = ? AND "1000" = ? LIMIT 1`,
       [groupCode, uid],
     );
     if (rows.length === 0) return null;
@@ -356,7 +386,7 @@ export class GroupMemberDb {
     if (unique.length === 0) return [];
     const placeholders = unique.map(() => '?').join(',');
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_member3 WHERE "60001" = ? AND "1000" IN (${placeholders})`,
+      `SELECT ${await this.selectColumns()} FROM group_member3 WHERE "60001" = ? AND "1000" IN (${placeholders})`,
       [groupCode, ...unique],
     );
     return rows.map(rowToMember);
@@ -371,7 +401,7 @@ export class GroupMemberDb {
     if (unique.length === 0) return [];
     const placeholders = unique.map(() => '?').join(',');
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_member3 WHERE "60001" = ? AND "1002" IN (${placeholders})`,
+      `SELECT ${await this.selectColumns()} FROM group_member3 WHERE "60001" = ? AND "1002" IN (${placeholders})`,
       [groupCode, ...unique],
     );
     return rows.map(rowToMember);

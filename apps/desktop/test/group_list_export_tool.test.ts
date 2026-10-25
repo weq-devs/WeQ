@@ -166,6 +166,7 @@ describe('群聊名单导出工具', () => {
           expect(hostPicker.pickSaveTarget).toHaveBeenCalledWith({
             defaultName: '全部群聊名单.json',
             extension: 'json',
+            locationKey: 'export-before',
           });
           expect(hostPicker.pickDirectory).not.toHaveBeenCalled();
           expect(state.start).toHaveBeenCalledWith(

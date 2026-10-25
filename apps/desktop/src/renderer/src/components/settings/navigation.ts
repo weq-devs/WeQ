@@ -8,6 +8,7 @@ export type SectionId =
   | 'accounts'
   | 'account'
   | 'anti-recall'
+  | 'call-recording'
   | 'qzone'
   | 'mail'
   | 'storage'
@@ -45,7 +46,11 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Secti
   { id: 'general', label: '常规', sections: ['global', 'startup', 'saving'] },
   { id: 'appearance', label: '个性显示', sections: ['appearance', 'message-display'] },
   { id: 'privacy', label: '隐私与安全', sections: ['applock'] },
-  { id: 'account', label: '账号与消息', sections: ['accounts', 'account', 'anti-recall'] },
+  {
+    id: 'account',
+    label: '账号与消息',
+    sections: ['accounts', 'account', 'anti-recall', 'call-recording'],
+  },
   { id: 'space-mail', label: '空间与邮箱', sections: ['qzone', 'mail'] },
   {
     id: 'storage',
@@ -83,6 +88,7 @@ export interface SettingsScope {
 }
 
 export function settingsScopeFor(section: SectionId): SettingsScope | null {
+  // 通话录音存在全局 AppSettings 里（不随账号切换），所以**不**打「当前账号」标。
   if (
     [
       'anti-recall',

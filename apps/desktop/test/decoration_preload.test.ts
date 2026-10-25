@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.resetModules();
-  document.head.querySelector('#weq-msg-decoration')?.remove();
+  for (const node of document.head.querySelectorAll('[data-weq-msg-decoration]')) node.remove();
 });
 
 it('消息装扮预热不会一口气解码整批动画帧', async () => {
@@ -45,10 +45,11 @@ it('消息装扮预热不会一口气解码整批动画帧', async () => {
     animationFrameCount: frames,
     animationFrameTimeMs: 50,
   };
+  const release = injectBubbleCss(skin);
   try {
-    injectBubbleCss(skin);
     expect(peak).toBeLessThan(frames);
   } finally {
+    release();
     for (let i = 0; i < 200; i++) {
       for (const release of releases.splice(0)) release();
       await Promise.resolve();

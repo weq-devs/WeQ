@@ -154,6 +154,17 @@ describe('offline roaming timeline cache pages', () => {
         uidMap: {
           uidByUin: () => 'u_friend',
           uinByUid: () => 20002n,
+          sortNoByUid: () => 1n,
+        },
+        c2cMsgs: {
+          listLatest: async () => [
+            { senderUin: 10001n, senderUid: 'u_me', decoration: { fontId2Raw: 72057 } },
+          ],
+        },
+        groupMsgs: {
+          listLatest: async () => [
+            { senderUin: 10001n, senderUid: 'u_me', decoration: { fontId2Raw: 72057 } },
+          ],
         },
       } as unknown as AccountSession;
       const service = new MessageSendService(
@@ -172,6 +183,7 @@ describe('offline roaming timeline cache pages', () => {
         () => 1,
         undefined,
         (row) => cache.store([row]),
+        () => 31001,
       );
       const conv = kind === 'c2c' ? 'u_friend' : '12345';
       const outcome = await service.sendText({
@@ -183,14 +195,23 @@ describe('offline roaming timeline cache pages', () => {
       const before = await reopened.query(kind, conv, 1, 20000, kind === 'c2c');
       expect(before).toHaveLength(1);
       expect(before[0]).toMatchObject({ localSent: true, msgRandom: String(outcome.random) });
+      expect(before[0]!.decoration?.fontId).toBe(31001);
       if (kind === 'c2c')
         expect(
           await reopened.resolveReplySeq(conv, before[0]!.clientSeq!, '10001', '1700000000'),
         ).toBe('19749');
-      await reopened.store([{ ...before[0]!, localSent: undefined, msgId: '90000000001' }]);
+      await reopened.store([
+        {
+          ...before[0]!,
+          localSent: undefined,
+          msgId: '90000000001',
+          decoration: { bubbleId: 0, widgetId: 0, fontId: 32002 },
+        },
+      ]);
       const after = await reopened.query(kind, conv, 1, 20000, kind === 'c2c');
       expect(after).toHaveLength(1);
       expect(after[0]!.msgId).toBe('90000000001');
+      expect(after[0]!.decoration?.fontId).toBe(32002);
     },
   );
   it('reads group cache pages in either direction, including cache-only history', async () => {

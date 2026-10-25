@@ -11,6 +11,7 @@ export class MiscDb extends QqDb {
    * Fetch online status for a specific user UID.
    */
   async getUserOnlineStatus(uid: string): Promise<OnlineStatusData | null> {
+    if (!(await this.hasTable('online_status_kv_table'))) return null;
     const rows = await this.query('SELECT "48902" FROM online_status_kv_table WHERE "48901" = ?', [
       uid,
     ]);

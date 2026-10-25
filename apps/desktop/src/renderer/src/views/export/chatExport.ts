@@ -127,6 +127,9 @@ export async function startChatExportTasks(
   formats: readonly ExportFormat[],
   defaultFormat: ExportFormat,
   opts: {
+    baselineDirectory?: string;
+    baselineByConversation?: Record<string, string>;
+    onTaskCreated?: (id: string) => void;
     messageCompletion?: boolean;
     savePolicy?: ExportSavePolicy;
     binding?: { expectedAccountUin: string; expectedAccountConfigId: string };
@@ -141,7 +144,12 @@ export async function startChatExportTasks(
   const frozenFormats = [...formats];
   const binding = opts.binding ? { ...opts.binding } : undefined;
   const savePolicy = opts.savePolicy ? { ...opts.savePolicy } : undefined;
+  const baselineDirectory = opts.baselineDirectory;
+  const baselineByConversation = opts.baselineByConversation
+    ? { ...opts.baselineByConversation }
+    : undefined;
   const current = opts.isCurrent;
+  const onTaskCreated = opts.onTaskCreated;
   const messageCompletion = opts.messageCompletion;
   const fmt0 = frozenFormats[0] ?? defaultFormat;
   // 筛图模型的状态是**实时**的（不进持久化预设）：导出那一刻下好了就筛，没下好就跳过。
@@ -155,6 +163,9 @@ export async function startChatExportTasks(
     const id = await client.account.startExport.mutate({
       ...binding,
       savePolicy,
+      baselineDirectory: baselineByConversation
+        ? baselineByConversation[`${t.kind ?? 'c2c'}:${t.id}`] || undefined
+        : baselineDirectory,
       kind: t.kind ?? 'c2c',
       conv: t.id,
       name: t.name,
@@ -170,6 +181,7 @@ export async function startChatExportTasks(
       ...(t.messageIds ? { filter: { messageIds: [...t.messageIds] } } : { range }),
     });
     ids.push(id);
+    onTaskCreated?.(id);
   }
   return ids;
 }

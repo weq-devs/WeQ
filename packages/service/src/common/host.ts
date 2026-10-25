@@ -59,6 +59,8 @@ export interface HostBridge {
    */
   pickSaveTarget(opts: {
     defaultName: string;
+    /** 相同扩展名的不同导出功能可分别记忆位置。 */
+    locationKey?: string;
     /** Extension for the dialog filter (no leading dot). */
     extension?: string;
   }): Promise<SaveTarget | null>;

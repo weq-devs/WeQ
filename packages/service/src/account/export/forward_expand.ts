@@ -25,6 +25,7 @@ import type { ConvKind, ExportedMessage } from './types';
 
 /** A raw 40900 record's fields we read (all optional on the wire). */
 interface CacheRecordLike {
+  msgId?: number | bigint;
   senderUin?: number | bigint;
   senderUid?: string;
   sendTime?: number | bigint;
@@ -80,6 +81,7 @@ export function liftForwardRecords(records: MsgCacheRecord[], depth = 0): Forwar
       }
     }
     out.push({
+      ...(rec.msgId != null ? { msgId: String(rec.msgId) } : {}),
       senderName: recordSenderName(rec),
       senderUin: num(rec.senderUin) > 0 ? String(num(rec.senderUin)) : '',
       sendTime: num(rec.sendTime),
@@ -104,18 +106,61 @@ export async function expandForwards(
   kind: ConvKind,
   exported: ExportedMessage,
 ): Promise<void> {
-  const hasForward = exported.elements.some((el) => el.type === 'multiMsg');
+  const hasForward = exported.elements.some(
+    (el) => el.type === 'multiMsg' && !el.data.forwardMessages?.length,
+  );
   if (!hasForward) return;
   let records: MsgCacheRecord[];
   try {
     records = await msgs.listForward(kind, BigInt(exported.msgId));
   } catch {
-    return;
+    records = [];
   }
-  if (records.length === 0) return;
   const lifted = liftForwardRecords(records);
-  if (lifted.length === 0) return;
   for (const el of exported.elements) {
-    if (el.type === 'multiMsg') el.data.forwardMessages = lifted;
+    if (el.type !== 'multiMsg' || el.data.forwardMessages?.length) continue;
+    if (lifted.length) el.data.forwardMessages = lifted;
+    await expandRemote(msgs, el, new Set(), 0);
+  }
+}
+
+async function expandRemote(
+  msgs: MsgService,
+  element: Extract<RenderElement, { type: 'multiMsg' }>,
+  visited: Set<string>,
+  depth: number,
+): Promise<void> {
+  const resId = element.data.resId;
+  if (depth > 16 || (resId && visited.has(resId))) return;
+  if (resId) visited.add(resId);
+  try {
+    if (element.data.forwardMessages?.length) {
+      for (const record of element.data.forwardMessages)
+        for (const child of record.elements) {
+          if (child.type === 'multiMsg') await expandRemote(msgs, child, visited, depth + 1);
+        }
+      return;
+    }
+    if (!resId || !msgs.exportFetchForward) return;
+    const records = await msgs.exportFetchForward(resId);
+    const lifted: ForwardMessage[] = [];
+    for (const record of records) {
+      msgs.exportSignal?.throwIfAborted();
+      for (const child of record.elements) {
+        if (child.type === 'multiMsg') await expandRemote(msgs, child, visited, depth + 1);
+      }
+      lifted.push({
+        msgId: record.msgId,
+        senderName: record.sendNick || record.senderUin || record.senderUid || '匿名',
+        senderUin: record.senderUin ?? '',
+        sendTime: Number(record.sendTime ?? 0),
+        elements: record.elements,
+      });
+    }
+    if (lifted.length) element.data.forwardMessages = lifted;
+  } catch {
+    msgs.exportSignal?.throwIfAborted();
+  } finally {
+    visited.delete(resId);
   }
 }

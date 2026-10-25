@@ -1,0 +1,210 @@
+.weq-export-viewer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: min(74dvh, 780px);
+  color: var(--weq-fg-primary);
+}
+.weq-export-viewer button,
+.weq-export-viewer input {
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  background: var(--weq-bg-surface);
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 4px;
+  padding: 7px 9px;
+  min-width: 0;
+}
+.weq-export-viewer button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.weq-export-viewer button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.weq-export-viewer button:focus-visible,
+.weq-export-viewer input:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+.weq-ev-toolbar,
+.weq-ev-actions,
+.weq-ev-pagination {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+  flex: none;
+}
+.weq-ev-toolbar {
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-ev-layout {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+}
+.weq-ev-sources {
+  overflow: auto;
+  border-right: 1px solid var(--weq-border-subtle);
+}
+.weq-ev-sources > button {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 0;
+  padding: 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  overflow-wrap: anywhere;
+  gap: 4px;
+}
+.weq-ev-sources > button[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+.weq-ev-sources span {
+  font-size: 11px;
+  color: var(--weq-fg-secondary);
+}
+.weq-ev-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.weq-ev-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 140px;
+  flex: 1;
+}
+.weq-ev-search input {
+  min-width: 0;
+  width: 100%;
+}
+.weq-ev-messages {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 0 14px;
+}
+.weq-ev-message {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  overflow-wrap: anywhere;
+}
+.weq-ev-message > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+.weq-ev-message > header strong {
+  color: var(--weq-fg-primary);
+}
+.weq-ev-message > header button {
+  padding: 3px;
+  width: 26px;
+  height: 26px;
+}
+.weq-ev-body {
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.6;
+  margin-top: 6px;
+}
+.weq-ev-body img,
+.weq-ev-body video {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+}
+.weq-export-viewer .weq-ev-image {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  max-width: 100%;
+}
+.weq-ev-body audio {
+  max-width: 100%;
+}
+.weq-ev-forward {
+  margin: 6px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+}
+.weq-ev-forward summary {
+  cursor: pointer;
+  white-space: normal;
+}
+.weq-ev-forward .weq-ev-forward {
+  border: 0;
+  border-left: 1px solid var(--weq-border-strong);
+  border-radius: 0;
+}
+.weq-ev-unavailable,
+.weq-ev-notice {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+.weq-ev-notice {
+  padding: 8px 12px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.weq-ev-pagination {
+  justify-content: center;
+  border-top: 1px solid var(--weq-border-subtle);
+  font-size: 12px;
+}
+.weq-ev-pagination button {
+  width: 32px;
+  height: 32px;
+}
+.weq-ev-empty {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  flex: 1;
+  color: var(--weq-fg-muted);
+}
+html[data-theme='dark'] .weq-ev-sources > button[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+@media (max-width: 640px) {
+  .weq-ev-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(70px, 110px) minmax(0, 1fr);
+  }
+  .weq-ev-sources {
+    border-right: 0;
+    border-bottom: 1px solid var(--weq-border-subtle);
+  }
+  .weq-ev-actions {
+    gap: 6px;
+  }
+  .weq-ev-search {
+    flex-basis: 100%;
+  }
+  .weq-ev-toolbar button {
+    font-size: 12px;
+  }
+  .weq-ev-forward {
+    padding: 6px;
+  }
+}

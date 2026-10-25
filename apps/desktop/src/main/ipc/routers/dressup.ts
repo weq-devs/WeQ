@@ -470,7 +470,10 @@ export const dressupRouter = router({
       const host = getHost();
       if (input.browserDownload) {
         if (!host.exportRoot || !host.registerDownload) throw new Error('当前环境不支持浏览器下载');
-        const target = await host.pickSaveTarget({ defaultName: exportFile.fileName });
+        const target = await host.pickSaveTarget({
+          defaultName: exportFile.fileName,
+          locationKey: 'dressup',
+        });
         if (!target) return { mode: 'cancelled' as const };
         current();
         await writeFile(target.path, exportFile.bytes, { flag: 'wx' });

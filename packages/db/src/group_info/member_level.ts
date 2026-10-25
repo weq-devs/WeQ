@@ -45,6 +45,7 @@ export class GroupMemberLevelInfoDb {
    * Get level info for a group.
    */
   async getLevelInfo(groupCode: bigint): Promise<GroupMemberLevelInfo | null> {
+    if (!(await this.qq.hasTable('group_member_level_info'))) return null;
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_member_level_info WHERE "60001" = ? LIMIT 1`,
       [groupCode],

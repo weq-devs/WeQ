@@ -29,9 +29,9 @@ it('上文配置路由接受独立零值和边界，拒绝越界及小数', asyn
 it('建议查询兼容旧客户端，缓存版本不覆盖服务端实际配置', async () => {
   const caller = intentSenseRouter.createCaller({});
   await caller.getSuggestions({ kind: 'group', conv: '123', revision: 3 });
-  expect(service.getSuggestions).toHaveBeenLastCalledWith('group', '123');
+  expect(service.getSuggestions).toHaveBeenLastCalledWith('group', '123', { refresh: undefined });
   await caller.getSuggestions({ kind: 'group', conv: '123' });
-  expect(service.getSuggestions).toHaveBeenLastCalledWith('group', '123');
+  expect(service.getSuggestions).toHaveBeenLastCalledWith('group', '123', { refresh: undefined });
   const calls = service.getSuggestions.mock.calls.length;
   await expect(
     caller.getSuggestions({ kind: 'group', conv: '123', replyAllowed: false }),
@@ -50,4 +50,13 @@ it('显示开关按独立布尔值传给服务，拒绝字符串', async () => {
     hoverDisplay: true,
   });
   await expect(caller.setConfig({ persistentDisplay: 'false' } as never)).rejects.toThrow();
+});
+
+it('手动换一批将刷新意图交给服务，不改变自动查询的禁用语义', async () => {
+  const caller = intentSenseRouter.createCaller({});
+  await caller.getSuggestions({ kind: 'group', conv: '123', refresh: true });
+  expect(service.getSuggestions).toHaveBeenLastCalledWith('group', '123', { refresh: true });
+  const calls = service.getSuggestions.mock.calls.length;
+  await caller.getSuggestions({ kind: 'group', conv: '123', replyAllowed: false, refresh: true });
+  expect(service.getSuggestions).toHaveBeenCalledTimes(calls);
 });

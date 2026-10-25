@@ -17,6 +17,7 @@ import {
   Layers,
   Link2,
   MapPin,
+  Mail,
   MessagesSquare,
   Music,
   Pause,
@@ -93,6 +94,7 @@ import {
 } from './export/exportScope';
 import { ContactScopePicker } from './export/ContactScopePicker';
 import { GeneratedExportPane } from './export/GeneratedExportPane';
+import { MailExportPane } from './export/MailExportPane';
 import { QzoneScopePicker } from './export/QzoneScopePicker';
 import '../styles/unified-export.css';
 import { useTabActive } from '../components/RetainedTabs';
@@ -148,6 +150,13 @@ const MODES: ModeDef[] = [
     short: '收藏',
     desc: 'QQ 收藏导出为表格',
     icon: <Bookmark size={18} />,
+  },
+  {
+    id: 'mail',
+    label: '邮件导出',
+    short: '邮件',
+    desc: '邮件正文 / 元数据 / 附件',
+    icon: <Mail size={18} />,
   },
   {
     id: 'emojipack',
@@ -321,15 +330,18 @@ export function ExportTool({
   surface = 'export',
   initialSelection,
   initialMode,
+  initialBaselineDirectory,
   onClose,
   fixedScope = false,
   lockMode = false,
   contentListRevision,
   onOpenClone,
+  onAuthorizationChange,
 }: {
   surface?: 'export' | 'tasks';
   initialSelection?: ContentSelection;
   initialMode?: ExportMode;
+  initialBaselineDirectory?: string;
   onClose?: () => void;
   fixedScope?: boolean;
   /** 由入口（如维护工具）锁死导出类型：不渲染「内容种类」切换器，模式不可更改。 */
@@ -337,6 +349,9 @@ export function ExportTool({
   /** 全局入口再次打开时回到内容列表，保留草稿中的选择。 */
   contentListRevision?: number;
   onOpenClone?: (id: string) => void;
+  onAuthorizationChange?: (
+    state: import('./export/authorization').ExportAuthorizationIndicatorState | null,
+  ) => void;
 }): ReactElement {
   const utils = trpc.useUtils();
   const accountUin = useViewState((state) => state.openedUin);
@@ -571,7 +586,7 @@ export function ExportTool({
       onData: (progress) => {
         void utils.account.listExportTasks.invalidate();
         if (progress.notice) {
-          pushToast({ tone: 'warning', title: '消息补全', message: progress.notice, ttl: 5000 });
+          pushToast({ tone: 'warning', title: '导出提示', message: progress.notice, ttl: 5000 });
         }
       },
       onError: (err) => console.error('[export] progress subscription error', err),
@@ -737,6 +752,10 @@ export function ExportTool({
       filePath: t.filePath,
       bundleDir: t.bundleDir,
       canResume: t.canResume,
+      journalPath: t.journalPath,
+      partialReady: t.partialReady,
+      isFinalizing: t.isFinalizing,
+      mergeWarnings: t.mergeWarnings,
       resumeMode: t.resumeMode,
       reportPath: t.reportPath,
       save: t.save,
@@ -1148,7 +1167,12 @@ export function ExportTool({
 
   async function runFullExport(
     options: ExportOptions,
-    opts: { formats?: ExportFormat[] } = {},
+    opts: {
+      formats?: ExportFormat[];
+      baselineDirectory?: string;
+      baselineByConversation?: Record<string, string>;
+      onTaskCreated?: () => void;
+    } = {},
   ): Promise<void> {
     const intent = saveIntent.current;
     const binding = saveBinding;
@@ -1204,6 +1228,9 @@ export function ExportTool({
       });
       if (!savePolicy) return;
       await startChatExportTasks(targets, effectiveOptions, formats, format, {
+        baselineDirectory: opts.baselineDirectory,
+        baselineByConversation: opts.baselineByConversation,
+        onTaskCreated: opts.onTaskCreated,
         savePolicy,
         binding: binding ?? undefined,
         isCurrent,
@@ -1228,7 +1255,7 @@ export function ExportTool({
    */
   async function runGuildDirectExport(
     options: ExportOptions,
-    opts: { formats?: ExportFormat[] } = {},
+    opts: { formats?: ExportFormat[]; onTaskCreated?: () => void } = {},
   ): Promise<void> {
     const intent = saveIntent.current;
     const binding = saveBinding;
@@ -1287,6 +1314,7 @@ export function ExportTool({
           media,
           range: t.messageIds === undefined ? range : undefined,
         });
+        opts.onTaskCreated?.();
       }
       setGuildSelection(new Set());
       setLightbox(null);
@@ -1385,12 +1413,24 @@ export function ExportTool({
       // 频道私聊与完整消息同款灯箱，配置共享。
       rememberPreset(lightbox === 'guild' ? 'full' : lightbox, result);
     }
-    if (lightbox === 'full') {
-      void runFullExport(result.options, { formats: result.formats });
-      return;
-    }
-    if (lightbox === 'guild') {
-      void runGuildDirectExport(result.options, { formats: result.formats });
+    if (lightbox === 'full' || lightbox === 'guild') {
+      let started = false;
+      const onTaskCreated = () => {
+        started = true;
+        result.authorization?.commit();
+      };
+      try {
+        if (lightbox === 'full')
+          await runFullExport(result.options, {
+            formats: result.formats,
+            baselineDirectory: result.baselineDirectory,
+            baselineByConversation: result.baselineByConversation,
+            onTaskCreated,
+          });
+        else await runGuildDirectExport(result.options, { formats: result.formats, onTaskCreated });
+      } finally {
+        if (!started) result.authorization?.cancel();
+      }
       return;
     }
     if (lightbox === 'qzone') {
@@ -1751,7 +1791,15 @@ export function ExportTool({
             ) : null}
 
             <div className="weq-exp-pane-body">
-              {mode === 'generated' ? (
+              {mode === 'mail' ? (
+                <MailExportPane
+                  initialSelection={initialSelection}
+                  prepareSave={prepareSave}
+                  isCurrent={isCurrent}
+                  onStarted={refetchTasks}
+                  disabled={pickingSaveDirectory || globalSettings.isLoading}
+                />
+              ) : mode === 'generated' ? (
                 <GeneratedExportPane
                   initialSelection={initialSelection}
                   prepareSave={prepareSave}
@@ -2071,7 +2119,10 @@ export function ExportTool({
             </div>
 
             {/* 商城表情下载 / 导出表情包自带底部操作条，隐藏导出中心的通用 footer。 */}
-            {mode !== 'emojipack' && mode !== 'database' && mode !== 'generated' ? (
+            {mode !== 'emojipack' &&
+            mode !== 'database' &&
+            mode !== 'generated' &&
+            mode !== 'mail' ? (
               <footer className="weq-exp-pane-foot">
                 {mode === 'full' && execution === 'scheduled' ? (
                   <span className="weq-exp-foot-hint">
@@ -2216,6 +2267,35 @@ export function ExportTool({
                   detailOnly
                   tasks={[task]}
                   onPause={onPause}
+                  onFinalize={(t) => {
+                    void client.account.finalizeExportTask
+                      .mutate({ taskId: t.id })
+                      .then((ok) => {
+                        if (!ok)
+                          dialog.error('收尾未完成', '任务仍在暂停或收尾失败，请查看任务日志。');
+                        refetchTasks();
+                      })
+                      .catch((e) => dialog.error('收尾失败', String(e)));
+                    refetchTasks();
+                  }}
+                  onIncremental={(t) => {
+                    void client.account.resumeExportTask
+                      .mutate({ taskId: t.id, incremental: true })
+                      .then((ok) => {
+                        if (!ok) dialog.error('无法增量导出', '任务仍在收尾，请稍后重试。');
+                        refetchTasks();
+                      })
+                      .catch((e) => dialog.error('增量导出失败', String(e)));
+                  }}
+                  onSkipStage={(t, stage) => {
+                    void client.account.skipExportTaskStage
+                      .mutate({ taskId: t.id, stage })
+                      .then((ok) => {
+                        if (!ok) dialog.error('无法跳过', '此项已完成或任务状态已变化。');
+                        refetchTasks();
+                      })
+                      .catch((e) => dialog.error('跳过失败', String(e)));
+                  }}
                   onResume={(t) => {
                     void client.account.resumeExportTask
                       .mutate({ taskId: t.id })
@@ -2279,6 +2359,7 @@ export function ExportTool({
 
       {lightbox ? (
         <ExportLightbox
+          onAuthorizationChange={onAuthorizationChange}
           embedded
           hidden={editingList}
           onEditList={
@@ -2343,6 +2424,7 @@ export function ExportTool({
               ? exportPresets?.[lightbox === 'guild' ? 'full' : lightbox]?.formats
               : undefined
           }
+          initialBaselineDirectory={initialBaselineDirectory}
           initialSchedule={exportPresets?.scheduled?.schedule}
           submitting={submitting}
           disabled={

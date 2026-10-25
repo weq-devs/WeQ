@@ -6,11 +6,14 @@ import { ensureThemeInitialized } from './state/theme';
 import { OverlayAnchorProvider } from './lib/overlayAnchor';
 import './styles/index.css';
 import { BackupStartupGate } from './components/BackupStartupGate';
+import { installResourceDiagnostics } from './lib/resourceDiagnostics';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('root element missing');
 
 ensureThemeInitialized();
+const stopResourceDiagnostics = installResourceDiagnostics();
+import.meta.hot?.dispose(stopResourceDiagnostics);
 
 createRoot(root).render(
   <StrictMode>

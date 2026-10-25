@@ -8,6 +8,7 @@ import { startRendererDiagnostics } from '../src/main/renderer_diagnostics_runti
 import {
   DIAGNOSTIC_SAMPLE_REQUEST,
   DIAGNOSTIC_SAMPLE_RESPONSE,
+  DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS,
 } from '../src/shared/renderer_diagnostics';
 import { DIAGNOSTIC_INTERVAL_MS } from '../src/main/renderer_diagnostics';
 
@@ -58,6 +59,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-10-20T04:00:00Z'));
   vi.mocked(webContents.getAllWebContents).mockReturnValue([]);
   vi.mocked(app.getAppMetrics).mockReturnValue([]);
+  Object.defineProperty(app, 'isPackaged', { value: false, configurable: true });
   dir = mkdtempSync(join(tmpdir(), 'weq-diagnostic-runtime-'));
 });
 afterEach(() => {
@@ -73,6 +75,64 @@ const rows = () =>
     .map((line) => JSON.parse(line));
 
 describe('诊断采样生命周期', () => {
+  it('开发模式独立记录十秒采样与缓存白名单，停止后不再采样', () => {
+    const main = new FakeContents(1);
+    vi.mocked(webContents.getAllWebContents).mockReturnValue([main.asContents()]);
+    stop = startRendererDiagnostics({
+      directory: dir,
+      mainWebContentsId: () => 1,
+      development: true,
+    });
+    expect(main.send).toHaveBeenLastCalledWith(DIAGNOSTIC_SAMPLE_REQUEST, 1, true);
+    ipcMain.emit(DIAGNOSTIC_SAMPLE_RESPONSE, { sender: main, senderFrame: main.mainFrame }, 1, {
+      development: {
+        caches: { images: { count: 2, size: 1024, liveSize: 2048, url: 'secret' } },
+        animations: 3,
+        runningAnimations: 2,
+        documentVisible: true,
+        title: 'secret',
+      },
+    });
+    expect(readdirSync(dir)).toEqual(['dev-memory-monitor']);
+    const content = readFileSync(join(dir, 'dev-memory-monitor/memory-diagnostics.jsonl'), 'utf8');
+    expect(content).not.toContain('secret');
+    expect(JSON.parse(content.trim().split('\n').at(-1)!)).toMatchObject({
+      development: {
+        caches: { images: { count: 2, sizeBytes: 1024, liveSizeBytes: 2048 } },
+        animations: 3,
+        runningAnimations: 2,
+        documentVisible: true,
+      },
+    });
+    vi.advanceTimersByTime(DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS - 1);
+    expect(main.send).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1);
+    expect(main.send).toHaveBeenCalledTimes(2);
+    stop();
+    vi.advanceTimersByTime(DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS * 10);
+    expect(main.send).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('打包版即使误传开发开关也仍用分钟采样，不接受开发字段', () => {
+    Object.defineProperty(app, 'isPackaged', { value: true, configurable: true });
+    const main = new FakeContents(1);
+    vi.mocked(webContents.getAllWebContents).mockReturnValue([main.asContents()]);
+    stop = startRendererDiagnostics({
+      directory: dir,
+      mainWebContentsId: () => 1,
+      development: true,
+    });
+    expect(main.send).toHaveBeenLastCalledWith(DIAGNOSTIC_SAMPLE_REQUEST, 1);
+    ipcMain.emit(DIAGNOSTIC_SAMPLE_RESPONSE, { sender: main, senderFrame: main.mainFrame }, 1, {
+      development: { animations: 999 },
+    });
+    expect(rows().at(-1)).not.toHaveProperty('development');
+    vi.advanceTimersByTime(DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS);
+    expect(main.send).toHaveBeenCalledTimes(1);
+    expect(readdirSync(dir)).toEqual(['memory-diagnostics.jsonl']);
+  });
+
   it('每分钟一次，不叠加请求；销毁及停止后移除所有自建监听／计时器', () => {
     const main = new FakeContents(1);
     vi.mocked(webContents.getAllWebContents).mockReturnValue([main.asContents()]);

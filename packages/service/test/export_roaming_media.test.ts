@@ -1,12 +1,12 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import type { MsgService } from '../src/account/msg';
 import type { GapFetchedMessage } from '../src/account/gap_history';
 import { iterateC2cMessages, iterateGroupMessages } from '../src/account/export/message_source';
 import { mediaDirsFromNtDataDir, scanConvMedia } from '../src/account/export/media_scan';
-import { copyFoundMedia } from '../src/account/export/media_export';
+import { copyFoundMedia, downloadMissingImages } from '../src/account/export/media_export';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -19,6 +19,46 @@ const msgs = {
   getGroupAfter: async () => [],
   getGroupSeqlessAfterRowId: async () => [],
 } as unknown as MsgService;
+
+it('暂停图片补全后不分配下一项，也不复制在途请求返回的文件', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-image-cancel-'));
+  roots.push(root);
+  const rows = Array.from({ length: 3 }, (_, index) => {
+    const message = cached('group', '777')[0]!;
+    const picture = message.elements[0]!;
+    return {
+      ...message,
+      msgId: String(100 + index),
+      elements: [
+        {
+          ...picture,
+          data: { ...picture.data, fileName: `cancel-${index}.jpg`, fileToken: `cancel-${index}` },
+        },
+      ],
+    };
+  }) as GapFetchedMessage[];
+  const scan = await scanConvMedia(msgs, 'group', '777', mediaDirsFromNtDataDir(root), {
+    roam: () => rows,
+  });
+  const controller = new AbortController();
+  const download = vi.fn(async () => {
+    controller.abort();
+    return '/synthetic/nonexistent-image.jpg';
+  });
+  const downloader = { download } as unknown as Parameters<typeof downloadMissingImages>[2];
+  const result = await downloadMissingImages(
+    scan,
+    root,
+    downloader,
+    undefined,
+    1,
+    undefined,
+    controller.signal,
+  );
+  expect(download).toHaveBeenCalledOnce();
+  expect(result.ok).toBe(0);
+  expect(result.failed).toBe(0);
+});
 
 function cached(kind: 'c2c' | 'group', conv: string): GapFetchedMessage[] {
   return [

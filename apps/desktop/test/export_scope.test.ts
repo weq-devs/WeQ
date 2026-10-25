@@ -85,6 +85,7 @@ describe('统一导出的上下文草稿', () => {
   it('按已接入的内容种类进入流程', () => {
     for (const [kind, mode] of [
       ['collections', 'collection'],
+      ['mail-messages', 'mail'],
       ['messages', 'full'],
       ['conversations', 'full'],
     ] as const) {

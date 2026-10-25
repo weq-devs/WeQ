@@ -177,6 +177,8 @@ export class MsgService {
   private readonly salvageSkips: ExportSkippedRanges[] = [];
   /** 特殊消息源可提供自己的稳定遍历；过滤、时间范围与取消仍由通用导出迭代器处理。 */
   exportC2cMessages?: (peerUid: string, pageSize: number) => AsyncGenerator<RenderC2cMsg>;
+  exportJournal?: import('./export/message_journal').MessageJournal;
+  exportFetchForward?: (resId: string) => Promise<import('./forward').FetchedForwardRecord[]>;
 
   constructor(
     private readonly session: AccountSession,

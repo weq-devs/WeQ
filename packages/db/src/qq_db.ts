@@ -48,6 +48,7 @@ export class QqDb {
   private readonly algo?: DatabaseAlgorithms;
   private readonly nt: NtHelperBinding;
   private readonly encrypted: boolean;
+  private readonly columns = new Map<string, Promise<ReadonlySet<string>>>();
 
   constructor(nt: NtHelperBinding, opts: QqDbOptions) {
     this.nt = nt;
@@ -67,6 +68,29 @@ export class QqDb {
       return this.nt.executeSqlWithKey(this.dbPath, sql, this.key!, this.algo!, params ?? null);
     }
     return this.nt.executeSql(this.dbPath, sql, params ?? null);
+  }
+
+  /** 可选功能表按实际 schema 判断，不把查询错误或损坏吞成“没有数据”。 */
+  async hasTable(table: string): Promise<boolean> {
+    const rows = await this.query(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+      [table],
+    );
+    return rows.length > 0;
+  }
+
+  tableColumns(table: string): Promise<ReadonlySet<string>> {
+    let pending = this.columns.get(table);
+    if (!pending) {
+      pending = this.query('SELECT name FROM pragma_table_info(?)', [table])
+        .then((rows) => new Set(rows.map((row) => String(row[0]))))
+        .catch((error: unknown) => {
+          this.columns.delete(table);
+          throw error;
+        });
+      this.columns.set(table, pending);
+    }
+    return pending;
   }
 
   /**
@@ -164,6 +188,7 @@ export class QqDb {
 
   /** Drop both the read and write cached native connections for this database. */
   close(): void {
+    this.columns.clear();
     this.nt.closeDb(this.dbPath);
   }
 }

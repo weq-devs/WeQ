@@ -1,6 +1,6 @@
 export { QQMailService } from './client';
 export { MailFailure } from './types';
-export { exportMailMessages } from './export';
+export { exportMailMessages, exportAllMailMessages, previewMailExport } from './export';
 export type {
   MailAddress,
   MailFolder,
@@ -10,6 +10,7 @@ export type {
   MailPage,
   MailComposeInput,
   MailListInput,
+  MailExportFilter,
   MailStatus,
   MailEvent,
   MailAction,

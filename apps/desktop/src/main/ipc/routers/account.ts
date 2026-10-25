@@ -2480,6 +2480,7 @@ export const accountRouter = router({
       const { path } = services.assistant.artifactInfo(input.id);
       const ext = extname(path).slice(1) || 'html';
       const target = await getHost().pickSaveTarget({
+        locationKey: 'assistant-artifact',
         defaultName: exportOutputFileName({
           kind: 'file',
           name: input.name.replace(/\.[^.]+$/, ''),
@@ -4719,7 +4720,15 @@ export const accountRouter = router({
 
   /** Live prerequisites for group album list/media/export. */
   getGroupAlbumAccessState: procedure.query(() => {
-    return albumAccessState();
+    const record = requireServices().accountConfig.getRecord();
+    const session = record?.session;
+    return {
+      ...albumAccessState(),
+      needsMemoryRead: Boolean(
+        record?.qqPid &&
+          (session?.pid !== record.qqPid || !session?.a2 || !session?.d2 || !session?.d2Key),
+      ),
+    };
   }),
 
   /** 凭据登记完成后立即重查能力；不等待 rkey 等网络请求或前端轮询。 */
@@ -6321,6 +6330,7 @@ export const accountRouter = router({
       const service = requireServices().collection;
       const name = await service.cachedMediaName(input.id);
       const target = await getHost().pickSaveTarget({
+        locationKey: 'collection-media',
         defaultName: name,
         extension: extname(name).slice(1),
       });
@@ -6406,6 +6416,7 @@ export const accountRouter = router({
       z.object({
         ...exportAccountBindingInput.shape,
         savePolicy: exportSavePolicyInput.optional(),
+        baselineDirectory: z.string().min(1).optional(),
         kind: z.enum(['group', 'c2c']),
         conv: z.string().min(1),
         name: z.string().min(1),
@@ -6678,6 +6689,14 @@ export const accountRouter = router({
     return requireServices().exportManager.listTasks();
   }),
 
+  pickExportBaselineDirectory: procedure.mutation(() =>
+    getHost().pickDirectory({ title: '选择增量基线文件夹' }),
+  ),
+
+  listExportBaselines: procedure
+    .input(z.object({ directory: z.string().min(1) }))
+    .query(({ input }) => requireServices().exportManager.listBaselines(input.directory)),
+
   saveExportTaskOutput: procedure
     .input(
       z.object({
@@ -6790,15 +6809,45 @@ export const accountRouter = router({
   revealExportReport: procedure
     .input(z.object({ taskId: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      const task = requireServices().exportManager.getTask(input.taskId);
-      if (!task?.reportPath) throw new Error('完整性报告尚未生成。');
-      await getHost().revealPath(task.reportPath);
+      const path = requireServices().exportManager.getReportPath(input.taskId);
+      if (!path) throw new Error('完整性报告尚未生成。');
+      await getHost().revealPath(path);
       return true;
     }),
 
   resumeExportTask: procedure
+    .input(z.object({ taskId: z.string().min(1), incremental: z.boolean().optional() }))
+    .mutation(({ input }) =>
+      requireServices().exportManager.resumeTask(input.taskId, input.incremental),
+    ),
+
+  finalizeExportTask: procedure
     .input(z.object({ taskId: z.string().min(1) }))
-    .mutation(({ input }) => requireServices().exportManager.resumeTask(input.taskId)),
+    .mutation(({ input }) => requireServices().exportManager.finalizeTask(input.taskId)),
+
+  skipExportTaskStage: procedure
+    .input(
+      z.object({
+        taskId: z.string().min(1),
+        stage: z.enum([
+          'backfill',
+          'dress',
+          'avatar',
+          'media',
+          'image',
+          'video',
+          'file',
+          'ptt',
+          'transcribe',
+          'ocrfilter',
+          'ocr',
+          'sysface',
+        ]),
+      }),
+    )
+    .mutation(({ input }) =>
+      requireServices().exportManager.skipTaskStage(input.taskId, input.stage),
+    ),
 
   cancelExportTask: procedure
     .input(z.object({ taskId: z.string().min(1) }))
@@ -7011,6 +7060,7 @@ export const accountRouter = router({
       const extension =
         task.resource?.output?.extension || extname(input.sourcePath).slice(1) || task.format;
       const target = await getHost().pickSaveTarget({
+        locationKey: 'export-single-file',
         defaultName: exportOutputFileName({
           kind: 'file',
           name: input.defaultName.replace(/\.[^.]+$/, ''),

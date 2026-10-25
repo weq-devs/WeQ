@@ -111,8 +111,11 @@ export interface AccountConfig {
    * Absolute path to this account's user-data directory
    * (`…\Tencent Files\<uin>`). The true primary key; same uin + different
    * dataDir ⇒ separate record.
+   * 静态账号兼容旧记录，使用数据库目录作主键；完整账号根见 backupAccountDir。
    */
   dataDir?: string;
+  /** 静态备份的完整账号根；dataDir 保留数据库目录以兼容已有配置 ID 和设置。 */
+  backupAccountDir?: string;
   /** Last seen display name / nickname (for the picker). */
   displayName?: string;
   /** Cached avatar URL (for the picker), if resolved. */
@@ -256,6 +259,7 @@ export interface AccountConfigMetadata {
   displayName?: string;
   avatarUrl?: string;
   dataDir?: string;
+  backupAccountDir?: string;
   /** Account string uid (`u_...`), needed for linux account-dir derivation. */
   uid?: string;
   /** Set when opening a static (offline) account so the badge / re-open
@@ -331,6 +335,7 @@ export class AccountConfigService {
       algos: this.session.context.algos,
       ...(metadata.uid ? { uid: metadata.uid } : {}),
       ...(metadata.dataDir ? { dataDir: metadata.dataDir } : {}),
+      ...(metadata.backupAccountDir ? { backupAccountDir: metadata.backupAccountDir } : {}),
       ...(metadata.displayName ? { displayName: metadata.displayName } : {}),
       ...(metadata.avatarUrl ? { avatarUrl: metadata.avatarUrl } : {}),
       ...(metadata.static === true ? { static: true } : {}),
@@ -353,6 +358,22 @@ export class AccountConfigService {
   /** Read the current account's record from disk, or null if not yet written. */
   getRecord(): AccountConfig | null {
     return this.readRecord();
+  }
+
+  /** 打开账号后刷新菜单昵称，不能把切号时传回的旧配置当作最新资料。 */
+  async refreshDisplayName(): Promise<void> {
+    const configId = this.currentConfigId;
+    try {
+      const uin = BigInt(this.session.context.uin);
+      const profile = await this.session.profileInfo.getProfileByUin(uin);
+      if (this.currentConfigId !== configId || profile?.uin !== uin || !profile.nick) return;
+      if (this.getRecord()?.displayName !== profile.nick) this.patch({ displayName: profile.nick });
+    } catch (error) {
+      this.logger.warn('刷新账号昵称失败，保留已保存昵称', {
+        event: 'refresh-account-display-name-failed',
+        ...logErrorContext(error),
+      });
+    }
   }
 
   setMailNotifications(enabled: boolean): void {

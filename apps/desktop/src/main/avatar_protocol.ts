@@ -17,6 +17,7 @@
  */
 
 import { getAppContext } from './context/app_context';
+import { imagePreview } from './image_preview';
 
 export const AVATAR_SCHEME = 'weq-avatar';
 
@@ -50,8 +51,15 @@ export async function handleAvatarRequest(request: Request): Promise<Response> {
   if (!ctx.bootstrap) {
     return new Response('native unavailable', { status: 503 });
   }
+  const cache = ctx.bootstrap.avatarCache;
 
   try {
+    if (url.searchParams.get('preview') === '1') {
+      const data = await imagePreview(async () => (await cache.get(src, 'avatar')).data);
+      return new Response(new Uint8Array(data), {
+        headers: { 'Content-Type': 'image/webp', 'Cache-Control': 'public, max-age=300' },
+      });
+    }
     const blob = await ctx.bootstrap.avatarCache.get(
       src,
       'avatar',

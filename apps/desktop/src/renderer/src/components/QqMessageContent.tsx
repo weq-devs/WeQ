@@ -111,6 +111,18 @@ export const ForwardCarrierContext = createContext<ForwardCarrier | null>(null);
 export const ForwardSubRecordsContext = createContext<Map<string, unknown[]> | null>(null);
 
 /**
+ * 当前消息所属的会话（kind + 会话标识），供通话气泡查「这通电话有没有录音」。
+ *
+ * 私聊的 conv 用会话 id（= 对方 uid），群聊用群号；两者都和主进程录音索引里记的
+ * `conv` 对齐（见 `call_recording_store.ts`）。这里是显式传参而不是 context：
+ * 本组件有多条 early return，套 Provider 得在每个分支重复一遍，传参更省事。
+ */
+export interface CallConv {
+  kind: 'c2c' | 'group';
+  conv: string;
+}
+
+/**
  * 「把纯文本消息里的 Markdown 也渲染」开关（设置 → 全局设置，AppSettings.renderTextMarkdown）。
  *
  * 这是 WeQ 自己的 feature，不是 QQ 的语义——QQ 原生只有 markdownElement 才是 Markdown。
@@ -355,11 +367,14 @@ function ElementNode({
   sendTimeMs,
   msgId,
   isSender = true,
+  callConv,
 }: {
   element: RenderElement;
   sendTimeMs: number;
   msgId: string;
   isSender?: boolean;
+  /** 会话身份：只有通话气泡用得上（查这通电话有没有录音）。 */
+  callConv?: CallConv | null;
 }): ReactNode {
   if (element.type && MEDIA_KINDS.has(element.type)) {
     return <MediaNode element={element} sendTimeMs={sendTimeMs} msgId={msgId} />;
@@ -392,7 +407,14 @@ function ElementNode({
   if (element.type === 'call') {
     const data = element.data ?? {};
     return (
-      <QqCall callMethod={data.callMethod} subType={data.subType} callSummary={data.callSummary} />
+      <QqCall
+        callMethod={data.callMethod}
+        subType={data.subType}
+        callSummary={data.callSummary}
+        sendTimeMs={sendTimeMs}
+        msgId={msgId}
+        conv={callConv ?? null}
+      />
     );
   }
   const text = inlineLabel(element);
@@ -440,6 +462,7 @@ function renderElementNodes(
   sendTimeMs: number,
   msgId: string,
   isSender = true,
+  callConv?: CallConv | null,
 ): ReactNode[] {
   const out: ReactNode[] = [];
   let runStart = -1;
@@ -470,6 +493,7 @@ function renderElementNodes(
             sendTimeMs={sendTimeMs}
             msgId={msgId}
             isSender={isSender}
+            callConv={callConv}
           />
         ))}
       </span>,
@@ -493,6 +517,7 @@ function renderElementNodes(
         sendTimeMs={sendTimeMs}
         msgId={msgId}
         isSender={isSender}
+        callConv={callConv}
       />
     );
     out.push(
@@ -742,6 +767,17 @@ export function QqMessageContent({
   const groupCode = useContext(ConvContext);
   const textMarkdownOn = useContext(TextMarkdownContext);
   const linkPreviewOn = useContext(LinkPreviewContext);
+  /**
+   * 通话气泡查录音要用的会话身份。`conversation` 没传时（转发窗口 / 导出预览）
+   * 退回 `ConvContext`（那里只有群号），再拿不到就干脆不查 —— 宁可没有播放按钮，
+   * 也不要因为猜错会话把别人的录音挂到这条消息上。
+   */
+  const callConv: CallConv | null = (() => {
+    const kind = conversation?.type === 'group' || forwardKind === 'group' ? 'group' : 'c2c';
+    const conv =
+      conversation?.id ?? (kind === 'group' ? groupCode : (conversation?.otherUser?.id ?? ''));
+    return conv ? { kind, conv } : null;
+  })();
   if (arkElement && isArkMultiMsg(arkElement.data?.arkData)) {
     // 与下面 multiMsg 分支同一套内联子记录规则（Ark 形态的合并转发同样可嵌套）。
     const inlineSubs = forwardSubRecords?.get(msgId);
@@ -986,7 +1022,7 @@ export function QqMessageContent({
         <ReplyQuote data={replyElement.data ?? {}} sendTimeMs={sendTimeMs} />
         {meaningful.length > 0 ? (
           <div className="qq-reply-body">
-            {renderElementNodes(meaningful, sendTimeMs, msgId, isSender)}
+            {renderElementNodes(meaningful, sendTimeMs, msgId, isSender, callConv)}
           </div>
         ) : null}
       </div>
@@ -1060,7 +1096,7 @@ export function QqMessageContent({
   if (soleLinkCard) {
     return (
       <div className={cn('message-content', 'qq-message-inline', 'qq-has-linkcard')}>
-        {renderElementNodes(meaningful, sendTimeMs, msgId, isSender)}
+        {renderElementNodes(meaningful, sendTimeMs, msgId, isSender, callConv)}
         {soleLinkCard}
       </div>
     );
@@ -1085,7 +1121,7 @@ export function QqMessageContent({
     }
   }
 
-  const nodes = renderElementNodes(meaningful, sendTimeMs, msgId, isSender);
+  const nodes = renderElementNodes(meaningful, sendTimeMs, msgId, isSender, callConv);
 
   return <div className={cn('message-content', 'qq-message-inline')}>{nodes}</div>;
 }

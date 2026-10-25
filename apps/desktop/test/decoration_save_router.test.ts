@@ -73,7 +73,11 @@ it.each(['ttf', 'png', 'zip'])('根据实际 %s 产物打开公共单文件选�
     .saveMsgDecoration({ ...input, savePolicy: { mode: 'before' } });
   expect(result.mode).toBe('task');
   if (result.mode !== 'task') throw new Error('应创建任务');
-  expect(state.pick).toHaveBeenCalledWith({ defaultName: `真实产物.${extension}`, extension });
+  expect(state.pick).toHaveBeenCalledWith({
+    defaultName: `真实产物.${extension}`,
+    extension,
+    locationKey: 'export-before',
+  });
   await vi.waitFor(() => expect(manager.getTask(result.taskId)?.save?.status).toBe('saved'));
   expect(readFileSync(state.selected!, 'utf8')).toBe('fixture-resource');
 });

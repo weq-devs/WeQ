@@ -22,9 +22,11 @@ import { dbRepairRouter } from './routers/db_repair';
 import { mergeForwardRouter } from './routers/merge_forward';
 import { mailRouter } from './routers/mail';
 import { remoteRouter } from './routers/remote';
+import { exportViewerRouter } from './routers/export_viewer';
 import { callRouter } from './routers/call';
 
 export const appRouter = router({
+  exportViewer: exportViewerRouter,
   remote: remoteRouter,
   /** 语音通话（仅主动发起）。 */
   call: callRouter,

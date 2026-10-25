@@ -629,9 +629,8 @@ function tool<I extends z.ZodRawShape>(def: {
 /**
  * 三个发送工具共用的「带装扮」入参：气泡 / 字体 / 挂件三个 itemId（都可选）。
  *
- * ⚠️ **实验结论：服务端不收**（真机实测：请求 result=0 但落库装扮全 0，逐字节重放真机
- * 那段 generalFlags 也一样）。所以传了**不会**改变收端看到的装扮 —— 这几个参数目前只是
- * 一个可复现实验的开关，别当成能用的功能。详见 @weq/protocol 的 SendDress。
+ * 只保留为历史实验开关，不是装扮选择器。正常调用无需提供：业务层匹配本人消息中的
+ * 当前字体原值并显式携带，不会因指定其他字体 ID 就覆盖当前款。详见 SendDress。
  */
 const dressInputShape = {
   dressBubbleId: z
@@ -645,7 +644,7 @@ const dressInputShape = {
     .int()
     .nonnegative()
     .optional()
-    .describe('字体 itemId（⚠️ 服务端不采信，实测无效；保留用于复现实验）'),
+    .describe('历史字体实验参数；无需填写，正常发送自动跟随 QQ 当前字体，不能据此指定其他款'),
   dressWidgetId: z
     .number()
     .int()
@@ -4017,8 +4016,8 @@ export const AI_TOOLS: AiTool[] = [
       '**私聊必须再传 replyToClientSeq** —— 私聊引用指针用的是「发送方本地 client sequence」，' +
       '只给 msgSeq 会发成一个定位不到原消息的引用框（get_messages 开 includeIds=true 会返回 clientSeq）。' +
       'replyToClientSeq 在群聊里不用传（群消息这两个编号本来就是同一个值）。' +
-      '\n【带装扮】dressBubbleId / dressFontId / dressWidgetId 是实验开关：真机实测服务端不采信，' +
-      '传了也改变不了收端看到的装扮（详见 SendDress 注释）。' +
+      '\n【聊天字体】默认自动跟随 QQ 账号当前字体，无需传参；' +
+      'dressBubbleId / dressFontId / dressWidgetId 只保留为装扮实验开关，不能据此指定其他字体。' +
       '\n【结果怎么看】ok=false 就是**没发出去**（result 非 0，hint 里解释了常见码：79 = 场景/参数不符）。别把“调用了”当“发送成功”。' +
       '\n【不能代表什么】ok=true 只说明服务端接受了这条消息，不代表对方已读/已看到。',
     input: z.object({
@@ -4085,7 +4084,7 @@ export const AI_TOOLS: AiTool[] = [
       '语音 wav（自动转 SILK）或已是 SILK 的文件（mp3 等压缩格式不支持，仓库里没有转码器）；视频常见容器。' +
       '\n【语音】不传 durationSec 时用文件里的真实时长；波形会自动从 WAV 算（真实振幅）。' +
       '\n【视频】群聊建议给 width / height（不给也能发，但**安卓端会显示「文件已过期」**）；私聊固定不上报尺寸（服务端 schema 限制）。' +
-      '\n【带装扮】dressBubbleId / dressFontId / dressWidgetId 是实验开关：真机实测服务端不采信（改变不了收端装扮）。' +
+      '\n【带装扮】聊天字体默认跟随 QQ 账号当前设置；dressBubbleId / dressFontId / dressWidgetId 仅为实验参数，不支持任意字体选择。' +
       '\n【结果怎么看】ok=false 就是没发出去（result / errMsg / hint 给出原因）。上传失败会直接报错（不会发半条）。' +
       '\n【uploads 是什么】每个媒体一项 { kind, fileName, fileSize, md5Hex, fastUpload }。fastUpload=true 表示服务端已按 md5 存着这份资源，这次是**秒传**（一个字节没传，直接用服务端回的 msgInfo）；=false 才是真的传了字节。收端说「已过期」时看这里就能分清是上传失败还是别的。',
     input: z.object({
@@ -4265,7 +4264,7 @@ export const AI_TOOLS: AiTool[] = [
       'faceId 是小黄脸 id，count 是弹射个数，name 不带斜杠。真机验证可用）' +
       '\n  {"kind":"raw","elem":{...}} 逃生舱；媒体也可写 {"kind":"image","source":"/绝对/路径.jpg"}（需 uid）' +
       '\n  语音变声：{"kind":"record","source":"/绝对/路径.wav","voiceChanged":true}（缺省 false=原声）' +
-      '\n【带装扮】dressBubbleId / dressFontId / dressWidgetId 是实验开关：真机实测服务端不采信（改变不了收端装扮）。' +
+      '\n【带装扮】聊天字体默认跟随 QQ 账号当前设置；dressBubbleId / dressFontId / dressWidgetId 仅为实验参数，不支持任意字体选择。' +
       '\n【结果怎么看】ok=false 就是没发出去；元素写错会在发送前报错（不会发半条）。',
     input: z.object({
       peerType: z.enum(['c2c', 'group']).describe('c2c=私聊，group=群聊'),

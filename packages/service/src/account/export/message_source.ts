@@ -49,6 +49,7 @@ import type { MsgSalvageSource, MsgService, RenderGroupMsg, RenderC2cMsg } from 
 import type { GapFetchedMessage } from '../gap_history';
 import type { ExportedMessage, ExportTimeRange } from './types';
 import { compileMessageFilter, messageSelectionKey } from '../message_filter';
+import { expandForwards } from './forward_expand';
 
 /** 允许分块容错续读的最低宽容级别（跳过数据必须由用户授权）。 */
 const SALVAGE_MIN_LEVEL = 2;
@@ -259,9 +260,27 @@ export async function* iterateGroupMessages(
   const deduped = opts.roam
     ? dedupeByMsgId(merged, msgs.exportFilter?.messageIds ? messageSelectionKey : undefined)
     : merged;
-  for await (const m of deduped) {
+  const selected = selectMessages(deduped, msgs, opts.range, matches, 'group');
+  yield* msgs.exportJournal
+    ? msgs.exportJournal.capture(selected, async (row) =>
+        expandForwards(msgs, 'group', toExportedMessage(row)),
+      )
+    : selected;
+}
+
+async function* selectMessages<T extends RenderGroupMsg | RenderC2cMsg>(
+  source: AsyncGenerator<T>,
+  msgs: MsgService,
+  range: ExportTimeRange | undefined,
+  matches: (message: T) => boolean,
+  kind: 'group' | 'c2c',
+): AsyncGenerator<T> {
+  for await (const message of source) {
     msgs.exportSignal?.throwIfAborted();
-    if (withinRange(Number(m.sendTime), opts.range) && matches(m)) yield m;
+    if (withinRange(Number(message.sendTime), range) && matches(message)) {
+      if (!msgs.exportJournal) await expandForwards(msgs, kind, toExportedMessage(message));
+      yield message;
+    }
   }
 }
 
@@ -352,10 +371,12 @@ export async function* iterateC2cMessages(
   const deduped = opts.roam
     ? dedupeByMsgId(merged, msgs.exportFilter?.messageIds ? messageSelectionKey : undefined)
     : merged;
-  for await (const m of deduped) {
-    msgs.exportSignal?.throwIfAborted();
-    if (withinRange(Number(m.sendTime), opts.range) && matches(m)) yield m;
-  }
+  const selected = selectMessages(deduped, msgs, opts.range, matches, 'c2c');
+  yield* msgs.exportJournal
+    ? msgs.exportJournal.capture(selected, async (row) =>
+        expandForwards(msgs, 'c2c', toExportedMessage(row)),
+      )
+    : selected;
 }
 
 /** C2c seq cursor (`40003 > lastSeq`): all messages that carry a real seq. */

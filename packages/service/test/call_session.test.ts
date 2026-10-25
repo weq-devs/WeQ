@@ -268,6 +268,26 @@ describe('通话会话状态机', () => {
     expect(session.snapshot().endReason).toBe('hangup');
   });
 
+  /**
+   * 回归：挂断时释放 native 编解码器曾经把主进程直接打崩（Windows 上
+   * AVSDKPlugin 的后台线程在模块卸载后踩空，fail-fast）。即使释放这一步抛错，
+   * 状态也必须先落到终态，否则界面永远停在「正在挂断」，而对端一直占线。
+   */
+  it('释放编解码器抛错时状态仍然收敛到 ended', async () => {
+    const { session, transport, codec } = makeSession();
+    codec.close = () => {
+      throw new Error('AVSDKPlugin 卸载失败');
+    };
+    await session.start();
+    transport.deliver(notifyPacket(CallEvent.dataChange));
+
+    await expect(session.hangup()).resolves.toBeUndefined();
+    expect(session.snapshot().state).toBe('ended');
+    expect(session.snapshot().endReason).toBe('hangup');
+    // UDP 仍然要关掉，不能因为编解码器出错就漏掉 socket。
+    expect(transport.closed).toBe(true);
+  });
+
   it('对端拒绝 / 连接失败 / 超时 / 被踢各有独立原因', async () => {
     for (const [event, reason] of [
       [CallEvent.connectFail, 'connect_fail'],

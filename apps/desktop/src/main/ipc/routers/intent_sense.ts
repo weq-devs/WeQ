@@ -187,7 +187,7 @@ const intentSenseFeatureProcedures = {
 
   /** 候选回复（当前引擎可用且 suggestionsEnabled）。 */
   getSuggestions: procedure
-    // 版本隔离缓存；false 可主动关闭建议，true 不能覆盖实际范围或发送者。
+    // 版本隔离缓存；自动查询可暂停，手动刷新不改变功能和会话开关。
     .input(
       z.object({
         kind: kindSchema,
@@ -195,12 +195,15 @@ const intentSenseFeatureProcedures = {
         revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
         replyAllowed: z.boolean().optional(),
         targetId: z.string().nullable().optional(),
+        refresh: z.boolean().optional(),
       }),
     )
     .query(({ input }) =>
       input.replyAllowed === false
         ? []
-        : requireServices().intentSense.getSuggestions(input.kind, input.conv),
+        : requireServices().intentSense.getSuggestions(input.kind, input.conv, {
+            refresh: input.refresh,
+          }),
     ),
 
   /** 增量分析结果推送（ensureAnalysis / analyzeMessage 落缓存后触发）。 */

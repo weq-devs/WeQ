@@ -79,6 +79,7 @@ export const backupProcedures = {
         .format(new Date())
         .replace(/[^0-9]/g, '');
       const target = await host.pickSaveTarget({
+        locationKey: 'weq-backup',
         defaultName: `weq-backup-${timestamp}.zip`,
         extension: 'zip',
       });

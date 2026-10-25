@@ -7,7 +7,10 @@ import {
   createDiagnosticLog,
   projectDiagnosticProcesses,
 } from '../src/main/renderer_diagnostics';
-import { normalizeRendererSample } from '../src/shared/renderer_diagnostics';
+import {
+  normalizeRendererSample,
+  normalizeDevelopmentSample,
+} from '../src/shared/renderer_diagnostics';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -15,6 +18,26 @@ afterEach(() => {
 });
 
 describe('渲染内存诊断隐私与上限', () => {
+  it('开发缓存字段保留原始数值单位，过滤非数值和未知分类，缺测不冒充零', () => {
+    const sample = normalizeDevelopmentSample({
+      caches: { images: { count: 1, size: 2048, liveSize: Infinity }, secret: 'private' },
+      animations: -1,
+      documentVisible: 'true',
+    });
+    expect(sample).toMatchObject({
+      caches: {
+        images: { count: 1, sizeBytes: 2048, liveSizeBytes: null },
+        fonts: { count: null },
+      },
+      animations: null,
+      runningAnimations: null,
+      documentVisible: null,
+    });
+    expect(Object.keys(sample.caches)).toHaveLength(6);
+    expect(JSON.stringify(sample)).not.toMatch(/secret|private/);
+    expect(normalizeDevelopmentSample(null).caches.images).toMatchObject({ count: null });
+  });
+
   it('只记录页面类别，不保留 URL、账号、路径或查询参数', () => {
     expect(classifyDiagnosticPage(true, 'https://secret.invalid/?token=secret', 'window')).toBe(
       'main',
@@ -94,6 +117,13 @@ describe('渲染内存诊断隐私与上限', () => {
       token: 'secret',
       externalBytes: Infinity,
       blinkAllocatedKB: -1,
+      resources: {
+        retainedBytes: 1024,
+        pinnedImages: 3,
+        totalPendingImages: 5,
+        token: 'secret',
+        reservedBytes: Infinity,
+      },
     });
     expect(sample).toMatchObject({
       jsHeapUsedBytes: 500,
@@ -103,6 +133,12 @@ describe('渲染内存诊断隐私与上限', () => {
       eventListeners: null,
     });
     expect(JSON.stringify(sample)).not.toContain('secret');
+    expect(sample.resources).toMatchObject({
+      retainedBytes: 1024,
+      pinnedImages: 3,
+      totalPendingImages: 5,
+      reservedBytes: null,
+    });
     expect(normalizeRendererSample(null).jsHeapUsedBytes).toBeNull();
   });
 

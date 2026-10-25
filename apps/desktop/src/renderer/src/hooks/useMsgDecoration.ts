@@ -7,12 +7,13 @@
  * for inline rendering.
  */
 
-import { useContext, useEffect } from 'react';
+import { useContext, useEffect, useState, type RefObject } from 'react';
 import type { ResolvedWidget } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { MsgDecorationEnabledContext } from '../components/QqMessageContent';
 import { injectBubbleCss, injectFontCss, injectWidgetCss } from '../lib/msgDecorationStyle';
 import { toFontFxSkin, type FontFxSkin } from '../lib/dressSkin';
+import { useTabActive } from '../components/RetainedTabs';
 
 type DecorationIds = { bubbleId: number; fontId: number; widgetId: number } | undefined;
 
@@ -30,7 +31,10 @@ type DecorationIds = { bubbleId: number; fontId: number; widgetId: number } | un
  * `data-fontfx="<字体id>-<变体>"` 才生效，而挂哪一档要量完气泡尺寸才知道（气泡比
  * 动画画布还大就不放）——量尺寸是每个气泡自己的事，所以数据交给调用方。
  */
-export function useMsgDecoration(decoration: DecorationIds): {
+export function useMsgDecoration(
+  decoration: DecorationIds,
+  element?: RefObject<HTMLElement | null>,
+): {
   widget: ResolvedWidget | null;
   bubbleId: number;
   fontId: number;
@@ -38,6 +42,20 @@ export function useMsgDecoration(decoration: DecorationIds): {
   fontFx: FontFxSkin | null;
 } {
   const enabled = useContext(MsgDecorationEnabledContext);
+  const tabActive = useTabActive();
+  const [visible, setVisible] = useState(!element || typeof IntersectionObserver === 'undefined');
+  useEffect(() => {
+    const node = element?.current;
+    if (!node || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setVisible(entry?.isIntersecting ?? false),
+      {
+        rootMargin: '200px',
+      },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [element]);
   const hasDec = Boolean(
     decoration && (decoration.bubbleId || decoration.fontId || decoration.widgetId),
   );
@@ -49,19 +67,23 @@ export function useMsgDecoration(decoration: DecorationIds): {
       widgetId: decoration?.widgetId ?? 0,
     },
     {
-      enabled: enabled && hasDec,
+      enabled: enabled && hasDec && visible && tabActive,
       staleTime: Infinity,
     },
   );
 
   useEffect(() => {
-    if (!result.data) return;
-    if (result.data.bubble) injectBubbleCss(result.data.bubble);
+    if (!enabled || !visible || !tabActive || !result.data) return;
+    const release: (() => void)[] = [];
+    if (result.data.bubble) release.push(injectBubbleCss(result.data.bubble));
     if (result.data.font && decoration?.fontId) {
-      injectFontCss(decoration.fontId, result.data.font);
+      release.push(injectFontCss(decoration.fontId, result.data.font));
     }
-    if (result.data.widget) injectWidgetCss(result.data.widget);
-  }, [result.data, decoration?.fontId]);
+    if (result.data.widget) release.push(injectWidgetCss(result.data.widget));
+    return () => {
+      for (const dispose of release) dispose();
+    };
+  }, [result.data, decoration?.fontId, enabled, visible, tabActive]);
 
   if (!enabled || !hasDec) return { widget: null, bubbleId: 0, fontId: 0, fontFx: null };
   const font = result.data?.font ?? null;

@@ -41,6 +41,7 @@ export interface ChatlabHeader {
     groupId?: string;
     groupAvatar?: string;
     ownerId?: string;
+    conversationId?: string;
   };
 }
 

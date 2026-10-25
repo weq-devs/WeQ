@@ -79,7 +79,8 @@
  */
 
 import type { FontFx, ResolvedWidget } from '@weq/service';
-import { decorationImageCache, type PinOwner } from './decodedImageCache';
+import { fontFaces, type FontLease } from './fontFaces';
+import { prepareDecorationFrames, validDecorationFrames } from './decorationResources';
 import {
   dressBubbleUrl,
   dressBubbleFrameUrl,
@@ -272,6 +273,7 @@ export interface FontFxSkin {
 export function fontFxFrameUrls(skin: FontFxSkin | null | undefined): string[] {
   if (!skin) return [];
   const total = skin.fx.variants.reduce((n, v) => n + v.frames.length, 0);
+  if (!validDecorationFrames(total)) return [];
   return Array.from({ length: total }, (_, i) =>
     dressFontFrameUrl(skin.itemId, i + 1, skin.deriveVersion),
   );
@@ -510,7 +512,7 @@ function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
   const width = `${px(wTop)} ${px(wRight)} ${px(wBottom)} ${px(wLeft)}`;
 
   const frameAnim =
-    skin.animationFrameCount && skin.animationFrameTimeMs
+    validDecorationFrames(skin.animationFrameCount) && skin.animationFrameTimeMs
       ? frameAnimationCss(
           skin.itemId,
           skin.animationFrameCount,
@@ -628,7 +630,7 @@ function ninePatchLayer(
     .join('\n');
 }
 
-function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
+function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): string {
   const sel = bubbleSelector(scope);
   const theirsSel = scope === 'all' ? theirsBubbleSelector() : null;
   const m = bubbleMetrics(skin);
@@ -665,7 +667,7 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
       ninePatchLayer(m, `${sel}::after`, {
         imageUrl: frameOverlayUrl(skin.itemId),
         zIndex: -1,
-        animation: m.frameAnim.animation,
+        animation: animated ? m.frameAnim.animation : undefined,
       }),
     );
   }
@@ -689,7 +691,7 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope): string {
             imageUrl: frameOverlayUrl(skin.itemId),
             zIndex: -1,
             mirror: true,
-            animation: m.frameAnim.animation,
+            animation: animated ? m.frameAnim.animation : undefined,
           })
         : '',
     );
@@ -753,8 +755,10 @@ export function bubblePreviewCss(skin: BubbleSkinCss, sel: string): string {
  * 的那条 40801 装饰,所有消息共用一款)。背景图逐帧切换,`steps(1)` 让每帧撑满自己的
  * 时间段而不是按不可插值属性的默认「过半才切」语义把显示时长砍半。
  */
-function widgetPendantRules(widget: ResolvedWidget, scope: DressScope): string {
+function widgetPendantRules(widget: ResolvedWidget, scope: DressScope, animated = true): string {
   if (!widget.animated) return '';
+  if (!validDecorationFrames(widget.frameCount))
+    return `${pendantSelector(scope)} { background-image: url("${dressPendantFrameUrl(widget.itemId, 1)}"); background-size: contain; }`;
   const name = `weq-widgetframe-${widget.itemId}`;
   const step = 100 / widget.frameCount;
   const stops = Array.from({ length: widget.frameCount }, (_, i) => {
@@ -772,7 +776,7 @@ function widgetPendantRules(widget: ResolvedWidget, scope: DressScope): string {
     `  background-size: contain;`,
     `  background-position: center;`,
     `  background-repeat: no-repeat;`,
-    `  animation: ${name} ${duration}ms steps(1) ${iterations};`,
+    animated ? `  animation: ${name} ${duration}ms steps(1) ${iterations};` : '',
     `}`,
     `@media (prefers-reduced-motion: reduce) {`,
     `  ${sel} { animation: none; }`,
@@ -784,13 +788,13 @@ function widgetPendantRules(widget: ResolvedWidget, scope: DressScope): string {
  * 生效挂件的全部帧 url(逐帧预加载用)。
  */
 function widgetFrameUrls(widget: ResolvedWidget | null): string[] {
-  if (!widget?.animated) return [];
+  if (!widget?.animated || !validDecorationFrames(widget.frameCount)) return [];
   return Array.from({ length: widget.frameCount }, (_, i) =>
     dressPendantFrameUrl(widget.itemId, i + 1),
   );
 }
 
-export function fontRules(font: FontSkinCss, scope: DressScope): string {
+export function fontRules(font: FontSkinCss, scope: DressScope, animated = true): string {
   // @font-face 不在这里声明 —— 字体经 FontFace API 预加载后注册进 document.fonts
   // (见 preloadFont)。那样字形在样式落地前就绪,不会触发 swap 的二次重排。
   const fxSkin = toFontFxSkin(font);
@@ -804,7 +808,7 @@ export function fontRules(font: FontSkinCss, scope: DressScope): string {
     // 炫彩帧:属性挂在**行**上(渲染侧量完气泡尺寸才挂)。帧图层按我方/对方挑不同的
     // 伪元素(见 fontFxRules),所以这里要分开传两套行选择器 —— scope=mine 时对方
     // 行根本没换上这款字,不用给。
-    fxSkin
+    fxSkin && animated
       ? fontFxRules(fxSkin, {
           mine: '.message-line.mine',
           ...(scope === 'all' ? { theirs: '.message-line.theirs' } : {}),
@@ -830,6 +834,8 @@ export function toFontFxSkin(
   } | null,
 ): FontFxSkin | null {
   if (!font?.fx || font.fx.variants.length === 0) return null;
+  if (!validDecorationFrames(font.fx.variants.reduce((n, v) => n + v.frames.length, 0)))
+    return null;
   return { itemId: font.itemId, deriveVersion: font.deriveVersion, fx: font.fx };
 }
 
@@ -848,35 +854,25 @@ function bubbleImageUrl(skin: BubbleSkinCss): string {
 
 /** 气泡动效叠加层的全部帧 url(逐帧预加载用)。 */
 function bubbleFrameUrls(skin: BubbleSkinCss | null): string[] {
-  if (!skin?.animationFrameCount) return [];
+  if (!skin || !validDecorationFrames(skin.animationFrameCount)) return [];
   return Array.from({ length: skin.animationFrameCount }, (_, i) =>
     dressBubbleFrameUrl(skin.itemId, i + 1),
   );
 }
 
 /**
- * 预热一张图。**失败也 resolve** —— 预热只为避开二次重排,不是能否渲染的前提;
- * 拿不到就照常注入,由 border-image 自己空着(与预热之前的行为一致)。
- */
-function preloadImage(url: string): Promise<void> {
-  return decorationImageCache.preload(url);
-}
-
-/**
  * 当前生效装扮的帧持有凭据。
- *
- * 与逐条消息装扮（msgDecorationStyle）不同,生效装扮是**可换的** —— 换款时旧款的
- * `@keyframes` 会被整份重写掉,所以旧的帧也该回到 LRU;这份凭据在每次
- * {@link applyDressSkin} 重写样式前归还。
+ * 换款先取得新款凭据再归还旧款，同款重注入不重建资源。
  */
-let appliedPin: PinOwner | null = null;
+let appliedFrames: ReturnType<typeof prepareDecorationFrames> | null = null;
+let appliedController: AbortController | null = null;
+let appliedGeneration = 0;
+let appliedKey = '';
+let appliedFailed = false;
 
 /**
  * 生效装扮正在播的全部帧 url(气泡帧 + 炫彩帧 + 挂件帧)。
- *
- * 这条路径的首屏注入是同步的({@link syncDressSkin}),没有「等解码再开播」的门控,
- * 所以帧必须在注入当下就钉住 —— 否则首屏几十条消息各自挂着同一款挂件时,LRU 会
- * 为了给别的预热腾位置把这批帧摘掉,正在播的动画就退回逐帧重解码。
+ * 首屏先注入静态外观，帧在预热之前持有，成功后才开播。
  */
 function appliedFrameUrls(
   bubble: BubbleSkinCss | null,
@@ -891,7 +887,7 @@ function appliedFrameUrls(
 }
 
 /** 已注册进 document.fonts 的那个 face。换字体时要先撤掉,否则会越积越多。 */
-let registeredFace: FontFace | null = null;
+let registeredFace: FontLease | null = null;
 
 /**
  * 已注册的 face 对应哪款字体的哪个产物版本 —— 判「要不要重注册」的键。
@@ -900,6 +896,7 @@ let registeredFace: FontFace | null = null;
  * 会一直赖在 `document.fonts` 里到下次启动 —— 表现就是「升级完字体没变化」。
  */
 let registeredFaceKey: string | null = null;
+let registeredFontFailed = false;
 
 function faceKey(font: { itemId: number; deriveVersion: number }): string {
   return `${font.itemId}:${font.deriveVersion}`;
@@ -908,9 +905,10 @@ function faceKey(font: { itemId: number; deriveVersion: number }): string {
 /** 撤掉已注册的 face。取消字体时必须调,否则它会一直赖在 document.fonts 里。 */
 function unregisterFont(): void {
   if (!registeredFace) return;
-  document.fonts.delete(registeredFace);
+  registeredFace.release();
   registeredFace = null;
   registeredFaceKey = null;
+  registeredFontFailed = false;
 }
 
 /**
@@ -923,21 +921,21 @@ function unregisterFont(): void {
  * 不传 format 描述符的理由同原 CSS 注释:安装层把字体一律存成 `.ttf`,但 QQ 的装扮字体
  * 有一部分其实是 CFF/OTF 外壳,声明成 truetype 会被 Chrome 判定格式不符而**静默**跳过。
  */
-async function preloadFont(font: FontSkinCss): Promise<void> {
+function preloadFont(font: FontSkinCss): Promise<boolean> {
   const family = fontFamilyFor(font.itemId);
-  const key = faceKey(font);
-  if (registeredFace?.family === family && registeredFaceKey === key) return;
+  const key = `${faceKey(font)}:${font.fontUrl}`;
+  if (registeredFace && registeredFaceKey === key && !registeredFontFailed)
+    return registeredFace.ready;
 
   unregisterFont();
 
-  try {
-    const face = await new FontFace(family, `url("${font.fontUrl}")`).load();
-    document.fonts.add(face);
-    registeredFace = face;
-    registeredFaceKey = key;
-  } catch {
-    // 字体坏了 / 文件丢了:静默跳过,CSS 里的 fallback 链会接住。
-  }
+  registeredFace = fontFaces.acquire(family, font.fontUrl);
+  const lease = registeredFace;
+  registeredFaceKey = key;
+  void lease.ready.then((ok) => {
+    if (registeredFace === lease) registeredFontFailed = !ok;
+  });
+  return registeredFace.ready;
 }
 
 /**
@@ -957,6 +955,20 @@ export function applyDressSkin(
   widget: ResolvedWidget | null,
   scope: DressScope = 'mine',
 ): void {
+  const key = JSON.stringify([bubble, font, widget, scope]);
+  if (key === appliedKey && !appliedFailed) return;
+  appliedKey = key;
+  appliedFailed = false;
+  const generation = ++appliedGeneration;
+  const previousController = appliedController,
+    previousFrames = appliedFrames;
+  appliedController = new AbortController();
+  appliedFrames = prepareDecorationFrames(
+    appliedFrameUrls(bubble, font, widget),
+    appliedController.signal,
+  );
+  previousController?.abort();
+  previousFrames?.release();
   // 不 await:注册完成后 document.fonts 变化会让浏览器自己重绘用到该 family 的文本,
   // 不需要我们再动 CSS。放在写 CSS 之前只是为了让下载早开始一点。
   if (font) void preloadFont(font);
@@ -967,18 +979,17 @@ export function applyDressSkin(
   if (!bubble && !font && !widget) {
     existing?.remove();
     // 装扮全清了,在播的帧也要放回 LRU,否则旧款的帧会一直被钉着。
-    appliedPin?.release();
-    appliedPin = null;
     return;
   }
 
-  const css = [
-    bubble ? bubbleRules(bubble, scope) : '',
-    font ? fontRules(font, scope) : '',
-    widget ? widgetPendantRules(widget, scope) : '',
-  ]
-    .filter(Boolean)
-    .join('\n\n');
+  const css = (animated: boolean) =>
+    [
+      bubble ? bubbleRules(bubble, scope, animated) : '',
+      font ? fontRules(font, scope, animated) : '',
+      widget ? widgetPendantRules(widget, scope, animated) : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
 
   const node = existing ?? document.createElement('style');
   if (!existing) {
@@ -987,56 +998,27 @@ export function applyDressSkin(
   }
   // 内容没变就别写 —— 赋值 textContent 会让浏览器重算整张样式表,而
   // getState 的每次 invalidate 都会走到这里(清单对象换了引用但内容常常一样)。
-  if (node.textContent !== css) node.textContent = css;
+  const staticCss = css(false);
+  if (node.textContent !== staticCss) node.textContent = staticCss;
 
   // 换款/换作用范围都是整份重写,旧款的 `@keyframes` 已经不在样式表里了,旧的帧也
   // 该放回 LRU。**先钉新的再放旧的**:同款重注入(每次 invalidate 都会走到这里)
   // 反过来的话会先掉到 0 pin、被淘汰,再重新下载解码。
-  const nextPin = decorationImageCache.pin(appliedFrameUrls(bubble, font, widget));
-  appliedPin?.release();
-  appliedPin = nextPin;
+  void appliedFrames.ready.then((ok) => {
+    if (ok && generation === appliedGeneration && node.isConnected) node.textContent = css(true);
+  });
+  void Promise.all([appliedFrames.ready, registeredFace?.ready ?? true]).then((ready) => {
+    if (generation === appliedGeneration) appliedFailed = !ready.every(Boolean);
+  });
 }
 
-/**
- * 先把资源拉齐,再注入样式。切换装扮时用这条。
- *
- * 分两步的原因:注入瞬间图片还没解码、字体还没下载,消息列表会先按兜底外观排一遍、
- * 资源到齐再排一遍。列表长的时候这第二遍就是肉眼可见的卡顿。先 await 资源,注入
- * 就只剩一次重排,而调用方可以在这段等待期间显示加载态。
- *
- * 预热失败不阻塞注入(见 {@link preloadImage}) —— 装扮是锦上添花,不该因为一张图
- * 拉不到就卡在加载态里。
- */
+/** 切换时等待本次帧和字体就绪；失败保留静态外观，过期调用不会覆盖新选择。 */
 export async function applyDressSkinPreloaded(
   bubble: BubbleSkinCss | null,
   font: FontSkinCss | null,
   widget: ResolvedWidget | null,
   scope: DressScope = 'mine',
 ): Promise<void> {
-  // 先把这批帧钉住再等解码:不然在这段 await 期间,别的预热(浏览装扮列表、
-  // 其他会话的逐条装扮)可能刚好把它们挤出 LRU —— 等我们注入时又得重新解码,
-  // 用户看到的就是「切换装扮后先闪一下」。
-  const frameUrls = appliedFrameUrls(bubble, font, widget);
-  const hold = decorationImageCache.pin(frameUrls);
-
-  await Promise.allSettled(
-    [
-      // 底图 + 动效叠加层的每一帧都要先解码,否则开播第一圈会逐帧闪光。
-      // 底图与帧图都是本地 protocol 文件,基本秒达。
-      bubble ? preloadImage(bubbleImageUrl(bubble)) : null,
-      // 帧是**开播前置条件**,走必须真排队的 require(见 decodedImageCache 的模块头)。
-      ...bubbleFrameUrls(bubble).map((url) => decorationImageCache.require(url)),
-      font ? preloadFont(font) : null,
-      // 炫彩帧同样要预先解码(帧多、播放短,第一圈逐帧解码就是可见的闪)。
-      ...fontFxFrameUrls(toFontFxSkin(font)).map((url) => decorationImageCache.require(url)),
-      // 挂件帧是本地 protocol 文件,首帧以后基本秒达;但首帧没解码就开播仍然会闪,
-      // 所以逐帧预加载完再注入(与 msgDecorationStyle 的 preloadImages 同思路)。
-      ...widgetFrameUrls(widget).map((url) => decorationImageCache.require(url)),
-    ].filter(Boolean),
-  );
-
-  // applyDressSkin 会自己钉一份并释放上一份;这里在它之后再放掉临时持有,中间没有
-  // await,不会出现「两份都松手」的窗口。
   applyDressSkin(bubble, font, widget, scope);
-  hold.release();
+  await Promise.all([appliedFrames?.ready, registeredFace?.ready]);
 }

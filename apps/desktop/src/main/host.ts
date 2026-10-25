@@ -10,6 +10,11 @@ import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { HostBridge, SaveTarget, StorageRoot } from '@weq/service';
 import { clearStorageAfterExit, storageCleanupResult } from './storage_cleanup';
+import { DialogLocations } from './dialog_locations';
+
+export function dialogLocations(): DialogLocations {
+  return new DialogLocations(join(app.getPath('userData'), 'dialog-locations.json'));
+}
 
 /**
  * `shell.openPath` 在 Windows / Linux 上都会等待系统处理程序返回：
@@ -112,32 +117,40 @@ export const electronHost: HostBridge = {
   canReveal: true,
 
   async pickDirectory(opts) {
+    const key = `directory:${opts?.title ?? 'default'}`;
     const result = await dialog.showOpenDialog({
       title: opts?.title,
+      defaultPath: dialogLocations().directory(key),
       properties: ['openDirectory', 'createDirectory'],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
+    if (result.filePaths[0]) dialogLocations().remember(key, result.filePaths[0], true);
     return result.filePaths[0] ?? null;
   },
 
   async pickFile(opts) {
+    const key = `file:${opts?.title ?? 'default'}:${opts?.extensions?.join(',') ?? '*'}`;
     const result = await dialog.showOpenDialog({
       title: opts?.title,
+      defaultPath: dialogLocations().directory(key),
       filters: opts?.extensions?.length
         ? [{ name: 'File', extensions: opts.extensions }]
         : undefined,
       properties: ['openFile'],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
+    if (result.filePaths[0]) dialogLocations().remember(key, result.filePaths[0]);
     return result.filePaths[0] ?? null;
   },
 
-  async pickSaveTarget({ defaultName, extension }): Promise<SaveTarget | null> {
+  async pickSaveTarget({ defaultName, extension, locationKey }): Promise<SaveTarget | null> {
+    const key = `save:${locationKey ?? extension ?? 'default'}`;
     const result = await dialog.showSaveDialog({
-      defaultPath: defaultName,
+      defaultPath: dialogLocations().savePath(key, defaultName),
       filters: extension ? [{ name: 'File', extensions: [extension] }] : undefined,
     });
     if (result.canceled || !result.filePath) return null;
+    dialogLocations().remember(key, result.filePath);
     return { path: result.filePath, downloadId: null };
   },
 

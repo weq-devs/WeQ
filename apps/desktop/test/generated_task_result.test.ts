@@ -60,6 +60,8 @@ it('生成资源缺失在完成结果中可见并可查看明细，暂停收尾�
     expect(host.querySelector('[aria-label="重新执行导出"]')).toBeNull();
     render({ ...task, generatedResources: { total: 3, copied: 3, missing: 0 } });
     expect(host.querySelector('.weq-exp-detail-status')?.textContent).toBe('已完成');
+    render({ ...task, status: 'paused', canResume: false, isGenerated: false, isCollection: true });
+    expect(host.querySelector('.weq-exp-detail-status')?.textContent).toBe('暂停中');
   } finally {
     act(() => root.unmount());
     host.remove();

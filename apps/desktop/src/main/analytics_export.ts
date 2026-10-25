@@ -282,8 +282,13 @@ async function saveCard(
   png: Buffer,
   payload: AnalyticsExportPayload,
 ): Promise<AnalyticsExportResult> {
+  const { dialogLocations } = await import('./host');
+  const locationKey = `analytics:${payload.label}`;
   const options: Electron.SaveDialogOptions = {
-    defaultPath: `${payload.label}_${safeTitle(payload.title)}_${stamp()}.png`,
+    defaultPath: dialogLocations().savePath(
+      locationKey,
+      `${payload.label}_${safeTitle(payload.title)}_${stamp()}.png`,
+    ),
     filters: [{ name: 'PNG 图片', extensions: ['png'] }],
   };
   const result =
@@ -291,6 +296,7 @@ async function saveCard(
       ? await dialog.showSaveDialog(owner, options)
       : await dialog.showSaveDialog(options);
   if (result.canceled || !result.filePath) return { saved: false, canceled: true };
+  dialogLocations().remember(locationKey, result.filePath);
   await fs.promises.writeFile(result.filePath, png);
   return { saved: true, path: result.filePath };
 }

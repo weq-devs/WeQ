@@ -1,0 +1,120 @@
+.weq-mail-export {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  color: var(--weq-fg-primary);
+}
+
+.weq-mail-export > [role='radiogroup'] {
+  padding: 16px 16px 0;
+}
+
+.weq-mail-export input[type='radio'] {
+  accent-color: var(--weq-accent-effective);
+}
+
+.weq-mail-export-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 20px 16px;
+}
+
+.weq-mail-export-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.weq-mail-export-filters input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+}
+
+.weq-mail-export-filters input:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-mail-export-preview {
+  padding: 0 16px 16px;
+  min-width: 0;
+}
+
+.weq-mail-export-preview > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.weq-mail-export-preview button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  cursor: pointer;
+}
+
+.weq-mail-export-preview button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.weq-mail-export-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: 24px 20px;
+  gap: 0 12px;
+  height: 64px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  font-size: 13px;
+}
+
+.weq-mail-export-row strong {
+  grid-column: 1 / -1;
+}
+
+.weq-mail-export-row strong,
+.weq-mail-export-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mail-export-row span,
+.weq-mail-export-row time {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+html[data-privacy] .weq-mail-export-row {
+  filter: blur(5px);
+}
+
+html[data-theme='dark'] .weq-mail-export-filters input {
+  color-scheme: dark;
+  border-color: var(--weq-border-strong);
+  background: var(--weq-bg-surface);
+}
+
+@media (max-width: 520px) {
+  .weq-mail-export-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

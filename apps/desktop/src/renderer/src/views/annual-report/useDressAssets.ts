@@ -10,15 +10,14 @@
  * **全程静默**：任何一款拿不到就在结果里缺席，页面自然缺席那一项。年度报告不弹
  * 「需要在线实例」——那类提示属于装扮商城页。
  *
- * 关键时序：这个 hook 由页面在**数据一到手**时就调用（不等翻到那一页），所以用户
- * 还在看总览页时，第二页的资源已经在下载了。
+ * 页面活动时取得渲染资源，离开时释放；报告数据的后台预取不持有字体或解码帧。
  */
 
 import { useEffect, useState } from 'react';
 import type { BubbleSkin, DressPageData, ResolvedWidget } from '@weq/service';
 import { client } from '../../trpc/client';
 import { injectReportPendantCss } from './reportPendant';
-import { ensureReportFontFace } from './reportFont';
+import { acquireReportFontFace } from './reportFont';
 
 export type DressAssets = {
   bubbles: Map<number, BubbleSkin>;
@@ -45,7 +44,7 @@ const MAX_PER_KIND = 60;
  */
 const PREFETCH_CASE_ITEMS = 8;
 
-export function useDressAssets(data: DressPageData | null): DressAssets {
+export function useDressAssets(data: DressPageData | null, active = true): DressAssets {
   const [assets, setAssets] = useState<DressAssets>(EMPTY);
 
   // 要预热的 id 从「套装」与单类榜前几款里并集取出 —— 主体画套装，展柜画单品。
@@ -65,8 +64,9 @@ export function useDressAssets(data: DressPageData | null): DressAssets {
   ]).join(',');
 
   useEffect(() => {
-    if (!data) return undefined;
+    if (!data || !active) return undefined;
     let cancelled = false;
+    const releases: (() => void)[] = [];
     const bubbleIds = unique([
       ...data.outfits.map((o) => o.bubbleId),
       ...data.bubble.items.slice(0, PREFETCH_CASE_ITEMS).map((item) => item.itemId),
@@ -107,13 +107,19 @@ export function useDressAssets(data: DressPageData | null): DressAssets {
         widgets.set(Number(id), value);
         // 动画款的 @keyframes 注给报告自己的挂件元素（聊天侧那份按 .message-line
         // 选中，选择器对不上，见 reportPendant.ts）。同 itemId 只注一次。
-        injectReportPendantCss(value);
+        releases.push(injectReportPendantCss(value));
       }
 
       // 字体的 ttf 已在主进程落盘，这里只负责把 face 注册进 document.fonts；
       // 注册失败（OTS 拒了 / 文件坏）的款不进集合，页面退回默认字形而不是错字形。
       const fontIdsResolved = Object.keys(resolved.fonts).map(Number);
-      const okFlags = await Promise.all(fontIdsResolved.map((id) => ensureReportFontFace(id)));
+      const okFlags = await Promise.all(
+        fontIdsResolved.map((id) => {
+          const font = acquireReportFontFace(id);
+          releases.push(font.release);
+          return font.ready;
+        }),
+      );
       if (cancelled) return;
       const fonts = new Set<number>(fontIdsResolved.filter((_, index) => okFlags[index]));
 
@@ -122,9 +128,10 @@ export function useDressAssets(data: DressPageData | null): DressAssets {
 
     return () => {
       cancelled = true;
+      for (const release of releases) release();
     };
     // itemId 列表变了才重新预热；data 对象每次渲染换引用，不能直接依赖它。
-  }, [data, bubbleKey, fontKey, widgetKey]);
+  }, [data, bubbleKey, fontKey, widgetKey, active]);
 
   return assets;
 }

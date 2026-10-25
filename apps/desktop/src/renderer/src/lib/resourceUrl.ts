@@ -66,8 +66,8 @@ export function avatarFetchUrl(src: string): string {
  * through the disk-cached avatar bridge. The collector CDN is public (no referer),
  * so the generic fetch+cache bridge is enough; on failure `<img onError>` falls back.
  */
-export function collectionImageUrl(src: string): string {
-  return avatarFetchUrl(src);
+export function collectionImageUrl(src: string, preview = false): string {
+  return `${avatarFetchUrl(src)}${preview ? '&preview=1' : ''}`;
 }
 
 /**
@@ -209,6 +209,16 @@ export function localFileUrl(absPath: string): string {
 /** 同上，但用于语音：SILK 会在主进程解码成 WAV 再流回来（浏览器放不了 SILK）。 */
 export function localVoiceFileUrl(absPath: string): string {
   return mediaUrl('localfilevoice', { path: absPath });
+}
+
+/**
+ * 通话录音（WAV）。`id` 是主进程录音索引里的标识，不是路径 —— 主进程校验索引后
+ * 才流文件，所以渲染层拿不到任意文件的读取能力。
+ *
+ * 支持 Range，`<audio>` / `new Audio()` 都能直接播、也能拖动进度。
+ */
+export function recordingUrl(id: string): string {
+  return mediaUrl('recording', { id });
 }
 
 /**

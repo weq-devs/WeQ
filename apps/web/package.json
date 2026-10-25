@@ -27,6 +27,7 @@
     "@weq/platform": "workspace:*",
     "@weq/service": "workspace:*",
     "archiver": "5.3.2",
+    "sharp": "^0.35.5",
     "superjson": "^2.2.2",
     "ws": "^8.18.0",
     "zod": "^3.23.8"

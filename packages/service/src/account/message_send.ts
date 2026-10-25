@@ -126,10 +126,8 @@ export interface SendTextParams {
   tempGroupCode?: GroupTempSource;
   text: string;
   /**
-   * 随这条消息一起带出的装扮（气泡 / 字体 / 挂件）。缺省不带。
-   *
-   * ⚠️ 真机实测过：服务端不采信客户端自报的装扮（result=0 但落库装扮全 0），
-   * 传了也不会改变收端看到的装扮。见 @weq/protocol 的 SendDress。
+   * 装扮实验参数，常规调用无需提供。服务会显式携带与当前字体匹配的本人历史原值，
+   * 不是传入任意字体 ID 就能覆盖；服务器历史回填字体不代表实时推送也有相同效果。
    */
   dress?: SendDress;
   /** @ 谁：QQ 号或 uid；命中不了会如实报错（不会假装 @ 上了）。 */
@@ -476,6 +474,9 @@ function elementsNeedUpload(elements: readonly SendElement[]): boolean {
 }
 
 export class MessageSendService {
+  private fontWireCache?: { fontId: number; raw: number | undefined; checkedAt: number };
+  private fontWirePending?: { fontId: number; promise: Promise<number | undefined> };
+
   constructor(
     private readonly nt: Pick<NtHelperBinding, 'sendPacket' | 'sendOidbPacket'>,
     private readonly session: AccountSession,
@@ -489,7 +490,75 @@ export class MessageSendService {
      */
     private readonly marketFaceKey?: (packId: string) => Promise<string | null>,
     private readonly retainSent?: (message: GapFetchedMessage) => Promise<void>,
+    /**
+     * 当前账号已同步的聊天字体快照。发送时匹配本人历史消息中的原始字体值，
+     * 不猜字体类型高位，也不允许用历史中另一款字体覆盖当前选择。
+     */
+    private readonly currentChatFontId?: () => number | undefined,
   ) {}
+
+  /** 原值保留类型／魔法字体高位；只在当前账号内做有界读取，并合并同款的并发查询。 */
+  private async currentFontWire(
+    fontId: number,
+    target: ResolvedSendTarget,
+  ): Promise<number | undefined> {
+    if (
+      this.fontWireCache?.fontId === fontId &&
+      Date.now() - this.fontWireCache.checkedAt < 30_000
+    ) {
+      return this.fontWireCache.raw;
+    }
+    if (this.fontWirePending?.fontId === fontId) return this.fontWirePending.promise;
+    const lookup = async (): Promise<number | undefined> => {
+      const selfUin = this.selfUin();
+      const selfUid = this.session.selfUid;
+      const find = (
+        rows: readonly {
+          senderUin: bigint;
+          senderUid: string;
+          decoration?: { fontId2Raw: number };
+        }[],
+      ) => {
+        for (const row of rows) {
+          if (String(row.senderUin) !== selfUin || !selfUid || row.senderUid !== selfUid) continue;
+          const raw = row.decoration?.fontId2Raw;
+          if (raw === undefined || !Number.isSafeInteger(raw) || raw <= 0 || raw > 0xffff_ffff)
+            continue;
+          const itemId = ((raw & 0xff) << 8) | ((raw >>> 8) & 0xff);
+          if (itemId === fontId) return raw;
+        }
+        return undefined;
+      };
+      if (target.scene === 'group') {
+        const rows = await this.session.groupMsgs.listLatest(String(target.uin), 50);
+        const raw = find(rows);
+        if (raw !== undefined) return raw;
+      } else if (target.uid) {
+        const sortNo = this.session.uidMap.sortNoByUid(target.uid);
+        const rows = await this.session.c2cMsgs.listLatest(
+          sortNo === undefined ? { uid: target.uid } : { sortNo },
+          50,
+        );
+        const raw = find(rows);
+        if (raw !== undefined) return raw;
+      }
+      const raw = find(await this.session.c2cMsgs.listRecent(50));
+      if (raw !== undefined) return raw;
+      return find(await this.session.groupMsgs.listRecent(50));
+    };
+    const promise = lookup()
+      .catch(() => undefined)
+      .then((raw) => {
+        this.fontWireCache = { fontId, raw, checkedAt: Date.now() };
+        return raw;
+      });
+    this.fontWirePending = { fontId, promise };
+    try {
+      return await promise;
+    } finally {
+      if (this.fontWirePending?.promise === promise) this.fontWirePending = undefined;
+    }
+  }
 
   /**
    * 把 mface 元素里缺失的 `encryptKey` 补齐（同一个包只查一次，失败不阻塞发送）。
@@ -851,6 +920,38 @@ export class MessageSendService {
     // 商城表情：把空 encryptKey 用包密钥补上（同包只查一次）。
     const elements = await this.fillMarketFaceKeys(params.elements);
 
+    let currentFontId: number | undefined;
+    if (elements.some((element) => element.kind === 'text' || element.kind === 'at')) {
+      try {
+        const fontId = this.currentChatFontId?.();
+        if (
+          fontId !== undefined &&
+          Number.isSafeInteger(fontId) &&
+          fontId > 0 &&
+          fontId <= 0xffff_ffff
+        ) {
+          currentFontId = fontId;
+        }
+      } catch {
+        logger.debug('current chat font unavailable', {
+          event: 'send-font-current-unavailable',
+        });
+      }
+    }
+
+    const fontRaw =
+      currentFontId === undefined ? undefined : await this.currentFontWire(currentFontId, target);
+    if (currentFontId !== undefined && this.resolvePid() !== pid)
+      throw new Error('QQ 会话已变化，请重新发送。');
+    const dress =
+      currentFontId === undefined
+        ? params.dress
+        : {
+            ...(params.dress?.bubbleId !== undefined ? { bubbleId: params.dress.bubbleId } : {}),
+            ...(params.dress?.widgetId !== undefined ? { widgetId: params.dress.widgetId } : {}),
+            ...(fontRaw !== undefined ? { fontId2Raw: fontRaw } : {}),
+          };
+
     const uploads: SendMediaUploadReport[] = [];
     const receipt = await sendMessage(this.nt, pid, {
       // 路由三选一：群临时会话（grpTmp）/ 群聊（grp）/ 私聊（c2c）。
@@ -863,8 +964,8 @@ export class MessageSendService {
       // 临时会话不算这条路（toUid 已经由 groupTemp 带走），所以显式排掉。
       ...(!groupTemp && target.scene === 'c2c' && target.uid ? { userUid: target.uid } : {}),
       elements,
-      // 装扮（气泡 / 字体 / 挂件）：不传就不写，请求字节与以前逐字节一致。
-      ...(params.dress ? { dress: params.dress } : {}),
+      // 显式携带当前字体原值；服务器历史回填字体不代表实时推送也带字体。
+      ...(dress ? { dress } : {}),
       ...(needUpload
         ? {
             media: {
@@ -900,6 +1001,9 @@ export class MessageSendService {
     });
 
     const outcome = toOutcome(receipt, target, uploads);
+    if (outcome.ok && currentFontId !== undefined && fontRaw === undefined) {
+      outcome.hint = '消息已发送；尚未同步到当前字体的可靠原值，本次按普通字体发送。';
+    }
     const sequence = target.peerType === 'group' ? receipt.groupSequence : receipt.privateSequence;
     if (outcome.ok && sequence > 0 && this.retainSent) {
       try {
@@ -933,6 +1037,15 @@ export class MessageSendService {
         if (message.elements.length < elements.length) return outcome;
         await this.retainSent({
           ...message,
+          ...(currentFontId !== undefined && fontRaw !== undefined
+            ? {
+                decoration: {
+                  bubbleId: message.decoration?.bubbleId ?? 0,
+                  widgetId: message.decoration?.widgetId ?? 0,
+                  fontId: currentFontId,
+                },
+              }
+            : {}),
           sourceFormat: 'protocol',
           localSent: true,
           msgRandom: String(receipt.random),

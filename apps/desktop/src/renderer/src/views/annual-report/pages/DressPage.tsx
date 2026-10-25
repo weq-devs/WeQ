@@ -40,7 +40,7 @@ const HERO_FALLBACK = '这一年，我最爱这身。';
 export function DressPage({ page, data, active }: ReportPageProps<DressPageData>): ReactElement {
   const { year } = data;
   const reduce = usePrefersReducedMotion();
-  const assets = useDressAssets(data);
+  const assets = useDressAssets(data, active);
   const face = useSelfFace();
   const { reportFontId, setReportFontId } = useReportView();
 

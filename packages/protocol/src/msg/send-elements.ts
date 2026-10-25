@@ -288,43 +288,30 @@ export interface SendRawElement {
 }
 
 /**
- * 随消息一起带出的装扮（气泡 / 字体 / 挂件）—— **实验结论：服务端不收，已废弃**。
+ * 装扮参数（气泡 / 字体 / 挂件），业务层会自动提供当前字体原值。
  *
- * 真机 QQ 客户端确实会把当前装扮显式塞进 PbSendMsg 的 elems（抓包实测：`elem.bubble`
- * tag 9 = 2116371、`elem.generalFlags` tag 37 = { widgetId 104228, font.fontId2 116182 }），
- * 于是照着做了一份同构实现。真机实测（2026-09-25）结论：
+ * 2026-10-24 私聊对照：显式携带当前字体原值的请求已有接收端人工字形确认。
+ * 不带字段／指定另一款的服务器历史也会返回当前字体，但不能据此推断实时推送效果。
+ * 2026-09-25 的“装扮全 0”是旧实验结果，不能推出“当前字体无法发送”。
  *
- *   1. 请求带装扮 → `result=0` 发得出去，但**服务端落库时把装扮清成 0**
- *      （数据库列 40801 解出来 bubbleId/fontId/widgetId 全 0），服务端不采信客户端
- *      自报的装扮，而是按账号自己当前的装扮记录填。
- *   2. 逐字节重放真机那段 `generalFlags`（连 tag 15/56/71/73/96 全带上）同样是 0 ——
- *      所以不是「我们字段写少了 / 字节序不对」，是服务端只认自己的数据源。
- *   3. 偶发看到某个字体 id「活下来」，是因为那个 id **本来就无效**（换账号重放立刻消失），
- *      不是我们写对了位置。
- *
- * 结论：**这条路走不通，服务端不收客户端指定的装扮**。代码保留（不删）供将来复现实验，
- * 但不要指望它能改变收端看到的装扮 —— 装扮只能靠账号自己的设置。
- *
- * 顺带记下两个已确认的 wire 事实，方便以后查别的：
- *   - 收侧解码时 `font.fontId1`(tag 56) 直接可用；`fontId2`(tag 15) 是字节交换过的
- *     uint16（`((v & 0xff) << 8) | (v >> 8)` 才是真 id）。
- *   - 本实现当初「统一不转、只写 fontId1」，实验已证明这条路救不回来。
+ * 以下历史字段保留以兼容已有实验／转发调用，不作为任意字体选择器：
+ * - tag 15 是打包的 mobile_custom_font，低 16 位交换字节，高位另含字体类型等信息；
+ * - tag 56 在官方 Android 定义中是铭牌，不是第二个字体槽位。
+ * 自动跟随使用与当前选择匹配的本人消息原值，不从本地预览选择或 itemId 猜类型高位。
  */
 export interface SendDress {
   /** 气泡 itemId（0 / 缺省 = 不带）。 */
   bubbleId?: number;
   /**
-   * 聊天气泡字体 itemId（0 / 缺省 = 不带）。**真实 itemId**，原样写进
-   * `font.fontId1`(tag 56)。
+   * 历史兼容实验字段（0 / 缺省 = 不带），原样写 tag 56（官方含义为铭牌）。
+   * 不用于正常发送的字体选择。
    */
   fontId?: number;
   /**
-   * 同一个字体的另一个 wire 槽位（0 / 缺省 = 不带）：`font.fontId2`(tag 15)。
+   * 历史 itemId 便利通道（0 / 缺省 = 不带）：`font.fontId2`(tag 15)。
    *
-   * 真机在这个槽位写的是**低 16 位字节序交换过**的形态（真实 54981 → wire
-   * 116182），收侧 decode 也是按同一规则还原（先看 fontId1，缺失才回退 fontId2
-   * 交换）。所以这里同样收**真实 itemId**，打包时自动交换成 tag 15 形态，
-   * 调用方不用自己算字节序。字体有两个 id 实现喵。
+   * 这里只交换低 16 位（真实 54981 → 50646），不保留字体类型／魔法字体高位；
+   * 它不能构造含字体类型位的真实原值 116182。正常自动跟随使用 fontId2Raw。
    *
    * ⚠️ 只能拿它填「真实 itemId」。手里已经是原始 wire 值（从已有消息透传）时
    * 必须用 {@link fontId2Raw} —— 那才是原始值的通道。
@@ -333,9 +320,9 @@ export interface SendDress {
   /** 挂件 itemId（0 / 缺省 = 不带）。 */
   widgetId?: number;
   /**
-   * **原样**写进 `font.fontId1`(tag 56) 的原始 wire 值（0 / 缺省 = 不带）。
+   * **原样**写进历史 `font.fontId1`(tag 56，官方铭牌字段) 的 wire 值。
    *
-   * 与 {@link fontId} 写入 tag 56 的行为一致（tag 56 本来就是真实 itemId），只是
+   * 与 {@link fontId} 写入 tag 56 的历史行为一致，只是
    * 用来区分「这个值是从已有消息的 40801 `41525` 透传出来的」。同时给时本字段优先。
    */
   fontId1Raw?: number;
@@ -1013,7 +1000,7 @@ function normalizeDressId(value: number | undefined, what: string): number {
  *
  * 注：真机那次抓包 tag 15 的原始值是 `116182`（= `0x1C5D6`），比本函数算出的
  * `0xC5D6` 多一个 bit 16；收侧解码会把这个高位掩掉，两者都还原成 `54981`。
- * 那个高位语义未知，这里按「与解码严格互逆」写。
+ * 高位包含字体类型／魔法字体信息，本函数仅交换低 16 位，不是完整的字体打包器。
  */
 export function swapFontId16(itemId: number): number {
   return ((itemId & 0xff) << 8) | ((itemId >>> 8) & 0xff);
@@ -1036,7 +1023,7 @@ export function buildDressElems(dress: SendDress | undefined): Record<string, un
   const fontId1Raw = normalizeDressId(dress.fontId1Raw, 'fontId1Raw');
   const fontId2Raw = normalizeDressId(dress.fontId2Raw, 'fontId2Raw');
   // 字体槽位：`*Raw` 是「原样写」通道，优先；没给才用「真实 itemId」的便利字段做换算。
-  // 两个槽位都只给其中一个也能发（老客户端各认一个槽位），都给时收侧优先 fontId1。
+  // 保留历史实验参数编码；当前字体通过 fontId2Raw 原样写入。
   const font1 = fontId1Raw > 0 ? fontId1Raw : fontId;
   const font2 = fontId2Raw > 0 ? fontId2Raw : fontId2 > 0 ? swapFontId16(fontId2) : 0;
   if (widgetId > 0 || font1 > 0 || font2 > 0) {

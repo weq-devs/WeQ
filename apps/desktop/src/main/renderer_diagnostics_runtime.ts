@@ -1,8 +1,11 @@
 import { app, ipcMain, webContents, type IpcMainEvent, type WebContents } from 'electron';
+import { join } from 'node:path';
 import {
+  DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS,
   DIAGNOSTIC_SAMPLE_REQUEST,
   DIAGNOSTIC_SAMPLE_RESPONSE,
   normalizeRendererSample,
+  normalizeDevelopmentSample,
 } from '../shared/renderer_diagnostics';
 import {
   classifyDiagnosticPage,
@@ -18,8 +21,15 @@ import { normalizeRendererExitReason } from './renderer_recovery';
 export function startRendererDiagnostics(options: {
   directory: string;
   mainWebContentsId(): number | undefined;
+  development?: boolean;
 }): () => void {
-  const log = createDiagnosticLog(options.directory);
+  const development = options.development === true && !app.isPackaged;
+  const log = development
+    ? createDiagnosticLog(join(options.directory, 'dev-memory-monitor'), {
+        maxBytes: 8 * 1024 * 1024,
+        maxEntries: 8640,
+      })
+    : createDiagnosticLog(options.directory);
   const pages = new Map<number, DiagnosticPage & { createdAtMs: number | null; dispose(): void }>();
   let stopped = false;
   let sequence = 0;
@@ -103,6 +113,9 @@ export function startRendererDiagnostics(options: {
       }
       log.write({
         kind: 'process-sample',
+        ...(development
+          ? { development: true, intervalMs: DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS }
+          : {}),
         ts: new Date().toISOString(),
         processes: projectDiagnosticProcesses(metrics, [...pages.values()]),
         omittedProcesses: Math.max(0, metrics.length - DIAGNOSTIC_PROCESS_LIMIT),
@@ -123,7 +136,8 @@ export function startRendererDiagnostics(options: {
           sequence: ++sequence,
           requestedAtMs: Date.now(),
         };
-        main.send(DIAGNOSTIC_SAMPLE_REQUEST, sequence);
+        if (development) main.send(DIAGNOSTIC_SAMPLE_REQUEST, sequence, true);
+        else main.send(DIAGNOSTIC_SAMPLE_REQUEST, sequence);
       } else pending = null;
     } catch {
       // 仅记固定事件；不让异常 URL／页面内容进入诊断。
@@ -155,12 +169,24 @@ export function startRendererDiagnostics(options: {
       createdAtMs: request.createdAtMs,
       category: 'main',
       ...normalizeRendererSample(raw),
+      ...(development
+        ? {
+            development: normalizeDevelopmentSample(
+              typeof raw === 'object' && raw !== null && 'development' in raw
+                ? raw.development
+                : null,
+            ),
+          }
+        : {}),
     });
   };
   const created = (_event: Electron.Event, contents: WebContents): void => track(contents);
   app.on('web-contents-created', created);
   ipcMain.on(DIAGNOSTIC_SAMPLE_RESPONSE, receive);
-  const timer = setInterval(sample, DIAGNOSTIC_INTERVAL_MS);
+  const timer = setInterval(
+    sample,
+    development ? DEVELOPMENT_DIAGNOSTIC_INTERVAL_MS : DIAGNOSTIC_INTERVAL_MS,
+  );
   timer.unref();
   sample();
   return () => {

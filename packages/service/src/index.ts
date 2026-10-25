@@ -62,6 +62,8 @@ export type {
   ExportLightboxPreset,
   ExportScheduledPreset,
   ExportPresetOptions,
+  CallRecordingConfig,
+  CallRecordingMode,
 } from './bootstrap/user_config';
 export { AgentLabConfigService } from './bootstrap/agentlab_config';
 
@@ -124,6 +126,10 @@ export type {
   CallAudioCodec,
   CallListener,
   CallAudioListener,
+  CallVideoListener,
+  CallVideoEncoder,
+  VideoFramePayload,
+  VideoStreamInfo,
   UdpTransport,
   CallTimers,
 } from './account/call_session';
@@ -142,6 +148,11 @@ export {
   requestDecryptKeyFromInstance,
 } from './account/online_ticket';
 export type { OnlineTicketNt } from './account/online_ticket';
+export {
+  fetchOtherDeviceDatabaseKey,
+  createOtherDeviceKeyContext,
+} from './account/other_device_key';
+export type { OtherDeviceInstance, OtherDeviceKeyContext } from './account/other_device_key';
 export type { BubbleSkin, BubbleSlice } from './account/bubble_skin';
 export { DressService, createDressService } from './account/dress_service';
 export { DressConfigService } from './account/dress_config';
@@ -881,6 +892,16 @@ export type {
   FavEmojiRow,
 } from './account/export';
 export { ExportTaskManager } from './account/export/task_manager';
+export {
+  describeViewerFile,
+  discoverViewerSources,
+  readViewerPage,
+  resolveViewerMedia,
+  type ExportViewerSource,
+  type ExportViewerMessage,
+  type ExportViewerPart,
+  type ExportViewerConversation,
+} from './account/export/viewer';
 export {
   describeExportOutput,
   messageOutputFlags,

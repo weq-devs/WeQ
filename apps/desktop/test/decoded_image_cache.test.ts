@@ -76,6 +76,9 @@ describe('装扮预解码缓存', () => {
       pinnedImages: 0,
       activeDecodes: 0,
       pendingImages: 0,
+      reservedBytes: 0,
+      totalPendingImages: 0,
+      cancelledJobs: 0,
     });
     expect(frames.some((frame) => frame.src)).toBe(false);
     expect(vi.getTimerCount()).toBe(0);
@@ -178,7 +181,7 @@ describe('在播帧不被淘汰（频闪回归）', () => {
     cache.dispose();
   });
 
-  it('require 在队列超限时不假成功，会一直等到真正解码完成', async () => {
+  it('require 在队列超限时明确失败，不另建无界等待区；有空位后可重试', async () => {
     const releases: (() => void)[] = [];
     const limits = { ...DECORATION_DECODE_LIMITS, maxConcurrent: 1, maxPending: 1 };
     const cache = createDecodedImageCache(limits, () => {
@@ -190,15 +193,18 @@ describe('在播帧不被淘汰（频闪回归）', () => {
     // 第一个占住并发槽，第二个占满队列，第三个（必达）必须排队而不是立刻 resolve。
     void cache.preload('a');
     void cache.preload('b');
+    await expect(cache.require('c')).rejects.toThrow('队列已满');
+    expect(settled).toBe(false);
+    expect(cache.stats().pendingImages).toBeLessThanOrEqual(limits.maxPending);
+    expect(cache.stats().totalPendingImages).toBe(limits.maxConcurrent + limits.maxPending);
+    releases.shift()!();
+    for (let i = 0; i < 10; i++) await Promise.resolve();
     const required = cache.require('c').then(() => {
       settled = true;
     });
-    await Promise.resolve();
-    expect(settled).toBe(false);
-    expect(cache.stats().pendingImages).toBeLessThanOrEqual(limits.maxPending);
 
     // 逐个放行，直到必达任务也真正解码完成。
-    for (let i = 0; i < 10 && !settled; i++) {
+    for (let i = 0; i < 30 && !settled; i++) {
       for (const release of releases.splice(0)) release();
       await Promise.resolve();
       await Promise.resolve();

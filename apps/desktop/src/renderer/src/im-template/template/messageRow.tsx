@@ -34,7 +34,7 @@ import {
 } from '../../components/GroupCallEndedMessage';
 import { QqDynamic, qqDynamicElementProps } from '../../components/QqDynamic';
 import { MessageProvenance } from '../../components/MessageProvenance';
-import type { ReactionRemoval } from '../../components/SetEmojiReactions';
+import type { ReactionInteraction } from '../../components/SetEmojiReactions';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 
 /**
@@ -191,7 +191,7 @@ export function MessageRow({
   selectionMode = false,
   selected = false,
   onToggleSelect,
-  reactionRemoval,
+  reactionInteraction,
   repeatAction,
   pendingAction,
   /** 灰条外层的 class（聊天区靠它对齐，转发窗口用窄一点的边距）。 */
@@ -221,7 +221,7 @@ export function MessageRow({
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (message: Message, event?: ReactMouseEvent) => void;
-  reactionRemoval?: ReactionRemoval;
+  reactionInteraction?: ReactionInteraction;
   repeatAction?: ReactNode;
   pendingAction?: ReactNode;
   grayTipClassName?: string;
@@ -297,7 +297,7 @@ export function MessageRow({
       selectionMode={selectionMode}
       selected={selected}
       onToggleSelect={onToggleSelect}
-      reactionRemoval={reactionRemoval}
+      reactionInteraction={reactionInteraction}
       repeatAction={repeatAction}
       pendingAction={pendingAction}
     />

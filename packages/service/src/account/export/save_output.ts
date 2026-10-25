@@ -78,6 +78,14 @@ interface SourceOutput {
   filePath?: string;
   bundleDir?: string;
   reportPath?: string;
+  reportHtmlPath?: string;
+}
+
+function reportFiles(output: SourceOutput): Array<{ path: string; extension: string }> {
+  return [
+    ...(output.reportPath ? [{ path: output.reportPath, extension: 'json' }] : []),
+    ...(output.reportHtmlPath ? [{ path: output.reportHtmlPath, extension: 'html' }] : []),
+  ];
 }
 
 interface PublishedFile {
@@ -173,10 +181,10 @@ async function saveSingleExportFile(
   const source = realpathSync(output.filePath);
   if (!(await lstat(output.filePath)).isFile()) throw new Error('导出结果不是普通文件。');
   if (source === target) throw new Error('不能将结果保存回导出源文件。');
-  assertDestinationCapacity(target, output.reportPath ? [source, output.reportPath] : source);
+  const reports = reportFiles(output);
+  assertDestinationCapacity(target, [source, ...reports.map((report) => report.path)]);
   const bundle = createAtomicExportBundle(root, `save-${randomUUID()}`);
   const stage = join(bundle.stageDir, 'result');
-  const stageReport = join(bundle.stageDir, 'report');
   try {
     signal?.throwIfAborted();
     const atomic = await supportsFileLinks(bundle.stageDir);
@@ -185,47 +193,47 @@ async function saveSingleExportFile(
       await cp(source, stage, { force: false, errorOnExist: true });
       if ((await fileSha256(stage, signal)) !== hash) throw new Error('导出文件保存校验失败。');
     }
-    let reportHash: string | undefined;
-    if (output.reportPath) {
-      if (!(await lstat(output.reportPath)).isFile()) throw new Error('完整性报告不是普通文件。');
-      reportHash = await fileSha256(output.reportPath, signal);
+    const stagedReports: Array<{ path: string; stage: string; extension: string; hash: string }> =
+      [];
+    for (const report of reports) {
+      if (!(await lstat(report.path)).isFile()) throw new Error('完整性报告不是普通文件。');
+      const reportHash = await fileSha256(report.path, signal);
+      const stageReport = join(bundle.stageDir, `report.${report.extension}`);
       if (atomic) {
-        await cp(output.reportPath, stageReport, { force: false, errorOnExist: true });
+        await cp(report.path, stageReport, { force: false, errorOnExist: true });
         if ((await fileSha256(stageReport, signal)) !== reportHash)
           throw new Error('导出报告保存校验失败。');
       }
+      stagedReports.push({ ...report, stage: stageReport, hash: reportHash });
     }
-    if (
-      atomic &&
-      ((await fileSha256(source, signal)) !== hash ||
-        (output.reportPath && (await fileSha256(output.reportPath, signal)) !== reportHash))
-    )
+    for (const report of stagedReports)
+      if ((await fileSha256(report.path, signal)) !== report.hash)
+        throw new Error('保存期间导出报告发生变化，未发布目标。');
+    if (atomic && (await fileSha256(source, signal)) !== hash)
       throw new Error('保存期间导出源发生变化，未发布目标。');
     const used = new Set<string>();
     for (;;) {
       signal?.throwIfAborted();
       const candidate = unique ? join(root, uniqueName(basename(target), used)) : target;
-      const reportTarget = `${candidate}.report.json`;
-      let reportReceipt: PublishedFile | undefined;
+      const receipts: Array<{ target: string; receipt: PublishedFile }> = [];
       try {
-        if (output.reportPath) {
+        for (const report of stagedReports) {
+          const reportTarget = `${candidate}.report.${report.extension}`;
           if (atomic) {
-            await link(stageReport, reportTarget);
-            reportReceipt = await lstat(stageReport);
+            await link(report.stage, reportTarget);
+            receipts.push({ target: reportTarget, receipt: await lstat(report.stage) });
           } else
-            reportReceipt = await publishVerifiedCopy(
-              output.reportPath,
-              reportTarget,
-              reportHash!,
-              signal,
-            );
+            receipts.push({
+              target: reportTarget,
+              receipt: await publishVerifiedCopy(report.path, reportTarget, report.hash, signal),
+            });
         }
         signal?.throwIfAborted();
         if (atomic) await link(stage, candidate);
         else await publishVerifiedCopy(source, candidate, hash, signal);
         return candidate;
       } catch (error) {
-        if (reportReceipt) await removeOwnPublication(reportTarget, reportReceipt);
+        for (const report of receipts) await removeOwnPublication(report.target, report.receipt);
         if (unique && error instanceof Error && 'code' in error && error.code === 'EEXIST')
           continue;
         throw error;
@@ -290,7 +298,9 @@ export async function saveExportOutput(
     throw new Error('保存目录不可用，请重新选择。');
   assertDestinationCapacity(
     join(target, 'result'),
-    !output.bundleDir && output.reportPath ? [sourcePath, output.reportPath] : sourcePath,
+    !output.bundleDir
+      ? [sourcePath, ...reportFiles(output).map((report) => report.path)]
+      : sourcePath,
   );
   const bundle = createAtomicExportBundle(
     target,
@@ -311,10 +321,10 @@ export async function saveExportOutput(
     } else {
       const name = `${sanitizeSegment(output.name, 'export')}${extname(sourcePath)}`;
       await cp(sourcePath, join(bundle.stageDir, name), { force: false, errorOnExist: true });
-      if (output.reportPath) {
-        const reportHash = await fileSha256(output.reportPath, signal);
-        const savedReport = join(bundle.stageDir, 'export-report.json');
-        await cp(output.reportPath, savedReport, { force: false, errorOnExist: true });
+      for (const report of reportFiles(output)) {
+        const reportHash = await fileSha256(report.path, signal);
+        const savedReport = join(bundle.stageDir, `export-report.${report.extension}`);
+        await cp(report.path, savedReport, { force: false, errorOnExist: true });
         if ((await fileSha256(savedReport, signal)) !== reportHash)
           throw new Error('导出报告保存校验失败。');
       }

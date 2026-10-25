@@ -5,6 +5,7 @@ export interface MessageCoverage {
   unknownMessages: number;
   unknownElements: number;
   emptyMessages: number;
+  unresolvedForwards?: number;
 }
 
 export class MessageAudit {
@@ -26,6 +27,11 @@ export class MessageAudit {
       }
       const item = value as Record<string, unknown>;
       if (item.type === 'unknown' || item.kind === 'unknown') unknown++;
+      if (item.type === 'multiMsg') {
+        const data = item.data as { forwardMessages?: unknown[] } | undefined;
+        if (!data?.forwardMessages?.length)
+          this.coverage.unresolvedForwards = (this.coverage.unresolvedForwards ?? 0) + 1;
+      }
       // Follow only structured message content, never arbitrary raw fields/blobs.
       for (const key of ['elements', 'messages', 'data', 'forwardMessages', 'origElements'])
         if (item[key]) visit(item[key], depth + 1);

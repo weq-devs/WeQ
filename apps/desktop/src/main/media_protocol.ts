@@ -17,6 +17,7 @@
  *   weq-media://avatar?scope=user&hash=<hash>&v=big|small     → local avatar-cache bytes
  *   weq-media://avatar?scope=user&uin=<qq>&fb=<cdnUrl>        → 本地 b_/s_ 取新者，过期则回源 CDN
  *   weq-media://avatar?scope=group&uid=<code>&fb=<cdnUrl>     → group avatar (uin==uid)
+ *   weq-media://recording?id=<recordingId>                    → 通话录音 WAV（索引校验后按文件流回）
  *   weq-media://localfile?path=<absPath>                      → trusted local file bytes (media preview)
  *   weq-media://localfilevoice?path=<absPath>                 → trusted local voice (SILK 解码成 WAV)
  *   weq-media://localmedia?kind=pic&rel=<month/Ori/name>      → PhotoWall/Qzone/Pic/Video cache bytes
@@ -36,7 +37,9 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { viewerMedia } from './export_viewer';
 import { fileResponse as streamFile } from './file_response';
+import { decorationImageResponse } from './decoration_image_response';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -54,6 +57,7 @@ import { getAppContext } from './context/app_context';
 import { resolveResource } from './resource';
 import { resourceSkinCover } from './redpack_catalog';
 import { decodeSilkToWav, isSilkFile } from './voice';
+import { CallRecordingStore, recordingsRootFor } from './call_recording_store';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
  *  original mp4 now goes through OIDB). ptt tries rkey first and falls back
@@ -202,6 +206,22 @@ function revalidatingFileResponse(path: string): Promise<Response> {
  * 尝试。任何一步不满足、或服务端没给封面，都静默返回 null 让调用方走下一档 ——
  * 这条链是「尽力而为」，取不到封面不该让整张卡片挂掉。
  */
+/**
+ * 录音根目录：设置里指定了就用它，否则 `<appDataRoot>/recordings/<本机 QQ 号>`。
+ *
+ * 账号没打开时（例如用户切号后回看历史）拿不到 uin，就退回不带 uin 的那一层
+ * —— 只有默认目录下才可能命中，指定过目录的用户不受影响。
+ */
+function recordingRoot(): string | null {
+  const ctx = getAppContext();
+  const platform = ctx.platform;
+  if (!platform) return null;
+  const settings = ctx.bootstrap?.userConfig.getSettings().callRecording;
+  if (settings?.dir) return settings.dir;
+  const uin = ctx.account?.context.uin;
+  return uin ? recordingsRootFor(platform.appDataRoot(), String(uin)) : null;
+}
+
 async function onlineRedbagCover(skinId: string): Promise<string | null> {
   const ctx = getAppContext();
   const services = ctx.services;
@@ -416,6 +436,17 @@ async function routeMediaRequest(request: Request): Promise<Response> {
     const kind = url.hostname;
     const q = url.searchParams;
 
+    if (kind === 'exportviewer') {
+      const path = await viewerMedia(q.get('id') ?? '', q.get('path') ?? '');
+      if (!path) return notFound('export media unavailable');
+      const response = await fileResponse(path);
+      const headers = new Headers(response.headers);
+      headers.set('Content-Security-Policy', "default-src 'none'; sandbox");
+      headers.set('X-Content-Type-Options', 'nosniff');
+      headers.set('Cache-Control', 'no-store');
+      return new Response(response.body, { status: response.status, headers });
+    }
+
     // 装扮资源只依赖 bootstrap 的缓存,不需要打开的账号 —— 放在 services 断言之前。
     if (kind === 'dress') {
       try {
@@ -487,7 +518,19 @@ async function routeMediaRequest(request: Request): Promise<Response> {
       return notFound('redbag skin fetch failed');
     }
 
-    // 走到这里的 kind 都需要账号会话（不需要的那四个已在上面提前返回）。
+    // 通话录音：只依赖全局设置与平台路径，不需要账号会话（关掉账号后仍要能回放
+    // 已经录下来的文件）。走 `call_recording_store.resolve`，它自己校验索引里的
+    // 文件名没有逃出录音根。
+    if (kind === 'recording') {
+      const id = q.get('id') ?? '';
+      if (!id) return notFound('recording needs id');
+      const root = recordingRoot();
+      if (!root) return notFound('recording store unavailable');
+      const path = await new CallRecordingStore(root).resolve(id);
+      return path ? fileResponse(path) : notFound('recording not found');
+    }
+
+    // 走到这里的 kind 都需要账号会话（离线查看等免账号分支已在上面提前返回）。
     // 未知 kind 也走这条断言，随后由下面的 switch default 报「unknown media kind」。
     // 没有账号会话（含 AppContext 尚未初始化）→ 统一 404。别让 getAppContext
     // 的 assert 冒出去：协议层抛异常时 Chromium 只会看到一个没有 CORS 头的失败，
@@ -520,7 +563,9 @@ async function routeMediaRequest(request: Request): Promise<Response> {
       const id = Number(q.get('id') ?? '0');
       const frame = Number(q.get('frame') ?? '0');
       const path = id && frame > 0 ? services.dressInstall.fontFrameFile(id, frame) : null;
-      return path ? revalidatingFileResponse(path) : notFound('dress font fx frame not available');
+      return path
+        ? decorationImageResponse(path, currentRequest.getStore(), true)
+        : notFound('dress font fx frame not available');
     }
 
     // 走 protocol 兜底装上的气泡:九宫格 PNG 是从 static.zip 解出来的本地文件,
@@ -534,7 +579,9 @@ async function routeMediaRequest(request: Request): Promise<Response> {
         : frame > 0
           ? services.dressInstall.bubbleFrameFile(id, frame)
           : services.dressInstall.bubbleFile(id);
-      return path ? fileResponse(path) : notFound('dress bubble not installed');
+      return path
+        ? decorationImageResponse(path, currentRequest.getStore())
+        : notFound('dress bubble not installed');
     }
 
     // 走 protocol 换的头像挂件动画帧:other.zip → aio_file.zip 解出的逐帧 PNG,
@@ -544,7 +591,9 @@ async function routeMediaRequest(request: Request): Promise<Response> {
       const id = Number(q.get('id') ?? '0');
       const frame = Number(q.get('frame') ?? '0');
       const path = id && frame > 0 ? services.dressInstall.pendantFrameFile(id, frame) : null;
-      return path ? fileResponse(path) : notFound('dress pendant frame not available');
+      return path
+        ? decorationImageResponse(path, currentRequest.getStore())
+        : notFound('dress pendant frame not available');
     }
 
     // 用户自选的聊天背景:已拷进本账号的装扮目录,路径由清单给 —— 不接受 url 传路径,
@@ -567,7 +616,12 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           // pic subType 1 = received animated emoji: lives under Emoji/emoji-recv
           // with no "original"; the displayable image comes back as `thumb`.
           const picType = q.get('recv') === '1' ? 'emoji' : 'pic';
-          const { source, thumb } = await services.fileSearch.findFile(tMs, name, picType);
+          const { source, thumb } = await services.fileSearch.findFile(
+            tMs,
+            name,
+            picType,
+            q.get('md5') ?? undefined,
+          );
           mediaBinding.getStore()?.();
           const path = wantThumb ? (thumb ?? source) : (source ?? thumb);
           if (path) return fileResponse(path);

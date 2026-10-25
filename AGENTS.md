@@ -39,21 +39,24 @@ git checkout -b feat/your-feature
 - Commit 用 [Conventional Commits](https://www.conventionalcommits.org/)：`feat` / `fix` / `refactor` / `docs` / `style` / `test` / `chore` / `perf`，描述可以用中文。
 - 一个 PR 只做一件事，别把不相关的改动塞进同一个 PR。
 
-## 2. 提交前必须跑 `pnpm ci:local`
+## 2. 本地检查：按需跑，别每次都跑全量
 
-**硬门禁：没跑绿就不要说「改完了」。** 它把 `.github/workflows/ci.yml` 的门禁在本地按同样顺序复刻一遍（lint / format / typecheck / 单测 / Rust 三项）。
+**为了省时间，push 之前不用跑全量 `pnpm ci:local`。** 它把 `.github/workflows/ci.yml` 的门禁在本地按同样顺序复刻一遍（lint / format / typecheck / 单测 / Rust 三项），整轮很慢；日常改动跑一下**和改动相关的那一两项**就够，最终以 CI 结果为准。
+
+- **CI 跑在 Linux 上**，Windows 本地跑红**不一定**是真问题（路径、换行、大小写、原生模块等平台差异都可能误报）。Windows 本地红的项，先判断是不是平台差异，别急着改代码。
+- 改了 TS / 前端：`pnpm lint`、`pnpm typecheck` 通常就够；只动了某个包可以 `pnpm --filter @weq/<pkg> test`。
+- 改了格式就 `pnpm format`（或 `pnpm lint:fix`）刷一遍，别手写对齐。
+- 动了 `packages/daemon`：在 `packages/daemon` 下跑 `cargo fmt --check`、`cargo clippy --all-targets --all-features -- -D warnings`、`cargo test`。
+- 发版前 / 大改动 / 心里没底时，再跑全量：
 
 ```bash
-pnpm ci:local             # 默认快检查；不 fail-fast，跑完给一张汇总表
-pnpm ci:local --fix       # 先 pnpm format + lint:fix 刷平格式再跑门禁（改完懒得管格式时用这个）
+pnpm ci:local             # 全量门禁；不 fail-fast，跑完给一张汇总表
+pnpm ci:local --fix       # 先 pnpm format + lint:fix 刷平格式再跑门禁
 pnpm ci:local --full      # 额外跑 web 打包冒烟（≈ CI 的 build-web）
 pnpm ci:local --no-daemon # 本机没 Rust 时跳过 cargo 三项
 ```
 
-- 脚本会自己探测 `cargo`，没装就跳过 Rust 三项并提示；其余四项任何一项红都不算通过。
-- 修不绿的检查就如实报告失败项和报错。**不要**为了让门禁变绿去放宽规则、加 `// biome-ignore`、塞 `any` / `@ts-ignore`、跳过或删除测试。
-- 需要单独跑某一步时，等价命令：`pnpm lint`、`pnpm format:check`、`pnpm typecheck`、`pnpm -r test`；
-  daemon 的三项在 `packages/daemon` 下跑 `cargo fmt --check`、`cargo clippy --all-targets --all-features -- -D warnings`、`cargo test`。
+- 真跑红的检查就如实报告失败项和报错。**不要**为了让门禁变绿去放宽规则、加 `// biome-ignore`、塞 `any` / `@ts-ignore`、跳过或删除测试。
 - 打包链路（electron-builder）不在 PR 门禁里。改到它时用 `pnpm --filter @weq/desktop build:unpack` 本地验一遍。
 
 ## 3. Changelog：新功能 / bug 修复必须写
@@ -66,6 +69,7 @@ pnpm ci:local --no-daemon # 本机没 Rust 时跳过 cargo 三项
 3. 一句话一条 bullet，写「用户/开发者能看出什么变化」，不要写实现细节；章节里的**第一条 bullet 会被当作通知摘要**，短一点。
 4. 只追加自己的条目：**不要改已发布版本的章节**，发版时由维护者把 `Unreleased` 改成 `## <版本号> - <日期>`。
 5. 同一功能的多个点可以聚成一条 bullet + 子列表（参考 2.0.4 的空间更新）。
+6. **按「大事件」合并，别按 commit 罗列。** 一个 `feat: xxx` 加上随后一堆 `fix: xxx` 的修补，是**同一件事**，Changelog 里只写这条特性本身，**不要**把「修复了 xxx 特性的 bug」逐条列出来——用户看到的是「有了什么」，不是你的开发过程。只有独立于该特性的、别人能单独感知到的 bug 修复才单独写一条。
 
 ```markdown
 ## Unreleased - 进行中
@@ -145,7 +149,7 @@ pnpm ci:local --no-daemon # 本机没 Rust 时跳过 cargo 三项
 ## 10. 收工前自检
 
 - [ ] 落点正确（提 PR 走特性分支、直接 push 落 `dev`），改动聚焦单一主题
-- [ ] `pnpm ci:local` 全绿
+- [ ] 跑过和改动相关的检查项（`pnpm lint` / `pnpm typecheck` / 相关包单测 / cargo 三项）；不要求 push 前跑全量 `pnpm ci:local`，最终以 CI 为准
 - [ ] 新功能 / bug 修复已写进 `CHANGELOG.md` 的 `## Unreleased - 进行中`（没有这一节就先补上）
 - [ ] 该加的单测加了，且没碰真 QQ 数据 / 网络
 - [ ] 动过 UI 的话：浅色 / 深色 / 换主题色都看过一眼

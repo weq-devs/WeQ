@@ -1,33 +1,16 @@
-/**
- * Static backup import panel — shown inside 「新的开始」 under the "本地备份" tab.
- *
- * Flow:
- *   1. User picks a directory (the standard OS folder dialog).
- *   2. 「测试打开」 probes profile_info_v6 with no key. If the db is plain
- *      SQLite we resolve the self row (UIN + nick + avatar) and show the
- *      confirmation card.
- *   3. If the probe reports `needKey`, a key field appears inline (the
- *      failure UX — no modal). User enters the SQLCipher key and re-tests.
- *   4. On success, 「进入」 opens the account via `openStaticAccount`. We do
- *      NOT persist auto-enter here — static accounts already save themselves
- *      into the accounts/ directory on the backend.
- */
+/** 本地备份的目录发现、账号预览与密钥确认；选择账号后才真正打开会话。 */
 
-import { useState, type ReactElement } from 'react';
-import {
-  ArrowRight,
-  Database,
-  FolderSearch,
-  HelpCircle,
-  KeyRound,
-  Loader2,
-  Smartphone,
-} from 'lucide-react';
+import { useState, useRef, useEffect, useId, type ReactElement } from 'react';
+import { ArrowRight, Database, FolderSearch, KeyRound, Loader2, Smartphone, X } from 'lucide-react';
 import { client } from '../../trpc/client';
-import { useDialog } from '../../components/Dialog';
+import { Modal, useDialog } from '../../components/Dialog';
 import { QqAvatar } from '../../components/QqAvatar';
 import { KEY_LEN_HINT } from './KeyField';
 import qqLogoUrl from '@resources/img/QQ.png';
+import '../../styles/static-backup-scan.css';
+
+type ScanResult = Awaited<ReturnType<typeof client.bootstrap.scanStaticDirs.mutate>>;
+type Candidate = ScanResult['candidates'][number];
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -39,16 +22,17 @@ type Probe =
   | {
       kind: 'ready';
       preview: { uin: string; uid: string; displayName: string; avatarUrl: string };
-      /** 密钥是后端自动算出来的（安卓备份目录），不是用户手输的。 */
+      /** 密钥由后端自动获取或复用，不是用户手输。 */
       derived: boolean;
       /** 安卓手机备份目录（自动推导出密钥）。 */
       mobile: boolean;
+      keySource?: string;
     }
-  | { kind: 'needKey' }
+  | { kind: 'needKey'; error?: string }
   | { kind: 'badKey'; error: string }
   | { kind: 'badDb'; error: string };
 
-type Stage = 'picking' | 'probing' | 'done';
+type Stage = 'picking' | 'probing' | 'entering' | 'done';
 
 export function StaticBackupPanel({
   onEntered,
@@ -56,19 +40,109 @@ export function StaticBackupPanel({
   onEntered: (uin: string) => void;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
+  const confirm = useDialog((s) => s.confirm);
 
   const [dirPath, setDirPath] = useState<string>('');
   const [key, setKey] = useState<string>('');
   const [stage, setStage] = useState<Stage>('picking');
   const [probe, setProbe] = useState<Probe>({ kind: 'idle' });
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [notice, setNotice] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [draftPath, setDraftPath] = useState('');
+  const pickerTitleId = useId();
+  const busy = stage === 'probing' || stage === 'entering';
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  function selectCandidate(candidate: Candidate) {
+    setDirPath(candidate.dirPath);
+    setKey('');
+    const r = candidate.probe;
+    if (!r.ok) {
+      setProbe({ kind: 'badDb', error: r.error });
+      setStage('picking');
+    } else if (r.needKey) {
+      setProbe({ kind: 'needKey', error: r.error });
+      setStage('picking');
+    } else {
+      setKey(r.derivedKey ?? '');
+      setProbe({
+        kind: 'ready',
+        preview: r.preview,
+        derived: !!r.derivedKey && r.keySource !== 'manual',
+        mobile: r.mobile,
+        keySource: r.keySource,
+      });
+      setStage('done');
+    }
+  }
+
+  function openPicker() {
+    setDraftPath(dirPath || candidates[0]?.dirPath || '');
+    setPickerOpen(true);
+  }
+
+  function confirmDirectory() {
+    const candidate = candidates.find((item) => item.dirPath === draftPath);
+    if (!candidate || busy) return;
+    selectCandidate(candidate);
+    setPickerOpen(false);
+  }
 
   async function pickDir(): Promise<void> {
-    const picked = await client.bootstrap.pickStaticDbDir.mutate();
-    if (!picked) return;
-    setDirPath(picked);
-    setKey('');
-    setProbe({ kind: 'idle' });
-    setStage('picking');
+    setStage('probing');
+    try {
+      const picked = await client.bootstrap.pickStaticDbDir.mutate();
+      if (!picked || !mounted.current) return;
+      setDirPath('');
+      setKey('');
+      setCandidates([]);
+      setPickerOpen(false);
+      setDraftPath('');
+      setNotice('');
+      setProbe({ kind: 'probing' });
+      let result = await client.bootstrap.scanStaticDirs.mutate({ dirPath: picked });
+      if (!mounted.current) return;
+      if (!result.candidates.length) {
+        const recursive = await confirm(
+          '递归扫描账号目录？',
+          '当前文件夹及下一级未找到 QQ 数据库，是否扫描所有子文件夹？大目录可能需要较长时间。',
+          { okLabel: '递归扫描', cancelLabel: '取消' },
+        );
+        if (!mounted.current) return;
+        if (!recursive) {
+          setProbe({ kind: 'idle' });
+          return;
+        }
+        result = await client.bootstrap.scanStaticDirs.mutate({ dirPath: picked, recursive: true });
+      }
+      if (!mounted.current) return;
+      setCandidates(result.candidates);
+      if (result.truncated || result.unreadable)
+        setNotice('部分目录未扫描，请选择更具体的文件夹。');
+      if (result.candidates.length === 1) selectCandidate(result.candidates[0]!);
+      else {
+        setProbe(
+          result.candidates.length
+            ? { kind: 'idle' }
+            : { kind: 'badDb', error: '没有找到 QQ 数据库目录。' },
+        );
+        if (result.candidates.length) {
+          setDraftPath(result.candidates[0]!.dirPath);
+          setPickerOpen(true);
+        }
+      }
+    } catch (e) {
+      if (mounted.current) setProbe({ kind: 'badDb', error: errMsg(e) });
+    } finally {
+      if (mounted.current) setStage((s) => (s === 'probing' ? 'picking' : s));
+    }
   }
 
   async function testOpen(): Promise<void> {
@@ -90,18 +164,22 @@ export function StaticBackupPanel({
         return;
       }
       if (r.needKey) {
-        setProbe({ kind: 'needKey' });
+        setProbe({ kind: 'needKey', error: r.error });
         setStage('picking');
         return;
       }
-      // 后端自动算出了密钥（安卓备份目录）—— 收下来，「进入」要拿它开库。
+      // 后端取得的密钥留给真正打开会话时使用。
       if ('derivedKey' in r && r.derivedKey) setKey(r.derivedKey);
       setProbe({
         kind: 'ready',
         preview: r.preview,
-        derived: 'derivedKey' in r && !!r.derivedKey,
+        derived: !!r.derivedKey && r.keySource !== 'manual',
         mobile: 'mobile' in r && !!r.mobile,
+        keySource: r.keySource,
       });
+      setCandidates((items) =>
+        items.map((item) => (item.dirPath === dirPath ? { ...item, probe: r } : item)),
+      );
       setStage('done');
     } catch (e) {
       // 网络/IPC 层异常：填了密钥就留在密钥态，否则当作目录问题。
@@ -111,7 +189,8 @@ export function StaticBackupPanel({
   }
 
   async function enter(): Promise<void> {
-    if (probe.kind !== 'ready') return;
+    if (probe.kind !== 'ready' || busy) return;
+    setStage('entering');
     try {
       await client.bootstrap.openStaticAccount.mutate({
         dirPath,
@@ -122,6 +201,7 @@ export function StaticBackupPanel({
       onEntered(probe.preview.uin);
     } catch (e) {
       showError('打开失败', errMsg(e));
+      setStage('done');
     }
   }
 
@@ -168,31 +248,128 @@ export function StaticBackupPanel({
         )}
       </div>
 
-      <div className="weq-static-help">
-        <HelpCircle size={15} strokeWidth={1.8} aria-hidden />
-        <span>
-          导入非 QQ 本体的实际目录（来自手机备份，或其他工具解密的文件夹）。
-          数据库需全部平铺在该目录中；无法查看和下载媒体。
-        </span>
-      </div>
-
       <label className="weq-static-row">
         <span className="weq-static-label">
           <FolderSearch size={15} strokeWidth={1.8} aria-hidden />
-          数据库目录
+          账号文件夹
         </span>
         <span className="weq-static-inputwrap">
           <input
             className="weq-static-input"
             value={dirPath}
             readOnly
-            placeholder="请选择包含 nt_msg.db / profile_info.db 的目录"
+            placeholder="Tencent Files、账号目录或数据库目录"
           />
-          <button type="button" className="weq-action-primary" onClick={() => void pickDir()}>
+          <button
+            type="button"
+            className="weq-action-primary"
+            disabled={busy}
+            onClick={() => void pickDir()}
+          >
             浏览…
           </button>
         </span>
       </label>
+
+      {stage === 'probing' && (
+        <div role="status" className="weq-static-hint">
+          正在扫描与验证…
+        </div>
+      )}
+      {candidates.length > 0 && (
+        <button
+          type="button"
+          className="weq-action-soft weq-backup-picker-trigger"
+          disabled={busy}
+          onClick={openPicker}
+        >
+          <FolderSearch size={15} aria-hidden />
+          {dirPath ? '切换' : '选择'}账号目录（{candidates.length}）
+        </button>
+      )}
+      {pickerOpen && (
+        <Modal
+          onClose={() => setPickerOpen(false)}
+          centered
+          dismissOnOutside={false}
+          labelledBy={pickerTitleId}
+          className="weq-backup-picker"
+          layerClassName="weq-backup-picker-layer"
+        >
+          <div className="weq-dialog-head weq-backup-picker-head">
+            <FolderSearch size={18} aria-hidden />
+            <h3 className="weq-dialog-title" id={pickerTitleId}>
+              账号目录（{candidates.length}）
+            </h3>
+            <button
+              type="button"
+              className="weq-dialog-x"
+              aria-label="关闭账号目录"
+              title="关闭"
+              onClick={() => setPickerOpen(false)}
+            >
+              <X size={18} aria-hidden />
+            </button>
+          </div>
+          <div className="weq-backup-picker-list">
+            <fieldset className="weq-backup-candidates" disabled={busy} aria-label="备份账号目录">
+              {candidates.map((candidate) => {
+                const preview =
+                  candidate.probe.ok && !candidate.probe.needKey ? candidate.probe.preview : null;
+                return (
+                  <label
+                    key={candidate.dirPath}
+                    className="weq-backup-candidate"
+                    data-selected={draftPath === candidate.dirPath}
+                  >
+                    <input
+                      type="radio"
+                      name={pickerTitleId}
+                      checked={draftPath === candidate.dirPath}
+                      onChange={() => setDraftPath(candidate.dirPath)}
+                    />
+                    {preview && (
+                      <QqAvatar uin={preview.uin} size={36} url={preview.avatarUrl || null} />
+                    )}
+                    <span className="weq-backup-candidate-info">
+                      <strong>
+                        {preview
+                          ? `${preview.displayName || preview.uin} · ${preview.uin}`
+                          : '加密账号（待验证）'}
+                      </strong>
+                      <span className="weq-backup-path">{candidate.dirPath}</span>
+                      <span>
+                        {candidate.databaseCount} 个数据库 ·{' '}
+                        {(candidate.databaseBytes / 1024 / 1024).toFixed(1)} MB ·{' '}
+                        {candidate.mediaDir ? '含本地媒体' : '未找到媒体目录'}
+                      </span>
+                      {!candidate.probe.ok && (
+                        <span className="weq-backup-candidate-error">{candidate.probe.error}</span>
+                      )}
+                    </span>
+                  </label>
+                );
+              })}
+            </fieldset>
+            {notice && <div className="weq-backup-picker-notice">{notice}</div>}
+          </div>
+          <div className="weq-dialog-foot weq-backup-picker-foot">
+            <button type="button" className="weq-action-soft" onClick={() => setPickerOpen(false)}>
+              取消
+            </button>
+            <button
+              type="button"
+              className="weq-action-primary"
+              disabled={busy || !draftPath}
+              onClick={confirmDirectory}
+            >
+              <ArrowRight size={15} aria-hidden />
+              使用此目录
+            </button>
+          </div>
+        </Modal>
+      )}
+      {notice && <div className="weq-static-hint">{notice}</div>}
 
       {(probe.kind === 'needKey' || probe.kind === 'badKey') && (
         <label className="weq-static-row">
@@ -232,14 +409,21 @@ export function StaticBackupPanel({
           <span className={probe.kind === 'badKey' ? 'weq-static-error' : 'weq-static-hint'}>
             {probe.kind === 'badKey'
               ? `密钥验证失败：${probe.error}`
-              : `检测到加密数据库，请输入 ${KEY_LEN_HINT} 位密钥后重新测试。`}
+              : probe.error
+                ? `自动获取密钥未成功：${probe.error}。可输入密钥后重新测试。`
+                : `检测到加密数据库，请输入 ${KEY_LEN_HINT} 位密钥后重新测试。`}
           </span>
         </label>
       )}
 
       <div className="weq-static-actions">
         {probe.kind === 'ready' ? (
-          <button type="button" className="weq-action-primary" onClick={() => void enter()}>
+          <button
+            type="button"
+            className="weq-action-primary"
+            disabled={busy}
+            onClick={() => void enter()}
+          >
             <ArrowRight size={15} strokeWidth={1.85} aria-hidden />
             进入
           </button>
@@ -262,7 +446,11 @@ export function StaticBackupPanel({
       </div>
 
       {probe.kind === 'ready' && probe.derived && (
-        <div className="weq-static-hint">已从目录自动推算出数据库密钥，无需手动输入。</div>
+        <div className="weq-static-hint">
+          {probe.keySource === 'other-device'
+            ? '已通过同账号配置自动获取并验证其他设备密钥。'
+            : '已自动获取并验证数据库密钥。'}
+        </div>
       )}
 
       {probe.kind === 'badDb' && <div className="weq-static-error">打开失败：{probe.error}</div>}

@@ -13,6 +13,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import {
   Ban,
+  Check,
   Bookmark,
   ChevronDown,
   ChevronUp,
@@ -34,8 +35,10 @@ import {
   Users,
   UserRound,
   X,
+  SkipForward,
 } from 'lucide-react';
 import { fmtCount } from './types';
+import '../../styles/chat-export-continuation.css';
 
 export type StageStatus = 'pending' | 'running' | 'completed' | 'skipped' | 'failed';
 
@@ -68,6 +71,21 @@ export interface UiLogLine {
 
 /** The CDN-completion stages (download missing → bundle). */
 const COMPLETION_KEYS = new Set(['image', 'video', 'file', 'ptt']);
+export const SKIPPABLE_STAGE_KEYS = [
+  'backfill',
+  'dress',
+  'avatar',
+  'media',
+  'image',
+  'video',
+  'file',
+  'ptt',
+  'transcribe',
+  'ocrfilter',
+  'ocr',
+  'sysface',
+] as const;
+export type SkippableStage = (typeof SKIPPABLE_STAGE_KEYS)[number];
 
 /** Aggregate completion (image/video/file) success / fail across a task's stages. */
 function completionSummary(stages: UiStage[] | undefined): {
@@ -92,6 +110,10 @@ export interface UiTask {
   resource?: import('@weq/service').ExportTask['resource'];
   save?: import('@weq/service').ExportSaveState;
   canResume?: boolean;
+  journalPath?: string;
+  partialReady?: boolean;
+  isFinalizing?: boolean;
+  mergeWarnings?: import('@weq/service').ExportTask['mergeWarnings'];
   resumeMode?: 'checkpoint' | 'restart';
   reportPath?: string;
   id: string;
@@ -281,10 +303,12 @@ function StageRow({
   stage,
   logs,
   onShowFailures,
+  onSkip,
 }: {
   stage: UiStage;
   logs: UiLogLine[];
   onShowFailures: (failures: UiFailure[]) => void;
+  onSkip?: () => void;
 }): ReactElement {
   const [open, setOpen] = useState(false);
   const pct = stagePct(stage);
@@ -317,16 +341,29 @@ function StageRow({
         <span className="weq-exp-detail-stage-pct">
           {stage.status === 'pending' ? '–' : `${pct}%`}
         </span>
-        <button
-          type="button"
-          className="weq-exp-detail-stage-toggle"
-          disabled={!canOpen}
-          title={canOpen ? (open ? '收起日志' : '显示最近日志') : undefined}
-          aria-expanded={canOpen && open}
-          onClick={() => setOpen((v) => !v)}
-        >
-          <ChevronDown size={13} className={open ? 'is-open' : ''} />
-        </button>
+        <span className="weq-exp-detail-stage-actions">
+          {onSkip ? (
+            <button
+              type="button"
+              className="weq-exp-detail-stage-toggle"
+              title={`跳过${stage.label}`}
+              aria-label={`跳过${stage.label}`}
+              onClick={onSkip}
+            >
+              <SkipForward size={13} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="weq-exp-detail-stage-toggle"
+            disabled={!canOpen}
+            title={canOpen ? (open ? '收起日志' : '显示最近日志') : undefined}
+            aria-expanded={canOpen && open}
+            onClick={() => setOpen((v) => !v)}
+          >
+            <ChevronDown size={13} className={open ? 'is-open' : ''} />
+          </button>
+        </span>
       </div>
       <LogConsole lines={logs} collapsed={!showLog} />
     </div>
@@ -386,6 +423,9 @@ function TaskDetail({
   task: t,
   onPause,
   onResume,
+  onFinalize,
+  onIncremental,
+  onSkipStage,
   onReport,
   onCancel,
   onDownload,
@@ -397,6 +437,9 @@ function TaskDetail({
   task: UiTask;
   onPause: (t: UiTask) => void;
   onResume?: (t: UiTask) => void;
+  onFinalize?: (t: UiTask) => void;
+  onIncremental?: (t: UiTask) => void;
+  onSkipStage?: (t: UiTask, stage: SkippableStage) => void;
   onReport?: (t: UiTask) => void;
   onCancel: (t: UiTask) => void;
   onDownload: (t: UiTask) => void;
@@ -408,6 +451,13 @@ function TaskDetail({
   const overall = t.status === 'completed' ? 100 : Math.min(100, Math.max(0, t.progress));
   const completion = completionSummary(t.stages);
   const resourceMissing = (t.generatedResources?.missing ?? t.resource?.failed ?? 0) > 0;
+  const pauseDraining =
+    t.canResume === false &&
+    !t.resource &&
+    !t.isMarketPack &&
+    !t.isEmojiPack &&
+    !t.isCollection &&
+    !t.isGuild;
   const hasCompletion = completion.ok > 0 || completion.failed > 0;
   const logs = t.logs ?? [];
   const stageLogs = (key: string): UiLogLine[] => logs.filter((l) => l.stage === key);
@@ -415,8 +465,14 @@ function TaskDetail({
   // 任务级日志在任务收尾后隐藏（与子任务日志一致）。
   const showTaskLog = t.status === 'running' || t.status === 'paused' || t.status === 'failed';
   const [taskLogOpen, setTaskLogOpen] = useState(false);
-  // 只挂载已开始的阶段（pending 不占位），多阶段并发时多行同时 running。
-  const mounted = (t.stages ?? []).filter((s) => s.status !== 'pending');
+  // 待执行的可跳过阶段也显示，让用户能提前略过它。
+  const mounted = (t.stages ?? []).filter(
+    (s) =>
+      s.status !== 'pending' ||
+      (onSkipStage &&
+        ['running', 'paused', 'failed'].includes(t.status) &&
+        (SKIPPABLE_STAGE_KEYS as readonly string[]).includes(s.key)),
+  );
 
   return (
     <div className={`weq-exp-detail is-${t.status}`}>
@@ -448,14 +504,42 @@ function TaskDetail({
           ) : (
             <StatusIcon status={t.status} />
           )}
-          {t.status === 'paused' && (t.isContacts || t.isGenerated || t.isQzone) && !t.canResume
-            ? '暂停收尾中'
-            : t.status === 'completed' && resourceMissing
-              ? '已完成 · 资源缺失'
-              : STATUS_LABEL[t.status]}
+          {t.isFinalizing
+            ? '收尾中'
+            : t.status === 'paused' && t.partialReady
+              ? '已收尾'
+              : t.status === 'paused' && !t.canResume
+                ? pauseDraining
+                  ? '暂停收尾中'
+                  : '暂停中'
+                : t.status === 'completed' && resourceMissing
+                  ? '已完成 · 资源缺失'
+                  : STATUS_LABEL[t.status]}
         </span>
         <strong className="weq-exp-detail-overall">{overall}%</strong>
         <div className="weq-exp-detail-actions">
+          {t.status === 'paused' && t.journalPath && onFinalize ? (
+            <button
+              type="button"
+              title={t.isFinalizing ? '收尾中' : t.partialReady ? '已收尾' : '收尾'}
+              aria-label={t.isFinalizing ? '收尾中' : t.partialReady ? '已收尾' : '收尾'}
+              disabled={!t.canResume || t.isFinalizing || t.partialReady}
+              onClick={() => onFinalize(t)}
+            >
+              {t.isFinalizing ? <Loader2 size={15} /> : <Check size={15} />}
+            </button>
+          ) : null}
+          {t.status === 'completed' && t.journalPath && onIncremental ? (
+            <button
+              type="button"
+              title="增量导出"
+              aria-label="增量导出"
+              disabled={t.save?.status === 'saving'}
+              onClick={() => onIncremental(t)}
+            >
+              <RotateCw size={15} />
+            </button>
+          ) : null}
           {t.canResume && onResume ? (
             <button
               type="button"
@@ -481,10 +565,17 @@ function TaskDetail({
               <Pause size={15} />
             </button>
           ) : null}
-          {t.status === 'completed' ? (
+          {t.status === 'completed' ||
+          (t.status === 'paused' && t.partialReady && t.canResume && t.filePath) ? (
             <button
               type="button"
-              title={t.save?.path ? '另存到其他位置' : '保存到…'}
+              title={
+                t.status !== 'completed'
+                  ? '保存现有进度'
+                  : t.save?.path
+                    ? '另存到其他位置'
+                    : '保存到…'
+              }
               disabled={t.save?.status === 'saving'}
               onClick={() => onDownload(t)}
             >
@@ -522,7 +613,12 @@ function TaskDetail({
             </button>
           ) : null}
           {t.status === 'paused' || t.status === 'failed' ? (
-            <button type="button" title="取消" onClick={() => onCancel(t)}>
+            <button
+              type="button"
+              title="取消"
+              disabled={t.isFinalizing}
+              onClick={() => onCancel(t)}
+            >
               <X size={15} />
             </button>
           ) : null}
@@ -530,7 +626,7 @@ function TaskDetail({
             <button
               type="button"
               title="删除导出缓存"
-              disabled={t.save?.status === 'saving'}
+              disabled={t.save?.status === 'saving' || t.isFinalizing}
               className="is-danger"
               onClick={() => onDelete(t)}
             >
@@ -565,6 +661,13 @@ function TaskDetail({
         </p>
       ) : null}
 
+      {t.mergeWarnings &&
+      (t.mergeWarnings.conflictingMessages > 0 || t.mergeWarnings.sequenceGapCount > 0) ? (
+        <p className="weq-exp-detail-complete is-warn" role="status">
+          保留原消息，未覆盖内容不同的 {t.mergeWarnings.conflictingMessages} 条记录；发现{' '}
+          {t.mergeWarnings.sequenceGapCount} 段可疑序号缺口，详见完整性报告。
+        </p>
+      ) : null}
       {t.status === 'failed' && t.error ? (
         <div className="weq-exp-detail-err" title={t.error}>
           {t.error}
@@ -601,6 +704,19 @@ function TaskDetail({
             stage={s}
             logs={stageLogs(s.key)}
             onShowFailures={(failures) => onShowFailures(t, failures)}
+            onSkip={
+              onSkipStage &&
+              !t.isFinalizing &&
+              !t.isContacts &&
+              !t.isQzone &&
+              !t.isGenerated &&
+              !t.resource &&
+              ['running', 'paused', 'failed'].includes(t.status) &&
+              ['pending', 'running', 'failed'].includes(s.status) &&
+              (SKIPPABLE_STAGE_KEYS as readonly string[]).includes(s.key)
+                ? () => onSkipStage(t, s.key as SkippableStage)
+                : undefined
+            }
           />
         ))}
       </div>
@@ -627,6 +743,9 @@ export function TaskList({
   tasks,
   onPause,
   onResume,
+  onFinalize,
+  onIncremental,
+  onSkipStage,
   onReport,
   onCancel,
   onDownload,
@@ -643,6 +762,9 @@ export function TaskList({
   tasks: UiTask[];
   onPause: (t: UiTask) => void;
   onResume?: (t: UiTask) => void;
+  onFinalize?: (t: UiTask) => void;
+  onIncremental?: (t: UiTask) => void;
+  onSkipStage?: (t: UiTask, stage: SkippableStage) => void;
   onReport?: (t: UiTask) => void;
   onCancel: (t: UiTask) => void;
   onDownload: (t: UiTask) => void;
@@ -701,6 +823,9 @@ export function TaskList({
         task={selected}
         onPause={onPause}
         onResume={onResume}
+        onFinalize={onFinalize}
+        onIncremental={onIncremental}
+        onSkipStage={onSkipStage}
         onReport={onReport}
         onCancel={onCancel}
         onDownload={onDownload}
@@ -800,6 +925,9 @@ export function TaskList({
               task={selected}
               onPause={onPause}
               onResume={onResume}
+              onFinalize={onFinalize}
+              onIncremental={onIncremental}
+              onSkipStage={onSkipStage}
               onReport={onReport}
               onCancel={onCancel}
               onDownload={onDownload}

@@ -50,6 +50,8 @@ import { useAppDialog } from '../lib/dialogUtils';
 import { dressBackgroundUrl, dressFontUrl, dressUrl, isVideoBackground } from '../lib/resourceUrl';
 import { bubblePreviewCss } from '../lib/dressSkin';
 import { syncDressSkin, syncDressSkinPreloaded } from '../hooks/useDressSkin';
+import { fontFaces } from '../lib/fontFaces';
+import { acquireDecorationStyle } from '../lib/decorationResources';
 import { DecorationSaveControls, useDecorationSave } from './DecorationSaveControls';
 import { BACKDROP_VEIL_VAR, backdropVeil, ScreenWidget } from './ChatBackdrop';
 import { WorkspacePage } from './WorkspacePages';
@@ -87,9 +89,6 @@ const SKELETON_CARD_KEYS = Array.from(
 );
 
 /** 「已装」本地气泡预览的受管 <style> 节点 id(与消息装扮的注入分开)。 */
-const BUBBLE_PREVIEW_STYLE_ID = 'weq-dress-local-preview';
-/** 已注入过的气泡 itemId —— 同一款永不重写,与消息装扮注入同款约定。 */
-const injectedPreviewBubbles = new Set<number>();
 
 /**
  * 把一款气泡的九宫格 CSS 注入到预览格子里(按 data-bubble-preview 精确命中)。
@@ -98,20 +97,14 @@ const injectedPreviewBubbles = new Set<number>();
  * 九宫格 PNG)就走 `weq-media://dressbubble`,没有(旧账号里 CDN 直链装的遗留款)则
  * 用它渲染真实消息时同一个 dress 代理地址 —— 预览与消息所见即所得,不另猜预览图。
  */
-function injectBubblePreviewCss(skin: BubbleSkin): void {
-  if (injectedPreviewBubbles.has(skin.itemId)) return;
-  injectedPreviewBubbles.add(skin.itemId);
+function injectBubblePreviewCss(skin: BubbleSkin): () => void {
   const sel =
     `.weq-dress-bubble-preview-stage[data-bubble-preview="${skin.itemId}"]` +
     ' .weq-dress-preview-bubble';
   const css = bubblePreviewCss(skin, sel);
-  let node = document.getElementById(BUBBLE_PREVIEW_STYLE_ID) as HTMLStyleElement | null;
-  if (!node) {
-    node = document.createElement('style');
-    node.id = BUBBLE_PREVIEW_STYLE_ID;
-    document.head.appendChild(node);
-  }
-  node.textContent = `${node.textContent ?? ''}\n${css}`;
+  return acquireDecorationStyle(`preview-bubble:${skin.itemId}`, (resource) =>
+    resource.append(css),
+  );
 }
 
 /** 「已装」里没有商城预览图的气泡 —— 用本地九宫格素材把气泡本身画出来。 */
@@ -137,12 +130,11 @@ function FontLocalPreview({ itemId }: { itemId: number }): ReactElement {
   useEffect(() => {
     let cancelled = false;
     setState('loading');
-    void new FontFace(family, `url("${dressFontUrl(itemId)}")`)
-      .load()
-      .then((face) => {
+    const font = fontFaces.acquire(family, dressFontUrl(itemId));
+    void font.ready
+      .then((ok) => {
         if (cancelled) return;
-        document.fonts.add(face);
-        setState('ready');
+        setState(ok ? 'ready' : 'fail');
       })
       .catch(() => {
         // 某些 QQ 字体过不了 Chromium 的 OTS 校验 —— 与消息装扮同款处理,静默降级。
@@ -150,6 +142,7 @@ function FontLocalPreview({ itemId }: { itemId: number }): ReactElement {
       });
     return () => {
       cancelled = true;
+      font.release();
     };
   }, [family, itemId]);
 
@@ -266,10 +259,14 @@ export function DressUpDialog({
   // 让样式赶在首帧绘制前落地,避免「已装」网格先闪一帧裸文字气泡。
   useLayoutEffect(() => {
     if (!manifest) return;
+    const release: (() => void)[] = [];
     for (const b of manifest.bubbles) {
       // local-only:能进清单的款本地九宫格必在,直接画本体当预览。
-      if (!b.previewUrl) injectBubblePreviewCss(b);
+      if (!b.previewUrl) release.push(injectBubblePreviewCss(b));
     }
+    return () => {
+      for (const dispose of release) dispose();
+    };
   }, [manifest]);
 
   // 清单里的清晰度是权威值,同步进滑块(切账号 / 外部改动都跟得上)。

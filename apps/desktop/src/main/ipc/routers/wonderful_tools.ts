@@ -35,13 +35,11 @@ import {
   tryDecodeProtobuf,
 } from '@weq/codec/raw';
 import {
-  attachAndRegisterSsoSession,
+  fetchOtherDeviceDatabaseKey,
   getHost,
   LoginAccountToolService,
   loginDbPaths,
-  requestDecryptKeyFromInstance,
   resolveLoginAccountDir,
-  resolveDeviceGuid,
 } from '@weq/service';
 import { rememberAccountUid, requireBootstrap, requirePlatform } from '../../context/app_context';
 import { procedure, router } from '../trpc';
@@ -499,6 +497,7 @@ export const wonderfulToolsRouter = router({
 
       try {
         const target = await getHost().pickSaveTarget({
+          locationKey: 'capture',
           defaultName,
           extension: input.format,
         });
@@ -543,49 +542,19 @@ export const wonderfulToolsRouter = router({
             error: '已开启完全离线模式（自动读取 QQ 内存 已关闭），无法向在线 QQ 请求密钥。',
           };
         }
-        const instances = await resolveOnlineInstances(boot, platform);
-        if (instances.length === 0) {
-          return {
-            success: false,
-            error: '没有可用的在线 QQ 实例：请先登录 QQ 并保持在线（或先用 WeQ 打开一个账号）',
-          };
-        }
-        let lastError: string | null = null;
-        for (const { pid, uin, uid } of instances) {
-          try {
-            // 该 pid 首次发包前必须登记会话物料；同机 QQ 已在维持会话，我们只
-            // 借凭据组帧（不建连、不上线）。身份里的 uin / uid 来自 login.db，
-            // guid 从 QQ 数据根离线算 —— 都独立于用户当前打开的是哪个账号。
-            const guid = resolveDeviceGuid(platform.native.ntHelper, platform);
-            const { registered } = await attachAndRegisterSsoSession(
-              platform.native.ntHelper,
-              platform,
-              boot.attachHook,
-              pid,
-              uin,
-              { uid, guid },
-            );
-            if (!registered) {
-              lastError =
-                '已读取 QQ 进程内存，但会话身份不完整（缺少账号 uid 或设备 guid），无法向在线 QQ 请求密钥。';
-              continue;
-            }
-            const key = await requestDecryptKeyFromInstance(
-              platform.native.ntHelper,
-              pid,
-              input.dbPath,
-            );
-            return { success: true, key, pid };
-          } catch (error) {
-            lastError = error instanceof Error ? error.message : String(error);
-          }
-        }
-        return {
-          success: false,
-          error: lastError
-            ? humanizeKeyFetchError(lastError)
-            : '获取密钥失败：所有在线实例均未返回密钥（数据库可能不属于任何在线账号）',
-        };
+        const result = await fetchOtherDeviceDatabaseKey(
+          platform,
+          boot.userConfig.listAccountConfigs(),
+          boot.attachHook,
+          input.dbPath,
+          {
+            enabled: true,
+            resolveOnline: () => resolveOnlineInstances(boot, platform),
+          },
+        );
+        return result.success
+          ? { success: true, key: result.key, pid: result.pid }
+          : { success: false, error: humanizeKeyFetchError(result.error) };
       },
     ),
 

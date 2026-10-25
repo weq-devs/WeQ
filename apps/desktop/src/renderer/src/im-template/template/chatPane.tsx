@@ -55,6 +55,7 @@ import {
   Mic,
   PhoneCall,
   Rocket,
+  Video,
   SendHorizontal,
   Settings2,
   Zap,
@@ -529,10 +530,13 @@ export function ChatPane({
    */
   onSendWindowShake?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
   /**
-   * 发起语音通话。只支持私聊 —— 群通话要先进房间再邀请，协议路径不同。
-   * 应用层负责拿 peerUin / 头像，这里只把会话透上去。
+   * 发起通话（语音 / 视频）。只支持私聊 —— 群通话要先进房间再邀请，协议路径不同。
+   * 应用层负责拿 peerUin / 头像，这里只把会话与媒体类型透上去。
    */
-  onStartCall?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
+  onStartCall?: (
+    conversation: Extract<Conversation, { type: 'direct' }>,
+    media: 'audio' | 'video',
+  ) => Promise<void>;
   /**
    * Ark 卡片面板「发送」—— 面板只收输入、不知道发到哪，所以把**当前会话**一起交回
    * 应用层，由它补 peerType / targetId 再走 IPC（与 onSendWindowShake 同）。
@@ -818,6 +822,9 @@ export function ChatPane({
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null);
   // 右键头像 → 「@他 / 戳一戳」轻互动菜单。
   const [avatarMenu, setAvatarMenu] = useState<AvatarContextMenuState | null>(null);
+  /** 通话按钮的选择菜单（语音 / 视频）。锚点是被点的那个按钮。 */
+  const [callMenu, setCallMenu] = useState<{ x: number; y: number } | null>(null);
+  const callButtonRef = useRef<HTMLButtonElement | null>(null);
   // 右键消息 → 「贴表情」打开的表情面板（仅群聊可用）。
   const [reactionPicker, setReactionPicker] = useState<{
     message: Message;
@@ -1358,7 +1365,16 @@ export function ChatPane({
         return;
       }
       scrollMessagesToBottomRef.current();
-      const frame = window.requestAnimationFrame(() => scrollMessagesToBottomRef.current());
+      const frame = window.requestAnimationFrame(() => {
+        const current = readContextRef.current;
+        if (
+          atBottomRef.current &&
+          current.tabActive &&
+          current.atLatest &&
+          current.conversation?.id === conversationId
+        )
+          scrollMessagesToBottomRef.current();
+      });
       return () => window.cancelAnimationFrame(frame);
     }
 
@@ -1405,7 +1421,16 @@ export function ChatPane({
     if (atBottomRef.current) {
       setNewMessagePill(0);
       scrollMessagesToBottomRef.current();
-      const frame = window.requestAnimationFrame(() => scrollMessagesToBottomRef.current());
+      const frame = window.requestAnimationFrame(() => {
+        const current = readContextRef.current;
+        if (
+          atBottomRef.current &&
+          current.tabActive &&
+          current.atLatest &&
+          current.conversation?.id === conversationId
+        )
+          scrollMessagesToBottomRef.current();
+      });
       return () => window.cancelAnimationFrame(frame);
     }
 
@@ -3192,11 +3217,11 @@ export function ChatPane({
    * 发起语音通话：与窗口抖动一样是「点一下就走」的独立动作，不动输入框内容。
    * 群聊暂不支持（协议侧要先进群房间，见 `@weq/protocol` 的 group 信令）。
    */
-  async function startVoiceCall() {
+  async function startCall(media: 'audio' | 'video') {
     if (conversation?.type !== 'direct' || !onStartCall) return;
     if (currentPreference.blocked) return;
     try {
-      await onStartCall(conversation);
+      await onStartCall(conversation, media);
     } catch (error) {
       console.error('[composer] start call failed:', error);
     }
@@ -4908,8 +4933,8 @@ export function ChatPane({
                         displayedSelectedIds.has(message.id)
                       }
                       onToggleSelect={toggleSelectMessage}
-                      reactionRemoval={{
-                        onRemove: (code) => changeMessageReaction(message, code, false),
+                      reactionInteraction={{
+                        onChange: (code, isSet) => changeMessageReaction(message, code, isSet),
                         blockedReason: messageReactionBlockedReason(message),
                         busy: setMessageReaction.isLoading,
                       }}
@@ -5361,14 +5386,18 @@ export function ChatPane({
               <Vibrate size={21} strokeWidth={1.5} />
             </button>
           ) : null}
-          {/* 语音通话：仅私聊。群通话要先进群房间再邀请，协议路径不同，暂不做。 */}
+          {/* 通话：仅私聊。群通话要先进群房间再邀请，协议路径不同，暂不做。 */}
           {conversation?.type === 'direct' && onStartCall ? (
             <button
+              ref={callButtonRef}
               type="button"
-              className={cn('composer-tool')}
-              title="语音通话"
+              className={cn('composer-tool', callMenu && 'active')}
+              title="通话"
               disabled={currentPreference.blocked}
-              onClick={() => void startVoiceCall()}
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                setCallMenu({ x: rect.left, y: rect.top - 8 });
+              }}
             >
               <PhoneCall size={21} strokeWidth={1.5} />
             </button>
@@ -5928,6 +5957,32 @@ export function ChatPane({
           }
           recallBlockedReason={contextRecallInfo?.show ? contextRecallInfo.reason : undefined}
           recallCount={contextSelectionRecall ? selectionFlow.selectedCount : undefined}
+        />
+      ) : null}
+      {callMenu ? (
+        <ConversationActionsMenu
+          x={callMenu.x}
+          y={callMenu.y}
+          label="发起通话"
+          onClose={() => setCallMenu(null)}
+          actions={[
+            {
+              label: '语音通话',
+              icon: <PhoneCall size={16} />,
+              action: () => {
+                setCallMenu(null);
+                void startCall('audio');
+              },
+            },
+            {
+              label: '视频通话',
+              icon: <Video size={16} />,
+              action: () => {
+                setCallMenu(null);
+                void startCall('video');
+              },
+            },
+          ]}
         />
       ) : null}
       {avatarMenu ? (

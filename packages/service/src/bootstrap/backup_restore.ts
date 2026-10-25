@@ -474,6 +474,7 @@ function mappedAccount(source: AccountConfig, local: AccountConfig): AccountConf
     'dbKey',
     'algos',
     'dataDir',
+    'backupAccountDir',
     'static',
     'mobile',
     'nativeMediaDir',

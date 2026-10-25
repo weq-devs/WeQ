@@ -133,6 +133,7 @@ export async function exportJsonConversation(
   const members = [...senders.entries()].map(([uid, s]) => toMember(uid, s));
   const meta = {
     name: groupName || opts.conv,
+    conversationId: opts.conv,
     platform: 'qq',
     type: opts.kind === 'group' ? 'group' : 'private',
     ...(opts.kind === 'group' ? { groupId: opts.conv } : {}),

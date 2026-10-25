@@ -35,6 +35,7 @@ import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
 import { useToast } from '../components/Toast';
 import { CallWindow } from '../components/CallWindow';
+import { onOpenSettingsRequest } from '../lib/callSettingsBridge';
 import { useDialog } from '../components/Dialog';
 import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
@@ -96,6 +97,7 @@ import { useContentSelectionScope } from '../state/contentSelection';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { ConversationWindowCache, conversationWindowKey } from '../lib/conversationWindowCache';
 import { loadConversationEntry } from '../lib/conversationEntry';
+import { mergeRefreshedWindow } from '../lib/conversationRefresh';
 import {
   captureReadingPosition,
   restoreReadingPosition,
@@ -319,9 +321,7 @@ const PAGE_SIZE = 50;
 const GROUP_INITIAL_PAGE_SIZE = 25;
 const GROUP_MEMBER_PAGE_SIZE = 120;
 /**
- * Cap for the live "re-read my loaded window" query. If a user scrolled up past
- * this many messages while still anchored to the latest, a refresh keeps only
- * the newest REFRESH_CAP — a rare edge, traded for a bounded re-render.
+ * 后台刷新只重读有界尾页；已加载但不在这次查询范围内的历史保留原位。
  */
 const REFRESH_CAP = 500;
 
@@ -751,8 +751,7 @@ function expectedKeysOf(payload: {
 
 type PendingScrollRestore = {
   conversationId: string;
-  previousHeight: number;
-  previousTop: number;
+  position: ConversationReadingPosition;
 };
 
 type OverlayScrollbarState = {
@@ -2551,7 +2550,15 @@ export function MainView(): ReactElement {
         return;
       loadedRevisionRef.current = revision;
       windowVerifiedAtRef.current = Date.now();
-      const rows = page.map(toMessageWire).reverse();
+      const rows = mergeRefreshedWindow(
+        loadedRef.current,
+        page.map(toMessageWire).reverse(),
+        win.minSeq === null ? PAGE_SIZE : REFRESH_CAP,
+      );
+      const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
+      if (scroll && scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 48) {
+        cachedScrollRef.current = { id: conv, position: captureReadingPosition(scroll) };
+      }
       verifiedWindowRowsRef.current = rows;
       setLoaded(rows);
     } catch (err) {
@@ -2714,6 +2721,20 @@ export function MainView(): ReactElement {
    */
   const flushDraftRef = useRef<(conversationId: string) => void>(() => {});
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  /**
+   * 通话窗口请求打开设置页（`localStorage` 的 `storage` 事件，同源广播）。
+   * 现在只有「通话与录音」一节会这样跳过来。
+   */
+  useEffect(
+    () =>
+      onOpenSettingsRequest((section) => {
+        if (section !== 'callRecording') return;
+        setSettingsSection('call-recording');
+        setSettingsOpen(true);
+      }),
+    [],
+  );
   const [surfaceNavigation, setSurfaceNavigation] = useState(0);
   /** 打开设置时要先落到哪一屏（损坏弹窗 → 数据库宽容）。 */
   const [settingsSection, setSettingsSection] = useState<SettingsDialogSectionId | undefined>(
@@ -7165,6 +7186,7 @@ export function MainView(): ReactElement {
         !selectedConversation ||
         !hasOlder ||
         loadingOlderRef.current ||
+        loadingNewerRef.current ||
         entryLoadingRef.current ||
         messagesLoading
       )
@@ -7180,12 +7202,6 @@ export function MainView(): ReactElement {
         selection = selectionRef.current;
       if (!scope || !binding || selection?.id !== conv) return;
       loadingOlderRef.current = true;
-      const restoration = {
-        conversationId: conv,
-        previousHeight: scroll.scrollHeight,
-        previousTop: scroll.scrollTop,
-      };
-      pendingScrollRestoreRef.current = restoration;
 
       client.account.listBefore
         .query({ ...binding, kind, conv, beforeSeq: minSeq, limit: PAGE_SIZE })
@@ -7193,8 +7209,6 @@ export function MainView(): ReactElement {
           if (messageScopeRef.current !== scope || selectionRef.current !== selection) return;
           loadingOlderRef.current = false;
           if (windowRef.current.minSeq !== minSeq) {
-            if (pendingScrollRestoreRef.current === restoration)
-              pendingScrollRestoreRef.current = null;
             return;
           }
           if (selectionRef.current?.id !== conv) {
@@ -7211,6 +7225,11 @@ export function MainView(): ReactElement {
             setHasOlder(false);
             return;
           }
+          // 请求期间用户仍可滚动；只在真正提交旧页前捕获此刻的可见消息。
+          pendingScrollRestoreRef.current = {
+            conversationId: conv,
+            position: captureReadingPosition(scroll),
+          };
           setLoaded((cur) => {
             const seen = new Set(cur.map(timelineRowKey));
             const merged = fresh.filter((m) => !seen.has(timelineRowKey(m)));
@@ -7233,7 +7252,14 @@ export function MainView(): ReactElement {
   // doesn't move it, so no scroll-restore is needed. When the tail reaches the
   // latest, re-anchor so live messages flow in again.
   const requestNewerMessages = useCallback((): void => {
-    if (!selectedConversation || !hasNewer || loadingNewerRef.current || entryLoadingRef.current)
+    if (
+      !selectedConversation ||
+      !hasNewer ||
+      loadingNewerRef.current ||
+      loadingOlderRef.current ||
+      pendingScrollRestoreRef.current ||
+      entryLoadingRef.current
+    )
       return;
     const maxSeq = loaded[loaded.length - 1]?.msgSeq;
     if (!maxSeq) return;
@@ -7327,23 +7353,14 @@ export function MainView(): ReactElement {
     const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
     if (!scroll) return undefined;
 
-    const apply = (): void => {
-      scroll.scrollTop = Math.max(
-        0,
-        scroll.scrollHeight - restore.previousHeight + restore.previousTop,
-      );
-    };
-
-    // Restore synchronously (before paint) so the freshly prepended page keeps the
-    // reading position in a single layout pass. Deferring the whole restore with rAF
-    // let the browser paint one frame where scrollHeight had already grown but
-    // scrollTop was still at its old (near-top) value — which made the overlay
-    // scrollbar thumb snap to the top and back ("上下乱串"). We re-apply once more on
-    // the next frame in case a late reflow (e.g. a message measuring itself) shifts
-    // the height; with a stable height this is a no-op, so no visible jitter.
-    apply();
+    // 只跟随锚点上方的变化，底部追加和图片展开不能计入向上翻页补偿。
+    restoreReadingPosition(scroll, restore.position);
+    const appliedTop = scroll.scrollTop;
     const frame = window.requestAnimationFrame(() => {
-      apply();
+      if (pendingScrollRestoreRef.current !== restore) return;
+      // 用户在首帧后继续滚动时，不用旧快照把他拉回。
+      if (Math.abs(scroll.scrollTop - appliedTop) <= 1)
+        restoreReadingPosition(scroll, restore.position);
       pendingScrollRestoreRef.current = null;
     });
 
@@ -8066,14 +8083,17 @@ export function MainView(): ReactElement {
    * 发起语音通话。
    *
    * 只有私聊：群通话要先进群房间再邀请（OIDB 4752/4753/4754），与私聊不是同一条
-   * 协议路径。通话窗口是独立浮层，挂断 / 结束由窗口自己收尾。
+   * 协议路径。通话界面使用独立系统窗口，挂断 / 结束由窗口自己收尾。
    */
-  async function startVoiceCall(conversation: Extract<Conversation, { type: 'direct' }>) {
+  async function startVoiceCall(
+    conversation: Extract<Conversation, { type: 'direct' }>,
+    media: 'audio' | 'video' = 'audio',
+  ) {
     if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
         tone: 'warning',
         message: 'QQ 未在线或处于完全离线模式',
-        detail: '语音通话需要借用在线 QQ 实例的凭据，请先登录 QQ 并退出完全离线模式。',
+        detail: '通话需要借用在线 QQ 实例的凭据，请先登录 QQ 并退出完全离线模式。',
       });
       throw new Error('qq offline');
     }
@@ -8085,6 +8105,7 @@ export function MainView(): ReactElement {
         peerUin,
         peerName: other.displayName || other.username || peerUin,
         peerAvatar: other.avatarUrl ?? undefined,
+        media,
       });
       setActiveCall(call as never);
     } catch (error) {

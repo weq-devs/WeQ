@@ -11,6 +11,10 @@ export const MAIL_ORIGIN = 'https://wx.mail.qq.com';
 export const MAIL_PAGE_SIZE = 30;
 export const MAIL_PART_SIZE = 5 * 1024 * 1024;
 
+export function isMailThreadId(id: string): boolean {
+  return id.startsWith('C') && !id.startsWith('CAD');
+}
+
 export function object(value: unknown): MailObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as MailObject)

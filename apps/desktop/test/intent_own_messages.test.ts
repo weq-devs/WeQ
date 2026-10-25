@@ -242,7 +242,7 @@ it('自己的真实文本容器无需旧 message-text 类也能触发悬停分�
   expect(document.querySelector('.weq-intent-popover')?.textContent).toContain('正在分析');
 });
 
-it('自己发送后禁用推荐查询并隐藏旧候选，而不是把旧缓存继续显示', async () => {
+it('首次进入仅有自己消息的会话时禁用推荐查询，不展示查询旧缓存', async () => {
   const host = await render(
     h(IntentSuggestionBar, {
       kind: 'group',

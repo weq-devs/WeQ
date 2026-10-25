@@ -75,11 +75,14 @@ function DressPreview({
   uin?: string;
 }): ReactElement {
   const rowRef = useRef<HTMLDivElement | null>(null);
-  const msgDec = useMsgDecoration({
-    bubbleId: decoration.bubbleId,
-    fontId: decoration.fontId,
-    widgetId: decoration.widgetId,
-  });
+  const msgDec = useMsgDecoration(
+    {
+      bubbleId: decoration.bubbleId,
+      fontId: decoration.fontId,
+      widgetId: decoration.widgetId,
+    },
+    rowRef,
+  );
   const fontFxAttr = useBubbleFontFx(msgDec.fontFx, rowRef);
   const previewSegs = useMemo<MfSeg[]>(
     () => [{ t: 'text', id: 'dress-preview', text: '装扮预览 Aa 123' }],
