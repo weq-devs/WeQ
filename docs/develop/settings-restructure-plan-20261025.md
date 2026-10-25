@@ -701,3 +701,4 @@ pnpm --filter @weq/desktop typecheck:web
 - 回归：服务 7 文件/147 用例、桌面 12 文件/103 用例、模型基础 2 文件/4 用例通过，包括真实 `AgentRuntime` 的索引混用拒绝、真实请求路径的默认变更与助手兼容隔离、重启后的分析缓存和备份往返。service、bot、主进程与普通 renderer 类型检查均通过，相关 51 文件 Biome 检查通过。普通 renderer 最初受其他在途 `GroupInfoDetailDialog.tsx` 的标签可空值错误影响；曾以该文件的已提交版本隔离读取确认零诊断，未改写该现场。共享工作区后续更新后已复跑普通检查通过，不将初次隔离检查冒称为普通检查。
 - 预览覆盖四种宽度/三种主题的十二组，以及 1280/320 下失效与读取失败的四组，共十六组设置/克隆入口；另有六组桌面/窄屏助手菜单。检查当前默认、旧空值、构建回调参数、长名称、无横向溢出、标签和控件分离、模态不顶侧栏与无脚本错误。发现并修复 320px 助手菜单右侧越界，复用公共锚定逻辑并保留向上展开偏好。没有调用真实 API、克隆构建、bot 导出或 QQ。
 - 证据沿用 Agents 工作目录：`model-consumers-browser-qa.mjs`、`default-assistant-browser-qa.mjs`、`typecheck-settings-isolated.cjs` 及 `screenshots/model-consumers-results.json`、`screenshots/default-assistant-results.json`。本阶段仍不代替真实 200% 缩放和整个第 21 项矩阵。
+- 预览收尾复核：服务日志暴露助手夹具每次返回新空数组导致的 React 更新深度告警。已稳定合成对话/配置对象，脚本增加控制台错误检查，并阻止 localhost 预览以外的网络请求；在此更严格条件下重新通过十六组消费入口和六组助手菜单，控制台与页面脚本错误均为空。该修正只涉及 Agents 中的预览夹具与检查，不涉及生产逻辑。
