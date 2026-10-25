@@ -2,11 +2,11 @@ interface QuitEventSource<E extends string> {
   on(event: E, listener: () => void): unknown;
 }
 
-/** 暂缓真正退出，等后台清理结束后重走正常退出，不绕过更新安装的握手。 */
+/** 全部窗口同意关闭后才停止后台，避免未保存内容取消退出时服务已被关闭。 */
 export function registerAppQuitCleanup(
   app: {
     on(
-      event: 'before-quit',
+      event: 'will-quit',
       listener: (event: { readonly defaultPrevented?: boolean; preventDefault(): void }) => void,
     ): unknown;
     quit(): void;
@@ -22,7 +22,7 @@ export function registerAppQuitCleanup(
   updater?.on('before-quit-for-update', () => {
     updating = true;
   });
-  app.on('before-quit', (event) => {
+  app.on('will-quit', (event) => {
     if (event.defaultPrevented || cleaned || updating) return;
     event.preventDefault();
     if (cleaning) return;
@@ -34,18 +34,19 @@ export function registerAppQuitCleanup(
         failed(error);
       } finally {
         cleaned = true;
-        app.quit();
+        // 等 Electron 完成这次 will-quit 取消，避免微任务内重入仍被视为正在退出。
+        setImmediate(() => app.quit());
       }
     })();
   });
 }
 
-/** 普通退出与更新退出共享准备动作，避免重复保存和释放资源。 */
+/** 普通退出与更新退出共享窗口放行标记；取消卸载后允许重置并重新准备。 */
 export function registerAppQuitPreparation(
   app: QuitEventSource<'before-quit'>,
   updater: QuitEventSource<'before-quit-for-update'>,
   prepare: () => void,
-): void {
+): () => void {
   let prepared = false;
   const run = () => {
     if (prepared) return;
@@ -57,4 +58,24 @@ export function registerAppQuitPreparation(
   });
   // 更新安装先关闭窗口，再发普通 before-quit；必须提前放行窗口 close。
   updater.on('before-quit-for-update', run);
+  return () => {
+    prepared = false;
+  };
+}
+
+/** Electron 默认静默拦截 beforeunload；由原生确认框明确决定是否放弃更改。 */
+export function registerWindowUnloadConfirmation(
+  contents: {
+    on(
+      event: 'will-prevent-unload',
+      listener: (event: { preventDefault(): void }) => void,
+    ): unknown;
+  },
+  options: { confirmDiscard(): boolean; cancelled(): void },
+): void {
+  contents.on('will-prevent-unload', (event) => {
+    // 此事件 preventDefault 的含义是忽略渲染层拦截，继续卸载。
+    if (options.confirmDiscard()) event.preventDefault();
+    else options.cancelled();
+  });
 }

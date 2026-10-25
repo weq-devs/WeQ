@@ -108,7 +108,7 @@ export async function installMacUpdate(plan: MacUpdatePlan): Promise<void> {
     };
     const exited = () => fail(new Error('更新助手提前退出，未替换应用。'));
     const commit = (event: Electron.Event) => {
-      if (committed) return;
+      if (committed || event.defaultPrevented) return;
       event.preventDefault();
       helper.send({ type: 'commit' }, (error) => {
         if (error) fail(error);
@@ -117,7 +117,7 @@ export async function installMacUpdate(plan: MacUpdatePlan): Promise<void> {
     const message = (value: unknown) => {
       const type = (value as { type?: string } | null)?.type;
       if (type === 'ready') {
-        app.once('will-quit', commit);
+        app.on('will-quit', commit);
         app.quit();
       } else if (type === 'committed') {
         committed = true;

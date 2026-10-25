@@ -6,7 +6,11 @@ import {
   skipNextQuitConfirmation,
   type QuitChoice,
 } from '../src/main/app_quit_confirmation';
-import { registerAppQuitCleanup, registerAppQuitPreparation } from '../src/main/app_quit_lifecycle';
+import {
+  registerAppQuitCleanup,
+  registerAppQuitPreparation,
+  registerWindowUnloadConfirmation,
+} from '../src/main/app_quit_lifecycle';
 
 class FakeApp extends EventEmitter {
   exits = 0;
@@ -18,6 +22,8 @@ class FakeApp extends EventEmitter {
       },
     };
     this.emit('before-quit', event);
+    if (event.defaultPrevented) return;
+    this.emit('close-windows', event);
     if (event.defaultPrevented) return;
     this.emit('will-quit', event);
     if (!event.defaultPrevented) this.exits += 1;
@@ -66,6 +72,43 @@ function fixture() {
   };
 }
 describe('助手开启时的退出确认', () => {
+  it('未保存窗口取消退出时不关闭后台；再次退出并放弃更改后只清理一次', async () => {
+    const app = new FakeApp();
+    const updater = new EventEmitter();
+    const contents = new EventEmitter();
+    let quitting = false;
+    let discard = false;
+    const reset = registerAppQuitPreparation(app, updater, () => {
+      quitting = true;
+    });
+    const cleanup = vi.fn(async () => {});
+    registerAppQuitCleanup(app, cleanup, vi.fn(), updater);
+    registerWindowUnloadConfirmation(contents, {
+      confirmDiscard: () => discard,
+      cancelled: () => {
+        quitting = false;
+        reset();
+      },
+    });
+    app.on('close-windows', (event: { preventDefault(): void }) => {
+      expect(quitting).toBe(true);
+      let blocked = true;
+      contents.emit('will-prevent-unload', {
+        preventDefault: () => {
+          blocked = false;
+        },
+      });
+      if (blocked) event.preventDefault();
+    });
+    app.quit();
+    expect(app.exits).toBe(0);
+    expect(quitting).toBe(false);
+    expect(cleanup).not.toHaveBeenCalled();
+    discard = true;
+    app.quit();
+    await vi.waitFor(() => expect(app.exits).toBe(1));
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
   it.each(['cancel', 'window'] as const)(
     '%s 不触发退出准备或资源清理，下一次仍可正常询问',
     async (choice) => {

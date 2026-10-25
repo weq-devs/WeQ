@@ -69,7 +69,11 @@ import {
   isAutostartLaunch,
   shouldShowStartupWindow,
 } from './startup_window';
-import { registerAppQuitCleanup, registerAppQuitPreparation } from './app_quit_lifecycle';
+import {
+  registerAppQuitCleanup,
+  registerAppQuitPreparation,
+  registerWindowUnloadConfirmation,
+} from './app_quit_lifecycle';
 import { registerAppQuitConfirmation, type QuitChoice } from './app_quit_confirmation';
 import { createRendererRecovery } from './renderer_recovery';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
@@ -765,6 +769,22 @@ void app.whenReady().then(async () => {
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);
+    registerWindowUnloadConfirmation(win.webContents, {
+      confirmDiscard: () =>
+        dialog.showMessageBoxSync(win, {
+          type: 'warning',
+          title: '存在未保存的更改',
+          message: '放弃此窗口中未保存的更改？',
+          buttons: ['继续编辑', '放弃更改'],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        }) === 1,
+      cancelled: () => {
+        isQuitting = false;
+        resetQuitPreparation();
+      },
+    });
   });
 
   mainIpcHandler = createIPCHandler({
@@ -817,27 +837,9 @@ app.on('window-all-closed', () => {
 });
 
 // A real quit is underway (tray「退出」/ 确认框「完全退出」/ Cmd+Q / OS shutdown):
-// flip the flag so the `close` handler stops intercepting, and drop the tray.
-registerAppQuitPreparation(app, autoUpdater, () => {
+// 只放行窗口关闭；未保存内容仍可能取消退出，暂不停止服务或销毁托盘。
+const resetQuitPreparation = registerAppQuitPreparation(app, autoUpdater, () => {
   isQuitting = true;
-  stopRendererDiagnostics?.();
-  stopRendererDiagnostics = null;
-  try {
-    getAppContext().services?.roamingBackfill.dispose();
-  } catch (error) {
-    logger.warn('failed to save roaming pause on quit', {
-      event: 'roaming-quit-checkpoint',
-      error: String(error),
-    });
-  }
-  if (tray) {
-    try {
-      tray.destroy();
-    } catch {
-      /* ignore */
-    }
-    tray = null;
-  }
 });
 
 // 助手资源随应用结束；次实例退出不能关闭主实例拥有的服务。
@@ -891,7 +893,26 @@ if (hasSingleInstanceLock) {
 }
 
 // 账号没有显式关闭时，也释放本轮 Web、Remote、MCP 与提权辅助进程。
-app.on('will-quit', () => {
+app.on('will-quit', (event) => {
+  if (event.defaultPrevented) return;
+  stopRendererDiagnostics?.();
+  stopRendererDiagnostics = null;
+  try {
+    getAppContext().services?.roamingBackfill.dispose();
+  } catch (error) {
+    logger.warn('failed to save roaming pause on quit', {
+      event: 'roaming-quit-checkpoint',
+      error: String(error),
+    });
+  }
+  if (tray) {
+    try {
+      tray.destroy();
+    } catch {
+      /* ignore */
+    }
+    tray = null;
+  }
   void assistantResourceServer.shutdown();
   remoteRuntime.stop();
   desktopWebRuntime.stop();

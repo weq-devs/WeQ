@@ -13,6 +13,7 @@ const fixture = vi.hoisted(() => ({
     getVersion: () => '1.0.0',
     getPath: vi.fn(),
     quit: vi.fn(),
+    on: vi.fn(),
     once: vi.fn(),
     removeListener: vi.fn(),
   },
@@ -86,6 +87,7 @@ beforeEach(async () => {
   });
   vi.stubGlobal('fetch', fixture.fetch);
   app = new EventEmitter();
+  fixture.app.on.mockImplementation(app.on.bind(app));
   fixture.app.once.mockImplementation(app.once.bind(app));
   fixture.app.removeListener.mockImplementation(app.removeListener.bind(app));
   fixture.app.quit.mockImplementation(() => app.emit('will-quit', { preventDefault: vi.fn() }));
@@ -138,6 +140,20 @@ describe('macOS 更新准备', () => {
 });
 
 describe('macOS 安装退出握手', () => {
+  it('退出被后台清理暂缓时保留提交监听，下一次退出才交接安装', async () => {
+    const task = installMacUpdate(await plan());
+    fixture.app.quit.mockImplementationOnce(() =>
+      app.emit('will-quit', { defaultPrevented: true, preventDefault: vi.fn() }),
+    );
+    child.emit('message', { type: 'ready' });
+    expect(child.send).toHaveBeenCalledTimes(1);
+    expect(app.listenerCount('will-quit')).toBe(1);
+    fixture.app.quit();
+    expect(child.send).toHaveBeenLastCalledWith({ type: 'commit' }, expect.any(Function));
+    child.emit('message', { type: 'committed' });
+    await task;
+    expect(app.listenerCount('will-quit')).toBe(0);
+  });
   it('先等助手就绪，再等待 will-quit 提交确认；没有提前退出或在进程内替换', async () => {
     const prepared = await plan();
     const task = installMacUpdate(prepared);

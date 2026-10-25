@@ -119,7 +119,7 @@ export async function clearStorageAfterExit(targets: StorageUsageItem[]): Promis
   if (!helper) throw new Error('清除助手未启动');
   let committed = false;
   const commit = (event: Electron.Event) => {
-    if (committed) return;
+    if (committed || event.defaultPrevented) return;
     event.preventDefault();
     helper.send({ type: 'commit' }, (error) => {
       if (error) {
