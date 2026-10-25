@@ -10,11 +10,14 @@
 
 import { createWSClient, httpBatchLink, splitLink, wsLink, type TRPCLink } from '@trpc/client';
 import type { AppRouter } from '../../../shared/router';
+import { useWebConnection } from '../state/webConnection';
 
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 
 const wsClient = createWSClient({
   url: `${wsProtocol}//${location.host}/trpc-ws`,
+  onOpen: () => useWebConnection.getState().connected(),
+  onClose: () => useWebConnection.getState().disconnected(),
 });
 
 export function createLinks(): TRPCLink<AppRouter>[] {
@@ -24,6 +27,7 @@ export function createLinks(): TRPCLink<AppRouter>[] {
       true: wsLink({ client: wsClient }),
       false: httpBatchLink({
         url: '/trpc',
+        maxURLLength: 2048,
         async fetch(input, init) {
           const res = await fetch(input, { ...init, credentials: 'same-origin' });
           if (res.status === 401) location.reload();

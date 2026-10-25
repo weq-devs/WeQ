@@ -1,0 +1,29 @@
+.weq-web-connection {
+  position: fixed;
+  z-index: 1000;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  left: 50%;
+  display: flex;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  transform: translateX(-50%);
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  box-shadow: var(--weq-shadow-soft);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.weq-web-connection svg {
+  flex-shrink: 0;
+}
+
+html[data-theme='dark'] .weq-web-connection {
+  border-color: var(--weq-border-strong);
+  color-scheme: dark;
+}

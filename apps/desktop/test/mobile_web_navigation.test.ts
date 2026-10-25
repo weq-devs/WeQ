@@ -105,3 +105,20 @@ it('在消息列表再次点击消息入口，保留定位首条未读的能力'
   expect(locateUnread).toHaveBeenCalledOnce();
   expect(props.onViewChange).not.toHaveBeenCalled();
 });
+
+it('外部导航或进入详情后，不保留遮挡新页面的更多菜单', async () => {
+  await act(async () => root.render(createElement(MobileWebNavigation, props)));
+  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
+  await act(async () =>
+    root.render(createElement(MobileWebNavigation, { ...props, view: 'qzone' })),
+  );
+  expect(host.querySelector('[aria-label="更多功能"]')).toBeNull();
+  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
+  await act(async () =>
+    root.render(createElement(MobileWebNavigation, { ...props, view: 'qzone', hidden: true })),
+  );
+  await act(async () =>
+    root.render(createElement(MobileWebNavigation, { ...props, view: 'qzone' })),
+  );
+  expect(host.querySelector('[aria-label="更多功能"]')).toBeNull();
+});

@@ -18,7 +18,8 @@ import { WelcomeDialog } from './components/WelcomeDialog';
 import { JoinGroupDialog } from './components/JoinGroupDialog';
 import { CloseConfirmDialog } from './components/CloseConfirmDialog';
 import { RestrictedModeHost } from './components/RestrictedMode';
-import { DesktopOnly } from './lib/target';
+import { DesktopOnly, IS_WEB } from './lib/target';
+import { WebConnectionStatus } from './components/WebConnectionStatus';
 import { ImageLightbox } from './components/ImageLightbox';
 import { VideoLightbox } from './components/VideoLightbox';
 import { RedBagDetailHost } from './components/RedBagDetailDialog';
@@ -199,6 +200,7 @@ export default function App(): ReactElement {
             <DialogHost />
             <RemoteRequests />
             <ToastHost />
+            {IS_WEB && <WebConnectionStatus />}
             <HoverTooltip />
             <DbRepairWindowHost />
             <DesktopOnly>

@@ -7,6 +7,8 @@
  */
 
 import React, {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -43,6 +45,7 @@ import {
   timelineRowKey,
 } from '../../../shared/roaming_timeline';
 import { useViewState } from '../state/view';
+import { useWebConnection } from '../state/webConnection';
 import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
 import { useToast } from '../components/Toast';
@@ -212,7 +215,6 @@ import type { MfPerson } from '../components/mergeForward/SenderPicker';
 import { DeletedMessagesModal } from '../components/compose/DeletedMessagesModal';
 import { RecalledMessagesModal } from '../components/compose/RecalledMessagesModal';
 import { GapMessagesModal } from '../components/compose/GapMessagesModal';
-import { RelationGraphView } from '../components/relationGraph/RelationGraphView';
 import { SearchDropdown } from '../components/search/SearchDropdown';
 import {
   DEFAULT_SEARCH_CATEGORIES,
@@ -221,7 +223,6 @@ import {
 } from '../components/search/types';
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { useSearchReturn } from '../hooks/useSearchReturn';
-import { AnalysisReportPage } from './analysis/AnalysisReportPage';
 import type { AnalysisReportRequest, AnalysisToolRequest } from './analysis/model';
 import type { RoamingTarget } from '@weq/service';
 import { conversationAnalysisTarget, conversationRoamingTarget } from '../lib/conversationActions';
@@ -240,7 +241,6 @@ import type {
   ContentSearchTarget,
 } from '../components/search/types';
 import type { SearchHistoryHit } from '@weq/service';
-import { AgentLabView } from './AgentLabView';
 import { SequentialForwardDialog } from '../components/SequentialForwardDialog';
 import {
   ConversationDirectoryContext,
@@ -263,7 +263,6 @@ import {
   type QzoneSpaceRequest,
 } from '../lib/qzoneNavigation';
 import { ChannelView } from './ChannelView';
-import { AnnualReportView } from './annual-report/AnnualReportView';
 import { ChatHome } from './ChatHome';
 import {
   ChatMainContent,
@@ -338,6 +337,30 @@ import {
   DatabaseDamagedDialog,
   type DatabaseDamagedEvent,
 } from '../components/DatabaseDamagedDialog';
+
+const AgentLabView = lazy(() =>
+  import('./AgentLabView').then((module) => ({ default: module.AgentLabView })),
+);
+const AnnualReportView = lazy(() =>
+  import('./annual-report/AnnualReportView').then((module) => ({
+    default: module.AnnualReportView,
+  })),
+);
+const AnalysisReportPage = lazy(() =>
+  import('./analysis/AnalysisReportPage').then((module) => ({
+    default: module.AnalysisReportPage,
+  })),
+);
+const RelationGraphView = lazy(() =>
+  import('../components/relationGraph/RelationGraphView').then((module) => ({
+    default: module.RelationGraphView,
+  })),
+);
+const workspaceLoading = (
+  <div role="status" className="p-6 text-sm text-muted-foreground">
+    正在加载…
+  </div>
+);
 
 const messageRenderers: MessageRenderer[] = composeMessageRenderers({
   prepend: [qqMessageRenderer],
@@ -5285,6 +5308,16 @@ export function MainView(): ReactElement {
       requestUnreadReadSyncRef.current = null;
     };
   }, [openedUin, messageScope, conversationWindows, refreshRecentHead, refreshWindow]);
+  useEffect(() => {
+    if (!IS_WEB) return;
+    return useWebConnection.subscribe((state, previous) => {
+      if (state.recovery === previous.recovery) return;
+      conversationWindows.markDirty();
+      refreshRecentHead();
+      requestUnreadRefreshRef.current?.();
+      void refreshWindow();
+    });
+  }, [conversationWindows, refreshRecentHead, refreshWindow]);
   const unreadDirectoryKey = useMemo(
     () =>
       recentContactsData
@@ -9693,18 +9726,20 @@ export function MainView(): ReactElement {
                   ) : shell.view === 'home' ? (
                     <ChatHome nickname={user.displayName} avatarUrl={user.avatarUrl} />
                   ) : shell.view === 'agentlab' ? (
-                    <AgentLabView
-                      searchTarget={cloneSearchTarget}
-                      openTarget={virtualOpen}
-                      createRequest={cloneCreateRequest}
-                      openGroupRequest={cloneGroupRequest}
-                      embedded
-                      onBackToDirectory={() => {
-                        setVirtualOpen(null);
-                        shell.backConversation();
-                        shell.switchView('messages');
-                      }}
-                    />
+                    <Suspense fallback={workspaceLoading}>
+                      <AgentLabView
+                        searchTarget={cloneSearchTarget}
+                        openTarget={virtualOpen}
+                        createRequest={cloneCreateRequest}
+                        openGroupRequest={cloneGroupRequest}
+                        embedded
+                        onBackToDirectory={() => {
+                          setVirtualOpen(null);
+                          shell.backConversation();
+                          shell.switchView('messages');
+                        }}
+                      />
+                    </Suspense>
                   ) : shell.view === 'collections' ? (
                     <CollectionDialog
                       open
@@ -9724,7 +9759,9 @@ export function MainView(): ReactElement {
                       onActiveNodeChange={setActiveGuildNodeId}
                     />
                   ) : shell.view === 'annual' ? (
-                    <AnnualReportView />
+                    <Suspense fallback={workspaceLoading}>
+                      <AnnualReportView />
+                    </Suspense>
                   ) : shell.view === 'messages' && activeConversation?.type === 'merged' ? (
                     <ArkFeedView
                       conversationId={activeConversation.id}
@@ -9750,7 +9787,9 @@ export function MainView(): ReactElement {
                           view={shell.view}
                           contactTab={shell.contactTab}
                           relationGraphSlot={
-                            <RelationGraphView onOpenMember={handleOpenGraphMember} />
+                            <Suspense fallback={workspaceLoading}>
+                              <RelationGraphView onOpenMember={handleOpenGraphMember} />
+                            </Suspense>
                           }
                           selectedContact={shell.selectedContact}
                           selectedGroupConversation={selectedGroupConversationForDetail}
@@ -10424,13 +10463,16 @@ export function MainView(): ReactElement {
             />
           ) : null}
           {analysisReports.map((request) => (
-            <AnalysisReportPage
-              key={request.id}
-              request={request}
-              onClose={() =>
-                setAnalysisReports((previous) => previous.filter((item) => item.id !== request.id))
-              }
-            />
+            <Suspense key={request.id} fallback={workspaceLoading}>
+              <AnalysisReportPage
+                request={request}
+                onClose={() =>
+                  setAnalysisReports((previous) =>
+                    previous.filter((item) => item.id !== request.id),
+                  )
+                }
+              />
+            </Suspense>
           ))}
           {searchMore ? (
             <UnifiedSearchModal

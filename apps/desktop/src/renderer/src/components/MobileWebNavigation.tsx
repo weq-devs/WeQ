@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Bookmark,
   ChevronRight,
@@ -58,6 +58,9 @@ export function MobileWebNavigation({
   accountControls?: ReactNode;
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [view, hidden]);
   const primary = view === 'messages' || view === 'contacts' || view === 'qzone';
   const active = moreOpen || !primary ? 'more' : view;
   const titles: Partial<Record<MainView, string>> = {
@@ -158,6 +161,7 @@ export function MobileWebNavigation({
             type="button"
             aria-current={active === id ? 'page' : undefined}
             aria-expanded={id === 'more' ? moreOpen : undefined}
+            aria-label={badge > 0 ? `${label}，${badge} 条未读` : label}
             onClick={() => {
               if (id === 'messages' && active === 'messages' && onMessageBadgeClick) {
                 onMessageBadgeClick();

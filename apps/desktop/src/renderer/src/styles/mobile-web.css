@@ -134,6 +134,11 @@
     color: var(--weq-accent-ink, var(--weq-accent-effective));
   }
 
+  .weq-mobile-tabs button[aria-current='page'] .weq-mobile-tab-icon {
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  }
+
   .weq-mobile-tab-icon {
     position: relative;
     display: grid;
@@ -262,6 +267,19 @@
   .weq-web-shell .app-shell :is(.conversation-row, .contact-row) .avatar {
     width: 50px;
     height: 50px;
+  }
+
+  .weq-web-shell .app-shell :is(.conversation-row, .contact-row).active {
+    background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-surface));
+    box-shadow: inset 3px 0 var(--weq-accent-effective);
+  }
+
+  .weq-mobile-navigation button:active {
+    background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  }
+
+  html[data-theme='dark'] .weq-web-shell .app-shell :is(.conversation-row, .contact-row).active {
+    background: color-mix(in srgb, var(--weq-accent-effective) 18%, var(--weq-bg-surface));
   }
 
   .weq-web-shell .app-shell :is(.conversation-row, .contact-row) .row-main {
