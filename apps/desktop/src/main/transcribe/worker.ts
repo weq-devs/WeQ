@@ -15,9 +15,16 @@
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { parseSenseVoiceRichText, type VoiceTagDisplay } from './tags';
 
-const requireFn = createRequire(__filename);
+// Node 子进程不读取 asar：使用解包后的 JS 包，与同目录的原生绑定一起加载。
+const resourcesDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const requireFn = createRequire(
+  existsSync(join(resourcesDir, 'app.asar'))
+    ? join(resourcesDir, 'app.asar.unpacked/node_modules/sherpa-onnx-node/package.json')
+    : import.meta.url,
+);
 
 interface WorkerParams {
   /** sense-voice etc. */
@@ -91,7 +98,13 @@ interface FinalMessage {
 }
 
 function emit(msg: FinalMessage | { type: 'error'; error: string }): void {
-  if (typeof process.send === 'function') process.send(msg);
+  const code = msg.type === 'error' ? 1 : 0;
+  if (typeof process.send !== 'function' || !process.connected) {
+    process.exit(code);
+    return;
+  }
+  // 等 IPC 写入完成后退出，避免错误或结果仍在发送队列时被截断。
+  process.send(msg, (error) => process.exit(error ? 1 : code));
 }
 
 function normalizeBuffer(data: WorkerParams['wavData']): Buffer {
@@ -117,14 +130,12 @@ function run(params: WorkerParams): void {
       sherpa = requireFn('sherpa-onnx-node');
     } catch (e) {
       emit({ type: 'error', error: `语音识别引擎加载失败: ${String(e)}` });
-      process.exit(1);
       return;
     }
 
     const wav = normalizeBuffer(params.wavData);
     if (wav.length <= 44) {
       emit({ type: 'final', text: '', emotion: null, events: [] });
-      process.exit(0);
       return;
     }
 
@@ -155,10 +166,8 @@ function run(params: WorkerParams): void {
     // string it would have to re-parse.
     const rich = parseSenseVoiceRichText(result?.text ?? '');
     emit({ type: 'final', text: rich.text, emotion: rich.emotion, events: rich.events });
-    process.exit(0);
   } catch (e) {
     emit({ type: 'error', error: String(e) });
-    process.exit(1);
   }
 }
 

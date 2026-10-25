@@ -12,26 +12,12 @@
  */
 
 import { fork } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
+import { resolveChildWorkerPath } from '../worker_path';
 import type { VoiceTagDisplay } from './tags';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
-
-/**
- * Locate the bundled `transcribeWorker.mjs`. electron-vite emits it at
- * `out/main/transcribeWorker.mjs`, but this module may be chunked into
- * `out/main/chunks/`, so `__dirname` isn't guaranteed to be `out/main`. Try the
- * sibling path first, then one level up (the chunks case).
- */
-function resolveWorkerPath(): string {
-  const candidates = [
-    join(moduleDir, 'transcribeWorker.mjs'),
-    join(moduleDir, '..', 'transcribeWorker.mjs'),
-  ];
-  return candidates.find((p) => existsSync(p)) ?? candidates[0]!;
-}
 
 export interface TranscribeResult {
   success: boolean;
@@ -83,16 +69,25 @@ export function transcribeWav(
 
     let worker: ReturnType<typeof fork>;
     try {
-      // Bundled output sits alongside the main entry in out/main/.
-      const workerPath = resolveWorkerPath();
+      const workerPath = resolveChildWorkerPath('transcribeWorker.mjs', moduleDir);
       worker = fork(workerPath, [], {
-        stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+        stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
         serialization: 'advanced',
       });
     } catch (e) {
       done({ success: false, error: String(e) });
       return;
     }
+
+    let stderr = '';
+    worker.stderr?.setEncoding('utf8');
+    worker.stderr?.on('data', (chunk: string) => {
+      stderr = (stderr + chunk).slice(-4096);
+    });
+    const stopWorker = (): void => {
+      if (worker.connected) worker.disconnect();
+      worker.kill();
+    };
 
     worker.on('message', (msg: TranscribeWorkerMessage) => {
       if (msg?.type === 'final') {
@@ -102,36 +97,49 @@ export function transcribeWav(
           emotion: msg.emotion ?? null,
           events: msg.events ?? [],
         });
-        worker.disconnect();
-        worker.kill();
+        stopWorker();
       } else if (msg?.type === 'error') {
-        done({ success: false, error: msg.error });
-        worker.disconnect();
-        worker.kill();
+        done({ success: false, error: msg.error ?? '语音识别失败' });
+        stopWorker();
       }
     });
 
-    worker.on('error', (err) => done({ success: false, error: String(err) }));
-    worker.on('exit', (code, signal) => {
+    worker.on('error', (err) => {
+      done({ success: false, error: String(err) });
+      stopWorker();
+    });
+    // close 晚于 exit，确保原生运行库的 stderr 已排空，保留有界诊断。
+    worker.on('close', (code, signal) => {
       if (signal === 'SIGSEGV') {
         done({ success: false, error: '语音识别引擎崩溃（底层运行库段错误）' });
         return;
       }
-      if (code !== 0 && code !== null) {
-        done({ success: false, error: `识别进程异常退出 (code ${code})` });
+      if (signal || (code !== 0 && code !== null)) {
+        const reason = signal ? `signal ${signal}` : `code ${code}`;
+        done({
+          success: false,
+          error: `识别进程异常退出 (${reason})${stderr.trim() ? `：${stderr.trim()}` : ''}`,
+        });
       } else {
         // Normal exit after a 'final'/'error' already resolved — no-op.
         done({ success: false, error: '识别进程未返回结果' });
       }
     });
 
-    worker.send({
-      engine: options.engine ?? 'sense-voice',
-      modelPath: paths.model,
-      tokensPath: paths.tokens,
-      wavData: wav,
-      sampleRate: 16000,
-      languages: options.languages ?? [],
-    });
+    worker.send(
+      {
+        engine: options.engine ?? 'sense-voice',
+        modelPath: paths.model,
+        tokensPath: paths.tokens,
+        wavData: wav,
+        sampleRate: 16000,
+        languages: options.languages ?? [],
+      },
+      (error) => {
+        if (!error) return;
+        done({ success: false, error: `语音识别请求发送失败：${String(error)}` });
+        stopWorker();
+      },
+    );
   });
 }

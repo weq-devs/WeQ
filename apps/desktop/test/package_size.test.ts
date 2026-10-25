@@ -1,6 +1,14 @@
 // @vitest-environment node
 import { createRequire } from 'node:module';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
@@ -27,7 +35,11 @@ const builderRequire = createRequire(require.resolve('electron-builder/package.j
 const appBuilderRequire = createRequire(builderRequire.resolve('app-builder-lib/package.json'));
 const { load } = appBuilderRequire('js-yaml') as { load: (source: string) => unknown };
 type BuildFiles = { files?: (string | { filter: string[] })[] };
-type Config = BuildFiles & Record<'mac' | 'win' | 'linux', BuildFiles>;
+type Config = BuildFiles &
+  Record<'mac' | 'win' | 'linux', BuildFiles> & {
+    asarUnpack: string[];
+    extraResources: { from: string; to: string }[];
+  };
 const rawConfig = load(readFileSync(join(desktop, 'electron-builder.yml'), 'utf8')) as Config;
 const { doMergeConfigs } = builderRequire('app-builder-lib/out/util/config/config') as {
   doMergeConfigs: (configs: Config[]) => Config;
@@ -36,9 +48,10 @@ const config = doMergeConfigs([rawConfig]);
 type Matcher = {
   createFilter: () => (path: string, stat: ReturnType<typeof statSync>) => boolean;
 };
-const { getNodeModuleFileMatcher, getMainFileMatchers } = builderRequire(
+const { getNodeModuleFileMatcher, getMainFileMatchers, getFileMatchers } = builderRequire(
   'app-builder-lib/out/fileMatcher',
 ) as {
+  getFileMatchers: (...args: unknown[]) => Matcher[];
   getMainFileMatchers: (...args: unknown[]) => Matcher[];
   getNodeModuleFileMatcher: (
     source: string,
@@ -51,6 +64,20 @@ const { getNodeModuleFileMatcher, getMainFileMatchers } = builderRequire(
 const { Arch } = builderRequire('electron-builder') as { Arch: Record<string, number> };
 
 describe('桌面发行包瘦身', () => {
+  it('转写 JS 包与平台原生绑定共同解包，不再额外复制到不相邻的目录', () => {
+    const unpack = getFileMatchers(config, 'asarUnpack', '/fixture/package', {
+      defaultSrc: desktop,
+      customBuildOptions: {},
+      globalOutDir: '/fixture/output',
+      macroExpander: (value: string) => value,
+    })[0].createFilter();
+    // 匹配器接收 pnpm 的真实源路径，而不是扁平化后的 ASAR 路径。
+    const source = realpathSync(join(desktop, 'node_modules/sherpa-onnx-node/package.json'));
+    expect(unpack(source, statSync(source))).toBe(true);
+    expect(
+      config.extraResources.some((entry) => entry.to === 'node_modules/sherpa-onnx-node'),
+    ).toBe(false);
+  });
   it('未知架构在修改产物前报错', () => {
     expect(() => trimDesktopPackage({ arch: -1 })).toThrow('未知打包架构');
   });

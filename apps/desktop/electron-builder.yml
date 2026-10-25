@@ -67,9 +67,6 @@ extraResources:
       - "!brand/banner.png"
       - "!daemon/**"
 
-  - from: node_modules/sherpa-onnx-node
-    to: node_modules/sherpa-onnx-node
-
   - from: out/main/transcribeWorker.mjs
     to: out/main/transcribeWorker.mjs
 
@@ -95,6 +92,8 @@ extraResources:
     to: node_modules/onnxruntime-common
 
 asarUnpack:
+  # 转写 Node 子进程从实体目录加载 JS 包，平台原生绑定由 smartUnpack 放在同级。
+  - "**/node_modules/sherpa-onnx-node/**/*"
   - node_modules/sharp/**/*
   - node_modules/@img/**/*
   # resvg 原生绑定在 asar 外加载；afterPack 移除非目标 Darwin 架构。

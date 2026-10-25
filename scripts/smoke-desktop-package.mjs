@@ -114,7 +114,10 @@ if (process.platform === 'darwin' && process.arch === 'x64') {
   console.log('PASS ONNX CPU 推理及 OCR/意图分析子进程依赖加载（不下载模型）');
 }
 
-const sherpa = require('sherpa-onnx-node');
+// 与转写 worker 一致，从物理解包目录加载，不借用主进程的 asar 支持。
+const transcribeRequire = createRequire(join(resources, 'app.asar.unpacked/package.json'));
+packagedModule(transcribeRequire, 'sherpa-onnx-node');
+const sherpa = transcribeRequire('sherpa-onnx-node');
 assert.equal(typeof sherpa.OfflineRecognizer, 'function');
 const sherpaVersion = typeof sherpa.version === 'function' ? sherpa.version() : sherpa.version;
 assert.equal(typeof sherpaVersion, 'string');
@@ -154,23 +157,30 @@ assert.equal(backup.error, undefined);
 assert.equal(backup.status, 1);
 assert.equal(JSON.parse(backup.stdout).status, 'error');
 
-async function probeWorker(name, plan, expected) {
+async function probeWorker(name, plan, expected, params) {
   const child = fork(join(resources, 'out/main', name), [], {
     execPath: process.execPath,
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_PATH: '' },
+    cwd: resources,
+    serialization: 'advanced',
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
   const closed = new Promise((resolve) => child.once('close', resolve));
+  let stderr = '';
+  child.stderr.on('data', (chunk) => {
+    stderr = (stderr + chunk.toString()).slice(-4096);
+  });
   let timer;
   try {
     const message = await new Promise((resolve, reject) => {
       timer = setTimeout(() => reject(new Error(`${name} 未响应`)), 10_000);
       child.once('message', resolve);
       child.once('error', reject);
-      child.once('exit', (code) => reject(new Error(`${name} 提前退出：${code}`)));
-      child.send({ type: 'prepare', plan, parentPid: process.pid });
+      child.once('close', (code) => reject(new Error(`${name} 提前退出：${code} ${stderr}`)));
+      child.send(params ?? { type: 'prepare', plan, parentPid: process.pid });
     });
-    assert.equal(message.type, expected);
+    assert.equal(message.type, expected, JSON.stringify(message));
+    return message;
   } finally {
     clearTimeout(timer);
     // 从不发送 commit；准备阶段仅验证模块加载，结束自己的测试子进程。
@@ -178,6 +188,12 @@ async function probeWorker(name, plan, expected) {
     await closed;
   }
 }
+const transcription = await probeWorker('transcribeWorker.mjs', {}, 'final', {
+  wavData: Buffer.alloc(0),
+  sampleRate: 16000,
+});
+assert.equal(transcription.text, '');
+console.log('PASS 转写 worker 实体启动、原生依赖加载及 IPC 往返（不下载模型）');
 await probeWorker('storageCleanupWorker.mjs', {}, 'ready');
 if (process.platform === 'darwin') await probeWorker('macUpdateWorker.mjs', {}, 'error');
 console.log('PASS 备份/清理/更新 worker 依赖闭包（未提交任何操作）');
