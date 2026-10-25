@@ -1,3 +1,4 @@
+import { withExportSaveDirectory } from './support/export_save_fixture';
 /**
  * `ExportTaskManager` 的「导出表情包」任务端到端单测。
  *
@@ -66,24 +67,37 @@ function waitDone(mgr: ExportTaskManager, taskId: string): Promise<void> {
 describe('ExportTaskManager · 导出表情包', () => {
   it('ZIP 格式按单文件保存，保留两个来源目录与失败计数，不遗留图片目录副本', async () => {
     const root = tmp();
-    const manager = new ExportTaskManager({} as never, join(root, 'cache'), {
-      emojipack: {
-        listOwnItems: async () => [
-          { key: 'aaaa11', oriPath: put(root, 'own/a.png', PNG), thumbPath: null, remoteUrl: null },
-          { key: 'cccc33', oriPath: null, thumbPath: null, remoteUrl: null },
-        ],
-        listReceivedItems: async () => [
-          {
-            key: 'bbbb22',
-            oriPath: put(root, 'recv/b.gif', GIF),
-            thumbPath: null,
-            remoteUrl: null,
-          },
-        ],
-        downloadImage: async () => false,
-      },
-    });
-    const id = await manager.startEmojiPackExport(['own', 'received'], { mode: 'after' }, 'zip');
+    const manager = new ExportTaskManager(
+      {} as never,
+      join(root, 'cache'),
+      withExportSaveDirectory(join(root, 'cache'), {
+        emojipack: {
+          listOwnItems: async () => [
+            {
+              key: 'aaaa11',
+              oriPath: put(root, 'own/a.png', PNG),
+              thumbPath: null,
+              remoteUrl: null,
+            },
+            { key: 'cccc33', oriPath: null, thumbPath: null, remoteUrl: null },
+          ],
+          listReceivedItems: async () => [
+            {
+              key: 'bbbb22',
+              oriPath: put(root, 'recv/b.gif', GIF),
+              thumbPath: null,
+              remoteUrl: null,
+            },
+          ],
+          downloadImage: async () => false,
+        },
+      }),
+    );
+    const id = await manager.startEmojiPackExport(
+      ['own', 'received'],
+      { mode: 'before', directory: root },
+      'zip',
+    );
     await waitDone(manager, id);
     const task = manager.getTask(id)!;
     expect(task.status).toBe('completed');
@@ -101,15 +115,19 @@ describe('ExportTaskManager · 导出表情包', () => {
 
   it('ZIP 可预先选择文件保存位置，不再被当作必须保存目录', async () => {
     const root = tmp();
-    const manager = new ExportTaskManager({} as never, join(root, 'cache'), {
-      emojipack: {
-        listOwnItems: async () => [
-          { key: 'aaaa11', oriPath: put(root, 'a.png', PNG), thumbPath: null, remoteUrl: null },
-        ],
-        listReceivedItems: async () => [],
-        downloadImage: async () => false,
-      },
-    });
+    const manager = new ExportTaskManager(
+      {} as never,
+      join(root, 'cache'),
+      withExportSaveDirectory(join(root, 'cache'), {
+        emojipack: {
+          listOwnItems: async () => [
+            { key: 'aaaa11', oriPath: put(root, 'a.png', PNG), thumbPath: null, remoteUrl: null },
+          ],
+          listReceivedItems: async () => [],
+          downloadImage: async () => false,
+        },
+      }),
+    );
     const target = join(root, 'saved.zip');
     const id = await manager.startEmojiPackExport(
       ['own'],
@@ -124,7 +142,11 @@ describe('ExportTaskManager · 导出表情包', () => {
     '同一毫秒创建 %s 任务仍各有身份，不相互覆盖',
     async (kind) => {
       const root = tmp();
-      const manager = new ExportTaskManager({} as never, join(root, 'cache'), {});
+      const manager = new ExportTaskManager(
+        {} as never,
+        join(root, 'cache'),
+        withExportSaveDirectory(join(root, 'cache'), {}),
+      );
       const clock = vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
       let first: string, second: string;
       try {
@@ -146,43 +168,47 @@ describe('ExportTaskManager · 导出表情包', () => {
   );
   it('runs scan → download → write and lands two source folders', async () => {
     const root = tmp();
-    const mgr = new ExportTaskManager({} as never, join(root, 'cache'), {
-      emojipack: {
-        listOwnItems: async (): Promise<EmojiExportItem[]> => [
-          {
-            key: 'aaaa11',
-            oriPath: put(root, 'p/Ori/aaaa11.jpg', PNG),
-            thumbPath: null,
-            remoteUrl: 'https://cdn/a',
+    const mgr = new ExportTaskManager(
+      {} as never,
+      join(root, 'cache'),
+      withExportSaveDirectory(join(root, 'cache'), {
+        emojipack: {
+          listOwnItems: async (): Promise<EmojiExportItem[]> => [
+            {
+              key: 'aaaa11',
+              oriPath: put(root, 'p/Ori/aaaa11.jpg', PNG),
+              thumbPath: null,
+              remoteUrl: 'https://cdn/a',
+            },
+            {
+              key: 'bbbb22',
+              oriPath: null,
+              thumbPath: put(root, 'p/Thumb/bbbb22.png', PNG),
+              remoteUrl: 'https://cdn/b',
+            },
+            { key: 'cccc33', oriPath: null, thumbPath: null, remoteUrl: 'https://cdn/c' },
+            { key: 'eeee55', oriPath: null, thumbPath: null, remoteUrl: 'https://cdn/e' },
+          ],
+          listReceivedItems: async (): Promise<EmojiExportItem[]> => [
+            {
+              key: 'dddd44',
+              oriPath: put(root, 'r/Ori/dddd44.gif', GIF),
+              thumbPath: null,
+              remoteUrl: null,
+            },
+          ],
+          // a 本地已有原图（不是下载候选）；b、c、e 缺原图 → 候选 3 张。
+          // e 下载成功；b 下载失败但有缩略图 → 退到缩略图；c 下载失败且无缩略图 → 记失败。
+          downloadImage: async (url, dest) => {
+            if (url === 'https://cdn/e') {
+              writeFileSync(dest, PNG);
+              return true;
+            }
+            return false;
           },
-          {
-            key: 'bbbb22',
-            oriPath: null,
-            thumbPath: put(root, 'p/Thumb/bbbb22.png', PNG),
-            remoteUrl: 'https://cdn/b',
-          },
-          { key: 'cccc33', oriPath: null, thumbPath: null, remoteUrl: 'https://cdn/c' },
-          { key: 'eeee55', oriPath: null, thumbPath: null, remoteUrl: 'https://cdn/e' },
-        ],
-        listReceivedItems: async (): Promise<EmojiExportItem[]> => [
-          {
-            key: 'dddd44',
-            oriPath: put(root, 'r/Ori/dddd44.gif', GIF),
-            thumbPath: null,
-            remoteUrl: null,
-          },
-        ],
-        // a 本地已有原图（不是下载候选）；b、c、e 缺原图 → 候选 3 张。
-        // e 下载成功；b 下载失败但有缩略图 → 退到缩略图；c 下载失败且无缩略图 → 记失败。
-        downloadImage: async (url, dest) => {
-          if (url === 'https://cdn/e') {
-            writeFileSync(dest, PNG);
-            return true;
-          }
-          return false;
         },
-      },
-    });
+      }),
+    );
 
     const id = await mgr.startEmojiPackExport(['own', 'received']);
     await waitDone(mgr, id);

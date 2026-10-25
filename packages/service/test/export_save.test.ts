@@ -115,14 +115,18 @@ describe('导出保存策略与结果发布', () => {
     }
     expect(readdirSync(f.target).some((name) => name.endsWith('.partial'))).toBe(false);
   });
-  it('单文件策略保留确切文件名，完成后选择清除路径，不接受文件／目录混用', () => {
+  it('单文件策略保留确切文件名，拒绝旧保存方式和文件／目录混用', () => {
     const f = fixture(),
       filePath = join(f.target, 'result.json');
     expect(copyExportSavePolicy({ mode: 'before', filePath })).toEqual({
       mode: 'before',
       filePath,
     });
-    expect(copyExportSavePolicy({ mode: 'after', filePath })).toEqual({ mode: 'after' });
+    expect(() =>
+      copyExportSavePolicy({ mode: 'after', filePath } as unknown as Parameters<
+        typeof copyExportSavePolicy
+      >[0]),
+    ).toThrow('不支持');
     expect(() => copyExportSavePolicy({ mode: 'before', filePath: 'relative.json' })).toThrow(
       /绝对路径/,
     );
@@ -223,8 +227,12 @@ describe('导出保存策略与结果发布', () => {
     expect(makeLink(f.source, join(f.target, 'outside'), 'dir')).toBe(true);
     expect(() => resolveExportSaveDirectory(f.target, 'outside/new')).toThrow('链接');
   });
-  it('完成后选择不携带旧目录，其他两种模式必须先确定有效位置', () => {
-    expect(copyExportSavePolicy({ mode: 'after', directory: '/old' })).toEqual({ mode: 'after' });
+  it('不兼容稍后保存，即使携带旧目录也拒绝，两种模式均须有效位置', () => {
+    expect(() =>
+      copyExportSavePolicy({ mode: 'after', directory: '/old' } as unknown as Parameters<
+        typeof copyExportSavePolicy
+      >[0]),
+    ).toThrow('不支持');
     expect(() => copyExportSavePolicy({ mode: 'before' })).toThrow('保存目录');
     expect(() => copyExportSavePolicy({ mode: 'preset', directory: 'relative' })).toThrow(
       '保存目录',

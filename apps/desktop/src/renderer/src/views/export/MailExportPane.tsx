@@ -130,18 +130,18 @@ export function MailExportPane({
   }
   return (
     <section className="weq-mail-export" aria-label="邮件导出范围">
-      <div className="weq-exp-cats-list" role="radiogroup" aria-label="邮件范围">
-        <label className="weq-message-scope-mode">
-          <input type="radio" checked={all} disabled={busy} onChange={() => setAll(true)} />
-          所有邮件
-        </label>
-        {selectedIds !== null ? (
-          <label className="weq-message-scope-mode">
-            <input type="radio" checked={!all} disabled={busy} onChange={() => setAll(false)} />
-            已选 {selectedIds.length} 封邮件
-          </label>
-        ) : null}
-      </div>
+      <SegmentedControl
+        label="邮件范围"
+        value={all ? 'all' : 'selected'}
+        disabled={busy}
+        onChange={(mode) => setAll(mode === 'all')}
+        options={[
+          { value: 'all', label: '所有邮件' },
+          ...(selectedIds !== null
+            ? [{ value: 'selected', label: `已选 ${selectedIds.length} 封邮件` }]
+            : []),
+        ]}
+      />
       <div className="weq-mail-export-filters">
         <label>
           开始日期（北京时间）
@@ -251,3 +251,4 @@ export function MailExportPane({
     </section>
   );
 }
+import { SegmentedControl } from '../../components/SegmentedControl';

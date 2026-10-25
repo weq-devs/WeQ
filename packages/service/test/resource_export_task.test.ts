@@ -16,6 +16,48 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('独立资源沿用导出任务生命周期', () => {
+  it('旧稍后保存任务保留产物但不自动落盘，新任务拒绝旧模式或未选位置', async () => {
+    const f = fixture();
+    mkdirSync(f.cache, { recursive: true });
+    const filePath = join(f.cache, 'existing.txt');
+    writeFileSync(filePath, 'historical-result');
+    writeFileSync(
+      join(f.cache, 'export_tasks.json'),
+      JSON.stringify([
+        {
+          id: 'old-task',
+          name: '旧结果',
+          status: 'completed',
+          format: 'txt',
+          stages: [],
+          filePath,
+          save: { policy: { mode: 'after' }, status: 'pending' },
+        },
+      ]),
+    );
+    const manager = new ExportTaskManager({} as MsgService, f.cache);
+    expect(manager.getTask('old-task')?.save).toMatchObject({
+      policy: { mode: 'before' },
+      status: 'interrupted',
+    });
+    expect(readFileSync(filePath, 'utf8')).toBe('historical-result');
+    const run = vi.fn(async () => ({ total: 0, ok: 0, failed: [] }));
+    await expect(
+      manager.startResourceExport({ kind: 'group-files', name: '未选位置', run }),
+    ).rejects.toThrow('保存目录');
+    await expect(
+      manager.startResourceExport({
+        kind: 'group-files',
+        name: '旧模式',
+        savePolicy: { mode: 'after' } as unknown as Parameters<
+          typeof manager.startResourceExport
+        >[0]['savePolicy'],
+        run,
+      }),
+    ).rejects.toThrow('不支持');
+    expect(run).not.toHaveBeenCalled();
+    expect(manager.listTasks()).toHaveLength(1);
+  });
   it('单文件生成与包内部分失败分别记录，不冒称所有条目成功', async () => {
     const f = fixture();
     const failed = [{ fileName: '表情 2', error: '无法读取原图' }];
@@ -23,7 +65,7 @@ describe('独立资源沿用导出任务生命周期', () => {
       name: '收藏表情',
       kind: 'favorite-emoji',
       output: { kind: 'file', name: '收藏表情', extension: 'zip' },
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: f.root },
       run: async ({ directory }) => {
         writeFileSync(join(directory, 'favorite.zip'), 'synthetic-package');
         return {
@@ -50,7 +92,7 @@ describe('独立资源沿用导出任务生命周期', () => {
       name: '不完整计数',
       kind: 'favorite-emoji',
       output: { kind: 'file', name: '收藏表情', extension: 'zip' },
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: f.root },
       run: async ({ directory }) => {
         writeFileSync(join(directory, 'favorite.zip'), 'synthetic-package');
         return {
@@ -65,19 +107,20 @@ describe('独立资源沿用导出任务生命周期', () => {
     await vi.waitFor(() => expect(f.manager.getTask(id)?.status).toBe('failed'));
     expect(f.manager.getTask(id)?.filePath).toBeUndefined();
   });
-  it('完成结果另存保留本次自动避让标记，不覆盖文件且不改任务原来的稍后保存策略', async () => {
+  it('完成结果另存保留本次自动避让标记，不覆盖文件且不改任务原策略', async () => {
     const f = fixture();
     const id = await f.manager.startResourceExport({
       name: '合成报告',
       kind: 'assistant-artifact',
       output: { kind: 'file', name: '合成报告', extension: 'txt' },
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: f.root },
       run: async ({ directory }) => {
         writeFileSync(join(directory, 'report.txt'), 'synthetic-report');
         return { total: 1, ok: 1, failed: [], fileName: 'report.txt' };
       },
     });
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.status).toBe('completed'));
+    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
+    const originalPolicy = f.manager.getTask(id)?.save?.policy;
     const chosen = join(f.root, 'same.txt');
     writeFileSync(chosen, 'personal');
     const first = await f.manager.saveTaskOutput(id, undefined, chosen, true);
@@ -86,7 +129,7 @@ describe('独立资源沿用导出任务生命周期', () => {
     expect(readFileSync(chosen, 'utf8')).toBe('personal');
     expect(readFileSync(first, 'utf8')).toBe('synthetic-report');
     expect(readFileSync(second, 'utf8')).toBe('synthetic-report');
-    expect(f.manager.getTask(id)?.save?.policy).toEqual({ mode: 'after' });
+    expect(f.manager.getTask(id)?.save?.policy).toEqual(originalPolicy);
   });
   it('单资源文件按真实扩展名保存并保留缓存，删除任务清理自己的整份缓存', async () => {
     const f = fixture(),
@@ -124,7 +167,7 @@ describe('独立资源沿用导出任务生命周期', () => {
         name: problem,
         kind: 'database',
         output: { kind: 'file', name: problem, extension: 'db' },
-        savePolicy: { mode: 'after' },
+        savePolicy: { mode: 'before', directory: f.root },
         run: async ({ directory }) => {
           if (problem !== 'missing') writeFileSync(join(directory, 'one.db'), 'one');
           if (problem === 'extra') writeFileSync(join(directory, 'extra.bin'), 'extra');
@@ -151,7 +194,7 @@ describe('独立资源沿用导出任务生命周期', () => {
     const first = await f.manager.startResourceExport({
       name: '合成前序',
       kind: 'group-files',
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: f.root },
       run: async () => {
         await gate;
         return { total: 0, ok: 0, failed: [] };
@@ -161,7 +204,7 @@ describe('独立资源沿用导出任务生命周期', () => {
     const second = await f.manager.startResourceExport({
       name: '合成已删除',
       kind: 'group-files',
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: f.root },
       run,
     });
     expect(f.manager.deleteTask(second)).toBe(true);
@@ -170,19 +213,19 @@ describe('独立资源沿用导出任务生命周期', () => {
     expect(run).not.toHaveBeenCalled();
     expect(f.manager.getTask(second)).toBeNull();
   });
-  it('先生成保留缓存与部分失败清单，重启后仍可另存且不覆盖目标原件', async () => {
+  it('自动保存仍保留缓存与部分失败清单，重启后可另存且不覆盖目标原件', async () => {
     const f = fixture();
     const id = await f.manager.startResourceExport({
       name: '合成群文件',
       kind: 'group-files',
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: f.root },
       run: async ({ directory, progress }) => {
         writeFileSync(join(directory, 'first.txt'), 'synthetic');
         progress(1, 2);
         return { total: 2, ok: 1, failed: [{ fileName: 'missing.txt', error: '合成失败' }] };
       },
     });
-    await vi.waitFor(() => expect(f.manager.getTask(id)?.status).toBe('completed'));
+    await vi.waitFor(() => expect(f.manager.getTask(id)?.save?.status).toBe('saved'));
     const task = f.manager.getTask(id)!;
     expect(task.resource?.failed).toBe(1);
     expect(task.stages[0]).toMatchObject({ failed: 1, current: 1, total: 2 });
@@ -234,7 +277,7 @@ describe('独立资源沿用导出任务生命周期', () => {
       const id = await f.manager.startResourceExport({
         name: '合成中断',
         kind: 'group-files',
-        savePolicy: { mode: 'after' },
+        savePolicy: { mode: 'before', directory: f.root },
         run: async ({ directory, signal }) => {
           writeFileSync(join(directory, 'partial.txt'), 'partial');
           started = true;

@@ -514,7 +514,7 @@ export const bootstrapRouter = router({
     }),
 
   setExportSaveMode: procedure
-    .input(z.object({ mode: z.enum(['preset', 'before', 'after']) }))
+    .input(z.object({ mode: z.enum(['preset', 'before']) }))
     .mutation(({ input }) => {
       return requireBootstrap().userConfig.setSettings({ exportSaveMode: input.mode })
         .exportSaveMode;
@@ -553,7 +553,6 @@ export const bootstrapRouter = router({
           services: context.services,
         };
       });
-      if (input.mode === 'after') return { mode: 'after' as const };
       const host = getHost();
       const settings = requireBootstrap().userConfig.getSettings();
       const manager = getAppContext().services?.exportManager;

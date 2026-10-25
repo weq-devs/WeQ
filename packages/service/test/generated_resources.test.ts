@@ -1,3 +1,4 @@
+import { withExportSaveDirectory } from './support/export_save_fixture';
 import {
   mkdtempSync,
   readFileSync,
@@ -97,12 +98,18 @@ it('实际多格式包复制选中资源一次，保留原记录并以相对路�
   ];
   const resolved: string[] = [];
   mkdirSync(join(dir, 'saved'));
-  const manager = new ExportTaskManager({} as MsgService, join(dir, 'cache'), {
-    generatedResource: (ref) => {
-      resolved.push(ref.id);
-      return ref.id === 'missing.wav' ? null : { filePath: ref.kind === 'voice' ? voice : sticker };
-    },
-  });
+  const manager = new ExportTaskManager(
+    {} as MsgService,
+    join(dir, 'cache'),
+    withExportSaveDirectory(join(dir, 'cache'), {
+      generatedResource: (ref) => {
+        resolved.push(ref.id);
+        return ref.id === 'missing.wav'
+          ? null
+          : { filePath: ref.kind === 'voice' ? voice : sticker };
+      },
+    }),
+  );
   const id = await manager.startTask({
     kind: 'c2c',
     conv: 'generated',
@@ -176,9 +183,13 @@ it('助手附件目录使用现有校验保存链路，保留内部相对资源�
       })),
     },
   ];
-  const manager = new ExportTaskManager({} as MsgService, join(dir, 'cache'), {
-    generatedResource: () => ({ bundleDir: source }),
-  });
+  const manager = new ExportTaskManager(
+    {} as MsgService,
+    join(dir, 'cache'),
+    withExportSaveDirectory(join(dir, 'cache'), {
+      generatedResource: () => ({ bundleDir: source }),
+    }),
+  );
   const id = await manager.startTask({
     kind: 'c2c',
     conv: 'generated',
@@ -207,9 +218,13 @@ it('暂停后从持久资源快照恢复，原文件被删除也不重新查源�
   writeFileSync(source, 'original-synthetic-voice');
   const input = snapshot();
   input.messages = [{ id: 'a', text: '[[voice:abcd.wav]]', ts: 1 }];
-  const manager = new ExportTaskManager({} as MsgService, cache, {
-    generatedResource: () => ({ filePath: source }),
-  });
+  const manager = new ExportTaskManager(
+    {} as MsgService,
+    cache,
+    withExportSaveDirectory(cache, {
+      generatedResource: () => ({ filePath: source }),
+    }),
+  );
   let paused = false;
   manager.on('progress', (event) => {
     if (!paused && manager.getTask(event.taskId)?.generatedResourceCache?.[0]?.snapshot) {
@@ -229,11 +244,15 @@ it('暂停后从持久资源快照恢复，原文件被删除也不重新查源�
     await new Promise((resolve) => setTimeout(resolve, 10));
   expect(manager.getTask(id)?.status).toBe('paused');
   rmSync(source);
-  const restored = new ExportTaskManager({} as MsgService, cache, {
-    generatedResource: () => {
-      throw new Error('不应回读原件');
-    },
-  });
+  const restored = new ExportTaskManager(
+    {} as MsgService,
+    cache,
+    withExportSaveDirectory(cache, {
+      generatedResource: () => {
+        throw new Error('不应回读原件');
+      },
+    }),
+  );
   expect(restored.resumeTask(id)).toBe(true);
   const task = await wait(restored, id);
   const entry = task.generatedResourceReport!.entries[0]!;
@@ -249,9 +268,13 @@ it('改动过的私有资源快照明确标成缺失，不回读原件掩盖校�
   writeFileSync(source, 'synthetic-original');
   const input = snapshot();
   input.messages = [{ id: 'a', text: '[[voice:abcd.wav]]', ts: 1 }];
-  const manager = new ExportTaskManager({} as MsgService, cache, {
-    generatedResource: () => ({ filePath: source }),
-  });
+  const manager = new ExportTaskManager(
+    {} as MsgService,
+    cache,
+    withExportSaveDirectory(cache, {
+      generatedResource: () => ({ filePath: source }),
+    }),
+  );
   let paused = false;
   manager.on('progress', (event) => {
     if (!paused && manager.getTask(event.taskId)?.generatedResourceCache?.[0]?.snapshot) {
@@ -271,11 +294,15 @@ it('改动过的私有资源快照明确标成缺失，不回读原件掩盖校�
     await new Promise((resolve) => setTimeout(resolve, 10));
   const frozen = manager.getTask(id)!.generatedResourceCache![0]!.snapshot!;
   writeFileSync(join(frozen.directory, frozen.entry!), 'tampered');
-  const restored = new ExportTaskManager({} as MsgService, cache, {
-    generatedResource: () => {
-      throw new Error('不应换用原件');
-    },
-  });
+  const restored = new ExportTaskManager(
+    {} as MsgService,
+    cache,
+    withExportSaveDirectory(cache, {
+      generatedResource: () => {
+        throw new Error('不应换用原件');
+      },
+    }),
+  );
   restored.resumeTask(id);
   const task = await wait(restored, id);
   expect(task.generatedResourceReport?.complete).toBe(false);
@@ -342,7 +369,7 @@ it('旧版暂停任务恢复时补齐资源阶段，删除任务同时清理快�
       },
     ]),
   );
-  const manager = new ExportTaskManager({} as MsgService, cache);
+  const manager = new ExportTaskManager({} as MsgService, cache, withExportSaveDirectory(cache));
   expect(manager.resumeTask(id)).toBe(true);
   const task = await wait(manager, id);
   expect(task.status).toBe('completed');

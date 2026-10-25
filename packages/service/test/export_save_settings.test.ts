@@ -29,19 +29,19 @@ it('旧目录字段不自动改成无人值守保存，非法模式不启用自�
   ).toBe(DEFAULT_APP_SETTINGS.exportSaveMode);
 });
 
-it('首次使用优先询问，但明确保存过的完成后选择保持不变', () => {
+it('首次使用和旧稍后保存偏好均回到开始前询问，保留已有目录', () => {
   expect(DEFAULT_APP_SETTINGS.exportSaveMode).toBe('before');
   expect(config().service.getSettings().exportSaveMode).toBe(DEFAULT_APP_SETTINGS.exportSaveMode);
   expect(
     config({
       settings: { exportSaveMode: 'after', defaultExportDir: '/legacy' },
     }).service.getSettings(),
-  ).toMatchObject({ exportSaveMode: 'after', defaultExportDir: '/legacy' });
+  ).toMatchObject({ exportSaveMode: 'before', defaultExportDir: '/legacy' });
 });
 
-it('三种默认策略均持久化，修改无关设置不丢失保存策略和目录', () => {
+it('两种默认策略均持久化，修改无关设置不丢失保存策略和目录', () => {
   const f = config();
-  for (const mode of ['preset', 'before', 'after'] as const) {
+  for (const mode of ['preset', 'before'] as const) {
     f.service.setSettings({ exportSaveMode: mode, defaultExportDir: '/fixture' });
     f.service.setSettings({ showMessageTime: true });
     const reloaded = new UserConfigService(f.platform).getSettings();

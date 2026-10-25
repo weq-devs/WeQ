@@ -11,7 +11,7 @@ const fixture = vi.hoisted(() => ({
   loadingSettings: false,
   missingSettings: false,
   settings: {
-    exportSaveMode: 'after' as ExportSavePolicy['mode'],
+    exportSaveMode: 'before' as ExportSavePolicy['mode'],
     defaultExportDir: '/fixture/default',
   },
   prepare: vi.fn(async (policy: ExportSavePolicy) => policy),
@@ -99,7 +99,7 @@ afterEach(() => {
   fixture.configId = 'source-a';
   fixture.loadingSettings = false;
   fixture.missingSettings = false;
-  fixture.settings.exportSaveMode = 'after';
+  fixture.settings.exportSaveMode = 'before';
   fixture.prepare.mockReset().mockImplementation(async (policy) => policy);
   fixture.defaults.mockClear();
   fixture.pick.mockReset().mockResolvedValue(null);
@@ -138,8 +138,8 @@ describe('保存方式目录语义', () => {
       fixture.configId = 'source-b';
       f.render();
       expect(f.result.hasOverride).toBe(false);
-      expect(f.result.policy).toEqual({ mode: 'after' });
-      finish({ mode: 'after' });
+      expect(f.result.policy).toEqual({ mode: 'before' });
+      finish({ mode: 'before', directory: '/fixture/export' });
       expect(await pending).toBeNull();
       expect(f.result.binding?.expectedAccountConfigId).toBe('source-b');
     } finally {
@@ -150,9 +150,9 @@ describe('保存方式目录语义', () => {
     fixture.settings.exportSaveMode = 'preset';
     const f = mountHook();
     try {
-      await f.result.prepareSave({ mode: 'after' });
+      await f.result.prepareSave({ mode: 'before' });
       expect(fixture.prepare).toHaveBeenLastCalledWith({
-        mode: 'after',
+        mode: 'before',
         expectedAccountUin: fixture.account,
         expectedAccountConfigId: fixture.configId,
       });
@@ -181,7 +181,7 @@ describe('保存方式目录语义', () => {
       const first = f.result.prepareSave();
       expect(await f.result.prepareSave({ mode: 'before' })).toBeNull();
       expect(fixture.prepare).toHaveBeenCalledOnce();
-      finish({ mode: 'after' });
+      finish({ mode: 'before', directory: '/fixture/export' });
       await first;
     } finally {
       f.close();
@@ -263,7 +263,7 @@ describe('保存方式目录语义', () => {
       act(() => f.result.setOverride({ mode: 'preset', directory: '/fixture/temporary' }));
       expect(reset().disabled).toBe(false);
       act(() => reset().click());
-      expect(f.result.policy).toEqual({ mode: 'after' });
+      expect(f.result.policy).toEqual({ mode: 'before' });
       expect(f.result.hasOverride).toBe(false);
       expect(reset().disabled).toBe(true);
       expect(fixture.defaults).not.toHaveBeenCalled();
@@ -276,8 +276,6 @@ describe('保存方式目录语义', () => {
     try {
       act(() => f.result.setOverride({ mode: 'preset', directory: '/fixture/one-time' }));
       act(() => f.result.setOverride({ mode: 'before', directory: 'relative/one-time' }));
-      act(() => f.result.setOverride({ mode: 'after' }));
-      expect(f.result.policy).toEqual({ mode: 'after' });
       act(() => f.result.setOverride({ mode: 'preset' }));
       expect(f.result.policy).toEqual({ mode: 'preset', directory: '/fixture/one-time' });
       act(() => f.result.setOverride({ mode: 'before' }));
@@ -309,9 +307,7 @@ describe('保存方式目录语义', () => {
         ),
       );
       act(() => {
-        const select = host.querySelector('select')!;
-        select.value = 'preset';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
+        host.querySelector<HTMLButtonElement>('[aria-label="保存方式"] button')!.click();
       });
       expect(change).toHaveBeenCalledWith({ mode: 'preset' });
     } finally {
@@ -320,7 +316,7 @@ describe('保存方式目录语义', () => {
     }
   });
 
-  it.each(['before', 'after'] as const)('默认 %s 模式不携带属于预设模式的旧目录', (mode) => {
+  it.each(['before'] as const)('默认 %s 模式不携带属于预设模式的旧目录', (mode) => {
     fixture.settings.exportSaveMode = mode;
     const f = mountHook();
     try {
@@ -369,7 +365,7 @@ describe('保存方式目录语义', () => {
     const old = f.result;
     const pending = old.prepareSave();
     fixture.account = 'account-b';
-    resolve({ mode: 'after' });
+    resolve({ mode: 'before', directory: '/fixture/export' });
     expect(await pending).toBeNull();
     f.close();
     fixture.account = 'account-a';

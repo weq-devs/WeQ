@@ -68,14 +68,14 @@ it('整封邮件复用公共目录任务，旧来源不入队，完成后保留�
       selfUin: '10001',
       expectedAccountConfigId: 'wrong',
       ids: ['mail-fixture'],
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: root },
     }),
   ).rejects.toThrow('数据源已切换');
   const id = await api.exportMessages({
     selfUin: '10001',
     expectedAccountConfigId: 'source-a',
     ids: ['mail-fixture'],
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: root },
   });
   await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
   const task = manager.getTask(id)!;
@@ -93,7 +93,7 @@ it('全量与筛选通过公共任务执行，非法日期范围不创建任务'
       selfUin: '10001',
       expectedAccountConfigId: 'source-a',
       ids: null,
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: root },
       filter: { startTime: 200, endTime: 100 },
     }),
   ).rejects.toThrow('结束时间');
@@ -113,7 +113,7 @@ it('全量与筛选通过公共任务执行，非法日期范围不创建任务'
     selfUin: '10001',
     expectedAccountConfigId: 'source-a',
     ids: null,
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: root },
     filter: { startTime: 100, endTime: 101, sender: 'sender@' },
   });
   await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
@@ -157,25 +157,27 @@ it('无扩展名附件保持真实单文件，不补 bin 或 json 后缀', async
   attachment.name = 'README';
   const id = await mailRouter
     .createCaller({})
-    .saveAttachment({ ...input, savePolicy: { mode: 'after' } });
-  await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('completed'));
+    .saveAttachment({ ...input, savePolicy: { mode: 'before', directory: root } });
+  await vi.waitFor(() => expect(manager.getTask(id)?.save?.status).toBe('saved'));
   const task = manager.getTask(id)!;
   expect(task.resource?.output).toEqual({ kind: 'file', name: 'README', extension: '' });
   expect(task.filePath?.endsWith('/README')).toBe(true);
   expect(task.bundleDir).toBeUndefined();
-  expect(task.save?.status).toBe('pending');
+  expect(task.save?.status).toBe('saved');
 });
 it('失效令牌和旧来源不创建任务', async () => {
   await expect(
     mailRouter.createCaller({}).saveAttachment({
       ...input,
       id: '22222222-2222-4222-8222-222222222222',
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: root },
     }),
   ).rejects.toThrow('已失效');
   state.configId = 'source-b';
   await expect(
-    mailRouter.createCaller({}).saveAttachment({ ...input, savePolicy: { mode: 'after' } }),
+    mailRouter
+      .createCaller({})
+      .saveAttachment({ ...input, savePolicy: { mode: 'before', directory: root } }),
   ).rejects.toThrow('数据源已切换');
   expect(manager.listTasks()).toEqual([]);
   expect(download).not.toHaveBeenCalled();
@@ -186,12 +188,18 @@ it('下载中切换来源不发布旧结果，底层异常不泄露票据', asyn
     state.configId = 'source-b';
   });
   const api = mailRouter.createCaller({});
-  const id = await api.saveAttachment({ ...input, savePolicy: { mode: 'after' } });
+  const id = await api.saveAttachment({
+    ...input,
+    savePolicy: { mode: 'before', directory: root },
+  });
   await vi.waitFor(() => expect(manager.getTask(id)?.status).toBe('failed'));
   expect(manager.getTask(id)?.filePath).toBeUndefined();
   state.configId = 'source-a';
   download.mockRejectedValueOnce(new Error('sid=synthetic-secret'));
-  const failed = await api.saveAttachment({ ...input, savePolicy: { mode: 'after' } });
+  const failed = await api.saveAttachment({
+    ...input,
+    savePolicy: { mode: 'before', directory: root },
+  });
   await vi.waitFor(() => expect(manager.getTask(failed)?.status).toBe('failed'));
   expect(manager.getTask(failed)?.error).not.toContain('synthetic-secret');
 });
@@ -207,7 +215,7 @@ it('公共任务取消中止原下载，不把半成品标为已保存', async (
   });
   const id = await mailRouter
     .createCaller({})
-    .saveAttachment({ ...input, savePolicy: { mode: 'after' } });
+    .saveAttachment({ ...input, savePolicy: { mode: 'before', directory: root } });
   await vi.waitFor(() => expect(active).toBeDefined());
   manager.cancelTask(id);
   await vi.waitFor(() => expect(manager.getTask(id)?.error).toContain('中断'));

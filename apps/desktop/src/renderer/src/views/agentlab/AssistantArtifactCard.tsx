@@ -85,9 +85,7 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
         (data.status === 'pending' ||
           data.status === 'running' ||
           data.save?.status === 'saving' ||
-          (data.status === 'completed' &&
-            data.save?.status === 'pending' &&
-            data.save.policy.mode !== 'after'))
+          (data.status === 'completed' && data.save?.status === 'pending'))
           ? 1000
           : false,
     },
@@ -148,17 +146,15 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
       let id: string;
       if (existing) {
         id = existing.id;
-        if (savePolicy.mode !== 'after') {
-          const path = await client.account.saveExportTaskOutput.mutate({
-            ...expected,
-            taskId: id,
-            ...(savePolicy.directory ? { directory: savePolicy.directory } : {}),
-            ...(savePolicy.filePath
-              ? { filePath: savePolicy.filePath, uniqueFileName: savePolicy.uniqueFileName }
-              : {}),
-          });
-          if (path === null || !current()) return;
-        }
+        const path = await client.account.saveExportTaskOutput.mutate({
+          ...expected,
+          taskId: id,
+          ...(savePolicy.directory ? { directory: savePolicy.directory } : {}),
+          ...(savePolicy.filePath
+            ? { filePath: savePolicy.filePath, uniqueFileName: savePolicy.uniqueFileName }
+            : {}),
+        });
+        if (path === null || !current()) return;
       } else {
         id = await client.account.startAssistantArtifactSave.mutate({
           ...expected,
@@ -170,11 +166,10 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
       if (!current()) return;
       setMonitor({ identity, taskId: id });
       await utils.account.getExportOutputReceipt.invalidate({ ...expected, taskId: id });
-      if (current() && (savePolicy.mode === 'after' || !existing))
+      if (current() && !existing)
         pushToast({
           tone: 'info',
-          title:
-            savePolicy.mode === 'after' ? '结果将保留在任务列表，等待保存' : '报告保存任务已创建',
+          title: '报告保存任务已创建',
         });
     } catch (e) {
       if (current()) setFailure({ identity, message: e instanceof Error ? e.message : String(e) });

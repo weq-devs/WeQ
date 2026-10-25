@@ -107,6 +107,47 @@ afterEach(() => {
 });
 
 describe('QQ 写控件', () => {
+  it('分段选择保持未知状态，保存失败回退，期间切换缓存以最新值回退', async () => {
+    const f = fixture();
+    let finish!: (ok: boolean) => void;
+    const save = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const render = (initial: number | null) =>
+      act(() =>
+        f.root.render(
+          h(QQWriteSelectRow, {
+            label: '消息接收',
+            initial,
+            disabled: false,
+            segmented: true,
+            autoSave: true,
+            options: [
+              { value: 1, label: '提醒' },
+              { value: 2, label: '屏蔽' },
+            ],
+            onSave: save,
+          }),
+        ),
+      );
+    render(null);
+    expect(f.host.textContent).toContain('尚未读取');
+    expect(f.host.querySelector('[aria-checked="true"]')).toBeNull();
+    act(() => f.host.querySelectorAll<HTMLButtonElement>('[role="radio"]')[1]!.click());
+    expect(save).toHaveBeenCalledWith(2);
+    expect(
+      [...f.host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].every(
+        (button) => button.disabled,
+      ),
+    ).toBe(true);
+    render(1);
+    await act(async () => finish(false));
+    expect(f.host.querySelector('[aria-checked="true"]')?.textContent).toBe('提醒');
+    expect(save).toHaveBeenCalledOnce();
+  });
   it('编辑中的备注不被迟到缓存覆盖，受理后仍可主动再次提交相同值', async () => {
     const f = fixture();
     const save = vi.fn(async () => true);

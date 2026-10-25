@@ -74,9 +74,13 @@ describe('导出创建请求的数据源绑定', () => {
       ...binding,
       scopes: ['received'],
       format: 'zip',
-      savePolicy: { mode: 'after' },
+      savePolicy: { mode: 'before', directory: '/fixture/export' },
     });
-    expect(state.emoji).toHaveBeenLastCalledWith(['received'], { mode: 'after' }, 'zip');
+    expect(state.emoji).toHaveBeenLastCalledWith(
+      ['received'],
+      { mode: 'before', directory: '/fixture/export' },
+      'zip',
+    );
     await expect(
       api.startExport({ ...binding, scopes: ['own'], format: 'tar' as 'zip' }),
     ).rejects.toThrow();

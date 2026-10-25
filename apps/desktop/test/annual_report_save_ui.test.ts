@@ -15,7 +15,8 @@ const state = vi.hoisted(() => ({
   overlay: { current: null as HTMLDivElement | null },
   prepare: vi.fn(
     async (_intent?: ExportSavePolicy, _output?: unknown): Promise<ExportSavePolicy | null> => ({
-      mode: 'after',
+      mode: 'before',
+      directory: '/fixture/export',
     }),
   ),
   html: vi.fn(async (_input: unknown): Promise<string | null> => 'html-task'),
@@ -84,7 +85,7 @@ beforeEach(() => {
   state.year = 2025;
   state.web = false;
   state.configId = 'source-a';
-  state.prepare.mockReset().mockResolvedValue({ mode: 'after' });
+  state.prepare.mockReset().mockResolvedValue({ mode: 'before', directory: '/fixture/export' });
   state.html.mockClear();
   state.pdf.mockClear();
   state.png.mockClear();
@@ -155,7 +156,7 @@ it.each([
     ...state.scope,
     year: 2025,
     html: '<html>report-2025</html>',
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: '/fixture/export' },
   });
   expect(state.toast.mock.calls[0]![0]).toMatchObject({
     tone: 'info',
@@ -183,7 +184,7 @@ it('准备位置期间切换来源，不提交旧报告，也不把晚到结果�
   const view = await mount();
   state.prepare.mockImplementationOnce(async () => {
     state.configId = 'source-b';
-    return { mode: 'after' };
+    return { mode: 'before', directory: '/fixture/export' };
   });
   await exportClick(view.host, 'HTML');
   expect(state.html).not.toHaveBeenCalled();

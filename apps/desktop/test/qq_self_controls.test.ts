@@ -175,10 +175,14 @@ describe('个人资料编辑入口', () => {
   ])('$label 选择后直接提交，不显示保存按钮', async ({ label, value, payload }) => {
     const f = fixture();
     expect(f.host.querySelector(`[aria-label="保存${label}"]`)).toBeNull();
-    const select = f.host.querySelector<HTMLSelectElement>(`[aria-label="${label}"]`)!;
     await act(async () => {
-      select.value = value;
-      select.dispatchEvent(new Event('change', { bubbles: true }));
+      if (label === '性别') {
+        f.host.querySelectorAll<HTMLButtonElement>('[aria-label="性别"] button')[1]!.click();
+      } else {
+        const select = f.host.querySelector<HTMLSelectElement>(`[aria-label="${label}"]`)!;
+        select.value = value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
     });
     expect(state.mutate).toHaveBeenCalledOnce();
     expect(state.mutate).toHaveBeenCalledWith({

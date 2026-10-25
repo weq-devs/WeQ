@@ -759,15 +759,16 @@ export function TtsProvidersCard(): ReactElement {
                 <Row
                   label="音频格式"
                   control={
-                    <select
-                      className="weq-set-input"
+                    <SegmentedControl
+                      label="TTS 音频格式"
                       value={form.format}
-                      onChange={(e) => update('format', e.target.value)}
-                    >
-                      <option value="">默认</option>
-                      <option value="mp3">mp3</option>
-                      <option value="wav">wav</option>
-                    </select>
+                      onChange={(value) => update('format', value)}
+                      options={[
+                        { value: '', label: '默认' },
+                        { value: 'mp3', label: 'MP3' },
+                        { value: 'wav', label: 'WAV' },
+                      ]}
+                    />
                   }
                 />
               ) : null}
@@ -829,3 +830,4 @@ export function TtsProvidersCard(): ReactElement {
     </>
   );
 }
+import { SegmentedControl } from '../SegmentedControl';

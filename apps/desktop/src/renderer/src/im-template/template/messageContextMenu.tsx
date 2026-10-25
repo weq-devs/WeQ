@@ -2,7 +2,6 @@
   Copy,
   Download,
   FolderOpen,
-  Clock,
   RotateCcw,
   Trash2,
   Edit3,
@@ -303,16 +302,6 @@ export function MessageContextMenu({
           >
             <FolderOpen size={17} />
             <span>{IS_WEB ? '另存到服务器…' : '另存到…'}</span>
-          </button>
-          <button
-            type="button"
-            disabled={downloadDisabled}
-            onClick={() =>
-              onDownloadImage(state.downloadUrl ?? '', state.message, { mode: 'after' })
-            }
-          >
-            <Clock size={17} />
-            <span>先生成，稍后保存</span>
           </button>
           {IS_WEB && (
             <button

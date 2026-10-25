@@ -28,7 +28,7 @@ export function exportDownloadName(
 }
 
 export const exportSavePolicyInput = z.object({
-  mode: z.enum(['preset', 'before', 'after']),
+  mode: z.enum(['preset', 'before']),
   directory: z.string().min(1).optional(),
   filePath: z.string().min(1).optional(),
   uniqueFileName: z.boolean().optional(),
@@ -70,7 +70,8 @@ export async function prepareExportDestination(
   current: () => void = () => {},
 ): Promise<ExportSavePolicy | null> {
   current();
-  if (input.mode === 'after') return { mode: 'after' };
+  if (input.mode !== 'preset' && input.mode !== 'before')
+    throw new Error('不支持此保存方式，请在开始前选择保存位置。');
   if (input.directory && input.filePath) throw new Error('保存位置只能选择文件或目录之一。');
   if (input.uniqueFileName && !input.filePath && output?.kind !== 'file')
     throw new Error('自动文件命名仅支持单文件位置。');

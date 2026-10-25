@@ -15,8 +15,9 @@ it('保存菜单只发出本次意图，关闭菜单后可再次选择，不提�
     select = vi.fn();
   try {
     act(() => root.render(h(ExportSaveActions, { onSelect: select })));
-    for (const label of ['另存到…', '先生成，稍后保存']) {
+    for (const label of ['另存到…', '另存到…']) {
       act(() => host.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.click());
+      expect(host.textContent).not.toContain('稍后保存');
       const button = [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
         (node) => node.textContent === label,
       )!;
@@ -24,7 +25,7 @@ it('保存菜单只发出本次意图，关闭菜单后可再次选择，不提�
       act(() => button.click());
       expect(host.querySelector('[role="menu"]')).toBeNull();
     }
-    expect(select.mock.calls).toEqual([[{ mode: 'before' }], [{ mode: 'after' }]]);
+    expect(select.mock.calls).toEqual([[{ mode: 'before' }], [{ mode: 'before' }]]);
     expect(host.querySelector('fieldset')).toBeNull();
     act(() => root.render(h(ExportSaveActions, { disabled: true, onSelect: select })));
     expect(host.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.disabled).toBe(

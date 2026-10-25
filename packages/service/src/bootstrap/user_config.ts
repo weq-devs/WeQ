@@ -1321,9 +1321,7 @@ export class UserConfigService {
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
       toastDurations: normalizeToastDurations(s?.toastDurations),
       exportSaveMode:
-        s?.exportSaveMode === 'before' ||
-        s?.exportSaveMode === 'preset' ||
-        s?.exportSaveMode === 'after'
+        s?.exportSaveMode === 'before' || s?.exportSaveMode === 'preset'
           ? s.exportSaveMode
           : d.exportSaveMode,
       autoAttachQq,

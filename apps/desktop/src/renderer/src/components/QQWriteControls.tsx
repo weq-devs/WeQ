@@ -134,6 +134,7 @@ export function QQWriteSelectRow({
   unlistedLabel,
   autoSave = false,
   renderEditor,
+  segmented = false,
 }: {
   label: string;
   icon?: ReactNode;
@@ -145,6 +146,7 @@ export function QQWriteSelectRow({
   unlistedLabel?: (value: number) => string;
   autoSave?: boolean;
   renderEditor?: (value: number | null) => ReactNode;
+  segmented?: boolean;
 }) {
   const [value, setValue] = useState(initial === null ? '' : String(initial));
   const previous = useRef(value);
@@ -159,6 +161,24 @@ export function QQWriteSelectRow({
     previous.current = next;
   }, [initial]);
   const editor = renderEditor?.(value === '' ? null : Number(value));
+  function choose(next: string) {
+    if (savingRef.current) return;
+    setValue(next);
+    if (autoSave && next !== '' && !renderEditor?.(Number(next))) {
+      savingRef.current = true;
+      setSaving(true);
+      const rollback = () =>
+        setValue(latestInitial.current === null ? '' : String(latestInitial.current));
+      void onSave(Number(next))
+        .then((ok) => {
+          if (!ok) rollback();
+        }, rollback)
+        .finally(() => {
+          savingRef.current = false;
+          setSaving(false);
+        });
+    }
+  }
   return (
     <>
       <Row
@@ -166,42 +186,41 @@ export function QQWriteSelectRow({
         control={
           <div className={preview ? 'weq-qq-write-select-preview' : undefined}>
             <div className="weq-qq-write-field" data-qq-action>
-              <select
-                className="weq-qq-write-input"
-                aria-label={label}
-                value={value}
-                disabled={disabled || saving}
-                onChange={(event) => {
-                  if (savingRef.current) return;
-                  const next = event.target.value;
-                  setValue(next);
-                  if (autoSave && next !== '' && !renderEditor?.(Number(next))) {
-                    savingRef.current = true;
-                    setSaving(true);
-                    const rollback = () =>
-                      setValue(latestInitial.current === null ? '' : String(latestInitial.current));
-                    void onSave(Number(next))
-                      .then((ok) => {
-                        if (!ok) rollback();
-                      }, rollback)
-                      .finally(() => {
-                        savingRef.current = false;
-                        setSaving(false);
-                      });
-                  }
-                }}
-              >
-                {!options.some((option) => String(option.value) === value) && (
-                  <option value={value}>
-                    {value ? (unlistedLabel?.(Number(value)) ?? `未识别 (${value})`) : '尚未读取'}
-                  </option>
-                )}
-                {options.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+              {segmented ? (
+                <>
+                  <SegmentedControl
+                    label={label}
+                    value={value === '' ? null : Number(value)}
+                    disabled={disabled || saving}
+                    options={options}
+                    onChange={(next) => choose(String(next))}
+                  />
+                  {!options.some((option) => String(option.value) === value) && (
+                    <span role="status">
+                      {value ? (unlistedLabel?.(Number(value)) ?? `未识别 (${value})`) : '尚未读取'}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <select
+                  className="weq-qq-write-input"
+                  aria-label={label}
+                  value={value}
+                  disabled={disabled || saving}
+                  onChange={(event) => choose(event.target.value)}
+                >
+                  {!options.some((option) => String(option.value) === value) && (
+                    <option value={value}>
+                      {value ? (unlistedLabel?.(Number(value)) ?? `未识别 (${value})`) : '尚未读取'}
+                    </option>
+                  )}
+                  {options.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              )}
               {!autoSave && !editor ? (
                 <button
                   type="button"
@@ -319,3 +338,4 @@ export function QQWriteActionRow({
 export function qqWriteNeedsConfirmation(policy: number): boolean {
   return policy === 2 || policy === 3;
 }
+import { SegmentedControl } from './SegmentedControl';

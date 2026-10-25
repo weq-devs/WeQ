@@ -90,6 +90,7 @@ it('允许部分设置恢复，并校验嵌套类型与现有分页规则', () =
     { autoLockMinutes: -1 },
     { logRetentionDays: MAX_LOG_RETENTION_DAYS + 1 },
     { exportSaveMode: 'arbitrary' },
+    { exportSaveMode: 'after' },
     { windowCloseBehavior: 'hide' },
     { appLock: { method: 'password' } },
   ]) {

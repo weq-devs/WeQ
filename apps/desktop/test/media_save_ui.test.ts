@@ -278,7 +278,9 @@ it('Web 区分服务器保存和浏览器下载，后者只下载完整任务且
   const anchor = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
   await click(view.host, '保存图片到浏览器');
   await vi.waitFor(() => expect(anchor).toHaveBeenCalledOnce());
-  expect(state.save.mock.calls[0]![0]).toMatchObject({ savePolicy: { mode: 'after' } });
+  expect(state.save.mock.calls[0]![0]).toMatchObject({
+    savePolicy: { mode: 'before', directory: '.' },
+  });
   expect(state.prepare).not.toHaveBeenCalled();
   expect(state.download).toHaveBeenCalledWith({
     expectedAccountUin: '10001',
@@ -401,7 +403,7 @@ it('独立 Web 窗口的同源绝对媒体地址还原成已有挂载路径', as
     source: { kind: 'url', url: '/_media/pic?name=photo.jpg' },
   });
 });
-it('图片右键下载菜单分别传递默认、本次另存与稍后保存，不改变消息身份', async () => {
+it('图片右键仅提供默认与本次另存，不再提供稍后保存且保留消息身份', async () => {
   const message = createTemplateDemoData().messages[0]!,
     download = vi.fn();
   const view = await mount(
@@ -417,11 +419,10 @@ it('图片右键下载菜单分别传递默认、本次另存与稍后保存，�
     )!;
   act(() => action('下载').click());
   act(() => action('另存到…').click());
-  act(() => action('先生成，稍后保存').click());
+  expect(action('先生成，稍后保存')).toBeUndefined();
   expect(download.mock.calls).toEqual([
     ['weq-media://pic?name=photo.jpg', message],
     ['weq-media://pic?name=photo.jpg', message, { mode: 'before' }],
-    ['weq-media://pic?name=photo.jpg', message, { mode: 'after' }],
   ]);
 });
 it('图片灯箱选择器取消后仍保留原图和缩放状态，不关闭浏览', async () => {

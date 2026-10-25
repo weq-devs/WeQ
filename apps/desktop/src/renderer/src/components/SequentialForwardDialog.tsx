@@ -177,24 +177,16 @@ export function SequentialForwardDialog({
                   <>
                     <label>
                       间隔方式
-                      <select
+                      <SegmentedControl
+                        label="间隔方式"
                         value={options.mode}
-                        onChange={(event) =>
-                          setOptions({
-                            ...options,
-                            mode:
-                              event.target.value === 'text'
-                                ? 'text'
-                                : event.target.value === 'original'
-                                  ? 'original'
-                                  : 'fixed',
-                          })
-                        }
-                      >
-                        <option value="fixed">固定间隔</option>
-                        <option value="text">按文本长度</option>
-                        <option value="original">参考原消息间隔</option>
-                      </select>
+                        onChange={(mode) => setOptions({ ...options, mode })}
+                        options={[
+                          { value: 'fixed', label: '固定间隔' },
+                          { value: 'text', label: '按文本长度' },
+                          { value: 'original', label: '原消息间隔' },
+                        ]}
+                      />
                     </label>
                     {options.mode === 'text' ? (
                       <label>
@@ -304,18 +296,15 @@ export function SequentialForwardDialog({
                 </label>
                 <label>
                   失败后
-                  <select
+                  <SegmentedControl
+                    label="失败后"
                     value={options.failure}
-                    onChange={(event) =>
-                      setOptions({
-                        ...options,
-                        failure: event.target.value === 'skip' ? 'skip' : 'abort',
-                      })
-                    }
-                  >
-                    <option value="abort">中止</option>
-                    <option value="skip">忽略并继续</option>
-                  </select>
+                    onChange={(failure) => setOptions({ ...options, failure })}
+                    options={[
+                      { value: 'abort', label: '中止' },
+                      { value: 'skip', label: '忽略并继续' },
+                    ]}
+                  />
                 </label>
               </div>
             </fieldset>
@@ -357,3 +346,4 @@ export function SequentialForwardDialog({
     </Modal>
   );
 }
+import { SegmentedControl } from './SegmentedControl';

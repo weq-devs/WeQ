@@ -106,7 +106,7 @@ export function useMediaSave() {
     try {
       const selected = normalizeSource(source);
       const policy = browser
-        ? { mode: 'after' as const }
+        ? { mode: 'before' as const, directory: '.' }
         : IS_WEB
           ? await save.prepareSave(intent, { kind: 'bundle', name: sourceName(source) })
           : (intent ?? save.policy);

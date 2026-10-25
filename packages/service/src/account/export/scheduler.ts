@@ -418,7 +418,7 @@ export class ExportScheduler extends EventEmitter {
       const carryResources = true;
       try {
         const id = await this.deps.taskManager.startTask({
-          savePolicy: t.options.savePolicy ?? { mode: 'after' },
+          savePolicy: t.options.savePolicy,
           kind: c.kind,
           conv: c.id,
           name: c.name,
@@ -507,7 +507,6 @@ export class ExportScheduler extends EventEmitter {
         if (
           p.status === 'completed' &&
           task?.save &&
-          task.save.policy.mode !== 'after' &&
           (task.save.status === 'pending' || task.save.status === 'saving')
         )
           return;
@@ -557,9 +556,7 @@ export class ExportScheduler extends EventEmitter {
         (t.status === 'running' ||
           t.status === 'pending' ||
           t.save?.status === 'saving' ||
-          (t.status === 'completed' &&
-            t.save?.policy.mode !== 'after' &&
-            t.save?.status === 'pending'))
+          (t.status === 'completed' && t.save?.status === 'pending'))
       )
         return true;
     }

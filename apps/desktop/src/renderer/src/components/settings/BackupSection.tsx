@@ -565,16 +565,15 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                   </div>
                 ))}
               <legend>同名数据处理</legend>
-              <select
-                aria-label="同名数据处理"
+              <SegmentedControl
+                label="同名数据处理"
                 value={choice.conflict}
-                onChange={(e) =>
-                  change({ conflict: e.target.value === 'skip' ? 'skip' : 'overwrite' })
-                }
-              >
-                <option value="skip">跳过已有账号、克隆和 API 项</option>
-                <option value="overwrite">覆盖所选数据域</option>
-              </select>
+                onChange={(conflict) => change({ conflict })}
+                options={[
+                  { value: 'skip', label: '跳过已有', title: '跳过已有账号、克隆和 API 项' },
+                  { value: 'overwrite', label: '覆盖所选', title: '覆盖所选数据域' },
+                ]}
+              />
               <p>
                 通用设置总会应用。覆盖不合并克隆对话；显式映射到另一份本机账号配置时，保留该账号的接入信息与运行凭据。
               </p>
@@ -775,3 +774,4 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
     </div>
   );
 }
+import { SegmentedControl } from '../SegmentedControl';

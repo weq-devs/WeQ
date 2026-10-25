@@ -55,20 +55,18 @@ export function useExportSavePolicy() {
       if (!next) return emptyDraft(identity);
       const directories = { ...scoped.directories };
       const filePaths = { ...scoped.filePaths };
-      if (next.mode !== 'after') {
-        if (next.filePath) {
-          filePaths[next.mode] = next.filePath;
-          delete directories[next.mode];
-        } else if (next.directory) {
-          directories[next.mode] = next.directory;
-          delete filePaths[next.mode];
-        } else if (scoped.override?.mode === next.mode) {
-          delete directories[next.mode];
-          delete filePaths[next.mode];
-        }
+      if (next.filePath) {
+        filePaths[next.mode] = next.filePath;
+        delete directories[next.mode];
+      } else if (next.directory) {
+        directories[next.mode] = next.directory;
+        delete filePaths[next.mode];
+      } else if (scoped.override?.mode === next.mode) {
+        delete directories[next.mode];
+        delete filePaths[next.mode];
       }
-      const directory = next.mode === 'after' ? undefined : directories[next.mode];
-      const filePath = next.mode === 'after' ? undefined : filePaths[next.mode];
+      const directory = directories[next.mode];
+      const filePath = filePaths[next.mode];
       return {
         identity,
         override: {
@@ -101,8 +99,7 @@ export function useExportSavePolicy() {
       : mode === 'before'
         ? (override?.directory ?? scopedDraft.directories.before)
         : undefined;
-  const filePath =
-    mode === 'after' ? undefined : (override?.filePath ?? scopedDraft.filePaths[mode]);
+  const filePath = override?.filePath ?? scopedDraft.filePaths[mode];
   const policy: ExportSavePolicy = {
     mode,
     ...(filePath ? { filePath } : directory ? { directory } : {}),
@@ -129,7 +126,7 @@ export function useExportSavePolicy() {
     try {
       let requested = { ...(intent ?? policy) };
       const frozenOutput = output ? structuredClone(output) : undefined;
-      if (IS_WEB && requested.mode !== 'after' && !requested.directory && !requested.filePath) {
+      if (IS_WEB && !requested.directory && !requested.filePath) {
         const directory = await new Promise<string | null>((resolve) => {
           resolveServerLocation.current = resolve;
           setServerLocation({ name: frozenOutput?.name ?? '本次导出' });

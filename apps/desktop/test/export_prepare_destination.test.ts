@@ -1,8 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { prepareExportDestination } from '../src/main/ipc/routers/export_save';
+import {
+  exportSavePolicyInput,
+  prepareExportDestination,
+} from '../src/main/ipc/routers/export_save';
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -66,11 +69,17 @@ describe('生成前的位置准备', () => {
     expect(f.host.pickSaveTarget).not.toHaveBeenCalled();
     expect(existsSync(missing)).toBe(false);
   });
-  it('取消与先生成不要求位置，选择器结束后来源失效则停止', async () => {
+  it('拒绝旧稍后保存参数，取消或来源失效不返回可执行位置', async () => {
     const f = fixture();
-    expect(
-      await prepareExportDestination({ mode: 'after', directory: '/old' }, null, f.host, file),
-    ).toEqual({ mode: 'after' });
+    expect(exportSavePolicyInput.safeParse({ mode: 'after' }).success).toBe(false);
+    await expect(
+      prepareExportDestination(
+        { mode: 'after' } as unknown as Parameters<typeof prepareExportDestination>[0],
+        null,
+        f.host,
+        file,
+      ),
+    ).rejects.toThrow('不支持');
     expect(f.host.pickSaveTarget).not.toHaveBeenCalled();
     let changed = false;
     f.host.pickSaveTarget.mockImplementationOnce(async () => {
@@ -99,6 +108,13 @@ describe('生成前的位置准备', () => {
       ),
     ).rejects.toThrow(/多个文件/);
     const host = { ...f.host, exportRoot: f.directory };
+    const browser = await prepareExportDestination(
+      { mode: 'before', directory: '.' },
+      '/unavailable/default-directory',
+      host,
+      file,
+    );
+    expect(browser?.filePath).toBe(join(realpathSync(f.directory), '合成结果.json'));
     const result = await prepareExportDestination(
       { mode: 'before', directory: 'child' },
       null,

@@ -600,7 +600,7 @@ export function createQQActionsRouter(
             if (resolve(i) !== s || s.accountConfig.getRecord()?.qqPid !== pid)
               throw new Error('账号或 QQ 运行时已改变，请重新导出');
           };
-          if (i.savePolicy.mode !== 'after' && !i.savePolicy.directory && !i.savePolicy.filePath)
+          if (!i.savePolicy.directory && !i.savePolicy.filePath)
             throw new Error('请先选择收藏包保存位置');
           return s.exportManager.startResourceExport({
             kind: 'favorite-emoji',

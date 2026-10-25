@@ -15,7 +15,6 @@ export function prepareDirectOutput(
   id: string,
   name: string,
 ): DirectOutput | undefined {
-  if (policy.mode === 'after') return;
   const parent = policy.filePath ? dirname(policy.filePath) : policy.directory;
   if (!parent || !lstatSync(parent).isDirectory()) throw new Error('保存目录不可用，请重新选择。');
   const root = realpathSync(parent);

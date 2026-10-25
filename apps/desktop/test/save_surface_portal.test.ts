@@ -62,10 +62,10 @@ it.each([false, true])('本次保存菜单按指定宿主挂载，全屏宿主=%
     expect(view.portal.contains(menu)).toBe(scoped);
     act(() =>
       [...menu!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-        .find((button) => button.textContent === '先生成，稍后保存')!
+        .find((button) => button.textContent === '另存到…')!
         .click(),
     );
-    expect(select).toHaveBeenCalledWith({ mode: 'after' });
+    expect(select).toHaveBeenCalledWith({ mode: 'before' });
   } finally {
     view.close();
   }

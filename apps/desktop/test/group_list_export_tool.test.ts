@@ -17,14 +17,14 @@ const state = vi.hoisted(() => ({
     async (
       _intent?: ExportSavePolicy,
       _output?: ExportOutputPlan,
-    ): Promise<ExportSavePolicy | null> => ({ mode: 'after' }),
+    ): Promise<ExportSavePolicy | null> => ({ mode: 'before', directory: '/fixture/export' }),
   ),
   data: {} as Record<string, unknown>,
 }));
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => ({
     settings: { data: {} },
-    policy: { mode: 'after' },
+    policy: { mode: 'before', directory: '/fixture/export' },
     prepareSave: state.prepare,
     isCurrent: () => true,
   }),
@@ -82,7 +82,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   useViewState.setState({ openedUin: '10001' });
   state.start.mockClear();
-  state.prepare.mockReset().mockResolvedValue({ mode: 'after' });
+  state.prepare.mockReset().mockResolvedValue({ mode: 'before', directory: '/fixture/export' });
   state.data = {
     'account.getAccountConfig': { uin: '10001', configId: 'source-a' },
     'account.exportGroupDirectory': [

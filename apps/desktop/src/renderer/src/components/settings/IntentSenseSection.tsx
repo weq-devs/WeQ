@@ -111,21 +111,16 @@ export function IntentSenseSection({
         <Row
           label="运行方式"
           control={
-            <select
-              className="weq-set-input"
-              aria-label="意图感知运行方式"
+            <SegmentedControl
+              label="意图感知运行方式"
               value={s?.engine ?? 'api'}
               disabled={status.isLoading || setConfig.isLoading}
-              onChange={(event) => {
-                const engine = event.target.value;
-                if (engine === 'api' || engine === 'local') void patch({ engine });
-              }}
-            >
-              <option value="api">API 模型</option>
-              <option value="local" disabled={!local?.available}>
-                本地离线模型
-              </option>
-            </select>
+              onChange={(engine) => void patch({ engine })}
+              options={[
+                { value: 'api', label: 'API 模型' },
+                { value: 'local', label: '本地离线模型', disabled: !local?.available },
+              ]}
+            />
           }
         />
         {s?.engine === 'api' ? (
@@ -282,3 +277,4 @@ export function IntentSenseSection({
     </div>
   );
 }
+import { SegmentedControl } from '../SegmentedControl';

@@ -61,21 +61,17 @@ export function InteractionProfileSection() {
         <Row
           label="运行方式"
           control={
-            <select
-              className="weq-set-input"
-              aria-label="互动画像运行方式"
+            <SegmentedControl
+              label="互动画像运行方式"
               disabled={!status.data || save.isLoading}
               value={status.data?.profileEngine ?? 'heuristic'}
-              onChange={(event) => {
-                const mode = event.target.value;
-                if (mode === 'api' || mode === 'local' || mode === 'heuristic')
-                  void patch({ profileEngine: mode });
-              }}
-            >
-              <option value="heuristic">仅本地统计</option>
-              <option value="local">本地模型</option>
-              <option value="api">独立 API 模型</option>
-            </select>
+              onChange={(profileEngine) => void patch({ profileEngine })}
+              options={[
+                { value: 'heuristic', label: '本地统计' },
+                { value: 'local', label: '本地模型' },
+                { value: 'api', label: 'API 模型' },
+              ]}
+            />
           }
         />
         {status.data?.profileEngine === 'local' ? (
@@ -141,3 +137,4 @@ export function InteractionProfileSection() {
     </div>
   );
 }
+import { SegmentedControl } from '../SegmentedControl';

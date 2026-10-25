@@ -298,7 +298,7 @@ it('普通导入默认保留本机保存位置和图片目录，明确选择后�
         data: Buffer.from(
           JSON.stringify({
             defaultExportDir: '/synthetic/source-exports',
-            exportSaveMode: 'after',
+            exportSaveMode: 'before',
             externalChatpic: { dir: '/synthetic/source-pictures', enabled: true },
           }),
         ),
@@ -314,7 +314,7 @@ it('普通导入默认保留本机保存位置和图片目录，明确选择后�
       new UserConfigService({ appDataRoot: () => f.root } as Platform).getSettings(),
     ).toMatchObject({
       defaultExportDir: keepLocalPaths ? '/synthetic/local-exports' : '/synthetic/source-exports',
-      exportSaveMode: keepLocalPaths ? 'preset' : 'after',
+      exportSaveMode: keepLocalPaths ? 'preset' : 'before',
       externalChatpic: {
         dir: keepLocalPaths ? '/synthetic/local-pictures' : '/synthetic/source-pictures',
         enabled: true,

@@ -232,7 +232,7 @@ export function GlobalSettingsSection({
     }
   }
 
-  async function onChangeExportMode(mode: 'before' | 'preset' | 'after'): Promise<void> {
+  async function onChangeExportMode(mode: 'before' | 'preset'): Promise<void> {
     try {
       if (mode === 'preset' && !settings.data?.defaultExportDir) {
         const picked = await pickExportDir.mutateAsync();
@@ -649,24 +649,18 @@ export function GlobalSettingsSection({
             <Row
               label="默认保存方式"
               control={
-                <select
-                  aria-label="默认导出保存方式"
+                <SegmentedControl
+                  label="默认导出保存方式"
                   value={settings.data?.exportSaveMode ?? 'before'}
                   disabled={
                     settings.isLoading || setExportMode.isLoading || pickExportDir.isLoading
                   }
-                  onChange={(event) => {
-                    const mode = event.target.value;
-                    if (mode !== 'before' && mode !== 'preset' && mode !== 'after') return;
-                    void onChangeExportMode(mode);
-                  }}
-                >
-                  <option value="before">每次询问保存位置</option>
-                  <option value="preset">自动保存到默认文件夹</option>
-                  {settings.data?.exportSaveMode === 'after' && (
-                    <option value="after">先生成，稍后保存（旧偏好）</option>
-                  )}
-                </select>
+                  onChange={(mode) => void onChangeExportMode(mode)}
+                  options={[
+                    { value: 'before', label: '每次询问' },
+                    { value: 'preset', label: '自动保存' },
+                  ]}
+                />
               }
             />
             <Row
@@ -889,3 +883,4 @@ export function GlobalSettingsSection({
     </div>
   );
 }
+import { SegmentedControl } from '../SegmentedControl';

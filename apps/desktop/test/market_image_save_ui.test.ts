@@ -11,7 +11,8 @@ const state = vi.hoisted(() => ({
   web: false,
   prepare: vi.fn(
     async (_intent?: ExportSavePolicy, _output?: unknown): Promise<ExportSavePolicy | null> => ({
-      mode: 'after',
+      mode: 'before',
+      directory: '/fixture/export',
     }),
   ),
   start: vi.fn(async (_input: unknown) => 'task'),
@@ -47,7 +48,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.current = true;
   state.web = false;
-  state.prepare.mockReset().mockResolvedValue({ mode: 'after' });
+  state.prepare.mockReset().mockResolvedValue({ mode: 'before', directory: '/fixture/export' });
   state.start.mockClear();
   state.download.mockClear();
   state.toast.mockClear();
@@ -83,7 +84,7 @@ it('主按钮使用公共偏好和单张 GIF 形态，不退出浏览', async ()
     packId: '123',
     hash: 'abcdef',
     name: '合成表情',
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: '/fixture/export' },
   });
   expect(host.querySelector('[aria-label="保存表情"]')).not.toBeNull();
   const layout = process.env.WEQ_MARKET_LAYOUT;
@@ -116,7 +117,7 @@ it('准备期间切换来源，不创建旧目标的任务', async () => {
   const host = await mount();
   state.prepare.mockImplementationOnce(async () => {
     state.current = false;
-    return { mode: 'after' };
+    return { mode: 'before', directory: '/fixture/export' };
   });
   await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="保存表情"]')!.click());
   expect(state.start).not.toHaveBeenCalled();

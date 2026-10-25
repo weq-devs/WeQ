@@ -686,15 +686,16 @@ function GroupFileManagerBody({
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-        <select
-          aria-label="群文件排序"
+        <SegmentedControl<GroupFileSort>
+          label="群文件排序"
           value={sort}
-          onChange={(event) => setSort(event.target.value as GroupFileSort)}
-        >
-          <option value="name">名称</option>
-          <option value="time">最近修改</option>
-          <option value="size">文件大小</option>
-        </select>
+          onChange={setSort}
+          options={[
+            { value: 'name', label: '名称' },
+            { value: 'time', label: '最近修改' },
+            { value: 'size', label: '文件大小' },
+          ]}
+        />
       </div>
       <div className="weq-file-manager-status">
         <span>
@@ -1150,3 +1151,4 @@ const Scoped = withQQAccountScope(GroupFileManagerBody);
 export function GroupFileManager(props: Props) {
   return <Scoped key={`${props.groupId}:${props.directory}`} {...props} />;
 }
+import { SegmentedControl } from './SegmentedControl';

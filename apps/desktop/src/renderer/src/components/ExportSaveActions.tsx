@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, Clock, FolderOpen } from 'lucide-react';
+import { ChevronDown, FolderOpen } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
 import { IS_WEB } from '../lib/target';
@@ -47,12 +47,6 @@ export function ExportSaveActions({
               icon: <FolderOpen size={16} />,
               disabled,
               action: () => onSelect({ mode: 'before' }),
-            },
-            {
-              label: '先生成，稍后保存',
-              icon: <Clock size={16} />,
-              disabled,
-              action: () => onSelect({ mode: 'after' }),
             },
           ]}
         />

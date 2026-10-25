@@ -1,3 +1,4 @@
+import { withExportSaveDirectory } from './support/export_save_fixture';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -80,7 +81,11 @@ describe('群聊名单导出', () => {
     const f = fixture();
     const root = mkdtempSync(join(tmpdir(), 'weq-group-directory-'));
     roots.push(root);
-    const manager = new ExportTaskManager({} as MsgService, root, { contacts: f.deps });
+    const manager = new ExportTaskManager(
+      {} as MsgService,
+      root,
+      withExportSaveDirectory(root, { contacts: f.deps }),
+    );
     const groupIds = ['10001'];
     const id = await manager.startTask({
       kind: 'c2c',

@@ -73,15 +73,15 @@ export function ScheduleSettings({ schedule }: { schedule: ScheduledTask }) {
       </label>
       <label>
         执行方式
-        <select
+        <SegmentedControl
+          label="执行方式"
           value={cadence.mode}
-          onChange={(event) =>
-            setCadence({ ...cadence, mode: event.target.value === 'daily' ? 'daily' : 'interval' })
-          }
-        >
-          <option value="daily">每天定时</option>
-          <option value="interval">间隔执行</option>
-        </select>
+          onChange={(mode) => setCadence({ ...cadence, mode })}
+          options={[
+            { value: 'daily', label: '每天定时' },
+            { value: 'interval', label: '间隔执行' },
+          ]}
+        />
       </label>
       {cadence.mode === 'daily' ? (
         <label>
@@ -145,3 +145,4 @@ export function ScheduleSettings({ schedule }: { schedule: ScheduledTask }) {
     </form>
   );
 }
+import { SegmentedControl } from '../SegmentedControl';

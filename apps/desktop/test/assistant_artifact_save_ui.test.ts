@@ -16,7 +16,7 @@ const state = vi.hoisted(() => ({
     async (
       _intent?: ExportSavePolicy,
       _output?: ExportOutputPlan,
-    ): Promise<ExportSavePolicy | null> => ({ mode: 'after' }),
+    ): Promise<ExportSavePolicy | null> => ({ mode: 'before', directory: '/fixture/export' }),
   ),
   start: vi.fn(async (_input: unknown) => 'report-task'),
   save: vi.fn(async (_input: unknown): Promise<string | null> => '/saved/result.html'),
@@ -94,7 +94,7 @@ function receipt(id: string, output: Receipt['output']): Receipt {
     name: '合成结果',
     status: 'completed',
     error: undefined,
-    save: { policy: { mode: 'after' }, status: 'pending' },
+    save: { policy: { mode: 'before', directory: '/fixture/export' }, status: 'pending' },
     output,
   };
 }
@@ -104,7 +104,7 @@ beforeEach(() => {
   state.web = false;
   state.download.mockClear();
   state.receipts.clear();
-  state.prepare.mockReset().mockResolvedValue({ mode: 'after' });
+  state.prepare.mockReset().mockResolvedValue({ mode: 'before', directory: '/fixture/export' });
   state.start.mockReset().mockImplementation(async () => {
     state.receipts.set('report-task', { ...receipt('report-task', null), status: 'pending' });
     return 'report-task';
@@ -174,7 +174,11 @@ it('报告使用原句柄创建单文件保存任务，排队不冒称已保存�
   expect(f.host.textContent).not.toContain('已保存');
   state.receipts.set('report-task', {
     ...receipt('report-task', { kind: 'file', name: '合成报告', extension: 'md' }),
-    save: { policy: { mode: 'after' }, status: 'saved', path: '/saved/合成报告.md' },
+    save: {
+      policy: { mode: 'before', directory: '/fixture/export' },
+      status: 'saved',
+      path: '/saved/合成报告.md',
+    },
   });
   await f.render();
   expect(f.host.textContent).toContain('已保存');
@@ -215,7 +219,7 @@ it('已有导出卡片只另存既有任务，保留自动避让标记，不创�
   });
   expect(state.start).not.toHaveBeenCalled();
 });
-it('菜单另存取消不创建任务；稍后保存已有包不复制也不重建任务', async () => {
+it('菜单另存取消不创建任务；重试只保存已有包而不重建任务', async () => {
   const artifact = { ...report, id: 'export-task', kind: 'export' as const };
   state.receipts.set('export-task', receipt('export-task', { kind: 'directory' }));
   const f = await mount(artifact);
@@ -232,9 +236,8 @@ it('菜单另存取消不创建任务；稍后保存已有包不复制也不重�
   expect(state.save).not.toHaveBeenCalled();
   expect(state.start).not.toHaveBeenCalled();
   await save(f.host);
-  expect(state.save).not.toHaveBeenCalled();
+  expect(state.save).toHaveBeenCalledOnce();
   expect(state.start).not.toHaveBeenCalled();
-  expect(f.host.textContent).toContain('等待保存');
 });
 it('报告保存失败后重试使用已完成缓存，失败反馈仍保留上次位置', async () => {
   const f = await mount();
@@ -242,7 +245,7 @@ it('报告保存失败后重试使用已完成缓存，失败反馈仍保留上�
   state.receipts.set('report-task', {
     ...receipt('report-task', { kind: 'file', name: '合成报告', extension: 'md' }),
     save: {
-      policy: { mode: 'after' },
+      policy: { mode: 'before', directory: '/fixture/export' },
       status: 'failed',
       path: '/saved/previous.md',
       error: '目标不可用',
@@ -312,7 +315,7 @@ it.each(['source', 'artifact'])('准备期间变化 %s 后，旧回包不能触�
   );
   if (change === 'source') state.configId = 'source-b';
   await f.render(change === 'artifact' ? { ...report, id: 'other.md' } : report);
-  await act(async () => finish({ mode: 'after' }));
+  await act(async () => finish({ mode: 'before', directory: '/fixture/export' }));
   expect(state.start).not.toHaveBeenCalled();
   expect(state.save).not.toHaveBeenCalled();
 });

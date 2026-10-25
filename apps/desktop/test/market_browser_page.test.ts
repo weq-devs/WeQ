@@ -12,7 +12,10 @@ import {
 import type { ExportSavePolicy } from '@weq/service';
 
 const saveState = vi.hoisted(() => ({
-  prepare: vi.fn(async (intent?: ExportSavePolicy) => intent ?? { mode: 'after' as const }),
+  prepare: vi.fn(
+    async (intent?: ExportSavePolicy) =>
+      intent ?? { mode: 'before' as const, directory: '/fixture/export' },
+  ),
   download: vi.fn(async (_input: unknown) => 'task-a'),
 }));
 
@@ -120,7 +123,7 @@ it('商城表情复用装扮顶部搜索，离线可提交、清空，切换页�
 });
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => ({
-    policy: { mode: 'after' },
+    policy: { mode: 'before', directory: '/fixture/export' },
     settings: { isLoading: false },
     picking: false,
     accountUin: '10001',
@@ -144,16 +147,16 @@ it('商城详情的下载菜单只覆盖本次保存方式，多选不展开保�
     expect(host.querySelector('.weq-export-save-control')).toBeNull();
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="本次保存选项"]')!.click());
     const choose = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
-      (node) => node.textContent === '先生成，稍后保存',
+      (node) => node.textContent === '另存到…',
     )!;
     await act(async () => choose.click());
     expect(saveState.prepare).toHaveBeenLastCalledWith(
-      { mode: 'after' },
+      { mode: 'before' },
       expect.objectContaining({ kind: 'bundle', targetCount: 1 }),
     );
     expect(saveState.download).toHaveBeenCalledWith(
       expect.objectContaining({
-        savePolicy: { mode: 'after' },
+        savePolicy: { mode: 'before' },
         expectedAccountConfigId: 'source-a',
       }),
     );

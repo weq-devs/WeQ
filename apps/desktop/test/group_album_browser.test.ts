@@ -51,8 +51,8 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => ({
     binding: { expectedAccountUin: '10001', expectedAccountConfigId: state.configId },
     settings: { isLoading: false },
-    policy: { mode: 'after' },
-    prepareSave: async () => ({ mode: 'after' }),
+    policy: { mode: 'before', directory: '/fixture/export' },
+    prepareSave: async () => ({ mode: 'before', directory: '/fixture/export' }),
     isCurrent: () => true,
   }),
 }));
@@ -275,7 +275,7 @@ it('连续预览只挂载当前媒体操作和公共保存，视频传本体而�
   await act(async () => button('保存图片').click());
   expect(state.save.mock.calls[0]![0]).toMatchObject({
     source: { url: albumMediaUrl('https://example.invalid/photo-a.jpg'), name: 'photo-a.jpg' },
-    savePolicy: { mode: 'after' },
+    savePolicy: { mode: 'before', directory: '/fixture/export' },
   });
   await act(async () => button('下一项媒体').click());
   expect(document.querySelector('.weq-qz-preview-stage video')?.getAttribute('src')).toBe(
@@ -378,20 +378,14 @@ it('相册排序稳定且不改写后端清单', async () => {
   ];
   state.albums.mockResolvedValueOnce(source);
   await mount();
-  const sort = document.querySelector<HTMLSelectElement>('[aria-label="相册排序"]')!;
-  act(() => {
-    sort.value = 'name';
-    sort.dispatchEvent(new Event('change', { bubbles: true }));
-  });
+  const sort = document.querySelector<HTMLElement>('[aria-label="相册排序"]')!;
+  act(() => sort.querySelectorAll<HTMLButtonElement>('button')[1]!.click());
   expect(
     [...document.querySelectorAll<HTMLElement>('[data-album-id]')].map(
       (item) => item.dataset.albumId,
     ),
   ).toEqual(['a', 'z']);
-  act(() => {
-    sort.value = 'count';
-    sort.dispatchEvent(new Event('change', { bubbles: true }));
-  });
+  act(() => sort.querySelectorAll<HTMLButtonElement>('button')[2]!.click());
   expect(
     [...document.querySelectorAll<HTMLElement>('[data-album-id]')].map(
       (item) => item.dataset.albumId,

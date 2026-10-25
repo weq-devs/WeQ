@@ -10,7 +10,8 @@ const state = vi.hoisted(() => ({
   current: true,
   prepare: vi.fn(
     async (_intent?: ExportSavePolicy, _output?: unknown): Promise<ExportSavePolicy | null> => ({
-      mode: 'after',
+      mode: 'before',
+      directory: '/fixture/export',
     }),
   ),
   media: vi.fn(async (_input: unknown): Promise<string | null> => 'media-task'),
@@ -65,7 +66,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   state.web = false;
   state.current = true;
-  state.prepare.mockReset().mockResolvedValue({ mode: 'after' });
+  state.prepare.mockReset().mockResolvedValue({ mode: 'before', directory: '/fixture/export' });
   state.media.mockReset().mockResolvedValue('media-task');
   state.albums.mockClear();
   state.toast.mockClear();
@@ -187,7 +188,7 @@ it('Web 位置准备期间切换来源，不创建旧媒体任务', async () => 
   await select(host);
   state.prepare.mockImplementationOnce(async () => {
     state.current = false;
-    return { mode: 'after' };
+    return { mode: 'before', directory: '/fixture/export' };
   });
   await act(async () => host.querySelector<HTMLButtonElement>('.weq-qzal-download')!.click());
   expect(state.media).not.toHaveBeenCalled();
@@ -207,7 +208,7 @@ it.each([false, true])(
     expect(state.albums).toHaveBeenCalledWith(
       expect.objectContaining({
         albums: [{ id: 'album-a', title: '合成相册' }],
-        savePolicy: { mode: 'after' },
+        savePolicy: { mode: 'before', directory: '/fixture/export' },
       }),
     );
   },

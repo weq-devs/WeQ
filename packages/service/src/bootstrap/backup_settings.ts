@@ -194,7 +194,7 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
   }
   if (
     input.exportSaveMode !== undefined &&
-    !['before', 'after', 'preset'].includes(String(input.exportSaveMode))
+    !['before', 'preset'].includes(String(input.exportSaveMode))
   )
     fail('settings.exportSaveMode');
   if (

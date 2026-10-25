@@ -187,16 +187,16 @@ export function DeletedMessagesModal({
         <div className="weq-msglist-toolbar">
           <label className="weq-msglist-field">
             <span className="weq-msglist-field-label">删除来源</span>
-            <select
-              className="weq-msglist-select"
+            <SegmentedControl
+              label="删除来源"
               value={kindFilter}
-              onChange={(event) => setKindFilter(event.target.value)}
-              title="WeQ 删除可恢复；QQ 删除（本体撤回/他端删除）不可恢复"
-            >
-              <option value={ALL}>全部</option>
-              <option value="weq">WeQ删除</option>
-              <option value="qq">QQ删除</option>
-            </select>
+              onChange={setKindFilter}
+              options={[
+                { value: ALL, label: '全部' },
+                { value: 'weq', label: 'WeQ 删除', title: 'WeQ 删除可恢复' },
+                { value: 'qq', label: 'QQ 删除', title: 'QQ 删除不可恢复' },
+              ]}
+            />
           </label>
 
           <label className="weq-msglist-field">
@@ -327,3 +327,4 @@ export function DeletedMessagesModal({
     </Modal>
   );
 }
+import { SegmentedControl } from '../SegmentedControl';

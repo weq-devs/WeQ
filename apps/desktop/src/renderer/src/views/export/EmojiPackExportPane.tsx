@@ -117,7 +117,7 @@ export function EmojiPackExportPane({
         await client.account.qqActions.favoriteExport.mutate({
           expectedAccountUin: request.expectedAccountUin!,
           expectedAccountConfigId: request.expectedAccountConfigId!,
-          savePolicy: savePolicy ?? { mode: 'after' },
+          savePolicy: savePolicy ?? { mode: 'before' },
         });
       } else {
         await client.account.emojiPack.startExport.mutate({ ...request, savePolicy });
@@ -168,16 +168,17 @@ export function EmojiPackExportPane({
       <div className="weq-epk-actions">
         <label className="weq-epk-format">
           <span>格式</span>
-          <select
-            aria-label="表情包导出格式"
+          <SegmentedControl<EmojiPackExportFormat>
+            label="表情包导出格式"
             value={format}
             disabled={disabled || submitting}
-            onChange={(event) => setFormat(event.target.value as EmojiPackExportFormat)}
-          >
-            <option value="directory">图片目录</option>
-            <option value="zip">ZIP 图片包</option>
-            <option value="favorite-zip">ZIP 收藏备份（含元数据）</option>
-          </select>
+            onChange={setFormat}
+            options={[
+              { value: 'directory', label: '图片目录' },
+              { value: 'zip', label: 'ZIP 图片包' },
+              { value: 'favorite-zip', label: '收藏备份', title: 'ZIP 收藏备份（含元数据）' },
+            ]}
+          />
         </label>
         <span className="weq-epk-actions-count">
           {favoriteBackup
@@ -314,3 +315,4 @@ function PreviewCell({ addr }: { addr: EmojiPreviewAddress }): ReactElement {
     </span>
   );
 }
+import { SegmentedControl } from '../../components/SegmentedControl';
