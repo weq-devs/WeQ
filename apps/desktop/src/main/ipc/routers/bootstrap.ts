@@ -2194,8 +2194,7 @@ export const bootstrapRouter = router({
           void fetchHomeDress(platform.native.ntHelper, session, 0, input.pskey)
             .then(async (dress) => {
               services.accountConfig.setHomeDress(dress);
-              // 顺手把手机 QQ 正在用的气泡/字体装上并切过去。只在用户从没自己选过时
-              // 动手，内部逐项静默失败（见 syncFromQq）。
+              // 准备 QQ 同款装扮资源，只加入已装，不自动使用；失败不阻断登录。
               await services.dressInstall.syncFromQq(dress);
               emitDressChanged();
             })

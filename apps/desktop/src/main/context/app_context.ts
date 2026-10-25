@@ -1993,8 +1993,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         accountConfig,
         () => userConfig.getSettings().autoAttachQq,
         bootstrap.attachHook,
-        // 把手机 QQ 正在用的气泡/字体装上并切过去。monitor 内部只在本次会话第一次
-        // 抓到快照时调，且只在用户从没自己选过时才动手（见 syncFromQq）。
+        // 首次抓到快照时准备 QQ 同款装扮资源，只加入已装，不自动使用。
         async (dress) => {
           await dressInstall.syncFromQq(dress);
           // 同步比首屏那次 getState 晚几秒，不推前端会一直显示旧清单。
