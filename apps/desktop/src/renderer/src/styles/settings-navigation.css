@@ -12,22 +12,23 @@
   min-width: 0;
 }
 
+/* 同时覆盖旧弹窗与整页模式的公共样式，不依赖样式表加载顺序。 */
 @media (min-width: 651px) {
-  .weq-settings-nav {
+  html[data-theme] .weq-settings-dialog nav.weq-settings-nav {
     padding: 24px 12px;
   }
 
-  .weq-settings-nav-title {
+  html[data-theme] .weq-settings-dialog .weq-settings-nav .weq-settings-nav-title {
     margin: 0 12px 56px;
     font-size: 44px;
     line-height: 1.3;
   }
 
-  .weq-settings-nav ul {
+  html[data-theme] .weq-settings-dialog .weq-settings-nav ul {
     gap: 10px;
   }
 
-  .weq-settings-nav-item {
+  html[data-theme] .weq-settings-dialog .weq-settings-nav .weq-settings-nav-item {
     gap: 10px;
     padding: 10px 12px;
   }
