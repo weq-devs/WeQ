@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, expect, it, vi } from 'vitest';
 
 const fixture = vi.hoisted(() => ({ selected: 'QWeQ-NineBird-v1', loaded: [] as string[] }));

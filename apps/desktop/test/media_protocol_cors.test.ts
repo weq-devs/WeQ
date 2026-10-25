@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * `weq-media://` 的 kind 路由与 CORS 头（`src/main/media_protocol.ts`）。
  *

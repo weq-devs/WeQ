@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { atAllMentionState, nextMentionIndex } from '../src/renderer/src/lib/atAllMention';
 import { filterMentionMembers } from '../src/renderer/src/im-template/template/mentions';

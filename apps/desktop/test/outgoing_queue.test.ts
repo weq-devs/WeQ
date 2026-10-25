@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import { OutgoingQueue } from '../src/renderer/src/lib/outgoingQueue';
 

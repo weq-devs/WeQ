@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { expect, it, vi } from 'vitest';
 import { WINDOW_LAYOUTS, applyWindowLayout } from '../src/main/window_layout';
 

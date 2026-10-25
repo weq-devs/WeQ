@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 import { antiRecallRouter } from '../src/main/ipc/routers/anti_recall';

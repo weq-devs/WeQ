@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * 筛图判据单测。
  *

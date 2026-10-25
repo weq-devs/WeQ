@@ -54,7 +54,9 @@ pnpm ci:local   # 一键跑 CI 的 lint / format / typecheck / test 门禁
 pnpm lint         # Biome 代码规范检查
 pnpm format:check # Biome 格式检查
 pnpm typecheck    # 类型检查（CI 强制，不通过会被拦截）
-pnpm -r test      # 全量单测（含 @weq/web）
+pnpm test         # 有界并发的全量单测（含 @weq/web），汇总所有失败
+pnpm test:fail-fast # 全量范围，首个失败后尽早停止（CI 使用）
+pnpm test:changed # 日常只跑改动相关的 Vitest 测试；Web 仍跑完整服务端断言
 pnpm check        # Biome 的 lint + format 汇总检查
 pnpm --filter @weq/web build
 

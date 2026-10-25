@@ -30,4 +30,4 @@
 
 `shared/content_selection.ts`、`state/contentSelection.tsx`、`views/ExportView.tsx`、`views/export/`、`hooks/useExportSavePolicy.ts`、`hooks/useSearchReturn.ts`；服务侧为 `account/export/`、`unified_search.ts`、`collection_search.ts`。
 
-回归入口：`unified_export.test.ts`、`export_scope.test.ts`、`export_save_policy_ui.test.ts`、`search_more.test.ts`、`search_return.test.ts`、`collection_search.test.ts`。
+回归入口：`unified_export.test.ts`、`content_selection_contract.test.ts`、`export_save_policy_ui.test.ts`、`search_more.test.ts`、`search_return.test.ts`、`collection_search.test.ts`。

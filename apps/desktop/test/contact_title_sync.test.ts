@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { expect, it } from 'vitest';
 import { ChatType } from '@weq/codec';
 import { contactSenderName, contactTitle } from '../src/renderer/src/lib/contactTitle';

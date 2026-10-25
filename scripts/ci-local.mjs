@@ -56,10 +56,7 @@ const steps = [
   step('Biome lint', 'pnpm lint'),
   step('Biome 格式检查', 'pnpm format:check'),
   step('TypeScript 类型检查 (pnpm -r typecheck)', 'pnpm -r typecheck'),
-  step(
-    '工作区单元测试（含 desktop + web）',
-    'pnpm -r --workspace-concurrency=2 test --maxWorkers=2 --minWorkers=1',
-  ),
+  step('工作区单元测试（含 desktop + web）', FAIL_FAST ? 'pnpm test:fail-fast' : 'pnpm test'),
 ];
 
 if (FULL) {

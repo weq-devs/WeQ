@@ -87,7 +87,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run unit tests
-        run: pnpm -r test
+        run: pnpm test:fail-fast
 
   # 浏览器版打包冒烟（linux-x64）：native/ 随包 → 两个守卫 →
   # 启动真实产物走一遍鉴权流程。产物现在按平台/架构各自成包，build-web 冒烟
@@ -112,10 +112,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      # 鉴权闸 + 端到端路由测试。不需要构建产物，先跑、失败得早。
-      - name: Test auth gate
-        run: pnpm --filter @weq/web test
 
       # build-server 会把 native/<platform>/<arch>/ 拷进 dist，而 nt_helper.node
       # 不入库 —— 与 release 的 web 矩阵一样，打包前先取当前平台那一份。

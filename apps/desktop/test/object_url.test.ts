@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, expect, it, vi } from 'vitest';
 import { releaseObjectUrl, retainObjectUrl } from '../src/renderer/src/lib/objectUrl';
 

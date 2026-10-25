@@ -461,7 +461,7 @@ QQ 账号管理在正文复用既有工具内容，不在设置内另造账号�
 复用/扩展现有测试入口：
 
 ```bash
-pnpm --filter @weq/desktop exec vitest run --maxWorkers=2 --minWorkers=1 test/settings_navigation.test.ts test/settings_reorganization.test.ts test/feature_search.test.ts test/feature_search_ui.test.ts
+pnpm --filter @weq/desktop exec vitest run --maxWorkers=2 --minWorkers=1 test/settings_navigation.test.ts test/settings_reorganization.test.ts test/settings_catalog.test.ts test/feature_search_ui.test.ts
 pnpm --filter @weq/desktop exec vitest run --maxWorkers=2 --minWorkers=1 test/read_report_settings.test.ts test/message_badge_settings.test.ts test/storage_management.test.ts test/export_save_preferences_ui.test.ts
 ```
 

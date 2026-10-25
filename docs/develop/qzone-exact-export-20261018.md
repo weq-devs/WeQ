@@ -24,6 +24,6 @@
 - service `qzone_exact_export.test.ts`：不调用整空间分页、日期与缓存隔离、去重/空集合、ID 不匹配、取消、互动范围、真实三格式、历史隔离、计数、持久目标及新管理器恢复。
 - desktop `qzone_export_router.test.ts`：精确 tid、空集合、日期分离、账号与同号数据源边界。
 - desktop `qzone_selection_ui.test.ts`：正文共享多选、统一请求、独立快照、按需范围读取和未加载身份。
-- desktop `unified_export.test.ts`、`workspace_toolbar.test.ts`、`export_scope.test.ts`：非好友空间、确认冻结、统一工具宿主及空集合保护。
+- desktop `unified_export.test.ts`、`workspace_toolbar.test.ts`、`content_selection_contract.test.ts`：非好友空间、确认冻结、统一工具宿主及空集合保护。
 
 实现入口为 `account/export/qzone_export.ts`、`task_manager.ts` 和 `views/export/QzoneScopePicker.tsx`。测试使用合成数据，不证明真实账号全部云端历史均可取得。

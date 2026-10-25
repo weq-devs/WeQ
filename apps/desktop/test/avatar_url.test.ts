@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * 头像 URL 修复（`lib/avatarResolver.ts` 的 `fixProfileAvatarUrl`）的离线单测。
  *

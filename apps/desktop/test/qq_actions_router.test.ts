@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { mkdtemp, rm, writeFile, readFile, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';

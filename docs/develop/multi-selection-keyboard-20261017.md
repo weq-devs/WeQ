@@ -22,4 +22,4 @@
 - 最少一种格式、最多分享页数、禁用项和发送中约束仍由各业务维护；快捷键不绕过提交、权限或确认。
 - 单选、开关、播放/展开及同意勾选不属于多选，不能被“全选”批量切换。
 
-回归入口：`multi_selection_keyboard.test.ts`、`group_file_selection.test.ts`、`fileSelection.ts` 的各消费方。窗口化列表需实际验证 Shift+End 的焦点与滚动，不能只断言 Set 数量。
+回归入口：`multi_selection_keyboard.test.ts`、`group_files.test.ts`、`fileSelection.ts` 的各消费方。窗口化列表需实际验证 Shift+End 的焦点与滚动，不能只断言 Set 数量。

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { expect, it } from 'vitest';
 import { firstUnreadConversation } from '../src/renderer/src/lib/unreadNavigation';
 import { createTemplateDemoData } from '../src/renderer/src/im-template/template/demoData';

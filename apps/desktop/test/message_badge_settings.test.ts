@@ -80,8 +80,6 @@ function mount() {
   return {
     host,
     render,
-    toggle: () =>
-      host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="在消息图标上显示红点"]')!,
     close: () => {
       act(() => root.unmount());
       host.remove();
@@ -89,56 +87,8 @@ function mount() {
   };
 }
 
-it('消息显示页开关默认开启，保存后刷新共享设置，重新打开保留关闭状态', () => {
-  let f = mount();
-  try {
-    expect(f.toggle().getAttribute('aria-checked')).toBe('true');
-    act(() => f.toggle().click());
-    expect(fixture.save).toHaveBeenCalledWith({ enabled: false }, expect.any(Object));
-    expect(fixture.invalidate).toHaveBeenCalledOnce();
-    f.render();
-    expect(f.toggle().getAttribute('aria-checked')).toBe('false');
-    f.close();
-    f = mount();
-    expect(f.toggle().getAttribute('aria-checked')).toBe('false');
-    act(() => f.toggle().click());
-    f.render();
-    expect(f.toggle().getAttribute('aria-checked')).toBe('true');
-  } finally {
-    f.close();
-  }
-});
-
-it('保存失败保留原值并提示，保存期间不能重复点击', () => {
-  const f = mount();
-  try {
-    fixture.failed = true;
-    act(() => f.toggle().click());
-    expect(f.toggle().getAttribute('aria-checked')).toBe('true');
-    expect(f.host.querySelector('[role="alert"]')?.textContent).toBe('保存失败');
-    expect(fixture.invalidate).not.toHaveBeenCalled();
-    fixture.loading = true;
-    f.render();
-    expect(f.toggle().disabled).toBe(true);
-    act(() => f.toggle().click());
-    expect(fixture.save).toHaveBeenCalledOnce();
-  } finally {
-    f.close();
-  }
-});
-
-it('从第一条新消息开始阅读下方显示会话加载速度备注', () => {
-  const f = mount();
-  try {
-    const setting = f.host.querySelector('[data-setting-id="read-first-unread"]');
-    expect(setting?.querySelector('strong')?.textContent).toBe('从第一条新消息开始阅读');
-    expect(setting?.querySelector('span')?.textContent).toBe('可能提高阅读过的会话的加载速度');
-  } finally {
-    f.close();
-  }
-});
-
-it.each([
+const toggles = [
+  ['在消息图标上显示红点', 'showMessageUnreadBadge', true],
   ['从第一条新消息开始阅读', 'readFromFirstUnread', false],
   ['发送消息后定位到最新消息', 'jumpToLatestAfterSend', true],
   ['使用 QQ 账号设置的个性字体发送消息', 'sendWithQqFont', true],
@@ -146,26 +96,87 @@ it.each([
   ['消息气泡', 'showMessageBubble', true],
   ['消息字体', 'showMessageFont', true],
   ['聊天头像挂件', 'showAvatarPendant', true],
-] as const)('%s 默认值正确，点击保存、重开恢复、失败不改变原值', (label, key, defaultValue) => {
+] as const;
+
+it('消息开关分别按默认值展示、保存、刷新共享设置，重开后可恢复与再次开启', () => {
   let f = mount();
-  const toggle = () =>
+  const toggle = (label: string) =>
     f.host.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${label}"]`)!;
   try {
-    expect(toggle().getAttribute('aria-checked')).toBe(String(defaultValue));
-    act(() => toggle().click());
-    expect(fixture.save).toHaveBeenCalledWith({ enabled: !defaultValue }, expect.any(Object));
-    expect(fixture.settings[key]).toBe(!defaultValue);
-    expect(fixture.invalidate).toHaveBeenCalledOnce();
+    const setting = f.host.querySelector('[data-setting-id="read-first-unread"]');
+    expect(setting?.querySelector('strong')?.textContent).toBe('从第一条新消息开始阅读');
+    expect(setting?.querySelector('span')?.textContent).toBe('可能提高阅读过的会话的加载速度');
+    for (const [label, key, defaultValue] of toggles) {
+      vi.clearAllMocks();
+      expect(toggle(label).getAttribute('aria-checked'), label).toBe(String(defaultValue));
+      act(() => toggle(label).click());
+      expect(fixture.save, label).toHaveBeenCalledOnce();
+      expect(fixture.save, label).toHaveBeenCalledWith(
+        { enabled: !defaultValue },
+        expect.any(Object),
+      );
+      expect(fixture.settings[key], label).toBe(!defaultValue);
+      expect(fixture.invalidate, label).toHaveBeenCalledOnce();
+      f.render();
+      expect(toggle(label).getAttribute('aria-checked'), label).toBe(String(!defaultValue));
+    }
     f.close();
     f = mount();
-    expect(toggle().getAttribute('aria-checked')).toBe(String(!defaultValue));
+    for (const [label, key, defaultValue] of toggles) {
+      expect(toggle(label).getAttribute('aria-checked'), label).toBe(String(!defaultValue));
+      act(() => toggle(label).click());
+      f.render();
+      expect(fixture.settings[key], label).toBe(defaultValue);
+      expect(toggle(label).getAttribute('aria-checked'), label).toBe(String(defaultValue));
+    }
+  } finally {
+    f.close();
+  }
+});
+
+it('每个消息开关保存失败均保留原值并提示，保存期间不能重复点击', () => {
+  const f = mount();
+  try {
     fixture.failed = true;
-    act(() => toggle().click());
-    expect(toggle().getAttribute('aria-checked')).toBe(String(!defaultValue));
-    expect(f.host.querySelector('[role="alert"]')?.textContent).toBe('保存失败');
+    for (const [label, key, defaultValue] of toggles) {
+      const toggle = f.host.querySelector<HTMLButtonElement>(
+        `[role="switch"][aria-label="${label}"]`,
+      )!;
+      vi.clearAllMocks();
+      expect(f.host.querySelector('[role="alert"]'), label).toBeNull();
+      act(() => toggle.click());
+      expect(fixture.save, label).toHaveBeenCalledOnce();
+      expect(fixture.save, label).toHaveBeenCalledWith(
+        { enabled: !defaultValue },
+        expect.any(Object),
+      );
+      expect(fixture.settingKey, label).toBe(key);
+      expect(toggle.getAttribute('aria-checked'), label).toBe(String(defaultValue));
+      expect(
+        [...f.host.querySelectorAll('[role="alert"]')].some(
+          (node) => node.textContent === '保存失败',
+        ),
+        label,
+      ).toBe(true);
+      expect(fixture.invalidate, label).not.toHaveBeenCalled();
+      fixture.failed = false;
+      act(() => toggle.click());
+      f.render();
+      expect(f.host.querySelector('[role="alert"]'), label).toBeNull();
+      expect(fixture.settings[key], label).toBe(!defaultValue);
+      fixture.failed = true;
+    }
     fixture.loading = true;
     f.render();
-    expect(toggle().disabled).toBe(true);
+    vi.clearAllMocks();
+    for (const [label] of toggles) {
+      const toggle = f.host.querySelector<HTMLButtonElement>(
+        `[role="switch"][aria-label="${label}"]`,
+      )!;
+      expect(toggle.disabled, label).toBe(true);
+      act(() => toggle.click());
+    }
+    expect(fixture.save).not.toHaveBeenCalled();
   } finally {
     f.close();
   }

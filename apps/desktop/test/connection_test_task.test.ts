@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, expect, it, vi } from 'vitest';
 import { useToast } from '../src/renderer/src/components/Toast';
 import {
