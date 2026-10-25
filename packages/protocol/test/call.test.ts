@@ -13,6 +13,8 @@ import {
   buildGcsAck,
   buildGcsAuth,
   buildGcsLogout,
+  buildVideoParamPush,
+  buildVideoStreamPush,
   buildQfbRequest,
   buildRelayGetIn,
   buildStatusReport,
@@ -329,6 +331,78 @@ describe('质量反馈', () => {
     const parsed = parseQfb(late.subarray(AUDIO_HEADER_LEN))!;
     expect(parsed.qfbSeq).toBe(6);
     expect(parsed.type).toBe(1);
+  });
+});
+
+// ─────────────── 视频参数公告（bt=77） ───────────────
+
+describe('视频参数公告', () => {
+  /**
+   * 黄金样本来自 2026-10-26 QQ 本体抓包（docs/develop/call-captures 的
+   * `20261026-qqnative-voice-then-video-both.pcap`）：
+   * 对端在 GCS 上推的 52 字节 body，分辨率 640×480、15 fps、5120 kbps。
+   */
+  const REAL_PARAM_BODY = Uint8Array.from(
+    Buffer.from('122510a2021801221e080f100118800520e0032880283000', 'hex'),
+  );
+
+  it('逐字节还原真实抓包的 52 字节 body', () => {
+    const packet = buildVideoParamPush({
+      roomId: 1n,
+      selfUin: 10001,
+      sessionTs: 1,
+      typeId: 1,
+      width: 640,
+      height: 480,
+      fps: 15,
+      bitrateKbps: 5120,
+    });
+    const parsed = parseGcsPacket(packet)!;
+    expect(parsed.bodyType).toBe(GcsBodyType.videoParamPush);
+    expect([...parsed.body]).toEqual([...REAL_PARAM_BODY]);
+  });
+
+  it('分辨率 / 码率跟着参数走（对端按它准备解码）', () => {
+    const build = (width: number, height: number, fps: number, bitrateKbps: number) => {
+      const packet = buildVideoParamPush({
+        roomId: 1n,
+        selfUin: 1,
+        sessionTs: 1,
+        typeId: 1,
+        width,
+        height,
+        fps,
+        bitrateKbps,
+      });
+      return parseGcsPacket(packet)!.body;
+    };
+    const a = build(640, 480, 15, 5120);
+    const b = build(480, 270, 10, 400);
+    expect([...a]).not.toEqual([...b]);
+    // 480 / 270 的 varint 分别是 0xe0 0x03 / 0x8e 0x02，必须出现在 body 里。
+    expect([...b]).toContain(0x8e);
+  });
+
+  /**
+   * 13 字节形态：流索引递增。抓包里 f3 依次是 0/1/2/3/4/5，f7 恒定。
+   */
+  it('流索引形态逐字节还原真实抓包', () => {
+    const expected = [
+      '18003a090801109183bd032001',
+      '18013a090801109183bd032001',
+      '18023a090801109183bd032001',
+    ];
+    for (let i = 0; i < expected.length; i++) {
+      const packet = buildVideoStreamPush({
+        roomId: 1n,
+        selfUin: 1,
+        sessionTs: 1,
+        typeId: 1,
+        streamIndex: i,
+      });
+      const parsed = parseGcsPacket(packet)!;
+      expect(Buffer.from(parsed.body).toString('hex')).toBe(expected[i]);
+    }
   });
 });
 

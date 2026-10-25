@@ -155,7 +155,15 @@ export class NativeVideoEncoder implements CallVideoEncoder {
   }
 
   info(): VideoStreamInfo {
-    return { width: this.width, height: this.height, profile: 1, codec: 'hevc' };
+    return {
+      width: this.width,
+      height: this.height,
+      profile: 1,
+      codec: 'hevc',
+      // `bt=77` 视频参数公告要用：对端按这里声明的规格准备解码。
+      fps: this.fps,
+      bitrateKbps: this.bitrateKbps,
+    };
   }
 
   close(): void {

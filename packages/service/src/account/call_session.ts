@@ -48,6 +48,7 @@ import {
   buildStatusReport,
   buildVideoControl,
   buildVideoKeepalive,
+  buildVideoParamPush,
   buildVideoPackets,
   buildVideoSubHeader,
   extractHevc,
@@ -139,6 +140,10 @@ export interface VideoStreamInfo {
   profile: number;
   /** 编码格式，目前只认 hevc。 */
   codec: 'hevc';
+  /** 编码帧率；缺省按 {@link DEFAULT_VIDEO_FPS}。 */
+  fps?: number;
+  /** 目标码率（kbps）；缺省按 {@link DEFAULT_VIDEO_BITRATE_KBPS}。 */
+  bitrateKbps?: number;
 }
 
 // ─────────────────────────── 依赖注入 ───────────────────────────
@@ -287,6 +292,17 @@ const LOGOUT_REPEATS = 5;
 const FEC_GROUP = 4;
 /** 视频保活周期（实测 2 秒）。 */
 const VIDEO_KEEPALIVE_MS = 2000;
+/**
+ * 视频参数公告（`bt=77`）的重发周期。
+ *
+ * 实测真实客户端每 2 秒重发一次 52 字节那条；它同时也是「本端还在发视频」的
+ * 房间级心跳，停发会被对端当成关摄像头。
+ */
+const VIDEO_PARAM_PUSH_MS = 2000;
+/** 编码帧率缺省值（与 t265 默认配置一致）。 */
+const DEFAULT_VIDEO_FPS = 15;
+/** 编码码率缺省值（kbps）。 */
+const DEFAULT_VIDEO_BITRATE_KBPS = 400;
 /** 同一拍里第二条保活包相对第一条的延迟（实测 40–90 ms）。 */
 const VIDEO_KEEPALIVE_SECOND_MS = 60;
 /** 视频发送轮询间隔：比最慢的帧间隔（10 fps）小一个量级。 */
@@ -542,6 +558,8 @@ export class CallSession {
   private mediaBaseTick = 0;
   /** 视频保活定时器。 */
   private videoKeepaliveTimer: unknown = null;
+  /** `bt=77` 视频参数公告的重发定时器。 */
+  private videoParamTimer: unknown = null;
   /** 视频发送循环定时器。 */
   private videoTimer: unknown = null;
   /** 视频接收看门狗。 */
@@ -654,8 +672,11 @@ export class CallSession {
       this.videoFrameIndex = 0;
       this.startVideoLoop();
       this.startVideoKeepalive();
+      // GCS 上的视频参数公告：不发这条，对端不知道本端开了摄像头。
+      this.startVideoParamPush();
     } else {
       this.stopVideoLoop();
+      this.stopVideoParamPush();
     }
     this.log?.info('摄像头状态', { enabled });
     this.emit();
@@ -1319,6 +1340,7 @@ export class CallSession {
       this.videoFrameIndex = 0;
       this.startVideoLoop();
       this.startVideoKeepalive();
+      this.startVideoParamPush();
       this.log?.info('视频通话接通，自动开启摄像头');
     }
     this.emit();
@@ -1503,6 +1525,37 @@ export class CallSession {
   }
 
   /**
+   * 在 GCS 上公告本端视频参数（`bt=77`）。
+   *
+   * **这条不能省。** 2026-10-26 QQ 本体抓包实测：对端开始发视频后会在 GCS 上
+   * 推 52 字节的视频参数，之后每 2 秒重发一次；本端开摄像头时同样会推。
+   * 只发 `subType=4` 控制包而不发这条，对端就不知道本端开了摄像头 —— WeQ 早先
+   * 正是漏了它（表现为「我开了摄像头，手机和电脑都看不到」）。
+   *
+   * 参数必须与编码器一致：对端按这里声明的分辨率 / 码率准备解码。
+   */
+  private sendVideoParamPush(): void {
+    if (!this.room) return;
+    const info = this.videoEncoder?.info();
+    const width = info?.width ?? 640;
+    const height = info?.height ?? 360;
+    const fps = info?.fps ?? DEFAULT_VIDEO_FPS;
+    const bitrateKbps = info?.bitrateKbps ?? DEFAULT_VIDEO_BITRATE_KBPS;
+    const packet = buildVideoParamPush({
+      roomId: this.room.roomId,
+      selfUin: Number(this.opts.selfUin),
+      sessionTs: this.sessionTs,
+      typeId: this.nextTypeId(),
+      width,
+      height,
+      fps,
+      bitrateKbps,
+    });
+    this.send(packet);
+    this.log?.info('公告视频参数', { width, height, fps, bitrateKbps });
+  }
+
+  /**
    * 媒体路径看门狗。
    *
    * 直连模式下如果对端不再回包（地址学错、P2P 被网络掐断……），继续只发直连
@@ -1588,6 +1641,27 @@ export class CallSession {
     if (this.videoKeepaliveTimer === null) return;
     this.timers.clearInterval(this.videoKeepaliveTimer);
     this.videoKeepaliveTimer = null;
+  }
+
+  /**
+   * 视频参数公告循环：立刻发一次，之后每 2 秒重发。
+   *
+   * 与 {@link startVideoKeepalive}（`0x5b subType=5`，走媒体路径）不同，这条走
+   * **GCS 控制面** —— 它是房间级公告，对端据此才知道本端开了摄像头。
+   */
+  private startVideoParamPush(): void {
+    if (this.videoParamTimer !== null) return;
+    this.sendVideoParamPush();
+    this.videoParamTimer = this.timers.setInterval(
+      () => this.sendVideoParamPush(),
+      VIDEO_PARAM_PUSH_MS,
+    );
+  }
+
+  private stopVideoParamPush(): void {
+    if (this.videoParamTimer === null) return;
+    this.timers.clearInterval(this.videoParamTimer);
+    this.videoParamTimer = null;
   }
 
   /**
@@ -1837,6 +1911,7 @@ export class CallSession {
       [this.connectTimer, 'clearTimeout'],
       [this.gcsRetryTimer, 'clearTimeout'],
       [this.videoKeepaliveTimer, 'clearInterval'],
+      [this.videoParamTimer, 'clearInterval'],
       [this.videoTimer, 'clearTimeout'],
       [this.videoWatchdogTimer, 'clearInterval'],
       [this.mediaWatchdogTimer, 'clearInterval'],
@@ -1853,6 +1928,7 @@ export class CallSession {
     this.connectTimer = null;
     this.gcsRetryTimer = null;
     this.videoKeepaliveTimer = null;
+    this.videoParamTimer = null;
     this.videoTimer = null;
     this.videoWatchdogTimer = null;
     this.mediaWatchdogTimer = null;

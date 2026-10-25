@@ -23,6 +23,7 @@ import {
   AUDIO_HEADER_LEN,
   AUDIO_STX,
   CallEvent,
+  GCS_STX,
   GcsBodyType,
   VIDEO_CTRL_SUB_TYPE,
   VIDEO_EXT_LEN,
@@ -33,6 +34,7 @@ import {
   buildGcsPacket,
   buildVideoControl,
   buildVideoKeepalive,
+  parseGcsPacket,
   parseVideoPacket,
   pbBytes,
   pbVarint,
@@ -514,6 +516,61 @@ describe('发送视频', () => {
     const ctx = makeSession();
     await connect(ctx);
     expect(ctx.session.snapshot().videoSending).toBe(false);
+  });
+
+  /**
+   * 回归：开摄像头必须在 GCS 上公告视频参数（`bt=77`）。
+   *
+   * 2026-10-26 QQ 本体抓包实测：对端开始发视频后会在 GCS 推 24 字节的视频参数，
+   * 之后每 2 秒重发。只发 `subType=4` 控制包而不发这条时，对端不知道本端开了
+   * 摄像头 —— 这正是「WeQ 开摄像头，手机和电脑都看不到」的成因。
+   */
+  it('视频通话接通时公告视频参数（bt=77），规格与编码器一致', async () => {
+    const encoder = new FakeVideoEncoder(1);
+    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
+    await connect(ctx);
+
+    const pushes = ctx.transport.sent
+      .filter((s) => s.data[0] === GCS_STX)
+      .map((s) => parseGcsPacket(s.data))
+      .filter((p) => p?.bodyType === GcsBodyType.videoParamPush);
+    expect(pushes.length).toBeGreaterThan(0);
+    // FakeVideoEncoder 声明 640×360 / 15 fps / 400 kbps：
+    //   宽 640 = 80 05，高 360 = e8 02，码率 400 = 90 03。
+    expect([...pushes[0]!.body]).toEqual([
+      0x12, 0x25, 0x10, 0xa2, 0x02, 0x18, 0x01, 0x22, 0x1e, 0x08, 0x0f, 0x10, 0x01, 0x18, 0x80,
+      0x05, 0x20, 0xe8, 0x02, 0x28, 0x90, 0x03, 0x30, 0x00,
+    ]);
+  });
+
+  it('公告每 2 秒重发一次（对端据此判断本端还在发视频）', async () => {
+    const encoder = new FakeVideoEncoder(1);
+    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
+    await connect(ctx);
+    const count = () =>
+      ctx.transport.sent.filter(
+        (s) =>
+          s.data[0] === GCS_STX && parseGcsPacket(s.data)?.bodyType === GcsBodyType.videoParamPush,
+      ).length;
+    const first = count();
+    await ctx.timers.advanceAsync(2100);
+    expect(count()).toBeGreaterThan(first);
+  });
+
+  it('关摄像头后停止公告视频参数', async () => {
+    const encoder = new FakeVideoEncoder(1);
+    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
+    await connect(ctx);
+    ctx.session.setCamera(false);
+    ctx.transport.reset();
+
+    await ctx.timers.advanceAsync(5000);
+
+    const pushes = ctx.transport.sent.filter(
+      (s) =>
+        s.data[0] === GCS_STX && parseGcsPacket(s.data)?.bodyType === GcsBodyType.videoParamPush,
+    );
+    expect(pushes).toHaveLength(0);
   });
 
   it('快照里 videoSending 跟着切换', async () => {

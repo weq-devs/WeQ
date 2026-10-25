@@ -202,6 +202,11 @@ export const GcsBodyType = {
   peerJoinAck: 28,
   mediaCtrlPush: 75,
   mediaCtrlAck: 76,
+  /**
+   * 视频流参数推送。两种 body 形态：52 字节（分辨率 / 码率）与 13 字节（流索引）。
+   * 见 {@link buildVideoParamPush} / {@link buildVideoStreamPush}。
+   */
+  videoParamPush: 77,
   logout: 1003,
 } as const;
 
@@ -384,6 +389,109 @@ export function buildGcsLogout(params: {
     bodyType: GcsBodyType.logout,
   });
   return buildGcsPacket(head, pbVarint(1, params.reason ?? 2));
+}
+
+/**
+ * 视频流参数推送（bt=77，24 字节 body 形态）。
+ *
+ * 实测（2026-10-26 QQ 本体抓包）：本机开始发视频后约 3 秒，对端会在 GCS 上推
+ * 这条，之后每 2 秒重发一次。它是「本端要发视频 / 视频参数是什么」的**房间级
+ * 公告** —— 只发 `subType=4` 控制包、不发这条时，对端不知道本端开了摄像头
+ * （WeQ 早先就是漏了它）。
+ *
+ * 载荷结构（逐字节还原，总长 24 字节）：
+ *
+ * ```text
+ * 12 25                  f2，声明长度 37
+ *   10 a2 02             .f2 = 290
+ *   18 01                .f3 = 1
+ *   22 1e                .f4，声明长度 30
+ *     08 0f              ..f1 = 15    fps
+ *     10 01              ..f2 = 1
+ *     18 80 05           ..f3 = 640   宽
+ *     20 e0 03           ..f4 = 480   高
+ *     28 80 28           ..f5 = 5120  码率 kbps
+ *     30 00              ..f6 = 0
+ * ```
+ *
+ * ⚠️ 两个声明长度（37 / 30）都比实际内容（22 / 15）大 15 —— 真实客户端就是这么
+ * 发的，服务端与对端都不按这两个长度切字段。**照抄实测值**，别"修正"成实际长度：
+ * 那样会偏离黄金样本，也就失去了「和真实客户端逐字节一致」的验证手段。
+ *
+ * `f2=290` 与 `f3=1` 的语义未还原，同样照抄。分辨率 / 码率必须与本端编码器
+ * 一致，否则对端按错误的规格准备解码。
+ */
+export function buildVideoParamPush(params: {
+  roomId: bigint;
+  selfUin: number;
+  sessionTs: number;
+  typeId: number;
+  width: number;
+  height: number;
+  fps: number;
+  /** 码率（kbps）。 */
+  bitrateKbps: number;
+}): Uint8Array {
+  const head = buildGcsHead({
+    roomId: params.roomId,
+    selfUin: params.selfUin,
+    sessionTs: params.sessionTs,
+    typeId: params.typeId,
+    bodyType: GcsBodyType.videoParamPush,
+  });
+  const videoParams = concat([
+    pbVarint(1, params.fps),
+    pbVarint(2, 1),
+    pbVarint(3, params.width),
+    pbVarint(4, params.height),
+    pbVarint(5, params.bitrateKbps),
+    pbVarint(6, 0),
+  ]);
+  // f4 的声明长度固定写 30（实际 15），与真实客户端一致，见上方说明。
+  const inner = concat([
+    pbVarint(2, 290),
+    pbVarint(3, 1),
+    tag(4, 2),
+    encodeVarint(30),
+    videoParams,
+  ]);
+  // 外层 f2 的声明长度固定写 37（= 22 + 15），同上。
+  const body = concat([tag(2, 2), encodeVarint(37), inner]);
+  return buildGcsPacket(head, body);
+}
+
+/**
+ * 视频流索引推送（bt=77，13 字节形态）。
+ *
+ * ```text
+ * 18 00         f3 = 流索引（0/1/2/3/4/5 递增）
+ * 3a 09         f7 bytes(9)
+ *   08 01       .f1 = 1
+ *   10 91 83 bd 03  .f2 = 7291281
+ *   20 01       .f4 = 1
+ * ```
+ *
+ * 实测在视频开始前/中随流建立推送，`f3` 每次 +1。与 52 字节那条是同一 bt 的
+ * 两种 body 形态，靠 body 长度与字段区分。
+ */
+export function buildVideoStreamPush(params: {
+  roomId: bigint;
+  selfUin: number;
+  sessionTs: number;
+  typeId: number;
+  /** 流索引，从 0 起递增。 */
+  streamIndex: number;
+}): Uint8Array {
+  const head = buildGcsHead({
+    roomId: params.roomId,
+    selfUin: params.selfUin,
+    sessionTs: params.sessionTs,
+    typeId: params.typeId,
+    bodyType: GcsBodyType.videoParamPush,
+  });
+  const streamInfo = concat([pbVarint(1, 1), pbVarint(2, 7291281), pbVarint(4, 1)]);
+  const body = concat([pbVarint(3, params.streamIndex), pbBytes(7, streamInfo)]);
+  return buildGcsPacket(head, body);
 }
 
 /** 房间事件推送（bt=3）里的事件类型。 */
