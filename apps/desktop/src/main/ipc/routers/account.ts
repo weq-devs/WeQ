@@ -4192,11 +4192,17 @@ export const accountRouter = router({
   recalledMessages: procedure
     .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
     .query(async ({ input }): Promise<ChatMsgWire[]> => {
-      const msgs = requireServices().msgs;
+      const services = requireServices();
+      const msgs = services.msgs;
       const rows = await msgs.getRecalledMessages(input.kind, input.conv);
-      return input.kind === 'group'
-        ? (rows as RenderGroupMsg[]).map(groupMsgToWire)
-        : (rows as RenderC2cMsg[]).map(c2cMsgToWire);
+      const wire =
+        input.kind === 'group'
+          ? (rows as RenderGroupMsg[]).map(groupMsgToWire)
+          : (rows as RenderC2cMsg[]).map(c2cMsgToWire);
+      const cached = await services.gapHistory.cachedRecalls(input.kind, input.conv);
+      return mergeRoamingTimeline(input.kind, wire, cached.map(roamingMsgToWire)).sort(
+        (a, b) => (b.recall?.recallTs ?? 0) - (a.recall?.recallTs ?? 0),
+      );
     }),
 
   /**
@@ -4502,7 +4508,7 @@ export const accountRouter = router({
    * 撤回一条消息（SsoGroupRecallMsg / SsoC2CRecallMsg）。
    *
    * 权限（2 分钟窗口 / 群主管理员越级）由服务端判定，这里只要求在线已注入的 QQ。
-   * **不做任何本地写库** —— 防撤回触发器等 QQ 同步回来自证，前端只看 toast。
+   * 不修改 QQ 原库；受保护的 WeQ 发送缓存等服务端确认成功后单独保留原文。
    */
   recallMessage: procedure
     .input(
@@ -4523,14 +4529,39 @@ export const accountRouter = router({
         input.expectedAccountConfigId,
       );
       requireQqOnlineForAlbum(services);
-      await services.groupModeration.recallMessage({
+      const params = {
         kind: input.kind,
         conv: input.conv,
         sequence: input.sequence,
         ...(input.random !== undefined ? { random: input.random } : {}),
         ...(input.timestamp !== undefined ? { timestamp: input.timestamp } : {}),
         ...(input.clientSequence !== undefined ? { clientSequence: input.clientSequence } : {}),
-      });
+      };
+      const session = getAppContext().account;
+      const send = () => {
+        if (getAppContext().services !== services || getAppContext().account !== session) {
+          throw new Error('账号或数据源已切换，已停止撤回');
+        }
+        return services.groupModeration.recallMessage(params);
+      };
+      if (services.antiRecall.protects(input.kind, input.conv)) {
+        const recalled = await services.gapHistory.withSelfRecallProtection(params, send);
+        if (
+          recalled &&
+          session &&
+          getAppContext().services === services &&
+          getAppContext().account === session
+        ) {
+          dbEventBus.emit('roaming', {
+            session,
+            kind: input.kind,
+            conv: input.conv,
+            messages: [recalled],
+          } satisfies RoamingCacheChange);
+        }
+      } else {
+        await send();
+      }
       return { ok: true };
     }),
 

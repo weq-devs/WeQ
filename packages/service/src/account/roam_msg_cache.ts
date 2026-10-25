@@ -95,6 +95,11 @@ function combineCache(
 ): GapFetchedMessage[] {
   const key = (row: GapFetchedMessage) =>
     `${row.msgSeq}:${row.msgRandom || row.msgId}:${row.senderUid}:${row.sendTime}`;
+  const protectedRows = protocol.filter((row) => row.localSent && row.recall);
+  const protectedKeys = new Set(protectedRows.map(key));
+  legacy = legacy.filter((row) => !protectedKeys.has(key(row)));
+  native = native.filter((row) => !protectedKeys.has(key(row)));
+  protocol = protocol.filter((row) => !protectedKeys.has(key(row)));
   const nativeExact = new Set(
     native.filter((row) => row.msgRandom && row.msgRandom !== '0').map(key),
   );
@@ -110,6 +115,7 @@ function combineCache(
     enriched.filter((row) => !row.localSent && row.msgRandom && row.msgRandom !== '0').map(key),
   );
   return [
+    ...protectedRows,
     ...legacy.filter((row) => !exact.has(key(row))),
     ...enriched.filter((row) => !row.localSent || !remoteKeys.has(key(row))),
   ];
@@ -148,6 +154,25 @@ export class RoamMsgCacheDb {
          SELECT kind,conv,MAX(msg_seq) FROM ${PROTOCOL_TABLE} WHERE ${eligible} GROUP BY kind,conv
        )`,
       null,
+    );
+    return rows.map((row) => parseJson<GapFetchedMessage>(String(row[0])));
+  }
+
+  /** 独立读取发送快照，不能被同身份的空漫游观察遮住。 */
+  async sentMessages(
+    kind?: 'c2c' | 'group',
+    conv?: string,
+    seq?: number,
+    recalledOnly = false,
+  ): Promise<GapFetchedMessage[]> {
+    await this.ensureSchema();
+    const rows = await this.nt.executeSql(
+      this.dbPath,
+      `SELECT payload FROM ${PROTOCOL_TABLE} WHERE json_extract(payload,'$.localSent')=1
+       AND (kind='group' OR nt_seq_verified=1)
+       ${recalledOnly ? "AND json_type(payload,'$.recall')='object'" : ''}
+       ${kind ? 'AND kind=?' : ''} ${conv ? 'AND conv=?' : ''} ${seq !== undefined ? 'AND msg_seq=?' : ''}`,
+      [...(kind ? [kind] : []), ...(conv ? [conv] : []), ...(seq !== undefined ? [seq] : [])],
     );
     return rows.map((row) => parseJson<GapFetchedMessage>(String(row[0])));
   }
@@ -420,8 +445,11 @@ export class RoamMsgCacheDb {
             );
           await this.nt.executeSqlWrite(
             this.dbPath,
-            `INSERT OR REPLACE INTO ${PROTOCOL_TABLE}(kind,conv,msg_seq,msg_id,nt_seq_verified,payload)
-             VALUES ${batch.map(() => '(?,?,?,?,?,?)').join(',')}`,
+            `INSERT INTO ${PROTOCOL_TABLE}(kind,conv,msg_seq,msg_id,nt_seq_verified,payload)
+             VALUES ${batch.map(() => '(?,?,?,?,?,?)').join(',')}
+             ON CONFLICT(kind,conv,msg_seq,msg_id) DO UPDATE SET
+               nt_seq_verified=excluded.nt_seq_verified, payload=excluded.payload
+             WHERE json_type(${PROTOCOL_TABLE}.payload,'$.recall') IS NULL`,
             params,
           );
         }

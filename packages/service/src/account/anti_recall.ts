@@ -191,6 +191,15 @@ export class AntiRecallService {
     this.configStore.data = next;
   }
 
+  /** 缓存消息与 QQ 原库使用同一份保护范围。 */
+  protects(kind: 'c2c' | 'group', conv: string): boolean {
+    return (
+      this.config.enabled &&
+      (this.config.mode === 'all' ||
+        this.config.targets.some((target) => target.kind === kind && target.id === conv))
+    );
+  }
+
   /** Current config + live trigger state + whether QQ is running. */
   async getStatus(): Promise<AntiRecallStatus> {
     const db = this.openDb();
