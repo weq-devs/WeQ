@@ -20,7 +20,15 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import type { AgentLabModelSelection } from '@weq/agentlab/model-selection';
+import {
+  isDefaultModelSelection,
+  DEFAULT_MODEL_SELECTION_KEY,
+} from '@weq/agentlab/model-selection';
+import { useModelSelectionLabel } from '../../components/settings/useModelSelectionLabel';
 import { useOverlayLayer } from '../../lib/overlayStack';
+import { useOverlayAnchor } from '../../lib/overlayAnchor';
+import '../../styles/assistant-model-selection.css';
 import {
   ArrowLeft,
   Brain,
@@ -145,9 +153,10 @@ function applySteps(turn: Turn, batch: AssistantStep[]): Turn {
   return next;
 }
 
-function parseSel(key: string): { providerId: string; model: string } | undefined {
-  const [providerId, model] = key.split('::');
-  return providerId && model ? { providerId, model } : undefined;
+function parseSel(key: string, models: FlatModels['chat']): AgentLabModelSelection | undefined {
+  if (key === DEFAULT_MODEL_SELECTION_KEY) return { useDefault: true };
+  const option = models.find((model) => model.key === key);
+  return option ? { providerId: option.providerId, model: option.model } : undefined;
 }
 
 /** 下拉里的分组：一个 provider 一组，组内多个模型选项。 */
@@ -206,24 +215,12 @@ function ComposerSelect({
   const layer = useOverlayLayer(open);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState<{ left: number; bottom: number; minWidth: number } | null>(null);
+  const menuLayerRef = useRef<HTMLDivElement | null>(null);
+  const placement = useOverlayAnchor(menuLayerRef, open, open, triggerRef.current, 'above');
 
   const flat = groups.flatMap((g) => g.options);
   const current = flat.find((o) => o.value === value);
   const hasGroups = groups.length > 1 || (groups[0]?.label ?? '') !== '';
-
-  // 打开时按触发器位置把 popover 贴到其正上方；随后点外部 / 滚动 / Esc 关闭。
-  useLayoutEffect(() => {
-    if (!open) return;
-    const el = triggerRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    setPos({
-      left: r.left,
-      bottom: window.innerHeight - r.top + 6,
-      minWidth: r.width,
-    });
-  }, [open]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -261,40 +258,55 @@ function ComposerSelect({
         </span>
         <ChevronDown size={13} className="weq-asst-select-caret" aria-hidden />
       </button>
-      {open && pos
+      {open
         ? createPortal(
             <div
-              ref={popRef}
-              className="weq-asst-select-pop"
-              role="listbox"
-              style={{ left: pos.left, bottom: pos.bottom, minWidth: pos.minWidth, zIndex: layer }}
+              className="weq-assistant-select-layer"
+              ref={menuLayerRef}
+              style={placement.position}
             >
-              {groups.map((g, gi) => (
-                <div key={g.label || `g-${gi}`} className="weq-asst-select-group">
-                  {hasGroups && g.label ? (
-                    <div className="weq-asst-select-group-label">{g.label}</div>
-                  ) : null}
-                  {g.options.map((o) => {
-                    const active = o.value === value;
-                    return (
-                      <button
-                        key={o.value}
-                        type="button"
-                        role="option"
-                        aria-selected={active}
-                        className={`weq-asst-select-opt${active ? ' is-active' : ''}`}
-                        onClick={() => {
-                          onChange(o.value);
-                          setOpen(false);
-                        }}
-                      >
-                        <span className="weq-asst-select-opt-label">{o.label}</span>
-                        {active ? <Check size={14} aria-hidden /> : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
+              <div
+                ref={popRef}
+                className="weq-asst-select-pop"
+                role="listbox"
+                style={{
+                  left: 'var(--weq-popover-left, 8px)',
+                  top: 'var(--weq-popover-top, 8px)',
+                  minWidth: Math.min(
+                    triggerRef.current?.offsetWidth ?? 0,
+                    Math.max(0, window.innerWidth - 16),
+                  ),
+                  zIndex: layer,
+                }}
+              >
+                {groups.map((g, gi) => (
+                  <div key={g.label || `g-${gi}`} className="weq-asst-select-group">
+                    {hasGroups && g.label ? (
+                      <div className="weq-asst-select-group-label">{g.label}</div>
+                    ) : null}
+                    {g.options.map((o) => {
+                      const active = o.value === value;
+                      return (
+                        <button
+                          key={o.value}
+                          type="button"
+                          role="option"
+                          title={o.label}
+                          aria-selected={active}
+                          className={`weq-asst-select-opt${active ? ' is-active' : ''}`}
+                          onClick={() => {
+                            onChange(o.value);
+                            setOpen(false);
+                          }}
+                        >
+                          <span className="weq-asst-select-opt-label">{o.label}</span>
+                          {active ? <Check size={14} aria-hidden /> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
             </div>,
             document.body,
           )
@@ -558,17 +570,38 @@ export function AssistantPanel({
   useEffect(() => {
     if (!busy) setStopping(false);
   }, [busy]);
-  const modelSel = assistantConfig.data?.model
-    ? `${assistantConfig.data.model.providerId}::${assistantConfig.data.model.model}`
+  const modelLabel = useModelSelectionLabel();
+  const modelRef = assistantConfig.data?.model;
+  const inheritedModel = isDefaultModelSelection(modelRef);
+  const currentModel =
+    modelRef && !isDefaultModelSelection(modelRef)
+      ? chatModels.find(
+          (model) => model.providerId === modelRef.providerId && model.model === modelRef.model,
+        )
+      : undefined;
+  const modelSel = modelRef
+    ? inheritedModel
+      ? DEFAULT_MODEL_SELECTION_KEY
+      : (currentModel?.key ?? JSON.stringify([modelRef.providerId, modelRef.model]))
     : '';
   const effort: EffortValue = assistantConfig.data?.reasoningEffort ?? 'medium';
-  const modelGroups = buildModelGroups(chatModels);
-  const currentModel = chatModels.find((model) => model.key === modelSel);
-  const modelTitle = currentModel?.label ?? assistantConfig.data?.model?.model ?? '未选择模型';
-  const modelName =
-    currentModel?.label.split(' · ').slice(1).join(' · ') ||
-    assistantConfig.data?.model?.model ||
-    '未选择模型';
+  const modelGroups = [
+    {
+      label: '',
+      options: [{ value: DEFAULT_MODEL_SELECTION_KEY, label: modelLabel({ useDefault: true }) }],
+    },
+    ...buildModelGroups(chatModels),
+    ...(modelRef && !inheritedModel && !currentModel
+      ? [
+          {
+            label: '已保存',
+            options: [{ value: modelSel, label: `已保存但不可用：${modelLabel(modelRef)}` }],
+          },
+        ]
+      : []),
+  ];
+  const modelTitle = currentModel?.label ?? modelLabel(modelRef);
+  const modelName = currentModel?.label.split(' · ').slice(1).join(' · ') || modelLabel(modelRef);
 
   /** 让当前会话的持久化对话缓存失效（会话 id 走 ref，草稿升级后仍指向真会话）。 */
   function invalidateConversation(): void {
@@ -586,7 +619,7 @@ export function AssistantPanel({
   async function onQuickConfig(patch: { modelKey?: string; effort?: EffortValue }): Promise<void> {
     try {
       await saveConfig.mutateAsync({
-        ...(patch.modelKey !== undefined ? { model: parseSel(patch.modelKey) } : {}),
+        ...(patch.modelKey !== undefined ? { model: parseSel(patch.modelKey, chatModels) } : {}),
         ...(patch.effort !== undefined ? { reasoningEffort: patch.effort } : {}),
       });
       await utils.account.getAssistantConfig.invalidate();

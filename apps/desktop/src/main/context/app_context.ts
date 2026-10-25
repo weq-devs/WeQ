@@ -1401,8 +1401,11 @@ export function initAppContext(fileRoot?: string): AppContext {
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
       const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
       const conversations = new ConversationStore(join(agentlabRoot, 'conversations.json'));
-      const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) => ({
-        ...bootstrap.agentLabConfig.resolveEndpoint(ref),
+      const resolveAgentEndpoint = (
+        ref: import('@weq/agentlab').AgentLabModelSelection,
+        capability?: import('@weq/agentlab').AgentLabModelCapability,
+      ) => ({
+        ...bootstrap.agentLabConfig.resolveEndpoint(ref, capability),
         onUsage: (u: import('@weq/agentlab').AgentLabUsage) =>
           tokenUsage.record({
             ...u,
@@ -2277,8 +2280,11 @@ export function initAppContext(fileRoot?: string): AppContext {
       const agentlabRoot = userConfig.cacheDir(join('agentlab', exportConfigId));
       const tokenUsage = new TokenUsageStore(join(agentlabRoot, 'usage.json'));
       const conversations = new ConversationStore(join(agentlabRoot, 'conversations.json'));
-      const resolveAgentEndpoint = (ref: import('@weq/agentlab').AgentLabModelRef) => ({
-        ...bootstrap.agentLabConfig.resolveEndpoint(ref),
+      const resolveAgentEndpoint = (
+        ref: import('@weq/agentlab').AgentLabModelSelection,
+        capability?: import('@weq/agentlab').AgentLabModelCapability,
+      ) => ({
+        ...bootstrap.agentLabConfig.resolveEndpoint(ref, capability),
         onUsage: (u: import('@weq/agentlab').AgentLabUsage) =>
           tokenUsage.record({
             ...u,

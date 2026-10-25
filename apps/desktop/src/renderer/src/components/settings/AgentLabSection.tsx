@@ -336,6 +336,7 @@ export function AgentLabSection(): ReactElement {
       setOpen(true);
       await utils.bootstrap.listAgentLabProviders.invalidate();
       await utils.bootstrap.getAgentLabDefaultModel.invalidate();
+      await utils.account.intentSense.getStatus.invalidate();
       dialog.success('已保存', `provider「${form.name.trim() || id}」配置已更新`);
     } catch (error) {
       dialog.error('保存 provider 失败', error instanceof Error ? error.message : String(error));
@@ -390,6 +391,7 @@ export function AgentLabSection(): ReactElement {
       setOpen(false);
       await utils.bootstrap.listAgentLabProviders.invalidate();
       await utils.bootstrap.getAgentLabDefaultModel.invalidate();
+      await utils.account.intentSense.getStatus.invalidate();
       dialog.success('已删除', `provider「${removed}」已移除`);
     } catch (error) {
       dialog.error('删除 provider 失败', error instanceof Error ? error.message : String(error));

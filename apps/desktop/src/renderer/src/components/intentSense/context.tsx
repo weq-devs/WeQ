@@ -21,6 +21,7 @@ import {
   type ReactNode,
 } from 'react';
 import { trpc, client } from '../../trpc/client';
+import { modelSelectionKey } from '@weq/agentlab/model-selection';
 
 /** 与后端 IntentSenseResult 对齐（superjson 直传的形状）。 */
 export interface IntentAnalysis {
@@ -141,7 +142,7 @@ export function IntentSenseProvider({
     [bump],
   );
 
-  const engineKey = `${statusData?.engine ?? ''}::${statusData?.providerRef?.providerId ?? ''}::${statusData?.providerRef?.model ?? ''}::${statusData?.analysisContextMessages ?? ''}::${statusData?.analysisRevision ?? 0}::${statusData?.analyzeAfterSelf !== false}`;
+  const engineKey = `${statusData?.engine ?? ''}::${modelSelectionKey(statusData?.providerRef)}::${statusData?.analysisContextMessages ?? ''}::${statusData?.analysisRevision ?? 0}::${statusData?.analyzeAfterSelf !== false}`;
   // 会话切换或引擎切换时同步清空内存态（放在拉取缓存之前，避免清理掉刚拉回的同轮结果）。
   const prevConvKeyRef = useRef(`${kind}:${conv}:${engineKey}`);
   if (prevConvKeyRef.current !== `${kind}:${conv}:${engineKey}`) {

@@ -12,6 +12,8 @@
  */
 
 import { z } from 'zod';
+import { assertEmbeddingModelIdentity } from '@weq/agentlab';
+import { agentLabModelSelectionSchema } from '../../../shared/agentlab_model_selection';
 import {
   SEARCH_CATEGORIES,
   saveExportOutput,
@@ -322,7 +324,7 @@ async function sampleHomeChatLines(
   return pool.slice(0, limit);
 }
 
-const agentLabModelRef = z.object({ providerId: z.string().min(1), model: z.string().min(1) });
+const agentLabModelRef = agentLabModelSelectionSchema;
 const cloneQuantity = (key: CloneGenerationKey) =>
   z.number().int().min(CLONE_GENERATION[key].min).max(CLONE_GENERATION[key].max).optional();
 const agentLabModels = z.object({
@@ -1913,15 +1915,28 @@ export const accountRouter = router({
       const record = svc.getPersonaRecord(input.personaId);
       if (!record) throw new Error('找不到克隆体');
       const { persona } = record;
+      assertEmbeddingModelIdentity(
+        persona,
+        persona.models.embedding
+          ? cfg.resolveEndpoint(persona.models.embedding, 'embedding')
+          : null,
+      );
+
+      // 独立 bot 不读取桌面端全局设置，导出时固定实际模型及其 provider。
+      const models = cfg.resolveModels(persona.models);
+      const visionModel = input.visionModel
+        ? cfg.resolveModelRef(input.visionModel, 'vision')
+        : undefined;
 
       // 抽 persona 用到的 LLM providers（chat/embedding/vision，去重）。
       // 导出弹窗显式指定的图像模型也并进来（即使克隆时没用 vision，也能让 bot 具备解析新表情的能力）。
       const llmIds = new Set<string>();
       for (const m of [
-        persona.models.chat,
-        persona.models.embedding,
-        persona.models.vision,
-        input.visionModel,
+        models.chat,
+        models.embedding,
+        models.vision,
+        models.voiceClone,
+        visionModel,
       ]) {
         if (m?.providerId) llmIds.add(m.providerId);
       }
@@ -1952,7 +1967,7 @@ export const accountRouter = router({
       const result = await buildBotExport({
         outDir,
         botRuntimeMjs: botMjs,
-        persona,
+        persona: { ...persona, models },
         pairs: record.pairs,
         agentlabRoot: svc.assetRoot,
         llmProviders,
@@ -1965,7 +1980,7 @@ export const accountRouter = router({
           groupReplyMode: input.groupReplyMode ?? 'llm',
         },
         webuiPort: input.webuiPort,
-        visionModel: input.visionModel,
+        visionModel,
       });
       // 记录 id → WebUI 访问信息，导出后在设置页可查密钥 / 一键打开控制台。
       svc.recordExport(input.personaId, {

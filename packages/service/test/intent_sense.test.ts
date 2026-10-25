@@ -84,6 +84,112 @@ describe('IntentSenseService', () => {
     vi.unstubAllGlobals();
   });
 
+  it('默认模型变更使分析缓存失效，重启继续校验身份，空值与显式选择不继承', async () => {
+    let model: string | null = 'first';
+    const fetch = vi.fn(
+      async (_url: unknown, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content:
+                    '{"results":[{"i":0,"intent":"chat","emotion":"neutral","confidence":0.9}]}',
+                },
+              },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const options = {
+      resolveEndpoint: (ref: import('@weq/agentlab').AgentLabModelSelection) => {
+        const selected = 'useDefault' in ref ? model : ref.model;
+        if (!selected) throw new Error('未设置默认模型');
+        return {
+          baseUrl: 'https://synthetic.invalid',
+          apiKey: 'synthetic',
+          model: selected,
+          modelIdentity: selected,
+        };
+      },
+    };
+    const session = makeSession([textMsg(1n, 'u_peer', '合成消息', 1000)]);
+    const svc = new IntentSenseService(session, dir, options);
+    await svc.setConfig({ enabled: true, providerRef: { useDefault: true } });
+    expect(await svc.analyzeMessage('c2c', 'u_peer', '1')).not.toBeNull();
+    await svc.analyzeMessage('c2c', 'u_peer', '1');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    model = 'second';
+    await svc.analyzeMessage('c2c', 'u_peer', '1');
+    expect(fetch).toHaveBeenCalledTimes(2);
+    model = 'third';
+    const reopened = new IntentSenseService(session, dir, options);
+    expect(reopened.getStatus().providerRef).toEqual({ useDefault: true });
+    await reopened.analyzeMessage('c2c', 'u_peer', '1');
+    expect(fetch).toHaveBeenCalledTimes(3);
+    model = null;
+    expect(reopened.getStatus()).toMatchObject({
+      providerRef: { useDefault: true },
+      apiConfigured: false,
+    });
+    expect(await reopened.analyzeMessage('c2c', 'u_peer', '1')).toBeNull();
+    await reopened.setConfig({ providerRef: null });
+    model = 'fourth';
+    expect(await reopened.analyzeMessage('c2c', 'u_peer', '1')).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(3);
+    await reopened.setConfig({ providerRef: { providerId: 'explicit', model: 'fixed' } });
+    await reopened.analyzeMessage('c2c', 'u_peer', '1');
+    model = 'fifth';
+    await reopened.analyzeMessage('c2c', 'u_peer', '1');
+    expect(fetch).toHaveBeenCalledTimes(4);
+    const body = JSON.parse(String(fetch.mock.calls.at(-1)?.[1]?.body));
+    expect(body.model).toBe('fixed');
+  });
+
+  it('默认模型更换期间迟到的分析不落缓存或发布', async () => {
+    let model = 'first';
+    let finish!: (response: Response) => void;
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const svc = new IntentSenseService(
+      makeSession([textMsg(1n, 'u_peer', '合成消息', 1000)]),
+      dir,
+      {
+        resolveEndpoint: () => ({
+          baseUrl: 'https://synthetic.invalid',
+          apiKey: 'synthetic',
+          model,
+          modelIdentity: model,
+        }),
+      },
+    );
+    await svc.setConfig({ enabled: true, providerRef: { useDefault: true } });
+    const publish = vi.fn();
+    const dispose = svc.onAnalyzed(publish);
+    const running = svc.analyzeMessage('c2c', 'u_peer', '1');
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    model = 'second';
+    finish(
+      new Response(
+        JSON.stringify({
+          choices: [
+            { message: { content: '{"results":[{"i":0,"intent":"chat","emotion":"neutral"}]}' } },
+          ],
+        }),
+      ),
+    );
+    expect(await running).toBeNull();
+    expect(svc.getMessageAnalyses('c2c', 'u_peer', ['1'])).toEqual([]);
+    expect(publish).not.toHaveBeenCalled();
+    dispose();
+  });
+
   it('画像不受意图分析缓存、开关和会话覆盖影响', async () => {
     const svc = new IntentSenseService(
       makeSession([textMsg(1n, 'u_peer', '合成消息', Math.floor(Date.now() / 1000))]),

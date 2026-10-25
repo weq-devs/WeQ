@@ -22,6 +22,43 @@ function fixture() {
   };
 }
 describe('多 provider 持久化与调用隔离', () => {
+  it('显式默认按调用时的全局选择解析，旧显式模型不跟随修改', () => {
+    const f = fixture();
+    f.service.saveProvider({
+      id: 'synthetic',
+      name: '合成服务',
+      vendor: 'custom',
+      baseUrl: 'https://synthetic.invalid/v1',
+      apiKey: 'synthetic-key',
+      models: [
+        { id: 'first', capabilities: ['chat', 'vision', 'embedding'] },
+        { id: 'second', capabilities: ['chat'] },
+      ],
+    });
+    const first = { providerId: 'synthetic', model: 'first' };
+    f.service.setDefaultModel(first);
+    expect(f.service.resolveEndpoint({ useDefault: true }, 'embedding').model).toBe('first');
+    expect(f.service.resolveEndpoint({ useDefault: true }, 'vision').model).toBe('first');
+    const exportSnapshot = f.service.resolveModels({
+      chat: { useDefault: true },
+      embedding: first,
+      vision: { useDefault: true },
+    });
+    expect(exportSnapshot).toEqual({ chat: first, embedding: first, vision: first });
+    f.service.setDefaultModel({ providerId: 'synthetic', model: 'second' });
+    expect(exportSnapshot.chat).toEqual(first);
+    expect(f.service.resolveEndpoint({ useDefault: true }).model).toBe('second');
+    expect(f.service.resolveModelRef({ useDefault: true })).toEqual({
+      providerId: 'synthetic',
+      model: 'second',
+    });
+    expect(f.service.resolveEndpoint(first).model).toBe('first');
+    expect(() => f.service.resolveEndpoint({ useDefault: true }, 'embedding')).toThrow('支持');
+    expect(() => f.service.resolveEndpoint({ useDefault: true }, 'vision')).toThrow('支持');
+    f.service.setDefaultModel(null);
+    expect(() => f.service.resolveEndpoint({ useDefault: true })).toThrow('未设置默认模型');
+    expect(f.service.resolveEndpoint(first).model).toBe('first');
+  });
   it('默认模型显式保存，跨重启和 provider 编辑保留；清空不自动选择其他模型', () => {
     const f = fixture();
     expect(f.service.getDefaultModelStatus()).toEqual({ ref: null, available: false, error: null });

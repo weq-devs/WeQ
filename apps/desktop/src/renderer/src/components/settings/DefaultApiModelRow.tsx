@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import type { AgentLabModelRef } from '@weq/agentlab';
+import type { AgentLabModelRef } from '@weq/agentlab/model-selection';
+import { isDefaultModelSelection } from '@weq/agentlab/model-selection';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { ApiModelSelect } from './ApiModelSelect';
@@ -23,6 +24,7 @@ export function DefaultApiModelRow() {
       const next = await save.mutateAsync({ ref });
       utils.bootstrap.getAgentLabDefaultModel.setData(undefined, next);
       await utils.bootstrap.getSettings.invalidate();
+      await utils.account.intentSense.getStatus.invalidate();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '默认模型保存失败');
     }
@@ -39,7 +41,9 @@ export function DefaultApiModelRow() {
             value={status.data?.ref ?? null}
             emptyLabel="未设置默认模型"
             disabled={!status.data || !!status.error || save.isLoading}
-            onChange={(ref) => void onChange(ref)}
+            onChange={(ref) => {
+              if (!isDefaultModelSelection(ref)) void onChange(ref);
+            }}
           />
         }
       />

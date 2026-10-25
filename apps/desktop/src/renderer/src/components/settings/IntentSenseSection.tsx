@@ -6,6 +6,7 @@
  */
 
 import { useState, type ReactElement } from 'react';
+import type { AgentLabModelSelection } from '@weq/agentlab';
 import { BrainCircuit, RotateCcw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
@@ -20,8 +21,8 @@ import '../../styles/model-settings.css';
 interface StatusWire {
   enabled: boolean;
   engine: 'api' | 'local';
-  providerRef: { providerId: string; model: string } | null;
-  suggestionProviderRef: { providerId: string; model: string } | null;
+  providerRef: AgentLabModelSelection | null;
+  suggestionProviderRef: AgentLabModelSelection | null;
   suggestionApiConfigured: boolean;
   lastSuggestionApiError?: string | null;
   suggestionsEnabled: boolean;
@@ -129,6 +130,7 @@ export function IntentSenseSection({
             desc={`分析时会将消息文本发送至所选服务商。${s.lastApiError ? ` 最近调用失败：${s.lastApiError}` : ''}`}
             control={
               <ApiModelSelect
+                allowDefault
                 label="意图感知 API 模型"
                 value={s.providerRef}
                 disabled={setConfig.isLoading}
@@ -184,6 +186,7 @@ export function IntentSenseSection({
             desc={`生成时会将消息和所选上文发送至该服务商；不可用时仅提供规则候选。${s?.lastSuggestionApiError ? ` 最近调用失败：${s.lastSuggestionApiError}` : ''}`}
             control={
               <ApiModelSelect
+                allowDefault
                 label="推荐回复 API 模型"
                 value={s?.suggestionProviderRef ?? null}
                 disabled={status.isLoading || setConfig.isLoading}

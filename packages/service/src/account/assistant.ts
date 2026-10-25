@@ -29,14 +29,18 @@ import {
   apiErrorMessage,
   pickMessageText,
   type AgentLabEndpoint,
-  type AgentLabModelRef,
+  type AgentLabModelSelection,
+  normalizeModelSelection,
   type AgentLabUsage,
 } from '@weq/agentlab';
 import type { TokenUsageStore } from './agentlab_usage';
 import type { ConversationStore, ConversationTurn } from './agentlab_conversation';
 import { JsonStore } from '../common/json_store';
 
-export type EndpointResolver = (ref: AgentLabModelRef) => AgentLabEndpoint;
+export type EndpointResolver = (
+  ref: AgentLabModelSelection,
+  capability?: 'chat' | 'embedding' | 'vision',
+) => AgentLabEndpoint;
 
 /** OpenAI function 规格（由应用层从 AI_TOOLS / 外部 MCP 转换后注入）。 */
 export interface AssistantToolSpec {
@@ -62,7 +66,7 @@ export interface AssistantTools {
 export type AssistantReasoningEffort = 'off' | 'low' | 'medium' | 'high';
 
 export interface AssistantConfig {
-  model?: AgentLabModelRef;
+  model?: AgentLabModelSelection;
   customPrompt?: string;
   /** 思考等级（见 {@link AssistantReasoningEffort}）：非 `off` 时以 `reasoning_effort` 传给模型。 */
   reasoningEffort?: AssistantReasoningEffort;
@@ -417,8 +421,8 @@ export class AssistantService {
   private set sessions(next: AssistantSession[]) {
     this.sessionsStore.data = next;
   }
-  /** provider 若不认 `reasoning_effort`（首次 400）就置真，本进程后续调用不再带该参数。 */
-  private reasoningUnsupported = false;
+  /** 按实际模型记住不支持 reasoning_effort 的端点，不影响切换后的其他模型。 */
+  private readonly reasoningUnsupported = new Set<string>();
 
   constructor(
     private readonly rootDir: string,
@@ -431,7 +435,10 @@ export class AssistantService {
     this.sessionsPath = join(rootDir, 'assistant_sessions.json');
     this.configStore = new JsonStore(this.configPath, () => ({}), {
       pretty: true,
-      normalize: (raw) => (raw && typeof raw === 'object' ? (raw as AssistantConfig) : {}),
+      normalize: (raw) => {
+        const config = raw && typeof raw === 'object' ? (raw as AssistantConfig) : {};
+        return { ...config, model: normalizeModelSelection(config.model) ?? undefined };
+      },
     });
     this.sessionsStore = new JsonStore(this.sessionsPath, () => [], {
       normalize: (raw) =>
@@ -450,7 +457,10 @@ export class AssistantService {
 
   setConfig(patch: AssistantConfig): AssistantConfig {
     this.config = {
-      model: patch.model ?? this.config.model,
+      model:
+        patch.model === undefined
+          ? this.config.model
+          : (normalizeModelSelection(patch.model) ?? undefined),
       customPrompt:
         patch.customPrompt !== undefined ? patch.customPrompt : this.config.customPrompt,
       reasoningEffort:
@@ -1392,7 +1402,10 @@ export class AssistantService {
     signal?: AbortSignal,
   ): Promise<{ content: string; reasoning: string; toolCalls: ApiMessage['tool_calls'] }> {
     const effort = this.config.reasoningEffort;
-    const withReasoning = !!effort && effort !== 'off' && !this.reasoningUnsupported;
+    const modelIdentity =
+      endpoint.modelIdentity ?? JSON.stringify([endpoint.baseUrl, endpoint.model]);
+    const withReasoning =
+      !!effort && effort !== 'off' && !this.reasoningUnsupported.has(modelIdentity);
     let temperatureOmitted = false;
     let lastReasoning = withReasoning;
 
@@ -1446,7 +1459,7 @@ export class AssistantService {
         // provider 不识别 reasoning_effort → 400：去掉重试一次，并记住本进程内别再带。
         if (!response.ok && response.status === 400 && reasoning && !reasoningRetried) {
           reasoningRetried = true;
-          this.reasoningUnsupported = true;
+          this.reasoningUnsupported.add(modelIdentity);
           await rejectResponse(response);
           response = await post(false);
         }

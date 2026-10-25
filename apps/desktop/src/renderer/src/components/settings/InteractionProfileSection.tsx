@@ -120,6 +120,7 @@ export function InteractionProfileSection() {
             desc="将所选对方文本样本发送至该服务商用于画像推断。"
             control={
               <ApiModelSelect
+                allowDefault
                 label="互动画像 API 模型"
                 value={status.data.profileProviderRef}
                 disabled={save.isLoading}

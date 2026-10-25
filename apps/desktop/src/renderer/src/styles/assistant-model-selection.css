@@ -1,0 +1,4 @@
+.weq-assistant-select-layer > .weq-asst-select-pop {
+  max-width: min(340px, calc(100dvw - 16px));
+  max-height: min(320px, calc(100dvh - 16px));
+}

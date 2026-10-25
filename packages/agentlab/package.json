@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./generation": "./src/generation.ts"
+    "./generation": "./src/generation.ts",
+    "./model-selection": "./src/model_selection.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

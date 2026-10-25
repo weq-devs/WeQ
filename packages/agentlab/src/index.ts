@@ -1,4 +1,12 @@
 export { AGENTLAB_PROVIDER_CATALOG, findCatalogEntry } from './catalog';
+export { modelEndpointIdentity } from './model_identity';
+export {
+  isDefaultModelSelection,
+  normalizeModelSelection,
+  modelSelectionKey,
+  DEFAULT_MODEL_SELECTION_KEY,
+  assertEmbeddingModelIdentity,
+} from './model_selection';
 export {
   normalizeProviderConfig,
   validateProviderConfig,

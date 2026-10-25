@@ -14,6 +14,7 @@
  */
 
 import { z } from 'zod';
+import { agentLabModelSelectionSchema } from '../../../shared/agentlab_model_selection';
 import { observable } from '@trpc/server/observable';
 import {
   getActiveIntentSenseLocalEngine,
@@ -79,20 +80,11 @@ const configPatch = z.object({
   profileEngine: z.enum(['api', 'local', 'heuristic']).optional(),
   profileLocalModelId: z.enum(['auto', 'laya-multilingual', 'QWeQ-NineBird-v1']).optional(),
   profileEnabled: z.boolean().optional(),
-  profileProviderRef: z
-    .object({ providerId: z.string().min(1), model: z.string().min(1) })
-    .nullable()
-    .optional(),
+  profileProviderRef: agentLabModelSelectionSchema.nullable().optional(),
   enabled: z.boolean().optional(),
   engine: z.enum(['api', 'local']).optional(),
-  providerRef: z
-    .object({ providerId: z.string().min(1), model: z.string().min(1) })
-    .nullable()
-    .optional(),
-  suggestionProviderRef: z
-    .object({ providerId: z.string().min(1), model: z.string().min(1) })
-    .nullable()
-    .optional(),
+  providerRef: agentLabModelSelectionSchema.nullable().optional(),
+  suggestionProviderRef: agentLabModelSelectionSchema.nullable().optional(),
   suggestionsEnabled: z.boolean().optional(),
   analyzeAfterSelf: z.boolean().optional(),
   persistentDisplay: z.boolean().optional(),
