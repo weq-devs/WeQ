@@ -17,6 +17,7 @@
  *   weq-media://avatar?scope=user&hash=<hash>&v=big|small     → local avatar-cache bytes
  *   weq-media://avatar?scope=user&uin=<qq>&fb=<cdnUrl>        → 本地 b_/s_ 取新者，过期则回源 CDN
  *   weq-media://avatar?scope=group&uid=<code>&fb=<cdnUrl>     → group avatar (uin==uid)
+ *   weq-media://recording?id=<recordingId>                    → 通话录音 WAV（索引校验后按文件流回）
  *   weq-media://localfile?path=<absPath>                      → trusted local file bytes (media preview)
  *   weq-media://localfilevoice?path=<absPath>                 → trusted local voice (SILK 解码成 WAV)
  *   weq-media://localmedia?kind=pic&rel=<month/Ori/name>      → PhotoWall/Qzone/Pic/Video cache bytes
@@ -56,6 +57,7 @@ import { getAppContext } from './context/app_context';
 import { resolveResource } from './resource';
 import { resourceSkinCover } from './redpack_catalog';
 import { decodeSilkToWav, isSilkFile } from './voice';
+import { CallRecordingStore, recordingsRootFor } from './call_recording_store';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
  *  original mp4 now goes through OIDB). ptt tries rkey first and falls back
@@ -204,6 +206,22 @@ function revalidatingFileResponse(path: string): Promise<Response> {
  * 尝试。任何一步不满足、或服务端没给封面，都静默返回 null 让调用方走下一档 ——
  * 这条链是「尽力而为」，取不到封面不该让整张卡片挂掉。
  */
+/**
+ * 录音根目录：设置里指定了就用它，否则 `<appDataRoot>/recordings/<本机 QQ 号>`。
+ *
+ * 账号没打开时（例如用户切号后回看历史）拿不到 uin，就退回不带 uin 的那一层
+ * —— 只有默认目录下才可能命中，指定过目录的用户不受影响。
+ */
+function recordingRoot(): string | null {
+  const ctx = getAppContext();
+  const platform = ctx.platform;
+  if (!platform) return null;
+  const settings = ctx.bootstrap?.userConfig.getSettings().callRecording;
+  if (settings?.dir) return settings.dir;
+  const uin = ctx.account?.context.uin;
+  return uin ? recordingsRootFor(platform.appDataRoot(), String(uin)) : null;
+}
+
 async function onlineRedbagCover(skinId: string): Promise<string | null> {
   const ctx = getAppContext();
   const services = ctx.services;
@@ -498,6 +516,18 @@ async function routeMediaRequest(request: Request): Promise<Response> {
         }
       }
       return notFound('redbag skin fetch failed');
+    }
+
+    // 通话录音：只依赖全局设置与平台路径，不需要账号会话（关掉账号后仍要能回放
+    // 已经录下来的文件）。走 `call_recording_store.resolve`，它自己校验索引里的
+    // 文件名没有逃出录音根。
+    if (kind === 'recording') {
+      const id = q.get('id') ?? '';
+      if (!id) return notFound('recording needs id');
+      const root = recordingRoot();
+      if (!root) return notFound('recording store unavailable');
+      const path = await new CallRecordingStore(root).resolve(id);
+      return path ? fileResponse(path) : notFound('recording not found');
     }
 
     // 走到这里的 kind 都需要账号会话（离线查看等免账号分支已在上面提前返回）。

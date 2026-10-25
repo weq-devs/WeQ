@@ -1,0 +1,519 @@
+/* ================= 通话录音：状态条 / 结果卡片 / 设置抽屉 =================
+ *
+ * 颜色全部走 token：
+ *   --weq-accent-effective  用户选的主题色
+ *   --weq-bg-surface        卡片底
+ *   --weq-fg-primary / --weq-fg-secondary / --weq-fg-muted  文字
+ *   --weq-border-subtle / --weq-shadow-soft                 描边与投影
+ *
+ * 录音红是固定色（和挂断同一个理由：它在任何主题色下都得一眼认出来）。
+ * 深色差异显式写在文件末尾，不用 `dark:`。
+ */
+
+/* ── 录音中状态条 ── */
+.weq-call-recording {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, #e5484d 32%, transparent);
+  background: color-mix(in srgb, #e5484d 12%, transparent);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--weq-fg-primary);
+  max-width: 100%;
+}
+
+.weq-call-recording-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: #e5484d;
+  animation: weq-call-recording-pulse 1.6s ease-in-out infinite;
+}
+
+.weq-call-recording-label {
+  font-weight: 600;
+}
+
+.weq-call-recording-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-call-recording-mode {
+  color: var(--weq-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 录音结果卡片 ── */
+.weq-call-recording-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 340px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--weq-border-subtle);
+  background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: var(--weq-shadow-soft);
+  animation: weq-call-fade-in 180ms ease;
+}
+
+.weq-call-recording-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.weq-call-recording-dismiss {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-muted);
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.weq-call-recording-dismiss:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 10%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-call-recording-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.weq-call-recording-play {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  color: var(--weq-accent-effective);
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    background 160ms ease;
+}
+
+.weq-call-recording-play:hover:not(:disabled) {
+  transform: scale(1.04);
+  background: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+}
+
+.weq-call-recording-play:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.weq-call-recording-play:focus-visible,
+.weq-call-recording-folder:focus-visible,
+.weq-call-recording-dismiss:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.weq-call-recording-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-call-recording-folder {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  border: 1px solid var(--weq-border-subtle);
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.weq-call-recording-folder:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 9%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+/* ── 录音出错 ── */
+.weq-call-recording-error {
+  position: relative;
+  z-index: 1;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  color: #e5484d;
+  background: color-mix(in srgb, #e5484d 12%, transparent);
+  overflow-wrap: anywhere;
+}
+
+/* ── 设置抽屉 ── */
+.weq-call-drawer {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.weq-call-drawer-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  padding: 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--weq-fg-muted);
+  cursor: pointer;
+  user-select: none;
+  transition: color 140ms ease;
+}
+
+.weq-call-drawer-toggle:hover {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-call-drawer-toggle:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.weq-call-drawer-chevron {
+  transition: transform 180ms ease;
+}
+
+.weq-call-drawer.is-open .weq-call-drawer-chevron {
+  transform: rotate(180deg);
+}
+
+.weq-call-drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--weq-border-subtle);
+  background: color-mix(in srgb, var(--weq-fg-primary) 4%, transparent);
+  animation: weq-call-drawer-in 160ms ease;
+}
+
+.weq-call-drawer-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-call-drawer-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--weq-fg-primary);
+}
+
+.weq-call-drawer-hint {
+  display: block;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--weq-fg-muted);
+}
+
+/* 三段式选择器（仅本端 / 仅对方 / 双方） */
+.weq-call-seg {
+  display: flex;
+  padding: 2px;
+  border-radius: 9px;
+  border: 1px solid var(--weq-border-subtle);
+  background: color-mix(in srgb, var(--weq-accent-effective) 7%, transparent);
+}
+
+.weq-call-seg-item {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 5px 4px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
+}
+
+.weq-call-seg-item:hover:not(:disabled):not(.is-on) {
+  background: color-mix(in srgb, var(--weq-fg-primary) 7%, transparent);
+}
+
+.weq-call-seg-item.is-on {
+  background: var(--weq-accent-effective);
+  color: var(--weq-bg-surface);
+  font-weight: 600;
+}
+
+.weq-call-seg-item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.weq-call-seg-item:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+/* 开关行 */
+.weq-call-drawer-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.weq-call-drawer-switch > span {
+  min-width: 0;
+}
+
+/* 原生 checkbox 改造成拨动开关 */
+.weq-call-switch {
+  appearance: none;
+  flex-shrink: 0;
+  width: 38px;
+  height: 22px;
+  margin: 0;
+  border-radius: 999px;
+  border: 1px solid var(--weq-border-subtle);
+  background: color-mix(in srgb, var(--weq-fg-primary) 12%, transparent);
+  cursor: pointer;
+  position: relative;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease;
+}
+
+.weq-call-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+  transition: transform 180ms ease;
+}
+
+.weq-call-switch:checked {
+  background: var(--weq-accent-effective);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 60%, transparent);
+}
+
+.weq-call-switch:checked::after {
+  transform: translateX(16px);
+}
+
+.weq-call-switch:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.weq-call-switch:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* 保存位置 */
+.weq-call-drawer-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--weq-border-subtle);
+  background: color-mix(in srgb, var(--weq-bg-surface) 70%, transparent);
+}
+
+.weq-call-drawer-path > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--weq-fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.weq-call-drawer-pick {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.weq-call-drawer-pick:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-fg-primary) 10%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-call-drawer-pick:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 只读的通话信息 */
+.weq-call-drawer-group.is-meta {
+  padding-top: 10px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-call-drawer-meta {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 0;
+}
+
+.weq-call-drawer-meta > div {
+  min-width: 0;
+  text-align: center;
+}
+
+.weq-call-drawer-meta dt {
+  font-size: 10px;
+  color: var(--weq-fg-muted);
+}
+
+.weq-call-drawer-meta dd {
+  margin: 1px 0 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--weq-fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 动画 ── */
+@keyframes weq-call-recording-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+
+@keyframes weq-call-drawer-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── 深色模式：独立一套值，不是浅色取反 ── */
+html[data-theme='dark'] .weq-call-recording-card {
+  background: color-mix(in srgb, #fff 6%, transparent);
+  border-color: color-mix(in srgb, #fff 10%, transparent);
+}
+
+html[data-theme='dark'] .weq-call-drawer-body {
+  background: color-mix(in srgb, #fff 5%, transparent);
+  border-color: color-mix(in srgb, #fff 10%, transparent);
+}
+
+html[data-theme='dark'] .weq-call-switch {
+  background: color-mix(in srgb, #fff 16%, transparent);
+  border-color: color-mix(in srgb, #fff 14%, transparent);
+}
+
+html[data-theme='dark'] .weq-call-switch::after {
+  background: #f2f4f8;
+}
+
+html[data-theme='dark'] .weq-call-drawer-path {
+  background: color-mix(in srgb, #000 22%, transparent);
+  border-color: color-mix(in srgb, #fff 10%, transparent);
+}
+
+html[data-theme='dark'] .weq-call-seg {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  border-color: color-mix(in srgb, #fff 10%, transparent);
+}
+
+html[data-theme='dark'] .weq-call-seg-item.is-on {
+  /* 深色下强调色块上用深字太脏，改成亮字压在深色强调底上。 */
+  background: color-mix(in srgb, var(--weq-accent-effective) 78%, #000);
+  color: #fff;
+}
+
+/* ── 减少动态效果 ── */
+@media (prefers-reduced-motion: reduce) {
+  .weq-call-recording-dot {
+    animation: none;
+  }
+  .weq-call-recording-card,
+  .weq-call-drawer-body {
+    animation: none;
+  }
+  .weq-call-drawer-chevron,
+  .weq-call-switch,
+  .weq-call-switch::after {
+    transition: none;
+  }
+}

@@ -34,6 +34,7 @@ export const SETTINGS_PAGE_LABELS = {
   accounts: '账号管理',
   account: '接入与监听',
   'anti-recall': '防撤回',
+  'call-recording': '通话与录音',
   qzone: 'QQ 空间',
   mail: 'QQ 邮箱',
   storage: '存储与网络',

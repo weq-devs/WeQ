@@ -26,10 +26,25 @@ import {
   getLogger,
   protocolSignaling,
   type CallAudioCodec,
+  type CallRecordingConfig,
   type CallSnapshot,
   type CallState,
   type UdpTransport,
+  type VideoStreamInfo,
+  type VideoFramePayload,
 } from '@weq/service';
+import { CallRecorder, type RecordingSnapshot } from './call_recorder';
+import { NativeVideoEncoder } from './call_video_encoder';
+import {
+  CallRecordingStore,
+  recordingsRootFor,
+  type CallRecordingEntry,
+} from './call_recording_store';
+import {
+  LinuxSystemAudioCapture,
+  systemAudioCapability,
+  type SystemAudioCapability,
+} from './call_system_audio';
 
 const logger = getLogger().child({ scope: 'call' });
 
@@ -41,7 +56,10 @@ class NodeUdpTransport implements UdpTransport {
 
   async bind(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const socket = dgram.createSocket({ type: 'udp4', reuseAddr: false });
+      // 双栈套接字：视频通话的 P2P 直连地址是 **IPv6**（服务端下发的 bt=9
+      // 里是 16 字节裸 IPv6），udp4 发不出去。`ipv6Only: false` 让它同时
+      // 接受 IPv4 目标（Linux 上会自动走 ::ffff: 映射）。
+      const socket = dgram.createSocket({ type: 'udp6', reuseAddr: false, ipv6Only: false });
       socket.once('error', reject);
       socket.bind(0, () => {
         socket.removeListener('error', reject);
@@ -55,7 +73,15 @@ class NodeUdpTransport implements UdpTransport {
     if (!this.socket) return;
     // 直接拷一份：dgram 的回调可能在原缓冲被复写之后才跑。
     const buffer = Buffer.from(data);
-    this.socket.send(buffer, 0, buffer.length, port, address, () => {});
+    // udp6 套接字发纯 IPv4 目标时，部分平台需要显式映射成 ::ffff: 形式。
+    const target = address.includes(':') ? address : `::ffff:${address}`;
+    this.socket.send(buffer, 0, buffer.length, port, target, (error) => {
+      // 发送失败以前是静默吞掉的：地址不可达 / 套接字类型不匹配时
+      // 上层完全看不出「对方为什么收不到」。这里至少留一条日志。
+      if (error) {
+        logger.warn('UDP 发送失败', { address, port, error: error.message });
+      }
+    });
   }
 
   close(): void {
@@ -141,12 +167,20 @@ export interface ActiveCallInfo extends CallSnapshot {
   backgroundVideoUrl: string;
   /** 已接通时长（秒）；未接通为 0。 */
   durationSec: number;
+  /** 正在录音时的状态；没在录为 null。 */
+  recording: RecordingSnapshot | null;
 }
 
 export interface StartCallParams {
   pid: number;
   selfUin: string;
   selfUid: string;
+  /** 会话类型。目前只有私聊，字段先留好给群通话。 */
+  kind?: 'c2c' | 'group';
+  /** 通话媒体类型。`video` 只影响信令档位，画面要另外开摄像头。 */
+  media?: 'audio' | 'video';
+  /** 会话标识（私聊 = 对方 uid，群聊 = 群号）。留空时用 peerUid 兜底。 */
+  conv?: string;
   peerUin: string;
   peerUid: string;
   peerName?: string;
@@ -154,11 +188,23 @@ export interface StartCallParams {
   /** 通话背景（由调用方先用 `ensureCallBackground` 取得；拿不到就留空）。 */
   backgroundUrl?: string;
   backgroundVideoUrl?: string;
+  /** 录音设置（取设置页当前值；不传则按默认「双方混音、不录电脑声音」）。 */
+  recordingConfig?: CallRecordingConfig;
 }
 
 export type CallEvent =
   | { type: 'state'; call: ActiveCallInfo }
   | { type: 'audio'; pcm: Uint8Array }
+  /** 对端一帧视频（Annex B 裸流，只推基础层）。 */
+  | {
+      type: 'video';
+      hevc: Uint8Array;
+      timestamp: number;
+      keyframe: boolean;
+      info: VideoStreamInfo | null;
+    }
+  /** 录音收尾完成（含内部收尾：对端挂断 / 被踢 / 崩溃）。 */
+  | { type: 'recording'; entry: CallRecordingEntry }
   | { type: 'error'; message: string };
 
 /**
@@ -175,6 +221,25 @@ export class CallManager extends EventEmitter {
   /** 每秒推进一次通话时长。通话中状态不变，光靠状态推送时长会停在 00:00。 */
   private durationTimer: ReturnType<typeof setInterval> | null = null;
 
+  /** 视频编码器（只有视频通话才非 null）。 */
+  private videoEncoder: NativeVideoEncoder | null = null;
+  /** 上一帧是否基础层（用于「基础层优先」的取舍）。 */
+  private lastFrameWasBase = false;
+  /** 最近收到的一个关键帧（新订阅者补发用）。 */
+  private lastKeyframe: VideoFramePayload | null = null;
+  /** 当前这通电话的录音设置（发起时取一次，通话中改设置不影响进行中的录音）。 */
+  private recordingConfig: CallRecordingConfig = { mode: 'mixed', systemAudio: false, dir: null };
+  private recorder: CallRecorder | null = null;
+  /** 录音记录（落盘后才有；收尾时用它回报给界面）。 */
+  private recordingEntry: CallRecordingEntry | null = null;
+  /** 当前录音所在的索引（收尾时补时长）。 */
+  private recordingStore: CallRecordingStore | null = null;
+  /** 会话类型与标识（写进录音索引，气泡回放据此匹配）。 */
+  private kind: 'c2c' | 'group' = 'c2c';
+  private conv = '';
+  /** Linux 的监视源采集。Windows 走渲染层，这里为 null。 */
+  private systemCapture: LinuxSystemAudioCapture | null = null;
+
   constructor(
     private readonly nt: NtHelperBinding,
     private readonly platform: Platform,
@@ -187,6 +252,17 @@ export class CallManager extends EventEmitter {
     return this.info;
   }
 
+  /**
+   * 取最近的关键帧，供**新建立**的渲染层订阅补发。
+   *
+   * 渲染层是在「对端开始发视频」的状态推送之后才订阅 `onCallVideo` 的，而首个
+   * 关键帧通常已经过去。没有关键帧起解，后面的 delta 帧全解不出来 —— 所以
+   * 订阅时先补这一帧。
+   */
+  latestKeyframe(): VideoFramePayload | null {
+    return this.lastKeyframe;
+  }
+
   /** 发起一路通话。已有通话在跑时直接报错，由界面提示先挂断。 */
   async start(params: StartCallParams): Promise<ActiveCallInfo> {
     if (this.session) throw new Error('当前已有通话，请先挂断');
@@ -196,11 +272,18 @@ export class CallManager extends EventEmitter {
 
     const transport = new NodeUdpTransport();
     const codec = new NativeCallCodec(this.nt, modulesDir);
+    // 视频编码器只在发起视频通话时建：它要打开 QQ 自带的那一版 x265，
+    // 纯语音通话没必要付这个开销。
+    const videoEncoder =
+      params.media === 'video' ? new NativeVideoEncoder(this.nt, modulesDir) : null;
+    if (videoEncoder) await videoEncoder.open();
+    this.videoEncoder = videoEncoder;
     const session = new CallSession({
       selfUin: params.selfUin,
       selfUid: params.selfUid,
       peerUin: params.peerUin,
       peerUid: params.peerUid,
+      media: params.media ?? 'audio',
       signaling: protocolSignaling(this.nt, params.pid),
       transport: {
         bind: async () => {
@@ -213,11 +296,18 @@ export class CallManager extends EventEmitter {
         onError: (handler) => transport.onError(handler),
       },
       codec,
+      // 视频编码器：只有发起视频通话时才建。采在渲染层、编在主进程，
+      // 中间靠 pushVideoFrame 把 I420 推进来。
+      videoEncoder: videoEncoder ?? undefined,
       logger,
     });
 
     this.session = session;
     this.transport = transport;
+    this.kind = params.kind ?? 'c2c';
+    this.conv = params.conv ?? params.peerUid ?? '';
+    this.recordingConfig = params.recordingConfig ?? this.recordingConfig;
+    this.recordingEntry = null;
     this.info = {
       ...session.snapshot(),
       peerName: params.peerName ?? '',
@@ -225,6 +315,7 @@ export class CallManager extends EventEmitter {
       backgroundUrl: params.backgroundUrl ?? '',
       backgroundVideoUrl: params.backgroundVideoUrl ?? '',
       durationSec: 0,
+      recording: null,
     };
 
     session.onStateChange((snapshot) => {
@@ -232,7 +323,32 @@ export class CallManager extends EventEmitter {
       this.publishState(snapshot);
     });
     session.onAudio((pcm) => {
+      // 对端音频同时喂录音（混音用），再照常推给渲染层播放。
+      this.recorder?.pushPeer(pcm);
       this.emit('event', { type: 'audio', pcm } satisfies CallEvent);
+    });
+    session.onVideo((frame) => {
+      // 只推基础层：增强层依赖基础层，单独解会花屏。
+      //
+      // 但实测对端会在基础层之外再发 fidx=2 的增强层，而**基础层不是每帧都有**——
+      // 一旦对端把画面切成纯增强层（长时间静止后重新编码），全丢就会永久黑屏。
+      // 所以：基础层优先，没有基础层时退回增强层（解码器能解多少算多少，
+      // 花屏好过没画面）。
+      if (!frame.hevc) return;
+      // 增强层只在没有基础层可用时才推 —— 见上面的注释。
+      if (!frame.isBaseLayer && this.lastFrameWasBase) return;
+      this.lastFrameWasBase = frame.isBaseLayer;
+      // 缓存最近一个关键帧：渲染层的解码订阅是在「对端开始发视频」的状态推送
+      // **之后**才建立的，而首个关键帧往往已经过去 —— 后面的 delta 帧没有
+      // 关键帧起解，画面永远出不来。新订阅先用这份补一帧。
+      if (frame.isKeyframe) this.lastKeyframe = frame;
+      this.emit('event', {
+        type: 'video',
+        hevc: frame.hevc,
+        timestamp: frame.timestamp,
+        keyframe: frame.isKeyframe,
+        info: frame.info,
+      } satisfies CallEvent);
     });
 
     // `start()` 自己会吞掉异常并收敛到 `failed`，所以这里不会抛 —— 但它**不**
@@ -261,20 +377,210 @@ export class CallManager extends EventEmitter {
   async hangup(): Promise<void> {
     const session = this.session;
     if (!session) return;
+    // 先收录音再拆会话：`session.hangup()` 之后不会再有音频帧进来，录音的时长
+    // 才是准的；反过来则会在最后一帧之后继续补静音。
+    await this.finalizeRecording();
     await session.hangup();
     this.cleanup();
   }
 
-  /** 界面推来一帧麦克风音频。 */
-  pushAudio(pcm: Uint8Array): void {
-    this.session?.pushAudio(pcm);
+  /**
+   * 渲染层推来一帧 I420（摄像头采集）。
+   *
+   * 只有视频通话且本端摄像头开着时才吃 —— 关摄像头后队列里的旧帧也不该再发。
+   */
+  pushVideoFrame(y: Uint8Array, u: Uint8Array, v: Uint8Array): boolean {
+    const session = this.session;
+    if (!session) return false;
+    if (!session.snapshot().videoSending) return false;
+    const encoder = this.videoEncoder;
+    if (!encoder) {
+      logger.warn('pushVideoFrame：本端没有视频编码器');
+      return false;
+    }
+    // tRPC 走 JSON 时 Uint8Array 可能变成普通对象；这里统一归一化，
+    // 否则 `Buffer.from(obj)` 会得到空/错数据，编码器静默不出帧。
+    const norm = (value: unknown): Uint8Array => {
+      if (value instanceof Uint8Array) return value;
+      const obj = value as { type?: string; data?: number[]; length?: number };
+      if (obj?.type === 'Buffer' && Array.isArray(obj.data)) return Uint8Array.from(obj.data);
+      if (typeof obj?.length === 'number') {
+        const out = new Uint8Array(obj.length);
+        for (let i = 0; i < obj.length; i++) {
+          out[i] = (value as unknown as Record<number, number>)[i] ?? 0;
+        }
+        return out;
+      }
+      return new Uint8Array(0);
+    };
+    const ny = norm(y);
+    const nu = norm(u);
+    const nv = norm(v);
+    encoder.pushFrame({ y: ny, u: nu, v: nv });
+    return true;
+  }
+
+  /**
+   * 开 / 关本端摄像头。
+   *
+   * 只发控制信令并切换发送状态；画面要靠 `CallSession` 里注入的编码器吐帧
+   * （当前还没接），所以打开后对端会先看到「等待对方画面」。
+   */
+  setCamera(enabled: boolean): boolean {
+    const session = this.session;
+    if (!session) return false;
+    const before = session.snapshot();
+    session.setCamera(enabled);
+    const after = session.snapshot();
+    logger.info('切换摄像头', {
+      enabled,
+      state: before.state,
+      videoSending: `${before.videoSending} -> ${after.videoSending}`,
+      roomId: after.roomId,
+    });
+    return true;
+  }
+
+  /**
+   * 界面推来一帧麦克风音频。
+   *
+   * `muted` 只影响**是否发给对方**：录音始终要这帧（否则静音期间录下来的是
+   * 空轨，回放时会听到一段莫名其妙的静音）。
+   */
+  pushAudio(pcm: Uint8Array, muted = false): void {
+    this.recorder?.pushSelf(pcm);
+    if (!muted) this.session?.pushAudio(pcm);
+  }
+
+  /** 界面推来一帧「电脑正在播放的声音」（Windows 走渲染层采集）。 */
+  pushSystemAudio(pcm: Uint8Array): void {
+    this.recorder?.pushSystem(pcm);
+  }
+
+  /** 当前录音状态；没在录为 null。 */
+  recording(): RecordingSnapshot | null {
+    return this.recorder?.snapshot() ?? null;
+  }
+
+  /** 录音能力（界面据此决定「电脑声音」开关能否开）。 */
+  systemAudioCapability(): SystemAudioCapability {
+    return systemAudioCapability();
+  }
+
+  /**
+   * 开始录音。只在**已接通**时允许 —— 没接通时录下来的只有静音，而且用户看到
+   * 「录音中」却什么都没录到，比直接拒绝更糟。
+   */
+  async startRecording(override?: Partial<CallRecordingConfig>): Promise<RecordingSnapshot> {
+    if (!this.session) throw new Error('当前没有通话');
+    if (this.session.snapshot().state !== 'connected') throw new Error('通话接通后才能录音');
+    if (this.recorder) return this.recorder.snapshot();
+
+    const config: CallRecordingConfig = { ...this.recordingConfig, ...override };
+    const root =
+      config.dir ?? recordingsRootFor(this.platform.appDataRoot(), this.session.snapshot().peerUin);
+    const store = new CallRecordingStore(root);
+    await store.ensure();
+
+    const startedAt = Date.now();
+    const entry = await store.create({
+      kind: this.kind,
+      conv: this.conv || this.session.snapshot().peerUid || this.session.snapshot().peerUin,
+      peerUin: this.session.snapshot().peerUin,
+      peerName: this.info?.peerName ?? '',
+      startedAt,
+      endedAt: startedAt,
+      durationSec: 0,
+      mode: config.mode,
+      systemAudio: config.systemAudio,
+    });
+
+    const recorder = new CallRecorder({
+      path: join(store.root, entry.fileName),
+      mode: config.mode,
+      systemAudio: config.systemAudio,
+      startedAt,
+    });
+    recorder.start();
+    this.recorder = recorder;
+    this.recordingStore = store;
+    this.recordingEntry = entry;
+
+    // Linux：主进程直接起 parec 采监视源。Windows 由渲染层采集后推回来，这里不做事。
+    if (config.systemAudio && systemAudioCapability() === 'native') {
+      const capture = new LinuxSystemAudioCapture({
+        onFrame: (pcm) => this.recorder?.pushSystem(pcm),
+        onError: (error) => {
+          logger.warn('电脑声音采集中断', { error: error.message });
+          this.systemCapture?.stop();
+          this.systemCapture = null;
+          this.emit('event', {
+            type: 'error',
+            message: '电脑声音采集失败，录音仍在继续（只录通话声音）',
+          } satisfies CallEvent);
+        },
+      });
+      if (capture.start()) this.systemCapture = capture;
+    }
+
+    logger.info('开始录音', { path: entry.fileName, mode: config.mode });
+    this.publishRecording();
+    return recorder.snapshot();
+  }
+
+  /** 停止录音并落盘收尾。没有在录时返回 null。 */
+  async stopRecording(): Promise<CallRecordingEntry | null> {
+    const recorder = this.recorder;
+    const entry = this.recordingEntry;
+    const store = this.recordingStore;
+    if (!recorder || !entry) return null;
+    this.systemCapture?.stop();
+    this.systemCapture = null;
+    await recorder.stop();
+    const snapshot = recorder.snapshot();
+    this.recorder = null;
+    this.recordingEntry = null;
+    this.recordingStore = null;
+
+    entry.endedAt = Date.now();
+    entry.durationSec = snapshot.durationSec;
+    // 索引里那条记录是最先写进去的（时长还是 0），这里补上时长与结束时刻。
+    await store?.update(entry).catch((error) => {
+      logger.warn('更新录音索引失败', { error: error instanceof Error ? error.message : error });
+    });
+    logger.info('录音结束', { path: entry.fileName, durationSec: snapshot.durationSec });
+    this.publishRecording();
+    // 内部收尾（对端挂断 / 被踢）时渲染层没有 await 这次调用，必须推一条事件，
+    // 否则窗口会以为「没录到音」而自动关掉，录音卡片就永远看不到。
+    this.emit('event', { type: 'recording', entry } satisfies CallEvent);
+    return entry;
+  }
+
+  /** 把录音状态推给界面（通话状态没变，只有录音变了）。 */
+  private publishRecording(): void {
+    if (!this.info) return;
+    this.info = { ...this.info, recording: this.recording() };
+    this.emit('event', { type: 'state', call: this.info } satisfies CallEvent);
+  }
+
+  /** 录音收尾（挂断 / 崩溃 / 切号三条路径都要走到）。 */
+  private async finalizeRecording(): Promise<void> {
+    const recorder = this.recorder;
+    if (!recorder) return;
+    // 会话可能已经处于终态，`stopRecording` 只依赖 recorder 本身，照常走。
+    await this.stopRecording().catch((error) => {
+      logger.warn('录音收尾失败', { error: error instanceof Error ? error.message : error });
+    });
   }
 
   /** 进程退出 / 账号切换时强制收尾。 */
   dispose(): void {
     const session = this.session;
     if (!session) return;
-    void session.hangup().finally(() => this.cleanup());
+    void this.finalizeRecording()
+      .catch(() => {})
+      .then(() => session.hangup())
+      .finally(() => this.cleanup());
   }
 
   private publishState(snapshot: CallSnapshot): void {
@@ -303,6 +609,7 @@ export class CallManager extends EventEmitter {
       backgroundUrl: this.info?.backgroundUrl ?? '',
       backgroundVideoUrl: this.info?.backgroundVideoUrl ?? '',
       durationSec: connectedAt ? Math.max(0, Math.floor((Date.now() - connectedAt) / 1000)) : 0,
+      recording: this.recorder?.snapshot() ?? null,
     };
   }
 
@@ -315,6 +622,7 @@ export class CallManager extends EventEmitter {
       const snapshot = session.snapshot();
       if (snapshot.state !== 'connected') return;
       if (!this.info) return;
+      // 录音时长跟着同一拍走：它也是一秒一变，没必要另起一个定时器。
       this.info = this.buildInfo(snapshot);
       this.emit('event', { type: 'state', call: this.info } satisfies CallEvent);
     }, 1000);
@@ -328,9 +636,14 @@ export class CallManager extends EventEmitter {
 
   private cleanup(): void {
     this.stopDurationTicker();
+    // 兜底：对端挂断 / 被踢 / 异常路径都会走到这里，录音必须在这里收尾。
+    void this.finalizeRecording();
     // 会话自己会关 socket，但异常路径（订阅断了 / 渲染层崩了）可能没走到，
     // 这里兜一次底：重复 close 是幂等的。
     this.transport?.close();
+    this.videoEncoder?.close();
+    this.videoEncoder = null;
+    this.lastKeyframe = null;
     this.session = null;
     this.transport = null;
     this.info = null;

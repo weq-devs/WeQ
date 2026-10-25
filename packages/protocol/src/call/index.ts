@@ -10,6 +10,7 @@ export {
   GROUP_OIDB,
   CALL_SCENE,
   AUDIO_CODEC_TYPE,
+  MEDIA_PROFILE,
   USER_INFO,
   USER_WRAPPER,
   C2C_MODE_COMMON,
@@ -33,7 +34,49 @@ export {
   encodeCreateRoomReq,
   decodeCreateRoomRsp,
 } from './signaling';
-export type { CallServer, CallRoom, CallSignalingNative } from './signaling';
+export type {
+  CallServer,
+  CallRoom,
+  CallSignalingNative,
+  CallMedia,
+  MediaProfile,
+} from './signaling';
+
+export {
+  VideoSubType,
+  VIDEO_CTRL_SUB_TYPE,
+  VIDEO_KEEPALIVE_SUB_TYPE,
+  VIDEO_RTP_HEADER_LEN,
+  VIDEO_EXT_LEN,
+  VIDEO_EXT_TYPE,
+  VIDEO_SUBHEADER_LEN,
+  VIDEO_SUBHEADER_DIRECTION,
+  VIDEO_FRAME_TIMEOUT_MS,
+  VIDEO_MAX_PENDING_FRAMES,
+  isVideoSubType,
+  parseVideoPacket,
+  parseVideoRtpHeader,
+  VideoFrameAssembler,
+  extractHevc,
+  hasAnnexBStartCode,
+  splitHevcNals,
+  hevcNalName,
+  isIrapNalType,
+  buildVideoControl,
+  buildVideoKeepalive,
+  buildVideoPackets,
+  buildVideoSubHeader,
+  sampleVideoFrameQuality,
+  videoPacketCount,
+} from './video';
+export type {
+  VideoFrameQuality,
+  VideoRtpHeader,
+  VideoExtension,
+  VideoPacket,
+  VideoFrame,
+  HevcNal,
+} from './video';
 
 export {
   GCS_STX,

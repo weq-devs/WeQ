@@ -1049,7 +1049,7 @@ describe('合成工作窗口', () => {
     }
   });
 
-  it('弹窗被阻止时提供非模态回退，打开的自有窗口在卸载时关闭', () => {
+  it('弹窗被阻止时提供非模态回退，打开的自有窗口在卸载时关闭', async () => {
     let state: ReturnType<typeof useCompositionWindow>;
     function Harness() {
       state = useCompositionWindow();
@@ -1070,6 +1070,8 @@ describe('合成工作窗口', () => {
     window.removeEventListener(USER_ACTIVITY_EVENT, activity);
     const close = vi.spyOn(popup, 'close');
     f.close();
+    // 关窗推迟到微任务：StrictMode 的模拟卸载不能真的关掉窗口。
+    await Promise.resolve();
     expect(close).toHaveBeenCalled();
     popup.close();
   });

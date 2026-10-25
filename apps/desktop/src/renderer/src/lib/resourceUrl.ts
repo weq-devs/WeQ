@@ -212,6 +212,16 @@ export function localVoiceFileUrl(absPath: string): string {
 }
 
 /**
+ * 通话录音（WAV）。`id` 是主进程录音索引里的标识，不是路径 —— 主进程校验索引后
+ * 才流文件，所以渲染层拿不到任意文件的读取能力。
+ *
+ * 支持 Range，`<audio>` / `new Audio()` 都能直接播、也能拖动进度。
+ */
+export function recordingUrl(id: string): string {
+  return mediaUrl('recording', { id });
+}
+
+/**
  * Stream a local media-cache file (PhotoWall / Qzone / Pic / Video). `rel` is the
  * path relative to that kind's root (`<bucket>/<name>` or `<month>/Ori|Thumb/<name>`);
  * the main process re-validates it before streaming.

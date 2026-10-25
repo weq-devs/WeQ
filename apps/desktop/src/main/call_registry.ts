@@ -15,8 +15,21 @@ import { CallManager } from './call';
 
 const managers = new Map<number, CallManager>();
 
-/** 拿到 `pid` 对应的管理器；不存在就建一个。 */
+/**
+ * 拿到 `pid` 对应的管理器；不存在就建一个。**只给「发起通话」用。**
+ *
+ * 后续的挂断 / 推音频 / 订阅一律走 {@link findCallManager}：那些调用不该
+ * 依赖 pid 现场重算。`resolveQqPid` 靠 Restart Manager 探测 `nt_msg.db` 的
+ * 持有者，QQ 重启或探测超时都会返回 null —— 一旦拿它兜底成 `0`，这里就会
+ * 把真实 pid 的管理器 `dispose()` 掉再建一个空的，通话当场失联
+ * （表现：发不出音频、收不到音频、挂不掉）。
+ */
 export function callManagerFor(platform: Platform, pid: number): CallManager {
+  // 0 / 负数 / NaN 都不是有效 pid：宁可报错，也不要凭空造一个打不通的管理器。
+  if (!Number.isInteger(pid) || pid <= 0) {
+    throw new Error(`无法确定 QQ 进程（pid=${pid}），请确认 QQ 在线后重试`);
+  }
+
   const existing = managers.get(pid);
   if (existing) return existing;
 
@@ -31,6 +44,17 @@ export function callManagerFor(platform: Platform, pid: number): CallManager {
   const manager = new CallManager(platform.native.ntHelper, platform);
   managers.set(pid, manager);
   return manager;
+}
+
+/**
+ * 当前已有的管理器，没有就返回 null。**不创建**。
+ *
+ * 一个进程同时只有一路通话，所以「至多一个」就是完整的寻址规则 —— 挂断、
+ * 推音频、订阅都只需要「那条正在跑的通话」，不需要知道它挂在哪个 pid 上。
+ */
+export function findCallManager(): CallManager | null {
+  for (const manager of managers.values()) return manager;
+  return null;
 }
 
 /** 账号切换 / 退出时调用。 */
