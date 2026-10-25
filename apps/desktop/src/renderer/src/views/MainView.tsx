@@ -68,6 +68,8 @@ import {
 import { useFailedOutgoingRemoval } from '../hooks/useFailedOutgoingRemoval';
 import { OutgoingQueue } from '../lib/outgoingQueue';
 import { useDismissUnsentOutgoing } from '../hooks/useDismissUnsentOutgoing';
+import { useOutgoingConversationPreviews } from '../hooks/useOutgoingConversationPreviews';
+import { applyOutgoingConversationPreview } from '../lib/outgoingConversationPreview';
 import { reconcileFileMessages, type FileSyncReceipt } from '../lib/fileSendReconcile';
 import {
   createUnreadRefresh,
@@ -2891,6 +2893,11 @@ export function MainView(): ReactElement {
   const [optimisticArks, setOptimisticArks] = useState<OptimisticArk[]>([]);
   // 同上，但发出去的是普通消息（文本 / @ / 表情 / 图片 / 视频 / 语音 / 文件…）。
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
+  const outgoingConversationPreviews = useOutgoingConversationPreviews(
+    messageScope,
+    [optimisticMessages, optimisticArks, optimisticForwards],
+    recentContactsData,
+  );
   const outgoingQueue = useRef(new OutgoingQueue());
   useEffect(() => {
     return () => outgoingQueue.current.clear();
@@ -3713,6 +3720,11 @@ export function MainView(): ReactElement {
       if (!hiddenUidSet.has(detail.groupCode)) continue;
       map.set(detail.groupCode, groupDetailToConversation(detail, map.get(detail.groupCode), user));
     }
+    for (const [id, conversation] of map)
+      map.set(
+        id,
+        applyOutgoingConversationPreview(conversation, outgoingConversationPreviews, user),
+      );
     return map;
   }, [
     hiddenUidSet,
@@ -3724,6 +3736,7 @@ export function MainView(): ReactElement {
     previewDisplayNames,
     previewGroupNames,
     profileByUid,
+    outgoingConversationPreviews,
   ]);
 
   // 删除会话同样不在主列表（已从 recent_contact 消失），需要单独解析供点击后打开。
@@ -3860,6 +3873,11 @@ export function MainView(): ReactElement {
         groupDetailToConversation(detail, byId.get(detail.groupCode), user),
       );
     }
+    for (const [id, conversation] of byId)
+      byId.set(
+        id,
+        applyOutgoingConversationPreview(conversation, outgoingConversationPreviews, user),
+      );
 
     // 公众号合并会话：找所有 103 公众号里最新的那条 sendTime，合成一个 merged 入口。
     const officialList = (officialAccounts.data ?? []) as OfficialAccountWire[];
@@ -4062,7 +4080,9 @@ export function MainView(): ReactElement {
     }
 
     for (const [id, entry] of Object.entries(temporaryConversations)) {
-      const current = byId.get(id) ?? entry.conversation;
+      const current =
+        byId.get(id) ??
+        applyOutgoingConversationPreview(entry.conversation, outgoingConversationPreviews, user);
       if (current.type === 'group' && groupAssistantIds.has(id)) {
         byId.set(id, current);
         continue;
@@ -4164,6 +4184,7 @@ export function MainView(): ReactElement {
     groupAssistantIds,
     groupAssistantEntry,
     botUids,
+    outgoingConversationPreviews,
   ]);
   const sidebarConversations = useMemo(
     () => sidebarConversationsWithoutAssistant(conversations, groupAssistantIds),
