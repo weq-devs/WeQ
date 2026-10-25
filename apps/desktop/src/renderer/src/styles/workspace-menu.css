@@ -1,0 +1,587 @@
+.weq-workspace-menu-trigger,
+.weq-workspace-control {
+  position: relative;
+}
+
+.weq-workspace-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--destructive);
+}
+
+.weq-workspace-count {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  min-width: 15px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-secondary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-workspace-menu.weq-modal {
+  display: flex;
+  flex-direction: column;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 24px);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-bg-surface) 97%, transparent);
+  color: var(--weq-fg-primary);
+  box-shadow: var(--weq-shadow-card);
+  letter-spacing: 0;
+}
+
+.weq-workspace-menu.is-compact {
+  height: min(560px, calc(100dvh - 32px));
+}
+
+.weq-dialog-layer.is-anchored-popover[tabindex] > .weq-workspace-menu.is-compact {
+  height: min(560px, calc(100dvh - 32px));
+  overflow: hidden;
+}
+
+.weq-workspace-menu.is-expanded {
+  height: min(800px, calc(100dvh - 48px));
+}
+
+.weq-workspace-menu-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-workspace-menu-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.weq-workspace-menu-head small {
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-workspace-menu-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.weq-workspace-menu-head button,
+.weq-workspace-control {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+
+.weq-workspace-menu button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+}
+
+.weq-workspace-menu button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+
+.weq-workspace-menu button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.weq-workspace-menu-body,
+.weq-menu-assistant,
+.weq-assistant-workspace,
+.weq-assistant-conversation,
+.weq-task-workspace {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.weq-workspace-menu-body,
+.weq-assistant-conversation,
+.weq-task-workspace {
+  flex-direction: column;
+}
+
+.weq-workspace-menu [data-retained-panel] {
+  height: auto !important;
+}
+
+.weq-workspace-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  flex: none;
+  padding: 8px;
+  border-block: 1px solid var(--weq-border-subtle);
+}
+
+.weq-workspace-actions > button {
+  display: flex;
+  min-width: 0;
+  height: 46px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 4px 2px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font-size: 11px;
+  line-height: 14px;
+  cursor: pointer;
+}
+
+.weq-workspace-actions > button span {
+  min-height: 14px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.weq-workspace-actions > button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.weq-workspace-controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-around;
+  gap: 8px;
+  min-height: 50px;
+  padding: 6px 14px;
+}
+
+.weq-workspace-controls > .weq-workspace-control {
+  width: 32px;
+  height: 32px;
+}
+
+.weq-workspace-controls .weq-rail-account-avatar {
+  width: 38px;
+  height: 38px;
+  padding: 1px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.weq-workspace-controls .weq-rail-account-footer {
+  margin: 0;
+}
+
+.weq-workspace-controls .weq-rail-account-avatar :is(img, .weq-avatar-fallback) {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+}
+
+.weq-workspace-menu .weq-export-tool.is-tasks {
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.weq-task-workspace-tabs {
+  flex: none;
+  width: 280px;
+  max-width: 100%;
+  padding: 8px;
+}
+
+.weq-current-task-columns {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.weq-current-tasks.is-compact,
+.weq-current-tasks.is-split {
+  overflow: hidden;
+}
+
+.weq-current-tasks.is-compact .weq-current-task-list {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.weq-current-tasks.is-split .weq-current-task-columns,
+.weq-schedule-workspace {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.weq-current-tasks.is-split .weq-current-task-list,
+.weq-schedule-workspace .weq-exp-sched-list {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--weq-border-subtle);
+}
+
+.weq-current-task-details,
+.weq-schedule-details {
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+.weq-current-tasks.is-split .weq-long-task-state,
+.weq-current-tasks.is-compact .weq-long-task-state {
+  width: 80px;
+}
+
+.weq-workspace-menu .weq-long-task progress {
+  height: 4px;
+  overflow: hidden;
+  appearance: none;
+  border: 0;
+  border-radius: 2px;
+  background: var(--muted);
+}
+
+.weq-workspace-menu .weq-long-task progress::-webkit-progress-bar {
+  background: var(--muted);
+}
+
+.weq-workspace-menu .weq-long-task progress::-webkit-progress-value {
+  background: var(--weq-accent-effective);
+}
+
+.weq-workspace-menu .weq-long-task progress::-moz-progress-bar {
+  background: var(--weq-accent-effective);
+}
+
+.weq-schedule-select {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  background: transparent;
+  color: var(--weq-fg-primary);
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.weq-schedule-select.is-selected,
+.weq-assistant-session-row [aria-current] {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-schedule-select :is(span, small) {
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-schedule-settings {
+  display: flex;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.weq-schedule-settings > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.weq-schedule-settings :is(input:not([type='checkbox']), select) {
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  font: inherit;
+}
+
+.weq-schedule-settings fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+  padding: 8px 0;
+  border: 0;
+  font-size: 13px;
+}
+
+.weq-schedule-settings fieldset label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.weq-schedule-settings > button {
+  align-self: flex-start;
+}
+
+.weq-assistant-sessions {
+  width: 240px;
+  flex: none;
+  padding: 10px;
+  overflow-y: auto;
+  border-right: 1px solid var(--weq-border-subtle);
+}
+
+.weq-assistant-sessions[hidden],
+.weq-menu-assistant[hidden] {
+  display: none;
+}
+
+.weq-assistant-session-row {
+  display: flex;
+  margin-top: 6px;
+}
+
+.weq-assistant-session-row button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  cursor: pointer;
+}
+
+.weq-assistant-session-row button:first-child {
+  flex: 1;
+  text-align: left;
+}
+
+.weq-assistant-session-row button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-assistant-session-row svg {
+  flex: none;
+}
+
+.weq-assistant-conversation .weq-agentlab-chat {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.weq-assistant-conversation .weq-agentlab-head {
+  min-height: 44px;
+  padding: 6px 12px;
+}
+
+.weq-assistant-conversation .weq-agentlab-head-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.weq-assistant-conversation .weq-agentlab-head-left > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.weq-assistant-conversation .weq-agentlab-head-actions {
+  flex: none;
+}
+
+.weq-agentlab-chat.is-menu-compact > .weq-agentlab-head {
+  display: none;
+}
+
+.weq-agentlab-chat.is-menu-compact .weq-agentlab-transcript {
+  padding: 10px;
+}
+
+.weq-agentlab-chat.is-menu-compact .weq-asst-empty {
+  gap: 8px;
+  padding: 8px;
+}
+
+.weq-agentlab-chat.is-menu-compact .weq-asst-empty > :is(span, strong) {
+  display: none;
+}
+
+.weq-agentlab-chat.is-menu-compact .weq-asst-presets > button:nth-child(n + 3) {
+  display: none;
+}
+
+.weq-agentlab-chat.is-menu-compact .weq-asst-composer {
+  padding: 8px;
+}
+
+.weq-asst-menu-meta {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+}
+
+.weq-asst-menu-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-asst-menu-meta span:first-child {
+  flex: 1;
+}
+
+.weq-asst-menu-meta span:nth-child(2) {
+  max-width: 40%;
+}
+
+.weq-asst-menu-meta span:last-child {
+  flex: none;
+}
+
+.weq-agentlab-chat.is-menu-compact .weq-agentlab-composer {
+  padding: 0;
+  gap: 6px;
+}
+
+.weq-agentlab-chat.is-menu-compact .weq-agentlab-composer textarea {
+  min-height: 34px;
+  max-height: 90px;
+  padding: 7px 9px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.weq-agentlab-chat.is-menu-compact .weq-agentlab-composer > button {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  border-radius: 4px;
+}
+
+.weq-agentlab-chat.is-menu-compact .weq-asst-composer-tools {
+  gap: 4px;
+}
+
+.weq-agentlab-chat.is-menu-compact .weq-asst-select {
+  max-width: 190px;
+}
+
+.weq-workspace-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 20px;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+}
+
+.weq-settings-update-mark {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--destructive);
+}
+
+html[data-theme='dark'] .weq-workspace-menu.weq-modal {
+  border-color: var(--weq-border-strong);
+  background: color-mix(in srgb, var(--weq-bg-surface) 99%, transparent);
+}
+
+html[data-theme='dark'] .weq-workspace-controls .weq-rail-account-avatar {
+  background: transparent;
+}
+
+@media (max-width: 700px) {
+  .weq-current-tasks.is-split .weq-current-task-columns,
+  .weq-schedule-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+
+  .weq-current-tasks.is-split .weq-current-task-list,
+  .weq-schedule-workspace .weq-exp-sched-list {
+    max-height: 210px;
+    overflow-y: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--weq-border-subtle);
+  }
+
+  .weq-assistant-workspace:not(.is-compact) {
+    flex-direction: column;
+  }
+
+  .weq-assistant-sessions {
+    width: auto;
+    max-height: 130px;
+    border-right: 0;
+    border-bottom: 1px solid var(--weq-border-subtle);
+  }
+}
+
+@media (pointer: coarse) {
+  .weq-workspace-menu-head button {
+    min-width: 40px;
+    min-height: 40px;
+  }
+}

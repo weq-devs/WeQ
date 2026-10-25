@@ -124,6 +124,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
       listExportTasks: { useQuery: () => ({ ...emptyQuery, data: fixture.tasks }) },
       listSchedules: { useQuery: () => ({ data: fixture.schedules }) },
+      updateSchedule: { useMutation: () => ({ mutate: vi.fn(), isLoading: false }) },
       guildDirectListSessions: {
         useQuery: () => ({
           ...emptyQuery,
@@ -223,7 +224,7 @@ vi.mock('../src/renderer/src/components/tasks/CurrentTaskList', () => ({
   }) =>
     createElement(
       'div',
-      null,
+      { 'data-fixture-current-tasks': '' },
       '合成当前任务',
       ...exports.map((task) => createElement('div', { key: task.id }, renderExport(task))),
       createElement('button', { onClick: onSaveAll }, '保存全部合成任务'),
@@ -1197,7 +1198,11 @@ describe('统一导出实际界面', () => {
       expect(f.host.querySelector('#weq-export-content-kind')).toBeNull();
       click(f.host, '定时任务');
       expect(f.host.textContent).toContain('合成计划');
-      expect(f.host.textContent).not.toContain('合成当前任务');
+      const currentTasks = f.host.querySelector('[data-fixture-current-tasks]')!;
+      expect(currentTasks.closest('[hidden]')).not.toBeNull();
+      click(f.host, '当前任务');
+      expect(f.host.querySelector('[data-fixture-current-tasks]')).toBe(currentTasks);
+      expect(currentTasks.closest('[hidden]')).toBeNull();
     } finally {
       f.close();
     }

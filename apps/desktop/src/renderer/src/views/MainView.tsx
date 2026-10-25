@@ -109,6 +109,7 @@ import { useGroupMemberResolver } from '../hooks/useGroupMemberResolver';
 import { useGroupMemberSearch } from '../hooks/useGroupMemberSearch';
 import { useDressSkin } from '../hooks/useDressSkin';
 import { RailAccountFooter } from '../components/RailAccountFooter';
+import { WorkspaceMenuButton, WorkspaceSettingsButton } from '../components/WorkspaceMenuButton';
 import {
   SettingsDialog,
   type SectionId as SettingsDialogSectionId,
@@ -9064,15 +9065,7 @@ export function MainView(): ReactElement {
             }}
             mailBadgeCount={mailPreferences.data?.showUnread === false ? 0 : mailUnread}
             showTools={false}
-            railFooterContent={(settingsButton: React.ReactNode) => (
-              <RailAccountFooter
-                currentUin={user.identityValue}
-                currentName={user.displayName}
-                currentAvatarUrl={user.avatarUrl}
-              >
-                {settingsButton}
-              </RailAccountFooter>
-            )}
+            railFooterContent={() => <WorkspaceMenuButton />}
             friendNoticeCount={friendNoticeCount}
             groupNoticeCount={groupNoticeCount}
             onViewChange={(view) => {
@@ -9617,43 +9610,66 @@ export function MainView(): ReactElement {
               setSettingsOpen(true);
             }}
           />
-          <WorkspaceTools
-            key={messageScope}
-            onOpenClone={(id) => {
-              flushAllDirtyDrafts();
-              setCloneSearchTarget(null);
-              setVirtualOpen({ kind: 'persona', id, revision: Date.now() });
-              shell.switchView('agentlab');
-            }}
-            currentConversation={shell.view === 'messages' ? activeConversation : null}
-            workspace={{
-              view: shell.view,
-              conversation: shell.view === 'messages' ? activeConversation : null,
-              officialFeed: shell.view === 'messages' ? arkFeedState : null,
-              contact: shell.view === 'contacts' ? (shell.selectedContact ?? null) : null,
-              groupConversation:
-                shell.view === 'contacts' ? (shell.selectedGroupConversation ?? null) : null,
-              spaceUin: shell.view === 'qzone' ? currentQzoneUin : null,
-              virtual:
-                shell.view === 'agentlab' && virtualOpen
-                  ? {
-                      kind: virtualOpen.kind,
-                      ownerId: virtualOpen.id,
-                      name:
-                        virtualRows.find(
-                          (row) => row.kind === virtualOpen.kind && row.ownerId === virtualOpen.id,
-                        )?.name ?? '',
-                    }
-                  : null,
-              guildNodeId: shell.view === 'channel' ? activeGuildNodeId : null,
-            }}
-            analysisRequest={analysisRequest}
-            roamingRequest={roamingRequest}
-            onOpenComposition={compositionWindow.open}
-            assistantSearchTarget={assistantSearchTarget}
-            searchRequest={toolSearchRequest}
-            onOpenAnalysis={(request) => setAnalysisReports((previous) => [...previous, request])}
-          />
+          <RailAccountFooter
+            currentUin={user.identityValue}
+            currentName={user.displayName}
+            currentAvatarUrl={user.avatarUrl}
+            settingsButton={
+              <WorkspaceSettingsButton
+                onClick={() => {
+                  setDressUpOpen(false);
+                  setMaintenanceTool(null);
+                  setSettingsSection(undefined);
+                  setSettingsOpen(true);
+                }}
+              />
+            }
+          >
+            {(controls) => (
+              <WorkspaceTools
+                key={messageScope}
+                accountScope={messageScope}
+                footerControls={controls}
+                onOpenClone={(id) => {
+                  flushAllDirtyDrafts();
+                  setCloneSearchTarget(null);
+                  setVirtualOpen({ kind: 'persona', id, revision: Date.now() });
+                  shell.switchView('agentlab');
+                }}
+                currentConversation={shell.view === 'messages' ? activeConversation : null}
+                workspace={{
+                  view: shell.view,
+                  conversation: shell.view === 'messages' ? activeConversation : null,
+                  officialFeed: shell.view === 'messages' ? arkFeedState : null,
+                  contact: shell.view === 'contacts' ? (shell.selectedContact ?? null) : null,
+                  groupConversation:
+                    shell.view === 'contacts' ? (shell.selectedGroupConversation ?? null) : null,
+                  spaceUin: shell.view === 'qzone' ? currentQzoneUin : null,
+                  virtual:
+                    shell.view === 'agentlab' && virtualOpen
+                      ? {
+                          kind: virtualOpen.kind,
+                          ownerId: virtualOpen.id,
+                          name:
+                            virtualRows.find(
+                              (row) =>
+                                row.kind === virtualOpen.kind && row.ownerId === virtualOpen.id,
+                            )?.name ?? '',
+                        }
+                      : null,
+                  guildNodeId: shell.view === 'channel' ? activeGuildNodeId : null,
+                }}
+                analysisRequest={analysisRequest}
+                roamingRequest={roamingRequest}
+                onOpenComposition={compositionWindow.open}
+                assistantSearchTarget={assistantSearchTarget}
+                searchRequest={toolSearchRequest}
+                onOpenAnalysis={(request) =>
+                  setAnalysisReports((previous) => [...previous, request])
+                }
+              />
+            )}
+          </RailAccountFooter>
           <QzoneAlbumDialog
             selfUin={user.identityValue}
             open={qzoneAlbumOpen}

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsDialog, type SectionId } from '../src/renderer/src/components/SettingsDialog';
 import { HelpSection } from '../src/renderer/src/components/settings/HelpSection';
 import type { SettingsSearchTarget } from '../src/renderer/src/components/settings/searchTarget';
+import { useUpdateStore } from '../src/renderer/src/state/update';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const queryData = (name: string) => {
@@ -81,6 +82,28 @@ function mount(initialSection: SectionId, onCreateClone?: () => void) {
 }
 
 describe('设置归位后的实际页面', () => {
+  it('更新提醒定位到帮助分类和版本项，打开页面不会清除待更新状态', () => {
+    const f = mount('version');
+    try {
+      act(() => useUpdateStore.setState({ available: true }));
+      expect(
+        f.host.querySelector('.weq-settings-nav-item .weq-settings-update-mark')?.closest('button')
+          ?.textContent,
+      ).toBe('帮助与关于');
+      expect(
+        f.host
+          .querySelector('.weq-settings-subnav-item .weq-settings-update-mark')
+          ?.closest('button')?.textContent,
+      ).toBe('版本与更新');
+      f.render('version');
+      expect(useUpdateStore.getState().available).toBe(true);
+      act(() => useUpdateStore.setState({ available: false }));
+      expect(f.host.querySelector('.weq-settings-update-mark')).toBeNull();
+    } finally {
+      f.close();
+      useUpdateStore.setState({ available: false });
+    }
+  });
   it('从搜索打开设置时切换分区并定位真实项目，离开分区撤销高亮', () => {
     const f = mount('qzone');
     try {

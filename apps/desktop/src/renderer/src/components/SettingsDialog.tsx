@@ -92,6 +92,7 @@ import {
   type ThemeComponentStyle,
   type ThemePreference,
 } from '../state/theme';
+import { useUpdateStore } from '../state/update';
 
 /** 左侧导航的分区 id。导出出去是为了让别的界面能"直接打开某一屏"（例如损坏弹窗 → 数据库宽容）。 */
 interface SettingsSection {
@@ -131,7 +132,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'applock',
-    label: '应用锁',
+    label: '隐私与应用锁',
     icon: <LockKeyhole size={16} strokeWidth={1.8} />,
     render: () => <AppLockSection />,
   },
@@ -392,6 +393,7 @@ export function SettingsDialog({
   const [activeId, setActiveId] = useState<SectionId>(() =>
     settingsSectionFor(initialSection ?? 'global'),
   );
+  const updateAvailable = useUpdateStore((state) => state.available);
   const navRef = useRef<HTMLElement | null>(null);
   const [mobileCategoryOpen, setMobileCategoryOpen] = useState(Boolean(initialSection));
   const subnavRef = useRef<HTMLElement | null>(null);
@@ -476,6 +478,9 @@ export function SettingsDialog({
                     {sections.find((section) => section.id === s.sections[0])!.icon}
                   </span>
                   <span>{s.label}</span>
+                  {updateAvailable && s.sections.includes('version') ? (
+                    <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
+                  ) : null}
                   {IS_WEB && <ChevronRight className="weq-mobile-settings-chevron" size={18} />}
                 </button>
               </li>
@@ -493,6 +498,9 @@ export function SettingsDialog({
                 onClick={() => setActiveId(section.id)}
               >
                 {section.label}
+                {updateAvailable && section.id === 'version' ? (
+                  <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
+                ) : null}
               </button>
             ))}
           </nav>

@@ -22,6 +22,8 @@ export function CurrentTaskList({
   onOpenClone,
   onSaveAll,
   autoSelectId,
+  layout = 'inline',
+  onOpenDetail,
 }: {
   exports: UiTask[];
   exportError?: string;
@@ -30,6 +32,8 @@ export function CurrentTaskList({
   onOpenClone?: (id: string) => void;
   onSaveAll: () => void;
   autoSelectId?: string | null;
+  layout?: 'inline' | 'compact' | 'split';
+  onOpenDetail?: () => void;
 }) {
   const { enabled: active } = useQQReadActivity(true, { onlineOnly: false });
   const accountId = useViewState((state) => state.openedUin);
@@ -218,6 +222,10 @@ export function CurrentTaskList({
     });
   }
   const ordered = orderLongTasks(items);
+  useEffect(() => {
+    if (selected !== null && !ordered.some((task) => task.id === selected) && ordered[0])
+      setSelected(ordered[0].id);
+  }, [selected, ordered]);
   const selectedId =
     selected === null
       ? null
@@ -228,7 +236,7 @@ export function CurrentTaskList({
   const loading = loadingExports || roaming.isLoading || flash.isLoading;
   const hasError = exportError || roaming.error || flash.error;
   return (
-    <section className="weq-current-tasks" aria-label="当前任务列表">
+    <section className={`weq-current-tasks is-${layout}`} aria-label="当前任务列表">
       <header className="weq-current-tasks-head">
         <span>
           {items.length} 项任务{running ? ` · ${running} 项进行中` : ''}
@@ -258,18 +266,32 @@ export function CurrentTaskList({
       {!items.length && !hasError ? (
         <p className="weq-current-tasks-empty">{loading ? '读取任务中…' : '暂无任务'}</p>
       ) : null}
-      {ordered.map((task) => (
-        <Fragment key={task.id}>
-          <LongTaskRow
-            task={task}
-            active={task.id === selectedId}
-            onSelect={() => setSelected(task.id === selectedId ? null : task.id)}
-          />
-          {task.id === selectedId ? (
-            <div className="weq-long-task-detail">{task.detail}</div>
-          ) : null}
-        </Fragment>
-      ))}
+      <div className="weq-current-task-columns">
+        <div className="weq-current-task-list">
+          {ordered.map((task) => (
+            <Fragment key={task.id}>
+              <LongTaskRow
+                task={task}
+                active={task.id === selectedId}
+                onSelect={() => {
+                  setSelected(layout === 'inline' && task.id === selectedId ? null : task.id);
+                  if (layout === 'compact') onOpenDetail?.();
+                }}
+              />
+              {layout === 'inline' && task.id === selectedId ? (
+                <div className="weq-long-task-detail">{task.detail}</div>
+              ) : null}
+            </Fragment>
+          ))}
+        </div>
+        {layout === 'split' ? (
+          <div className="weq-current-task-details" aria-label="任务步骤详情">
+            {ordered.find((task) => task.id === selectedId)?.detail ?? (
+              <p className="weq-workspace-empty">请选择任务</p>
+            )}
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }
