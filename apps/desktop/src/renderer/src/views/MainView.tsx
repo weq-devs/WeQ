@@ -9690,7 +9690,7 @@ export function MainView(): ReactElement {
           ) : null}
 
           <SettingsDialog
-            key={messageScope}
+            key={`settings:${messageScope}`}
             open={settingsOpen}
             onClose={() => setSettingsOpen(false)}
             initialSection={settingsSection}
@@ -9703,7 +9703,7 @@ export function MainView(): ReactElement {
             onCreateClone={handleCreateClone}
           />
           <DataMaintenanceDialog
-            key={messageScope}
+            key={`maintenance:${messageScope}`}
             tool={maintenanceTool}
             account={{
               uin: openedUin ?? '',
