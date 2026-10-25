@@ -101,9 +101,21 @@ it('添加与导入是独立子页面，可返回主页且不丢失账号选择'
   render();
   act(() => host.querySelector<HTMLButtonElement>('[data-mode="new"]')!.click());
   expect(host.querySelector('h1')?.textContent).toBe('添加账号');
-  expect(host.querySelector('.weq-account-actions')).toBeNull();
+  expect(host.querySelector('.weq-account-head [aria-label="返回账号主页"]')).toBeNull();
+  expect(host.querySelector('.weq-account-actions')?.textContent).toContain('返回');
   act(() => host.querySelector<HTMLButtonElement>('[aria-label="返回账号主页"]')!.click());
   expect(host.querySelector('.weq-open-identity h2')?.textContent).toBe('合成缓存账号');
+});
+it.each(['new', 'backup'] as const)('%s 页仅在底部显示图标文字返回入口', (mode) => {
+  useViewState.getState().enterSelect(mode);
+  render();
+  const back = host.querySelector<HTMLButtonElement>('[aria-label="返回账号主页"]')!;
+  expect(back.closest('.weq-account-actions')).not.toBeNull();
+  expect(back.textContent).toBe('返回');
+  expect(back.querySelector('svg')).not.toBeNull();
+  expect(back.classList.contains('weq-icon-button')).toBe(false);
+  act(() => back.click());
+  expect(host.querySelector('h1')?.textContent).toBe('打开账号');
 });
 it.each(['new', 'existing'] as const)('%s 读取失败不冒充空配置，并能重试', (mode) => {
   api.mode = 'error';

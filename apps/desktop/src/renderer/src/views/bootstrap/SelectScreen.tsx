@@ -126,24 +126,12 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
   }
 
   return (
-    <div className="weq-select weq-account-workspace">
+    <div className="weq-select weq-account-workspace" data-mode={mode}>
       <header className="weq-account-head">
         <div className="weq-account-brand">
           <img src={logoUrl} alt="" width={32} height={32} />
           <span>WeQ</span>
         </div>
-        {mode !== 'existing' && (
-          <button
-            type="button"
-            className="weq-icon-button weq-account-back"
-            title="返回账号主页"
-            aria-label="返回账号主页"
-            disabled={busy}
-            onClick={() => enterSelect('existing')}
-          >
-            <ArrowLeft size={17} aria-hidden />
-          </button>
-        )}
         <h1 id="account-page-title">
           {mode === 'existing' ? '打开账号' : mode === 'new' ? '添加账号' : '导入备份'}
         </h1>
@@ -252,7 +240,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
           )}
         </section>
 
-        {mode === 'existing' && (
+        {mode === 'existing' ? (
           <nav className="weq-account-actions" aria-label="账号管理">
             <button
               type="button"
@@ -271,6 +259,18 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
             >
               <FolderInput size={16} aria-hidden />
               导入备份
+            </button>
+          </nav>
+        ) : (
+          <nav className="weq-account-actions weq-account-return" aria-label="账号导航">
+            <button
+              type="button"
+              aria-label="返回账号主页"
+              disabled={busy}
+              onClick={() => enterSelect('existing')}
+            >
+              <ArrowLeft size={16} aria-hidden />
+              返回
             </button>
           </nav>
         )}

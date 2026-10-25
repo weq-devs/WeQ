@@ -404,9 +404,14 @@ html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
   font-size: 17px;
 }
 .weq-account-workspace .weq-account-content {
+  flex: 0 1 auto;
   width: min(100%, 460px);
   padding: 12px 24px 20px;
   gap: 16px;
+}
+.weq-account-workspace[data-mode='new'] .weq-account-content,
+.weq-account-workspace[data-mode='backup'] .weq-account-content {
+  flex: 1;
 }
 .weq-account-workspace .weq-account-tabs {
   gap: 0;
@@ -815,7 +820,7 @@ html[data-theme] .weq-select.weq-account-workspace .weq-action-primary:disabled 
   flex-shrink: 0;
 }
 .weq-account-workspace .weq-account-grid {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
 }
 .weq-account-workspace .weq-account-detail {
@@ -894,14 +899,14 @@ html[data-theme] .weq-select.weq-account-workspace .weq-action-primary:disabled 
 .weq-account-workspace button:disabled {
   cursor: default;
 }
-.weq-account-back {
-  -webkit-app-region: no-drag;
-  margin-left: auto;
-}
 .weq-account-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-account-return {
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: auto;
 }
 .weq-account-actions button {
   display: inline-flex;
@@ -927,7 +932,7 @@ html[data-theme] .weq-select.weq-account-workspace .weq-action-primary:disabled 
   padding-bottom: 12px;
 }
 .weq-select.weq-account-workspace .weq-account-list {
-  max-height: 152px;
+  max-height: none;
 }
 .weq-select.weq-account-workspace .weq-account-grid {
   gap: 16px;
@@ -1021,7 +1026,10 @@ html[data-theme='dark'] .weq-account-workspace .weq-account-diagnostics .weq-sta
     height: 48px !important;
   }
   .weq-account-workspace .weq-open-identity {
-    gap: 6px;
+    flex-direction: row;
+    gap: 12px;
+    padding-right: 40px;
+    text-align: left;
   }
   .weq-account-workspace .weq-open-identity h2 {
     font-size: 17px;

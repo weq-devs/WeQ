@@ -31,6 +31,12 @@ it('账号页样式不改变主工作区的宽度、留白或间距', () => {
     account.innerHTML = '<div class="weq-account-content"></div>';
     host.append(account);
     expect(getComputedStyle(account.firstElementChild!).paddingLeft).toBe('24px');
+    expect(getComputedStyle(account.firstElementChild!).flexGrow).toBe('0');
+    account.classList.add('weq-select');
+    account.innerHTML =
+      '<div class="weq-account-grid"><div class="weq-account-accounts"><div class="weq-account-list"></div></div></div>';
+    expect(getComputedStyle(account.firstElementChild!).flexGrow).toBe('0');
+    expect(getComputedStyle(account.querySelector('.weq-account-list')!).maxHeight).toBe('none');
   } finally {
     act(() => root.unmount());
     host.remove();
