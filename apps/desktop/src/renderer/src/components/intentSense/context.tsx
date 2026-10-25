@@ -117,6 +117,13 @@ export function IntentSenseProvider({
   const engineOk =
     statusData?.engine === 'local' ? !!statusData.localReady : !!statusData?.apiConfigured;
   const effective = !!statusData?.enabled && overridden !== false && engineOk;
+  useEffect(() => {
+    if (kind !== 'c2c' || !statusData?.profileEnabled) return;
+    const timer = setTimeout(() => {
+      void utils.account.intentSense.getProfile.invalidate({ peerUid: conv });
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [kind, conv, analysisMessageId, roamingMessageKey, statusData?.profileEnabled, utils]);
   const autoAnalysisAllowed =
     latestPeerMsgId !== null || !analysisMessageId || statusData?.analyzeAfterSelf !== false;
 
@@ -249,13 +256,6 @@ export function IntentSenseProvider({
           extra = (await requestAnalysis(analysisMessageId)) === true;
         }
         if (disposed || prevConvKeyRef.current !== expected) return;
-        const extraPeer =
-          extra && analysisMessageId && analysesRef.current.get(analysisMessageId)?.mine === false;
-        if ((stats?.peerAnalyzed ?? stats?.analyzed ?? 0) > 0 || extraPeer) {
-          if (kind === 'c2c') {
-            void utils.account.intentSense.getProfile.invalidate({ peerUid: conv });
-          }
-        }
         if (
           (peerTarget.current || suggestAfterSelf.current) &&
           ((stats?.analyzed ?? 0) > 0 || extra)

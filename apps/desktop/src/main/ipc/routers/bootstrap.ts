@@ -47,7 +47,6 @@ import {
   requireBootstrap,
   requirePlatform,
   emitDressChanged,
-  getActiveIntentSenseLocalEngine,
   rememberAccountUid,
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
@@ -238,8 +237,7 @@ export const bootstrapRouter = router({
         }
         if (boot.userConfig.getLocalModelId('intent') === input.modelId) return true;
         if (isIntentModelDownloading()) throw new Error('模型下载期间不能切换资源');
-        // 切换资源前释放旧 worker，不能让新引用继续使用旧模型。
-        await getActiveIntentSenseLocalEngine()?.stop();
+        // 端口按模型目录路由；保留画像可能正在使用的旧资源，不中断其在途推断。
       } else if (input.modelId) {
         const model =
           input.kind === 'voice'

@@ -312,6 +312,7 @@ export interface IntentSenseLocalEngineControl extends IntentLocalEnginePort {
   modelDir(): string;
   isModelDownloaded(): boolean;
   download(options: {
+    modelId?: string;
     mirror: boolean;
     onProgress?: (p: IntentSenseModelProgress) => void;
   }): Promise<void>;
@@ -1877,6 +1878,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           {
             resolveEndpoint: resolveAgentEndpoint,
             localEngine: getActiveIntentSenseLocalEngine(),
+            legacyLocalModelId: userConfig.getLocalModelId('intent'),
             gapHistory,
           },
         ),
@@ -2620,6 +2622,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           {
             resolveEndpoint: resolveAgentEndpoint,
             localEngine: getActiveIntentSenseLocalEngine(),
+            legacyLocalModelId: userConfig.getLocalModelId('intent'),
             gapHistory,
           },
         ),

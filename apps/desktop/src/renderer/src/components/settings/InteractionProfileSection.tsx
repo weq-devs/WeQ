@@ -1,4 +1,4 @@
-import { BrainCircuit } from 'lucide-react';
+import { BrainCircuit, Download } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { Card, Row, SectionHeader, Toggle } from './controls';
@@ -14,6 +14,11 @@ export function InteractionProfileSection() {
     refetchOnWindowFocus: false,
   });
   const save = trpc.account.intentSense.setConfig.useMutation();
+  const local = trpc.bootstrap.getLocalEngine.useQuery(undefined, {
+    enabled: active,
+    refetchOnWindowFocus: false,
+  });
+  const download = trpc.bootstrap.downloadLocalModel.useMutation();
   const utils = trpc.useUtils();
   const showError = useDialog((s) => s.showError);
   async function patch(input: Parameters<typeof save.mutateAsync>[0]) {
@@ -23,6 +28,19 @@ export function InteractionProfileSection() {
       void utils.account.intentSense.getProfile.invalidate();
     } catch (error) {
       showError('互动画像设置失败', String(error));
+    }
+  }
+  async function downloadModel() {
+    try {
+      const result = await download.mutateAsync({
+        mirror: status.data?.hfMirror ?? true,
+        modelId: status.data?.profileLocalModelId ?? 'auto',
+      });
+      if (!result.ok) throw new Error(result.error ?? '下载失败');
+      await utils.bootstrap.getLocalEngine.invalidate();
+      await utils.account.intentSense.getStatus.invalidate();
+    } catch (error) {
+      showError('画像模型下载失败', String(error));
     }
   }
   return (
@@ -47,20 +65,59 @@ export function InteractionProfileSection() {
               className="weq-set-input"
               aria-label="互动画像运行方式"
               disabled={!status.data || save.isLoading}
-              value={status.data?.profileEngine ?? 'follow'}
+              value={status.data?.profileEngine ?? 'heuristic'}
               onChange={(event) => {
                 const mode = event.target.value;
-                if (mode === 'follow' || mode === 'api' || mode === 'local' || mode === 'heuristic')
+                if (mode === 'api' || mode === 'local' || mode === 'heuristic')
                   void patch({ profileEngine: mode });
               }}
             >
-              <option value="follow">跟随意图感知</option>
               <option value="heuristic">仅本地统计</option>
-              <option value="local">本地模型（共享意图资源）</option>
+              <option value="local">本地模型</option>
               <option value="api">独立 API 模型</option>
             </select>
           }
         />
+        {status.data?.profileEngine === 'local' ? (
+          <Row
+            label="本地模型资源"
+            control={
+              <select
+                className="weq-set-input"
+                aria-label="互动画像本地模型资源"
+                value={status.data.profileLocalModelId ?? 'auto'}
+                disabled={save.isLoading || download.isLoading}
+                onChange={(event) => {
+                  const id = event.target.value;
+                  if (id === 'auto' || id === 'laya-multilingual' || id === 'QWeQ-NineBird-v1')
+                    void patch({ profileLocalModelId: id });
+                }}
+              >
+                {(local.data?.models ?? []).map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                    {model.downloaded ? ' · 已就绪' : ' · 未就绪'}
+                  </option>
+                ))}
+              </select>
+            }
+          />
+        ) : null}
+        {status.data?.profileEngine === 'local' &&
+        local.data?.models.find((model) => model.id === status.data?.profileLocalModelId)
+          ?.downloadable &&
+        !local.data?.models.find((model) => model.id === status.data?.profileLocalModelId)
+          ?.downloaded ? (
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={download.isLoading || local.data?.downloading}
+            onClick={() => void downloadModel()}
+          >
+            <Download size={14} />
+            {download.isLoading ? '下载中…' : '下载画像模型'}
+          </button>
+        ) : null}
         {status.data?.profileEngine === 'api' ? (
           <Row
             label="API 模型"
