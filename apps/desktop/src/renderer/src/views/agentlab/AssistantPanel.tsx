@@ -578,6 +578,9 @@ export function AssistantPanel({
   // 事件订阅只该建一次，所以通过 ref 拿最新实现，而不是把它当依赖。
   const invalidateConversationRef = useRef(invalidateConversation);
   invalidateConversationRef.current = invalidateConversation;
+  // useAppDialog 每次渲染返回新对象；订阅若依赖它，重渲会取消尚未 flush 的增量。
+  const reportErrorRef = useRef(dialog.error);
+  reportErrorRef.current = dialog.error;
 
   /** 输入框旁的快捷设置：改了立即落库（与设置弹窗共用同一份配置）。 */
   async function onQuickConfig(patch: { modelKey?: string; effort?: EffortValue }): Promise<void> {
@@ -639,7 +642,7 @@ export function AssistantPanel({
       );
       if (failed) {
         runIdRef.current = null;
-        dialog.error('助手出错', failed.message);
+        reportErrorRef.current('助手出错', failed.message);
         return;
       }
       if (batch.some((s) => s.kind === 'final' || s.kind === 'aborted')) {
@@ -667,7 +670,7 @@ export function AssistantPanel({
       sub.unsubscribe();
     };
     // 订阅只按 runIdRef 匹配，会话 id 走 ref，不必因 id 变化重订阅。
-  }, [utils, dialog]);
+  }, [utils]);
 
   // 新内容时滚到底部（仅当用户本就贴着底部）。
   useEffect(() => {
