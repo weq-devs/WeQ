@@ -3,14 +3,19 @@ import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const cacheRoot = resolve(root, 'node_modules/.cache');
+await mkdir(cacheRoot, { recursive: true });
+const cacheDir = await mkdtemp(resolve(cacheRoot, 'timeline-'));
 const server = await createServer({
   configFile: false,
   root,
+  cacheDir,
+  optimizeDeps: { entries: ['test/browser/timeline.html'] },
   plugins: [react(), tailwind()],
   resolve: {
     alias: [
@@ -307,4 +312,5 @@ try {
 } finally {
   await browser?.close();
   await server.close();
+  await rm(cacheDir, { recursive: true, force: true });
 }

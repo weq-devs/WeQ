@@ -221,6 +221,7 @@ export function QqImage({
       }
     >
       <ShimmerImage
+        suspendOffscreen
         className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
         style={style}
         src={src}
@@ -841,6 +842,7 @@ export function QqMarketFace({ data }: { data: Data }) {
       onClick={() => openMarketFaceLightbox(String(pack), hash)}
     >
       <ShimmerImage
+        suspendOffscreen
         className="qq-media-mface"
         src={mediaUrl('mface', { pack, hash })}
         alt="[商城表情]"

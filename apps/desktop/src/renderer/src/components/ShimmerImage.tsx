@@ -10,6 +10,7 @@
  */
 
 import {
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -18,19 +19,58 @@ import {
 } from 'react';
 import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
 import { useAvatarUrl } from '../hooks/useAvatarUrl';
+import { useTabActive } from './RetainedTabs';
 
 export function ShimmerImage({
   className,
   alt = '',
   onLoad,
   onError,
+  suspendOffscreen = false,
   ...rest
-}: ImgHTMLAttributes<HTMLImageElement>): ReactElement {
+}: ImgHTMLAttributes<HTMLImageElement> & { suspendOffscreen?: boolean }): ReactElement {
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const ownerDocument = useRenderDocument();
+  const tabActive = useTabActive();
+  const [visible, setVisible] = useState(false);
+  const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
   const avatarSrc = useAvatarUrl(rest.src, false);
   const src = avatarSrc ? resourceForRenderDocument(avatarSrc, ownerDocument) : rest.src;
+  const enabled = !suspendOffscreen || (tabActive && visible);
+
+  useEffect(() => {
+    const image = imgRef.current;
+    if (!suspendOffscreen || !image) return;
+    if (!tabActive) {
+      setVisible(false);
+      return;
+    }
+    const doc = image.ownerDocument;
+    const Observer = doc.defaultView?.IntersectionObserver;
+    let intersecting = !Observer;
+    let disposed = false;
+    const update = () => {
+      if (!disposed) setVisible(intersecting && doc.visibilityState !== 'hidden');
+    };
+    update();
+    const observer = Observer
+      ? new Observer(
+          (entries) => {
+            intersecting = entries.some((entry) => entry.isIntersecting);
+            update();
+          },
+          { rootMargin: '200px' },
+        )
+      : null;
+    observer?.observe(image);
+    doc.addEventListener('visibilitychange', update);
+    return () => {
+      disposed = true;
+      observer?.disconnect();
+      doc.removeEventListener('visibilitychange', update);
+    };
+  }, [suspendOffscreen, tabActive, ownerDocument]);
 
   // src 变化（首次挂载 / 失败回退换源）时重置；已缓存完成的直接显示，避免闪一下。
   useLayoutEffect(() => {
@@ -42,21 +82,30 @@ export function ShimmerImage({
 
   return (
     <>
-      {!loaded ? <span className="weq-shimmer-block" aria-hidden /> : null}
+      {enabled && !loaded ? <span className="weq-shimmer-block" aria-hidden /> : null}
       <img
         ref={imgRef}
         className={className}
         alt={alt}
         onLoad={(event) => {
+          if (!enabled) return;
+          const image = event.currentTarget;
+          // 保留固有比例，移除 src 后未知尺寸的图片也不能压塌时间线。
+          if (suspendOffscreen && image.naturalWidth && image.naturalHeight)
+            setDimensions({ width: image.naturalWidth, height: image.naturalHeight });
           setLoaded(true);
           onLoad?.(event);
         }}
         onError={(event) => {
+          if (!enabled) return;
           setLoaded(true);
           onError?.(event);
         }}
         {...rest}
-        src={src}
+        width={rest.width ?? (suspendOffscreen ? dimensions?.width : undefined)}
+        height={rest.height ?? (suspendOffscreen ? dimensions?.height : undefined)}
+        src={enabled ? src : undefined}
+        srcSet={enabled ? rest.srcSet : undefined}
       />
     </>
   );
