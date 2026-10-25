@@ -51,6 +51,7 @@ pnpm dev
 
 ### 基础能力与贡献
 
+- [桌面包体积优化](./desktop-package-size-20261025.md)：生产依赖分层、原生架构裁剪、真实打包匹配器和产物冒烟。
 - [QQ 数据库布局：按文件设置保留页](./db-layout-split-20261018.md) — per-Pager pending byte、锁字节与布局自动识别
 - [nt_helper.node 接口文档](./nt-helper-interface.md) — 原生模块能力总览，**写代码前先看，别重复造轮子**
 - [原生二进制与装扮资源的分发](./native-artifacts.md) — `pnpm native:fetch`、发布链路、历史清洗记录

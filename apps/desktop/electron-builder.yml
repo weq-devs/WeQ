@@ -4,6 +4,7 @@ copyright: Copyright © 2026 weQ contributors
 directories:
   output: release/${version}
   buildResources: build
+afterPack: ../../scripts/trim-desktop-package.mjs
 files:
   - "out/**/*"
   # Bare "package.json" was being resolved as a glob in this monorepo and
@@ -15,6 +16,9 @@ files:
   # Workspace packages are removed from the release manifest before packaging.
   - "node_modules/**/*"
   - "!node_modules/@weq/**/*"
+  # 前端依赖仅用于构建；运行依赖也不携带源码映射和 ExcelJS 的浏览器整包。
+  - "!node_modules/**/*.map"
+  - "!node_modules/exceljs/dist/**"
   # onnxruntime-node 是原生模块：留在 asar 里会被 electron-builder 的 smartUnpack
   # **整包**解出一份到 app.asar.unpacked/（288 MB 的包体，2.0.5 的 Windows 安装包
   # 因此直接翻倍）。运行时真正加载的是下面 extraResources 拷到 <resources>/node_modules/
@@ -77,10 +81,7 @@ extraResources:
   # 意图感知本地引擎（Laya ONNX）在 fork 的子进程里 require 这些包。
   - from: node_modules/@receptron/laya
     to: node_modules/@receptron/laya
-  - from: node_modules/adm-zip
-    to: node_modules/adm-zip
-  - from: node_modules/global-agent
-    to: node_modules/global-agent
+  # adm-zip / global-agent 仅供 ONNX 的安装脚本使用，不是推理运行依赖。
   - from: node_modules/@huggingface/tokenizers
     to: node_modules/@huggingface/tokenizers
 
@@ -92,13 +93,7 @@ extraResources:
 asarUnpack:
   - node_modules/sharp/**/*
   - node_modules/@img/**/*
-  # @resvg/resvg-js loads a platform .node binding (used by the WeQ 助手 cover
-  # renderer in the main process). Native addons can't be loaded from inside the
-  # asar, so unpack the resvg packages (base + per-platform binding). The
-  # darwin bindings (x64 + arm64) are declared as direct deps of the desktop
-  # app and both get unpacked here; js-binding.js picks whichever matches
-  # process.arch at runtime, so the packaging no longer depends on the build
-  # runner's own architecture.
+  # resvg 原生绑定在 asar 外加载；afterPack 移除非目标 Darwin 架构。
   - node_modules/@resvg/**/*
   # # The voice-transcription worker is forked as a child process (can't run from
   # # inside the asar) and loads the native sherpa-onnx binding from node_modules.
