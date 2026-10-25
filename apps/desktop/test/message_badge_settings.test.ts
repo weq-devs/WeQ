@@ -127,6 +127,17 @@ it('保存失败保留原值并提示，保存期间不能重复点击', () => {
   }
 });
 
+it('从第一条新消息开始阅读下方显示会话加载速度备注', () => {
+  const f = mount();
+  try {
+    const setting = f.host.querySelector('[data-setting-id="read-first-unread"]');
+    expect(setting?.querySelector('strong')?.textContent).toBe('从第一条新消息开始阅读');
+    expect(setting?.querySelector('span')?.textContent).toBe('可能提高阅读过的会话的加载速度');
+  } finally {
+    f.close();
+  }
+});
+
 it.each([
   ['从第一条新消息开始阅读', 'readFromFirstUnread', false],
   ['发送消息后定位到最新消息', 'jumpToLatestAfterSend', true],

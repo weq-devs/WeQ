@@ -849,7 +849,12 @@ function AppearanceSection({
           ].map(({ key, settingId, label, fallback, mutation }) => (
             <div className="weq-settings-appearance-card" key={key} data-setting-id={settingId}>
               <div className="weq-settings-appearance-head">
-                <strong>{label}</strong>
+                <div>
+                  <strong>{label}</strong>
+                  {key === 'readFromFirstUnread' ? (
+                    <span>可能提高阅读过的会话的加载速度</span>
+                  ) : null}
+                </div>
                 <Toggle
                   checked={settings.data?.[key] ?? fallback}
                   disabled={!settings.data || mutation.isLoading}
