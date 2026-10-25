@@ -35,6 +35,7 @@ import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
 import { useToast } from '../components/Toast';
 import { CallWindow } from '../components/CallWindow';
+import { onOpenSettingsRequest } from '../lib/callSettingsBridge';
 import { useDialog } from '../components/Dialog';
 import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
@@ -2720,6 +2721,20 @@ export function MainView(): ReactElement {
    */
   const flushDraftRef = useRef<(conversationId: string) => void>(() => {});
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  /**
+   * 通话窗口请求打开设置页（`localStorage` 的 `storage` 事件，同源广播）。
+   * 现在只有「通话与录音」一节会这样跳过来。
+   */
+  useEffect(
+    () =>
+      onOpenSettingsRequest((section) => {
+        if (section !== 'callRecording') return;
+        setSettingsSection('call-recording');
+        setSettingsOpen(true);
+      }),
+    [],
+  );
   const [surfaceNavigation, setSurfaceNavigation] = useState(0);
   /** 打开设置时要先落到哪一屏（损坏弹窗 → 数据库宽容）。 */
   const [settingsSection, setSettingsSection] = useState<SettingsDialogSectionId | undefined>(
@@ -8070,12 +8085,15 @@ export function MainView(): ReactElement {
    * 只有私聊：群通话要先进群房间再邀请（OIDB 4752/4753/4754），与私聊不是同一条
    * 协议路径。通话界面使用独立系统窗口，挂断 / 结束由窗口自己收尾。
    */
-  async function startVoiceCall(conversation: Extract<Conversation, { type: 'direct' }>) {
+  async function startVoiceCall(
+    conversation: Extract<Conversation, { type: 'direct' }>,
+    media: 'audio' | 'video' = 'audio',
+  ) {
     if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
         tone: 'warning',
         message: 'QQ 未在线或处于完全离线模式',
-        detail: '语音通话需要借用在线 QQ 实例的凭据，请先登录 QQ 并退出完全离线模式。',
+        detail: '通话需要借用在线 QQ 实例的凭据，请先登录 QQ 并退出完全离线模式。',
       });
       throw new Error('qq offline');
     }
@@ -8087,6 +8105,7 @@ export function MainView(): ReactElement {
         peerUin,
         peerName: other.displayName || other.username || peerUin,
         peerAvatar: other.avatarUrl ?? undefined,
+        media,
       });
       setActiveCall(call as never);
     } catch (error) {

@@ -9645,6 +9645,45 @@ html[data-theme='dark'] .weq-flash-footer {
   color: #d4423f;
 }
 
+/* 通话录音的播放按钮：贴着摘要，跟文字同一行。
+   用主题色描边而不是实心块 —— 它只是这条消息的附加信息，不该比摘要更抢眼。 */
+.weq-call-recording-play {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-left: 2px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
+  cursor: pointer;
+  vertical-align: middle;
+  transition:
+    background 140ms ease,
+    transform 140ms ease;
+}
+
+.weq-call-recording-play:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+  transform: scale(1.06);
+}
+
+.weq-call-recording-play.is-playing {
+  background: color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
+}
+
+.weq-call-recording-play:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+html[data-theme='dark'] .weq-call-recording-play {
+  background: color-mix(in srgb, var(--weq-accent-effective) 24%, transparent);
+}
+
 /* ================= QQ 钱包：转账 / 红包 ================= */
 
 .message-content.qq-has-wallet {

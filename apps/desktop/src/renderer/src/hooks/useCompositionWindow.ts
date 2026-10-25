@@ -114,12 +114,31 @@ export function useToolWindow({
     setPopup(null);
     setFallback(false);
   }, [disposeEvent]);
-  useEffect(
-    () => () => {
-      disposeCompositionWindow(owned.current, disposeEvent);
-    },
-    [disposeEvent],
-  );
+  /**
+   * 挂载数。StrictMode 在开发态会「挂载 → 卸载 → 再挂载」把 effect 跑两遍，
+   * 模拟卸载必须**留住**窗口：`window.close()` 之后 `closed` 不会同步变成
+   * true，紧接着的同名 `window.open` 会拿回那个正在销毁的窗口。通话窗正是靠
+   * 「窗口已关」这个信号去挂断的，于是刚拨出去就被自己挂掉。
+   *
+   * 所以模拟卸载只减计数；真卸载（计数归零）才关，且推迟一个微任务 ——
+   * 重挂载发生在同一个任务里，微任务跑之前计数已经加回去了。
+   */
+  const owners = useRef(0);
+  useEffect(() => {
+    owners.current += 1;
+    return () => {
+      owners.current -= 1;
+      if (owners.current > 0) return;
+      const win = owned.current;
+      if (!win) return;
+      queueMicrotask(() => {
+        if (owners.current > 0 || owned.current !== win) return;
+        owned.current = null;
+        setPopup(null);
+        disposeCompositionWindow(win, disposeEvent);
+      });
+    };
+  }, [disposeEvent]);
   useEffect(() => {
     if (!popup) return;
     const unmirror = mirrorCompositionStyles(document, popup.document, title, bodyClass);

@@ -62,6 +62,8 @@ export type {
   ExportLightboxPreset,
   ExportScheduledPreset,
   ExportPresetOptions,
+  CallRecordingConfig,
+  CallRecordingMode,
 } from './bootstrap/user_config';
 export { AgentLabConfigService } from './bootstrap/agentlab_config';
 
@@ -124,6 +126,10 @@ export type {
   CallAudioCodec,
   CallListener,
   CallAudioListener,
+  CallVideoListener,
+  CallVideoEncoder,
+  VideoFramePayload,
+  VideoStreamInfo,
   UdpTransport,
   CallTimers,
 } from './account/call_session';

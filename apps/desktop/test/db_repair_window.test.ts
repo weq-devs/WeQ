@@ -112,6 +112,8 @@ it('完整修复 UI 挂在系统子文档，重复请求聚焦并保留原账号
     );
   } finally {
     act(() => root.unmount());
+    // 关窗推迟到微任务：StrictMode 的模拟卸载不能真的关掉窗口。
+    await Promise.resolve();
     host.remove();
     expect(close).toHaveBeenCalled();
     popup.close();

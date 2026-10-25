@@ -527,6 +527,14 @@ export interface CaptureOptions {
 }
 
 /** 一次已 armed 的抓包会话。 */
+/** `encodeVideoFrame` 的结果。 */
+export interface VideoFrameResult {
+  /** Annex B 裸流（含 00 00 00 01 起始码）。 */
+  data: Buffer;
+  /** 是否关键帧（IRAP）。 */
+  keyframe: boolean;
+}
+
 export interface CaptureSession {
   pid: number;
   /** 实际选中的网卡（含描述）。 */
@@ -985,6 +993,35 @@ export interface NtHelperBinding {
   encodeCallFrame(pcm: Buffer): Buffer;
   /** 解一帧语音，输出 640 字节 PCM（16 kHz 单声道 16-bit，小端）。 */
   decodeCallFrame(opus: Buffer): Buffer;
+
+  // --- 视频通话的 H.265 编码 ---
+  /**
+   * 打开视频通话用的 H.265 编码器。
+   *
+   *  与 `openCallCodec` 相同。宽高 / 帧率 / 码率不传则用与 QQ
+   * 客户端一致的一档（640×360 / 15 fps / 400 kbps）。进程内只打开一次。
+   *
+   * 用 QQ 自带的 `t265`（腾讯改过的 x265）而不是系统 libx265：标准实现编出来的
+   * 码流对端不一定能解。
+   */
+  openVideoEncoder(
+    modulesDir: string,
+    width?: number | null,
+    height?: number | null,
+    fps?: number | null,
+    bitrateKbps?: number | null,
+  ): Promise<void>;
+  /** 关掉视频编码器。挂断时调用。 */
+  closeVideoEncoder(): void;
+  /** 当前是否已打开。 */
+  isVideoEncoderOpen(): boolean;
+  /**
+   * 编一帧视频。输入 I420 三个平面（Y 全尺寸、U/V 各四分之一）。
+   *
+   * 返回 Annex B 裸流；编码器还在内部 lookahead 里攒帧时返回 `null`，
+   * 调用方下一帧再取。
+   */
+  encodeVideoFrame(y: Buffer, u: Buffer, v: Buffer): VideoFrameResult | null;
 
   /**
    * Sign a red bag pre-pack request (`hb_pc_pre_pack`) — the plaintext `f101`.

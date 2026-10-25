@@ -1,5 +1,6 @@
 import { controlCompositionWindow } from './composition_window';
 import { applicationToolPopupOptions } from './tool_window';
+import { installCallDisplayMediaHandler } from './call_display_media';
 import { floatingWindowTypeOption, ozoneRelaunchArgs } from './linux_window_backend';
 import {
   app,
@@ -746,6 +747,9 @@ void app.whenReady().then(async () => {
   registerResourceProtocol();
   registerAvatarProtocol();
   registerMediaProtocol();
+  // Windows：放行通话窗口的 getDisplayMedia，用来录「电脑正在播放的声音」。
+  // 非 Windows 是空操作（Linux 走 parec，macOS 不支持）。
+  installCallDisplayMediaHandler();
   registerWindowLayoutIpc();
   registerMediaIpc();
   registerMediaExportIpc();

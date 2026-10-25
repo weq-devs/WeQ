@@ -555,6 +555,29 @@ export const bootstrapRouter = router({
     return picked;
   }),
 
+  // ---- 通话录音（设置 → 通话与录音） ----
+
+  /** 更新通话录音设置；只传要改的字段。 */
+  setCallRecording: procedure
+    .input(
+      z.object({
+        mode: z.enum(['self', 'peer', 'mixed']).optional(),
+        systemAudio: z.boolean().optional(),
+        dir: z.string().min(1).nullable().optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({ callRecording: input }).callRecording;
+    }),
+
+  /** 弹系统目录选择框并保存为录音目录。取消返回 null（不修改设置）。 */
+  pickCallRecordingDir: procedure.mutation(async (): Promise<string | null> => {
+    const picked = await getHost().pickDirectory({ title: '选择通话录音保存文件夹' });
+    if (!picked) return null;
+    requireBootstrap().userConfig.setSettings({ callRecording: { dir: picked } });
+    return picked;
+  }),
+
   /**
    * 导出中心各模式的最近一次灯箱配置（纯 UI 缓存，用于下次打开时回填状态）。
    */
