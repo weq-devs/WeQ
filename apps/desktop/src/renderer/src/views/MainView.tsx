@@ -6999,11 +6999,9 @@ export function MainView(): ReactElement {
       revision = dbRevisionRef.current;
     let expectedWindow = windowRef.current;
     const limit = isGroup ? GROUP_INITIAL_PAGE_SIZE : PAGE_SIZE;
-    const valid = () =>
-      !cancelled &&
-      messageScopeRef.current === scope &&
-      selectionRef.current === selection &&
-      windowRef.current === expectedWindow;
+    const active = () =>
+      !cancelled && messageScopeRef.current === scope && selectionRef.current === selection;
+    const valid = () => active() && windowRef.current === expectedWindow;
     const jump = pendingSearchJumpRef.current;
     if (jump && jump.conv === conv) {
       pendingSearchJumpRef.current = null;
@@ -7040,25 +7038,6 @@ export function MainView(): ReactElement {
           ? conversationWindows.getPosition(conversationWindowKey(scope, kind, conv))
           : undefined;
         let readSeq = saved?.anchorSeq;
-        if (displaySettings.data?.readFromFirstUnread && !cached && !readSeq) {
-          try {
-            const [info] = await client.account.getUnreadInfos.query({
-              ...binding,
-              targets: [
-                {
-                  chatType: entryChatType,
-                  uid: conv,
-                },
-              ],
-            });
-            if (!valid()) return;
-            if (info && !info.readError && (info.unreadCount ?? 0) > 0)
-              readSeq = info.readSeq ?? undefined;
-          } catch (error) {
-            console.error('[msgs] entry unread snapshot failed', error);
-          }
-        }
-        if (!valid()) return;
         await loadConversationEntry<MessageWire>({
           cached,
           dirty,
@@ -7066,6 +7045,26 @@ export function MainView(): ReactElement {
           readFromFirstUnread: displaySettings.data?.readFromFirstUnread ?? false,
           limit,
           current: valid,
+          active,
+          resolveReadSeq: async () => {
+            try {
+              const [info] = await client.account.getUnreadInfos.query({
+                ...binding,
+                targets: [{ chatType: entryChatType, uid: conv }],
+              });
+              if (info && !info.readError && (info.unreadCount ?? 0) > 0)
+                readSeq = info.readSeq ?? undefined;
+            } catch (error) {
+              console.error('[msgs] entry unread snapshot failed', error);
+            }
+            return readSeq;
+          },
+          settled: () => {
+            entryLoadingRef.current = false;
+            setMessagesLoading(false);
+            setLoadingNewerMessages(false);
+            if (!valid() || dbRevisionRef.current !== revision) void refreshWindow();
+          },
           cursor: (rows) =>
             rows
               .filter(
@@ -7142,12 +7141,6 @@ export function MainView(): ReactElement {
         if (!valid()) return;
         console.error('[msgs] entry load failed', err);
         setMessagesLoading(false);
-      } finally {
-        if (!cancelled && messageScopeRef.current === scope && selectionRef.current === selection) {
-          entryLoadingRef.current = false;
-          setLoadingNewerMessages(false);
-          if (dbRevisionRef.current !== revision) void refreshWindow();
-        }
       }
     })();
     return () => {
