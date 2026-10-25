@@ -23,6 +23,9 @@ const fixture = vi.hoisted(() => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => fixture.utils,
+    bootstrap: {
+      getAgentLabDefaultModel: { useQuery: () => ({ data: { ref: null, available: false } }) },
+    },
     account: new Proxy(
       {},
       {
