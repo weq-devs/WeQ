@@ -80,8 +80,8 @@ function getHighlighter(): Promise<HighlighterCore> {
   if (!highlighterPromise) {
     highlighterPromise = createHighlighterCore({
       themes: [
-        import('shiki/themes').then((m) => m.bundledThemes[LIGHT_THEME]()),
-        import('shiki/themes').then((m) => m.bundledThemes[DARK_THEME]()),
+        import('shiki/themes/github-light.mjs').then((m) => m.default),
+        import('shiki/themes/github-dark.mjs').then((m) => m.default),
       ],
       langs: [],
       // 纯 JS 正则引擎：不加载 onig.wasm，规避 CSP `script-src 'self'`。

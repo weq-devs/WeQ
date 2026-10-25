@@ -147,6 +147,8 @@ describe('桌面发行包瘦身', () => {
           matchers[0].createFilter()(join(desktop, file), stat);
         expect(mainIncludes('out/main/index.js')).toBe(true);
         expect(mainIncludes('out/renderer/index.html')).toBe(true);
+        expect(mainIncludes('out/types-node/index.d.ts')).toBe(false);
+        expect(mainIncludes('out/types-web/index.d.ts')).toBe(false);
         expect(mainIncludes('package.json')).toBe(true);
         expect(mainIncludes('src/main/index.ts')).toBe(false);
         expect(mainIncludes('dist/preview.js')).toBe(false);
@@ -167,6 +169,7 @@ describe('桌面发行包瘦身', () => {
         expect(includes('node_modules/exceljs/LICENSE')).toBe(true);
         expect(includes('node_modules/exceljs/lib/doc/workbook.js.map')).toBe(false);
         expect(includes('node_modules/sharp/lib/index.js')).toBe(true);
+        expect(includes('node_modules/zod/index.d.cts')).toBe(false);
         expect(includes(`node_modules/@resvg/resvg-js-linux-${arch}-gnu/resvgjs.node`)).toBe(true);
         expect(includes('node_modules/@resvg/resvg-js-win32-x64-msvc/resvgjs.node')).toBe(true);
       });

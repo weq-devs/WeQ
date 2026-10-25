@@ -7,6 +7,8 @@ directories:
 afterPack: ../../scripts/trim-desktop-package.mjs
 files:
   - "out/**/*"
+  - "!out/types-*/**"
+  - "!out/**/*.d.{ts,cts,mts}"
   # Bare "package.json" was being resolved as a glob in this monorepo and
   # matched `../../packages/<name>/package.json` etc., which electron-builder
   # rejects ("must be under <appDir>"). Pin to the desktop app's own manifest.
@@ -18,6 +20,7 @@ files:
   - "!node_modules/@weq/**/*"
   # 前端依赖仅用于构建；运行依赖也不携带源码映射和 ExcelJS 的浏览器整包。
   - "!node_modules/**/*.map"
+  - "!node_modules/**/*.d.{ts,cts,mts}"
   - "!node_modules/exceljs/dist/**"
   # onnxruntime-node 是原生模块：留在 asar 里会被 electron-builder 的 smartUnpack
   # **整包**解出一份到 app.asar.unpacked/（288 MB 的包体，2.0.5 的 Windows 安装包

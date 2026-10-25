@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PassThrough } from 'node:stream';
+import { fork, spawnSync } from 'node:child_process';
 
 // 用 ELECTRON_RUN_AS_NODE=1 electron 执行，不启动应用、网络服务或用户资料。
 assert.ok(process.versions.electron, '请使用 Electron 的 Node 模式执行此检查');
@@ -25,6 +26,8 @@ for (const name of ['react-icons', 'mermaid', 'shiki', 'lottie-web', 'react-dom'
 }
 assert.ok(existsSync(join(asar, 'out/renderer/index.html')));
 assert.ok(readdirSync(join(asar, 'out/renderer/assets')).length > 0);
+assert.equal(existsSync(join(asar, 'out/types-node')), false);
+assert.equal(existsSync(join(asar, 'out/types-web')), false);
 assert.equal(existsSync(join(asar, 'node_modules/exceljs/dist')), false);
 for (const name of [
   'electron-trpc/main',
@@ -90,15 +93,92 @@ if (process.platform === 'darwin' && process.arch === 'x64') {
   assert.equal(typeof ort.InferenceSession.create, 'function');
   const tensor = new ort.Tensor('float32', new Float32Array([1]), [1]);
   assert.equal(tensor.data[0], 1);
+  // IR 8 / opset 13 的单个 float32 Identity 黄金模型，仅在内存中执行。
+  const identity = Buffer.from(
+    '080812097765712d736d6f6b653a3b0a100a017812017922084964656e746974791205736d6f6b655a0f0a0178120a0a08080112040a020801620f0a0179120a0a08080112040a0208014202100d',
+    'hex',
+  );
+  const session = await ort.InferenceSession.create(identity, {
+    executionProviders: ['cpu'],
+    intraOpNumThreads: 1,
+    interOpNumThreads: 1,
+  });
+  try {
+    const output = await session.run({ x: tensor });
+    assert.deepEqual(Array.from(output.y.data), [1]);
+  } finally {
+    await session.release();
+  }
   const { Laya } = await import(pathToFileURL(workerRequire.resolve('@receptron/laya')).href);
   assert.equal(typeof Laya, 'function');
-  console.log('PASS OCR/意图分析子进程依赖加载（不下载模型）');
+  console.log('PASS ONNX CPU 推理及 OCR/意图分析子进程依赖加载（不下载模型）');
 }
 
 const sherpa = require('sherpa-onnx-node');
 assert.equal(typeof sherpa.OfflineRecognizer, 'function');
+const sherpaVersion = typeof sherpa.version === 'function' ? sherpa.version() : sherpa.version;
+assert.equal(typeof sherpaVersion, 'string');
+assert.ok(sherpaVersion.length > 0);
 const bindingPlatform = process.platform === 'win32' ? 'win' : process.platform;
 const binding = `sherpa-onnx-${bindingPlatform}-${process.arch}`;
 assert.ok(existsSync(join(resources, 'app.asar.unpacked/node_modules', binding)));
 console.log('PASS sherpa 语音引擎原生绑定加载（不下载模型）');
+
+if (process.platform === 'darwin') {
+  for (const directory of [
+    join(resources, 'node_modules/onnxruntime-node/bin/napi-v6/darwin', process.arch),
+    join(resources, 'app.asar.unpacked/node_modules', binding),
+  ]) {
+    if (!existsSync(directory)) continue;
+    const aliases = readdirSync(directory).filter((name) =>
+      /^libonnxruntime(?:\.\d+)?\.dylib$/.test(name),
+    );
+    for (const alias of aliases) {
+      const file = join(directory, alias);
+      assert.ok(lstatSync(file).isSymbolicLink(), `${alias} 尚未去重`);
+      assert.match(readlinkSync(file), /^libonnxruntime\.\d+\.\d+\.\d+\.dylib$/);
+      assert.ok(existsSync(file));
+    }
+  }
+  console.log('PASS 同版本运行库相对别名与目标完整性');
+}
+
+// 无效探测请求在解析阶段结束，不加载 QQ 数据库。
+const backup = spawnSync(process.execPath, [join(resources, 'out/main/backupProbeWorker.mjs')], {
+  input: '{}',
+  encoding: 'utf8',
+  timeout: 10_000,
+  env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+});
+assert.equal(backup.error, undefined);
+assert.equal(backup.status, 1);
+assert.equal(JSON.parse(backup.stdout).status, 'error');
+
+async function probeWorker(name, plan, expected) {
+  const child = fork(join(resources, 'out/main', name), [], {
+    execPath: process.execPath,
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+  });
+  const closed = new Promise((resolve) => child.once('close', resolve));
+  let timer;
+  try {
+    const message = await new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`${name} 未响应`)), 10_000);
+      child.once('message', resolve);
+      child.once('error', reject);
+      child.once('exit', (code) => reject(new Error(`${name} 提前退出：${code}`)));
+      child.send({ type: 'prepare', plan, parentPid: process.pid });
+    });
+    assert.equal(message.type, expected);
+  } finally {
+    clearTimeout(timer);
+    // 从不发送 commit；准备阶段仅验证模块加载，结束自己的测试子进程。
+    child.kill();
+    await closed;
+  }
+}
+await probeWorker('storageCleanupWorker.mjs', {}, 'ready');
+if (process.platform === 'darwin') await probeWorker('macUpdateWorker.mjs', {}, 'error');
+console.log('PASS 备份/清理/更新 worker 依赖闭包（未提交任何操作）');
 console.log('PASS 桌面包瘦身冒烟完成');

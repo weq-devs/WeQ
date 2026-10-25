@@ -19,12 +19,16 @@ export function prepareRemoteNetwork({
     directory,
     platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
   );
-  const result = build('go', ['build', '-p', '2', '-trimpath', '-o', helper, '.'], {
-    cwd: directory,
-    stdio: 'inherit',
-    windowsHide: true,
-    env: { ...process.env, CGO_ENABLED: '0', GOOS: goos, GOARCH: goarch },
-  });
+  const result = build(
+    'go',
+    ['build', '-p', '2', '-trimpath', '-ldflags=-s -w', '-o', helper, '.'],
+    {
+      cwd: directory,
+      stdio: 'inherit',
+      windowsHide: true,
+      env: { ...process.env, CGO_ENABLED: '0', GOOS: goos, GOARCH: goarch },
+    },
+  );
   if (result.error)
     throw new Error('无法运行 Go，请先安装或修复 Go 工具链。', { cause: result.error });
   if (result.status !== 0) throw new Error('远程网络辅助程序构建失败，未启动 WeQ。');
