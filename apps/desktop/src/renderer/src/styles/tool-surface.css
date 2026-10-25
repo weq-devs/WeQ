@@ -1,0 +1,70 @@
+.weq-tool-scrim {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--weq-overlay);
+}
+
+.weq-tool-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(1180px, 100%);
+  height: min(880px, calc(100dvh - 32px));
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 8px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  box-shadow: var(--weq-shadow-card);
+}
+
+.weq-tool-modal > * {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-height: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* 覆盖旧工具自带的固定弹窗尺寸，只保留外层工具容器。 */
+html[data-theme] .weq-tool-modal
+  > :is(.weq-maintenance-dialog, .weq-wtools-dialog, .weq-ra-dialog) {
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+}
+
+.weq-tool-modal .weq-wtools-dialog.has-single-tool .weq-wtools-nav {
+  display: none;
+}
+
+.weq-tool-modal .weq-wtools-pane-head {
+  padding-right: 56px;
+}
+
+html[data-theme='dark'] .weq-tool-modal {
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+}
+
+@media (max-width: 650px) {
+  .weq-tool-scrim {
+    padding: 0;
+  }
+  .weq-tool-modal {
+    width: 100%;
+    height: 100dvh;
+    border-radius: 0;
+  }
+}

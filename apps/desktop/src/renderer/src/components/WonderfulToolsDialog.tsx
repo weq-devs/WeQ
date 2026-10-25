@@ -44,7 +44,7 @@ import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../lib/autoRead';
 import { QqAvatar } from './QqAvatar';
 import { OverlayLayer } from './OverlayLayer';
-import { WorkspacePage } from './WorkspacePages';
+import { ToolSurface, type ToolPresentation } from './ToolSurface';
 import { ReverseTool } from './ReverseTool';
 import { CapturePanel } from './CapturePanel';
 import { LoginAccountPanel } from './LoginAccountPanel';
@@ -291,12 +291,14 @@ export function WonderfulToolsDialog({
   onClose,
   initialTool = 'capture',
   tools = ['capture', 'reverse'],
+  presentation = 'page',
 }: {
   open: boolean;
   onClose: () => void;
   /** 打开时落在哪一个工具上（损坏弹窗要横着跳进「数据库修复」）。 */
   initialTool?: ToolId;
   tools?: readonly ToolId[];
+  presentation?: ToolPresentation;
 }): ReactElement | null {
   const visibleTools = TOOLS.filter((tool) => tools.includes(tool.id));
   const selectedTool = visibleTools.some((tool) => tool.id === initialTool)
@@ -327,6 +329,7 @@ export function WonderfulToolsDialog({
   /** 扫描的两阶段进度；还没有收到任何进度事件时为 null（显示不确定进度）。 */
   const [scanProgress, setScanProgress] = useState<ScanProgressView | null>(null);
   const scanSubRef = useRef<{ unsubscribe: () => void } | null>(null);
+  const scanRun = useRef(0);
 
   // —— 其它设备密钥 ——
   const [otherDbPath, setOtherDbPath] = useState<string | null>(null);
@@ -370,6 +373,7 @@ export function WonderfulToolsDialog({
   }, [open]);
 
   const closeResult = useCallback(() => {
+    scanRun.current += 1;
     scanSubRef.current?.unsubscribe();
     scanSubRef.current = null;
     setScanTarget(null);
@@ -378,6 +382,15 @@ export function WonderfulToolsDialog({
     setCopied(false);
     setScanProgress(null);
   }, []);
+
+  useEffect(() => {
+    if (!activity.enabled) closeResult();
+    return () => {
+      scanRun.current += 1;
+      scanSubRef.current?.unsubscribe();
+      scanSubRef.current = null;
+    };
+  }, [activity.enabled, closeResult]);
 
   const loadAccounts = useCallback(async () => {
     if (!readEnabled.current) return;
@@ -433,6 +446,7 @@ export function WonderfulToolsDialog({
   }, [activity.enabled, activity.revision, activeTool, scanningUin, fetchingKey, loadAccounts]);
 
   async function scanAccount(acc: AccountRow): Promise<void> {
+    const run = ++scanRun.current;
     setScanTarget(acc);
     setScanningUin(acc.uin);
     setResult(null);
@@ -442,7 +456,7 @@ export function WonderfulToolsDialog({
     scanSubRef.current?.unsubscribe();
     scanSubRef.current = client.wonderfulTools.onKeyScanProgress.subscribe(undefined, {
       onData: (p) => {
-        if (p.uin !== acc.uin) return;
+        if (run !== scanRun.current || p.uin !== acc.uin) return;
         setScanProgress({ phase: p.phase, percent: p.percent, message: p.message });
       },
       onError: () => {
@@ -451,8 +465,10 @@ export function WonderfulToolsDialog({
     });
     try {
       const r = await client.wonderfulTools.scanKey.query({ uin: acc.uin });
+      if (run !== scanRun.current) return;
       setResult({ ...r, uin: acc.uin, name: acc.userName || acc.uin, pid: acc.pid });
     } catch (e) {
+      if (run !== scanRun.current) return;
       setResult({
         success: false,
         error: errMsg(e),
@@ -461,9 +477,11 @@ export function WonderfulToolsDialog({
         pid: acc.pid,
       });
     } finally {
-      setScanningUin(null);
-      scanSubRef.current?.unsubscribe();
-      scanSubRef.current = null;
+      if (run === scanRun.current) {
+        setScanningUin(null);
+        scanSubRef.current?.unsubscribe();
+        scanSubRef.current = null;
+      }
     }
   }
 
@@ -534,454 +552,460 @@ export function WonderfulToolsDialog({
   if (!open) return null;
 
   return (
-    <WorkspacePage
+    <ToolSurface
       title={TOOLS.find((item) => item.id === activeTool)?.label ?? '诊断工具'}
       onClose={onClose}
+      presentation={presentation}
     >
-      <div
-        className={`weq-wtools-dialog${activeTool === 'capture' ? ' is-capture' : ''}${visibleTools.length === 1 ? ' has-single-tool' : ''}`}
-        role="region"
-        aria-labelledby="weq-wtools-title"
-      >
-        <button className="weq-wtools-close" onClick={onClose} title="关闭" type="button">
-          <X size={18} strokeWidth={2} />
-        </button>
+      {(onClose) => (
+        <>
+          <div
+            className={`weq-wtools-dialog${activeTool === 'capture' ? ' is-capture' : ''}${visibleTools.length === 1 ? ' has-single-tool' : ''}`}
+            role="region"
+            aria-labelledby="weq-wtools-title"
+          >
+            <button className="weq-wtools-close" onClick={onClose} title="关闭" type="button">
+              <X size={18} strokeWidth={2} />
+            </button>
 
-        <div className="weq-wtools-shell">
-          {/* 左栏：工具列表 */}
-          <aside className="weq-wtools-nav">
-            <div className="weq-wtools-brand">
-              <span className="weq-wtools-brand-icon">
-                <ScanSearch size={17} strokeWidth={1.8} />
-              </span>
-              <span>{visibleTools.length === 1 ? visibleTools[0]?.label : '高级诊断'}</span>
-            </div>
-            <div
-              className="weq-wtools-nav-list"
-              role="tablist"
-              aria-label="工具列表"
-              ref={toolNavRef}
-            >
-              {visibleTools.map((tool) => (
-                <button
-                  key={tool.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTool === tool.id}
-                  className={`weq-wtools-nav-item${activeTool === tool.id ? ' is-active' : ''}`}
-                  onClick={() => {
-                    setActiveTool(tool.id);
-                    setResult(null);
-                    setScanningUin(null);
-                    setScanTarget(null);
-                  }}
-                >
-                  {(() => {
-                    const ToolIcon = TOOL_ICONS[tool.id];
-                    return <ToolIcon size={16} strokeWidth={1.8} />;
-                  })()}
-                  <span>
-                    <strong>{tool.label}</strong>
-                    <em>{tool.desc}</em>
+            <div className="weq-wtools-shell">
+              {/* 左栏：工具列表 */}
+              <aside className="weq-wtools-nav">
+                <div className="weq-wtools-brand">
+                  <span className="weq-wtools-brand-icon">
+                    <ScanSearch size={17} strokeWidth={1.8} />
                   </span>
-                </button>
-              ))}
-            </div>
-          </aside>
-
-          {/* 右栏：工具界面 */}
-          <section className="weq-wtools-pane">
-            {activeTool === 'key-scan' ? (
-              <>
-                <header className="weq-wtools-pane-head">
-                  <div className="weq-wtools-pane-title">
-                    <KeyRound size={17} strokeWidth={1.9} />
-                    <h2 id="weq-wtools-title">密钥扫描</h2>
-                    {!loading && accounts.length > 0 ? (
-                      <span className="weq-wtools-total">
-                        {onlineCount} / {accounts.length} 在线
-                      </span>
-                    ) : null}
-                  </div>
-                </header>
-
-                <div className="weq-wtools-pane-body">
-                  {loading ? (
-                    <div className="weq-wtools-state">
-                      <Loader2 size={22} className="weq-spin" />
-                      <span>正在读取账号与在线状态…</span>
-                    </div>
-                  ) : error ? (
-                    <div className="weq-wtools-state is-error">
-                      {error}
-                      <button
-                        type="button"
-                        className="weq-wtools-refresh"
-                        title="重试读取账号列表"
-                        aria-label="重试读取账号列表"
-                        onClick={() => void loadAccounts()}
-                      >
-                        <RefreshCw size={14} />
-                      </button>
-                    </div>
-                  ) : accounts.length === 0 ? (
-                    <div className="weq-wtools-state">
-                      未在 login.db 中发现历史账号，请先在 QQ / WeQ 登录过账号。
-                    </div>
-                  ) : (
-                    <div className="weq-wtools-grid">
-                      {accounts.map((acc) => {
-                        const online = acc.pid !== null;
-                        const busy = scanningUin === acc.uin;
-                        return (
-                          <button
-                            key={acc.uin}
-                            type="button"
-                            className={`weq-wtools-card${online ? ' is-online' : ' is-offline'}${busy ? ' is-busy' : ''}`}
-                            onClick={() => void scanAccount(acc)}
-                            disabled={busy}
-                            title={
-                              online
-                                ? `在线 · PID ${acc.pid} · 上次登录 ${humanTime(acc.lastLoginAt)}，点击扫描密钥`
-                                : `离线账号 · 上次登录 ${humanTime(acc.lastLoginAt)}，点击尝试扫描`
-                            }
-                          >
-                            <span className="weq-wtools-card-avatar">
-                              <QqAvatar uin={acc.uin} url={acc.avatarUrl} size={44} />
-                              <i className="weq-wtools-card-dot" aria-hidden />
-                            </span>
-                            <span className="weq-wtools-card-id">
-                              <strong>{acc.userName || acc.uin}</strong>
-                              <em>{acc.uin}</em>
-                            </span>
-                            <span className="weq-wtools-card-status">
-                              {busy ? (
-                                <Loader2 size={13} className="weq-spin" aria-label="扫描中" />
-                              ) : online ? (
-                                <span className="is-online-text">在线</span>
-                              ) : (
-                                <span className="is-offline-text">离线</span>
-                              )}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
+                  <span>{visibleTools.length === 1 ? visibleTools[0]?.label : '高级诊断'}</span>
                 </div>
-              </>
-            ) : null}
-
-            {activeTool === 'other-device-key' ? (
-              <>
-                <header className="weq-wtools-pane-head">
-                  <div className="weq-wtools-pane-title">
-                    <Database size={17} strokeWidth={1.9} />
-                    <h2 id="weq-wtools-title">其它设备密钥</h2>
-                    <span
-                      className={`weq-wtools-online-badge${otherKeyOnline > 0 ? ' is-online' : ''}`}
-                    >
-                      {autoAttachQq
-                        ? otherKeyOnline > 0
-                          ? `${otherKeyOnline} 个在线实例可用`
-                          : '无在线实例'
-                        : '完全离线模式'}
-                    </span>
-                  </div>
-                  <div className="weq-wtools-toolbar">
-                    {/*<button*/}
-                    {/*  type="button"*/}
-                    {/*  className="weq-wtools-refresh"*/}
-                    {/*  onClick={() => void loadAccounts()}*/}
-                    {/*  disabled={loading}*/}
-                    {/*>*/}
-                    {/*  <RefreshCw*/}
-                    {/*    size={14}*/}
-                    {/*    strokeWidth={1.9}*/}
-                    {/*    className={loading ? 'weq-spin' : ''}*/}
-                    {/*  />*/}
-                    {/*  刷新在线*/}
-                    {/*</button>*/}
-                  </div>
-                </header>
-
-                <div className="weq-wtools-pane-body">
-                  {/* 选择数据库 */}
-                  <div className="weq-wtools-odev-pick">
+                <div
+                  className="weq-wtools-nav-list"
+                  role="tablist"
+                  aria-label="工具列表"
+                  ref={toolNavRef}
+                >
+                  {visibleTools.map((tool) => (
                     <button
+                      key={tool.id}
                       type="button"
-                      className="weq-wtools-pick"
-                      onClick={() => void pickOtherDb()}
-                      disabled={fetchingKey}
-                      title="选择其它设备导出的 nt_msg.db"
+                      role="tab"
+                      aria-selected={activeTool === tool.id}
+                      className={`weq-wtools-nav-item${activeTool === tool.id ? ' is-active' : ''}`}
+                      onClick={() => {
+                        setActiveTool(tool.id);
+                        setResult(null);
+                        setScanningUin(null);
+                        setScanTarget(null);
+                      }}
                     >
-                      <FolderOpen size={15} strokeWidth={1.9} />
-                      选择数据库
-                    </button>
-                    <span
-                      className={`weq-wtools-odev-path${otherDbPath ? ' is-picked' : ''}`}
-                      title={otherDbPath ?? undefined}
-                    >
-                      {otherDbPath ?? '请选择其它设备导出的 nt_msg.db'}
-                    </span>
-                  </div>
-
-                  {/* 数据库头部 hexdump（高亮 db_salt） */}
-                  {headerLoading ? (
-                    <div className="weq-wtools-state weq-wtools-odev-state">
-                      <Loader2 size={20} className="weq-spin" />
-                      <span>正在读取数据库头部…</span>
-                    </div>
-                  ) : headerError ? (
-                    <div className="weq-wtools-state is-error weq-wtools-odev-state">
-                      {headerError}
-                    </div>
-                  ) : headerHex && saltInfo ? (
-                    <div className="weq-wtools-odev-dump">
-                      <SaltHeaderDump
-                        hex={headerHex}
-                        saltStart={saltInfo.saltStart}
-                        saltEnd={saltInfo.saltEnd}
-                      />
-                      <div
-                        className={`weq-wtools-odev-salt${saltInfo.saltValid ? ' is-valid' : ' is-invalid'}`}
-                      >
-                        <span className="weq-wtools-odev-salt-label">key_meta</span>
-                        <code>
-                          {saltInfo.dbSalt.length > 64
-                            ? `${saltInfo.dbSalt.slice(0, 64)}…`
-                            : saltInfo.dbSalt || '（空）'}
-                        </code>
-                        <span className="weq-wtools-odev-salt-badge">
-                          {saltInfo.saltValid ? '有效' : '无效'}
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="weq-wtools-odev-placeholder">
-                      <Database size={22} strokeWidth={1.6} />
-                      <span>选择数据库后在此显示头部 hexdump</span>
-                    </div>
-                  )}
-
-                  {/* 获取密钥 */}
-                  <div className="weq-wtools-odev-actions">
-                    <button
-                      type="button"
-                      className="weq-wtools-fetch"
-                      onClick={() => void fetchOtherKey()}
-                      disabled={
-                        !otherDbPath || otherKeyOnline === 0 || fetchingKey || headerLoading
-                      }
-                      title={
-                        !autoAttachQq
-                          ? '已开启完全离线模式，无法向 QQ 请求密钥'
-                          : otherKeyOnline === 0
-                            ? '没有可用的在线 QQ 实例，无法发包获取密钥'
-                            : '按 bootstrap 取密钥流程，向在线 QQ 请求该数据库的密钥'
-                      }
-                    >
-                      {fetchingKey ? (
-                        <Loader2 size={15} className="weq-spin" />
-                      ) : (
-                        <KeyRound size={15} strokeWidth={1.9} />
-                      )}
-                      {fetchingKey ? '正在获取…' : '获取密钥'}
-                    </button>
-                    {otherKeyOnline === 0 && !fetchingKey ? (
-                      <span className="weq-wtools-odev-hint">
-                        {autoAttachQq
-                          ? '无在线实例，按钮保持灰色：请先登录 QQ 并保持在线'
-                          : '已开启完全离线模式（自动读取 QQ 内存 已关闭），无法向 QQ 请求密钥'}
+                      {(() => {
+                        const ToolIcon = TOOL_ICONS[tool.id];
+                        return <ToolIcon size={16} strokeWidth={1.8} />;
+                      })()}
+                      <span>
+                        <strong>{tool.label}</strong>
+                        <em>{tool.desc}</em>
                       </span>
-                    ) : null}
-                  </div>
+                    </button>
+                  ))}
+                </div>
+              </aside>
 
-                  {/* hexdump 下方：加载动画 → 密钥 / 失败原因 */}
-                  {fetchingKey ? (
-                    <div className="weq-wtools-odev-fetching">
-                      <Loader2 size={18} className="weq-spin" />
-                      <span>正在通过在线 QQ 请求密钥（OIDB 0xcde_2）…</span>
-                    </div>
-                  ) : otherResult ? (
-                    otherResult.success && otherResult.key ? (
-                      <div className="weq-wtools-odev-result">
-                        {/*<span className="weq-wtools-result-ok-badge">获取成功</span>*/}
-                        <div className="weq-wtools-key-row">
-                          <code>{otherResult.key}</code>
-                          <button
-                            type="button"
-                            className="weq-wtools-copy"
-                            onClick={copyOtherKey}
-                            title="复制密钥"
-                          >
-                            {otherCopied ? <Check size={15} /> : <Copy size={15} />}
-                            {otherCopied ? '已复制' : '复制'}
-                          </button>
-                        </div>
-                        {otherResult.pid ? (
-                          <span className="weq-wtools-odev-pid">
-                            由在线实例 PID {otherResult.pid} 返回
+              {/* 右栏：工具界面 */}
+              <section className="weq-wtools-pane">
+                {activeTool === 'key-scan' ? (
+                  <>
+                    <header className="weq-wtools-pane-head">
+                      <div className="weq-wtools-pane-title">
+                        <KeyRound size={17} strokeWidth={1.9} />
+                        <h2 id="weq-wtools-title">密钥扫描</h2>
+                        {!loading && accounts.length > 0 ? (
+                          <span className="weq-wtools-total">
+                            {onlineCount} / {accounts.length} 在线
                           </span>
                         ) : null}
                       </div>
+                    </header>
+
+                    <div className="weq-wtools-pane-body">
+                      {loading ? (
+                        <div className="weq-wtools-state">
+                          <Loader2 size={22} className="weq-spin" />
+                          <span>正在读取账号与在线状态…</span>
+                        </div>
+                      ) : error ? (
+                        <div className="weq-wtools-state is-error">
+                          {error}
+                          <button
+                            type="button"
+                            className="weq-wtools-refresh"
+                            title="重试读取账号列表"
+                            aria-label="重试读取账号列表"
+                            onClick={() => void loadAccounts()}
+                          >
+                            <RefreshCw size={14} />
+                          </button>
+                        </div>
+                      ) : accounts.length === 0 ? (
+                        <div className="weq-wtools-state">
+                          未在 login.db 中发现历史账号，请先在 QQ / WeQ 登录过账号。
+                        </div>
+                      ) : (
+                        <div className="weq-wtools-grid">
+                          {accounts.map((acc) => {
+                            const online = acc.pid !== null;
+                            const busy = scanningUin === acc.uin;
+                            return (
+                              <button
+                                key={acc.uin}
+                                type="button"
+                                className={`weq-wtools-card${online ? ' is-online' : ' is-offline'}${busy ? ' is-busy' : ''}`}
+                                onClick={() => void scanAccount(acc)}
+                                disabled={busy}
+                                title={
+                                  online
+                                    ? `在线 · PID ${acc.pid} · 上次登录 ${humanTime(acc.lastLoginAt)}，点击扫描密钥`
+                                    : `离线账号 · 上次登录 ${humanTime(acc.lastLoginAt)}，点击尝试扫描`
+                                }
+                              >
+                                <span className="weq-wtools-card-avatar">
+                                  <QqAvatar uin={acc.uin} url={acc.avatarUrl} size={44} />
+                                  <i className="weq-wtools-card-dot" aria-hidden />
+                                </span>
+                                <span className="weq-wtools-card-id">
+                                  <strong>{acc.userName || acc.uin}</strong>
+                                  <em>{acc.uin}</em>
+                                </span>
+                                <span className="weq-wtools-card-status">
+                                  {busy ? (
+                                    <Loader2 size={13} className="weq-spin" aria-label="扫描中" />
+                                  ) : online ? (
+                                    <span className="is-online-text">在线</span>
+                                  ) : (
+                                    <span className="is-offline-text">离线</span>
+                                  )}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : null}
+
+                {activeTool === 'other-device-key' ? (
+                  <>
+                    <header className="weq-wtools-pane-head">
+                      <div className="weq-wtools-pane-title">
+                        <Database size={17} strokeWidth={1.9} />
+                        <h2 id="weq-wtools-title">其它设备密钥</h2>
+                        <span
+                          className={`weq-wtools-online-badge${otherKeyOnline > 0 ? ' is-online' : ''}`}
+                        >
+                          {autoAttachQq
+                            ? otherKeyOnline > 0
+                              ? `${otherKeyOnline} 个在线实例可用`
+                              : '无在线实例'
+                            : '完全离线模式'}
+                        </span>
+                      </div>
+                      <div className="weq-wtools-toolbar">
+                        {/*<button*/}
+                        {/*  type="button"*/}
+                        {/*  className="weq-wtools-refresh"*/}
+                        {/*  onClick={() => void loadAccounts()}*/}
+                        {/*  disabled={loading}*/}
+                        {/*>*/}
+                        {/*  <RefreshCw*/}
+                        {/*    size={14}*/}
+                        {/*    strokeWidth={1.9}*/}
+                        {/*    className={loading ? 'weq-spin' : ''}*/}
+                        {/*  />*/}
+                        {/*  刷新在线*/}
+                        {/*</button>*/}
+                      </div>
+                    </header>
+
+                    <div className="weq-wtools-pane-body">
+                      {/* 选择数据库 */}
+                      <div className="weq-wtools-odev-pick">
+                        <button
+                          type="button"
+                          className="weq-wtools-pick"
+                          onClick={() => void pickOtherDb()}
+                          disabled={fetchingKey}
+                          title="选择其它设备导出的 nt_msg.db"
+                        >
+                          <FolderOpen size={15} strokeWidth={1.9} />
+                          选择数据库
+                        </button>
+                        <span
+                          className={`weq-wtools-odev-path${otherDbPath ? ' is-picked' : ''}`}
+                          title={otherDbPath ?? undefined}
+                        >
+                          {otherDbPath ?? '请选择其它设备导出的 nt_msg.db'}
+                        </span>
+                      </div>
+
+                      {/* 数据库头部 hexdump（高亮 db_salt） */}
+                      {headerLoading ? (
+                        <div className="weq-wtools-state weq-wtools-odev-state">
+                          <Loader2 size={20} className="weq-spin" />
+                          <span>正在读取数据库头部…</span>
+                        </div>
+                      ) : headerError ? (
+                        <div className="weq-wtools-state is-error weq-wtools-odev-state">
+                          {headerError}
+                        </div>
+                      ) : headerHex && saltInfo ? (
+                        <div className="weq-wtools-odev-dump">
+                          <SaltHeaderDump
+                            hex={headerHex}
+                            saltStart={saltInfo.saltStart}
+                            saltEnd={saltInfo.saltEnd}
+                          />
+                          <div
+                            className={`weq-wtools-odev-salt${saltInfo.saltValid ? ' is-valid' : ' is-invalid'}`}
+                          >
+                            <span className="weq-wtools-odev-salt-label">key_meta</span>
+                            <code>
+                              {saltInfo.dbSalt.length > 64
+                                ? `${saltInfo.dbSalt.slice(0, 64)}…`
+                                : saltInfo.dbSalt || '（空）'}
+                            </code>
+                            <span className="weq-wtools-odev-salt-badge">
+                              {saltInfo.saltValid ? '有效' : '无效'}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="weq-wtools-odev-placeholder">
+                          <Database size={22} strokeWidth={1.6} />
+                          <span>选择数据库后在此显示头部 hexdump</span>
+                        </div>
+                      )}
+
+                      {/* 获取密钥 */}
+                      <div className="weq-wtools-odev-actions">
+                        <button
+                          type="button"
+                          className="weq-wtools-fetch"
+                          onClick={() => void fetchOtherKey()}
+                          disabled={
+                            !otherDbPath || otherKeyOnline === 0 || fetchingKey || headerLoading
+                          }
+                          title={
+                            !autoAttachQq
+                              ? '已开启完全离线模式，无法向 QQ 请求密钥'
+                              : otherKeyOnline === 0
+                                ? '没有可用的在线 QQ 实例，无法发包获取密钥'
+                                : '按 bootstrap 取密钥流程，向在线 QQ 请求该数据库的密钥'
+                          }
+                        >
+                          {fetchingKey ? (
+                            <Loader2 size={15} className="weq-spin" />
+                          ) : (
+                            <KeyRound size={15} strokeWidth={1.9} />
+                          )}
+                          {fetchingKey ? '正在获取…' : '获取密钥'}
+                        </button>
+                        {otherKeyOnline === 0 && !fetchingKey ? (
+                          <span className="weq-wtools-odev-hint">
+                            {autoAttachQq
+                              ? '无在线实例，按钮保持灰色：请先登录 QQ 并保持在线'
+                              : '已开启完全离线模式（自动读取 QQ 内存 已关闭），无法向 QQ 请求密钥'}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {/* hexdump 下方：加载动画 → 密钥 / 失败原因 */}
+                      {fetchingKey ? (
+                        <div className="weq-wtools-odev-fetching">
+                          <Loader2 size={18} className="weq-spin" />
+                          <span>正在通过在线 QQ 请求密钥（OIDB 0xcde_2）…</span>
+                        </div>
+                      ) : otherResult ? (
+                        otherResult.success && otherResult.key ? (
+                          <div className="weq-wtools-odev-result">
+                            {/*<span className="weq-wtools-result-ok-badge">获取成功</span>*/}
+                            <div className="weq-wtools-key-row">
+                              <code>{otherResult.key}</code>
+                              <button
+                                type="button"
+                                className="weq-wtools-copy"
+                                onClick={copyOtherKey}
+                                title="复制密钥"
+                              >
+                                {otherCopied ? <Check size={15} /> : <Copy size={15} />}
+                                {otherCopied ? '已复制' : '复制'}
+                              </button>
+                            </div>
+                            {otherResult.pid ? (
+                              <span className="weq-wtools-odev-pid">
+                                由在线实例 PID {otherResult.pid} 返回
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="weq-wtools-odev-result is-error">
+                            <span className="weq-wtools-result-err-badge">获取失败</span>
+                            <p>{otherResult.error ?? '未知错误'}</p>
+                          </div>
+                        )
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
+
+                {activeTool === 'capture' ? (
+                  <>
+                    <header className="weq-wtools-pane-head">
+                      <div className="weq-wtools-pane-title">
+                        <Radio size={17} strokeWidth={1.9} />
+                        <h2 id="weq-wtools-title">ntqq 抓包</h2>
+                      </div>
+                    </header>
+                    {/* 抓包面板自带分栏与滚动，所以正文区全出血（去掉内边距、不自己滚）。 */}
+                    <div className="weq-wtools-pane-body is-flush">
+                      <CapturePanel
+                        accounts={accounts.map((acc) => ({
+                          uin: acc.uin,
+                          name: acc.userName,
+                          avatarUrl: acc.avatarUrl,
+                          pid: acc.pid,
+                        }))}
+                      />
+                    </div>
+                  </>
+                ) : null}
+
+                {activeTool === 'login-accounts' ? (
+                  <>
+                    <header className="weq-wtools-pane-head">
+                      <div className="weq-wtools-pane-title">
+                        <Fingerprint size={17} strokeWidth={1.9} />
+                        <h2 id="weq-wtools-title">QQ 登录账号管理</h2>
+                      </div>
+                    </header>
+                    <div className="weq-wtools-pane-body">
+                      <LoginAccountPanel />
+                    </div>
+                  </>
+                ) : null}
+
+                {activeTool === 'reverse' ? (
+                  <>
+                    <header className="weq-wtools-pane-head">
+                      <div className="weq-wtools-pane-title">
+                        <Braces size={17} strokeWidth={1.9} />
+                        <h2 id="weq-wtools-title">Protobuf / JCE 逆向</h2>
+                      </div>
+                    </header>
+                    <div className="weq-wtools-pane-body">
+                      <ReverseTool />
+                    </div>
+                  </>
+                ) : null}
+              </section>
+            </div>
+          </div>
+
+          {/* 扫描结果模态窗口：头像 / 昵称 / QQ 号 / PID + 密钥（复制） */}
+          {scanTarget ? (
+            <OverlayLayer
+              presentation="modal"
+              className="weq-wtools-result-layer"
+              onClose={closeResult}
+            >
+              <section
+                className="weq-wtools-result-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="weq-wtools-result-title"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <button
+                  className="weq-wtools-result-close"
+                  type="button"
+                  title="关闭"
+                  aria-label="关闭"
+                  onClick={closeResult}
+                >
+                  <X size={16} strokeWidth={2} />
+                </button>
+                <div className="weq-wtools-result-avatar">
+                  <QqAvatar
+                    uin={scanTarget.uin}
+                    url={scanTarget.avatarUrl}
+                    size={64}
+                    className="weq-wtools-result-avatar-img"
+                  />
+                </div>
+                <strong id="weq-wtools-result-title" className="weq-wtools-result-name">
+                  {scanTarget.userName || scanTarget.uin}
+                </strong>
+                <span className="weq-wtools-result-uin">QQ 号 {scanTarget.uin}</span>
+                {scanTarget.pid ? (
+                  <span className="weq-wtools-result-pid">PID {scanTarget.pid}</span>
+                ) : null}
+
+                <div className="weq-wtools-result-body">
+                  {scanningUin ? (
+                    <div className="weq-wtools-scan-progress" aria-live="polite">
+                      <div className="weq-wtools-scan-progress-head">
+                        <Loader2 size={15} strokeWidth={2} className="weq-spin" />
+                        <span className="weq-wtools-scan-msg">
+                          {scanProgress?.message ?? '正在扫描进程内存并验证密钥…'}
+                        </span>
+                        {scanProgress ? (
+                          <span className="weq-wtools-scan-pct">{scanProgress.percent}%</span>
+                        ) : null}
+                      </div>
+                      <div className="weq-wtools-scan-track">
+                        <div
+                          className={`weq-wtools-scan-fill${scanProgress ? '' : ' is-indeterminate'}`}
+                          style={scanProgress ? { width: `${scanProgress.percent}%` } : undefined}
+                        />
+                      </div>
+                      {scanProgress?.phase === 'strong' ? (
+                        <span className="weq-wtools-scan-hint">
+                          锚点附近没找到可验证的密钥，正在回退扫描整个内存（较慢）
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : result ? (
+                    result.success && result.key ? (
+                      <>
+                        <span className="weq-wtools-result-ok-badge">扫描成功</span>
+                        <div className="weq-wtools-key-row">
+                          <code>{result.key}</code>
+                          <button
+                            type="button"
+                            className="weq-wtools-copy"
+                            onClick={copyKey}
+                            title="复制密钥"
+                          >
+                            {copied ? <Check size={15} /> : <Copy size={15} />}
+                            {copied ? '已复制' : '复制'}
+                          </button>
+                        </div>
+                        {result.keyContextHex ? (
+                          <KeyContextDump contextHex={result.keyContextHex} keyText={result.key} />
+                        ) : null}
+                      </>
                     ) : (
-                      <div className="weq-wtools-odev-result is-error">
-                        <span className="weq-wtools-result-err-badge">获取失败</span>
-                        <p>{otherResult.error ?? '未知错误'}</p>
+                      <div className="weq-wtools-result-err">
+                        <span className="weq-wtools-result-err-badge">扫描未成功</span>
+                        <p>{result.error ?? '未知错误'}</p>
                       </div>
                     )
                   ) : null}
                 </div>
-              </>
-            ) : null}
-
-            {activeTool === 'capture' ? (
-              <>
-                <header className="weq-wtools-pane-head">
-                  <div className="weq-wtools-pane-title">
-                    <Radio size={17} strokeWidth={1.9} />
-                    <h2 id="weq-wtools-title">ntqq 抓包</h2>
-                  </div>
-                </header>
-                {/* 抓包面板自带分栏与滚动，所以正文区全出血（去掉内边距、不自己滚）。 */}
-                <div className="weq-wtools-pane-body is-flush">
-                  <CapturePanel
-                    accounts={accounts.map((acc) => ({
-                      uin: acc.uin,
-                      name: acc.userName,
-                      avatarUrl: acc.avatarUrl,
-                      pid: acc.pid,
-                    }))}
-                  />
-                </div>
-              </>
-            ) : null}
-
-            {activeTool === 'login-accounts' ? (
-              <>
-                <header className="weq-wtools-pane-head">
-                  <div className="weq-wtools-pane-title">
-                    <Fingerprint size={17} strokeWidth={1.9} />
-                    <h2 id="weq-wtools-title">QQ 登录账号管理</h2>
-                  </div>
-                </header>
-                <div className="weq-wtools-pane-body">
-                  <LoginAccountPanel />
-                </div>
-              </>
-            ) : null}
-
-            {activeTool === 'reverse' ? (
-              <>
-                <header className="weq-wtools-pane-head">
-                  <div className="weq-wtools-pane-title">
-                    <Braces size={17} strokeWidth={1.9} />
-                    <h2 id="weq-wtools-title">Protobuf / JCE 逆向</h2>
-                  </div>
-                </header>
-                <div className="weq-wtools-pane-body">
-                  <ReverseTool />
-                </div>
-              </>
-            ) : null}
-          </section>
-        </div>
-      </div>
-
-      {/* 扫描结果模态窗口：头像 / 昵称 / QQ 号 / PID + 密钥（复制） */}
-      {scanTarget ? (
-        <OverlayLayer
-          presentation="popover"
-          className="weq-wtools-result-layer"
-          onClose={closeResult}
-        >
-          <section
-            className="weq-wtools-result-modal"
-            role="dialog"
-            aria-labelledby="weq-wtools-result-title"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <button
-              className="weq-wtools-result-close"
-              type="button"
-              title="关闭"
-              aria-label="关闭"
-              onClick={closeResult}
-            >
-              <X size={16} strokeWidth={2} />
-            </button>
-            <div className="weq-wtools-result-avatar">
-              <QqAvatar
-                uin={scanTarget.uin}
-                url={scanTarget.avatarUrl}
-                size={64}
-                className="weq-wtools-result-avatar-img"
-              />
-            </div>
-            <strong id="weq-wtools-result-title" className="weq-wtools-result-name">
-              {scanTarget.userName || scanTarget.uin}
-            </strong>
-            <span className="weq-wtools-result-uin">QQ 号 {scanTarget.uin}</span>
-            {scanTarget.pid ? (
-              <span className="weq-wtools-result-pid">PID {scanTarget.pid}</span>
-            ) : null}
-
-            <div className="weq-wtools-result-body">
-              {scanningUin ? (
-                <div className="weq-wtools-scan-progress" aria-live="polite">
-                  <div className="weq-wtools-scan-progress-head">
-                    <Loader2 size={15} strokeWidth={2} className="weq-spin" />
-                    <span className="weq-wtools-scan-msg">
-                      {scanProgress?.message ?? '正在扫描进程内存并验证密钥…'}
-                    </span>
-                    {scanProgress ? (
-                      <span className="weq-wtools-scan-pct">{scanProgress.percent}%</span>
-                    ) : null}
-                  </div>
-                  <div className="weq-wtools-scan-track">
-                    <div
-                      className={`weq-wtools-scan-fill${scanProgress ? '' : ' is-indeterminate'}`}
-                      style={scanProgress ? { width: `${scanProgress.percent}%` } : undefined}
-                    />
-                  </div>
-                  {scanProgress?.phase === 'strong' ? (
-                    <span className="weq-wtools-scan-hint">
-                      锚点附近没找到可验证的密钥，正在回退扫描整个内存（较慢）
-                    </span>
-                  ) : null}
-                </div>
-              ) : result ? (
-                result.success && result.key ? (
-                  <>
-                    <span className="weq-wtools-result-ok-badge">扫描成功</span>
-                    <div className="weq-wtools-key-row">
-                      <code>{result.key}</code>
-                      <button
-                        type="button"
-                        className="weq-wtools-copy"
-                        onClick={copyKey}
-                        title="复制密钥"
-                      >
-                        {copied ? <Check size={15} /> : <Copy size={15} />}
-                        {copied ? '已复制' : '复制'}
-                      </button>
-                    </div>
-                    {result.keyContextHex ? (
-                      <KeyContextDump contextHex={result.keyContextHex} keyText={result.key} />
-                    ) : null}
-                  </>
-                ) : (
-                  <div className="weq-wtools-result-err">
-                    <span className="weq-wtools-result-err-badge">扫描未成功</span>
-                    <p>{result.error ?? '未知错误'}</p>
-                  </div>
-                )
-              ) : null}
-            </div>
-          </section>
-        </OverlayLayer>
-      ) : null}
-    </WorkspacePage>
+              </section>
+            </OverlayLayer>
+          ) : null}
+        </>
+      )}
+    </ToolSurface>
   );
 }

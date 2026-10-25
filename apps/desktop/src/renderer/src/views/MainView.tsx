@@ -119,6 +119,7 @@ import {
   DataMaintenanceDialog,
   type MaintenanceTool,
 } from '../components/settings/DataMaintenanceSection';
+import { useSettingsMaintenance } from '../hooks/useSettingsMaintenance';
 import { CollectionDialog } from '../components/CollectionDialog';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { DressUpDialog } from '../components/DressUpDialog';
@@ -2741,9 +2742,9 @@ export function MainView(): ReactElement {
   const [settingsSection, setSettingsSection] = useState<SettingsDialogSectionId | undefined>(
     undefined,
   );
-  const [maintenanceTool, setMaintenanceTool] = useState<MaintenanceTool | null>(null);
+  const { tool: maintenanceTool, setTool: setMaintenanceTool } =
+    useSettingsMaintenance(messageScope);
   function openMaintenance(tool: MaintenanceTool) {
-    setSettingsOpen(false);
     if (tool === 'db-repair') {
       setMaintenanceTool(null);
       useDbRepairWindow
@@ -9614,6 +9615,7 @@ export function MainView(): ReactElement {
             onCreateClone={handleCreateClone}
           />
           <DataMaintenanceDialog
+            key={messageScope}
             tool={maintenanceTool}
             account={{
               uin: openedUin ?? '',
@@ -9622,14 +9624,6 @@ export function MainView(): ReactElement {
             }}
             onClose={() => {
               setMaintenanceTool(null);
-              setSettingsSection(
-                maintenanceTool === 'login-accounts'
-                  ? 'accounts'
-                  : maintenanceTool === 'capture' || maintenanceTool === 'reverse'
-                    ? 'diagnostics'
-                    : 'maintenance',
-              );
-              setSettingsOpen(true);
             }}
           />
           <RailAccountFooter

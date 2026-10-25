@@ -8,7 +8,7 @@ import {
   KeyRound,
   Trash2,
 } from 'lucide-react';
-import { WorkspacePage } from '../WorkspacePages';
+import { ToolSurface } from '../ToolSurface';
 import { PageShell } from '../PageShell';
 import type { DbRepairAccountOption } from '../DbRepairPanel';
 import { DbRepairWindowRequest } from '../DbRepairWindow';
@@ -97,7 +97,7 @@ export function DataMaintenanceSection({
   );
 }
 
-/** 与设置互斥显示，维护工具不会再叠在设置遮罩上。 */
+/** 设置来源在原页面之上打开，不替换设置工作区。 */
 export function DataMaintenanceDialog({
   tool,
   account,
@@ -116,31 +116,47 @@ export function DataMaintenanceDialog({
     tool === 'capture' ||
     tool === 'reverse'
   )
-    return <WonderfulToolsDialog open initialTool={tool} tools={[tool]} onClose={onClose} />;
-  if (tool === 'storage') return <ResourceAnalyticsDialog open onClose={onClose} />;
-  if (tool === 'cleanup') return <ResourceCleanupDialog open onClose={onClose} />;
+    return (
+      <WonderfulToolsDialog
+        open
+        presentation="modal"
+        initialTool={tool}
+        tools={[tool]}
+        onClose={onClose}
+      />
+    );
+  if (tool === 'storage')
+    return <ResourceAnalyticsDialog open presentation="modal" onClose={onClose} />;
+  if (tool === 'cleanup')
+    return <ResourceCleanupDialog open presentation="modal" onClose={onClose} />;
   const label = TOOLS.find((entry) => entry.id === tool)?.label ?? '数据与维护';
   const flush = tool === 'database' || tool === 'cache';
   return (
-    <WorkspacePage title={label} onClose={onClose}>
-      <div className="weq-maintenance-dialog" role="region" aria-labelledby="weq-maintenance-title">
-        <PageShell
-          title={label}
-          titleId="weq-maintenance-title"
-          meta={account.name || account.uin}
-          onClose={onClose}
+    <ToolSurface title={label} onClose={onClose} presentation="modal">
+      {(requestClose) => (
+        <div
+          className="weq-maintenance-dialog"
+          role="region"
+          aria-labelledby="weq-maintenance-title"
         >
-          <div className={`weq-maintenance-body${flush ? ' is-flush' : ''}`}>
-            {tool === 'cache' ? (
-              <CacheView />
-            ) : tool === 'database' ? (
-              <DbExplorer />
-            ) : tool === 'db-decrypt' ? (
-              <ExportTool initialMode="database" lockMode />
-            ) : null}
-          </div>
-        </PageShell>
-      </div>
-    </WorkspacePage>
+          <PageShell
+            title={label}
+            titleId="weq-maintenance-title"
+            meta={account.name || account.uin}
+            onClose={requestClose}
+          >
+            <div className={`weq-maintenance-body${flush ? ' is-flush' : ''}`}>
+              {tool === 'cache' ? (
+                <CacheView />
+              ) : tool === 'database' ? (
+                <DbExplorer />
+              ) : tool === 'db-decrypt' ? (
+                <ExportTool initialMode="database" lockMode />
+              ) : null}
+            </div>
+          </PageShell>
+        </div>
+      )}
+    </ToolSurface>
   );
 }

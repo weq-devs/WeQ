@@ -6,7 +6,13 @@ import { LoginAccountPanel } from '../src/renderer/src/components/LoginAccountPa
 import { WonderfulToolsDialog } from '../src/renderer/src/components/WonderfulToolsDialog';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 
-const rpc = vi.hoisted(() => ({ overview: vi.fn(), login: vi.fn(), scan: vi.fn() }));
+const rpc = vi.hoisted(() => ({
+  overview: vi.fn(),
+  login: vi.fn(),
+  scan: vi.fn(),
+  subscribe: vi.fn(),
+  unsubscribe: vi.fn(),
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     bootstrap: { getSettings: { query: async () => ({ autoAttachQq: false }) } },
@@ -14,6 +20,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       overview: { query: rpc.overview },
       loginAccountsOverview: { query: rpc.login },
       scanKey: { query: rpc.scan },
+      onKeyScanProgress: { subscribe: rpc.subscribe },
     },
   },
 }));
@@ -46,6 +53,8 @@ beforeEach(() => {
     dataRoot: null,
   });
   rpc.scan.mockReset();
+  rpc.unsubscribe.mockReset();
+  rpc.subscribe.mockReset().mockReturnValue({ unsubscribe: rpc.unsubscribe });
 });
 afterEach(() => {
   cleanup?.();
@@ -99,4 +108,28 @@ it('本地登录账号管理在断网时仍可读取，恢复仅更新列表', a
   expect(rpc.login).toHaveBeenCalledTimes(2);
   expect(view.host.textContent).not.toContain('刷新');
   expect(rpc.scan).not.toHaveBeenCalled();
+});
+
+it('卸载密钥扫描工具释放进度订阅，迟到扫描结果不恢复旧工具', async () => {
+  let finish = (_value: { success: boolean; key: string }) => {};
+  rpc.scan.mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const view = await mount(
+    h(WonderfulToolsDialog, {
+      open: true,
+      initialTool: 'key-scan',
+      tools: ['key-scan'],
+      onClose() {},
+    }),
+  );
+  act(() => view.host.querySelector<HTMLButtonElement>('.weq-wtools-card')!.click());
+  expect(rpc.subscribe).toHaveBeenCalledOnce();
+  cleanup?.();
+  cleanup = undefined;
+  expect(rpc.unsubscribe).toHaveBeenCalledOnce();
+  await act(async () => finish({ success: true, key: 'synthetic-late-secret' }));
+  expect(document.body.textContent).not.toContain('synthetic-late-secret');
 });
