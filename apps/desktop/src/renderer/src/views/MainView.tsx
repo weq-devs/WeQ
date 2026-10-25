@@ -39,6 +39,7 @@ import { useViewState } from '../state/view';
 import { useUpdateStore } from '../state/update';
 import { client } from '../trpc/client';
 import { useToast } from '../components/Toast';
+import { useMessageLocateFeedback } from '../hooks/useMessageLocateFeedback';
 import { CallWindow } from '../components/CallWindow';
 import { onOpenSettingsRequest } from '../lib/callSettingsBridge';
 import { useDialog } from '../components/Dialog';
@@ -6802,6 +6803,9 @@ export function MainView(): ReactElement {
   }, [loaded, anchoredToLatest]);
 
   // Scroll the loaded list to a message row by id and briefly flash it.
+  const { run: runMessageLocate, cancel: cancelMessageLocate } = useMessageLocateFeedback(
+    `${messageScope}:${shell.view}:${selectedUid ?? ''}`,
+  );
   const scrollToMsgId = useCallback((msgId: string): boolean => {
     const line = document.querySelector<HTMLElement>(
       `.weq-readonly-chat .message-scroll [data-message-id="${msgId}"]`,
@@ -6827,94 +6831,100 @@ export function MainView(): ReactElement {
   // `conv`/`kind` are passed explicitly so it works right after a conversation
   // switch (before selectionRef settles).
   const centerWindowOnSeq = useCallback(
-    async (conv: string, kind: 'group' | 'c2c', targetSeq: string): Promise<boolean> => {
-      const scope = messageScopeRef.current,
-        binding = messageBindingRef.current,
-        revision = dbRevisionRef.current;
-      const previousSelection = selectionRef.current?.id === conv ? selectionRef.current : null;
-      if (!scope || !binding) return false;
-      let before: ChatMsgWire[];
-      let after: ChatMsgWire[];
-      try {
-        [before, after] = await Promise.all([
-          // `< target+1` is `<= target`, so the centre message is included.
-          client.account.listBefore.query({
-            ...binding,
-            kind,
-            conv,
-            beforeSeq: String(BigInt(targetSeq) + 1n),
-            limit: PAGE_SIZE,
-          }),
-          client.account.listAfter.query({
-            ...binding,
-            kind,
-            conv,
-            afterSeq: targetSeq,
-            limit: PAGE_SIZE,
-          }),
-        ]);
-      } catch (err) {
-        if (scope !== messageScopeRef.current) return false;
-        console.error('[centerWindowOnSeq] fetch failed', err);
-        pushToast({
-          tone: 'info',
-          durationKind: 'failure',
-          title: '未找到该消息',
-          detail: '该消息可能已被撤回或删除。',
-        });
-        return false;
-      }
-      if (
-        scope !== messageScopeRef.current ||
-        selectionRef.current?.id !== conv ||
-        (previousSelection !== null && selectionRef.current !== previousSelection)
-      ) {
-        return false; // switched away mid-flight
-      }
+    (conv: string, kind: 'group' | 'c2c', targetSeq: string): Promise<boolean> =>
+      runMessageLocate(async (isCurrent) => {
+        const scope = messageScopeRef.current,
+          binding = messageBindingRef.current,
+          revision = dbRevisionRef.current;
+        const previousSelection = selectionRef.current?.id === conv ? selectionRef.current : null;
+        if (!scope || !binding) return false;
+        let before: ChatMsgWire[];
+        let after: ChatMsgWire[];
+        try {
+          [before, after] = await Promise.all([
+            // `< target+1` is `<= target`, so the centre message is included.
+            client.account.listBefore.query({
+              ...binding,
+              kind,
+              conv,
+              beforeSeq: String(BigInt(targetSeq) + 1n),
+              limit: PAGE_SIZE,
+            }),
+            client.account.listAfter.query({
+              ...binding,
+              kind,
+              conv,
+              afterSeq: targetSeq,
+              limit: PAGE_SIZE,
+            }),
+          ]);
+        } catch (err) {
+          if (!isCurrent() || scope !== messageScopeRef.current) return false;
+          console.error('[centerWindowOnSeq] fetch failed', err);
+          pushToast({
+            tone: 'info',
+            durationKind: 'failure',
+            title: '未找到该消息',
+            detail: '该消息可能已被撤回或删除。',
+          });
+          return false;
+        }
+        if (
+          !isCurrent() ||
+          scope !== messageScopeRef.current ||
+          selectionRef.current?.id !== conv ||
+          (previousSelection !== null && selectionRef.current !== previousSelection)
+        ) {
+          return false; // switched away mid-flight
+        }
 
-      const seen = new Set<string>();
-      const merged: MessageWire[] = [];
-      // before is DESC (newest-first) incl. centre → reverse to ASC; after is ASC.
-      for (const m of [...before.map(toMessageWire).reverse(), ...after.map(toMessageWire)]) {
-        if (seen.has(timelineRowKey(m))) continue;
-        seen.add(timelineRowKey(m));
-        merged.push(m);
-      }
+        const seen = new Set<string>();
+        const merged: MessageWire[] = [];
+        // before is DESC (newest-first) incl. centre → reverse to ASC; after is ASC.
+        for (const m of [...before.map(toMessageWire).reverse(), ...after.map(toMessageWire)]) {
+          if (seen.has(timelineRowKey(m))) continue;
+          seen.add(timelineRowKey(m));
+          merged.push(m);
+        }
 
-      const target = merged.find((m) => m.msgSeq === targetSeq);
+        const target = merged.find((m) => m.msgSeq === targetSeq);
 
-      const atLatest = after.length < PAGE_SIZE;
-      // Update the live-subscription's window descriptor synchronously: a
-      // db-changed tick between this setLoaded and the passive windowRef effect
-      // must not see the stale (anchored, old-minSeq) descriptor and replace our
-      // freshly-jumped window via refreshWindow's listFrom.
-      windowRef.current = { minSeq: merged[0]?.msgSeq ?? null, anchored: atLatest };
-      setLoaded(merged);
-      verifiedWindowRowsRef.current = merged;
-      loadedRevisionRef.current = revision;
-      windowVerifiedAtRef.current = Date.now();
-      setMessagesLoading(false);
-      setHasOlder(before.length >= PAGE_SIZE);
-      setHasNewer(!atLatest);
-      // If the centre sits near the tail, re-anchor so live messages flow in;
-      // otherwise stay detached so refreshWindow won't drag us to the latest.
-      setAnchoredToLatest(atLatest);
-      // Exact row present → flash it. Otherwise fall back to the nearest real
-      // message: the clickable gap divider sits right beside it.
-      const anchor = target ?? nearestBySeq(merged, targetSeq);
-      if (!target) {
-        setMissingJumpSeq(targetSeq);
-        pushToast({
-          tone: 'info',
-          durationKind: 'failure',
-          title: '未找到该条消息',
-          detail: '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。',
-        });
-      }
-      if (anchor) window.setTimeout(() => scrollToMsgId(timelineRowKey(anchor)), 160);
-      return Boolean(target);
-    },
-    [scrollToMsgId, pushToast],
+        const atLatest = after.length < PAGE_SIZE;
+        // Update the live-subscription's window descriptor synchronously: a
+        // db-changed tick between this setLoaded and the passive windowRef effect
+        // must not see the stale (anchored, old-minSeq) descriptor and replace our
+        // freshly-jumped window via refreshWindow's listFrom.
+        windowRef.current = { minSeq: merged[0]?.msgSeq ?? null, anchored: atLatest };
+        setLoaded(merged);
+        verifiedWindowRowsRef.current = merged;
+        loadedRevisionRef.current = revision;
+        windowVerifiedAtRef.current = Date.now();
+        setMessagesLoading(false);
+        setHasOlder(before.length >= PAGE_SIZE);
+        setHasNewer(!atLatest);
+        // If the centre sits near the tail, re-anchor so live messages flow in;
+        // otherwise stay detached so refreshWindow won't drag us to the latest.
+        setAnchoredToLatest(atLatest);
+        // Exact row present → flash it. Otherwise fall back to the nearest real
+        // message: the clickable gap divider sits right beside it.
+        const anchor = target ?? nearestBySeq(merged, targetSeq);
+        if (!target) {
+          setMissingJumpSeq(targetSeq);
+          pushToast({
+            tone: 'info',
+            durationKind: 'failure',
+            title: '未找到该条消息',
+            detail: '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。',
+          });
+        }
+        if (anchor) {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 160));
+          if (isCurrent() && scope === messageScopeRef.current && selectionRef.current?.id === conv)
+            scrollToMsgId(timelineRowKey(anchor));
+        }
+        return Boolean(target);
+      }),
+    [scrollToMsgId, pushToast, runMessageLocate],
   );
 
   // Scroll the loaded message list to a reply target, then briefly flash it. The
@@ -6936,6 +6946,7 @@ export function MainView(): ReactElement {
       if (!sel) {
         return;
       }
+      cancelMessageLocate();
       setMissingJumpSeq(null);
       const notFound = (): void => {
         pushToast({
@@ -7007,7 +7018,7 @@ export function MainView(): ReactElement {
 
       await centerWindowOnSeq(sel.id, kind, targetSeq);
     },
-    [centerWindowOnSeq, scrollToMsgId, pushToast],
+    [centerWindowOnSeq, scrollToMsgId, pushToast, cancelMessageLocate],
   );
 
   const searchQuery = shell.query.trim();
