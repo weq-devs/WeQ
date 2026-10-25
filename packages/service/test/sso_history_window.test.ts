@@ -418,7 +418,7 @@ describe('shared SSO physical windows', () => {
     const f = fixture();
     const write = f.nt.executeSqlWrite;
     f.nt.executeSqlWrite = vi.fn(async (...args: Parameters<typeof write>) => {
-      if (args[1].includes('INSERT OR REPLACE INTO protocol_gap_msg'))
+      if (/\bINSERT(?:\s+OR\s+\w+)?\s+INTO\s+protocol_gap_msg\b/i.test(args[1]))
         throw Error('synthetic disk failure');
       return write(...args);
     });
