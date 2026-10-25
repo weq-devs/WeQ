@@ -74,6 +74,7 @@ import {
   createUnreadTargetRefresh,
   createUnreadUpdateGuard,
   retryConversationRead,
+  unreadBadgeTargets,
 } from '../lib/unreadRefresh';
 import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashPreviewLabel, flashShareCodeOfUrl, parseFlashShareCode } from '../lib/flashShare';
@@ -3465,6 +3466,8 @@ export function MainView(): ReactElement {
   const [highlightsByConv, setHighlightsByConv] = useState<Record<string, ConversationHighlight[]>>(
     {},
   );
+  const unreadBadgesRef = useRef({ counts: unreadByConv, highlights: highlightsByConv });
+  unreadBadgesRef.current = { counts: unreadByConv, highlights: highlightsByConv };
   const [groupMemberPages, setGroupMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
   const [groupMemberHasMore, setGroupMemberHasMore] = useState<Record<string, boolean>>({});
   const [groupMemberLoading, setGroupMemberLoading] = useState<Record<string, boolean>>({});
@@ -4913,6 +4916,7 @@ export function MainView(): ReactElement {
   initialMessagesPendingRef.current =
     messagesLoading || trackedConversationId !== shell.activeConversationId;
   const requestUnreadRefreshRef = useRef<(() => void) | null>(null);
+  const requestUnreadReadSyncRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     let disposed = false;
     const binding = messageBindingRef.current;
@@ -5073,8 +5077,17 @@ export function MainView(): ReactElement {
         })
       : null;
     requestUnreadRefreshRef.current = refresh.request;
+    const requestReadSync = () => {
+      if (!isCurrent()) return;
+      const { counts, highlights } = unreadBadgesRef.current;
+      liveRefresh.request(unreadBadgeTargets(unreadContactsRef.current, counts, highlights));
+    };
+    requestUnreadReadSyncRef.current = requestReadSync;
     const onVisible = () => {
-      if (document.visibilityState !== 'hidden') refresh.request();
+      if (document.visibilityState !== 'hidden') {
+        requestReadSync();
+        refresh.request();
+      }
     };
     window.addEventListener('focus', onVisible);
     document.addEventListener('visibilitychange', onVisible);
@@ -5087,11 +5100,15 @@ export function MainView(): ReactElement {
       window.removeEventListener('focus', onVisible);
       document.removeEventListener('visibilitychange', onVisible);
       requestUnreadRefreshRef.current = null;
+      requestUnreadReadSyncRef.current = null;
     };
   }, [openedUin, messageScope]);
   useEffect(() => {
     requestUnreadRefreshRef.current?.();
   }, [recentContactsData, unreadRevision]);
+  useEffect(() => {
+    requestUnreadReadSyncRef.current?.();
+  }, [unreadRevision]);
 
   // Reset paging *synchronously* when the open conversation changes. Doing this
   // during render (instead of in an effect) means React discards this render

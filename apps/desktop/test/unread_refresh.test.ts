@@ -1,14 +1,58 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   createUnreadRefresh,
   createUnreadTargetRefresh,
   createUnreadUpdateGuard,
   retryConversationRead,
+  unreadBadgeTargets,
 } from '../src/renderer/src/lib/unreadRefresh';
 
 afterEach(() => vi.useRealTimers());
 
 describe('未读刷新调度', () => {
+  it('QQ 仅推进已读水位时优先校准现有红点，不等待全量扫描或新消息', async () => {
+    vi.useFakeTimers();
+    const background = createUnreadRefresh(() => new Promise<boolean>(() => {}));
+    background.request();
+    await vi.advanceTimersByTimeAsync(100);
+    const contacts = [
+      { chatType: 1, targetUid: 'u_friend' },
+      { chatType: 2, targetUid: '777' },
+      { chatType: 2, targetUid: '888' },
+      { chatType: 8, targetUid: 'device' },
+      { chatType: 999, targetUid: 'unsupported' },
+    ];
+    const counts: Record<string, number> = { u_friend: 3, device: 1, unsupported: 1 };
+    const highlights = { '777': [{}] };
+    const load = vi.fn(async (targets: Array<{ chatType: number; uid: string }>) => {
+      for (const target of targets) counts[target.uid] = 0;
+      return true;
+    });
+    const live = createUnreadTargetRefresh(load);
+    live.request(unreadBadgeTargets(contacts, counts, highlights));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(load).toHaveBeenCalledWith([
+      { chatType: 1, uid: 'u_friend' },
+      { chatType: 2, uid: '777' },
+      { chatType: 8, uid: 'device' },
+    ]);
+    expect(counts.u_friend).toBe(0);
+    expect(counts.device).toBe(0);
+    expect(unreadBadgeTargets(contacts, counts, {})).toEqual([]);
+    live.dispose();
+    background.dispose();
+  });
+
+  it('数据库通知与焦点恢复同时触发红点快速校准，卸载清理入口', () => {
+    const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
+    expect(source.includes('requestUnreadReadSyncRef.current?.();\n  }, [unreadRevision]);')).toBe(
+      true,
+    );
+    expect(/const onVisible = \(\) => \{.*?requestReadSync\(\);/s.test(source)).toBe(true);
+    expect(source.includes('requestUnreadReadSyncRef.current = null;')).toBe(true);
+  });
+
   it('实时目标独立于慢速全量扫描刷新，合并去重且执行中收到的事件不丢失', async () => {
     vi.useFakeTimers();
     const backgroundLoad = vi.fn(() => new Promise<boolean>(() => {}));

@@ -1,3 +1,19 @@
+import { unreadChatType } from '@weq/codec';
+
+/** QQ 已读变化没有新消息通知；仅优先校准仍有红点或高亮的会话。 */
+export function unreadBadgeTargets(
+  contacts: ReadonlyArray<{ chatType: number | string; targetUid: string }>,
+  counts: Readonly<Record<string, number>>,
+  highlights: Readonly<Record<string, readonly unknown[]>>,
+): Array<{ chatType: NonNullable<ReturnType<typeof unreadChatType>>; uid: string }> {
+  return contacts.flatMap((contact) => {
+    if (!((counts[contact.targetUid] ?? 0) > 0) && !highlights[contact.targetUid]?.length)
+      return [];
+    const chatType = unreadChatType(contact.chatType);
+    return chatType === null ? [] : [{ chatType, uid: contact.targetUid }];
+  });
+}
+
 /** 合并数据库通知；执行中只补一轮，失败退避，销毁后不再启动查询。 */
 export function createUnreadRefresh(load: () => Promise<boolean>, delayMs = 100) {
   let disposed = false;

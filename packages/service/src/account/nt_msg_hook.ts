@@ -135,16 +135,33 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
         return;
       }
 
-      const c2c: C2cMsg[] = [];
-      const group: GroupMsg[] = [];
-      const dataline: NonNullable<NewMessages['dataline']> = [];
       // Everything we saw this poll is the next baseline; failed fetches are
       // reverted below so their rows are not lost.
       const next = new Map(current);
+      const previous = prev;
 
-      for (const [key, cur] of current) {
+      // 优先当前新消息，不让旧会话补齐排在它前面。
+      const prioritized = [...current]
+        .filter(([key, cur]) => {
+          const old = previous.get(key);
+          return !old || cur.msgSeq > old.msgSeq;
+        })
+        .sort(([, a], [, b]) => (a.sendTime > b.sendTime ? -1 : a.sendTime < b.sendTime ? 1 : 0));
+      for (const [key, cur] of prioritized) {
+        const c2c: C2cMsg[] = [];
+        const group: GroupMsg[] = [];
+        const dataline: NonNullable<NewMessages['dataline']> = [];
+        const emit = () => {
+          if (!c2c.length && !group.length && !dataline.length) return;
+          hooks.onNewMessages({
+            file,
+            c2c: c2c.sort(compareMessageOrder),
+            group: group.sort(compareMessageOrder),
+            ...(dataline.length ? { dataline: dataline.sort(compareMessageOrder) } : {}),
+          });
+        };
         const uid = cur.uid;
-        const old = prev.get(key);
+        const old = previous.get(key);
 
         // Conversation first seen after mount: only a fresh row is a live
         // message; cap the push so a revived old conversation can't dump history.
@@ -173,11 +190,9 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
               }
             }
           }
+          emit();
           continue;
         }
-
-        // Seq didn't grow (or rewound) — nothing new in this conversation.
-        if (cur.msgSeq <= old.msgSeq) continue;
 
         try {
           const fetched = await fetchAfter(session, uid, cur.chatType, old.msgSeq);
@@ -198,20 +213,13 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
           // Keep the old watermark so the rows are retried next change.
           next.set(key, old);
         }
+        // 每个会话完成即通知，不等其他会话的正文／历史补齐。
+        emit();
       }
 
       prev = next;
 
       // guild: no table wired yet — skipped via classifyChatType returning null.
-
-      if (c2c.length > 0 || group.length > 0 || dataline.length > 0) {
-        hooks.onNewMessages({
-          file,
-          c2c: c2c.sort(compareMessageOrder),
-          group: group.sort(compareMessageOrder),
-          ...(dataline.length ? { dataline: dataline.sort(compareMessageOrder) } : {}),
-        });
-      }
     },
   };
 }

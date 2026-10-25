@@ -19,6 +19,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { createDbChangeNotification } from '../db_change_notification';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
 import { resolveBackupLocation, backupMediaRoots } from '../static_backup';
 import { VipBadgeService } from '../vip_badge';
@@ -249,25 +250,11 @@ export function rememberAccountUid(uin: string, uid: string): void {
   if (uin && uid) uidRegistry.set(uin, uid);
 }
 
-/** Trailing debounce — coalesces a burst of calls into one after `ms` idle. */
-function trailingDebounce<A extends unknown[]>(
-  fn: (...args: A) => void,
-  ms: number,
-): (...args: A) => void {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  return (...args: A): void => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = undefined;
-      fn(...args);
-    }, ms);
-  };
-}
-
 /** One polling loop for the whole process; we (un)mount the active db on it. */
 const dbWatch = new DbWatchService();
 /** Handle for the currently-watched account db, if any. */
 let dbWatchHandle: DbWatchHandle | null = null;
+let dbChangeNotification: ReturnType<typeof createDbChangeNotification<DbChange>> | null = null;
 /** SSE 消息推送服务（随账号开关），null = 未启用 / 无账号。 */
 let ssePush: SsePushService | null = null;
 /** 群关键词提醒匹配器（随账号打开常驻），null = 无账号。 */
@@ -388,13 +375,14 @@ const ANNUAL_INDEX_WARMUP_DELAY_MS = 3000;
  */
 function mountDbWatch(session: AccountSession): void {
   if (dbWatchHandle) return;
-  const emitChanged = trailingDebounce((file: DbChange) => {
+  const notification = createDbChangeNotification((file: DbChange) => {
     if (getAppContext().account !== session) return;
     dbEventBus.emit('changed', file);
-  }, 200);
+  });
+  dbChangeNotification = notification;
   dbWatchHandle = dbWatch.mount(
     createNtMsgDbHook(session, {
-      onDbChanged: emitChanged,
+      onDbChanged: notification.request,
       onNewMessages: (change: NewMessages) => {
         const ctx = getAppContext();
         if (ctx.account !== session) return;
@@ -406,7 +394,7 @@ function mountDbWatch(session: AccountSession): void {
           }
         }
         dbEventBus.emit('new', change);
-        emitChanged(change.file);
+        notification.request(change.file);
       },
     }),
   );
@@ -414,6 +402,8 @@ function mountDbWatch(session: AccountSession): void {
 
 /** Stop watching the current account db, if any. */
 function unmountDbWatch(): void {
+  dbChangeNotification?.dispose();
+  dbChangeNotification = null;
   dbWatchHandle?.unmount();
   dbWatchHandle = null;
 }

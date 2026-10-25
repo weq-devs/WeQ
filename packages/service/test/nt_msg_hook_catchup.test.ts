@@ -77,6 +77,40 @@ function fixture(kind: 'group' | 'c2c' | 'dataline', total: number) {
 }
 
 describe('nt_msg watcher batch catch-up', () => {
+  it('新近会话优先且读完先通知，不等待旧会话的慢查询', async () => {
+    let watermark = 0n;
+    let release: (rows: GroupMsg[]) => void = () => {};
+    const slow = new Promise<GroupMsg[]>((resolve) => {
+      release = resolve;
+    });
+    const onNewMessages = vi.fn();
+    const session = {
+      msgDbPath: 'nt_msg.db',
+      recentContacts: {
+        listSeqWatermarks: async () =>
+          ['777', '123456'].map((targetUid) => ({
+            targetUid,
+            chatType: 2,
+            msgSeq: watermark,
+            sendTime: targetUid === '123456' ? 2n : 1n,
+          })),
+      },
+      groupMsgs: {
+        listAfter: vi.fn(async (uid: string) => (uid === '777' ? slow : [message(1)])),
+      },
+    } as unknown as AccountSession;
+    const hook = createNtMsgDbHook(session, { onDbChanged: () => {}, onNewMessages });
+    await hook.onDbFileChangeHook(DB_CHANGE);
+    watermark = 1n;
+    const pending = hook.onDbFileChangeHook(DB_CHANGE);
+    try {
+      await vi.waitFor(() => expect(onNewMessages).toHaveBeenCalledTimes(1));
+      expect(onNewMessages.mock.calls[0]?.[0].group[0].targetGroupCode).toBe('123456');
+    } finally {
+      release([]);
+      await pending;
+    }
+  });
   it('挂载后的第一条变化按启动时基线处理，不把首条入站吞成历史', async () => {
     const f = fixture('c2c', 1);
     f.setWatermark(1n);
