@@ -11,6 +11,12 @@ import { createTemplateDemoData } from '../src/renderer/src/im-template/template
 const state = vi.hoisted(() => ({ status: 'paused' }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    bootstrap: {
+      listAgentLabProviders: {
+        useQuery: () => ({ data: [{ id: 'p', name: '合成服务', models: [{ id: 'm' }] }] }),
+      },
+      getAgentLabDefaultModel: { useQuery: () => ({ data: { ref: null, available: false } }) },
+    },
     account: {
       roamingBackfill: {
         list: {
