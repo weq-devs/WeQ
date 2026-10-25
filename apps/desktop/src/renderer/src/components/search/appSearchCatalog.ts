@@ -43,8 +43,11 @@ const PAGE_ALIASES: Partial<Record<SettingsPageId, string[]>> = {
   'database-repair': ['损坏处理'],
   'database-tolerance': ['损坏处理与容错', '容错记录', 'database-status'],
   'database-management': ['维护工具', 'maintenance'],
+  'qq-storage': ['QQ 存储管理', '资源管理', '本地缓存'],
   applock: ['隐私与应用锁'],
-  remote: ['QQ 公众号推送', 'assistant'],
+  'resource-loading': ['资源下载网络', '网络', 'CDN'],
+  assistant: ['公众号推送', 'QQ 公众号'],
+  backup: ['设置备份'],
 };
 
 type SettingDefinition = readonly [section: SectionId, item: string, ...aliases: string[]];
@@ -72,6 +75,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['message-display', '发送消息后定位到最新消息', '发送后跳转'],
   ['message-display', '使用 QQ 账号设置的个性字体发送消息', '发送字体'],
   ['message-display', '群助手显示总消息数'],
+  ['message-display', '自定义消息显示'],
   ['message-display', '显示消息汇总红点', '未读红点'],
   ['message-display', '纯文本消息渲染 Markdown', '富文本'],
   ['message-display', '聊天头像挂件'],
@@ -111,6 +115,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['clone-settings', '克隆体配置', '克隆提示词', '克隆语音', '发言意愿'],
   ['intent-sense', '启用意图感知'],
   ['intent-sense', '意图感知运行方式', '本地意图模型'],
+  ['intent-sense', '意图模型资源（全局）', '意图模型资源'],
   ['intent-sense', '自己发送后分析'],
   ['reply-suggestions', '启用推荐回复'],
   ['reply-suggestions', '推荐回复 API 模型'],

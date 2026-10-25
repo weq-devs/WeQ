@@ -25,6 +25,7 @@ describe('功能与设置目录搜索', () => {
       kind: 'setting',
       section: 'chat-messages',
       item: '显示消息序号（seq）',
+      settingId: 'message-seq',
     });
     expect(searchAppEntries('缓存目录')[0]?.target).toEqual({
       kind: 'setting',
@@ -46,5 +47,13 @@ describe('功能与设置目录搜索', () => {
       APP_SEARCH_ENTRIES.length,
     );
     expect(searchAppEntries('设置')).toEqual(searchAppEntries('设置'));
+  });
+
+  it.each(['常驻显示', '悬停显示'])('%s 指向意图感知而不是没有该控件的推荐回复页', (item) => {
+    expect(searchAppEntries(item)[0]?.target).toMatchObject({
+      kind: 'setting',
+      section: 'intent-sense',
+      item,
+    });
   });
 });

@@ -419,7 +419,7 @@ export function GlobalSettingsSection({
               storage: 'WeQ 存储管理',
               saving: '默认保存目录',
               logs: '日志',
-              network: '资源下载网络',
+              network: '资源加载',
             }[section]
           }
         />
@@ -574,7 +574,7 @@ export function GlobalSettingsSection({
       )}
 
       {section === 'network' && (
-        <Card title="资源下载网络" settingId="prefer-cdn">
+        <Card title="加载来源" settingId="prefer-cdn">
           <Row
             label={
               <span className="weq-set-row-icon">
@@ -582,11 +582,11 @@ export function GlobalSettingsSection({
                 优先使用 CDN
               </span>
             }
-            desc={
+            desc={`桌面端与 Web 共用。${
               preferCdn
                 ? '头像与聊天图片、视频封面由界面直接向 QQ 服务器获取，不经 WeQ 中转。本地已存的头像和媒体缓存会被绕过（离线时看不到），获取失败会自动回退到原来的方式。'
                 : '默认由 WeQ 读取本地文件、缺失时代取并缓存——离线可用，但浏览器访问模式下所有图片都要占用服务器带宽。开启后改由界面直连，服务器零流量。语音、视频原片与文件不受影响。'
-            }
+            }`}
             control={
               <Toggle
                 checked={preferCdn}
@@ -702,7 +702,7 @@ export function GlobalSettingsSection({
 
       {/* WeQ 存储管理 */}
       {section === 'storage' && (
-        <Card title="WeQ 存储管理">
+        <Card title="空间清理" settingId="weq-space-cleanup">
           <div className="weq-set-actions weq-storage-toolbar">
             <span className="weq-set-cache-total">
               合计占用 <strong className="weq-number">{formatBytes(totalCacheBytes)}</strong>

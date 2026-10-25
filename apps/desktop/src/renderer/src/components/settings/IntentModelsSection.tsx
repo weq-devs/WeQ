@@ -80,7 +80,7 @@ export function IntentModelsSection({ embedded = false }: { embedded?: boolean }
   return (
     <div className={embedded ? undefined : 'weq-set'}>
       {!embedded ? <SectionHeader icon={<BrainCircuit size={18} />} title="意图模型" /> : null}
-      <Card title="意图模型资源（全局）">
+      <Card title="意图模型资源（全局）" settingId="intent-model-resources">
         <Row
           label="当前模型"
           control={

@@ -25,10 +25,12 @@ export const SETTINGS_PAGE_LABELS = {
   'database-repair': '损坏与修复',
   'database-tolerance': '数据库宽容',
   'database-management': '数据库管理',
-  'qq-storage': 'QQ 存储管理',
+  'qq-storage': '资源目录管理',
+  'resource-loading': '资源加载',
   remote: 'Web 与 Remote',
   mcp: 'MCP 服务器',
   sse: 'SSE 推送',
+  assistant: 'QQ 公众号推送',
   applock: '应用锁',
   privacy: '隐私模式',
   backup: '备份与恢复',
@@ -55,8 +57,7 @@ export type SectionId =
   | 'tts'
   | 'help'
   | 'updates'
-  | 'daemon'
-  | 'assistant';
+  | 'daemon';
 
 export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: SettingsPageId[] }> = [
   {
@@ -91,11 +92,17 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'data',
     label: '数据库与资源',
-    sections: ['database-repair', 'database-tolerance', 'database-management', 'qq-storage'],
+    sections: [
+      'database-repair',
+      'database-tolerance',
+      'database-management',
+      'qq-storage',
+      'resource-loading',
+    ],
   },
-  { id: 'services', label: 'WeQ 服务', sections: ['remote', 'mcp', 'sse'] },
+  { id: 'services', label: 'WeQ 服务', sections: ['remote', 'mcp', 'sse', 'assistant'] },
   { id: 'privacy', label: '隐私', sections: ['applock', 'privacy'] },
-  { id: 'backup', label: '设置备份', sections: ['backup'] },
+  { id: 'backup', label: '配置备份与恢复', sections: ['backup'] },
   { id: 'help', label: '关于 WeQ', sections: ['version', 'faq', 'logs', 'feedback'] },
 ];
 
@@ -140,12 +147,6 @@ interface ItemRedirect {
 }
 
 const ITEM_REDIRECTS: readonly ItemRedirect[] = [
-  {
-    id: 'send-with-qq-font',
-    section: 'chat-messages',
-    label: '使用 QQ 账号设置的个性字体发送消息',
-    from: ['message-display', 'chat-messages'],
-  },
   ...(
     [
       ['home-tags', '个性标签'],
@@ -155,13 +156,113 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
     ] as const
   ).map(([id, label]): ItemRedirect => ({ id, label, section: 'home', from: ['home'] })),
   {
+    id: 'qqnt-capture',
+    section: 'diagnostics',
+    label: 'QQNT 抓包',
+    aliases: ['ntqq 抓包'],
+    from: ['diagnostics'],
+  },
+  {
+    id: 'weq-space-cleanup',
+    section: 'weq-storage',
+    label: '空间清理',
+    aliases: ['WeQ 存储管理'],
+    from: ['storage', 'weq-storage'],
+  },
+  { id: 'qzone-pagination', section: 'qzone', label: '在线翻页限速', from: ['qzone'] },
+  {
+    id: 'mail-unread-badge',
+    section: 'mail',
+    label: '在邮箱图标上显示红点',
+    aliases: ['显示未读邮件数'],
+    from: ['mail'],
+  },
+  {
+    id: 'mail-banner',
+    section: 'mail',
+    label: '收到新邮件时横幅提醒',
+    aliases: ['新邮件提醒'],
+    from: ['mail'],
+  },
+  {
+    id: 'startup-enabled',
+    section: 'startup',
+    label: '开机自动启动',
+    aliases: ['开机自动启动 WeQ'],
+    from: ['startup'],
+  },
+  {
+    id: 'auto-full-mode',
+    section: 'account',
+    label: '自动启用完整功能',
+    aliases: ['自动读取 QQ 内存（完整功能）'],
+    from: ['account'],
+  },
+  {
+    id: 'auto-lock',
+    section: 'applock',
+    label: '空闲自动锁定',
+    aliases: ['无操作自动上锁'],
+    from: ['applock'],
+  },
+  ...(
+    [
+      ['message-unread-badge', '在消息图标上显示红点', '显示消息汇总红点'],
+      ['group-assistant-count', '群助手显示总消息数'],
+      ['read-first-unread', '从第一条新消息开始阅读'],
+      ['jump-latest-after-send', '发送消息后定位到最新消息'],
+      ['send-with-qq-font', '使用 QQ 账号设置的个性字体发送消息'],
+      ['custom-message-display', '自定义消息显示'],
+      ['message-seq', '显示消息序号（seq）'],
+      ['message-time', '显示发送时间（精确到秒）'],
+      ['avatar-pendant', '聊天头像挂件'],
+      ['message-decoration', '消息装扮（气泡/字体/挂件）', '消息装扮'],
+      ['text-markdown', '纯文本消息渲染 Markdown'],
+      ['link-preview', '链接预览卡片'],
+      ['link-screenshot', '无封面时网页截图'],
+    ] as const
+  ).map(
+    ([id, label, ...aliases]): ItemRedirect => ({
+      id,
+      label,
+      aliases,
+      section: 'chat-messages',
+      from: ['message-display', 'chat-messages'],
+    }),
+  ),
+  {
+    id: 'intent-model-resources',
+    section: 'intent-sense',
+    label: '意图模型资源（全局）',
+    aliases: ['意图模型资源'],
+    from: ['intent-models', 'intent-sense'],
+  },
+  ...(
+    [
+      ['intent-persistent-display', '常驻显示'],
+      ['intent-hover-display', '悬停显示'],
+    ] as const
+  ).map(
+    ([id, label]): ItemRedirect => ({
+      id,
+      label,
+      section: 'intent-sense',
+      from: ['intent-sense', 'reply-suggestions'],
+    }),
+  ),
+  {
     id: 'default-save',
     section: 'weq-storage',
     label: '默认保存目录',
     aliases: ['保存位置'],
     from: ['saving', 'weq-storage'],
   },
-  { id: 'prefer-cdn', section: 'remote', label: '优先使用 CDN', from: ['storage', 'remote'] },
+  {
+    id: 'prefer-cdn',
+    section: 'resource-loading',
+    label: '优先使用 CDN',
+    from: ['storage', 'remote', 'resource-loading'],
+  },
   {
     id: 'typing-status',
     section: 'chat-messages',
@@ -273,9 +374,9 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
   { id: 'builtin-components', section: 'version', label: '内置组件', from: ['daemon', 'version'] },
   {
     id: 'assistant-service',
-    section: 'remote',
-    label: '启用 WeQ 助手',
-    aliases: ['QQ 公众号推送'],
+    section: 'assistant',
+    label: '启用 QQ 公众号推送',
+    aliases: ['启用 WeQ 助手', 'QQ 公众号推送'],
     from: ['assistant', 'remote'],
   },
 ];
@@ -293,12 +394,11 @@ const SECTION_REDIRECTS: Partial<
   'database-status': { section: 'database-tolerance', settingId: 'tolerance-records' },
   maintenance: { section: 'database-management' },
   'local-models': { section: 'voice' },
-  'intent-models': { section: 'intent-sense' },
+  'intent-models': { section: 'intent-sense', settingId: 'intent-model-resources' },
   tts: { section: 'agentlab' },
   help: { section: 'faq' },
   updates: { section: 'version' },
   daemon: { section: 'version', settingId: 'builtin-components' },
-  assistant: { section: 'remote', settingId: 'assistant-service' },
 };
 
 /** 页面和条目共用一个解析器；解析只定位，不打开工具或执行操作。 */

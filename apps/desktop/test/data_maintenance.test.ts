@@ -139,7 +139,7 @@ describe('设置的数据与维护', () => {
       f.dispose();
     }
   });
-  it('高级诊断入口归设置，分别打开抓包与解析，不启动诊断动作', () => {
+  it('高级诊断页直接显示逆向内容，抓包仍保留独立工具启动入口', () => {
     const open = vi.fn();
     const f = mount(
       createElement(SettingsDialog, {
@@ -151,12 +151,10 @@ describe('设置的数据与维护', () => {
       }),
     );
     try {
-      expect(entries(f.host).map((button) => button.textContent)).toEqual([
-        'ntqq 抓包',
-        'Protobuf / JCE 逆向',
-      ]);
+      expect(entries(f.host).map((button) => button.textContent)).toEqual(['QQNT 抓包']);
+      expect(f.host.querySelector('[data-setting-id="reverse-tool"] textarea')).not.toBeNull();
       for (const button of entries(f.host)) act(() => button.click());
-      expect(open.mock.calls.map(([tool]) => tool)).toEqual(['capture', 'reverse']);
+      expect(open.mock.calls.map(([tool]) => tool)).toEqual(['capture']);
     } finally {
       f.dispose();
     }

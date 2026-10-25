@@ -72,11 +72,13 @@ import { AssistantSection } from './settings/AssistantSection';
 import { StartupSection } from './settings/StartupSection';
 import { DatabaseSettingsSection } from './settings/DatabaseSettingsSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
-import { SectionHeader, SettingsScopeContext, Toggle } from './settings/controls';
+import { Card, Row, SectionHeader, SettingsScopeContext, Toggle } from './settings/controls';
 import { trpc } from '../trpc/client';
 import { DEFAULT_ACCENT, normalizeHex } from '../../../shared/theme_colors';
 import { AntiRecallDialog } from './AntiRecallDialog';
 import { WorkspacePage } from './WorkspacePages';
+import { LoginAccountPanel } from './LoginAccountPanel';
+import { ReverseTool } from './ReverseTool';
 import { IS_WEB } from '../lib/target';
 import { UsagePanel } from '../views/agentlab/UsagePanel';
 import '../styles/settings-responsive.css';
@@ -168,8 +170,11 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'qq-accounts',
     label: 'QQ 账号管理',
     icon: <Users size={16} />,
-    render: (onOpen) => (
-      <DataMaintenanceSection title="QQ 账号管理" onOpen={onOpen} tools={['login-accounts']} />
+    render: () => (
+      <div className="weq-set" data-setting-id="qq-accounts">
+        <SectionHeader title="QQ 账号管理" />
+        <LoginAccountPanel />
+      </div>
     ),
   },
   {
@@ -216,11 +221,11 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'qq-storage',
-    label: 'QQ 存储管理',
+    label: '资源目录管理',
     icon: <HardDrive size={16} />,
     render: (onOpen) => (
       <DataMaintenanceSection
-        title="QQ 存储管理"
+        title="资源目录管理"
         onOpen={onOpen}
         tools={['storage', 'cleanup', 'cache']}
       />
@@ -233,6 +238,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <VoiceTranscribeSection />,
   },
   {
+    id: 'resource-loading',
+    label: '资源加载',
+    icon: <Globe size={16} />,
+    render: () => <GlobalSettingsSection section="network" />,
+  },
+  {
     id: 'diagnostics',
     label: '诊断工具',
     icon: <ScanSearch size={16} />,
@@ -240,17 +251,20 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
       <div className="weq-set">
         <SectionHeader title="诊断工具" />
         <div className="weq-maintenance-list">
-          <button type="button" className="weq-maintenance-entry" onClick={() => onOpen('capture')}>
+          <button
+            type="button"
+            className="weq-maintenance-entry"
+            data-setting-id="qqnt-capture"
+            onClick={() => onOpen('capture')}
+          >
             <Radio size={18} aria-hidden />
-            <span>ntqq 抓包</span>
-            <ChevronRight size={16} aria-hidden />
-          </button>
-          <button type="button" className="weq-maintenance-entry" onClick={() => onOpen('reverse')}>
-            <ScanSearch size={18} aria-hidden />
-            <span>Protobuf / JCE 逆向</span>
+            <span>QQNT 抓包</span>
             <ChevronRight size={16} aria-hidden />
           </button>
         </div>
+        <Card title="Protobuf / JCE 逆向" settingId="reverse-tool">
+          <ReverseTool />
+        </Card>
       </div>
     ),
   },
@@ -315,15 +329,13 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'remote',
     label: 'Web 与 Remote',
     icon: <Monitor size={16} strokeWidth={1.8} />,
-    render: () => (
-      <>
-        <RemoteSection />
-        <GlobalSettingsSection section="network" />
-        <div data-setting-id="assistant-service">
-          <AssistantSection />
-        </div>
-      </>
-    ),
+    render: () => <RemoteSection />,
+  },
+  {
+    id: 'assistant',
+    label: 'QQ 公众号推送',
+    icon: <Radio size={16} />,
+    render: () => <AssistantSection />,
   },
   {
     id: 'sse',
@@ -784,37 +796,58 @@ function AppearanceSection({
       )}
       {page === 'messages' && (
         <>
+          <div className="weq-settings-appearance-card" data-setting-id="message-unread-badge">
+            <div className="weq-settings-appearance-head">
+              <strong>在消息图标上显示红点</strong>
+              <Toggle
+                checked={settings.data?.showMessageUnreadBadge ?? true}
+                disabled={!settings.data || setShowMessageUnreadBadge.isLoading}
+                onChange={(enabled) => {
+                  setBadgeError(null);
+                  setShowMessageUnreadBadge.mutate(
+                    { enabled },
+                    {
+                      onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
+                      onError: (error) => setBadgeError(error.message),
+                    },
+                  );
+                }}
+                label="在消息图标上显示红点"
+              />
+            </div>
+            {badgeError ? <p role="alert">{badgeError}</p> : null}
+          </div>
           {[
             {
+              key: 'showGroupAssistantMessageCount' as const,
+              settingId: 'group-assistant-count',
+              label: '群助手显示总消息数',
+              fallback: false,
+              mutation: setShowGroupAssistantMessageCount,
+            },
+            {
               key: 'readFromFirstUnread' as const,
+              settingId: 'read-first-unread',
               label: '从第一条新消息开始阅读',
               fallback: false,
               mutation: setReadFromFirstUnread,
             },
             {
               key: 'jumpToLatestAfterSend' as const,
+              settingId: 'jump-latest-after-send',
               label: '发送消息后定位到最新消息',
               fallback: true,
               mutation: setJumpToLatestAfterSend,
             },
             {
               key: 'sendWithQqFont' as const,
+              settingId: 'send-with-qq-font',
               label: '使用 QQ 账号设置的个性字体发送消息',
               fallback: true,
               mutation: setSendWithQqFont,
             },
-            {
-              key: 'showGroupAssistantMessageCount' as const,
-              label: '群助手显示总消息数',
-              fallback: false,
-              mutation: setShowGroupAssistantMessageCount,
-            },
-          ].map(({ key, label, fallback, mutation }) => (
-            <div
-              className="weq-settings-appearance-card"
-              key={key}
-              data-setting-id={key === 'sendWithQqFont' ? 'send-with-qq-font' : undefined}
-            >
+          ].map(({ key, settingId, label, fallback, mutation }) => (
+            <div className="weq-settings-appearance-card" key={key} data-setting-id={settingId}>
               <div className="weq-settings-appearance-head">
                 <strong>{label}</strong>
                 <Toggle
@@ -836,158 +869,146 @@ function AppearanceSection({
             </div>
           ))}
           {readingError ? <p role="alert">{readingError}</p> : null}
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <strong>显示消息汇总红点</strong>
-              <Toggle
-                checked={settings.data?.showMessageUnreadBadge ?? true}
-                disabled={!settings.data || setShowMessageUnreadBadge.isLoading}
-                onChange={(enabled) => {
-                  setBadgeError(null);
-                  setShowMessageUnreadBadge.mutate(
-                    { enabled },
-                    {
-                      onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
-                      onError: (error) => setBadgeError(error.message),
-                    },
-                  );
-                }}
-                label="显示消息汇总红点"
-              />
-            </div>
-            {badgeError ? <p role="alert">{badgeError}</p> : null}
-          </div>
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>纯文本消息渲染 Markdown</strong>
-                <span>
+          <Card title="自定义消息显示" settingId="custom-message-display">
+            <Row
+              settingId="message-seq"
+              label="显示消息序号（seq）"
+              control={
+                <Toggle
+                  checked={settings.data?.showMessageSeq ?? false}
+                  disabled={!settings.data || setShowMessageSeq.isLoading}
+                  onChange={(enabled) => {
+                    setSeqError(null);
+                    setShowMessageSeq.mutate(
+                      { enabled },
+                      {
+                        onSuccess: () => {
+                          void settings.refetch();
+                        },
+                        onError: (error) => setSeqError(error.message),
+                      },
+                    );
+                  }}
+                  label="显示消息序号（seq）"
+                />
+              }
+            />
+            {seqError ? <p role="alert">{seqError}</p> : null}
+            <Row
+              settingId="message-time"
+              label="显示发送时间（精确到秒）"
+              control={
+                <Toggle
+                  checked={settings.data?.showMessageTime ?? false}
+                  disabled={!settings.data || setShowMessageTime.isLoading}
+                  onChange={(enabled) => {
+                    setSeqError(null);
+                    setShowMessageTime.mutate(
+                      { enabled },
+                      {
+                        onSuccess: () => {
+                          void settings.refetch();
+                        },
+                        onError: (error) => setSeqError(error.message),
+                      },
+                    );
+                  }}
+                  label="显示发送时间（精确到秒）"
+                />
+              }
+            />
+            <Row
+              settingId="avatar-pendant"
+              label="聊天头像挂件"
+              desc={
+                <>
+                  把 QQ 里正在用的挂件叠在聊天页头像的外圈。只作用于自己的头像——别人的挂件
+                  要逐个联网查，想看请在资料卡里打开「个性主页」。
+                </>
+              }
+              control={
+                <Toggle
+                  checked={pendant}
+                  disabled={settings.isLoading || setShowAvatarPendant.isLoading}
+                  onChange={(next) => void onSetPendant(next)}
+                  label="聊天头像挂件"
+                />
+              }
+            />
+            <Row
+              settingId="message-decoration"
+              label="消息装扮（气泡/字体/挂件）"
+              desc={
+                <>
+                  渲染每条消息里的气泡皮肤、聊天字体与挂件（来自消息 DB 列 40801）。关掉后
+                  统一使用全局装扮设置，不做逐条渲染。
+                </>
+              }
+              control={
+                <Toggle
+                  checked={msgDecoration}
+                  disabled={settings.isLoading || setShowMsgDecoration.isLoading}
+                  onChange={(next) => void onSetMsgDecoration(next)}
+                  label="消息装扮"
+                />
+              }
+            />
+            <Row
+              settingId="text-markdown"
+              label="纯文本消息渲染 Markdown"
+              desc={
+                <>
                   把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
                   自己的功能——QQ 只把专门的 Markdown 消息当富文本，关掉后纯文本原样显示 （QQ 原生
                   Markdown 消息不受影响）。
-                </span>
-              </div>
-              <Toggle
-                checked={textMarkdown}
-                disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
-                onChange={(next) => void onSetTextMarkdown(next)}
-                label="纯文本消息渲染 Markdown"
-              />
-            </div>
-          </div>
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>聊天头像挂件</strong>
-                <span>
-                  把 QQ 里正在用的挂件叠在聊天页头像的外圈。只作用于自己的头像——别人的挂件
-                  要逐个联网查，想看请在资料卡里打开「个性主页」。
-                </span>
-              </div>
-              <Toggle
-                checked={pendant}
-                disabled={settings.isLoading || setShowAvatarPendant.isLoading}
-                onChange={(next) => void onSetPendant(next)}
-                label="聊天头像挂件"
-              />
-            </div>
-          </div>
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>显示消息序号（seq）</strong>
-              </div>
-              <Toggle
-                checked={settings.data?.showMessageSeq ?? false}
-                disabled={!settings.data || setShowMessageSeq.isLoading}
-                onChange={(enabled) => {
-                  setSeqError(null);
-                  setShowMessageSeq.mutate(
-                    { enabled },
-                    {
-                      onSuccess: () => {
-                        void settings.refetch();
-                      },
-                      onError: (error) => setSeqError(error.message),
-                    },
-                  );
-                }}
-                label="显示消息序号（seq）"
-              />
-            </div>
-            {seqError ? <p role="alert">{seqError}</p> : null}
-            <div className="weq-settings-appearance-head">
-              <strong>显示发送时间（精确到秒）</strong>
-              <Toggle
-                checked={settings.data?.showMessageTime ?? false}
-                disabled={!settings.data || setShowMessageTime.isLoading}
-                onChange={(enabled) => {
-                  setSeqError(null);
-                  setShowMessageTime.mutate(
-                    { enabled },
-                    {
-                      onSuccess: () => {
-                        void settings.refetch();
-                      },
-                      onError: (error) => setSeqError(error.message),
-                    },
-                  );
-                }}
-                label="显示发送时间（精确到秒）"
-              />
-            </div>
-          </div>
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>消息装扮（气泡/字体/挂件）</strong>
-                <span>
-                  渲染每条消息里的气泡皮肤、聊天字体与挂件（来自消息 DB 列 40801）。关掉后
-                  统一使用全局装扮设置，不做逐条渲染。
-                </span>
-              </div>
-              <Toggle
-                checked={msgDecoration}
-                disabled={settings.isLoading || setShowMsgDecoration.isLoading}
-                onChange={(next) => void onSetMsgDecoration(next)}
-                label="消息装扮"
-              />
-            </div>
-          </div>
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>链接预览卡片</strong>
-                <span>
+                </>
+              }
+              control={
+                <Toggle
+                  checked={textMarkdown}
+                  disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
+                  onChange={(next) => void onSetTextMarkdown(next)}
+                  label="纯文本消息渲染 Markdown"
+                />
+              }
+            />
+            <Row
+              settingId="link-preview"
+              label="链接预览卡片"
+              desc={
+                <>
                   一条消息只有一个链接时，抓取网页标题、简介和封面渲染成卡片。会按链接访问
                   对应网页（结果本地缓存），关掉后链接仍标蓝可点，但完全不出网。
-                </span>
-              </div>
-              <Toggle
-                checked={linkCard}
-                disabled={settings.isLoading || setLinkPreview.isLoading}
-                onChange={(next) => void onSetLinkCard(next)}
-                label="链接预览卡片"
-              />
-            </div>
-          </div>
-          <div className="weq-settings-appearance-card">
-            <div className="weq-settings-appearance-head">
-              <div>
-                <strong>无封面时网页截图</strong>
-                <span>
+                </>
+              }
+              control={
+                <Toggle
+                  checked={linkCard}
+                  disabled={settings.isLoading || setLinkPreview.isLoading}
+                  onChange={(next) => void onSetLinkCard(next)}
+                  label="链接预览卡片"
+                />
+              }
+            />
+            <Row
+              settingId="link-screenshot"
+              label="无封面时网页截图"
+              desc={
+                <>
                   网页没提供封面图时，在一个隔离的后台窗口里把它打开并截取首屏当封面。这会
                   真正运行对方页面的脚本（沙盒内、不落盘、退出即清），默认关闭。
-                </span>
-              </div>
-              <Toggle
-                checked={linkShot}
-                disabled={!linkCard || settings.isLoading || setLinkPreview.isLoading}
-                onChange={(next) => void onSetLinkShot(next)}
-                label="无封面时网页截图"
-              />
-            </div>
-          </div>
+                </>
+              }
+              control={
+                <Toggle
+                  checked={linkShot}
+                  disabled={!linkCard || settings.isLoading || setLinkPreview.isLoading}
+                  onChange={(next) => void onSetLinkShot(next)}
+                  label="无封面时网页截图"
+                />
+              }
+            />
+          </Card>
         </>
       )}
     </section>

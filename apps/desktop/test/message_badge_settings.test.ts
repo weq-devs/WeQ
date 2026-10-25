@@ -81,7 +81,7 @@ function mount() {
     host,
     render,
     toggle: () =>
-      host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="显示消息汇总红点"]')!,
+      host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="在消息图标上显示红点"]')!,
     close: () => {
       act(() => root.unmount());
       host.remove();

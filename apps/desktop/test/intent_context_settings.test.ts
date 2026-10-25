@@ -14,7 +14,7 @@ const fixture = vi.hoisted(() => ({
     enabled: true,
     persistentDisplay: true,
     hoverDisplay: true,
-    engine: 'local' as const,
+    engine: 'local' as 'api' | 'local',
     providerRef: null,
     suggestionsEnabled: true,
     hfMirror: true,
@@ -215,4 +215,17 @@ it('常驻与悬停显示独立保存，只在意图感知页展示，在途禁�
   f.render('suggestions');
   expect(toggle('常驻显示')).toBeNull();
   expect(toggle('悬停显示')).toBeNull();
+});
+
+it.each(['local', 'api'] as const)('%s 模式只保留一份全局意图资源，并放在对应分区', (engine) => {
+  fixture.status.engine = engine;
+  const f = renderFixture();
+  const resources = f.host.querySelectorAll('[data-setting-id="intent-model-resources"]');
+  expect(resources).toHaveLength(1);
+  expect(resources[0]?.textContent).toContain('意图模型资源（全局）');
+  expect(Boolean(resources[0]?.closest('details'))).toBe(engine === 'api');
+  f.render('suggestions');
+  expect(f.host.querySelector('[data-setting-id="intent-model-resources"]')).toBeNull();
+  expect(f.host.querySelector('details')).not.toBeNull();
+  expect(fixture.save).not.toHaveBeenCalled();
 });

@@ -84,22 +84,116 @@ function mount(initialSection?: SectionId, onCreateClone?: () => void) {
 }
 
 describe('设置归位后的实际页面', () => {
+  it('资源加载独立归数据分类，公众号独立页，Remote 开关位于连接方式前', () => {
+    const f = mount('remote');
+    try {
+      expect(f.body().querySelector('[data-setting-id="prefer-cdn"]')).toBeNull();
+      expect(f.body().textContent).not.toContain('QQ 公众号推送');
+      const remote = f.body().querySelector('.weq-remote')!;
+      const toggle = remote.querySelector('[aria-label="允许远程连接"]')!;
+      const addresses = remote.querySelector('.weq-remote-addresses')!;
+      expect(toggle.compareDocumentPosition(addresses) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
+        0,
+      );
+      expect(remote.querySelector('[aria-label="连接方式"]')).toBeNull();
+      f.render('resource-loading');
+      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
+        '数据库与资源',
+      );
+      expect(f.body().querySelector('[data-setting-id="prefer-cdn"]')).not.toBeNull();
+      expect(f.body().textContent).toContain('桌面端与 Web 共用');
+      f.render('assistant');
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        'QQ 公众号推送',
+      );
+      expect(f.body().textContent).toContain('启用 QQ 公众号推送');
+      expect(f.body().textContent).not.toContain('WeQ 助手');
+    } finally {
+      f.close();
+    }
+  });
+  it('QQ 登录账号与逆向直接呈现在设置正文，不再是工具入口', () => {
+    const f = mount('qq-accounts');
+    try {
+      expect(f.body().querySelector('.weq-login-acc')).not.toBeNull();
+      expect(f.body().querySelector('.weq-maintenance-entry')).toBeNull();
+      f.render('diagnostics');
+      expect(f.body().querySelector('[data-setting-id="reverse-tool"] textarea')).not.toBeNull();
+      expect(
+        f.body().querySelector('[data-setting-id="reverse-tool"] .weq-maintenance-entry'),
+      ).toBeNull();
+      expect(document.querySelector('.weq-tool-modal')).toBeNull();
+      expect(f.onOpenMaintenance).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+  it('聊天行为与自定义显示按最终顺序展示，显示项具有稳定身份', () => {
+    const f = mount('chat-messages');
+    try {
+      expect(
+        [...f.body().querySelectorAll('.weq-settings-appearance-card strong')].map(
+          (node) => node.textContent,
+        ),
+      ).toEqual([
+        '在消息图标上显示红点',
+        '群助手显示总消息数',
+        '从第一条新消息开始阅读',
+        '发送消息后定位到最新消息',
+      ]);
+      const display = f.body().querySelector('[data-setting-id="custom-message-display"]')!;
+      expect(display).not.toBeNull();
+      expect(display.querySelectorAll('.weq-set-card, .weq-settings-appearance-card')).toHaveLength(
+        0,
+      );
+      expect(
+        [...display.querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
+      ).toEqual([
+        '显示消息序号（seq）',
+        '显示发送时间（精确到秒）',
+        '聊天头像挂件',
+        '消息装扮（气泡/字体/挂件）',
+        '纯文本消息渲染 Markdown',
+        '链接预览卡片',
+        '无封面时网页截图',
+      ]);
+      expect(
+        [...display.querySelectorAll('[data-setting-id]')].map((node) =>
+          node.getAttribute('data-setting-id'),
+        ),
+      ).toEqual([
+        'message-seq',
+        'message-time',
+        'avatar-pendant',
+        'message-decoration',
+        'text-markdown',
+        'link-preview',
+        'link-screenshot',
+      ]);
+    } finally {
+      f.close();
+    }
+  });
   it.each([
     ['global', '默认发送正在输入状态', 'typing-status', '聊天消息'],
     ['account', '手动标记时上报已读位置', 'read-sync', '聊天消息'],
-    ['storage', '优先使用 CDN', 'prefer-cdn', 'Web 与 Remote'],
+    ['storage', '优先使用 CDN', 'prefer-cdn', '资源加载'],
     ['media', '关联本机媒体目录', 'linked-resources', 'WeQ 账号管理'],
     ['media', '允许使用外部安卓图片缓存', 'external-chatpic', 'WeQ 账号管理'],
     ['rkey', '外部 RKEY', 'external-rkey', '凭据管理'],
     ['applock', '隐私模式', 'privacy-mode', '隐私模式'],
     ['anti-recall', '防撤回', 'anti-recall', '聊天消息'],
-    ['maintenance', '本地缓存', 'resource-viewer', 'QQ 存储管理'],
-    ['maintenance', '存储占用', 'qq-storage-analysis', 'QQ 存储管理'],
-    ['maintenance', '清理缓存', 'qq-storage-cleanup', 'QQ 存储管理'],
+    ['maintenance', '本地缓存', 'resource-viewer', '资源目录管理'],
+    ['maintenance', '存储占用', 'qq-storage-analysis', '资源目录管理'],
+    ['maintenance', '清理缓存', 'qq-storage-cleanup', '资源目录管理'],
     ['maintenance', '数据库修复', 'database-repair', '损坏与修复'],
     ['maintenance', '导出明文数据库', 'database-export', '数据库管理'],
     ['maintenance', '密钥扫描', 'key-scan', '凭据管理'],
     ['maintenance', '其它设备密钥', 'other-device-key', '凭据管理'],
+    ['message-display', '显示消息汇总红点', 'message-unread-badge', '聊天消息'],
+    ['reply-suggestions', '常驻显示', 'intent-persistent-display', '意图感知'],
+    ['reply-suggestions', '悬停显示', 'intent-hover-display', '意图感知'],
+    ['intent-models', '意图模型资源', 'intent-model-resources', '意图感知'],
     ['database', '数据库异常时弹窗提醒', 'damage-reminder', '损坏与修复'],
   ] as const)('旧 %s / %s 定位实际控件而不执行工具', (section, item, settingId, page) => {
     const f = mount('appearance');
@@ -278,8 +372,8 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().textContent).toContain('同时录电脑声音');
       expect(f.body().querySelector('.weq-settings-scope')).toBeNull();
       f.render('mail');
-      expect(f.body().querySelector('[aria-label="显示未读邮件数"]')).not.toBeNull();
-      expect(f.body().querySelector('[aria-label="新邮件提醒"]')).not.toBeNull();
+      expect(f.body().querySelector('[aria-label="在邮箱图标上显示红点"]')).not.toBeNull();
+      expect(f.body().querySelector('[aria-label="收到新邮件时横幅提醒"]')).not.toBeNull();
     } finally {
       f.close();
     }
@@ -296,7 +390,7 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().textContent).toContain('WeQ 存储管理');
       expect(f.body().textContent).not.toContain('现有配置');
       f.render('saving');
-      expect(f.body().textContent).toContain('保存位置');
+      expect(f.body().textContent).toContain('默认保存目录');
       expect(f.body().querySelector('[aria-label="默认导出保存方式"]')).not.toBeNull();
       expect(f.body().textContent).toContain('缓存目录');
     } finally {
@@ -332,15 +426,15 @@ describe('设置归位后的实际页面', () => {
   it('自启独立于助手服务，旧后台入口转到内置组件，助手保留在服务区域', () => {
     const f = mount('startup');
     try {
-      expect(f.body().textContent).toContain('开机自动启动 WeQ');
+      expect(f.body().textContent).toContain('开机自动启动');
       expect(f.body().textContent).not.toContain('启用 WeQ 助手');
       f.render('daemon');
       expect(f.body().textContent).toContain('内置组件');
       expect(f.host.querySelector('[data-search-highlight]')?.textContent).toContain('内置组件');
       f.render('assistant');
-      expect(f.body().textContent).toContain('启用 WeQ 助手');
+      expect(f.body().textContent).toContain('启用 QQ 公众号推送');
       expect(f.host.textContent).not.toContain('后台服务');
-      expect(f.body().textContent).not.toContain('开机自动启动 WeQ');
+      expect(f.body().textContent).not.toContain('开机自动启动');
       f.render('updates');
       expect(f.body().textContent).not.toContain('监控新版本发布');
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(

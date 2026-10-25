@@ -9,6 +9,30 @@ html[data-theme]
   grid-template-columns: minmax(0, 1fr);
 }
 
+html[data-theme='light'] .weq-settings-dialog :is(.weq-set-card, .weq-settings-appearance-card),
+html[data-theme='dark'] .weq-settings-dialog :is(.weq-set-card, .weq-settings-appearance-card) {
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-bg-surface) 96%, transparent);
+  box-shadow: none;
+}
+
+.weq-settings-dialog
+  [data-setting-id='reverse-tool']
+  :is(.weq-wtools-rv-input, .weq-wtools-rv-result, .weq-wtools-rv-empty) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.weq-settings-dialog [data-setting-id='reverse-tool'] .weq-wtools-rv-input {
+  padding: 0;
+}
+.weq-settings-dialog [data-setting-id='reverse-tool'] .weq-wtools-rv-empty {
+  border-top: 1px solid var(--weq-border-subtle);
+  padding-inline: 0;
+}
+
 .weq-set-row-ctrl :is(input, select, textarea) {
   min-width: 0;
   max-width: 100%;

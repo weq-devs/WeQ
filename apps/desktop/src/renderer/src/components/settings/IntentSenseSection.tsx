@@ -196,11 +196,17 @@ export function IntentSenseSection({
       </Card>
 
       {modelControls}
+      {!suggestionsPage && !s ? (
+        <p className="weq-set-note" data-setting-id="intent-model-resources">
+          尚未取得运行方式，本地模型资源状态待确认。
+        </p>
+      ) : null}
       <details className="weq-model-advanced">
         <summary>高级设置</summary>
         {!suggestionsPage ? (
           <Card title="显示方式">
             <Row
+              settingId="intent-persistent-display"
               label="常驻显示"
               control={
                 <Toggle
@@ -212,6 +218,7 @@ export function IntentSenseSection({
               }
             />
             <Row
+              settingId="intent-hover-display"
               label="悬停显示"
               control={
                 <Toggle

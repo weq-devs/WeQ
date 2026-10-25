@@ -85,7 +85,7 @@ export type ToolId = 'key-scan' | 'other-device-key' | 'capture' | 'reverse' | '
 const TOOLS: { id: ToolId; label: string; desc: string }[] = [
   { id: 'key-scan', label: '密钥扫描', desc: '只读内存扫描主密钥' },
   { id: 'other-device-key', label: '其它设备密钥', desc: '获取账号其它设备的密钥' },
-  { id: 'capture', label: 'ntqq 抓包', desc: '网卡收发包 · 解密展开' },
+  { id: 'capture', label: 'QQNT 抓包', desc: '网卡收发包 · 解密展开' },
   { id: 'reverse', label: 'Protobuf/JCE 逆向', desc: 'hex/base64 → 简洁 JSON' },
   { id: 'login-accounts', label: 'QQ 登录账号管理', desc: '快速登录 · 删除账号 · 更换设备标识' },
 ];
@@ -862,7 +862,7 @@ export function WonderfulToolsDialog({
                     <header className="weq-wtools-pane-head">
                       <div className="weq-wtools-pane-title">
                         <Radio size={17} strokeWidth={1.9} />
-                        <h2 id="weq-wtools-title">ntqq 抓包</h2>
+                        <h2 id="weq-wtools-title">QQNT 抓包</h2>
                       </div>
                     </header>
                     {/* 抓包面板自带分栏与滚动，所以正文区全出血（去掉内边距、不自己滚）。 */}

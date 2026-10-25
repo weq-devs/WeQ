@@ -313,9 +313,9 @@ export function AppLockSection(): ReactElement {
         />
       ) : null}
 
-      <Card title="空闲自动锁定">
+      <Card title="空闲自动锁定" settingId="auto-lock">
         <Row
-          label="无操作自动上锁"
+          label="空闲自动锁定"
           desc={
             canAutoLock
               ? '超过所选时长无操作后自动锁定，解锁需用当前解锁方式验证。'

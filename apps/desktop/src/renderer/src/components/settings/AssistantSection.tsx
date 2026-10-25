@@ -17,13 +17,18 @@ export function AssistantSection() {
   const showError = useDialog((state) => state.showError);
   const pushToast = useToast((state) => state.push);
   const [portDraft, setPortDraft] = useState('');
+  const previousPort = useRef<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [linking, setLinking] = useState(false);
   const linkingRef = useRef(false);
   const data = status.data;
   const busy = setEnabled.isLoading || setPort.isLoading || setStartup.isLoading || linking;
   useEffect(() => {
-    if (data?.port != null) setPortDraft(String(data.port));
+    if (data?.port == null) return;
+    const previous = previousPort.current;
+    const next = String(data.port);
+    setPortDraft((draft) => (draft === (previous ?? '') ? next : draft));
+    previousPort.current = next;
   }, [data?.port]);
   async function toggle(enabled: boolean) {
     if (linkingRef.current) return;
@@ -40,13 +45,13 @@ export function AssistantSection() {
           pushToast({
             tone: 'info',
             title: '登录自启仍需系统批准',
-            message: '助手已开启，自启是否生效请在开机启动设置中核对。',
+            message: '公众号推送已开启，自启是否生效请在开机启动设置中核对。',
           });
         } else if (state?.supported && !state.enabled) {
           const linked = await confirm(
             '同时开启 WeQ 登录自启？',
-            'WeQ 助手依赖应用运行。当前未开启登录自启，下次登录系统后需要手动打开 WeQ，QQ 中的助手卡片才能加载本机内容。',
-            { okLabel: '同时开启自启', cancelLabel: '仅开启助手', tone: 'info' },
+            'QQ 公众号推送依赖应用运行。当前未开启登录自启，下次登录系统后需要手动打开 WeQ，QQ 中的推文卡片才能加载本机内容。',
+            { okLabel: '同时开启自启', cancelLabel: '仅开启推送', tone: 'info' },
           );
           if (linked) {
             const result = await setStartup.mutateAsync({ enabled: true });
@@ -60,7 +65,7 @@ export function AssistantSection() {
       }
     } catch (error) {
       showError(
-        applied && enabled ? '助手已开启，自启设置未完成' : '切换 WeQ 助手失败',
+        applied && enabled ? '公众号推送已开启，自启设置未完成' : '切换 QQ 公众号推送失败',
         error instanceof Error ? error.message : '服务状态未知',
       );
       await status.refetch();
@@ -81,7 +86,7 @@ export function AssistantSection() {
       pushToast({
         tone: 'success',
         title: result.port === port ? '端口已更新' : '端口已自动调整',
-        message: `WeQ 助手现监听 ${result.port}`,
+        message: `QQ 公众号推送资源服务现监听 ${result.port}`,
       });
     } catch (error) {
       showError('修改端口失败', error instanceof Error ? error.message : '服务状态未知');
@@ -100,13 +105,13 @@ export function AssistantSection() {
   return (
     <div className="weq-set">
       <SectionHeader icon={<Activity size={16} />} title="QQ 公众号推送" />
-      <Card title="WeQ 助手">
+      <Card title="推送与资源服务" settingId="assistant-service">
         <Row
-          label="启用 WeQ 助手"
+          label="启用 QQ 公众号推送"
           desc="推文写入当前账号，卡片资源仅在 WeQ 运行期间提供。"
           control={
             <Toggle
-              label="启用 WeQ 助手"
+              label="启用 QQ 公众号推送"
               checked={data?.enabled ?? false}
               disabled={busy || status.isLoading || !!status.error}
               onChange={(enabled) => void toggle(enabled)}
@@ -143,7 +148,7 @@ export function AssistantSection() {
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') void savePort();
                 }}
-                aria-label="WeQ 助手端口"
+                aria-label="QQ 公众号推送端口"
               />
               <button
                 type="button"

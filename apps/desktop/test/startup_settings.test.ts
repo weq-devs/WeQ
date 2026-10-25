@@ -103,7 +103,7 @@ describe('独立系统自启设置', () => {
       expect(toggle).not.toBeNull();
       expect(toggle!.getAttribute('aria-checked')).toBe('false');
       expect(view.host.textContent!.indexOf('自启时显示窗口')).toBeGreaterThan(
-        view.host.textContent!.indexOf('开机自动启动 WeQ'),
+        view.host.textContent!.indexOf('开机自动启动'),
       );
       expect(toggle!.disabled).toBe(false);
       await act(async () => toggle!.click());

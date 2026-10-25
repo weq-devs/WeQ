@@ -43,10 +43,11 @@ export function MailSettingsSection() {
       <SectionHeader icon={<Mail size={16} strokeWidth={1.8} />} title="QQ 邮箱" />
       <Card>
         <Row
-          label="显示未读邮件数"
+          settingId="mail-unread-badge"
+          label="在邮箱图标上显示红点"
           control={
             <Toggle
-              label="显示未读邮件数"
+              label="在邮箱图标上显示红点"
               checked={preferences.data?.showUnread ?? true}
               disabled={!selfUin || !preferences.data || busy}
               onChange={(enabled) => void save('unread', enabled)}
@@ -54,10 +55,11 @@ export function MailSettingsSection() {
           }
         />
         <Row
-          label="新邮件提醒"
+          settingId="mail-banner"
+          label="收到新邮件时横幅提醒"
           control={
             <Toggle
-              label="新邮件提醒"
+              label="收到新邮件时横幅提醒"
               checked={preferences.data?.notifications ?? false}
               disabled={!selfUin || !preferences.data || busy}
               onChange={(enabled) => void save('notifications', enabled)}

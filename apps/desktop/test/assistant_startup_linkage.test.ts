@@ -79,7 +79,7 @@ function mount(component: typeof AssistantSection | typeof StartupSection, label
 }
 describe('助手与系统自启的双向提醒', () => {
   it.each([true, false])('启用助手后由用户选择是否同时开启自启：%s', async (agree) => {
-    const view = mount(AssistantSection, '启用 WeQ 助手');
+    const view = mount(AssistantSection, '启用 QQ 公众号推送');
     try {
       await view.click();
       expect(fixture.assistant.enabled).toBe(true);
@@ -101,7 +101,7 @@ describe('助手与系统自启的双向提醒', () => {
       fixture.startup.enabled = state === 'enabled';
       fixture.startup.requiresApproval = state === 'approval';
       fixture.startup.supported = state !== 'unsupported';
-      const view = mount(AssistantSection, '启用 WeQ 助手');
+      const view = mount(AssistantSection, '启用 QQ 公众号推送');
       try {
         await view.click();
         expect(useDialog.getState().current).toBeNull();
@@ -114,11 +114,12 @@ describe('助手与系统自启的双向提醒', () => {
   it.each([true, false])('关闭自启但助手仍启用时，可选择保留自启：%s', async (keep) => {
     fixture.startup.enabled = true;
     fixture.assistant.enabled = true;
-    const view = mount(StartupSection, '开机自动启动 WeQ');
+    const view = mount(StartupSection, '开机自动启动');
     try {
       await view.click();
       const dialog = useDialog.getState().current;
-      expect(dialog?.message).toContain('助手');
+      expect(dialog?.title).toBe('QQ 公众号推送仍处于启用状态');
+      expect(dialog?.message).toContain('推文卡片需要手动启动 WeQ');
       expect(fixture.mutate).not.toHaveBeenCalled();
       await act(async () => dialog!.confirm!.resolve(keep));
       expect(fixture.startup.enabled).toBe(keep);
@@ -128,7 +129,7 @@ describe('助手与系统自启的双向提醒', () => {
     }
   });
   it('提醒未结束时不能重复切换或覆盖当前确认框', async () => {
-    const view = mount(AssistantSection, '启用 WeQ 助手');
+    const view = mount(AssistantSection, '启用 QQ 公众号推送');
     try {
       await view.click();
       const id = useDialog.getState().current?.id;

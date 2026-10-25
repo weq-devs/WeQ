@@ -13,7 +13,7 @@ import { snapshotWeqClientSettings } from '@weq/service/backup-client';
 import { client } from '../../trpc/client';
 import { backupClientId } from '../../lib/backupClientRestore';
 import { useToast } from '../Toast';
-import { SectionHeader } from './controls';
+import { Card, SectionHeader } from './controls';
 import { useTabActive } from '../RetainedTabs';
 import '../../styles/backup.css';
 
@@ -287,8 +287,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
         </button>
       </div>
       {result ? (
-        <section className="weq-backup-band">
-          <h4>{result.status === 'applied' ? '最近一次恢复已应用' : '最近一次恢复失败'}</h4>
+        <Card title={result.status === 'applied' ? '最近一次恢复已应用' : '最近一次恢复失败'}>
           <p>
             {result.error ||
               `已应用 ${result.applied.length} 项，跳过 ${result.skipped.length} 项。`}
@@ -323,10 +322,9 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               </div>
             </>
           ) : null}
-        </section>
+        </Card>
       ) : null}
-      <section className="weq-backup-band">
-        <h4>导出备份</h4>
+      <Card title="导出备份">
         <fieldset disabled={Boolean(busy) || !inventory}>
           <legend>备份范围</legend>
           <div className="weq-backup-choices">
@@ -439,9 +437,8 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
             <Summary value={exported.summary} />
           </>
         ) : null}
-      </section>
-      <section className="weq-backup-band">
-        <h4>导入备份</h4>
+      </Card>
+      <Card title="导入备份">
         <div className="weq-backup-actions">
           <input
             ref={input}
@@ -653,9 +650,8 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
             </div>
           </div>
         ) : null}
-      </section>
-      <section className="weq-backup-band">
-        <h4>恢复默认设置</h4>
+      </Card>
+      <Card title="恢复默认设置">
         <p>仅重置通用设置、导出预设与此设备界面偏好；不会删除账号、API 配置或克隆数据。</p>
         <button
           type="button"
@@ -668,10 +664,9 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           <RotateCcw size={14} />
           恢复默认设置
         </button>
-      </section>
+      </Card>
       {pending ? (
-        <section className="weq-backup-band">
-          <h4>{pending.phase === 'ready' ? '已暂存，等待重启' : '恢复暂存未完成'}</h4>
+        <Card title={pending.phase === 'ready' ? '已暂存，等待重启' : '恢复暂存未完成'}>
           <Summary value={pending.summary} />
           <p>
             正在运行的服务尚未使用这份备份。
@@ -706,7 +701,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               </button>
             ) : null}
           </div>
-        </section>
+        </Card>
       ) : null}
       {confirm ? (
         <div className="weq-backup-review" role="region" aria-label="确认操作">

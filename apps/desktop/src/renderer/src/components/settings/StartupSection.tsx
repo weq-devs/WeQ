@@ -37,8 +37,8 @@ export function StartupSection() {
     try {
       if (!enabled && (await assistant.refetch())?.data?.enabled) {
         const keep = await confirm(
-          'WeQ 助手仍处于启用状态',
-          '关闭登录自启后，下次登录系统不会自动打开 WeQ，助手卡片需要手动启动 WeQ 后才能加载。是否保留登录自启？',
+          'QQ 公众号推送仍处于启用状态',
+          '关闭登录自启后，下次登录系统不会自动打开 WeQ，推文卡片需要手动启动 WeQ 后才能加载。是否保留登录自启？',
           { okLabel: '保留自启', cancelLabel: '仍关闭自启', tone: 'warning' },
         );
         if (keep) return;
@@ -74,9 +74,10 @@ export function StartupSection() {
   return (
     <div className="weq-set">
       <SectionHeader icon={<Power size={16} />} title="开机启动" />
-      <Card title="登录自启">
+      <Card title="开机启动">
         <Row
-          label="开机自动启动 WeQ"
+          settingId="startup-enabled"
+          label="开机自动启动"
           desc={
             data?.supported
               ? '登录系统时启动 WeQ，完全退出后不会在本次登录中重新拉起。'
@@ -84,7 +85,7 @@ export function StartupSection() {
           }
           control={
             <Toggle
-              label="开机自动启动 WeQ"
+              label="开机自动启动"
               checked={Boolean(data?.enabled || data?.requiresApproval)}
               disabled={
                 !data?.supported ||

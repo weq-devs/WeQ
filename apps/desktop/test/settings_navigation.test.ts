@@ -23,7 +23,7 @@ describe('设置的两级导航', () => {
       '数据库与资源',
       'WeQ 服务',
       '隐私',
-      '设置备份',
+      '配置备份与恢复',
       '关于 WeQ',
     ]);
     expect(settingsGroupFor('model-usage').sections).toEqual([
@@ -59,14 +59,20 @@ describe('设置的两级导航', () => {
     expect(settingsGroupFor('media').sections).toContain('accounts');
     expect(settingsGroupFor('backup')).toEqual({
       id: 'backup',
-      label: '设置备份',
+      label: '配置备份与恢复',
       sections: ['backup'],
     });
     for (const id of ['database', 'database-status', 'maintenance'] as const) {
       expect(settingsGroupFor(id)).toEqual({
         id: 'data',
         label: '数据库与资源',
-        sections: ['database-repair', 'database-tolerance', 'database-management', 'qq-storage'],
+        sections: [
+          'database-repair',
+          'database-tolerance',
+          'database-management',
+          'qq-storage',
+          'resource-loading',
+        ],
       });
     }
   });

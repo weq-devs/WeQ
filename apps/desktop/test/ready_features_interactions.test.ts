@@ -19,6 +19,7 @@ import {
   useContentMultiSelect,
 } from '../src/renderer/src/state/contentSelection';
 import { useViewState } from '../src/renderer/src/state/view';
+import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
 
 const state = vi.hoisted(() => ({
@@ -39,6 +40,7 @@ const state = vi.hoisted(() => ({
     { uid: 'u_peer', uin: '10002', nick: '合成好友', remark: '好友备注' },
     { uid: 'u_self', uin: '10001', nick: '自己', remark: '' },
   ],
+  profiles: [] as Array<{ uin: string; uid: string; nick: string }>,
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => h('div', { role: 'dialog' }, children),
@@ -88,6 +90,11 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     },
     trpc: {
       account: {
+        getProfileByUin: {
+          useQuery: ({ uin }: { uin: string }) => ({
+            data: state.profiles.find((row) => row.uin === uin),
+          }),
+        },
         searchQuick: {
           useQuery: () => ({
             data: { friends: state.searchFriends },
@@ -172,6 +179,7 @@ beforeEach(() => {
   state.confirm = true;
   state.albumConfirmed = false;
   state.permissions = { blocked: [], hidden: [] };
+  state.profiles = [];
   state.errors = {};
   state.commonGroups = [{ groupCode: '123', name: '合成共同群' }];
   state.writes.mockClear();
@@ -262,7 +270,23 @@ describe('可接入功能交互回归', () => {
     f.update();
     expect(f.host.querySelector('[aria-label^="从不让 ta 看我的空间移除"]')).toBeNull();
   });
-  it('空间名单取消移除不提交，长昵称与号码兜底仍可辨认', async () => {
+  it('名单未返回昵称时使用本地资料补齐，点击头像昵称打开对应名片', () => {
+    state.permissions.blocked = [{ uin: '10002', name: '' }];
+    state.profiles = [{ uin: '10002', uid: 'u_peer', nick: '本地昵称' }];
+    const open = vi.fn();
+    const f = mount(() =>
+      h(ProfileNavigationContext.Provider, { value: open }, h(QzoneFriendPermissions)),
+    );
+    const profile = f.host.querySelector<HTMLButtonElement>('.weq-qzone-permission-profile')!;
+    expect(profile.textContent).toContain('本地昵称');
+    expect(profile.textContent).not.toContain('10002');
+    act(() => profile.click());
+    expect(open).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'u_peer', identityValue: '10002', displayName: '本地昵称' }),
+      expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }),
+    );
+  });
+  it('空间名单取消移除不提交，长昵称与缺少昵称的号码仍可通过悬停辨认', async () => {
     state.permissions.blocked = [
       { uin: '10002', name: '合成好友' },
       { uin: '10003', name: '很长很长的好友昵称用于检查换行和省略号显示' },
@@ -276,7 +300,8 @@ describe('可接入功能交互回归', () => {
       f.host.querySelector<HTMLButtonElement>('[aria-label^="从不让 ta 看我的空间移除"]')!.click(),
     );
     expect(state.writes).not.toHaveBeenCalled();
-    expect(f.host.textContent).toContain('10004');
+    expect(f.host.querySelector('.weq-qzone-permission-profile[title*="10004"]')).not.toBeNull();
+    expect(f.host.textContent).toContain('昵称未获取');
     await act(async () =>
       f.host.querySelector<HTMLButtonElement>('[aria-label="添加到不看 ta 的空间"]')!.click(),
     );

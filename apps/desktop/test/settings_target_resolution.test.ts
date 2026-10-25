@@ -17,7 +17,7 @@ describe('设置重构的规范目标与旧入口分流', () => {
       '数据库与资源',
       'WeQ 服务',
       '隐私',
-      '设置备份',
+      '配置备份与恢复',
       '关于 WeQ',
     ]);
     const sections = SETTINGS_GROUPS.flatMap((group) => group.sections);
@@ -41,7 +41,18 @@ describe('设置重构的规范目标与旧入口分流', () => {
   }>([
     { section: 'saving', target: 'weq-storage', settingId: 'default-save' },
     { section: 'storage', target: 'weq-storage' },
-    { section: 'storage', item: '优先使用 CDN', target: 'remote', settingId: 'prefer-cdn' },
+    {
+      section: 'storage',
+      item: '优先使用 CDN',
+      target: 'resource-loading',
+      settingId: 'prefer-cdn',
+    },
+    {
+      section: 'remote',
+      item: '优先使用 CDN',
+      target: 'resource-loading',
+      settingId: 'prefer-cdn',
+    },
     { section: 'global', target: 'global' },
     {
       section: 'global',
@@ -120,7 +131,7 @@ describe('设置重构的规范目标与旧入口分流', () => {
     },
     { section: 'applock', item: '隐私模式', target: 'privacy', settingId: 'privacy-mode' },
     { section: 'daemon', target: 'version', settingId: 'builtin-components' },
-    { section: 'assistant', target: 'remote', settingId: 'assistant-service' },
+    { section: 'assistant', target: 'assistant' },
     { section: 'tts', target: 'agentlab' },
     { section: 'local-models', target: 'voice' },
     { section: 'intent-models', target: 'intent-sense' },
@@ -141,7 +152,7 @@ describe('设置重构的规范目标与旧入口分流', () => {
         item: '已经改名的标签',
         settingId: 'prefer-cdn',
       }),
-    ).toMatchObject({ section: 'remote', settingId: 'prefer-cdn' });
+    ).toMatchObject({ section: 'resource-loading', settingId: 'prefer-cdn' });
     expect(resolveSettingsTarget({ section: 'call-recording', item: '保存位置' }).section).toBe(
       'call-recording',
     );

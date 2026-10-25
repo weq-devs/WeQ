@@ -293,7 +293,9 @@ describe('设置二级页现场与活动生命周期', () => {
           section,
         ).toEqual([]);
       }
-      expect(f.host.querySelectorAll('[data-retained-panel]')).toHaveLength(35);
+      expect(f.host.querySelectorAll('[data-retained-panel]')).toHaveLength(
+        SETTINGS_GROUPS.flatMap((group) => group.sections).length,
+      );
       act(() => useAppLock.setState({ locked: true }));
       expect([...fixture.queries.values()].filter((query) => query.enabled)).toEqual([]);
       expect(fixture.listeners.size).toBe(0);

@@ -674,10 +674,11 @@ export function AccountBasicsSection({
           {/* 完全离线总闸：自动读取 QQ 内存（完整功能） */}
           <Card>
             <Row
+              settingId="auto-full-mode"
               label={
                 <span className="weq-set-row-icon">
                   <Plug size={15} strokeWidth={1.8} aria-hidden />
-                  自动读取 QQ 内存（完整功能）
+                  自动启用完整功能
                 </span>
               }
               desc={
@@ -695,7 +696,7 @@ export function AccountBasicsSection({
                       () => setAutoAttachQq.mutateAsync({ enabled: v }),
                     )
                   }
-                  label="自动读取 QQ 内存（完整功能）"
+                  label="自动启用完整功能"
                 />
               }
             />
