@@ -63,11 +63,17 @@ export function useResourceManagementScan(source: ResourceSource | null, enabled
         if (!current()) return;
         if (stat.key !== category.key) throw new Error('资源统计目录与请求不符，请重新扫描');
         setData((old) => ({ ...old, stats: [...old.stats, stat] }));
+        if (stat.complete === false)
+          throw new Error('资源目录统计不完整，请检查读取权限后重新扫描');
       }
       if (!current()) return;
       setData((old) => ({ ...old, scanningKey: 'cleanup' }));
       const targets = await client.account.resourceCleanup.listTargets.query(binding);
       if (!current()) return;
+      if (targets.some((target) => target.complete === false)) {
+        setData((old) => ({ ...old, targets }));
+        throw new Error('清理范围统计不完整，请重新扫描后再清理');
+      }
       needed.current = false;
       setData((old) => ({
         ...old,

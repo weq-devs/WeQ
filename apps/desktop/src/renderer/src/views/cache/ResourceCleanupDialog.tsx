@@ -261,6 +261,9 @@ export function ResourceCleanupDialog({
       const list = await client.account.resourceCleanup.listTargets.query();
       if (run !== runRef.current) return;
       setTargets(list);
+      if (list.some((target) => target.complete === false)) {
+        setError('清理范围统计不完整，请重新扫描后再清理');
+      }
     } catch (e) {
       if (run === runRef.current) setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -301,7 +304,7 @@ export function ResourceCleanupDialog({
   if (!open || typeof document === 'undefined') return null;
 
   const pickPreset = (preset: Preset): void => {
-    if (!canAct || loading) return;
+    if (!canAct || loading || targets.some((target) => target.complete === false)) return;
     const instructions = preset.build(targets).filter((ins) => {
       const t = targets.find((x) => x.id === ins.id);
       return t?.present && instructionBytes(t, ins.variant) >= 0 && t.files > 0;
@@ -312,7 +315,7 @@ export function ResourceCleanupDialog({
   };
 
   const pickCustom = (): void => {
-    if (!canAct || loading) return;
+    if (!canAct || loading || targets.some((target) => target.complete === false)) return;
     const anyCaution = customInstructions.some(
       (ins) => targets.find((t) => t.id === ins.id)?.tier === 'caution',
     );

@@ -145,6 +145,8 @@ export function ResourceAnalyticsDialog({
         const stat = await client.account.mediaResource.analyzeTree.query({ key: tree.key });
         if (run !== runRef.current) return;
         setStats((prev) => [...prev, stat]);
+        if (stat.complete === false)
+          throw new Error('资源目录统计不完整，请检查读取权限后重新扫描');
       }
       if (run === runRef.current) setDone(true);
     } catch (e) {

@@ -9,9 +9,8 @@
  * path is re-checked to sit inside `nt_data` so it can never rm outside the tree
  * (never `nt_db`, never the `nt_data` root itself, never WeQ's own data).
  *
- * Two shapes of deletion:
- *   - `variant: 'all'`   — remove the whole target dir, then recreate it empty
- *     (so QQ's next write / our next mkdir is a no-op), mirroring `clearCache`.
+ * Two shapes of deletion (empty directories and links are retained):
+ *   - `variant: 'all'`   — unlink regular files inside the target tree.
  *   - `variant: 'ori' | 'thumb'` — walk the tree and unlink only files whose path
  *     runs through an `Ori`/`OriTemp` (原图) or `Thumb` (缩略) segment. Lets the
  *     user reclaim originals while keeping previews, or vice-versa.
@@ -20,12 +19,13 @@
  * paths) is deliberately NOT a target, so no cleanup mode can ever touch it.
  */
 
-import { rmSync, mkdirSync, existsSync, readdirSync, statSync, realpathSync } from 'node:fs';
-import { readdir, stat, unlink } from 'node:fs/promises';
+import { existsSync, realpathSync } from 'node:fs';
+import { unlink } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import { getLogger, logErrorContext } from '../common/logger';
+import { walkResourceTree } from './resource_tree_walk';
 
 /** How much of a target to delete. */
 export type CleanupVariant = 'all' | 'ori' | 'thumb';
@@ -53,6 +53,10 @@ export interface CleanupBucket {
 
 /** One target enriched with its on-disk size (from {@link ResourceCleanupService.listTargets}). */
 export interface CleanupTargetStat {
+  /** 缺字段兼容旧客户端；false 表示仅为部分统计。 */
+  complete?: boolean;
+  errors?: number;
+  truncated?: boolean;
   id: string;
   /** 已通过白名单和真实路径边界检查的目录，仅作确认展示，不接受它作为删除输入。 */
   path?: string;
@@ -195,9 +199,6 @@ const TARGETS: readonly CleanupTargetDef[] = [
   },
 ];
 
-/** Hard cap on nodes visited per scan/delete so a pathological tree can't wedge us. */
-const NODE_CAP = 2_000_000;
-
 export class ResourceCleanupService {
   private readonly logger = getLogger().child({ scope: 'resource-cleanup' });
 
@@ -220,7 +221,7 @@ export class ResourceCleanupService {
    * absolute path only when it's a real, contained sub-directory — the single
    * gate every read/delete goes through, so nothing outside `nt_data` is touched.
    */
-  private safeDir(def: CleanupTargetDef): string | null {
+  private safeDir(def: CleanupTargetDef, onError?: () => void): string | null {
     const root = this.ntDataRoot();
     if (!root) return null;
     const dir = def.resolveDir(this.platform, this.uin);
@@ -243,7 +244,8 @@ export class ResourceCleanupService {
       if (realDir === realBase || !realDir.startsWith(realBase + sep)) return null;
       // Use the canonical path so a linked parent cannot redirect later I/O.
       return realDir;
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') onError?.();
       return null;
     }
   }
@@ -258,7 +260,10 @@ export class ResourceCleanupService {
   async listTargets(): Promise<CleanupTargetStat[]> {
     return Promise.all(
       TARGETS.map(async (def): Promise<CleanupTargetStat> => {
-        const dir = this.safeDir(def);
+        let resolutionErrors = 0;
+        const dir = this.safeDir(def, () => {
+          resolutionErrors += 1;
+        });
         const empty: CleanupTargetStat = {
           id: def.id,
           path: dir ?? undefined,
@@ -266,6 +271,8 @@ export class ResourceCleanupService {
           desc: def.desc,
           tier: def.tier,
           hasVariants: def.hasVariants,
+          complete: resolutionErrors === 0,
+          errors: resolutionErrors,
           present: false,
           files: 0,
           bytes: 0,
@@ -281,6 +288,9 @@ export class ResourceCleanupService {
           bytes: scan.bytes,
           ori: scan.ori,
           thumb: scan.thumb,
+          complete: scan.complete,
+          errors: scan.errors,
+          truncated: scan.truncated,
         };
       }),
     );
@@ -293,6 +303,9 @@ export class ResourceCleanupService {
     bytes: number;
     ori: CleanupBucket;
     thumb: CleanupBucket;
+    complete: boolean;
+    errors: number;
+    truncated: boolean;
   }> {
     const out = {
       sawDir: false,
@@ -302,45 +315,19 @@ export class ResourceCleanupService {
       thumb: { files: 0, bytes: 0 } as CleanupBucket,
     };
     const rootLen = base.length;
-    const stack: string[] = [base];
-    let visited = 0;
-    while (stack.length > 0 && visited < NODE_CAP) {
-      const dir = stack.pop()!;
-      let dirents: import('node:fs').Dirent[];
-      try {
-        dirents = await readdir(dir, { withFileTypes: true });
-        out.sawDir = true;
-      } catch {
-        continue;
+    const status = await walkResourceTree(base, (abs, st) => {
+      out.files += 1;
+      out.bytes += st.size;
+      const bucket = variantBucket(abs.slice(rootLen));
+      if (bucket === 'ori') {
+        out.ori.files += 1;
+        out.ori.bytes += st.size;
+      } else if (bucket === 'thumb') {
+        out.thumb.files += 1;
+        out.thumb.bytes += st.size;
       }
-      const files: string[] = [];
-      for (const ent of dirents) {
-        visited += 1;
-        if (ent.isDirectory()) stack.push(join(dir, ent.name));
-        else if (ent.isFile()) files.push(join(dir, ent.name));
-      }
-      await Promise.all(
-        files.map(async (abs) => {
-          let st: import('node:fs').Stats;
-          try {
-            st = await stat(abs);
-          } catch {
-            return;
-          }
-          out.files += 1;
-          out.bytes += st.size;
-          const bucket = variantBucket(abs.slice(rootLen));
-          if (bucket === 'ori') {
-            out.ori.files += 1;
-            out.ori.bytes += st.size;
-          } else if (bucket === 'thumb') {
-            out.thumb.files += 1;
-            out.thumb.bytes += st.size;
-          }
-        }),
-      );
-    }
-    return out;
+    });
+    return { ...out, ...status, sawDir: status.present };
   }
 
   // ── cleanup (delete) ─────────────────────────────────────────────────────────
@@ -354,20 +341,25 @@ export class ResourceCleanupService {
   async cleanup(instructions: CleanupInstruction[]): Promise<CleanupResult> {
     const perTarget: CleanupTargetResult[] = [];
     let freedBytes = 0;
+    const seen = new Set<string>();
 
     for (const ins of instructions) {
+      const key = JSON.stringify([ins.id, ins.variant]);
+      if (seen.has(key)) continue;
+      seen.add(key);
       const def = TARGETS.find((t) => t.id === ins.id);
       if (!def) continue; // not on the whitelist — ignore
       const dir = this.safeDir(def);
       if (!dir || !existsSync(dir)) continue;
 
-      // A variant delete only makes sense for split trees; for non-variant
-      // targets any variant means "the whole thing".
-      const variant: CleanupVariant = def.hasVariants ? ins.variant : 'all';
+      const variant = ins.variant;
+      if (!['all', 'ori', 'thumb'].includes(variant) || (!def.hasVariants && variant !== 'all')) {
+        perTarget.push({ id: def.id, variant, freedBytes: 0, removed: 0, failed: 1 });
+        continue;
+      }
 
       try {
-        const res =
-          variant === 'all' ? this.removeDirWhole(dir) : await this.removeByVariant(dir, variant);
+        const res = await this.removeByVariant(dir, variant);
         freedBytes += res.freedBytes;
         perTarget.push({ id: def.id, variant, ...res });
       } catch (error) {
@@ -391,61 +383,26 @@ export class ResourceCleanupService {
     return { freedBytes, perTarget };
   }
 
-  /** Remove a whole target dir, then recreate it empty (mirrors `clearCache`). */
-  private removeDirWhole(dir: string): { freedBytes: number; removed: number; failed: number } {
-    const freedBytes = dirSizeBytesSync(dir);
-    rmSync(dir, { recursive: true, force: true });
-    mkdirSync(dir, { recursive: true });
-    // Whole-dir remove doesn't track per-file counts; report a coarse success.
-    return { freedBytes, removed: 1, failed: 0 };
-  }
-
   /** Walk the tree and unlink only files under the requested variant segment. */
   private async removeByVariant(
     base: string,
-    variant: 'ori' | 'thumb',
+    variant: CleanupVariant,
   ): Promise<{ freedBytes: number; removed: number; failed: number }> {
     const rootLen = base.length;
-    const stack: string[] = [base];
     let freedBytes = 0;
     let removed = 0;
     let failed = 0;
-    let visited = 0;
-
-    while (stack.length > 0 && visited < NODE_CAP) {
-      const dir = stack.pop()!;
-      let dirents: import('node:fs').Dirent[];
+    const status = await walkResourceTree(base, async (abs, stat) => {
+      if (variant !== 'all' && variantBucket(abs.slice(rootLen)) !== variant) return;
       try {
-        dirents = await readdir(dir, { withFileTypes: true });
+        await unlink(abs);
+        freedBytes += stat.size;
+        removed += 1;
       } catch {
-        continue;
+        failed += 1; // locked by a running QQ, etc.
       }
-      const files: string[] = [];
-      for (const ent of dirents) {
-        visited += 1;
-        if (ent.isDirectory()) stack.push(join(dir, ent.name));
-        else if (ent.isFile()) files.push(join(dir, ent.name));
-      }
-      await Promise.all(
-        files.map(async (abs) => {
-          if (variantBucket(abs.slice(rootLen)) !== variant) return;
-          let size = 0;
-          try {
-            size = (await stat(abs)).size;
-          } catch {
-            return; // vanished
-          }
-          try {
-            await unlink(abs);
-            freedBytes += size;
-            removed += 1;
-          } catch {
-            failed += 1; // locked by a running QQ, etc.
-          }
-        }),
-      );
-    }
-    return { freedBytes, removed, failed };
+    });
+    return { freedBytes, removed, failed: failed + status.errors + Number(status.truncated) };
   }
 }
 
@@ -457,33 +414,4 @@ function variantBucket(relPath: string): 'ori' | 'thumb' | 'other' {
   if (segs.includes('Thumb')) return 'thumb';
   if (segs.includes('Ori') || segs.includes('OriTemp')) return 'ori';
   return 'other';
-}
-
-/** Synchronous recursive byte size with a node-visit cap. Missing dirs → 0. */
-function dirSizeBytesSync(root: string, cap = NODE_CAP): number {
-  let total = 0;
-  let visited = 0;
-  const stack: string[] = [root];
-  while (stack.length > 0 && visited < cap) {
-    const dir = stack.pop()!;
-    let dirents: import('node:fs').Dirent[];
-    try {
-      dirents = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const ent of dirents) {
-      visited += 1;
-      const abs = join(dir, ent.name);
-      if (ent.isDirectory()) stack.push(abs);
-      else if (ent.isFile()) {
-        try {
-          total += statSync(abs).size;
-        } catch {
-          /* vanished */
-        }
-      }
-    }
-  }
-  return total;
 }

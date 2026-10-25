@@ -134,3 +134,21 @@ it('返回的目录身份与请求不符时停止扫描，不启用清理目标'
   expect(f.analyze).toHaveBeenCalledOnce();
   expect(f.targets).not.toHaveBeenCalled();
 });
+
+it('部分统计不伪装成完成，保留已读统计并可显式重试', async () => {
+  f.analyze.mockResolvedValueOnce({ ...stat('pic'), complete: false, errors: 1 });
+  const page = await mount();
+  expect(page.current().complete).toBe(false);
+  expect(page.current().error).toContain('统计不完整');
+  expect(page.current().stats).toHaveLength(1);
+  expect(f.targets).not.toHaveBeenCalled();
+  await act(async () => page.current().refresh());
+  expect(page.current().complete).toBe(true);
+});
+it('清理目标的截断阻止整个扫描进入可清理状态', async () => {
+  f.targets.mockResolvedValueOnce([{ id: 'pic', complete: false, truncated: true }]);
+  const page = await mount();
+  expect(page.current().complete).toBe(false);
+  expect(page.current().error).toContain('清理范围统计不完整');
+  expect(page.current().targets).toHaveLength(1);
+});
