@@ -7,6 +7,7 @@ import { SettingsDialog, type SectionId } from '../src/renderer/src/components/S
 import { HelpSection } from '../src/renderer/src/components/settings/HelpSection';
 import type { SettingsSearchTarget } from '../src/renderer/src/components/settings/searchTarget';
 import { useUpdateStore } from '../src/renderer/src/state/update';
+import { useViewState } from '../src/renderer/src/state/view';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const queryData = (name: string) => {
@@ -53,6 +54,8 @@ afterEach(() => vi.unstubAllGlobals());
 function mount(initialSection?: SectionId, onCreateClone?: () => void) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
+  const previousUin = useViewState.getState().openedUin;
+  useViewState.setState({ openedUin: '10001' });
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -84,6 +87,7 @@ function mount(initialSection?: SectionId, onCreateClone?: () => void) {
     body: () => host.querySelector('.weq-settings-body')!,
     close: () => {
       act(() => root.unmount());
+      useViewState.setState({ openedUin: previousUin });
       queryClient.clear();
       host.remove();
     },
