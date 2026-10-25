@@ -53,29 +53,52 @@ const logger = getLogger().child({ scope: 'call' });
 /** `node:dgram` 的 udp4 套接字适配成 `CallSession` 要的形状。 */
 class NodeUdpTransport implements UdpTransport {
   private socket: dgram.Socket | null = null;
+  private p2pSocket: dgram.Socket | null = null;
 
   async bind(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      // 双栈套接字：视频通话的 P2P 直连地址是 **IPv6**（服务端下发的 bt=9
-      // 里是 16 字节裸 IPv6），udp4 发不出去。`ipv6Only: false` 让它同时
-      // 接受 IPv4 目标（Linux 上会自动走 ::ffff: 映射）。
-      const socket = dgram.createSocket({ type: 'udp6', reuseAddr: false, ipv6Only: false });
-      socket.once('error', reject);
-      socket.bind(0, () => {
-        socket.removeListener('error', reject);
-        this.socket = socket;
-        resolve();
+    const open = (): Promise<dgram.Socket> =>
+      new Promise((resolve, reject) => {
+        const socket = dgram.createSocket({ type: 'udp6', reuseAddr: false, ipv6Only: false });
+        socket.once('error', reject);
+        socket.bind(0, () => {
+          socket.removeListener('error', reject);
+          resolve(socket);
+        });
       });
-    });
+    try {
+      const [control, p2p] = await Promise.all([open(), open()]);
+      this.socket = control;
+      this.p2pSocket = p2p;
+    } catch (error) {
+      this.close();
+      throw error;
+    }
+  }
+
+  /**
+   * 绑定后的本地端口。
+   *
+   * `CallSession` 要用它填 `bt=25`（向服务端公告本端 P2P 端口）—— 公告的端口必须
+   * 就是真正收发媒体这个 socket 的端口，否则对端打洞打不通。
+   */
+  localPort(): number {
+    if (!this.p2pSocket) return 0;
+    try {
+      return this.p2pSocket.address().port;
+    } catch {
+      // 已关闭 / 未绑定。
+      return 0;
+    }
   }
 
   send(data: Uint8Array, port: number, address: string): void {
-    if (!this.socket) return;
+    const socket = [8000, 8001, 8800].includes(port) ? this.socket : this.p2pSocket;
+    if (!socket) return;
     // 直接拷一份：dgram 的回调可能在原缓冲被复写之后才跑。
     const buffer = Buffer.from(data);
     // udp6 套接字发纯 IPv4 目标时，部分平台需要显式映射成 ::ffff: 形式。
     const target = address.includes(':') ? address : `::ffff:${address}`;
-    this.socket.send(buffer, 0, buffer.length, port, target, (error) => {
+    socket.send(buffer, 0, buffer.length, port, target, (error) => {
       // 发送失败以前是静默吞掉的：地址不可达 / 套接字类型不匹配时
       // 上层完全看不出「对方为什么收不到」。这里至少留一条日志。
       if (error) {
@@ -85,13 +108,17 @@ class NodeUdpTransport implements UdpTransport {
   }
 
   close(): void {
-    const socket = this.socket;
+    const sockets = [this.socket, this.p2pSocket].filter(
+      (socket): socket is dgram.Socket => !!socket,
+    );
     this.socket = null;
-    if (!socket) return;
-    try {
-      socket.close();
-    } catch {
-      // 已关闭 / 未绑定，忽略。
+    this.p2pSocket = null;
+    for (const socket of sockets) {
+      try {
+        socket.close();
+      } catch {
+        // 已关闭 / 未绑定，忽略。
+      }
     }
   }
 
@@ -113,14 +140,22 @@ class NodeUdpTransport implements UdpTransport {
    */
   private pending: Array<(socket: dgram.Socket) => void> = [];
   private watch(register: (socket: dgram.Socket) => void): void {
-    if (this.socket) register(this.socket);
-    else this.pending.push(register);
+    if (!this.socket) {
+      this.pending.push(register);
+      return;
+    }
+    register(this.socket);
+    if (this.p2pSocket) register(this.p2pSocket);
   }
 
   /** 绑定完成后把排队的监听器挂上。 */
   attach(): void {
-    if (!this.socket) return;
-    for (const register of this.pending) register(this.socket);
+    const sockets = [this.socket, this.p2pSocket].filter(
+      (socket): socket is dgram.Socket => !!socket,
+    );
+    for (const register of this.pending) {
+      for (const socket of sockets) register(socket);
+    }
     this.pending = [];
   }
 }
@@ -288,6 +323,8 @@ export class CallManager extends EventEmitter {
           await transport.bind();
           transport.attach();
         },
+        // 必须透传：会话靠它填 bt=25 的 P2P 端口，漏掉这一行整条 P2P 通路就断了。
+        localPort: () => transport.localPort(),
         send: (data, port, address) => transport.send(data, port, address),
         close: () => transport.close(),
         onMessage: (handler) => transport.onMessage(handler),

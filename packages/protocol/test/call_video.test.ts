@@ -673,7 +673,9 @@ describe('MEDIA_PROFILE', () => {
     });
     expect(MEDIA_PROFILE.video).toMatchObject({
       f3: 0,
-      ipStack: 12656,
+      // 2026-10-26 同一次通话的 OIDB 抓包逐字节比对：视频档是 0x542B。
+      // 旧值 12656 来自更早的一通（抓包不同，不是同一档位）。
+      ipStack: 21547,
       f13: 3,
       inviteF3: 15,
       inviteF4: 10063,

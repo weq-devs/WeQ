@@ -16,9 +16,16 @@ import {
   buildGcsLogout,
   buildVideoParamPush,
   buildVideoStreamPush,
+  buildPeerJoinReport,
+  buildPeerProbe,
+  buildPeerProbeReply,
   buildQfbRequest,
   buildRelayGetIn,
+  buildRelayKeepalive,
   buildStatusReport,
+  parsePeerJoin,
+  parsePeerProbe,
+  PeerProbeCmd,
   decodeCreateRoomRsp,
   encodeCreateRoomReq,
   parseAudioFrame,
@@ -201,20 +208,196 @@ describe('GCS 控制面', () => {
 // ─────────────── Relay ───────────────
 
 describe('中继', () => {
-  it('GET_IN 是 37 字节头 + 27 字节体', () => {
+  /**
+   * 黄金样本：2026-10-26 QQ 本体抓包里的 GET_IN（发往对端中继 `183.47.105.240:8000`，
+   * 64 字节）。
+   *
+   * 旧实现与它逐字节相比有四处差异，导致中继从不回 GET_IN 应答（cmd=2）：
+   *
+   * ```text
+   * [23:27] QQ 是递增序号 0x70ed，旧实现写死 channelId=5000
+   * [31:35] QQ 填对端 uin，旧实现写 0
+   * [35:39] QQ 填 4 字节 token，旧实现只写 2 字节（头长写成 37）
+   * [53:57] QQ 是 02 0f 27 4f（能力摘要），旧实现照抄语音档的 02 05 27 4a
+   * ```
+   */
+  it('GET_IN 与 QQ 本体逐字节一致', () => {
     const pkt = buildRelayGetIn({
-      roomId: 1n,
-      selfUin: 2,
-      channelId: 5000,
-      authToken: 0x11223344,
+      roomId: 5697919981127284148n,
+      selfUin: 1707889225,
+      peerUin: 2863253201,
+      seq: 0x70ed,
+      authToken: 0x6d7bd793,
+      nonce: 0xae4e,
     });
-    expect(pkt[0]).toBe(0x02);
-    expect(pkt.length).toBe(64);
-    expect((pkt[5]! << 8) | pkt[6]!).toBe(1);
-    // 通道号写在 [25:27]
-    expect(((pkt[25]! << 8) | pkt[26]!) >>> 0).toBe(5000);
-    // auth_token 的高 2 字节在尾部
-    expect([pkt[35], pkt[36]]).toEqual([0x11, 0x22]);
+    expect(Buffer.from(pkt).toString('hex')).toBe(
+      '02004000000001' + // [0:7] 长度 / 通道 0 / cmd=1
+        '4f131408b1b135b4' + // [7:15] roomId
+        '00000000' + // [15:19]
+        '65cc5249' + // [19:23] selfUin
+        '000070ed' + // [23:27] seq
+        '00000000' + // [27:31]
+        'aaa9c6d1' + // [31:35] peerUin
+        '6d7bd793' + // [35:39] token
+        '00'.repeat(6) + // [39:45]
+        'ae4e' + // [45:47] 通道随机数
+        '00'.repeat(6) + // [47:53]
+        '020f274f' + // [53:57] 能力摘要
+        '00'.repeat(6) + // [57:63]
+        '03',
+    );
+  });
+
+  it('保活是 39 字节头 + 结束符，序号与 GET_IN 相同', () => {
+    const pkt = buildRelayKeepalive({
+      roomId: 5697919981127284148n,
+      selfUin: 1707889225,
+      peerUin: 2863253201,
+      seq: 0x70ed,
+      authToken: 0x6d7bd793,
+    });
+    expect(Buffer.from(pkt).toString('hex')).toBe(
+      '02002800' +
+        '00000b' +
+        '4f131408b1b135b4' +
+        '00000000' +
+        '65cc5249' +
+        '000070ed' +
+        '00000000' +
+        'aaa9c6d1' +
+        '6d7bd793' +
+        '03',
+    );
+  });
+});
+
+// ─────────────── P2P 端点 / 握手 ───────────────
+
+describe('P2P 端点交换', () => {
+  /**
+   * `bt=25`：QQ 本体抓包 24 字节 —— 把自己真正的 UDP 端口（0xc894 = 51348）公告
+   * 出去。不发这条，对端永远不知道往哪打洞，媒体只能全程中继。
+   */
+  it('bt=25 公告本端端口，与抓包逐字节一致', () => {
+    const pkt = buildPeerJoinReport({
+      roomId: 1n,
+      selfUin: 1707889225,
+      peerUin: 2863253201,
+      sessionTs: 0,
+      typeId: 1,
+      port: 51348,
+    });
+    const parsed = parseGcsPacket(pkt)!;
+    expect(parsed.bodyType).toBe(GcsBodyType.peerJoinReport);
+    expect(Buffer.from(parsed.body).toString('hex')).toBe(
+      '08c9a4b1ae0610d18da7d50a18022208d10700000000c894',
+    );
+  });
+
+  /**
+   * `bt=27`：服务端下发对端真实端口。抓包里 `0xdb19` = 56089，正是对端发媒体
+   * 用的端口；`bt=9` 的 `f8` 给的是 56082（近似值）。
+   */
+  it('bt=27 解析出对端端口', () => {
+    const body = Uint8Array.from(
+      Buffer.from('08d18da7d50a10c9a4b1ae0618022208d10700000000db19', 'hex'),
+    );
+    expect(parsePeerJoin(body)).toEqual({ peerUin: 2863253201, port: 56089 });
+    expect(parsePeerJoin(new Uint8Array([0x08, 0x01]))).toBeNull();
+  });
+});
+
+describe('P2P 握手（0x02 ch=1）', () => {
+  /**
+   * 黄金样本：抓包 23.883s 的 `probe`。对端回包后 P2P 建立，媒体硬切直连 ——
+   * 这是「对端收不到 / 极卡」的最后一环。
+   */
+  it('probe 与抓包逐字节一致', () => {
+    const pkt = buildPeerProbe({
+      roomId: 5697919981127284148n,
+      cmd: PeerProbeCmd.probe,
+      uinAbout: 1707889225,
+      seq: 0x70ee,
+      otherUin: 2863253201,
+      token: 0x6d7bd793,
+      clock: 0x74d7e43a,
+      peerClock: 0,
+    });
+    expect(Buffer.from(pkt).toString('hex')).toBe(
+      '02004800010000' + // [0:7] 长度 / 通道 1 / cmd=0
+        '4f131408b1b135b4' + // [7:15] roomId
+        '00000000' + // [15:19]
+        '65cc5249' + // [19:23] 本条「关于」的 uin（自己）
+        '000070ee' + // [23:27] seq
+        '00000000' + // [27:31]
+        'aaa9c6d1' + // [31:35] 对端 uin
+        '6d7bd793' + // [35:39] token
+        '00000002' + // [39:43] 常量
+        '00000000' + // [43:47]
+        '74d7e43a' + // [47:51] 自己的时钟
+        '00'.repeat(20) + // [51:71] 还没收到对端的时钟
+        '03',
+    );
+  });
+
+  it('解析出的字段与构造一致，且只认 P2P 通道', () => {
+    const pkt = buildPeerProbe({
+      roomId: 7n,
+      cmd: PeerProbeCmd.probeAck,
+      uinAbout: 1,
+      seq: 9,
+      otherUin: 2,
+      token: 3,
+      clock: 10,
+      peerClock: 11,
+    });
+    expect(parsePeerProbe(pkt)).toEqual({
+      cmd: PeerProbeCmd.probeAck,
+      uinAbout: 1,
+      seq: 9,
+      otherUin: 2,
+      token: 3,
+      clock: 10,
+      peerClock: 11,
+    });
+    // 服务端通道（[4]=0）不是握手包。
+    const server = buildRelayKeepalive({
+      roomId: 7n,
+      selfUin: 1,
+      peerUin: 2,
+      seq: 1,
+      authToken: 3,
+    });
+    expect(parsePeerProbe(server)).toBeNull();
+  });
+
+  /**
+   * 应答是「把收到的 [7:51] 原样回抄 + 自己的时钟」。抓包里 B 的 cmd1：
+   * uinAbout/seq/clock 全是 A 的，`peerClock` 才是 B 自己的。
+   */
+  it('应答回抄探测包的字段，只换上自己的时钟', () => {
+    const probe = parsePeerProbe(
+      buildPeerProbe({
+        roomId: 5n,
+        cmd: PeerProbeCmd.probe,
+        uinAbout: 11,
+        seq: 22,
+        otherUin: 33,
+        token: 44,
+        clock: 0x74d7e43a,
+        peerClock: 0,
+      }),
+    )!;
+    const reply = parsePeerProbe(buildPeerProbeReply(probe, { roomId: 5n, clock: 0x5df445 }))!;
+    expect(reply).toEqual({
+      cmd: PeerProbeCmd.probeReply,
+      uinAbout: 11,
+      seq: 22,
+      otherUin: 33,
+      token: 44,
+      clock: 0x74d7e43a,
+      peerClock: 0x5df445,
+    });
   });
 });
 

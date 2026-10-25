@@ -25,7 +25,11 @@ import {
   CallEvent,
   GCS_STX,
   GcsBodyType,
+  PeerProbeCmd,
+  RELAY_STX,
   type CallServer,
+  buildPeerProbe,
+  parsePeerProbe,
   VIDEO_CTRL_SUB_TYPE,
   VIDEO_EXT_LEN,
   VIDEO_EXT_TYPE,
@@ -135,9 +139,14 @@ class FakeTimers implements CallTimers {
 class FakeTransport implements UdpTransport {
   readonly sent: Array<{ data: Uint8Array; port: number; address: string }> = [];
   closed = false;
+  /** 模拟本端 UDP 端口（`bt=25` 要公告它）。 */
+  port = 51_348;
   private messageHandler?: (data: Uint8Array, from: { address: string; port: number }) => void;
 
   async bind(): Promise<void> {}
+  localPort(): number {
+    return this.port;
+  }
   send(data: Uint8Array, port: number, address: string): void {
     this.sent.push({ data, port, address });
   }
@@ -288,6 +297,11 @@ function authRspPacket(sessionTs = 999): Uint8Array {
  * 默认值取自 2026-10-26 同一次通话的抓包：`f7` = 对端 IPv6，`f8` = 56082。
  */
 function ctrlPushPacket(peerIpv6: Uint8Array, port: number): Uint8Array {
+  return ctrlPushWithBody(new Uint8Array([...pbBytes(7, peerIpv6), ...pbVarint(8, port)]));
+}
+
+/** 自定 body 的 `bt=9`（给「只有 IPv4 候选」这类形态用）。 */
+function ctrlPushWithBody(body: Uint8Array): Uint8Array {
   const head = buildGcsHead({
     roomId: 777n,
     selfUin: 1707889225,
@@ -295,7 +309,30 @@ function ctrlPushPacket(peerIpv6: Uint8Array, port: number): Uint8Array {
     typeId: 0x6242,
     bodyType: GcsBodyType.ctrlPush,
   });
-  const body = new Uint8Array([...pbBytes(7, peerIpv6), ...pbVarint(8, port)]);
+  return buildGcsPacket(head, body);
+}
+
+/**
+ * `bt=27`（peerJoin）—— 服务端告知对端的真实 P2P 端口。
+ *
+ * 黄金样本：2026-10-26 抓包 `08 d18da7d50a 10 c9a4b1ae06 18 02 22 08 d10700000000 db19`。
+ */
+function peerJoinPacket(port: number): Uint8Array {
+  const head = buildGcsHead({
+    roomId: 777n,
+    selfUin: 1707889225,
+    sessionTs: 555,
+    typeId: 0x6243,
+    bodyType: GcsBodyType.peerJoin,
+  });
+  const endpoint = new Uint8Array(8);
+  endpoint.set([0xd1, 0x07, 0, 0, 0, 0, (port >> 8) & 0xff, port & 0xff], 0);
+  const body = new Uint8Array([
+    ...pbVarint(1, 2863253201),
+    ...pbVarint(2, 1707889225),
+    ...pbVarint(3, 2),
+    ...pbBytes(4, endpoint),
+  ]);
   return buildGcsPacket(head, body);
 }
 
@@ -863,7 +900,8 @@ describe('媒体路径（中继 / 直连）', () => {
     await connect(ctx);
 
     const peerIpv6 = new Uint8Array([
-      0x24, 0x0e, 0x03, 0x99, 0x0f, 0x9d, 0x3f, 0x10, 0x78, 0x73, 0xe7, 0x0f, 0x57, 0x7e, 0x60, 0xc5,
+      0x24, 0x0e, 0x03, 0x99, 0x0f, 0x9d, 0x3f, 0x10, 0x78, 0x73, 0xe7, 0x0f, 0x57, 0x7e, 0x60,
+      0xc5,
     ]);
     ctx.transport.deliver(ctrlPushPacket(peerIpv6, 56082));
     ctx.transport.reset();
@@ -951,6 +989,183 @@ describe('媒体路径（中继 / 直连）', () => {
     const toFakePeer = ctx.transport.mediaTo(`::ffff:${SERVER_IP}`, VideoSubType.max);
     expect(toFakePeer).toHaveLength(0);
     // 真对端仍然收得到（直连没被服务器回包挤掉）。
+    expect(ctx.transport.mediaTo(PEER_IP, VideoSubType.max).length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * P2P 端点交换与打洞握手。
+ *
+ * 2026-10-26 同一次通话的两份抓包（QQ 本体 P2P 正常 vs WeQ 全程中继）对比出来的
+ * 三处缺口，全部在下面覆盖：
+ *
+ *   1. WeQ 从不发 `bt=25`（公告本端 P2P 端口）→ 对端永远不知道往哪打洞；
+ *   2. WeQ 不解析 `bt=27`（对端真实端口）→ 自己也不会打洞；
+ *   3. WeQ 不应答 `0x02 ch=1` 握手 → 对端不敢切直连，媒体只能全程中继。
+ */
+describe('P2P 端点交换（bt=25 / bt=27）', () => {
+  const SERVER_IP = '113.250.57.28';
+  const PEER_IP = '240e:399:f9d:3f10:7873:e70f:577e:60c5';
+  const peerIpv6 = new Uint8Array([
+    0x24, 0x0e, 0x03, 0x99, 0x0f, 0x9d, 0x3f, 0x10, 0x78, 0x73, 0xe7, 0x0f, 0x57, 0x7e, 0x60, 0xc5,
+  ]);
+
+  function joinReports(ctx: ReturnType<typeof makeSession>): Uint8Array[] {
+    return ctx.transport.sent
+      .filter(
+        (s) =>
+          s.data[0] === GCS_STX && parseGcsPacket(s.data)?.bodyType === GcsBodyType.peerJoinReport,
+      )
+      .map((s) => s.data);
+  }
+
+  it('接通后公告 bt=25，端口就是本端 UDP 端口', async () => {
+    const ctx = makeSession({ media: 'video', videoEncoder: new FakeVideoEncoder(10) });
+    await connect(ctx);
+
+    const reports = joinReports(ctx);
+    expect(reports.length).toBeGreaterThanOrEqual(1);
+    const body = parseGcsPacket(reports[0]!)!.body;
+    // 固定前 6 字节 + 末两字节的大端端口（抓包：d10700000000 c894）。
+    expect([...body.subarray(body.length - 8, body.length - 2)]).toEqual([0xd1, 0x07, 0, 0, 0, 0]);
+    expect((body[body.length - 2]! << 8) | body[body.length - 1]!).toBe(ctx.transport.port);
+  });
+
+  it('未接通时不会公告（房间还没就绪）', async () => {
+    const ctx = makeSession({ media: 'video' });
+    await ctx.session.start();
+    expect(joinReports(ctx)).toHaveLength(0);
+  });
+
+  it('bt=27 的端口优先于 bt=9 的近似 f8', async () => {
+    const ctx = makeSession({
+      media: 'video',
+      videoEncoder: new FakeVideoEncoder(1000),
+      servers: [{ ip: SERVER_IP, port: 8000, type: 1 }],
+    });
+    await connect(ctx);
+
+    // bt=9 给近似端口 56082，bt=27 给权威端口 56089（实测值）。
+    ctx.transport.deliver(ctrlPushPacket(peerIpv6, 56082));
+    ctx.transport.deliver(peerJoinPacket(56089));
+    ctx.transport.reset();
+    await ctx.timers.advanceAsync(2100);
+
+    const probes = ctx.transport.sent.filter(
+      (s) => s.data[0] === RELAY_STX && s.address === PEER_IP,
+    );
+    expect(probes.length).toBeGreaterThan(0);
+    expect(probes.every((p) => p.port === 56089)).toBe(true);
+  });
+
+  it('只有 IPv4 候选（f5/f6）时也能学到对端', async () => {
+    const ctx = makeSession({
+      media: 'video',
+      videoEncoder: new FakeVideoEncoder(1000),
+      servers: [{ ip: SERVER_IP, port: 8000, type: 1 }],
+    });
+    await connect(ctx);
+
+    // 抓包里 WeQ 实际收到的那种形态：只有 f5（fixed32 IPv4）+ f6（端口）。
+    const body = new Uint8Array([(5 << 3) | 5, 0xcb, 0xf6, 0xb0, 0x50, ...pbVarint(6, 8889)]);
+    ctx.transport.deliver(ctrlPushWithBody(body));
+    ctx.transport.reset();
+    await ctx.timers.advanceAsync(20);
+
+    const probes = ctx.transport.sent.filter((s) => s.address === '203.246.176.80');
+    expect(probes.length).toBeGreaterThan(0);
+    expect(probes.every((p) => p.port === 8889)).toBe(true);
+  });
+});
+
+describe('P2P 打洞握手（0x02 ch=1）', () => {
+  const PEER_IP = '240e:399:f9d:3f10:7873:e70f:577e:60c5';
+  const SERVER_IP = '113.250.57.28';
+
+  function probeFromPeer(cmd: number, seq = 5): Uint8Array {
+    return buildPeerProbe({
+      roomId: 777n,
+      cmd,
+      uinAbout: 2863253201,
+      seq,
+      otherUin: 1707889225,
+      token: 1234,
+      clock: 0x74d7e43a,
+      peerClock: 0,
+    });
+  }
+
+  it('收到对端 probe 后应答 cmd1（回抄字段、换上自己的时钟）', async () => {
+    const ctx = makeSession({ media: 'video', videoEncoder: new FakeVideoEncoder(1000) });
+    await connect(ctx);
+    ctx.transport.reset();
+
+    const packet = probeFromPeer(PeerProbeCmd.probe);
+    ctx.transport.deliverFrom(packet, { address: PEER_IP, port: 56089 });
+
+    // 除了应答，我们同时也会开始向对端打洞（probe），所以按 cmd 筛。
+    const replies = ctx.transport.sent.filter(
+      (s) =>
+        s.data[0] === RELAY_STX &&
+        s.address === PEER_IP &&
+        parsePeerProbe(s.data)?.cmd === PeerProbeCmd.probeReply,
+    );
+    expect(replies).toHaveLength(1);
+    const parsed = parsePeerProbe(replies[0]!.data)!;
+    // 回抄的是「关于对端」的那一份
+    expect(parsed.uinAbout).toBe(2863253201);
+    expect(parsed.seq).toBe(5);
+    expect(parsed.token).toBe(1234);
+    expect(parsed.clock).toBe(0x74d7e43a);
+    expect(replies[0]!.port).toBe(56089);
+  });
+
+  it('收到对端 probeAck（cmd2）后应答 cmd3', async () => {
+    const ctx = makeSession({ media: 'video', videoEncoder: new FakeVideoEncoder(1000) });
+    await connect(ctx);
+    ctx.transport.reset();
+
+    ctx.transport.deliverFrom(probeFromPeer(PeerProbeCmd.probeAck, 6), {
+      address: PEER_IP,
+      port: 56089,
+    });
+
+    const replies = ctx.transport.sent.filter(
+      (s) =>
+        s.data[0] === RELAY_STX &&
+        s.address === PEER_IP &&
+        parsePeerProbe(s.data)?.cmd === PeerProbeCmd.probeAckReply,
+    );
+    expect(replies).toHaveLength(1);
+  });
+
+  it('对端应答我们的 probe 后，媒体立即切直连（不再发服务器）', async () => {
+    const ctx = makeSession({ media: 'video', videoEncoder: new FakeVideoEncoder(1000) });
+    await connect(ctx);
+    ctx.transport.deliverFrom(probeFromPeer(PeerProbeCmd.probe), {
+      address: PEER_IP,
+      port: 56089,
+    });
+    ctx.transport.reset();
+
+    // 对端回了我们 probe 的应答（cmd1）。
+    ctx.transport.deliverFrom(
+      buildPeerProbe({
+        roomId: 777n,
+        cmd: PeerProbeCmd.probeReply,
+        uinAbout: 1707889225,
+        seq: 7,
+        otherUin: 2863253201,
+        token: 1234,
+        clock: 1,
+        peerClock: 2,
+      }),
+      { address: PEER_IP, port: 56089 },
+    );
+    ctx.transport.reset();
+    await ctx.timers.advanceAsync(50);
+
+    expect(ctx.transport.mediaTo(SERVER_IP, VideoSubType.max)).toHaveLength(0);
     expect(ctx.transport.mediaTo(PEER_IP, VideoSubType.max).length).toBeGreaterThan(0);
   });
 });

@@ -100,10 +100,18 @@ export {
   buildStatusReport,
   RELAY_STX,
   RELAY_HEADER_LEN,
-  RELAY_CHANNEL_BASE,
+  RELAY_CHANNEL,
+  RELAY_CAPABILITY_TRIPLE,
   RelayCmd,
   buildRelayGetIn,
   buildRelayKeepalive,
+  PEER_PACKET_LEN,
+  PeerProbeCmd,
+  buildPeerJoinReport,
+  parsePeerJoin,
+  buildPeerProbe,
+  buildPeerProbeReply,
+  parsePeerProbe,
   AUDIO_STX,
   AUDIO_HEADER_LEN,
   FRAME_SAMPLES,
@@ -130,6 +138,8 @@ export type {
   AudioPacketHeader,
   AudioFrame,
   PbField,
+  PeerJoinPush,
+  PeerProbe,
 } from './gcs';
 
 export {
