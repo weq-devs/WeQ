@@ -156,7 +156,7 @@ export function ChatHome({
               widgetUrl={widgetUrl}
               refreshOnFocus
             />
-            <TagRing tags={tags} />
+            <TagRing tags={tags} radiusPad={32} contained />
           </div>
           {home.showGreeting && (
             <h1 className="weq-chathome-greet">
