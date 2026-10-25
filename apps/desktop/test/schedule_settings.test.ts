@@ -93,11 +93,13 @@ describe('定时任务设置', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(h(ScheduleSettings, { schedule })));
-      const select = host.querySelector('select')!;
-      act(() => {
-        select.value = 'interval';
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      });
+      const modes = host.querySelector('[role="radiogroup"][aria-label="执行方式"]')!;
+      const interval = [...modes.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
+        (button) => button.textContent === '间隔执行',
+      )!;
+      expect(interval.getAttribute('aria-checked')).toBe('false');
+      act(() => interval.click());
+      expect(interval.getAttribute('aria-checked')).toBe('true');
       act(() =>
         host
           .querySelector('form')!

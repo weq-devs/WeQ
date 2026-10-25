@@ -28,6 +28,8 @@ describe('基础功能内的通话录音入口', () => {
     expect(searchAppEntries('消息显示')[0]?.target).toEqual({
       kind: 'setting',
       section: 'chat-messages',
+      item: '自定义消息显示',
+      settingId: 'custom-message-display',
     });
     expect(searchAppEntries('自启时显示窗口')[0]?.target).toEqual({
       kind: 'setting',
