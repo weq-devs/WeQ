@@ -551,10 +551,14 @@ export class CallSession {
    */
   private videoFrameFragment = 0;
   /**
-   * 会话基准 tick，接通那一刻定下来，写进 sub-header 的 `[12:16]`。
+   * 对端视频流的时间基准，写进本端 sub-header 的 `[12:16]`。
    *
-   * 实测 c2s 方向这个字段整通恒定，s2c 方向是 0 —— 我们只发 c2s，所以填它。
+   * 实测（2026-10-26 抓包）：对端还没开始发视频时填 0；收到对端首个视频帧后，
+   * 填**该帧 `[8:12]` 的值**，之后整通不变。语义是「我跟对端的哪个时间基准
+   * 对齐」，不是本端接通的 tick —— 早期填 `this.tick()` 是错的。
    */
+  private peerVideoBase = 0;
+  /** 本端接通的 tick（保留给日志 / 调试，不再写进 sub-header）。 */
   private mediaBaseTick = 0;
   /** 视频保活定时器。 */
   private videoKeepaliveTimer: unknown = null;
@@ -1470,6 +1474,13 @@ export class CallSession {
     this.receivedVideoFrames++;
     this.lastVideoPacketAt = this.timers.now();
 
+    // 记下对端视频流的时间基准：本端 sub-header 的 `[12:16]` 要填它。
+    // 实测是「对端首个视频帧的 `[8:12]` 值」，收到后整通不变。
+    if (this.peerVideoBase === 0 && frame.timestamp !== 0) {
+      this.peerVideoBase = frame.timestamp;
+      this.log?.info('记下对端视频时间基准', { peerVideoBase: frame.timestamp });
+    }
+
     const hevc = extractHevc(frame);
     // 前几帧把组帧结果打出来：拼不上 / 剥不出裸流是「收到包但没画面」的典型原因。
     if (this.receivedVideoFrames <= 5 || this.receivedVideoFrames % 50 === 0) {
@@ -1742,13 +1753,15 @@ export class CallSession {
     const now = this.timers.now();
     const ptsMs = this.connectedAt === null ? 0 : now - this.connectedAt;
     // `[16:20]` 要提前知道片数，所以先按「sub-header + 裸流」的总长估一次。
+    // 实测取值是 `0..totalPkg-1` 里的一个值（不是 `totalPkg-1` 定值），语义未
+    // 还原，用随机值对齐分布。
     const packetCount = videoPacketCount(VIDEO_SUBHEADER_LEN + hevc.length);
-    this.videoFrameFragment = Math.max(0, packetCount - 1);
+    this.videoFrameFragment = packetCount <= 1 ? 0 : Math.floor(Math.random() * packetCount);
     const subHeader = buildVideoSubHeader({
       direction: 'c2s',
       frameIndex: this.videoFrameIndex,
       timestampMs: ptsMs,
-      baseTick: this.mediaBaseTick,
+      peerVideoBase: this.peerVideoBase,
       // `[6:8]`：对端只拿它做统计，按真实分布抽样即可（见 sampleVideoFrameQuality）。
       quality: sampleVideoFrameQuality(splitHevcNals(hevc).some((nal) => isIrapNalType(nal.type))),
       fragment: this.videoFrameFragment,

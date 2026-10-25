@@ -111,7 +111,7 @@ describe('真实 c2s 包（2026-10-25 抓包黄金样本）', () => {
       direction: 'c2s',
       frameIndex: 0,
       timestampMs: 0,
-      baseTick: 0,
+      peerVideoBase: 0,
     });
     const actual = REAL_C2S_PACKET.subarray(26, 46);
     // 真实的 [12:16] 不是 0（是会话基准 tick），其余字段应一致。
@@ -429,23 +429,48 @@ describe('buildVideoSubHeader', () => {
       direction: 'c2s',
       frameIndex: 0,
       timestampMs: 0,
-      baseTick: 0x70568b61,
+      peerVideoBase: 0x70568b61,
     });
     expect(first[0]).toBe(20);
     expect(first[2]).toBe(0x00);
     expect(first[3]).toBe(0x06);
-    // [12:16] 会话基准 tick。
+    // [12:16] 对端视频流的时间基准（对端还没发视频时是 0）。
     expect([...first.subarray(12, 16)]).toEqual([0x70, 0x56, 0x8b, 0x61]);
 
     const next = buildVideoSubHeader({
       direction: 'c2s',
       frameIndex: 1,
       timestampMs: 100,
-      baseTick: 0x70568b61,
+      peerVideoBase: 0x70568b61,
     });
     expect(next[1]).toBe(1);
     expect(next[2]).toBe(0x00);
     expect(next[3]).toBe(0x06);
+  });
+
+  /**
+   * 回归：`[12:16]` 是**对端视频流的时间基准**，不是本端接通的 tick。
+   *
+   * 2026-10-26 QQ 本体抓包实测：对端还没发视频时 128 帧全是 0；收到对端首个
+   * 视频帧后（该帧 `[8:12]` = 1952894717），从第 128 帧起填这个值，整通不变。
+   * 早期实现从第一帧就填本端 `mediaBaseTick`，与真实客户端不符。
+   */
+  it('c2s 的 [12:16] 跟着对端视频基准走（未收到时是 0）', () => {
+    const before = buildVideoSubHeader({
+      direction: 'c2s',
+      frameIndex: 0,
+      timestampMs: 0,
+    });
+    expect([...before.subarray(12, 16)]).toEqual([0, 0, 0, 0]);
+
+    // 1952894717 = 0x7466cefd
+    const after = buildVideoSubHeader({
+      direction: 'c2s',
+      frameIndex: 128,
+      timestampMs: 12800,
+      peerVideoBase: 1952894717,
+    });
+    expect([...after.subarray(12, 16)]).toEqual([0x74, 0x66, 0xce, 0xfd]);
   });
 
   it('s2c 方向：[2]=0x03，[12:16] 为 0', () => {
@@ -464,7 +489,7 @@ describe('buildVideoSubHeader', () => {
       direction: 'c2s',
       frameIndex: 0,
       timestampMs: 0x6f2f1bee,
-      baseTick: 1,
+      peerVideoBase: 1,
     });
     expect([...header.subarray(8, 12)]).toEqual([0x6f, 0x2f, 0x1b, 0xee]);
   });
@@ -474,7 +499,7 @@ describe('buildVideoSubHeader', () => {
       direction: 'c2s',
       frameIndex: 3,
       timestampMs: 300,
-      baseTick: 9,
+      peerVideoBase: 9,
       quality: { rateTier: 0x19, frameQuality: 0x26 },
     });
     expect([...header.subarray(6, 8)]).toEqual([0x19, 0x26]);
@@ -485,7 +510,7 @@ describe('buildVideoSubHeader', () => {
       direction: 'c2s',
       frameIndex: 3,
       timestampMs: 300,
-      baseTick: 9,
+      peerVideoBase: 9,
       fragment: 3,
     });
     expect([...header.subarray(16, 20)]).toEqual([3, 0, 0, 0]);
@@ -496,7 +521,7 @@ describe('buildVideoSubHeader', () => {
       direction: 'c2s',
       frameIndex: 3,
       timestampMs: 300,
-      baseTick: 9,
+      peerVideoBase: 9,
     });
     expect([...header.subarray(6, 8)]).toEqual([0, 0]);
     expect([...header.subarray(16, 20)]).toEqual([0, 0, 0, 0]);

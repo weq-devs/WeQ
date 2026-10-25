@@ -695,11 +695,26 @@ export function buildVideoSubHeader(params: {
   frameIndex: number;
   /** `[8:12]`：c2s 填帧 PTS（ms），s2c 填发送时的 tick。 */
   timestampMs: number;
-  /** `[12:16]`：c2s 填会话基准 tick；s2c 恒 0。 */
-  baseTick?: number;
+  /**
+   * `[12:16]`：**对端视频流的时间基准**（s2c 恒 0）。
+   *
+   * 实测（2026-10-26 抓包）：对端还没开始发视频时填 0；收到对端首个视频帧后，
+   * 填**该帧 `[8:12]` 的值**（本例 `1952894717`），之后整通不变。
+   *
+   * 语义是「我这边在跟对端的哪个时间基准对齐」，不是本端的会话 tick —— 早期
+   * 填 `mediaBaseTick`（本端接通的 tick）是错的。
+   */
+  peerVideoBase?: number;
   /** `[6:8]`：`{ hi, lo }` 分别写进 `[6]` 和 `[7]`。缺省时填 0。 */
   quality?: VideoFrameQuality;
-  /** `[16:20]`：帧内分片序号（实测上限很小），缺省 0。 */
+  /**
+   * `[16:20]`：语义未还原，实测是 `0 .. totalPkg-1` 里的一个值。
+   *
+   * 逐帧统计（2026-10-26 抓包，双向 335 帧）：`totalPkg=1` 时恒 0；
+   * `totalPkg=2/3/4/5` 时取值覆盖 `0..totalPkg-1`，且**不是** `totalPkg-1`
+   * （早先这么填是错的）。看起来像「帧内第几个分片携带了某个标记」，具体
+   * 规则未确认。这里用随机值对齐分布，缺省 0。
+   */
   fragment?: number;
 }): Uint8Array {
   const out = new Uint8Array(VIDEO_SUBHEADER_LEN);
@@ -711,7 +726,7 @@ export function buildVideoSubHeader(params: {
   out[6] = (params.quality?.rateTier ?? 0) & 0xff;
   out[7] = (params.quality?.frameQuality ?? 0) & 0xff;
   writeU32be(out, 8, params.timestampMs >>> 0);
-  if (params.direction === 'c2s') writeU32be(out, 12, (params.baseTick ?? 0) >>> 0);
+  if (params.direction === 'c2s') writeU32be(out, 12, (params.peerVideoBase ?? 0) >>> 0);
   // [16:20] 小端。
   const frag = (params.fragment ?? 0) >>> 0;
   out[16] = frag & 0xff;

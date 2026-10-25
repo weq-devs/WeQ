@@ -658,9 +658,41 @@ describe('发送视频', () => {
     // [8:12] 是距接通的毫秒数（首帧可能为 0，至少不能是 Date.now() 量级）。
     const pts = new DataView(sh.buffer, sh.byteOffset + 8, 4).getUint32(0);
     expect(pts).toBeLessThan(60_000);
-    // [12:16] 是接通时定下的会话基准 tick（非 0）。
+    // [12:16] 是对端视频流的时间基准：还没收到对端视频时必须是 0
+    // （实测真实客户端前 128 帧全 0）。
     const base = new DataView(sh.buffer, sh.byteOffset + 12, 4).getUint32(0);
-    expect(base).toBeGreaterThan(0);
+    expect(base).toBe(0);
+  });
+
+  /**
+   * 回归：收到对端视频后，本端 `[12:16]` 要换成对端的时间基准。
+   *
+   * 2026-10-26 抓包：对端首个视频帧的 `[8:12]` 是 1952894717，本端从下一帧起
+   * 就把它写进 `[12:16]`，之后整通不变。
+   */
+  it('收到对端视频后，[12:16] 换成对端时间基准', async () => {
+    const encoder = new FakeVideoEncoder(100);
+    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
+    await connect(ctx);
+    ctx.session.setCamera(true);
+
+    // 对端发一帧：sub-header [8:12] = 1952894717（0x7466cefd）。
+    const sub = new Uint8Array(20);
+    sub[0] = 20;
+    sub.set([0x74, 0x66, 0xce, 0xfd], 8);
+    const body = new Uint8Array([0, 0, 0, 1, 0x26, 0x01, 0xaf, 0xe0]);
+    const whole = new Uint8Array(sub.length + body.length);
+    whole.set(sub, 0);
+    whole.set(body, sub.length);
+    ctx.transport.deliver(videoPacket({ gidx: 0, pkgIdx: 0, totalPkg: 1, chunk: whole }));
+    ctx.transport.reset();
+
+    await ctx.timers.advanceAsync(200);
+
+    const videos = ctx.transport.media(VideoSubType.max);
+    expect(videos.length).toBeGreaterThan(0);
+    const sh = parseVideoPacket(videos[0]!)!.payload;
+    expect([...sh.subarray(12, 16)]).toEqual([0x74, 0x66, 0xce, 0xfd]);
   });
 
   it('关摄像头后不再发视频包', async () => {
