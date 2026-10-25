@@ -678,9 +678,10 @@ export class CallSession {
   /** 主动挂断。 */
   async hangup(reason: CallEndReason = 'hangup'): Promise<void> {
     if (this.state === 'idle' || this.state === 'ended' || this.state === 'failed') return;
-    this.state = 'ending';
-    this.emit();
-    this.endReason = reason;
+    if (this.state !== 'ending') {
+      this.state = 'ending';
+      this.emit();
+    }
     await this.teardown(reason);
   }
 
@@ -1060,7 +1061,8 @@ export class CallSession {
     this.sendMedia(packet);
     this.sentFrames++;
 
-    // 组结束：对本组 4 帧做 RS 编码，校验行留给下一组。
+    // 先把第 4 帧入组，校验才能保护完整四帧，而不是只算前三帧。
+    this.audioGroup.push(rsfec);
     if (posInGroup === FEC_GROUP - 1) {
       const group = this.audioGroup;
       const maxLen = Math.max(...group.map((f) => f.length), 0);
@@ -1070,8 +1072,6 @@ export class CallSession {
         this.fecGroupTick = tick;
       }
       this.audioGroup = [];
-    } else {
-      this.audioGroup.push(rsfec);
     }
   }
 
@@ -1251,7 +1251,9 @@ export class CallSession {
   }
 
   private markConnected(): void {
-    if (this.state === 'connected') return;
+    // 异步挂断期间的迟到 dataChange 不能复活通话。
+    if (this.state === 'connected' || this.state === 'ending') return;
+    if (this.state === 'ended' || this.state === 'failed') return;
     this.clearTimer('connectTimer');
     this.state = 'connected';
     this.connectedAt = this.timers.now();
@@ -1697,10 +1699,19 @@ export class CallSession {
    * 顺序有讲究：**先**给 GCS 发 UDP 登出（重发 5 次），**再**发 MSF 登出。
    * 反过来中继不会拆连接，对端会一直停在「通话中」。
    */
-  private async teardown(reason: CallEndReason): Promise<void> {
-    if (this.state === 'ended' || this.state === 'failed') return;
-    this.endReason = reason;
+  private teardownPromise: Promise<void> | null = null;
 
+  private teardown(reason: CallEndReason): Promise<void> {
+    if (this.teardownPromise) return this.teardownPromise;
+    if (this.state === 'ended' || this.state === 'failed') return Promise.resolve();
+    // 对端挂断也要立刻进入 ending，避免信令 await 期间被接通包重新激活。
+    this.state = 'ending';
+    this.endReason = reason;
+    this.teardownPromise = this.finishTeardown(reason);
+    return this.teardownPromise;
+  }
+
+  private async finishTeardown(reason: CallEndReason): Promise<void> {
     this.stopTimers();
 
     // 只要房间建出来了就必须收尾 —— 包括**失败路径**：开房 + 邀请是两条独立的
