@@ -116,6 +116,9 @@ body：`[0]=0x02`，`[4:8]` 是 tick 的小端副本，其余为 0。
 | 视频包解析 / 组帧 / H.265 提取 | `packages/protocol/src/call/video.ts` |
 | 信令档位 | `packages/protocol/src/call/signaling.ts`（`MEDIA_PROFILE`） |
 | 会话收发与状态 | `packages/service/src/account/call_session.ts` |
+| 本端采集与 t265 编码 | `apps/desktop/src/main/call_video_encoder.ts` |
+| 渲染层解码（WebCodecs） | `apps/desktop/src/renderer/src/hooks/useCallVideo.ts` |
+| 解码的纯逻辑（可单测） | `apps/desktop/src/renderer/src/lib/callVideo.ts` |
 
 关键接口：
 
@@ -123,16 +126,63 @@ body：`[0]=0x02`，`[4:8]` 是 tick 的小端副本，其余为 0。
 - `CallSession.setCamera(enabled)` —— 开 / 关本端摄像头（发控制包）；
 - `CallVideoEncoder` —— 主进程注入的编码器，`next()` 吐一帧裸流。
 
-## 6. 未完成
+## 6. 渲染层解码：参数集必须内联
 
-- **本端采集与编码**：`CallVideoEncoder` 的实现在主进程还没接（需要摄像头
-  采集 + H.265 编码）。
-- **渲染层解码与显示**：`<video>` 接 WebCodecs 的 HEVC 解码器。
+Chromium 的 WebCodecs HEVC 解码器对 `VideoDecoderConfig.description` 的要求很挑
+（2026-10-25，Electron 44 / Chromium 152，Linux + AMD VA-API 实测）：
+
+| 配置 | 结果 |
+| --- | --- |
+| `hev1` / `hvc1`，**不带** `description`，参数集内联在数据里 | ✅ 52 帧全解出 |
+| `description` = Annex B 形态的 VPS/SPS/PPS | ❌ `isConfigSupported` 恒 false |
+| `description` = 规范 hvcC（ffmpeg 由同一码流生成） | ❌ 能配置成功，首帧就 `Decoder error` |
+
+**结论：一律走 in-band。** 主进程推来的首帧本来就是
+`VPS + SPS + PPS + IDR` 一个完整 access unit，直接按 Annex B 喂进去即可，既不
+要剥掉参数集，也不要塞进 `description`。
+
+> 之前的现象是界面显示「当前环境不支持 H.265 解码（试过 6 种）」—— 六个 codec
+> string 候选其实都被同一份畸形 `description` 拖垮了，换 level / profile / hev1
+> 全都没用。排查时先看 `isConfigSupported` 是「不带 description 也说 false」还是
+> 「只在带 description 时才 false」，两者根因完全不同。
+
+### 解码器重建后要补参数集
+
+`decode()` 抛 Error 累计超过 3 次时，hook 会 `close()` 掉解码器重建。**新解码器
+
+- 遇到一个不带参数集的关键帧，会一直抛
+  `A key frame is required after configure()`，画面永久黑掉**。实测：不补 -> 0
+帧；补上缓存的 VPS/SPS/PPS -> 正常解出。
+
+两个容易写错的地方：
+
+1. 判据不能是「这一帧是不是刚重建的那一帧」。重建点常常落在 delta 帧上，那帧会被
+   「未配置就跳过 delta」丢掉，标记跟着一起丢，后面就再也不补了 —— 表现是**静默
+   黑屏、不报错**。用一个独立的「还欠一份参数集」标记，挂到真的喂出一帧为止。
+2. 参数集要**每帧扫描缓存**，不能只在首帧存一次：编码器可能中途换参数集（分辨率
+   变化、重新编码），跟当前 SPS 不符会直接解错。
+
+### 渲染层不能值导入 `@weq/protocol`
+
+`packages/protocol/src/index.ts` 是 `export * from './call'`，而
+`call/signaling.ts` → `oidb/invoke.ts` → `transport.ts` → `redbag/sign.ts`
+用了 `node:crypto`。renderer 的 vite 构建会把它判成 `__vite-browser-external`：
+
+```
+"createHash" is not exported by "__vite-browser-external:node:crypto"
+```
+
+所以 `lib/callVideo.ts` 里自备了一份 `splitHevcNals`（二十来行、零依赖），
+**有意重复**协议层的实现 —— 协议层那份继续在服务端用。renderer 里对
+`@weq/protocol` 只允许 `import type`。
+
+## 7. 未完成
+
 - **屏幕共享**：协议侧与摄像头同一套 `subType=2`（可能要 `subType=7`），但
   Wayland 下采集受限，本次未验证成功。
 - **群通话 / 被动接听**：与语音通话同样的限制（见 voice-call 文档 §1）。
 
-## 7. 抓包复现方法
+## 8. 抓包复现方法
 
 不需要改代码：`tcpdump` 抓原始包即可（媒体是明文）。
 

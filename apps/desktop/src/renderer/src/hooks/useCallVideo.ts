@@ -11,9 +11,24 @@
  * 兼容性：Chromium 对 HEVC 的支持取决于构建选项（Linux 上常见只有 H.264）。所以
  * 这里探测 `VideoDecoder.isConfigSupported`，不支持时 `unsupported` 置位，界面
  * 退回「有声音、无画面」并说明原因，而不是留一块黑屏。
+ *
+ * ## HEVC 参数集必须**内联**，不能走 `description`
+ *
+ * 2026-10-25 实测（Electron 44 / Chromium 152，Linux + AMD VA-API）：
+ *
+ * | 配置 | 结果 |
+ * | --- | --- |
+ * | `hev1` / `hvc1`，**不带** `description`，参数集内联在数据里 | ✅ 正常解 |
+ * | 带 `description`（Annex B 形态的参数集） | ❌ `isConfigSupported` 直接 false |
+ * | 带 `description`（规范 hvcC） | ❌ 能配置成功，但首帧就 `Decoder error` |
+ *
+ * 三种「description」写法全灭 —— 这正是界面上「试过 6 种候选都不支持」的成因：
+ * 候选列表里每一条都被同一个畸形 `description` 拖垮了。改由 {@link splitAnnexB}
+ * 把 VPS/SPS/PPS 原样留在数据前面（Annex B in-band），首帧即开解。
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { payloadForDecoder, toAccessUnit } from '../lib/callVideo';
 import { trpc } from '../trpc/client';
 
 /** HEVC 的 codec string：Main profile、level 1.5（实测 640×360@10fps 用这档）。 */
@@ -48,115 +63,6 @@ export interface CallVideoState {
   error: string | null;
 }
 
-/** 把 Annex B 裸流拆成 NAL 并转成解码器要的 `EncodedVideoChunk` 数据。 */
-/**
- * 把 tRPC 传过来的东西统一成真正的 `Uint8Array`。
- *
- * tRPC 的 subscription 走 JSON 序列化时，`Uint8Array` 可能变成普通对象
- * （`{0:..,1:..}`）或 Node `Buffer` 的 JSON 形态（`{type:'Buffer',data:[...]}`）。
- * 前一种还能按下标读，但**没有 `subarray` / `buffer`** —— 直接喂给
- * `EncodedVideoChunk` 会抛错。
- */
-function toBytes(value: unknown): Uint8Array | null {
-  if (value instanceof Uint8Array) return value;
-  if (ArrayBuffer.isView(value)) {
-    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-  }
-  if (value instanceof ArrayBuffer) return new Uint8Array(value);
-  // Node Buffer 的 JSON 形态
-  const json = value as { type?: string; data?: number[] } | null;
-  if (json && json.type === 'Buffer' && Array.isArray(json.data)) {
-    return Uint8Array.from(json.data);
-  }
-  // 普通对象 {0:..,1:..,length:n}
-  if (json && typeof (json as { length?: unknown }).length === 'number') {
-    const len = (json as { length: number }).length;
-    const out = new Uint8Array(len);
-    for (let i = 0; i < len; i++) out[i] = (json as unknown as Record<number, number>)[i] ?? 0;
-    return out;
-  }
-  return null;
-}
-
-/**
- * 把 Annex B 裸流拆成 NAL 单元，同时把 VPS/SPS/PPS 抽出来当解码器配置。
- *
- * `EncodedVideoChunk` 要的是**一个 access unit**：参数集（VPS/SPS/PPS）要么放进
- * `VideoDecoderConfig.description`，要么和数据一起按 Annex B 拼接 —— 但**不能**
- * 只剥掉第一个起始码就把剩下的整块当 payload（那样 SPS/PPS 会变成数据的一部分，
- * 解码器直接拒绝）。
- *
- * 实测对端的首帧是 `VPS + SPS + PPS + IDR` 四个 NAL 拼在一起，正是这个形态。
- */
-function splitAnnexB(input: unknown): {
-  description: Uint8Array | null;
-  data: Uint8Array | null;
-  keyframe: boolean;
-} {
-  const bytes = toBytes(input);
-  if (!bytes) return { description: null, data: null, keyframe: false };
-
-  // 按起始码切分。
-  const units: Uint8Array[] = [];
-  let start = -1;
-  let i = 0;
-  while (i < bytes.length) {
-    const four =
-      i + 4 <= bytes.length &&
-      bytes[i] === 0 &&
-      bytes[i + 1] === 0 &&
-      bytes[i + 2] === 0 &&
-      bytes[i + 3] === 1;
-    const three =
-      !four && i + 3 <= bytes.length && bytes[i] === 0 && bytes[i + 1] === 0 && bytes[i + 2] === 1;
-    if (four || three) {
-      if (start >= 0) units.push(bytes.subarray(start, i));
-      start = i + (four ? 4 : 3);
-      i = start;
-      continue;
-    }
-    i++;
-  }
-  if (start >= 0 && start < bytes.length) units.push(bytes.subarray(start));
-  if (units.length === 0) return { description: null, data: null, keyframe: false };
-
-  // HEVC NAL 类型：首字节 >> 1 & 0x3f。32=VPS 33=SPS 34=PPS，16..21 是 IRAP。
-  const nalType = (nal: Uint8Array) => (nal[0]! >> 1) & 0x3f;
-  const isParam = (t: number) => t === 32 || t === 33 || t === 34;
-
-  const params: Uint8Array[] = [];
-  const payload: Uint8Array[] = [];
-  for (const nal of units) {
-    if (isParam(nalType(nal))) params.push(nal);
-    else payload.push(nal);
-  }
-  const keyframe = payload.some((nal) => {
-    const t = nalType(nal);
-    return t >= 16 && t <= 21;
-  });
-  if (payload.length === 0) return { description: null, data: null, keyframe };
-
-  // 参数集按 Annex B 拼成 description（Chromium 的 HEVC 解码器接受这个形态）。
-  const description =
-    params.length > 0
-      ? concatBytes(params.flatMap((nal) => [new Uint8Array([0, 0, 0, 1]), nal]))
-      : null;
-  const data = concatBytes(payload.flatMap((nal) => [new Uint8Array([0, 0, 0, 1]), nal]));
-  return { description, data, keyframe };
-}
-
-function concatBytes(parts: Uint8Array[]): Uint8Array {
-  let total = 0;
-  for (const p of parts) total += p.length;
-  const out = new Uint8Array(total);
-  let off = 0;
-  for (const p of parts) {
-    out.set(p, off);
-    off += p.length;
-  }
-  return out;
-}
-
 /**
  * 订阅对端视频并解码到 `canvasRef`。
  *
@@ -178,6 +84,23 @@ export function useCallVideo(options: {
   const decoderRef = useRef<VideoDecoder | null>(null);
   /** 是否已喂过关键帧（HEVC 必须先有 VPS/SPS/PPS + IDR 才能解后续帧）。 */
   const configured = useRef(false);
+  /**
+   * 最近一次见到的参数集（VPS/SPS/PPS，Annex B 形态）。
+   *
+   * 实测（2026-10-25，Electron 44 + 真实码流）：解码器 `close()` 重建后，**必须**
+   * 在下一个关键帧前面补回参数集，否则那个关键帧只含 IDR/CRA，`decode()` 会一直
+   * 抛 `A key frame is required after configure()`，画面永久黑掉。不重放 ->
+   * 0 帧；重放 -> 正常解出。
+   */
+  const paramSets = useRef<Uint8Array[]>([]);
+  /**
+   * 下一次真正喂帧时要不要补参数集。
+   *
+   * **不能只判「这一帧是不是刚重建的那一帧」**：重建点恰好落在 delta 帧上时，
+   * 那帧按「未配置就跳过 delta」被丢掉，标记也跟着丢了 —— 后面的关键帧不会再补，
+   * 画面永久黑掉（实测 0 帧且不报错）。所以标记要一直挂到真的喂出一帧关键帧为止。
+   */
+  const needsParamSets = useRef(false);
   /** 丢帧计数：连续解不动时重建解码器。 */
   const decodeFailures = useRef(0);
   /** 收到的帧数（只用于前几帧的排查日志）。 */
@@ -185,11 +108,7 @@ export function useCallVideo(options: {
 
   /** 建 / 重建解码器。 */
   const ensureDecoder = useCallback(
-    async (
-      width: number,
-      height: number,
-      description: Uint8Array | null = null,
-    ): Promise<VideoDecoder | null> => {
+    async (width: number, height: number): Promise<VideoDecoder | null> => {
       if (typeof VideoDecoder === 'undefined') {
         setState((prev) => ({ ...prev, supported: false }));
         return null;
@@ -197,6 +116,10 @@ export function useCallVideo(options: {
 
       // 逐个试 codec string：不同 Chromium 构建对 profile/level 的支持不一样，
       // 写死一个高 level 会被直接判「不支持」。第一个通过的就用它。
+      //
+      // ⚠️ **不要**给这里加 `description`：参数集内联在数据里（见 splitAnnexB）。
+      // 带 description 时 Chromium 会把 config 当 out-of-band 参数集，要求 hvcC
+      // 形态 —— 传 Annex B 直接判不支持，传正确的 hvcC 也会首帧 Decoder error。
       let config: VideoDecoderConfig | null = null;
       const tried: string[] = [];
       for (const codec of HEVC_CODEC_CANDIDATES) {
@@ -205,8 +128,6 @@ export function useCallVideo(options: {
           codedWidth: width || 640,
           codedHeight: height || 360,
           optimizeForLatency: true,
-          // VPS/SPS/PPS 走 description：HEVC 的 out-of-band 参数集就是这个形态。
-          ...(description ? { description } : {}),
         };
         try {
           const support = await VideoDecoder.isConfigSupported(candidate);
@@ -221,11 +142,7 @@ export function useCallVideo(options: {
       }
       if (!config) {
         // 把试过的候选连同报错一起抛给界面：只说「不支持」没法排查。
-        console.error('[call-video] 所有 HEVC 候选都不支持', tried, {
-          width,
-          height,
-          hasDesc: Boolean(description),
-        });
+        console.error('[call-video] 所有 HEVC 候选都不支持', tried, { width, height });
         setState((prev) => ({
           ...prev,
           supported: false,
@@ -273,6 +190,8 @@ export function useCallVideo(options: {
       decoderRef.current?.close();
       decoderRef.current = null;
       configured.current = false;
+      paramSets.current = [];
+      needsParamSets.current = false;
       setState({ supported: true, active: false, width: 0, height: 0, error: null });
       return;
     }
@@ -289,31 +208,40 @@ export function useCallVideo(options: {
         // 状态推送之后才建立的，而**首个关键帧往往已经在那之前到达**——用它
         // 判断会导致 `!configured && !keyframe` 永远成立，解码器根本建不起来。
         // 改用自己从 NAL 类型判出来的结果：只要这一帧里真的带了 IRAP 就能起解。
-        const { description, data, keyframe } = splitAnnexB(frame.hevc);
-        if (!data) return;
-        if (!configured.current && !keyframe) return;
+        const au = toAccessUnit(frame.hevc);
+        if (!au.data) return;
+        // 见到参数集就记下来：解码器重建后要拿它补在最前面（见 paramSets 的注释）。
+        if (au.params.length > 0) paramSets.current = au.params;
+        if (!configured.current && !au.keyframe) return;
 
-        let decoder = decoderRef.current;
-        if (!decoder || decoder.state === 'closed') {
-          decoder = await ensureDecoder(
-            frame.info?.width ?? 640,
-            frame.info?.height ?? 360,
-            description,
-          );
+        const existing = decoderRef.current;
+        const rebuilt = !existing || existing.state === 'closed';
+        let decoder = existing;
+        if (rebuilt) {
+          decoder = await ensureDecoder(frame.info?.width ?? 640, frame.info?.height ?? 360);
           if (!decoder) return;
           configured.current = false;
+          // 一直挂到真的喂出一帧为止 —— 重建点落在 delta 帧上时，那帧会被下面
+          // 的「未配置跳过 delta」丢掉，标记得留着给下一个关键帧用。
+          needsParamSets.current = true;
         }
-        if (decoder.state !== 'configured') return;
+        if (decoder?.state !== 'configured') return;
 
-        if (keyframe) configured.current = true;
+        if (au.keyframe) configured.current = true;
         if (!configured.current) return;
+
+        // 这一帧自己不带参数集时补上缓存的 —— 新解码器和「只有首帧带参数集」的
+        // 码流都靠它。实测缺了会一直 `A key frame is required`。
+        const payload = payloadForDecoder(au, paramSets.current, needsParamSets.current);
+        if (!payload) return;
+        if (needsParamSets.current) needsParamSets.current = false;
 
         try {
           decoder.decode(
             new EncodedVideoChunk({
-              type: keyframe ? 'key' : 'delta',
+              type: au.keyframe ? 'key' : 'delta',
               timestamp: frame.timestamp * 1000,
-              data,
+              data: payload,
             }),
           );
         } catch (error) {
