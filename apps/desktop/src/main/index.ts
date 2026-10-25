@@ -53,8 +53,12 @@ import { stopMcpServer } from './mcp/server';
 import { remoteRuntime } from './remote/runtime';
 import { desktopWebRuntime } from './web/runtime';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
-import { startReleaseMonitor } from './daemon/release_monitor';
-import { ensureDaemonRunning, syncGuiAutostartIntent } from './daemon/runtime';
+import { startReleaseMonitor, stopReleaseMonitor } from './daemon/release_monitor';
+import {
+  ensureDaemonRunning,
+  stopDaemonForAppQuit,
+  syncGuiAutostartIntent,
+} from './daemon/runtime';
 import { disposeExternalMcp } from './mcp/external';
 import { disposeElevatedCaptures } from './ipc/routers/wonderful_tools';
 import { registerAnalyticsExportIpc } from './analytics_export';
@@ -63,7 +67,7 @@ import { registerQzoneIpc } from './qzone';
 import { registerFlashShareIpc } from './flash_share';
 import { getMainWindow, setMainWindow } from './main_window';
 import { createMainWindowLifecycle } from './main_window_lifecycle';
-import { registerAppQuitPreparation } from './app_quit_lifecycle';
+import { registerAppQuitCleanup, registerAppQuitPreparation } from './app_quit_lifecycle';
 import { createRendererRecovery } from './renderer_recovery';
 import { startRendererDiagnostics } from './renderer_diagnostics_runtime';
 import { macApplicationMenu, nativeMenuLabels } from './application_menu';
@@ -675,6 +679,7 @@ void app.whenReady().then(async () => {
   if (process.platform !== 'linux') {
     await probeQqProtocolHandler();
   }
+  if (isQuitting) return;
 
   // Order matters: AppContext (loads native + platform) before IPC handler.
   // The host bridge must be installed before any router runs.
@@ -836,12 +841,24 @@ registerAppQuitPreparation(app, autoUpdater, () => {
   }
 });
 
-// Best-effort: stop the account-bound MCP server on quit even if the account
-// was never explicitly closed (clearAccount also stops it). The weq-daemon
-// companion process is deliberately NOT touched on quit — its lifecycle
-// belongs to autostart / the user, and it keeps serving the QQ cards after
-// WeQ is gone.
+// Cmd+Q / 托盘退出 / 完全退出均停止 macOS 本轮后台。次实例退出不能停掉主实例的服务。
+if (hasSingleInstanceLock && process.platform === 'darwin') {
+  registerAppQuitCleanup(
+    app,
+    stopDaemonForAppQuit,
+    (error) => {
+      logger.warn('failed to stop daemon on quit', {
+        event: 'daemon-quit-failed',
+        error: String(error),
+      });
+    },
+    autoUpdater,
+  );
+}
+
+// 账号没有显式关闭时，也释放本轮 Web、Remote、MCP 与提权辅助进程。
 app.on('will-quit', () => {
+  stopReleaseMonitor();
   remoteRuntime.stop();
   desktopWebRuntime.stop();
   void stopMcpServer();

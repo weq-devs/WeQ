@@ -86,6 +86,13 @@ sock.on('connect', () => sock.end(frame({ cmd: 'http_start', port: 17690, docroo
 注意 `stop` 与 `http_stop` 的区别：`stop` 只关停 HTTP 再退出进程、**状态文件保留**；
 `http_stop` 才是「遗忘」入口（清状态文件）。所以版本替换不会丢推送卡片的服务地址。
 
+**macOS 彻底退出。** 桌面端的 `Cmd+Q`、应用菜单与托盘退出会先阻止在途启动继续拉起
+后台，再用 `launchctl bootout gui/<uid>/weq-daemon` 卸载本轮 LaunchAgent，并通过控制
+管道停止独立实例，等待清理后退出 GUI。只卸载本轮服务，不删除 plist、不执行 `disable`
+或清除服务记忆，下次登录仍按原设置自启。最小化到托盘不触发此流程。Windows/Linux
+仍沿用独立后台生命周期。桌面版与 Web 共用默认管道时，退出 macOS 桌面端也会停止
+这份共享守护进程的卡片服务。
+
 同一台机器同时跑桌面版、网页版、`pnpm dev` 时，它们连的是同一条默认管道，因此只会
 有一份守护进程 —— 代价是它们必须用**同一个版本**，否则会互相 `stop` 换新。开发时想
 隔离多套实例就用 `--pipe <name>`（GUI 侧目前固定用默认管道名）。

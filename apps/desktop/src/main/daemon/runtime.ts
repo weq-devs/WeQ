@@ -9,8 +9,8 @@
  *     指向它，直接注册守护进程本体的话登录时会挂一个关不掉的控制台窗口。）
  *   - 保证守护进程「在，且是磁盘上那个版本」：探活 + 比版本，一致就什么都不做；
  *     版本变了才 `stop` 掉旧的、覆盖落位、再拉起新的；不在则 detached 拉起。
- *   - 平时【不主动杀掉守护进程】—— 它的生命周期属于系统自启 / 用户，不属于 GUI；
- *     设置开关 OFF 只发 `http_stop`（进程继续活着、记忆清空）。
+ *   - 设置开关 OFF 只发 `http_stop`（进程继续活着、记忆清空）；macOS 彻底退出
+ *     另走 stopDaemonForAppQuit，停止本轮后台但保留自启与服务记忆。
  *   - 替调用方把 http_start / http_stop 讲给守护进程（含端口回落试探）。
  *   - 二进制路径解析：与 native/ 完全同构的 `daemon/<platform>-<arch>/` 布局。
  *
@@ -58,6 +58,9 @@ const VERSION_PROBE_TIMEOUT_MS = 3000;
 
 const execFileAsync = promisify(execFile);
 const logger = getLogger().child({ scope: 'daemon-runtime' });
+let quitting = false;
+let quitTask: Promise<void> | null = null;
+const startups = new Set<Promise<boolean>>();
 
 /** 从 `weq-daemon 1.0.0` 里取出 `1.0.0`；解析不出返回 null。 */
 export function parseDaemonVersion(output: string): string | null {
@@ -123,7 +126,9 @@ async function spawnDaemonAndWait(exe: string, pipeName: string): Promise<boolea
   const deadline = Date.now() + SPAWN_READY_TIMEOUT_MS;
   let nextSpawnAt = 0;
   for (;;) {
-    if (await pingDaemon(pipeName)) return true;
+    const running = await pingDaemon(pipeName);
+    if (quitting) return false;
+    if (running) return true;
     const now = Date.now();
     if (now >= deadline) return false;
     if (now >= nextSpawnAt) {
@@ -246,13 +251,24 @@ async function ensureLauncherStaged(bundledDaemon: string, refresh = false): Pro
  * 临时目录），所以真正被拉起、被注册的永远是稳定落位那份。
  *
  * 单例由守护进程自己兜底（重复 `serve` 会立刻退出），这里只负责「版本对齐」。
- * 守护进程的生命周期属系统自启 / 用户：平时从不主动杀它，只有版本变化才替换。
+ * 平时只在版本变化时替换；macOS 彻底退出会停止本轮进程，不清除服务记忆。
  * 旧进程 `stop` 前会保留状态文件，新进程 `serve` 启动时按记忆自行恢复 HTTP
  * （同端口 / 同 docroot），并用新路径幂等重写自启注册。
  *
  * 返回 true = 管道可用了（本来就是它 / 刚被拉起 / 刚被换新）。
  */
-export async function ensureDaemonRunning(pipeName: string = DAEMON_PIPE_NAME): Promise<boolean> {
+export function ensureDaemonRunning(pipeName: string = DAEMON_PIPE_NAME): Promise<boolean> {
+  if (quitting) return Promise.resolve(false);
+  const task = ensureDaemonRunningNow(pipeName);
+  startups.add(task);
+  void task.then(
+    () => startups.delete(task),
+    () => startups.delete(task),
+  );
+  return task;
+}
+
+async function ensureDaemonRunningNow(pipeName: string): Promise<boolean> {
   const bundled = resolveDaemonBinary();
   if (!bundled) {
     throw new Error(
@@ -271,6 +287,7 @@ export async function ensureDaemonRunning(pipeName: string = DAEMON_PIPE_NAME): 
       readDaemonBinaryVersion(bundled),
       existsSync(staged) ? readDaemonBinaryVersion(staged) : Promise.resolve(null),
     ]);
+    if (quitting) return false;
     if (bundledVersion !== null && bundledVersion !== stagedVersion) {
       // 版本变了（装了新包 / 重新 build）：先停掉旧实例（它可能正占着 staged
       // 文件），再覆盖落位。之后 daemon 的 `serve` 会用新路径幂等重写自启注册。
@@ -294,6 +311,7 @@ export async function ensureDaemonRunning(pipeName: string = DAEMON_PIPE_NAME): 
     readDaemonBinaryVersion(exe),
     pingDaemon(pipeName),
   ]);
+  if (quitting) return false;
 
   if (running) {
     // 版本读不出来时保守处理：只保证「在跑」，不做替换。
@@ -307,6 +325,27 @@ export async function ensureDaemonRunning(pipeName: string = DAEMON_PIPE_NAME): 
   }
 
   return spawnDaemonAndWait(exe, pipeName);
+}
+
+/** 阻止在途启动重拉后台；bootout 只卸载本轮服务，不删除 plist 或禁用下次登录自启。 */
+export function stopDaemonForAppQuit(pipeName: string = DAEMON_PIPE_NAME): Promise<void> {
+  quitting = true;
+  quitTask ??= (async () => {
+    await Promise.allSettled([...startups]);
+    const uid = process.getuid?.();
+    if (process.platform === 'darwin' && uid !== undefined && !process.env.WEQ_DAEMON_DIR) {
+      const label = pipeName === DAEMON_PIPE_NAME ? 'weq-daemon' : `weq-daemon-${pipeName}`;
+      try {
+        await execFileAsync('/bin/launchctl', ['bootout', `gui/${uid}/${label}`], {
+          timeout: VERSION_PROBE_TIMEOUT_MS,
+        });
+      } catch {
+        // 开发态或手动拉起时可能没有加载 LaunchAgent，仍需停止独立进程。
+      }
+    }
+    await stopDaemonAndWait(pipeName);
+  })();
+  return quitTask;
 }
 
 export interface DaemonHttpStartResult {
@@ -329,6 +368,7 @@ export async function startDaemonHttp(
 ): Promise<DaemonHttpStartResult> {
   const PORT_FALLBACK_ATTEMPTS = 20;
   for (let attempt = 0; attempt < PORT_FALLBACK_ATTEMPTS; attempt += 1) {
+    if (quitting) return { ok: false, message: 'WeQ 正在退出，未启动后台服务' };
     const candidate = Math.min(port + attempt, 65535);
     const result = await daemonHttpStart(candidate, docroot, pipeName);
     if (result === null) {
@@ -352,6 +392,7 @@ export async function startDaemonHttp(
  * 一个不存在的路径。
  */
 export async function syncGuiAutostartIntent(pipeName: string = DAEMON_PIPE_NAME): Promise<void> {
+  if (quitting) return;
   if (!getHost().canAutostart) return; // 开发态 / 浏览器版：GUI 没有正确的 exe 语义
   const status = await daemonAutostartStatus(pipeName);
   if (!status?.enabled) return;
