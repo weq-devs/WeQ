@@ -499,6 +499,20 @@ export const bootstrapRouter = router({
     return requireBootstrap().userConfig.getSettings();
   }),
 
+  setHomeSettings: procedure
+    .input(
+      z.object({
+        showTags: z.boolean().optional(),
+        showGreeting: z.boolean().optional(),
+        showHitokoto: z.boolean().optional(),
+        blockedWords: z.array(z.string().trim().min(1).max(200)).max(1000).optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const config = requireBootstrap().userConfig;
+      return config.setSettings({ home: { ...config.getSettings().home, ...input } }).home;
+    }),
+
   setExportSaveMode: procedure
     .input(z.object({ mode: z.enum(['preset', 'before', 'after']) }))
     .mutation(({ input }) => {

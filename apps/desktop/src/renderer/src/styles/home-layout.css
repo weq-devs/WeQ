@@ -5,6 +5,21 @@ html .weq-chathome {
 html .weq-chathome-inner {
   flex-shrink: 0;
 }
+html .weq-chathome:not(.is-notags) .weq-chathome-stage {
+  margin-top: calc(var(--weq-tag-radius) + 37px - var(--weq-orb-size) / 2);
+}
+html .weq-chathome.is-nogreeting:not(.is-notags) .weq-chathome-stage {
+  margin-bottom: calc(var(--weq-tag-radius) + 37px - var(--weq-orb-size) / 2);
+}
+html .weq-chathome-verse,
+html .weq-chathome-from {
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: reduce) {
+  html .weq-chathome-caret {
+    animation: none;
+  }
+}
 @media (max-height: 560px) {
   html .weq-chathome {
     --weq-orb-size: clamp(160px, 30vh, 220px);

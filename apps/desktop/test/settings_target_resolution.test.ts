@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  SETTINGS_PAGE_LABELS,
   SETTINGS_GROUPS,
   resolveSettingsTarget,
   settingsGroupFor,
@@ -7,7 +8,7 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置重构的规范目标与旧入口分流', () => {
-  it('九组 35 页，通话录音仍是基础功能第二页', () => {
+  it('九组页面各归其位，主页位于常规第二页，通话录音仍是基础功能第二页', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '常规',
       '基础功能',
@@ -20,8 +21,9 @@ describe('设置重构的规范目标与旧入口分流', () => {
       '关于 WeQ',
     ]);
     const sections = SETTINGS_GROUPS.flatMap((group) => group.sections);
-    expect(sections).toHaveLength(35);
-    expect(new Set(sections).size).toBe(35);
+    expect(sections).toHaveLength(Object.keys(SETTINGS_PAGE_LABELS).length);
+    expect(new Set(sections)).toEqual(new Set(Object.keys(SETTINGS_PAGE_LABELS)));
+    expect(SETTINGS_GROUPS[0]?.sections[1]).toBe('home');
     expect(SETTINGS_GROUPS[0]?.sections[0]).toBe('appearance');
     expect(SETTINGS_GROUPS[1]?.sections).toEqual([
       'chat-messages',

@@ -26,6 +26,7 @@ import {
   Globe,
   HardDrive,
   HelpCircle,
+  House,
   Lock,
   LockKeyhole,
   Mail,
@@ -46,6 +47,7 @@ import {
   X,
 } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
+import { HomeSettingsSection } from './settings/HomeSettingsSection';
 import { HelpSection } from './settings/HelpSection';
 import { VersionSection } from './settings/VersionSection';
 import { QzoneSettingsSection } from './settings/QzoneSettingsSection';
@@ -113,6 +115,7 @@ interface SettingsSection {
 }
 
 const SETTINGS_SECTIONS: SettingsSection[] = [
+  { id: 'home', label: '主页', icon: <House size={16} />, render: () => <HomeSettingsSection /> },
   {
     id: 'backup',
     label: '备份与恢复',

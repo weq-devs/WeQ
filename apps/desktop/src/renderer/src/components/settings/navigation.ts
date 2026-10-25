@@ -1,6 +1,7 @@
 // 这里只包含公开的目录与别名，不读取设置值、账号信息或凭据。
 export const SETTINGS_PAGE_LABELS = {
   appearance: '主题与背景',
+  home: '主页',
   global: '提醒与窗口',
   startup: '开机启动',
   'weq-storage': 'WeQ 存储管理',
@@ -58,7 +59,11 @@ export type SectionId =
   | 'assistant';
 
 export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: SettingsPageId[] }> = [
-  { id: 'general', label: '常规', sections: ['appearance', 'global', 'startup', 'weq-storage'] },
+  {
+    id: 'general',
+    label: '常规',
+    sections: ['appearance', 'home', 'global', 'startup', 'weq-storage'],
+  },
   {
     id: 'basic',
     label: '基础功能',
@@ -135,6 +140,14 @@ interface ItemRedirect {
 }
 
 const ITEM_REDIRECTS: readonly ItemRedirect[] = [
+  ...(
+    [
+      ['home-tags', '个性标签'],
+      ['home-greeting', '问候语'],
+      ['home-hitokoto', '一言'],
+      ['home-blocked-words', '一言屏蔽词'],
+    ] as const
+  ).map(([id, label]): ItemRedirect => ({ id, label, section: 'home', from: ['home'] })),
   {
     id: 'default-save',
     section: 'weq-storage',

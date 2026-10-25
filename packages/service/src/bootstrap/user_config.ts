@@ -30,6 +30,11 @@ import type { Platform } from '@weq/platform';
 import type { AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
 import type { AccountConfig } from '../account/user_config';
 import { normalizeAccountConfig } from '../account/user_config';
+import {
+  DEFAULT_HOME_SETTINGS,
+  normalizeHomeSettings,
+  type HomeSettings,
+} from '../common/home_settings';
 import type { ExportFormat } from '../account/export/types';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { getLogger, logErrorContext } from '../common/logger';
@@ -531,6 +536,8 @@ export interface AppSettings {
    * 自动回退到原来的 `weq-media://` 代理路径。
    */
   preferCdn: boolean;
+  /** 聊天首页展示与一言屏蔽词，全局偏好。 */
+  home: HomeSettings;
   /** 私聊输入状态广播：全局默认值与显式设置的会话特例。 */
   typingStatus: TypingStatusSettings;
   /**
@@ -826,6 +833,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showAvatarPendant: true,
   linkPreview: { enabled: true, screenshot: false },
   preferCdn: false,
+  home: DEFAULT_HOME_SETTINGS,
   typingStatus: { defaultEnabled: false, overrides: [] },
   showMsgDecoration: true,
   showMessageSeq: false,
@@ -1333,6 +1341,7 @@ export class UserConfigService {
       renderTextMarkdown: s?.renderTextMarkdown ?? d.renderTextMarkdown,
       showAvatarPendant: s?.showAvatarPendant ?? d.showAvatarPendant,
       preferCdn: s?.preferCdn ?? d.preferCdn,
+      home: normalizeHomeSettings(s?.home),
       typingStatus: normalizeTypingStatus(s?.typingStatus),
       showMsgDecoration: s?.showMsgDecoration ?? d.showMsgDecoration,
       showMessageSeq: s?.showMessageSeq ?? d.showMessageSeq,
@@ -1440,6 +1449,7 @@ export class UserConfigService {
       renderTextMarkdown: patch.renderTextMarkdown ?? current.renderTextMarkdown,
       showAvatarPendant: patch.showAvatarPendant ?? current.showAvatarPendant,
       preferCdn: patch.preferCdn ?? current.preferCdn,
+      home: normalizeHomeSettings({ ...current.home, ...patch.home }),
       typingStatus: normalizeTypingStatus({ ...current.typingStatus, ...patch.typingStatus }),
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,
       showMessageSeq: patch.showMessageSeq ?? current.showMessageSeq,

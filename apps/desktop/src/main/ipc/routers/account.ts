@@ -2692,7 +2692,12 @@ export const accountRouter = router({
   /** 首页门面：随机一言若干（打字机轮播用；已按句长筛过）。 */
   sampleHitokoto: procedure
     .input(z.object({ count: z.number().int().min(1).max(80).default(30) }).optional())
-    .query(({ input }) => sampleHitokoto(input?.count ?? 30)),
+    .query(({ input }) =>
+      sampleHitokoto(
+        input?.count ?? 30,
+        getAppContext().bootstrap?.userConfig.getSettings().home.blockedWords,
+      ),
+    ),
 
   /** 首页个性装扮快照（从账号 config 读，bootstrap 阶段在线注入后写入）。 */
   getHomeDress: procedure.query(() => {

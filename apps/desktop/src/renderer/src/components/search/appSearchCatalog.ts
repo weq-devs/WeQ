@@ -49,6 +49,10 @@ const PAGE_ALIASES: Partial<Record<SettingsPageId, string[]>> = {
 
 type SettingDefinition = readonly [section: SectionId, item: string, ...aliases: string[]];
 const SETTING_ITEMS: readonly SettingDefinition[] = [
+  ['home', '个性标签', '主页标签'],
+  ['home', '问候语', '主页问候'],
+  ['home', '一言', 'hitokoto'],
+  ['home', '一言屏蔽词', '屏蔽词', '过滤句子'],
   ['global', '关闭按钮行为', '关闭窗口', '最小化到托盘', '退出应用'],
   ['global', '成功通知停留时长', '通知时间'],
   ['global', '失败通知停留时长', '通知时间'],
