@@ -205,6 +205,42 @@ it('替换自动进入目标的账号配置时清除旧自动进入，不自动�
 });
 
 it.each(['skip', 'overwrite'] as const)(
+  '默认模型恢复兼容旧备份、明确清空及本机冲突（%s）',
+  (conflict) => {
+    const localRef = { providerId: 'local', model: 'local-chat' };
+    const importedRef = { providerId: 'imported', model: 'imported-chat' };
+    for (const local of [undefined, null, localRef]) {
+      for (const incoming of [undefined, null, importedRef]) {
+        const f = fixture();
+        write(join(f.root, 'config.json'), {
+          ...f.initial,
+          settings: {
+            ...f.initial.settings,
+            agentLab: { providers: [], ...(local !== undefined ? { defaultModel: local } : {}) },
+          },
+        });
+        const archive = buildWeqBackup([
+          file('api/settings.json', {
+            agentLab: {
+              providers: [],
+              ...(incoming !== undefined ? { defaultModel: incoming } : {}),
+            },
+          }),
+        ]);
+        stageWeqBackupRestore(f.root, archive, { parts: ['api'], conflict });
+        expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+        const config = read(join(f.root, 'config.json')) as {
+          settings: { agentLab: { defaultModel?: unknown } };
+        };
+        const expected =
+          incoming === undefined || (conflict === 'skip' && local !== undefined) ? local : incoming;
+        expect(config.settings.agentLab.defaultModel).toEqual(expected);
+      }
+    }
+  },
+);
+
+it.each(['skip', 'overwrite'] as const)(
   'API 按稳定 ID %s 合并，同名不同 ID 不覆盖，TTS 位于真实设置字段',
   (conflict) => {
     const f = fixture();
@@ -220,13 +256,20 @@ it.each(['skip', 'overwrite'] as const)(
     };
     write(join(f.root, 'config.json'), {
       ...f.initial,
-      settings: { ...f.initial.settings, agentLab: { providers: [existing] } },
+      settings: {
+        ...f.initial.settings,
+        agentLab: {
+          providers: [existing],
+          defaultModel: { providerId: 'shared-id', model: 'model' },
+        },
+      },
     });
     const value = structuredClone(DEFAULT_APP_SETTINGS);
     value.agentLab.providers = [
       { ...existing, apiKey: 'synthetic-imported-key' },
       { ...existing, id: 'new-id' },
     ];
+    value.agentLab.defaultModel = { providerId: 'new-id', model: 'model' };
     value.voiceTranscribe.ttsProviders = [
       {
         id: 'voice',
@@ -250,6 +293,10 @@ it.each(['skip', 'overwrite'] as const)(
       totpSecret: string;
     };
     expect(config.settings.agentLab.providers).toHaveLength(2);
+    expect(config.settings.agentLab.defaultModel).toEqual({
+      providerId: conflict === 'skip' ? 'shared-id' : 'new-id',
+      model: 'model',
+    });
     expect(config.settings.agentLab.providers.find((row) => row.id === 'shared-id')?.apiKey).toBe(
       conflict === 'skip' ? existing.apiKey : 'synthetic-imported-key',
     );

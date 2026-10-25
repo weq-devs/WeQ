@@ -27,7 +27,7 @@ import {
 import { mkdir, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
-import type { AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
+import type { AgentLabModelRef, AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
 import type { AccountConfig } from '../account/user_config';
 import { normalizeAccountConfig } from '../account/user_config';
 import {
@@ -115,6 +115,17 @@ function isAgentLabProviderConfig(value: unknown): value is AgentLabProviderConf
 function normalizeAgentLabProviders(value: unknown): AgentLabProviderConfig[] {
   if (!Array.isArray(value)) return [];
   return value.filter(isAgentLabProviderConfig);
+}
+
+function normalizeAgentLabDefaultModel(value: unknown): AgentLabModelRef | null {
+  if (!value || typeof value !== 'object') return null;
+  const ref = value as Partial<AgentLabModelRef>;
+  if (typeof ref.providerId !== 'string' || typeof ref.model !== 'string') return null;
+  const providerId = ref.providerId.trim(),
+    model = ref.model.trim();
+  return providerId && model && !providerId.includes('\0') && !model.includes('\0')
+    ? { providerId, model }
+    : null;
 }
 
 /** Coerce a persisted / patched close-behavior value to the known union, or
@@ -438,6 +449,7 @@ export interface WeqAssistantConfig {
 
 export interface AgentLabSettings {
   providers: AgentLabProviderConfig[];
+  defaultModel: AgentLabModelRef | null;
 }
 
 /**
@@ -828,7 +840,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   mcp: { enabled: false, port: 48765, token: '' },
   // 20000+ 不常用端口；若被占用，宿主内的助手资源服务自动向上探测。
   weqAssistant: { enabled: false, port: 27182 },
-  agentLab: { providers: [] },
+  agentLab: { providers: [], defaultModel: null },
   windowCloseBehavior: 'ask',
   renderTextMarkdown: true,
   showAvatarPendant: true,
@@ -1424,6 +1436,7 @@ export class UserConfigService {
       },
       agentLab: {
         providers: normalizeAgentLabProviders(s?.agentLab?.providers) ?? d.agentLab.providers,
+        defaultModel: normalizeAgentLabDefaultModel(s?.agentLab?.defaultModel),
       },
     };
   }
@@ -1558,6 +1571,10 @@ export class UserConfigService {
           patch.agentLab?.providers !== undefined
             ? normalizeAgentLabProviders(patch.agentLab.providers)
             : current.agentLab.providers,
+        defaultModel:
+          patch.agentLab?.defaultModel !== undefined
+            ? normalizeAgentLabDefaultModel(patch.agentLab.defaultModel)
+            : current.agentLab.defaultModel,
       },
     };
     this.write({ settings: next });

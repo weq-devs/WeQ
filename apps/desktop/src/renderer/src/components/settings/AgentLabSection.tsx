@@ -24,6 +24,7 @@ import {
   useConnectionTestTasks,
 } from '../../lib/connectionTestTask';
 import { useToast } from '../Toast';
+import { DefaultApiModelRow } from './DefaultApiModelRow';
 import '../../styles/provider-settings.css';
 
 type Capability = 'chat' | 'embedding' | 'vision';
@@ -334,6 +335,7 @@ export function AgentLabSection(): ReactElement {
       setSelectedId(id);
       setOpen(true);
       await utils.bootstrap.listAgentLabProviders.invalidate();
+      await utils.bootstrap.getAgentLabDefaultModel.invalidate();
       dialog.success('已保存', `provider「${form.name.trim() || id}」配置已更新`);
     } catch (error) {
       dialog.error('保存 provider 失败', error instanceof Error ? error.message : String(error));
@@ -387,6 +389,7 @@ export function AgentLabSection(): ReactElement {
       setForm(emptyForm());
       setOpen(false);
       await utils.bootstrap.listAgentLabProviders.invalidate();
+      await utils.bootstrap.getAgentLabDefaultModel.invalidate();
       dialog.success('已删除', `provider「${removed}」已移除`);
     } catch (error) {
       dialog.error('删除 provider 失败', error instanceof Error ? error.message : String(error));
@@ -398,7 +401,8 @@ export function AgentLabSection(): ReactElement {
       <SectionHeader icon={<Boxes size={18} strokeWidth={1.8} />} title="API 配置" />
 
       <Card
-        title="已保存的 provider"
+        title="LLM"
+        settingId="llm-providers"
         action={
           <button
             type="button"
@@ -410,6 +414,8 @@ export function AgentLabSection(): ReactElement {
           </button>
         }
       >
+        <DefaultApiModelRow />
+        <div className="weq-set-card-title">已保存的 provider</div>
         {providers.error ? (
           <QueryError
             message={`API 配置读取失败：${providers.error.message}`}

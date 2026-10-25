@@ -145,6 +145,9 @@ interface ItemRedirect {
 }
 
 const ITEM_REDIRECTS: readonly ItemRedirect[] = [
+  { id: 'llm-providers', section: 'agentlab', label: '已保存的 provider', from: ['agentlab'] },
+  { id: 'llm-default-model', section: 'agentlab', label: '默认模型', from: ['agentlab'] },
+  { id: 'tts-providers', section: 'agentlab', label: 'TTS 语音合成', from: ['agentlab', 'tts'] },
   ...(
     [
       ['home-tags', '个性标签'],

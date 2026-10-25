@@ -22,6 +22,70 @@ function fixture() {
   };
 }
 describe('多 provider 持久化与调用隔离', () => {
+  it('默认模型显式保存，跨重启和 provider 编辑保留；清空不自动选择其他模型', () => {
+    const f = fixture();
+    expect(f.service.getDefaultModelStatus()).toEqual({ ref: null, available: false, error: null });
+    const provider = {
+      id: 'default-provider',
+      name: '合成服务',
+      vendor: 'custom',
+      baseUrl: 'https://synthetic.invalid/v1',
+      apiKey: 'synthetic-key',
+      models: [{ id: 'chat-model', capabilities: ['chat' as const] }],
+    };
+    f.service.saveProvider(provider);
+    expect(f.service.getDefaultModelStatus().ref).toBeNull();
+    const ref = { providerId: provider.id, model: 'chat-model' };
+    expect(f.service.setDefaultModel(ref)).toEqual({ ref, available: true, error: null });
+    const reopened = f.reload();
+    expect(reopened.resolveDefaultEndpoint()).toMatchObject({
+      model: ref.model,
+      baseUrl: provider.baseUrl,
+    });
+    reopened.saveProvider({ ...provider, name: '改名', apiKey: 'synthetic-new-key' });
+    expect(f.reload().getDefaultModelStatus()).toEqual({ ref, available: true, error: null });
+    expect(f.reload().resolveDefaultEndpoint().apiKey).toBe('synthetic-new-key');
+    f.service.setDefaultModel(null);
+    expect(f.reload().getDefaultModelStatus()).toEqual({
+      ref: null,
+      available: false,
+      error: null,
+    });
+    expect(() => f.reload().resolveDefaultEndpoint()).toThrow('未设置默认模型');
+  });
+
+  it('拒绝无效默认选择；已选模型被删除时保留引用并明确不可用，不扩大为其他端点', () => {
+    const f = fixture();
+    const provider = {
+      id: 'synthetic',
+      name: '合成服务',
+      vendor: 'custom',
+      baseUrl: 'https://synthetic.invalid/v1',
+      apiKey: 'synthetic-key',
+      models: [
+        { id: 'chat', capabilities: ['chat' as const] },
+        { id: 'embedding', capabilities: ['embedding' as const] },
+      ],
+    };
+    f.service.saveProvider(provider);
+    for (const ref of [
+      { providerId: 'missing', model: 'chat' },
+      { providerId: 'synthetic', model: 'missing' },
+      { providerId: 'synthetic', model: 'embedding' },
+    ]) {
+      expect(() => f.service.setDefaultModel(ref)).toThrow();
+      expect(f.reload().getDefaultModelStatus().ref).toBeNull();
+    }
+    const ref = { providerId: 'synthetic', model: 'chat' };
+    f.service.setDefaultModel(ref);
+    f.service.saveProvider({ ...provider, models: [provider.models[1]!] });
+    expect(f.reload().getDefaultModelStatus()).toMatchObject({ ref, available: false });
+    expect(() => f.reload().resolveDefaultEndpoint()).toThrow('模型');
+    f.service.deleteProvider(provider.id);
+    expect(f.reload().getDefaultModelStatus()).toMatchObject({ ref, available: false });
+    expect(() => f.reload().resolveDefaultEndpoint()).toThrow('provider');
+    expect(f.service.setDefaultModel(null).ref).toBeNull();
+  });
   it('同名、同厂商、同模型的不同端点和密钥重启后仍按 providerId 分别解析', () => {
     const f = fixture();
     const base = {

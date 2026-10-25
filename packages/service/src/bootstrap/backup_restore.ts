@@ -530,16 +530,25 @@ function configPlan(
     const value = parseWeqBackupJson(api.data) as Record<string, unknown>;
     const base = structuredClone(settings);
     settings = merge(settings, value);
-    if (record(value.agentLab))
+    if (record(value.agentLab)) {
+      const previous = record(base.agentLab) ? base.agentLab : {};
+      const preserveDefault =
+        value.agentLab.defaultModel === undefined ||
+        (choice.conflict === 'skip' && previous.defaultModel !== undefined);
+      const defaultModel = preserveDefault ? previous.defaultModel : value.agentLab.defaultModel;
       settings.agentLab = {
         providers: mergeRows(
-          record(base.agentLab) ? base.agentLab.providers : [],
+          previous.providers,
           value.agentLab.providers,
           choice.conflict,
           skipped,
           'api:llm',
         ),
+        ...(defaultModel !== undefined ? { defaultModel } : {}),
       };
+      if (value.agentLab.defaultModel !== undefined && preserveDefault)
+        skipped.push('api:llm-default');
+    }
     if (value.ttsProviders !== undefined) {
       settings.voiceTranscribe = merge(base.voiceTranscribe, {
         ttsProviders: mergeRows(

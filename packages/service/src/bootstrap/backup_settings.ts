@@ -306,7 +306,12 @@ export function validateWeqApiSettings(
     ['agentLab', 'ttsProviders', 'mcp', 'externalRkey', 'ssePush'],
   );
   if (api.agentLab !== undefined) {
-    const agent = fields(api.agentLab, 'api.agentLab', ['providers']);
+    const agent = fields(api.agentLab, 'api.agentLab', ['providers'], ['defaultModel']);
+    if (agent.defaultModel !== undefined && agent.defaultModel !== null) {
+      const ref = fields(agent.defaultModel, 'api.agentLab.defaultModel', ['providerId', 'model']);
+      string(ref.providerId, 'api.agentLab.defaultModel.providerId', true);
+      string(ref.model, 'api.agentLab.defaultModel.model', true);
+    }
     list(agent.providers, 'api.agentLab.providers', (row, path) => {
       fields(row, path, [
         'id',

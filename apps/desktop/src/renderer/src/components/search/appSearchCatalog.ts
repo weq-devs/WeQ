@@ -113,6 +113,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['database-status', '已放弃的表（隔离中）'],
   ['agentlab', 'TTS 语音合成', '语音合成', '朗读', '音色'],
   ['agentlab', '已保存的 provider', 'API Key', 'Base URL', '服务商'],
+  ['agentlab', '默认模型', 'LLM 默认模型'],
   ['clone-settings', '克隆体配置', '克隆提示词', '克隆语音', '发言意愿'],
   ['intent-sense', '启用意图感知'],
   ['intent-sense', '意图感知运行方式', '本地意图模型'],

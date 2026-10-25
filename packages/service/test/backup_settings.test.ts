@@ -23,6 +23,7 @@ function settings() {
       updatedAt: 2,
     },
   ];
+  value.agentLab.defaultModel = { providerId: 'synthetic-provider', model: 'synthetic-model' };
   value.voiceTranscribe.ttsProviders = [
     {
       id: 'synthetic-tts',
@@ -64,9 +65,28 @@ it('应用设置与 API 分区独立，快照不改原值或夹带运行票据',
   expect(JSON.stringify(api)).toContain('synthetic-mcp-secret');
   expect(JSON.stringify(api)).not.toContain('ticket');
   expect(source).toEqual(original);
+  expect(api.agentLab.defaultModel).toEqual(source.agentLab.defaultModel);
   app.linkPreview.enabled = false;
   api.agentLab.providers[0]!.apiKey = 'changed';
   expect(source).toEqual(original);
+});
+
+it('旧 API 备份缺省默认模型仍可读，新的默认引用必须完整且不能引用自身', () => {
+  for (const defaultModel of [null, { providerId: 'synthetic', model: 'chat' }]) {
+    expect(() =>
+      validateWeqApiSettings({ agentLab: { providers: [], defaultModel } }),
+    ).not.toThrow();
+  }
+  expect(() => validateWeqApiSettings({ agentLab: { providers: [] } })).not.toThrow();
+  for (const defaultModel of [
+    { providerId: 'p' },
+    { providerId: '', model: 'chat' },
+    { providerId: 'p', model: ' ' },
+    { useDefault: true },
+    { providerId: 'p', model: 'chat', apiKey: 'not-allowed' },
+  ]) {
+    expect(() => validateWeqApiSettings({ agentLab: { providers: [], defaultModel } })).toThrow();
+  }
 });
 
 it('允许部分设置恢复，并校验嵌套类型与现有分页规则', () => {

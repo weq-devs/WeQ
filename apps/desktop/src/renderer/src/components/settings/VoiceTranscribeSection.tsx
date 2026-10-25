@@ -518,6 +518,7 @@ export function TtsProvidersCard(): ReactElement {
     <>
       <Card
         title="TTS 语音合成"
+        settingId="tts-providers"
         action={
           <button
             type="button"
