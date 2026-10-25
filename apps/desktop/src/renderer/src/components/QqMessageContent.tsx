@@ -43,6 +43,7 @@ import { QqLinkCard } from './QqLinkCard';
 import { QqInlineKeyboard, type KeyboardButton } from './QqInlineKeyboard';
 import { splitLinks, soleLink, openLink } from '../lib/linkify';
 import { parseFlashShareCode } from '../lib/flashShare';
+import { ProfileNavigationContext, profileTargetUser } from '../lib/profileNavigation';
 import { cn } from '@renderer/lib/utils';
 
 /**
@@ -349,6 +350,60 @@ function trimBoundaryNewline(element: RenderElement, side: 'start' | 'end'): Ren
   return { ...element, data: { ...(element.data ?? {}), textContent: trimmed } };
 }
 
+function MentionNode({ data = {} }: { data?: Record<string, unknown> }) {
+  const open = useContext(ProfileNavigationContext);
+  const conv = useContext(ConvContext);
+  const kind = useContext(ForwardKindContext);
+  const text = String(data.textContent ?? '');
+  const uid = typeof data.atTargetUid === 'string' ? data.atTargetUid.trim() : '';
+  // 本地 codec 的 45103 与发送回显的 atTargetUin 都是明确的目标 QQ 号。
+  const uin = String(data.atTargetUin ?? data.textEncodingFlag ?? '');
+  const user =
+    uid === 'all' || data.all === true
+      ? null
+      : profileTargetUser({ identity: uid || uin, uin, name: text.trim().replace(/^@/, '') });
+  const clickable = Boolean(open && user);
+
+  function openProfile(
+    event: ReactMouseEvent<HTMLSpanElement> | ReactKeyboardEvent<HTMLSpanElement>,
+  ) {
+    if (!open || !user) return;
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    open(
+      user,
+      'key' in event || event.detail === 0
+        ? { x: rect.right, y: rect.bottom }
+        : { x: event.clientX, y: event.clientY },
+      kind === 'group' && /^[1-9]\d*$/.test(conv) ? { code: conv, name: '' } : undefined,
+    );
+  }
+
+  return (
+    <span
+      className={cn('qq-at-element', clickable && 'cursor-pointer hover:underline')}
+      data-weq-at-uid={uid || undefined}
+      data-weq-at-uin={uin || undefined}
+      title={`UID: ${uid || 'unknown'}`}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      aria-label={clickable ? `查看 ${user?.displayName} 的名片` : undefined}
+      onClick={clickable ? openProfile : undefined}
+      onKeyDown={
+        clickable
+          ? (event) => {
+              if (event.key !== 'Enter' && event.key !== ' ') return;
+              event.preventDefault();
+              openProfile(event);
+            }
+          : undefined
+      }
+    >
+      {text}
+    </span>
+  );
+}
+
 /** Render one element inline (media component, face, @-mention or text). */
 function ElementNode({
   element,
@@ -368,19 +423,7 @@ function ElementNode({
     return <FaceNode data={element.data ?? {}} size={INLINE_SIZE} isSender={isSender} />;
   }
   if (element.type === 'at') {
-    const text = String(element.data?.textContent ?? '');
-    return (
-      <span
-        className="qq-at-element cursor-pointer hover:underline"
-        data-weq-at-uid={String(element.data?.atTargetUid ?? '') || undefined}
-        data-weq-at-uin={
-          element.data?.atTargetUin != null ? String(element.data.atTargetUin) : undefined
-        }
-        title={`UID: ${element.data?.atTargetUid || 'unknown'}`}
-      >
-        {text}
-      </span>
-    );
+    return <MentionNode data={element.data} />;
   }
   if (element.type === 'markdown') {
     // QQ 原生 markdownElement。闪传卡片（带 flashTransferInfo）在 QqMessageContent
@@ -574,15 +617,7 @@ function ReplyPreviewNode({
     );
   }
   if (element.type === 'at') {
-    const text = String(element.data?.textContent ?? '');
-    return (
-      <span
-        className="qq-at-element"
-        data-weq-at-uid={String(element.data?.atTargetUid ?? '') || undefined}
-      >
-        {text}
-      </span>
-    );
+    return <MentionNode data={element.data} />;
   }
   if (element.type && REPLY_MEDIA_LABEL[element.type]) {
     const name = inlineLabel(element);
