@@ -5,6 +5,7 @@ import { SANDBOX_WORKER_SOURCE } from './sandbox_worker_source';
 
 export const JS_SANDBOX_DEFAULT_TIMEOUT_MS = 15_000;
 export const JS_SANDBOX_MAX_TIMEOUT_MS = 45_000;
+export const JS_SANDBOX_MAX_ARGUMENT_CHARS = 200_000;
 const MAX_CODE_CHARS = 20_000;
 const MAX_TOOL_CALLS = 40;
 const MAX_CALL_RESULT_CHARS = 200_000;
@@ -80,6 +81,8 @@ export async function runJsSandbox(
       workerData: {
         code,
         limit,
+        maxToolCalls: MAX_TOOL_CALLS,
+        maxArgumentChars: JS_SANDBOX_MAX_ARGUMENT_CHARS,
         // 依赖保持外置，worker 与已打包主进程从同一安装位置解析 WASM。
         quickjsPath: createRequire(import.meta.url).resolve('quickjs-emscripten'),
         unrestricted: options.permissionMode === 'unrestricted',

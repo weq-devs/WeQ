@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { expect, it, vi } from 'vitest';
-import { runJsSandbox } from '../src/main/mcp/js_sandbox';
+import { JS_SANDBOX_MAX_ARGUMENT_CHARS, runJsSandbox } from '../src/main/mcp/js_sandbox';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -86,4 +86,15 @@ it('propagates cancellation and snapshots an unknown outcome without mutating th
   await new Promise((resolve) => setTimeout(resolve, 10));
   expect(result.calls[0]?.state).toBe('unknown');
   expect(result.notes?.join(' ')).toContain('不要自动重试');
+});
+
+it.each([
+  `return await callTool('read', { payload: 'x'.repeat(${JS_SANDBOX_MAX_ARGUMENT_CHARS + 1}) });`,
+  "return await callTool('x'.repeat(10000), {});",
+  "return await __call('read', '[]');",
+])('rejects invalid or oversized RPC input before reaching a host tool', async (code) => {
+  const run = vi.fn(async () => null);
+  const result = await runJsSandbox(code, run);
+  expect(result.ok).toBe(false);
+  expect(run).not.toHaveBeenCalled();
 });

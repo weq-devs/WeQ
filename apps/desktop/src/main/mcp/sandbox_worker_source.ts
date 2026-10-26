@@ -15,10 +15,16 @@ function log(level, text) {
   logs.push(line); logChars += line.length;
 }
 function request(name, text) {
+  if (typeof name !== 'string' || !name || name.length > 128) return Promise.reject(new Error('工具名必须是 1-128 字符的字符串'));
+  if (typeof text !== 'string' || text.length > cfg.maxArgumentChars) return Promise.reject(new Error('工具参数超过 ' + cfg.maxArgumentChars + ' 字符上限'));
+  if (seq >= cfg.maxToolCalls) return Promise.reject(new Error('工具调用超过 ' + cfg.maxToolCalls + ' 次上限'));
+  let args;
+  try { args = JSON.parse(text); } catch { return Promise.reject(new Error('工具参数必须是 JSON 对象')); }
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return Promise.reject(new Error('工具参数必须是 JSON 对象'));
   return new Promise((resolve, reject) => {
     const id = ++seq;
     pending.set(id, { resolve, reject });
-    parentPort.postMessage({ kind: 'call', id, name, args: JSON.parse(text) });
+    parentPort.postMessage({ kind: 'call', id, name, args });
   });
 }
 parentPort.on('message', (msg) => {
