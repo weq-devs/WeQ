@@ -15,8 +15,7 @@
  *
  * 「配了才出现」的能力只剩语音转录（设置 → 语音配置里选了离线转录模型）：录音时顺带跑
  * `SpeechRecognition`，松开就把识别文字带出来；回顾态里也能再转一次。
- * **文字转语音已经从本面板移到「AI 声聊」面板**（私聊 / 群聊都在那边，见
- * aiVoicePanel.tsx；`TtsComposer` 仍在本文件导出、由它复用）。
+ * 文字转语音与录音共享输入框内的面板，合成与发送复用 `TtsComposer`。
  *
  * 发送只把结果交给上层（`onSendVoice` / `onSendTranscript`），本模块不碰协议。
  */
@@ -720,6 +719,9 @@ export function VoicePanel({
   onSendTranscript,
   onSendAudioFile,
   onBusyChange,
+  ttsProviders = [],
+  onSynthesizeSpeech,
+  onOpenAiVoice,
 }: {
   panelRef: RefObject<HTMLDivElement | null>;
   /** 是否可以发送（QQ 在线且允许注入）。 */
@@ -738,8 +740,11 @@ export function VoicePanel({
   onSendAudioFile: (bytes: Uint8Array, fileName: string) => void;
   /** 收起不做按钮：这个面板是内嵌在输入框里的，再点一次工具栏那枚麦克风就行。 */
   onBusyChange: (busy: boolean) => void;
+  ttsProviders?: TtsVoiceProvider[];
+  onSynthesizeSpeech?: (request: TtsSpeechRequest) => Promise<TtsSpeechResult>;
+  onOpenAiVoice?: () => void;
 }) {
-  // 文字转语音已移到「AI 声聊」面板（私聊 / 群聊都在那里），这里只剩录音。
+  const [tab, setTab] = useState<'record' | 'tts'>('record');
   const recorder = useVoiceRecorder({ canTranscribe: transcribeEnabled });
   const { phase, beginRecord, endRecord } = recorder;
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -776,6 +781,7 @@ export function VoicePanel({
 
     function onKeyDown(event: KeyboardEvent) {
       if (
+        tab !== 'record' ||
         event.code !== 'Space' ||
         event.repeat ||
         event.metaKey ||
@@ -802,7 +808,7 @@ export function VoicePanel({
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('keyup', onKeyUp);
     };
-  }, [beginRecord, endRecord, phase]);
+  }, [beginRecord, endRecord, phase, tab]);
 
   // 录音期间的「松手」在 window 上听：录音键在录音中会重渲染（换图标 / 计时器），
   // 挂在按钮上的 onPointerUp 一旦丢了捕获就收不到 —— 表现就是「按住了却自己断掉」。
@@ -831,121 +837,168 @@ export function VoicePanel({
       tabIndex={-1}
       aria-label="语音"
     >
-      <div className={cn('voice-panel-body')}>
-        {phase === 'review' && recorder.clip ? (
-          <VoiceReview
-            clip={recorder.clip}
-            transcript={recorder.transcript}
-            transcribing={recorder.transcribing}
-            transcribeError={recorder.transcribeError}
-            playing={recorder.playing}
-            transcribeEnabled={transcribeEnabled}
+      <div className={cn('voice-panel-head')}>
+        <div className={cn('voice-panel-tabs')} role="tablist" aria-label="语音方式">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'record'}
+            className={cn(tab === 'record' && 'active')}
+            disabled={busy}
+            onClick={() => setTab('record')}
+          >
+            <Mic size={14} /> 录音
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'tts'}
+            className={cn(tab === 'tts' && 'active')}
+            disabled={busy}
+            onClick={() => setTab('tts')}
+          >
+            <Type size={14} /> 文字转语音
+          </button>
+        </div>
+        {onOpenAiVoice ? (
+          <button
+            type="button"
+            className={cn('voice-ai-action')}
+            title="AI 声聊"
+            disabled={busy}
+            onClick={onOpenAiVoice}
+          >
+            <Sparkles size={15} />
+          </button>
+        ) : null}
+      </div>
+      {tab === 'tts' ? (
+        <div className={cn('voice-panel-body')}>
+          <TtsComposer
+            providers={ttsProviders}
             canSend={canSend}
             sendHint={sendHint}
-            onTogglePlay={recorder.togglePlay}
-            onTranscribe={recorder.transcribeClip}
-            onTranscriptChange={recorder.setTranscript}
-            onDiscard={recorder.discard}
-            onSendVoice={(voiceChanged) =>
-              onSendVoice({ ...recorder.clip, transcript: recorder.transcript, voiceChanged })
-            }
-            onSendTranscript={() => onSendTranscript(recorder.transcript.trim())}
+            onSendAudio={onSendAudioFile}
+            onSynthesize={onSynthesizeSpeech}
           />
-        ) : (
-          <div className={cn('voice-stage')}>
-            <div className={cn('voice-pulse', busy && 'active')} aria-hidden="true">
-              <i />
-              <i />
-              <i />
+        </div>
+      ) : (
+        <div className={cn('voice-panel-body')}>
+          {phase === 'review' && recorder.clip ? (
+            <VoiceReview
+              clip={recorder.clip}
+              transcript={recorder.transcript}
+              transcribing={recorder.transcribing}
+              transcribeError={recorder.transcribeError}
+              playing={recorder.playing}
+              transcribeEnabled={transcribeEnabled}
+              canSend={canSend}
+              sendHint={sendHint}
+              onTogglePlay={recorder.togglePlay}
+              onTranscribe={recorder.transcribeClip}
+              onTranscriptChange={recorder.setTranscript}
+              onDiscard={recorder.discard}
+              onSendVoice={(voiceChanged) =>
+                onSendVoice({ ...recorder.clip, transcript: recorder.transcript, voiceChanged })
+              }
+              onSendTranscript={() => onSendTranscript(recorder.transcript.trim())}
+            />
+          ) : (
+            <div className={cn('voice-stage')}>
+              <div className={cn('voice-pulse', busy && 'active')} aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </div>
+              <VoiceWaveRing levels={recorder.levels} active={phase === 'recording'} />
+              <button
+                type="button"
+                className={cn(
+                  'voice-record-btn',
+                  busy && 'is-recording',
+                  phase === 'requesting' && 'is-waiting',
+                  recorder.error && 'is-error',
+                )}
+                title="按住说话（也可以长按空格）"
+                aria-label="按住说话"
+                onKeyDown={(event) => {
+                  if (event.code === 'Space' || event.key === 'Enter') event.preventDefault();
+                }}
+                onPointerDown={(event) => {
+                  if (event.button !== 0) return;
+                  event.preventDefault();
+                  void beginRecord();
+                }}
+                onPointerUp={(event) => {
+                  event.preventDefault();
+                  endRecord();
+                }}
+                onContextMenu={(event) => event.preventDefault()}
+              >
+                {phase === 'requesting' ? (
+                  <>
+                    <Loader2 size={20} className={cn('voice-spin')} />
+                    <strong>正在打开麦克风…</strong>
+                  </>
+                ) : busy ? (
+                  <>
+                    {/* 录音中秒数是主角：大号数字占中间，松手提示只留一行小字垫在下面。 */}
+                    <strong className={cn('voice-record-timer')}>
+                      {formatClipDuration(recorder.elapsedMs)}
+                    </strong>
+                    <em className={cn('voice-record-note')}>松开结束</em>
+                  </>
+                ) : (
+                  <>
+                    <Mic size={22} />
+                    <strong>按住说话</strong>
+                  </>
+                )}
+              </button>
             </div>
-            <VoiceWaveRing levels={recorder.levels} active={phase === 'recording'} />
-            <button
-              type="button"
-              className={cn(
-                'voice-record-btn',
-                busy && 'is-recording',
-                phase === 'requesting' && 'is-waiting',
-                recorder.error && 'is-error',
-              )}
-              title="按住说话（也可以长按空格）"
-              aria-label="按住说话"
-              onKeyDown={(event) => {
-                if (event.code === 'Space' || event.key === 'Enter') event.preventDefault();
-              }}
-              onPointerDown={(event) => {
-                if (event.button !== 0) return;
-                event.preventDefault();
-                void beginRecord();
-              }}
-              onPointerUp={(event) => {
-                event.preventDefault();
-                endRecord();
-              }}
-              onContextMenu={(event) => event.preventDefault()}
-            >
-              {phase === 'requesting' ? (
-                <>
-                  <Loader2 size={20} className={cn('voice-spin')} />
-                  <strong>正在打开麦克风…</strong>
-                </>
-              ) : busy ? (
-                <>
-                  {/* 录音中秒数是主角：大号数字占中间，松手提示只留一行小字垫在下面。 */}
-                  <strong className={cn('voice-record-timer')}>
-                    {formatClipDuration(recorder.elapsedMs)}
-                  </strong>
-                  <em className={cn('voice-record-note')}>松开结束</em>
-                </>
-              ) : (
-                <>
-                  <Mic size={22} />
-                  <strong>按住说话</strong>
-                </>
-              )}
-            </button>
-          </div>
-        )}
+          )}
 
-        <div className={cn('voice-panel-foot')}>
-          <span className={cn('voice-hint')}>
-            <kbd>空格</kbd> 长按录音 · 最长 60 秒
-          </span>
-          {/* 「选择音频」只在**录制态**出现。进入回顾 / 发送界面后底部已经被试听 +
+          <div className={cn('voice-panel-foot')}>
+            <span className={cn('voice-hint')}>
+              <kbd>空格</kbd> 长按录音 · 最长 60 秒
+            </span>
+            {/* 「选择音频」只在**录制态**出现。进入回顾 / 发送界面后底部已经被试听 +
               发送按钮占满，这颗胶囊再挤进来就会和它们叠在一起，所以直接收掉 ——
               要重选音频就退回录制态（点一下麦克风）再选。 */}
-          {phase !== 'review' ? (
-            <label
-              className={cn('voice-pick-audio')}
-              title="选择本机音频文件当语音发送（自动转成 SILK）"
-            >
-              <FileAudio size={13} />
-              选择音频
-              <input
-                type="file"
-                accept="audio/*"
-                hidden
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = '';
-                  if (file) void handlePickAudio(file);
-                }}
-              />
-            </label>
-          ) : null}
-          {recorder.error ? <span className={cn('voice-error')}>{recorder.error}</span> : null}
-          {!recorder.error && recorder.transcribeError && !busy ? (
-            <span className={cn('voice-error')}>{recorder.transcribeError}</span>
-          ) : null}
-          {!recorder.error && !recorder.transcribeError && transcribeEnabled && busy ? (
-            <span className={cn('voice-hint ok')}>
-              <Sparkles size={12} /> 正在转文字…
-            </span>
-          ) : null}
-          {!recorder.error && !recorder.transcribeError && !transcribeEnabled && !busy ? (
-            <span className={cn('voice-hint dim')}>未配置转录模型，仅发送语音</span>
-          ) : null}
+            {phase !== 'review' ? (
+              <label
+                className={cn('voice-pick-audio')}
+                title="选择本机音频文件当语音发送（自动转成 SILK）"
+              >
+                <FileAudio size={13} />
+                选择音频
+                <input
+                  type="file"
+                  accept="audio/*"
+                  hidden
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = '';
+                    if (file) void handlePickAudio(file);
+                  }}
+                />
+              </label>
+            ) : null}
+            {recorder.error ? <span className={cn('voice-error')}>{recorder.error}</span> : null}
+            {!recorder.error && recorder.transcribeError && !busy ? (
+              <span className={cn('voice-error')}>{recorder.transcribeError}</span>
+            ) : null}
+            {!recorder.error && !recorder.transcribeError && transcribeEnabled && busy ? (
+              <span className={cn('voice-hint ok')}>
+                <Sparkles size={12} /> 正在转文字…
+              </span>
+            ) : null}
+            {!recorder.error && !recorder.transcribeError && !transcribeEnabled && !busy ? (
+              <span className={cn('voice-hint dim')}>未配置转录模型，仅发送语音</span>
+            ) : null}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

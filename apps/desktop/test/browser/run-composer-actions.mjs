@@ -91,12 +91,18 @@ try {
       { theme, background, accent },
     );
     await page.locator('.composer-tools button[title="表情"]').click();
-    assert(
-      (await page.getByRole('menuitem').allTextContents()).join(',') === '表情,弹射表情,互动表情',
-      'Emoji menu mismatch',
-    );
+    assert(await page.locator('.emoji-panel').isVisible(), 'Emoji panel did not open directly');
     if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}-emoji.png`) });
-    await page.getByRole('menuitem', { name: '互动表情', exact: true }).click();
+    await page.locator('.emoji-tabs button[title="弹射表情"]').click();
+    const bounce = page.locator('.emoji-panel .bounce-panel');
+    await bounce.waitFor();
+    const bounceBox = await bounce.boundingBox();
+    assert(
+      bounceBox.x >= 0 && bounceBox.x + bounceBox.width <= width + 1,
+      'Bounce panel outside viewport',
+    );
+    if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}-bounce.png`) });
+    await page.locator('.emoji-tabs button[title="互动表情"]').click();
     const panel = page.getByRole('dialog', { name: '互动表情', exact: true });
     await panel.waitFor();
     assert(
@@ -118,9 +124,11 @@ try {
       );
     });
     const box = await panel.boundingBox();
+    if (output)
+      await page.screenshot({ path: resolve(output, `${theme}-${width}-interactive.png`) });
     assert(
       box.x >= 0 && box.x + box.width <= width + 1 && box.y >= 0,
-      'Interactive panel outside viewport',
+      `Interactive panel outside viewport: ${JSON.stringify(box)}`,
     );
     assert(
       await panel.evaluate((element) => {
@@ -131,15 +139,32 @@ try {
       }),
       'Interactive panel clipped or occluded',
     );
-    if (output)
-      await page.screenshot({ path: resolve(output, `${theme}-${width}-interactive.png`) });
+    await panel.getByRole('button', { name: '戳一下', exact: true }).scrollIntoViewIfNeeded();
+    assert(
+      await panel.getByRole('button', { name: '戳一下', exact: true }).isVisible(),
+      'Interactive send action is clipped',
+    );
     await page.keyboard.press('Escape');
     if (width > 760) {
       await page.locator('.composer-tools button[title="语音"]').click();
-      await page.getByRole('menuitem', { name: '文字转语音', exact: true }).click();
-      await page.locator('.ai-voice-panel').waitFor();
-      await page.waitForFunction(
-        () => getComputedStyle(document.querySelector('.ai-voice-panel')).opacity === '1',
+      await page.locator('.voice-panel').waitFor();
+      await page.getByRole('tab', { name: '文字转语音', exact: true }).click();
+      await page.locator('.voice-panel .voice-tts').waitFor();
+      assert(
+        (await page.locator('.voice-panel textarea').boundingBox()).height >= 60,
+        'TTS text area collapsed',
+      );
+      const sendTts = page
+        .locator('.voice-panel')
+        .getByRole('button', { name: '合成并发送', exact: true });
+      assert(
+        await sendTts.evaluate((element) => {
+          const box = element.getBoundingClientRect();
+          return element.contains(
+            document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
+          );
+        }),
+        'TTS send action is clipped',
       );
       if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}-voice.png`) });
       await page.keyboard.press('Escape');
