@@ -169,11 +169,7 @@ import { PROJECT_GROUP_IDS } from '../../../../shared/project_groups';
 import { chatHeaderTitle, isBotConversation, resolveMessageSender } from './conversationDisplay';
 import { createEmojiToken, parseMessageParts } from './emojiPacks';
 import type { EmojiItem } from './emojiPacks';
-import {
-  elementToToken,
-  elementsToComposerText,
-  tokenToElement,
-} from './draftElements';
+import { elementToToken, elementsToComposerText, tokenToElement } from './draftElements';
 import { planNeedsLocalMedia, type LocalMediaRef } from './composerSend';
 import { prepareReeditDraft } from './composerReedit';
 import {
