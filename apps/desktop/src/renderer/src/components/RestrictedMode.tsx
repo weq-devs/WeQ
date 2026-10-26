@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { KeyRound, LoaderCircle, Play, RefreshCw, ShieldAlert, ShieldCheck, X } from 'lucide-react';
-import { requestOpenSettings } from '../lib/callSettingsBridge';
+import { KeyRound, LoaderCircle, Play, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { restrictionReasons } from '../lib/restrictedMode';
 import { useRestrictedMode, type AuthorizationRequest } from '../state/restrictedMode';
@@ -166,20 +165,6 @@ export function AuthorizationForm({
           <button type="button" className="weq-set-btn" onClick={() => respond(false, true)}>
             <RefreshCw size={14} />
             重试免密读取
-          </button>
-        )}
-        {window.weq?.authorization && !request.title.includes('长期授权') && (
-          <button
-            type="button"
-            className="weq-set-btn"
-            onClick={() => {
-              respond(true);
-              useRestrictedMode.getState().setOpen(false);
-              requestOpenSettings('longTermAuthorization');
-            }}
-          >
-            <ShieldCheck size={14} />
-            管理长期授权
           </button>
         )}
         {actions}
