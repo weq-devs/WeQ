@@ -16,6 +16,7 @@ import { createRequire } from 'node:module';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
 import { installRendererDiagnosticSampling } from './renderer_diagnostics';
 import type { EditMenuState } from '../shared/edit_menu';
+import type { LongTermAuthorizationBridge } from '../shared/long_term_authorization';
 
 // Same CJS workaround as src/main/index.ts — electron-trpc 0.7's ESM
 // build statically imports `ipcMain` from 'electron', which is not
@@ -42,6 +43,11 @@ ipcRenderer.on('edit:undo', () => {
 ipcRenderer.send('edit:undo-ready');
 
 const weqBridge = {
+  authorization: {
+    status: () => ipcRenderer.invoke('authorization:status'),
+    install: () => ipcRenderer.invoke('authorization:install'),
+    remove: () => ipcRenderer.invoke('authorization:remove'),
+  } satisfies LongTermAuthorizationBridge,
   editUndo: {
     onRefresh(handler: () => void): () => void {
       const listener = () => handler();

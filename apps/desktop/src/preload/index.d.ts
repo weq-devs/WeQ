@@ -1,11 +1,13 @@
 import type { ElectronAPI } from '@electron-toolkit/preload';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
 import type { EditUndoBridge } from '../shared/edit_menu';
+import type { LongTermAuthorizationBridge } from '../shared/long_term_authorization';
 
 declare global {
   interface Window {
     electron: ElectronAPI;
     weq: {
+      authorization: LongTermAuthorizationBridge;
       editUndo: EditUndoBridge;
       openLogDir(): Promise<boolean>;
       /** 用户选 / 拖 / 粘贴文件的绝对路径（Electron webUtils）；拿不到返回 ''。 */

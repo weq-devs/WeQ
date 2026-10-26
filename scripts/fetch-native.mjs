@@ -60,6 +60,7 @@ import { pipeline } from 'node:stream/promises';
 import { connect as tlsConnect } from 'node:tls';
 import { fileURLToPath } from 'node:url';
 import { isStale, manifestValidity, validityText } from '../packages/native/validity.mjs';
+import { authorizationArtifact } from '../packages/native/authorization.mjs';
 
 // ─────────────────────────── 常量 ───────────────────────────
 
@@ -499,6 +500,8 @@ function planFiles(manifest, platforms) {
       sha256: meta.sha256,
       size: meta.size,
     });
+    const authorization = authorizationArtifact(manifest, name, spec.dir);
+    if (authorization) files.push(authorization);
   }
   if (withDress) {
     for (const part of DRESS_PARTS) {
@@ -557,7 +560,7 @@ async function install(manifest, files, localDir) {
       await mkdir(dirname(dest), { recursive: true });
       const incoming = `${dest}.incoming-${process.pid}`;
       await copyFile(staged, incoming);
-      await chmod(incoming, 0o644);
+      await chmod(incoming, entry.executable ? 0o755 : 0o644);
       await rename(incoming, dest);
       log(`  ${step} ${entry.label.padEnd(16)} → ${entry.path} (${mb(entry.size)})`);
     }

@@ -210,6 +210,14 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['account'],
   },
   {
+    id: 'long-term-authorization',
+    section: 'account',
+    label: '长期授权',
+    aliases: ['权限助手', '免重复提权', '管理员授权'],
+    from: ['account'],
+    desktopOnly: true,
+  },
+  {
     id: 'app-lock',
     section: 'privacy',
     label: '启用应用锁',

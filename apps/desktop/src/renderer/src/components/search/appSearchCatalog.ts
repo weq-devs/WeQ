@@ -98,6 +98,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['applock', '无操作自动上锁', '空闲自动锁定'],
   ['accounts', '现有配置', '自动进入账号'],
   ['account', '启用数据库监听', '自动刷新消息'],
+  ['account', '长期授权', '权限助手', '免重复提权', '管理员授权'],
   ['account', '同步已读状态到 QQ'],
   ['account', '手动标记时上报已读位置'],
   ['account', '自动读取 QQ 内存（完整功能）', '完整模式'],

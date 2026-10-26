@@ -32,6 +32,7 @@ import {
 } from './capture_protocol';
 import { startElevatedCaptureWorker, type ElevatedCaptureWorker } from './capture_elevation';
 import { CaptureOwnership } from './capture_ownership';
+import { connectLongTermAuthorization } from './authorization/client';
 
 const logger = getLogger().child({ scope: 'capture-session' });
 
@@ -244,11 +245,17 @@ export async function startAccountCapture(
       throw new Error(support.hint || '抓包后端不可用');
     }
     const { pid, d2Key } = await prepareCaptureSession(uin);
+    let persistentAvailable = false;
+    if (process.platform === 'win32' && !support.elevated) {
+      const connection = await connectLongTermAuthorization();
+      persistentAvailable = connection !== null;
+      connection?.close();
+    }
     return await captureOwnership.start(
       request,
       pid,
       async () => {
-        if (support.elevated || process.platform === 'win32') {
+        if (support.elevated || (process.platform === 'win32' && !persistentAvailable)) {
           const session = await platform.native.ntHelper.startCapture(pid, {
             iface: opts.iface,
             port: opts.port,

@@ -81,6 +81,7 @@ import { macApplicationMenu, nativeMenuLabels } from './application_menu';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
 import { registerAttachHintIpc } from './attach_hint_ipc';
 import { registerElevationIpc } from './elevation_ipc';
+import { registerLongTermAuthorizationIpc } from './authorization/ipc';
 import {
   getLogDir,
   getLogger,
@@ -765,6 +766,7 @@ void app.whenReady().then(async () => {
   registerWeqAssistantIpc();
   registerAttachHintIpc();
   registerElevationIpc();
+  registerLongTermAuthorizationIpc();
   registerEditUndoIpc();
 
   app.on('browser-window-created', (_, win) => {

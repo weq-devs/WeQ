@@ -162,10 +162,21 @@ export function createCachedAttachHook(
   return { attach: ensure, ensure, reset };
 }
 
-export function createDirectAttachHook(nt: NtHelperBinding): AttachHook {
+export function createDirectAttachHook(
+  nt: NtHelperBinding,
+  fallback?: (pid: number, signal?: AbortSignal) => Promise<SessionMaterial | null>,
+): AttachHook {
   const logger = getLogger().child({ scope: 'attach' });
-  return createCachedAttachHook(async (pid, uin) => {
-    const material = await nt.scanSessionMaterial(pid);
+  return createCachedAttachHook(async (pid, uin, signal) => {
+    let material: SessionMaterial;
+    try {
+      material = await nt.scanSessionMaterial(pid);
+    } catch (error) {
+      signal.throwIfAborted();
+      const recovered = await fallback?.(pid, signal);
+      if (!recovered) throw error;
+      material = recovered;
+    }
     logger.info('attached to qq process', {
       event: 'attach',
       pid,

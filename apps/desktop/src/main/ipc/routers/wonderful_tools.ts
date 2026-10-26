@@ -25,6 +25,7 @@
 import { z } from 'zod';
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
+import { connectLongTermAuthorization } from '../../authorization/client';
 import { open as openFile, writeFile } from 'node:fs/promises';
 import { observable } from '@trpc/server/observable';
 import { readSipEnabled, type KeyScanProgress, type KeyScanResult } from '@weq/native';
@@ -79,6 +80,7 @@ export interface CaptureSupportWire {
   elevated: boolean;
   hint: string;
   platform: string;
+  longTermAuthorized?: boolean;
 }
 
 /** 导出抓包结果时落盘的文件格式。 */
@@ -368,8 +370,11 @@ export const wonderfulToolsRouter = router({
    * 走 `probeCaptureBackend()` 而不是直接调 native —— 老产物里没有
    * `probeCaptureSupport` 时也返回一条带引导的「不可用」，别把 TypeError 抛给界面。
    */
-  captureSupport: procedure.query((): CaptureSupportWire => {
-    return { ...probeCaptureBackend(), platform: process.platform };
+  captureSupport: procedure.query(async (): Promise<CaptureSupportWire> => {
+    const connection = await connectLongTermAuthorization();
+    const longTermAuthorized = connection !== null;
+    connection?.close();
+    return { ...probeCaptureBackend(), platform: process.platform, longTermAuthorized };
   }),
 
   /**

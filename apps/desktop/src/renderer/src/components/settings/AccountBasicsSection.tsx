@@ -41,6 +41,7 @@ import { useTabActive } from '../RetainedTabs';
 import { useDialog } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
 import { Card, Row, SectionHeader, Toggle } from './controls';
+import { LongTermAuthorizationSection } from './LongTermAuthorizationSection';
 
 /** rkey `type_` → human label. Mirrors media_download.ts scene constants. */
 const RKEY_TYPE_LABEL: Record<number, string> = {
@@ -722,6 +723,7 @@ export function AccountBasicsSection({
       {page === 'account' && (
         <>
           {/* 自动进入策略与本来源运行请求分离 */}
+          <LongTermAuthorizationSection />
           <Card>
             <Row
               settingId="auto-full-mode"

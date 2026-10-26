@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { linuxSudoErrorHint, resolveSudoPath } from '@weq/native';
 import { getLogger } from '@weq/service';
 import { requestSudoPassword } from './sudo_prompt';
+import { tryLongTermCaptureWorker } from './authorization/client';
 import type {
   CaptureWorkerHello,
   CaptureWorkerReply,
@@ -235,6 +236,10 @@ function connectWorker(
 export async function startElevatedCaptureWorker(
   ntHelperPath: string,
 ): Promise<ElevatedCaptureWorker> {
+  const persistent = await tryLongTermCaptureWorker();
+  if (persistent) return persistent;
+  if (process.platform === 'win32')
+    throw new Error('长期授权不可用，请在设置中修复或使用现有 Windows 抓包授权。');
   let password = '';
   if (!(await sudoCredentialsCached())) {
     const entered = await requestSudoPassword(

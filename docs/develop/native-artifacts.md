@@ -16,6 +16,7 @@
 | 路径 | 是否入库 | 来源 | 更新方式 |
 | --- | --- | --- | --- |
 | `native/<platform>/<arch>/nt_helper.node` | 否 | `weq-devs/nt_helper` 的 Rust 构建 | `pnpm native:fetch` |
+| `native/<platform>/<arch>/weq-authorization-helper[.exe]` | 否 | 同一私有仓的独立 Rust target | 清单包含助手时由 `pnpm native:fetch` 获取 |
 | `resources/dress/{bubble,widget,font}.dat` | 否 | 同上（`build.rs` 打包 + AES 加密） | `pnpm native:fetch` |
 | `native/<platform>/<arch>/ninebird/*` | **是** | `weq-devs/nt_helper` 的 NineBird 构建 | 手工同步（另一条链，未自动化） |
 | `resources/dress/screen/**`、`ranking-*.json` | 是 | 手工整理的静态素材 | 正常提交 |
@@ -35,6 +36,8 @@
    构建挡在打包之前。
 
 ## 版本锚：`native/pinned.json`
+
+长期授权的公开/私有边界、可选产物清单及兼容规则见[长期授权集成](long-term-authorization-20261026.md)。旧 tag 没有助手时仍能正常取回 `.node`，不据此声称长期授权可用。
 
 `pnpm native:fetch` **默认取的是 `native/pinned.json` 里锚定的那个 tag**，不是 latest。
 

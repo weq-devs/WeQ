@@ -2841,6 +2841,16 @@ export function MainView(): ReactElement {
   useEffect(
     () =>
       onOpenSettingsRequest((section) => {
+        if (section === 'longTermAuthorization') {
+          setSettingsSection('account');
+          setSettingsSearchTarget({
+            section: 'account',
+            settingId: 'long-term-authorization',
+            revision: Date.now(),
+          });
+          setSettingsOpen(true);
+          return;
+        }
         if (section !== 'callRecording') return;
         setSettingsSection('call-recording');
         setSettingsOpen(true);

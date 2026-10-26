@@ -57,6 +57,7 @@ import type { IntentLocalEnginePort } from '@weq/service';
 import { resolveLocalOcrFilterModel, runLocalOcrFile, runLocalOcrFilterFile } from '../ocr/local';
 import { OnlineImageOcr } from '../ocr/online';
 import { createLinuxAttachHook } from '../attach_elevation';
+import { tryLongTermAttach } from '../authorization/client';
 import {
   accountConfigId,
   AnnualReportService,
@@ -1167,7 +1168,7 @@ export function initAppContext(fileRoot?: string): AppContext {
   const attachHook: AttachHook =
     process.platform === 'linux' || process.platform === 'darwin'
       ? createLinuxAttachHook(platform.native.ntHelper, userConfig)
-      : createDirectAttachHook(platform.native.ntHelper);
+      : createDirectAttachHook(platform.native.ntHelper, tryLongTermAttach);
 
   const linkPreview = new LinkPreviewService(userConfig);
   const apiUsage = new TokenUsageStore(join(userConfig.cacheDir('api_usage'), 'global.json'));

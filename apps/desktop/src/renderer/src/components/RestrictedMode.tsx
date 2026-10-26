@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { KeyRound, LoaderCircle, Play, RefreshCw, ShieldAlert, X } from 'lucide-react';
+import { LongTermAuthorizationLink } from './LongTermAuthorizationLink';
 import { client, trpc } from '../trpc/client';
 import { restrictionReasons } from '../lib/restrictedMode';
 import { useRestrictedMode, type AuthorizationRequest } from '../state/restrictedMode';
@@ -105,9 +106,11 @@ export function cancelAuthorizationRequest(request: AuthorizationRequest): void 
 
 export function AuthorizationForm({
   request,
+  onOpenLongTermAuthorization,
   actions,
 }: {
   request: AuthorizationRequest;
+  onOpenLongTermAuthorization?: () => void;
   actions?: ReactNode;
 }) {
   const [password, setPassword] = useState('');
@@ -166,6 +169,15 @@ export function AuthorizationForm({
             <RefreshCw size={14} />
             重试免密读取
           </button>
+        )}
+        {!request.title.includes('长期授权') && (
+          <LongTermAuthorizationLink
+            beforeNavigate={() => {
+              respond(true);
+              useRestrictedMode.getState().setOpen(false);
+              onOpenLongTermAuthorization?.();
+            }}
+          />
         )}
         {actions}
       </div>
