@@ -3,6 +3,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { InteractionProfileSection } from '../src/renderer/src/components/settings/InteractionProfileSection';
 import { DEFAULT_INTENT_TUNING } from '@weq/service/intent-context';
+import { AI_SETTING_ITEMS } from '../src/renderer/src/components/settings/aiSettingsCatalog';
+import { searchAppEntries } from '../src/renderer/src/components/search/appSearchCatalog';
 
 const fixture = vi.hoisted(() => ({
   mode: 'api',
@@ -10,8 +12,9 @@ const fixture = vi.hoisted(() => ({
   save: vi.fn(),
   setData: vi.fn(),
   invalidate: vi.fn(),
+  localEnabled: false,
+  localAvailable: true,
 }));
-vi.mock('../src/renderer/src/components/RetainedTabs', () => ({ useTabActive: () => true }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({ useDialog: () => vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
@@ -32,14 +35,18 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         }),
       },
       getLocalEngine: {
-        useQuery: () => ({
-          data: {
-            models: [
-              { id: 'auto', name: '自动', downloaded: true },
-              { id: 'laya-multilingual', name: 'Laya', downloaded: true },
-            ],
-          },
-        }),
+        useQuery: (_input: unknown, options: { enabled: boolean }) => {
+          fixture.localEnabled = options.enabled;
+          return {
+            data: {
+              available: fixture.localAvailable,
+              models: [
+                { id: 'auto', name: '自动', downloaded: true },
+                { id: 'laya-multilingual', name: 'Laya', downloaded: true },
+              ],
+            },
+          };
+        },
       },
     },
     account: {
@@ -68,6 +75,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixture.mode = 'api';
   fixture.pending = false;
+  fixture.localAvailable = true;
   fixture.save.mockReset().mockResolvedValue({});
   fixture.setData.mockClear();
   fixture.invalidate.mockClear();
@@ -112,3 +120,40 @@ it('画像本地资源独立选择，在途时禁用控件', async () => {
     document.querySelector<HTMLSelectElement>('[aria-label="互动画像本地模型资源"]')!.disabled,
   ).toBe(true);
 });
+it('宿主不支持本地画像模型时禁用选择并显示原因，不误提交', async () => {
+  fixture.mode = 'local';
+  fixture.localAvailable = false;
+  await render();
+  expect(
+    document.querySelector<HTMLSelectElement>('[aria-label="互动画像本地模型资源"]')!.disabled,
+  ).toBe(true);
+  expect(document.body.textContent).toContain('当前宿主不支持本地画像模型');
+  expect(fixture.save).not.toHaveBeenCalled();
+});
+
+it.each(['api', 'local', 'heuristic'])(
+  '%s 下全部画像参数可由稳定 ID 搜索，非本地模式不查模型资源',
+  async (mode) => {
+    fixture.mode = mode;
+    await render();
+    expect(fixture.localEnabled).toBe(mode === 'local');
+    for (const item of AI_SETTING_ITEMS.filter((item) => item.section === 'interaction-profile')) {
+      expect(document.querySelectorAll(`[data-setting-id="${item.id}"]`), item.id).toHaveLength(1);
+      expect(
+        searchAppEntries(item.label).some(
+          (entry) => entry.target.kind === 'setting' && entry.target.settingId === item.id,
+        ),
+        item.id,
+      ).toBe(true);
+    }
+    const submit = document.querySelector<HTMLButtonElement>('form button[type="submit"]')!;
+    expect(submit.disabled).toBe(true);
+    await act(async () => {
+      const details = document.querySelector('details')!;
+      details.open = true;
+      details.dispatchEvent(new Event('toggle'));
+    });
+    expect(submit.disabled).toBe(false);
+    expect(fixture.save).not.toHaveBeenCalled();
+  },
+);

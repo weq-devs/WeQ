@@ -1,4 +1,5 @@
 // 这里只包含公开的目录与别名，不读取设置值、账号信息或凭据。
+import { AI_SETTING_ITEMS } from './aiSettingsCatalog';
 export const SETTINGS_PAGE_LABELS = {
   appearance: '主题与背景',
   home: '主页',
@@ -145,6 +146,12 @@ interface ItemRedirect {
 }
 
 const ITEM_REDIRECTS: readonly ItemRedirect[] = [
+  ...AI_SETTING_ITEMS.map(
+    (item): ItemRedirect => ({
+      ...item,
+      from: [...new Set<SectionId>([item.section, 'intent-sense'])],
+    }),
+  ),
   { id: 'llm-providers', section: 'agentlab', label: '已保存的 provider', from: ['agentlab'] },
   { id: 'llm-default-model', section: 'agentlab', label: '默认模型', from: ['agentlab'] },
   { id: 'tts-providers', section: 'agentlab', label: 'TTS 语音合成', from: ['agentlab', 'tts'] },
@@ -255,7 +262,7 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
     id: 'intent-model-resources',
     section: 'intent-sense',
     label: '意图模型资源（全局）',
-    aliases: ['意图模型资源'],
+    aliases: ['意图模型资源', '使用下载镜像', 'hf-mirror.com 镜像'],
     from: ['intent-models', 'intent-sense'],
   },
   ...(

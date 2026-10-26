@@ -11,6 +11,7 @@ import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
 import { Card, Row } from './controls';
 import { useDialog } from '../Dialog';
+import { intentTuningSettingId } from './aiSettingsCatalog';
 
 const TITLES = {
   analysis: '分析范围与时效',
@@ -55,7 +56,7 @@ export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
   );
 
   async function submit() {
-    if (!ready || !valid || save.isLoading) return;
+    if (!active || !ready || !valid || save.isLoading) return;
     try {
       const patch: Partial<Record<IntentTuningKey, number>> = {};
       const changed = keys.filter((key) => Number(draft[key]) !== status.data?.[key]);
@@ -85,6 +86,7 @@ export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
           return (
             <Row
               key={key}
+              settingId={intentTuningSettingId(key)}
               label={rule.label}
               desc={`${INTENT_TUNING_HELP[key] ? `${INTENT_TUNING_HELP[key]} ` : ''}默认 ${rule.default}；范围 ${rule.min}–${rule.max}。`}
               control={
@@ -97,7 +99,7 @@ export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
                   step={'step' in rule ? rule.step : 1}
                   required
                   value={draft[key] ?? ''}
-                  disabled={!ready || save.isLoading}
+                  disabled={!active || !ready || save.isLoading}
                   onChange={(event) =>
                     setDraft((current) => ({ ...current, [key]: event.target.value }))
                   }
@@ -116,7 +118,7 @@ export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
                 className="weq-set-iconbtn"
                 title="恢复默认值"
                 aria-label={`恢复${TITLES[group]}默认值`}
-                disabled={!ready || save.isLoading}
+                disabled={!active || !ready || save.isLoading}
                 onClick={() =>
                   setDraft(
                     Object.fromEntries(
@@ -130,7 +132,7 @@ export function IntentTuningPanel({ group }: { group: keyof typeof TITLES }) {
               <button
                 type="submit"
                 className="weq-set-btn"
-                disabled={!ready || !valid || save.isLoading}
+                disabled={!active || !ready || !valid || save.isLoading}
               >
                 <Save size={14} />
                 保存

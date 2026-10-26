@@ -1,5 +1,6 @@
 import { searchNameRank } from '@weq/service/search-policy';
 import type { MainView } from '../../im-template/template/types';
+import { AI_SETTING_ITEMS } from '../settings/aiSettingsCatalog';
 import {
   SETTINGS_PAGE_LABELS,
   resolveSettingsTarget,
@@ -52,6 +53,9 @@ const PAGE_ALIASES: Partial<Record<SettingsPageId, string[]>> = {
 
 type SettingDefinition = readonly [section: SectionId, item: string, ...aliases: string[]];
 const SETTING_ITEMS: readonly SettingDefinition[] = [
+  ...AI_SETTING_ITEMS.map(
+    (item): SettingDefinition => [item.section, item.label, ...(item.aliases ?? [])],
+  ),
   ['home', '个性标签', '主页标签'],
   ['home', '问候语', '主页问候'],
   ['home', '一言', 'hitokoto'],
@@ -119,7 +123,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['clone-settings', '克隆体配置', '克隆提示词', '克隆语音', '发言意愿'],
   ['intent-sense', '启用意图感知'],
   ['intent-sense', '意图感知运行方式', '本地意图模型'],
-  ['intent-sense', '意图模型资源（全局）', '意图模型资源'],
+  ['intent-sense', '意图模型资源（全局）', '意图模型资源', '使用下载镜像', 'hf-mirror.com 镜像'],
   ['intent-sense', '自己发送后分析'],
   ['reply-suggestions', '启用推荐回复'],
   ['reply-suggestions', '推荐回复 API 模型'],

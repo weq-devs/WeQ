@@ -88,9 +88,16 @@ export function IntentModelsSection({ embedded = false }: { embedded?: boolean }
               className="weq-set-input"
               aria-label="意图模型资源"
               value={selected}
-              disabled={busy || !engine.data?.available || !resources.data}
+              disabled={
+                busy || !engine.data?.available || !engine.data.models.length || !resources.data
+              }
               onChange={(event) => void choose(event.target.value)}
             >
+              {!engine.data?.models.some((model) => model.id === selected) ? (
+                <option value={selected}>
+                  {selected === 'auto' ? '自动选择' : selected} · 当前不可用
+                </option>
+              ) : null}
               {(engine.data?.models ?? []).map((model) => (
                 <option key={model.id} value={model.id}>
                   {model.name}
