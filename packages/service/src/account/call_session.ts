@@ -55,8 +55,8 @@ import {
   buildStatusReport,
   buildVideoControl,
   buildVideoKeepalive,
-  buildVideoParamPush,
   buildVideoPackets,
+  buildVideoState,
   buildVideoSubHeader,
   extractHevc,
   parseAudioFrame,
@@ -76,6 +76,7 @@ import {
   isIrapNalType,
   VIDEO_SUBHEADER_LEN,
   VIDEO_CTRL_SUB_TYPE,
+  VideoStateCode,
   videoPacketCount,
   VIDEO_KEEPALIVE_SUB_TYPE,
   VideoFrameAssembler,
@@ -150,9 +151,9 @@ export interface VideoStreamInfo {
   profile: number;
   /** 编码格式，目前只认 hevc。 */
   codec: 'hevc';
-  /** 编码帧率；缺省按 {@link DEFAULT_VIDEO_FPS}。 */
+  /** 编码帧率（可选）。 */
   fps?: number;
-  /** 目标码率（kbps）；缺省按 {@link DEFAULT_VIDEO_BITRATE_KBPS}。 */
+  /** 目标码率（kbps，可选）。 */
   bitrateKbps?: number;
 }
 
@@ -310,40 +311,6 @@ const LOGOUT_REPEATS = 5;
 const FEC_GROUP = 4;
 /** 视频保活周期（实测 2 秒）。 */
 const VIDEO_KEEPALIVE_MS = 2000;
-/**
- * 视频参数公告（`bt=77`）的重发周期。
- *
- * 实测真实客户端每 2 秒重发一次 52 字节那条；它同时也是「本端还在发视频」的
- * 房间级心跳，停发会被对端当成关摄像头。
- */
-const VIDEO_PARAM_PUSH_MS = 2000;
-/**
- * 编码帧率缺省值。
- *
- * 2026-10-26 抓包实测 QQ 本体：上行 11.8 fps、下行 14.9 fps。取 15 与下行一致
- * （对端按这个节奏发，我们跟上就不会显得卡）。
- */
-const DEFAULT_VIDEO_FPS = 15;
-/**
- * 编码码率缺省值（kbps）。
- *
- * ⚠️ **这是「卡顿」和「对端收不到画面」的主因之一。**
- *
- * 2026-10-26 同一通通话对比（都是 320×184）：
- *
- * | | QQ 本体 | WeQ（旧值 400） |
- * | --- | --- | --- |
- * | 上行码率 | 6–26 kbps（静态 6、运动峰值 26） | **351 kbps** |
- * | 每帧字节 p50 | 73 B | **3368 B** |
- * | 每帧分片 | 1.0 | 3.4（最大 28） |
- *
- * QQ 的实际策略是「低码率 + 按需涨」：静止画面 6 kbps，有运动才到 26 kbps。
- * 我们写死 400 kbps，编码器会把这个预算全部用掉 —— 一帧 3KB 拆成 3~28 个 UDP
- * 包，任何一片丢失整帧报废，中继路径上尤其明显。
- *
- * 取 30 kbps 对齐 QQ 的运动峰值；ABR 在静止画面下会自动降得更低。
- */
-const DEFAULT_VIDEO_BITRATE_KBPS = 30;
 /** 同一拍里第二条保活包相对第一条的延迟（实测 40–90 ms）。 */
 const VIDEO_KEEPALIVE_SECOND_MS = 60;
 /** 视频发送轮询间隔：比最慢的帧间隔（10 fps）小一个量级。 */
@@ -635,8 +602,8 @@ export class CallSession {
   private lastPeerMediaAt = 0;
   /** 已见过的媒体子类型（每个只记一次日志，避免逐包刷屏）。 */
   private readonly seenMediaSubTypes = new Set<number>();
-  /** 视频参数是否已用 info 记过一次（后续周期公告降到 debug）。 */
-  private videoParamAnnounced = false;
+  /** 是否已发过视频流状态协商首包（`bt=31/f1=3`）。 */
+  private videoStateStarted = false;
   /**
    * 进入 `probing` 的时刻，用于「探测期满仍无回程」的强制回落。
    *
@@ -675,8 +642,6 @@ export class CallSession {
   private mediaBaseTick = 0;
   /** 视频保活定时器。 */
   private videoKeepaliveTimer: unknown = null;
-  /** `bt=77` 视频参数公告的重发定时器。 */
-  private videoParamTimer: unknown = null;
   /** 视频发送循环定时器。 */
   private videoTimer: unknown = null;
   /** 视频接收看门狗。 */
@@ -784,16 +749,14 @@ export class CallSession {
       return;
     }
     this.videoSending = enabled;
+    if (enabled) this.startVideoState();
     this.sendVideoControl();
     if (enabled) {
       this.videoFrameIndex = 0;
       this.startVideoLoop();
       this.startVideoKeepalive();
-      // GCS 上的视频参数公告：不发这条，对端不知道本端开了摄像头。
-      this.startVideoParamPush();
     } else {
       this.stopVideoLoop();
-      this.stopVideoParamPush();
     }
     this.log?.info('摄像头状态', { enabled });
     this.emit();
@@ -976,7 +939,10 @@ export class CallSession {
     }
     // 兜底：探测期被反复重置（对端零星发包）时，超过 3 倍探测期仍无回程也判死。
     if (this.mediaPath === 'probing' && this.probeDeadlineAt > 0) {
-      if (this.timers.now() - this.probeDeadlineAt >= MEDIA_PROBE_MS * 3 && !this.peerProbeAnswered) {
+      if (
+        this.timers.now() - this.probeDeadlineAt >= MEDIA_PROBE_MS * 3 &&
+        !this.peerProbeAnswered
+      ) {
         this.log?.warn('直连探测超时，放弃本轮 P2P', { address: peer?.address });
         this.mediaPath = 'server';
         this.probeDeadlineAt = 0;
@@ -1148,6 +1114,7 @@ export class CallSession {
     this.statusTimer = this.timers.setInterval(() => {
       if (!this.room) return;
       this.statusReportSeq++;
+      const videoCall = this.opts.media === 'video' || this.videoSending;
       this.send(
         buildStatusReport({
           roomId: this.room.roomId,
@@ -1158,6 +1125,7 @@ export class CallSession {
           recvPackets: this.receivedFrames,
           sendBytes: this.sentFrames * 80,
           seq: this.statusReportSeq,
+          media: videoCall ? 'video' : 'audio',
         }),
       );
     }, STATUS_REPORT_MS);
@@ -1340,6 +1308,9 @@ export class CallSession {
         // 对端已经进房：把自己的 P2P 端口公告出去（晚于接通时的那次补一条）。
         this.sendPeerJoinReport(2);
         this.ackPush(packet.typeId, packet.bodyType, packet.body);
+        break;
+      case GcsBodyType.videoStatePush:
+        this.handleVideoStatePush(packet);
         break;
       default:
         // 其它推送类型一律回 ACK：不回的话服务端会重推。
@@ -1548,7 +1519,6 @@ export class CallSession {
     this.log?.info('公告本端 P2P 端点', { port: this.localPort });
   }
 
-
   /** 下一个控制包序号（中继 GET_IN 与 P2P 握手共用）。 */
   private nextPeerSeq(): number {
     return ++this.peerPacketSeq;
@@ -1724,6 +1694,7 @@ export class CallSession {
 
     switch (event.event) {
       case CallEvent.ringing:
+        this.startVideoState();
         if (this.state === 'calling') {
           this.state = 'ringing';
           this.emit();
@@ -1758,6 +1729,55 @@ export class CallSession {
     }
   }
 
+  /**
+   * 振铃后发起视频流状态协商。
+   *
+   * 2026-10-26 三通原生抓包（电脑→电脑 / 电脑→手机 / WeQ→手机）对照：
+   * QQ 收到 `event=4` 后约 40–160 ms 发送 `bt=31 body=0803`（带 authKey）。
+   * 服务端随后回普通 `bt=32 body=0803` 和 `bt=31 body=0806`。
+   */
+  private startVideoState(): void {
+    if (this.videoStateStarted || !this.room) return;
+    if (this.opts.media !== 'video' && !this.videoSending) return;
+    this.videoStateStarted = true;
+    this.sendVideoState(VideoStateCode.start);
+  }
+
+  /**
+   * 处理 `bt=31` 视频流状态推送。
+   *
+   * 服务端下发 `f1=4` 时，原生客户端会同时发空 `bt=32` ACK 和
+   * `bt=31 body=0805`。后者不是普通 ACK，不能由「未知奇数推送一律 ACK」代替；
+   * 漏掉它时手机不会创建对端视频画面。
+   */
+  private handleVideoStatePush(packet: {
+    body: Uint8Array;
+    bodyType: number;
+    typeId: number;
+  }): void {
+    this.ackPush(packet.typeId, packet.bodyType, packet.body);
+    const state = pbGetVarint(packet.body, 1);
+    this.log?.info('视频流状态推送', { state });
+    if ((this.opts.media === 'video' || this.videoSending) && state === VideoStateCode.offer) {
+      this.sendVideoState(VideoStateCode.accept);
+    }
+  }
+
+  private sendVideoState(state: number): void {
+    if (!this.room) return;
+    this.send(
+      buildVideoState({
+        roomId: this.room.roomId,
+        selfUin: Number(this.opts.selfUin),
+        sessionTs: this.sessionTs,
+        typeId: this.nextTypeId(),
+        authKey: this.room.authKey,
+        state,
+      }),
+    );
+    this.log?.info('发送视频流状态', { state });
+  }
+
   private markConnected(): void {
     // 异步挂断期间的迟到 dataChange 不能复活通话。
     if (this.state === 'connected' || this.state === 'ending') return;
@@ -1785,7 +1805,6 @@ export class CallSession {
       this.videoFrameIndex = 0;
       this.startVideoLoop();
       this.startVideoKeepalive();
-      this.startVideoParamPush();
       this.log?.info('视频通话接通，自动开启摄像头');
     }
     this.emit();
@@ -1979,43 +1998,6 @@ export class CallSession {
   }
 
   /**
-   * 在 GCS 上公告本端视频参数（`bt=77`）。
-   *
-   * **这条不能省。** 2026-10-26 QQ 本体抓包实测：对端开始发视频后会在 GCS 上
-   * 推 52 字节的视频参数，之后每 2 秒重发一次；本端开摄像头时同样会推。
-   * 只发 `subType=4` 控制包而不发这条，对端就不知道本端开了摄像头 —— WeQ 早先
-   * 正是漏了它（表现为「我开了摄像头，手机和电脑都看不到」）。
-   *
-   * 参数必须与编码器一致：对端按这里声明的分辨率 / 码率准备解码。
-   */
-  private sendVideoParamPush(): void {
-    if (!this.room) return;
-    const info = this.videoEncoder?.info();
-    const width = info?.width ?? 640;
-    const height = info?.height ?? 360;
-    const fps = info?.fps ?? DEFAULT_VIDEO_FPS;
-    const bitrateKbps = info?.bitrateKbps ?? DEFAULT_VIDEO_BITRATE_KBPS;
-    const packet = buildVideoParamPush({
-      roomId: this.room.roomId,
-      selfUin: Number(this.opts.selfUin),
-      sessionTs: this.sessionTs,
-      typeId: this.nextTypeId(),
-      width,
-      height,
-      fps,
-      bitrateKbps,
-    });
-    this.send(packet);
-    // 每 2 秒一条的周期心跳，只在第一次用 info 记下来，其余降到 debug。
-    if (!this.videoParamAnnounced) {
-      this.videoParamAnnounced = true;
-      this.log?.info('公告视频参数', { width, height, fps, bitrateKbps });
-    } else {
-      this.log?.debug('公告视频参数', { width, height, fps, bitrateKbps });
-    }
-  }
-
-  /**
    * 媒体路径看门狗。
    *
    * 直连模式下如果对端不再回包（地址学错、P2P 被网络掐断……），继续只发直连
@@ -2103,27 +2085,6 @@ export class CallSession {
     if (this.videoKeepaliveTimer === null) return;
     this.timers.clearInterval(this.videoKeepaliveTimer);
     this.videoKeepaliveTimer = null;
-  }
-
-  /**
-   * 视频参数公告循环：立刻发一次，之后每 2 秒重发。
-   *
-   * 与 {@link startVideoKeepalive}（`0x5b subType=5`，走媒体路径）不同，这条走
-   * **GCS 控制面** —— 它是房间级公告，对端据此才知道本端开了摄像头。
-   */
-  private startVideoParamPush(): void {
-    if (this.videoParamTimer !== null) return;
-    this.sendVideoParamPush();
-    this.videoParamTimer = this.timers.setInterval(
-      () => this.sendVideoParamPush(),
-      VIDEO_PARAM_PUSH_MS,
-    );
-  }
-
-  private stopVideoParamPush(): void {
-    if (this.videoParamTimer === null) return;
-    this.timers.clearInterval(this.videoParamTimer);
-    this.videoParamTimer = null;
   }
 
   /**
@@ -2273,7 +2234,12 @@ export class CallSession {
         // 中继推送而不是服务器回包。
         //
         // 判据：地址若是中继节点自己（或就是 GCS），一律只记日志。
-        this.log?.info('中继下发对端路径', { address, primaryPort, directPort, from: from.address });
+        this.log?.info('中继下发对端路径', {
+          address,
+          primaryPort,
+          directPort,
+          from: from.address,
+        });
         const isRelaySelf =
           (this.gcs !== null && sameHost(this.gcs.ip, address) && this.gcs.port === port) ||
           this.relays.some((r) => sameHost(r.ip, address) && r.port === port) ||
@@ -2446,7 +2412,6 @@ export class CallSession {
       [this.connectTimer, 'clearTimeout'],
       [this.gcsRetryTimer, 'clearTimeout'],
       [this.videoKeepaliveTimer, 'clearInterval'],
-      [this.videoParamTimer, 'clearInterval'],
       [this.videoTimer, 'clearTimeout'],
       [this.videoWatchdogTimer, 'clearInterval'],
       [this.mediaWatchdogTimer, 'clearInterval'],
@@ -2464,7 +2429,6 @@ export class CallSession {
     this.connectTimer = null;
     this.gcsRetryTimer = null;
     this.videoKeepaliveTimer = null;
-    this.videoParamTimer = null;
     this.videoTimer = null;
     this.videoWatchdogTimer = null;
     this.mediaWatchdogTimer = null;

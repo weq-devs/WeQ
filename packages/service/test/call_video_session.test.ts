@@ -40,10 +40,12 @@ import {
   buildVideoControl,
   buildVideoKeepalive,
   parseGcsPacket,
+  pbGetBytes,
   parseVideoPacket,
   pbBytes,
   pbVarint,
   videoFrameIndex,
+  VideoStateCode,
 } from '@weq/protocol';
 
 // ─────────────────────────── 测试替身 ───────────────────────────
@@ -336,6 +338,18 @@ function peerJoinPacket(port: number): Uint8Array {
   return buildGcsPacket(head, body);
 }
 
+/** 服务端下发的 `bt=31` 视频流状态。 */
+function videoStatePacket(state: number): Uint8Array {
+  const head = buildGcsHead({
+    roomId: 777n,
+    selfUin: 1707889225,
+    sessionTs: 555,
+    typeId: 0x6244,
+    bodyType: GcsBodyType.videoStatePush,
+  });
+  return buildGcsPacket(head, pbVarint(1, state));
+}
+
 /** 拼一个视频分片（带 20 字节 sub-header + Annex B）。 */
 function videoPacket(params: {
   gidx: number;
@@ -582,56 +596,82 @@ describe('发送视频', () => {
   });
 
   /**
-   * 回归：开摄像头必须在 GCS 上公告视频参数（`bt=77`）。
-   *
-   * 2026-10-26 QQ 本体抓包实测：对端开始发视频后会在 GCS 推 24 字节的视频参数，
-   * 之后每 2 秒重发。只发 `subType=4` 控制包而不发这条时，对端不知道本端开了
-   * 摄像头 —— 这正是「WeQ 开摄像头，手机和电脑都看不到」的成因。
+   * 2026-10-26 三通原生抓包：视频通话收到 `event=4` 后发送
+   * `bt=31/f1=3`，开启后续 f4/f5 建流握手。
    */
-  it('视频通话接通时公告视频参数（bt=77），规格与编码器一致', async () => {
-    const encoder = new FakeVideoEncoder(1);
-    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
-    await connect(ctx);
-
-    const pushes = ctx.transport.sent
-      .filter((s) => s.data[0] === GCS_STX)
-      .map((s) => parseGcsPacket(s.data))
-      .filter((p) => p?.bodyType === GcsBodyType.videoParamPush);
-    expect(pushes.length).toBeGreaterThan(0);
-    // FakeVideoEncoder 声明 640×360 / 15 fps / 400 kbps：
-    //   宽 640 = 80 05，高 360 = e8 02，码率 400 = 90 03。
-    expect([...pushes[0]!.body]).toEqual([
-      0x12, 0x25, 0x10, 0xa2, 0x02, 0x18, 0x01, 0x22, 0x1e, 0x08, 0x0f, 0x10, 0x01, 0x18, 0x80,
-      0x05, 0x20, 0xe8, 0x02, 0x28, 0x90, 0x03, 0x30, 0x00,
-    ]);
-  });
-
-  it('公告每 2 秒重发一次（对端据此判断本端还在发视频）', async () => {
-    const encoder = new FakeVideoEncoder(1);
-    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
-    await connect(ctx);
-    const count = () =>
-      ctx.transport.sent.filter(
-        (s) =>
-          s.data[0] === GCS_STX && parseGcsPacket(s.data)?.bodyType === GcsBodyType.videoParamPush,
-      ).length;
-    const first = count();
-    await ctx.timers.advanceAsync(2100);
-    expect(count()).toBeGreaterThan(first);
-  });
-
-  it('关摄像头后停止公告视频参数', async () => {
-    const encoder = new FakeVideoEncoder(1);
-    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
-    await connect(ctx);
-    ctx.session.setCamera(false);
+  it('视频通话振铃时发送一次 bt31/f1=3，并带 authKey', async () => {
+    const ctx = makeSession({ media: 'video' });
+    await ctx.session.start();
+    ctx.transport.deliver(authRspPacket());
     ctx.transport.reset();
 
-    await ctx.timers.advanceAsync(5000);
+    ctx.transport.deliver(notifyPacket(CallEvent.ringing));
+    ctx.transport.deliver(notifyPacket(CallEvent.ringing));
+
+    const states = ctx.transport.sent
+      .filter((entry) => entry.data[0] === GCS_STX)
+      .map((entry) => parseGcsPacket(entry.data))
+      .filter((packet) => packet?.bodyType === GcsBodyType.videoStatePush);
+    expect(states).toHaveLength(1);
+    expect([...states[0]!.body]).toEqual([0x08, VideoStateCode.start]);
+    expect(pbGetBytes(states[0]!.head, 5)).toEqual(new Uint8Array(80).fill(1));
+  });
+
+  it('语音通话振铃不发送视频流状态', async () => {
+    const ctx = makeSession();
+    await ctx.session.start();
+    ctx.transport.deliver(authRspPacket());
+    ctx.transport.reset();
+
+    ctx.transport.deliver(notifyPacket(CallEvent.ringing));
+
+    expect(
+      ctx.transport.sent.filter(
+        (entry) =>
+          entry.data[0] === GCS_STX &&
+          parseGcsPacket(entry.data)?.bodyType === GcsBodyType.videoStatePush,
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('收到 bt31/f1=4 时回空 bt32 ACK 和 bt31/f1=5', async () => {
+    const ctx = makeSession({ media: 'video' });
+    await ctx.session.start();
+    ctx.transport.deliver(authRspPacket());
+    ctx.transport.reset();
+
+    ctx.transport.deliver(videoStatePacket(VideoStateCode.offer));
+
+    const parsed = ctx.transport.sent
+      .filter((entry) => entry.data[0] === GCS_STX)
+      .map((entry) => parseGcsPacket(entry.data)!);
+    const answers = parsed.filter((packet) => packet.bodyType === GcsBodyType.videoStatePush);
+    expect(answers).toHaveLength(1);
+    expect([...answers[0]!.body]).toEqual([0x08, VideoStateCode.accept]);
+    expect(pbGetBytes(answers[0]!.head, 5)).toEqual(new Uint8Array(80).fill(1));
+
+    const acks = parsed.filter((packet) => packet.bodyType === GcsBodyType.videoStateAck);
+    expect(acks).toHaveLength(1);
+    expect(acks[0]!.body).toHaveLength(0);
+  });
+
+  /**
+   * `bt=77` 是服务端推送。原生 QQ 在电脑→电脑和电脑→手机两通中都是
+   * client→server 0 条，WeQ 不能自行伪造。
+   */
+  it('开摄像头和接通后都不发送客户端 bt=77', async () => {
+    const encoder = new FakeVideoEncoder(1);
+    const ctx = makeSession({ media: 'video', videoEncoder: encoder });
+    await connect(ctx);
+    ctx.transport.reset();
+    ctx.session.setCamera(false);
+    ctx.session.setCamera(true);
+    await ctx.timers.advanceAsync(2500);
 
     const pushes = ctx.transport.sent.filter(
-      (s) =>
-        s.data[0] === GCS_STX && parseGcsPacket(s.data)?.bodyType === GcsBodyType.videoParamPush,
+      (entry) =>
+        entry.data[0] === GCS_STX &&
+        parseGcsPacket(entry.data)?.bodyType === GcsBodyType.videoParamPush,
     );
     expect(pushes).toHaveLength(0);
   });

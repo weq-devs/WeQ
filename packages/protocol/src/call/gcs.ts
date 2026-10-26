@@ -209,11 +209,21 @@ export const GcsBodyType = {
   /** 对端 P2P 端点推送（server→client）。见 {@link parsePeerJoin}。 */
   peerJoin: 27,
   peerJoinAck: 28,
+  /**
+   * 视频流状态推送（server→client）。
+   *
+   * 真机上 `f1=4` 表示服务端请求本端确认视频流；客户端还需另发一条同类型的
+   * `f1=5`，并保留普通空 ACK（`bt=32`）。见 {@link buildVideoState}。
+   */
+  videoStatePush: 31,
+  videoStateAck: 32,
   mediaCtrlPush: 75,
   mediaCtrlAck: 76,
   /**
-   * 视频流参数推送。两种 body 形态：52 字节（分辨率 / 码率）与 13 字节（流索引）。
-   * 见 {@link buildVideoParamPush} / {@link buildVideoStreamPush}。
+   * 视频流参数推送（仅 server→client）。
+   *
+   * 52 字节 body 包含分辨率 / 码率、目标端尺寸和流索引。真机客户端不会主动
+   * 发送这条；收到后只需普通 ACK（`bt=78`）。见 {@link buildVideoParamPush}。
    */
   videoParamPush: 77,
   logout: 1003,
@@ -412,34 +422,39 @@ export function buildGcsLogout(params: {
 }
 
 /**
- * 视频流参数推送（bt=77，24 字节 body 形态）。
+ * 视频流参数推送（`bt=77`，52 字节 body，**server→client**）。
  *
- * 实测（2026-10-26 QQ 本体抓包）：本机开始发视频后约 3 秒，对端会在 GCS 上推
- * 这条，之后每 2 秒重发一次。它是「本端要发视频 / 视频参数是什么」的**房间级
- * 公告** —— 只发 `subType=4` 控制包、不发这条时，对端不知道本端开了摄像头
- * （WeQ 早先就是漏了它）。
+ * 2026-10-26 三通对照抓包（QQ 电脑→电脑、QQ 电脑→手机、WeQ→手机）确认：
+ * 两侧原生客户端都不发这条，只由服务端在接听前下发并按流索引持续更新。
+ * 它描述目标端准备接收的视频规格，不是「本端摄像头已开」的公告。
  *
- * 载荷结构（逐字节还原，总长 24 字节）：
+ * 载荷结构（逐字节还原，总长 52 字节）：
  *
  * ```text
- * 12 25                  f2，声明长度 37
+ * 12 25                  f2，37 字节
  *   10 a2 02             .f2 = 290
  *   18 01                .f3 = 1
- *   22 1e                .f4，声明长度 30
- *     08 0f              ..f1 = 15    fps
+ *   22 1e                .f4，30 字节
+ *     08 0f              ..f1 = 15     fps
  *     10 01              ..f2 = 1
- *     18 80 05           ..f3 = 640   宽
- *     20 e0 03           ..f4 = 480   高
- *     28 80 28           ..f5 = 5120  码率 kbps
+ *     18 80 05           ..f3 = 640    宽
+ *     20 e0 03           ..f4 = 480    高
+ *     28 80 28           ..f5 = 5120   码率 kbps
  *     30 00              ..f6 = 0
+ *     38 88 27           ..f7 = 5000
+ *     50 80 05           ..f10 = 640
+ *     58 e0 03           ..f11 = 480
+ *     70 80 05           ..f14 = 640   目标端宽
+ *     78 e0 03           ..f15 = 480   目标端高
+ * 18 00                  f3 = 流索引（0/1/2/3…）
+ * 3a 09                  f7 = 流元数据
+ *   08 01                .f1 = 1
+ *   10 91 83 bd 03       .f2 = 7291281
+ *   20 01                .f4 = 1
  * ```
  *
- * ⚠️ 两个声明长度（37 / 30）都比实际内容（22 / 15）大 15 —— 真实客户端就是这么
- * 发的，服务端与对端都不按这两个长度切字段。**照抄实测值**，别"修正"成实际长度：
- * 那样会偏离黄金样本，也就失去了「和真实客户端逐字节一致」的验证手段。
- *
- * `f2=290` 与 `f3=1` 的语义未还原，同样照抄。分辨率 / 码率必须与本端编码器
- * 一致，否则对端按错误的规格准备解码。
+ * 电脑对端样本的 `f14/f15` 是 1920×1200；手机对端是 640×480。
+ * 该函数保留用于黄金样本与测试，**不要在客户端开摄像头时发送**。
  */
 export function buildVideoParamPush(params: {
   roomId: bigint;
@@ -451,6 +466,11 @@ export function buildVideoParamPush(params: {
   fps: number;
   /** 码率（kbps）。 */
   bitrateKbps: number;
+  /** 目标端展示尺寸；缺省与编码尺寸一致。 */
+  displayWidth?: number;
+  displayHeight?: number;
+  /** 服务端流索引；缺省 0。 */
+  streamIndex?: number;
 }): Uint8Array {
   const head = buildGcsHead({
     roomId: params.roomId,
@@ -466,17 +486,19 @@ export function buildVideoParamPush(params: {
     pbVarint(4, params.height),
     pbVarint(5, params.bitrateKbps),
     pbVarint(6, 0),
+    pbVarint(7, 5000),
+    pbVarint(10, params.width),
+    pbVarint(11, params.height),
+    pbVarint(14, params.displayWidth ?? params.width),
+    pbVarint(15, params.displayHeight ?? params.height),
   ]);
-  // f4 的声明长度固定写 30（实际 15），与真实客户端一致，见上方说明。
-  const inner = concat([
-    pbVarint(2, 290),
-    pbVarint(3, 1),
-    tag(4, 2),
-    encodeVarint(30),
-    videoParams,
+  const inner = concat([pbVarint(2, 290), pbVarint(3, 1), pbBytes(4, videoParams)]);
+  const streamInfo = concat([pbVarint(1, 1), pbVarint(2, 7291281), pbVarint(4, 1)]);
+  const body = concat([
+    pbBytes(2, inner),
+    pbVarint(3, params.streamIndex ?? 0),
+    pbBytes(7, streamInfo),
   ]);
-  // 外层 f2 的声明长度固定写 37（= 22 + 15），同上。
-  const body = concat([tag(2, 2), encodeVarint(37), inner]);
   return buildGcsPacket(head, body);
 }
 
@@ -513,6 +535,44 @@ export function buildVideoStreamPush(params: {
   const body = concat([pbVarint(3, params.streamIndex), pbBytes(7, streamInfo)]);
   return buildGcsPacket(head, body);
 }
+
+/**
+ * 视频流状态消息（`bt=31`，client↔server）。
+ *
+ * 三通原生抓包中，视频通话的 caller 在收到 `event=4` 后发送 `f1=3`；服务端
+ * 下发 `f1=4` 时，客户端除普通空 ACK 外还必须回一条 `f1=5`。客户端发出的
+ * 两条都带 88 字节房间 authKey。当前只实现主动发起，因此只构造 3 / 5。
+ */
+export function buildVideoState(params: {
+  roomId: bigint;
+  selfUin: number;
+  sessionTs: number;
+  typeId: number;
+  authKey: Uint8Array;
+  state: number;
+}): Uint8Array {
+  const head = buildGcsHead({
+    roomId: params.roomId,
+    selfUin: params.selfUin,
+    sessionTs: params.sessionTs,
+    typeId: params.typeId,
+    authKey: params.authKey,
+    bodyType: GcsBodyType.videoStatePush,
+  });
+  return buildGcsPacket(head, pbVarint(1, params.state));
+}
+
+/** `bt=31` 的线上状态值。 */
+export const VideoStateCode = {
+  /** C→S：客户端在振铃阶段发起视频流状态协商。 */
+  start: 3,
+  /** S→C：服务端请求本端确认视频流。 */
+  offer: 4,
+  /** C→S：确认服务端的 offer。 */
+  accept: 5,
+  /** S→C：服务端确认客户端的 start。 */
+  ready: 6,
+} as const;
 
 /** 房间事件推送（bt=3）里的事件类型。 */
 export const CallEvent = {
@@ -574,7 +634,10 @@ export function buildStatusReport(params: {
   sendBytes: number;
   /** 本次通话内的第几次上报，从 1 起。 */
   seq: number;
+  /** 当前是否已在发视频；只切换抓包中已确认会变化的字段。 */
+  media?: 'audio' | 'video';
 }): Uint8Array {
+  const videoCall = params.media === 'video';
   const tick = Date.now() >>> 0;
   const parts: Uint8Array[] = [];
   parts.push(pbBytes(1, concat([encodeVarint(tick), encodeVarint((tick + 2000) >>> 0)])));
@@ -590,9 +653,10 @@ export function buildStatusReport(params: {
   parts.push(pbVarint(13, params.seq === 1 ? 1 : 0));
   parts.push(pbVarint(14, params.sendBytes));
   parts.push(pbVarint(15, 0));
-  parts.push(pbVarint(16, 3)); // 网络类型：3 = 有线
+  // 原生视频样本固定为 1；旧语音模板的 3 会让服务端把它当成另一种终端。
+  parts.push(pbVarint(16, videoCall ? 1 : 3));
   parts.push(pbVarint(17, 1));
-  // f18：网络描述（34 字节），运营商 / 链路类型 / 带宽，照抄真实客户端。
+  // f18：网络描述，沿用已通过真机校验的固定样本。
   parts.push(
     pbBytes(
       18,
@@ -609,8 +673,9 @@ export function buildStatusReport(params: {
   parts.push(pbVarint(22, 100)); // 质量分
   for (let i = 23; i <= 33; i++) parts.push(pbVarint(i, 0));
   parts.push(pbVarint(36, 0));
-  for (let i = 38; i <= 40; i++) parts.push(pbVarint(i, 0));
-  parts.push(pbVarint(42, 26280)); // 发送码率
+  for (let i = 38; i <= 39; i++) parts.push(pbVarint(i, 0));
+  parts.push(pbVarint(40, videoCall ? 2 : 0));
+  parts.push(pbVarint(42, videoCall ? 45000 : 0)); // 收发带宽预算
   for (let i = 43; i <= 45; i++) parts.push(pbVarint(i, 0));
   for (let i = 46; i <= 53; i++) parts.push(pbVarint(i, 0xffff));
   parts.push(pbVarint(56, 0));
@@ -629,8 +694,13 @@ export function buildStatusReport(params: {
   parts.push(pbVarint(105, 0));
   parts.push(pbVarint(110, 0));
   parts.push(pbVarint(111, params.seq));
-  for (let i = 112; i <= 115; i++) parts.push(pbVarint(i, 0));
-  parts.push(pbVarint(120, 26847424));
+  parts.push(pbVarint(112, params.seq >= 3 ? 1 : 0));
+  parts.push(pbVarint(113, 0));
+  parts.push(pbVarint(114, params.seq >= 3 ? (videoCall ? 6553600 : 2621440) : 0));
+  parts.push(pbVarint(115, 0));
+  // 与 DEFAULT_CAPABILITIES.f11 一致。原生语音通话也声明视频能力，
+  // 否则之后动态打开摄像头时服务端不会补发完整的 bt=77 视频流参数。
+  parts.push(pbVarint(120, 1812048064));
   parts.push(pbVarint(123, 0));
   for (let i = 125; i <= 130; i++) parts.push(pbVarint(i, 0));
   parts.push(pbVarint(132, 0));

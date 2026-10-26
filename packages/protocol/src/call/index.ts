@@ -93,6 +93,8 @@ export {
   buildGcsHeartbeat,
   buildGcsAck,
   buildGcsLogout,
+  buildVideoState,
+  VideoStateCode,
   buildVideoParamPush,
   buildVideoStreamPush,
   CallEvent,

@@ -14,6 +14,7 @@ import {
   buildGcsAck,
   buildGcsAuth,
   buildGcsLogout,
+  buildVideoState,
   buildVideoParamPush,
   buildVideoStreamPush,
   buildPeerJoinReport,
@@ -32,8 +33,11 @@ import {
   parseCallEvent,
   parseFecContainer,
   parseGcsPacket,
+  parsePb,
   parseQfb,
+  pbGetBytes,
   pbGetVarint,
+  VideoStateCode,
   rsDecode,
   rsEncode,
 } from '../src/call';
@@ -548,16 +552,39 @@ describe('质量反馈', () => {
   });
 });
 
-// ─────────────── 视频参数公告（bt=77） ───────────────
+// ─────────────── 视频流状态（bt=31） ───────────────
 
-describe('视频参数公告', () => {
+describe('视频流状态协商', () => {
+  it('客户端状态包带 authKey，body 是 f1=<state>', () => {
+    const authKey = new Uint8Array(88).fill(0x5a);
+    const packet = buildVideoState({
+      roomId: 1n,
+      selfUin: 10001,
+      sessionTs: 2,
+      typeId: 3,
+      authKey,
+      state: VideoStateCode.start,
+    });
+    const parsed = parseGcsPacket(packet)!;
+    expect(parsed.bodyType).toBe(GcsBodyType.videoStatePush);
+    expect([...parsed.body]).toEqual([0x08, VideoStateCode.start]);
+    expect(pbGetBytes(parsed.head, 5)).toEqual(authKey);
+  });
+});
+
+// ─────────────── 服务端视频参数推送（bt=77） ───────────────
+
+describe('视频参数推送', () => {
   /**
-   * 黄金样本来自 2026-10-26 QQ 本体抓包（docs/develop/call-captures 的
-   * `20261026-qqnative-voice-then-video-both.pcap`）：
-   * 对端在 GCS 上推的 52 字节 body，分辨率 640×480、15 fps、5120 kbps。
+   * 黄金样本来自 2026-10-26 QQ 电脑→手机抓包：
+   * 服务端在接通前推的 52 字节 body，分辨率 640×480、15 fps、5120 kbps。
    */
   const REAL_PARAM_BODY = Uint8Array.from(
-    Buffer.from('122510a2021801221e080f100118800520e0032880283000', 'hex'),
+    Buffer.from(
+      '122510a2021801221e080f100118800520e003288028300038882750800558e00370800578e003' +
+        '18003a090801109183bd032001',
+      'hex',
+    ),
   );
 
   it('逐字节还原真实抓包的 52 字节 body', () => {
@@ -576,7 +603,7 @@ describe('视频参数公告', () => {
     expect([...parsed.body]).toEqual([...REAL_PARAM_BODY]);
   });
 
-  it('分辨率 / 码率跟着参数走（对端按它准备解码）', () => {
+  it('分辨率、码率与目标端尺寸跟着参数走', () => {
     const build = (width: number, height: number, fps: number, bitrateKbps: number) => {
       const packet = buildVideoParamPush({
         roomId: 1n,
@@ -595,6 +622,24 @@ describe('视频参数公告', () => {
     expect([...a]).not.toEqual([...b]);
     // 480 / 270 的 varint 分别是 0xe0 0x03 / 0x8e 0x02，必须出现在 body 里。
     expect([...b]).toContain(0x8e);
+
+    const pcPacket = buildVideoParamPush({
+      roomId: 1n,
+      selfUin: 1,
+      sessionTs: 1,
+      typeId: 1,
+      width: 640,
+      height: 480,
+      fps: 15,
+      bitrateKbps: 5120,
+      displayWidth: 1920,
+      displayHeight: 1200,
+    });
+    const outer = parsePb(parseGcsPacket(pcPacket)!.body);
+    const inner = parsePb(outer.find((field) => field.field === 2)!.bytes!);
+    const video = parsePb(inner.find((field) => field.field === 4)!.bytes!);
+    expect(video.find((field) => field.field === 14)?.value).toBe(1920n);
+    expect(video.find((field) => field.field === 15)?.value).toBe(1200n);
   });
 
   /**
