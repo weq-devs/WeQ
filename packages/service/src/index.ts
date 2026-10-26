@@ -798,6 +798,14 @@ export type {
   SendGroupJoinRequestServiceParams,
 } from './account/interaction';
 export { GroupModerationService } from './account/group_moderation';
+export { LocationShareService } from './account/lbs_share';
+export type {
+  LocationShareTarget,
+  StartLocationShareServiceParams,
+  ReportLocationServiceParams,
+  QueryLocationServiceParams,
+  SendShareCardParams,
+} from './account/lbs_share';
 export { AccountWriteService } from './account/account_write';
 export type { AccountWriteIdentity, AccountWriteOutcome } from './account/account_write';
 export type {
