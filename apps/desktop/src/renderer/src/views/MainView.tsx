@@ -232,7 +232,6 @@ import type { AnalysisReportRequest, AnalysisToolRequest } from './analysis/mode
 import type { RoamingTarget } from '@weq/service';
 import { conversationAnalysisTarget, conversationRoamingTarget } from '../lib/conversationActions';
 import { createMediaId } from '../im-template/template/composerMedia';
-import { SearchHistoryPanel } from '../components/search/SearchHistoryPanel';
 import {
   UnifiedSearchModal,
   type SearchMoreSnapshot,
@@ -245,7 +244,6 @@ import type {
   SearchHit,
   ContentSearchTarget,
 } from '../components/search/types';
-import type { SearchHistoryHit } from '@weq/service';
 import { SequentialForwardDialog } from '../components/SequentialForwardDialog';
 import {
   ConversationDirectoryContext,
@@ -3638,10 +3636,8 @@ export function MainView(): ReactElement {
   // so the user can reach contact/group results underneath. Clicking the
   // search box or typing a new query restores the dropdown.
   const [searchDismissed, setSearchDismissed] = useState(false);
-  // 搜索框是否被点开 —— 点开且什么都没输入时显示「最近搜索」。
+  // 搜索框点开但尚未输入时，仅显示范围选择。
   const [searchFocused, setSearchFocused] = useState(false);
-  // QQ 自己的最近搜索命中（nt_msg.db 的 search_history），一次读回后常驻。
-  const [searchHistory, setSearchHistory] = useState<SearchHistoryHit[] | null>(null);
   // Set when a search hit was clicked: the listLatest effect, after the target
   // conversation's newest page lands, rebuilds the window centred on this seq
   // instead of leaving the view pinned to the latest.
@@ -7171,25 +7167,6 @@ export function MainView(): ReactElement {
     if (searchQuery) setSearchDismissed(false);
   }, [searchQuery]);
 
-  // 搜索框刚点开、还什么都没输入 → 显示 QQ 自己的「最近搜索」（search_history 表，
-  // 只读、只有几行）。读一次就常驻，不在每次聚焦时重新拉。
-  useEffect(() => {
-    if (!searchFocused || searchQuery || searchHistory !== null) return undefined;
-    let cancelled = false;
-    client.account.searchHistory
-      .query({ limit: 20 })
-      .then((items) => {
-        if (!cancelled) setSearchHistory(items as SearchHistoryHit[]);
-      })
-      .catch((err) => {
-        console.error('[search] searchHistory failed', err);
-        if (!cancelled) setSearchHistory([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [searchFocused, searchQuery, searchHistory]);
-
   // Jump to a conversation, optionally centred on a message seq (files / chat
   // records). When no seq anchor exists, just open the chat (+toast on demand).
   const jumpToConvSeq = useCallback(
@@ -7327,23 +7304,6 @@ export function MainView(): ReactElement {
       }
     },
     [jumpToConvSeq, searchQuery, shell, user.identityValue],
-  );
-
-  // 「最近搜索」命中点击 → 直接开那个会话。文件命中只有 msgId、没有会话内 seq，
-  // 所以只打开会话（不弹「未找到该消息位置」）。
-  const openHistoryHit = useCallback(
-    (entry: SearchHistoryHit): void => {
-      shell.setQuery('');
-      setSearchFocused(false);
-      if (entry.kind === 'file') {
-        const group = entry.chatType === 2;
-        jumpToConvSeq(group ? 'group' : 'c2c', group ? entry.groupCode : entry.uid);
-        return;
-      }
-      const conv = entry.kind === 'friend' ? entry.uid : entry.groupCode;
-      jumpToConvSeq(entry.kind === 'friend' ? 'c2c' : 'group', conv);
-    },
-    [jumpToConvSeq, shell],
   );
 
   // 群关键词通知被点击：主进程唤起窗口并记下一个「打开该群、跳到该 seq」的请求，
@@ -9669,10 +9629,10 @@ export function MainView(): ReactElement {
               setSearchFocused(true);
               setSearchDismissed(false);
             }}
-            // 搜索框下方的浮层：输入了就走统一搜索下拉，点开但空着就显示「最近搜索」。
+            // 搜索框下方的浮层：范围先于输入显示，结果由关键词控制。
             // 它挂在搜索框上（不是可滚动列表里），所以会话列表怎么滚都看得见。
             searchPanel={
-              searchQuery && !searchDismissed ? (
+              (searchQuery || searchFocused) && !searchDismissed ? (
                 <SearchDropdown
                   keyword={searchQuery}
                   quick={globalSearch.quick}
@@ -9699,8 +9659,6 @@ export function MainView(): ReactElement {
                   onNavigate={(position) => searchReturn.remember({ kind: 'dropdown', position })}
                   onMore={(category) => setSearchMore({ category, keyword: searchQuery })}
                 />
-              ) : searchFocused && !searchQuery && searchHistory && searchHistory.length > 0 ? (
-                <SearchHistoryPanel items={searchHistory} onSelect={openHistoryHit} />
               ) : null
             }
             onQuickInvite={noopAsync}

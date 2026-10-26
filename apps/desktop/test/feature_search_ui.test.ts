@@ -117,10 +117,10 @@ describe('功能与设置搜索界面', () => {
           target: { kind: 'setting', section: 'appearance', item: '基础模式' },
         }),
       );
-      const all = host.querySelector<HTMLInputElement>('[aria-label="全部范围"]')!;
-      expect(all.indeterminate).toBe(true);
+      const all = host.querySelector<HTMLButtonElement>('[aria-label="全部范围"]')!;
+      expect(all.getAttribute('aria-pressed')).toBe('mixed');
       act(() => all.click());
-      expect(all.checked).toBe(true);
+      expect(all.getAttribute('aria-pressed')).toBe('true');
       act(() => all.click());
       expect(host.textContent).toContain('未选择搜索范围');
       expect(host.querySelector('.weq-app-search')).toBeNull();

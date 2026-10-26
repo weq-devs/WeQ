@@ -89,6 +89,33 @@ afterEach(() => {
 });
 
 describe('全局搜索请求生命周期', () => {
+  it('空输入时调整范围不发查询，开始输入后使用预先选择的范围', async () => {
+    vi.useFakeTimers();
+    rpc.quick.mockResolvedValue(quickResult);
+    rpc.slow.mockResolvedValue(slowResult);
+    const f = mountSearch();
+    try {
+      for (const keyword of ['', '   ']) {
+        f.render(keyword, ['friend']);
+        f.render(keyword, ['file']);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(200);
+        });
+        expect(rpc.quick).not.toHaveBeenCalled();
+        expect(rpc.slow).not.toHaveBeenCalled();
+        expect(f.result.quickLoading || f.result.slowLoading).toBe(false);
+      }
+      f.render('关键词', ['file']);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      expect(rpc.quick).not.toHaveBeenCalled();
+      expect(rpc.slow).toHaveBeenCalledWith({ keyword: '关键词', limit: 3, categories: ['file'] });
+    } finally {
+      f.close();
+    }
+  });
+
   it('默认全范围，切换关键词当帧清除旧结果，晚到响应不覆盖新查询', async () => {
     vi.useFakeTimers();
     const late = deferred<QuickSearchResult>();
@@ -249,18 +276,13 @@ describe('搜索范围与失败界面', () => {
           }),
         ),
       );
-      const labels = [...host.querySelectorAll('label')];
+      const buttons = [...host.querySelectorAll<HTMLButtonElement>('.weq-search-scope button')];
       for (const name of ['个人空间', '他人空间']) {
         expect(
-          labels.find((node) => node.textContent === name)?.querySelector('input')?.checked,
-        ).toBe(true);
+          buttons.find((node) => node.textContent === name)?.getAttribute('aria-pressed'),
+        ).toBe('true');
       }
-      act(() =>
-        labels
-          .find((node) => node.textContent === '他人空间')!
-          .querySelector('input')!
-          .click(),
-      );
+      act(() => buttons.find((node) => node.textContent === '他人空间')!.click());
       const selected = change.mock.lastCall![0] as SearchCategory[];
       expect(selected).toContain('qzonePost');
       expect(selected).toContain('qzoneAlbum');
@@ -317,7 +339,7 @@ describe('搜索范围与失败界面', () => {
       act(() => root.unmount());
     }
   });
-  it('使用复选框调整范围、全部为混合态，失败只替代对应类别并可重试', () => {
+  it('使用图标按钮调整范围、全部为混合态，失败只替代对应类别并可重试', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     document.body.append(host);
@@ -342,18 +364,18 @@ describe('搜索范围与失败界面', () => {
           }),
         ),
       );
-      const all = host.querySelector<HTMLInputElement>('[aria-label="全部范围"]')!;
-      expect(all.indeterminate).toBe(true);
+      const all = host.querySelector<HTMLButtonElement>('[aria-label="全部范围"]')!;
+      expect(all.getAttribute('aria-pressed')).toBe('mixed');
       expect(
         [...host.querySelectorAll('.weq-search-section-name')].map((item) => item.textContent),
       ).toEqual(['好友', '文件']);
       expect(host.querySelectorAll('[role="status"]')).toHaveLength(1);
       act(() => host.querySelector<HTMLButtonElement>('[aria-label="重试好友搜索"]')!.click());
       expect(retry).toHaveBeenCalledOnce();
-      const friend = [...host.querySelectorAll('label')].find(
+      const friend = [...host.querySelectorAll<HTMLButtonElement>('.weq-search-scope button')].find(
         (item) => item.textContent === '好友',
       )!;
-      act(() => friend.querySelector('input')!.click());
+      act(() => friend.click());
       expect(change).toHaveBeenLastCalledWith(['file']);
       act(() => all.click());
       expect(change).toHaveBeenLastCalledWith(SEARCH_CATEGORY_ORDER);

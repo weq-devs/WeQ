@@ -136,19 +136,19 @@ describe('全局搜索增量接入不替换原功能', () => {
           `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${styles}</style><style>body{margin:0;font-family:system-ui;background:var(--background);color:var(--foreground)}.weq-titlebar-search-results{left:8px!important;top:48px!important;width:min(720px,calc(100vw - 16px))!important;max-height:calc(100dvh - 64px)!important}</style><body>${document.body.innerHTML}</body></html>`,
         );
       }
-      const friendBox = [...panel.querySelectorAll<HTMLLabelElement>('.weq-search-scope label')]
-        .find((label) => label.textContent === '好友')!
-        .querySelector<HTMLInputElement>('input')!;
-      act(() => friendBox.click());
-      expect(friendBox.checked).toBe(false);
+      const friendButton = [
+        ...panel.querySelectorAll<HTMLButtonElement>('.weq-search-scope button'),
+      ].find((button) => button.textContent === '好友')!;
+      act(() => friendButton.click());
+      expect(friendButton.getAttribute('aria-pressed')).toBe('false');
       act(() => panel.querySelector<HTMLButtonElement>('.weq-cloud-lookup-entry')!.click());
       const dialog = document.querySelector('[aria-label="精确查询"]')!;
       act(() => dialog.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
       expect(document.querySelector('.weq-titlebar-search-results')).not.toBeNull();
       act(() => dialog.querySelector<HTMLButtonElement>('button')!.click());
       expect(host.querySelector<HTMLInputElement>('input')!.value).toBe('10002');
-      expect(friendBox.checked).toBe(false);
-      act(() => friendBox.click());
+      expect(friendButton.getAttribute('aria-pressed')).toBe('false');
+      act(() => friendButton.click());
       act(() => panel.querySelector<HTMLButtonElement>('.weq-search-more')!.click());
       expect(more).toHaveBeenCalledWith('friend');
       act(() => panel.querySelector<HTMLButtonElement>('.weq-search-row')!.click());

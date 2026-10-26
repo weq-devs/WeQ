@@ -151,7 +151,9 @@ it('下拉跳转保留查询与范围，返回恢复滚动和焦点，不重新�
     expect(restored.scrollTop).toBe(91);
     expect(document.activeElement?.textContent).toContain('b');
     expect(rpc.quick).toHaveBeenCalledOnce();
-    expect(restored.querySelectorAll('input:checked')).toHaveLength(1);
+    expect(restored.querySelectorAll('.weq-search-scope button[aria-pressed="true"]')).toHaveLength(
+      1,
+    );
     f.render('10002');
     expect(f.host.querySelector('[aria-label="返回搜索结果"]')).toBeNull();
     f.render('10001');
