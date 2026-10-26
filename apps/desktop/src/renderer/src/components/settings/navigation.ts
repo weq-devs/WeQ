@@ -398,6 +398,12 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
     from: ['maintenance', 'credentials'],
   },
   { id: 'privacy-mode', section: 'privacy', label: '隐私模式', from: ['applock', 'privacy'] },
+  {
+    id: 'privacy-menu-capture',
+    section: 'privacy',
+    label: '在菜单中截图瞬间临时启用隐私模式',
+    from: ['applock', 'privacy'],
+  },
   { id: 'builtin-components', section: 'version', label: '内置组件', from: ['daemon', 'version'] },
   {
     id: 'assistant-service',

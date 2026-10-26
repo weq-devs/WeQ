@@ -23,7 +23,7 @@ export function GraphCanvas({
   /** 双击人节点：交给应用层打开资料卡。 */
   onOpenPerson?: (node: GNode, anchor: { x: number; y: number }) => void;
 }) {
-  const privacy = usePrivacyStore((state) => state.enabled);
+  const privacy = usePrivacyStore((state) => state.effective);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);

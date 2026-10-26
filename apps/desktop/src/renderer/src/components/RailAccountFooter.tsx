@@ -48,6 +48,7 @@ import { DesktopOnly, shellBridge } from '../lib/target';
 import '../styles/rail-account.css';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useMenuCapture } from '../hooks/useMenuCapture';
+import { captureMenuScreenshot } from '../lib/menuScreenshot';
 import '../styles/menu-capture.css';
 
 function errMsg(e: unknown): string {
@@ -100,6 +101,7 @@ export function RailAccountFooter({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const capturePending = useRef(false);
 
   // 应用锁配置（解锁方式 / 总开关），供上锁按钮做可上锁判断。
   const lockSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
@@ -181,8 +183,18 @@ export function RailAccountFooter({
   }
 
   async function captureNow(): Promise<void> {
+    if (capturePending.current) return;
+    const bridge = shellBridge();
+    if (!bridge) return;
+    capturePending.current = true;
     try {
-      const res = await window.weq.capture.window();
+      const res = await captureMenuScreenshot(
+        () => bridge.capture.window(),
+        () => {
+          setOpen(false);
+          useWorkspaceMenu.getState().close();
+        },
+      );
       if (res.ok) {
         pushToast({ tone: 'success', title: '截图已复制', message: '窗口截图已写入剪贴板' });
       } else {
@@ -190,6 +202,8 @@ export function RailAccountFooter({
       }
     } catch (e) {
       showError('截图失败', errMsg(e));
+    } finally {
+      capturePending.current = false;
     }
   }
 

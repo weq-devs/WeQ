@@ -38,7 +38,7 @@ export function HoverTooltip() {
     let observer: MutationObserver;
     const hint = (element: Element, original?: string) => {
       const title = original ?? element.getAttribute('title') ?? '';
-      if (usePrivacyStore.getState().enabled) {
+      if (usePrivacyStore.getState().effective) {
         const sensitive = (node: Element) =>
           window.getComputedStyle(node).getPropertyValue('--weq-privacy-sensitive').trim() === '1';
         if (
@@ -191,7 +191,7 @@ export function HoverTooltip() {
       if (shouldDismissHoverHint(event)) clear();
     };
     const unsubscribePrivacy = usePrivacyStore.subscribe((state, previous) => {
-      if (state.enabled === previous.enabled || !owner) return;
+      if (state.effective === previous.effective || !owner) return;
       text = hint(owner, originalTitle);
       supplyAccessibleName();
       if (visible) setTooltip({ text, ...point });

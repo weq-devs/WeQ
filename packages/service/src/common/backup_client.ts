@@ -1,9 +1,12 @@
+export const WEQ_MENU_CAPTURE_PRIVACY_KEY = 'weq.privacy-menu-capture';
+
 export const WEQ_CLIENT_BACKUP_KEYS = [
   'weq.theme-preference',
   'weq.theme-accent',
   'weq.theme-background',
   'weq.theme-component-style',
   'weq.privacy-mode',
+  WEQ_MENU_CAPTURE_PRIVACY_KEY,
   'weq.groups.grouping',
   'weq.desktop.sidebarWidth.v2',
   'chat-template.layout.composerHeight',
@@ -62,6 +65,7 @@ export function validateWeqClientSettings(value: unknown): asserts value is Reco
     if (
       [
         'weq.privacy-mode',
+        WEQ_MENU_CAPTURE_PRIVACY_KEY,
         'chat-template.layout.groupInfoCollapsed',
         'chat-template.layout.composerCollapsed',
       ].includes(key) &&
