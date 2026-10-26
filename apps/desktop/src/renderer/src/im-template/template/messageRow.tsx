@@ -5,7 +5,7 @@
  *
  * 为什么要有这一层：主面板画一条消息其实是三层组装，而不是「一个消息体组件」——
  *
- *   chatPane        → 灰条分流（撤回 / 戳一戳 / 群提示 / 群通话结束 / QQ动态 / 窗口抖动）
+ *   chatPane        → 灰条分流（撤回 / 戳一戳 / 群提示 / 群通话结束 / QQ动态）
  *   MessageBubble   → 气泡外壳（头像 / 昵称 / 徽章 / 贴表情 / 精华 / 撤回标签 / 删除面纱）
  *   qqMessageRenderer → QqMessageContent（消息体：文本 / 媒体 / 卡片 / 合并转发…）
  *
@@ -44,10 +44,6 @@ import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
  *
  * 群通话 / 群课堂的「已结束」（CALL 元素，subType 16/25/29）也算：那条消息的发送者
  * 是空的，套气泡会凭空多出一个发送者，所以走灰条；发起那条有正常发送人，仍走气泡。
- *
- * 不在内：乐观渲染的窗口抖动（windowShake）不是灰条 —— 它是自己发出的一条消息，
- * 由 `QqMessageContent` 在 `sticker-only` 容器里画成那枚「戳一戳」超级表情，落在
- * 自己那一侧（见 `WindowShakeMessage`）。在这里拦下来会让那条分支永远走不到。
  */
 export const GRAY_TIP_KINDS: string[] = [
   'grayTipPoke',

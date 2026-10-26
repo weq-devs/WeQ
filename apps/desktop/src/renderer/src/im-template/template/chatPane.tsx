@@ -441,7 +441,6 @@ export function ChatPane({
   onRepeatMessage,
   onResolveMentions,
   onSearchMentionMembers,
-  onSendWindowShake,
   onStartCall,
   onSendArk,
   onSendFlash,
@@ -530,11 +529,6 @@ export function ChatPane({
   ) => Promise<RepeatElement[]>;
   onSearchMentionMembers?: (query: string, conversation: Conversation) => Promise<GroupMember[]>;
   /**
-   * 私聊「窗口抖动」（只做私聊）—— 点一下发一条独立消息，不动输入框里的正文 / 草稿。
-   * 群聊没有这个能力，所以按钮只在 `conversation.type === 'direct'` 时渲染。
-   */
-  onSendWindowShake?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
-  /**
    * 发起通话（语音 / 视频）。只支持私聊 —— 群通话要先进房间再邀请，协议路径不同。
    * 应用层负责拿 peerUin / 头像，这里只把会话与媒体类型透上去。
    */
@@ -544,7 +538,7 @@ export function ChatPane({
   ) => Promise<void>;
   /**
    * Ark 卡片面板「发送」—— 面板只收输入、不知道发到哪，所以把**当前会话**一起交回
-   * 应用层，由它补 peerType / targetId 再走 IPC（与 onSendWindowShake 同）。
+   * 应用层，由它补 peerType / targetId 再走 IPC。
    * 抛出即失败：面板会显示原因并保留已填内容。
    */
   onSendArk?: (conversation: Conversation, payload: ArkPayload) => Promise<void>;
@@ -3271,12 +3265,7 @@ export function ChatPane({
   }
 
   /**
-   * 私聊「窗口抖动」：点一下直接发一条独立消息，输入框里的正文、草稿、挂着的引用
-   * 都不动。真正的下发走 `onSendWindowShake`（应用层直接接 protocol 的
-   * `commonElem serviceType=2`），这里只负责置忙态、失败时报错。
-   */
-  /**
-   * 发起语音通话：与窗口抖动一样是「点一下就走」的独立动作，不动输入框内容。
+   * 发起语音通话：独立动作，不动输入框内容。
    * 群聊暂不支持（协议侧要先进群房间，见 `@weq/protocol` 的 group 信令）。
    */
   async function startCall(media: 'audio' | 'video') {
@@ -3286,23 +3275,6 @@ export function ChatPane({
       await onStartCall(conversation, media);
     } catch (error) {
       console.error('[composer] start call failed:', error);
-    }
-  }
-
-  async function sendWindowShake() {
-    if (conversation?.type !== 'direct' || !onSendWindowShake) return;
-    if (!sendAvailable || currentPreference.blocked || sending) return;
-
-    setSending(true);
-    try {
-      await onSendWindowShake(conversation);
-      await jumpAfterSuccessfulSend(conversation);
-    } catch (error) {
-      // 应用层已经弹过提示，这里只留一条控制台记录（与 submitMessage 的失败路径一致）。
-      console.error('[composer] window shake failed:', error);
-    } finally {
-      setSending(false);
-      window.requestAnimationFrame(() => focusComposerEnd(currentComposerEditor()));
     }
   }
 
@@ -4582,9 +4554,6 @@ export function ChatPane({
   // 面板开着时正文那一行让位。
   const canUseAiVoice = conversation.type === 'group' || conversation.type === 'direct';
   const aiVoicePanelActive = canUseAiVoice && aiVoiceOpen && !mobileComposerExpanded;
-  // 窗口抖动**只支持私聊**（`commonElem serviceType=2`，服务端不认群聊场景），
-  // 所以按钮只在 direct 会话渲染 —— 群聊（含群临时会话）下整枚不出现。
-  const canUseWindowShake = conversation.type === 'direct' && Boolean(onSendWindowShake);
   // 弹射表情：私聊 / 群聊都能发（协议上 serviceType 23 不分场景）。面板跟链接卡片 /
   // AI 声聊一样是从输入框上沿弹出的浮层，不占正文那一行，选表情时还能照常打字。
   const bouncePanelActive = bounceOpen && !mobileComposerExpanded;
@@ -5740,7 +5709,6 @@ export function ChatPane({
             onSend={(draft) => void sendPokeEmoji(draft)}
             randomFaces={randomFacesQuery.data?.items ?? []}
             onSendRandom={(draft) => void sendRandomFace(draft)}
-            onWindowShake={canUseWindowShake ? () => void sendWindowShake() : undefined}
             onClose={() => setPokeOpen(false)}
           />
         ) : null}
@@ -5964,7 +5932,6 @@ export function ChatPane({
                 onSend={(draft) => void sendPokeEmoji(draft)}
                 randomFaces={randomFacesQuery.data?.items ?? []}
                 onSendRandom={(draft) => void sendRandomFace(draft)}
-                onWindowShake={canUseWindowShake ? () => void sendWindowShake() : undefined}
                 onClose={() => setPokeOpen(false)}
               />
             ) : null}

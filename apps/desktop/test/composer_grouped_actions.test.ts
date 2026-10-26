@@ -38,7 +38,6 @@ async function mount(group = false) {
   document.body.append(host);
   const root = createRoot(host);
   const send = vi.fn(async (_body: string) => {});
-  const shake = vi.fn(async () => {});
   cleanups.push(() => {
     act(() => root.unmount());
     host.remove();
@@ -54,11 +53,11 @@ async function mount(group = false) {
         onDraftChange: vi.fn(),
         onBack: vi.fn(),
         onSend: send,
-        onSendWindowShake: shake,
+        ...{ onSendWindowShake: vi.fn(async () => {}) },
       }),
     ),
   );
-  return { host, send, shake };
+  return { host, send };
 }
 
 function clickTitle(host: ParentNode, title: string) {
@@ -77,8 +76,8 @@ function choose(label: string) {
   act(() => button!.click());
 }
 
-it.each([false, true])('表情入口合并，互动表情内提供私聊窗口抖动；展开=%s', async (expanded) => {
-  const { host, shake } = await mount();
+it.each([false, true])('私聊互动表情保留发送，不再提供窗口抖动；展开=%s', async (expanded) => {
+  const { host, send } = await mount();
   if (expanded)
     act(() => host.querySelector<HTMLButtonElement>('.mobile-composer-expand-button')!.click());
   const toolbar = host.querySelector(
@@ -96,9 +95,17 @@ it.each([false, true])('表情入口合并，互动表情内提供私聊窗口�
   clickTitle(toolbar, '表情');
   choose('互动表情');
   expect(host.querySelector('[aria-label="互动表情"]')).not.toBeNull();
-  clickTitle(host, '窗口抖动');
-  await act(async () => {});
-  expect(shake).toHaveBeenCalledOnce();
+  expect(host.querySelector('[title="窗口抖动"]')).toBeNull();
+  const panel = host.querySelector('[aria-label="互动表情"]')!;
+  const submit = [...panel.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+    button.textContent?.includes('戳一下'),
+  );
+  expect(submit).toBeDefined();
+  await act(async () => submit!.click());
+  expect(send).toHaveBeenCalledOnce();
+  expect(composerTextToElements(send.mock.calls[0]![0])).toEqual([
+    expect.objectContaining({ kind: 'pokeEmoji' }),
+  ]);
 });
 
 it('群聊互动表情不提供窗口抖动，语音菜单保留 AI 声聊', async () => {

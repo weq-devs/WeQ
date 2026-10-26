@@ -1,6 +1,6 @@
 // @ts-nocheck
 /**
- * 输入框「表情 → 互动表情」面板（`resources/pokeemoji`），私聊另提供窗口抖动。
+ * 输入框「表情 → 互动表情」面板（`resources/pokeemoji`）。
  *
  * **只做前端**：面板把「表情编号 + 连击次数」（戳一戳）或「faceId + 目录信息 +
  * 结果编号 innerId」（随机表情）编成一枚元素 token 交回上层（`onSend` /
@@ -21,7 +21,7 @@
 
 import { useState } from 'react';
 import type { RefObject } from 'react';
-import { Hand, SendHorizontal, Sparkles, Vibrate, X } from 'lucide-react';
+import { Hand, SendHorizontal, Sparkles, X } from 'lucide-react';
 import { FaceEmoji } from '../../components/FaceEmoji';
 import { emojiUrl, resourceUrl } from '../../lib/resourceUrl';
 import {
@@ -118,7 +118,6 @@ export function PokeEmojiPanel({
   onSend,
   randomFaces = [],
   onSendRandom,
-  onWindowShake,
   onClose,
 }: {
   panelRef?: RefObject<HTMLDivElement | null>;
@@ -129,7 +128,6 @@ export function PokeEmojiPanel({
   /** 可指定结果的随机表情（来自本地资源）；缺省时不渲染这一段。 */
   randomFaces?: RandomFaceOption[];
   onSendRandom?: (draft: RandomFaceDraft) => void;
-  onWindowShake?: () => void;
   onClose: () => void;
 }) {
   const [mode, setMode] = useState<Mode>('poke');
@@ -325,18 +323,6 @@ export function PokeEmojiPanel({
       </div>
 
       <footer className={cn('poke-foot')}>
-        {onWindowShake ? (
-          <button
-            type="button"
-            className={cn('poke-btn')}
-            title={disabled ? disabledHint : '窗口抖动'}
-            disabled={disabled}
-            onClick={onWindowShake}
-          >
-            <Vibrate size={15} />
-            窗口抖动
-          </button>
-        ) : null}
         <span className={cn('poke-hint')}>
           {disabled ? (
             disabledHint

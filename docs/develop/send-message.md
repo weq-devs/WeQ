@@ -403,7 +403,6 @@ uid 的宽松度分两档：**纯文本私聊不强制 uid**（陌生人也能�
 | 语音（`sendVoice` → `sendMedia`） | ✅ grpTmp | 本次接线（录音与 TTS 同一入口） |
 | 文件（`sendFile`）/ 闪传 | ❌ 直接提示不支持 | 私聊文件走 `trans0x211`，临时会话的对应管线未知 |
 | 合并转发 / Ark 卡片 / 推荐卡片 / 位置卡片 | ❌ 仍走 c2c | 这些入口没传 `tempGroupCode`（要接就把参数透到各自的 `sendElements`） |
-| 窗口抖动（`sendWindowShake`） | ❌ 仍走 c2c | `poke` 元素服务端只收直接私聊；按钮目前仍会显示 |
 
 这套临时会话路由**尚未真机验证**（协议层离线单测已覆盖），发一条后要看回执 `scene`
 是否为 `group-temp`、`privateSequence` 是否非 0。
@@ -417,12 +416,12 @@ MCP 四个发送工具（`send_text_message` / `send_media_message` / `send_file
 
 同样在真机联调期临时开放的还有两个**轻互动**工具（真实副作用，同样应恢复
 `assistantOnly`）：`send_poke`（戳一戳）与 `set_message_reaction`（贴 / 撤表情回应）。
-它们**不是消息**，走的是独立 OIDB，与上表的 `poke` 元素（窗口抖动）是两回事：
+它们**不是消息**，走的是独立 OIDB，与 `pokeEmoji` 互动表情消息元素是两回事：
 
 | 能力 | 协议 | SSO | 说明 |
 | --- | --- | --- | --- |
 | 戳一戳 | 0xED3_1 | `OidbSvcTrpcTcp.0xed3_1` | 群聊戳成员 / 私聊戳对方，收端是「戳一戳」灰条 |
-| 窗口抖动 | 0xED3 之外的 PbSendMsg | `MessageSvc.PbSendMsg` | 私聊消息里的 `commonElem svc 2` 元素，只能私聊且独占一条 |
+| 戳一戳互动表情 | PbSendMsg | `MessageSvc.PbSendMsg` | `commonElem svc 2`，通过 `pokeEmoji` 发送；不再提供独立窗口抖动入口或 `poke` 别名 |
 | 贴 / 撤表情回应 | 0x9082_1 / 0x9082_2 | `OidbSvcTrpcTcp.0x9082_N` | 群消息上的表情回应；`code` ≤3 位 = 小黄脸 id，>3 位 = Unicode 码点 |
 | 查某表情的回应人 | 0x9083_1 | `OidbSvcTrpcTcp.0x9083_1` | 单个表情的回应人列表，带续传 cookie 可分页；协议层 `oidb/get-emoji-likes.ts` |
 

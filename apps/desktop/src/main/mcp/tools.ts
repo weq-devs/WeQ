@@ -4245,7 +4245,7 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'send_rich_message',
     description:
-      '给群聊或私聊发送【任意元素组合】的消息（表情/商城表情/引用/@/markdown/XML 卡片/JSON(Ark) 卡片/合并转发卡片/窗口抖动）。' +
+      '给群聊或私聊发送【任意元素组合】的消息（表情/商城表情/引用/@/markdown/XML 卡片/JSON(Ark) 卡片/合并转发卡片/互动表情）。' +
       '文本、图片、语音、视频用更省事的 send_text_message / send_media_message，本工具是其余类型的入口。' +
       '⚠️ 真实发送，不能撤回；需要 QQ 在线。' +
       '\n【elements 写法】JSON 数组文本，每项必须有 kind：' +
@@ -4258,8 +4258,7 @@ export const AI_TOOLS: AiTool[] = [
       '　⚠️ 引用指针 origMsgSeq 群聊填群内 seq、**私聊填被引用消息的 clientSeq**（列 40005，' +
       'get_messages 开 includeIds=true 会给）；私聊填会话级 msgSeq 会定位不到原消息' +
       '\n  {"kind":"markdown","markdownContent":"**加粗**"}　{"kind":"xml","xmlContent":"<msg ...>"}　{"kind":"ark","arkData":"{...}"}' +
-      '\n  {"kind":"forward","resId":"<已有长消息的 resid>"}　{"kind":"poke","subType":1}（窗口抖动，只能私聊且必须独占一条；' +
-      '可选 "combo":0~3 = 连击次数，缺省 0）' +
+      '\n  {"kind":"forward","resId":"<已有长消息的 resid>"}' +
       '\n  {"kind":"pokeEmoji","pokeId":3,"combo":1}（戳一戳互动表情：pokeId 0~6、combo 0~3，群聊/私聊都能发）' +
       '\n  {"kind":"emojiBounce","faceId":182,"count":10,"name":"笑哭"}（表情弹射：表情「弹进」聊天窗口；' +
       'faceId 是小黄脸 id，count 是弹射个数，name 不带斜杠。真机验证可用）' +
@@ -4381,9 +4380,8 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '【戳一戳】（OIDB 0xED3_1）—— 群聊里戳某个成员，或私聊戳对方，会在会话里留下一条「戳一戳」灰条。' +
       '⚠️ 真实发送，不能撤回；需要该账号 QQ 在线。' +
-      '\n【和窗口抖动的区别】窗口抖动是**私聊消息**里的一个元素（只能私聊、必须独占一条），' +
-      '用 send_rich_message 发 {"kind":"poke","subType":1}；' +
-      '本工具是聊天窗口里那个「戳一戳」，群聊/私聊都能用，收端显示成灰条而不是抖动。' +
+      '\n【和互动表情的区别】互动表情用 send_rich_message 发 {"kind":"pokeEmoji","pokeId":1}；' +
+      '本工具发送的是「戳一戳」灰条，不是表情消息。' +
       '\n【目标怎么写】peerType=group 时 targetId 传群号，targetUin 传被戳成员 QQ 号（不传 = 戳群）；' +
       'peerType=c2c 时 targetId 传对方 QQ 号或 uid（不传 targetUin = 戳对方）。' +
       '\n【结果怎么看】成功没有回执内容（服务端回空 ack）；失败会抛错误。' +

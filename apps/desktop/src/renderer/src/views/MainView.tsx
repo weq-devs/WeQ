@@ -1509,7 +1509,7 @@ function optimisticArkToTemplate(
 
 /**
  * 一条「乐观渲染」的普通消息（文本 / @ / 表情 / 图片 / 视频 / 语音 / 文件 / 引用 /
- * 弹射表情 / 窗口抖动…）—— 与 {@link OptimisticArk} 同一套做法。
+ * 弹射表情 / 互动表情…）—— 与 {@link OptimisticArk} 同一套做法。
  *
  * 发出去之后不等 QQ 同步回来，先在目标会话里按真实气泡渲染出这条消息 + 状态标识；
  * 本地媒体走 `localPath` / `localPreviewUrl` 直接预览。只活在前端 state 里，不写库、
@@ -1810,9 +1810,6 @@ const RENDERABLE_ELEMENT_TYPES = new Set<string>([
   'emojiBounce',
   'qqDynamic',
   'shareLocation',
-  // 私聊「窗口抖动」的乐观渲染元素（WeQ 自己的内部 kind —— 收端 QQ 会丢弃
-  // serviceType=2，所以只在发送方本地短暂存在；见 QqMessageContent 的 windowShake 分支）。
-  'windowShake',
   // Gray tips that carry no gray-tip fields: FILE (subType=10) reuses the FILE
   // tag block, AIO_OP (subType=15) only names the group a temp session came from.
   'grayTipFileRecv',
@@ -8620,12 +8617,6 @@ export function MainView(): ReactElement {
   }
 
   /**
-   * 私聊「窗口抖动」—— 直接接 protocol：`account.sendWindowShake` 走
-   * `MessageSvc.PbSendMsg` 的 `commonElem serviceType=2` 元素（见
-   * `MessageSendService.sendWindowShake`）。群聊没有这个能力，按钮已经在
-   * ChatPane 里按会话类型藏掉了，这里再兜一层。
-   */
-  /**
    * 发起语音通话。
    *
    * 只有私聊：群通话要先进群房间再邀请（OIDB 4752/4753/4754），与私聊不是同一条
@@ -8659,70 +8650,6 @@ export function MainView(): ReactElement {
       pushToast({ tone: 'error', message: '无法发起通话', detail: reason });
       throw error;
     }
-  }
-
-  async function sendWindowShake(conversation: Extract<Conversation, { type: 'direct' }>) {
-    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
-      pushToast({
-        tone: 'warning',
-        message: 'QQ 未在线或处于完全离线模式',
-        detail: '窗口抖动需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
-      });
-      throw new Error('qq offline');
-    }
-
-    // 优先给 QQ 号：服务层会顺手补上 uid 一起写进 routingHead，本地 uid 目录里没有
-    // 这个人时也照样发得出去；连 QQ 号都拿不到（只有 uid）才退回 uid 反查。
-    const other = conversation.otherUser;
-    const targetId = /^\d+$/.test(other.identityValue) ? other.identityValue : other.id;
-
-    // 乐观渲染：窗口抖动是**自己发出的一条消息**（戳一戳超级表情），第一时间插到
-    // 会话末尾；由 QqMessageContent 认领 `windowShake` 元素渲染。
-    const optimisticId = `optimistic-${mfId('ws')}`;
-    setOptimisticMessages((current) => [
-      ...current,
-      {
-        id: optimisticId,
-        convId: conversation.id,
-        body: '[窗口抖动]',
-        afterSeq: outgoingAfterSeq(conversation.id),
-        elements: [{ type: 'windowShake', data: {} }],
-        state: 'sending',
-        at: Date.now(),
-      },
-    ]);
-    const patchOptimistic = (next: Partial<OptimisticMessage>): void =>
-      setOptimisticMessages((current) =>
-        current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
-      );
-
-    let outcome: Awaited<ReturnType<typeof client.account.sendWindowShake.mutate>>;
-    try {
-      outcome = await client.account.sendWindowShake.mutate({ targetId });
-    } catch (error) {
-      // 传输层异常（离线 / 风控 / 原生失败）走这里：弹一次提示再抛，让 ChatPane 收尾。
-      const reason = error instanceof Error ? error.message : String(error);
-      patchOptimistic({ state: 'failed', error: reason });
-      pushToast({
-        tone: 'error',
-        message: '窗口抖动发送失败',
-        detail: reason,
-      });
-      throw error;
-    }
-
-    // 服务端明确拒绝（result != 0）不抛传输异常，只能靠回执判断 —— 不把「调用了」当「发成功」。
-    if (!outcome.ok) {
-      const reason = outcome.errMsg || outcome.hint || '服务端拒绝了这条消息';
-      patchOptimistic({ state: 'failed', error: reason });
-      pushToast({
-        tone: 'error',
-        message: '窗口抖动发送失败',
-        detail: reason,
-      });
-      throw new Error(reason);
-    }
-    patchOptimistic({ ...expectedKeysOf(outcome), state: 'sent' });
   }
 
   /**
@@ -10108,7 +10035,6 @@ export function MainView(): ReactElement {
                             });
                             return result.members.map(mapGroupMemberWire);
                           }}
-                          onSendWindowShake={sendWindowShake}
                           onStartCall={startVoiceCall}
                           onSendArk={sendArkCard}
                           arkLocation={arkLocation}

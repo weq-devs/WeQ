@@ -5169,23 +5169,9 @@ export const accountRouter = router({
   }),
 
   /**
-   * 私聊「窗口抖动」—— 一条独立的消息，不跟正文 / 引用一起发。
-   *
-   * 走 `MessageSvc.PbSendMsg` 的 `poke` 元素（`commonElem serviceType=2`），
-   * 见 `MessageSendService.sendWindowShake`。**群聊没有这个能力**（服务端只认私聊），
-   * 所以这里不收 peerType，目标一律按私聊解析。
-   */
-  sendWindowShake: procedure
-    .input(z.object({ targetId: z.string().min(1) }))
-    .mutation(async ({ input }) => {
-      requireQqOnlineForAlbum();
-      return requireServices().messageSend.sendWindowShake({ targetId: input.targetId });
-    }),
-
-  /**
    * 发消息主链路：一条消息的元素数组。
    *
-   * 文本 / @ / 表情 / 超级表情 / 商城表情 / 引用 / 窗口抖动 / 弹射表情，以及
+   * 文本 / @ / 表情 / 超级表情 / 商城表情 / 引用 / 互动表情 / 弹射表情，以及
    * **图片 / 语音 / 视频**（媒体元素在服务层真实上传 NTV2）都走这里。
    * 元素形状见 @weq/service 的 `SendElement`：媒体元素的 `source` 是本机绝对路径
    * （优先）或字节（剪贴板等无路径来源）。字节以 `{ type:'Buffer', data }` 过 IPC，

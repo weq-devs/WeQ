@@ -85,7 +85,6 @@ export function ChatMainContent({
   onRepeatMessage,
   onResolveMentions,
   onSearchMentionMembers,
-  onSendWindowShake,
   onStartCall,
   onSendArk,
   arkLocation,
@@ -189,8 +188,6 @@ export function ChatMainContent({
     conversation: Conversation,
   ) => Promise<RepeatElement[]>;
   onSearchMentionMembers?: (query: string, conversation: Conversation) => Promise<GroupMember[]>;
-  /** 私聊「窗口抖动」；群聊不传（按钮整个不渲染）。 */
-  onSendWindowShake?: (conversation: Extract<Conversation, { type: 'direct' }>) => Promise<void>;
   /** 发起语音通话（仅私聊）。 */
   onStartCall?: (
     conversation: Extract<Conversation, { type: 'direct' }>,
@@ -363,7 +360,6 @@ export function ChatMainContent({
       onRepeatMessage={onRepeatMessage}
       onResolveMentions={onResolveMentions}
       onSearchMentionMembers={onSearchMentionMembers}
-      onSendWindowShake={onSendWindowShake}
       onStartCall={onStartCall}
       onSendArk={onSendArk}
       arkLocation={arkLocation}

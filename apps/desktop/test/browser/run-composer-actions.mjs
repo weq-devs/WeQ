@@ -99,6 +99,14 @@ try {
     await page.getByRole('menuitem', { name: '互动表情', exact: true }).click();
     const panel = page.getByRole('dialog', { name: '互动表情', exact: true });
     await panel.waitFor();
+    assert(
+      (await panel.getByRole('button', { name: '窗口抖动', exact: true }).count()) === 0,
+      'Removed window shake action is still visible',
+    );
+    assert(
+      await panel.getByRole('button', { name: '戳一下', exact: true }).isVisible(),
+      'Interactive emoji send action is missing',
+    );
     await page.waitForFunction(() => {
       const panel = document.querySelector('.poke-panel');
       return (
