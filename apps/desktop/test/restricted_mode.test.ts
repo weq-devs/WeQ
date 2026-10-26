@@ -449,6 +449,40 @@ describe('受限模式启动 QQ', () => {
 });
 
 describe('非阻塞提权入口', () => {
+  it('重新检查与提权共用一行操作区，多项授权时只显示一次且不提交表单', async () => {
+    const f = fixture();
+    event('elev:request-password', { token: 41 });
+    event('attach:confirm-hint', { token: 42 });
+    act(() => useRestrictedMode.getState().setOpen(true));
+    const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('button')].filter(
+      (button) => button.textContent === '重新检查',
+    );
+    expect(buttons).toHaveLength(1);
+    const row = buttons[0]!.closest('.weq-restricted-actions')!;
+    expect(row.querySelector('[type="submit"]')?.textContent).toBe('提权');
+    expect(row.closest('form')).not.toBeNull();
+    await act(async () => buttons[0]!.click());
+    expect(mock.refetch).toHaveBeenCalled();
+    expect(mock.send).not.toHaveBeenCalled();
+    expect(useRestrictedMode.getState().requests).toHaveLength(2);
+  });
+  it.each(['elev:request-password', 'attach:confirm-hint'])(
+    '授权表单不显示取消按钮，仍可提交密码或免密重试：%s',
+    (channel) => {
+      const f = fixture();
+      event(channel, { token: 41 });
+      act(() => useRestrictedMode.getState().setOpen(true));
+      const form = f.host.querySelector('form')!;
+      const buttons = [...form.querySelectorAll('button')];
+      expect(buttons.some((button) => button.textContent === '取消本次授权')).toBe(false);
+      expect(form.querySelector<HTMLButtonElement>('[type="submit"]')?.disabled).toBe(true);
+      expect(buttons.some((button) => button.textContent === '重试免密读取')).toBe(
+        channel === 'attach:confirm-hint',
+      );
+      expect(useRestrictedMode.getState().requests).toHaveLength(1);
+      expect(mock.send).not.toHaveBeenCalled();
+    },
+  );
   it.each(['elev:request-password', 'attach:confirm-hint'])(
     '右下角已解决横幅在宿主重建后也自动消失，不清理其他错误：%s',
     async (channel) => {

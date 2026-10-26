@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { KeyRound, LoaderCircle, Play, RefreshCw, ShieldAlert, ShieldCheck, X } from 'lucide-react';
 import { requestOpenSettings } from '../lib/callSettingsBridge';
 import { client, trpc } from '../trpc/client';
@@ -104,7 +104,13 @@ export function cancelAuthorizationRequest(request: AuthorizationRequest): void 
   useRestrictedMode.getState().remove(request.kind, request.token);
 }
 
-export function AuthorizationForm({ request }: { request: AuthorizationRequest }) {
+export function AuthorizationForm({
+  request,
+  actions,
+}: {
+  request: AuthorizationRequest;
+  actions?: ReactNode;
+}) {
   const [password, setPassword] = useState('');
   const id = useId();
   function respond(cancel = false, retry = false) {
@@ -162,9 +168,6 @@ export function AuthorizationForm({ request }: { request: AuthorizationRequest }
             重试免密读取
           </button>
         )}
-        <button type="button" className="weq-set-btn" onClick={() => respond(true)}>
-          取消本次授权
-        </button>
         {window.weq?.authorization && !request.title.includes('长期授权') && (
           <button
             type="button"
@@ -179,6 +182,7 @@ export function AuthorizationForm({ request }: { request: AuthorizationRequest }
             管理长期授权
           </button>
         )}
+        {actions}
       </div>
     </form>
   );
@@ -494,6 +498,46 @@ export function RestrictedModeHost() {
       }
     }
   }
+  const actions = (
+    <>
+      {reasons.some((reason) => reason.code === 'offline') && (
+        <button
+          type="button"
+          className="weq-set-btn"
+          disabled={busy || launching}
+          aria-busy={launching}
+          onClick={() => void startQq()}
+        >
+          {launching ? (
+            <LoaderCircle size={14} className="weq-restricted-progress-icon" />
+          ) : (
+            <Play size={14} />
+          )}
+          {launching ? '正在启动 QQ' : '启动 QQ'}
+        </button>
+      )}
+      <button
+        type="button"
+        className="weq-set-btn"
+        disabled={busy || launching}
+        onClick={() => void refresh()}
+      >
+        <RefreshCw size={14} />
+        {busy ? '正在检查' : '重新检查'}
+      </button>
+      {reasons.some((r) => r.code === 'disabled') && (
+        <button
+          type="button"
+          className="weq-set-btn"
+          disabled={busy || launching}
+          onClick={() => void refresh(true)}
+        >
+          <KeyRound size={14} />
+          启用完整功能
+        </button>
+      )}
+    </>
+  );
   return (
     <>
       {!active && <RestrictedModeIndicator startup />}
@@ -536,48 +580,15 @@ export function RestrictedModeHost() {
                   <p>{reason.guidance}</p>
                 </div>
               ))}
-            {requests.map((request) => (
-              <AuthorizationForm key={`${request.kind}:${request.token}`} request={request} />
+            {requests.map((request, index) => (
+              <AuthorizationForm
+                key={`${request.kind}:${request.token}`}
+                request={request}
+                actions={index === requests.length - 1 ? actions : undefined}
+              />
             ))}
             {error && <p role="alert">{error}</p>}
-            <div className="weq-restricted-actions">
-              {reasons.some((reason) => reason.code === 'offline') && (
-                <button
-                  type="button"
-                  className="weq-set-btn"
-                  disabled={busy || launching}
-                  aria-busy={launching}
-                  onClick={() => void startQq()}
-                >
-                  {launching ? (
-                    <LoaderCircle size={14} className="weq-restricted-progress-icon" />
-                  ) : (
-                    <Play size={14} />
-                  )}
-                  {launching ? '正在启动 QQ' : '启动 QQ'}
-                </button>
-              )}
-              <button
-                type="button"
-                className="weq-set-btn"
-                disabled={busy || launching}
-                onClick={() => void refresh()}
-              >
-                <RefreshCw size={14} />
-                {busy ? '正在检查' : '重新检查'}
-              </button>
-              {reasons.some((r) => r.code === 'disabled') && (
-                <button
-                  type="button"
-                  className="weq-set-btn"
-                  disabled={busy || launching}
-                  onClick={() => void refresh(true)}
-                >
-                  <KeyRound size={14} />
-                  启用完整功能
-                </button>
-              )}
-            </div>
+            {!awaitingAuthorization && <div className="weq-restricted-actions">{actions}</div>}
           </div>
         </section>
       )}
