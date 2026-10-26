@@ -140,10 +140,7 @@ export async function openLongTermAuthorization(): Promise<{
         'component-expired',
       );
     const development = await configuration.development?.();
-    if (
-      (development === true && info.development !== true) ||
-      (development === false && info.development === true)
-    )
+    if (development !== undefined && info.development !== development)
       throw new AuthorizationError('权限助手的开发/正式通道不匹配', 'incompatible');
     // 普通 app/.node 更新不使兼容的系统授权失效。
     return { connection, info };

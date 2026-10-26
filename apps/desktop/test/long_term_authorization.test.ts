@@ -25,6 +25,7 @@ async function fixture({
   capabilities = ['attach', 'key-scan', 'capture'],
   validity = 'valid',
   development = false,
+  omitDevelopment = false,
   expectedDevelopment = undefined as boolean | undefined,
 } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'weq-authorization-client-'));
@@ -61,7 +62,13 @@ async function fixture({
           );
         const result =
           request.op === 'status'
-            ? { protocol, build: 'older-compatible-build', capabilities, validity, development }
+            ? {
+                protocol,
+                build: 'older-compatible-build',
+                capabilities,
+                validity,
+                development: omitDevelopment ? undefined : development,
+              }
             : request.op === 'attach'
               ? { a2: 'aabb', d2: 'ccdd', d2Key: '22'.repeat(16) }
               : request.op === 'key-scan'
@@ -90,6 +97,12 @@ async function fixture({
   return { directory, requests };
 }
 describe('原生权限助手客户端', () => {
+  it('有明确宿主通道时不把缺失通道标识的服务当成正式助手', async () => {
+    const data = await fixture({ expectedDevelopment: false, omitDevelopment: true });
+    await expect(openLongTermAuthorization()).rejects.toMatchObject({ code: 'incompatible' });
+    expect(await tryLongTermAttach(123)).toBeNull();
+    expect(data.requests.some((request) => request.op === 'attach')).toBe(false);
+  });
   it.each([
     [false, true],
     [true, false],
