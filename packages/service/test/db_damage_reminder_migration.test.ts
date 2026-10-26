@@ -97,10 +97,39 @@ describe('UserConfigService 启动时的迁移', () => {
     expect(readConfig(dir).dbDamageReminderPolicyVersion).toBe(DB_DAMAGE_REMINDER_POLICY_VERSION);
   });
 
-  it('config.json 损坏也不会让启动出事（迁移失败只是"下次再试"）', () => {
+  it.each(['{not json', 'null', '[]'])(
+    '无效配置 %s 不影响启动，迁移和设置写入都保留原件',
+    (raw) => {
+      const dir = tmpDir();
+      const configPath = join(dir, 'config.json');
+      writeFileSync(configPath, raw, 'utf-8');
+      const service = new UserConfigService(fakePlatform(dir));
+      expect(service.getSettings().suppressDbDamageReminder).toBe(false);
+      expect(readFileSync(configPath, 'utf-8')).toBe(raw);
+      expect(() => service.setSettings({ preferCdn: true })).toThrow('已保留原件并阻止覆盖');
+      expect(readFileSync(configPath, 'utf-8')).toBe(raw);
+    },
+  );
+
+  it('损坏配置修复后须重新加载才能写入，重启后可补做迁移', () => {
     const dir = tmpDir();
     writeFileSync(join(dir, 'config.json'), '{not json', 'utf-8');
-    expect(() => new UserConfigService(fakePlatform(dir))).not.toThrow();
+    const service = new UserConfigService(fakePlatform(dir));
+    const repaired: UserConfig = {
+      settings: { suppressDbDamageReminder: true, preferCdn: true },
+    };
+    writeConfig(dir, repaired);
+    expect(() => service.setSettings({ preferCdn: false })).toThrow('已保留原件并阻止覆盖');
+    expect(readConfig(dir)).toEqual(repaired);
+
+    service.reload();
+    expect(service.getSettings().preferCdn).toBe(true);
+    service.setSettings({ preferCdn: false });
+    expect(readConfig(dir).settings?.preferCdn).toBe(false);
+
+    const restarted = new UserConfigService(fakePlatform(dir));
+    expect(restarted.getSettings().suppressDbDamageReminder).toBe(false);
+    expect(restarted.getSettings().preferCdn).toBe(false);
     expect(readConfig(dir).dbDamageReminderPolicyVersion).toBe(DB_DAMAGE_REMINDER_POLICY_VERSION);
   });
 });

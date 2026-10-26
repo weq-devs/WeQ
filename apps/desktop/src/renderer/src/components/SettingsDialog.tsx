@@ -173,7 +173,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     icon: <Users size={16} />,
     render: () => (
       <div className="weq-set" data-setting-id="qq-accounts">
-        <SectionHeader title="QQ 账号管理" />
+        <SectionHeader title="QQ 账号管理" icon={<Users size={16} strokeWidth={1.8} />} />
         <LoginAccountPanel />
       </div>
     ),
@@ -238,7 +238,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     icon: <ScanSearch size={16} />,
     render: (onOpen) => (
       <div className="weq-set">
-        <SectionHeader title="诊断工具" />
+        <SectionHeader title="诊断工具" icon={<ScanSearch size={16} strokeWidth={1.8} />} />
         <div className="weq-maintenance-list">
           <button
             type="button"
@@ -363,7 +363,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => (
       <>
         <div className="weq-set">
-          <SectionHeader title="WeQ 存储管理" />
+          <SectionHeader title="WeQ 存储管理" icon={<HardDrive size={16} strokeWidth={1.8} />} />
         </div>
         <GlobalSettingsSection section="saving" heading={false} />
         <GlobalSettingsSection section="storage" heading={false} />
@@ -562,7 +562,10 @@ export function SettingsDialog({
                     {active.id === 'chat-messages' ? (
                       <>
                         <div className="weq-set">
-                          <SectionHeader title="聊天消息" />
+                          <SectionHeader
+                            title="聊天消息"
+                            icon={<Monitor size={16} strokeWidth={1.8} />}
+                          />
                         </div>
                         <AccountBasicsSection page="read" heading={false} />
                         <TypingStatusSettingsCard />
@@ -600,7 +603,7 @@ function ModelUsageSection(): ReactElement {
   const names = new Map((personas.data ?? []).map((persona) => [persona.id, persona.name]));
   return (
     <div className="weq-settings-model-usage">
-      <SectionHeader title="API 用量" />
+      <SectionHeader title="API 用量" icon={<Activity size={16} strokeWidth={1.8} />} />
       <UsagePanel
         personaCount={names.size}
         resolveName={(id) => names.get(id) ?? '已删除的克隆'}

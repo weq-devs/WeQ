@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BarChart3, FolderOpen, Trash2 } from 'lucide-react';
+import { BarChart3, FolderOpen, HardDrive, Trash2 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
 import { RetainedTabs, TabActivity, useTabActive } from '../RetainedTabs';
@@ -31,7 +31,7 @@ export function ResourceManagementSection() {
       : null;
   return (
     <div className="weq-set weq-resources-settings">
-      <SectionHeader title="资源目录管理" />
+      <SectionHeader title="资源目录管理" icon={<HardDrive size={16} strokeWidth={1.8} />} />
       {account.error ? (
         <QueryError
           message={account.error.message}
