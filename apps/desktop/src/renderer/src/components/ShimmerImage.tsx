@@ -12,7 +12,6 @@
 import {
   useEffect,
   useLayoutEffect,
-  useRef,
   useState,
   type ImgHTMLAttributes,
   type ReactElement,
@@ -30,7 +29,7 @@ export function ShimmerImage({
   ...rest
 }: ImgHTMLAttributes<HTMLImageElement> & { suspendOffscreen?: boolean }): ReactElement {
   const [loaded, setLoaded] = useState(false);
-  const imgRef = useRef<HTMLImageElement | null>(null);
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
   const ownerDocument = useRenderDocument();
   const tabActive = useTabActive();
   const [visible, setVisible] = useState(false);
@@ -40,7 +39,6 @@ export function ShimmerImage({
   const enabled = !suspendOffscreen || (tabActive && visible);
 
   useEffect(() => {
-    const image = imgRef.current;
     if (!suspendOffscreen || !image) return;
     if (!tabActive) {
       setVisible(false);
@@ -53,7 +51,8 @@ export function ShimmerImage({
     const update = () => {
       if (!disposed) setVisible(intersecting && doc.visibilityState !== 'hidden');
     };
-    update();
+    // 更换加载节点时保留可见性，等新节点的观察结果；不能先置 false 造成反复挂载。
+    if (!Observer || doc.visibilityState === 'hidden') update();
     const observer = Observer
       ? new Observer(
           (entries) => {
@@ -70,21 +69,23 @@ export function ShimmerImage({
       observer?.disconnect();
       doc.removeEventListener('visibilitychange', update);
     };
-  }, [suspendOffscreen, tabActive, ownerDocument]);
+  }, [suspendOffscreen, tabActive, ownerDocument, image]);
 
   // src 变化（首次挂载 / 失败回退换源）时重置；已缓存完成的直接显示，避免闪一下。
   useLayoutEffect(() => {
     setLoaded(false);
-    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
+    if (image?.complete && image.naturalWidth > 0) {
       setLoaded(true);
     }
-  }, [src]);
+  }, [src, image]);
 
   return (
     <>
       {enabled && !loaded ? <span className="weq-shimmer-block" aria-hidden /> : null}
       <img
-        ref={imgRef}
+        // 暂停和换源使用独立节点，旧请求（含移除 src）的迟到事件不能触发当前回退。
+        key={JSON.stringify(enabled ? [src, rest.srcSet] : null)}
+        ref={setImage}
         className={className}
         alt={alt}
         onLoad={(event) => {

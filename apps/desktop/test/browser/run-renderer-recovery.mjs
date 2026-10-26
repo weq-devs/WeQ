@@ -60,6 +60,28 @@ try {
   await page.waitForFunction(() => !document.querySelector('img')?.hasAttribute('src'));
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForFunction(() => document.querySelector('img')?.naturalWidth === 640);
+  const rapidScrollRounds = 25;
+  for (let round = 0; round < rapidScrollRounds; round++) {
+    await page.evaluate(() => {
+      window.previousMediaImage = document.querySelector('img');
+      window.scrollTo(0, 1700);
+    });
+    await page.waitForFunction(() => !document.querySelector('img')?.hasAttribute('src'));
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForFunction(() => document.querySelector('img')?.naturalWidth === 640);
+    // 用旧节点补发迟到事件，模拟暂停加载的回调在恢复后才送达。
+    await page.evaluate(() => {
+      window.previousMediaImage.dispatchEvent(new Event('error'));
+      window.previousMediaImage.dispatchEvent(new Event('load'));
+      delete window.previousMediaImage;
+    });
+    await page.waitForFunction(() => document.querySelector('img')?.naturalWidth === 640);
+    if (await page.locator('[data-media-missing]').count())
+      throw new Error('Stale image event triggered permanent fallback');
+    const restoredSize = await page.locator('img').boundingBox();
+    if (JSON.stringify(size) !== JSON.stringify(restoredSize))
+      throw new Error('Rapid scrolling changed image layout');
+  }
   await page.getByRole('button', { name: '触发异常' }).click();
   await page.getByRole('alert').waitFor();
   const output = process.env.WEQ_RECOVERY_ARTIFACTS;
@@ -99,6 +121,7 @@ try {
       imageSize: size,
       hiddenSourceReleased: true,
       offscreenSourceReleased: true,
+      rapidScrollRounds,
       recoveryLayouts: 4,
       errors,
     }),

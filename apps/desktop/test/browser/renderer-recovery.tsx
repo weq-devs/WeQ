@@ -18,6 +18,7 @@ const src = canvas.toDataURL();
 function Fixture() {
   const [active, setActive] = useState(true);
   const [failed, setFailed] = useState(false);
+  const [mediaFailed, setMediaFailed] = useState(false);
   if (failed) throw new Error('synthetic-render-failure');
   return (
     <>
@@ -29,7 +30,17 @@ function Fixture() {
       </button>
       <TabActivity active={active}>
         <div data-media style={{ position: 'relative', width: 200, height: 150 }}>
-          <ShimmerImage suspendOffscreen src={src} style={{ maxWidth: 200, maxHeight: 150 }} />
+          {mediaFailed ? (
+            <span data-media-missing>未找到该图片</span>
+          ) : (
+            <ShimmerImage
+              suspendOffscreen
+              src={src}
+              alt="[图片]"
+              style={{ maxWidth: 200, maxHeight: 150 }}
+              onError={() => setMediaFailed(true)}
+            />
+          )}
         </div>
       </TabActivity>
       <div style={{ height: 2200 }} />
