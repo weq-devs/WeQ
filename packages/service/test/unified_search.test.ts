@@ -2,6 +2,7 @@ import type { AccountSession } from '@weq/account';
 import type { BuddyMsgFtsHit } from '@weq/db';
 import { describe, expect, it, vi } from 'vitest';
 import { UnifiedSearchService, type SearchCategory } from '../src/account/unified_search';
+import type { ContentSearchHit } from '../src/account/content_search';
 
 function fixture() {
   const emptyPage = () => Promise.resolve({ items: [], total: 0 });
@@ -15,6 +16,7 @@ function fixture() {
     async (): Promise<{ items: BuddyMsgFtsHit[]; total: number }> => ({ items: [], total: 0 }),
   );
   const session = {
+    guildDirectNodes: { listSessions: async () => [] },
     recentContacts: { searchByName: recent },
     profileInfo: { searchFriends: friends },
     groupMembers: { searchMembers: members },
@@ -42,6 +44,204 @@ function fixture() {
 }
 
 describe('全局搜索范围', () => {
+  it('频道联系人按频道节点独立保留，快速和更多采用相同筛选', async () => {
+    const f = fixture();
+    f.session.guildDirectNodes.listSessions = async () =>
+      [7n, 8n].map((nodeId) => ({
+        nodeId,
+        directGid: '',
+        lastTime: 1n,
+        lastSeq: 1n,
+        peerTinyId: 99n,
+        guildId: nodeId,
+        guildName: '合成频道',
+        nickChannel: '合成联系人',
+        nickGlobal: '',
+        preview: null,
+      }));
+    f.session.guildCommonProfiles = {
+      listByTinyIds: async () => [],
+    } as unknown as AccountSession['guildCommonProfiles'];
+    f.session.guildDirectMsgs = {
+      countAllByNode: async () => [],
+    } as unknown as AccountSession['guildDirectMsgs'];
+    const quick = await f.service.quickSearch('合成', 3, ['contact', 'group'], 'guild');
+    expect(quick.contacts?.map((hit) => hit.target)).toEqual([
+      { kind: 'guild', nodeId: '7' },
+      { kind: 'guild', nodeId: '8' },
+    ]);
+    expect(quick.groups).toEqual([]);
+    expect((await f.service.moreSearch('contact', '合成', 0, 3, 'guild')).items).toEqual(
+      quick.contacts,
+    );
+    expect(f.recent).not.toHaveBeenCalled();
+  });
+  it('仅频道范围将联系人与消息并入原分类，预览与更多不读取真实或克隆消息', async () => {
+    const f = fixture();
+    const guildHit: ContentSearchHit = {
+      category: 'guildMessage',
+      id: 'guild-hit',
+      target: { kind: 'guildMessage', nodeId: '7', msgId: '8', msgSeq: '9' },
+      title: '合成频道联系人',
+      content: '合成消息',
+      sourceName: '合成频道',
+      time: 1,
+      observedAt: 1,
+    };
+    const searchContent = vi.fn(() => ({
+      items: [guildHit],
+      total: 1,
+      coverage: { scope: 'local-database' as const, records: 1, limited: false, updatedAt: null },
+    }));
+    const service = new UnifiedSearchService(f.session, { searchContent });
+    const preview = await service.slowSearch('合成', 3, ['chatRecord'], 'guild');
+    expect(preview.messageHits).toEqual([guildHit]);
+    const page = await service.moreSearch('chatRecord', '合成', 0, 3, 'guild');
+    expect(page.items).toEqual([guildHit]);
+    expect(f.buddyRecords).not.toHaveBeenCalled();
+    expect(f.groupRecords).not.toHaveBeenCalled();
+    expect(searchContent).toHaveBeenCalledWith('guildMessage', '合成', 3, 0);
+    expect(await service.moreSearch('group', '合成', 0, 3, 'guild')).toMatchObject({
+      items: [],
+      total: 0,
+    });
+  });
+  it('文件范围同时检索消息附件和群文件缓存，按名称及时间统一分页', async () => {
+    const f = fixture();
+    f.groupFiles.mockResolvedValue({
+      items: [
+        {
+          msgId: 1n,
+          msgSeq: 1n,
+          targetUid: '10001',
+          senderUid: '',
+          chatType: 2,
+          fileName: '报告',
+          content: '',
+          sendTime: 20n,
+        },
+        {
+          msgId: 2n,
+          msgSeq: 2n,
+          targetUid: '10001',
+          senderUid: '',
+          chatType: 2,
+          fileName: '报告-消息',
+          content: '',
+          sendTime: 40n,
+        },
+      ],
+      total: 2,
+    });
+    const cached: ContentSearchHit[] = [
+      {
+        category: 'groupFile',
+        id: 'cached-exact',
+        target: { kind: 'groupFile', groupCode: '10001', folderId: '/nested', fileId: 'exact' },
+        title: '报告',
+        content: '',
+        sourceName: '合成群目录',
+        time: 30,
+        observedAt: 10,
+      },
+      {
+        category: 'groupFile',
+        id: 'cached-prefix',
+        target: { kind: 'groupFile', groupCode: '10001', folderId: '/', fileId: 'prefix' },
+        title: '报告-目录',
+        content: '',
+        sourceName: '合成群目录',
+        time: 50,
+        observedAt: 10,
+      },
+    ];
+    const coverage = { scope: 'observed-cache' as const, records: 2, limited: true, updatedAt: 10 };
+    const searchContent = vi.fn(
+      (_category: string, _keyword: string, limit: number, offset: number) => ({
+        items: cached.slice(offset, offset + limit),
+        total: cached.length,
+        coverage,
+      }),
+    );
+    const service = new UnifiedSearchService(f.session, { searchContent });
+    const preview = await service.slowSearch('报告', 3, ['file']);
+    expect(preview.contentHits).toEqual(cached);
+    expect(searchContent).toHaveBeenCalledWith('groupFile', '报告', 3, 0);
+    const pages = await Promise.all([
+      service.moreSearch('file', '报告', 0, 2),
+      service.moreSearch('file', '报告', 2, 2),
+    ]);
+    expect(pages.map((page) => [page.total, page.hasMore, page.limited])).toEqual([
+      [4, true, false],
+      [4, false, false],
+    ]);
+    expect(
+      pages.flatMap((page) =>
+        page.items.map((hit) => ('id' in hit ? hit.id : 'msgId' in hit ? hit.msgId : '')),
+      ),
+    ).toEqual(['cached-exact', '1', 'cached-prefix', '2']);
+    expect(pages[0]?.coverage).toEqual(coverage);
+    expect(pages[0]?.items[0]).toEqual(cached[0]);
+    searchContent.mockClear();
+    await service.slowSearch('报告', 3, []);
+    expect(searchContent).not.toHaveBeenCalled();
+  });
+
+  it('文件来源单独失败时保留另一来源结果，并标明失败来源', async () => {
+    const f = fixture();
+    f.groupFiles.mockResolvedValue({
+      items: [
+        {
+          msgId: 1n,
+          msgSeq: 1n,
+          targetUid: '10001',
+          senderUid: '',
+          chatType: 2,
+          fileName: '报告',
+          content: '',
+          sendTime: 20n,
+        },
+      ],
+      total: 1,
+    });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const service = new UnifiedSearchService(f.session, {
+        searchContent: () => {
+          throw new Error('合成目录失败');
+        },
+      });
+      const result = await service.slowSearch('报告', 3, ['file']);
+      expect(result.failedCategories).toEqual(['groupFile']);
+      expect(result.files).toHaveLength(1);
+      expect(result.files[0]?.msgId).toBe('1');
+      await expect(service.moreSearch('file', '报告', 0, 2)).rejects.toThrow('合成目录失败');
+      f.groupFiles.mockRejectedValue(new Error('合成消息索引失败'));
+      const cached: ContentSearchHit = {
+        category: 'groupFile',
+        id: 'cached-only',
+        target: { kind: 'groupFile', groupCode: '10001', folderId: '/', fileId: 'target' },
+        title: '报告',
+        content: '',
+        sourceName: '合成群目录',
+        time: 30,
+        observedAt: 10,
+      };
+      const directoryOnly = new UnifiedSearchService(f.session, {
+        searchContent: () => ({
+          items: [cached],
+          total: 1,
+          coverage: { scope: 'observed-cache', records: 1, limited: false, updatedAt: 10 },
+        }),
+      });
+      const fallback = await directoryOnly.slowSearch('报告', 3, ['file']);
+      expect(fallback.failedCategories).toEqual(['file']);
+      expect(fallback.contentHits).toEqual([cached]);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('文件精确名称优先于较新的包含命中，同档仍按时间排序', async () => {
     const f = fixture();
     f.groupFiles.mockResolvedValue({
@@ -72,7 +272,7 @@ describe('全局搜索范围', () => {
     const result = await f.service.moreSearch('file', '报告', 0, 10);
     expect(result.items.map((hit) => ('msgId' in hit ? hit.msgId : ''))).toEqual(['2', '1']);
   });
-  it('默认不扫描公共商城和生成对话，显式选择仍可检索', async () => {
+  it('默认包含助手和随会话范围合并的克隆消息，不扫描公共商城', async () => {
     const searchContent = vi.fn(
       async (_category: string, _keyword: string, _limit: number, _offset: number) => ({
         items: [],
@@ -93,7 +293,8 @@ describe('全局搜索范围', () => {
     });
     await service.slowSearch('needle');
     expect(searchContent.mock.calls.some(([category]) => category === 'marketEmoji')).toBe(false);
-    expect(generatedSources).not.toHaveBeenCalled();
+    expect(generatedSources).toHaveBeenCalled();
+    generatedSources.mockClear();
     await service.slowSearch('needle', 3, ['marketEmoji', 'cloneMessage']);
     expect(searchContent).toHaveBeenLastCalledWith('marketEmoji', 'needle', 3, 0);
     expect(generatedSources).toHaveBeenCalledOnce();

@@ -14,6 +14,7 @@
  */
 
 import type { AccountSession } from '@weq/account';
+import { recordMessagePartition, recordMessageWork } from '@weq/db';
 import type {
   C2cMsg,
   GroupMsg,
@@ -154,6 +155,7 @@ export interface RenderGroupMsg extends Omit<GroupMsg, 'elements'> {
 }
 
 export class MsgService {
+  private readonly deletionWrites = new Map<string, Promise<unknown>>();
   /**
    * `deleted` is the per-account {@link DeletedMsgStore}; omit it for contexts
    * that never delete (e.g. the export pipeline's private MsgService).
@@ -552,8 +554,7 @@ export class MsgService {
    * Reversibility lives in the {@link DeletedMsgStore}: the original 40011/40012
    * are remembered there per msgId (they vary by message kind — plain text is
    * 2/16, replies 9/…), which is also what distinguishes WeQ deletes from QQ's
-   * own recalls (both are `(1,1)` in the DB). Without a store this degrades to
-   * an irreversible-but-QQ-identical delete.
+   * own recalls (both are `(1,1)` in the DB). 恢复存储不可用时拒绝删除，不降级成不可恢复操作。
    *
    * Searches c2c → dataline → group and acts on whichever holds the row.
    * Returns true if a row was rewritten.
@@ -564,7 +565,30 @@ export class MsgService {
     conv: string,
     hidden = false,
   ): Promise<boolean> {
-    const previous = this.deleted?.get(msgId.toString());
+    return this.serializeDeletion(msgId, () => this.deleteMessageNow(msgId, kind, conv, hidden));
+  }
+
+  private async serializeDeletion<T>(msgId: bigint, write: () => Promise<T>): Promise<T> {
+    const key = msgId.toString();
+    const previous = this.deletionWrites.get(key) ?? Promise.resolve();
+    // 前一次失败不能阻止后续重试或恢复。
+    const pending = previous.catch(() => {}).then(write);
+    this.deletionWrites.set(key, pending);
+    try {
+      return await pending;
+    } finally {
+      if (this.deletionWrites.get(key) === pending) this.deletionWrites.delete(key);
+    }
+  }
+
+  private async deleteMessageNow(
+    msgId: bigint,
+    kind: 'c2c' | 'group',
+    conv: string,
+    hidden: boolean,
+  ): Promise<boolean> {
+    if (!this.deleted) throw new Error('删除恢复记录不可用，已阻止修改消息。');
+    const previous = this.deleted.get(msgId.toString());
     if (
       previous &&
       (previous.source === 'sent-cache' || previous.kind !== kind || previous.conv !== conv)
@@ -577,12 +601,19 @@ export class MsgService {
     ] as const) {
       const orig = await db.readMsgType(msgId);
       if (!orig) continue;
-      this.deleted?.add(msgId.toString(), {
-        origMsgType: previous?.origMsgType ?? orig.msgType.toString(),
-        origSubType: previous?.origSubType ?? orig.subType.toString(),
+      // await 期间可能已有同消息删除完成，不能用 (1,1) 覆盖首次保存的原始类型。
+      const current = this.deleted.get(msgId.toString());
+      if (
+        current &&
+        (current.source === 'sent-cache' || current.kind !== kind || current.conv !== conv)
+      )
+        return false;
+      this.deleted.add(msgId.toString(), {
+        origMsgType: current?.origMsgType ?? orig.msgType.toString(),
+        origSubType: current?.origSubType ?? orig.subType.toString(),
         kind,
         conv,
-        deletedAt: previous?.deletedAt ?? Math.floor(Date.now() / 1000),
+        deletedAt: current?.deletedAt ?? Math.floor(Date.now() / 1000),
         hidden,
       });
       return (await db.writeMsgType(msgId, DELETED_MSG_TYPE, DELETED_SUB_TYPE)) > 0;
@@ -596,6 +627,10 @@ export class MsgService {
    * deleted — including QQ's own recalls, which have no store record.
    */
   async restoreMessage(msgId: bigint): Promise<boolean> {
+    return this.serializeDeletion(msgId, () => this.restoreMessageNow(msgId));
+  }
+
+  private async restoreMessageNow(msgId: bigint): Promise<boolean> {
     const rec = this.deleted?.get(msgId.toString());
     if (!rec || rec.source === 'sent-cache') return false;
     for (const db of [
@@ -1147,6 +1182,7 @@ export class MsgService {
   private async enrichReplyMedia(msgs: ReplyBearer[], kind: 'c2c' | 'group'): Promise<void> {
     const pending = msgs.filter((m) => m.elements.some(isMediaLessReply));
     if (pending.length === 0) return;
+    const began = performance.now();
 
     try {
       const caches = await this.session.forwardMsgs.listForMessages(
@@ -1164,12 +1200,15 @@ export class MsgService {
       }
     } catch {
       /* keep the "[图片]" placeholder on any cache miss / decode error */
+    } finally {
+      recordMessageWork(this.session.msgDbPath, 'replyCache', performance.now() - began);
     }
   }
 
   /** Resolve a peer uid to its indexed partition (sortNo), else fall back to uid. */
   private c2cPartition(targetUid: string): C2cPartition {
     const sortNo = this.session.uidMap.sortNoByUid(targetUid);
+    recordMessagePartition(this.session.msgDbPath, sortNo !== undefined);
     return sortNo !== undefined ? { sortNo } : { uid: targetUid };
   }
 

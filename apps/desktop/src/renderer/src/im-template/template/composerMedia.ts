@@ -145,8 +145,8 @@ function readVideoMeta(url: string): Promise<{ width: number; height: number; du
 }
 
 /** 把一个本地文件包装成附件（图片 / 视频顺带读出尺寸、时长）。 */
-export async function createAttachment(file: File): Promise<ComposerAttachment> {
-  const kind = file.type ? classifyFile(file) : classifyByName(file.name);
+export async function createAttachment(file: File, sendAs?: 'file'): Promise<ComposerAttachment> {
+  const kind = sendAs ?? attachmentKindOf(file);
   const url = kind === 'file' ? null : URL.createObjectURL(file);
   const attachment: ComposerAttachment = {
     id: createMediaId('att'),

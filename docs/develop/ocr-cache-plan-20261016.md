@@ -1,5 +1,11 @@
 # 图片文字识别（OCR）结果缓存 —— 设计规划（2026-10-16）
 
+2026-10-26 现状说明：本页保留实施前的动机、伪代码和当时接线顺序，不把旧行号、
+“现在各跑一遍”或候选 API 当作当前接口。实现以
+[`ocr_cache.ts`](../../packages/service/src/common/ocr_cache.ts)及[OCR 现状](ocr-models.md)为准。
+缓存路径设置现位于「常规 → WeQ 存储管理」；OCR 仍不参加默认缓存清理，但已可在该页
+明确选择风险数据并退出清除，不能再依据下文“只能手动删目录”的旧设计操作。
+
 > 状态：**已落地**（灯箱 / 导出 / MCP 三处都接上了；每个关键行为都有单测：
 > `packages/service/test/ocr_cache.test.ts`、`ocr_export.test.ts`、
 > `apps/desktop/test/ocr_mcp_tool.test.ts`）。这份文档留作设计记录与取舍依据 ——

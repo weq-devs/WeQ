@@ -3,6 +3,7 @@
 interface Window {
   electron?: import('@electron-toolkit/preload').ElectronAPI;
   weq: {
+    authorization?: import('../../shared/long_term_authorization').LongTermAuthorizationBridge;
     editUndo?: import('../../shared/edit_menu').EditUndoBridge;
     openLogDir(): Promise<boolean>;
     /** 往主进程日志文件写一条结构化记录；web 构建下为 undefined。 */

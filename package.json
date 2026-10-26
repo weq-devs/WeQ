@@ -1,6 +1,6 @@
 {
   "name": "weq",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "private": true,
   "type": "module",
   "description": "QQ NT 本地聊天记录解密、导出、查看与年度报告",
@@ -25,6 +25,7 @@
     "ci:local": "node scripts/ci-local.mjs",
     "native:fetch": "node scripts/fetch-native.mjs",
     "native:check": "node scripts/fetch-native.mjs --check",
+    "native:preflight": "node scripts/fetch-native.mjs --check --require-fresh --require-authorization --verify",
     "native:check-streaming": "node scripts/check-native-streaming.mjs",
     "native:check-key-scan": "node scripts/check-native-key-scan.mjs",
     "version:set": "node scripts/set-version.mjs",

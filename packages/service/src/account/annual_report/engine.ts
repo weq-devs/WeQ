@@ -1,4 +1,5 @@
 import type { AccountSession } from '@weq/account';
+import { withDatabasePriority } from '@weq/db';
 import { AnnualReportCache, scopeKey } from './cache';
 import { createReportQueries } from './queries';
 import { ALL_TIME_YEAR, currentReportYear, normalizeReportYear } from './time';
@@ -45,6 +46,7 @@ export type AnnualReportServiceOptions = {
 };
 
 export class AnnualReportService {
+  private readonly lifetime = new AbortController();
   private readonly cache = new AnnualReportCache();
   /** One shared query surface: availability / compute / MIN share memoized scans. */
   private readonly queries: ReturnType<typeof createReportQueries>;
@@ -80,10 +82,16 @@ export class AnnualReportService {
    * account with no message rows at all gets `[]` and the entry page says so.
    */
   async getAvailableYears(): Promise<number[]> {
+    this.lifetime.signal.throwIfAborted();
     if (this.availableYearsCache?.key === this.dataRevision) {
       return this.availableYearsCache.years;
     }
-    const yearsWithMessages = await this.queries.meta.yearsWithMessages();
+    const yearsWithMessages = await withDatabasePriority(
+      'background',
+      () => this.queries.meta.yearsWithMessages(),
+      this.lifetime.signal,
+    );
+    this.lifetime.signal.throwIfAborted();
     const nowYear = currentReportYear();
     const years =
       yearsWithMessages.length === 0
@@ -146,7 +154,13 @@ export class AnnualReportService {
     this.cache.clear();
   }
 
+  dispose(): void {
+    this.lifetime.abort();
+    this.cache.clear();
+  }
+
   async getPageData(year: number, pageId: string): Promise<ReportPageResult> {
+    this.lifetime.signal.throwIfAborted();
     const normalizedYear = normalizeReportYear(year);
     const page = findReportPage(pageId);
     if (!page) {
@@ -171,12 +185,17 @@ export class AnnualReportService {
     const running = this.cache.getInFlight(key);
     if (running) return running;
 
-    const request = this.computePage(
-      normalizedYear,
-      pageId,
-      page.manifest.version,
-      key,
-      page.cacheable !== false,
+    const request = withDatabasePriority(
+      'background',
+      () =>
+        this.computePage(
+          normalizedYear,
+          pageId,
+          page.manifest.version,
+          key,
+          page.cacheable !== false,
+        ),
+      this.lifetime.signal,
     );
     this.cache.setInFlight(key, request);
     void request.then(
@@ -194,11 +213,13 @@ export class AnnualReportService {
     cacheable: boolean,
   ): Promise<ReportPageResult> {
     try {
+      this.lifetime.signal.throwIfAborted();
       const page = findReportPage(pageId);
       if (!page) throw new Error(`找不到年度报告页面：${pageId}`);
       // 资格与数据一起惰性计算：不在 manifest 阶段预扫，翻/预取到这一页才算。
       if (page.availability) {
         const availability = await this.checkAvailability(year, page);
+        this.lifetime.signal.throwIfAborted();
         if (!availability.available) {
           const unavailable: ReportPageResult = {
             pageId,
@@ -215,9 +236,10 @@ export class AnnualReportService {
         year,
         scope: this.scope,
         q: this.queries,
-        signal: new AbortController().signal,
+        signal: this.lifetime.signal,
         dataRevision: this.dataRevision,
       });
+      this.lifetime.signal.throwIfAborted();
       assertJsonSafe(data);
       const result: ReportPageResult = { pageId, version, status: 'ok', data };
       if (cacheable) this.cache.setPage(key, result);

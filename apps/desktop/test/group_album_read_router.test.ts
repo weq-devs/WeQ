@@ -23,7 +23,12 @@ vi.mock('../src/main/context/app_context', () => {
     getAppContext: () => ({
       account: { context: { uin: rpc.uin } },
       services,
-      bootstrap: null,
+      bootstrap: {
+        userConfig: {
+          getSettings: () => ({ autoAttachQq: true }),
+          getLocalModelId: () => null,
+        },
+      },
       platform: null,
     }),
   };

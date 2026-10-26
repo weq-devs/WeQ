@@ -28,7 +28,11 @@ export type ScalarType =
   | 'sint64'
   | 'bool'
   | 'string'
-  | 'bytes';
+  | 'bytes'
+  /** IEEE-754 双精度，wire type 1（小端 8 字节）。位置共享的经纬度用它。 */
+  | 'double'
+  /** IEEE-754 单精度，wire type 5（小端 4 字节）。 */
+  | 'float';
 
 /** A nested-message field type. Use {@link message} to build one. */
 export interface ProtoMessage {
@@ -58,11 +62,15 @@ function isMessage(type: ScalarType | ProtoMessage): type is ProtoMessage {
 }
 
 const WIRE_VARINT = 0;
+const WIRE_64BIT = 1;
 const WIRE_LEN = 2;
+const WIRE_32BIT = 5;
 
 /** Wire type a scalar/message encodes to. */
 function wireOf(type: ScalarType | ProtoMessage): number {
   if (isMessage(type)) return WIRE_LEN;
+  if (type === 'double') return WIRE_64BIT;
+  if (type === 'float') return WIRE_32BIT;
   return type === 'string' || type === 'bytes' ? WIRE_LEN : WIRE_VARINT;
 }
 
@@ -89,6 +97,16 @@ class Writer {
     for (let i = 0; i < bytes.length; i++) this.buf.push(bytes[i]!);
   }
 
+  /** 固定 8 字节，小端（wire type 1，protobuf 的 double/fixed64）。 */
+  fixed64(value: bigint): void {
+    for (let i = 0n; i < 8n; i++) this.buf.push(Number((value >> (i * 8n)) & 0xffn));
+  }
+
+  /** 固定 4 字节，小端（wire type 5，protobuf 的 float/fixed32）。 */
+  fixed32(value: number): void {
+    for (let i = 0; i < 4; i++) this.buf.push((value >>> (i * 8)) & 0xff);
+  }
+
   finish(): Uint8Array {
     return Uint8Array.from(this.buf);
   }
@@ -99,6 +117,34 @@ const UTF8_DECODER = new TextDecoder();
 
 function toBigInt(v: number | bigint | string): bigint {
   return typeof v === 'bigint' ? v : BigInt(v);
+}
+
+/** IEEE-754 double → 64 位无符号整数（按位，不做数值转换）。 */
+function doubleBits(d: number): bigint {
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, d, true);
+  return view.getBigUint64(0, true);
+}
+
+/** 64 位无符号整数 → IEEE-754 double。 */
+function bitsToDouble(bits: bigint): number {
+  const view = new DataView(new ArrayBuffer(8));
+  view.setBigUint64(0, BigInt.asUintN(64, bits), true);
+  return view.getFloat64(0, true);
+}
+
+/** IEEE-754 float → 32 位无符号整数。 */
+function floatBits(f: number): number {
+  const view = new DataView(new ArrayBuffer(4));
+  view.setFloat32(0, f, true);
+  return view.getUint32(0, true);
+}
+
+/** 32 位无符号整数 → IEEE-754 float。 */
+function bitsToFloat(bits: number): number {
+  const view = new DataView(new ArrayBuffer(4));
+  view.setUint32(0, bits >>> 0, true);
+  return view.getFloat32(0, true);
 }
 
 /** zigzag-encode a signed bigint into its unsigned varint form. */
@@ -144,6 +190,24 @@ function writeScalar(
       if (force || n !== 0n) {
         w.tag(tag, WIRE_VARINT);
         w.varint(zigzag(n));
+      }
+      return;
+    }
+    case 'double': {
+      const d = Number(value);
+      // proto3 默认省略 0；用 +0 比较让 -0 也算 0（IEEE 的 -0 在 wire 上有区别，
+      // 但业务上没人靠它区分，省一字节）。
+      if (force || d !== 0) {
+        w.tag(tag, WIRE_64BIT);
+        w.fixed64(doubleBits(d));
+      }
+      return;
+    }
+    case 'float': {
+      const f = Math.fround(Number(value));
+      if (force || f !== 0) {
+        w.tag(tag, WIRE_32BIT);
+        w.fixed32(floatBits(f));
       }
       return;
     }
@@ -222,6 +286,20 @@ class Reader {
     return out;
   }
 
+  /** 读固定 8 字节小端（wire type 1）。 */
+  fixed64(): bigint {
+    const view = new DataView(this.data.buffer, this.data.byteOffset + this.pos, 8);
+    this.pos += 8;
+    return view.getBigUint64(0, true);
+  }
+
+  /** 读固定 4 字节小端（wire type 5）。 */
+  fixed32(): number {
+    const view = new DataView(this.data.buffer, this.data.byteOffset + this.pos, 4);
+    this.pos += 4;
+    return view.getUint32(0, true);
+  }
+
   skip(wire: number): void {
     switch (wire) {
       case 0:
@@ -267,6 +345,10 @@ function readScalar(r: Reader, type: ScalarType): unknown {
       return r.varint();
     case 'sint64':
       return BigInt.asIntN(64, unzigzag(r.varint()));
+    case 'double':
+      return bitsToDouble(r.fixed64());
+    case 'float':
+      return bitsToFloat(r.fixed32());
   }
 }
 

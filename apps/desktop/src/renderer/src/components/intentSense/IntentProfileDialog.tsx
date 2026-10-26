@@ -13,6 +13,7 @@ import { trpc } from '../../trpc/client';
 import { OverlayLayer } from '../OverlayLayer';
 import { AnalyticsSkeleton } from '../AnalyticsSkeleton';
 import { useIntentSenseStatus } from './context';
+import { useTabActive } from '../RetainedTabs';
 import '../../styles/intent-sense.css';
 
 const MBTI_LABELS: Record<string, [string, string]> = {
@@ -99,16 +100,20 @@ export function IntentProfileDialog({
   peerUid,
   peerName,
   onClose,
+  embedded = false,
 }: {
   peerUid: string;
   peerName: string;
   onClose: () => void;
+  embedded?: boolean;
 }): ReactElement {
+  const active = useTabActive();
   const [refreshing, setRefreshing] = useState(false);
   const status = useIntentSenseStatus();
   const profile = trpc.account.intentSense.getProfile.useQuery(
     { peerUid, revision: status.data?.profileRevision },
     {
+      enabled: active && Boolean(peerUid),
       refetchOnWindowFocus: false,
       staleTime: (status.data?.profileCacheSeconds ?? 60) * 1000,
       retry: false,
@@ -127,48 +132,43 @@ export function IntentProfileDialog({
     [data?.mbti.dims],
   );
 
-  return (
-    <OverlayLayer
-      presentation="modal"
-      className="weq-int-profile-layer"
-      onClose={onClose}
-      role="presentation"
+  const content = (
+    <section
+      className={`group-keyword-dialog weq-int-dialog${embedded ? ' weq-contact-portrait' : ''}`}
+      role={embedded ? 'region' : 'dialog'}
+      aria-modal={embedded ? undefined : 'true'}
+      aria-label={`互动画像：${peerName}`}
+      onMouseDown={(e) => e.stopPropagation()}
     >
-      <section
-        className="group-keyword-dialog weq-int-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`互动画像：${peerName}`}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <header>
-          <div className="group-keyword-title">
-            <span className="group-keyword-title-icon">
-              <BrainCircuit size={17} />
-            </span>
-            <div>
-              <strong>互动画像</strong>
-              <span>{peerName}</span>
-            </div>
+      <header>
+        <div className="group-keyword-title">
+          <span className="group-keyword-title-icon">
+            <BrainCircuit size={17} />
+          </span>
+          <div>
+            <strong>互动画像</strong>
+            <span>{peerName}</span>
           </div>
-          <span style={{ display: 'inline-flex', gap: 4 }}>
-            <button
-              type="button"
-              className="icon-button"
-              title="重新计算"
-              aria-label="重新计算"
-              disabled={refreshing}
-              onClick={async () => {
-                setRefreshing(true);
-                try {
-                  await profile.refetch();
-                } finally {
-                  setRefreshing(false);
-                }
-              }}
-            >
-              <RefreshCw size={16} className={refreshing ? 'weq-spin' : undefined} />
-            </button>
+        </div>
+        <span style={{ display: 'inline-flex', gap: 4 }}>
+          <button
+            type="button"
+            className="icon-button"
+            title="重新计算"
+            aria-label="重新计算"
+            disabled={refreshing}
+            onClick={async () => {
+              setRefreshing(true);
+              try {
+                await profile.refetch();
+              } finally {
+                setRefreshing(false);
+              }
+            }}
+          >
+            <RefreshCw size={16} className={refreshing ? 'weq-spin' : undefined} />
+          </button>
+          {!embedded ? (
             <button
               className="icon-button"
               type="button"
@@ -178,104 +178,115 @@ export function IntentProfileDialog({
             >
               <X size={18} />
             </button>
-          </span>
-        </header>
-        <div className="group-keyword-body">
-          {profile.error ? (
-            <p className="weq-int-note" role="alert">
-              画像读取失败：{profile.error.message}
-            </p>
-          ) : profile.isLoading ? (
-            <AnalyticsSkeleton variant="buddy" />
-          ) : !data ? (
-            <p className="weq-int-note" role="status">
-              暂无可分析的对方消息，未生成互动画像。
-            </p>
-          ) : (
-            <div className="weq-int-profile">
-              <section>
-                <h4>
-                  好感度{' '}
-                  <strong className="weq-int-affinity-num">{data.affinity ?? '未分析'}</strong>
-                  {data.tier !== null ? (
-                    <span className="weq-int-topic">{TIER_LABELS[Math.min(4, data.tier)]}</span>
-                  ) : null}
-                </h4>
-                {data.trend.length > 1 ? (
-                  <div
-                    className="weq-int-trend"
-                    title={data.trend.map((t) => `${t.date}：${t.score}`).join('\n')}
-                  >
-                    {data.trend.map((t) => (
-                      <div
-                        key={t.date}
-                        className="weq-int-trend-bar"
-                        style={{ height: `${Math.max(6, t.score)}%` }}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="weq-int-note">
-                    {data.affinity === null
-                      ? '暂无情绪分析依据，仅展示互动统计。'
-                      : '样本不足，暂无走势。'}
-                  </p>
-                )}
-              </section>
-
-              <section>
-                <h4>
-                  MBTI 倾向
-                  <span className="weq-int-note">
-                    {data.mbti.heuristic
-                      ? '（启发式估算）'
-                      : `（${data.engine === 'local' ? '本地模型' : 'API'} 推断）`}
-                  </span>
-                </h4>
-                <div className="weq-int-profile-letters">
-                  <strong>{data.mbti.letters || '—'}</strong>
-                </div>
-                <div className="weq-int-mbti-dims">
-                  {mbtiDims.map((d) => (
-                    <div key={d.key} className="weq-int-mbti-dim">
-                      <span>{MBTI_LABELS[d.key]?.[0]}</span>
-                      <span className="weq-int-mbti-track">
-                        <span style={{ width: `${Math.round(d.leftPct)}%` }} />
-                      </span>
-                      <span style={{ textAlign: 'right' }}>{MBTI_LABELS[d.key]?.[1]}</span>
-                    </div>
+          ) : null}
+        </span>
+      </header>
+      <div className="group-keyword-body">
+        {profile.error ? (
+          <p className="weq-int-note" role="alert">
+            画像读取失败：{profile.error.message}
+          </p>
+        ) : profile.isLoading ? (
+          <AnalyticsSkeleton variant="buddy" />
+        ) : !data ? (
+          <p className="weq-int-note" role="status">
+            暂无可分析的对方消息，未生成互动画像。
+          </p>
+        ) : (
+          <div className="weq-int-profile">
+            <section>
+              <h4>
+                好感度 <strong className="weq-int-affinity-num">{data.affinity ?? '未分析'}</strong>
+                {data.tier !== null ? (
+                  <span className="weq-int-topic">{TIER_LABELS[Math.min(4, data.tier)]}</span>
+                ) : null}
+              </h4>
+              {data.trend.length > 1 ? (
+                <div
+                  className="weq-int-trend"
+                  title={data.trend.map((t) => `${t.date}：${t.score}`).join('\n')}
+                >
+                  {data.trend.map((t) => (
+                    <div
+                      key={t.date}
+                      className="weq-int-trend-bar"
+                      style={{ height: `${Math.max(6, t.score)}%` }}
+                    />
                   ))}
                 </div>
-              </section>
+              ) : (
+                <p className="weq-int-note">
+                  {data.affinity === null
+                    ? '暂无情绪分析依据，仅展示互动统计。'
+                    : '样本不足，暂无走势。'}
+                </p>
+              )}
+            </section>
 
-              <section>
-                <h4>互动风格</h4>
-                <Radar axes={data.radar} />
-              </section>
-
-              <section>
-                <h4>常见话题</h4>
-                {data.topics.length > 0 ? (
-                  <div className="weq-int-topics">
-                    {data.topics.map((t) => (
-                      <span key={t.topic} className="weq-int-topic" title={`${t.count} 次`}>
-                        {t.topic}
-                      </span>
-                    ))}
+            <section>
+              <h4>
+                MBTI 倾向
+                <span className="weq-int-note">
+                  {data.mbti.heuristic
+                    ? '（启发式估算）'
+                    : `（${data.engine === 'local' ? '本地模型' : 'API'} 推断）`}
+                </span>
+              </h4>
+              <div className="weq-int-profile-letters">
+                <strong>{data.mbti.letters || '—'}</strong>
+              </div>
+              <div className="weq-int-mbti-dims">
+                {mbtiDims.map((d) => (
+                  <div key={d.key} className="weq-int-mbti-dim">
+                    <span>{MBTI_LABELS[d.key]?.[0]}</span>
+                    <span className="weq-int-mbti-track">
+                      <span style={{ width: `${Math.round(d.leftPct)}%` }} />
+                    </span>
+                    <span style={{ textAlign: 'right' }}>{MBTI_LABELS[d.key]?.[1]}</span>
                   </div>
-                ) : (
-                  <p className="weq-int-note">暂无足够文本样本。</p>
-                )}
-              </section>
+                ))}
+              </div>
+            </section>
 
-              <p className="weq-int-note">
-                基于 {data.sampled} 条消息（引擎分析 {data.analyzedSamples} 条）
-                的启发式推断，仅供娱乐参考。
-              </p>
-            </div>
-          )}
-        </div>
-      </section>
+            <section>
+              <h4>互动风格</h4>
+              <Radar axes={data.radar} />
+            </section>
+
+            <section>
+              <h4>常见话题</h4>
+              {data.topics.length > 0 ? (
+                <div className="weq-int-topics">
+                  {data.topics.map((t) => (
+                    <span key={t.topic} className="weq-int-topic" title={`${t.count} 次`}>
+                      {t.topic}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="weq-int-note">暂无足够文本样本。</p>
+              )}
+            </section>
+
+            <p className="weq-int-note">
+              基于 {data.sampled} 条消息（引擎分析 {data.analyzedSamples} 条）
+              的启发式推断，仅供娱乐参考。
+            </p>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+  return embedded ? (
+    content
+  ) : (
+    <OverlayLayer
+      presentation="modal"
+      className="weq-int-profile-layer"
+      onClose={onClose}
+      role="presentation"
+    >
+      {content}
     </OverlayLayer>
   );
 }

@@ -26,6 +26,7 @@ import { ShimmerImage } from '../../components/ShimmerImage';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { BlobDialog, CURSOR_PAGE, GridFooter, useCursorPaged } from './CacheShared';
 import { GridSkeleton } from './CacheSkeleton';
+import { useTabActive } from '../../components/RetainedTabs';
 
 /** weq-asset URL for one face's file in a given format dir. */
 function faceUrl(name: string, fmt: 'png' | 'apng' | 'lottie', file: string): string {
@@ -33,6 +34,7 @@ function faceUrl(name: string, fmt: 'png' | 'apng' | 'lottie', file: string): st
 }
 
 export function SysEmojiExplorer(): ReactElement {
+  const visible = useTabActive();
   const dialog = useAppDialog();
   const [preview, setPreview] = useState<SysEmojiEntry | null>(null);
   const [filling, setFilling] = useState(false);
@@ -47,6 +49,7 @@ export function SysEmojiExplorer(): ReactElement {
 
   // How many faces the CDN could still supply — drives the 补全 button's copy.
   const statusQuery = trpc.account.sysEmoji.downloadStatus.useQuery(undefined, {
+    enabled: visible,
     staleTime: 0,
     refetchOnMount: 'always',
   });

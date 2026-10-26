@@ -29,6 +29,8 @@ let root: Root;
 let host: HTMLDivElement;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('IntersectionObserver', undefined);
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -117,9 +119,9 @@ it('占位图片失败后换成真实消息时重新取图，不继承旧的缺�
   for (let index = 0; index < 3; index++) {
     await act(async () => host.querySelector('img')!.dispatchEvent(new Event('error')));
   }
-  expect(host.textContent).toContain('未找到');
+  expect(host.querySelector('.qq-media-missing')?.getAttribute('aria-label')).toBe('未找到该图片');
   await mount({ fileName: 'image.png', fileToken: 'ready-token' });
-  expect(host.textContent).not.toContain('未找到');
+  expect(host.querySelector('.qq-media-missing')).toBeNull();
   expect(new URL(host.querySelector('img')!.src).searchParams.get('token')).toBe('ready-token');
 });
 

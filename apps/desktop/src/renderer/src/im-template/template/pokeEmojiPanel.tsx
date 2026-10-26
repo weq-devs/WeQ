@@ -1,6 +1,6 @@
 // @ts-nocheck
 /**
- * 输入框工具栏「戳一戳」按钮弹出的面板（互动表情 / `resources/pokeemoji`）。
+ * 输入框「表情 → 互动表情」面板（`resources/pokeemoji`）。
  *
  * **只做前端**：面板把「表情编号 + 连击次数」（戳一戳）或「faceId + 目录信息 +
  * 结果编号 innerId」（随机表情）编成一枚元素 token 交回上层（`onSend` /

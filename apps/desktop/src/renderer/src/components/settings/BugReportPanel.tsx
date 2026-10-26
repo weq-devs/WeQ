@@ -40,6 +40,7 @@ import { IconPicker } from '../ui/iconPicker';
 import { useThemeStore } from '../../state/theme';
 import bugBanner from '@resources/brand/bug_banner.png';
 import bugBannerDark from '@resources/brand/bug_banner_2.png';
+import { SectionHeader } from './controls';
 
 const REMARK_PLUGINS = [remarkGfm];
 const PLUGINS = { code: shikiCodeHighlighter };
@@ -172,7 +173,7 @@ export function BugReportPanel(): ReactElement {
       platformHint,
       '',
       '## weq 版本',
-      appVersion || '<填写设置 → 帮助与关于 → 版本与更新中的版本号>',
+      appVersion || '<填写设置 → 关于 WeQ → 版本与更新中的版本号>',
       '',
       '## 错误的功能描述',
       '<在这里描述发生了什么，附上报错文本 / 日志 / 截图>',
@@ -376,19 +377,16 @@ export function BugReportPanel(): ReactElement {
   };
 
   return (
-    <div className="weq-help-bug">
+    <div className="weq-set weq-help-bug">
+      <SectionHeader title="反馈" icon={<MessageCircle size={16} />} />
       {/* 顶部 banner：底部渐变模糊 */}
       <div className="weq-help-bug-banner" style={bannerStyle}>
         <div className="weq-help-bug-banner-mask" aria-hidden />
-        <div className="weq-help-bug-banner-text">
-          <strong>反馈 Bug</strong>
-          <span>你的反馈会让 WeQ 变得更好</span>
-        </div>
       </div>
 
       {/* 反馈前须知 */}
-      <section className="weq-help-bug-card">
-        <div className="weq-help-bug-card-head">
+      <section className="weq-set-card weq-help-bug-card">
+        <div className="weq-set-card-title weq-help-bug-card-head">
           <Info size={14} aria-hidden />
           反馈前请确认
         </div>
@@ -421,8 +419,8 @@ export function BugReportPanel(): ReactElement {
       </section>
 
       {/* hexdump 工具 */}
-      <section className="weq-help-bug-card">
-        <div className="weq-help-bug-card-head">
+      <section className="weq-set-card weq-help-bug-card">
+        <div className="weq-set-card-title weq-help-bug-card-head">
           <Database size={14} aria-hidden />
           数据库头部 hexdump（前 200 字节）
         </div>
@@ -484,8 +482,8 @@ export function BugReportPanel(): ReactElement {
       </section>
 
       {/* 标题 + Markdown 正文 */}
-      <section className="weq-help-bug-card">
-        <div className="weq-help-bug-card-head">
+      <section className="weq-set-card weq-help-bug-card">
+        <div className="weq-set-card-title weq-help-bug-card-head">
           <PencilLine size={14} aria-hidden />
           反馈内容（GitHub 式 Markdown）
         </div>
@@ -570,8 +568,8 @@ export function BugReportPanel(): ReactElement {
       </section>
 
       {/* 三个出口 */}
-      <section className="weq-help-bug-card">
-        <div className="weq-help-bug-card-head">
+      <section className="weq-set-card weq-help-bug-card">
+        <div className="weq-set-card-title weq-help-bug-card-head">
           <Send size={14} aria-hidden />
           提交方式
         </div>

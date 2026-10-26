@@ -1,4 +1,5 @@
 // 这里只包含公开的目录与别名，不读取设置值、账号信息或凭据。
+import { AI_SETTING_ITEMS } from './aiSettingsCatalog';
 export const SETTINGS_PAGE_LABELS = {
   appearance: '主题与背景',
   home: '主页',
@@ -137,14 +138,23 @@ export interface ResolvedSettingsTarget extends SettingsTarget {
 }
 
 interface ItemRedirect {
-  id: string;
-  section: SettingsPageId;
-  label: string;
-  aliases?: readonly string[];
-  from: readonly SectionId[];
+  readonly id: string;
+  readonly section: SettingsPageId;
+  readonly label: string;
+  readonly aliases?: readonly string[];
+  readonly from: readonly SectionId[];
+  readonly aliasesFrom?: readonly SectionId[];
+  readonly desktopOnly?: boolean;
 }
 
-const ITEM_REDIRECTS: readonly ItemRedirect[] = [
+export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
+  ...AI_SETTING_ITEMS.map(
+    (item): ItemRedirect => ({
+      ...item,
+      from: [...new Set<SectionId>([item.section, 'intent-sense'])],
+      aliasesFrom: [item.section],
+    }),
+  ),
   { id: 'llm-providers', section: 'agentlab', label: '已保存的 provider', from: ['agentlab'] },
   { id: 'llm-default-model', section: 'agentlab', label: '默认模型', from: ['agentlab'] },
   { id: 'tts-providers', section: 'agentlab', label: 'TTS 语音合成', from: ['agentlab', 'tts'] },
@@ -200,6 +210,14 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
     from: ['account'],
   },
   {
+    id: 'long-term-authorization',
+    section: 'account',
+    label: '长期授权',
+    aliases: ['权限助手', '免重复提权', '管理员授权'],
+    from: ['account'],
+    desktopOnly: true,
+  },
+  {
     id: 'app-lock',
     section: 'privacy',
     label: '启用应用锁',
@@ -222,9 +240,11 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
   ...(
     [
       ['message-unread-badge', '在消息图标上显示红点', '显示消息汇总红点'],
+      ['contact-unread-count', '在联系人界面显示未读消息数'],
       ['group-assistant-count', '群助手显示总消息数'],
       ['read-first-unread', '从第一条新消息开始阅读'],
       ['jump-latest-after-send', '发送消息后定位到最新消息'],
+      ['scroll-to-bottom-button', '向下滚动时显示定位到底部按钮', '快速到底部'],
       ['send-with-qq-font', '使用 QQ 账号设置的个性字体发送消息'],
       ['custom-message-display', '自定义消息显示'],
       ['message-seq', '显示消息序号（seq）'],
@@ -255,7 +275,7 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
     id: 'intent-model-resources',
     section: 'intent-sense',
     label: '意图模型资源（全局）',
-    aliases: ['意图模型资源'],
+    aliases: ['意图模型资源', '使用下载镜像', 'hf-mirror.com 镜像'],
     from: ['intent-models', 'intent-sense'],
   },
   ...(
@@ -297,6 +317,12 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
     label: '同步已读状态到 QQ',
     aliases: ['手动标记时上报已读位置', '手动标记已读'],
     from: ['account', 'chat-messages'],
+  },
+  {
+    id: 'restricted-mode-banner',
+    section: 'account',
+    label: '进入受限模式时横幅提醒',
+    from: ['account'],
   },
   {
     id: 'anti-recall',
@@ -360,22 +386,22 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
   {
     id: 'qq-storage-analysis',
     section: 'qq-storage',
-    label: '占用分析',
-    aliases: ['存储占用'],
+    label: '占用概览',
+    aliases: ['占用分析', '存储占用'],
     from: ['maintenance', 'qq-storage'],
   },
   {
     id: 'qq-storage-cleanup',
     section: 'qq-storage',
-    label: '缓存清理',
-    aliases: ['清理缓存'],
+    label: '资源清理',
+    aliases: ['缓存清理', '清理缓存'],
     from: ['maintenance', 'qq-storage'],
   },
   {
     id: 'resource-viewer',
     section: 'qq-storage',
-    label: '资源查看',
-    aliases: ['本地缓存'],
+    label: '资源浏览',
+    aliases: ['资源查看', '本地缓存'],
     from: ['maintenance', 'qq-storage'],
   },
   {
@@ -392,6 +418,13 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
     from: ['maintenance', 'credentials'],
   },
   { id: 'privacy-mode', section: 'privacy', label: '隐私模式', from: ['applock', 'privacy'] },
+  {
+    id: 'privacy-menu-capture',
+    section: 'privacy',
+    label: '在菜单中截图瞬间临时启用隐私模式',
+    from: ['applock', 'privacy'],
+    desktopOnly: true,
+  },
   { id: 'builtin-components', section: 'version', label: '内置组件', from: ['daemon', 'version'] },
   {
     id: 'assistant-service',
@@ -417,7 +450,7 @@ const SECTION_REDIRECTS: Partial<
   maintenance: { section: 'database-management' },
   'local-models': { section: 'voice' },
   'intent-models': { section: 'intent-sense', settingId: 'intent-model-resources' },
-  tts: { section: 'agentlab' },
+  tts: { section: 'agentlab', settingId: 'tts-providers' },
   help: { section: 'faq' },
   updates: { section: 'version' },
   daemon: { section: 'version', settingId: 'builtin-components' },
@@ -427,17 +460,19 @@ const SECTION_REDIRECTS: Partial<
 export function resolveSettingsTarget(target: SettingsTarget): ResolvedSettingsTarget {
   const targetId = target.settingId === 'message-decoration' ? 'message-bubble' : target.settingId;
   const redirect = targetId
-    ? ITEM_REDIRECTS.find((entry) => entry.id === targetId)
-    : ITEM_REDIRECTS.find(
+    ? SETTINGS_ITEM_TARGETS.find((entry) => entry.id === targetId)
+    : SETTINGS_ITEM_TARGETS.find(
         (entry) =>
           entry.from.includes(target.section) &&
-          (entry.label === target.item || entry.aliases?.includes(target.item ?? '')),
+          (entry.label === target.item ||
+            ((entry.aliasesFrom ?? entry.from).includes(target.section) &&
+              entry.aliases?.includes(target.item ?? ''))),
       );
   if (redirect) return { section: redirect.section, item: redirect.label, settingId: redirect.id };
   const sectionRedirect = SECTION_REDIRECTS[target.section];
   const section = sectionRedirect?.section ?? (target.section as SettingsPageId);
   const settingId = target.settingId ?? (!target.item ? sectionRedirect?.settingId : undefined);
-  const defaultItem = ITEM_REDIRECTS.find((entry) => entry.id === settingId);
+  const defaultItem = SETTINGS_ITEM_TARGETS.find((entry) => entry.id === settingId);
   return {
     section,
     ...(target.item || defaultItem ? { item: target.item ?? defaultItem?.label } : {}),

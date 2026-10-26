@@ -5,7 +5,7 @@
 ## 安装
 
 1. 在苹果菜单的“关于本机”确认芯片：Apple 芯片选择 `mac-arm64.dmg`，Intel 选择 `mac-x64.dmg`。
-2. 从项目 [Releases](../../../releases) 下载对应版本。确认来源可信，不使用来历不明的重新打包文件。
+2. 从项目 [Releases](https://github.com/weq-devs/WeQ/releases) 下载对应版本。确认来源可信，不使用来历不明的重新打包文件。
 3. 打开 DMG，将 `weQ.app` 拖入“应用程序”。如果已有旧版本，先正常退出旧版，再确认是否替换。
 4. 在 Finder 的“应用程序”中打开 WeQ，不从 DMG 内直接运行。
 

@@ -55,6 +55,7 @@ import {
   type MediaElement,
 } from '@weq/service';
 import { getAppContext } from './context/app_context';
+import { fullModeAllowed } from './context/full_mode';
 import { resolveResource } from './resource';
 import { resourceSkinCover } from './redpack_catalog';
 import { decodeSilkToWav, isSilkFile } from './voice';
@@ -227,7 +228,7 @@ async function onlineRedbagCover(skinId: string): Promise<string | null> {
   const ctx = getAppContext();
   const services = ctx.services;
   if (!services) return null;
-  if (ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false) return null;
+  if (!fullModeAllowed(ctx)) return null;
   const record = services.accountConfig.getRecord();
   if (!record?.qqOnline || !record.qqPid) return null;
   try {

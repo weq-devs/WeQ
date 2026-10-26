@@ -293,7 +293,7 @@ describe('设置二级页现场与活动生命周期', () => {
           section,
         ).toEqual([]);
       }
-      expect(f.host.querySelectorAll('[data-retained-panel]')).toHaveLength(
+      expect(f.host.querySelectorAll('.weq-settings-pages > [data-retained-panel]')).toHaveLength(
         SETTINGS_GROUPS.flatMap((group) => group.sections).length,
       );
       act(() => useAppLock.setState({ locked: true }));

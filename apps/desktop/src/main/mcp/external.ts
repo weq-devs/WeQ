@@ -23,6 +23,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { getLogger, logErrorContext } from '@weq/service';
 import type { OpenAiToolSpec } from './openai_tools';
+import { externalMcpHttpOptions } from './external_http';
 
 const logger = getLogger().child({ scope: 'mcp-external' });
 
@@ -245,12 +246,15 @@ export class ExternalMcpHub {
   }
 
   /** Run a namespaced external tool. Throws if unknown / server unreachable. */
-  async run(name: string, args: Record<string, unknown>): Promise<unknown> {
+  async run(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    signal?.throwIfAborted();
     const ref = this.toolIndex.get(name);
     if (!ref) throw new Error(`未知的外部 MCP 工具：${name}`);
     const conn = this.conns.get(ref.server);
     if (!conn?.client) throw new Error(`外部 MCP 服务器「${ref.server}」未连接`);
-    const res = (await conn.client.callTool({ name: ref.original, arguments: args })) as {
+    const res = (await conn.client.callTool({ name: ref.original, arguments: args }, undefined, {
+      signal,
+    })) as {
       isError?: boolean;
       content?: Array<{ type?: string; text?: string }>;
       structuredContent?: unknown;
@@ -308,19 +312,15 @@ export class ExternalMcpHub {
   private async connect(conn: Conn): Promise<void> {
     const { spec } = conn;
     const url = new URL(spec.url);
-    const requestInit = spec.headers ? { headers: spec.headers } : undefined;
+    const transportOptions = externalMcpHttpOptions(url, spec.headers);
     try {
       const client = new Client({ name: 'weq-assistant', version: '0.1.0' }, { capabilities: {} });
       // Streamable HTTP first; fall back to legacy SSE on connect failure.
       try {
-        await client.connect(
-          new StreamableHTTPClientTransport(url, requestInit ? { requestInit } : undefined),
-        );
+        await client.connect(new StreamableHTTPClientTransport(url, transportOptions));
       } catch (httpErr) {
         try {
-          await client.connect(
-            new SSEClientTransport(url, requestInit ? { requestInit } : undefined),
-          );
+          await client.connect(new SSEClientTransport(url, transportOptions));
         } catch {
           throw httpErr; // surface the primary (HTTP) error
         }

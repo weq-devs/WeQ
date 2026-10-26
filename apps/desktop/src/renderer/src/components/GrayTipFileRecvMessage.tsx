@@ -37,9 +37,9 @@ export function GrayTipFileRecvMessage({ element }: GrayTipFileRecvMessageProps)
   const size = fileSize ? formatBytes(fileSize) : '';
 
   return (
-    <div className="weq-graytip text-center text-gray-500 text-xs py-2">
+    <div className="weq-graytip text-center text-xs py-2">
       <span>文件传输完成 </span>
-      <span className="text-blue-500">{fileName}</span>
+      <span className="weq-graytip-accent">{fileName}</span>
       {size ? <span className="px-1">({size})</span> : null}
     </div>
   );

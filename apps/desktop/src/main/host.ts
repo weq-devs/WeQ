@@ -14,6 +14,7 @@ import { DialogLocations } from './dialog_locations';
 import { AppAutostart } from './autostart';
 import { manualRestartArgs } from './startup_window';
 import { skipNextQuitConfirmation } from './app_quit_confirmation';
+import { prepareDevelopmentRestart } from './development_restart';
 
 let startup: AppAutostart | null = null;
 function appAutostart(): AppAutostart {
@@ -135,7 +136,14 @@ export const electronHost: HostBridge = {
   clearStorageAfterExit,
   storageCleanupResult,
   restartApplication: async () => {
-    app.relaunch({ args: manualRestartArgs(process.argv) });
+    if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
+      await prepareDevelopmentRestart(app, {
+        appPath: app.getAppPath(),
+        argv: process.argv,
+        nodePath: process.env.npm_node_execpath,
+        logPath: join(app.getPath('logs'), 'development-restart.log'),
+      });
+    } else app.relaunch({ args: manualRestartArgs(process.argv) });
     setTimeout(() => {
       skipNextQuitConfirmation();
       app.quit();

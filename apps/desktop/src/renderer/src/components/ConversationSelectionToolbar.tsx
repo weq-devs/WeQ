@@ -1,52 +1,35 @@
-import { CloudDownload, Download, ListPlus, X, Mail, MailOpen } from 'lucide-react';
+import { CloudDownload, Download, Users, MailOpen } from 'lucide-react';
 import '../styles/conversation-directory.css';
 
 export function ConversationSelectionToolbar({
-  count,
-  assistantCount = 0,
-  selectingAll = false,
-  allSelected,
   exportReason,
   roamingReason,
-  onSelectAll,
+  rosterReason,
+  readStateReason,
   onExport,
   onRoaming,
-  onExit,
-  readStateReason,
+  onRoster,
   onReadState,
 }: {
-  count: number;
-  assistantCount?: number;
-  selectingAll?: boolean;
-  allSelected: boolean;
   exportReason?: string;
   roamingReason?: string;
-  onSelectAll: () => void;
+  rosterReason?: string;
+  readStateReason?: string;
   onExport: () => void;
   onRoaming: () => void;
-  onExit: () => void;
-  readStateReason?: string;
-  onReadState?: (unread: boolean) => void;
+  onRoster: () => void;
+  onReadState: () => void;
 }) {
   return (
-    <div
-      className={`weq-conversation-selection-toolbar${onReadState ? ' has-read-state' : ''}`}
-      role="toolbar"
-      aria-label="会话多选操作"
-    >
-      <span aria-live="polite">
-        {selectingAll
-          ? '正在补齐全选…'
-          : `已选 ${count}${assistantCount ? `（含群助手 ${assistantCount}）` : ''}`}
-      </span>
+    <div className="weq-conversation-selection-toolbar" role="toolbar" aria-label="会话多选操作">
       <button
         type="button"
-        title={allSelected ? '取消全选当前结果' : '全选当前结果'}
-        aria-label={allSelected ? '取消全选当前结果' : '全选当前结果'}
-        aria-pressed={allSelected}
-        onClick={onSelectAll}
+        title={roamingReason ?? '拉取所选会话漫游消息'}
+        aria-label="拉取所选会话漫游消息"
+        disabled={Boolean(roamingReason)}
+        onClick={onRoaming}
       >
-        <ListPlus size={16} />
+        <CloudDownload size={16} />
       </button>
       <button
         type="button"
@@ -59,37 +42,21 @@ export function ConversationSelectionToolbar({
       </button>
       <button
         type="button"
-        title={roamingReason ?? '拉取所选会话漫游消息'}
-        aria-label="拉取所选会话漫游消息"
-        disabled={Boolean(roamingReason)}
-        onClick={onRoaming}
+        title={rosterReason ?? '导出名单'}
+        aria-label="导出名单"
+        disabled={Boolean(rosterReason)}
+        onClick={onRoster}
       >
-        <CloudDownload size={16} />
+        <Users size={16} />
       </button>
-      {onReadState ? (
-        <>
-          <button
-            type="button"
-            title={readStateReason ?? '标为已读'}
-            aria-label="标为已读"
-            disabled={Boolean(readStateReason)}
-            onClick={() => onReadState(false)}
-          >
-            <MailOpen size={16} />
-          </button>
-          <button
-            type="button"
-            title={readStateReason ?? '标为未读'}
-            aria-label="标为未读"
-            disabled={Boolean(readStateReason)}
-            onClick={() => onReadState(true)}
-          >
-            <Mail size={16} />
-          </button>
-        </>
-      ) : null}
-      <button type="button" title="退出多选" aria-label="退出多选" onClick={onExit}>
-        <X size={16} />
+      <button
+        type="button"
+        title={readStateReason ?? '标为已读'}
+        aria-label="标为已读"
+        disabled={Boolean(readStateReason)}
+        onClick={onReadState}
+      >
+        <MailOpen size={16} />
       </button>
     </div>
   );

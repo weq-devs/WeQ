@@ -16,10 +16,13 @@
 | 路径 | 是否入库 | 来源 | 更新方式 |
 | --- | --- | --- | --- |
 | `native/<platform>/<arch>/nt_helper.node` | 否 | `weq-devs/nt_helper` 的 Rust 构建 | `pnpm native:fetch` |
+| `native/<platform>/<arch>/weq-authorization-helper[.exe]` | 否 | 同一私有仓的独立 Rust target | 清单包含助手时由 `pnpm native:fetch` 获取 |
 | `resources/dress/{bubble,widget,font}.dat` | 否 | 同上（`build.rs` 打包 + AES 加密） | `pnpm native:fetch` |
-| `native/<platform>/<arch>/ninebird/*` | **是** | `weq-devs/nt_helper` 的 NineBird 构建 | 手工同步（另一条链，未自动化） |
 | `resources/dress/screen/**`、`ranking-*.json` | 是 | 手工整理的静态素材 | 正常提交 |
 | `resources/dress/*_resources` | 否 | `scripts/fetch_dress_resources.ts` 抓取 | 本地生成，喂给 native 构建 |
+
+NineBird 注入链、`packages/ninebird` 与旧 `native/**/ninebird` 已移除，不再手工同步或执行
+`build:ninebird`。文末的 2026-09-16 清洗记录描述当时的保留范围，不是当前目录清单。
 
 ## 两条硬约束
 
@@ -36,6 +39,10 @@
 
 ## 版本锚：`native/pinned.json`
 
+长期授权的公开/私有边界、可选产物清单及兼容规则见[长期授权集成](long-term-authorization-20261026.md)。旧 tag 没有助手时仍能正常取回 `.node`，不据此声称长期授权可用。
+
+桌面 release 额外使用 `--require-authorization` 强制检查助手；Web 使用 `--no-authorization` 避免携带仅供本机桌面管理的可执行文件。升级锚点时应对同一明确 tag 使用 `--require-fresh --require-authorization --verify --write-pin`，校验失败不会写锚点。
+
 `pnpm native:fetch` **默认取的是 `native/pinned.json` 里锚定的那个 tag**，不是 latest。
 
 为什么：WeQ 的代码是照着某一份 native 构建写的（类型、能力、甚至装扮资源的 AES 密钥都由
@@ -51,11 +58,15 @@
 是给人看的。升级锚点的完整流程：
 
 ```bash
-node scripts/fetch-native.mjs --latest --verify    # 1. 试用新构建：装完当场 require + getInitStatus()
-#   （跑测试确认没问题）
-node scripts/fetch-native.mjs --latest --write-pin # 2. 把这次取到的 tag 写回 pinned.json
-#   3. 提交 pinned.json（外加 dist 里需要跟着走的 native/** 产物）
+# 先从发布清单确定要验证的明确 tag，以下两步始终使用同一个 tag。
+pnpm native:fetch --version <tag> --require-fresh --require-authorization --verify
+# 跑与 native 升级直接相关的回归；确认后写锚点。
+pnpm native:fetch --version <tag> --require-fresh --require-authorization --verify --write-pin
+# 只提交 native/pinned.json 和必要源码变更，不提交下载的二进制或装扮包。
 ```
+
+`--latest` 可用于发现或试用新构建，不应在验证和写锚点两步间重新解析不同的 latest。
+默认 fetch 始终取锚定 tag，重复下载不会延长其有效期。
 
 `pnpm native:check` 发现本地与锚点不一致（缺失 / 落后 / 内容被换过 / 已过期）就退出码 1，
 并会提醒上游有没有更新的构建。手动丢一份自编 `.node` 进去也躲不过：sha256 对不上。
@@ -65,11 +76,13 @@ node scripts/fetch-native.mjs --latest --write-pin # 2. 把这次取到的 tag �
 ```bash
 pnpm native:fetch                 # 本机平台 + 装扮资源（锚定的 tag）
 pnpm native:check                 # 只比对：缺失 / 落后 / 被改 / 已过期 → 退出码 1
+pnpm native:preflight             # 桌面发布预检：只读检查新鲜度、完整性与权限助手
 pnpm native:fetch --all           # 五个平台全量（全平台测试、做镜像时用）
 pnpm native:fetch --platform linux-arm64
 pnpm native:fetch --latest        # 忽略锚点，取上游最新（试用新构建用）
 pnpm native:fetch --dress-only    # 只补装扮资源
 pnpm native:fetch --verify        # 装完 require 一次并跑 getInitStatus()
+pnpm native:fetch --no-authorization # 独立 Web 不下载权限助手
 pnpm native:fetch --version nt-helper-20260916-86cb5a4
 pnpm native:fetch --from-dir ./dist   # 从本地目录装（离线 / 镜像；目录里要有 manifest.json）
 ```
@@ -135,13 +148,16 @@ https://github.com/weq-devs/nt_helper_release/releases/download/<tag>/<asset>
 
 ## WeQ 的 release 流水线
 
-`.github/workflows/release.yml` 的 6 个打包 job（windows / linux-x64 / linux-arm64 /
-macos-x64 / macos-arm64 / web）在 `pnpm install` 之后各插了一步：
+`.github/workflows/release.yml` 的五个平台桌面 job 在安装依赖后执行：
 
 ```yaml
 - name: Fetch nt_helper native artifacts
-  run: node scripts/fetch-native.mjs --require-fresh --verify
+  run: node scripts/fetch-native.mjs --require-fresh --require-authorization --verify
 ```
+
+Web 发布矩阵改用 `--require-fresh --no-authorization --verify`，压缩包显式排除权限助手。
+CI 的 Web 构建冒烟仍执行 `--require-fresh --verify`，不等同于桌面 release 的助手门禁。
+桌面打包另在 `afterPack` / `afterSign` 校验实际包内双产物，详见[长期授权集成](long-term-authorization-20261026.md#release-门禁)。
 
 每个 runner 只取自己平台那一份 `.node` + 三个 `.dat`（**按 `native/pinned.json` 锚定的 tag**，
 不是 latest）。`--require-fresh` 在剩余有效期不足 1/5 时失败 —— 也就是说锚点太旧时，发布会在

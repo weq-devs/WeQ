@@ -26,13 +26,15 @@ import {
   type ToolbarState,
 } from './CacheShared';
 import { FileGridSkeleton } from './CacheSkeleton';
+import { useTabActive } from '../../components/RetainedTabs';
 
 export function FileDirExplorer(): ReactElement {
+  const visible = useTabActive();
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const summary = trpc.account.fileResource.fileDir.summary.useQuery(
     { refresh: false },
-    { refetchOnWindowFocus: false },
+    { enabled: visible, refetchOnWindowFocus: false },
   );
 
   const [state, setState] = useState<ToolbarState>({

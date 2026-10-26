@@ -392,6 +392,8 @@ startCapture(pid)                       // 直到网卡已打开、BPF 已装、
 | `takeFrames(pid, options?)` | pid + 可选 `TakeOptions` | `Promise<FrameBatch>` | 取帧。`waitMs > 0` 时一直收集到窗口结束再返回。 |
 | `stopCapture(pid)` | pid | `Promise<CaptureStats>` | 停止并释放，返回统计。 |
 
+桌面应用的 `startAccountCapture` 另返回应用层 `sessionId`，UI 和在线转写在轮询、停止时回传它。它不是 nt_helper 原生选项：原生仍按 pid 管理和替换会话。应用层串行化同 pid 的启动/停止，并在轮询前后检查身份，避免旧窗口关闭或迟到结果影响后来建立的会话。旧 IPC 请求可不带此字段，兼容原参数；新调用方应始终使用返回的 ID。会话 ID 仅在运行期间持有，不写入账号配置或设置备份。
+
 **类型**
 
 - `CaptureOptions = { d2key?; iface?; port?; ringFrames?; pcapFile? }`

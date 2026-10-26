@@ -105,7 +105,8 @@ describe('会话底部多选栏', () => {
           new MouseEvent('contextmenu', { bubbles: true, clientX: 20, clientY: 20 }),
         ),
       );
-      expect(menuButton('标为已读')).toBeUndefined();
+      expect(menuButton('标为已读')).toBeDefined();
+      expect(menuButton('多选')).toBeUndefined();
       act(() => menuButton('标为未读').click());
       expect(mark).toHaveBeenLastCalledWith([groups[0]], true);
       act(() => button(f.host, '多选会话').click());
@@ -126,7 +127,7 @@ describe('会话底部多选栏', () => {
       expect(button(f.host, '撤销标记')).toBeNull();
       act(() => button(f.host, '全选当前结果').click());
       expect(button(f.host, '标为已读').disabled).toBe(false);
-      expect(button(f.host, '标为未读').disabled).toBe(false);
+      expect(button(f.host, '标为未读')).toBeNull();
       act(() => button(f.host, '标为已读').click());
       const dialog = document.querySelector('[role="dialog"]')!;
       expect(dialog.textContent).toContain('1 个会话不支持标为已读');
@@ -142,7 +143,7 @@ describe('会话底部多选栏', () => {
           new MouseEvent('contextmenu', { bubbles: true, clientX: 20, clientY: 20 }),
         ),
       );
-      expect(menuButton('标为已读')).toBeUndefined();
+      expect(menuButton('标为已读')).toBeDefined();
       expect(menuButton('标为未读').disabled).toBe(false);
     } finally {
       f.close();
@@ -155,7 +156,7 @@ describe('会话底部多选栏', () => {
     { counts: [0, 0], unread: true },
     { counts: [0, 3], unread: false },
     { counts: [2, 0], unread: false },
-  ])('右键已读菜单只显示当前选区需要的一个操作：$counts', ({ counts, unread }) => {
+  ])('右键菜单始终提供已读与未读：$counts', ({ counts, unread }) => {
     const base = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
     const groups = counts.map((unreadCount, index) => ({
       ...base,
@@ -204,14 +205,14 @@ describe('会话底部多选栏', () => {
       const actions = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].filter(
         (node) => node.textContent === '标为已读' || node.textContent === '标为未读',
       );
-      expect(actions).toHaveLength(1);
+      expect(actions).toHaveLength(2);
       expect(
         [...document.querySelectorAll('[role="menuitem"]')].some(
           (node) => node.textContent === '撤销标记',
         ),
       ).toBe(false);
-      expect(actions[0]!.textContent).toBe(unread ? '标为未读' : '标为已读');
-      act(() => actions[0]!.click());
+      expect(actions.map((node) => node.textContent)).toEqual(['标为已读', '标为未读']);
+      act(() => actions[unread ? 1 : 0]!.click());
       expect(mark).toHaveBeenCalledWith(groups, unread);
     } finally {
       f.close();
@@ -254,7 +255,7 @@ describe('会话底部多选栏', () => {
       f.close();
     }
   });
-  it('保留顶部搜索，空选禁用操作，混选不静默过滤，操作后保留选区', () => {
+  it('顶部选择控制与底部操作分离，空选禁用，混选不静默过滤，操作后保留选区', () => {
     const base = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
     const group = { ...base, id: '10001', group: { ...base.group, id: '10001', name: '合成群聊' } };
     const roaming = vi.fn();
@@ -297,10 +298,18 @@ describe('会话底部多选栏', () => {
     try {
       expect(f.host.querySelector('[aria-label="会话多选操作"]')).toBeNull();
       act(() => button(f.host, '多选会话').click());
-      expect(button(f.host, '搜索会话')).not.toBeNull();
+      expect(button(f.host, '搜索会话')).toBeNull();
+      expect(button(f.host, '反选当前结果')).not.toBeNull();
+      expect(button(f.host, '导出名单').disabled).toBe(true);
       expect(button(f.host, '拉取所选会话漫游消息').disabled).toBe(true);
       act(() => f.host.querySelector<HTMLButtonElement>('[data-conversation-id="10001"]')!.click());
       expect(button(f.host, '拉取所选会话漫游消息').disabled).toBe(false);
+      expect(button(f.host, '导出名单').disabled).toBe(false);
+      act(() => button(f.host, '导出名单').click());
+      expect(JSON.parse(f.host.querySelector('output')!.textContent!).selection).toEqual({
+        owner: { kind: 'contacts', container: 'groups' },
+        scope: { type: 'items', ids: ['10001'] },
+      });
       act(() => button(f.host, '拉取所选会话漫游消息').click());
       expect(roaming).toHaveBeenCalledWith([{ kind: 'group', conv: '10001', name: '合成群聊' }]);
       act(() => button(f.host, '导出所选会话').click());

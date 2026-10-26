@@ -16,6 +16,7 @@ const EXCLUDE_FROM_EXTERNAL = [
   '@weq/codec',
   '@weq/db',
   '@weq/native',
+  '@weq/native/authorization.mjs',
   '@weq/platform',
   '@weq/protocol',
   '@weq/service',

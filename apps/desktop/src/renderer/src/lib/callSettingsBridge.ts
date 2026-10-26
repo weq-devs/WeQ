@@ -13,7 +13,7 @@
 /** 通话窗口 → 主界面：打开设置页并定位到某一节。 */
 export const OPEN_SETTINGS_COMMAND = 'weq:open-settings';
 
-export type SettingsSection = 'callRecording';
+export type SettingsSection = 'callRecording' | 'longTermAuthorization';
 
 interface OpenSettingsPayload {
   section: SettingsSection;
@@ -27,21 +27,32 @@ export function requestOpenSettings(section: SettingsSection): void {
   try {
     window.localStorage.setItem(OPEN_SETTINGS_COMMAND, JSON.stringify(payload));
   } catch {
-    // 隐私模式 / 配额满：跳转失败不影响通话，静默即可。
+    // 存储不可写时跨窗口广播不可用，同窗口事件仍继续发送。
   }
+  window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_COMMAND, { detail: payload }));
 }
 
 /** 在主界面里监听这个请求。返回取消订阅。 */
 export function onOpenSettingsRequest(handler: (section: SettingsSection) => void): () => void {
+  const sameWindow = (event: Event) => {
+    const payload = (event as CustomEvent<OpenSettingsPayload>).detail;
+    if (payload?.section === 'callRecording' || payload?.section === 'longTermAuthorization')
+      handler(payload.section);
+  };
   const listener = (event: StorageEvent) => {
     if (event.key !== OPEN_SETTINGS_COMMAND || !event.newValue) return;
     try {
       const payload = JSON.parse(event.newValue) as OpenSettingsPayload;
-      if (payload.section) handler(payload.section);
+      if (payload.section === 'callRecording' || payload.section === 'longTermAuthorization')
+        handler(payload.section);
     } catch {
       // 值被别的东西写坏了，忽略。
     }
   };
   window.addEventListener('storage', listener);
-  return () => window.removeEventListener('storage', listener);
+  window.addEventListener(OPEN_SETTINGS_COMMAND, sameWindow);
+  return () => {
+    window.removeEventListener('storage', listener);
+    window.removeEventListener(OPEN_SETTINGS_COMMAND, sameWindow);
+  };
 }

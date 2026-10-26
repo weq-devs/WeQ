@@ -1,18 +1,39 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
+import type { AgentLabModelSelection } from '@weq/agentlab';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AssistantPanel } from '../src/renderer/src/views/agentlab/AssistantPanel';
 import { rememberAssistantDraft } from '../src/renderer/src/lib/assistantWorkspace';
 
 const fixture = vi.hoisted(() => ({
   conversation: [],
-  config: { model: { providerId: 'synthetic', model: 'model-a' }, reasoningEffort: 'medium' },
-  utils: { account: { getAssistantConversation: { invalidate: vi.fn() } } },
+  config: {
+    model: { providerId: 'synthetic', model: 'model-a' } as AgentLabModelSelection,
+    reasoningEffort: 'medium',
+  },
+  save: vi.fn(),
+  utils: {
+    account: {
+      getAssistantConversation: { invalidate: vi.fn() },
+      getAssistantConfig: { invalidate: vi.fn() },
+    },
+  },
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => fixture.utils,
+    bootstrap: {
+      getAgentLabDefaultModel: {
+        useQuery: () => ({
+          data: {
+            ref: { providerId: 'synthetic', model: 'model-b' },
+            available: true,
+            error: null,
+          },
+        }),
+      },
+    },
     account: new Proxy(
       {},
       {
@@ -27,7 +48,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                     : {},
               isSuccess: true,
             }),
-            useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }),
+            useMutation: () => ({ mutateAsync: fixture.save, isLoading: false }),
           };
         },
       },
@@ -52,10 +73,33 @@ vi.mock('../src/renderer/src/views/agentlab/messageSearch', () => ({
 }));
 
 beforeEach(() => {
+  fixture.config.model = { providerId: 'synthetic', model: 'model-a' };
+  fixture.save.mockReset().mockResolvedValue({});
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it('助手模型菜单显式保存默认标记，紧凑模式显示当前具体默认模型', async () => {
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const props = { sessionId: null, chatModels: [], onBack: vi.fn(), onSessionCreated: vi.fn() };
+  try {
+    act(() => root.render(h(AssistantPanel, props)));
+    act(() => host.querySelector<HTMLButtonElement>('[title="聊天模型"]')!.click());
+    const option = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
+      (button) => button.textContent?.includes('默认：model-b'),
+    )!;
+    expect(option).toBeDefined();
+    await act(async () => option.click());
+    expect(fixture.save).toHaveBeenCalledWith({ model: { useDefault: true } });
+    fixture.config.model = { useDefault: true };
+    act(() => root.render(h(AssistantPanel, { ...props, compact: true })));
+    expect(host.querySelector('.weq-asst-menu-meta')?.textContent).toContain('默认：model-b');
+  } finally {
+    act(() => root.unmount());
+  }
+});
 
 it('紧凑助手只显示小字上下文，无会话/模型/思考选择器和预设问题，展开后恢复完整控件且保留草稿', () => {
   rememberAssistantDraft('synthetic/config', null, '保留的草稿');

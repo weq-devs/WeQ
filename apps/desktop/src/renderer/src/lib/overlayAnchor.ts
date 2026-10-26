@@ -43,6 +43,7 @@ export function useOverlayAnchor(
   active: boolean,
   enabled: boolean,
   explicit?: HTMLElement | null,
+  preferred: 'above' | 'below' = 'below',
 ) {
   const document = useRenderDocument();
   const parent = useContext(OverlayAnchorContext);
@@ -83,10 +84,15 @@ export function useOverlayAnchor(
       const cardHeight = card.offsetHeight || rect.height;
       const x = Math.max(8, Math.min(target.left, width - cardWidth - 8));
       const below = target.bottom + 8;
+      const above = target.top - cardHeight - 8;
       const y = Math.max(
         8,
         Math.min(
-          below + cardHeight <= height - 8 ? below : target.top - cardHeight - 8,
+          preferred === 'above' && above >= 8
+            ? above
+            : below + cardHeight <= height - 8
+              ? below
+              : above,
           height - cardHeight - 8,
         ),
       );
@@ -110,7 +116,7 @@ export function useOverlayAnchor(
       observer.disconnect();
       mutations.disconnect();
     };
-  }, [active, enabled, anchor, ref, document]);
+  }, [active, enabled, anchor, ref, document, preferred]);
   const capture = (event: SyntheticEvent<HTMLElement>) => {
     const ElementType = document.defaultView?.Element;
     if (

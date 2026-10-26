@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TitleBarSearch } from '../src/renderer/src/components/TitleBarSearch';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
+import { contactSearchHit } from './support/search-fixtures';
 import {
   SEARCH_CATEGORY_ORDER,
   type SearchCategory,
@@ -86,14 +87,16 @@ describe('全局搜索增量接入不替换原功能', () => {
           quick: {
             conversations: [],
             groupMembers: [],
-            friends: [1, 2, 3].map((id) => ({
-              category: 'friend' as const,
-              uid: `u_synthetic${id}`,
-              uin: '10002',
-              nick: `合成好友${id}`,
-              remark: '',
-              avatarUrl: null,
-            })),
+            contacts: [1, 2, 3].map((id) =>
+              contactSearchHit({
+                uid: `u_synthetic${id}`,
+                uin: `10002${id}`,
+                nick: `合成好友${id}`,
+                remark: '',
+                avatarUrl: null,
+              }),
+            ),
+            friends: [],
           },
           quickLoading: false,
           slow: {
@@ -118,7 +121,7 @@ describe('全局搜索增量接入不替换原功能', () => {
       const panel = document.querySelector<HTMLElement>('.weq-titlebar-search-results')!;
       expect(panel.querySelector('[aria-label="搜索范围"]')).not.toBeNull();
       expect(panel.textContent).toContain('合成好友1');
-      expect(panel.textContent).toContain('聊天记录');
+      expect(panel.textContent).toContain('消息');
       expect(panel.querySelector('.weq-cloud-lookup-entry')).not.toBeNull();
       const output = process.env.WEQ_ENTRY_LAYOUT_DIR;
       if (output) {
@@ -136,21 +139,21 @@ describe('全局搜索增量接入不替换原功能', () => {
           `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${styles}</style><style>body{margin:0;font-family:system-ui;background:var(--background);color:var(--foreground)}.weq-titlebar-search-results{left:8px!important;top:48px!important;width:min(720px,calc(100vw - 16px))!important;max-height:calc(100dvh - 64px)!important}</style><body>${document.body.innerHTML}</body></html>`,
         );
       }
-      const friendBox = [...panel.querySelectorAll<HTMLLabelElement>('.weq-search-scope label')]
-        .find((label) => label.textContent === '好友')!
-        .querySelector<HTMLInputElement>('input')!;
-      act(() => friendBox.click());
-      expect(friendBox.checked).toBe(false);
+      const friendButton = [
+        ...panel.querySelectorAll<HTMLButtonElement>('.weq-search-scope button'),
+      ].find((button) => button.textContent === '联系人')!;
+      act(() => friendButton.click());
+      expect(friendButton.getAttribute('aria-pressed')).toBe('false');
       act(() => panel.querySelector<HTMLButtonElement>('.weq-cloud-lookup-entry')!.click());
       const dialog = document.querySelector('[aria-label="精确查询"]')!;
       act(() => dialog.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
       expect(document.querySelector('.weq-titlebar-search-results')).not.toBeNull();
       act(() => dialog.querySelector<HTMLButtonElement>('button')!.click());
       expect(host.querySelector<HTMLInputElement>('input')!.value).toBe('10002');
-      expect(friendBox.checked).toBe(false);
-      act(() => friendBox.click());
+      expect(friendButton.getAttribute('aria-pressed')).toBe('false');
+      act(() => friendButton.click());
       act(() => panel.querySelector<HTMLButtonElement>('.weq-search-more')!.click());
-      expect(more).toHaveBeenCalledWith('friend');
+      expect(more).toHaveBeenCalledWith('contact');
       act(() => panel.querySelector<HTMLButtonElement>('.weq-search-row')!.click());
       expect(select).toHaveBeenCalledOnce();
     } finally {

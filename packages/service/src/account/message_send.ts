@@ -9,7 +9,7 @@
  *   - {@link sendText}     文本（可带 @ 与引用回复）；
  *   - {@link sendMedia}    图片 / 语音 / 视频（先上传 NTV2，见 @weq/protocol 的 highway）；
  *   - {@link sendElements} 逃生舱：直接给元素数组（表情 / 商城表情 / markdown / xml /
- *                          ark 卡片 / 合并转发 / 窗口抖动 / raw …）。
+ *                          ark 卡片 / 合并转发 / 互动表情 / raw …）。
  *
  * 目标 `targetId` 的三种写法都收：
  *   - 群聊：群号；
@@ -152,11 +152,6 @@ export interface SendTextParams {
   replyToMsgTime?: number;
 }
 
-export interface SendWindowShakeParams {
-  /** 私聊对端：QQ 号或 uid（窗口抖动不支持群聊 / 群临时会话）。 */
-  targetId: string | number;
-}
-
 /**
  * AI 声聊（TTS）发送参数。
  *
@@ -190,11 +185,6 @@ export interface SendAiVoiceOutcome {
   fileSize?: number;
   hint?: string;
 }
-
-/**
- * 窗口抖动的 `POKE_EXTRA.type`。真机抓包与 SnowLuma / Napcat 一致，恒为 1。
- */
-const WINDOW_SHAKE_SUB_TYPE = 1;
 
 export interface SendMediaParams {
   peerType: SendPeerType;
@@ -750,22 +740,6 @@ export class MessageSendService {
   }
 
   /**
-   * 窗口抖动（私聊消息里的 `commonElem serviceType=2`）。
-   *
-   * 与「戳一戳」（OIDB 0xED3_1，见 InteractionService）不是一回事：这条是
-   * `MessageSvc.PbSendMsg` 里的一条**私聊消息**，服务端只接受私聊场景，且这个元素
-   * 必须独占一条消息 —— 所以这里把 peerType 固定成 c2c、元素固定成单枚 poke，
-   * 调用方不可能拼出「群聊抖动」或「抖动 + 正文」这种必被服务端拒绝的组合。
-   */
-  async sendWindowShake(params: SendWindowShakeParams): Promise<SendMessageOutcome> {
-    return this.sendElements({
-      peerType: 'c2c',
-      targetId: params.targetId,
-      elements: [{ kind: 'poke', subType: WINDOW_SHAKE_SUB_TYPE }],
-    });
-  }
-
-  /**
    * AI 声聊（TTS）：`0x929b_0` 把「文字 + 声线」交给服务端合成，**合成即发送**到群里，
    * 不需要第二步（见 {@link SendAiVoiceParams}）。只支持群聊。
    *
@@ -899,6 +873,7 @@ export class MessageSendService {
       selfUin,
       ...(fileName ? { fileName } : {}),
       log,
+      beforeSend: params.beforeSend,
     });
     logger.info(
       result.fastUpload
@@ -1565,7 +1540,7 @@ export function toOutcome(
       : {
           hint:
             `服务端拒绝了下发（result=${receipt.result}）${receipt.errMsg ? `：${receipt.errMsg}` : '。'}` +
-            '常见 result：79 = 场景/参数不符（如把窗口抖动发进群、库没开），0 = 正常。',
+            '常见 result：79 = 场景/参数不符（如目标或会话类型不符），0 = 正常。',
         }),
   };
 }

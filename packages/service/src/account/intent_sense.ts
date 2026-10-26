@@ -28,8 +28,11 @@ import { mergeRoamingTimeline, timelineRowKey, type TimelineRow } from '../commo
 import {
   pickMessageText,
   requestApiJson,
+  normalizeModelSelection,
+  modelSelectionKey,
+  isDefaultModelSelection,
   type AgentLabEndpoint,
-  type AgentLabModelRef,
+  type AgentLabModelSelection,
 } from '@weq/agentlab';
 import type { EndpointResolver } from './assistant';
 import { JsonStore } from '../common/json_store';
@@ -131,11 +134,11 @@ export interface IntentSenseConfig extends IntentTuning {
   /** 引擎：api（OpenAI 兼容）| local（Laya ONNX worker）。 */
   engine: 'api' | 'local';
   /** api 引擎用的 provider 引用（与 agentlab provider 目录同一套）。 */
-  providerRef: AgentLabModelRef | null;
+  providerRef: AgentLabModelSelection | null;
   /** 推荐回复独立使用的 API 模型，不跟随分析引擎或本地模型。 */
-  suggestionProviderRef: AgentLabModelRef | null;
+  suggestionProviderRef: AgentLabModelSelection | null;
   profileEngine: 'api' | 'local' | 'heuristic';
-  profileProviderRef: AgentLabModelRef | null;
+  profileProviderRef: AgentLabModelSelection | null;
   profileLocalModelId: 'auto' | 'laya-multilingual' | 'QWeQ-NineBird-v1';
   /** 回复建议开关；生成式回复使用 API，失败时保留规则候选兜底。 */
   suggestionsEnabled: boolean;
@@ -377,13 +380,27 @@ function extractContextBefore(
 interface CacheFile {
   version?: number;
   contextMessages?: number;
+  modelIdentity?: string;
   results: IntentSenseResult[];
 }
 
-function normalizeCacheFile(raw: unknown, contextMessages: number): CacheFile {
-  const obj = raw as { version?: unknown; results?: unknown; contextMessages?: unknown } | null;
-  const empty = { version: CACHE_SCHEMA_VERSION, contextMessages, results: [] };
-  if (obj?.version !== CACHE_SCHEMA_VERSION || obj.contextMessages !== contextMessages)
+function normalizeCacheFile(
+  raw: unknown,
+  contextMessages: number,
+  modelIdentity?: string,
+): CacheFile {
+  const obj = raw as {
+    version?: unknown;
+    results?: unknown;
+    contextMessages?: unknown;
+    modelIdentity?: unknown;
+  } | null;
+  const empty = { version: CACHE_SCHEMA_VERSION, contextMessages, modelIdentity, results: [] };
+  if (
+    obj?.version !== CACHE_SCHEMA_VERSION ||
+    obj.contextMessages !== contextMessages ||
+    (modelIdentity !== undefined && obj.modelIdentity !== modelIdentity)
+  )
     return empty;
   const list = obj?.results;
   if (!Array.isArray(list)) return empty;
@@ -405,7 +422,7 @@ function normalizeCacheFile(raw: unknown, contextMessages: number): CacheFile {
       analyzedAt: Number(r.analyzedAt ?? 0) || 0,
     });
   }
-  return { version: CACHE_SCHEMA_VERSION, contextMessages, results };
+  return { version: CACHE_SCHEMA_VERSION, contextMessages, modelIdentity, results };
 }
 
 export interface IntentSenseOptions {
@@ -452,6 +469,7 @@ export class IntentSenseService {
   private lastApiError: string | null = null;
   private suggestionApiCooldownUntil = 0;
   private lastSuggestionApiError: string | null = null;
+  private readonly defaultIdentities = new Map<string, string>();
 
   constructor(
     private readonly session: AccountSession,
@@ -464,7 +482,7 @@ export class IntentSenseService {
     this.configStore = new JsonStore(`${storeDir}/config.json`, () => ({ ...DEFAULT_CONFIG }), {
       normalize: (raw) => {
         const p = (raw ?? {}) as Partial<IntentSenseConfig>;
-        const ref = p.providerRef as AgentLabModelRef | null | undefined;
+        const ref = p.providerRef as AgentLabModelSelection | null | undefined;
         migrateFeatures = p.featureSettingsVersion === undefined;
         migrateProfile = p.featureSettingsVersion !== 2;
         const follows = !p.profileEngine || (p.profileEngine as string) === 'follow';
@@ -485,16 +503,8 @@ export class IntentSenseService {
           profileEnabled: migrateFeatures ? p.enabled === true : p.profileEnabled === true,
           enabled: p.enabled === true,
           engine: p.engine === 'local' ? 'local' : 'api',
-          providerRef:
-            ref && typeof ref.providerId === 'string' && typeof ref.model === 'string'
-              ? { providerId: ref.providerId, model: ref.model }
-              : null,
-          suggestionProviderRef:
-            suggestionRef &&
-            typeof suggestionRef.providerId === 'string' &&
-            typeof suggestionRef.model === 'string'
-              ? { providerId: suggestionRef.providerId, model: suggestionRef.model }
-              : null,
+          providerRef: normalizeModelSelection(ref),
+          suggestionProviderRef: normalizeModelSelection(suggestionRef),
           suggestionsEnabled:
             p.suggestionsEnabled === true && (!migrateFeatures || p.enabled === true),
           profileEngine:
@@ -507,12 +517,8 @@ export class IntentSenseService {
                 : 'api',
           profileProviderRef:
             migrateProfile && follows
-              ? ref
-                ? { ...ref }
-                : null
-              : p.profileProviderRef?.providerId && p.profileProviderRef.model
-                ? { ...p.profileProviderRef }
-                : null,
+              ? normalizeModelSelection(ref)
+              : normalizeModelSelection(p.profileProviderRef),
           profileLocalModelId:
             p.profileLocalModelId === 'laya-multilingual' ||
             p.profileLocalModelId === 'QWeQ-NineBird-v1'
@@ -560,18 +566,67 @@ export class IntentSenseService {
     return this.configStore.data;
   }
 
+  private apiRefAvailable(ref: AgentLabModelSelection | null): boolean {
+    return (
+      !!this.opts.resolveEndpoint &&
+      !!ref &&
+      (!isDefaultModelSelection(ref) || !!this.endpoint(ref))
+    );
+  }
+
+  private defaultIdentity(ref: AgentLabModelSelection | null): string {
+    const endpoint = this.endpoint(ref);
+    return endpoint?.modelIdentity ?? endpoint?.model ?? 'unavailable';
+  }
+
+  private analysisModelIdentity(): string | undefined {
+    return this.config.engine === 'api' && isDefaultModelSelection(this.config.providerRef)
+      ? this.defaultIdentity(this.config.providerRef)
+      : undefined;
+  }
+
+  private syncDefaultModels(): void {
+    const bindings: Array<[string, AgentLabModelSelection | null]> = [
+      ['analysis', this.config.engine === 'api' ? this.config.providerRef : null],
+      ['suggestion', this.config.suggestionProviderRef],
+      ['profile', this.config.profileEngine === 'api' ? this.config.profileProviderRef : null],
+    ];
+    for (const [kind, ref] of bindings) {
+      if (!isDefaultModelSelection(ref)) {
+        this.defaultIdentities.delete(kind);
+        continue;
+      }
+      const identity = this.defaultIdentity(ref);
+      const previous = this.defaultIdentities.get(kind);
+      this.defaultIdentities.set(kind, identity);
+      if (previous === undefined || previous === identity) continue;
+      if (kind === 'analysis') this.clearCache();
+      if (kind === 'suggestion') {
+        this.suggestionRevision++;
+        this.suggestionCache.clear();
+        this.suggestionApiCooldownUntil = 0;
+        this.lastSuggestionApiError = null;
+      }
+      if (kind === 'profile') {
+        this.profileRevision++;
+        this.profileService.invalidate();
+      }
+    }
+  }
+
   getStatus(): IntentSenseStatus {
+    this.syncDefaultModels();
     return {
       ...this.config,
       analysisRevision: this.analysisRevision,
       suggestionRevision: this.suggestionRevision,
       profileRevision: this.profileRevision,
-      apiConfigured: !!this.opts.resolveEndpoint && !!this.config.providerRef,
-      suggestionApiConfigured: !!this.opts.resolveEndpoint && !!this.config.suggestionProviderRef,
+      apiConfigured: this.apiRefAvailable(this.config.providerRef),
+      suggestionApiConfigured: this.apiRefAvailable(this.config.suggestionProviderRef),
       profileAvailable:
         this.config.profileEngine === 'heuristic' ||
         (this.config.profileEngine === 'api'
-          ? !!this.opts.resolveEndpoint && !!this.config.profileProviderRef
+          ? this.apiRefAvailable(this.config.profileProviderRef)
           : !!(
               this.opts.localEngine?.forModel?.(this.config.profileLocalModelId) ??
               this.opts.localEngine
@@ -603,7 +658,7 @@ export class IntentSenseService {
     if (patch.profileLocalModelId !== undefined)
       next.profileLocalModelId = patch.profileLocalModelId;
     if (patch.profileProviderRef !== undefined)
-      next.profileProviderRef = patch.profileProviderRef ? { ...patch.profileProviderRef } : null;
+      next.profileProviderRef = normalizeModelSelection(patch.profileProviderRef);
     if (
       next.profileSamples > next.profileMessages ||
       next.profileMinSamples > next.profileSamples
@@ -614,14 +669,10 @@ export class IntentSenseService {
     if (typeof patch.profileEnabled === 'boolean') next.profileEnabled = patch.profileEnabled;
     if (patch.engine === 'api' || patch.engine === 'local') next.engine = patch.engine;
     if (patch.providerRef !== undefined) {
-      next.providerRef =
-        patch.providerRef?.providerId && patch.providerRef.model ? { ...patch.providerRef } : null;
+      next.providerRef = normalizeModelSelection(patch.providerRef);
     }
     if (patch.suggestionProviderRef !== undefined) {
-      next.suggestionProviderRef =
-        patch.suggestionProviderRef?.providerId && patch.suggestionProviderRef.model
-          ? { ...patch.suggestionProviderRef }
-          : null;
+      next.suggestionProviderRef = normalizeModelSelection(patch.suggestionProviderRef);
     }
     if (typeof patch.suggestionsEnabled === 'boolean') {
       next.suggestionsEnabled = patch.suggestionsEnabled;
@@ -635,8 +686,7 @@ export class IntentSenseService {
     const analysisChanged =
       next.analysisTemperature !== this.config.analysisTemperature ||
       next.engine !== this.config.engine ||
-      next.providerRef?.providerId !== this.config.providerRef?.providerId ||
-      next.providerRef?.model !== this.config.providerRef?.model ||
+      modelSelectionKey(next.providerRef) !== modelSelectionKey(this.config.providerRef) ||
       next.contextGapMinutes !== this.config.contextGapMinutes ||
       next.contextSpanMinutes !== this.config.contextSpanMinutes ||
       next.analysisContextMessages !== this.config.analysisContextMessages ||
@@ -652,8 +702,8 @@ export class IntentSenseService {
     if (
       analysisChanged ||
       next.suggestionsEnabled !== this.config.suggestionsEnabled ||
-      next.suggestionProviderRef?.providerId !== this.config.suggestionProviderRef?.providerId ||
-      next.suggestionProviderRef?.model !== this.config.suggestionProviderRef?.model ||
+      modelSelectionKey(next.suggestionProviderRef) !==
+        modelSelectionKey(this.config.suggestionProviderRef) ||
       next.suggestionContextMessages !== this.config.suggestionContextMessages ||
       next.suggestAfterSelf !== this.config.suggestAfterSelf ||
       next.suggestionTemperature !== this.config.suggestionTemperature ||
@@ -713,6 +763,7 @@ export class IntentSenseService {
       store.data = {
         version: CACHE_SCHEMA_VERSION,
         contextMessages: this.config.analysisContextMessages,
+        modelIdentity: this.analysisModelIdentity(),
         results: [],
       };
       store.save();
@@ -760,11 +811,12 @@ export class IntentSenseService {
 
   /** 该会话当前是否生效（总开关 && 覆盖未关 && 引擎可用）。 */
   effectiveFor(kind: IntentConversationKind, id: string): boolean {
+    this.syncDefaultModels();
     if (!this.config.enabled) return false;
     const override = this.config.conversationOverrides[conversationKey(kind, id)];
     if (override === false) return false;
     if (this.config.engine === 'local') return !!this.opts.localEngine?.ready;
-    return !!this.opts.resolveEndpoint && !!this.config.providerRef;
+    return this.apiRefAvailable(this.config.providerRef);
   }
 
   // ── 事件 ─────────────────────────────────────────────────────────────────
@@ -872,6 +924,7 @@ export class IntentSenseService {
     }
     if (!row?.text) return null;
     if (row.mine && !this.config.analyzeAfterSelf) return null;
+    this.syncDefaultModels();
     if (revision !== this.analysisRevision) return null;
 
     let result: IntentSenseResult | null = null;
@@ -879,6 +932,7 @@ export class IntentSenseService {
       result = await this.analyzeOne(row.mine, row.sendTime, row.msgId, row.text, context);
     } else {
       const batchOut = await this.analyzeBatchViaApi([{ ...row, context }]);
+      this.syncDefaultModels();
       if (revision !== this.analysisRevision) return null;
       if (batchOut !== null) {
         result = batchOut[0] ?? null;
@@ -886,6 +940,8 @@ export class IntentSenseService {
         result = await this.analyzeOne(row.mine, row.sendTime, row.msgId, row.text, context);
       }
     }
+    if (revision !== this.analysisRevision) return null;
+    this.syncDefaultModels();
     if (revision !== this.analysisRevision) return null;
     if (result) {
       this.storeResults(kind, conv, [result]);
@@ -916,7 +972,10 @@ export class IntentSenseService {
     revision: number,
   ): Promise<EnsureStats> {
     const contextMessages = this.config.analysisContextMessages;
-    const current = () => revision === this.analysisRevision;
+    const current = () => {
+      this.syncDefaultModels();
+      return revision === this.analysisRevision;
+    };
     const cache = this.cacheFor(kind, conv);
     // 当用户切换到 api 引擎且未处于熔断期时，之前由 local 引擎产生的缓存不视为最终命中，允许升级重算为 api 结果
     const known = new Set(
@@ -1084,7 +1143,7 @@ export class IntentSenseService {
   // ── API 引擎 ─────────────────────────────────────────────────────────────
 
   private endpoint(
-    ref: AgentLabModelRef | null = this.config.providerRef,
+    ref: AgentLabModelSelection | null = this.config.providerRef,
   ): AgentLabEndpoint | null {
     if (!this.opts.resolveEndpoint || !ref) return null;
     try {
@@ -1207,7 +1266,13 @@ export class IntentSenseService {
 
   /** 兼容旧 IPC 入口；运行状态与计算由独立画像服务持有。 */
   getProfile(peerUid: string): Promise<IntentProfile | null> {
-    return this.profileService.getProfile(peerUid);
+    this.syncDefaultModels();
+    const revision = this.profileRevision;
+    return this.profileService.getProfile(peerUid).then((result) => {
+      this.syncDefaultModels();
+      if (revision !== this.profileRevision) throw new Error('默认画像模型已更改，请重新读取');
+      return result;
+    });
   }
 
   // ── 回复建议（API 引擎优先 + 本地意图候选兜底）─────────────────────────────
@@ -1217,6 +1282,7 @@ export class IntentSenseService {
     conv: string,
     options: { refresh?: boolean } = {},
   ): Promise<ReplySuggestion[]> {
+    this.syncDefaultModels();
     if (
       this.config.conversationOverrides[conversationKey(kind, conv)] === false ||
       !this.config.suggestionsEnabled
@@ -1226,10 +1292,14 @@ export class IntentSenseService {
     const manualRefresh = options.refresh === true;
     const contextMessages = this.config.suggestionContextMessages;
     const key = conversationKey(kind, conv);
-    const current = () =>
-      revision === this.suggestionRevision &&
-      this.config.suggestionsEnabled &&
-      this.config.conversationOverrides[key] !== false;
+    const current = () => {
+      this.syncDefaultModels();
+      return (
+        revision === this.suggestionRevision &&
+        this.config.suggestionsEnabled &&
+        this.config.conversationOverrides[key] !== false
+      );
+    };
     const rows = await this.loadMessages(kind, conv, contextMessages + 1);
     if (!current()) return [];
     if (rows.length === 0) return [];
@@ -1528,6 +1598,8 @@ export class IntentSenseService {
   }
 
   private cacheFor(kind: IntentConversationKind, conv: string): JsonStore<CacheFile> {
+    this.syncDefaultModels();
+    const modelIdentity = this.analysisModelIdentity();
     const key = conversationKey(kind, conv);
     const existing = this.analysisStores.get(key);
     if (existing) return existing;
@@ -1536,11 +1608,12 @@ export class IntentSenseService {
       () => ({
         version: CACHE_SCHEMA_VERSION,
         contextMessages: this.config.analysisContextMessages,
+        modelIdentity,
         results: [],
       }),
       {
         normalize: (raw) => {
-          const file = normalizeCacheFile(raw, this.config.analysisContextMessages);
+          const file = normalizeCacheFile(raw, this.config.analysisContextMessages, modelIdentity);
           return { ...file, results: file.results.slice(-this.config.cacheEntries) };
         },
       },
@@ -1567,6 +1640,7 @@ export class IntentSenseService {
     store.data = {
       version: CACHE_SCHEMA_VERSION,
       contextMessages: this.config.analysisContextMessages,
+      modelIdentity: this.analysisModelIdentity(),
       results: all,
     };
     store.save();

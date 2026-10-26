@@ -69,6 +69,8 @@ resources/ninebird-runtime/
 # `pnpm native:fetch` 取最新（release 流水线在打包前也会取一次）。
 # 注意：native/<platform>/<arch>/ninebird/* 仍然入库，是另一条手工同步的链。
 /native/*/*/nt_helper.node
+/native/*/*/weq-authorization-helper
+/native/*/*/weq-authorization-helper.exe
 # `pnpm native:fetch` 记「当前装的是哪个 tag」用，天然是机器相关的
 /native/.installed.json
 /resources/dress/*.dat
@@ -104,3 +106,4 @@ resources/ninebird-runtime/
 models/
 tmp_reverse/
 .zcode/
+/tools/remote-network/build/

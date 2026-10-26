@@ -71,7 +71,7 @@ describe('左栏统一按钮', () => {
       expect(menu.classList.contains('weq-rail-button')).toBe(true);
       expect(menu.classList.contains('weq-rail-control')).toBe(false);
       expect(menu.querySelector('.weq-workspace-dot')).not.toBeNull();
-      expect(menu.querySelector('.weq-workspace-count')?.textContent).toBe('2');
+      expect(menu.querySelector('.weq-workspace-status-count.is-running')?.textContent).toBe('2');
       act(() => menu.click());
       expect(menu.getAttribute('aria-expanded')).toBe('true');
       expect(message.getAttribute('aria-current')).toBe('page');

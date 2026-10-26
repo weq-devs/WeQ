@@ -1,4 +1,4 @@
-import { formatConversationTimestamp } from '../../lib/conversationTime';
+import { formatConversationTime, formatConversationTimestamp } from '../../lib/conversationTime';
 import { conversationActivityTime } from '@weq/service/conversation-order';
 import {
   X,
@@ -6,11 +6,11 @@ import {
   Trash2,
   Pin,
   PinOff,
-  ListChecks,
   Download,
   CloudDownload,
   BarChart3,
   MailOpen,
+  Mail,
 } from 'lucide-react';
 import { useMemo, useEffect, useRef, useState, useContext } from 'react';
 import { classifyChatType } from '@weq/codec';
@@ -19,14 +19,21 @@ import type { Conversation, MergedKind } from '../../im-template/template/types'
 import { trpc } from '../../trpc/client';
 import { resolveAvatar, avatarFromGroupCode } from '../../lib/avatarResolver';
 import { isAssistantPinned, type GroupAssistantPins } from '../../lib/groupAssistant';
-import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
+import {
+  ConversationDirectoryContext,
+  guildConversationRow,
+} from '../../lib/conversationDirectory';
 import { conversationAnalysisTarget } from '../../lib/conversationActions';
-import { previewNodes, previewNodesToText } from '../../lib/conversationPreview';
 import { useContentMultiSelect } from '../../state/contentSelection';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
-import { allSelectionIdsSelected, toggleAllSelectionIds } from '../../lib/multiSelection';
+import {
+  allSelectionIdsSelected,
+  toggleAllSelectionIds,
+  invertSelectionIds,
+} from '../../lib/multiSelection';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
-import { ConversationSelectionToolbar } from '../ConversationSelectionToolbar';
+import { ConversationBatchToolbar } from '../ConversationBatchToolbar';
+import { DirectoryToolbar } from '../DirectoryToolbar';
 import { useConversationBatchActions } from '../useConversationBatchActions';
 import '../../styles/group-assistant.css';
 
@@ -242,29 +249,7 @@ export function MergedSessionPanel({
 
   const filtered = useMemo<Conversation[]>(() => {
     if (kind === 'guildDirect') {
-      return ((guildSessions.data ?? []) as GuildDirectSessionWire[]).map((session) => ({
-        id: `guild:${session.nodeId}`,
-        type: 'direct',
-        otherUser: {
-          id: `guild:${session.nodeId}`,
-          identityLabel: '频道',
-          identityValue: session.peerTinyId,
-          username: session.peerNick || session.peerTinyId,
-          displayName: session.peerNick || session.peerTinyId,
-          avatarUrl: session.peerAvatarUrl,
-        },
-        group: null,
-        members: [],
-        updatedAt: new Date(Number(session.lastTime) * 1000).toISOString(),
-        preference: { pinned: false, muted: false, blocked: false },
-        unreadCount: 0,
-        lastMessage: {
-          id: `guild:${session.nodeId}:${session.lastSeq}`,
-          senderId: null,
-          body: previewNodesToText(previewNodes(session.preview ?? null)),
-          createdAt: new Date(Number(session.lastTime) * 1000).toISOString(),
-        },
-      }));
+      return ((guildSessions.data ?? []) as GuildDirectSessionWire[]).map(guildConversationRow);
     }
     if (kind === 'groupAssistant')
       return _conversations.filter(
@@ -549,8 +534,10 @@ export function MergedSessionPanel({
               ? 'QQ服务号'
               : 'QQ官方账号';
   const ids = sortedThreads.map((row) => row.id);
+  const invertFrom = useRef<Set<string> | null>(null);
   const allSelected = allSelectionIdsSelected(ids, selectedIds);
   const toggleAll = () => {
+    invertFrom.current = null;
     if (selectingAll) {
       setSelectingAll(false);
       return;
@@ -565,11 +552,16 @@ export function MergedSessionPanel({
   useEffect(() => {
     if (!selectingAll) return;
     if (!selectionMode || groupAssistantError) {
+      invertFrom.current = null;
       setSelectingAll(false);
       return;
     }
     if (!groupAssistantHasMore && !groupAssistantLoading) {
-      setSelectedIds((current) => new Set([...current, ...ids]));
+      const original = invertFrom.current;
+      setSelectedIds((current) =>
+        original ? invertSelectionIds(ids, original) : new Set([...current, ...ids]),
+      );
+      invertFrom.current = null;
       setSelectingAll(false);
     } else if (groupAssistantHasMore && !groupAssistantLoading) onLoadMoreGroupAssistant?.();
   }, [
@@ -587,6 +579,7 @@ export function MergedSessionPanel({
     ids,
     selected: selectedIds,
     onChange: (next) => {
+      invertFrom.current = null;
       if ((groupAssistantHasMore || groupAssistantLoading) && ids.every((id) => next.has(id))) {
         setSelectingAll(true);
         onLoadMoreGroupAssistant?.();
@@ -627,6 +620,27 @@ export function MergedSessionPanel({
           </button>
         </div>
         {kind === 'groupAssistant' ? (
+          <DirectoryToolbar
+            noun="群助手会话"
+            query={groupSearch}
+            onQuery={setGroupSearch}
+            searchEnabled={false}
+            selecting={selectionMode}
+            onSelecting={setSelectionMode}
+            count={selectedIds.size}
+            selectingAll={selectingAll}
+            allSelected={allSelected}
+            onSelectAll={toggleAll}
+            onInvert={() => {
+              if (groupAssistantHasMore || groupAssistantLoading) {
+                invertFrom.current = new Set(selectedIds);
+                setSelectingAll(true);
+                onLoadMoreGroupAssistant?.();
+              } else setSelectedIds(invertSelectionIds(ids, selectedIds));
+            }}
+          />
+        ) : null}
+        {kind === 'groupAssistant' ? (
           <div className="weq-group-helper-search">
             <input
               aria-label="搜索群助手"
@@ -645,7 +659,10 @@ export function MergedSessionPanel({
           {sortedThreads.map((conv) => {
             const preview = conv.lastMessage?.body ?? '';
             const unreadCount = conv.unreadCount ?? 0;
-            const time = formatConversationTimestamp(conv.updatedAt);
+            const time =
+              kind === 'groupAssistant'
+                ? formatConversationTime(conv.updatedAt)
+                : formatConversationTimestamp(conv.updatedAt);
             const name = conv.type === 'group' ? conv.group?.name : conv.otherUser?.displayName;
             const avatarUrl =
               conv.type === 'group' ? conv.group?.avatarUrl : conv.otherUser?.avatarUrl;
@@ -742,43 +759,10 @@ export function MergedSessionPanel({
           ) : null}
         </div>
         {kind === 'groupAssistant' && selectionMode ? (
-          <ConversationSelectionToolbar
-            count={selectedIds.size}
-            selectingAll={selectingAll}
-            assistantCount={[...selectedIds].filter((id) => groupAssistantIds?.has(id)).length}
-            allSelected={allSelected}
-            onSelectAll={toggleAll}
-            onExit={() => setSelectionMode(false)}
-            exportReason={
-              !selectedIds.size
-                ? '请先选择会话'
-                : !batch.exportAvailable
-                  ? '当前无法导出会话'
-                  : undefined
-            }
-            roamingReason={
-              !selectedIds.size
-                ? '请先选择会话'
-                : !batch.roamingAvailable
-                  ? '当前无法拉取漫游消息'
-                  : undefined
-            }
-            onExport={() => batch.runExport([...selectedIds])}
-            onRoaming={() => batch.runRoaming([...selectedIds])}
-            readStateReason={
-              directory?.readStateBusy
-                ? '正在更新标记'
-                : !selectedIds.size
-                  ? '请先选择会话'
-                  : selectedIds.size > 4096
-                    ? '一次最多标记 4096 个会话'
-                    : undefined
-            }
-            onReadState={
-              directory?.onReadState
-                ? (unread) => batch.runReadState([...selectedIds], unread)
-                : undefined
-            }
+          <ConversationBatchToolbar
+            conversations={filtered}
+            ids={[...selectedIds]}
+            busy={selectingAll}
           />
         ) : null}
       </div>
@@ -790,23 +774,14 @@ export function MergedSessionPanel({
           actions={[
             ...(directory?.onReadState
               ? [
-                  {
-                    label: batch.hasUnread(actionMenu.ids) ? '标为已读' : '标为未读',
-                    icon: <MailOpen size={16} />,
+                  ...[false, true].map((unread) => ({
+                    label: unread ? '标为未读' : '标为已读',
+                    icon: unread ? <Mail size={16} /> : <MailOpen size={16} />,
                     disabled: directory.readStateBusy || actionMenu.ids.length > 4096,
-                    action: () =>
-                      batch.runReadState(actionMenu.ids, !batch.hasUnread(actionMenu.ids)),
-                  },
+                    action: () => batch.runReadState(actionMenu.ids, unread),
+                  })),
                 ]
               : []),
-            {
-              label: '多选',
-              icon: <ListChecks size={16} />,
-              action: () => {
-                setSelectionMode(true);
-                setSelectedIds(new Set(actionMenu.ids));
-              },
-            },
             ...(onGroupAssistantPin
               ? [
                   {

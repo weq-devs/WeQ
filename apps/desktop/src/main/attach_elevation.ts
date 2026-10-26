@@ -74,6 +74,7 @@ import { getLogger } from '@weq/service';
 import { getSudoPasswordPrompt, requestSudoPassword } from './sudo_prompt';
 import { getAttachHintPrompt } from './attach_hint';
 import { resolveChildWorkerPath } from './worker_path';
+import { tryLongTermAttach } from './authorization/client';
 
 const logger = getLogger().child({ scope: 'attach-elevation' });
 
@@ -287,6 +288,17 @@ export function createLinuxAttachHook(
           box.material = outcome.material;
           return null;
         }
+        if (isPermissionError(outcome.error)) {
+          try {
+            const material = await tryLongTermAttach(pid, signal);
+            if (material) {
+              box.material = material;
+              return null;
+            }
+          } catch {
+            signal.throwIfAborted();
+          }
+        }
         return {
           permissionDenied: isPermissionError(outcome.error),
           message: outcome.error.message,
@@ -393,6 +405,13 @@ export function createLinuxAttachHook(
     signal?: AbortSignal,
   ): Promise<SessionMaterial> {
     signal?.throwIfAborted();
+    try {
+      const material = await tryLongTermAttach(pid, signal);
+      if (material) return material;
+    } catch {
+      signal?.throwIfAborted();
+      // 助手失效不堵住原有临时授权；也不在日志中记录会话物料。
+    }
     let password: string | null = provided ?? null;
     if (!password && !installInvisibleToRoot()) {
       try {

@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   AlertCircle,
   Check,
+  CheckCheck,
   ClipboardCopy,
   Copy,
   Download,
@@ -30,6 +31,8 @@ import {
   Plug,
   RefreshCw,
   RotateCcw,
+  Save,
+  Square,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs';
@@ -389,6 +392,7 @@ export function McpServerSection(): ReactElement {
                 disabled={busy || status.isLoading || !data}
                 onClick={() => void onSavePort()}
               >
+                <Save size={13} aria-hidden="true" />
                 保存
               </button>
             </div>
@@ -559,6 +563,11 @@ export function McpServerSection(): ReactElement {
               )
             }
           >
+            {selectedAgents.size === actionableTargets.length ? (
+              <Square size={13} aria-hidden="true" />
+            ) : (
+              <CheckCheck size={13} aria-hidden="true" />
+            )}
             {selectedAgents.size === actionableTargets.length ? '清空选择' : '全选'}
           </button>
         ) : null}

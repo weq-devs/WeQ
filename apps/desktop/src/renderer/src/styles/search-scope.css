@@ -1,24 +1,55 @@
 .weq-search-scope {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 16px;
+  gap: 6px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--weq-border-subtle);
   color: var(--weq-fg-secondary);
   font-size: 12px;
 }
 
-.weq-search-scope label {
+.weq-search-scope button {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  min-height: 24px;
+  gap: 6px;
+  min-height: 30px;
+  max-width: 100%;
+  padding: 5px 9px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.4;
   cursor: pointer;
 }
 
-.weq-search-scope input {
-  margin: 0;
-  accent-color: var(--weq-accent-effective);
+.weq-search-scope button > svg {
+  flex: none;
+}
+
+.weq-search-scope button:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, var(--weq-border-subtle));
+  color: var(--weq-fg-primary);
+}
+
+.weq-search-scope button[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 52%, var(--weq-border-subtle));
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-search-scope button[aria-pressed='true'] > svg {
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
+}
+
+.weq-search-scope button[aria-pressed='mixed'] {
+  border-style: dashed;
+}
+
+.weq-search-scope button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 1px;
 }
 
 .weq-search-failure {
@@ -51,6 +82,41 @@
   color: var(--weq-fg-secondary);
 }
 
+.weq-search-contact + .weq-search-contact {
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-search-contact-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 12px 8px 60px;
+}
+.weq-search-contact-groups button {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.weq-search-contact-groups button:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+.weq-search-contact-groups button > svg {
+  flex: none;
+}
+.weq-search-contact-groups button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+}
+
 .weq-search-dropdown .weq-search-hl,
 .weq-search-dropdown .weq-search-strong,
 .weq-search-more-modal .weq-search-hl,
@@ -65,6 +131,17 @@ html[data-theme='dark'] .weq-search-more-modal .weq-search-strong {
 html[data-theme='dark'] .weq-search-scope,
 html[data-theme='dark'] .weq-search-failure button {
   border-color: var(--weq-border-strong);
+}
+
+html[data-theme='dark'] .weq-search-scope button {
+  border-color: var(--weq-border-strong);
+}
+html[data-theme='dark'] .weq-search-scope button:hover,
+html[data-theme='dark'] .weq-search-scope button[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 60%, var(--weq-border-strong));
+}
+html[data-theme='dark'] .weq-search-scope button[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
 }
 .weq-search-section .weq-search-index-hint,
 .weq-search-more-modal > .weq-search-index-hint {

@@ -5,11 +5,12 @@
  * 的 ws 地址与 token 即可启动。未来扩展（更多 provider 能力 / 功能开关）只往这里加字段，不改结构。
  */
 import type {
-  AgentLabModelRef,
+  AgentLabModelSelection,
   AgentLabEndpoint,
   EndpointResolver,
   TtsProviderConfig,
 } from '@weq/agentlab';
+import { isDefaultModelSelection, modelEndpointIdentity } from '@weq/agentlab';
 
 export type AdapterType = 'napcat' | 'snowluma';
 
@@ -80,12 +81,19 @@ export interface BotConfig {
  */
 export function buildEndpointResolver(providers: BotLlmProvider[]): EndpointResolver {
   const byId = new Map(providers.map((p) => [p.id, p]));
-  return (ref: AgentLabModelRef): AgentLabEndpoint => {
+  return (ref: AgentLabModelSelection): AgentLabEndpoint => {
+    if (isDefaultModelSelection(ref))
+      throw new Error('导出模型尚未解析，请在 WeQ 中重新导出克隆体');
     const p = byId.get(ref.providerId);
     if (!p)
       throw new Error(
         `未配置 LLM provider: ${ref.providerId}（persona 引用了它但 config.llmProviders 里没有）`,
       );
-    return { baseUrl: p.baseUrl, apiKey: p.apiKey, model: ref.model };
+    return {
+      baseUrl: p.baseUrl,
+      apiKey: p.apiKey,
+      model: ref.model,
+      modelIdentity: modelEndpointIdentity(ref, p.baseUrl),
+    };
   };
 }

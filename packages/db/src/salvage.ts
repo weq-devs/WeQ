@@ -36,6 +36,7 @@ import type {
   SqlValue,
 } from '@weq/native';
 import { isLikelyCorruptionError } from './errors';
+import { aliasDatabaseBinding, scheduleDatabase } from './query_schedule';
 
 /** 宽容级别。0 = 严格（默认）。 */
 export type SalvageLevel = 0 | 1 | 2 | 3;
@@ -356,29 +357,32 @@ export function wrapBindingForSalvage(
   nt: NtHelperBinding,
   opts: SalvageBindingOptions,
 ): NtHelperBinding {
-  return new Proxy(nt, {
-    get(target, prop, receiver) {
-      const value = Reflect.get(target, prop, receiver);
-      if (typeof value !== 'function') return value;
-      const fn = value as (...args: unknown[]) => unknown;
+  return aliasDatabaseBinding(
+    new Proxy(nt, {
+      get(target, prop, receiver) {
+        const value = Reflect.get(target, prop, receiver);
+        if (typeof value !== 'function') return value;
+        const fn = value as (...args: unknown[]) => unknown;
 
-      if (prop === 'executeSql') {
-        return (dbPath: string, sql: string, params?: SqlValue[] | null): Promise<SqlRow[]> =>
-          runRead(target, dbPath, sql, params ?? null, null, opts);
-      }
-      if (prop === 'executeSqlWithKey') {
-        return (
-          dbPath: string,
-          sql: string,
-          key: string,
-          algo: ReadCredentials['algo'],
-          params?: SqlValue[] | null,
-        ): Promise<SqlRow[]> => runRead(target, dbPath, sql, params ?? null, { key, algo }, opts);
-      }
-      // 其余方法（含写路径与 closeDb）原样透传，`this` 指向真实绑定。
-      return fn.bind(target);
-    },
-  });
+        if (prop === 'executeSql') {
+          return (dbPath: string, sql: string, params?: SqlValue[] | null): Promise<SqlRow[]> =>
+            runRead(target, dbPath, sql, params ?? null, null, opts);
+        }
+        if (prop === 'executeSqlWithKey') {
+          return (
+            dbPath: string,
+            sql: string,
+            key: string,
+            algo: ReadCredentials['algo'],
+            params?: SqlValue[] | null,
+          ): Promise<SqlRow[]> => runRead(target, dbPath, sql, params ?? null, { key, algo }, opts);
+        }
+        // 其余方法（含写路径与 closeDb）原样透传，`this` 指向真实绑定。
+        return fn.bind(target);
+      },
+    }),
+    nt,
+  );
 }
 
 /** 执行一条被包装的读查询：严格级别直通，宽容级别走 salvage 通道。 */
@@ -663,18 +667,22 @@ export async function runSalvageScan(
     ...(request.hints && request.hints.length > 0 ? { hints: request.hints } : {}),
   };
 
-  const outcome =
-    target.key !== undefined && target.algo !== undefined
-      ? await nt.executeSqlSalvageScanWithKey(
-          target.dbPath,
-          sql,
-          target.key,
-          target.algo,
-          request.params ?? null,
-          options,
-          level,
-        )
-      : await nt.executeSqlSalvageScan(target.dbPath, sql, request.params ?? null, options, level);
+  const outcome = await scheduleDatabase(
+    target.dbPath,
+    () =>
+      target.key !== undefined && target.algo !== undefined
+        ? nt.executeSqlSalvageScanWithKey(
+            target.dbPath,
+            sql,
+            target.key,
+            target.algo,
+            request.params ?? null,
+            options,
+            level,
+          )
+        : nt.executeSqlSalvageScan(target.dbPath, sql, request.params ?? null, options, level),
+    nt,
+  );
 
   if (!outcome.ok) {
     recordEntry(

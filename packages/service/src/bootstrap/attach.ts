@@ -17,9 +17,10 @@
  * 忘掉某个 pid，好让失败后的下一次 `ensure` 重新读一遍（QQ 重启 / 换账号都会让
  * 上一轮的物料失效）。
  *
- * ⚠️ 自动 attach 关闭时（设置 → 账号基础）禁止读内存。所有会触发 attach 的调用方
- * 必须在调用前检查 `userConfig.getSettings().autoAttachQq`（或调用 app_context 的
- * `requireAttachEnabled`）。唯一豁免：登录时的数据库密钥提取（bootstrap 的
+ * 所有会触发 attach 的调用方必须先检查宿主当前来源的有效完整功能状态（例如
+ * app_context 的 `requireAttachEnabled`）；自动偏好关闭时，显式手动请求仍可放行。
+ * 不能直接用 `userConfig.getSettings().autoAttachQq` 代替来源/会话门控。
+ * 独立入口：登录时的数据库密钥提取（bootstrap 的
  * `fetchKeyFromInstance` / `prepareInstanceAttach`）—— 那是打开账号的前提。
  */
 
@@ -162,10 +163,21 @@ export function createCachedAttachHook(
   return { attach: ensure, ensure, reset };
 }
 
-export function createDirectAttachHook(nt: NtHelperBinding): AttachHook {
+export function createDirectAttachHook(
+  nt: NtHelperBinding,
+  fallback?: (pid: number, signal?: AbortSignal) => Promise<SessionMaterial | null>,
+): AttachHook {
   const logger = getLogger().child({ scope: 'attach' });
-  return createCachedAttachHook(async (pid, uin) => {
-    const material = await nt.scanSessionMaterial(pid);
+  return createCachedAttachHook(async (pid, uin, signal) => {
+    let material: SessionMaterial;
+    try {
+      material = await nt.scanSessionMaterial(pid);
+    } catch (error) {
+      signal.throwIfAborted();
+      const recovered = await fallback?.(pid, signal);
+      if (!recovered) throw error;
+      material = recovered;
+    }
     logger.info('attached to qq process', {
       event: 'attach',
       pid,

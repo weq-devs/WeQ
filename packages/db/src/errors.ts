@@ -12,6 +12,7 @@
  */
 
 import type { NtHelperBinding } from '@weq/native';
+import { aliasDatabaseBinding } from './query_schedule';
 
 /**
  * Lower-cased substrings that strongly indicate the underlying SQLite /
@@ -128,35 +129,38 @@ export function wrapBindingForCorruption(
     }
   };
 
-  return new Proxy(nt, {
-    get(target, prop, receiver) {
-      const value = Reflect.get(target, prop, receiver);
-      if (typeof value !== 'function') return value;
-      const fn = value as (...args: unknown[]) => unknown;
-      if (typeof prop === 'string' && GUARDED_METHODS.has(prop)) {
-        return (...args: unknown[]): unknown => {
-          const dbPath = typeof args[0] === 'string' ? args[0] : '';
-          let result: unknown;
-          try {
-            result = fn.apply(target, args);
-          } catch (err) {
-            // Synchronous throw — unexpected for the async napi methods, but
-            // handled for completeness.
-            report(err, dbPath);
-            throw err;
-          }
-          if (result instanceof Promise) {
-            return result.catch((err: unknown) => {
+  return aliasDatabaseBinding(
+    new Proxy(nt, {
+      get(target, prop, receiver) {
+        const value = Reflect.get(target, prop, receiver);
+        if (typeof value !== 'function') return value;
+        const fn = value as (...args: unknown[]) => unknown;
+        if (typeof prop === 'string' && GUARDED_METHODS.has(prop)) {
+          return (...args: unknown[]): unknown => {
+            const dbPath = typeof args[0] === 'string' ? args[0] : '';
+            let result: unknown;
+            try {
+              result = fn.apply(target, args);
+            } catch (err) {
+              // Synchronous throw — unexpected for the async napi methods, but
+              // handled for completeness.
               report(err, dbPath);
               throw err;
-            });
-          }
-          return result;
-        };
-      }
-      // Bind plain methods (e.g. closeDb) to the real target so
-      // `this` stays correct on the napi object.
-      return fn.bind(target);
-    },
-  });
+            }
+            if (result instanceof Promise) {
+              return result.catch((err: unknown) => {
+                report(err, dbPath);
+                throw err;
+              });
+            }
+            return result;
+          };
+        }
+        // Bind plain methods (e.g. closeDb) to the real target so
+        // `this` stays correct on the napi object.
+        return fn.bind(target);
+      },
+    }),
+    nt,
+  );
 }

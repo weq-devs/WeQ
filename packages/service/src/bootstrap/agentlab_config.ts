@@ -5,8 +5,13 @@ import {
   resolveEndpoint,
   testChatEndpoint,
   validateProviderConfig,
+  isDefaultModelSelection,
+  modelEndpointIdentity,
   type AgentLabEndpoint,
   type AgentLabModelRef,
+  type AgentLabModelSelection,
+  type AgentLabModels,
+  type AgentLabModelCapability,
   type AgentLabProviderCatalogEntry,
   type AgentLabProviderConfig,
   type AgentLabProviderModel,
@@ -62,14 +67,20 @@ export class AgentLabConfigService {
     return this.getDefaultModelStatus();
   }
 
-  resolveDefaultEndpoint(ref = this.getDefaultModel()): AgentLabEndpoint {
+  resolveDefaultEndpoint(
+    ref = this.getDefaultModel(),
+    capability: AgentLabModelCapability = 'chat',
+  ): AgentLabEndpoint {
     if (!ref) throw new Error('未设置默认模型');
     const provider = this.getProvider(ref.providerId);
     if (!provider) throw new Error(`默认模型的 provider 不可用：${ref.providerId}`);
     const model = provider.models.find(
-      (item) => item.id === ref.model && item.capabilities?.includes('chat') !== false,
+      (item) =>
+        item.id === ref.model &&
+        item.capabilities?.includes('chat') !== false &&
+        item.capabilities?.includes(capability) !== false,
     );
-    if (!model) throw new Error(`默认模型不存在或不支持聊天：${ref.model}`);
+    if (!model) throw new Error(`默认模型不存在或不支持 ${capability}：${ref.model}`);
     validateProviderConfig(provider);
     return this.resolveEndpoint(ref);
   }
@@ -83,11 +94,40 @@ export class AgentLabConfigService {
   }
 
   /** 把 agent 里的「某任务用哪个 provider 的哪个 model」解析成可调用端点。 */
-  resolveEndpoint(ref: AgentLabModelRef): AgentLabEndpoint {
+  resolveModelRef(
+    ref: AgentLabModelSelection,
+    capability: AgentLabModelCapability = 'chat',
+  ): AgentLabModelRef {
+    if (!isDefaultModelSelection(ref)) return { ...ref };
+    const current = this.getDefaultModel();
+    this.resolveDefaultEndpoint(current, capability);
+    if (!current) throw new Error('未设置默认模型');
+    return { ...current };
+  }
+
+  resolveModels(models: AgentLabModels) {
+    return {
+      chat: this.resolveModelRef(models.chat),
+      ...(models.embedding
+        ? { embedding: this.resolveModelRef(models.embedding, 'embedding') }
+        : {}),
+      ...(models.vision ? { vision: this.resolveModelRef(models.vision, 'vision') } : {}),
+      ...(models.voiceClone ? { voiceClone: this.resolveModelRef(models.voiceClone) } : {}),
+    };
+  }
+
+  resolveEndpoint(
+    ref: AgentLabModelSelection,
+    capability: AgentLabModelCapability = 'chat',
+  ): AgentLabEndpoint {
+    if (isDefaultModelSelection(ref)) return this.resolveDefaultEndpoint(undefined, capability);
     const provider = this.getProvider(ref.providerId);
     if (!provider) throw new Error(`找不到 AgentLab provider: ${ref.providerId}`);
     if (!ref.model?.trim()) throw new Error('未选择模型');
-    return resolveEndpoint(provider, ref);
+    return {
+      ...resolveEndpoint(provider, ref),
+      modelIdentity: modelEndpointIdentity(ref, provider.baseUrl),
+    };
   }
 
   listCatalog(): AgentLabProviderCatalogEntry[] {

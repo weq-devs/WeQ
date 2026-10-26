@@ -12,6 +12,13 @@
  */
 
 import { z } from 'zod';
+import { FileUploadStaging } from './album_video_staging';
+import {
+  BROWSER_FILE_CHUNK_BYTES,
+  BROWSER_FILE_MAX_BYTES,
+} from '../../../shared/browser_file_upload';
+import { assertEmbeddingModelIdentity, AGENTLAB_PERSONA_ID_PATTERN } from '@weq/agentlab';
+import { agentLabModelSelectionSchema } from '../../../shared/agentlab_model_selection';
 import {
   SEARCH_CATEGORIES,
   saveExportOutput,
@@ -47,15 +54,18 @@ import {
   type AccountServices,
   type RoamingCacheChange,
 } from '../../context/app_context';
+import { fullModeAllowed, requestFullMode } from '../../context/full_mode';
 import { onlineTranscriber } from '../../online_transcribe';
 import type { QuarantinedTable } from '@weq/native';
 import type { SalvageLedgerEntry } from '@weq/db';
+import { databasePerformance } from '@weq/db';
 import { classifyChatType, ProtoMsg } from '@weq/codec';
 import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
-import { detectThumbType, type OcrBlock } from '@weq/protocol';
+import { buildShareLocationElements, detectThumbType, type OcrBlock } from '@weq/protocol';
 
 /** 48417 的嵌套块解码器（红包定位：orderId + packetId）。 */
 const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
+const agentLabPersonaId = z.string().regex(AGENTLAB_PERSONA_ID_PATTERN, '克隆 ID 无效');
 import { sampleHitokoto } from '../../hitokoto';
 import type { TranscribeResult } from '../../transcribe/engine';
 import {
@@ -322,7 +332,7 @@ async function sampleHomeChatLines(
   return pool.slice(0, limit);
 }
 
-const agentLabModelRef = z.object({ providerId: z.string().min(1), model: z.string().min(1) });
+const agentLabModelRef = agentLabModelSelectionSchema;
 const cloneQuantity = (key: CloneGenerationKey) =>
   z.number().int().min(CLONE_GENERATION[key].min).max(CLONE_GENERATION[key].max).optional();
 const agentLabModels = z.object({
@@ -539,9 +549,10 @@ export interface GroupJoinResult {
 }
 
 export interface GroupAlbumAccessState {
+  source?: { expectedAccountUin: string; expectedAccountConfigId: string };
   qqOnline: boolean;
   qqPid: number | null;
-  /** 「自动读取 QQ 内存（完整功能）」总闸——关闭即完全离线模式，在线功能不可用。 */
+  /** 宿主内有效的自动策略或本来源手动请求，不表示凭据已经就绪。 */
   attachEnabled: boolean;
   /**
    * 本地账号配置里的会话物料是否齐全（a2 / d2 / d2key）。发包要拿它做 TEA 加密，
@@ -780,9 +791,12 @@ function albumAccessState(services = requireServices()): GroupAlbumAccessState {
   const expiresAt = record?.clientKey ? clientKeyExpiryMs(record.clientKey) : null;
   const secondsLeft = expiresAt ? Math.max(0, Math.floor((expiresAt - Date.now()) / 1000)) : 0;
   return {
+    source: record?.configId
+      ? { expectedAccountUin: String(record.uin), expectedAccountConfigId: record.configId }
+      : undefined,
     qqOnline: Boolean(record?.qqOnline && record.qqPid),
     qqPid: record?.qqPid ?? null,
-    attachEnabled: getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq ?? true,
+    attachEnabled: fullModeAllowed(getAppContext()),
     hasA2: Boolean(session?.a2),
     hasD2: Boolean(session?.d2),
     hasD2Key: Boolean(session?.d2Key),
@@ -1648,7 +1662,35 @@ function unreadInfoToWire(
   };
 }
 
+const browserFileBinding = z.object({
+  expectedAccountUin: z.string().min(1),
+  expectedAccountConfigId: z.string().min(1),
+});
+const browserFiles = new FileUploadStaging(30 * 60000, {
+  label: '附件',
+  minBytes: 1,
+  maxBytes: BROWSER_FILE_MAX_BYTES,
+  prefix: 'weq-browser-file-',
+  fileName: 'attachment',
+});
+
 export const accountRouter = router({
+  /** 固定字段的性能快照：不包含消息正文、会话 ID、SQL、路径或凭据。 */
+  messagePerformance: procedure.input(exportAccountBindingInput).query(({ input }) => {
+    requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+    const session = getAppContext().account!;
+    return {
+      runtime: {
+        implementation: 'message-scheduler-v1',
+        pid: process.pid,
+        node: process.versions.node,
+        electron: process.versions.electron ?? null,
+        nativeBuild: null,
+        nativeQueueObservable: false,
+      },
+      database: databasePerformance(session.msgDbPath),
+    };
+  }),
   qqActions: createQQActionsRouter(
     (input) => {
       const services = requireExpectedAccount(
@@ -1742,13 +1784,13 @@ export const accountRouter = router({
   }),
 
   getAgentLabPersona: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .query(({ input }) => {
       return requireServices().agentLab.getPersona(input.personaId);
     }),
 
   getAgentLabPersonaDetail: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .query(({ input }) => {
       return requireServices().agentLab.getPersonaDetail(input.personaId);
     }),
@@ -1756,7 +1798,7 @@ export const accountRouter = router({
   buildAgentLabFromC2c: procedure
     .input(
       z.object({
-        personaId: z.string().min(1),
+        personaId: agentLabPersonaId,
         name: z.string().optional(),
         models: agentLabModels,
         customPrompt: z.string().optional(),
@@ -1799,7 +1841,7 @@ export const accountRouter = router({
   chatWithAgentLabPersona: procedure
     .input(
       z.object({
-        personaId: z.string().min(1),
+        personaId: agentLabPersonaId,
         text: z.string().min(1),
         sessionId: z.string().optional(),
         history: z
@@ -1823,21 +1865,21 @@ export const accountRouter = router({
 
   /** 克隆体会话（好友克隆多会话）列表，最近活跃倒序。 */
   listAgentLabPersonaSessions: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .query(({ input }) => {
       return requireServices().agentLab.listPersonaSessions(input.personaId);
     }),
 
   /** 新建一个克隆体会话（空对话，标题待首条消息生成）。 */
   createAgentLabPersonaSession: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .mutation(({ input }) => {
       return requireServices().agentLab.createPersonaSession(input.personaId);
     }),
 
   /** 删除克隆体会话（含其对话内容）。 */
   deleteAgentLabPersonaSession: procedure
-    .input(z.object({ personaId: z.string().min(1), sessionId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId, sessionId: z.string().min(1) }))
     .mutation(({ input }) => {
       requireServices().agentLab.deletePersonaSession(input.personaId, input.sessionId);
       return true;
@@ -1845,7 +1887,7 @@ export const accountRouter = router({
 
   /** 某克隆体会话的对话历史。 */
   getAgentLabPersonaSessionConversation: procedure
-    .input(z.object({ personaId: z.string().min(1), sessionId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId, sessionId: z.string().min(1) }))
     .query(({ input }) => {
       return requireServices().agentLab.getPersonaSessionConversation(
         input.personaId,
@@ -1883,7 +1925,7 @@ export const accountRouter = router({
     }),
 
   deleteAgentLabPersona: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .mutation(({ input }) => {
       return requireServices().agentLab.deletePersona(input.personaId);
     }),
@@ -1892,7 +1934,7 @@ export const accountRouter = router({
   exportAgentLabPersona: procedure
     .input(
       z.object({
-        personaId: z.string().min(1),
+        personaId: agentLabPersonaId,
         adapterType: z.enum(['napcat', 'snowluma']),
         wsUrl: z.string().min(1),
         token: z.string().optional(),
@@ -1913,15 +1955,28 @@ export const accountRouter = router({
       const record = svc.getPersonaRecord(input.personaId);
       if (!record) throw new Error('找不到克隆体');
       const { persona } = record;
+      assertEmbeddingModelIdentity(
+        persona,
+        persona.models.embedding
+          ? cfg.resolveEndpoint(persona.models.embedding, 'embedding')
+          : null,
+      );
+
+      // 独立 bot 不读取桌面端全局设置，导出时固定实际模型及其 provider。
+      const models = cfg.resolveModels(persona.models);
+      const visionModel = input.visionModel
+        ? cfg.resolveModelRef(input.visionModel, 'vision')
+        : undefined;
 
       // 抽 persona 用到的 LLM providers（chat/embedding/vision，去重）。
       // 导出弹窗显式指定的图像模型也并进来（即使克隆时没用 vision，也能让 bot 具备解析新表情的能力）。
       const llmIds = new Set<string>();
       for (const m of [
-        persona.models.chat,
-        persona.models.embedding,
-        persona.models.vision,
-        input.visionModel,
+        models.chat,
+        models.embedding,
+        models.vision,
+        models.voiceClone,
+        visionModel,
       ]) {
         if (m?.providerId) llmIds.add(m.providerId);
       }
@@ -1952,7 +2007,7 @@ export const accountRouter = router({
       const result = await buildBotExport({
         outDir,
         botRuntimeMjs: botMjs,
-        persona,
+        persona: { ...persona, models },
         pairs: record.pairs,
         agentlabRoot: svc.assetRoot,
         llmProviders,
@@ -1965,7 +2020,7 @@ export const accountRouter = router({
           groupReplyMode: input.groupReplyMode ?? 'llm',
         },
         webuiPort: input.webuiPort,
-        visionModel: input.visionModel,
+        visionModel,
       });
       // 记录 id → WebUI 访问信息，导出后在设置页可查密钥 / 一键打开控制台。
       svc.recordExport(input.personaId, {
@@ -1981,7 +2036,7 @@ export const accountRouter = router({
 
   /** 查某克隆体最近一次导出的 WebUI 访问信息（密钥/端口/url；没导出过则 null）。 */
   getAgentLabExportInfo: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .query(({ input }) => {
       return requireServices().agentLab.getExportInfo(input.personaId) ?? null;
     }),
@@ -1991,7 +2046,7 @@ export const accountRouter = router({
    * 先探活默认地址（或用户传入的 url）；不可达则返回 { needUrl: true } 让前端提示输入地址。
    */
   openBotWebUi: procedure
-    .input(z.object({ personaId: z.string().min(1), url: z.string().optional() }))
+    .input(z.object({ personaId: agentLabPersonaId, url: z.string().optional() }))
     .mutation(async ({ input }) => {
       const svc = requireServices().agentLab;
       const info = svc.getExportInfo(input.personaId);
@@ -2016,7 +2071,7 @@ export const accountRouter = router({
   // ── 克隆体群聊（M2 群骨架）─────────────────────────────────────────────
 
   createAgentLabGroup: procedure
-    .input(z.object({ name: z.string().min(1), personaIds: z.array(z.string().min(1)).min(1) }))
+    .input(z.object({ name: z.string().min(1), personaIds: z.array(agentLabPersonaId).min(1) }))
     .mutation(({ input }) => {
       return requireServices().agentLab.createGroup({
         name: input.name,
@@ -2086,7 +2141,7 @@ export const accountRouter = router({
     }),
 
   addAgentLabGroupMember: procedure
-    .input(z.object({ groupId: z.string().min(1), personaId: z.string().min(1) }))
+    .input(z.object({ groupId: z.string().min(1), personaId: agentLabPersonaId }))
     .mutation(({ input }) => {
       requireServices().agentLab.addGroupMember(input.groupId, input.personaId);
       return true;
@@ -2172,7 +2227,7 @@ export const accountRouter = router({
   updateAgentLabPersona: procedure
     .input(
       z.object({
-        personaId: z.string().min(1),
+        personaId: agentLabPersonaId,
         chatModel: agentLabModelRef.optional(),
         generation: z
           .object({
@@ -2237,13 +2292,13 @@ export const accountRouter = router({
 
   /** 与某克隆体的持久化对话历史。 */
   getAgentLabConversation: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .query(({ input }) => {
       return requireServices().agentLab.getConversation(input.personaId);
     }),
 
   clearAgentLabConversation: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .mutation(({ input }) => {
       requireServices().agentLab.clearConversation(input.personaId);
       return true;
@@ -2251,20 +2306,20 @@ export const accountRouter = router({
 
   /** 克隆体对「对方」的记忆（灯箱「记忆 / 画像」用）。 */
   getAgentLabMemories: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .query(({ input }) => {
       return requireServices().agentLab.getMemories(input.personaId);
     }),
 
   forgetAgentLabMemory: procedure
-    .input(z.object({ personaId: z.string().min(1), memoryId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId, memoryId: z.string().min(1) }))
     .mutation(({ input }) => {
       requireServices().agentLab.forgetMemory(input.personaId, input.memoryId);
       return true;
     }),
 
   clearAgentLabMemories: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .mutation(({ input }) => {
       requireServices().agentLab.clearMemories(input.personaId);
       return true;
@@ -2282,6 +2337,8 @@ export const accountRouter = router({
         customPrompt: z.string().optional(),
         reasoningEffort: z.enum(['off', 'low', 'medium', 'high']).optional(),
         mcpServers: z.string().optional(),
+        permissionMode: z.enum(['sandbox', 'unrestricted']).optional(),
+        confirmUnrestricted: z.boolean().optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -2293,6 +2350,8 @@ export const accountRouter = router({
         customPrompt: input.customPrompt,
         reasoningEffort: input.reasoningEffort,
         mcpServers: input.mcpServers,
+        permissionMode: input.permissionMode,
+        confirmUnrestricted: input.confirmUnrestricted,
       });
     }),
 
@@ -3923,6 +3982,7 @@ export const accountRouter = router({
         keyword: z.string().trim().min(1),
         limit: z.number().int().min(1).max(20).default(3),
         categories: z.array(z.enum(SEARCH_CATEGORIES)).optional(),
+        conversationScope: z.enum(['all', 'real', 'virtual', 'guild']).default('all'),
       }),
     )
     .query(async ({ input }) => {
@@ -3930,6 +3990,7 @@ export const accountRouter = router({
         input.keyword,
         input.limit,
         input.categories,
+        input.conversationScope,
       );
     }),
 
@@ -3940,6 +4001,7 @@ export const accountRouter = router({
         keyword: z.string().trim().min(1),
         limit: z.number().int().min(1).max(20).default(3),
         categories: z.array(z.enum(SEARCH_CATEGORIES)).optional(),
+        conversationScope: z.enum(['all', 'real', 'virtual', 'guild']).default('all'),
       }),
     )
     .query(async ({ input }) => {
@@ -3947,6 +4009,7 @@ export const accountRouter = router({
         input.keyword,
         input.limit,
         input.categories,
+        input.conversationScope,
       );
     }),
 
@@ -3965,6 +4028,7 @@ export const accountRouter = router({
     .input(
       z.object({
         category: z.enum(SEARCH_CATEGORIES),
+        conversationScope: z.enum(['all', 'real', 'virtual', 'guild']).default('all'),
         keyword: z.string().trim().min(1),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),
@@ -3976,6 +4040,7 @@ export const accountRouter = router({
         input.keyword,
         input.offset,
         input.limit,
+        input.conversationScope,
       );
     }),
 
@@ -4813,11 +4878,13 @@ export const accountRouter = router({
         (await getAppContext().platform?.native.ntHelper.hasSsoSession(record.qqPid)),
     );
     if (getAppContext().services !== services) throw new Error('账号已切换，请重新检查在线状态。');
+    const attachEnabled = fullModeAllowed(getAppContext());
     return {
       ...access,
+      attachEnabled,
       hasUid: Boolean(record?.uid),
       needsMemoryRead,
-      ssoReady,
+      ssoReady: attachEnabled && ssoReady,
       credentialsPending: getAppContext().onlineCredentialsPending(),
     };
   }),
@@ -5107,23 +5174,9 @@ export const accountRouter = router({
   }),
 
   /**
-   * 私聊「窗口抖动」—— 一条独立的消息，不跟正文 / 引用一起发。
-   *
-   * 走 `MessageSvc.PbSendMsg` 的 `poke` 元素（`commonElem serviceType=2`），
-   * 见 `MessageSendService.sendWindowShake`。**群聊没有这个能力**（服务端只认私聊），
-   * 所以这里不收 peerType，目标一律按私聊解析。
-   */
-  sendWindowShake: procedure
-    .input(z.object({ targetId: z.string().min(1) }))
-    .mutation(async ({ input }) => {
-      requireQqOnlineForAlbum();
-      return requireServices().messageSend.sendWindowShake({ targetId: input.targetId });
-    }),
-
-  /**
    * 发消息主链路：一条消息的元素数组。
    *
-   * 文本 / @ / 表情 / 超级表情 / 商城表情 / 引用 / 窗口抖动 / 弹射表情，以及
+   * 文本 / @ / 表情 / 超级表情 / 商城表情 / 引用 / 互动表情 / 弹射表情，以及
    * **图片 / 语音 / 视频**（媒体元素在服务层真实上传 NTV2）都走这里。
    * 元素形状见 @weq/service 的 `SendElement`：媒体元素的 `source` 是本机绝对路径
    * （优先）或字节（剪贴板等无路径来源）。字节以 `{ type:'Buffer', data }` 过 IPC，
@@ -5242,21 +5295,65 @@ export const accountRouter = router({
       });
     }),
 
-  /**
-   * 发文件（群文件 / 私聊文件）。文件走的是独立管线（老 OIDB + highway 裸帧），
-   * 不是媒体元素，所以单开一条 route —— 渲染层给本机**绝对路径**（`webUtils.getPathForFile`）。
-   */
+  browserFileStart: procedure
+    .input(browserFileBinding.extend({ size: z.number().int().min(1).max(BROWSER_FILE_MAX_BYTES) }))
+    .mutation(({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      return browserFiles.start(services, input.size);
+    }),
+  browserFileChunk: procedure
+    .input(
+      browserFileBinding.extend({
+        uploadId: z.string().uuid(),
+        offset: z.number().int().nonnegative(),
+        base64: z
+          .string()
+          .min(1)
+          .max(Math.ceil(BROWSER_FILE_CHUNK_BYTES / 3) * 4),
+      }),
+    )
+    .mutation(({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const bytes = Buffer.from(input.base64, 'base64');
+      if (bytes.toString('base64') !== input.base64) throw new Error('附件分段编码无效');
+      return browserFiles.append(services, input.uploadId, input.offset, bytes);
+    }),
+  browserFileDiscard: procedure
+    .input(browserFileBinding.extend({ uploadId: z.string().uuid() }))
+    .mutation(({ input }) =>
+      browserFiles.discard(
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+        input.uploadId,
+      ),
+    ),
+
+  /** 桌面文件走原路径；浏览器附件使用已完整接收、绑定当前账号的暂存句柄。 */
   sendFile: procedure
     .input(
-      z.object({
-        peerType: z.enum(['c2c', 'group']),
-        targetId: z.string().min(1),
-        expectedAccountUin: z.string().min(1).optional(),
-        expectedAccountConfigId: z.string().min(1).optional(),
-        path: z.string().min(1),
-        fileName: z.string().min(1).optional(),
-        folderId: z.string().optional(),
-      }),
+      z
+        .object({
+          peerType: z.enum(['c2c', 'group']),
+          targetId: z.string().min(1),
+          expectedAccountUin: z.string().min(1).optional(),
+          expectedAccountConfigId: z.string().min(1).optional(),
+          path: z.string().min(1).optional(),
+          uploadId: z.string().uuid().optional(),
+          fileName: z.string().min(1).optional(),
+          folderId: z.string().optional(),
+        })
+        .refine((input) => Boolean(input.path) !== Boolean(input.uploadId), '请选择一个文件来源')
+        .refine(
+          (input) =>
+            !input.uploadId || Boolean(input.expectedAccountUin && input.expectedAccountConfigId),
+          '浏览器附件必须绑定账号',
+        ),
     )
     .mutation(async ({ input }) => {
       const services = requireExpectedAccount(
@@ -5266,23 +5363,28 @@ export const accountRouter = router({
       requireQqOnlineForAlbum(services);
       const sourceConfigId = services.accountConfig.getRecord()?.configId;
       const sourcePid = services.accountConfig.getRecord()?.qqPid;
-      return services.messageSend.sendFile({
-        peerType: input.peerType,
-        targetId: input.targetId,
-        path: input.path,
-        ...(input.fileName ? { fileName: input.fileName } : {}),
-        ...(input.folderId ? { folderId: input.folderId } : {}),
-        beforeSend: () => {
-          if (
-            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
-              services ||
-            services.accountConfig.getRecord()?.configId !== sourceConfigId ||
-            services.accountConfig.getRecord()?.qqPid !== sourcePid
-          )
-            throw new Error('账号数据源已切换，已停止发送文件');
-          requireQqOnlineForAlbum(services);
-        },
-      });
+      const path = input.uploadId ? browserFiles.acquire(services, input.uploadId) : input.path!;
+      try {
+        return await services.messageSend.sendFile({
+          peerType: input.peerType,
+          targetId: input.targetId,
+          path,
+          ...(input.fileName ? { fileName: input.fileName } : {}),
+          ...(input.folderId ? { folderId: input.folderId } : {}),
+          beforeSend: () => {
+            if (
+              requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+                services ||
+              services.accountConfig.getRecord()?.configId !== sourceConfigId ||
+              services.accountConfig.getRecord()?.qqPid !== sourcePid
+            )
+              throw new Error('账号数据源已切换，已停止发送文件');
+            requireQqOnlineForAlbum(services);
+          },
+        });
+      } finally {
+        if (input.uploadId) await browserFiles.discard(services, input.uploadId, true);
+      }
     }),
 
   /**
@@ -5629,6 +5731,121 @@ export const accountRouter = router({
       }),
     ),
 
+  // ---- 位置共享（QQLBSShareSvc） ----
+
+  /**
+   * 发起一次位置共享（私聊 / 群聊同一套命令，只有会话键不同）。
+   *
+   * 房间**不由服务端分配** —— 私聊的房间就是「这两个人」，群聊的就是「这个群」。
+   * 发起后必须按 {@link locationShareReport} 的响应间隔持续上报，否则约 60 秒后
+   * 服务端会把房间标记为已结束。没有「退出共享」命令：停上报即可。
+   */
+  locationShareStart: procedure
+    .input(
+      z.object({
+        scene: z.enum(['c2c', 'group']),
+        /** 私聊：对端 QQ 号。群聊：群号。 */
+        peer: z.number().int().safe().positive(),
+        /** 自己的 QQ 号（私聊会话键要用；上报也需要）。 */
+        selfUin: z.number().int().safe().positive(),
+        longitude: z.number(),
+        latitude: z.number(),
+        interval: z.number().int().min(1).max(60).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().locationShare.start({
+        scene: input.scene,
+        peer: input.peer,
+        selfUin: input.selfUin,
+        longitude: input.longitude,
+        latitude: input.latitude,
+        ...(input.interval !== undefined ? { interval: input.interval } : {}),
+      });
+    }),
+
+  /** 上报一次自己的坐标；响应里的 `interval` 是服务端要求的下次间隔（秒）。 */
+  locationShareReport: procedure
+    .input(
+      z.object({
+        scene: z.enum(['c2c', 'group']),
+        peer: z.number().int().safe().positive(),
+        selfUin: z.number().int().safe().positive(),
+        longitude: z.number(),
+        latitude: z.number(),
+        extra: z.number().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().locationShare.report({
+        scene: input.scene,
+        peer: input.peer,
+        selfUin: input.selfUin,
+        longitude: input.longitude,
+        latitude: input.latitude,
+        ...(input.extra !== undefined ? { extra: input.extra } : {}),
+      });
+    }),
+
+  /**
+   * 查询房间里所有成员的坐标 —— **唯一**能拿到别人位置的途径（位置不会推送）。
+   *
+   * `status === 2` 表示房间已结束（停上报超时），此时 `members` 为空。
+   */
+  locationShareQuery: procedure
+    .input(
+      z.object({
+        scene: z.enum(['c2c', 'group']),
+        peer: z.number().int().safe().positive(),
+        selfUin: z.number().int().safe().positive(),
+        mode: z.union([z.literal(0), z.literal(1)]).optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().locationShare.query({
+        scene: input.scene,
+        peer: input.peer,
+        selfUin: input.selfUin,
+        ...(input.mode !== undefined ? { mode: input.mode } : {}),
+      });
+    }),
+
+  /**
+   * 发「发起了位置共享」消息卡片。
+   *
+   * 真实客户端由服务端推送这条消息；WeQ 的 SSO 是「发一包就断」，服务端判定发起方
+   * 不在线就不投递 —— 所以自己发。
+   *
+   * **元素必须在主进程构造**：`buildShareLocationElements` 在 `@weq/protocol` 里，
+   * 而渲染层不能引那个包（远程 Web 端复用渲染层代码，protocol 里有 `node:crypto`
+   * 的红包签名，浏览器端打不出来）。所以这里收「场景 + 目标」，元素自己拼。
+   */
+  sendLocationShareCard: procedure
+    .input(
+      z.object({
+        expectedAccountUin: z.string().min(1).optional(),
+        expectedAccountConfigId: z.string().min(1).optional(),
+        scene: z.enum(['c2c', 'group']),
+        /** 私聊：对端 QQ 号。群聊：群号。 */
+        targetId: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      return services.messageSend.sendElements({
+        peerType: input.scene === 'group' ? 'group' : 'c2c',
+        targetId: input.targetId,
+        elements: buildShareLocationElements(input.scene) as never,
+      });
+    }),
+
   // ---- database decrypt ----
 
   /** List encrypted `*.db` files under the open account's nt_db directory. */
@@ -5771,7 +5988,7 @@ export const accountRouter = router({
 
       // 没有在线 QQ（或处于完全离线模式）就没有 clientKey 可换 —— 退回裸地址，
       // 用户自己在浏览器里登录。
-      const offlineMode = ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false;
+      const offlineMode = !fullModeAllowed(ctx);
       if (!uin || !nt || !record?.qqOnline || !record.qqPid || offlineMode) {
         return { url: landing, autoLogin: false };
       }
@@ -5804,7 +6021,7 @@ export const accountRouter = router({
         const uin = ctx.account?.context.uin;
         const nt = ctx.platform?.native.ntHelper;
         const record = services.accountConfig.getRecord();
-        const offlineMode = ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false;
+        const offlineMode = !fullModeAllowed(ctx);
         if (!uin || !nt || !record?.qqOnline || !record.qqPid || offlineMode) {
           if (offlineMode) {
             return {
@@ -6364,8 +6581,7 @@ export const accountRouter = router({
       const offset = input?.offset ?? 0;
       // 完全离线模式（自动读取 QQ 内存 关闭）：网络同步需要 weiyun p_skey（在线实例），
       // 一律回退本地 collection.db，避免白打一次网络 + 凭证换取。
-      const offlineMode =
-        getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq === false;
+      const offlineMode = !fullModeAllowed(getAppContext());
       const source = offlineMode ? 'db' : (input?.source ?? 'auto');
       const page =
         source === 'db'
@@ -6811,9 +7027,36 @@ export const accountRouter = router({
    * explicit "立即重新获取 rkey" before a media-completing export. Returns true
    * when fresh rkeys were stored. 完全离线模式（自动读取 QQ 内存 关闭）下直接返回 false。
    */
-  refreshRkeys: procedure.mutation(() => {
-    return getAppContext().refreshRkeysNow();
-  }),
+  requestFullMode: procedure
+    .input(
+      z
+        .object({
+          expectedAccountUin: z.string().min(1),
+          expectedAccountConfigId: z.string().min(1),
+        })
+        .strict(),
+    )
+    .mutation(({ input }) => {
+      requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      const host = getAppContext();
+      if (!host.account) throw new Error('当前未打开账号');
+      requestFullMode(host, host.account);
+      return { requested: true };
+    }),
+
+  refreshRkeys: procedure
+    .input(exportAccountBindingInput.strict().optional())
+    .mutation(async ({ input }) => {
+      const context = getAppContext();
+      const services = input
+        ? requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId)
+        : context.services;
+      const session = context.account;
+      const result = await context.refreshRkeysNow();
+      if (getAppContext().services !== services || getAppContext().account !== session)
+        throw new Error('账号来源已切换，已丢弃旧凭据刷新结果');
+      return result;
+    }),
 
   /** List all export tasks. */
   exportPreflight: procedure

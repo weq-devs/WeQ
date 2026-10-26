@@ -7,6 +7,7 @@ import { SettingsDialog, type SectionId } from '../src/renderer/src/components/S
 import { HelpSection } from '../src/renderer/src/components/settings/HelpSection';
 import type { SettingsSearchTarget } from '../src/renderer/src/components/settings/searchTarget';
 import { useUpdateStore } from '../src/renderer/src/state/update';
+import { useViewState } from '../src/renderer/src/state/view';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const queryData = (name: string) => {
@@ -53,6 +54,8 @@ afterEach(() => vi.unstubAllGlobals());
 function mount(initialSection?: SectionId, onCreateClone?: () => void) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
+  const previousUin = useViewState.getState().openedUin;
+  useViewState.setState({ openedUin: '10001' });
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -84,6 +87,7 @@ function mount(initialSection?: SectionId, onCreateClone?: () => void) {
     body: () => host.querySelector('.weq-settings-body')!,
     close: () => {
       act(() => root.unmount());
+      useViewState.setState({ openedUin: previousUin });
       queryClient.clear();
       host.remove();
     },
@@ -91,6 +95,20 @@ function mount(initialSection?: SectionId, onCreateClone?: () => void) {
 }
 
 describe('设置归位后的实际页面', () => {
+  it('旧 TTS 页面直接定位 API 页内语音分区，不打开编辑弹窗', () => {
+    const f = mount('tts');
+    try {
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        'API 配置',
+      );
+      expect(
+        f.body().querySelector<HTMLElement>('[data-search-highlight]')?.dataset.settingId,
+      ).toBe('tts-providers');
+      expect(f.onOpenMaintenance).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
   it('旧应用锁入口与隐私同页，备份紧跟关于中的版本页且不打开工具', () => {
     const f = mount('applock');
     try {
@@ -164,9 +182,11 @@ describe('设置归位后的实际页面', () => {
         ),
       ).toEqual([
         '在消息图标上显示红点',
+        '在联系人界面显示未读消息数',
         '群助手显示总消息数',
         '从第一条新消息开始阅读',
         '发送消息后定位到最新消息',
+        '向下滚动时显示定位到底部按钮',
         '使用 QQ 账号设置的个性字体发送消息',
       ]);
       const display = f.body().querySelector('[data-setting-id="custom-message-display"]')!;
@@ -464,6 +484,9 @@ describe('设置归位后的实际页面', () => {
       f.render('daemon');
       expect(f.body().textContent).toContain('内置组件');
       expect(f.host.querySelector('[data-search-highlight]')?.textContent).toContain('内置组件');
+      expect(f.host.querySelector<HTMLElement>('[data-search-highlight]')?.dataset.settingId).toBe(
+        'builtin-components',
+      );
       f.render('assistant');
       expect(f.body().textContent).toContain('启用 QQ 公众号推送');
       expect(f.host.textContent).not.toContain('后台服务');
@@ -553,6 +576,9 @@ describe('设置归位后的实际页面', () => {
         'Web 与 Remote',
       );
       expect(f.body().querySelector('.weq-remote-settings')).not.toBeNull();
+      expect(f.body().querySelector('.weq-set-title')?.textContent).toBe('Web 与 Remote');
+      f.render('sse');
+      expect(f.body().querySelector('.weq-set-title')?.textContent).toBe('SSE 推送');
     } finally {
       f.close();
     }

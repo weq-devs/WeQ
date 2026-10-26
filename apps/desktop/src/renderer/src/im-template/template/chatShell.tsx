@@ -1,5 +1,5 @@
 ﻿// @ts-nocheck
-import { useRef, type CSSProperties, type ReactNode } from 'react';
+import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useMobileWebViewport } from '../../hooks/useMobileWebViewport';
 import { TitleBarSearch } from '../../components/TitleBarSearch';
 import {
@@ -10,9 +10,10 @@ import {
 import { cn } from './classNames';
 import { AppRail } from './rail';
 import { SidebarHeader, SidebarResizeHandle } from './sidebar';
-import { TitleBar } from './TitleBar';
+import { SelfProfileDialog, TitleBar } from './TitleBar';
 import { IS_MAC, IS_WEB } from '../../lib/target';
 import { MobileWebNavigation } from '../../components/MobileWebNavigation';
+import { QQExactLookup, type QQExactLookupKind } from '../../components/QQExactLookup';
 import type { ContactNoticeView, ContactTab, MainView, SettingsTab, User } from './types';
 
 export function ChatShell({
@@ -106,6 +107,8 @@ export function ChatShell({
   activeRailItem?: 'settings' | 'dressup';
 }) {
   const pageOpen = useWorkspacePageOpen();
+  const [selfProfileOpen, setSelfProfileOpen] = useState(false);
+  const [lookupOpen, setLookupOpen] = useState<QQExactLookupKind | null>(null);
   const root = useRef<HTMLDivElement>(null);
   useMobileWebViewport(root, IS_WEB);
   const mainPageOpen = useWorkspaceMainPageOpen();
@@ -142,6 +145,11 @@ export function ChatShell({
           onOpenSettings={onOpenSettings}
           onOpenDressUp={onOpenDressUp}
           onOpenCollection={onOpenCollection}
+          onOpenProfile={() => setSelfProfileOpen(true)}
+          onLookupUser={() => setLookupOpen('user')}
+          onLookupGroup={() => setLookupOpen('group')}
+          onOpenFriendNotices={onOpenFriendNotices}
+          onOpenGroupNotices={onOpenGroupNotices}
           accountControls={
             typeof railFooterContent === 'function' ? railFooterContent(null) : railFooterContent
           }
@@ -231,6 +239,15 @@ export function ChatShell({
         </main>
       </div>
       {children}
+      {lookupOpen && (
+        <QQExactLookup key={lookupOpen} kind={lookupOpen} onClose={() => setLookupOpen(null)} />
+      )}
+      {selfProfileOpen && (
+        <SelfProfileDialog
+          key={`${user.id}:${user.identityValue}`}
+          onClose={() => setSelfProfileOpen(false)}
+        />
+      )}
     </div>
   );
 }

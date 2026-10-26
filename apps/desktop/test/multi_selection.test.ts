@@ -2,10 +2,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   allSelectionIdsSelected,
+  invertSelectionIds,
   toggleAllSelectionIds,
 } from '../src/renderer/src/lib/multiSelection';
 
 describe('工具栏全选切换', () => {
+  it('反选仅切换当前结果，重复身份只处理一次，保留筛选外选择', () => {
+    const selected = new Set(['a', 'outside']);
+    expect(invertSelectionIds(['a', 'b', 'b'], selected)).toEqual(new Set(['b', 'outside']));
+    expect(invertSelectionIds([], selected)).toEqual(selected);
+    expect(selected).toEqual(new Set(['a', 'outside']));
+  });
   it('未选和部分选择时补齐当前结果，再次点击取消全选，不修改原选区', () => {
     const ids = ['a', 'b'];
     const initial = new Set<string>();

@@ -197,7 +197,7 @@ export function GrayTipPokeMessage({
         if (node.nodeName === 'nor') {
           return (
             // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-            <span key={index} className="text-gray-500 px-1">
+            <span key={index} className="weq-graytip-muted px-1">
               {getNodeValue(node, 'txt') || getNodeText(node)}
             </span>
           );
@@ -205,7 +205,7 @@ export function GrayTipPokeMessage({
         if (node.nodeName === 'url') {
           return (
             // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-            <span key={index} className="text-blue-500">
+            <span key={index} className="weq-graytip-accent">
               {getNodeValue(node, 'txt') || getNodeText(node)}
             </span>
           );
@@ -220,7 +220,7 @@ export function GrayTipPokeMessage({
         return null;
       });
 
-      return <div className="weq-graytip text-center text-gray-500 text-xs py-2">{nodes}</div>;
+      return <div className="weq-graytip text-center text-xs py-2">{nodes}</div>;
     }
 
     if (tipJson) {
@@ -318,7 +318,7 @@ export function GrayTipPokeMessage({
             return <span key={itemKey}>{txt}</span>;
           }) || [];
 
-        return <div className="weq-graytip text-center text-gray-500 text-xs py-2">{items}</div>;
+        return <div className="weq-graytip text-center text-xs py-2">{items}</div>;
       } catch (e) {
         console.error('Failed to parse tipJson', e);
         return null;

@@ -7,7 +7,7 @@
 ## 目录
 
 - [开发环境](#开发环境)
-- [提交前检查（必须）](#提交前检查必须)
+- [提交前检查](#提交前检查)
 - [分支规范](#分支规范)
 - [Commit 规范](#commit-规范)
 - [提交 Pull Request](#提交-pull-request)
@@ -26,13 +26,17 @@ pnpm native:fetch  # 取 nt_helper 原生产物（不入库，dev 克隆里没�
 pnpm dev           # 启动桌面端开发
 ```
 
-更多背景见[项目架构](./docs/develop/architecture.md)与[原理文档](./docs/principles/index.md)。
+更多背景见[开发者入口](./docs/develop/index.md)与[原理文档](./docs/principles/index.md)。
 
 ---
 
-## 提交前检查（必须）
+## 提交前检查
 
-提交 PR 前，请跑通本地 CI 门禁，确保没有引入回归：
+日常改动先运行与修改直接相关的检查，并在 PR 中说明验证范围与结果；不要求每次提交或
+push 前运行全量本地 CI。只改文档时核对命令、链接与源码行为；修改纯逻辑或修复 bug 时
+补充针对性回归测试。最终以 CI 全量门禁为准。
+
+发版前、大改动或需要全量复核时，可运行：
 
 ```bash
 pnpm ci:local   # 一键跑 CI 的 lint / format / typecheck / test 门禁
@@ -130,7 +134,7 @@ git checkout -b feat/your-feature
 ## 提交 Pull Request
 
 1. **确认基础分支为 `dev`**（见[分支规范](#分支规范)）。
-2. 本地跑通[提交前检查](#提交前检查必须)。
+2. 完成相关[提交前检查](#提交前检查)，说明未运行或未通过的项目。
 3. **判断你的改动是否属于「全新功能」**：
    - **全新功能必须先提 [Issue](../../issues) 讨论并达成一致，再提交 PR。** 未经 Issue 讨论直接提交的新功能 PR 会被关闭（close）。
    - 这样做是为了在你投入大量精力前对齐方向，避免功能与项目规划冲突而白费工作。

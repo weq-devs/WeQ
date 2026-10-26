@@ -1,4 +1,5 @@
 export interface OnlineAccess {
+  source?: { expectedAccountUin: string; expectedAccountConfigId: string };
   qqOnline: boolean;
   attachEnabled: boolean;
   hasA2: boolean;
@@ -38,8 +39,8 @@ export function restrictionReasons(input: {
   if (!access.attachEnabled)
     reasons.push({
       code: 'disabled',
-      title: '完全离线模式',
-      guidance: '自动读取 QQ 内存已关闭。可启用完整功能后重新读取。',
+      title: '本次运行未启用完整功能',
+      guidance: '可为当前来源启用完整功能；不会改变自动启用偏好，下次启动仍按原偏好运行。',
     });
   const sessionReady =
     access.hasA2 && access.hasD2 && access.hasD2Key && access.needsMemoryRead !== true;

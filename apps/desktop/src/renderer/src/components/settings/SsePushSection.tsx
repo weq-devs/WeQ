@@ -27,6 +27,7 @@ import {
   Plus,
   Radio,
   RefreshCw,
+  Save,
   Trash2,
   X,
 } from 'lucide-react';
@@ -215,7 +216,7 @@ export function SsePushSection(): ReactElement {
     <div className="weq-set weq-service-settings">
       <SectionHeader
         icon={<Radio size={18} strokeWidth={1.8} />}
-        title="SSE 消息推送"
+        title="SSE 推送"
         desc="把 QQ 新消息实时推送到你指定的地址（HTTP POST，可选 Bearer access_token）。监听实现与 tools:db-watch-listen 一致：防抖合并 + seq 跳变阈值，QQ 刚启动大量写表时只推一条 mass 事件预览最新一条。"
       />
 
@@ -389,6 +390,7 @@ export function SsePushSection(): ReactElement {
                   测试连接
                 </button>
                 <button type="submit" className="weq-set-btn" disabled={busy}>
+                  <Save size={13} aria-hidden="true" />
                   保存
                 </button>
               </div>

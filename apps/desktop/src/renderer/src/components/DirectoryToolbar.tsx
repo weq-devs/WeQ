@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ListChecks, ListPlus, Search, X } from 'lucide-react';
+import { ListChecks, ListPlus, Search, X, FlipVertical2 } from 'lucide-react';
 import '../styles/conversation-directory.css';
 
 /** 搜索与选择在同一条工具行内展开，列表区的位置和宽度不变。 */
@@ -12,6 +12,8 @@ export function DirectoryToolbar({
   count,
   allSelected = false,
   onSelectAll,
+  onInvert,
+  selectingAll = false,
   children,
   separateSelectionBar = false,
   searchEnabled = true,
@@ -24,6 +26,8 @@ export function DirectoryToolbar({
   count: number;
   allSelected?: boolean;
   onSelectAll: () => void;
+  onInvert?: () => void;
+  selectingAll?: boolean;
   children?: ReactNode;
   separateSelectionBar?: boolean;
   searchEnabled?: boolean;
@@ -45,7 +49,7 @@ export function DirectoryToolbar({
         <div key="select" className="weq-directory-mode weq-directory-selection-mode">
           <ListChecks size={16} aria-hidden />
           <span className="weq-directory-selection-count" aria-live="polite">
-            已选 {count}
+            {selectingAll ? '正在补齐全选…' : `已选 ${count}`}
           </span>
           <button
             type="button"
@@ -56,6 +60,17 @@ export function DirectoryToolbar({
           >
             <ListPlus size={16} />
           </button>
+          {onInvert ? (
+            <button
+              type="button"
+              title="反选当前结果"
+              aria-label="反选当前结果"
+              disabled={selectingAll}
+              onClick={onInvert}
+            >
+              <FlipVertical2 size={16} />
+            </button>
+          ) : null}
           <button
             type="button"
             title="退出多选"

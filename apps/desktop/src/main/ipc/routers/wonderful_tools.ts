@@ -25,6 +25,7 @@
 import { z } from 'zod';
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
+import { connectLongTermAuthorization } from '../../authorization/client';
 import { open as openFile, writeFile } from 'node:fs/promises';
 import { observable } from '@trpc/server/observable';
 import { readSipEnabled, type KeyScanProgress, type KeyScanResult } from '@weq/native';
@@ -41,7 +42,13 @@ import {
   loginDbPaths,
   resolveLoginAccountDir,
 } from '@weq/service';
-import { rememberAccountUid, requireBootstrap, requirePlatform } from '../../context/app_context';
+import {
+  getAppContext,
+  rememberAccountUid,
+  requireBootstrap,
+  requirePlatform,
+} from '../../context/app_context';
+import { fullModeAllowed } from '../../context/full_mode';
 import { procedure, router } from '../trpc';
 import { ensureUidForUin } from './bootstrap';
 import type { CaptureBatchWire, CaptureStatsWire } from '../../capture_protocol';
@@ -73,6 +80,7 @@ export interface CaptureSupportWire {
   elevated: boolean;
   hint: string;
   platform: string;
+  longTermAuthorized?: boolean;
 }
 
 /** 导出抓包结果时落盘的文件格式。 */
@@ -362,8 +370,11 @@ export const wonderfulToolsRouter = router({
    * 走 `probeCaptureBackend()` 而不是直接调 native —— 老产物里没有
    * `probeCaptureSupport` 时也返回一条带引导的「不可用」，别把 TypeError 抛给界面。
    */
-  captureSupport: procedure.query((): CaptureSupportWire => {
-    return { ...probeCaptureBackend(), platform: process.platform };
+  captureSupport: procedure.query(async (): Promise<CaptureSupportWire> => {
+    const connection = await connectLongTermAuthorization();
+    const longTermAuthorized = connection !== null;
+    connection?.close();
+    return { ...probeCaptureBackend(), platform: process.platform, longTermAuthorized };
   }),
 
   /**
@@ -388,6 +399,7 @@ export const wonderfulToolsRouter = router({
         pid: handle.pid,
         elevated: handle.elevated,
         hasD2Key: handle.hasD2Key,
+        sessionId: handle.sessionId,
       };
     }),
 
@@ -399,6 +411,7 @@ export const wonderfulToolsRouter = router({
     .input(
       z.object({
         pid: z.number().int().positive(),
+        sessionId: z.string().min(1).max(128).optional(),
         cursor: z.number().int().nonnegative().optional(),
         waitMs: z.number().int().min(0).max(10_000).optional(),
       }),
@@ -407,14 +420,20 @@ export const wonderfulToolsRouter = router({
       return await takeAccountFrames(input.pid, {
         cursor: input.cursor,
         waitMs: input.waitMs ?? 1200,
+        sessionId: input.sessionId,
       });
     }),
 
   /** 停止抓包并释放网卡会话。会话已不存在时返回 null（前端幂等停止）。 */
   captureStop: procedure
-    .input(z.object({ pid: z.number().int().positive() }))
+    .input(
+      z.object({
+        pid: z.number().int().positive(),
+        sessionId: z.string().min(1).max(128).optional(),
+      }),
+    )
     .mutation(async ({ input }): Promise<CaptureStatsWire | null> => {
-      return await stopAccountCapture(input.pid);
+      return await stopAccountCapture(input.pid, input.sessionId);
     }),
 
   /**
@@ -536,7 +555,7 @@ export const wonderfulToolsRouter = router({
         if (!existsSync(input.dbPath)) {
           return { success: false, error: `未找到数据库文件：${input.dbPath}` };
         }
-        if (boot.userConfig.getSettings().autoAttachQq === false) {
+        if (!fullModeAllowed(getAppContext())) {
           return {
             success: false,
             error: '已开启完全离线模式（自动读取 QQ 内存 已关闭），无法向在线 QQ 请求密钥。',

@@ -9,11 +9,12 @@
  * 渲染就会抛错 / 该行消失，测试立刻红。
  */
 
-import { act, createElement } from 'react';
+import { act, createElement, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GroupInfoPanel } from '@renderer/im-template/template/groupInfoPanel';
+import { TabActivity } from '@renderer/components/RetainedTabs';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -55,7 +56,11 @@ const CONVERSATION = {
   ],
 };
 
-function mountPanel(onOpenAnnouncements?: () => void, onOpenSign?: () => void): void {
+function mountPanel(
+  onOpenAnnouncements?: () => void,
+  onOpenSign?: () => void,
+  extra: Partial<ComponentProps<typeof GroupInfoPanel>> = {},
+): void {
   const host = document.createElement('div');
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -65,6 +70,7 @@ function mountPanel(onOpenAnnouncements?: () => void, onOpenSign?: () => void): 
         conversation: CONVERSATION,
         onOpenAnnouncements,
         onOpenSign,
+        ...extra,
       }),
     );
   });
@@ -105,6 +111,39 @@ describe('群资料面板', () => {
   it('渲染群成员列表', () => {
     mountPanel();
     expect(document.querySelector('.group-info-member-row')?.textContent).toContain('测试成员');
+  });
+  it('成员读取失败时保留原因并允许重试', () => {
+    const retry = vi.fn();
+    mountPanel(undefined, undefined, { loadingError: '合成读取失败', onRetryMembers: retry });
+    const error = document.querySelector('.group-info-member-error')!;
+    expect(error.textContent).toContain('合成读取失败');
+    act(() => error.querySelector<HTMLButtonElement>('button')!.click());
+    expect(retry).toHaveBeenCalledOnce();
+  });
+  it('隐藏的联系人或聊天页不安排成员分页探测', () => {
+    const frame = vi.spyOn(window, 'requestAnimationFrame');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    roots.push(root);
+    hosts.push(host);
+    try {
+      act(() =>
+        root.render(
+          createElement(
+            TabActivity,
+            { active: false },
+            createElement(GroupInfoPanel, {
+              conversation: CONVERSATION,
+              onLoadMoreMembers: vi.fn(),
+            }),
+          ),
+        ),
+      );
+      expect(frame).not.toHaveBeenCalled();
+    } finally {
+      frame.mockRestore();
+    }
   });
   it('公告区域保留独立入口，复用原打开回调', () => {
     const open = vi.fn();

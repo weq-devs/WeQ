@@ -10,10 +10,11 @@ export interface AuthorizationRequest {
 
 interface RestrictedModeState {
   reasons: Restriction[];
+  reasonSource: string | null;
   requests: AuthorizationRequest[];
   open: boolean;
   enteringSince: number | null;
-  setReasons(reasons: Restriction[]): void;
+  setReasons(reasons: Restriction[], source?: string | null): void;
   setOpen(open: boolean): void;
   beginEntering(): void;
   endEntering(): void;
@@ -23,11 +24,13 @@ interface RestrictedModeState {
 
 export const useRestrictedMode = create<RestrictedModeState>((set) => ({
   reasons: [],
+  reasonSource: null,
   requests: [],
   open: false,
   enteringSince: null,
-  setReasons: (reasons) =>
+  setReasons: (reasons, reasonSource = null) =>
     set((state) =>
+      state.reasonSource === reasonSource &&
       state.reasons.length === reasons.length &&
       state.reasons.every(
         (reason, index) =>
@@ -36,7 +39,7 @@ export const useRestrictedMode = create<RestrictedModeState>((set) => ({
           reason.guidance === reasons[index]?.guidance,
       )
         ? state
-        : { reasons },
+        : { reasons, reasonSource },
     ),
   setOpen: (open) => set({ open }),
   beginEntering: () => set({ enteringSince: Date.now() }),

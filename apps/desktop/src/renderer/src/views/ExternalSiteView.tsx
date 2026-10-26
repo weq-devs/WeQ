@@ -16,6 +16,7 @@ import { useState, type ReactElement } from 'react';
 import { ExternalLink, Loader2 } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from '../components/Dialog';
+import '../styles/external-site.css';
 
 export function ExternalSiteView({
   site,

@@ -15,6 +15,7 @@ import { backupClientId } from '../../lib/backupClientRestore';
 import { useToast } from '../Toast';
 import { Card, SectionHeader } from './controls';
 import { useTabActive } from '../RetainedTabs';
+import { Modal } from '../Dialog';
 import '../../styles/backup.css';
 
 const PARTS: WeqBackupPart[] = ['settings', 'accounts', 'api', 'clones'];
@@ -121,6 +122,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   const [confirm, setConfirm] = useState<'defaults' | 'restart' | 'claim' | 'skip' | null>(null);
   const [busy, setBusy] = useState<string | null>('正在读取');
   const [error, setError] = useState<string | null>(null);
+  const acting = useRef(false);
   const sourceId = useRef<string | null>(null);
   const generation = useRef(0);
   const alive = useRef(true);
@@ -166,6 +168,8 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
     };
   }, [active, refresh]);
   async function act(label: string, run: () => Promise<void>) {
+    if (acting.current) return;
+    acting.current = true;
     setBusy(label);
     setError(null);
     try {
@@ -175,6 +179,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
       if (alive.current) setError(message);
       toast({ tone: 'error', title: '备份与恢复操作失败', detail: message });
     } finally {
+      acting.current = false;
       if (alive.current) setBusy(null);
     }
   }
@@ -243,6 +248,40 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   }
   const pending = inventory?.restore.pending;
   const result = inventory?.restore.result;
+  const confirmation = confirm
+    ? {
+        defaults: {
+          title: '恢复默认设置？',
+          message:
+            '重置通用设置、导出预设和此设备的界面偏好。API、账号配置、克隆体和本机应用锁密钥会保留。重启 WeQ 后生效。',
+          action: '确认恢复默认',
+          progress: '正在暂存…',
+        },
+        restart: {
+          title: '重启 WeQ？',
+          message:
+            '请先保存正在编辑的内容。重启会关闭当前账号与在途任务，随后应用已暂存的数据并重新打开窗口。',
+          action: '重启 WeQ',
+          progress: '正在重启…',
+        },
+        claim: {
+          title: '在此设备恢复界面偏好？',
+          message: '将覆盖当前设备的界面偏好并重新加载，原发起设备不会再应用这份界面偏好。',
+          action: '在此设备恢复',
+          progress: '正在恢复…',
+        },
+        skip: {
+          title: '保留本机界面偏好？',
+          message: '已恢复的 WeQ 数据不会撤销；所有设备均不再应用本次备份的界面偏好。',
+          action: '保留本机界面偏好',
+          progress: '正在处理…',
+        },
+      }[confirm]
+    : null;
+  function openConfirmation(value: NonNullable<typeof confirm>) {
+    setError(null);
+    setConfirm(value);
+  }
   const importValid =
     source &&
     choice.parts.length > 0 &&
@@ -307,7 +346,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                   type="button"
                   className="weq-set-btn"
                   disabled={Boolean(busy)}
-                  onClick={() => setConfirm('claim')}
+                  onClick={() => openConfirmation('claim')}
                 >
                   改在此设备恢复
                 </button>
@@ -315,7 +354,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                   type="button"
                   className="weq-set-btn"
                   disabled={Boolean(busy)}
-                  onClick={() => setConfirm('skip')}
+                  onClick={() => openConfirmation('skip')}
                 >
                   保留本机界面偏好
                 </button>
@@ -651,20 +690,22 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           </div>
         ) : null}
       </Card>
-      <Card title="恢复默认设置">
-        <p>仅重置通用设置、导出预设与此设备界面偏好；不会删除账号、API 配置或克隆数据。</p>
-        <button
-          type="button"
-          className="weq-set-btn"
-          disabled={
-            Boolean(busy) || !inventory || Boolean(pending) || Boolean(result?.clientPending)
-          }
-          onClick={() => setConfirm('defaults')}
-        >
-          <RotateCcw size={14} />
-          恢复默认设置
-        </button>
-      </Card>
+      {!pending ? (
+        <Card title="恢复默认设置">
+          <p>仅重置通用设置、导出预设与此设备界面偏好；不会删除账号、API 配置或克隆数据。</p>
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={
+              Boolean(busy) || !inventory || Boolean(pending) || Boolean(result?.clientPending)
+            }
+            onClick={() => openConfirmation('defaults')}
+          >
+            <RotateCcw size={14} />
+            恢复默认设置
+          </button>
+        </Card>
+      ) : null}
       {pending ? (
         <Card title={pending.phase === 'ready' ? '已暂存，等待重启' : '恢复暂存未完成'}>
           <Summary value={pending.summary} />
@@ -694,7 +735,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                 type="button"
                 className="weq-set-btn"
                 disabled={Boolean(busy)}
-                onClick={() => setConfirm('restart')}
+                onClick={() => openConfirmation('restart')}
               >
                 <RefreshCw size={14} />
                 重启 WeQ
@@ -703,68 +744,71 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           </div>
         </Card>
       ) : null}
-      {confirm ? (
-        <div className="weq-backup-review" role="region" aria-label="确认操作">
-          <h4>
-            确认
-            {confirm === 'defaults'
-              ? '恢复默认设置'
-              : confirm === 'restart'
-                ? '重启 WeQ'
-                : confirm === 'claim'
-                  ? '在此设备恢复界面偏好'
-                  : '放弃界面偏好恢复'}
-          </h4>
-          <p>
-            {confirm === 'defaults'
-              ? '重启后恢复通用设置、导出预设和此设备的界面偏好。API、账号配置、克隆体和本机应用锁密钥会保留。'
-              : confirm === 'restart'
-                ? '请先保存正在编辑的内容。重启会关闭当前账号与在途任务，随后应用已暂存的数据。'
-                : confirm === 'claim'
-                  ? '将覆盖当前设备的界面偏好并重新加载，原发起设备不会再应用这份界面偏好。'
-                  : '已恢复的 WeQ 数据不会撤销；所有设备均不再应用本次备份的界面偏好。'}
-          </p>
-          <div className="weq-backup-actions">
-            <button
-              type="button"
-              className="weq-set-btn"
-              disabled={Boolean(busy)}
-              onClick={() => setConfirm(null)}
-            >
-              返回
-            </button>
-            <button
-              type="button"
-              className="weq-set-btn"
-              disabled={Boolean(busy)}
-              onClick={() =>
-                void act('正在处理', async () => {
-                  if (confirm === 'defaults') {
-                    await api.defaults(backupClientId(localStorage));
-                    sourceId.current = null;
-                    setSource(null);
-                    setPreview(null);
-                  } else if (confirm === 'restart') await api.restart();
-                  else if (result) {
-                    const ok =
-                      confirm === 'claim'
-                        ? await api.claim(result.id, backupClientId(localStorage))
-                        : await api.skip(result.id);
-                    if (!ok) throw new Error('恢复回执已变化，请刷新状态');
-                    if (confirm === 'claim') {
-                      window.location.reload();
-                      return;
+      {confirm && confirmation ? (
+        <Modal
+          centered
+          dismissOnOutside={false}
+          onClose={busy ? undefined : () => setConfirm(null)}
+          labelledBy="weq-backup-confirm-title"
+          width={400}
+          className="weq-message-modal"
+        >
+          <div className="weq-dialog" aria-busy={Boolean(busy)}>
+            <div className="weq-dialog-head">
+              <h3 id="weq-backup-confirm-title" className="weq-dialog-title">
+                {confirmation.title}
+              </h3>
+            </div>
+            <div className="weq-dialog-body">
+              <p>{confirmation.message}</p>
+              {error ? (
+                <p role="alert" className="weq-backup-error">
+                  {error}
+                </p>
+              ) : null}
+            </div>
+            <div className="weq-dialog-foot">
+              <button
+                type="button"
+                className="weq-action-soft"
+                disabled={Boolean(busy)}
+                onClick={() => setConfirm(null)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="weq-action-primary"
+                disabled={Boolean(busy)}
+                onClick={() =>
+                  void act(confirmation.progress, async () => {
+                    if (confirm === 'defaults') {
+                      await api.defaults(backupClientId(localStorage));
+                      sourceId.current = null;
+                      setSource(null);
+                      setPreview(null);
+                    } else if (confirm === 'restart') await api.restart();
+                    else if (result) {
+                      const ok =
+                        confirm === 'claim'
+                          ? await api.claim(result.id, backupClientId(localStorage))
+                          : await api.skip(result.id);
+                      if (!ok) throw new Error('恢复回执已变化，请刷新状态');
+                      if (confirm === 'claim') {
+                        window.location.reload();
+                        return;
+                      }
                     }
-                  }
-                  setConfirm(null);
-                  await refresh();
-                })
-              }
-            >
-              确认
-            </button>
+                    await refresh();
+                    setConfirm(null);
+                  })
+                }
+              >
+                {busy ? confirmation.progress : confirmation.action}
+              </button>
+            </div>
           </div>
-        </div>
+        </Modal>
       ) : null}
     </div>
   );

@@ -14,6 +14,8 @@
  */
 
 import { useMemo, useState, type ReactElement } from 'react';
+import type { AgentLabModels, AgentLabModelSelection } from '@weq/agentlab';
+import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
 import { ArrowLeft, Check, Search, Sparkles, X } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
 import { qqAvatarUrl } from '../../components/QqAvatar';
@@ -51,11 +53,7 @@ export interface StartCloneArgs {
   params: {
     personaId: string;
     name?: string;
-    models: {
-      chat: { providerId: string; model: string };
-      embedding?: { providerId: string; model: string };
-      vision?: { providerId: string; model: string };
-    };
+    models: AgentLabModels;
     customPrompt?: string;
     targetUid: string;
     title: string;
@@ -64,11 +62,6 @@ export interface StartCloneArgs {
     autoName?: boolean;
   };
   meta: { name: string; uin: string; mode: CloneMode };
-}
-
-function parseSel(key: string): { providerId: string; model: string } | undefined {
-  const [providerId, model] = key.split('::');
-  return providerId && model ? { providerId, model } : undefined;
 }
 
 export function NewCloneModal({
@@ -98,10 +91,13 @@ export function NewCloneModal({
   });
   const [query, setQuery] = useState('');
   const [name, setName] = useState('');
-  const [chatSel, setChatSel] = useState(flatModels.chat[0]?.key ?? '');
-  const [embSel, setEmbSel] = useState('');
+  const [chatSel, setChatSel] = useState<AgentLabModelSelection | null>(() => {
+    const first = flatModels.chat[0];
+    return first ? { providerId: first.providerId, model: first.model } : null;
+  });
+  const [embSel, setEmbSel] = useState<AgentLabModelSelection | null>(null);
   const [analyzeStickers, setAnalyzeStickers] = useState(false);
-  const [visSel, setVisSel] = useState('');
+  const [visSel, setVisSel] = useState<AgentLabModelSelection | null>(null);
   const [mode, setMode] = useState<CloneMode>('group');
   const [autoName, setAutoName] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
@@ -132,13 +128,13 @@ export function NewCloneModal({
   }
 
   function onStartClick(): void {
-    const chatRef = parseSel(chatSel);
+    const chatRef = chatSel;
     if (!targets.length || !chatRef) {
       dialog.error('无法构建', '请先选择好友和聊天模型。');
       return;
     }
-    const embRef = parseSel(embSel);
-    const visRef = analyzeStickers ? parseSel(visSel) : undefined;
+    const embRef = embSel;
+    const visRef = analyzeStickers ? visSel : undefined;
     const sharedName = name.trim() || undefined;
     // 多选时逐个好友各起一个克隆任务；personaId 带时间戳与 uid，互不覆盖。
     for (const [index, target] of targets.entries()) {
@@ -306,30 +302,24 @@ export function NewCloneModal({
 
             <label className="weq-agentlab-field">
               <span>聊天模型</span>
-              <select value={chatSel} onChange={(e) => setChatSel(e.target.value)}>
-                <option value="">请选择聊天模型</option>
-                {flatModels.chat.map((m) => (
-                  <option key={m.key} value={m.key}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
+              <ApiModelSelect
+                allowDefault
+                label="克隆聊天模型"
+                value={chatSel}
+                onChange={setChatSel}
+                emptyLabel="请选择聊天模型"
+              />
             </label>
-            {flatModels.chat.length === 0 ? (
-              <div className="weq-agentlab-empty">
-                还没有可用聊天模型，请先到「设置 → 模型服务商」添加。
-              </div>
-            ) : null}
             <label className="weq-agentlab-field">
               <span>向量模型（可选，配了才做相似检索）</span>
-              <select value={embSel} onChange={(e) => setEmbSel(e.target.value)}>
-                <option value="">不使用向量</option>
-                {flatModels.embedding.map((m) => (
-                  <option key={m.key} value={m.key}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
+              <ApiModelSelect
+                allowDefault
+                label="克隆向量模型"
+                capability="embedding"
+                value={embSel}
+                onChange={setEmbSel}
+                emptyLabel="不使用向量"
+              />
             </label>
 
             <div className={`weq-clone-toggle-card${analyzeStickers ? ' is-on' : ''}`}>
@@ -346,23 +336,17 @@ export function NewCloneModal({
               </label>
               {analyzeStickers ? (
                 <div className="weq-clone-toggle-extra">
-                  {flatModels.vision.length === 0 ? (
-                    <div className="weq-clone-sub-hint">
-                      还没有视觉模型，请先到「设置 → 模型服务商」添加带「视觉」能力的模型。
-                    </div>
-                  ) : (
-                    <label className="weq-agentlab-field">
-                      <span>视觉模型</span>
-                      <select value={visSel} onChange={(e) => setVisSel(e.target.value)}>
-                        <option value="">请选择视觉模型</option>
-                        {flatModels.vision.map((m) => (
-                          <option key={m.key} value={m.key}>
-                            {m.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
+                  <label className="weq-agentlab-field">
+                    <span>视觉模型</span>
+                    <ApiModelSelect
+                      allowDefault
+                      label="克隆视觉模型"
+                      capability="vision"
+                      value={visSel}
+                      onChange={setVisSel}
+                      emptyLabel="请选择视觉模型"
+                    />
+                  </label>
                 </div>
               ) : null}
             </div>

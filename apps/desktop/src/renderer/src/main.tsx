@@ -7,6 +7,7 @@ import { OverlayAnchorProvider } from './lib/overlayAnchor';
 import './styles/index.css';
 import { BackupStartupGate } from './components/BackupStartupGate';
 import { installResourceDiagnostics } from './lib/resourceDiagnostics';
+import { RendererErrorBoundary } from './components/RendererErrorBoundary';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('root element missing');
@@ -17,12 +18,14 @@ import.meta.hot?.dispose(stopResourceDiagnostics);
 
 createRoot(root).render(
   <StrictMode>
-    <TrpcProvider>
-      <OverlayAnchorProvider>
-        <BackupStartupGate>
-          <App />
-        </BackupStartupGate>
-      </OverlayAnchorProvider>
-    </TrpcProvider>
+    <RendererErrorBoundary>
+      <TrpcProvider>
+        <OverlayAnchorProvider>
+          <BackupStartupGate>
+            <App />
+          </BackupStartupGate>
+        </OverlayAnchorProvider>
+      </TrpcProvider>
+    </RendererErrorBoundary>
   </StrictMode>,
 );

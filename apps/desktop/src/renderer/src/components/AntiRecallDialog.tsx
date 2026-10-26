@@ -14,7 +14,16 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { ArrowLeft, BellRing, ChevronRight, RotateCcw, ShieldCheck, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  BellRing,
+  ChevronRight,
+  Pencil,
+  RotateCcw,
+  Save,
+  ShieldCheck,
+  X,
+} from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog';
 import { useToast } from './Toast';
@@ -581,6 +590,7 @@ export function AntiRecallDialog({
                 disabled={unavailable}
                 onClick={() => openEditor('protect')}
               >
+                <Pencil size={14} aria-hidden="true" />
                 编辑保护会话
               </button>
             }
@@ -611,6 +621,7 @@ export function AntiRecallDialog({
                 disabled={unavailable}
                 onClick={() => openEditor('notify')}
               >
+                <Pencil size={14} aria-hidden="true" />
                 编辑通知会话
               </button>
             }
@@ -628,6 +639,7 @@ export function AntiRecallDialog({
                 disabled={unavailable}
                 onClick={() => openEditor('records')}
               >
+                <RotateCcw size={14} aria-hidden="true" />
                 查看撤回记录
               </button>
             }
@@ -668,6 +680,7 @@ export function AntiRecallDialog({
                         disabled={busy || conversations.isLoading || !!conversations.error}
                         onClick={() => void (choosingProtection ? onSaveTargets() : onSaveNotify())}
                       >
+                        <Save size={14} aria-hidden="true" />
                         保存选择
                       </button>
                     ) : undefined
@@ -847,6 +860,7 @@ export function AntiRecallDialog({
                     disabled={busy || status.isLoading || !status.data}
                     onClick={() => void onSaveTargets()}
                   >
+                    <Save size={14} aria-hidden="true" />
                     {dirty ? '保存选择' : '已保存'}
                   </button>
                 }
@@ -895,6 +909,7 @@ export function AntiRecallDialog({
                     disabled={busy || !notifyDirty}
                     onClick={() => void onSaveNotify()}
                   >
+                    <Save size={14} aria-hidden="true" />
                     {notifyDirty ? '保存选择' : '已保存'}
                   </button>
                 }

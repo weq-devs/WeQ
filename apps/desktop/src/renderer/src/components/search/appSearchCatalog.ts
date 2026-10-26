@@ -1,7 +1,9 @@
 import { searchNameRank } from '@weq/service/search-policy';
 import type { MainView } from '../../im-template/template/types';
+import { AI_SETTING_ITEMS } from '../settings/aiSettingsCatalog';
 import {
   SETTINGS_PAGE_LABELS,
+  SETTINGS_ITEM_TARGETS,
   resolveSettingsTarget,
   settingsGroupFor,
   type SectionId,
@@ -47,11 +49,15 @@ const PAGE_ALIASES: Partial<Record<SettingsPageId, string[]>> = {
   privacy: ['隐私与应用锁', '应用锁', '隐私模式', 'applock'],
   'resource-loading': ['资源下载网络', '网络', 'CDN'],
   assistant: ['公众号推送', 'QQ 公众号'],
+  sse: ['SSE 消息推送'],
   backup: ['设置备份', '备份与恢复'],
 };
 
 type SettingDefinition = readonly [section: SectionId, item: string, ...aliases: string[]];
 const SETTING_ITEMS: readonly SettingDefinition[] = [
+  ...AI_SETTING_ITEMS.map(
+    (item): SettingDefinition => [item.section, item.label, ...(item.aliases ?? [])],
+  ),
   ['home', '个性标签', '主页标签'],
   ['home', '问候语', '主页问候'],
   ['home', '一言', 'hitokoto'],
@@ -75,6 +81,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['message-display', '发送消息后定位到最新消息', '发送后跳转'],
   ['message-display', '使用 QQ 账号设置的个性字体发送消息', '发送字体'],
   ['message-display', '群助手显示总消息数'],
+  ['message-display', '图片预览内存预算', '图片缓存', '表情缓存', '内存缓存'],
   ['message-display', '自定义消息显示'],
   ['message-display', '显示消息汇总红点', '未读红点'],
   ['message-display', '纯文本消息渲染 Markdown', '富文本'],
@@ -87,13 +94,16 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['message-display', '无封面时网页截图', '链接截图'],
   ['applock', '启用应用锁', '锁屏', '隐私锁'],
   ['applock', '隐私模式', '隐藏个人信息'],
+  ['privacy', '在菜单中截图瞬间临时启用隐私模式', '截图隐私'],
   ['applock', '解锁方式', 'Touch ID', 'Windows Hello', '验证器'],
   ['applock', '无操作自动上锁', '空闲自动锁定'],
   ['accounts', '现有配置', '自动进入账号'],
   ['account', '启用数据库监听', '自动刷新消息'],
+  ['account', '长期授权', '权限助手', '免重复提权', '管理员授权'],
   ['account', '同步已读状态到 QQ'],
   ['account', '手动标记时上报已读位置'],
   ['account', '自动读取 QQ 内存（完整功能）', '完整模式'],
+  ['account', '进入受限模式时横幅提醒', '受限横幅'],
   ['anti-recall', '防撤回', 'anti-recall'],
   ['rkey', '外部 RKEY', '外部 rKey 服务器'],
   ['qzone', '在线翻页限速', '空间翻页频率'],
@@ -117,7 +127,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['clone-settings', '克隆体配置', '克隆提示词', '克隆语音', '发言意愿'],
   ['intent-sense', '启用意图感知'],
   ['intent-sense', '意图感知运行方式', '本地意图模型'],
-  ['intent-sense', '意图模型资源（全局）', '意图模型资源'],
+  ['intent-sense', '意图模型资源（全局）', '意图模型资源', '使用下载镜像', 'hf-mirror.com 镜像'],
   ['intent-sense', '自己发送后分析'],
   ['reply-suggestions', '启用推荐回复'],
   ['reply-suggestions', '推荐回复 API 模型'],
@@ -210,7 +220,23 @@ export const APP_SEARCH_ENTRIES: readonly AppSearchEntry[] = uniqueEntries([
     settingEntry(section as keyof typeof SETTINGS_PAGE_LABELS, undefined, [section]),
   ),
   ...SETTING_ITEMS.map(([section, item, ...aliases]) => settingEntry(section, item, aliases)),
-]);
+  ...SETTINGS_ITEM_TARGETS.map((item) =>
+    settingEntry(item.section, item.label, [...(item.aliases ?? [])]),
+  ),
+]).filter((entry) => {
+  const target = entry.target;
+  return !(
+    import.meta.env.VITE_WEQ_TARGET === 'web' &&
+    target.kind === 'setting' &&
+    SETTINGS_ITEM_TARGETS.some((item) => item.id === target.settingId && item.desktopOnly)
+  );
+});
+
+export function appSearchEntryRank(keyword: string, entry: AppSearchEntry): number {
+  return (
+    searchNameRank(keyword, entry.title, ...entry.keywords) || searchNameRank(keyword, entry.path)
+  );
+}
 
 export function searchAppEntries(keyword: string): AppSearchEntry[] {
   const query = keyword.trim();
@@ -218,10 +244,7 @@ export function searchAppEntries(keyword: string): AppSearchEntry[] {
   return APP_SEARCH_ENTRIES.map((entry, index) => ({
     entry,
     index,
-    rank:
-      searchNameRank(query, entry.title) * 10 ||
-      searchNameRank(query, ...entry.keywords) * 2 ||
-      searchNameRank(query, entry.path),
+    rank: appSearchEntryRank(query, entry),
   }))
     .filter(({ rank }) => rank > 0)
     .sort((a, b) => b.rank - a.rank || a.index - b.index)

@@ -16,6 +16,7 @@ import type { GuildExportTaskMeta } from './export/guild_source';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { elementsToText } from './export/element_text';
+import { searchNameRank } from './search_policy';
 import {
   contentSearchKey,
   contentSearchSnippet,
@@ -207,7 +208,12 @@ export class GuildDirectService {
           cursor = page.cursor;
         }
       }
-      rows.sort((a, b) => b.time - a.time || a.id.localeCompare(b.id));
+      rows.sort(
+        (a, b) =>
+          searchNameRank(keyword, b.title) - searchNameRank(keyword, a.title) ||
+          b.time - a.time ||
+          a.id.localeCompare(b.id),
+      );
       cached = { key, rows, count, at: Date.now() };
       // 大命中池不常驻内存；本次仍完整分页返回，不隐式截断结果。
       this.searchCache = rows.length <= 10_000 ? cached : null;

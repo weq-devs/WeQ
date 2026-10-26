@@ -88,7 +88,7 @@ export function GrayTipXmlMessage({
       if (node.nodeName === 'url') {
         return (
           // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
-          <span key={index} className="text-blue-500">
+          <span key={index} className="weq-graytip-accent">
             {getNodeValue(node, 'txt') || getNodeText(node)}
           </span>
         );
@@ -108,7 +108,7 @@ export function GrayTipXmlMessage({
       return null;
     });
 
-    return <div className="weq-graytip text-center text-gray-500 text-xs py-2">{nodes}</div>;
+    return <div className="weq-graytip text-center text-xs py-2">{nodes}</div>;
   }, [grayTipXmlContent, conversation, message, user]);
 
   return content;

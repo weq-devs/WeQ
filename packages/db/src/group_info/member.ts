@@ -276,15 +276,22 @@ export class GroupMemberDb {
     keyword: string,
     limit = 20,
     offset = 0,
+    options: { includeHistorical?: boolean; includeCards?: boolean } = {},
   ): Promise<{ items: GroupMemberSearchHit[]; total: number }> {
     const needle = keyword.trim();
     if (!needle) return { items: [], total: 0 };
     const like = `%${escapeLike(needle)}%`;
+    const fields = [
+      'CAST("1002" AS TEXT)',
+      '"20002"',
+      ...(options.includeCards ? ['"64003"'] : []),
+    ];
     const where =
-      `(CAST("1002" AS TEXT) LIKE ? ESCAPE '\\' OR "20002" LIKE ? ESCAPE '\\')` +
-      ` AND ("64016" = 0 OR "64016" IS NULL)`;
+      `(${fields.map((field) => `${field} LIKE ? ESCAPE '\\'`).join(' OR ')})` +
+      (options.includeHistorical ? '' : ` AND ("64016" = 0 OR "64016" IS NULL)`);
+    const params = fields.map(() => like);
     const [countRows, rows] = await Promise.all([
-      this.qq.query(`SELECT COUNT(*) FROM group_member3 WHERE ${where}`, [like, like]),
+      this.qq.query(`SELECT COUNT(*) FROM group_member3 WHERE ${where}`, params),
       this.qq.query(
         `SELECT "60001","1000","1002","20002","64003" FROM group_member3
          WHERE ${where}
@@ -294,8 +301,7 @@ export class GroupMemberDb {
            ELSE 2 END, "60001" ASC, "1000" ASC
          LIMIT ? OFFSET ?`,
         [
-          like,
-          like,
+          ...params,
           needle,
           needle,
           `${escapeLike(needle)}%`,

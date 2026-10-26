@@ -47,9 +47,27 @@ import { QqAvatar } from './QqAvatar';
 import { DesktopOnly, shellBridge } from '../lib/target';
 import '../styles/rail-account.css';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
+import { useMenuCapture } from '../hooks/useMenuCapture';
+import { captureMenuScreenshot } from '../lib/menuScreenshot';
+import '../styles/menu-capture.css';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+function MenuCaptureButton({ onCapture }: { onCapture: () => Promise<void> }): ReactElement {
+  const menuCapture = useMenuCapture(onCapture);
+  return (
+    <button
+      type="button"
+      className="weq-workspace-control weq-menu-capture-button"
+      title="截图当前窗口（复制到剪贴板）"
+      aria-label="截图当前窗口"
+      {...menuCapture}
+    >
+      <Camera size={18} aria-hidden />
+    </button>
+  );
 }
 
 export function RailAccountFooter({
@@ -83,6 +101,7 @@ export function RailAccountFooter({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const capturePending = useRef(false);
 
   // 应用锁配置（解锁方式 / 总开关），供上锁按钮做可上锁判断。
   const lockSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
@@ -113,14 +132,14 @@ export function RailAccountFooter({
 
   /** 按钮禁用时的提示原因；null = 当前可上锁。 */
   function lockBlockReason(): string | null {
-    if (appLock?.enabled === false) return '应用锁已关闭，请在 设置 → 应用锁 中开启。';
+    if (appLock?.enabled === false) return '应用锁已关闭，请在 设置 → 常规 → 隐私 中开启。';
     if (lockMethod === 'system') {
       return systemAuthQuery.data?.available === false
         ? (systemAuthQuery.data?.error ?? '当前设备系统认证不可用。')
         : null;
     }
     return totpQuery.data?.configured === false
-      ? '验证器未绑定，请先在 设置 → 应用锁 中完成绑定。'
+      ? '验证器未绑定，请先在 设置 → 常规 → 隐私 中完成绑定。'
       : null;
   }
 
@@ -130,7 +149,7 @@ export function RailAccountFooter({
       const fresh = await lockSettings.refetch();
       const cfg = fresh.data?.appLock;
       if (cfg?.enabled === false) {
-        showError('无法上锁', '应用锁已关闭，请在 设置 → 应用锁 中开启。');
+        showError('无法上锁', '应用锁已关闭，请在 设置 → 常规 → 隐私 中开启。');
         return;
       }
       const method = cfg?.method ?? 'totp';
@@ -145,7 +164,7 @@ export function RailAccountFooter({
         const bridge = shellBridge();
         const status = bridge ? await bridge.totp.getStatus() : null;
         if (!status?.configured) {
-          showError('无法上锁', '验证器未绑定，请先在 设置 → 应用锁 中完成绑定。');
+          showError('无法上锁', '验证器未绑定，请先在 设置 → 常规 → 隐私 中完成绑定。');
           return;
         }
       }
@@ -164,8 +183,18 @@ export function RailAccountFooter({
   }
 
   async function captureNow(): Promise<void> {
+    if (capturePending.current) return;
+    const bridge = shellBridge();
+    if (!bridge) return;
+    capturePending.current = true;
     try {
-      const res = await window.weq.capture.window();
+      const res = await captureMenuScreenshot(
+        () => bridge.capture.window(),
+        () => {
+          setOpen(false);
+          useWorkspaceMenu.getState().close();
+        },
+      );
       if (res.ok) {
         pushToast({ tone: 'success', title: '截图已复制', message: '窗口截图已写入剪贴板' });
       } else {
@@ -173,6 +202,8 @@ export function RailAccountFooter({
       }
     } catch (e) {
       showError('截图失败', errMsg(e));
+    } finally {
+      capturePending.current = false;
     }
   }
 
@@ -361,15 +392,7 @@ export function RailAccountFooter({
         </button>
       </div>
       <DesktopOnly>
-        <button
-          type="button"
-          className="weq-workspace-control"
-          title="截图当前窗口（复制到剪贴板）"
-          aria-label="截图当前窗口"
-          onClick={() => void captureNow()}
-        >
-          <Camera size={18} aria-hidden />
-        </button>
+        <MenuCaptureButton onCapture={captureNow} />
       </DesktopOnly>
       <button
         type="button"

@@ -231,7 +231,7 @@ export function MailPage({
         useToast.getState().push({
           tone: 'info',
           title: '收到新邮件',
-          detail: usePrivacyStore.getState().enabled
+          detail: usePrivacyStore.getState().effective
             ? undefined
             : `${event.notice.sender}${event.notice.subject ? `：${event.notice.subject}` : ''}`,
         });

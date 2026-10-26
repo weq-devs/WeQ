@@ -29,32 +29,21 @@ import { randomBytes } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { createServer, type Server, type Socket } from 'node:net';
 import { dirname } from 'node:path';
-import type { CapturedFrame } from '@weq/native';
-import {
-  toCaptureFrameWire,
-  type CaptureSessionWire,
-  type CaptureStatsWire,
-  type CaptureWorkerHello,
-  type CaptureWorkerReply,
-  type CaptureWorkerRequest,
+import type { NtHelperBinding } from '@weq/native';
+import { dispatchCaptureOperation } from './authorization/operations';
+import type {
+  CaptureWorkerHello,
+  CaptureWorkerReply,
+  CaptureWorkerRequest,
 } from './capture_protocol';
 
 const requireFn = createRequire(__filename);
 
 /** 本进程用到的 nt_helper 出口（其余不碰）。 */
-interface CaptureAddon {
-  getInitStatus(): number;
-  probeCaptureSupport(): { available: boolean; backend: string; elevated: boolean; hint: string };
-  startCapture(
-    pid: number,
-    options?: { iface?: string; port?: string; d2Key?: string } | null,
-  ): Promise<CaptureSessionWire>;
-  takeFrames(
-    pid: number,
-    options?: { cursor?: number; waitMs?: number } | null,
-  ): Promise<{ frames: CapturedFrame[]; nextCursor: number; dropped: number }>;
-  stopCapture(pid: number): Promise<CaptureStatsWire>;
-}
+type CaptureAddon = Pick<
+  NtHelperBinding,
+  'getInitStatus' | 'probeCaptureSupport' | 'startCapture' | 'takeFrames' | 'stopCapture'
+>;
 
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -111,37 +100,10 @@ async function main(): Promise<void> {
   }
 
   async function dispatch(req: CaptureWorkerRequest): Promise<unknown> {
-    switch (req.op) {
-      case 'start': {
-        const session = await addon.startCapture(req.pid, {
-          iface: req.iface,
-          port: req.port,
-          // native 的字段名是 `d2Key`（napi 从 Rust `d2key` 转来）；写成 `d2key`
-          // 会被静默忽略 → 密文全部解不开。线上协议那层（req.d2key）保持小写。
-          d2Key: req.d2key,
-        });
-        activePids.add(req.pid);
-        return session;
-      }
-      case 'take': {
-        const batch = await addon.takeFrames(req.pid, {
-          cursor: req.cursor,
-          waitMs: req.waitMs,
-        });
-        return {
-          frames: batch.frames.map(toCaptureFrameWire),
-          nextCursor: batch.nextCursor,
-          dropped: batch.dropped,
-        };
-      }
-      case 'stop': {
-        const stats = await addon.stopCapture(req.pid);
-        activePids.delete(req.pid);
-        return stats;
-      }
-      default:
-        throw new Error(`未知的抓包 worker 请求：${String((req as { op?: unknown }).op)}`);
-    }
+    const result = await dispatchCaptureOperation(addon, req);
+    if (req.op === 'start') activePids.add(req.pid);
+    if (req.op === 'stop') activePids.delete(req.pid);
+    return result;
   }
 
   async function shutdown(): Promise<void> {

@@ -32,6 +32,7 @@ import {
 import { QzoneNavigationContext } from '../lib/qzoneNavigation';
 import { trpc } from '../trpc/client';
 import { ProfileLikesRow } from './qq-actions/ProfileLikesRow';
+import { useTabActive } from './RetainedTabs';
 import botCardUrl from '@resources/img/bot.png';
 
 /**
@@ -83,6 +84,7 @@ export function PersonalityHomeDialog({
   onNavigateAway,
   onOpenChat,
   onClose,
+  embedded = false,
 }: {
   /** 目标 QQ 号。装扮页只认 uin，拿不到 uin 的联系人不该开这个入口。 */
   uin: string;
@@ -95,17 +97,19 @@ export function PersonalityHomeDialog({
   onNavigateAway?: () => void;
   onOpenChat?: () => void;
   onClose: () => void;
+  embedded?: boolean;
 }) {
+  const active = useTabActive();
   const openSpace = useContext(QzoneNavigationContext);
   const dress = trpc.account.dressup.peerHome.useQuery(
     { uin },
     // SSR 页面每次都要几秒，失败多半是票据/风控而不是抖动，重试只会让用户多等一轮。
-    { enabled: !isBot, retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
+    { enabled: active && !isBot, retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
   );
   const stats = trpc.account.dressup.peerStats.useQuery(
     { uin, uid: uid ?? '' },
     {
-      enabled: Boolean(uid) && !isBot,
+      enabled: active && Boolean(uid) && !isBot,
       retry: false,
       refetchOnWindowFocus: false,
       staleTime: 5 * 60_000,
@@ -114,7 +118,7 @@ export function PersonalityHomeDialog({
   const qqShow = trpc.account.dressup.peerQqShow.useQuery(
     { uin },
     // OIDB 毫秒级返回；失败多半是离线/风控，静默回退到头像+挂件即可，不打扰。
-    { enabled: !isBot, retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
+    { enabled: active && !isBot, retry: false, refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
   );
 
   // 有 QQ 秀时默认展示全身像；切换胶囊可随时切回「头像+挂件」。
@@ -130,21 +134,17 @@ export function PersonalityHomeDialog({
   const hasBackdrop = Boolean(cardUrl || cardVideoUrl);
   const tags = profile.interests;
 
-  return (
-    <OverlayLayer
-      presentation="panel"
-      className="weq-profile-layer weq-perhome-layer"
-      onClose={onClose}
+  const content = (
+    <section
+      className={`weq-perhome${embedded ? ' weq-contact-personality' : ' weq-anim-pop'}${hasBackdrop ? ' is-onphoto' : ''}`}
+      role={embedded ? 'region' : 'dialog'}
+      aria-label={`${profile.name} 的个性主页`}
+      onMouseDown={(event) => event.stopPropagation()}
     >
-      <section
-        className={`weq-perhome weq-anim-pop${hasBackdrop ? ' is-onphoto' : ''}`}
-        role="dialog"
-        aria-label={`${profile.name} 的个性主页`}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <CardBackdrop imageUrl={cardUrl} videoUrl={cardVideoUrl} />
-        {screenUrl && <ScreenRain src={screenUrl} count={5} />}
+      <CardBackdrop imageUrl={cardUrl} videoUrl={cardVideoUrl} />
+      {screenUrl && <ScreenRain src={screenUrl} count={5} />}
 
+      {!embedded ? (
         <button
           className="weq-perhome-close"
           type="button"
@@ -154,163 +154,174 @@ export function PersonalityHomeDialog({
         >
           <X size={16} />
         </button>
+      ) : null}
 
-        <div className="weq-perhome-inner">
-          {/* 标签环是绝对定位的，撑不开舞台高度，故靠 .has-tags 补一段下方间距。
+      <div className="weq-perhome-inner">
+        {/* 标签环是绝对定位的，撑不开舞台高度，故靠 .has-tags 补一段下方间距。
               没标签时不能留那段空白——否则昵称被推到卡片外看不见。 */}
-          <div
-            className={`weq-perhome-stage${tags.length ? ' has-tags' : ''}${qqShowUrlValue && showQqShow && !qqShowFailed ? ' has-qqshow' : ''}`}
-          >
-            {showQqShow && qqShowUrlValue && !qqShowFailed ? (
-              <img
-                className="weq-qqshow"
-                src={qqShowUrl(qqShowUrlValue)}
-                alt={profile.name}
-                draggable={false}
-                onError={() => setQqShowFailed(true)}
-              />
-            ) : (
-              <AvatarOrb
-                avatarUrl={profile.avatarUrl}
-                nickname={profile.name}
-                widgetUrl={widgetUrl}
-              />
-            )}
-            <TagRing tags={tags} max={8} radiusPad={34} />
+        <div
+          className={`weq-perhome-stage${tags.length ? ' has-tags' : ''}${qqShowUrlValue && showQqShow && !qqShowFailed ? ' has-qqshow' : ''}`}
+        >
+          {showQqShow && qqShowUrlValue && !qqShowFailed ? (
+            <img
+              className="weq-qqshow"
+              src={qqShowUrl(qqShowUrlValue)}
+              alt={profile.name}
+              draggable={false}
+              onError={() => setQqShowFailed(true)}
+            />
+          ) : (
+            <AvatarOrb
+              avatarUrl={profile.avatarUrl}
+              nickname={profile.name}
+              widgetUrl={widgetUrl}
+            />
+          )}
+          <TagRing tags={tags} max={8} radiusPad={34} />
 
-            {qqShowUrlValue ? (
-              <div className="weq-perhome-show-switch" role="group" aria-label="切换形象展示">
-                <button
-                  type="button"
-                  className={showQqShow ? 'is-active' : ''}
-                  title="QQ 秀形象"
-                  aria-label="QQ 秀形象"
-                  aria-pressed={showQqShow}
-                  onClick={() => {
-                    setQqShowFailed(false);
-                    setShowQqShow(true);
-                  }}
-                >
-                  <Sparkles size={13} />
-                </button>
-                <button
-                  type="button"
-                  className={!showQqShow ? 'is-active' : ''}
-                  title="头像 + 挂件"
-                  aria-label="头像 + 挂件"
-                  aria-pressed={!showQqShow}
-                  onClick={() => setShowQqShow(false)}
-                >
-                  <UserRound size={13} />
-                </button>
-              </div>
-            ) : null}
-          </div>
-
-          <h2 className="weq-perhome-name">{profile.name}</h2>
-          {profile.signature ? <p className="weq-perhome-sign">{profile.signature}</p> : null}
-          {openSpace && /^[1-9]\d{4,19}$/.test(uin) ? (
-            <div className="weq-profile-actions">
+          {qqShowUrlValue ? (
+            <div className="weq-perhome-show-switch" role="group" aria-label="切换形象展示">
               <button
-                className="weq-profile-perhome"
                 type="button"
+                className={showQqShow ? 'is-active' : ''}
+                title="QQ 秀形象"
+                aria-label="QQ 秀形象"
+                aria-pressed={showQqShow}
                 onClick={() => {
-                  onClose();
-                  onNavigateAway?.();
-                  if (onOpenChat) onOpenChat();
-                  else openSpace(uin, spaceNickname || profile.name);
+                  setQqShowFailed(false);
+                  setShowQqShow(true);
                 }}
               >
-                <Star size={13} />
-                {onOpenChat ? '查看私聊' : '查看空间'}
+                <Sparkles size={13} />
+              </button>
+              <button
+                type="button"
+                className={!showQqShow ? 'is-active' : ''}
+                title="头像 + 挂件"
+                aria-label="头像 + 挂件"
+                aria-pressed={!showQqShow}
+                onClick={() => setShowQqShow(false)}
+              >
+                <UserRound size={13} />
               </button>
             </div>
           ) : null}
+        </div>
 
-          {stats.data ? (
-            <div className="weq-perhome-stats">
-              <span className="weq-perhome-stat" title={`QQ 等级 ${stats.data.level} 级`}>
-                <span className="weq-perhome-level-icons">
-                  {qqLevelIconNames(stats.data.level).map((name, index) => (
-                    <img
-                      // biome-ignore lint/suspicious/noArrayIndexKey: 同名图标可重复,位置才是稳定键
-                      key={`${name}:${index}`}
-                      src={resourceUrl('qqlevel', `${name}.png`)}
-                      alt=""
-                    />
-                  ))}
-                </span>
-                <strong>Lv.{stats.data.level}</strong>
+        <h2 className="weq-perhome-name">{profile.name}</h2>
+        {profile.signature ? <p className="weq-perhome-sign">{profile.signature}</p> : null}
+        {openSpace && /^[1-9]\d{4,19}$/.test(uin) ? (
+          <div className="weq-profile-actions">
+            <button
+              className="weq-profile-perhome"
+              type="button"
+              onClick={() => {
+                if (!embedded) onClose();
+                onNavigateAway?.();
+                if (onOpenChat) onOpenChat();
+                else openSpace(uin, spaceNickname || profile.name);
+              }}
+            >
+              <Star size={13} />
+              {onOpenChat ? '查看私聊' : '查看空间'}
+            </button>
+          </div>
+        ) : null}
+
+        {stats.data ? (
+          <div className="weq-perhome-stats">
+            <span className="weq-perhome-stat" title={`QQ 等级 ${stats.data.level} 级`}>
+              <span className="weq-perhome-level-icons">
+                {qqLevelIconNames(stats.data.level).map((name, index) => (
+                  <img
+                    // biome-ignore lint/suspicious/noArrayIndexKey: 同名图标可重复,位置才是稳定键
+                    key={`${name}:${index}`}
+                    src={resourceUrl('qqlevel', `${name}.png`)}
+                    alt=""
+                  />
+                ))}
               </span>
-            </div>
-          ) : null}
+              <strong>Lv.{stats.data.level}</strong>
+            </span>
+          </div>
+        ) : null}
 
-          {!isBot && uid ? (
-            <div className="weq-profile-list">
-              <ProfileLikesRow uid={uid} uin={uin} name={profile.name} />
-            </div>
-          ) : null}
+        {!isBot && uid ? (
+          <div className="weq-profile-list">
+            <ProfileLikesRow uid={uid} uin={uin} name={profile.name} />
+          </div>
+        ) : null}
 
-          {profile.privileges.length || profile.region ? (
-            <div className="weq-perhome-chips">
-              {profile.region ? (
-                <span className="weq-perhome-chip">
-                  <MapPin size={12} />
-                  <span data-privacy-sensitive>{profile.region}</span>
-                </span>
-              ) : null}
-              {dress.data?.isSvip ? (
-                <span className="weq-perhome-chip is-svip">
-                  <Sparkles size={12} />
-                  超级会员
-                </span>
-              ) : null}
-              {profile.privileges.map((item, index) => (
-                <img
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 同一 bizId 可能出现多条,只有位置是稳定键
-                  key={`${item.bizId ?? '?'}:${index}`}
-                  className="weq-perhome-privilege"
-                  src={collectionImageUrl(item.iconUrl as string)}
-                  alt={item.label}
-                  title={item.level ? `${item.label} · ${item.level} 级` : item.label}
-                  loading="lazy"
-                />
-              ))}
-            </div>
-          ) : null}
-
-          {profile.album.length ? (
-            <div className="weq-perhome-album">
-              {profile.album.map((photo, index) => (
-                <button
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 同一张图可能多次出现,位置才是稳定键
-                  key={`${photo.thumb}:${index}`}
-                  type="button"
-                  className="weq-perhome-photo"
-                  title="精选图片"
-                  onClick={() => openLightbox(albumMediaUrl(photo.full), '精选图片')}
-                >
-                  <img src={albumMediaUrl(photo.thumb)} alt="" loading="lazy" />
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="weq-perhome-status">
-            {isBot ? null : dress.isLoading ? (
-              <span className="weq-perhome-loading">
-                <Loader2 size={13} />
-                正在获取个性装扮…
-              </span>
-            ) : dress.error ? (
-              <span className="weq-perhome-offline">
-                <WifiOff size={13} />
-                {dress.error.message}
+        {profile.privileges.length || profile.region ? (
+          <div className="weq-perhome-chips">
+            {profile.region ? (
+              <span className="weq-perhome-chip">
+                <MapPin size={12} />
+                <span data-privacy-sensitive>{profile.region}</span>
               </span>
             ) : null}
+            {dress.data?.isSvip ? (
+              <span className="weq-perhome-chip is-svip">
+                <Sparkles size={12} />
+                超级会员
+              </span>
+            ) : null}
+            {profile.privileges.map((item, index) => (
+              <img
+                // biome-ignore lint/suspicious/noArrayIndexKey: 同一 bizId 可能出现多条,只有位置是稳定键
+                key={`${item.bizId ?? '?'}:${index}`}
+                className="weq-perhome-privilege"
+                src={collectionImageUrl(item.iconUrl as string)}
+                alt={item.label}
+                title={item.level ? `${item.label} · ${item.level} 级` : item.label}
+                loading="lazy"
+              />
+            ))}
           </div>
+        ) : null}
+
+        {profile.album.length ? (
+          <div className="weq-perhome-album">
+            {profile.album.map((photo, index) => (
+              <button
+                // biome-ignore lint/suspicious/noArrayIndexKey: 同一张图可能多次出现,位置才是稳定键
+                key={`${photo.thumb}:${index}`}
+                type="button"
+                className="weq-perhome-photo"
+                title="精选图片"
+                onClick={() => openLightbox(albumMediaUrl(photo.full), '精选图片')}
+              >
+                <img src={albumMediaUrl(photo.thumb)} alt="" loading="lazy" />
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="weq-perhome-status">
+          {isBot ? null : dress.isLoading ? (
+            <span className="weq-perhome-loading">
+              <Loader2 size={13} />
+              正在获取个性装扮…
+            </span>
+          ) : dress.error ? (
+            <span className="weq-perhome-offline">
+              <WifiOff size={13} />
+              {dress.error.message}
+            </span>
+          ) : null}
         </div>
-      </section>
+      </div>
+    </section>
+  );
+  return embedded ? (
+    content
+  ) : (
+    <OverlayLayer
+      presentation="panel"
+      className="weq-profile-layer weq-perhome-layer"
+      onClose={onClose}
+    >
+      {content}
     </OverlayLayer>
   );
 }

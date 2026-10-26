@@ -16,6 +16,7 @@ import { existsSync } from 'node:fs';
 import type { NtHelperBinding } from '@weq/native';
 import { getLogger } from '@weq/service';
 import { getAppContext, type AccountServices } from '../../context/app_context';
+import { fullModeAllowed } from '../../context/full_mode';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { PROJECT_GROUP_IDS } from '../../../shared/project_groups';
@@ -57,7 +58,7 @@ function requireOnlineQq(): {
   if (!nt || !uin || !record?.qqOnline || !record.qqPid) {
     throw new Error('需要先登录该账号的 QQ 客户端。');
   }
-  if (ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false) {
+  if (!fullModeAllowed(ctx)) {
     throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），反馈发送需要在线 QQ。');
   }
   return { nt, pid: record.qqPid, uin };
@@ -148,8 +149,7 @@ export const groupFeedbackRouter = router({
         try {
           online = requireOnlineQq();
         } catch (e) {
-          const offlineMode =
-            getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq === false;
+          const offlineMode = !fullModeAllowed(getAppContext());
           return {
             ok: false,
             reason: offlineMode ? ('offline-mode' as const) : ('offline' as const),
@@ -241,8 +241,7 @@ export const groupFeedbackRouter = router({
         try {
           online = requireOnlineQq();
         } catch (e) {
-          const offlineMode =
-            getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq === false;
+          const offlineMode = !fullModeAllowed(getAppContext());
           return {
             ok: false,
             reason: offlineMode ? ('offline-mode' as const) : ('offline' as const),

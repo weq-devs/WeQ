@@ -95,6 +95,7 @@ export interface FetchAccountVipOptions {
   onSeedInvalidated?: (domain: string) => void;
   /** 现在（unix ms），仅测试用。 */
   now?: number;
+  beforeRequest?: () => void;
 }
 
 /**
@@ -113,20 +114,27 @@ export async function fetchAccountVipInfo(
   const seed = seedPskey?.[VIP_PSKEY_DOMAIN];
 
   const credential = (useSeed: boolean) => {
+    options.beforeRequest?.();
     const provider = new WebCredentialProvider(nt, uin, () => pid, onSeedInvalidated);
     if (useSeed && seed) provider.seedPskey({ [VIP_PSKEY_DOMAIN]: seed });
     return provider.forDomain(VIP_PSKEY_DOMAIN);
   };
+  const fetch = async (useSeed: boolean) => {
+    const value = await credential(useSeed);
+    options.beforeRequest?.();
+    return fetchVipInfo(value, now);
+  };
 
   if (seed) {
     try {
-      return await fetchVipInfo(await credential(true), now);
+      return await fetch(true);
     } catch (error) {
+      options.beforeRequest?.();
       // 没在线实例时换不出新票，直接把这个错误交给调用方（离线 + 票据过期）。
       if (pid <= 0) throw error;
       onSeedInvalidated?.(VIP_PSKEY_DOMAIN);
     }
   }
   if (pid <= 0) throw new Error('QQ 未在线，没有可用于会员信息的 Web 票据。');
-  return fetchVipInfo(await credential(false), now);
+  return fetch(false);
 }

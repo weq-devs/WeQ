@@ -74,6 +74,7 @@ export class MediaDownloadService {
     private readonly accountConfig: AccountConfigService,
     private readonly cacheDir: string,
     private readonly externalRkey?: ExternalRkeySource,
+    private readonly allowOnline: () => boolean = () => true,
   ) {}
 
   /**
@@ -87,6 +88,7 @@ export class MediaDownloadService {
       this.logger.debug('media cache hit', { event: 'media-cache-hit', cachePath, fileToken });
       return cachePath;
     }
+    if (!this.allowOnline()) return null;
 
     const urls: string[] = [];
     // Digit-only tokens are pre-rkey media: fetch the original directly, no rkey.
@@ -107,8 +109,8 @@ export class MediaDownloadService {
 
     // 先试本机在线 QQ 自己获取的 rkey（含老图片的原始 URL）；全部失败且配置了
     // 外部 rkey 服务器时，再回退到它（可能触发一次网络拉取并缓存）。
-    let bytes = await tryEach(urls);
-    if (!bytes && this.externalRkey) {
+    let bytes = await tryEach(urls, this.allowOnline);
+    if (!bytes && this.externalRkey && this.allowOnline()) {
       let externalRkeys: DownloadRkey[] = [];
       try {
         externalRkeys = await this.externalRkey.resolveRkeys(allowed);
@@ -120,11 +122,13 @@ export class MediaDownloadService {
         });
       }
       for (const rkey of externalRkeys) {
-        bytes = await tryFetch(composeMediaDownloadUrl(fileToken, rkey));
+        if (!this.allowOnline()) return null;
+        bytes = await tryFetch(composeMediaDownloadUrl(fileToken, rkey), this.allowOnline);
         if (bytes) break;
       }
     }
     if (bytes) {
+      if (!this.allowOnline()) return null;
       mkdirSync(this.cacheDir, { recursive: true });
       try {
         writeFileSync(cachePath, bytes);
@@ -186,9 +190,10 @@ const MAX_RETRIES = 3;
 const BACKOFF_BASE_MS = 300;
 
 /** Try a list of URLs in order; first non-empty bytes wins. */
-async function tryEach(urls: string[]): Promise<Buffer | null> {
+async function tryEach(urls: string[], allowed: () => boolean): Promise<Buffer | null> {
   for (const url of urls) {
-    const bytes = await tryFetch(url);
+    if (!allowed()) return null;
+    const bytes = await tryFetch(url, allowed);
     if (bytes) return bytes;
   }
   return null;
@@ -210,8 +215,9 @@ function backoffMs(n: number): number {
  * outcomes — 4xx, or a text/* error page (wrong/expired rkey) — return null
  * immediately so the caller moves on to the next candidate URL.
  */
-async function tryFetch(url: string): Promise<Buffer | null> {
+async function tryFetch(url: string, allowed: () => boolean): Promise<Buffer | null> {
   for (let attempt = 0; ; attempt += 1) {
+    if (!allowed()) return null;
     try {
       const res = await fetch(url);
       if (res.status === 429 || res.status >= 500) {

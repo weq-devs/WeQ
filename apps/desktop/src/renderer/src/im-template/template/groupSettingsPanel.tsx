@@ -1,5 +1,5 @@
 ﻿// @ts-nocheck
-import { Pencil } from 'lucide-react';
+import { Pencil, Save, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { RefObject } from 'react';
 import { DesktopDetailActionGroups } from './conversationDetailActionRows';
@@ -187,11 +187,12 @@ export function GroupSettingsPanel({
               取消
             </button>
             <button
-              className={cn('primary-button')}
+              className={cn('primary-button', 'inline-flex items-center gap-1.5')}
               type="button"
               disabled={saving}
               onClick={saveProfile}
             >
+              <Save size={14} aria-hidden="true" />
               保存资料
             </button>
           </div>
@@ -222,15 +223,22 @@ export function GroupSettingsPanel({
             placeholder={avatarSource === 'github' ? '输入 GitHub 用户名' : '输入 32 位 MD5'}
           />
           <div className={cn('group-avatar-actions')}>
-            <button type="button" disabled={saving} onClick={clearAvatar}>
+            <button
+              className={cn('inline-flex items-center gap-1.5')}
+              type="button"
+              disabled={saving}
+              onClick={clearAvatar}
+            >
+              <Trash2 size={14} aria-hidden="true" />
               清除
             </button>
             <button
-              className={cn('primary-button')}
+              className={cn('primary-button', 'inline-flex items-center gap-1.5')}
               type="button"
               disabled={saving}
               onClick={saveAvatar}
             >
+              <Save size={14} aria-hidden="true" />
               保存头像
             </button>
           </div>

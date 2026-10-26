@@ -36,6 +36,21 @@ pnpm --filter @weq/desktop test   # 桌面端主/渲染进程的纯逻辑单测
 各包单测直接读取工作区源码，不依赖其他包预先构建；根入口不按包依赖排序，
 避免无谓串行等待，以及上游测试失败后下游测试未执行。完整模式还会继续运行其余包。
 
+## 样式浏览器回归
+
+`apps/desktop/test/browser/run-style-consistency.mjs` 使用真实渲染组件和样式、合成数据及
+离线 tRPC 替身，阻止外部网络请求；验证消息卡片、灰条、闪传选择框、群精华和空间/频道入口。
+覆盖深浅模式、跟随系统、自定义主题色、六种背景及桌面/窄屏，检查实际计算样式、对比度、
+标题栏作用域和横向溢出。此项需按需手动运行，不属于 Vitest 门禁。
+
+```bash
+node apps/desktop/test/browser/run-style-consistency.mjs
+```
+
+复用已安装的 Playwright。模块不在默认解析路径时，用 `WEQ_PLAYWRIGHT_IMPORT` 指定入口；
+`WEQ_BROWSER_EXECUTABLE` 可指定已有 Chromium 浏览器，`WEQ_STYLE_ARTIFACTS` 可指定截图目录。
+脚本结束后会关闭自己创建的浏览器和测试服务，不使用真实 QQ 数据。
+
 ## 合并与夹具
 
 - 同领域、同依赖且没有模块 mock 的小测试可合并成一个文件，各自的 `describe` 保留局部夹具和 hook 作用域，减少重复 worker 启动和依赖加载。

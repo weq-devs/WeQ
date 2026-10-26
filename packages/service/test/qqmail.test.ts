@@ -80,6 +80,22 @@ const compose = {
   attachments: [],
 };
 
+it('运行态受限时不因邮箱后台偏好读取票据，暂停会话不改变提醒偏好', async () => {
+  const nt = mailNative();
+  const service = new QQMailService(nt, '12345678', () => 42, { allowOnline: () => false });
+  try {
+    service.startBackground({ showUnread: true, notifications: true });
+    expect(nt.ptFetchMailSession).not.toHaveBeenCalled();
+    await expect(service.connect()).rejects.toThrow('未启用完整功能');
+    service.suspendOnline();
+    expect(service.status().notifications).toBe(true);
+    await expect(service.folders()).rejects.toThrow('未启用完整功能');
+    expect(nt.ptFetchMailSession).not.toHaveBeenCalled();
+  } finally {
+    service.dispose();
+  }
+});
+
 describe('邮箱协议编码', () => {
   it('数组使用重复键，对象使用 JSON，空值不落入表单', () => {
     const form = new URLSearchParams(
@@ -136,6 +152,156 @@ describe('邮箱协议编码', () => {
 });
 
 describe('邮箱生命周期和提醒', () => {
+  it('重新读取文件夹时补刷外部已读状态，提醒失败不影响文件夹读取', async () => {
+    const auth = new MailAuth(native, '12345678', () => 42, new FakeMailTransport());
+    const query = vi
+      .spyOn(auth, 'notificationQuery')
+      .mockResolvedValueOnce({ unread: 2 })
+      .mockResolvedValueOnce({ unread: 0 })
+      .mockRejectedValue(new MailFailure('network', '提醒查询失败'));
+    vi.spyOn(auth, 'cgi').mockResolvedValue({ list: [] });
+    const service = new QQMailService(native, '12345678', () => 42, { authFactory: () => auth });
+    try {
+      await service.connect();
+      await service.folders();
+      expect(service.status().unread).toBe(0);
+      await expect(service.folders()).resolves.toBeInstanceOf(Array);
+      expect(query).toHaveBeenCalledTimes(3);
+      expect(service.status().unread).toBe(0);
+    } finally {
+      service.dispose();
+    }
+  });
+  it.each([undefined, 900, 3600])(
+    '有未读时不等待提醒建议间隔 %s 秒，后台一分钟内补查外部已读',
+    async (interval) => {
+      vi.useFakeTimers();
+      const auth = new MailAuth(native, '12345678', () => 42, new FakeMailTransport());
+      const query = vi
+        .spyOn(auth, 'notificationQuery')
+        .mockResolvedValueOnce({ unread: 2, next_sync_time_interval_sec: interval })
+        .mockResolvedValue({ unread: 0 });
+      const socket = Object.assign(new EventEmitter(), {
+        send: vi.fn(),
+        close: vi.fn(),
+        terminate: vi.fn(),
+      });
+      const onNotice = vi.fn();
+      const service = new QQMailService(native, '12345678', () => 42, {
+        authFactory: () => auth,
+        socketFactory: () => socket,
+        onNotice,
+      });
+      try {
+        service.startBackground({ showUnread: true, notifications: false });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(service.status().unread).toBe(2);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(query).toHaveBeenCalledTimes(2);
+        expect(service.status().unread).toBe(0);
+        expect(onNotice).not.toHaveBeenCalled();
+      } finally {
+        service.dispose();
+        expect(vi.getTimerCount()).toBe(0);
+        vi.useRealTimers();
+      }
+    },
+  );
+  it('外部状态变化不因新邮件序号未递增而被忽略，新邮件仍去重', async () => {
+    const auth = new MailAuth(native, '12345678', () => 42, new FakeMailTransport());
+    const query = vi.spyOn(auth, 'notificationQuery').mockResolvedValue({ unread: 2 });
+    const socket = Object.assign(new EventEmitter(), {
+      send: vi.fn(),
+      close: vi.fn(),
+      terminate: vi.fn(),
+    });
+    const onNotice = vi.fn();
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => auth,
+      socketFactory: () => socket,
+      notificationsEnabled: true,
+      onNotice,
+    });
+    const emit = (event: MailObject) =>
+      socket.emit(
+        'message',
+        Buffer.from(
+          JSON.stringify({
+            cmd: 1,
+            content: Buffer.from(JSON.stringify(event)).toString('base64'),
+          }),
+        ),
+      );
+    try {
+      await service.connect();
+      emit({ cid: '148', z: 10, e: 'fixture-new' });
+      await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(2));
+      query.mockResolvedValue({ unread: 0 });
+      emit({ cid: 'fixture-state-change', z: 10 });
+      await vi.waitFor(() => expect(service.status().unread).toBe(0));
+      expect(query).toHaveBeenCalledTimes(3);
+      emit({ cid: '148', z: 10, e: 'fixture-new' });
+      expect(query).toHaveBeenCalledTimes(3);
+      expect(onNotice).toHaveBeenCalledOnce();
+    } finally {
+      service.dispose();
+    }
+  });
+  it('较早启动的补查晚到时不能恢复已经清除的红点', async () => {
+    const auth = new MailAuth(native, '12345678', () => 42, new FakeMailTransport());
+    const query = vi.spyOn(auth, 'notificationQuery').mockResolvedValueOnce({ unread: 2 });
+    vi.spyOn(auth, 'cgi').mockResolvedValue({ list: [] });
+    const service = new QQMailService(native, '12345678', () => 42, { authFactory: () => auth });
+    let release: ((body: MailObject) => void) | undefined;
+    try {
+      await service.connect();
+      query.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
+      const old = service.folders();
+      await vi.waitFor(() => expect(release).toBeDefined());
+      query.mockResolvedValue({ unread: 0 });
+      await service.folders();
+      expect(service.status().unread).toBe(0);
+      release!({ unread: 2 });
+      await old;
+      expect(service.status().unread).toBe(0);
+    } finally {
+      release?.({ unread: 2 });
+      service.dispose();
+    }
+  });
+  it('文件夹补查期间断开连接，晚到计数和文件夹都不得返回成功', async () => {
+    const auth = new MailAuth(native, '12345678', () => 42, new FakeMailTransport());
+    let release: ((body: MailObject) => void) | undefined;
+    vi.spyOn(auth, 'cgi').mockResolvedValue({ list: [] });
+    vi.spyOn(auth, 'notificationQuery').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: vi
+        .fn(() => new MailAuth(native, '12345678', () => 42, new FakeMailTransport()))
+        .mockReturnValueOnce(auth),
+    });
+    try {
+      const pending = service.folders();
+      const rejected = expect(pending).rejects.toThrow('状态已变化');
+      await vi.waitFor(() => expect(release).toBeDefined());
+      service.disconnect();
+      release!({ unread: 2 });
+      await rejected;
+      expect(service.status()).toMatchObject({ state: 'disconnected', unread: 0 });
+    } finally {
+      release?.({ unread: 2 });
+      service.dispose();
+    }
+  });
   it('导出读取不额外提交已读操作，保留返回的未读状态', async () => {
     const auth = new MailAuth(native, '12345678', () => 42, new FakeMailTransport());
     const cgi = vi.spyOn(auth, 'cgi').mockResolvedValueOnce({

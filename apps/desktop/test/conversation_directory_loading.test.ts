@@ -15,12 +15,13 @@ vi.mock('../src/renderer/src/trpc/client', () => ({ client: {}, trpc: {} }));
 afterEach(() => vi.unstubAllGlobals());
 
 it.each([
-  { keyboard: false, initialEmpty: false },
-  { keyboard: true, initialEmpty: false },
-  { keyboard: false, initialEmpty: true },
+  { keyboard: false, initialEmpty: false, invert: false },
+  { keyboard: true, initialEmpty: false, invert: false },
+  { keyboard: false, initialEmpty: true, invert: false },
+  { keyboard: false, initialEmpty: false, invert: true },
 ])(
-  '全选等待完整分页，键盘：$keyboard，首屏尚未到达：$initialEmpty',
-  ({ keyboard, initialEmpty }) => {
+  '选择等待完整分页，键盘：$keyboard，首屏尚未到达：$initialEmpty，反选：$invert',
+  ({ keyboard, initialEmpty, invert }) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const base = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
@@ -83,20 +84,32 @@ it.each([
         );
       else {
         act(() => host.querySelector<HTMLButtonElement>('[aria-label="多选会话"]')!.click());
-        act(() => host.querySelector<HTMLButtonElement>('[aria-label="全选当前结果"]')!.click());
+        if (invert)
+          act(() =>
+            host.querySelector<HTMLButtonElement>('[data-conversation-id="10000"]')!.click(),
+          );
+        act(() =>
+          host
+            .querySelector<HTMLButtonElement>(
+              `[aria-label="${invert ? '反选当前结果' : '全选当前结果'}"]`,
+            )!
+            .click(),
+        );
       }
       expect(host.textContent).toContain('正在补齐全选');
-      expect(selected()).toEqual([]);
+      expect(selected()).toEqual(invert ? ['10000'] : []);
       if (!initialEmpty) expect(host.querySelector('.list-skeleton')).toBeNull();
       expect(host.querySelector('.spin')).toBeNull();
       const pageCount = initialEmpty ? 4 : 3;
       for (let page = 0; page < pageCount; page++) {
         act(() => complete!());
-        if (page < pageCount - 1) expect(selected()).toEqual([]);
+        if (page < pageCount - 1) expect(selected()).toEqual(invert ? ['10000'] : []);
       }
-      expect(selected()).toHaveLength(rows.length);
-      expect(new Set(selected()).size).toBe(rows.length);
-      expect(host.textContent).toContain('已选 1203');
+      const expectedCount = rows.length - (invert ? 1 : 0);
+      expect(selected()).toHaveLength(expectedCount);
+      expect(new Set(selected()).size).toBe(expectedCount);
+      if (invert) expect(selected()).not.toContain('10000');
+      expect(host.textContent).toContain(`已选 ${expectedCount}`);
       expect(host.querySelector('[data-conversation-id="10000"]')).not.toBeNull();
     } finally {
       act(() => root.unmount());

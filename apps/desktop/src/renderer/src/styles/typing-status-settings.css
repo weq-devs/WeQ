@@ -8,6 +8,27 @@
   color: var(--weq-fg-primary);
 }
 
+.weq-typing-settings-contact,
+.weq-typing-settings-contact .weq-profile-avatar-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  border-radius: 4px;
+  line-height: 1.4;
+  text-align: start;
+}
+
+.weq-typing-settings-contact :is(.weq-avatar-img, .weq-avatar-fallback) {
+  flex-shrink: 0;
+}
+
+.weq-typing-settings-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .weq-typing-settings .weq-set-row-desc {
   color: var(--weq-fg-secondary);
 }

@@ -35,6 +35,47 @@ function liveNative(pskey = 'live-pskey') {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('会员信息换票策略', () => {
+  it('运行态关闭时即使有缓存票据也不联网，不删除或交换票据', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const nt = liveNative(),
+      invalidated = vi.fn();
+    await expect(
+      fetchAccountVipInfo({
+        nt: { ptFetchCredentials: nt },
+        uin: '10001',
+        pid: 4242,
+        seedPskey: { 'vip.qq.com': 'synthetic-seed' },
+        onSeedInvalidated: invalidated,
+        beforeRequest: () => {
+          throw new Error('合成运行态关闭');
+        },
+      }),
+    ).rejects.toThrow('运行态关闭');
+    expect(fetch).not.toHaveBeenCalled();
+    expect(nt).not.toHaveBeenCalled();
+    expect(invalidated).not.toHaveBeenCalled();
+  });
+  it('换票途中运行态失活时不继续会员请求', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    let allowed = true;
+    const nt = vi.fn(async () => {
+      allowed = false;
+      return { success: true, msg: '', skey: 'synthetic-s', pskey: 'synthetic-p', cookie: '' };
+    });
+    await expect(
+      fetchAccountVipInfo({
+        nt: { ptFetchCredentials: nt },
+        uin: '10001',
+        pid: 4242,
+        beforeRequest: () => {
+          if (!allowed) throw new Error('合成运行态失活');
+        },
+      }),
+    ).rejects.toThrow('运行态失活');
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it('离线时只用落盘 seed 票据，不调用 native', async () => {
     vi.stubGlobal('fetch', async () => okResponse());
     const nt = unexplodedNative();

@@ -13,7 +13,12 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
+import { verifyPackagedRemoteNetwork } from './package-remote-network.mjs';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import {
+  installedNativeManifest,
+  verifyPackagedAuthorization,
+} from './check-authorization-helper.mjs';
 
 const require = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
 const { Arch } = require('electron-builder');
@@ -123,8 +128,26 @@ export function pruneWorkerChunks(mainDirectory) {
   return saved;
 }
 
+export function verifyDesktopAuthorization(context, beforeSigning = false) {
+  if (process.env.WEQ_REQUIRE_AUTHORIZATION_HELPER !== '1') return;
+  const arch = Arch[context.arch];
+  if (!arch) throw new Error(`未知打包架构：${context.arch}`);
+  const platform = context.electronPlatformName;
+  const appDirectory =
+    platform === 'darwin'
+      ? join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`)
+      : context.appOutDir;
+  const manifest = installedNativeManifest();
+  verifyPackagedAuthorization(appDirectory, `${platform}-${arch}`, {
+    required: true,
+    manifest,
+    beforeSigning,
+  });
+}
+
 /** 只修改本轮打包目录，且在最终签名前清理不属于目标平台的原生绑定。 */
 export function trimDesktopPackage(context) {
+  verifyDesktopAuthorization(context, true);
   const arch = Arch[context.arch];
   if (!arch) throw new Error(`未知打包架构：${context.arch}`);
   const platform = context.electronPlatformName;
@@ -136,6 +159,7 @@ export function trimDesktopPackage(context) {
           'Contents/Resources',
         )
       : join(context.appOutDir, 'resources');
+  verifyPackagedRemoteNetwork(context, resources);
   for (const candidate of ['arm64', 'x64']) {
     if (platform === 'darwin' && (candidate === arch || arch === 'universal')) continue;
     rmSync(
