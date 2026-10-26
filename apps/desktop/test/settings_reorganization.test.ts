@@ -95,6 +95,20 @@ function mount(initialSection?: SectionId, onCreateClone?: () => void) {
 }
 
 describe('设置归位后的实际页面', () => {
+  it('旧 TTS 页面直接定位 API 页内语音分区，不打开编辑弹窗', () => {
+    const f = mount('tts');
+    try {
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        'API 配置',
+      );
+      expect(
+        f.body().querySelector<HTMLElement>('[data-search-highlight]')?.dataset.settingId,
+      ).toBe('tts-providers');
+      expect(f.onOpenMaintenance).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
   it('旧应用锁入口与隐私同页，备份紧跟关于中的版本页且不打开工具', () => {
     const f = mount('applock');
     try {
@@ -469,6 +483,9 @@ describe('设置归位后的实际页面', () => {
       f.render('daemon');
       expect(f.body().textContent).toContain('内置组件');
       expect(f.host.querySelector('[data-search-highlight]')?.textContent).toContain('内置组件');
+      expect(f.host.querySelector<HTMLElement>('[data-search-highlight]')?.dataset.settingId).toBe(
+        'builtin-components',
+      );
       f.render('assistant');
       expect(f.body().textContent).toContain('启用 QQ 公众号推送');
       expect(f.host.textContent).not.toContain('后台服务');

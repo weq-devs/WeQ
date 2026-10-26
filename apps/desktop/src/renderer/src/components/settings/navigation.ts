@@ -138,18 +138,21 @@ export interface ResolvedSettingsTarget extends SettingsTarget {
 }
 
 interface ItemRedirect {
-  id: string;
-  section: SettingsPageId;
-  label: string;
-  aliases?: readonly string[];
-  from: readonly SectionId[];
+  readonly id: string;
+  readonly section: SettingsPageId;
+  readonly label: string;
+  readonly aliases?: readonly string[];
+  readonly from: readonly SectionId[];
+  readonly aliasesFrom?: readonly SectionId[];
+  readonly desktopOnly?: boolean;
 }
 
-const ITEM_REDIRECTS: readonly ItemRedirect[] = [
+export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ...AI_SETTING_ITEMS.map(
     (item): ItemRedirect => ({
       ...item,
       from: [...new Set<SectionId>([item.section, 'intent-sense'])],
+      aliasesFrom: [item.section],
     }),
   ),
   { id: 'llm-providers', section: 'agentlab', label: '已保存的 provider', from: ['agentlab'] },
@@ -411,6 +414,7 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
     section: 'privacy',
     label: '在菜单中截图瞬间临时启用隐私模式',
     from: ['applock', 'privacy'],
+    desktopOnly: true,
   },
   { id: 'builtin-components', section: 'version', label: '内置组件', from: ['daemon', 'version'] },
   {
@@ -437,7 +441,7 @@ const SECTION_REDIRECTS: Partial<
   maintenance: { section: 'database-management' },
   'local-models': { section: 'voice' },
   'intent-models': { section: 'intent-sense', settingId: 'intent-model-resources' },
-  tts: { section: 'agentlab' },
+  tts: { section: 'agentlab', settingId: 'tts-providers' },
   help: { section: 'faq' },
   updates: { section: 'version' },
   daemon: { section: 'version', settingId: 'builtin-components' },
@@ -447,17 +451,19 @@ const SECTION_REDIRECTS: Partial<
 export function resolveSettingsTarget(target: SettingsTarget): ResolvedSettingsTarget {
   const targetId = target.settingId === 'message-decoration' ? 'message-bubble' : target.settingId;
   const redirect = targetId
-    ? ITEM_REDIRECTS.find((entry) => entry.id === targetId)
-    : ITEM_REDIRECTS.find(
+    ? SETTINGS_ITEM_TARGETS.find((entry) => entry.id === targetId)
+    : SETTINGS_ITEM_TARGETS.find(
         (entry) =>
           entry.from.includes(target.section) &&
-          (entry.label === target.item || entry.aliases?.includes(target.item ?? '')),
+          (entry.label === target.item ||
+            ((entry.aliasesFrom ?? entry.from).includes(target.section) &&
+              entry.aliases?.includes(target.item ?? ''))),
       );
   if (redirect) return { section: redirect.section, item: redirect.label, settingId: redirect.id };
   const sectionRedirect = SECTION_REDIRECTS[target.section];
   const section = sectionRedirect?.section ?? (target.section as SettingsPageId);
   const settingId = target.settingId ?? (!target.item ? sectionRedirect?.settingId : undefined);
-  const defaultItem = ITEM_REDIRECTS.find((entry) => entry.id === settingId);
+  const defaultItem = SETTINGS_ITEM_TARGETS.find((entry) => entry.id === settingId);
   return {
     section,
     ...(target.item || defaultItem ? { item: target.item ?? defaultItem?.label } : {}),

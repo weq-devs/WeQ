@@ -113,7 +113,7 @@ export function VersionSection(): ReactElement {
       </Card>
 
       {/* Built-in native component */}
-      <Card title="内置组件">
+      <Card title="内置组件" settingId="builtin-components">
         <div className="weq-set-hero">
           <Boxes size={28} strokeWidth={1.6} aria-hidden style={{ flexShrink: 0 }} />
           <div className="weq-set-hero-info">

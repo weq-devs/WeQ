@@ -3,6 +3,7 @@ import type { MainView } from '../../im-template/template/types';
 import { AI_SETTING_ITEMS } from '../settings/aiSettingsCatalog';
 import {
   SETTINGS_PAGE_LABELS,
+  SETTINGS_ITEM_TARGETS,
   resolveSettingsTarget,
   settingsGroupFor,
   type SectionId,
@@ -217,7 +218,17 @@ export const APP_SEARCH_ENTRIES: readonly AppSearchEntry[] = uniqueEntries([
     settingEntry(section as keyof typeof SETTINGS_PAGE_LABELS, undefined, [section]),
   ),
   ...SETTING_ITEMS.map(([section, item, ...aliases]) => settingEntry(section, item, aliases)),
-]);
+  ...SETTINGS_ITEM_TARGETS.map((item) =>
+    settingEntry(item.section, item.label, [...(item.aliases ?? [])]),
+  ),
+]).filter((entry) => {
+  const target = entry.target;
+  return !(
+    import.meta.env.VITE_WEQ_TARGET === 'web' &&
+    target.kind === 'setting' &&
+    SETTINGS_ITEM_TARGETS.some((item) => item.id === target.settingId && item.desktopOnly)
+  );
+});
 
 export function searchAppEntries(keyword: string): AppSearchEntry[] {
   const query = keyword.trim();
