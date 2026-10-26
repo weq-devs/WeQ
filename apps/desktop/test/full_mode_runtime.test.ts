@@ -57,3 +57,13 @@ it('退出显式清除，即使重用旧对象也不恢复授权', () => {
   f.host.account = f.account;
   expect(fullModeAllowed(f.host)).toBe(false);
 });
+it('账号清理等待期间旧指针尚未替换，自动策略也不能继续旧来源工作', () => {
+  const f = fixture();
+  f.auto(true);
+  expect(fullModeAllowed(f.host)).toBe(true);
+  clearFullMode(f.host);
+  expect(fullModeAllowed(f.host, f.account)).toBe(false);
+  expect(() => requestFullMode(f.host, f.account)).toThrow();
+  f.host.account = { ...f.account };
+  expect(fullModeAllowed(f.host)).toBe(true);
+});

@@ -54,4 +54,41 @@ describe('稳定设置项定位', () => {
     expect(document.activeElement).toBe(other);
     cleanup();
   });
+  it('禁用入口高亮不执行，焦点落到可用的所在行并恢复临时 tabindex', () => {
+    const root = document.createElement('div'),
+      row = document.createElement('div'),
+      button = document.createElement('button');
+    row.className = 'weq-set-row';
+    button.disabled = true;
+    button.dataset.settingId = 'disabled-action';
+    button.onclick = vi.fn();
+    row.append(button);
+    root.append(row);
+    document.body.append(root);
+    const cleanup = revealSetting(root, { settingId: 'disabled-action' });
+    expect(document.activeElement).toBe(row);
+    expect(button.dataset.searchHighlight).toBe('true');
+    expect(button.onclick).not.toHaveBeenCalled();
+    cleanup();
+    expect(row.hasAttribute('tabindex')).toBe(false);
+  });
+  it('按钮内的稳定标签定位到按钮本身，保留原键盘顺序且不激活', () => {
+    const root = document.createElement('div'),
+      button = document.createElement('button'),
+      label = document.createElement('span');
+    button.tabIndex = 0;
+    button.onclick = vi.fn();
+    label.dataset.settingId = 'button-label';
+    button.append(label);
+    root.append(button);
+    document.body.append(root);
+    const cleanup = revealSetting(root, { settingId: 'button-label' });
+    expect(document.activeElement).toBe(button);
+    expect(button.tabIndex).toBe(0);
+    expect(button.onclick).not.toHaveBeenCalled();
+    button.tabIndex = -1;
+    cleanup();
+    expect(button.tabIndex).toBe(-1);
+    expect(label.hasAttribute('tabindex')).toBe(false);
+  });
 });

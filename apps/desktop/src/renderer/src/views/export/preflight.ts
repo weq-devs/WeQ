@@ -70,8 +70,11 @@ export async function preflightExportEstimate(
  */
 export async function preflightMediaCompletion(dialog: AppDialogApi): Promise<boolean> {
   let online = false;
+  let source: Awaited<ReturnType<typeof client.account.getGroupAlbumAccessState.query>>['source'];
   try {
-    online = (await client.account.getGroupAlbumAccessState.query()).qqOnline;
+    const access = await client.account.getGroupAlbumAccessState.query();
+    online = access.qqOnline;
+    source = access.source ? { ...access.source } : undefined;
   } catch (e) {
     dialog.error('检查在线状态失败', e instanceof Error ? e.message : String(e));
     return false;
@@ -111,7 +114,7 @@ export async function preflightMediaCompletion(dialog: AppDialogApi): Promise<bo
   }
   // Explicit one-shot rkey refresh right before exporting.
   try {
-    await client.account.refreshRkeys.mutate();
+    await client.account.refreshRkeys.mutate(source);
   } catch {
     /* best-effort; export proceeds with whatever rkeys exist */
   }

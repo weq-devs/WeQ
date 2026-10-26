@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { KeyRound, LoaderCircle, Play, RefreshCw, ShieldAlert, X } from 'lucide-react';
+import { KeyRound, LoaderCircle, Play, RefreshCw, ShieldAlert, ShieldCheck, X } from 'lucide-react';
+import { requestOpenSettings } from '../lib/callSettingsBridge';
 import { client, trpc } from '../trpc/client';
 import { restrictionReasons } from '../lib/restrictedMode';
 import { useRestrictedMode, type AuthorizationRequest } from '../state/restrictedMode';
@@ -107,6 +108,14 @@ export function AuthorizationForm({ request }: { request: AuthorizationRequest }
   const [password, setPassword] = useState('');
   const id = useId();
   function respond(cancel = false, retry = false) {
+    if (
+      !useRestrictedMode
+        .getState()
+        .requests.some((item) => item.kind === request.kind && item.token === request.token)
+    ) {
+      setPassword('');
+      return;
+    }
     const view = useViewState.getState();
     if (!cancel && view.view === 'main' && view.openedUin)
       useRestrictedMode.getState().beginEntering();
@@ -156,6 +165,20 @@ export function AuthorizationForm({ request }: { request: AuthorizationRequest }
         <button type="button" className="weq-set-btn" onClick={() => respond(true)}>
           取消本次授权
         </button>
+        {window.weq?.authorization && !request.title.includes('长期授权') && (
+          <button
+            type="button"
+            className="weq-set-btn"
+            onClick={() => {
+              respond(true);
+              useRestrictedMode.getState().setOpen(false);
+              requestOpenSettings('longTermAuthorization');
+            }}
+          >
+            <ShieldCheck size={14} />
+            管理长期授权
+          </button>
+        )}
       </div>
     </form>
   );
@@ -167,6 +190,7 @@ export function RestrictedModeHost() {
   const view = useViewState((s) => s.view);
   const active = view === 'main' && Boolean(uin);
   const reasons = useRestrictedMode((s) => s.reasons);
+  const reasonSource = useRestrictedMode((s) => s.reasonSource);
   const requests = useRestrictedMode((s) => s.requests);
   const open = useRestrictedMode((s) => s.open);
   const enteringSince = useRestrictedMode((s) => s.enteringSince);
@@ -182,6 +206,8 @@ export function RestrictedModeHost() {
   const [error, setError] = useState('');
   const operation = useRef(0);
   const operationBusy = useRef(false);
+  const launchOperation = useRef(0);
+  const launchPending = useRef(false);
   const utils = trpc.useUtils();
   const globalSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
     staleTime: 0,
@@ -204,7 +230,14 @@ export function RestrictedModeHost() {
     staleTime: 4000,
     refetchOnWindowFocus: true,
   });
-  const sourceKey = JSON.stringify([uin, access.data?.source]);
+  const accessSource = access.data?.source;
+  const accessMatches = !accessSource || accessSource.expectedAccountUin === uin;
+  const sourceKey = JSON.stringify([
+    active,
+    uin,
+    accessSource?.expectedAccountUin,
+    accessSource?.expectedAccountConfigId,
+  ]);
   const currentSource = useRef(sourceKey);
   const previousSource = useRef(sourceKey);
   currentSource.current = sourceKey;
@@ -212,14 +245,22 @@ export function RestrictedModeHost() {
     if (previousSource.current === sourceKey) return;
     previousSource.current = sourceKey;
     operation.current += 1;
+    launchOperation.current += 1;
     operationBusy.current = false;
+    launchPending.current = false;
     setBusy(false);
+    setLaunching(false);
     setError('');
+    previous.current = '';
+    recoveryPending.current = false;
+    useToast.getState().resolve(NOTICE_KEY);
+    useRestrictedMode.getState().setOpen(false);
     useRestrictedMode.getState().endEntering();
   }, [sourceKey]);
   useEffect(
     () => () => {
       operation.current += 1;
+      launchOperation.current += 1;
     },
     [],
   );
@@ -231,7 +272,11 @@ export function RestrictedModeHost() {
   });
   useEffect(() => {
     const next = active
-      ? restrictionReasons({ access: access.data, sipEnabled: sip.data, failed: access.isError })
+      ? restrictionReasons({
+          access: accessMatches ? access.data : undefined,
+          sipEnabled: sip.data,
+          failed: access.isError || !accessMatches,
+        })
       : restrictionReasons({
           access:
             online.data?.count === 0
@@ -246,18 +291,30 @@ export function RestrictedModeHost() {
               : undefined,
           failed: online.isError,
         });
-    useRestrictedMode.getState().setReasons(next);
-  }, [active, uin, access.data, access.isError, sip.data, online.data, online.isError]);
+    useRestrictedMode.getState().setReasons(next, sourceKey);
+  }, [
+    active,
+    uin,
+    access.data,
+    access.isError,
+    accessMatches,
+    sip.data,
+    online.data,
+    online.isError,
+    sourceKey,
+  ]);
   const fullModeConfirmed = active
     ? Boolean(
-        access.data &&
+        accessMatches &&
+          access.data &&
           !access.isError &&
           restrictionReasons({ access: access.data, sipEnabled: sip.data }).length === 0,
       )
-    : Boolean(online.data && !online.isError && online.data.count > 0);
+    : false;
   useEffect(() => {
     if (!active) return;
     const blocked =
+      !accessMatches ||
       !access.data?.qqOnline ||
       !access.data.attachEnabled ||
       access.isError ||
@@ -274,6 +331,7 @@ export function RestrictedModeHost() {
       useRestrictedMode.getState().endEntering();
   }, [
     active,
+    accessMatches,
     access.data,
     access.isError,
     access.dataUpdatedAt,
@@ -293,8 +351,9 @@ export function RestrictedModeHost() {
     ...(entering ? ['entering'] : []),
   ].join(',');
   useEffect(() => {
-    if (globalSettings.isLoading) return;
+    if (reasonSource !== sourceKey) return;
     const activeNotice = entering || awaitingAuthorization;
+    if (globalSettings.isLoading && !activeNotice) return;
     if (!activeNotice && !passiveBanner) useToast.getState().resolve(NOTICE_KEY);
     if (signature) recoveryPending.current = true;
     if (signature && signature !== previous.current && (activeNotice || passiveBanner)) {
@@ -342,6 +401,8 @@ export function RestrictedModeHost() {
     awaitingAuthorization,
     passiveBanner,
     globalSettings.isLoading,
+    reasonSource,
+    sourceKey,
   ]);
   useEffect(() => {
     if (previousUin.current !== uin) {
@@ -375,20 +436,29 @@ export function RestrictedModeHost() {
     };
   }, [open]);
   async function startQq() {
+    if (launchPending.current) return;
+    launchPending.current = true;
+    const id = ++launchOperation.current,
+      binding = sourceKey;
+    const current = () => launchOperation.current === id && currentSource.current === binding;
     setLaunching(true);
     setError('');
     try {
       await client.bootstrap.launchQq.mutate();
+      if (!current()) return;
       await (active ? access.refetch() : online.refetch());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (current()) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLaunching(false);
+      if (current()) {
+        launchPending.current = false;
+        setLaunching(false);
+      }
     }
   }
   async function refresh(enable = false) {
     if (operationBusy.current) return;
-    const source = access.data?.source;
+    const source = access.data?.source ? { ...access.data.source } : undefined;
     if (enable && (!active || !source || source.expectedAccountUin !== uin)) {
       setError('当前来源尚未确认，请重新检查后再启用完整功能。');
       return;
@@ -403,8 +473,12 @@ export function RestrictedModeHost() {
     try {
       if (enable && source) await client.account.requestFullMode.mutate(source);
       if (!current()) return;
-      if (active && (enable || (access.data?.qqOnline && access.data.attachEnabled))) {
-        const refreshed = await client.account.refreshRkeys.mutate();
+      if (
+        active &&
+        accessMatches &&
+        (enable || (access.data?.qqOnline && access.data.attachEnabled))
+      ) {
+        const refreshed = await client.account.refreshRkeys.mutate(source);
         if (!current()) return;
         if (!refreshed) setError('尚未恢复完整功能，请检查 QQ 登录状态及授权请求后重试。');
       }

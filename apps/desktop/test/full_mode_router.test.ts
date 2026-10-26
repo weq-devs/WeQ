@@ -5,6 +5,9 @@ import { bootstrapRouter } from '../src/main/ipc/routers/bootstrap';
 import { fullModeAllowed, clearFullMode } from '../src/main/context/full_mode';
 const f = vi.hoisted(() => {
   const settings = { autoAttachQq: false };
+  const services = {
+    accountConfig: { getRecord: () => ({ uin: '10001', configId: 'synthetic-live' }) },
+  };
   const host = {
     account: { context: { uin: '10001' } },
     bootstrap: {
@@ -14,11 +17,10 @@ const f = vi.hoisted(() => {
       },
     },
     applyFullModePolicy: vi.fn(),
-    services: {
-      accountConfig: { getRecord: () => ({ uin: '10001', configId: 'synthetic-live' }) },
-    },
+    refreshRkeysNow: vi.fn(),
+    services,
   };
-  return { host, settings };
+  return { host, settings, services };
 });
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => f.host,
@@ -26,8 +28,11 @@ vi.mock('../src/main/context/app_context', () => ({
 }));
 beforeEach(() => {
   clearFullMode(f.host);
+  f.host.account = { context: { uin: '10001' } };
+  f.host.services = f.services;
   f.settings.autoAttachQq = false;
   f.host.applyFullModePolicy.mockClear();
+  f.host.refreshRkeysNow.mockReset().mockResolvedValue(true);
 });
 const input = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-live' };
 it('真实路由只记录当前宿主运行请求，不写持久偏好且不宣称凭据就绪', async () => {
@@ -65,4 +70,19 @@ it('拒绝来源缺失或未经授权的请求', async () => {
       .requestFullMode(input),
   ).rejects.toThrow('合成拒绝');
   expect(fullModeAllowed(f.host)).toBe(false);
+});
+it('刷新凭据前验证完整来源，等待后不把旧成功交给新实例', async () => {
+  await expect(
+    accountRouter
+      .createCaller({})
+      .refreshRkeys({ ...input, expectedAccountConfigId: 'synthetic-old' }),
+  ).rejects.toThrow('已切换');
+  expect(f.host.refreshRkeysNow).not.toHaveBeenCalled();
+  f.host.refreshRkeysNow.mockImplementationOnce(async () => {
+    f.host.services = {
+      accountConfig: { getRecord: () => ({ uin: '10001', configId: 'synthetic-live' }) },
+    };
+    return true;
+  });
+  await expect(accountRouter.createCaller({}).refreshRkeys(input)).rejects.toThrow('已切换');
 });

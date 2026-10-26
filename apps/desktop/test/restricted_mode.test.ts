@@ -6,6 +6,7 @@ import { useRestrictedMode } from '../src/renderer/src/state/restrictedMode';
 import {
   RestrictedModeHost,
   RestrictedModeIndicator,
+  AuthorizationForm,
 } from '../src/renderer/src/components/RestrictedMode';
 import { useViewState } from '../src/renderer/src/state/view';
 import { ToastHost, useToast } from '../src/renderer/src/components/Toast';
@@ -152,7 +153,13 @@ beforeEach(() => {
   mock.unsubscribe.mockClear();
   mock.invalidateAccess.mockReset();
   useViewState.setState({ view: 'main', openedUin: '10001' });
-  useRestrictedMode.setState({ reasons: [], requests: [], open: false, enteringSince: null });
+  useRestrictedMode.setState({
+    reasons: [],
+    reasonSource: null,
+    requests: [],
+    open: false,
+    enteringSince: null,
+  });
   useToast.setState({ toasts: [], leaving: [], seq: 0 });
 });
 afterEach(() => {
@@ -243,6 +250,76 @@ it('同号切源丢弃手动请求的迟到结果，不在新来源继续采集'
   expect(mock.refreshRkeys).not.toHaveBeenCalled();
   expect(f.host.textContent).not.toContain('尚未恢复完整功能');
 });
+it('切到已完整的新来源不继承旧来源的恢复成功通知', () => {
+  const source = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-a' };
+  mock.access = { ...ready, attachEnabled: false, source };
+  const f = fixture(true);
+  mock.access = { ...ready, source: { ...source, expectedAccountConfigId: 'synthetic-b' } };
+  f.render();
+  expect(useToast.getState().toasts.some((toast) => toast.title === '已启用完整功能')).toBe(false);
+});
+it('启动页仅检测 QQ 在线不能冒称已启用完整功能', () => {
+  useViewState.setState({ view: 'bootstrap', openedUin: null });
+  mock.onlineCount = 0;
+  const f = fixture(true);
+  mock.onlineCount = 1;
+  f.render();
+  expect(useToast.getState().toasts.some((toast) => toast.title === '已启用完整功能')).toBe(false);
+});
+it('启动 QQ 的旧来源迟到错误不显示到同号新来源', async () => {
+  const source = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-a' };
+  mock.access = { ...ready, qqOnline: false, source };
+  let fail!: (error: Error) => void;
+  mock.launchQq.mockImplementationOnce(
+    () =>
+      new Promise<boolean>((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
+  const f = fixture();
+  act(() => useRestrictedMode.getState().setOpen(true));
+  act(() =>
+    [...f.host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === '启动 QQ')!
+      .click(),
+  );
+  mock.access = { ...mock.access, source: { ...source, expectedAccountConfigId: 'synthetic-b' } };
+  f.render();
+  await act(async () => fail(new Error('合成旧来源启动失败')));
+  act(() => useRestrictedMode.getState().setOpen(true));
+  expect(f.host.textContent).not.toContain('合成旧来源启动失败');
+});
+it('失效授权表单不转发旧 token 或把新来源标记成进入中', () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  cleanup = () => {
+    act(() => root.unmount());
+    host.remove();
+  };
+  act(() =>
+    root.render(
+      h(AuthorizationForm, {
+        request: { kind: 'password', token: 999, title: '合成过期授权', message: '合成请求' },
+      }),
+    ),
+  );
+  act(() => {
+    const input = host.querySelector('input')!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      input,
+      'synthetic-password',
+    );
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  act(() =>
+    host
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+  );
+  expect(mock.send).not.toHaveBeenCalled();
+  expect(useRestrictedMode.getState().enteringSince).toBeNull();
+});
 
 it('关闭被动提醒仍保留状态入口，更新去重基线，重新开启不补发旧事件', () => {
   mock.banner = false;
@@ -283,6 +360,12 @@ it('关闭被动提醒不隐藏真实授权、进入进度或恢复成功回执'
   mock.updatedAt = Date.now() + 1000;
   f.render();
   expect(useToast.getState().toasts.some((toast) => toast.title === '已启用完整功能')).toBe(true);
+});
+it('偏好还在读取时也不隐藏真实授权提醒', () => {
+  mock.settingsLoading = true;
+  fixture(true);
+  event('elev:request-password', { token: 101, title: '合成真实请求' });
+  expect(useToast.getState().toasts.some((toast) => toast.title.includes('待提权'))).toBe(true);
 });
 function submitAuthorization(form: HTMLFormElement) {
   act(() => {

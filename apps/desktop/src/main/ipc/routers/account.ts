@@ -6866,9 +6866,19 @@ export const accountRouter = router({
       return { requested: true };
     }),
 
-  refreshRkeys: procedure.mutation(() => {
-    return getAppContext().refreshRkeysNow();
-  }),
+  refreshRkeys: procedure
+    .input(exportAccountBindingInput.strict().optional())
+    .mutation(async ({ input }) => {
+      const context = getAppContext();
+      const services = input
+        ? requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId)
+        : context.services;
+      const session = context.account;
+      const result = await context.refreshRkeysNow();
+      if (getAppContext().services !== services || getAppContext().account !== session)
+        throw new Error('账号来源已切换，已丢弃旧凭据刷新结果');
+      return result;
+    }),
 
   /** List all export tasks. */
   exportPreflight: procedure
