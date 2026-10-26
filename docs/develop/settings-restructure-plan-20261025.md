@@ -852,3 +852,13 @@ pnpm --filter @weq/desktop typecheck:web
 - 备份文档记录缺字段合并、默认模型、受限横幅及设备截图偏好，并明确手动请求/临时覆盖不进入归档；浮层职责与实际融合页一致。早期 P0–P5 勾选和 v3 Remote 模式保留为历史，当前状态只读第 13 节，不恢复暂停/禁止推送要求。
 - `CHANGELOG.md` 只整理 Unreleased 中的设置重构大事件，不改已发布章节，不把每次回归修补再拆为独立功能。其他任务尚未提交的条目与重排不纳入本次提交。
 - 独立 Markdown 目录解析再次得到七组/37 页且名称/ID 完全匹配；当前用户指南/FAQ 的旧分类路径与旧识别章节链接检索无命中。三份改注释源码定向 Biome 通过。未为纯文档重复运行全量测试。
+
+### 第 23 项：最终审计与 CI 交接（2026-10-26）
+
+- 按第 11 节逐项复核导航、来源/生命周期、工具现场、日志、防撤回、读状态、自动/手动完整功能、被动横幅、临时隐私、资源融合、准确数据库导出和备份；具体实现/反例/命令与阶段证据见第 1–22 项。本地不执行全量 `ci:local`，远端使用完整门禁。
+- 最终重跑桌面 16 文件 168 条：`settings_navigation`、`settings_reorganization`、`settings_alias_manifest`、`settings_search_target`、`settings_web_catalog`、`settings_retention`、`settings_tool_surfaces`、`settings_runtime_backup`、`full_mode_runtime`、`full_mode_router`、`full_mode_preflight`、`restricted_mode`、`read_report_settings`、`menu_screenshot_privacy`、`database_export_target`、`capture_window` 全通过。
+- 最终重跑服务 6 文件 83 条：`resource_cleanup_boundary`、`resource_tree_walk`、`backup_settings`、`read_report`、`monitor`、`user_config_preferences` 全通过。两组均用 `pnpm --filter @weq/<包> exec vitest run --maxWorkers=2 --minWorkers=1`，不读真实 QQ、不联网；先前各功能专项回归仍保留原记录。
+- 本轮收口提交 `9ff111aa` 仅含布局验收记录；`3ff09d30` 仅含本任务文档、Unreleased 的三行定向整理及三份源码注释。以独立临时 index、固定父提交和 CAS 更新分支提交，不将共享暂存的其他任务改动收进来。第 20 项曾误混入未完整授权依赖，已由 `633ce076` 隔离修复，后续授权任务独立正式提交仍保留。
+- 批次 `6904f76c` 的 [CI 40271815457](https://github.com/weq-devs/WeQ/actions/runs/40271815457)、`9ff111aa` 的 [CI 40272846388](https://github.com/weq-devs/WeQ/actions/runs/40272846388) 均通过 lint/typecheck/test/build-web；只代表各自 SHA，最终文档余量仍需推送并等待新 CI。
+- 本轮 Electron 窗口/辅助进程全部退出，逐个删除已确认自建的隔离 userData；截图和 JSON 证据保留。5221/5223 测试服务器与本轮临时推送计数器已停止，未改永久 hook、用户开发服务、QQ 或 LidAwake。共享工作区/暂存及其他任务文件继续保留，不为“干净”而重置。
+- 验收边界：已实现且通过合成逻辑/浏览器/macOS Electron 验证；未进行真实 QQ 发包/抓包/清理、系统剪贴板写入、真实权限安装、Windows/Linux 或手机真机与公网验收，不创建发布或安装回执。
