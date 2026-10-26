@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useGlobalSearch } from '../src/renderer/src/hooks/useGlobalSearch';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
+import { contactSearchHit } from './support/search-fixtures';
 import {
   SEARCH_CATEGORY_ORDER,
   DEFAULT_SEARCH_CATEGORIES,
@@ -16,6 +17,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 }));
 
 const quickResult: QuickSearchResult = {
+  contacts: [contactSearchHit({ uin: '10001' })],
   conversations: [],
   friends: [
     {
@@ -304,7 +306,7 @@ describe('搜索范围与失败界面', () => {
             keyword: '报告',
             quick: {
               ...quickResult,
-              friends: [{ ...quickResult.friends[0]!, nick: '报告的作者' }],
+              contacts: [contactSearchHit({ nick: '报告的作者' })],
             },
             slow: {
               ...slowResult,
@@ -325,7 +327,7 @@ describe('搜索范围与失败界面', () => {
             },
             quickLoading: false,
             slowLoading: false,
-            categories: ['friend', 'file'],
+            categories: ['contact', 'file'],
             onCategoriesChange: vi.fn(),
             onSelect: vi.fn(),
             onMore: vi.fn(),
@@ -334,7 +336,7 @@ describe('搜索范围与失败界面', () => {
       );
       expect(
         [...host.querySelectorAll('.weq-search-section-name')].map((node) => node.textContent),
-      ).toEqual(['文件', '好友']);
+      ).toEqual(['文件', '联系人']);
     } finally {
       act(() => root.unmount());
     }
@@ -356,7 +358,7 @@ describe('搜索范围与失败界面', () => {
             quickLoading: false,
             slowLoading: false,
             quickError: true,
-            categories: ['friend', 'file'],
+            categories: ['contact', 'file'],
             onCategoriesChange: change,
             onRetry: retry,
             onSelect: vi.fn(),
@@ -368,12 +370,12 @@ describe('搜索范围与失败界面', () => {
       expect(all.getAttribute('aria-pressed')).toBe('mixed');
       expect(
         [...host.querySelectorAll('.weq-search-section-name')].map((item) => item.textContent),
-      ).toEqual(['好友', '文件']);
+      ).toEqual(['联系人', '文件']);
       expect(host.querySelectorAll('[role="status"]')).toHaveLength(1);
-      act(() => host.querySelector<HTMLButtonElement>('[aria-label="重试好友搜索"]')!.click());
+      act(() => host.querySelector<HTMLButtonElement>('[aria-label="重试联系人搜索"]')!.click());
       expect(retry).toHaveBeenCalledOnce();
       const friend = [...host.querySelectorAll<HTMLButtonElement>('.weq-search-scope button')].find(
-        (item) => item.textContent === '好友',
+        (item) => item.textContent === '联系人',
       )!;
       act(() => friend.click());
       expect(change).toHaveBeenLastCalledWith(['file']);

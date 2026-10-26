@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TitleBarSearch } from '../src/renderer/src/components/TitleBarSearch';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
+import { contactSearchHit } from './support/search-fixtures';
 import {
   DEFAULT_SEARCH_CATEGORIES,
   SEARCH_CATEGORY_ORDER,
@@ -33,16 +34,8 @@ function mount() {
         onSelectAppEntry: vi.fn(),
         quick: {
           conversations: [],
-          friends: [
-            {
-              category: 'friend',
-              uid: 'u_fixture',
-              uin: '',
-              nick: '合成好友',
-              remark: '',
-              avatarUrl: null,
-            },
-          ],
+          friends: [],
+          contacts: [contactSearchHit()],
           groupMembers: [],
         },
         slow: {
@@ -106,13 +99,13 @@ describe('搜索范围选择工具栏', () => {
         expect(button.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
         expect(button.hasAttribute('aria-pressed')).toBe(true);
       }
-      const friend = buttons.find((button) => button.textContent === '好友')!;
+      const friend = buttons.find((button) => button.textContent === '联系人')!;
       expect(friend.getAttribute('aria-pressed')).toBe('true');
       act(() => friend.click());
       expect(friend.getAttribute('aria-pressed')).toBe('false');
       f.render('合成');
       expect(friend.getAttribute('aria-pressed')).toBe('false');
-      expect(document.querySelector('[data-search-hit-key="friend:u_fixture"]')).toBeNull();
+      expect(document.querySelector('[data-search-hit-key="contact:u_fixture"]')).toBeNull();
       act(() => friend.click());
       expect(friend.getAttribute('aria-pressed')).toBe('true');
     } finally {

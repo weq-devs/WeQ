@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TitleBarSearch } from '../src/renderer/src/components/TitleBarSearch';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
+import { contactSearchHit } from './support/search-fixtures';
 import {
   SEARCH_CATEGORY_ORDER,
   type SearchCategory,
@@ -86,14 +87,16 @@ describe('全局搜索增量接入不替换原功能', () => {
           quick: {
             conversations: [],
             groupMembers: [],
-            friends: [1, 2, 3].map((id) => ({
-              category: 'friend' as const,
-              uid: `u_synthetic${id}`,
-              uin: '10002',
-              nick: `合成好友${id}`,
-              remark: '',
-              avatarUrl: null,
-            })),
+            contacts: [1, 2, 3].map((id) =>
+              contactSearchHit({
+                uid: `u_synthetic${id}`,
+                uin: `10002${id}`,
+                nick: `合成好友${id}`,
+                remark: '',
+                avatarUrl: null,
+              }),
+            ),
+            friends: [],
           },
           quickLoading: false,
           slow: {
@@ -138,7 +141,7 @@ describe('全局搜索增量接入不替换原功能', () => {
       }
       const friendButton = [
         ...panel.querySelectorAll<HTMLButtonElement>('.weq-search-scope button'),
-      ].find((button) => button.textContent === '好友')!;
+      ].find((button) => button.textContent === '联系人')!;
       act(() => friendButton.click());
       expect(friendButton.getAttribute('aria-pressed')).toBe('false');
       act(() => panel.querySelector<HTMLButtonElement>('.weq-cloud-lookup-entry')!.click());
@@ -150,7 +153,7 @@ describe('全局搜索增量接入不替换原功能', () => {
       expect(friendButton.getAttribute('aria-pressed')).toBe('false');
       act(() => friendButton.click());
       act(() => panel.querySelector<HTMLButtonElement>('.weq-search-more')!.click());
-      expect(more).toHaveBeenCalledWith('friend');
+      expect(more).toHaveBeenCalledWith('contact');
       act(() => panel.querySelector<HTMLButtonElement>('.weq-search-row')!.click());
       expect(select).toHaveBeenCalledOnce();
     } finally {

@@ -40,7 +40,9 @@ export function useGlobalSearch(
   const hasQuick = Boolean(
     accountKey &&
       query &&
-      categories.some((c) => ['conversation', 'friend', 'groupMember'].includes(c)),
+      categories.some((c) =>
+        ['contact', 'group', 'conversation', 'friend', 'groupMember'].includes(c),
+      ),
   );
   const hasSlow = Boolean(accountKey && query && categories.some(isSlowSearchCategory));
   const [state, setState] = useState<SearchState>(() => emptyState(key, hasQuick, hasSlow));

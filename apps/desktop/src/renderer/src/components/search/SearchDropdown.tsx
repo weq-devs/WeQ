@@ -44,6 +44,8 @@ import {
 } from './types';
 
 const scopeIcons: Record<SearchCategory, LucideIcon> = {
+  contact: UserRound,
+  group: UsersRound,
   conversation: MessagesSquare,
   friend: UserRound,
   groupMember: UsersRound,
@@ -148,6 +150,14 @@ export function SearchDropdown({
   }, []);
   // Map category → hits (or null while loading).
   const sections = new Map<SearchCategory, { hits: SearchHit[] | null; loading: boolean }>();
+  sections.set('contact', {
+    hits: quick ? (quick.contacts ?? []) : null,
+    loading: quickLoading && !quick,
+  });
+  sections.set('group', {
+    hits: quick ? (quick.groups ?? []) : null,
+    loading: quickLoading && !quick,
+  });
   sections.set('conversation', {
     hits: quick ? quick.conversations : null,
     loading: quickLoading && !quick,
@@ -359,8 +369,8 @@ export function SearchDropdown({
                         key={searchHitKey(hit)}
                         hit={hit}
                         keyword={keyword}
-                        onSelect={(selected) => {
-                          rememberPosition(searchHitKey(selected));
+                        onSelect={(selected, focusKey) => {
+                          rememberPosition(focusKey ?? searchHitKey(selected));
                           onSelect(selected);
                         }}
                       />

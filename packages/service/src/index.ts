@@ -442,6 +442,8 @@ export type {
 export { GENERATED_EXPORT_FORMATS } from './account/export/generated_export';
 export type {
   SearchCategory,
+  ContactSearchHit,
+  GroupSearchHit,
   FtsSource,
   ConversationSearchHit,
   FriendSearchHit,

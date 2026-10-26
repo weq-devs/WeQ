@@ -256,14 +256,14 @@ export function UnifiedSearchModal({
                   key={searchHitKey(hit)}
                   hit={hit}
                   keyword={keyword.trim()}
-                  onSelect={(selected) => {
+                  onSelect={(selected, focusKey) => {
                     onNavigate?.({
                       category,
                       keyword,
                       data,
                       nextOffset: nextOffset.current,
                       scrollTop: scrollRef.current?.scrollTop ?? 0,
-                      focusKey: searchHitKey(selected),
+                      focusKey: focusKey ?? searchHitKey(selected),
                       error: error === 'more' ? 'more' : null,
                     });
                     // 点击结果跳转会话 / 打开聊天记录时,关闭"更多"模态。

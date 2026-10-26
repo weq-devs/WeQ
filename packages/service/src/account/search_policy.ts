@@ -3,12 +3,11 @@ import type { ContentSearchHit } from './content_search';
 
 /** 默认只搜账号真实资料，公共目录与生成内容由用户显式加入。 */
 export const DEFAULT_SEARCH_CATEGORIES: readonly SearchCategory[] = [
-  'conversation',
-  'friend',
+  'contact',
+  'group',
   'chatRecord',
   'file',
   'collection',
-  'groupMember',
   'qzonePost',
   'qzoneAlbum',
   'otherQzonePost',

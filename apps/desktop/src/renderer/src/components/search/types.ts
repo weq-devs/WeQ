@@ -1,6 +1,8 @@
 /** Wire shapes for the unified sidebar search (mirror @weq/service UnifiedSearchService). */
 
 import type { SearchCategory } from '@weq/service';
+import type { ContactSearchHit, GroupSearchHit } from '@weq/service';
+export type { ContactSearchHit, GroupSearchHit } from '@weq/service';
 import { DEFAULT_SEARCH_CATEGORIES, searchNameRank } from '@weq/service/search-policy';
 export { DEFAULT_SEARCH_CATEGORIES } from '@weq/service/search-policy';
 export type { SearchCategory } from '@weq/service';
@@ -62,6 +64,8 @@ export interface FileSearchHit {
 }
 
 export type SearchHit =
+  | ContactSearchHit
+  | GroupSearchHit
   | ConversationSearchHit
   | FriendSearchHit
   | GroupMemberSearchHit
@@ -89,6 +93,8 @@ export function isGeneratedSearchHit(hit: SearchHit): hit is GeneratedSearchHit 
 }
 
 export interface QuickSearchResult {
+  contacts?: ContactSearchHit[];
+  groups?: GroupSearchHit[];
   conversations: ConversationSearchHit[];
   friends: FriendSearchHit[];
   groupMembers: GroupMemberSearchHit[];
@@ -141,6 +147,8 @@ export interface ConversationRecordHit {
 
 /** Category display metadata. */
 export const CATEGORY_META: Record<SearchCategory, { label: string; plural: string }> = {
+  contact: { label: '联系人', plural: '联系人' },
+  group: { label: '群聊', plural: '群聊' },
   conversation: { label: '会话', plural: '会话' },
   friend: { label: '好友', plural: '好友' },
   groupMember: { label: '群友', plural: '群友' },
@@ -181,6 +189,10 @@ export const SEARCH_CATEGORY_ORDER: SearchCategory[] = [
 
 export function searchHitNameRank(hit: SearchHit, keyword: string): number {
   switch (hit.category) {
+    case 'contact':
+      return searchNameRank(keyword, hit.nick, hit.remark, hit.uid, hit.uin, ...hit.aliases);
+    case 'group':
+      return searchNameRank(keyword, hit.name, hit.remark, hit.groupCode, ...hit.aliases);
     case 'conversation':
     case 'chatRecord':
       return searchNameRank(keyword, hit.name);
@@ -198,11 +210,15 @@ export function searchHitNameRank(hit: SearchHit, keyword: string): number {
 }
 
 export function isSlowSearchCategory(category: SearchCategory): boolean {
-  return !['conversation', 'friend', 'groupMember'].includes(category);
+  return !['contact', 'group', 'conversation', 'friend', 'groupMember'].includes(category);
 }
 
 export function searchHitKey(hit: SearchHit): string {
   switch (hit.category) {
+    case 'contact':
+      return `contact:${hit.uin || hit.uid}`;
+    case 'group':
+      return `group:${hit.groupCode}`;
     case 'conversation':
       return `conversation:${hit.targetUid}`;
     case 'friend':

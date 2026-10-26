@@ -2,6 +2,7 @@ import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
+import { contactSearchHit } from './support/search-fixtures';
 import {
   findSettingElement,
   revealSetting,
@@ -27,21 +28,21 @@ describe('功能与设置搜索界面', () => {
       quick: {
         conversations: [],
         groupMembers: [],
-        friends: [
-          {
-            category: 'friend' as const,
+        contacts: [
+          contactSearchHit({
             uid: 'u_fixture',
             uin: '10001',
             nick: '合成设置',
             remark: '',
             avatarUrl: null,
-          },
+          }),
         ],
+        friends: [],
       },
       quickLoading: false,
       slow: null,
       slowLoading: false,
-      categories: ['friend'] as SearchCategory[],
+      categories: ['contact'] as SearchCategory[],
       onCategoriesChange: vi.fn(),
       onSelect: vi.fn(),
       onMore: vi.fn(),
@@ -56,7 +57,7 @@ describe('功能与设置搜索界面', () => {
       const count = host.querySelectorAll('.weq-app-search [role="option"]').length;
       expect(count).toBeGreaterThan(6);
       act(() =>
-        host.querySelector<HTMLButtonElement>('[data-search-hit-key="friend:u_fixture"]')!.click(),
+        host.querySelector<HTMLButtonElement>('[data-search-hit-key="contact:10001"]')!.click(),
       );
       const position = navigate.mock.calls[0]![0] as SearchPosition;
       expect(position.appResultsExpanded).toBe(true);

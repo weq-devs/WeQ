@@ -152,6 +152,10 @@ export interface FriendSearchHit {
   avatarUrl: string | null;
 }
 
+export interface CachedContactSearchHit extends FriendSearchHit {
+  isFriend: boolean;
+}
+
 export interface ProfileInfoDbOptions {
   dbPath: string;
   key?: string;
@@ -351,6 +355,36 @@ export class ProfileInfoDb {
       })),
       total: Number(countRows[0]?.[0] ?? 0),
     };
+  }
+
+  /** 搜索通讯录与全部本地资料缓存；缓存存在不证明仍是好友或曾经是好友。 */
+  async searchContacts(keyword: string): Promise<CachedContactSearchHit[]> {
+    const needle = keyword.trim();
+    if (!needle) return [];
+    const like = `%${escapeLike(needle)}%`;
+    const rows = await this.qq.query(
+      `WITH people AS (
+        SELECT p."1000" AS uid, COALESCE(NULLIF(${this.column('1002', 'p')}, 0), b."1002") AS uin,
+          p."20002" AS nick, ${this.column('20009', 'p')} AS remark,
+          ${this.column('20004', 'p')} AS avatar, b."1000" IS NOT NULL AS friend
+        FROM ${this.table} p LEFT JOIN buddy_list b ON b."1000" = p."1000"
+        UNION ALL
+        SELECT b."1000", b."1002", '', '', NULL, 1 FROM buddy_list b
+        WHERE NOT EXISTS (SELECT 1 FROM ${this.table} p WHERE p."1000" = b."1000")
+      ) SELECT uid, uin, nick, remark, avatar, friend FROM people
+      WHERE uid LIKE ? ESCAPE '\\' OR CAST(uin AS TEXT) LIKE ? ESCAPE '\\'
+        OR nick LIKE ? ESCAPE '\\' OR remark LIKE ? ESCAPE '\\'
+      ORDER BY uid, uin`,
+      [like, like, like, like],
+    );
+    return rows.map((row) => ({
+      uid: String(row[0] ?? ''),
+      uin: String(row[1] ?? ''),
+      nick: String(row[2] ?? ''),
+      remark: String(row[3] ?? ''),
+      avatarUrl: String(row[4] ?? '') || null,
+      isFriend: Number(row[5]) === 1,
+    }));
   }
 
   /**

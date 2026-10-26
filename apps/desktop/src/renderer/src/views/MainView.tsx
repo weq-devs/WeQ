@@ -63,7 +63,7 @@ import {
 } from '../lib/profileNavigation';
 import { buddyRequestState } from '@weq/service/buddy-request';
 import { isDataline, deviceAvatarDataUri } from '../lib/deviceAvatar';
-import { avatarFromGroupCode, avatarFromUin } from '../lib/avatarResolver';
+import { avatarFromGroupCode, avatarFromUin, resolveAvatar } from '../lib/avatarResolver';
 import { cachedAvatarUrl } from '../lib/avatarCache';
 import {
   previewNodes,
@@ -7290,6 +7290,63 @@ export function MainView(): ReactElement {
         setChatRecordsTarget({ hit, keyword: searchQuery });
         return;
       }
+      if (hit.category === 'contact') {
+        const anchor = document.querySelector('.weq-titlebar-search')?.getBoundingClientRect();
+        setMemberCard({
+          member: {
+            id: hit.uid,
+            identityLabel: 'QQ',
+            identityValue: hit.uin,
+            username: hit.nick || hit.uin || hit.uid,
+            displayName: hit.remark || hit.nick || hit.uin || hit.uid,
+            avatarUrl: resolveAvatar({ uin: hit.uin, profileAvatarUrl: hit.avatarUrl }),
+          },
+          anchor: { x: anchor?.left ?? 24, y: anchor?.bottom ?? 48 },
+          groupContext: hit.groups[0]
+            ? { code: hit.groups[0].groupCode, name: hit.groups[0].groupName }
+            : null,
+        });
+        return;
+      }
+      if (hit.category === 'group') {
+        const known =
+          conversations.some((conversation) => conversation.id === hit.groupCode) ||
+          hiddenConversationsById.has(hit.groupCode) ||
+          deletedConversationsById.has(hit.groupCode);
+        if (!known)
+          setTemporaryConversations((current) =>
+            current[hit.groupCode]
+              ? current
+              : {
+                  ...current,
+                  [hit.groupCode]: {
+                    appearedAt: Date.now(),
+                    conversation: {
+                      id: hit.groupCode,
+                      type: 'group',
+                      updatedAt: new Date(0).toISOString(),
+                      otherUser: null,
+                      group: {
+                        id: hit.groupCode,
+                        name: hit.remark || hit.name,
+                        identityLabel: 'Group',
+                        identityValue: hit.groupCode,
+                        avatarUrl: groupAvatarSrc(hit.groupCode),
+                        announcement: null,
+                        memberCount: 0,
+                        role: 'member',
+                      },
+                      members: [],
+                      preference: fallbackPreference,
+                      unreadCount: 0,
+                      lastMessage: null,
+                    },
+                  },
+                },
+          );
+        jumpToConvSeq('group', hit.groupCode);
+        return;
+      }
       const kind: 'group' | 'c2c' =
         hit.category === 'conversation'
           ? hit.chatType === 2
@@ -7314,7 +7371,15 @@ export function MainView(): ReactElement {
         jumpToConvSeq(kind, conv);
       }
     },
-    [jumpToConvSeq, searchQuery, shell, user.identityValue],
+    [
+      jumpToConvSeq,
+      searchQuery,
+      shell,
+      user.identityValue,
+      conversations,
+      hiddenConversationsById,
+      deletedConversationsById,
+    ],
   );
 
   // 群关键词通知被点击：主进程唤起窗口并记下一个「打开该群、跳到该 seq」的请求，

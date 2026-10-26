@@ -82,6 +82,41 @@
   color: var(--weq-fg-secondary);
 }
 
+.weq-search-contact + .weq-search-contact {
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-search-contact-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 12px 8px 60px;
+}
+.weq-search-contact-groups button {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.weq-search-contact-groups button:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+.weq-search-contact-groups button > svg {
+  flex: none;
+}
+.weq-search-contact-groups button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+}
+
 .weq-search-dropdown .weq-search-hl,
 .weq-search-dropdown .weq-search-strong,
 .weq-search-more-modal .weq-search-hl,

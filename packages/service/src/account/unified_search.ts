@@ -1,5 +1,5 @@
 /**
- * 当前账号的统一搜索：会话、好友、群友为快速来源；聊天正文、文件、收藏及
+ * 当前账号的统一搜索：联系人、群聊为快速来源，兼容旧会话、好友与群友接口；聊天正文、文件、收藏及
  * 生成对话独立并行读取。仅返回本地已取得内容，不隐式联网扩充覆盖范围。
  * bigint 在边界转成字符串，供桌面与 Web 共享 IPC 契约。
  */
@@ -18,6 +18,13 @@ import { elementsToText } from './export/element_text';
 import type { NtHelperBinding } from '@weq/native';
 import type { CollectionSearchHit } from './collection_search';
 import { DEFAULT_SEARCH_CATEGORIES, rankFileSearchHits, searchNameRank } from './search_policy';
+import {
+  searchContacts,
+  searchGroups,
+  type ContactSearchHit,
+  type GroupSearchHit,
+} from './directory_search';
+export type { ContactSearchHit, GroupSearchHit } from './directory_search';
 import {
   CONTENT_SEARCH_CATEGORIES,
   type ContentSearchCategory,
@@ -54,6 +61,8 @@ export interface UnifiedSearchServiceOptions {
 }
 
 export const SEARCH_CATEGORIES = [
+  'contact',
+  'group',
   'conversation',
   'friend',
   'groupMember',
@@ -151,6 +160,8 @@ export interface ConversationRecordHit {
 }
 
 export interface QuickSearchResult {
+  contacts?: ContactSearchHit[];
+  groups?: GroupSearchHit[];
   conversations: ConversationSearchHit[];
   friends: FriendSearchHit[];
   groupMembers: GroupMemberSearchHit[];
@@ -210,6 +221,8 @@ export interface MoreSearchResult {
   category: SearchCategory;
   items: Array<
     | ConversationSearchHit
+    | ContactSearchHit
+    | GroupSearchHit
     | FriendSearchHit
     | GroupMemberSearchHit
     | ChatRecordSearchHit
@@ -358,7 +371,7 @@ export class UnifiedSearchService {
 
   // ---------------------------------------------------------------- public
 
-  /** Fast categories, in display order: conversations, friends, group members. */
+  /** 新对象类别在合并去重后取预览；旧分类按原有口径兼容返回。 */
   async quickSearch(
     keyword: string,
     limit = 3,
@@ -366,7 +379,7 @@ export class UnifiedSearchService {
   ): Promise<QuickSearchResult> {
     const needle = keyword.trim();
     if (!needle) return { conversations: [], friends: [], groupMembers: [] };
-    const [convPage, friendPage, memberPage] = await Promise.all([
+    const [convPage, friendPage, memberPage, contacts, groups] = await Promise.all([
       categories === undefined || categories.includes('conversation')
         ? this.session.recentContacts.searchByName(needle, limit, 0)
         : { items: [] },
@@ -376,10 +389,14 @@ export class UnifiedSearchService {
       categories === undefined || categories.includes('groupMember')
         ? this.session.groupMembers.searchMembers(needle, limit, 0)
         : { items: [] },
+      categories?.includes('contact') ? searchContacts(this.session, needle) : undefined,
+      categories?.includes('group') ? searchGroups(this.session, needle) : undefined,
     ]);
 
     const memberHits = await this.decorateMembers(memberPage.items, needle);
     return {
+      ...(contacts ? { contacts: contacts.slice(0, limit) } : {}),
+      ...(groups ? { groups: groups.slice(0, limit) } : {}),
       conversations: convPage.items.map((c) => ({
         category: 'conversation' as const,
         targetUid: c.targetUid,
@@ -511,6 +528,19 @@ export class UnifiedSearchService {
     const page = Math.max(1, limit);
 
     switch (category) {
+      case 'contact':
+      case 'group': {
+        const ranked = await (category === 'contact'
+          ? searchContacts(this.session, needle)
+          : searchGroups(this.session, needle));
+        const items = ranked.slice(offset, offset + page);
+        return {
+          category,
+          items,
+          total: ranked.length,
+          hasMore: offset + items.length < ranked.length,
+        };
+      }
       case 'qzonePost':
       case 'qzoneAlbum':
       case 'otherQzonePost':
