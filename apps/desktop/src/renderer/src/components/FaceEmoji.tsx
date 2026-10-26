@@ -198,7 +198,8 @@ function FaceImage({
       className={cn('face-emoji', className)}
       style={style}
       src={src}
-      alt={label}
+      alt=""
+      aria-label={label}
       title={label}
       draggable={false}
       onError={() => setBroken(true)}

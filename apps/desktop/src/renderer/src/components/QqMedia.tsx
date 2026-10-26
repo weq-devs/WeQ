@@ -13,7 +13,7 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
-import { Cloud, FileText, Loader2, Sparkles, Star, Store } from 'lucide-react';
+import { Cloud, FileText, ImageOff, Loader2, Sparkles, Star, Store } from 'lucide-react';
 import { fileIconUrl, localFileUrl, localVoiceFileUrl, mediaUrl } from '@renderer/lib/resourceUrl';
 import { cn } from '@renderer/lib/utils';
 import { trpc } from '@renderer/trpc/client';
@@ -55,19 +55,18 @@ function fitWithin(
 
 /**
  * Gray placeholder shown when a media file can't be found on disk or via CDN.
- * Sized to the media's footprint (so the bubble doesn't jump) with a broken
- * image glyph and a "未找到该…" label.
+ * 尺寸尽量保持原媒体占地；图形占位不露出文字，原因保留在悬停与无障碍标签中。
  */
 function QqMediaMissing({ label, style }: { label: string; style?: CSSProperties }) {
   return (
-    <div className="qq-media-missing" style={style}>
-      <svg className="qq-media-missing-icon" viewBox="0 0 24 24" aria-hidden>
-        <path
-          fill="currentColor"
-          d="M21 5v6.59l-3-3.01-4 4.01-4-4-4 4-3-3.01V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2m-3 6.42 3 3.01V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6.58l3 2.99 4-4 4 4z"
-        />
-      </svg>
-      <span className="qq-media-missing-text">未找到{label}</span>
+    <div
+      className="qq-media-missing"
+      style={style}
+      role="img"
+      aria-label={`未找到${label}`}
+      title={`未找到${label}`}
+    >
+      <ImageOff className="qq-media-missing-icon" strokeWidth={1.5} aria-hidden />
     </div>
   );
 }

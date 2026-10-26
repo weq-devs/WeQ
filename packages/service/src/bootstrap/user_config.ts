@@ -36,6 +36,10 @@ import {
   type HomeSettings,
 } from '../common/home_settings';
 import type { ExportFormat } from '../account/export/types';
+import {
+  DEFAULT_CHAT_IMAGE_CACHE_MIB,
+  normalizeChatImageCacheMiB,
+} from '../common/chat_image_cache';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { getLogger, logErrorContext } from '../common/logger';
 import {
@@ -573,6 +577,8 @@ export interface AppSettings {
   jumpToLatestAfterSend: boolean;
   /** 向下浏览消息时显示定位到底部按钮，不影响新消息提醒。 */
   showScrollToBottomButton: boolean;
+  /** 每个渲染窗口的聊天图片与表情预览保留预算（MiB，按解码像素估算）。 */
+  chatImageCacheMiB: number;
   /** 发送文本时显式携带 QQ 账号当前的个性字体。 */
   sendWithQqFont: boolean;
   /** 群助手入口显示汇总未读消息数，而不是仅显示圆点。 */
@@ -866,6 +872,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   readFromFirstUnread: false,
   jumpToLatestAfterSend: true,
   showScrollToBottomButton: true,
+  chatImageCacheMiB: DEFAULT_CHAT_IMAGE_CACHE_MIB,
   sendWithQqFont: true,
   showGroupAssistantMessageCount: false,
   externalChatpic: { dir: '', enabled: false },
@@ -1395,6 +1402,7 @@ export class UserConfigService {
       readFromFirstUnread: s?.readFromFirstUnread ?? d.readFromFirstUnread,
       jumpToLatestAfterSend: s?.jumpToLatestAfterSend ?? d.jumpToLatestAfterSend,
       showScrollToBottomButton: s?.showScrollToBottomButton ?? d.showScrollToBottomButton,
+      chatImageCacheMiB: normalizeChatImageCacheMiB(s?.chatImageCacheMiB),
       sendWithQqFont: s?.sendWithQqFont ?? d.sendWithQqFont,
       showGroupAssistantMessageCount:
         s?.showGroupAssistantMessageCount ?? d.showGroupAssistantMessageCount,
@@ -1512,6 +1520,9 @@ export class UserConfigService {
       readFromFirstUnread: patch.readFromFirstUnread ?? current.readFromFirstUnread,
       jumpToLatestAfterSend: patch.jumpToLatestAfterSend ?? current.jumpToLatestAfterSend,
       showScrollToBottomButton: patch.showScrollToBottomButton ?? current.showScrollToBottomButton,
+      chatImageCacheMiB: normalizeChatImageCacheMiB(
+        patch.chatImageCacheMiB ?? current.chatImageCacheMiB,
+      ),
       sendWithQqFont: patch.sendWithQqFont ?? current.sendWithQqFont,
       showGroupAssistantMessageCount:
         patch.showGroupAssistantMessageCount ?? current.showGroupAssistantMessageCount,

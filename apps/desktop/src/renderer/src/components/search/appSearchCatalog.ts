@@ -81,6 +81,7 @@ const SETTING_ITEMS: readonly SettingDefinition[] = [
   ['message-display', '发送消息后定位到最新消息', '发送后跳转'],
   ['message-display', '使用 QQ 账号设置的个性字体发送消息', '发送字体'],
   ['message-display', '群助手显示总消息数'],
+  ['message-display', '图片预览内存预算', '图片缓存', '表情缓存', '内存缓存'],
   ['message-display', '自定义消息显示'],
   ['message-display', '显示消息汇总红点', '未读红点'],
   ['message-display', '纯文本消息渲染 Markdown', '富文本'],

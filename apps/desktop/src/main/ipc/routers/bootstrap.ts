@@ -15,6 +15,7 @@
 
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod';
+import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { isToastDuration } from '@weq/service/toast-settings';
 import {
   copyExportSavePolicy,
@@ -895,6 +896,13 @@ export const bootstrapRouter = router({
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ showScrollToBottomButton: input.enabled });
       return true;
+    }),
+
+  setChatImageCacheMiB: procedure
+    .input(z.object({ miB: z.number().int().min(0).max(MAX_CHAT_IMAGE_CACHE_MIB) }))
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({ chatImageCacheMiB: input.miB })
+        .chatImageCacheMiB;
     }),
 
   setSendWithQqFont: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
