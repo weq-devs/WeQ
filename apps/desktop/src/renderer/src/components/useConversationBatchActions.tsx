@@ -29,6 +29,16 @@ export function useConversationBatchActions(conversations: Conversation[]) {
     [conversations, directory?.real, directory?.virtual],
   );
   const virtualIds = new Set(directory?.virtual.map((row) => row.id));
+  const rosterIds = (ids: string[]) => [
+    ...new Set(
+      ids.flatMap((id) => {
+        const row = rows.get(id);
+        return !virtualIds.has(id) && row?.type === 'group' && conversationRoamingTarget(row)
+          ? [row.group.id]
+          : [];
+      }),
+    ),
+  ];
   const run = (ids: string[], action: 'export' | 'roaming' | 'read' | 'unread') => {
     const supported: string[] = [];
     const unsupported: Array<{ id: string; name: string }> = [];
@@ -95,13 +105,21 @@ export function useConversationBatchActions(conversations: Conversation[]) {
     else execute();
   };
   return {
+    rosterIds,
+    runRoster: (ids: string[]) => {
+      const groupIds = rosterIds(ids);
+      if (groupIds.length)
+        requestExport?.({
+          owner: { kind: 'contacts', container: 'groups' },
+          scope: { type: 'items', ids: [...new Set(groupIds)] },
+        });
+    },
     exportAvailable: Boolean(requestExport),
     roamingAvailable: Boolean(directory?.onRoaming),
     confirming: Boolean(pending),
     runExport: (ids: string[]) => run(ids, 'export'),
     runRoaming: (ids: string[]) => run(ids, 'roaming'),
     runReadState: (ids: string[], unread: boolean) => run(ids, unread ? 'unread' : 'read'),
-    hasUnread: (ids: string[]) => ids.some((id) => (rows.get(id)?.unreadCount ?? 0) > 0),
     confirmation: pending ? (
       <Modal
         centered

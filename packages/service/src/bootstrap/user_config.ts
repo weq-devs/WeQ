@@ -564,6 +564,8 @@ export interface AppSettings {
   showMessageTime: boolean;
   /** 左栏「消息」入口显示汇总未读角标，不改变阅读状态。 */
   showMessageUnreadBadge: boolean;
+  /** 联系人界面的好友与群聊显示未读消息数，不改变阅读状态。 */
+  showContactUnreadCount: boolean;
   /** 进入会话时恢复阅读位置，从第一条新消息继续阅读。 */
   readFromFirstUnread: boolean;
   /** 发送成功后定位到当前会话的最新消息。 */
@@ -857,6 +859,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showMessageSeq: false,
   showMessageTime: false,
   showMessageUnreadBadge: true,
+  showContactUnreadCount: false,
   readFromFirstUnread: false,
   jumpToLatestAfterSend: true,
   sendWithQqFont: true,
@@ -1384,6 +1387,7 @@ export class UserConfigService {
       showMessageSeq: s?.showMessageSeq ?? d.showMessageSeq,
       showMessageTime: s?.showMessageTime ?? d.showMessageTime,
       showMessageUnreadBadge: s?.showMessageUnreadBadge ?? d.showMessageUnreadBadge,
+      showContactUnreadCount: s?.showContactUnreadCount ?? d.showContactUnreadCount,
       readFromFirstUnread: s?.readFromFirstUnread ?? d.readFromFirstUnread,
       jumpToLatestAfterSend: s?.jumpToLatestAfterSend ?? d.jumpToLatestAfterSend,
       sendWithQqFont: s?.sendWithQqFont ?? d.sendWithQqFont,
@@ -1499,6 +1503,7 @@ export class UserConfigService {
       showMessageSeq: patch.showMessageSeq ?? current.showMessageSeq,
       showMessageTime: patch.showMessageTime ?? current.showMessageTime,
       showMessageUnreadBadge: patch.showMessageUnreadBadge ?? current.showMessageUnreadBadge,
+      showContactUnreadCount: patch.showContactUnreadCount ?? current.showContactUnreadCount,
       readFromFirstUnread: patch.readFromFirstUnread ?? current.readFromFirstUnread,
       jumpToLatestAfterSend: patch.jumpToLatestAfterSend ?? current.jumpToLatestAfterSend,
       sendWithQqFont: patch.sendWithQqFont ?? current.sendWithQqFont,

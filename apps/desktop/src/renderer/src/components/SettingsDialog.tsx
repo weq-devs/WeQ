@@ -639,6 +639,7 @@ function AppearanceSection({
   const setShowMessageSeq = trpc.bootstrap.setShowMessageSeq.useMutation();
   const setShowMessageTime = trpc.bootstrap.setShowMessageTime.useMutation();
   const setShowMessageUnreadBadge = trpc.bootstrap.setShowMessageUnreadBadge.useMutation();
+  const setShowContactUnreadCount = trpc.bootstrap.setShowContactUnreadCount.useMutation();
   const setReadFromFirstUnread = trpc.bootstrap.setReadFromFirstUnread.useMutation();
   const setJumpToLatestAfterSend = trpc.bootstrap.setJumpToLatestAfterSend.useMutation();
   const setSendWithQqFont = trpc.bootstrap.setSendWithQqFont.useMutation();
@@ -773,6 +774,13 @@ function AppearanceSection({
             {badgeError ? <p role="alert">{badgeError}</p> : null}
           </div>
           {[
+            {
+              key: 'showContactUnreadCount' as const,
+              settingId: 'contact-unread-count',
+              label: '在联系人界面显示未读消息数',
+              fallback: false,
+              mutation: setShowContactUnreadCount,
+            },
             {
               key: 'showGroupAssistantMessageCount' as const,
               settingId: 'group-assistant-count',

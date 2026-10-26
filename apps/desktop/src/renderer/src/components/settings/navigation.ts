@@ -229,6 +229,7 @@ const ITEM_REDIRECTS: readonly ItemRedirect[] = [
   ...(
     [
       ['message-unread-badge', '在消息图标上显示红点', '显示消息汇总红点'],
+      ['contact-unread-count', '在联系人界面显示未读消息数'],
       ['group-assistant-count', '群助手显示总消息数'],
       ['read-first-unread', '从第一条新消息开始阅读'],
       ['jump-latest-after-send', '发送消息后定位到最新消息'],

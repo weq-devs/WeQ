@@ -70,6 +70,21 @@ describe('聊天阅读偏好', () => {
 });
 
 describe('消息汇总红点', () => {
+  it('联系人未读数默认关闭，独立持久保存，不改变原有红点和已读上报设置', () => {
+    const { platform, service } = fixture({ settings: { reportReadEnabled: false } });
+    expect(service.getSettings().showContactUnreadCount).toBe(
+      DEFAULT_APP_SETTINGS.showContactUnreadCount,
+    );
+    expect(DEFAULT_APP_SETTINGS.showContactUnreadCount).toBe(false);
+    service.setSettings({ showContactUnreadCount: true });
+    expect(new UserConfigService(platform).getSettings()).toMatchObject({
+      showContactUnreadCount: true,
+      showMessageUnreadBadge: true,
+      reportReadEnabled: false,
+    });
+    service.setSettings({ showContactUnreadCount: false });
+    expect(new UserConfigService(platform).getSettings().showContactUnreadCount).toBe(false);
+  });
   it('汇总红点默认开启，旧配置兼容，关闭后重启保留且不改变未读同步或实时监听', () => {
     const { platform, service } = fixture({
       settings: { realtimeEnabled: true, reportReadEnabled: false },

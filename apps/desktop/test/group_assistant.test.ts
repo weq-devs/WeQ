@@ -110,7 +110,7 @@ describe('群助手', () => {
     }
   });
 
-  it('主列表全选展开助手内会话并注明数量，两处共享选区且右键可进入多选', () => {
+  it('主列表全选展开助手内会话，两处共享选区且从顶部进入多选', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const host = document.createElement('div');
@@ -182,7 +182,7 @@ describe('群助手', () => {
       const selection = () =>
         JSON.parse(host.querySelector('output')!.textContent!).scope.ids as string[];
       expect(selection().sort()).toEqual(['10001', '10002', '10003']);
-      expect(main.textContent).toContain('已选 3（含群助手 2）');
+      expect(main.textContent).toContain('已选 3');
       expect(host.querySelectorAll('.weq-merged-popover-row.is-multiselected')).toHaveLength(2);
       act(() => host.querySelector<HTMLButtonElement>('.weq-merged-popover-item')!.click());
       expect(selection()).toHaveLength(2);
@@ -194,13 +194,18 @@ describe('群助手', () => {
           .querySelector('.weq-merged-popover-item')!
           .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
       );
+      expect(
+        [...document.querySelectorAll('[role="menuitem"]')].some(
+          (node) => node.textContent === '多选',
+        ),
+      ).toBe(false);
       act(() =>
-        [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-          .find((node) => node.textContent === '多选')!
-          .click(),
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
       );
+      act(() => host.querySelector<HTMLButtonElement>('[aria-label="多选群助手会话"]')!.click());
+      act(() => host.querySelector<HTMLButtonElement>('.weq-merged-popover-item')!.click());
       expect(selection()).toHaveLength(1);
-      expect(main.textContent).toContain('已选 1（含群助手 1）');
+      expect(main.textContent).toContain('已选 1');
       const ordinary = main.querySelector<HTMLElement>('[data-conversation-id="10003"]')!;
       act(() =>
         ordinary.dispatchEvent(

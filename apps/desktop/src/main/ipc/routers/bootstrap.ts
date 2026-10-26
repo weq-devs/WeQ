@@ -876,6 +876,13 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  setShowContactUnreadCount: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showContactUnreadCount: input.enabled });
+      return true;
+    }),
+
   setJumpToLatestAfterSend: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {

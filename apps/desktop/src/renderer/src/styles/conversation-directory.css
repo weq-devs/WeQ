@@ -43,6 +43,7 @@
   min-width: 18px;
   text-align: center;
   color: var(--weq-fg-secondary);
+  overflow-wrap: anywhere;
 }
 .weq-directory-mode {
   display: flex;
@@ -139,7 +140,7 @@
   display: flex;
   align-items: center;
   flex: none;
-  flex-wrap: wrap;
+  justify-content: space-around;
   gap: 4px;
   min-height: 44px;
   padding: 6px 8px;
@@ -176,15 +177,28 @@
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 1px;
 }
-.weq-conversation-selection-toolbar.has-read-state {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(24px, 1fr));
+.weq-contact-directory {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
-.weq-conversation-selection-toolbar.has-read-state > span {
-  grid-column: 1 / -1;
+.weq-contact-directory-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  align-content: start;
 }
-.weq-conversation-selection-toolbar.has-read-state > button {
-  justify-self: center;
+.weq-contact-directory .row-unread {
+  position: static;
+  flex: none;
+  background: var(--weq-danger-solid-background);
+  color: var(--weq-danger-solid-foreground);
+}
+.weq-directory-toolbar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 html[data-theme='dark'] .weq-conversation-selection-toolbar {
   background: var(--weq-bg-surface);

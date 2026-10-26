@@ -10592,6 +10592,7 @@ export function MainView(): ReactElement {
               <ConversationDirectoryContext.Provider
                 value={{
                   real: conversations,
+                  showContactUnreadCount: displaySettings.data?.showContactUnreadCount ?? false,
                   groupAssistantIds,
                   showGroupAssistantMessageCount:
                     displaySettings.data?.showGroupAssistantMessageCount ?? false,
@@ -10648,9 +10649,9 @@ export function MainView(): ReactElement {
                               .filter(
                                 (contact) =>
                                   !contactDirectoryQuery ||
-                                  `${displayUserName(contact)} ${contact.identityValue}`
+                                  `${displayUserName(contact)} ${'nick' in contact ? (contact.nick ?? '') : ''} ${contact.identityValue}`
                                     .toLocaleLowerCase()
-                                    .includes(contactDirectoryQuery.toLocaleLowerCase()),
+                                    .includes(contactDirectoryQuery.trim().toLocaleLowerCase()),
                               )
                               .map((contact) => contact.id)
                           : contactDirectoryConversations
@@ -10658,9 +10659,9 @@ export function MainView(): ReactElement {
                                 (conversation) =>
                                   conversation.type === 'group' &&
                                   (!contactDirectoryQuery ||
-                                    `${conversation.group.name} ${conversation.id}`
+                                    `${conversation.group.name} ${conversation.group.remark ?? ''} ${conversation.id}`
                                       .toLocaleLowerCase()
-                                      .includes(contactDirectoryQuery.toLocaleLowerCase())),
+                                      .includes(contactDirectoryQuery.trim().toLocaleLowerCase())),
                               )
                               .map((conversation) => conversation.id),
                     }}
