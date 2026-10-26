@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { AssistantActivity, WorkspaceTaskIndicator } from '../lib/workspaceIndicators';
+import { readWorkspaceResults, rememberWorkspaceResults } from '../lib/workspaceReadState';
 
 interface WorkspaceMenuState {
   anchor: HTMLElement | null;
@@ -43,11 +44,12 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
       const previousRead =
         state.taskScope === taskScope
           ? state.readTaskResults
-          : (state.readTaskResultsByScope[taskScope] ?? {});
+          : (state.readTaskResultsByScope[taskScope] ?? readWorkspaceResults(taskScope, 'tasks'));
       for (const item of taskItems) {
         if (item.activity === 'finished' && previousRead[item.id] === item.result)
           readTaskResults[item.id] = item.result;
       }
+      rememberWorkspaceResults(taskScope, 'tasks', readTaskResults);
       return {
         taskScope,
         taskItems,
@@ -67,6 +69,7 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
           .filter((item) => item.activity === 'finished')
           .map((item) => [item.id, item.result]),
       );
+      if (state.taskScope) rememberWorkspaceResults(state.taskScope, 'tasks', readTaskResults);
       return {
         finished: 0,
         readTaskResults,

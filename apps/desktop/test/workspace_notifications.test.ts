@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Storage } from 'happy-dom';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 import type { WorkspaceTaskIndicator } from '../src/renderer/src/lib/workspaceIndicators';
 import { summarizeWorkspaceTasks } from '../src/renderer/src/lib/workspaceIndicators';
@@ -8,7 +9,7 @@ const task = (
   activity: WorkspaceTaskIndicator['activity'] = 'finished',
   result = 'completed',
 ): WorkspaceTaskIndicator => ({ id, activity, result, failed: false });
-beforeEach(() =>
+function resetMemory() {
   useWorkspaceMenu.setState({
     taskScope: null,
     taskItems: [],
@@ -17,10 +18,39 @@ beforeEach(() =>
     running: 0,
     finished: 0,
     failed: 0,
-  }),
-);
+  });
+}
+beforeEach(() => {
+  vi.stubGlobal('localStorage', new Storage());
+  resetMemory();
+});
+afterEach(() => vi.unstubAllGlobals());
 
 describe('任务结果已读状态', () => {
+  it('重启后恢复已读结果，仍区分新结果、在途任务和其他账号', () => {
+    const store = useWorkspaceMenu.getState();
+    store.syncTasks('persist-a', [task('1'), task('2', 'running')]);
+    store.readTasks();
+    resetMemory();
+    store.syncTasks('persist-a', [task('1'), task('2', 'running')]);
+    expect(useWorkspaceMenu.getState()).toMatchObject({ finished: 0, running: 1 });
+    store.syncTasks('persist-b', [task('1')]);
+    expect(useWorkspaceMenu.getState().finished).toBe(1);
+    resetMemory();
+    store.syncTasks('persist-a', [task('1', 'finished', 'new-result'), task('2')]);
+    expect(useWorkspaceMenu.getState().finished).toBe(2);
+  });
+
+  it('重新运行会作废持久化已读结果，重启后结束仍提醒', () => {
+    const store = useWorkspaceMenu.getState();
+    store.syncTasks('persist-rerun', [task('1')]);
+    store.readTasks();
+    store.syncTasks('persist-rerun', [task('1', 'running')]);
+    resetMemory();
+    store.syncTasks('persist-rerun', [task('1')]);
+    expect(useWorkspaceMenu.getState().finished).toBe(1);
+  });
+
   it('未采样到运行阶段时，按结果时间区分同一任务的新一轮完成', () => {
     const store = useWorkspaceMenu.getState();
     const snapshot = (updatedAt: number) =>

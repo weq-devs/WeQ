@@ -6,6 +6,7 @@ import { RetainedTabs, useTabActive } from '../../components/RetainedTabs';
 import { useWorkspaceMenu } from '../../state/workspaceMenu';
 import type { AssistantActivity } from '../../lib/workspaceIndicators';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
+import { readWorkspaceResults, rememberWorkspaceResults } from '../../lib/workspaceReadState';
 import type { GeneratedSearchHit } from '../../components/search/types';
 import { useAppDialog } from '../../lib/dialogUtils';
 import '../../styles/agentlab-workspace.css';
@@ -44,17 +45,43 @@ export function AssistantMenuWorkspace({
   const currentSelection = useRef(selection);
   currentSelection.current = selection;
   const [activities, setActivities] = useState<
-    Record<string, { activity: AssistantActivity; unread: boolean }>
+    Record<string, { activity: AssistantActivity; unread: boolean; result?: string }>
   >({});
+  const readResultsRef = useRef<{ scope: string; results: Record<string, string> } | null>(null);
+  if (readResultsRef.current?.scope !== accountScope) {
+    readResultsRef.current = {
+      scope: accountScope,
+      results: readWorkspaceResults(accountScope, 'assistant'),
+    };
+  }
+  const readResults = readResultsRef.current.results;
   const setAssistant = useWorkspaceMenu((state) => state.setAssistant);
   const activity = activities[selection.key]?.activity ?? 'idle';
   const unread = activities[selection.key]?.unread ?? false;
+  const result = activities[selection.key]?.result;
   useEffect(() => {
     setAssistant(activity, unread && !resultVisible);
     if (resultVisible && unread) {
-      setActivities((previous) => ({ ...previous, [selection.key]: { activity, unread: false } }));
+      if (selection.sessionId && result) {
+        readResults[selection.sessionId] = result;
+        rememberWorkspaceResults(accountScope, 'assistant', readResults);
+      }
+      setActivities((previous) => ({
+        ...previous,
+        [selection.key]: { activity, unread: false, result },
+      }));
     }
-  }, [activity, unread, resultVisible, selection.key, setAssistant]);
+  }, [
+    activity,
+    unread,
+    result,
+    resultVisible,
+    selection.key,
+    selection.sessionId,
+    accountScope,
+    readResults,
+    setAssistant,
+  ]);
   useEffect(() => () => setAssistant('idle'), [setAssistant]);
   const keys = useRef(new Map<string, string>());
   const appliedSearch = useRef<GeneratedSearchHit | null | undefined>(undefined);
@@ -125,6 +152,8 @@ export function AssistantMenuWorkspace({
       return;
     try {
       await remove.mutateAsync({ sessionId });
+      delete readResults[sessionId];
+      rememberWorkspaceResults(accountScope, 'assistant', readResults);
       rememberAssistantDraft(accountScope, sessionId, '');
       if (selection.sessionId === sessionId) select(null);
       await utils.account.listAssistantSessions.invalidate();
@@ -198,13 +227,25 @@ export function AssistantMenuWorkspace({
                 sessions.data.find((session) => session.id === selection.sessionId)?.title ??
                 '新会话'
               }
-              onActivityChange={(next) => {
+              onActivityChange={(next, result) => {
+                const sessionId = selection.sessionId;
+                if (next === 'running' && sessionId && readResults[sessionId]) {
+                  delete readResults[sessionId];
+                  rememberWorkspaceResults(accountScope, 'assistant', readResults);
+                }
                 setActivities((previous) =>
-                  previous[selection.key]?.activity === next
+                  previous[selection.key]?.activity === next &&
+                  previous[selection.key]?.result === result
                     ? previous
                     : {
                         ...previous,
-                        [selection.key]: { activity: next, unread: next === 'finished' },
+                        [selection.key]: {
+                          activity: next,
+                          result,
+                          unread:
+                            next === 'finished' &&
+                            (!result || !sessionId || readResults[sessionId] !== result),
+                        },
                       },
                 );
               }}

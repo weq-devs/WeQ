@@ -153,7 +153,7 @@ it('流式重渲不重建订阅，尚未刷新的增量在父组件重渲后仍�
     act(() => root.render(h(AssistantPanel, props)));
     flushFrame();
     expect(host.querySelector('.stream-body')?.textContent).toBe('第一段不能丢最后一段');
-    expect(props.onActivityChange).toHaveBeenLastCalledWith('finished');
+    expect(props.onActivityChange).toHaveBeenLastCalledWith('finished', expect.any(String));
     expect(fixture.utils.account.getAssistantConversation.invalidate).toHaveBeenCalledWith({
       sessionId: props.sessionId,
     });
@@ -196,7 +196,7 @@ it.each(['stream-error', 'send-error', 'aborted'] as const)(
         );
         flushFrame();
       }
-      expect(activity).toHaveBeenLastCalledWith('finished');
+      expect(activity).toHaveBeenLastCalledWith('finished', expect.any(String));
     } finally {
       act(() => root.unmount());
     }

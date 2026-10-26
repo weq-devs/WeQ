@@ -20,7 +20,7 @@ const fixture = vi.hoisted(() => ({
   ],
   mounts: 0,
   created: null as null | (() => void),
-  activity: new Map<string, (activity: AssistantActivity) => void>(),
+  activity: new Map<string, (activity: AssistantActivity, result?: string) => void>(),
 }));
 vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
   useAppDialog: () => ({ confirm: async () => true, error: vi.fn() }),
@@ -47,7 +47,7 @@ vi.mock('../src/renderer/src/views/agentlab/AssistantPanel', () => ({
   }: {
     sessionId: string | null;
     onSessionCreated: (id: string) => void;
-    onActivityChange: (activity: AssistantActivity) => void;
+    onActivityChange: (activity: AssistantActivity, result?: string) => void;
   }) => {
     const [draft, setDraft] = useState('');
     useEffect(() => {
@@ -77,6 +77,46 @@ afterEach(() => {
 });
 
 describe('菜单助手会话', () => {
+  it('会话结果已读跨卸载恢复，不清除新回答或其他账号的提醒', () => {
+    rememberAssistantSession('persist-assistant', 'chosen');
+    const host = document.createElement('div');
+    let root = createRoot(host);
+    const render = (active: boolean, accountScope = 'persist-assistant') =>
+      act(() =>
+        root.render(
+          h(TabActivity, { active }, h(AssistantMenuWorkspace, { accountScope, compact: true })),
+        ),
+      );
+    try {
+      render(true);
+      act(() => fixture.activity.get('chosen')!('finished', 'result-a'));
+      expect(useWorkspaceMenu.getState().assistantUnread).toBe(false);
+      act(() => root.unmount());
+      root = createRoot(host);
+      render(false);
+      act(() => fixture.activity.get('chosen')!('finished', 'result-a'));
+      expect(useWorkspaceMenu.getState().assistantUnread).toBe(false);
+      act(() => fixture.activity.get('chosen')!('finished', 'result-b'));
+      expect(useWorkspaceMenu.getState().assistantUnread).toBe(true);
+      render(true);
+      expect(useWorkspaceMenu.getState().assistantUnread).toBe(false);
+      act(() => fixture.activity.get('chosen')!('running'));
+      act(() => root.unmount());
+      root = createRoot(host);
+      render(false);
+      act(() => fixture.activity.get('chosen')!('finished', 'result-b'));
+      expect(useWorkspaceMenu.getState().assistantUnread).toBe(true);
+      act(() => root.unmount());
+      rememberAssistantSession('other-account', 'chosen');
+      root = createRoot(host);
+      render(false, 'other-account');
+      act(() => fixture.activity.get('chosen')!('finished', 'result-a'));
+      expect(useWorkspaceMenu.getState().assistantUnread).toBe(true);
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
   it('窗口隐藏期间完成不算已读，回来查看后清红点，下一轮仍保留蓝点', () => {
     let hidden = false;
     const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');

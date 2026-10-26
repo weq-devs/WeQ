@@ -63,6 +63,7 @@ import { GeneratedSearchNotice, useGeneratedSearchJump } from './messageSearch';
 import { useGeneratedSelection } from './useGeneratedSelection';
 import { readAssistantDraft, rememberAssistantDraft } from '../../lib/assistantWorkspace';
 import type { AssistantActivity } from '../../lib/workspaceIndicators';
+import { assistantResultVersion } from '../../lib/workspaceReadState';
 
 interface Turn {
   id?: string;
@@ -496,7 +497,7 @@ export function AssistantPanel({
   compact?: boolean;
   draftAccount?: string;
   workspaceTitle?: string;
-  onActivityChange?: (activity: AssistantActivity) => void;
+  onActivityChange?: (activity: AssistantActivity, result?: string) => void;
 }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
@@ -568,9 +569,11 @@ export function AssistantPanel({
     : requestFailed || turns.some((turn) => turn.role === 'assistant')
       ? 'finished'
       : 'idle';
+  const resultVersion = activity === 'finished' ? assistantResultVersion(turns) : undefined;
   useEffect(() => {
-    onActivityChange?.(activity);
-  }, [activity, onActivityChange]);
+    if (activity === 'finished') onActivityChange?.(activity, resultVersion);
+    else onActivityChange?.(activity);
+  }, [activity, resultVersion, onActivityChange]);
   const selection = useGeneratedSelection(
     { kind: 'assistant', ownerId: 'assistant', sessionId: currentSessionId },
     turns,
