@@ -13,6 +13,7 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
+import { verifyPackagedRemoteNetwork } from './package-remote-network.mjs';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import {
   installedNativeManifest,
@@ -158,6 +159,7 @@ export function trimDesktopPackage(context) {
           'Contents/Resources',
         )
       : join(context.appOutDir, 'resources');
+  verifyPackagedRemoteNetwork(context, resources);
   for (const candidate of ['arm64', 'x64']) {
     if (platform === 'darwin' && (candidate === arch || arch === 'universal')) continue;
     rmSync(

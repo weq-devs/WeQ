@@ -12,6 +12,9 @@ pnpm dev
 
 仅使用根 `package.json` 的 `packageManager` 所锁定的 pnpm；环境与门禁按[贡献指南](../../CONTRIBUTING.md)。以下按主题查阅，不必先读全部专题。
 
+本文按当前分支提供导航；带日期的专题保留当时方案和验证记录，不将待办或历史测试回执当成
+当前发布状态。用户操作路径以[使用手册](../guide/index.md)和[设置总览](../guide/settings.md)为准。
+
 ## 章节
 
 - [应用内服务与独立自启（2026-10-25）](./app-owned-services-20261025.md)
@@ -30,15 +33,17 @@ pnpm dev
 - [生成内容精确导出](./generated-content-export-20261018.md)：克隆与助手的持久身份、独立快照、原始结构及账号边界。
 - [空间精确导出](./qzone-exact-export-20261018.md)：离散 tid、正文/互动/媒体范围、统一入口及历史隔离。
 - [全局搜索新增来源](./content-search-sources-20261018.md)：来源覆盖、账号缓存、频道全库与稳定条目跳转。
-- [全局搜索优化](./global-search-optimization-20261018.md)：默认个人范围、相关度排序与尚未实施的性能优化方向。
+- [全局搜索优化](./global-search-optimization-20261018.md)：当前可见分类、会话来源范围、分类并行返回、匹配度排序与尚未实施的性能优化方向。
 - [分析与报告](./analysis-report-20261018.md)：统计口径、历史身份、结果生命周期和恢复限制。
 - [推荐回复上下文](./intent-suggestion-context-20261024.md)：时间与近期优先、成员和 @ 身份、自己发言后的接续模式。
 - [窗口与浮层](./nonmodal-surfaces-20261018.md)：页面、侧栏、浮窗、锚定窗格与模态层的职责。
-- [设置重构执行方案](./settings-restructure-plan-20261025.md)：执行中的九组目录、工具不替换设置、页内日志及分阶段验证记录。
+- [设置重构执行方案](./settings-restructure-plan-20261025.md)：分阶段设计与验证记录；当前七组目录以[设置总览](../guide/settings.md)和 `settings/navigation.ts` 为准。
 - [页面现场保留](./tab-state-retention-20261015.md)：活动性、隐藏页监听与内存状态边界。
 - [原生 QQ 邮箱](./qqmail-native-20261017.md)：账号级认证、邮件协议、附件、正文隔离与提醒生命周期。
 - [手机连接与重连](./remote-two-paths-20261022.md)：局域网、已有/内嵌 TS、持久设备凭据和 iOS WebView 会话身份。
 - [Remote 手机壳独立仓库](./remote-repository-split-20261023.md)：手机源码、构建和协议测试的维护边界与电脑夹具入口。
+- [Web / Remote 功能对齐](./web-remote-parity-20261026.md)：浏览器文件发送、手机资料入口、内置 Web 报告捕获与独立 Node 部署限制。
+- [Web / Remote 体验优化](./web-remote-optimization-20261026.md)：重连反馈、活动查询补查、手机导航与重型工作区按需加载。
 - [会话分析时间轴 + 我的主场轮盘](./conversation-timeline-home-wheel-20261018.md) — 默认最近一年、拖动重算、全历史绿墙与群聊卡片轮盘的翻页守卫
 - [引用、提及与 +1](./message-mentions-repeat-20261017.md)：唯一身份剪贴板、当前账号名称解析与相同消息重发
 - [多选修饰键与键盘契约](./multi-selection-keyboard-20261017.md)：选择组、范围锚点、键盘隔离与业务限制。
@@ -55,11 +60,17 @@ pnpm dev
 
 ### 基础能力与贡献
 
+- [审计修复与权限边界](./audit-remediation-20261026.md)：助手权限模式、隔离脚本、只读 MCP、权威数据保存及尚未完成的治理项。
 - [消息同步与性能修复方案](./message-sync-performance-plan-20261025.md)及[阶段实施记录](./message-sync-performance-implementation-20261025.md)：消息到达、QQ 已读消点、会话首屏与媒体的已实施范围，以及时间线虚拟化和真实性能验收待办。
+- [消息性能修补](./message-performance-20261026.md)：后续性能实现与针对性验证范围。
+- [聊天图片预览缓存](./chat-image-preview-cache-20261026.md)：解码内存预算、可见与离屏资源边界。
+- [渲染资源生命周期](./renderer-resource-lifecycle-20261024.md)、[白屏定位](./renderer-white-screen-20261026.md)：资源释放、诊断与分阶段验证记录。
+- [语音 worker 的 macOS 打包](./transcribe-worker-macos-20261026.md)：子进程依赖与产物验证边界。
 - [桌面包体积优化](./desktop-package-size-20261025.md)：生产依赖分层、原生架构裁剪、真实打包匹配器和产物冒烟。
 - [QQ 数据库布局：按文件设置保留页](./db-layout-split-20261018.md) — per-Pager pending byte、锁字节与布局自动识别
 - [nt_helper.node 接口文档](./nt-helper-interface.md) — 原生模块能力总览，**写代码前先看，别重复造轮子**
 - [原生二进制与装扮资源的分发](./native-artifacts.md) — `pnpm native:fetch`、发布链路、历史清洗记录
+- [长期授权集成](./long-term-authorization-20261026.md)：权限助手协议、开发 / 正式通道、系统安装与 release 双产物校验。
 - [大库密钥扫描修复](./key-scan-bounded-read-20261025.md)：固定读取验证前缀、合成稀疏文件检查与本地产物边界。
 - [测试约定](./testing.md) — `@weq/testkit`
 - [WeQ 存储管理](./storage-management.md)：统计范围、嵌套目录去重、只读数据与缓存清理白名单。

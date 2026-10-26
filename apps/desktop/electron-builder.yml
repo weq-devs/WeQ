@@ -4,6 +4,7 @@ copyright: Copyright © 2026 weQ contributors
 directories:
   output: release/${version}
   buildResources: build
+beforePack: ../../scripts/package-remote-network.mjs
 afterPack: ../../scripts/trim-desktop-package.mjs
 afterSign: ../../scripts/verify-desktop-authorization.mjs
 files:
@@ -40,7 +41,7 @@ extraResources:
     to: out/main/chunks
   - from: ../web/dist/public
     to: remote-web
-  - from: ../../tools/remote-network
+  - from: ../../tools/remote-network/build/${os}/${arch}
     to: remote-network
     filter:
       - weq-remote-network

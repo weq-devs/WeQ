@@ -3,9 +3,10 @@
  * Supports nesting, hex editing for bytes, and numeric inputs.
  */
 
-import { useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { X, Save, ChevronLeft, ChevronRight, Hash, Type, Binary, Box, Copy } from 'lucide-react';
 import { cn } from '../im-template/template/classNames';
+import { useSurfaceEscape } from '../lib/surfaceEscape';
 
 interface Props {
   msgId: string;
@@ -22,6 +23,9 @@ export function MsgElementEditor({
   onClose,
   onSave,
 }: Props) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useSurfaceEscape(dialogRef, onClose, true, true);
   const [elements, setElements] = useState<any[]>(JSON.parse(JSON.stringify(initialElements)));
   const [activeIndex, setActiveIndex] = useState(0);
   const [saving, setSending] = useState(false);
@@ -66,16 +70,29 @@ export function MsgElementEditor({
 
   return (
     <div className="weq-editor-overlay" role="presentation" onMouseDown={onClose}>
-      <div className="weq-editor-dialog" role="dialog" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className="weq-editor-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <header className="weq-editor-header">
           <div className="weq-editor-title">
-            <h3>修改本地消息元件（不同步服务器）</h3>
+            <h3 id={titleId}>修改本地消息元件（不同步服务器）</h3>
             <code>
               msgId: {msgId}
               {msgSeq !== undefined && ` • seq: ${msgSeq}`}
             </code>
           </div>
-          <button className="weq-editor-close" onClick={onClose}>
+          <button
+            className="weq-editor-close"
+            onClick={onClose}
+            aria-label="关闭消息编辑器"
+            title="关闭消息编辑器"
+          >
             <X size={18} />
           </button>
         </header>

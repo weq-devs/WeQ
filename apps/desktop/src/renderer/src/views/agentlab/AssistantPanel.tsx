@@ -4,7 +4,7 @@
  * 一次提问 = 一个任务：后端多轮推进，过程（思考/工具调用/工具结果）经
  * `account.onAssistantEvent` 订阅实时流式推送，前端逐步展示（可折叠），最终答复
  * 用 Markdown 渲染。模型与思考等级在输入框上方就近切换（即改即存）；顶部设置
- * 弹窗配置：额外提示 / 外部 MCP 服务器。空会话展示预设问题，点击直接发送。
+ * 弹窗配置：权限模式 / 额外提示 / 外部 MCP 服务器。空会话展示预设问题，点击直接发送。
  *
  * 流式部分见下面两处：事件按动画帧合并 flush（`flush`），正文段的归档时机由 `applySteps`
  * 的 `handoffIndex` 控制——工具轮次之间不再把气泡清空，细节见两处注释。
@@ -337,28 +337,47 @@ const PRESET_QUESTIONS = [
   '找找最近有谁跟我约过「吃饭」',
 ];
 
-function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
+export function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const config = trpc.account.getAssistantConfig.useQuery();
   const save = trpc.account.setAssistantConfig.useMutation();
   const [prompt, setPrompt] = useState('');
   const [mcp, setMcp] = useState('');
-  const guard = useDraftClose(onClose, { prompt, mcp }, save.isLoading);
+  const [permissionMode, setPermissionMode] = useState<'sandbox' | 'unrestricted'>('sandbox');
+  const guard = useDraftClose(onClose, { prompt, mcp, permissionMode }, save.isLoading);
 
   useEffect(() => {
     const c = config.data;
     if (!c) return;
     setPrompt(c.customPrompt ?? '');
     setMcp(c.mcpServers ?? '');
-    guard.reset({ prompt: c.customPrompt ?? '', mcp: c.mcpServers ?? '' });
+    setPermissionMode(c.permissionMode ?? 'sandbox');
+    guard.reset({
+      prompt: c.customPrompt ?? '',
+      mcp: c.mcpServers ?? '',
+      permissionMode: c.permissionMode ?? 'sandbox',
+    });
   }, [config.data, guard.reset]);
 
   async function onSave(): Promise<void> {
     try {
+      const enablingUnrestricted =
+        permissionMode === 'unrestricted' && config.data?.permissionMode !== 'unrestricted';
+      if (
+        enablingUnrestricted &&
+        !(await dialog.confirm(
+          '开启任意权限？',
+          '助手将以当前系统用户的权限执行任意代码和操作，包括读取、修改或删除 WeQ 目录之外的文件，运行命令、联网以及使用外部 MCP 工具。聊天内容或模型错误也可能诱发这些操作，删除可能无法恢复。此模式不是沙箱，也不会逐项再次询问。',
+          { okLabel: '我了解风险，开启任意权限', cancelLabel: '保留沙箱模式', tone: 'warning' },
+        ))
+      )
+        return;
       await save.mutateAsync({
         customPrompt: prompt,
         mcpServers: mcp,
+        permissionMode,
+        confirmUnrestricted: enablingUnrestricted,
       });
       await utils.account.getAssistantConfig.invalidate();
       dialog.success('已保存', '助手设置已更新');
@@ -376,6 +395,26 @@ function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
           <strong>WeQ 助手设置</strong>
         </header>
         <div className="weq-clone-config">
+          <label className="weq-agentlab-field">
+            <span>权限模式</span>
+            <select
+              aria-label="权限模式"
+              value={permissionMode}
+              onChange={(event) =>
+                setPermissionMode(
+                  event.target.value === 'unrestricted' ? 'unrestricted' : 'sandbox',
+                )
+              }
+            >
+              <option value="sandbox">沙箱模式</option>
+              <option value="unrestricted">任意权限</option>
+            </select>
+          </label>
+          <div className="weq-asst-set-hint">
+            {permissionMode === 'sandbox'
+              ? '仅开放审核过的查询、隔离脚本和受控报告生成；禁止宿主文件操作、发送消息、写库及外部 MCP 工具。'
+              : '任意权限可操作当前用户有权访问的文件，包括删除外部文件；不提供系统级隔离，也不自动提权。'}
+          </div>
           <label className="weq-agentlab-field">
             <span>额外提示（可选）</span>
             <textarea
@@ -399,7 +438,7 @@ function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
             />
           </label>
           <div className="weq-asst-set-hint">
-            外部工具会在对话中自动合并进可用工具（命名空间 <code>mcp__服务器__工具</code>
+            外部工具仅在任意权限模式下合并进可用工具（命名空间 <code>mcp__服务器__工具</code>
             ），连接在首次使用时建立； 某个服务器不可用不会影响内置工具。
           </div>
           <div className="weq-clone-actions">

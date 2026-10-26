@@ -100,9 +100,9 @@ function fixture() {
       listBuddyRequests: vi.fn(async () => [
         {
           peerUid: 'u_friend',
-          isAccepted: 1,
-          initiator: 1,
-          status: 3,
+          isAccepted: 0,
+          initiator: 0,
+          status: 1,
           nick: '申请人',
           verifyMsg: '你好',
         },
@@ -805,12 +805,14 @@ describe('主动操作的账号与参数边界', () => {
     const [pending] = await f.s.profile.listBuddyRequests();
     f.s.profile.listBuddyRequests.mockResolvedValue([
       pending!,
-      { ...pending!, peerUid: 'u_accepted', isAccepted: 0 },
-      { ...pending!, peerUid: 'u_outgoing', initiator: 0 },
+      { ...pending!, peerUid: 'u_accepted', initiator: 1, status: 3 },
+      { ...pending!, peerUid: 'u_outgoing', isAccepted: 1, status: 13 },
+      { ...pending!, peerUid: 'u_processed', initiator: 1 },
+      { ...pending!, peerUid: 'u_unknown', status: 99 },
     ]);
     const rows = await f.caller.requests({ ...binding, kind: 'friend' });
     expect(rows.map((row) => row.token)).toEqual(['u_friend']);
-    for (const token of ['u_accepted', 'u_outgoing']) {
+    for (const token of ['u_accepted', 'u_outgoing', 'u_processed', 'u_unknown']) {
       await expect(
         f.caller.request({ ...binding, kind: 'friend', token, approve: true }),
       ).rejects.toThrow('变化');

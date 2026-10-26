@@ -13,7 +13,10 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-async function requestPrompt(names: string[]) {
+async function requestPrompt(
+  names: string[],
+  permissionMode: 'sandbox' | 'unrestricted' = 'sandbox',
+) {
   const dir = mkdtempSync(join(tmpdir(), 'weq-assistant-capabilities-'));
   dirs.push(dir);
   const specs: AssistantToolSpec[] = names.map((name) => ({
@@ -28,7 +31,11 @@ async function requestPrompt(names: string[]) {
     new ConversationStore(join(dir, 'conversations.json')),
     { specs: async () => specs, run },
   );
-  service.setConfig({ model: { providerId: 'fixture', model: 'fixture' } });
+  service.setConfig({
+    model: { providerId: 'fixture', model: 'fixture' },
+    permissionMode,
+    confirmUnrestricted: true,
+  });
   const bodies: Array<{ messages: Array<{ role: string; content: string }> }> = [];
   vi.stubGlobal(
     'fetch',
@@ -87,3 +94,20 @@ it('红包、导出和数据库的指引跟随工具清单，区分下单与付�
   expect(prompt).toContain('纯文字导出');
   expect(prompt).toContain('get_db_columns');
 });
+
+it.each(['sandbox', 'unrestricted'] as const)(
+  '实际 %s 请求明确说明宿主权限而不沿用另一模式的限制',
+  async (mode) => {
+    const prompt = await requestPrompt(['run_js'], mode);
+    if (mode === 'sandbox') {
+      expect(prompt).toContain('本轮权限：沙箱模式');
+      expect(prompt).toContain('没有 fs / fetch');
+      expect(prompt).not.toContain('可运行 Node 宿主代码');
+    } else {
+      expect(prompt).toContain('本轮权限：任意权限');
+      expect(prompt).toContain('可运行 Node 宿主代码');
+      expect(prompt).toContain('删除外部文件');
+      expect(prompt).not.toContain('没有 fs / fetch');
+    }
+  },
+);

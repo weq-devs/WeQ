@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mkdirSync } from 'node:fs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -10,13 +11,15 @@ export function prepareRemoteNetwork({
   platform = process.platform,
   arch = process.arch,
   build = spawnSync,
+  outputDirectory,
 } = {}) {
   const goos = { darwin: 'darwin', linux: 'linux', win32: 'windows' }[platform];
   const goarch = { arm64: 'arm64', x64: 'amd64' }[arch];
   if (!goos || !goarch) throw new Error(`远程网络辅助程序暂不支持 ${platform}/${arch}。`);
   const directory = join(repoDir, 'tools/remote-network');
+  if (outputDirectory) mkdirSync(outputDirectory, { recursive: true });
   const helper = join(
-    directory,
+    outputDirectory ?? directory,
     platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
   );
   const result = build(

@@ -5,12 +5,12 @@
  *   21204  timestamp       (INTEGER)
  *   21001  peerUid         (TEXT)
  *   20002  nick            (TEXT)
- *   21502  isAccepted      (INTEGER) - 0: yes, 1: pending
+ *   21502  isAccepted      (INTEGER) - isInitiator: 0 对方发起，1 自己发起（沿用旧字段名）
  *   21508  verifyMsg       (TEXT)
  *   21509  source          (TEXT)
- *   21505  status          (INTEGER) - 来源类型码，不是审核状态（保留旧字段名兼容调用方）
+ *   21505  status          (INTEGER) - BuddyReqType 请求类型及处理结果
  *   60001  sourceGroupCode (INTEGER)
- *   21501  initiator       (INTEGER) - 0: self, 1: others
+ *   21501  initiator       (INTEGER) - isDecide: 0 未处理，1 已处理（沿用旧字段名）
  */
 
 import type { NtHelperBinding, SqlRow, SqlValue, DatabaseAlgorithms } from '@weq/native';
@@ -20,13 +20,14 @@ export interface BuddyRequest {
   timestamp: number;
   peerUid: string;
   nick: string;
-  /** 21502：0 已同意，1 尚未同意；未知值不用于审批。 */
+  /** 21502（isInitiator）：0 对方发起，1 自己发起；保留旧字段名兼容调用方。 */
   isAccepted: number;
   verifyMsg: string;
   source: string;
-  /** 21505：来源类型码，不是审核状态。 */
+  /** 21505（BuddyReqType）：请求类型及处理结果，不是来源类型码。 */
   status: number;
   sourceGroupCode: bigint;
+  /** 21501（isDecide）：0 未处理，1 已处理；保留旧字段名兼容调用方。 */
   initiator: number;
 }
 

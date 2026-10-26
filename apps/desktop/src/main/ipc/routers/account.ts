@@ -17,7 +17,7 @@ import {
   BROWSER_FILE_CHUNK_BYTES,
   BROWSER_FILE_MAX_BYTES,
 } from '../../../shared/browser_file_upload';
-import { assertEmbeddingModelIdentity } from '@weq/agentlab';
+import { assertEmbeddingModelIdentity, AGENTLAB_PERSONA_ID_PATTERN } from '@weq/agentlab';
 import { agentLabModelSelectionSchema } from '../../../shared/agentlab_model_selection';
 import {
   SEARCH_CATEGORIES,
@@ -65,6 +65,7 @@ import { buildShareLocationElements, detectThumbType, type OcrBlock } from '@weq
 
 /** 48417 的嵌套块解码器（红包定位：orderId + packetId）。 */
 const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
+const agentLabPersonaId = z.string().regex(AGENTLAB_PERSONA_ID_PATTERN, '克隆 ID 无效');
 import { sampleHitokoto } from '../../hitokoto';
 import type { TranscribeResult } from '../../transcribe/engine';
 import {
@@ -1783,13 +1784,13 @@ export const accountRouter = router({
   }),
 
   getAgentLabPersona: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .query(({ input }) => {
       return requireServices().agentLab.getPersona(input.personaId);
     }),
 
   getAgentLabPersonaDetail: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .query(({ input }) => {
       return requireServices().agentLab.getPersonaDetail(input.personaId);
     }),
@@ -1797,7 +1798,7 @@ export const accountRouter = router({
   buildAgentLabFromC2c: procedure
     .input(
       z.object({
-        personaId: z.string().min(1),
+        personaId: agentLabPersonaId,
         name: z.string().optional(),
         models: agentLabModels,
         customPrompt: z.string().optional(),
@@ -1840,7 +1841,7 @@ export const accountRouter = router({
   chatWithAgentLabPersona: procedure
     .input(
       z.object({
-        personaId: z.string().min(1),
+        personaId: agentLabPersonaId,
         text: z.string().min(1),
         sessionId: z.string().optional(),
         history: z
@@ -1864,21 +1865,21 @@ export const accountRouter = router({
 
   /** 克隆体会话（好友克隆多会话）列表，最近活跃倒序。 */
   listAgentLabPersonaSessions: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .query(({ input }) => {
       return requireServices().agentLab.listPersonaSessions(input.personaId);
     }),
 
   /** 新建一个克隆体会话（空对话，标题待首条消息生成）。 */
   createAgentLabPersonaSession: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .mutation(({ input }) => {
       return requireServices().agentLab.createPersonaSession(input.personaId);
     }),
 
   /** 删除克隆体会话（含其对话内容）。 */
   deleteAgentLabPersonaSession: procedure
-    .input(z.object({ personaId: z.string().min(1), sessionId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId, sessionId: z.string().min(1) }))
     .mutation(({ input }) => {
       requireServices().agentLab.deletePersonaSession(input.personaId, input.sessionId);
       return true;
@@ -1886,7 +1887,7 @@ export const accountRouter = router({
 
   /** 某克隆体会话的对话历史。 */
   getAgentLabPersonaSessionConversation: procedure
-    .input(z.object({ personaId: z.string().min(1), sessionId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId, sessionId: z.string().min(1) }))
     .query(({ input }) => {
       return requireServices().agentLab.getPersonaSessionConversation(
         input.personaId,
@@ -1924,7 +1925,7 @@ export const accountRouter = router({
     }),
 
   deleteAgentLabPersona: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .mutation(({ input }) => {
       return requireServices().agentLab.deletePersona(input.personaId);
     }),
@@ -1933,7 +1934,7 @@ export const accountRouter = router({
   exportAgentLabPersona: procedure
     .input(
       z.object({
-        personaId: z.string().min(1),
+        personaId: agentLabPersonaId,
         adapterType: z.enum(['napcat', 'snowluma']),
         wsUrl: z.string().min(1),
         token: z.string().optional(),
@@ -2035,7 +2036,7 @@ export const accountRouter = router({
 
   /** 查某克隆体最近一次导出的 WebUI 访问信息（密钥/端口/url；没导出过则 null）。 */
   getAgentLabExportInfo: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .query(({ input }) => {
       return requireServices().agentLab.getExportInfo(input.personaId) ?? null;
     }),
@@ -2045,7 +2046,7 @@ export const accountRouter = router({
    * 先探活默认地址（或用户传入的 url）；不可达则返回 { needUrl: true } 让前端提示输入地址。
    */
   openBotWebUi: procedure
-    .input(z.object({ personaId: z.string().min(1), url: z.string().optional() }))
+    .input(z.object({ personaId: agentLabPersonaId, url: z.string().optional() }))
     .mutation(async ({ input }) => {
       const svc = requireServices().agentLab;
       const info = svc.getExportInfo(input.personaId);
@@ -2070,7 +2071,7 @@ export const accountRouter = router({
   // ── 克隆体群聊（M2 群骨架）─────────────────────────────────────────────
 
   createAgentLabGroup: procedure
-    .input(z.object({ name: z.string().min(1), personaIds: z.array(z.string().min(1)).min(1) }))
+    .input(z.object({ name: z.string().min(1), personaIds: z.array(agentLabPersonaId).min(1) }))
     .mutation(({ input }) => {
       return requireServices().agentLab.createGroup({
         name: input.name,
@@ -2140,7 +2141,7 @@ export const accountRouter = router({
     }),
 
   addAgentLabGroupMember: procedure
-    .input(z.object({ groupId: z.string().min(1), personaId: z.string().min(1) }))
+    .input(z.object({ groupId: z.string().min(1), personaId: agentLabPersonaId }))
     .mutation(({ input }) => {
       requireServices().agentLab.addGroupMember(input.groupId, input.personaId);
       return true;
@@ -2226,7 +2227,7 @@ export const accountRouter = router({
   updateAgentLabPersona: procedure
     .input(
       z.object({
-        personaId: z.string().min(1),
+        personaId: agentLabPersonaId,
         chatModel: agentLabModelRef.optional(),
         generation: z
           .object({
@@ -2291,13 +2292,13 @@ export const accountRouter = router({
 
   /** 与某克隆体的持久化对话历史。 */
   getAgentLabConversation: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .query(({ input }) => {
       return requireServices().agentLab.getConversation(input.personaId);
     }),
 
   clearAgentLabConversation: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .mutation(({ input }) => {
       requireServices().agentLab.clearConversation(input.personaId);
       return true;
@@ -2305,20 +2306,20 @@ export const accountRouter = router({
 
   /** 克隆体对「对方」的记忆（灯箱「记忆 / 画像」用）。 */
   getAgentLabMemories: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .query(({ input }) => {
       return requireServices().agentLab.getMemories(input.personaId);
     }),
 
   forgetAgentLabMemory: procedure
-    .input(z.object({ personaId: z.string().min(1), memoryId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId, memoryId: z.string().min(1) }))
     .mutation(({ input }) => {
       requireServices().agentLab.forgetMemory(input.personaId, input.memoryId);
       return true;
     }),
 
   clearAgentLabMemories: procedure
-    .input(z.object({ personaId: z.string().min(1) }))
+    .input(z.object({ personaId: agentLabPersonaId }))
     .mutation(({ input }) => {
       requireServices().agentLab.clearMemories(input.personaId);
       return true;
@@ -2336,6 +2337,8 @@ export const accountRouter = router({
         customPrompt: z.string().optional(),
         reasoningEffort: z.enum(['off', 'low', 'medium', 'high']).optional(),
         mcpServers: z.string().optional(),
+        permissionMode: z.enum(['sandbox', 'unrestricted']).optional(),
+        confirmUnrestricted: z.boolean().optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -2347,6 +2350,8 @@ export const accountRouter = router({
         customPrompt: input.customPrompt,
         reasoningEffort: input.reasoningEffort,
         mcpServers: input.mcpServers,
+        permissionMode: input.permissionMode,
+        confirmUnrestricted: input.confirmUnrestricted,
       });
     }),
 
