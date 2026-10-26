@@ -186,6 +186,7 @@ describe('设置归位后的实际页面', () => {
         '群助手显示总消息数',
         '从第一条新消息开始阅读',
         '发送消息后定位到最新消息',
+        '向下滚动时显示定位到底部按钮',
         '使用 QQ 账号设置的个性字体发送消息',
       ]);
       const display = f.body().querySelector('[data-setting-id="custom-message-display"]')!;
