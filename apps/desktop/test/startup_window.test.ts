@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   AUTOSTART_ARG,
+  MANUAL_RESTART_ARG,
   installStartupWindowReveal,
   isAutostartLaunch,
   manualRestartArgs,
@@ -81,6 +82,8 @@ describe('系统自启与手动窗口启动边界', () => {
         AUTOSTART_ARG,
         '--ozone-platform=x11',
       ]),
-    ).toEqual(['/synthetic/app', '--ozone-platform=x11']);
+    ).toEqual(['/synthetic/app', '--ozone-platform=x11', MANUAL_RESTART_ARG]);
+    expect(manualRestartArgs(['/synthetic/WeQ', MANUAL_RESTART_ARG])).toEqual([MANUAL_RESTART_ARG]);
+    expect(isAutostartLaunch(['/synthetic/WeQ', MANUAL_RESTART_ARG], 'darwin', true)).toBe(false);
   });
 });
