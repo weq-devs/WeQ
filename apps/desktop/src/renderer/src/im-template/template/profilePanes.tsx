@@ -6,6 +6,7 @@ import {
   CalendarDays,
   Check,
   Copy,
+  Eye,
   Fingerprint,
   FolderClosed,
   GraduationCap,
@@ -181,27 +182,32 @@ export function toPersonalityProfile(
   };
 }
 
-/**
- * 联系人主区域占位。好友资料改为点击弹出灯箱（{@link ContactProfileDialog}），
- * 右半边主区域留白，作为后续功能预留位。
- */
-export function ContactProfilePane() {
+/** 未选择对象时保留占位，群交集由用户主动进入。 */
+export function ContactProfilePane({ onOpenOverview }: { onOpenOverview?: () => void }) {
   return (
     <section className={cn('contact-profile-empty weq-contact-reserved')}>
       <EmptyState title="联系人" body="在左侧选择联系人，查看资料卡片。" />
+      <ContactOverviewAction onOpen={onOpenOverview} />
     </section>
   );
 }
 
-/**
- * 群聊主区域占位。群资料同样改为点击弹出灯箱（{@link GroupProfileDialog}）。
- */
-export function GroupProfilePane() {
+export function GroupProfilePane({ onOpenOverview }: { onOpenOverview?: () => void }) {
   return (
     <section className={cn('contact-profile-empty weq-contact-reserved')}>
       <EmptyState title="群聊" body="在左侧选择群聊，查看群资料。" />
+      <ContactOverviewAction onOpen={onOpenOverview} />
     </section>
   );
+}
+
+function ContactOverviewAction({ onOpen }: { onOpen?: () => void }) {
+  return onOpen ? (
+    <button className="weq-profile-perhome" type="button" onClick={onOpen}>
+      <Waypoints size={15} />
+      群交集
+    </button>
+  ) : null;
 }
 
 /** 联系人页内嵌资料；其他入口保留原有浮层与关闭行为。 */
@@ -246,12 +252,16 @@ export function ContactProfileDialog({
   embedded = false,
   tab,
   onTabChange,
+  onPreviewChat,
+  previewContent,
 }: {
   contact: Contact | undefined;
   onClose: () => void;
   embedded?: boolean;
   tab?: ContactWorkspaceTab;
   onTabChange?: (tab: ContactWorkspaceTab) => void;
+  onPreviewChat?: (contact: Contact) => void;
+  previewContent?: ReactNode;
 }) {
   const openSpace = useContext(QzoneNavigationContext);
   const openChat = useContext(ChatNavigationContext);
@@ -521,7 +531,7 @@ export function ContactProfileDialog({
         className="weq-profile-perhome"
         type="button"
         onClick={() => {
-          onClose();
+          if (!embedded) onClose();
           openChat({ kind: 'direct', user: profile });
         }}
       >
@@ -538,7 +548,7 @@ export function ContactProfileDialog({
           className="weq-profile-perhome"
           type="button"
           onClick={() => {
-            onClose();
+            if (!embedded) onClose();
             openSpace(profile.identityValue, profile.nick || displayUserName(profile));
           }}
         >
@@ -572,82 +582,98 @@ export function ContactProfileDialog({
               {identity}
               <nav className="weq-contact-identity-actions" aria-label="好友操作">
                 {chatAction}
+                {onPreviewChat ? (
+                  <div className="weq-profile-actions">
+                    <button
+                      className="weq-profile-perhome"
+                      type="button"
+                      onClick={() => onPreviewChat(profile)}
+                    >
+                      <Eye size={13} />
+                      预览私聊
+                    </button>
+                  </div>
+                ) : null}
                 {otherActions}
               </nav>
             </header>
-            <ContactWorkspace
-              key={profile.id}
-              contact={profile}
-              tab={tab}
-              onTabChange={onTabChange}
-              onNavigateAway={onClose}
-              personalityProfile={toPersonalityProfile(
-                {
-                  name: displayUserName(profile),
-                  avatarUrl: profile.avatarUrl,
-                  signature: profile.signature,
-                },
-                extInfo,
-              )}
-            >
-              <div className={cn('weq-contact-columns', !hasSecondary && 'is-single')}>
-                <div className="weq-contact-primary">
-                  {profile.signature ? (
-                    <ProfileSection title="个性签名">
-                      <p className="weq-contact-text" data-privacy-sensitive>
-                        {profile.signature}
-                      </p>
+            {previewContent ? (
+              <div className="weq-contact-chat-preview">{previewContent}</div>
+            ) : (
+              <ContactWorkspace
+                key={profile.id}
+                contact={profile}
+                tab={tab}
+                onTabChange={onTabChange}
+                onNavigateAway={onClose}
+                personalityProfile={toPersonalityProfile(
+                  {
+                    name: displayUserName(profile),
+                    avatarUrl: profile.avatarUrl,
+                    signature: profile.signature,
+                  },
+                  extInfo,
+                )}
+              >
+                <div className={cn('weq-contact-columns', !hasSecondary && 'is-single')}>
+                  <div className="weq-contact-primary">
+                    {profile.signature ? (
+                      <ProfileSection title="个性签名">
+                        <p className="weq-contact-text" data-privacy-sensitive>
+                          {profile.signature}
+                        </p>
+                      </ProfileSection>
+                    ) : null}
+                    <ProfileSection title="个人资料">
+                      <div className="weq-profile-list">{personalRows}</div>
                     </ProfileSection>
+                    {interestSection}
+                    {albumSection}
+                  </div>
+                  {hasSecondary ? (
+                    <aside className="weq-contact-secondary">
+                      {hasRelationDetails ? (
+                        <ProfileSection title="好友关系">
+                          <div className="weq-profile-list">
+                            {commonRows}
+                            {relationRows}
+                          </div>
+                        </ProfileSection>
+                      ) : null}
+                      {tags.length ? (
+                        <ProfileSection title="关系标识">
+                          <div className="weq-profile-tags">
+                            {tags.map((tag) => (
+                              <span key={tag.id} className="weq-profile-tag">
+                                <tag.Icon size={12} />
+                                {tag.label}
+                              </span>
+                            ))}
+                          </div>
+                        </ProfileSection>
+                      ) : null}
+                      {openedPrivileges.length ? (
+                        <ProfileSection title="已开通特权">
+                          <div className="weq-contact-privileges">
+                            {openedPrivileges.map((item) => (
+                              <span key={`${item.bizId ?? '?'}:${item.iconUrl}:${item.level ?? 0}`}>
+                                <img
+                                  src={collectionImageUrl(item.iconUrl as string)}
+                                  alt=""
+                                  loading="lazy"
+                                />
+                                {privilegeName(item.bizId)}
+                                {item.level ? ` · ${item.level} 级` : ''}
+                              </span>
+                            ))}
+                          </div>
+                        </ProfileSection>
+                      ) : null}
+                    </aside>
                   ) : null}
-                  <ProfileSection title="个人资料">
-                    <div className="weq-profile-list">{personalRows}</div>
-                  </ProfileSection>
-                  {interestSection}
-                  {albumSection}
                 </div>
-                {hasSecondary ? (
-                  <aside className="weq-contact-secondary">
-                    {hasRelationDetails ? (
-                      <ProfileSection title="好友关系">
-                        <div className="weq-profile-list">
-                          {commonRows}
-                          {relationRows}
-                        </div>
-                      </ProfileSection>
-                    ) : null}
-                    {tags.length ? (
-                      <ProfileSection title="关系标识">
-                        <div className="weq-profile-tags">
-                          {tags.map((tag) => (
-                            <span key={tag.id} className="weq-profile-tag">
-                              <tag.Icon size={12} />
-                              {tag.label}
-                            </span>
-                          ))}
-                        </div>
-                      </ProfileSection>
-                    ) : null}
-                    {openedPrivileges.length ? (
-                      <ProfileSection title="已开通特权">
-                        <div className="weq-contact-privileges">
-                          {openedPrivileges.map((item) => (
-                            <span key={`${item.bizId ?? '?'}:${item.iconUrl}:${item.level ?? 0}`}>
-                              <img
-                                src={collectionImageUrl(item.iconUrl as string)}
-                                alt=""
-                                loading="lazy"
-                              />
-                              {privilegeName(item.bizId)}
-                              {item.level ? ` · ${item.level} 级` : ''}
-                            </span>
-                          ))}
-                        </div>
-                      </ProfileSection>
-                    ) : null}
-                  </aside>
-                ) : null}
-              </div>
-            </ContactWorkspace>
+              </ContactWorkspace>
+            )}
           </>
         ) : (
           <>
@@ -803,7 +829,7 @@ export function GroupProfileDialog({
                 className="weq-profile-perhome"
                 type="button"
                 onClick={() => {
-                  onClose();
+                  if (!embedded) onClose();
                   openChat({ kind: 'group', conversation });
                 }}
               >

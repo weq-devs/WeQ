@@ -10,6 +10,8 @@ import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupIn
 import { ChatNavigationContext } from '../src/renderer/src/lib/chatNavigation';
 import { QzoneNavigationContext } from '../src/renderer/src/lib/qzoneNavigation';
 import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
+import { ChatMainContent } from '../src/renderer/src/im-template/template/chatMainContent';
+import { useTabActive } from '../src/renderer/src/components/RetainedTabs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -303,8 +305,155 @@ it.each([false, true])('好友资料的私聊操作使用当前对象，内嵌=%
     expect(entry).toBeDefined();
     act(() => entry.click());
     expect(open).toHaveBeenCalledWith({ kind: 'direct', user: contactFixture });
-    expect(close).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledTimes(embedded ? 0 : 1);
     expect(document.querySelector('.weq-contact-columns') !== null).toBe(embedded);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it.each(['资料', '个性主页'] as const)('联系人%s跳转空间不清除当前详情', (tab) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const open = vi.fn();
+  const close = vi.fn();
+  try {
+    act(() =>
+      root.render(
+        h(
+          QzoneNavigationContext.Provider,
+          { value: open },
+          h(ContactProfileDialog, { contact: contactFixture, embedded: true, onClose: close }),
+        ),
+      ),
+    );
+    if (tab === '个性主页') {
+      act(() =>
+        [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+          .find((button) => button.textContent?.includes(tab))!
+          .click(),
+      );
+    }
+    act(() =>
+      [...host.querySelectorAll<HTMLButtonElement>('button')]
+        .filter((button) => button.textContent?.includes('查看空间'))
+        .at(-1)!
+        .click(),
+    );
+    expect(open).toHaveBeenCalledWith(contactFixture.identityValue, contactFixture.nick);
+    expect(close).not.toHaveBeenCalled();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it('联系人好友操作可在原位预览私聊并返回资料，不触发聊天导航或群交集', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const open = vi.fn();
+  const close = vi.fn();
+  const preview = vi.fn();
+  const render = (previewContent?: ReturnType<typeof h>) =>
+    act(() =>
+      root.render(
+        h(
+          ChatNavigationContext.Provider,
+          { value: open },
+          h(ContactProfileDialog, {
+            contact: contactFixture,
+            embedded: true,
+            onClose: close,
+            onPreviewChat: preview,
+            previewContent,
+          }),
+        ),
+      ),
+    );
+  try {
+    render();
+    const entry = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === '预览私聊',
+    );
+    expect(entry).toBeDefined();
+    act(() => entry!.click());
+    expect(preview).toHaveBeenCalledWith(contactFixture);
+    render(h('section', { 'aria-label': '合成私聊预览' }, '合成消息'));
+    expect(host.querySelector('[aria-label="合成私聊预览"]')).not.toBeNull();
+    expect(host.querySelector('.weq-contact-workspace')).toBeNull();
+    expect(document.querySelector('.weq-overlay-layer')).toBeNull();
+    render();
+    expect(host.querySelector('.weq-contact-workspace')).not.toBeNull();
+    expect(close).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it('详情切换后的空标签不自动挂载群交集，主动打开后保留现场并暂停隐藏区域', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const backContact = vi.fn();
+  const backGroup = vi.fn();
+  function Graph() {
+    const active = useTabActive();
+    return h('input', {
+      'aria-label': '合成关系图状态',
+      'data-active': active,
+      defaultValue: '初始',
+    });
+  }
+  const render = (contactTab: 'friends' | 'groups', contactOverviewOpen = false) =>
+    act(() =>
+      root.render(
+        h(ChatMainContent, {
+          user: contactFixture,
+          view: 'contacts',
+          contactTab,
+          contactOverviewOpen,
+          relationGraphSlot: h(Graph),
+          messages: [],
+          loadingMessages: false,
+          conversationPrefs: {},
+          drafts: {},
+          onBackContact: backContact,
+          onBackGroup: backGroup,
+          onSend: async () => undefined,
+          onDraftChange: vi.fn(),
+          onDraftClear: vi.fn(),
+          onBackConversation: vi.fn(),
+        }),
+      ),
+    );
+  try {
+    render('friends');
+    expect(host.querySelector('[aria-label="合成关系图状态"]')).toBeNull();
+    act(() => host.querySelector<HTMLButtonElement>('.weq-contact-reserved button')!.click());
+    expect(backContact).toHaveBeenCalledOnce();
+    render('groups');
+    expect(host.querySelector('[aria-label="合成关系图状态"]')).toBeNull();
+    act(() => host.querySelector<HTMLButtonElement>('.weq-contact-reserved button')!.click());
+    expect(backGroup).toHaveBeenCalledOnce();
+    render('groups', true);
+    const graph = host.querySelector<HTMLInputElement>('[aria-label="合成关系图状态"]')!;
+    expect(graph.dataset.active).toBe('true');
+    graph.value = '保留手动布局';
+    render('friends');
+    expect(graph.dataset.active).toBe('false');
+    expect(graph.closest('[hidden]')).not.toBeNull();
+    render('friends', true);
+    expect(host.querySelector('[aria-label="合成关系图状态"]')).toBe(graph);
+    expect(graph.value).toBe('保留手动布局');
+    expect(graph.dataset.active).toBe('true');
   } finally {
     act(() => root.unmount());
     host.remove();

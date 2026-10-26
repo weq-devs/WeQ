@@ -106,3 +106,44 @@ it('目录外群名片可展开，连续切换不会残留前一个好友或群'
   expect(p.state().selectedGroupConversation).toBeUndefined();
   expect(p.state().contactWorkspaceTab).toBe('profile');
 });
+
+it('切换好友与群聊分别保留详情和好友分区，未选对象时不自动进入群交集', () => {
+  const p = mount();
+  act(() => p.state().openContactDetails(person, 'marks'));
+  act(() => p.state().changeContactTab('groups'));
+  expect(p.state().selectedContact).toBeUndefined();
+  expect(p.state().selectedGroupConversation).toBeUndefined();
+  expect(p.state().contactOverviewOpen).toBe(false);
+  act(() => p.state().openGroupDetails(group));
+  act(() => p.state().changeContactTab('friends'));
+  expect(p.state().selectedContact).toEqual(person);
+  expect(p.state().selectedGroupConversation).toBeUndefined();
+  expect(p.state().contactWorkspaceTab).toBe('marks');
+  act(() => p.state().changeContactTab('groups'));
+  expect(p.state().selectedGroupConversation).toEqual(group);
+  expect(p.state().selectedContact).toBeUndefined();
+  expect(p.read).not.toHaveBeenCalled();
+});
+
+it('直接进入联系人且尚未打开好友或群聊时，默认显示群交集', () => {
+  const p = mount();
+  act(() => p.state().switchView('contacts'));
+  expect(p.state().selectedContact).toBeUndefined();
+  expect(p.state().selectedGroupConversation).toBeUndefined();
+  expect(p.state().contactOverviewOpen).toBe(true);
+});
+
+it('离开联系人再返回保留当前详情，主动返回群交集后仍可切换标签', () => {
+  const p = mount();
+  act(() => p.state().openContactDetails(person, 'portrait'));
+  act(() => p.state().switchView('qzone'));
+  act(() => p.state().switchView('contacts'));
+  expect(p.state().selectedContact).toEqual(person);
+  expect(p.state().contactWorkspaceTab).toBe('portrait');
+  expect(p.state().contactOverviewOpen).toBe(false);
+  act(() => p.state().backContact());
+  expect(p.state().contactOverviewOpen).toBe(true);
+  expect(p.state().selectedContact).toBeUndefined();
+  act(() => p.state().changeContactTab('groups'));
+  expect(p.state().contactOverviewOpen).toBe(false);
+});

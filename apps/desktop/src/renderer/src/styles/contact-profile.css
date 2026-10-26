@@ -2,6 +2,28 @@
   height: 100%;
 }
 
+.weq-contact-reserved {
+  align-content: center;
+  gap: 16px;
+}
+
+.weq-contact-reserved > .weq-profile-perhome {
+  width: auto;
+  margin-top: 0;
+}
+
+.weq-contact-chat-preview {
+  height: 600px;
+  min-height: 320px;
+  max-height: 75vh;
+  padding-top: 20px;
+}
+
+.weq-contact-chat-preview > .weq-private-preview-inline {
+  height: 100%;
+  max-height: none;
+}
+
 .weq-profile-expand {
   position: absolute;
   top: 10px;

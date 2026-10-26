@@ -216,7 +216,7 @@ export function PersonalityHomeDialog({
               className="weq-profile-perhome"
               type="button"
               onClick={() => {
-                onClose();
+                if (!embedded) onClose();
                 onNavigateAway?.();
                 if (onOpenChat) onOpenChat();
                 else openSpace(uin, spaceNickname || profile.name);

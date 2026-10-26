@@ -14,6 +14,7 @@ import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCar
 import type { FlashSendPayload } from './flashComposer';
 import type { RedPacketDraft } from './redPacketPanel';
 import { ToolDetailPane } from './toolsPane';
+import { RetainedTabs, TabActivity } from '../../components/RetainedTabs';
 import type { ComposerActionRegistry } from './composerActions';
 import type { ConversationDetailActionRegistry } from './conversationDetailActions';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
@@ -43,7 +44,10 @@ export function ChatMainContent({
   view,
   contactTab,
   relationGraphSlot,
+  contactOverviewOpen = true,
   selectedContact,
+  onPreviewContactChat,
+  contactPreviewContent,
   contactWorkspaceTab,
   onContactWorkspaceTabChange,
   selectedGroupConversation,
@@ -135,7 +139,10 @@ export function ChatMainContent({
   contactTab?: ContactTab;
   /** App-provided content for the contacts main area (the relation graph). */
   relationGraphSlot?: React.ReactNode;
+  contactOverviewOpen?: boolean;
   selectedContact?: Contact;
+  onPreviewContactChat?: (contact: Contact) => void;
+  contactPreviewContent?: React.ReactNode;
   contactWorkspaceTab?: ContactWorkspaceTab;
   onContactWorkspaceTabChange?: (tab: ContactWorkspaceTab) => void;
   selectedGroupConversation?: GroupConversation;
@@ -281,8 +288,17 @@ export function ChatMainContent({
           className="weq-contact-overview"
           hidden={Boolean(selectedContact || selectedGroupConversation)}
         >
-          {relationGraphSlot ??
-            (contactTab === 'groups' ? <GroupProfilePane /> : <ContactProfilePane />)}
+          <TabActivity active={!selectedContact && !selectedGroupConversation}>
+            <RetainedTabs activeKey={contactOverviewOpen ? 'graph' : 'empty'}>
+              {contactOverviewOpen && relationGraphSlot ? (
+                relationGraphSlot
+              ) : contactTab === 'groups' ? (
+                <GroupProfilePane onOpenOverview={onBackGroup} />
+              ) : (
+                <ContactProfilePane onOpenOverview={onBackContact} />
+              )}
+            </RetainedTabs>
+          </TabActivity>
         </div>
         {selectedContact ? (
           <ContactProfileDialog
@@ -291,6 +307,8 @@ export function ChatMainContent({
             onClose={onBackContact}
             tab={contactWorkspaceTab}
             onTabChange={onContactWorkspaceTabChange}
+            onPreviewChat={onPreviewContactChat}
+            previewContent={contactPreviewContent}
           />
         ) : selectedGroupConversation ? (
           <GroupProfileDialog

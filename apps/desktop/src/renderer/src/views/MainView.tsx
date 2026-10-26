@@ -9213,7 +9213,8 @@ export function MainView(): ReactElement {
 
   const [privatePreview, setPrivatePreview] = useState<{
     account: string;
-    source: 'member' | 'latest';
+    source: 'member' | 'latest' | 'contact';
+    contactScope: string | null;
     conversation: Conversation;
     rows: MessageWire[];
     loading: boolean;
@@ -9222,20 +9223,34 @@ export function MainView(): ReactElement {
     hasMore: boolean;
   } | null>(null);
   const previewRequest = useRef(0);
+  const contactPreviewScope = JSON.stringify([
+    shell.view,
+    shell.contactTab,
+    shell.selectedContactId,
+    shell.contactWorkspaceTab,
+    shell.contactOverviewOpen,
+    shell.contactNotice,
+  ]);
   useEffect(() => {
     previewRequest.current++;
     setPrivatePreview(null);
   }, [memberCard?.member.id, memberCard?.member.identityValue, user.identityValue]);
+  useEffect(() => {
+    if (privatePreview?.source !== 'contact' || privatePreview.contactScope === contactPreviewScope)
+      return;
+    previewRequest.current++;
+    setPrivatePreview(null);
+  }, [contactPreviewScope, privatePreview?.source, privatePreview?.contactScope]);
   useEffect(() => {
     if (privatePreview?.source === 'latest' && privatePreview.conversation.id !== selectedUid) {
       previewRequest.current++;
       setPrivatePreview(null);
     }
   }, [privatePreview?.source, privatePreview?.conversation.id, selectedUid]);
-  async function previewPrivateChat(peer: User) {
+  async function previewPrivateChat(peer: User, source: 'member' | 'contact' = 'member') {
     await previewConversation(
       {
-        id: peer.id,
+        id: peer.uid || (peer.id.startsWith('u_') ? peer.id : ''),
         type: 'direct',
         otherUser: peer,
         group: null,
@@ -9245,15 +9260,20 @@ export function MainView(): ReactElement {
         unreadCount: 0,
         lastMessage: null,
       },
-      'member',
+      source,
     );
   }
-  async function previewConversation(conversation: Conversation, source: 'member' | 'latest') {
+  async function previewConversation(
+    conversation: Conversation,
+    source: 'member' | 'latest' | 'contact',
+  ) {
     const account = user.identityValue;
+    const contactScope = source === 'contact' ? contactPreviewScope : null;
     const request = ++previewRequest.current;
     setPrivatePreview({
       account,
       source,
+      contactScope,
       conversation,
       rows: [],
       loading: true,
@@ -9290,6 +9310,7 @@ export function MainView(): ReactElement {
       setPrivatePreview({
         account,
         source,
+        contactScope,
         conversation,
         rows: rows.map(toMessageWire).reverse(),
         loading: false,
@@ -9392,7 +9413,7 @@ export function MainView(): ReactElement {
     privatePreview.account === user.identityValue ? (
       <GapMessagesModal
         preview
-        embedded={privatePreview.source === 'member'}
+        embedded={privatePreview.source !== 'latest'}
         title={privatePreview.source === 'latest' ? '预览新消息' : undefined}
         conversation={resolvedPreviewConversation}
         user={user}
@@ -9793,12 +9814,19 @@ export function MainView(): ReactElement {
                           user={user}
                           view={shell.view}
                           contactTab={shell.contactTab}
+                          contactOverviewOpen={shell.contactOverviewOpen}
                           relationGraphSlot={
                             <Suspense fallback={workspaceLoading}>
                               <RelationGraphView onOpenMember={handleOpenGraphMember} />
                             </Suspense>
                           }
                           selectedContact={selectedContactForDetail}
+                          onPreviewContactChat={(contact) =>
+                            void previewPrivateChat(contact, 'contact')
+                          }
+                          contactPreviewContent={
+                            privatePreview?.source === 'contact' ? conversationPreviewContent : null
+                          }
                           contactWorkspaceTab={shell.contactWorkspaceTab}
                           onContactWorkspaceTabChange={shell.setContactWorkspaceTab}
                           selectedGroupConversation={selectedGroupConversationForDetail}
