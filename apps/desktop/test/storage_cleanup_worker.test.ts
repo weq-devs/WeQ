@@ -64,6 +64,19 @@ async function until(check: () => boolean): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
 }
+/**
+ * 读报告，未写完时返回 `undefined`。
+ *
+ * `executeStorageCleanup` 用 `writeFile` 落盘，文件被创建的瞬间内容可能还是空的，
+ * 只等 `existsSync` 会在 CI 上偶发读到空串（`Unexpected end of JSON input`）。
+ */
+function readReport(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return undefined;
+  }
+}
 afterEach(async () => {
   for (const child of children.splice(0)) {
     if (child.exitCode === null && child.signalCode === null) {
@@ -100,9 +113,9 @@ child.send({type:'prepare',parentPid:process.pid,plan:${JSON.stringify(f.plan)}}
   const parent = launch(harness);
   await until(() => parent.exitCode !== null);
   if (commit) {
-    await until(() => existsSync(f.plan.reportPath));
+    await until(() => readReport(f.plan.reportPath) !== undefined);
     expect(existsSync(f.path)).toBe(false);
-    expect(JSON.parse(readFileSync(f.plan.reportPath, 'utf8'))).toMatchObject({
+    expect(readReport(f.plan.reportPath)).toMatchObject({
       cleared: ['OCR'],
       failed: [],
     });
