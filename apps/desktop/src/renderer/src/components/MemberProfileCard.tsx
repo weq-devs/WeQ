@@ -32,6 +32,7 @@ import {
   Hash,
   Heart,
   Loader2,
+  MessageSquare,
   MessageSquareCode,
   Megaphone,
   Terminal,
@@ -40,6 +41,7 @@ import {
   Star,
   User as UserIcon,
   Wand2,
+  Eye,
   X,
 } from 'lucide-react';
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
@@ -468,6 +470,7 @@ export function MemberProfileCard({
                       onOpenChat();
                     }}
                   >
+                    <MessageSquare size={13} aria-hidden="true" />
                     查看私聊
                   </button>
                 ) : null}
@@ -479,6 +482,7 @@ export function MemberProfileCard({
                       onPreviewChat();
                     }}
                   >
+                    <Eye size={13} aria-hidden="true" />
                     预览私聊
                   </button>
                 ) : null}

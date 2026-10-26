@@ -36,6 +36,8 @@ import {
   ChevronDown,
   Cpu,
   Loader2,
+  Play,
+  Save,
   Send,
   Settings,
   Sparkles,
@@ -405,6 +407,7 @@ function AssistantSettings({ onClose }: { onClose: () => void }): ReactElement {
               取消
             </button>
             <button className="weq-set-btn" disabled={save.isLoading} onClick={() => void onSave()}>
+              <Save size={14} aria-hidden="true" />
               保存
             </button>
           </div>
@@ -946,6 +949,7 @@ export function AssistantPanel({
             disabled={resumeRun.isLoading}
             onClick={() => void onResume()}
           >
+            <Play size={13} aria-hidden="true" />
             {resumeRun.isLoading ? '继续中…' : '继续回答'}
           </button>
         </div>

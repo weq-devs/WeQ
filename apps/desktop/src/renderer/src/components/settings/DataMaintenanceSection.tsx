@@ -6,6 +6,7 @@ import {
   FolderOpen,
   HardDrive,
   KeyRound,
+  RefreshCw,
   Trash2,
 } from 'lucide-react';
 import { ToolSurface } from '../ToolSurface';
@@ -135,6 +136,7 @@ export function DataMaintenanceSection({
         <div role="alert" className="weq-maintenance-status">
           {account.error.message}
           <button type="button" className="weq-set-btn" onClick={() => void account.refetch()}>
+            <RefreshCw size={14} aria-hidden="true" />
             重试
           </button>
         </div>

@@ -22,6 +22,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Download,
+  RefreshCw,
 } from 'lucide-react';
 import type { DbObject } from '@weq/service';
 import { trpc } from '../../trpc/client';
@@ -188,6 +189,7 @@ export function DbExplorer({
                   className="weq-cache-btn"
                   onClick={() => void (databases.error ? databases.refetch() : objects.refetch())}
                 >
+                  <RefreshCw size={13} aria-hidden="true" />
                   重试
                 </button>
               </div>

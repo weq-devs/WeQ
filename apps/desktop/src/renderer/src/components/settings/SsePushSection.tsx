@@ -27,6 +27,7 @@ import {
   Plus,
   Radio,
   RefreshCw,
+  Save,
   Trash2,
   X,
 } from 'lucide-react';
@@ -389,6 +390,7 @@ export function SsePushSection(): ReactElement {
                   测试连接
                 </button>
                 <button type="submit" className="weq-set-btn" disabled={busy}>
+                  <Save size={13} aria-hidden="true" />
                   保存
                 </button>
               </div>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Activity, Check, Copy } from 'lucide-react';
+import { Activity, Check, Copy, Save } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useDialog } from '../Dialog';
@@ -156,6 +156,7 @@ export function AssistantSection() {
                 disabled={busy || status.isLoading || !data}
                 onClick={() => void savePort()}
               >
+                <Save size={13} aria-hidden="true" />
                 保存
               </button>
             </div>

@@ -525,6 +525,7 @@ export function DatabaseToleranceSection({
               disabled={clearQuarantine.isPending}
               onClick={() => void retryQuarantine()}
             >
+              <RefreshCw size={13} aria-hidden="true" />
               全部再试一次
             </button>
           }
@@ -560,6 +561,7 @@ export function DatabaseToleranceSection({
                     disabled={clearQuarantine.isPending}
                     onClick={() => void retryQuarantine(baseName(entry.dbPath), entry.table)}
                   >
+                    <RefreshCw size={13} aria-hidden="true" />
                     再试一次
                   </button>
                 </span>

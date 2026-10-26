@@ -18,6 +18,8 @@ import {
   FileText,
   Mic,
   Settings,
+  Save,
+  Trash2,
   Brain,
   Gauge,
   X,
@@ -99,6 +101,7 @@ function MemoryTab({ personaId }: { personaId: string }): ReactElement {
             className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
             onClick={() => void onClear()}
           >
+            <Trash2 size={13} aria-hidden="true" />
             清空全部记忆
           </button>
         </div>
@@ -230,6 +233,7 @@ function WillingTab({
 
       <div className="weq-clone-actions">
         <button className="weq-set-btn" disabled={saving} onClick={() => void save()}>
+          <Save size={14} aria-hidden="true" />
           保存
         </button>
       </div>
@@ -396,6 +400,7 @@ function VoiceTab({
           ) : null}
           <div className="weq-clone-actions">
             <button className="weq-set-btn" disabled={saving} onClick={() => void save(true)}>
+              <Save size={14} aria-hidden="true" />
               保存语音设置
             </button>
           </div>
@@ -490,6 +495,7 @@ function ExportRuntimeCard({ personaId }: { personaId: string }): ReactElement |
             disabled={openMut.isLoading}
             onClick={() => void openConsole(urlInput)}
           >
+            <Plug size={13} aria-hidden="true" />
             连接
           </button>
         </div>
@@ -722,6 +728,7 @@ function ExportTab({
           disabled={exportMut.isLoading}
           onClick={() => void doExport()}
         >
+          <Download size={14} aria-hidden="true" />
           {exportMut.isLoading ? '导出中…' : '导出机器人'}
         </button>
       </div>
@@ -818,6 +825,7 @@ export function PersonaSettingsModal({
                             disabled={update.isLoading}
                             onClick={() => void savePrompt()}
                           >
+                            <Save size={14} aria-hidden="true" />
                             保存
                           </button>
                         </div>

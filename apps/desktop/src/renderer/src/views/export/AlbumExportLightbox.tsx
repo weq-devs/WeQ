@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { Check, Image, Loader2, X } from 'lucide-react';
+import { Check, CheckCheck, FlipHorizontal2, Image, Loader2, X } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
 import '../../styles/resource-export.css';
 import { closeFromScrim, useEscapeToClose } from '../../im-template/template/modalUtils';
@@ -102,6 +102,7 @@ export function AlbumExportLightbox({
               disabled={loadingAlbums || albums.length === 0 || submitting}
               onClick={() => setSelection(new Set(albums.map((album) => album.id)))}
             >
+              <CheckCheck size={14} aria-hidden="true" />
               全选
             </button>
             <button
@@ -117,6 +118,7 @@ export function AlbumExportLightbox({
                 )
               }
             >
+              <FlipHorizontal2 size={14} aria-hidden="true" />
               反选
             </button>
             <span className="weq-exp-tools-spacer" />

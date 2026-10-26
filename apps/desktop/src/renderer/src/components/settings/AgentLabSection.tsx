@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   Boxes,
+  CheckCheck,
   DownloadCloud,
   FlaskConical,
   Loader2,
@@ -8,6 +9,7 @@ import {
   Save,
   Server,
   Sparkles,
+  Square,
   Trash2,
   X,
 } from 'lucide-react';
@@ -625,6 +627,11 @@ export function AgentLabSection(): ReactElement {
                         )
                       }
                     >
+                      {checkedModelIds.length === fetchedModels.length ? (
+                        <Square size={12} aria-hidden="true" />
+                      ) : (
+                        <CheckCheck size={12} aria-hidden="true" />
+                      )}
                       {checkedModelIds.length === fetchedModels.length ? '全不选' : '全选'}
                     </button>
                     <button

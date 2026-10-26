@@ -543,7 +543,10 @@ export function SettingsDialog({
                 aria-current={section.id === activeId ? 'page' : undefined}
                 onClick={() => setActiveId(section.id)}
               >
-                {section.label}
+                <span className="weq-settings-subnav-icon" aria-hidden="true">
+                  {section.icon}
+                </span>
+                <span className="weq-settings-subnav-label">{section.label}</span>
                 {updateAvailable && section.id === 'version' ? (
                   <span className="weq-settings-update-mark" aria-label="有新版本可更新" />
                 ) : null}
