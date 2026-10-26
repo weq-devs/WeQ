@@ -8,5 +8,6 @@ export interface AuthorizationHelperInfo {
   protocol: number;
   build: string;
   validity?: 'valid' | 'expired';
+  development?: boolean;
   capabilities: string[];
 }

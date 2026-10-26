@@ -49,6 +49,19 @@ async function mount(element = createElement(LongTermAuthorizationSection)) {
   };
 }
 describe('长期授权设置', () => {
+  it('开发通道复用同一管理组件，并在提权确认中说明隔离范围', async () => {
+    bridge.status.mockResolvedValue({ ...state('not-installed'), development: true });
+    bridge.install.mockResolvedValue({ ...state('ready'), development: true });
+    const view = await mount();
+    expect(view.host.textContent).toContain('长期授权（开发）');
+    await act(async () => view.button('启用长期授权').click());
+    expect(confirm).toHaveBeenCalledWith(
+      '启用或修复长期授权（开发）',
+      expect.stringContaining('不替换或撤销正式助手'),
+      expect.any(Object),
+    );
+    expect(bridge.install).toHaveBeenCalledWith(true);
+  });
   it('打开、搜索或重新检查只读取状态，不自动安装', async () => {
     const view = await mount();
     expect(view.host.querySelector('[data-setting-id="long-term-authorization"]')).not.toBeNull();

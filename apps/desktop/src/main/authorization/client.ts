@@ -9,7 +9,10 @@ import {
   type AuthorizationHelperInfo,
 } from './protocol';
 
-let configuration: { endpoint: () => Promise<string> } | null = null;
+let configuration: {
+  endpoint: () => Promise<string>;
+  development?: () => Promise<boolean>;
+} | null = null;
 export function configureLongTermAuthorization(value: NonNullable<typeof configuration>): void {
   configuration = value;
 }
@@ -136,6 +139,12 @@ export async function openLongTermAuthorization(): Promise<{
         '原生权限助手已过期，请更新原生组件后修复授权',
         'component-expired',
       );
+    const development = await configuration.development?.();
+    if (
+      (development === true && info.development !== true) ||
+      (development === false && info.development === true)
+    )
+      throw new AuthorizationError('权限助手的开发/正式通道不匹配', 'incompatible');
     // 普通 app/.node 更新不使兼容的系统授权失效。
     return { connection, info };
   } catch (error) {

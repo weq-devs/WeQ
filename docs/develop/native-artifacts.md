@@ -39,6 +39,8 @@
 
 长期授权的公开/私有边界、可选产物清单及兼容规则见[长期授权集成](long-term-authorization-20261026.md)。旧 tag 没有助手时仍能正常取回 `.node`，不据此声称长期授权可用。
 
+桌面 release 额外使用 `--require-authorization` 强制检查助手；Web 使用 `--no-authorization` 避免携带仅供本机桌面管理的可执行文件。升级锚点时应对同一明确 tag 使用 `--require-fresh --require-authorization --verify --write-pin`，校验失败不会写锚点。
+
 `pnpm native:fetch` **默认取的是 `native/pinned.json` 里锚定的那个 tag**，不是 latest。
 
 为什么：WeQ 的代码是照着某一份 native 构建写的（类型、能力、甚至装扮资源的 AES 密钥都由

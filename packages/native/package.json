@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./authorization.mjs": "./authorization.mjs",
     "./validity.mjs": "./validity.mjs"
   },
   "scripts": {

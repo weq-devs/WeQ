@@ -22,6 +22,7 @@ export function LongTermAuthorizationSection() {
   const mounted = useRef(true);
   const confirm = useDialog((state) => state.confirm);
   const bridge = !IS_WEB ? window.weq?.authorization : undefined;
+  const development = status?.development === true;
 
   const run = useCallback(
     async (kind: 'status' | 'install' | 'remove') => {
@@ -32,15 +33,16 @@ export function LongTermAuthorizationSection() {
       try {
         if (kind !== 'status') {
           const approved = await confirm(
-            kind === 'install' ? '启用或修复长期授权' : '撤销长期授权',
-            kind === 'install'
-              ? '将请求系统管理员批准，安装全机共享的原生权限助手，授权当前系统用户的 QQ 内存读取和网卡抓包。不复制 Electron、Node 或聊天数据，不保存管理员密码，不修改 SIP 或全局 ptrace 保护。'
-              : '将撤销当前系统用户的长期授权，正在使用权限助手的操作会中断，之后可继续临时授权。最后一位用户撤销时移除共享组件。',
+            `${kind === 'install' ? '启用或修复长期授权' : '撤销长期授权'}${development ? '（开发）' : ''}`,
+            (development ? '仅管理独立开发通道，不替换或撤销正式助手。' : '') +
+              (kind === 'install'
+                ? '将请求系统管理员批准，安装全机共享的原生权限助手，授权当前系统用户的 QQ 内存读取和网卡抓包。不复制 Electron、Node 或聊天数据，不保存管理员密码，不修改 SIP 或全局 ptrace 保护。'
+                : '将撤销当前系统用户的长期授权，正在使用权限助手的操作会中断，之后可继续临时授权。最后一位用户撤销时移除此通道的共享组件。'),
             { okLabel: kind === 'install' ? '继续授权' : '撤销授权' },
           );
           if (!approved || !mounted.current) return;
         }
-        const result = await bridge[kind]();
+        const result = kind === 'status' ? await bridge.status() : await bridge[kind](development);
         if (mounted.current) setStatus(result);
       } catch (failure) {
         if (mounted.current) setError(failure instanceof Error ? failure.message : String(failure));
@@ -49,7 +51,7 @@ export function LongTermAuthorizationSection() {
         if (mounted.current) setPending(null);
       }
     },
-    [bridge, confirm],
+    [bridge, confirm, development],
   );
 
   useEffect(() => {
@@ -69,7 +71,7 @@ export function LongTermAuthorizationSection() {
 
   const canManage = Boolean(bridge && status && status.state !== 'unavailable');
   return (
-    <Card title="长期授权" settingId="long-term-authorization">
+    <Card title={development ? '长期授权（开发）' : '长期授权'} settingId="long-term-authorization">
       <Row
         label="本机权限助手"
         desc={

@@ -45,8 +45,10 @@ ipcRenderer.send('edit:undo-ready');
 const weqBridge = {
   authorization: {
     status: () => ipcRenderer.invoke('authorization:status'),
-    install: () => ipcRenderer.invoke('authorization:install'),
-    remove: () => ipcRenderer.invoke('authorization:remove'),
+    install: (expectedDevelopment?: boolean) =>
+      ipcRenderer.invoke('authorization:install', expectedDevelopment),
+    remove: (expectedDevelopment?: boolean) =>
+      ipcRenderer.invoke('authorization:remove', expectedDevelopment),
   } satisfies LongTermAuthorizationBridge,
   editUndo: {
     onRefresh(handler: () => void): () => void {

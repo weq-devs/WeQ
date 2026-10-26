@@ -5,6 +5,7 @@ directories:
   output: release/${version}
   buildResources: build
 afterPack: ../../scripts/trim-desktop-package.mjs
+afterSign: ../../scripts/verify-desktop-authorization.mjs
 files:
   - "out/**/*"
   - "!out/types-*/**"
