@@ -890,6 +890,13 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  setShowScrollToBottomButton: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ showScrollToBottomButton: input.enabled });
+      return true;
+    }),
+
   setSendWithQqFont: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
     requireBootstrap().userConfig.setSettings({ sendWithQqFont: input.enabled });
     return true;

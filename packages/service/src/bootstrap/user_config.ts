@@ -571,6 +571,8 @@ export interface AppSettings {
   readFromFirstUnread: boolean;
   /** 发送成功后定位到当前会话的最新消息。 */
   jumpToLatestAfterSend: boolean;
+  /** 向下浏览消息时显示定位到底部按钮，不影响新消息提醒。 */
+  showScrollToBottomButton: boolean;
   /** 发送文本时显式携带 QQ 账号当前的个性字体。 */
   sendWithQqFont: boolean;
   /** 群助手入口显示汇总未读消息数，而不是仅显示圆点。 */
@@ -863,6 +865,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showContactUnreadCount: false,
   readFromFirstUnread: false,
   jumpToLatestAfterSend: true,
+  showScrollToBottomButton: true,
   sendWithQqFont: true,
   showGroupAssistantMessageCount: false,
   externalChatpic: { dir: '', enabled: false },
@@ -1391,6 +1394,7 @@ export class UserConfigService {
       showContactUnreadCount: s?.showContactUnreadCount ?? d.showContactUnreadCount,
       readFromFirstUnread: s?.readFromFirstUnread ?? d.readFromFirstUnread,
       jumpToLatestAfterSend: s?.jumpToLatestAfterSend ?? d.jumpToLatestAfterSend,
+      showScrollToBottomButton: s?.showScrollToBottomButton ?? d.showScrollToBottomButton,
       sendWithQqFont: s?.sendWithQqFont ?? d.sendWithQqFont,
       showGroupAssistantMessageCount:
         s?.showGroupAssistantMessageCount ?? d.showGroupAssistantMessageCount,
@@ -1507,6 +1511,7 @@ export class UserConfigService {
       showContactUnreadCount: patch.showContactUnreadCount ?? current.showContactUnreadCount,
       readFromFirstUnread: patch.readFromFirstUnread ?? current.readFromFirstUnread,
       jumpToLatestAfterSend: patch.jumpToLatestAfterSend ?? current.jumpToLatestAfterSend,
+      showScrollToBottomButton: patch.showScrollToBottomButton ?? current.showScrollToBottomButton,
       sendWithQqFont: patch.sendWithQqFont ?? current.sendWithQqFont,
       showGroupAssistantMessageCount:
         patch.showGroupAssistantMessageCount ?? current.showGroupAssistantMessageCount,

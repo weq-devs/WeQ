@@ -113,6 +113,7 @@ describe('阅读与群助手', () => {
     const defaults = {
       readFromFirstUnread: false,
       jumpToLatestAfterSend: true,
+      showScrollToBottomButton: true,
       sendWithQqFont: true,
       showGroupAssistantMessageCount: false,
     };
@@ -120,12 +121,14 @@ describe('阅读与群助手', () => {
     expect(config.getSettings()).toMatchObject({ ...defaults, showMessageTime: true });
     config.setSettings({ readFromFirstUnread: true });
     config.setSettings({ jumpToLatestAfterSend: false });
+    config.setSettings({ showScrollToBottomButton: false });
     config.setSettings({ sendWithQqFont: false });
     config.setSettings({ showGroupAssistantMessageCount: true });
     config.setSettings({ showMessageTime: false });
     expect(new UserConfigService(platform).getSettings()).toMatchObject({
       readFromFirstUnread: true,
       jumpToLatestAfterSend: false,
+      showScrollToBottomButton: false,
       sendWithQqFont: false,
       showGroupAssistantMessageCount: true,
       showMessageTime: false,

@@ -914,6 +914,8 @@ export function ChatPane({
   // Count of newly-arrived (live) messages while the user is reading history.
   // Surfaces the floating "jump to bottom" pill; cleared once at the bottom.
   const [newMessagePill, setNewMessagePill] = useState(0);
+  const [showBottomJump, setShowBottomJump] = useState(false);
+  const lastScrollTopRef = useRef(0);
   const latestSeqRef = useRef<{ conversationId: string | undefined; seq: string | undefined }>({
     conversationId: undefined,
     seq: undefined,
@@ -1416,9 +1418,12 @@ export function ChatPane({
       readingPositionApplied.current = false;
       atBottomRef.current = !initialReadingPosition;
       setNewMessagePill(0);
+      setShowBottomJump(false);
+      lastScrollTopRef.current = 0;
       if (initialReadingPosition || loading) {
         if (!loading && messageScrollRef.current && initialReadingPosition) {
           restoreReadingPosition(messageScrollRef.current, initialReadingPosition);
+          lastScrollTopRef.current = messageScrollRef.current.scrollTop;
           readingPositionApplied.current = true;
         }
         return;
@@ -1444,6 +1449,7 @@ export function ChatPane({
       messageScrollRef.current
     ) {
       restoreReadingPosition(messageScrollRef.current, initialReadingPosition);
+      lastScrollTopRef.current = messageScrollRef.current.scrollTop;
       readingPositionApplied.current = true;
       atBottomRef.current = false;
       lastMessageIdRef.current = newestId;
@@ -4177,6 +4183,8 @@ export function ChatPane({
     if (viewport) viewport.bottom();
     else scroll.scrollTop = scroll.scrollHeight;
     atBottomRef.current = true;
+    lastScrollTopRef.current = scroll.scrollTop;
+    setShowBottomJump(false);
     setNewMessagePill(0);
   }
   scrollMessagesToBottomRef.current = scrollMessagesToBottom;
@@ -4259,7 +4267,13 @@ export function ChatPane({
 
   function handleMessageScroll() {
     if (!readContextRef.current.tabActive || document.visibilityState === 'hidden') return;
+    const scroll = messageScrollRef.current;
+    if (!scroll) return;
     const bottom = isScrolledToBottom();
+    const delta = scroll.scrollTop - lastScrollTopRef.current;
+    lastScrollTopRef.current = scroll.scrollTop;
+    if (bottom && atLatest) setShowBottomJump(false);
+    else if (Math.abs(delta) > 1) setShowBottomJump(delta > 0);
     if (!bottom || !initialReadingPosition || readGestureUntil.current > performance.now()) {
       atBottomRef.current = bottom;
     }
@@ -5155,14 +5169,19 @@ export function ChatPane({
         </div>
       </IntentSenseProvider>
 
-      {newMessagePill > 0 ? (
-        <div className="new-message-pill" role="group" aria-label="新消息">
+      {newMessagePill > 0 ||
+      (showBottomJump && mediaSettings.data?.showScrollToBottomButton !== false) ? (
+        <div
+          className="new-message-pill"
+          role="group"
+          aria-label={newMessagePill > 0 ? '新消息' : '定位到底部'}
+        >
           {onPreviewLatest ? (
             <button
               className="new-message-preview"
               type="button"
-              title="预览新消息"
-              aria-label="预览新消息"
+              title={newMessagePill > 0 ? '预览新消息' : '预览最新消息'}
+              aria-label={newMessagePill > 0 ? '预览新消息' : '预览最新消息'}
               onClick={() => onPreviewLatest(conversation)}
             >
               <Eye size={15} />
@@ -5177,7 +5196,9 @@ export function ChatPane({
             onClick={() => void jumpToBottomAndRead()}
           >
             {jumpingToLatest ? <Loader2 size={14} /> : <ChevronDown size={14} strokeWidth={2.8} />}
-            <span>{formatUnreadJumpCount(newMessagePill)}条新消息</span>
+            {newMessagePill > 0 ? (
+              <span>{formatUnreadJumpCount(newMessagePill)}条新消息</span>
+            ) : null}
           </button>
         </div>
       ) : null}

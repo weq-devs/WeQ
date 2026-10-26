@@ -645,6 +645,7 @@ function AppearanceSection({
   const setShowContactUnreadCount = trpc.bootstrap.setShowContactUnreadCount.useMutation();
   const setReadFromFirstUnread = trpc.bootstrap.setReadFromFirstUnread.useMutation();
   const setJumpToLatestAfterSend = trpc.bootstrap.setJumpToLatestAfterSend.useMutation();
+  const setShowScrollToBottomButton = trpc.bootstrap.setShowScrollToBottomButton.useMutation();
   const setSendWithQqFont = trpc.bootstrap.setSendWithQqFont.useMutation();
   const setShowGroupAssistantMessageCount =
     trpc.bootstrap.setShowGroupAssistantMessageCount.useMutation();
@@ -804,6 +805,13 @@ function AppearanceSection({
               label: '发送消息后定位到最新消息',
               fallback: true,
               mutation: setJumpToLatestAfterSend,
+            },
+            {
+              key: 'showScrollToBottomButton' as const,
+              settingId: 'scroll-to-bottom-button',
+              label: '向下滚动时显示定位到底部按钮',
+              fallback: true,
+              mutation: setShowScrollToBottomButton,
             },
             {
               key: 'sendWithQqFont' as const,

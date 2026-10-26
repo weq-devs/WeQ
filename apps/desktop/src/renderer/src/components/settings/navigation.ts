@@ -244,6 +244,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['group-assistant-count', '群助手显示总消息数'],
       ['read-first-unread', '从第一条新消息开始阅读'],
       ['jump-latest-after-send', '发送消息后定位到最新消息'],
+      ['scroll-to-bottom-button', '向下滚动时显示定位到底部按钮', '快速到底部'],
       ['send-with-qq-font', '使用 QQ 账号设置的个性字体发送消息'],
       ['custom-message-display', '自定义消息显示'],
       ['message-seq', '显示消息序号（seq）'],
