@@ -415,7 +415,9 @@ html[data-theme='dark'] .lbs-map {
   background: var(--weq-accent-solid, var(--weq-accent-effective, #0099ff));
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.24);
   transform: translate(-50%, -50%);
-  transition: left 60ms linear, top 60ms linear;
+  transition:
+    left 60ms linear,
+    top 60ms linear;
 }
 
 .lbs-speed {
@@ -437,7 +439,10 @@ html[data-theme='dark'] .lbs-map {
   font-family: inherit;
   font-size: 11.5px;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
 }
 
 .lbs-speed-chip:hover {

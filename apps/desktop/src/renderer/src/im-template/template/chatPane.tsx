@@ -172,7 +172,6 @@ import type { EmojiItem } from './emojiPacks';
 import {
   elementToToken,
   elementsToComposerText,
-  toIpcElements,
   tokenToElement,
 } from './draftElements';
 import { planNeedsLocalMedia, type LocalMediaRef } from './composerSend';
