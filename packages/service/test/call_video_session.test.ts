@@ -871,7 +871,7 @@ describe('媒体路径（中继 / 直连）', () => {
     expect(ctx.transport.mediaTo(PEER_IP, VideoSubType.max).length).toBeGreaterThan(0);
   });
 
-  it('探测期结束后只发 P2P', async () => {
+  it('探测得到回程后只发 P2P', async () => {
     const encoder = new FakeVideoEncoder(10000);
     const ctx = makeSession({ media: 'video', videoEncoder: encoder });
     await connect(ctx);
@@ -890,6 +890,21 @@ describe('媒体路径（中继 / 直连）', () => {
         { address: PEER_IP, port: 47708 },
       );
     }
+    // 只有媒体包还不够：探测期满仍无 `0x02` 回程会被判成黑洞并退回中继，
+    // 所以这里补一条对端对我们探测的应答（见 `confirmPeerPath`）。
+    ctx.transport.deliverFrom(
+      buildPeerProbe({
+        roomId: 777n,
+        cmd: PeerProbeCmd.probeReply,
+        uinAbout: 1707889225,
+        seq: 7,
+        otherUin: 2863253201,
+        token: 1234,
+        clock: 1,
+        peerClock: 2,
+      }),
+      { address: PEER_IP, port: 47708 },
+    );
     ctx.transport.reset();
     await ctx.timers.advanceAsync(50);
 
@@ -943,8 +958,8 @@ describe('媒体路径（中继 / 直连）', () => {
       0x24, 0x0e, 0x03, 0x99, 0x0f, 0x9d, 0x3f, 0x10, 0x78, 0x73, 0xe7, 0x0f, 0x57, 0x7e, 0x60,
       0xc5,
     ]);
-    ctx.transport.deliver(ctrlPushPacket(peerIpv6, 56082));
     ctx.transport.reset();
+    ctx.transport.deliver(ctrlPushPacket(peerIpv6, 56082));
     await ctx.timers.advanceAsync(20);
 
     const peer = '240e:399:f9d:3f10:7873:e70f:577e:60c5';
@@ -1086,10 +1101,43 @@ describe('P2P 端点交换（bt=25 / bt=27）', () => {
     await connect(ctx);
 
     // bt=9 给近似端口 56082，bt=27 给权威端口 56089（实测值）。
+    ctx.transport.reset();
     ctx.transport.deliver(ctrlPushPacket(peerIpv6, 56082));
     ctx.transport.deliver(peerJoinPacket(56089));
+    // bt=27 一到就应该立刻向权威端口补一拍探测（不能等 2 秒的下一拍，
+    // 那时探测期早已到期把端口清零）。
+    const firstRound = ctx.transport.sent.filter(
+      (s) => s.data[0] === RELAY_STX && s.address === PEER_IP,
+    );
+    expect(firstRound.length).toBeGreaterThan(0);
+    expect(firstRound[firstRound.length - 1]!.port).toBe(56089);
+
+    // 对端从权威端口回包确认直连，之后持续有媒体包（否则直连静默看门狗
+    // 会在 2 秒后回落中继、把端口清零）。
+    ctx.transport.deliverFrom(
+      buildPeerProbe({
+        roomId: 777n,
+        cmd: PeerProbeCmd.probeReply,
+        uinAbout: 1707889225,
+        seq: 7,
+        otherUin: 2863253201,
+        token: 1234,
+        clock: 1,
+        peerClock: 2,
+      }),
+      { address: PEER_IP, port: 56089 },
+    );
     ctx.transport.reset();
-    await ctx.timers.advanceAsync(2100);
+    const whole = new Uint8Array(26);
+    whole[0] = 20;
+    whole.set([0, 0, 0, 1, 0x40, 0x01], 20);
+    for (let i = 0; i < 21; i++) {
+      await ctx.timers.advanceAsync(100);
+      ctx.transport.deliverFrom(
+        videoPacket({ gidx: i + 1, pkgIdx: 0, totalPkg: 1, chunk: whole }),
+        { address: PEER_IP, port: 56089 },
+      );
+    }
 
     const probes = ctx.transport.sent.filter(
       (s) => s.data[0] === RELAY_STX && s.address === PEER_IP,
@@ -1108,8 +1156,8 @@ describe('P2P 端点交换（bt=25 / bt=27）', () => {
 
     // 抓包里 WeQ 实际收到的那种形态：只有 f5（fixed32 IPv4）+ f6（端口）。
     const body = new Uint8Array([(5 << 3) | 5, 0xcb, 0xf6, 0xb0, 0x50, ...pbVarint(6, 8889)]);
-    ctx.transport.deliver(ctrlPushWithBody(body));
     ctx.transport.reset();
+    ctx.transport.deliver(ctrlPushWithBody(body));
     await ctx.timers.advanceAsync(20);
 
     const probes = ctx.transport.sent.filter((s) => s.address === '203.246.176.80');

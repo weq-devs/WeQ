@@ -1480,7 +1480,13 @@ export class CallSession {
       this.log?.info('媒体路径切换', { path: 'probing' });
     }
     // 无论可信与否，都去打洞探测 —— 这是拿到回程证据的唯一途径。
-    this.startPeerProbeLoop();
+    //
+    // ⚠️ 循环已经在跑时也要**立刻补一拍**。`bt=27` 的权威端口常常晚于 `bt=9`
+    // 到达，而 `bt=9` 已经启动了探测循环；只依赖 `startPeerProbeLoop()` 的话，
+    // 新端口要等 2 秒后的下一拍才会用上，可探测期 1 秒就到期把端口清零了 ——
+    // 权威端口于是永远发不出去，P2P 握手死锁在中继上。
+    if (this.peerProbeTimer === null) this.startPeerProbeLoop();
+    else this.sendPeerProbe();
   }
 
   /**
