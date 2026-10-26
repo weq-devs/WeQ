@@ -106,3 +106,4 @@ resources/ninebird-runtime/
 models/
 tmp_reverse/
 .zcode/
+/tools/remote-network/build/

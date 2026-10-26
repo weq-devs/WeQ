@@ -58,6 +58,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Setup Go for Remote helper
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/remote-network/go.mod
+          cache-dependency-path: tools/remote-network/go.sum
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -164,6 +170,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Setup Go for Remote helper
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/remote-network/go.mod
+          cache-dependency-path: tools/remote-network/go.sum
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -253,6 +265,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Setup Go for Remote helper
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/remote-network/go.mod
+          cache-dependency-path: tools/remote-network/go.sum
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -340,6 +358,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Setup Go for Remote helper
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/remote-network/go.mod
+          cache-dependency-path: tools/remote-network/go.sum
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -425,6 +449,12 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
+
+      - name: Setup Go for Remote helper
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/remote-network/go.mod
+          cache-dependency-path: tools/remote-network/go.sum
 
       - name: Setup Node
         uses: actions/setup-node@v4

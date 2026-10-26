@@ -44,7 +44,7 @@ import { publishWeqAssistantDocroot } from '../weq_assistant/publish';
 import { createReportQzoneCapability } from '../report_qzone';
 import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
 import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
-import { aiToolSpecs, runAssistantTool } from '../mcp/openai_tools';
+import { assistantToolSpecs, runAssistantTool } from '../mcp/openai_tools';
 import { bindAccountTools, invalidateAccountTools } from '../mcp/account_scope';
 import { cancelAssistantRuns } from '../mcp/assistant_bus';
 import { getExternalMcpHub, disposeExternalMcp } from '../mcp/external';
@@ -1633,7 +1633,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           conversations,
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
-            specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
+            specs: assistantToolSpecs,
             // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
             run: bindAccountTools(session, () => this.account, runAssistantTool),
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。
@@ -2480,7 +2480,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           conversations,
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
-            specs: async () => [...aiToolSpecs(), ...(await getExternalMcpHub().specs())],
+            specs: assistantToolSpecs,
             // 内置 / 外部工具的路由统一在 runAssistantTool 里（run_js 沙箱的 callTool 也走它）。
             run: bindAccountTools(session, () => this.account, runAssistantTool),
             // 配置变更/启动时把外部 MCP 配置同步给 Hub（连接惰性建立）。

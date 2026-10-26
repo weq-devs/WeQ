@@ -16,14 +16,7 @@
  * track those files — TTL / pruning belongs in whoever wrote them.
  */
 
-import {
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-  readdirSync,
-  unlinkSync,
-  existsSync,
-} from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, unlinkSync, existsSync } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import type { Platform } from '@weq/platform';
@@ -41,6 +34,7 @@ import {
   normalizeChatImageCacheMiB,
 } from '../common/chat_image_cache';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
+import { writeFileAtomicSync } from '../common/atomic_write';
 import { getLogger, logErrorContext } from '../common/logger';
 import {
   listStorageUsage,
@@ -957,6 +951,7 @@ export class UserConfigService {
   private readonly root: string;
   private readonly configPath: string;
   private cached: UserConfig | undefined;
+  private readFailure: unknown;
   private skipAutoEnterThisStartup: boolean | undefined;
   private readonly logger = getLogger().child({ scope: 'user-config' });
 
@@ -1049,7 +1044,10 @@ export class UserConfigService {
           if (raw.groupKeyword !== undefined) continue; // 已经按账号配过了，不动它
           const config = normalizeAccountConfig(raw);
           if (!config.configId) config.configId = basename(file, '.json');
-          writeFileSync(filePath, JSON.stringify({ ...config, groupKeyword: rules }, null, 2));
+          writeFileAtomicSync(
+            filePath,
+            JSON.stringify({ ...config, groupKeyword: rules }, null, 2),
+          );
           written++;
         } catch (error) {
           this.logger.warn('skipped account config during group keyword migration', {
@@ -1100,7 +1098,7 @@ export class UserConfigService {
         if (raw.uin !== uin || raw.uid === uid) continue;
         const config = normalizeAccountConfig(raw);
         if (!config.configId) config.configId = basename(file, '.json');
-        writeFileSync(filePath, JSON.stringify({ ...config, uid }, null, 2), 'utf-8');
+        writeFileAtomicSync(filePath, JSON.stringify({ ...config, uid }, null, 2));
         updated++;
       } catch (error) {
         this.logger.warn('skipped account config while storing uid', {
@@ -1150,7 +1148,7 @@ export class UserConfigService {
         if (!config.configId) config.configId = basename(file, '.json');
         // 按旧 guid 解出来的 A1 payload 已经失效：删掉，让下次开会话重解。
         const { a1Payload: _stale, ...rest } = config;
-        writeFileSync(filePath, JSON.stringify({ ...rest, guid }, null, 2), 'utf-8');
+        writeFileAtomicSync(filePath, JSON.stringify({ ...rest, guid }, null, 2));
         updated++;
       } catch (error) {
         this.logger.warn('skipped account config while rotating guid', {
@@ -1191,7 +1189,7 @@ export class UserConfigService {
         const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as AccountConfig;
         if (raw.uin !== uin || raw.a1Payload === undefined) continue;
         const { a1Payload: _dropped, ...rest } = raw;
-        writeFileSync(filePath, JSON.stringify(rest, null, 2), 'utf-8');
+        writeFileAtomicSync(filePath, JSON.stringify(rest, null, 2));
         updated++;
       } catch (error) {
         this.logger.warn('skipped account config while clearing a1 payload', {
@@ -1292,13 +1290,17 @@ export class UserConfigService {
     let raw: string;
     try {
       raw = readFileSync(this.configPath, 'utf-8');
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') this.readFailure = error;
       this.cached = {};
       return this.cached;
     }
     try {
       this.cached = JSON.parse(raw) as UserConfig;
+      if (!this.cached || typeof this.cached !== 'object' || Array.isArray(this.cached))
+        throw new Error('配置必须是 JSON 对象');
     } catch (error) {
+      this.readFailure = error;
       this.logger.warn('failed to parse config.json; using empty config', {
         event: 'config-parse-failed',
         configPath: this.configPath,
@@ -1311,14 +1313,19 @@ export class UserConfigService {
 
   reload(): void {
     this.cached = undefined;
+    this.readFailure = undefined;
   }
 
   write(patch: Partial<UserConfig>): UserConfig {
     const current = this.read();
+    if (this.readFailure)
+      throw new Error('配置文件读取失败，已保留原件并阻止覆盖；请修复文件后重新加载。', {
+        cause: this.readFailure,
+      });
     const next: UserConfig = { ...current, ...patch };
     mkdirSync(this.root, { recursive: true });
     try {
-      writeFileSync(this.configPath, JSON.stringify(next, null, 2), 'utf-8');
+      writeFileAtomicSync(this.configPath, JSON.stringify(next, null, 2));
     } catch (error) {
       this.logger.error('failed to write user config', {
         event: 'config-write-failed',

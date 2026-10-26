@@ -4000,8 +4000,7 @@ export const AI_TOOLS: AiTool[] = [
   // 四个粒度：文本 / 媒体 / 文件 / 元素数组逃生舱。都走 services().messageSend，
   // 业务逻辑（uid 解析、上传、回执归一化）在 @weq/service 里只写一遍。
   //
-  // 真机联调期：这四个工具**临时开放给外部 MCP 面板**（原本标 assistantOnly，被
-  // server.ts 过滤掉）。联调结束后应恢复该标记，让外部面板回到严格只读。
+  // 发送工具仅限明确授权的内置助手；外部 MCP 的显式只读清单不会注册它们。
 
   // 三个发送工具共用的「带装扮」入参 —— 注意这是**未通过真机验证**的实验开关：
   // 服务端不采信客户端自报的装扮（实测落库全 0），详见 @weq/protocol 的 SendDress。
@@ -4310,8 +4309,7 @@ export const AI_TOOLS: AiTool[] = [
   }),
 
   // ── 轻互动（真实副作用）：戳一戳 / 贴表情回应 ────────────────────────
-  // 都是 OIDB 包（不是消息），和上面四个发送工具同属「真机联调期临时开放」，
-  // 联调结束后同样应恢复 assistantOnly（见本节开头的说明）。
+  // 都是 OIDB 包（不是消息），与发送工具一样受宿主的任意权限检查保护。
 
   tool({
     name: 'send_forward_message',
@@ -4961,9 +4959,7 @@ export const AI_TOOLS: AiTool[] = [
   // 现场派生（协议实现与推导见 @weq/protocol 的 redbag 与 docs/develop/redbag.md）。
   // 所以喂给 decode_blob 只会得到乱码，必须先走这一层。
   //
-  // 真机联调期：pack_red_bag **临时开放给外部 MCP 面板**（原本标 assistantOnly，会被
-  // server.ts 过滤掉）。它会在服务端建一个红包订单，属于有副作用的工具；
-  // 联调结束后应恢复该标记，让外部面板回到严格只读（与上面那批 send_* 同理）。
+  // pack_red_bag 会在服务端建订单，只在助手的任意权限模式开放。
 
   tool({
     name: 'decode_redbag_packet',
@@ -5146,9 +5142,7 @@ export const AI_TOOLS: AiTool[] = [
   // 与 pack_red_bag 一样，两个都要「在线且已注入」的 QQ：红包包走 hook 上的
   // sendPacket，tenpay.com 的 p_skey 只是请求体里的一个字段。
   //
-  // 真机联调期：grab_red_bag **临时开放给外部 MCP 面板**（它真的会记一笔领取 /
-  // 扣钱，本应标 assistantOnly，被 server.ts 挡在公开面板外）。联调结束后应恢复
-  // 该标记；get_red_bag_detail 是纯查询，可以长期对外开放。
+  // grab_red_bag 是真实领取，只在助手任意权限模式开放；get_red_bag_detail 是只读查询。
 
   tool({
     name: 'get_red_bag_detail',
@@ -5232,17 +5226,16 @@ export const AI_TOOLS: AiTool[] = [
   // 硬调，既慢又容易在参数上反复试错。run_js 把这类活交给一段脚本，它是助手唯一的
   // 「自己算」入口。
   //
-  // assistantOnly: true —— 沙箱里的 callTool 能调到 execute_sql 这类可写工具，
-  // 对外只读的 MCP 面板不能开这个口子（server.ts 会过滤掉 assistantOnly）。
+  // 脚本仅供内置助手；callTool 仍检查本轮权限快照和当前设置，外部 MCP 不注册。
   tool({
     name: 'run_js',
     assistantOnly: true,
     description:
-      '在本地**受限 JS 沙箱**里跑一段 JavaScript，用来把「需要自己算」的活一次做完：批量遍历 + 筛选 + 聚合 + 多份结果 join（例如把上百个群逐个核对身份、按角色筛人、把几份统计汇总）。这类活一个个工具零散调用既慢又容易在参数上反复试错，写一段脚本更快更准。' +
-      '\n【沙箱里有什么】① `callTool(name, args)`：**异步**调用任意其他工具（内置工具和你接入的外部 MCP 工具都可以，参数与直接调用那个工具时完全一致），返回它解析后的结果；② `console.log/info/warn/error`：会被收进返回值的 logs；③ `sleep(ms)`。' +
+      '按本轮权限模式执行 JavaScript，用来把「需要自己算」的活一次做完：批量遍历 + 筛选 + 聚合 + 多份结果 join（例如把上百个群逐个核对身份、按角色筛人、把几份统计汇总）。这类活一个个工具零散调用既慢又容易在参数上反复试错，写一段脚本更快更准。' +
+      '\n【脚本里有什么】① `callTool(name, args)`：**异步**调用本轮权限允许的工具（外部 MCP 仅在任意权限开放，参数与直接调用那个工具时一致），返回它解析后的结果；② `console.log/info/warn/error`：会被收进返回值的 logs；③ `sleep(ms)`。' +
       '\n【怎么用我】代码支持顶层 await，**必须用 `return` 把结果交出来**；若你习惯先写 `async function main() { … }`，那要写成 `return main()`。脚本在还有调用没 await 完时就结束会被**判失败**（否则会变成一个「看似没查到」的假结果）。写循环批量补查时自己控量：**单个脚本最多调 40 次工具**，超了会当场报错，那就把活拆成多轮对话。' +
       '\n【失败了怎么看】返回值里的 `calls[]` 是每次调用的轨迹，失败那条带 `error` 字段（写明为什么失败，比如参数不合法）；`notes[]` 是给你的提醒。照着 error 改参数重试，别直接放弃或改用别的工具硬堆。' +
-      '\n【限制】沙箱里没有 require / import / fs / fetch / process，拿不到 Node 能力也上不了网，数据只能经 callTool 进来；eval / new Function 被禁用。报错会带上你代码的行号，超时（默认 ' +
+      '\n【权限】默认沙箱使用 QuickJS/WASM：没有 require / fs / fetch / process，数据只能经 callTool 进来，工具必须通过宿主权限检查。若用户在助手设置中明确启用任意权限，脚本改为 Node 执行，可使用 require / process / fetch，能读写删除外部文件、执行命令及联网，不再具有隔离。超时不等于已发出的宿主操作已回滚，不要自动重试未知终态操作。超时（默认 ' +
       `${JS_SANDBOX_DEFAULT_TIMEOUT_MS / 1000}s，上限 ${JS_SANDBOX_MAX_TIMEOUT_MS / 1000}s）会被硬中止。` +
       '\n【结果不能代表什么】result 是脚本的返回值、logs 是脚本自己的输出，两者都不等于工具原文；脚本报错只说明这段代码有问题，不代表数据不存在——先看 error 与 calls 再改代码重试。单个工具一次就能查到的，别用沙箱包一层。',
     input: z.object({
@@ -5263,7 +5256,14 @@ export const AI_TOOLS: AiTool[] = [
     run: async ({ code, timeoutMs }) => {
       // 动态 import：执行入口在 openai_tools.ts，静态引入会与 AI_TOOLS 绕成一个环。
       const { runAssistantTool } = await import('./openai_tools');
-      return runJsSandbox(code, runAssistantTool, timeoutMs);
+      const { toolExecutionOptions } = await import('./account_scope');
+      const options = toolExecutionOptions();
+      return runJsSandbox(
+        code,
+        (name, args, signal) => runAssistantTool(name, args, { ...options, signal }),
+        timeoutMs,
+        options,
+      );
     },
   }),
 ];

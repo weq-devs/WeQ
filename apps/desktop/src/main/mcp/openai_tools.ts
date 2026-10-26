@@ -11,6 +11,9 @@ import type { z } from 'zod';
 import { getExternalMcpHub } from './external';
 import { AI_TOOLS } from './tools';
 import { assertAccountToolScope } from './account_scope';
+import { toolExecutionOptions, type ToolExecutionOptions } from './account_scope';
+import { getAppContext } from '../context/app_context';
+import { isSandboxTool } from './tool_permissions';
 
 export interface OpenAiToolSpec {
   type: 'function';
@@ -84,11 +87,30 @@ function objectToParameters(obj: z.ZodObject<z.ZodRawShape>): Record<string, unk
 }
 
 /** 全部工具的 OpenAI function 规格。 */
-export function aiToolSpecs(): OpenAiToolSpec[] {
-  return AI_TOOLS.map((t) => ({
+export function aiToolSpecs(options: ToolExecutionOptions = {}): OpenAiToolSpec[] {
+  const unrestricted =
+    options.permissionMode === 'unrestricted' &&
+    getAppContext().services?.assistant.getConfig().permissionMode === 'unrestricted';
+  return AI_TOOLS.filter((t) => unrestricted || isSandboxTool(t.name)).map((t) => ({
     type: 'function',
     function: { name: t.name, description: t.description, parameters: objectToParameters(t.input) },
   }));
+}
+
+/** 沙箱不连接外部服务器取工具列表，避免未授权的工具和连接进入本轮。 */
+export async function assistantToolSpecs(
+  options: ToolExecutionOptions = {},
+): Promise<OpenAiToolSpec[]> {
+  options.signal?.throwIfAborted();
+  const specs = aiToolSpecs(options);
+  if (
+    options.permissionMode !== 'unrestricted' ||
+    getAppContext().services?.assistant.getConfig().permissionMode !== 'unrestricted'
+  )
+    return specs;
+  const external = await getExternalMcpHub().specs();
+  options.signal?.throwIfAborted();
+  return [...specs, ...external];
 }
 
 /** 把 zod 校验失败压成一行可读信息（喂回模型，让它自己改参数重试）。 */
@@ -133,8 +155,15 @@ export async function runAiTool(name: string, args: Record<string, unknown>): Pr
 export async function runAssistantTool(
   name: string,
   args: Record<string, unknown>,
+  options: ToolExecutionOptions = toolExecutionOptions(),
 ): Promise<unknown> {
   assertAccountToolScope();
-  if (name.startsWith('mcp__')) return getExternalMcpHub().run(name, args);
+  options.signal?.throwIfAborted();
+  const unrestricted =
+    options.permissionMode === 'unrestricted' &&
+    getAppContext().services?.assistant.getConfig().permissionMode === 'unrestricted';
+  if (!unrestricted && !isSandboxTool(name))
+    throw new Error(`沙箱模式不允许工具 ${name}；需要在助手设置中明确启用任意权限。`);
+  if (name.startsWith('mcp__')) return getExternalMcpHub().run(name, args, options.signal);
   return runAiTool(name, args);
 }

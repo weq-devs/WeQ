@@ -37,13 +37,13 @@ const { dependencies: desktopDependencies } = JSON.parse(
 );
 
 /**
- * Packages that load native `.node` bindings. esbuild can't inline those, so
- * they stay external and ship as real `node_modules` alongside the bundle.
+ * Native 绑定及 worker 按路径载入的 WASM 依赖不能内联；随服务端 manifest 安装。
  */
 const NATIVE_DEPS = {
   ws: '^8.18.0',
   '@resvg/resvg-js': '^2.6.2',
   sharp: desktopDependencies.sharp,
+  'quickjs-emscripten': desktopDependencies['quickjs-emscripten'],
 };
 
 /**

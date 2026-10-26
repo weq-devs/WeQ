@@ -96,7 +96,7 @@ export {
   summarizeVoiceScenario,
   describeSticker,
 } from './extract';
-export { AgentLabStore } from './store';
+export { AgentLabStore, assertPersonaId, AGENTLAB_PERSONA_ID_PATTERN } from './store';
 export { AgentRuntime } from './runtime';
 export type {
   AgentRuntimeDeps,

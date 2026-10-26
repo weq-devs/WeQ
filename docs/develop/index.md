@@ -60,6 +60,7 @@ pnpm dev
 
 ### 基础能力与贡献
 
+- [审计修复与权限边界](./audit-remediation-20261026.md)：助手权限模式、隔离脚本、只读 MCP、权威数据保存及尚未完成的治理项。
 - [消息同步与性能修复方案](./message-sync-performance-plan-20261025.md)及[阶段实施记录](./message-sync-performance-implementation-20261025.md)：消息到达、QQ 已读消点、会话首屏与媒体的已实施范围，以及时间线虚拟化和真实性能验收待办。
 - [消息性能修补](./message-performance-20261026.md)：后续性能实现与针对性验证范围。
 - [聊天图片预览缓存](./chat-image-preview-cache-20261026.md)：解码内存预算、可见与离屏资源边界。
