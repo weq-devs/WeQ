@@ -60,3 +60,36 @@ it('reports corrupt records without treating them as absent', () => {
   writeFileSync(join(f.dir, 'broken.json'), '{broken');
   expect(() => f.store.getPersona('broken')).toThrow(/克隆/);
 });
+
+it('克隆目录混有会话、记忆及其他辅助 JSON 时仍能列出全部克隆体', () => {
+  const f = fixture();
+  f.store.savePersona(f.record);
+  const newer = { ...f.record, persona: { ...f.record.persona, id: 'new-clone', updatedAt: 2 } };
+  f.store.savePersona(newer);
+  const auxiliary = {
+    'conversations.json': { 'new-clone:session': [] },
+    'sessions.json': { 'new-clone': [] },
+    'memories.json': {},
+    'usage.json': [],
+    'assistant.json': { customPrompt: '合成助手配置' },
+    'future-metadata.json': { enabled: true },
+  };
+  for (const [file, value] of Object.entries(auxiliary))
+    writeFileSync(join(f.dir, file), JSON.stringify(value));
+  expect(f.store.listPersonas()).toEqual([newer.persona, f.record.persona]);
+  for (const [file, value] of Object.entries(auxiliary))
+    expect(readFileSync(join(f.dir, file), 'utf8')).toBe(JSON.stringify(value));
+  expect(() => f.store.getPersona('conversations')).toThrow(/克隆/);
+});
+
+it('含有克隆画像但记录不完整时仍报告损坏，不覆盖原件', () => {
+  const f = fixture();
+  const path = join(f.dir, 'broken.json');
+  const original = JSON.stringify({ persona: { id: 'broken', updatedAt: 1 } });
+  writeFileSync(path, original);
+  expect(() => f.store.listPersonas()).toThrow(/克隆/);
+  expect(() =>
+    f.store.savePersona({ ...f.record, persona: { ...f.record.persona, id: 'broken' } }),
+  ).toThrow(/克隆/);
+  expect(readFileSync(path, 'utf8')).toBe(original);
+});
