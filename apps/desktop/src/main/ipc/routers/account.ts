@@ -61,7 +61,7 @@ import type { SalvageLedgerEntry } from '@weq/db';
 import { databasePerformance } from '@weq/db';
 import { classifyChatType, ProtoMsg } from '@weq/codec';
 import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
-import { detectThumbType, type OcrBlock } from '@weq/protocol';
+import { buildShareLocationElements, detectThumbType, type OcrBlock } from '@weq/protocol';
 
 /** 48417 的嵌套块解码器（红包定位：orderId + packetId）。 */
 const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
@@ -5725,6 +5725,121 @@ export const accountRouter = router({
         longitude: input.longitude,
       }),
     ),
+
+  // ---- 位置共享（QQLBSShareSvc） ----
+
+  /**
+   * 发起一次位置共享（私聊 / 群聊同一套命令，只有会话键不同）。
+   *
+   * 房间**不由服务端分配** —— 私聊的房间就是「这两个人」，群聊的就是「这个群」。
+   * 发起后必须按 {@link locationShareReport} 的响应间隔持续上报，否则约 60 秒后
+   * 服务端会把房间标记为已结束。没有「退出共享」命令：停上报即可。
+   */
+  locationShareStart: procedure
+    .input(
+      z.object({
+        scene: z.enum(['c2c', 'group']),
+        /** 私聊：对端 QQ 号。群聊：群号。 */
+        peer: z.number().int().safe().positive(),
+        /** 自己的 QQ 号（私聊会话键要用；上报也需要）。 */
+        selfUin: z.number().int().safe().positive(),
+        longitude: z.number(),
+        latitude: z.number(),
+        interval: z.number().int().min(1).max(60).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().locationShare.start({
+        scene: input.scene,
+        peer: input.peer,
+        selfUin: input.selfUin,
+        longitude: input.longitude,
+        latitude: input.latitude,
+        ...(input.interval !== undefined ? { interval: input.interval } : {}),
+      });
+    }),
+
+  /** 上报一次自己的坐标；响应里的 `interval` 是服务端要求的下次间隔（秒）。 */
+  locationShareReport: procedure
+    .input(
+      z.object({
+        scene: z.enum(['c2c', 'group']),
+        peer: z.number().int().safe().positive(),
+        selfUin: z.number().int().safe().positive(),
+        longitude: z.number(),
+        latitude: z.number(),
+        extra: z.number().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().locationShare.report({
+        scene: input.scene,
+        peer: input.peer,
+        selfUin: input.selfUin,
+        longitude: input.longitude,
+        latitude: input.latitude,
+        ...(input.extra !== undefined ? { extra: input.extra } : {}),
+      });
+    }),
+
+  /**
+   * 查询房间里所有成员的坐标 —— **唯一**能拿到别人位置的途径（位置不会推送）。
+   *
+   * `status === 2` 表示房间已结束（停上报超时），此时 `members` 为空。
+   */
+  locationShareQuery: procedure
+    .input(
+      z.object({
+        scene: z.enum(['c2c', 'group']),
+        peer: z.number().int().safe().positive(),
+        selfUin: z.number().int().safe().positive(),
+        mode: z.union([z.literal(0), z.literal(1)]).optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      requireQqOnlineForAlbum();
+      return requireServices().locationShare.query({
+        scene: input.scene,
+        peer: input.peer,
+        selfUin: input.selfUin,
+        ...(input.mode !== undefined ? { mode: input.mode } : {}),
+      });
+    }),
+
+  /**
+   * 发「发起了位置共享」消息卡片。
+   *
+   * 真实客户端由服务端推送这条消息；WeQ 的 SSO 是「发一包就断」，服务端判定发起方
+   * 不在线就不投递 —— 所以自己发。
+   *
+   * **元素必须在主进程构造**：`buildShareLocationElements` 在 `@weq/protocol` 里，
+   * 而渲染层不能引那个包（远程 Web 端复用渲染层代码，protocol 里有 `node:crypto`
+   * 的红包签名，浏览器端打不出来）。所以这里收「场景 + 目标」，元素自己拼。
+   */
+  sendLocationShareCard: procedure
+    .input(
+      z.object({
+        expectedAccountUin: z.string().min(1).optional(),
+        expectedAccountConfigId: z.string().min(1).optional(),
+        scene: z.enum(['c2c', 'group']),
+        /** 私聊：对端 QQ 号。群聊：群号。 */
+        targetId: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      return services.messageSend.sendElements({
+        peerType: input.scene === 'group' ? 'group' : 'c2c',
+        targetId: input.targetId,
+        elements: buildShareLocationElements(input.scene) as never,
+      });
+    }),
 
   // ---- database decrypt ----
 

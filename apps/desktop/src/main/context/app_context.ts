@@ -142,6 +142,7 @@ import {
   ChatImageOcrService,
   InteractionService,
   GroupModerationService,
+  LocationShareService,
   AccountWriteService,
   DbWatchService,
   checkAccountDatabaseHealth,
@@ -856,6 +857,8 @@ export interface AccountServices {
   interaction: InteractionService;
   /** 会话治理：撤回 + 群管理（改群名片 / 踢人 / 禁言 / 设撤管理员，需在线 QQ 发包）。 */
   groupModeration: GroupModerationService;
+  /** 位置共享（QQLBSShareSvc 发起 / 上报 / 查询，需在线 QQ 发包）。 */
+  locationShare: LocationShareService;
   accountWrite: AccountWriteService;
   /** 闪传浏览 / 下载（匿名 HTTP2RPC，不需 QQ 在线）。 */
   flashTransferFiles: FlashTransferFilesService;
@@ -1969,6 +1972,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, resolveOnlinePid),
+        locationShare: new LocationShareService(platform.native.ntHelper, resolveOnlinePid),
         accountWrite: new AccountWriteService(
           platform.native.ntHelper,
           {
@@ -2713,6 +2717,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
         groupModeration: new GroupModerationService(platform.native.ntHelper, livePid),
+        locationShare: new LocationShareService(platform.native.ntHelper, livePid),
         accountWrite: new AccountWriteService(
           platform.native.ntHelper,
           {

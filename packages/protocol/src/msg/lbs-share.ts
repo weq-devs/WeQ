@@ -443,7 +443,9 @@ export function buildShareLocationElements(scene: LbsScene): SendElement[] {
             flag81: 16,
             nested102: { inner: { a: 0, b: 0, c: 0, d: 0 } },
             flag107: 1100,
-            token116: 0n,
+            // 用 number 而不是 bigint：这组元素要经 IPC 从渲染层传到主进程，
+            // 而 IPC 的还原函数（`elementsFromEditable`）只还原 Buffer、不认 bigint。
+            token116: 0,
           },
         },
       },
