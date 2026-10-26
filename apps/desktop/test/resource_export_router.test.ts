@@ -25,6 +25,7 @@ import { QZONE_ALBUM_PAGE_SIZE } from '../src/shared/qzone_album_export';
 const state = vi.hoisted(() => ({
   uin: '10001',
   configId: 'fixture-source',
+  automatic: true,
   failedDatabasePath: '',
   nativePath: '',
   nativeDirectory: '',
@@ -40,7 +41,16 @@ const state = vi.hoisted(() => ({
   })),
 }));
 vi.mock('../src/main/context/app_context', () => ({
-  getAppContext: () => ({ account: { context: { uin: state.uin } }, services: state.services }),
+  getAppContext: () => ({
+    account: { context: { uin: state.uin } },
+    services: state.services,
+    bootstrap: {
+      userConfig: {
+        getSettings: () => ({ autoAttachQq: state.automatic }),
+        getLocalModelId: () => null,
+      },
+    },
+  }),
 }));
 vi.mock('@weq/service', async (original) => ({
   ...(await original<typeof import('@weq/service')>()),
@@ -120,6 +130,7 @@ beforeEach(() => {
   manager = new ExportTaskManager({} as MsgService, join(root, 'cache'));
   state.uin = '10001';
   state.configId = 'fixture-source';
+  state.automatic = true;
   const reportPath = join(root, 'report.html');
   writeFileSync(reportPath, '<h1>synthetic-report</h1>');
   artifacts.set('report.html', reportPath);
@@ -451,6 +462,21 @@ it('群文件入口固定精确选择，在任务私有缓存下载并保留部�
   expect(listRecursive).not.toHaveBeenCalled();
   expect(state.download).toHaveBeenCalledTimes(2);
   expect(state.download.mock.calls.every(([, path]) => path.includes('.partial'))).toBe(true);
+});
+it('完整功能未启用时不因缓存在线信息创建群文件任务', async () => {
+  state.automatic = false;
+  await expect(
+    accountRouter.createCaller({}).startGroupFileExport({
+      ...binding,
+      groupCode: '123',
+      name: '合成群文件',
+      files: [{ fileId: 'one', fileName: 'file.txt', path: [] }],
+      savePolicy: { mode: 'before', directory: roots[0]! },
+    }),
+  ).rejects.toThrow(/离线|完整功能/);
+  expect(manager.listTasks()).toEqual([]);
+  expect(fileUrl).not.toHaveBeenCalled();
+  expect(state.download).not.toHaveBeenCalled();
 });
 it('相册入口接入后台任务；明确空文件集合不扩大到全群', async () => {
   const api = accountRouter.createCaller({});
