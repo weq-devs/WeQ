@@ -176,6 +176,10 @@ export function AccountBasicsSection({
     ...autoRefresh,
     enabled: autoRefresh.enabled && page !== 'credentials',
   });
+  const fullMode = trpc.bootstrap.getFullModeState.useQuery(undefined, {
+    ...autoRefresh,
+    enabled: autoRefresh.enabled && page === 'credentials',
+  });
   const systemInfo = trpc.bootstrap.systemInfo.useQuery(undefined, {
     ...autoRefresh,
     enabled: autoRefresh.enabled && page === 'account',
@@ -255,6 +259,7 @@ export function AccountBasicsSection({
   const rkeys = cfg?.rkeys ?? [];
   const clientKey = cfg?.clientKey;
   const settingsLoading = settings.isLoading;
+  const attachAllowed = fullMode.data?.allowed === true;
   const isStatic = cfg?.static ?? false;
   const nativeMediaDir = cfg?.nativeMediaDir ?? null;
   // macOS 现在也能读内存（需 root 且关闭 SIP），开关不再置灰 —— 只在文案里提示门槛。
@@ -491,10 +496,10 @@ export function AccountBasicsSection({
                 {config.isLoading
                   ? '读取中…'
                   : cfg?.qqOnline
-                    ? autoAttach
+                    ? attachAllowed
                       ? '在线实例已连接，正在等待获取 rKey…'
-                      : '完全离线模式已开启（自动读取 QQ 内存 已关闭），不会获取 rKey。'
-                    : '未获取到 rKey（需要登录中的 QQ 在线，且开启「自动读取 QQ 内存（完整功能）」）。'}
+                      : '本次运行尚未启用完整功能，不会获取 rKey。'
+                    : '未获取到 rKey（需要登录中的 QQ 在线，并为当前来源启用完整功能）。'}
               </div>
             ) : (
               <ul className="weq-set-rkey-list">
@@ -555,10 +560,10 @@ export function AccountBasicsSection({
                 {config.isLoading
                   ? '读取中…'
                   : cfg?.qqOnline
-                    ? autoAttach
+                    ? attachAllowed
                       ? '在线实例已连接，正在等待获取 ClientKey…'
-                      : '完全离线模式已开启（自动读取 QQ 内存 已关闭），不会获取 ClientKey。'
-                    : '未获取到 ClientKey（需要登录中的 QQ 在线，且开启「自动读取 QQ 内存（完整功能）」）。'}
+                      : '本次运行尚未启用完整功能，不会获取 ClientKey。'
+                    : '未获取到 ClientKey（需要登录中的 QQ 在线，并为当前来源启用完整功能）。'}
               </div>
             ) : (
               <div className="weq-set-rkey-item">

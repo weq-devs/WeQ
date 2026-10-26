@@ -73,6 +73,7 @@ export class QQMailService {
   private backgroundStopped = false;
   private backgroundConnect: Promise<void> | null = null;
   private pendingCredentials = false;
+  private readonly allowOnline: () => boolean;
 
   constructor(
     nt: Pick<NtHelperBinding, 'ptFetchMailSession'>,
@@ -83,9 +84,11 @@ export class QQMailService {
       notificationsEnabled?: boolean;
       onNotice?: (notice: MailNotice) => void;
       socketFactory?: (options: WebSocket.ClientOptions) => MailSocket;
+      allowOnline?: () => boolean;
     } = {},
   ) {
     this.makeAuth = options.authFactory ?? (() => new MailAuth(nt, uin, onlinePid));
+    this.allowOnline = options.allowOnline ?? (() => true);
     this.auth = this.makeAuth();
     this.state.notifications = options.notificationsEnabled ?? false;
     this.onNotice = options.onNotice;
@@ -106,7 +109,12 @@ export class QQMailService {
   }
 
   private get backgroundEnabled(): boolean {
-    return !this.closed && !this.backgroundStopped && (this.showUnread || this.state.notifications);
+    return (
+      !this.closed &&
+      this.allowOnline() &&
+      !this.backgroundStopped &&
+      (this.showUnread || this.state.notifications)
+    );
   }
 
   /** QQ 凭据刚就绪时立即连接，不必等离线重试计时器。 */
@@ -150,10 +158,11 @@ export class QQMailService {
   }
 
   private async scoped<T>(run: (auth: MailAuth) => Promise<T>, writeResult = false): Promise<T> {
+    if (!this.allowOnline()) throw new MailFailure('auth', '本次运行尚未启用完整功能。');
     if (this.closed) throw new MailFailure('auth', '邮箱会话已关闭。');
     const auth = this.auth;
     const result = await run(auth);
-    if (this.closed || this.auth !== auth)
+    if (this.closed || !this.allowOnline() || this.auth !== auth)
       throw new MailFailure(
         writeResult ? 'unknown-send' : 'auth',
         writeResult
@@ -164,6 +173,7 @@ export class QQMailService {
   }
 
   async connect(signal?: AbortSignal): Promise<MailStatus> {
+    if (!this.allowOnline()) throw new MailFailure('auth', '本次运行尚未启用完整功能。');
     if (this.auth.ready && this.state.state === 'ready') return this.status();
     this.update({ state: 'connecting', error: null });
     const auth = this.auth;
@@ -548,6 +558,17 @@ export class QQMailService {
       socket.on('error', () => {});
       socket.terminate();
     }
+  }
+
+  /** 运行态失活只释放网络会话，不改变用户的提醒/后台偏好。 */
+  suspendOnline(): void {
+    if (this.closed) return;
+    this.pendingCredentials = false;
+    this.stopNotifications();
+    for (const transfer of this.transfers) transfer.abort();
+    this.auth.dispose();
+    this.auth = this.makeAuth();
+    this.update({ state: 'disconnected', error: null });
   }
 
   disconnect(): void {

@@ -41,7 +41,13 @@ import {
   loginDbPaths,
   resolveLoginAccountDir,
 } from '@weq/service';
-import { rememberAccountUid, requireBootstrap, requirePlatform } from '../../context/app_context';
+import {
+  getAppContext,
+  rememberAccountUid,
+  requireBootstrap,
+  requirePlatform,
+} from '../../context/app_context';
+import { fullModeAllowed } from '../../context/full_mode';
 import { procedure, router } from '../trpc';
 import { ensureUidForUin } from './bootstrap';
 import type { CaptureBatchWire, CaptureStatsWire } from '../../capture_protocol';
@@ -544,7 +550,7 @@ export const wonderfulToolsRouter = router({
         if (!existsSync(input.dbPath)) {
           return { success: false, error: `未找到数据库文件：${input.dbPath}` };
         }
-        if (boot.userConfig.getSettings().autoAttachQq === false) {
+        if (!fullModeAllowed(getAppContext())) {
           return {
             success: false,
             error: '已开启完全离线模式（自动读取 QQ 内存 已关闭），无法向在线 QQ 请求密钥。',

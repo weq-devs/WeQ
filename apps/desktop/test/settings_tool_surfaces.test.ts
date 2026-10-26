@@ -40,7 +40,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                 thumb: { files: 0, bytes: 0 },
                 other: { files: 0, bytes: 0 },
               };
-            return { autoAttachQq: false };
+            return { allowed: false };
           });
         return proxy([...path, String(key)]);
       },

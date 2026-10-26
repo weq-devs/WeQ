@@ -500,7 +500,7 @@ async function createRoamingBackfill(
     checkOnline: () => {
       const record = accountConfig.getRecord();
       if (
-        userConfig.getSettings().autoAttachQq === false ||
+        !fullModeAllowed(getAppContext(), session) ||
         !record?.qqOnline ||
         !record.qqPid ||
         record.uin !== session.context.uin
@@ -971,6 +971,8 @@ export interface AppContext {
    * takes effect immediately. No-op when no account is open.
    */
   applyRealtime(enabled: boolean): void;
+  /** 自动策略失效时取消旧采集，保留仍有效的本来源手动请求。 */
+  applyFullModePolicy(): void;
 
   /**
    * Apply the SSE 消息推送 config to the open account (start / stop / retarget
@@ -1037,6 +1039,7 @@ function unavailableContext(nativeError: NativeInitError | null, reason: string)
     applyRealtime(): void {
       /* no account to watch */
     },
+    applyFullModePolicy(): void {},
     applySsePush(): Promise<void> {
       /* no account — nothing to push */
       return Promise.resolve();
@@ -1330,6 +1333,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Keyed by the same (uin, dataDir) id the account record uses.
       const exportConfigId = accountConfigId(session.context.uin, metadata.dataDir);
       const resolveOnlinePid = (): number => {
+        if (!fullModeAllowed(this, session)) throw new Error('本次运行尚未启用完整功能。');
         const record = accountConfig.getRecord();
         if (!record?.qqOnline || !record.qqPid) {
           throw new Error('QQ account is not online.');
@@ -1345,6 +1349,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         userConfig.cacheDir('media'),
         // 本机 rkey 不可用（无在线 QQ / 已过期）时回退到外部 rkey 服务器。
         bootstrap.externalRkey,
+        () => fullModeAllowed(this, session),
       );
       // 识别结果缓存（内容寻址，`<缓存根>/ocr/`）：灯箱 / MCP / 导出共用同一份实例。
       // 刻意不进「清理缓存」白名单 —— 过期图片的结果清掉就再也拿不回来了（见
@@ -1473,7 +1478,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         platform.native.ntHelper,
         session,
         () => {
-          if (userConfig.getSettings().autoAttachQq === false)
+          if (!fullModeAllowed(this, session))
             throw new Error('完全离线模式已开启，已停止漫游请求。');
           return resolveOnlinePid();
         },
@@ -1516,7 +1521,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               if (
                 this.account !== session ||
                 this.accountIsStatic ||
-                userConfig.getSettings().autoAttachQq === false
+                !fullModeAllowed(this, session)
               )
                 return null;
               const record = accountConfig.getRecord();
@@ -1549,7 +1554,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           resolveDressNames: createDressNameResolver(dressInstall),
           qzone: createReportQzoneCapability(webQuery, session.context.uin, () => {
             const record = accountConfig.getRecord();
-            return Boolean(record?.qqOnline && record.qqPid);
+            return fullModeAllowed(this, session) && Boolean(record?.qqOnline && record.qqPid);
           }),
           resolveEmojiNames: async (ids) => {
             const entries = await emojiService.listSystemFaces();
@@ -1816,21 +1821,19 @@ export function initAppContext(fileRoot?: string): AppContext {
             // 收藏导出：翻页拉本地收藏并拍平为可序列化行（复用 IPC 的 wire 投影）。
             collection: {
               listCollections: async (limit, offset) => {
-                const page =
-                  userConfig.getSettings().autoAttachQq === false
-                    ? await collectionSvc.listCollectionsFromDb(limit, offset)
-                    : await collectionSvc.listCollections(limit, offset);
+                const page = !fullModeAllowed(this, session)
+                  ? await collectionSvc.listCollectionsFromDb(limit, offset)
+                  : await collectionSvc.listCollections(limit, offset);
                 return page.items.map(collectionItemToWire);
               },
               syncHistory: (signal) =>
-                userConfig.getSettings().autoAttachQq === false
+                !fullModeAllowed(this, session)
                   ? Promise.reject(new Error('完全离线模式，不同步云端收藏历史。'))
                   : collectionSvc.syncNetworkHistory(signal),
               canFetchDetails: () =>
-                userConfig.getSettings().autoAttachQq !== false &&
-                accountConfig.getRecord()?.qqOnline === true,
+                fullModeAllowed(this, session) && accountConfig.getRecord()?.qqOnline === true,
               fetchDetails: async (cids, signal) => {
-                if (userConfig.getSettings().autoAttachQq === false)
+                if (!fullModeAllowed(this, session))
                   throw new Error('完全离线模式，不请求云端收藏详情。');
                 const details = await collectionSvc.fetchDetails(cids, { signal });
                 return details.map((detail) => collectionDetailToWire(detail.cid, detail.content));
@@ -1839,10 +1842,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
               writeDetailSnapshot: (path) => collectionSvc.writeCollectionDetailSnapshot(path),
               downloadOriginalFiles: (cid, signal) => {
-                if (
-                  userConfig.getSettings().autoAttachQq === false ||
-                  accountConfig.getRecord()?.qqOnline !== true
-                )
+                if (!fullModeAllowed(this, session) || accountConfig.getRecord()?.qqOnline !== true)
                   throw new Error('离线时不请求收藏附件。');
                 return collectionSvc.downloadExportMedia(cid, signal);
               },
@@ -1919,10 +1919,13 @@ export function initAppContext(fileRoot?: string): AppContext {
           String(session.context.uin),
           () => {
             const record = accountConfig.getRecord();
-            return record?.qqOnline ? (record.qqPid ?? null) : null;
+            return fullModeAllowed(this, session) && record?.qqOnline
+              ? (record.qqPid ?? null)
+              : null;
           },
           {
             notificationsEnabled: accountConfig.getRecord()?.mailNotifications ?? false,
+            allowOnline: () => fullModeAllowed(this, session),
             onNotice: (notice) => mailNotifier?.(String(session.context.uin), notice),
           },
         ),
@@ -2002,7 +2005,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           taskManager: exportManager,
           isOnline: () => {
             const r = accountConfig.getRecord();
-            return Boolean(r?.qqOnline && r?.qqPid);
+            return fullModeAllowed(this, session) && Boolean(r?.qqOnline && r?.qqPid);
           },
         },
       );
@@ -2051,6 +2054,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           return () => accountEventBus.off('onlineCredentialsReady', handler);
         },
         () => accountEventBus.emit('vipChanged', { at: Date.now() }),
+        () => fullModeAllowed(this, session),
       );
       vipBadge.start();
 
@@ -2244,6 +2248,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // elsewhere. The monitor (started at the end) records its pid, so this
       // resolves lazily per call — going online mid-session needs no reopen.
       const livePid = (): number => {
+        if (!fullModeAllowed(this, session)) throw new Error('本次运行尚未启用完整功能。');
         const pid = accountConfig.getRecord()?.qqPid;
         if (!pid) {
           throw new Error('QQ 未在线（静态账号需登录同一账号的 QQ 客户端后才能使用在线功能）。');
@@ -2255,6 +2260,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         accountConfig,
         userConfig.cacheDir('media'),
         bootstrap.externalRkey,
+        () => fullModeAllowed(this, session),
       );
       /** 识别结果缓存（同上：与灯箱 / MCP 共用一份，见 `common/ocr_cache.ts`）。 */
       const ocrCache = ocrCacheFor(userConfig.cacheDir('ocr'));
@@ -2350,7 +2356,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         platform.native.ntHelper,
         session,
         () => {
-          if (userConfig.getSettings().autoAttachQq === false)
+          if (!fullModeAllowed(this, session))
             throw new Error('完全离线模式已开启，已停止漫游请求。');
           return livePid();
         },
@@ -2398,7 +2404,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           resolveDressNames: createDressNameResolver(dressInstall),
           qzone: createReportQzoneCapability(webQuery, session.context.uin, () => {
             const record = accountConfig.getRecord();
-            return Boolean(record?.qqOnline && record.qqPid);
+            return fullModeAllowed(this, session) && Boolean(record?.qqOnline && record.qqPid);
           }),
           resolveEmojiNames: async (ids) => {
             const entries = await emojiService.listSystemFaces();
@@ -2584,21 +2590,19 @@ export function initAppContext(fileRoot?: string): AppContext {
             // 收藏导出：静态账号同样有本地收藏库，可离线导出。
             collection: {
               listCollections: async (limit, offset) => {
-                const page =
-                  userConfig.getSettings().autoAttachQq === false
-                    ? await collectionSvc.listCollectionsFromDb(limit, offset)
-                    : await collectionSvc.listCollections(limit, offset);
+                const page = !fullModeAllowed(this, session)
+                  ? await collectionSvc.listCollectionsFromDb(limit, offset)
+                  : await collectionSvc.listCollections(limit, offset);
                 return page.items.map(collectionItemToWire);
               },
               syncHistory: (signal) =>
-                userConfig.getSettings().autoAttachQq === false
+                !fullModeAllowed(this, session)
                   ? Promise.reject(new Error('完全离线模式，不同步云端收藏历史。'))
                   : collectionSvc.syncNetworkHistory(signal),
               canFetchDetails: () =>
-                userConfig.getSettings().autoAttachQq !== false &&
-                accountConfig.getRecord()?.qqOnline === true,
+                fullModeAllowed(this, session) && accountConfig.getRecord()?.qqOnline === true,
               fetchDetails: async (cids, signal) => {
-                if (userConfig.getSettings().autoAttachQq === false)
+                if (!fullModeAllowed(this, session))
                   throw new Error('完全离线模式，不请求云端收藏详情。');
                 const details = await collectionSvc.fetchDetails(cids, { signal });
                 return details.map((detail) => collectionDetailToWire(detail.cid, detail.content));
@@ -2607,10 +2611,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               writeHistorySnapshot: (path) => collectionSvc.writeCollectionHistorySnapshot(path),
               writeDetailSnapshot: (path) => collectionSvc.writeCollectionDetailSnapshot(path),
               downloadOriginalFiles: (cid, signal) => {
-                if (
-                  userConfig.getSettings().autoAttachQq === false ||
-                  accountConfig.getRecord()?.qqOnline !== true
-                )
+                if (!fullModeAllowed(this, session) || accountConfig.getRecord()?.qqOnline !== true)
                   throw new Error('离线时不请求收藏附件。');
                 return collectionSvc.downloadExportMedia(cid, signal);
               },
@@ -2673,10 +2674,13 @@ export function initAppContext(fileRoot?: string): AppContext {
           String(session.context.uin),
           () => {
             const record = accountConfig.getRecord();
-            return record?.qqOnline ? (record.qqPid ?? null) : null;
+            return fullModeAllowed(this, session) && record?.qqOnline
+              ? (record.qqPid ?? null)
+              : null;
           },
           {
             notificationsEnabled: accountConfig.getRecord()?.mailNotifications ?? false,
+            allowOnline: () => fullModeAllowed(this, session),
             onNotice: (notice) => mailNotifier?.(String(session.context.uin), notice),
           },
         ),
@@ -2798,6 +2802,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           return () => accountEventBus.off('onlineCredentialsReady', handler);
         },
         () => accountEventBus.emit('vipChanged', { at: Date.now() }),
+        () => fullModeAllowed(this, session),
       );
       vipBadge.start();
 
@@ -3056,6 +3061,14 @@ export function initAppContext(fileRoot?: string): AppContext {
     },
     onlineCredentialsPending(): boolean {
       return accountMonitor?.credentialsPending ?? false;
+    },
+    applyFullModePolicy(): void {
+      if (fullModeAllowed(this)) return;
+      this.services?.unreadInfo.cancelReports();
+      this.services?.mail.suspendOnline();
+      // stop 的 generation/AbortSignal 隔离尚在等待授权的旧读取；监视在线状态继续运行。
+      accountMonitor?.stop();
+      accountMonitor?.start();
     },
   };
 

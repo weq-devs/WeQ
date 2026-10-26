@@ -222,6 +222,7 @@ export class WebCredentialProvider {
       // 的场景仍能用 p_skey 算 g_tk，四字段 Cookie 也足够多数 cgi 使用。
       if (!pskey) {
         const res = await this.nt.ptFetchCredentials(pid, this.uin, domain);
+        if (this.resolvePid() !== pid) throw new Error('在线来源已变化，已丢弃旧 Web 凭据');
         if (!res.success || !res.pskey) throw new Error(res.msg || '获取 Web 凭据失败');
         skey = res.skey;
         pskey = res.pskey;

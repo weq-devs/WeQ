@@ -15,7 +15,7 @@ const rpc = vi.hoisted(() => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
-    bootstrap: { getSettings: { query: async () => ({ autoAttachQq: false }) } },
+    bootstrap: { getFullModeState: { query: async () => ({ allowed: false }) } },
     wonderfulTools: {
       overview: { query: rpc.overview },
       loginAccountsOverview: { query: rpc.login },

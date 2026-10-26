@@ -80,6 +80,22 @@ const compose = {
   attachments: [],
 };
 
+it('运行态受限时不因邮箱后台偏好读取票据，暂停会话不改变提醒偏好', async () => {
+  const nt = mailNative();
+  const service = new QQMailService(nt, '12345678', () => 42, { allowOnline: () => false });
+  try {
+    service.startBackground({ showUnread: true, notifications: true });
+    expect(nt.ptFetchMailSession).not.toHaveBeenCalled();
+    await expect(service.connect()).rejects.toThrow('未启用完整功能');
+    service.suspendOnline();
+    expect(service.status().notifications).toBe(true);
+    await expect(service.folders()).rejects.toThrow('未启用完整功能');
+    expect(nt.ptFetchMailSession).not.toHaveBeenCalled();
+  } finally {
+    service.dispose();
+  }
+});
+
 describe('邮箱协议编码', () => {
   it('数组使用重复键，对象使用 JSON，空值不落入表单', () => {
     const form = new URLSearchParams(

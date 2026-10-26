@@ -4850,11 +4850,13 @@ export const accountRouter = router({
         (await getAppContext().platform?.native.ntHelper.hasSsoSession(record.qqPid)),
     );
     if (getAppContext().services !== services) throw new Error('账号已切换，请重新检查在线状态。');
+    const attachEnabled = fullModeAllowed(getAppContext());
     return {
       ...access,
+      attachEnabled,
       hasUid: Boolean(record?.uid),
       needsMemoryRead,
-      ssoReady,
+      ssoReady: attachEnabled && ssoReady,
       credentialsPending: getAppContext().onlineCredentialsPending(),
     };
   }),
@@ -5808,7 +5810,7 @@ export const accountRouter = router({
 
       // 没有在线 QQ（或处于完全离线模式）就没有 clientKey 可换 —— 退回裸地址，
       // 用户自己在浏览器里登录。
-      const offlineMode = ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false;
+      const offlineMode = !fullModeAllowed(ctx);
       if (!uin || !nt || !record?.qqOnline || !record.qqPid || offlineMode) {
         return { url: landing, autoLogin: false };
       }
@@ -5841,7 +5843,7 @@ export const accountRouter = router({
         const uin = ctx.account?.context.uin;
         const nt = ctx.platform?.native.ntHelper;
         const record = services.accountConfig.getRecord();
-        const offlineMode = ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false;
+        const offlineMode = !fullModeAllowed(ctx);
         if (!uin || !nt || !record?.qqOnline || !record.qqPid || offlineMode) {
           if (offlineMode) {
             return {
@@ -6401,8 +6403,7 @@ export const accountRouter = router({
       const offset = input?.offset ?? 0;
       // 完全离线模式（自动读取 QQ 内存 关闭）：网络同步需要 weiyun p_skey（在线实例），
       // 一律回退本地 collection.db，避免白打一次网络 + 凭证换取。
-      const offlineMode =
-        getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq === false;
+      const offlineMode = !fullModeAllowed(getAppContext());
       const source = offlineMode ? 'db' : (input?.source ?? 'auto');
       const page =
         source === 'db'

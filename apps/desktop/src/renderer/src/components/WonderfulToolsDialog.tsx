@@ -319,8 +319,8 @@ export function WonderfulToolsDialog({
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** 全局「自动读取 QQ 内存（完整功能）」——关闭即完全离线模式。 */
-  const [autoAttachQq, setAutoAttachQq] = useState(true);
+  /** 只信宿主当前来源的有效运行态，不能用自动偏好推测能力。 */
+  const [fullModeEnabled, setFullModeEnabled] = useState(false);
   const [scanningUin, setScanningUin] = useState<string | null>(null);
   /** 正在扫描 / 已出结果的账号 —— 存在时弹出结果模态窗口。 */
   const [scanTarget, setScanTarget] = useState<AccountRow | null>(null);
@@ -354,23 +354,23 @@ export function WonderfulToolsDialog({
   /** 当前在线的 QQ 实例数（密钥扫描用：只读内存，离线模式下仍可用）。 */
   const onlineCount = accounts.filter((a) => a.pid !== null).length;
   /** 其它设备密钥需要「已读取内存」的在线实例；完全离线模式下视为 0。 */
-  const otherKeyOnline = autoAttachQq ? onlineCount : 0;
+  const otherKeyOnline = fullModeEnabled ? onlineCount : 0;
 
   useEffect(() => {
-    if (!open) return undefined;
+    if (!open || !activity.enabled) return undefined;
     let alive = true;
-    void client.bootstrap.getSettings
+    void client.bootstrap.getFullModeState
       .query()
       .then((s) => {
-        if (alive) setAutoAttachQq(s.autoAttachQq);
+        if (alive) setFullModeEnabled(s.allowed);
       })
       .catch(() => {
-        /* 读不到就按默认开启处理 */
+        if (alive) setFullModeEnabled(false);
       });
     return () => {
       alive = false;
     };
-  }, [open]);
+  }, [open, activity.enabled]);
 
   const closeResult = useCallback(() => {
     scanRun.current += 1;
@@ -702,7 +702,7 @@ export function WonderfulToolsDialog({
                         <span
                           className={`weq-wtools-online-badge${otherKeyOnline > 0 ? ' is-online' : ''}`}
                         >
-                          {autoAttachQq
+                          {fullModeEnabled
                             ? otherKeyOnline > 0
                               ? `${otherKeyOnline} 个在线实例可用`
                               : '无在线实例'
@@ -795,7 +795,7 @@ export function WonderfulToolsDialog({
                             !otherDbPath || otherKeyOnline === 0 || fetchingKey || headerLoading
                           }
                           title={
-                            !autoAttachQq
+                            !fullModeEnabled
                               ? '已开启完全离线模式，无法向 QQ 请求密钥'
                               : otherKeyOnline === 0
                                 ? '没有可用的在线 QQ 实例，无法发包获取密钥'
@@ -811,7 +811,7 @@ export function WonderfulToolsDialog({
                         </button>
                         {otherKeyOnline === 0 && !fetchingKey ? (
                           <span className="weq-wtools-odev-hint">
-                            {autoAttachQq
+                            {fullModeEnabled
                               ? '无在线实例，按钮保持灰色：请先登录 QQ 并保持在线'
                               : '已开启完全离线模式（自动读取 QQ 内存 已关闭），无法向 QQ 请求密钥'}
                           </span>

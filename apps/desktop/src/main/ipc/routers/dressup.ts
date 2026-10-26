@@ -30,6 +30,7 @@ import {
   requireAttachEnabled,
   type AccountServices,
 } from '../../context/app_context';
+import { fullModeAllowed } from '../../context/full_mode';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { buildDecorationBundle, buildDecorationFile } from './dressup_export';
@@ -52,7 +53,7 @@ function requireServices(): AccountServices {
 function qqOnline(services = requireServices()): boolean {
   const record = services.accountConfig.getRecord();
   if (!(record?.qqOnline && record.qqPid)) return false;
-  return getAppContext().bootstrap?.userConfig.getSettings().autoAttachQq ?? true;
+  return fullModeAllowed(getAppContext());
 }
 
 /** 仅要求在线 QQ 实例（不要求注入）—— 走 Web CGI 的接口用（pt_login 可兜底）。 */

@@ -17,6 +17,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../context/app_context';
+import { fullModeAllowed } from '../context/full_mode';
 import { assertAccountToolScope } from './account_scope';
 import {
   classifyChatType,
@@ -119,7 +120,7 @@ function onlinePid(): number {
   if (!record?.qqOnline || !record.qqPid) {
     throw new Error('需要先登录该账号的 QQ 客户端（本工具要走在线实例）。');
   }
-  if (ctx.bootstrap?.userConfig.getSettings().autoAttachQq === false) {
+  if (!fullModeAllowed(ctx)) {
     throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），本工具不可用。');
   }
   return record.qqPid;
@@ -144,7 +145,7 @@ function currentUin(): string {
 function ocrOnlineBlocker(): string | null {
   const record = services().accountConfig.getRecord();
   if (!record?.qqOnline || !record.qqPid) return '该账号的 QQ 未在线，走不了在线识别。';
-  if (toolContext().bootstrap?.userConfig.getSettings().autoAttachQq === false) {
+  if (!fullModeAllowed(toolContext())) {
     return '已开启完全离线模式（自动读取 QQ 内存 已关闭），在线识别不可用。';
   }
   const session = record.session;
