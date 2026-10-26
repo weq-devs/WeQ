@@ -133,7 +133,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
     }
   }
 
-  private async persist(): Promise<void> {
+  private async persist(strict = false): Promise<void> {
     try {
       await mkdir(this.baseDir, { recursive: true });
       await writeFile(this.tasksPath, JSON.stringify(this.tasks, null, 2), 'utf8');
@@ -142,6 +142,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
         event: 'flash-tasks-write',
         ...logErrorContext(error),
       });
+      if (strict) throw error;
     }
   }
 
@@ -222,6 +223,22 @@ export class FlashTransferDownloadManager extends EventEmitter {
     const removed = before - this.tasks.length;
     if (removed > 0) await this.persist();
     return removed;
+  }
+
+  /** 统一任务入口仅清除已确认的成功记录，不删除下载文件。 */
+  async clearCompleted(taskIds: string[]): Promise<number> {
+    const ids = new Set(taskIds);
+    const removed = this.tasks.filter((task) => ids.has(task.id) && task.status === 'done');
+    if (!removed.length) return 0;
+    const removedIds = new Set(removed.map((task) => task.id));
+    this.tasks = this.tasks.filter((task) => !removedIds.has(task.id));
+    try {
+      await this.persist(true);
+    } catch (error) {
+      this.tasks.push(...removed);
+      throw error;
+    }
+    return removed.length;
   }
 
   // ---- 后台调度 ----------------------------------------------------------
