@@ -31,17 +31,52 @@ export const DEFAULT_SEARCH_CATEGORIES: readonly SearchCategory[] = [
   'assistantMessage',
 ];
 
-/** 名称完全匹配、前缀、包含、仅正文匹配依次递减；同档再按来源时间排序。 */
+function normalizedSearchText(value: string): string {
+  return value.normalize('NFKC').trim().toLocaleLowerCase().replace(/\s+/gu, ' ');
+}
+
+/** 完整相等 > 连续命中（越短越好）> 有序断开命中（窗口越紧越好）。 */
 export function searchNameRank(keyword: string, ...names: string[]): number {
-  const needle = keyword.trim().toLocaleLowerCase();
+  const needle = normalizedSearchText(keyword);
   if (!needle) return 0;
+  const characters = [...needle].filter((char) => char !== ' ');
   let rank = 0;
   for (const name of names) {
-    const text = name.trim().toLocaleLowerCase();
-    rank = Math.max(
-      rank,
-      text === needle ? 3 : text.startsWith(needle) ? 2 : text.includes(needle) ? 1 : 0,
-    );
+    const text = normalizedSearchText(name);
+    if (text === needle) return 4;
+    const length = [...text].length;
+    const at = text.indexOf(needle);
+    if (at >= 0) {
+      const compactness = 1 / (length + 1);
+      const lengthStep = compactness - 1 / (length + 2);
+      // 位置仅作同长度的细分，其加分始终小于相邻长度的差值。
+      rank = Math.max(
+        rank,
+        3 + compactness + (lengthStep * 0.25) / ([...text.slice(0, at)].length + 1),
+      );
+      continue;
+    }
+    if (rank >= 3 || length < characters.length) continue;
+    // 倒序更新各前缀的最近起点，重复字符不能复用同一位置；保留最紧完整窗口。
+    const starts = new Array<number>(characters.length).fill(-1);
+    let span = Number.POSITIVE_INFINITY;
+    let position = 0;
+    for (const char of text) {
+      for (let index = characters.length - 1; index >= 0; index--) {
+        if (char !== characters[index]) continue;
+        if (index === 0) starts[index] = position;
+        else if (starts[index - 1]! >= 0) starts[index] = starts[index - 1]!;
+        else continue;
+        if (index === characters.length - 1 && starts[index]! >= 0)
+          span = Math.min(span, position - starts[index]! + 1);
+      }
+      position++;
+    }
+    if (Number.isFinite(span)) {
+      const compactness = 1 / (span + 1);
+      const spanStep = compactness - 1 / (span + 2);
+      rank = Math.max(rank, 2 + compactness + (spanStep * 0.25) / (length + 1));
+    }
   }
   return rank;
 }

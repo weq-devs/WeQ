@@ -10,6 +10,8 @@ import {
   DEFAULT_SEARCH_CATEGORIES,
   type QuickSearchResult,
   type SearchCategory,
+  type SlowSearchResult,
+  type ChatRecordSearchHit,
 } from '../src/renderer/src/components/search/types';
 
 const rpc = vi.hoisted(() => ({ quick: vi.fn(), slow: vi.fn() }));
@@ -95,6 +97,85 @@ afterEach(() => {
 });
 
 describe('全局搜索请求生命周期', () => {
+  it('默认全选的每个分类均在同一轮防抖后独立派发', async () => {
+    vi.useFakeTimers();
+    rpc.quick.mockResolvedValue({ conversations: [], friends: [], groupMembers: [] });
+    rpc.slow.mockResolvedValue(slowResult);
+    const f = mountSearch();
+    try {
+      f.render('合成');
+      await act(async () => vi.advanceTimersByTimeAsync(200));
+      const dispatched = [...rpc.quick.mock.calls, ...rpc.slow.mock.calls].flatMap(
+        ([input]) => input.categories,
+      );
+      expect(new Set(dispatched)).toEqual(new Set(SEARCH_CATEGORY_ORDER));
+      expect(dispatched).toHaveLength(SEARCH_CATEGORY_ORDER.length);
+      expect(Object.values(f.result.categoryStates).every((status) => !status.loading)).toBe(true);
+    } finally {
+      f.close();
+    }
+  });
+  it('分类同时发出、独立完成和失败，慢分类不阻塞结果，后到空结果不覆盖消息', async () => {
+    vi.useFakeTimers();
+    const contact = deferred<QuickSearchResult>();
+    const group = deferred<QuickSearchResult>();
+    const message = deferred<SlowSearchResult>();
+    const messageHit: ChatRecordSearchHit = {
+      category: 'chatRecord',
+      source: 'group',
+      partition: '1',
+      targetUid: '1',
+      targetUin: '0',
+      name: '合成群',
+      count: 1,
+    };
+    const file = deferred<typeof slowResult>();
+    rpc.quick.mockImplementation(({ categories }) =>
+      categories[0] === 'contact' ? contact.promise : group.promise,
+    );
+    rpc.slow.mockImplementation(({ categories }) =>
+      categories[0] === 'chatRecord' ? message.promise : file.promise,
+    );
+    const f = mountSearch();
+    try {
+      f.render('合成', ['contact', 'group', 'chatRecord', 'file']);
+      await act(async () => vi.advanceTimersByTimeAsync(200));
+      expect(rpc.quick.mock.calls.map(([input]) => input.categories)).toEqual([
+        ['contact'],
+        ['group'],
+      ]);
+      expect(rpc.slow.mock.calls.map(([input]) => input.categories)).toEqual([
+        ['chatRecord'],
+        ['file'],
+      ]);
+      await act(async () => contact.resolve(quickResult));
+      expect(f.result.quick?.contacts).toEqual(quickResult.contacts);
+      expect(f.result.quickLoading).toBe(true);
+      expect(f.result.categoryStates.contact).toEqual({ loading: false, error: false });
+      expect(f.result.categoryStates.group?.loading).toBe(true);
+      await act(async () =>
+        message.resolve({ ...slowResult, chatRecords: [messageHit], messageHits: [messageHit] }),
+      );
+      const hits = f.result.slow?.messageHits;
+      await act(async () => file.resolve(slowResult));
+      expect(f.result.slow?.messageHits).toBe(hits);
+      expect(f.result.slow?.chatRecords).toEqual([messageHit]);
+      expect(f.result.slowLoading).toBe(false);
+      // 一个分类失败不污染其它分类的状态或已有结果。
+      f.render('下一次', ['contact', 'group']);
+      rpc.quick.mockImplementation(({ categories }) =>
+        categories[0] === 'contact'
+          ? Promise.resolve(quickResult)
+          : Promise.reject(new Error('合成失败')),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(200));
+      expect(f.result.categoryStates.group).toEqual({ loading: false, error: true });
+      expect(f.result.categoryStates.contact).toEqual({ loading: false, error: false });
+      expect(f.result.quick?.contacts).toEqual(quickResult.contacts);
+    } finally {
+      f.close();
+    }
+  });
   it('切换会话显示范围即清除旧结果，迟到响应不覆盖新范围', async () => {
     vi.useFakeTimers();
     const old = deferred<QuickSearchResult>();
@@ -153,7 +234,7 @@ describe('全局搜索请求生命周期', () => {
     }
   });
 
-  it('默认全范围，切换关键词当帧清除旧结果，晚到响应不覆盖新查询', async () => {
+  it('切换关键词当帧清除旧结果，晚到响应不覆盖新查询', async () => {
     vi.useFakeTimers();
     const late = deferred<QuickSearchResult>();
     rpc.quick
@@ -163,23 +244,23 @@ describe('全局搜索请求生命周期', () => {
     rpc.slow.mockResolvedValue(slowResult);
     const f = mountSearch();
     try {
-      f.render('第一次');
+      f.render('第一次', ['friend']);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(200);
       });
       expect(rpc.quick).toHaveBeenCalledWith({
         keyword: '第一次',
         limit: 3,
-        categories: SEARCH_CATEGORY_ORDER,
+        categories: ['friend'],
         conversationScope: 'all',
       });
       expect(f.result.quick?.friends).toHaveLength(1);
-      f.render('第二次');
+      f.render('第二次', ['friend']);
       expect(f.result.quick).toBeNull();
       await act(async () => {
         await vi.advanceTimersByTimeAsync(200);
       });
-      f.render('第三次');
+      f.render('第三次', ['friend']);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(200);
       });
@@ -212,7 +293,7 @@ describe('全局搜索请求生命周期', () => {
         oldAccount.resolve(quickResult);
       });
       expect(f.result.quick).toBeNull();
-      expect(f.result.slow).toEqual(slowResult);
+      expect(f.result.slow).toMatchObject(slowResult);
       expect(rpc.slow).toHaveBeenCalledWith({
         keyword: '关键词',
         limit: 3,
@@ -237,19 +318,19 @@ describe('全局搜索请求生命周期', () => {
     rpc.slow.mockResolvedValue(slowResult);
     const f = mountSearch();
     try {
-      f.render('关键词');
+      f.render('关键词', ['friend', 'file']);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(200);
       });
       expect(f.result.quickLoading).toBe(false);
       expect(f.result.quickError).toBe(true);
-      expect(f.result.slow).toEqual(slowResult);
+      expect(f.result.slow).toMatchObject(slowResult);
       act(() => f.result.retry());
       expect(f.result.quickError).toBe(false);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(200);
       });
-      expect(f.result.quick).toEqual(quickResult);
+      expect(f.result.quick?.friends).toEqual(quickResult.friends);
       expect(rpc.quick).toHaveBeenCalledTimes(2);
     } finally {
       f.close();
@@ -328,7 +409,7 @@ describe('搜索范围与失败界面', () => {
     }
   });
 
-  it('名称命中程度不同也保留固定分类顺序', () => {
+  it('有结果的分类按最佳匹配排序，精确文件命中排在较长联系人命中之前', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     const root = createRoot(host);
@@ -369,7 +450,7 @@ describe('搜索范围与失败界面', () => {
       );
       expect(
         [...host.querySelectorAll('.weq-search-section-name')].map((node) => node.textContent),
-      ).toEqual(['联系人', '文件']);
+      ).toEqual(['文件', '联系人']);
     } finally {
       act(() => root.unmount());
     }

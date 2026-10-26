@@ -8,7 +8,14 @@
  * rather than leaving the UI stuck on failing requests.
  */
 
-import { createWSClient, httpBatchLink, splitLink, wsLink, type TRPCLink } from '@trpc/client';
+import {
+  createWSClient,
+  httpBatchLink,
+  httpLink,
+  splitLink,
+  wsLink,
+  type TRPCLink,
+} from '@trpc/client';
 import type { AppRouter } from '../../../shared/router';
 import { useWebConnection } from '../state/webConnection';
 
@@ -21,18 +28,22 @@ const wsClient = createWSClient({
 });
 
 export function createLinks(): TRPCLink<AppRouter>[] {
+  const httpOptions = {
+    url: '/trpc',
+    async fetch(input: RequestInfo | URL, init?: RequestInit) {
+      const res = await fetch(input, { ...init, credentials: 'same-origin' });
+      if (res.status === 401) location.reload();
+      return res;
+    },
+  };
   return [
     splitLink({
       condition: (op) => op.type === 'subscription',
       true: wsLink({ client: wsClient }),
-      false: httpBatchLink({
-        url: '/trpc',
-        maxURLLength: 2048,
-        async fetch(input, init) {
-          const res = await fetch(input, { ...init, credentials: 'same-origin' });
-          if (res.status === 401) location.reload();
-          return res;
-        },
+      false: splitLink({
+        condition: (op) => op.path === 'account.searchQuick' || op.path === 'account.searchSlow',
+        true: httpLink(httpOptions),
+        false: httpBatchLink({ ...httpOptions, maxURLLength: 2048 }),
       }),
     }),
   ];

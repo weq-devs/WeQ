@@ -124,6 +124,10 @@ export interface MoreSearchResult {
   limited?: boolean;
 }
 
+export type SearchCategoryStates = Partial<
+  Record<SearchCategory, { loading: boolean; error: boolean }>
+>;
+
 export interface ConversationRecordHit {
   msgId: string;
   msgSeq: string;
@@ -201,9 +205,9 @@ export function searchHitNameRank(hit: SearchHit, keyword: string): number {
     case 'file':
       return searchNameRank(keyword, hit.fileName);
     case 'collection':
-      return searchNameRank(keyword, hit.title);
+      return searchNameRank(keyword, hit.title, hit.content);
     default:
-      return searchNameRank(keyword, hit.title);
+      return searchNameRank(keyword, hit.title, hit.content);
   }
 }
 

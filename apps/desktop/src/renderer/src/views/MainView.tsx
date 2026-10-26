@@ -9732,6 +9732,7 @@ export function MainView(): ReactElement {
                   slowLoading={globalSearch.slowLoading}
                   quickError={globalSearch.quickError}
                   slowError={globalSearch.slowError}
+                  categoryStates={globalSearch.categoryStates}
                   categories={searchCategories}
                   onCategoriesChange={setSearchCategories}
                   onRetry={globalSearch.retry}

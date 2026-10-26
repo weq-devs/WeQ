@@ -1,6 +1,6 @@
 /** The unified search dropdown under the sidebar search box. */
 
-import { useCallback, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
   Bookmark,
   Bot,
@@ -31,7 +31,7 @@ import {
   rankFileSearchHits,
 } from '@weq/service/search-policy';
 import { AppSearchResults } from './AppSearchResults';
-import type { AppSearchEntry } from './appSearchCatalog';
+import { appSearchEntryRank, searchAppEntries, type AppSearchEntry } from './appSearchCatalog';
 import { restoreSearchPosition, type SearchPosition } from './searchPosition';
 import {
   CATEGORY_META,
@@ -40,11 +40,13 @@ import {
   contentCoverageText,
   SEARCH_CATEGORY_ORDER,
   searchHitKey,
+  searchHitNameRank,
   isSlowSearchCategory,
   type SearchCategory,
   type SearchHit,
   type QuickSearchResult,
   type SlowSearchResult,
+  type SearchCategoryStates,
 } from './types';
 
 const scopeIcons: Record<SearchCategory, LucideIcon> = {
@@ -95,6 +97,7 @@ export function SearchDropdown({
   appSearchEnabled = false,
   onAppSearchEnabledChange,
   onSelectAppEntry,
+  categoryStates,
 }: {
   keyword: string;
   quick: QuickSearchResult | null;
@@ -113,6 +116,7 @@ export function SearchDropdown({
   appSearchEnabled?: boolean;
   onAppSearchEnabledChange?: (enabled: boolean) => void;
   onSelectAppEntry?: (entry: AppSearchEntry) => void;
+  categoryStates?: SearchCategoryStates;
 }): ReactElement {
   const hasKeyword = keyword.trim().length > 0;
   const allSelected =
@@ -125,6 +129,10 @@ export function SearchDropdown({
     initialPosition?.appResultsExpanded ? keyword : null,
   );
   const appResultsExpanded = expandedAppKeyword === keyword;
+  const appEntries = useMemo(
+    () => (appSearchEnabled ? searchAppEntries(keyword) : []),
+    [keyword, appSearchEnabled],
+  );
   const rememberPosition = (focusKey: string) =>
     onNavigate?.({
       scrollTop: root.current?.scrollTop ?? 0,
@@ -196,6 +204,10 @@ export function SearchDropdown({
       : null,
     loading: slowLoading && !slow,
   });
+  for (const [category, section] of sections) {
+    const status = categoryStates?.[category];
+    if (status) section.loading = status.loading;
+  }
 
   const indexBuilding =
     categories.some((c) => c === 'chatRecord' || c === 'file') &&
@@ -215,7 +227,7 @@ export function SearchDropdown({
   });
   const failedFor = (category: SearchCategory) =>
     isSlowSearchCategory(category)
-      ? slowError ||
+      ? (categoryStates?.[category]?.error ?? slowError) ||
         Boolean(slow?.failedCategories?.includes(category)) ||
         (category === 'chatRecord' &&
           Boolean(
@@ -225,10 +237,31 @@ export function SearchDropdown({
           )) ||
         (category === 'file' && Boolean(slow?.failedCategories?.includes('groupFile'))) ||
         (category === 'qzone' && Boolean(slow?.failedCategories?.some(isQzoneSearchCategory)))
-      : quickError;
-  const orderedCategories = SEARCH_CATEGORY_ORDER.filter((category) =>
-    categories.includes(category),
-  );
+      : (categoryStates?.[category]?.error ?? quickError);
+  const bestRank = (category: SearchCategory | 'app') =>
+    category === 'app'
+      ? Math.max(0, ...appEntries.map((entry) => appSearchEntryRank(keyword, entry)))
+      : Math.max(
+          0,
+          ...(sections.get(category)?.hits ?? []).map((hit) => searchHitNameRank(hit, keyword)),
+        );
+  const hasResults = (category: SearchCategory | 'app') =>
+    category === 'app' ? appEntries.length > 0 : Boolean(sections.get(category)?.hits?.length);
+  const categoryOrder: Array<SearchCategory | 'app'> = [
+    ...(appSearchEnabled && onSelectAppEntry ? ['app' as const] : []),
+    ...SEARCH_CATEGORY_ORDER.filter((category) => categories.includes(category)),
+  ];
+  const orderedCategories = categoryOrder
+    .map((category, index) => ({
+      category,
+      index,
+      hasResults: hasResults(category),
+      rank: bestRank(category),
+    }))
+    .sort(
+      (a, b) => Number(b.hasResults) - Number(a.hasResults) || b.rank - a.rank || a.index - b.index,
+    )
+    .map((item) => item.category);
 
   return (
     <div className="weq-search-dropdown" ref={attachRoot}>
@@ -286,18 +319,21 @@ export function SearchDropdown({
             {categories.length === 0 && !appSearchEnabled ? (
               <div className="weq-search-empty">未选择搜索范围</div>
             ) : null}
-            {appSearchEnabled && onSelectAppEntry ? (
-              <AppSearchResults
-                keyword={keyword}
-                expanded={appResultsExpanded}
-                onExpand={() => setExpandedAppKeyword(keyword)}
-                onSelect={(entry) => {
-                  rememberPosition(`app:${entry.id}`);
-                  onSelectAppEntry(entry);
-                }}
-              />
-            ) : null}
             {orderedCategories.map((category) => {
+              if (category === 'app')
+                return (
+                  <AppSearchResults
+                    key="app"
+                    keyword={keyword}
+                    entries={appEntries}
+                    expanded={appResultsExpanded}
+                    onExpand={() => setExpandedAppKeyword(keyword)}
+                    onSelect={(entry) => {
+                      rememberPosition(`app:${entry.id}`);
+                      onSelectAppEntry?.(entry);
+                    }}
+                  />
+                );
               const section = sections.get(category)!;
               const hits = section.hits;
               const coverage =
