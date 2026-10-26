@@ -379,6 +379,8 @@ export interface PrivateFileSendParams {
   selfUin: number | string;
   /** 上传完是否发出去；缺省 true。 */
   send?: boolean;
+  /** 长上传期间的账号 / 运行时检查；失败时不继续发布。 */
+  beforeSend?: () => void;
   log?: (message: string) => void;
 }
 
@@ -424,6 +426,7 @@ export async function sendPrivateFile(
   const hashes = await hashFileStreaming(filePath, { headLimit: FILE_MD5_HEAD_LIMIT });
   if (!hashes.headMd5) throw new Error('私聊文件缺少 md510M 校验和');
 
+  params.beforeSend?.();
   const upload = await invokeOidb(nt, pid, UploadPrivateFile, {
     senderUid: selfUid,
     receiverUid: userUid,
@@ -434,6 +437,7 @@ export async function sendPrivateFile(
     md510MCheckSum: hashes.headMd5,
   });
   ensureRetCodeZero('私聊文件上传申请', upload.retCode, upload.retMsg);
+  params.beforeSend?.();
 
   const fileId = typeof upload.uuid === 'string' && upload.uuid ? upload.uuid : '';
   if (!fileId) throw new Error('私聊文件上传响应缺少 uuid');
@@ -484,6 +488,7 @@ export async function sendPrivateFile(
       uploadPort: port,
     });
     const session = await fetchHighwaySession(nt, pid);
+    params.beforeSend?.();
     const source = await FileChunkSource.open(filePath, hashes.fileSize);
     await uploadHighwayHttp({
       session,
@@ -501,6 +506,7 @@ export async function sendPrivateFile(
   // finalize 是**尽力而为**：`file` 本身已够收端下载，`field6` 只是加强。
   // 失败只记日志，不让整条发送跟着失败。
   let meta: FinalizeMetadata | null = null;
+  params.beforeSend?.();
   try {
     meta = await invokeOidb(nt, pid, FinalizeOfflineFile, {
       senderUid: selfUid,
@@ -561,6 +567,7 @@ export async function sendPrivateFile(
     };
   }
 
+  params.beforeSend?.();
   const receipt = await sendC2cFileMessage(nt, pid, {
     userUid,
     fileExtra: encode(FILE_EXTRA, fileExtra),

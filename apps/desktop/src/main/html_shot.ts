@@ -25,6 +25,7 @@
  */
 
 import { BrowserWindow, nativeImage, type NativeImage } from 'electron';
+import { randomUUID } from 'node:crypto';
 import { loadIsolatedHtml } from './html_load';
 
 /** 加载 + 字体就绪的硬超时：无论成功与否都不把窗口留在后台。 */
@@ -102,6 +103,7 @@ async function openWindow(html: string): Promise<BrowserWindow> {
     height: 1300,
     show: false,
     webPreferences: {
+      partition: `weq-report-shot-${randomUUID()}`,
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -111,7 +113,7 @@ async function openWindow(html: string): Promise<BrowserWindow> {
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   try {
-    const loaded = loadIsolatedHtml(win, html).catch(() => {});
+    const loaded = loadIsolatedHtml(win, html, { offline: true }).catch(() => {});
     await Promise.race([loaded, delay(LOAD_TIMEOUT_MS)]);
     if (win.isDestroyed()) throw new Error('截图窗口已被销毁');
     await win.webContents

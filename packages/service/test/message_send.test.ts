@@ -1117,6 +1117,22 @@ describe('MessageSendService.sendText（离线集成）', () => {
 });
 
 describe('sendFile（群文件 / 私聊文件）', () => {
+  it('私聊文件透传发送前身份检查，失效时不进入网络请求', async () => {
+    const filePath = path.join(dir, 'private-guard.txt');
+    await fsp.writeFile(filePath, 'synthetic');
+    const native = fakeNative();
+    const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+    await expect(
+      svc.sendFile({
+        peerType: 'c2c',
+        targetId: 'u_friend',
+        path: filePath,
+        beforeSend: () => {
+          throw new Error('合成账号已切换');
+        },
+      }),
+    ).rejects.toThrow('合成账号已切换');
+  });
   /** 群文件管线用的记账 native：0x6D6_0 回「秒传命中 + fileId」，0x6D9_4 回空。 */
   function groupFileNative() {
     const calls: { command: number; subCommand: number }[] = [];

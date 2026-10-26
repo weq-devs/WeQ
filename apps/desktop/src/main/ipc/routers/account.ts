@@ -12,6 +12,11 @@
  */
 
 import { z } from 'zod';
+import { FileUploadStaging } from './album_video_staging';
+import {
+  BROWSER_FILE_CHUNK_BYTES,
+  BROWSER_FILE_MAX_BYTES,
+} from '../../../shared/browser_file_upload';
 import { assertEmbeddingModelIdentity } from '@weq/agentlab';
 import { agentLabModelSelectionSchema } from '../../../shared/agentlab_model_selection';
 import {
@@ -1655,6 +1660,18 @@ function unreadInfoToWire(
     })),
   };
 }
+
+const browserFileBinding = z.object({
+  expectedAccountUin: z.string().min(1),
+  expectedAccountConfigId: z.string().min(1),
+});
+const browserFiles = new FileUploadStaging(30 * 60000, {
+  label: '附件',
+  minBytes: 1,
+  maxBytes: BROWSER_FILE_MAX_BYTES,
+  prefix: 'weq-browser-file-',
+  fileName: 'attachment',
+});
 
 export const accountRouter = router({
   /** 固定字段的性能快照：不包含消息正文、会话 ID、SQL、路径或凭据。 */
@@ -5287,21 +5304,65 @@ export const accountRouter = router({
       });
     }),
 
-  /**
-   * 发文件（群文件 / 私聊文件）。文件走的是独立管线（老 OIDB + highway 裸帧），
-   * 不是媒体元素，所以单开一条 route —— 渲染层给本机**绝对路径**（`webUtils.getPathForFile`）。
-   */
+  browserFileStart: procedure
+    .input(browserFileBinding.extend({ size: z.number().int().min(1).max(BROWSER_FILE_MAX_BYTES) }))
+    .mutation(({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      return browserFiles.start(services, input.size);
+    }),
+  browserFileChunk: procedure
+    .input(
+      browserFileBinding.extend({
+        uploadId: z.string().uuid(),
+        offset: z.number().int().nonnegative(),
+        base64: z
+          .string()
+          .min(1)
+          .max(Math.ceil(BROWSER_FILE_CHUNK_BYTES / 3) * 4),
+      }),
+    )
+    .mutation(({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const bytes = Buffer.from(input.base64, 'base64');
+      if (bytes.toString('base64') !== input.base64) throw new Error('附件分段编码无效');
+      return browserFiles.append(services, input.uploadId, input.offset, bytes);
+    }),
+  browserFileDiscard: procedure
+    .input(browserFileBinding.extend({ uploadId: z.string().uuid() }))
+    .mutation(({ input }) =>
+      browserFiles.discard(
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+        input.uploadId,
+      ),
+    ),
+
+  /** 桌面文件走原路径；浏览器附件使用已完整接收、绑定当前账号的暂存句柄。 */
   sendFile: procedure
     .input(
-      z.object({
-        peerType: z.enum(['c2c', 'group']),
-        targetId: z.string().min(1),
-        expectedAccountUin: z.string().min(1).optional(),
-        expectedAccountConfigId: z.string().min(1).optional(),
-        path: z.string().min(1),
-        fileName: z.string().min(1).optional(),
-        folderId: z.string().optional(),
-      }),
+      z
+        .object({
+          peerType: z.enum(['c2c', 'group']),
+          targetId: z.string().min(1),
+          expectedAccountUin: z.string().min(1).optional(),
+          expectedAccountConfigId: z.string().min(1).optional(),
+          path: z.string().min(1).optional(),
+          uploadId: z.string().uuid().optional(),
+          fileName: z.string().min(1).optional(),
+          folderId: z.string().optional(),
+        })
+        .refine((input) => Boolean(input.path) !== Boolean(input.uploadId), '请选择一个文件来源')
+        .refine(
+          (input) =>
+            !input.uploadId || Boolean(input.expectedAccountUin && input.expectedAccountConfigId),
+          '浏览器附件必须绑定账号',
+        ),
     )
     .mutation(async ({ input }) => {
       const services = requireExpectedAccount(
@@ -5311,23 +5372,28 @@ export const accountRouter = router({
       requireQqOnlineForAlbum(services);
       const sourceConfigId = services.accountConfig.getRecord()?.configId;
       const sourcePid = services.accountConfig.getRecord()?.qqPid;
-      return services.messageSend.sendFile({
-        peerType: input.peerType,
-        targetId: input.targetId,
-        path: input.path,
-        ...(input.fileName ? { fileName: input.fileName } : {}),
-        ...(input.folderId ? { folderId: input.folderId } : {}),
-        beforeSend: () => {
-          if (
-            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
-              services ||
-            services.accountConfig.getRecord()?.configId !== sourceConfigId ||
-            services.accountConfig.getRecord()?.qqPid !== sourcePid
-          )
-            throw new Error('账号数据源已切换，已停止发送文件');
-          requireQqOnlineForAlbum(services);
-        },
-      });
+      const path = input.uploadId ? browserFiles.acquire(services, input.uploadId) : input.path!;
+      try {
+        return await services.messageSend.sendFile({
+          peerType: input.peerType,
+          targetId: input.targetId,
+          path,
+          ...(input.fileName ? { fileName: input.fileName } : {}),
+          ...(input.folderId ? { folderId: input.folderId } : {}),
+          beforeSend: () => {
+            if (
+              requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+                services ||
+              services.accountConfig.getRecord()?.configId !== sourceConfigId ||
+              services.accountConfig.getRecord()?.qqPid !== sourcePid
+            )
+              throw new Error('账号数据源已切换，已停止发送文件');
+            requireQqOnlineForAlbum(services);
+          },
+        });
+      } finally {
+        if (input.uploadId) await browserFiles.discard(services, input.uploadId, true);
+      }
     }),
 
   /**

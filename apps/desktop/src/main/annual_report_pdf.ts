@@ -10,6 +10,7 @@
  */
 
 import { BrowserWindow } from 'electron';
+import { randomUUID } from 'node:crypto';
 import { loadIsolatedHtml } from './html_load';
 
 /** 渲染 HTML → PDF 字节。 */
@@ -19,6 +20,7 @@ export async function renderPdfFromHtml(html: string): Promise<Buffer> {
     height: 1300,
     show: false,
     webPreferences: {
+      partition: `weq-report-pdf-${randomUUID()}`,
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -27,7 +29,7 @@ export async function renderPdfFromHtml(html: string): Promise<Buffer> {
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   try {
-    const loaded = loadIsolatedHtml(win, html);
+    const loaded = loadIsolatedHtml(win, html, { offline: true });
     await Promise.race([loaded, new Promise((resolve) => setTimeout(resolve, 8000))]);
     if (win.isDestroyed()) throw new Error('窗口已销毁');
     // 等字体/布局落定，避免首帧缺字。

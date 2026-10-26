@@ -94,6 +94,44 @@ it('原有账号和快捷控制保留在更多页，不放进拥挤的底栏', a
   expect(host.querySelectorAll('nav > button')).toHaveLength(4);
 });
 
+it('手机资料与联系人操作复用桌面回调，操作后收起菜单', async () => {
+  const onOpenProfile = vi.fn(),
+    onLookupUser = vi.fn(),
+    onLookupGroup = vi.fn();
+  const onOpenFriendNotices = vi.fn(),
+    onOpenGroupNotices = vi.fn();
+  await act(async () =>
+    root.render(
+      createElement(MobileWebNavigation, {
+        ...props,
+        onOpenProfile,
+        onLookupUser,
+        onLookupGroup,
+        onOpenFriendNotices,
+        onOpenGroupNotices,
+      }),
+    ),
+  );
+  await click('编辑 QQ 资料');
+  expect(onOpenProfile).toHaveBeenCalledOnce();
+  for (const [label, action] of [
+    ['QQ 号搜索', onLookupUser],
+    ['群号搜索', onLookupGroup],
+    ['好友通知', onOpenFriendNotices],
+    ['群通知', onOpenGroupNotices],
+  ] as const) {
+    await click('联系人操作');
+    await click(label);
+    expect(action).toHaveBeenCalledOnce();
+    expect(host.querySelector('#weq-mobile-contact-actions')).toBeNull();
+  }
+  await click('联系人操作');
+  await act(async () => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  });
+  expect(host.querySelector('#weq-mobile-contact-actions')).toBeNull();
+});
+
 it('在消息列表再次点击消息入口，保留定位首条未读的能力', async () => {
   const locateUnread = vi.fn();
   await act(async () =>

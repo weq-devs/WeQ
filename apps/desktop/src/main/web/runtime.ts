@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Server, IncomingMessage } from 'node:http';
 import type { AnyRouter } from '@trpc/server';
+import type { HostBridge } from '@weq/service';
 import { AuthGate } from './auth';
 import { startServer } from './http';
 import { createWebHost } from './host';
@@ -15,6 +16,7 @@ interface WebConfig {
   exportDir: string;
   version: string;
   router: AnyRouter;
+  renderer?: Pick<HostBridge, 'renderHtmlToPdf' | 'renderHtmlToSlidesPng' | 'renderHtmlToLongPng'>;
   pairing: RemotePairing;
   getAutoStart: () => boolean;
   setAutoStart: (enabled: boolean) => void;
@@ -80,7 +82,11 @@ export class DesktopWebRuntime {
           : auth.watchSession(req, revoke),
     };
     try {
-      const host = createWebHost({ exportDir: config.exportDir, version: config.version });
+      const host = createWebHost({
+        exportDir: config.exportDir,
+        version: config.version,
+        renderer: config.renderer,
+      });
       const { server, port } = await startServer({
         port: 7690,
         host: '127.0.0.1',

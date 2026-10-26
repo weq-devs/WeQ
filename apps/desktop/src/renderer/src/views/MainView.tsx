@@ -20,6 +20,7 @@ import React, {
 } from 'react';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target';
+import { withBrowserFile } from '../lib/browserFileUpload';
 import {
   createReplyPreviewIndex,
   findReplyPreview,
@@ -8486,14 +8487,29 @@ export function MainView(): ReactElement {
           });
           throw new Error('temp session file unsupported');
         }
-        outcome = await client.account.sendFile.mutate({
-          expectedAccountUin: user.identityValue,
-          ...(expectedAccountConfigId ? { expectedAccountConfigId } : {}),
-          peerType: target.peerType,
-          targetId: target.targetId,
-          path: plan.path,
-          fileName: plan.fileName,
-        });
+        const sendFile = (source: { path: string } | { uploadId: string }) =>
+          client.account.sendFile.mutate({
+            expectedAccountUin: user.identityValue,
+            ...(expectedAccountConfigId ? { expectedAccountConfigId } : {}),
+            peerType: target.peerType,
+            targetId: target.targetId,
+            ...source,
+            fileName: plan.fileName,
+          });
+        if (plan.path !== undefined) outcome = await sendFile({ path: plan.path });
+        else {
+          if (!expectedAccountConfigId) throw new Error('账号来源未就绪，请重新打开会话');
+          outcome = await withBrowserFile(
+            client.account,
+            {
+              expectedAccountUin: user.identityValue,
+              expectedAccountConfigId,
+            },
+            plan.bytes,
+            isCurrent,
+            (uploadId) => sendFile({ uploadId }),
+          );
+        }
       } else if (plan.kind === 'voice') {
         // 录音是 webm/opus，主进程只收 WAV/SILK：先在渲染层解成 24k WAV。
         const wav = await decodeRecordingToWav(plan.recording);

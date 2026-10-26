@@ -75,6 +75,67 @@
     height: 36px;
   }
 
+  .weq-mobile-actions-toggle {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+    place-items: center;
+    border: 0;
+    background: transparent;
+    color: var(--weq-fg-primary);
+  }
+
+  .weq-mobile-actions-dismiss {
+    position: absolute;
+    z-index: 41;
+    inset: var(--weq-mobile-header-height) 0 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .weq-mobile-contact-actions {
+    position: absolute;
+    z-index: 42;
+    top: calc(var(--weq-mobile-header-height) + 4px);
+    right: 8px;
+    width: min(240px, calc(100% - 16px));
+    overflow: hidden;
+    border: 1px solid var(--weq-border-strong);
+    border-radius: 8px;
+    background: var(--weq-bg-surface);
+    box-shadow: var(--weq-shadow-card);
+  }
+
+  .weq-mobile-contact-actions > button {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 48px;
+    padding: 10px 16px;
+    border: 0;
+    background: transparent;
+    color: var(--weq-fg-primary);
+    text-align: left;
+    font-size: 15px;
+  }
+
+  html[data-theme='dark'] .weq-mobile-contact-actions {
+    border-color: var(--weq-border-strong);
+    background: var(--weq-bg-surface);
+  }
+
+  .weq-web-shell :is(.weq-qq-action-bar, .weq-qq-media-actions) .weq-set-iconbtn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .weq-web-shell .weq-qq-action-form :is(input, select, textarea) {
+    font-size: 16px;
+    min-height: 44px;
+  }
+
   .weq-mobile-header .weq-titlebar-search {
     width: 44px;
     height: 44px;

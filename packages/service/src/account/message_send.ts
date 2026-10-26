@@ -899,6 +899,7 @@ export class MessageSendService {
       selfUin,
       ...(fileName ? { fileName } : {}),
       log,
+      beforeSend: params.beforeSend,
     });
     logger.info(
       result.fastUpload

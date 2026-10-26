@@ -706,6 +706,7 @@ void app.whenReady().then(async () => {
         ? join(process.resourcesPath, 'remote-web')
         : join(app.getAppPath(), '../web/dist/public'),
       exportDir: join(app.getPath('userData'), 'web-exports'),
+      renderer: electronHost,
       version: app.getVersion(),
       router: appRouter,
       pairing: remoteRuntime.pairing,

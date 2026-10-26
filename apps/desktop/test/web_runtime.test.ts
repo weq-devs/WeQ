@@ -41,9 +41,17 @@ function fixture() {
         canReveal: getHost().canReveal,
         version: getHost().appVersion(),
       })),
+      reportCapture: procedure.mutation(async () =>
+        (await getHost().renderHtmlToPdf('fixture')).toString(),
+      ),
       remote: remoteRouter,
       update: updateRouter,
     }),
+    renderer: {
+      renderHtmlToPdf: async () => Buffer.from('fixture-pdf'),
+      renderHtmlToLongPng: async () => Buffer.from('fixture-png'),
+      renderHtmlToSlidesPng: async () => [Buffer.from('fixture-slide')],
+    },
     getAutoStart: () => autoStart,
     setAutoStart: (enabled) => {
       autoStart = enabled;
@@ -132,6 +140,10 @@ it('手机完整 Web 权限需单独批准，隔离宿主和本机管理，撤�
     expect(await compressed.text()).toBe(code);
     const reply = await (await fetch(`${base}/trpc/webHost`, { headers })).json();
     expect(reply.result.data.json).toEqual({ canReveal: false, version: 'test' });
+    const captured = await (
+      await fetch(`${base}/trpc/reportCapture`, { method: 'POST', headers })
+    ).json();
+    expect(captured.result.data.json).toBe('fixture-pdf');
     expect(getHost()).toBe(desktop);
     expect((await fetch(`${base}/trpc/remote.status`, { headers })).status).toBe(403);
     expect((await fetch(`${base}/trpc/update.install`, { method: 'POST', headers })).status).toBe(
