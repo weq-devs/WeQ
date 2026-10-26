@@ -33,6 +33,10 @@ describe('basic_settings_navigation', () => {
       expect(searchAppEntries('消息显示')[0]?.target).toEqual({
         kind: 'setting',
         section: 'chat-messages',
+      });
+      expect(searchAppEntries('自定义消息显示')[0]?.target).toEqual({
+        kind: 'setting',
+        section: 'chat-messages',
         item: '自定义消息显示',
         settingId: 'custom-message-display',
       });
